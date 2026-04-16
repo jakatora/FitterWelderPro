@@ -45,6 +45,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Windows build artifacts
+/windows/build/
+
 # Sensitive signing keys — NEVER commit
 *.jks
 *.keystore
