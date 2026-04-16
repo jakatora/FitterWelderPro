@@ -1,0 +1,92 @@
+name: iOS App Store Upload
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - pubspec.yaml
+      - lib/**
+      - ios/**
+      - .github/workflows/ios-app-store.yml
+
+jobs:
+  build-and-upload:
+    runs-on: macos-latest
+    env:
+      APP_BUNDLE_IDENTIFIER: ${{ secrets.APP_BUNDLE_IDENTIFIER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APP_STORE_APP_ID: ${{ secrets.APP_STORE_APP_ID }}
+      APP_STORE_CONNECT_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APPLE_ID }}
+      APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      TESTFLIGHT_CHANGELOG: ${{ vars.TESTFLIGHT_CHANGELOG }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          for var in APP_BUNDLE_IDENTIFIER APPLE_TEAM_ID APP_STORE_APP_ID APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY BUILD_CERTIFICATE_BASE64 P12_PASSWORD BUILD_PROVISION_PROFILE_BASE64 KEYCHAIN_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "Missing required secret: $var"
+              exit 1
+            fi
+          done
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Prepare iOS build config
+        run: |
+          cat > ios/Flutter/AppStore.xcconfig <<EOF
+          APP_BUNDLE_IDENTIFIER=${APP_BUNDLE_IDENTIFIER}
+          APPLE_TEAM_ID=${APPLE_TEAM_ID}
+          EOF
+
+      - name: Install signing certificate and provisioning profile
+        run: |
+          CERT_PATH=$RUNNER_TEMP/build_certificate.p12
+          PROFILE_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROFILE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+
+      - name: Install Ruby gems
+        working-directory: ios
+        run: bundle install
+
+      - name: Build and upload to TestFlight
+        working-directory: ios
+        run: bundle exec fastlane ios release
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cut-list-app-ipa
+          path: ios/build/ios/*.ipa
+          if-no-files-found: ignore

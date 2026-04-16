@@ -1,0 +1,9 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/Startklaar/Documents/cut_list_app_new/windows/build/cmake_install.cmake",
+		"C:/Users/Startklaar/Documents/cut_list_app_new/windows/build/flutter/cmake_install.cmake",
+		"C:/Users/Startklaar/Documents/cut_list_app_new/windows/build/runner/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,10 @@
+^C:\USERS\STARTKLAAR\DOCUMENTS\CUT_LIST_APP_NEW\WINDOWS\FLUTTER\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Startklaar/Documents/cut_list_app_new/windows -BC:/Users/Startklaar/Documents/cut_list_app_new/windows/build --check-stamp-file C:/Users/Startklaar/Documents/cut_list_app_new/windows/build/flutter/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,5 @@
+app_identifier(ENV["APP_BUNDLE_IDENTIFIER"] || "com.jakatora.fitterwelderpro")
+apple_id(ENV["APP_STORE_CONNECT_APPLE_ID"] || "")
+team_id(ENV["APPLE_TEAM_ID"] || "B7J6A7R258")
+
+itc_team_id(ENV["APP_STORE_CONNECT_TEAM_ID"] || "")
