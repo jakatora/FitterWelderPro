@@ -1107,4 +1107,10 @@ class _ExitDirSheet extends StatelessWidget {
                 ),
               )).toList(),
             ),
-            const Size
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -7,6 +7,11 @@ import 'fitter_tools_screen.dart';
 import 'field_assembly_screen.dart';
 import 'spool_planner_screen.dart';
 import 'dn_mm_screen.dart';
+import 'pipe_route_calculator_screen.dart';
+import 'rolling_offset_screen.dart';
+import 'pipe_slope_screen.dart';
+import 'saddle_cut_screen.dart';
+import 'route_measure_screen.dart';
 
 class FitterMenuScreen extends StatelessWidget {
   const FitterMenuScreen({super.key});
@@ -116,6 +121,56 @@ class FitterMenuScreen extends StatelessWidget {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const ComponentLibraryScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.account_tree_outlined,
+              title: context.tr(pl: 'Trasa rur', en: 'Pipe route'),
+              subtitle: context.tr(pl: '3 kolanka 90° – odcinki', en: '3 × 90° elbows – segments'),
+              accentColor: const Color(0xFF00897B),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PipeRouteCalculatorScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.swap_vert_circle_outlined,
+              title: context.tr(pl: 'Rolling Offset', en: 'Rolling Offset'),
+              subtitle: context.tr(pl: 'Rise + Spread → Travel', en: 'Rise + Spread → Travel'),
+              accentColor: const Color(0xFF1E88E5),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RollingOffsetScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.show_chart,
+              title: context.tr(pl: 'Spadek rury', en: 'Pipe slope'),
+              subtitle: context.tr(pl: '% / mm/m / kąt', en: '% / mm/m / angle'),
+              accentColor: const Color(0xFFFF7043),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PipeSlopeScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.join_full_outlined,
+              title: context.tr(pl: 'Saddle Cut', en: 'Saddle Cut'),
+              subtitle: context.tr(pl: 'Wycięcie siodłowe – odgałęzienie', en: 'Fish-mouth cut – branch pipe'),
+              accentColor: const Color(0xFF8E24AA),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SaddleCutScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.rule_outlined,
+              title: context.tr(pl: 'Pomiar trasy', en: 'Route measure'),
+              subtitle: context.tr(pl: 'Taśma → C-C (outer/center/inner)', en: 'Tape → C-C (outer/centre/inner)'),
+              accentColor: const Color(0xFF43A047),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RouteMeasureScreen()),
               ),
             ),
           ],
