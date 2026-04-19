@@ -32,15 +32,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate required secrets
-        run: |
-          for var in APP_BUNDLE_IDENTIFIER APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY BUILD_CERTIFICATE_BASE64 P12_PASSWORD BUILD_PROVISION_PROFILE_BASE64; do
-            if [ -z "${!var}" ]; then
-              echo "Missing required secret: $var"
-              exit 1
-            fi
-          done
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
