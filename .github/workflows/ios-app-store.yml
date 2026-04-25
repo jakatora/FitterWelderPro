@@ -56,19 +56,34 @@ jobs:
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROFILE_PATH
 
+          # Create and configure keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychains -d user -s $KEYCHAIN_PATH
+
+          # Import certificate and allow codesign to use the key (set-key-partition-list is REQUIRED on macOS 12+)
+          security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH -T /usr/bin/codesign
+          security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Diagnostics — show what was imported and what Team ID is in the profile
+          echo "=== Available signing identities ==="
+          security find-identity -v -p codesigning $KEYCHAIN_PATH || true
+          echo "=== Profile Team ID ==="
+          security cms -D -i $PROFILE_PATH | plutil -extract TeamIdentifier raw - || true
+          echo "=== Profile Name ==="
+          security cms -D -i $PROFILE_PATH | plutil -extract Name raw - || true
 
           # Extract UUID and install profile with UUID filename (required by Xcode 16)
           PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
+          PROFILE_TEAM=$(security cms -D -i $PROFILE_PATH | plutil -extract TeamIdentifier raw -)
           echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Team: $PROFILE_TEAM"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
-          echo "Installed: ~/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+          echo "APPLE_TEAM_ID=${PROFILE_TEAM}" >> $GITHUB_ENV
+          echo "Installed: ${PROFILE_UUID}.mobileprovision for team ${PROFILE_TEAM}"
 
       - name: Set up Ruby 3.3
         uses: ruby/setup-ruby@v1
