@@ -4,8 +4,6 @@ import '../i18n/app_language.dart';
 import 'projects_screen.dart';
 import 'component_library_screen.dart';
 import 'fitter_tools_screen.dart';
-import 'field_assembly_screen.dart';
-import 'spool_planner_screen.dart';
 import 'dn_mm_screen.dart';
 import 'pipe_route_calculator_screen.dart';
 import 'rolling_offset_screen.dart';
@@ -93,26 +91,7 @@ class FitterMenuScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const FitterToolsScreen(initialTab: 0)),
               ),
             ),
-            _Tile(
-              icon: Icons.route_outlined,
-              title: context.tr(pl: 'Projektant trasy', en: 'Route planner'),
-              subtitle: context.tr(pl: 'Dobierz komponenty A→B z kierunkami', en: 'Pick components A→B with directions'),
-              accentColor: const Color(0xFFAB47BC),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SpoolPlannerScreen()),
-              ),
-            ),
-            _Tile(
-              icon: Icons.build_circle_outlined,
-              title: context.tr(pl: 'Montaż w terenie', en: 'Field assembly'),
-              subtitle: context.tr(pl: 'Etaż / prosta — bez ISO', en: 'Offset / straight — no ISO'),
-              accentColor: const Color(0xFF2ECC71),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FieldAssemblyScreen()),
-              ),
-            ),
+
             _Tile(
               icon: Icons.inventory_2_outlined,
               title: context.tr(pl: 'Biblioteka komponentów', en: 'Component library'),

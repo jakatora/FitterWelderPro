@@ -18,8 +18,7 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
   final _longCtrl   = TextEditingController(); // bok długi  (a)
   final _shortCtrl  = TextEditingController(); // bok krótki (b)
   final _odCtrl     = TextEditingController(); // OD rury
-  final _elbowACtrl = TextEditingController(); // kolanka do osi – rura A (długa)
-  final _elbowBCtrl = TextEditingController(); // kolanka do osi – rura B (krótka)
+  final _elbowCtrl  = TextEditingController(); // wymiar kolanka do osi (jeden dla obu)
 
   _RefType _refType = _RefType.center;
 
@@ -48,8 +47,8 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     final aRaw = _parse(_longCtrl.text);
     final bRaw = _parse(_shortCtrl.text);
     final od   = _parse(_odCtrl.text);
-    final eA   = _parse(_elbowACtrl.text);
-    final eB   = _parse(_elbowBCtrl.text);
+    final eA   = _parse(_elbowCtrl.text);
+    final eB   = eA;
 
     if (aRaw <= 0 && bRaw <= 0) {
       setState(() {
@@ -99,14 +98,14 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
   @override
   void initState() {
     super.initState();
-    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowACtrl, _elbowBCtrl]) {
+    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowCtrl]) {
       c.addListener(_recalc);
     }
   }
 
   @override
   void dispose() {
-    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowACtrl, _elbowBCtrl]) {
+    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowCtrl]) {
       c.removeListener(_recalc);
       c.dispose();
     }
@@ -231,49 +230,31 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
             const SizedBox(height: 6),
             Text(
               context.tr(
-                pl: 'Cięcie = bok C-C − kolanka_do_osi − kolanka_do_osi',
-                en: 'Cut = side C-C − elbow_c_to_e − elbow_c_to_e',
+                pl: 'Cięcie = bok C-C − kolanka − kolanka',
+                en: 'Cut = side C-C − elbow − elbow',
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 14),
-
-            Text(
-              context.tr(pl: 'Rura A – bok długi', en: 'Pipe A – long side'),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            const SizedBox(height: 6),
-            _field(_elbowACtrl,
+            const SizedBox(height: 12),
+            _field(_elbowCtrl,
               label: context.tr(
-                pl: 'Wymiar kolanka do osi – rura A',
-                en: 'Elbow centre-to-end – pipe A',
+                pl: 'Wymiar kolanka do osi',
+                en: 'Elbow centre-to-end',
               ),
               suffix: 'mm',
             ),
-            const SizedBox(height: 8),
-            _cutTile(
-              label: context.tr(pl: 'Cięcie rury A', en: 'Pipe A cut'),
-              value: _cutA, cs: cs,
-            ),
-            const SizedBox(height: 20),
-
-            Text(
-              context.tr(pl: 'Rura B – bok krótki', en: 'Pipe B – short side'),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            const SizedBox(height: 6),
-            _field(_elbowBCtrl,
-              label: context.tr(
-                pl: 'Wymiar kolanka do osi – rura B',
-                en: 'Elbow centre-to-end – pipe B',
-              ),
-              suffix: 'mm',
-            ),
-            const SizedBox(height: 8),
-            _cutTile(
-              label: context.tr(pl: 'Cięcie rury B', en: 'Pipe B cut'),
-              value: _cutB, cs: cs,
-            ),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: _cutTile(
+                label: context.tr(pl: 'Cięcie rury A (długa)', en: 'Pipe A cut (long)'),
+                value: _cutA, cs: cs,
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: _cutTile(
+                label: context.tr(pl: 'Cięcie rury B (krótka)', en: 'Pipe B cut (short)'),
+                value: _cutB, cs: cs,
+              )),
+            ]),
 
             const SizedBox(height: 28),
             _diagram(cs),
@@ -505,8 +486,8 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     final aStr = _a != null ? '${_a!.toStringAsFixed(1)} mm' : 'a';
     final bStr = _b != null ? '${_b!.toStringAsFixed(1)} mm' : 'b';
     final cStr = _c != null ? '${_c!.toStringAsFixed(1)} mm' : 'c';
-    final αStr = _alpha != null ? '${_alpha!.toStringAsFixed(1)}°' : 'α';
-    final βStr = _beta  != null ? '${_beta!.toStringAsFixed(1)}°'  : 'β';
+    final alphaStr = _alpha != null ? '${_alpha!.toStringAsFixed(1)}°' : 'α';
+    final betaStr = _beta  != null ? '${_beta!.toStringAsFixed(1)}°'  : 'β';
 
     return Container(
       decoration: BoxDecoration(
@@ -526,9 +507,9 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
             '*\n'
             '|  \\\n'
             '|    \\  $cStr (skos)\n'
-            '| $βStr \\\n'
+            '| $betaStr \\\n'
             '|        \\\n'
-            '+-- $αStr --*\n'
+            '+-- $alphaStr --*\n'
             '\n'
             '↕ $bStr (bok krótki B)\n'
             '↔ $aStr (bok długi A)',
@@ -562,6 +543,4 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
         suffixText: suffix,
         border: const OutlineInputBorder(),
       ),
-    );
-  }
-}
+   
