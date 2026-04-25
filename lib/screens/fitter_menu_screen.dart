@@ -10,6 +10,7 @@ import 'rolling_offset_screen.dart';
 import 'pipe_slope_screen.dart';
 import 'saddle_cut_screen.dart';
 import 'route_measure_screen.dart';
+import 'iso_notebook_screen.dart';
 
 class FitterMenuScreen extends StatelessWidget {
   const FitterMenuScreen({super.key});
@@ -150,6 +151,16 @@ class FitterMenuScreen extends StatelessWidget {
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const RouteMeasureScreen()),
+              ),
+            ),
+            _Tile(
+              icon: Icons.grid_on,
+              title: context.tr(pl: 'Zeszyt ISO', en: 'ISO Notebook'),
+              subtitle: context.tr(pl: 'Rysuj trasy rur na siatce ISO', en: 'Draw pipe routes on ISO grid'),
+              accentColor: const Color(0xFF5C6BC0),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const IsoNotebookScreen()),
               ),
             ),
           ],
