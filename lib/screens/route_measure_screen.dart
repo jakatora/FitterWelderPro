@@ -543,4 +543,6 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
         suffixText: suffix,
         border: const OutlineInputBorder(),
       ),
-   
+    );
+  }
+}
