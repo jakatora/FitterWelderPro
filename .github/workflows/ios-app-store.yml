@@ -66,11 +66,13 @@ jobs:
           security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Extract UUID and Team ID from profile (TeamIdentifier is an array → use index .0)
+          # Extract UUID, Team ID and Name from profile (TeamIdentifier is an array → use index .0)
           PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
           PROFILE_TEAM=$(security cms -D -i $PROFILE_PATH | plutil -extract TeamIdentifier.0 raw -)
+          PROFILE_NAME=$(security cms -D -i $PROFILE_PATH | plutil -extract Name raw -)
           echo "Profile UUID:   $PROFILE_UUID"
           echo "Profile Team:   $PROFILE_TEAM"
+          echo "Profile Name:   $PROFILE_NAME"
 
           # Diagnostics — show what was imported
           echo "=== Signing identities in keychain ==="
@@ -81,6 +83,7 @@ jobs:
           cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
           echo "APPLE_TEAM_ID=${PROFILE_TEAM}" >> $GITHUB_ENV
+          echo "APP_PROVISIONING_PROFILE_NAME=${PROFILE_NAME}" >> $GITHUB_ENV
           echo "Installed: ${PROFILE_UUID}.mobileprovision for team ${PROFILE_TEAM}"
 
       - name: Export FLUTTER_ROOT for Xcode build phases
