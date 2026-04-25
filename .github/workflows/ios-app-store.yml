@@ -83,6 +83,13 @@ jobs:
           echo "APPLE_TEAM_ID=${PROFILE_TEAM}" >> $GITHUB_ENV
           echo "Installed: ${PROFILE_UUID}.mobileprovision for team ${PROFILE_TEAM}"
 
+      - name: Export FLUTTER_ROOT for Xcode build phases
+        run: |
+          FLUTTER_BIN=$(which flutter)
+          FLUTTER_ROOT=$(dirname $(dirname $FLUTTER_BIN))
+          echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
+          echo "Flutter root: $FLUTTER_ROOT"
+
       - name: Set up Ruby 3.3
         uses: ruby/setup-ruby@v1
         with:
