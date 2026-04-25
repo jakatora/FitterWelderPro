@@ -48,6 +48,12 @@ post_install do |installer|
       config.build_settings['PROVISIONING_PROFILE_SPECIFIER']= ''
       config.build_settings['PROVISIONING_PROFILE']          = ''
       config.build_settings['DEVELOPMENT_TEAM']              = ''
+
+      # Enforce minimum deployment target (iOS 13.0 for compatibility)
+      current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if current.nil? || current.to_f < 13.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      end
     end
   end
 end
