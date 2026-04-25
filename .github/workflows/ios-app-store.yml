@@ -90,6 +90,9 @@ jobs:
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
           echo "Flutter root: $FLUTTER_ROOT"
 
+      - name: Flutter build iOS pre-check
+        run: flutter build ios --release --no-codesign
+
       - name: Set up Ruby 3.3
         uses: ruby/setup-ruby@v1
         with:
@@ -107,4 +110,12 @@ jobs:
         with:
           name: cut-list-app-ipa
           path: ios/build/ios/*.ipa
+          if-no-files-found: ignore
+
+      - name: Upload gym logs on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gym-logs
+          path: ~/Library/Logs/gym/
           if-no-files-found: ignore
