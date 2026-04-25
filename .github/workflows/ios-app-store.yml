@@ -93,6 +93,9 @@ jobs:
       - name: Flutter build iOS pre-check
         run: flutter build ios --release --no-codesign
 
+      - name: Pod install (apply Podfile post_install settings)
+        run: cd ios && pod install
+
       - name: Set up Ruby 3.3
         uses: ruby/setup-ruby@v1
         with:
