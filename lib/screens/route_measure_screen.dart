@@ -3,11 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 
-/// Skąd był mierzony wymiar po skosie
+/// Skąd był mierzony wymiar (dotyczy obu boków)
 enum _RefType { inner, center, outer }
-
-/// Który parametr trójkąta znamy (poza przekątną)
-enum _Mode { angle, horizontal, vertical }
 
 class RouteMeasureScreen extends StatefulWidget {
   const RouteMeasureScreen({super.key});
@@ -17,115 +14,82 @@ class RouteMeasureScreen extends StatefulWidget {
 }
 
 class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
-  // ── kontrolery ─────────────────────────────────────────────────────────────
-  final _hypCtrl    = TextEditingController(); // zmierzony skos
+  // ── pola wejściowe ─────────────────────────────────────────────────────────
+  final _longCtrl   = TextEditingController(); // bok długi  (a)
+  final _shortCtrl  = TextEditingController(); // bok krótki (b)
   final _odCtrl     = TextEditingController(); // OD rury
-  final _inputCtrl  = TextEditingController(); // kąt lub bok a lub bok b
-  final _elbowACtrl = TextEditingController(); // wymiar kolanka do osi – bok a
-  final _elbowBCtrl = TextEditingController(); // wymiar kolanka do osi – bok b
+  final _elbowACtrl = TextEditingController(); // kolanka do osi – rura A (długa)
+  final _elbowBCtrl = TextEditingController(); // kolanka do osi – rura B (krótka)
 
   _RefType _refType = _RefType.center;
-  _Mode    _mode    = _Mode.angle;
 
   // ── wyniki ─────────────────────────────────────────────────────────────────
-  double? _ccc;   // skos oś-oś po korekcji
-  double? _a;     // bok poziomy
-  double? _b;     // bok pionowy
-  double? _alpha; // kąt α
-  double? _beta;  // kąt β
-  double? _cutA;  // wymiar cięcia rury A
-  double? _cutB;  // wymiar cięcia rury B
+  double? _a;      // bok długi C-C
+  double? _b;      // bok krótki C-C
+  double? _c;      // skos (przekątna) C-C
+  double? _alpha;  // kąt naprzeciw boku długiego
+  double? _beta;   // kąt naprzeciw boku krótkiego
+  double? _cutA;   // cięcie rury A
+  double? _cutB;   // cięcie rury B
   String? _error;
 
   double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
 
-  // ── korekcja ───────────────────────────────────────────────────────────────
-  // Wewnętrzna: taśma przy wew. ściance rury → dodajemy OD/2 z każdej strony = +OD
-  // Oś:        taśma do osi → brak korekcji = 0
-  // Zewnętrzna: taśma przy zew. ściance rury → odejmujemy OD/2 z każdej strony = -OD
-  double _correction(double od) {
+  // Korekcja na jeden wymiar: wew. → +OD/2, oś → 0, zew. → -OD/2
+  double _corr(double od) {
     switch (_refType) {
-      case _RefType.inner:  return  od;
+      case _RefType.inner:  return  od / 2.0;
       case _RefType.center: return  0.0;
-      case _RefType.outer:  return -od;
+      case _RefType.outer:  return -od / 2.0;
     }
   }
 
   void _recalc() {
-    final c     = _parse(_hypCtrl.text);
-    final od    = _parse(_odCtrl.text);
-    final input = _parse(_inputCtrl.text);
-    final eA    = _parse(_elbowACtrl.text);
-    final eB    = _parse(_elbowBCtrl.text);
+    final aRaw = _parse(_longCtrl.text);
+    final bRaw = _parse(_shortCtrl.text);
+    final od   = _parse(_odCtrl.text);
+    final eA   = _parse(_elbowACtrl.text);
+    final eB   = _parse(_elbowBCtrl.text);
 
-    if (c <= 0) {
+    if (aRaw <= 0 && bRaw <= 0) {
       setState(() {
-        _ccc = _a = _b = _alpha = _beta = _cutA = _cutB = null;
+        _a = _b = _c = _alpha = _beta = _cutA = _cutB = null;
         _error = null;
       });
       return;
     }
 
-    final ccc = c + _correction(od);
-    if (ccc <= 0) {
-      setState(() {
-        _ccc = null;
-        _a = _b = _alpha = _beta = _cutA = _cutB = null;
-        _error = 'C-C ≤ 0 – sprawdź wymiar i średnicę';
-      });
-      return;
-    }
+    // korekcja każdego boku: dodajemy/odejmujemy OD/2 z każdej strony
+    final corr = _corr(od);
+    final a = aRaw > 0 ? aRaw + 2 * corr : null; // oba końce boku korygowane
+    final b = bRaw > 0 ? bRaw + 2 * corr : null;
 
-    double? a, b, alpha;
     String? err;
+    if (a != null && a <= 0) err = context.tr(
+      pl: 'Bok długi po korekcji ≤ 0',
+      en: 'Long side after correction ≤ 0',
+    );
+    if (b != null && b <= 0) err = context.tr(
+      pl: 'Bok krótki po korekcji ≤ 0',
+      en: 'Short side after correction ≤ 0',
+    );
 
-    switch (_mode) {
-      case _Mode.angle:
-        if (input > 0 && input < 90) {
-          final rad = input * math.pi / 180.0;
-          a     = ccc * math.cos(rad);
-          b     = ccc * math.sin(rad);
-          alpha = input;
-        }
-        break;
-
-      case _Mode.horizontal:
-        if (input > 0 && input < ccc) {
-          b     = math.sqrt(ccc * ccc - input * input);
-          a     = input;
-          alpha = math.acos(input / ccc) * 180.0 / math.pi;
-        } else if (input >= ccc) {
-          err = context.tr(
-            pl: 'a ≥ c — bok poziomy musi być krótszy od skosu',
-            en: 'a ≥ c — horizontal side must be shorter than hypotenuse',
-          );
-        }
-        break;
-
-      case _Mode.vertical:
-        if (input > 0 && input < ccc) {
-          a     = math.sqrt(ccc * ccc - input * input);
-          b     = input;
-          alpha = math.asin(input / ccc) * 180.0 / math.pi;
-        } else if (input >= ccc) {
-          err = context.tr(
-            pl: 'b ≥ c — bok pionowy musi być krótszy od skosu',
-            en: 'b ≥ c — vertical side must be shorter than hypotenuse',
-          );
-        }
-        break;
+    double? c, alpha, beta;
+    if (a != null && a > 0 && b != null && b > 0 && err == null) {
+      c     = math.sqrt(a * a + b * b);
+      alpha = math.atan2(b, a) * 180.0 / math.pi; // kąt przy boku długim
+      beta  = 90.0 - alpha;
     }
 
-    // Wymiary cięcia: bok – kolanka po obu stronach
-    final cutA = (a != null && eA > 0) ? a - 2 * eA : null;
-    final cutB = (b != null && eB > 0) ? b - 2 * eB : null;
+    final cutA = (a != null && a > 0 && eA > 0) ? a - 2 * eA : null;
+    final cutB = (b != null && b > 0 && eB > 0) ? b - 2 * eB : null;
 
     setState(() {
-      _ccc   = ccc;
-      _a     = a;
-      _b     = b;
+      _a     = (a != null && a > 0) ? a : null;
+      _b     = (b != null && b > 0) ? b : null;
+      _c     = c;
       _alpha = alpha;
-      _beta  = alpha != null ? 90.0 - alpha : null;
+      _beta  = beta;
       _cutA  = cutA;
       _cutB  = cutB;
       _error = err;
@@ -135,14 +99,14 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
   @override
   void initState() {
     super.initState();
-    for (final c in [_hypCtrl, _odCtrl, _inputCtrl, _elbowACtrl, _elbowBCtrl]) {
+    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowACtrl, _elbowBCtrl]) {
       c.addListener(_recalc);
     }
   }
 
   @override
   void dispose() {
-    for (final c in [_hypCtrl, _odCtrl, _inputCtrl, _elbowACtrl, _elbowBCtrl]) {
+    for (final c in [_longCtrl, _shortCtrl, _odCtrl, _elbowACtrl, _elbowBCtrl]) {
       c.removeListener(_recalc);
       c.dispose();
     }
@@ -157,8 +121,8 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
-          pl: 'Pomiar trasy – obliczanie boków',
-          en: 'Route measurement – side calculation',
+          pl: 'Pomiar trasy',
+          en: 'Route measurement',
         )),
       ),
       body: SingleChildScrollView(
@@ -167,15 +131,21 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ── 1. Zmierzony skos ──────────────────────────────────────────
+            // ── 1. Wymiary boków ───────────────────────────────────────────
             _sectionLabel(context.tr(
-              pl: '1. ZMIERZONY SKOS',
-              en: '1. MEASURED DIAGONAL',
+              pl: '1. WYMIARY BOKÓW',
+              en: '1. SIDE DIMENSIONS',
             )),
             const SizedBox(height: 10),
-            _field(_hypCtrl,
-              label: context.tr(pl: 'Wymiar po skosie c', en: 'Diagonal c'),
-              suffix: 'mm'),
+            _field(_longCtrl,
+              label: context.tr(pl: 'Bok długi', en: 'Long side'),
+              suffix: 'mm',
+            ),
+            const SizedBox(height: 10),
+            _field(_shortCtrl,
+              label: context.tr(pl: 'Bok krótki', en: 'Short side'),
+              suffix: 'mm',
+            ),
             const SizedBox(height: 24),
 
             // ── 2. Korekcja pomiaru ────────────────────────────────────────
@@ -186,69 +156,63 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
             const SizedBox(height: 6),
             Text(
               context.tr(
-                pl: 'Jak przyłożona była taśma miernicza?',
-                en: 'How was the tape measure applied?',
+                pl: 'Jak przyłożona była taśma miernicza do rury?',
+                en: 'How was the tape measure applied to the pipe?',
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
             _refSelector(cs),
-            const SizedBox(height: 12),
-            _field(_odCtrl,
-              label: context.tr(pl: 'Zewnętrzna średnica rury OD', en: 'Pipe outer diameter OD'),
-              suffix: 'mm'),
-            const SizedBox(height: 8),
-            _correctionNote(cs),
-            const SizedBox(height: 24),
-
-            // ── 3. Znany parametr ──────────────────────────────────────────
-            _sectionLabel(context.tr(
-              pl: '3. ZNANY PARAMETR TRÓJKĄTA',
-              en: '3. KNOWN TRIANGLE PARAMETER',
-            )),
-            const SizedBox(height: 8),
-            _modeSelector(cs),
             const SizedBox(height: 10),
-            _modeInputField(),
+            _field(_odCtrl,
+              label: context.tr(
+                pl: 'Zewnętrzna średnica rury OD',
+                en: 'Pipe outer diameter OD',
+              ),
+              suffix: 'mm',
+            ),
+            const SizedBox(height: 8),
+            _corrPreview(cs),
             const SizedBox(height: 24),
 
-            // ── 4. Wyniki ──────────────────────────────────────────────────
-            _sectionLabel(context.tr(pl: '4. WYNIKI', en: '4. RESULTS')),
+            // ── 3. Wyniki ──────────────────────────────────────────────────
+            _sectionLabel(context.tr(pl: '3. WYNIKI', en: '3. RESULTS')),
             const SizedBox(height: 12),
+
+            Row(children: [
+              Expanded(child: _bigTile(
+                label: context.tr(pl: 'Bok długi C-C', en: 'Long side C-C'),
+                value: _a, cs: cs,
+              )),
+              const SizedBox(width: 10),
+              Expanded(child: _bigTile(
+                label: context.tr(pl: 'Bok krótki C-C', en: 'Short side C-C'),
+                value: _b, cs: cs,
+              )),
+            ]),
+            const SizedBox(height: 10),
 
             _infoTile(
               icon: Icons.straighten,
-              label: context.tr(pl: 'Skos oś-oś  c (po korekcji)', en: 'Diagonal C-C (corrected)'),
-              value: _ccc != null ? '${_ccc!.toStringAsFixed(1)} mm' : '—',
-              cs: cs, warm: false,
-            ),
-            const SizedBox(height: 10),
-
-            _bigTile(
-              label: context.tr(pl: 'Bok poziomy  a', en: 'Horizontal side  a'),
-              value: _a, cs: cs,
-            ),
-            const SizedBox(height: 10),
-
-            _bigTile(
-              label: context.tr(pl: 'Bok pionowy  b', en: 'Vertical side  b'),
-              value: _b, cs: cs,
+              label: context.tr(pl: 'Skos (przekątna) C-C', en: 'Diagonal C-C'),
+              value: _c != null ? '${_c!.toStringAsFixed(1)} mm' : '—',
+              cs: cs,
             ),
             const SizedBox(height: 10),
 
             Row(children: [
               Expanded(child: _infoTile(
                 icon: Icons.rotate_right,
-                label: 'α',
+                label: context.tr(pl: 'Kąt α (przy boku długim)', en: 'Angle α (at long side)'),
                 value: _alpha != null ? '${_alpha!.toStringAsFixed(2)}°' : '—',
-                cs: cs, warm: false,
+                cs: cs,
               )),
               const SizedBox(width: 10),
               Expanded(child: _infoTile(
                 icon: Icons.rotate_left,
-                label: 'β',
+                label: context.tr(pl: 'Kąt β (przy boku krótkim)', en: 'Angle β (at short side)'),
                 value: _beta != null ? '${_beta!.toStringAsFixed(2)}°' : '—',
-                cs: cs, warm: false,
+                cs: cs,
               )),
             ]),
 
@@ -259,24 +223,23 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
 
             const SizedBox(height: 28),
 
-            // ── 5. Obliczanie cięcia rur ───────────────────────────────────
+            // ── 4. Obliczanie cięcia rur ───────────────────────────────────
             _sectionLabel(context.tr(
-              pl: '5. OBLICZANIE CIĘCIA RUR',
-              en: '5. PIPE CUT LENGTHS',
+              pl: '4. OBLICZANIE CIĘCIA RUR',
+              en: '4. PIPE CUT LENGTHS',
             )),
             const SizedBox(height: 6),
             Text(
               context.tr(
-                pl: 'Cięcie = bok − kolanka_do_osi − kolanka_do_osi',
-                en: 'Cut = side − elbow_c_to_e − elbow_c_to_e',
+                pl: 'Cięcie = bok C-C − kolanka_do_osi − kolanka_do_osi',
+                en: 'Cut = side C-C − elbow_c_to_e − elbow_c_to_e',
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
-            // Bok A
             Text(
-              context.tr(pl: 'Rura A (bok poziomy a)', en: 'Pipe A (horizontal side a)'),
+              context.tr(pl: 'Rura A – bok długi', en: 'Pipe A – long side'),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
             const SizedBox(height: 6),
@@ -285,18 +248,17 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
                 pl: 'Wymiar kolanka do osi – rura A',
                 en: 'Elbow centre-to-end – pipe A',
               ),
-              suffix: 'mm'),
+              suffix: 'mm',
+            ),
             const SizedBox(height: 8),
-            _cutResultTile(
-              label: context.tr(pl: 'Cięcie rury A', en: 'Pipe A cut length'),
-              value: _cutA,
-              cs: cs,
+            _cutTile(
+              label: context.tr(pl: 'Cięcie rury A', en: 'Pipe A cut'),
+              value: _cutA, cs: cs,
             ),
             const SizedBox(height: 20),
 
-            // Bok B
             Text(
-              context.tr(pl: 'Rura B (bok pionowy b)', en: 'Pipe B (vertical side b)'),
+              context.tr(pl: 'Rura B – bok krótki', en: 'Pipe B – short side'),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
             const SizedBox(height: 6),
@@ -305,17 +267,15 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
                 pl: 'Wymiar kolanka do osi – rura B',
                 en: 'Elbow centre-to-end – pipe B',
               ),
-              suffix: 'mm'),
+              suffix: 'mm',
+            ),
             const SizedBox(height: 8),
-            _cutResultTile(
-              label: context.tr(pl: 'Cięcie rury B', en: 'Pipe B cut length'),
-              value: _cutB,
-              cs: cs,
+            _cutTile(
+              label: context.tr(pl: 'Cięcie rury B', en: 'Pipe B cut'),
+              value: _cutB, cs: cs,
             ),
 
             const SizedBox(height: 28),
-
-            // ── schemat ────────────────────────────────────────────────────
             _diagram(cs),
             const SizedBox(height: 24),
           ],
@@ -324,24 +284,24 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     );
   }
 
-  // ── Widgety ─────────────────────────────────────────────────────────────────
+  // ── widgety pomocnicze ─────────────────────────────────────────────────────
 
   Widget _refSelector(ColorScheme cs) {
     final opts = [
       (
         _RefType.inner,
-        context.tr(pl: 'Od wewnętrznej\nścianki', en: 'From inner\nwall'),
-        context.tr(pl: '+OD (dodaj średnicę)', en: '+OD (add diameter)'),
+        context.tr(pl: 'Od wew.\nścianki', en: 'From inner\nwall'),
+        '+OD/2',
       ),
       (
         _RefType.center,
-        context.tr(pl: 'Od osi rury', en: 'From pipe\naxis'),
-        context.tr(pl: 'brak korekcji', en: 'no correction'),
+        context.tr(pl: 'Od osi\nrury', en: 'From pipe\naxis'),
+        '0',
       ),
       (
         _RefType.outer,
-        context.tr(pl: 'Od zewnętrznej\nścianki', en: 'From outer\nwall'),
-        context.tr(pl: '−OD (odejmij średnicę)', en: '−OD (subtract diameter)'),
+        context.tr(pl: 'Od zew.\nścianki', en: 'From outer\nwall'),
+        '−OD/2',
       ),
     ];
 
@@ -355,7 +315,7 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
               onTap: () { setState(() => _refType = opt.$1); _recalc(); },
               borderRadius: BorderRadius.circular(10),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                 decoration: BoxDecoration(
                   color: sel ? cs.primaryContainer : cs.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(10),
@@ -368,17 +328,17 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
                   Text(opt.$2,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                      fontWeight: FontWeight.bold, fontSize: 12,
                       color: sel ? cs.onPrimaryContainer : cs.onSurface,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(opt.$3,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 11,
                       color: sel ? cs.primary : cs.onSurfaceVariant,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ]),
@@ -390,13 +350,23 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     );
   }
 
-  Widget _correctionNote(ColorScheme cs) {
-    if (_ccc == null && _parse(_hypCtrl.text) <= 0) return const SizedBox.shrink();
-    final c   = _parse(_hypCtrl.text);
-    final od  = _parse(_odCtrl.text);
-    if (c <= 0) return const SizedBox.shrink();
-    final corr = _correction(od);
-    final sign = corr >= 0 ? '+' : '';
+  Widget _corrPreview(ColorScheme cs) {
+    final aRaw = _parse(_longCtrl.text);
+    final bRaw = _parse(_shortCtrl.text);
+    final od   = _parse(_odCtrl.text);
+    if ((aRaw <= 0 && bRaw <= 0) || _refType == _RefType.center) {
+      return const SizedBox.shrink();
+    }
+    final corr  = _corr(od);
+    final total = 2 * corr;
+    final sign  = total >= 0 ? '+' : '';
+    final lines = <String>[];
+    if (aRaw > 0) {
+      lines.add('A: ${aRaw.toStringAsFixed(1)} $sign${total.toStringAsFixed(1)} = ${(aRaw + total).toStringAsFixed(1)} mm');
+    }
+    if (bRaw > 0) {
+      lines.add('B: ${bRaw.toStringAsFixed(1)} $sign${total.toStringAsFixed(1)} = ${(bRaw + total).toStringAsFixed(1)} mm');
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -404,75 +374,14 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        '${c.toStringAsFixed(1)}  $sign${corr.toStringAsFixed(1)}  =  '
-        '${(c + corr).toStringAsFixed(1)} mm  (C-C)',
+        lines.join('\n'),
         style: TextStyle(
-          fontFamily: 'monospace',
-          fontSize: 13,
+          fontFamily: 'monospace', fontSize: 13,
           fontWeight: FontWeight.bold,
           color: cs.onSecondaryContainer,
         ),
       ),
     );
-  }
-
-  Widget _modeSelector(ColorScheme cs) {
-    final modes = [
-      (_Mode.angle,      context.tr(pl: 'Kąt α', en: 'Angle α')),
-      (_Mode.horizontal, context.tr(pl: 'Bok poziomy a', en: 'Horiz. side a')),
-      (_Mode.vertical,   context.tr(pl: 'Bok pionowy b',  en: 'Vert. side b')),
-    ];
-    return Row(
-      children: modes.map((m) {
-        final sel = _mode == m.$1;
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: InkWell(
-              onTap: () {
-                setState(() => _mode = m.$1);
-                _inputCtrl.clear();
-                _recalc();
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: sel ? cs.primaryContainer : cs.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: sel ? cs.primary : cs.outlineVariant),
-                ),
-                child: Text(m.$2,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: sel ? cs.onPrimaryContainer : cs.onSurface,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _modeInputField() {
-    switch (_mode) {
-      case _Mode.angle:
-        return _field(_inputCtrl,
-          label: context.tr(pl: 'Kąt α (stopnie)', en: 'Angle α (degrees)'),
-          suffix: '°');
-      case _Mode.horizontal:
-        return _field(_inputCtrl,
-          label: context.tr(pl: 'Bok poziomy a', en: 'Horizontal side a'),
-          suffix: 'mm');
-      case _Mode.vertical:
-        return _field(_inputCtrl,
-          label: context.tr(pl: 'Bok pionowy b', en: 'Vertical side b'),
-          suffix: 'mm');
-    }
   }
 
   Widget _bigTile({
@@ -485,13 +394,13 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
         color: cs.tertiaryContainer,
         borderRadius: BorderRadius.circular(8),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
             style: TextStyle(
-              fontWeight: FontWeight.bold, fontSize: 12,
+              fontWeight: FontWeight.bold, fontSize: 11,
               color: cs.onTertiaryContainer,
             ),
           ),
@@ -499,60 +408,8 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
           Text(
             value != null ? '${value.toStringAsFixed(1)} mm' : '—',
             style: TextStyle(
-              fontSize: 30, fontWeight: FontWeight.bold,
+              fontSize: 26, fontWeight: FontWeight.bold,
               color: cs.onTertiaryContainer, letterSpacing: -0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _cutResultTile({
-    required String label,
-    required double? value,
-    required ColorScheme cs,
-  }) {
-    final isNeg = value != null && value < 0;
-    final bg = isNeg ? cs.errorContainer : cs.primaryContainer;
-    final fg = isNeg ? cs.onErrorContainer : cs.onPrimaryContainer;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Icon(
-            isNeg ? Icons.warning_amber_rounded : Icons.cut,
-            color: fg, size: 22,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                  style: TextStyle(fontSize: 11, color: fg),
-                ),
-                Text(
-                  value != null ? '${value.toStringAsFixed(1)} mm' : '—',
-                  style: TextStyle(
-                    fontSize: 26, fontWeight: FontWeight.bold,
-                    color: fg, letterSpacing: -0.5,
-                  ),
-                ),
-                if (isNeg)
-                  Text(
-                    context.tr(
-                      pl: 'Kolanka za duże — sprawdź wymiary',
-                      en: 'Elbows too large — check dimensions',
-                    ),
-                    style: TextStyle(fontSize: 11, color: fg),
-                  ),
-              ],
             ),
           ),
         ],
@@ -565,25 +422,63 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     required String label,
     required String value,
     required ColorScheme cs,
-    required bool warm,
   }) {
-    final bg   = warm ? cs.primaryContainer : cs.surfaceContainerHigh;
-    final fg   = warm ? cs.onPrimaryContainer : cs.onSurface;
-    final fgS  = warm ? cs.onPrimaryContainer : cs.onSurfaceVariant;
     return Container(
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(8),
+      ),
       padding: const EdgeInsets.all(12),
       child: Row(children: [
-        Icon(icon, size: 20, color: fgS),
+        Icon(icon, size: 20, color: cs.onSurfaceVariant),
         const SizedBox(width: 10),
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 11, color: fgS)),
-            Text(value,
+            Text(label, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+            Text(value, style: TextStyle(
+              fontSize: 18, fontWeight: FontWeight.bold, color: cs.onSurface,
+            )),
+          ],
+        )),
+      ]),
+    );
+  }
+
+  Widget _cutTile({
+    required String label,
+    required double? value,
+    required ColorScheme cs,
+  }) {
+    final isNeg = value != null && value < 0;
+    final bg = isNeg ? cs.errorContainer : cs.primaryContainer;
+    final fg = isNeg ? cs.onErrorContainer : cs.onPrimaryContainer;
+
+    return Container(
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(children: [
+        Icon(isNeg ? Icons.warning_amber_rounded : Icons.cut, color: fg, size: 22),
+        const SizedBox(width: 10),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 11, color: fg)),
+            Text(
+              value != null ? '${value.toStringAsFixed(1)} mm' : '—',
               style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.bold, color: fg,
-              )),
+                fontSize: 26, fontWeight: FontWeight.bold,
+                color: fg, letterSpacing: -0.5,
+              ),
+            ),
+            if (isNeg)
+              Text(
+                context.tr(
+                  pl: 'Kolanka za duże — sprawdź wymiary',
+                  en: 'Elbows too large — check dimensions',
+                ),
+                style: TextStyle(fontSize: 11, color: fg),
+              ),
           ],
         )),
       ]),
@@ -593,8 +488,7 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
   Widget _errorBox(String msg, ColorScheme cs) => Container(
     padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
-      color: cs.errorContainer,
-      borderRadius: BorderRadius.circular(8),
+      color: cs.errorContainer, borderRadius: BorderRadius.circular(8),
     ),
     child: Row(children: [
       Icon(Icons.warning_amber_rounded, color: cs.onErrorContainer, size: 18),
@@ -610,7 +504,7 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
   Widget _diagram(ColorScheme cs) {
     final aStr = _a != null ? '${_a!.toStringAsFixed(1)} mm' : 'a';
     final bStr = _b != null ? '${_b!.toStringAsFixed(1)} mm' : 'b';
-    final cStr = _ccc != null ? '${_ccc!.toStringAsFixed(1)} mm' : 'c (C-C)';
+    final cStr = _c != null ? '${_c!.toStringAsFixed(1)} mm' : 'c';
     final αStr = _alpha != null ? '${_alpha!.toStringAsFixed(1)}°' : 'α';
     final βStr = _beta  != null ? '${_beta!.toStringAsFixed(1)}°'  : 'β';
 
@@ -624,18 +518,20 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            context.tr(pl: 'Schemat trójkąta trasy', en: 'Route triangle diagram'),
+            context.tr(pl: 'Schemat trasy', en: 'Route diagram'),
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
           const SizedBox(height: 10),
           Text(
-            '* ← [$bStr]\n'
+            '*\n'
             '|  \\\n'
-            '|    \\  $cStr (skos C-C)\n'
-            '| $βStr  \\\n'
+            '|    \\  $cStr (skos)\n'
+            '| $βStr \\\n'
             '|        \\\n'
             '+-- $αStr --*\n'
-            '   [$aStr]',
+            '\n'
+            '↕ $bStr (bok krótki B)\n'
+            '↔ $aStr (bok długi A)',
             style: TextStyle(
               fontFamily: 'monospace', fontSize: 13,
               height: 1.75, color: cs.onSurfaceVariant,
@@ -648,7 +544,9 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
 
   Widget _sectionLabel(String text) => Text(
     text,
-    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.4, fontSize: 13),
+    style: const TextStyle(
+      fontWeight: FontWeight.bold, letterSpacing: 0.4, fontSize: 13,
+    ),
   );
 
   Widget _field(
