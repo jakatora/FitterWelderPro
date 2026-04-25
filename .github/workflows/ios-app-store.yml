@@ -41,12 +41,11 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Prepare iOS build config
+      - name: Write App Store Connect API key to file
         run: |
-          cat > ios/Flutter/AppStore.xcconfig <<EOF
-          APP_BUNDLE_IDENTIFIER=${APP_BUNDLE_IDENTIFIER}
-          APPLE_TEAM_ID=${APPLE_TEAM_ID}
-          EOF
+          mkdir -p /tmp
+          echo -n "$APP_STORE_CONNECT_PRIVATE_KEY" | base64 --decode > /tmp/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          echo "APP_STORE_CONNECT_KEY_PATH=/tmp/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8" >> $GITHUB_ENV
 
       - name: Install signing certificate and provisioning profile
         run: |
@@ -62,19 +61,21 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security list-keychains -d user -s $KEYCHAIN_PATH
+
+          # Extract UUID and install profile with UUID filename (required by Xcode 16)
+          PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
+          echo "Profile UUID: $PROFILE_UUID"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
+          echo "Installed: ~/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
 
       - name: Set up Ruby 3.3
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-          bundler-cache: false
+          bundler-cache: true
           working-directory: ios
-
-      - name: Install Ruby gems
-        working-directory: ios
-        run: bundle install
 
       - name: Build and upload to TestFlight
         working-directory: ios
