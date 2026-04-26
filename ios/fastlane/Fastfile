@@ -22,8 +22,11 @@ platform :ios do
       xcargs: "DEVELOPMENT_TEAM=#{ENV.fetch('APPLE_TEAM_ID')} PRODUCT_BUNDLE_IDENTIFIER=#{ENV.fetch('APP_BUNDLE_IDENTIFIER')} FLUTTER_ROOT=#{ENV.fetch('FLUTTER_ROOT')}",
       export_options: {
         method: "app-store-connect",
-        signingStyle: "automatic",
+        signingStyle: "manual",
         teamID: ENV.fetch("APPLE_TEAM_ID"),
+        provisioningProfiles: {
+          ENV.fetch("APP_BUNDLE_IDENTIFIER") => ENV.fetch("APP_PROVISIONING_PROFILE_NAME")
+        },
         uploadSymbols: true,
         uploadBitcode: false
       }
