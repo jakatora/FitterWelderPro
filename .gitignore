@@ -70,3 +70,6 @@ replit_export/
 
 # VS Code (optional — uncomment if you want to exclude)
 # .vscode/
+
+# Claude agent worktrees (tooling metadata)
+.claude/
