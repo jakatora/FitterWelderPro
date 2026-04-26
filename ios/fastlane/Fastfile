@@ -1,4 +1,4 @@
-﻿default_platform(:ios)
+default_platform(:ios)
 
 platform :ios do
   desc "Build and upload FitterWelder Pro to TestFlight/App Store Connect"
