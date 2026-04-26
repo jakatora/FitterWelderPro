@@ -16,7 +16,6 @@ const _kBlue    = Color(0xFF4A9EFF);
 const _kGreen   = Color(0xFF2ECC71);
 const _kBorder  = Color(0xFF2C3354);
 const _kCard    = Color(0xFF1A1D26);
-const _kSurface = Color(0xFF22263A);
 const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = Color(0xFF55607A);
 

@@ -829,10 +829,6 @@ class _ProstaTabState extends State<_ProstaTab> {
   final _off2Ctrl  = TextEditingController();
   final _gapCtrl   = TextEditingController(text: '0');
 
-  // Tryb referencji dla każdego końca
-  String _ref1 = 'FACE'; // FACE (0) | AXIS (ask) | FACE_FAR (full length)
-  String _ref2 = 'FACE';
-
   double? _cutMm;
   String? _error;
 

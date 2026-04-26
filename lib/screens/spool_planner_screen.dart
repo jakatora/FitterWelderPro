@@ -15,7 +15,6 @@ const _kRed     = Color(0xFFE74C3C);
 const _kPurple  = Color(0xFFAB47BC);
 const _kCard    = Color(0xFF1A1D26);
 const _kBorder  = Color(0xFF2C3354);
-const _kSurface = Color(0xFF22263A);
 const _kMuted   = Color(0xFF55607A);
 const _kSec     = Color(0xFF9BA3C7);
 

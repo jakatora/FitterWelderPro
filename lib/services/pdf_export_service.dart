@@ -10,13 +10,11 @@ import '../services/bar_nesting.dart';
 
 // ─── Kolory PDF ────────────────────────────────────────────────────────────
 final _kAccent   = PdfColor.fromHex('#F5A623');
-final _kDark     = PdfColor.fromHex('#0F1117');
 final _kCard     = PdfColor.fromHex('#1A1D26');
 final _kBorder   = PdfColor.fromHex('#2C3354');
 final _kText     = PdfColor.fromHex('#E8ECF0');
 final _kMuted    = PdfColor.fromHex('#9BA3C7');
 final _kGreen    = PdfColor.fromHex('#2ECC71');
-final _kRed      = PdfColor.fromHex('#E74C3C');
 
 class PdfExportService {
   /// Generuje CUT LIST jako PDF i udostępnia przez share sheet.
@@ -185,7 +183,6 @@ class PdfExportService {
         ...plans.asMap().entries.map((entry) {
           final i   = entry.key;
           final bar = entry.value;
-          final usedMm = bar.piecesMm.fold(0.0, (s, v) => s + v) + bar.cutsCount * project.sawKerfMm;
           final wastePct = project.stockLengthMm > 0 ? (bar.remainingMm / project.stockLengthMm * 100) : 0.0;
           return pw.Container(
             margin: const pw.EdgeInsets.only(bottom: 4),

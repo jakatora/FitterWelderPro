@@ -11,7 +11,6 @@ const _kOrange = Color(0xFFF5A623);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
-const _kPurple = Color(0xFFAB47BC);
 const _kCard   = Color(0xFF1A1D26);
 const _kBorder = Color(0xFF2C3354);
 const _kMuted  = Color(0xFF55607A);
@@ -125,16 +124,15 @@ class _ErrBox extends StatelessWidget {
 
 class _InfoBox extends StatelessWidget {
   final String t;
-  final Color? color;
-  const _InfoBox(this.t, {this.color});
+  const _InfoBox(this.t);
   @override
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(bottom: 12),
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: (color ?? _kBlue).withOpacity(0.07),
+      color: _kBlue.withOpacity(0.07),
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: (color ?? _kBlue).withOpacity(0.2)),
+      border: Border.all(color: _kBlue.withOpacity(0.2)),
     ),
     child: Text(t, style: const TextStyle(fontSize: 12, color: _kSec, height: 1.5)),
   );
@@ -287,7 +285,6 @@ class _PreheatTabState extends State<_PreheatTab> {
       final t  = double.tryParse(_tCtrl.text.replaceAll(',', '.'));
       final c  = double.tryParse(_cCtrl.text.replaceAll(',', '.'));
       final mn = double.tryParse(_mnCtrl.text.replaceAll(',', '.')) ?? 0;
-      final si = double.tryParse(_siCtrl.text.replaceAll(',', '.')) ?? 0;
       final cr = double.tryParse(_crCtrl.text.replaceAll(',', '.')) ?? 0;
       final mo = double.tryParse(_moCtrl.text.replaceAll(',', '.')) ?? 0;
       final ni = double.tryParse(_niCtrl.text.replaceAll(',', '.')) ?? 0;

@@ -1,6 +1,6 @@
 # App Store Release Checklist - Cut List App
 
-Wersja: `0.1.3+5`
+Wersja: `0.1.4+6`
 
 ## 1. Branding i dane wydawcy
 
@@ -28,6 +28,10 @@ Wersja: `0.1.3+5`
 - [ ] Dodaj review contact
 - [ ] Dodaj review notes
 - [ ] Uzupelnij App Privacy zgodnie z `APP_STORE_PRIVACY_AND_REVIEW.md`
+- [ ] W `App Information` uzupelnij `Content Rights`
+- [ ] W `Pricing and Availability` wybierz `Price Tier`
+- [ ] W `App Privacy` dodaj publiczny `Privacy Policy URL`
+- [ ] Wybierz build w sekcji `Build` dla wersji aplikacji
 
 ## 4. Screenshoty
 
