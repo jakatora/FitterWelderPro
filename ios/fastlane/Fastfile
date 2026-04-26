@@ -22,7 +22,7 @@ platform :ios do
       xcodebuild_formatter: "",
       export_options: {
         method: "app-store",
-        signingStyle: "automatic",
+        signingStyle: "manual",
         teamID: ENV.fetch("APPLE_TEAM_ID"),
         provisioningProfiles: {
           ENV.fetch("APP_BUNDLE_IDENTIFIER") => ENV.fetch("APP_PROVISIONING_PROFILE_NAME")
