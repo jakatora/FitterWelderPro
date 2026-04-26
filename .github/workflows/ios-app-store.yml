@@ -112,10 +112,12 @@ jobs:
           path: ios/build/ios/*.ipa
           if-no-files-found: ignore
 
-      - name: Upload gym logs on failure
+      - name: Upload build logs on failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: gym-logs
-          path: ~/Library/Logs/gym/
+          name: build-logs
+          path: |
+            ios/build/xcodebuild_logs/
+            ~/Library/Logs/gym/
           if-no-files-found: ignore
