@@ -93,6 +93,23 @@ jobs:
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
           echo "Flutter root: $FLUTTER_ROOT"
 
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Pod install
+        working-directory: ios
+        run: |
+          if [ -d "Pods" ]; then
+            echo "Pods directory restored from cache, skipping pod install"
+          else
+            pod install --repo-update
+          fi
+
       - name: Flutter build iOS pre-check
         run: flutter build ios --release --no-codesign
 
