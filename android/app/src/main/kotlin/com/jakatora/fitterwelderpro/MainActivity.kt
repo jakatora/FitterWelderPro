@@ -1,4 +1,4 @@
-package com.startklaar.fitterwelder
+package com.jakatora.fitterwelderpro
 
 import io.flutter.embedding.android.FlutterActivity
 
