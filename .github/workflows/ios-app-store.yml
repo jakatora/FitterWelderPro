@@ -47,8 +47,46 @@ jobs:
           PROFILE_PATH=$RUNNER_TEMP/build_pp.mobileprovision
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $CERT_PATH
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > $PROFILE_PATH
+          python3 - <<'PY'
+          import base64
+          import os
+          import pathlib
+          import sys
+
+          cert_b64 = ''.join(os.environ.get('BUILD_CERTIFICATE_BASE64', '').split())
+          profile_b64 = ''.join(os.environ.get('BUILD_PROVISION_PROFILE_BASE64', '').split())
+          cert_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'build_certificate.p12'
+          profile_path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'build_pp.mobileprovision'
+
+          if not cert_b64:
+            print('BUILD_CERTIFICATE_BASE64 is empty', file=sys.stderr)
+            sys.exit(1)
+          if not profile_b64:
+            print('BUILD_PROVISION_PROFILE_BASE64 is empty', file=sys.stderr)
+            sys.exit(1)
+
+          try:
+            cert_path.write_bytes(base64.b64decode(cert_b64, validate=True))
+          except Exception as ex:
+            print(f'Invalid BUILD_CERTIFICATE_BASE64: {ex}', file=sys.stderr)
+            sys.exit(1)
+
+          try:
+            profile_path.write_bytes(base64.b64decode(profile_b64, validate=True))
+          except Exception as ex:
+            print(f'Invalid BUILD_PROVISION_PROFILE_BASE64: {ex}', file=sys.stderr)
+            sys.exit(1)
+
+          if cert_path.stat().st_size < 1024:
+            print(f'Certificate file looks too small: {cert_path.stat().st_size} bytes', file=sys.stderr)
+            sys.exit(1)
+          if profile_path.stat().st_size < 1024:
+            print(f'Provisioning profile file looks too small: {profile_path.stat().st_size} bytes', file=sys.stderr)
+            sys.exit(1)
+          PY
+
+          # Validate that the decoded file is a real PKCS#12 archive and password matches.
+          openssl pkcs12 -in $CERT_PATH -passin pass:"$P12_PASSWORD" -nokeys -clcerts >/dev/null
 
           # Create and configure keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
