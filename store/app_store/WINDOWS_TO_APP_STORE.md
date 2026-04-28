@@ -2,6 +2,18 @@
 
 Jesli nie masz Maca, nie zrobisz lokalnie poprawnego builda iOS/App Store na Windows. Dla tego projektu sensowna sciezka to GitHub Actions z runnerem `macos-latest`.
 
+## Ważne
+
+Ten projekt jest aplikacja Flutter, a nie Expo / React Native.
+
+To oznacza:
+
+- nie uzywa `eas.json`,
+- nie wymaga `eas build:configure`,
+- nie powinien byc budowany przez Expo EAS.
+
+Jesli widzisz blad typu `Failed to read "/eas.json"`, to uruchamiasz niewlasciwe narzedzie lub niewlasciwy workflow dla tego repo.
+
 Repo ma juz gotowy workflow:
 
 - `.github/workflows/ios-app-store.yml`
