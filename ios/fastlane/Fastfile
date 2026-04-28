@@ -26,8 +26,10 @@ platform :ios do
               "FLUTTER_ROOT=#{ENV.fetch('FLUTTER_ROOT')}",
 
       # NIE podawaj provisioningProfiles dla exportArchive (frameworki tego nie wspierają)
-      export_options: {
-        method: "app-store-connect",
+     build_app(
+  scheme: "Runner",
+  export_method: "app-store"
+)
         signingStyle: "automatic",
         teamID: ENV.fetch("APPLE_TEAM_ID"),
         uploadSymbols: true,
