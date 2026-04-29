@@ -14,7 +14,7 @@ platform :ios do
     build_app(
       workspace: "Runner.xcworkspace",
       scheme: "Runner",
-      export_method: "app-store-connect",
+      export_method: "app-store",
       clean: true,
       output_directory: "build/ios",
       output_name: "cut-list-app.ipa",
@@ -28,7 +28,7 @@ platform :ios do
         "FLUTTER_ROOT"                   => ENV.fetch("FLUTTER_ROOT"),
       },
       export_options: {
-        method: "app-store-connect",
+        method: "app-store",
         signingStyle: "automatic",
         teamID: ENV.fetch("APPLE_TEAM_ID"),
         uploadSymbols: true,
