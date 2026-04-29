@@ -1,105 +1,43 @@
 default_platform(:ios)
 
-def required_env!(name)
-  value = ENV[name].to_s.strip
-  UI.user_error!("Missing required environment variable: #{name}") if value.empty?
-  value
-end
-
-def resolve_flutter_root
-  configured = ENV["FLUTTER_ROOT"].to_s.strip
-  return configured unless configured.empty?
-
-  flutter_bin = sh("which flutter").to_s.strip
-  UI.user_error!("FLUTTER_ROOT is not set and Flutter was not found in PATH") if flutter_bin.empty?
-
-  File.dirname(File.dirname(flutter_bin))
-end
-
-def build_api_key
-  options = {
-    key_id: required_env!("APP_STORE_CONNECT_KEY_ID"),
-    issuer_id: required_env!("APP_STORE_CONNECT_ISSUER_ID"),
-    duration: 1200,
-    in_house: false
-  }
-
-  key_content = ENV["APP_STORE_CONNECT_PRIVATE_KEY"].to_s.strip
-  key_path = ENV["APP_STORE_CONNECT_KEY_PATH"].to_s.strip
-
-  if !key_content.empty?
-    options[:key_content] = key_content
-    options[:is_key_content_base64] = !key_content.start_with?("-----BEGIN")
-  elsif !key_path.empty?
-    options[:key_filepath] = key_path
-  else
-    UI.user_error!("Set APP_STORE_CONNECT_PRIVATE_KEY or APP_STORE_CONNECT_KEY_PATH")
-  end
-
-  app_store_connect_api_key(**options)
-end
-
-def export_options_for(bundle_id, team_id)
-  profile_name = ENV["APP_PROVISIONING_PROFILE_NAME"].to_s.strip
-  profile_uuid = ENV["PROFILE_UUID"].to_s.strip
-  profile_reference = profile_name.empty? ? profile_uuid : profile_name
-
-  options = {
-    method: "app-store",
-    signingStyle: profile_reference.empty? ? "automatic" : "manual",
-    teamID: team_id,
-    uploadSymbols: true,
-    uploadBitcode: false
-  }
-
-  unless profile_reference.empty?
-    options[:provisioningProfiles] = {
-      bundle_id => profile_reference
-    }
-  end
-
-  options
-end
-
 platform :ios do
   desc "Build and upload FitterWelder Pro to TestFlight/App Store Connect"
   lane :release do
-    bundle_id = required_env!("APP_BUNDLE_IDENTIFIER")
-    team_id = required_env!("APPLE_TEAM_ID")
-    flutter_root = resolve_flutter_root
-    profile_name = ENV["APP_PROVISIONING_PROFILE_NAME"].to_s.strip
-    profile_uuid = ENV["PROFILE_UUID"].to_s.strip
-    api_key = build_api_key
-
-    xcargs = [
-      "DEVELOPMENT_TEAM=#{team_id}",
-      "PRODUCT_BUNDLE_IDENTIFIER=#{bundle_id}",
-      "FLUTTER_ROOT=#{flutter_root}"
-    ]
-
-    if !profile_name.empty? || !profile_uuid.empty?
-      xcargs << "CODE_SIGN_STYLE=Manual"
-      xcargs << "PROVISIONING_PROFILE_SPECIFIER=#{profile_name}" unless profile_name.empty?
-      xcargs << "PROVISIONING_PROFILE=#{profile_uuid}" unless profile_uuid.empty?
-    else
-      xcargs << "CODE_SIGN_STYLE=Automatic"
-    end
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_filepath: ENV.fetch("APP_STORE_CONNECT_KEY_PATH"),
+      duration: 1200,
+      in_house: false
+    )
 
     build_app(
       workspace: "Runner.xcworkspace",
       scheme: "Runner",
-      export_method: "app-store",
+      export_method: "app-store-connect",
       clean: true,
       output_directory: "build/ios",
       output_name: "cut-list-app.ipa",
       buildlog_path: "build/xcodebuild_logs",
-      xcargs: xcargs.join(" "),
-      export_options: export_options_for(bundle_id, team_id)
+      xcargs: {
+        "DEVELOPMENT_TEAM"               => ENV.fetch("APPLE_TEAM_ID"),
+        "PRODUCT_BUNDLE_IDENTIFIER"      => ENV.fetch("APP_BUNDLE_IDENTIFIER"),
+        "CODE_SIGN_STYLE"                => "Manual",
+        "CODE_SIGN_IDENTITY"             => "Apple Distribution",
+        "PROVISIONING_PROFILE_SPECIFIER" => ENV.fetch("APP_PROVISIONING_PROFILE_NAME"),
+        "FLUTTER_ROOT"                   => ENV.fetch("FLUTTER_ROOT"),
+      },
+      export_options: {
+        method: "app-store-connect",
+        signingStyle: "automatic",
+        teamID: ENV.fetch("APPLE_TEAM_ID"),
+        uploadSymbols: true,
+        uploadBitcode: false
+      }
     )
 
     upload_to_testflight(
       api_key: api_key,
-      app_identifier: bundle_id,
       ipa: "build/ios/cut-list-app.ipa",
       skip_waiting_for_build_processing: true,
       distribute_external: false,
