@@ -40,25 +40,23 @@ def build_api_key
 end
 
 def export_options_for(bundle_id, team_id)
-  profile_name = ENV["APP_PROVISIONING_PROFILE_NAME"].to_s.strip
-  profile_uuid = ENV["PROFILE_UUID"].to_s.strip
-  profile_reference = profile_name.empty? ? profile_uuid : profile_name
-
-  options = {
+  # FIX: Always use signingStyle "automatic" for export.
+  # With "manual" Xcode attempts to assign provisioning profiles to every
+  # embedded binary — including Flutter plugin frameworks such as
+  # file_picker.framework — which do not support provisioning profiles and
+  # causes the build to fail with:
+  #   "exportArchive: file_picker.framework does not support provisioning profiles"
+  #
+  # "automatic" tells xcodebuild to resolve identities from the local keychain
+  # (the cert + profile installed earlier in the workflow) without trying to
+  # provision frameworks.
+  {
     method: "app-store",
-    signingStyle: profile_reference.empty? ? "automatic" : "manual",
+    signingStyle: "automatic",
     teamID: team_id,
     uploadSymbols: true,
     uploadBitcode: false
   }
-
-  unless profile_reference.empty?
-    options[:provisioningProfiles] = {
-      bundle_id => profile_reference
-    }
-  end
-
-  options
 end
 
 platform :ios do
@@ -71,18 +69,28 @@ platform :ios do
     profile_uuid = ENV["PROFILE_UUID"].to_s.strip
     api_key = build_api_key
 
-    xcargs = [
-      "DEVELOPMENT_TEAM=#{team_id}",
-      "PRODUCT_BUNDLE_IDENTIFIER=#{bundle_id}",
-      "FLUTTER_ROOT=#{flutter_root}"
-    ]
+    # FIX: Use a Hash for xcargs so Fastlane/gym properly shell-escapes each
+    # value.  The old Array.join(" ") approach broke profile names that contain
+    # spaces (e.g. "FitterWelder Pro AppStore") by splitting them into separate
+    # unrecognised xcodebuild arguments.
+    #
+    # FIX: Override CODE_SIGN_IDENTITY to "Apple Distribution" so it matches
+    # the distribution certificate installed in the CI keychain.  The Xcode
+    # project file sets this to "iPhone Developer" (development), which would
+    # cause a code-signing identity mismatch during the archive step.
+    xcargs = {
+      "DEVELOPMENT_TEAM" => team_id,
+      "PRODUCT_BUNDLE_IDENTIFIER" => bundle_id,
+      "FLUTTER_ROOT" => flutter_root
+    }
 
     if !profile_name.empty? || !profile_uuid.empty?
-      xcargs << "CODE_SIGN_STYLE=Manual"
-      xcargs << "PROVISIONING_PROFILE_SPECIFIER=#{profile_name}" unless profile_name.empty?
-      xcargs << "PROVISIONING_PROFILE=#{profile_uuid}" unless profile_uuid.empty?
+      xcargs["CODE_SIGN_STYLE"]                = "Manual"
+      xcargs["CODE_SIGN_IDENTITY"]             = "Apple Distribution"
+      xcargs["PROVISIONING_PROFILE_SPECIFIER"] = profile_name unless profile_name.empty?
+      xcargs["PROVISIONING_PROFILE"]           = profile_uuid unless profile_uuid.empty?
     else
-      xcargs << "CODE_SIGN_STYLE=Automatic"
+      xcargs["CODE_SIGN_STYLE"] = "Automatic"
     end
 
     build_app(
@@ -93,7 +101,7 @@ platform :ios do
       output_directory: "build/ios",
       output_name: "cut-list-app.ipa",
       buildlog_path: "build/xcodebuild_logs",
-      xcargs: xcargs.join(" "),
+      xcargs: xcargs,
       export_options: export_options_for(bundle_id, team_id)
     )
 
