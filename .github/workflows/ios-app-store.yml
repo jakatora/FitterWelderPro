@@ -53,21 +53,17 @@ jobs:
           PROFILE_PATH=$RUNNER_TEMP/build_pp.mobileprovision
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          # Decode certificate and provisioning profile
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROFILE_PATH
 
-          # Create and configure keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Import certificate and allow codesign to use the key (set-key-partition-list is REQUIRED on macOS 12+)
           security import $CERT_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH -T /usr/bin/codesign
           security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Extract UUID, Team ID and Name from profile (TeamIdentifier is an array → use index .0)
           PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
           PROFILE_TEAM=$(security cms -D -i $PROFILE_PATH | plutil -extract TeamIdentifier.0 raw -)
           PROFILE_NAME=$(security cms -D -i $PROFILE_PATH | plutil -extract Name raw -)
@@ -75,11 +71,9 @@ jobs:
           echo "Profile Team:   $PROFILE_TEAM"
           echo "Profile Name:   $PROFILE_NAME"
 
-          # Diagnostics — show what was imported
           echo "=== Signing identities in keychain ==="
           security find-identity -v -p codesigning $KEYCHAIN_PATH || true
 
-          # Install profile with UUID filename (required by Xcode 16)
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
@@ -92,7 +86,6 @@ jobs:
           FLUTTER_BIN=$(which flutter)
           FLUTTER_ROOT=$(dirname $(dirname $FLUTTER_BIN))
           echo "FLUTTER_ROOT=$FLUTTER_ROOT" >> $GITHUB_ENV
-          echo "Flutter root: $FLUTTER_ROOT"
 
       - name: Flutter build iOS pre-check
         run: flutter build ios --release --no-codesign
