@@ -1,0 +1,55 @@
+workflows:
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.jakatora.fitterwelderpro
+        APPLE_TEAM_ID: B7J6A7R258
+        APP_STORE_CONNECT_KEY_ID: $APP_STORE_CONNECT_KEY_ID
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+      app_store_connect:
+        auth: integration
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.jakatora.fitterwelderpro
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      - name: Flutter pub get
+        script: flutter pub get
+
+      - name: Flutter build iOS
+        script: |
+          flutter build ios --release --no-codesign \
+            --build-name=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1) \
+            --build-number=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f2)
+
+      - name: Xcode archive & export
+        script: |
+          xcode-project use-profiles
+          xcode-project build-ipa \
+            --workspace ios/Runner.xcworkspace \
+            --scheme Runner
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        expire_build_after_days: 30
