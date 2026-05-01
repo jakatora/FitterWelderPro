@@ -49,6 +49,10 @@ workflows:
 
       - name: Archive and export IPA
         script: |
+          FLUTTER_BIN=$(which flutter)
+          FLUTTER_ROOT=$(dirname $(dirname $FLUTTER_BIN))
+          echo "Flutter root: $FLUTTER_ROOT"
+
           xcodebuild -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -archivePath build/ios/Runner.xcarchive \
@@ -58,6 +62,7 @@ workflows:
             DEVELOPMENT_TEAM=$APPLE_TEAM_ID \
             PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
             PROVISIONING_PROFILE_SPECIFIER=$APP_PROVISIONING_PROFILE_NAME \
+            FLUTTER_ROOT=$FLUTTER_ROOT \
             archive
 
           cat > /tmp/ExportOptions.plist << EOF
