@@ -11,8 +11,6 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.jakatora.fitterwelderpro
-      app_store_connect:
-        auth: integration
 
     scripts:
       - name: Flutter pub get
@@ -36,4 +34,3 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        expire_build_after_days: 30
