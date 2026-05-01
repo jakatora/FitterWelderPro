@@ -25,12 +25,15 @@ workflows:
 
       - name: Install certificate and provisioning profile
         script: |
-          CERT_PATH=$RUNNER_TMPDIR/distribution.p12
-          PROFILE_PATH=$RUNNER_TMPDIR/profile.mobileprovision
-          KEYCHAIN_PATH=$RUNNER_TMPDIR/app-signing.keychain-db
+          CERT_PATH=/tmp/distribution.p12
+          PROFILE_PATH=/tmp/profile.mobileprovision
+          KEYCHAIN_PATH=/tmp/app-signing.keychain-db
 
-          echo -n "$CM_CERTIFICATE" | base64 --decode -o $CERT_PATH
-          echo -n "$CM_PROVISIONING_PROFILE" | base64 --decode -o $PROFILE_PATH
+          echo -n "$CM_CERTIFICATE" | base64 -D > $CERT_PATH
+          echo -n "$CM_PROVISIONING_PROFILE" | base64 -D > $PROFILE_PATH
+
+          echo "Cert size: $(wc -c < $CERT_PATH)"
+          echo "Profile size: $(wc -c < $PROFILE_PATH)"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
@@ -39,10 +42,15 @@ workflows:
           security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
+          echo "=== Signing identities ==="
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
           PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
+          PROFILE_NAME=$(security cms -D -i $PROFILE_PATH | plutil -extract Name raw -)
+          echo "Profile UUID: $PROFILE_UUID, Name: $PROFILE_NAME"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-          echo "Installed profile: $PROFILE_UUID"
+          echo "Installed profile OK"
 
       - name: Flutter build iOS (no codesign)
         script: flutter build ios --release --no-codesign
