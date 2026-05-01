@@ -11,27 +11,80 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.jakatora.fitterwelderpro
+      vars:
+        BUNDLE_ID: com.jakatora.fitterwelderpro
+        APPLE_TEAM_ID: B7J6A7R258
+        APP_PROVISIONING_PROFILE_NAME: FitterWelderPro_AppStore
+        KEYCHAIN_PASSWORD: keychain_codemagic_2026
+      groups:
+        - ios_signing
 
     scripts:
       - name: Flutter pub get
         script: flutter pub get
 
+      - name: Install certificate and provisioning profile
+        script: |
+          CERT_PATH=$RUNNER_TMPDIR/distribution.p12
+          PROFILE_PATH=$RUNNER_TMPDIR/profile.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TMPDIR/app-signing.keychain-db
+
+          echo -n "$CM_CERTIFICATE" | base64 --decode -o $CERT_PATH
+          echo -n "$CM_PROVISIONING_PROFILE" | base64 --decode -o $PROFILE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$CM_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH -T /usr/bin/codesign
+          security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          echo "Installed profile: $PROFILE_UUID"
+
       - name: Flutter build iOS (no codesign)
         script: flutter build ios --release --no-codesign
 
-      - name: Build and sign IPA
+      - name: Archive and export IPA
         script: |
-          xcode-project use-profiles
-          xcode-project build-ipa \
-            --workspace ios/Runner.xcworkspace \
-            --scheme Runner
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -archivePath build/ios/Runner.xcarchive \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM=$APPLE_TEAM_ID \
+            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
+            PROVISIONING_PROFILE_SPECIFIER=$APP_PROVISIONING_PROFILE_NAME \
+            archive
+
+          cat > /tmp/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key><string>$APP_PROVISIONING_PROFILE_NAME</string>
+            </dict>
+            <key>uploadSymbols</key><true/>
+            <key>uploadBitcode</key><false/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath build/ios/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist /tmp/ExportOptions.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
 
     publishing:
       app_store_connect:
