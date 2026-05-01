@@ -81,7 +81,7 @@ workflows:
       - name: Flutter build iOS (no codesign)
         script: flutter build ios --release --no-codesign
 
-      - name: Archive and export IPA
+      - name: Archive iOS
         script: |
           set -eo pipefail
           echo "Flutter root (from Codemagic): $FLUTTER_ROOT"
@@ -103,31 +103,24 @@ workflows:
             FLUTTER_ROOT=$FLUTTER_ROOT \
             archive 2>&1 | tee /tmp/xcodebuild_logs/archive.log
 
-          cat > /tmp/ExportOptions.plist << PLISTEOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>$APPLE_TEAM_ID</string>
-            <key>uploadSymbols</key><true/>
-            <key>uploadBitcode</key><false/>
-          </dict>
-          </plist>
-          PLISTEOF
+          echo "=== Archive contents ==="
+          ls -la build/ios/Runner.xcarchive/Products/Applications/
 
-          echo "=== ExportOptions.plist ==="
-          cat /tmp/ExportOptions.plist
-
-          xcodebuild -exportArchive \
-            -archivePath build/ios/Runner.xcarchive \
-            -exportPath build/ios/ipa \
-            -exportOptionsPlist /tmp/ExportOptions.plist \
-            -allowProvisioningUpdates \
-            2>&1 | tee /tmp/xcodebuild_logs/export.log
+      - name: Package IPA manually
+        script: |
+          set -eo pipefail
+          mkdir -p build/ios/ipa/Payload
+          cp -r build/ios/Runner.xcarchive/Products/Applications/Runner.app \
+            build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -r ../FitterWelderPro.ipa Payload/
+          echo "=== IPA created ==="
+          ls -lh ../FitterWelderPro.ipa
+          echo "=== Verifying code signature ==="
+          codesign -dv --verbose=4 Payload/Runner.app 2>&1 | head -30
 
     artifacts:
-      - build/ios/ipa/*.ipa
+      - build/ios/FitterWelderPro.ipa
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
