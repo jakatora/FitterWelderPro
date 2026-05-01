@@ -23,9 +23,18 @@ workflows:
       - name: Flutter pub get
         script: flutter pub get
 
+      - name: Create AppStore.xcconfig
+        script: |
+          cat > ios/Flutter/AppStore.xcconfig << EOF
+          APP_BUNDLE_IDENTIFIER=$BUNDLE_ID
+          APPLE_TEAM_ID=$APPLE_TEAM_ID
+          EOF
+          echo "Created AppStore.xcconfig:"
+          cat ios/Flutter/AppStore.xcconfig
+
       - name: Install certificate and provisioning profile
         script: |
-          set -euo pipefail
+          set -eo pipefail
           CERT_PATH=/tmp/distribution.p12
           PROFILE_PATH=/tmp/profile.mobileprovision
           KEYCHAIN_PATH=/tmp/app-signing.keychain-db
@@ -64,7 +73,6 @@ workflows:
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-          echo "Installed profile to ~/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
           echo "Installed profiles:"
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
@@ -75,13 +83,11 @@ workflows:
 
       - name: Archive and export IPA
         script: |
-          set -euo pipefail
+          set -eo pipefail
           FLUTTER_BIN=$(which flutter)
           FLUTTER_ROOT=$(dirname $(dirname $FLUTTER_BIN))
           echo "Flutter root: $FLUTTER_ROOT"
-
           echo "Using profile UUID: $PROFILE_UUID"
-          echo "Using profile name: $APP_PROVISIONING_PROFILE_NAME"
 
           mkdir -p /tmp/xcodebuild_logs
 

@@ -1,0 +1,4 @@
+// Local iOS release settings for App Store builds.
+// Fill these values on the Mac that will build/sign the app.
+APP_BUNDLE_IDENTIFIER=com.jakatora.fitterwelderpro
+APPLE_TEAM_ID=B7J6A7R258
