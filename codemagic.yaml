@@ -8,35 +8,20 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      vars:
-        BUNDLE_ID: com.jakatora.fitterwelderpro
-        APPLE_TEAM_ID: B7J6A7R258
-        APP_STORE_CONNECT_KEY_ID: $APP_STORE_CONNECT_KEY_ID
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-      app_store_connect:
-        auth: integration
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.jakatora.fitterwelderpro
-
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
+      app_store_connect:
+        auth: integration
 
     scripts:
       - name: Flutter pub get
         script: flutter pub get
 
-      - name: Flutter build iOS
-        script: |
-          flutter build ios --release --no-codesign \
-            --build-name=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1) \
-            --build-number=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f2)
+      - name: Flutter build iOS (no codesign)
+        script: flutter build ios --release --no-codesign
 
-      - name: Xcode archive & export
+      - name: Build and sign IPA
         script: |
           xcode-project use-profiles
           xcode-project build-ipa \
@@ -46,7 +31,6 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
 
     publishing:
       app_store_connect:
