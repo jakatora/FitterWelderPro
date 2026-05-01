@@ -110,10 +110,6 @@ workflows:
           <dict>
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$BUNDLE_ID</key><string>$APP_PROVISIONING_PROFILE_NAME</string>
-            </dict>
             <key>uploadSymbols</key><true/>
             <key>uploadBitcode</key><false/>
           </dict>
