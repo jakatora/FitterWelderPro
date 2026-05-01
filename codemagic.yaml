@@ -84,9 +84,7 @@ workflows:
       - name: Archive and export IPA
         script: |
           set -eo pipefail
-          FLUTTER_BIN=$(which flutter)
-          FLUTTER_ROOT=$(dirname $(dirname $FLUTTER_BIN))
-          echo "Flutter root: $FLUTTER_ROOT"
+          echo "Flutter root (from Codemagic): $FLUTTER_ROOT"
           echo "Using profile UUID: $PROFILE_UUID"
 
           mkdir -p /tmp/xcodebuild_logs
