@@ -121,10 +121,14 @@ workflows:
           </plist>
           PLISTEOF
 
+          echo "=== ExportOptions.plist ==="
+          cat /tmp/ExportOptions.plist
+
           xcodebuild -exportArchive \
             -archivePath build/ios/Runner.xcarchive \
             -exportPath build/ios/ipa \
             -exportOptionsPlist /tmp/ExportOptions.plist \
+            -allowProvisioningUpdates \
             2>&1 | tee /tmp/xcodebuild_logs/export.log
 
     artifacts:
