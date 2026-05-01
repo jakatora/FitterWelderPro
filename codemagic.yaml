@@ -78,27 +78,8 @@ workflows:
 
           echo "PROFILE_UUID=$PROFILE_UUID" >> $CM_ENV
 
-      - name: Regenerate Generated.xcconfig for Mac CI
-        script: |
-          # The committed Generated.xcconfig has Windows paths.
-          # Regenerate it with correct paths for this Mac build agent.
-          cat > ios/Flutter/Generated.xcconfig << EOF
-          FLUTTER_ROOT=$FLUTTER_ROOT
-          FLUTTER_APPLICATION_PATH=$(pwd)
-          COCOAPODS_PARALLEL_CODE_SIGN=true
-          FLUTTER_TARGET=lib/main.dart
-          FLUTTER_BUILD_DIR=build
-          FLUTTER_BUILD_NAME=0.1.4
-          FLUTTER_BUILD_NUMBER=6
-          EXCLUDED_ARCHS[sdk=iphonesimulator*]=i386
-          EXCLUDED_ARCHS[sdk=iphoneos*]=armv7
-          DART_OBFUSCATION=false
-          TRACK_WIDGET_CREATION=false
-          TREE_SHAKE_ICONS=false
-          PACKAGE_CONFIG=.dart_tool/package_config.json
-          EOF
-          echo "Generated.xcconfig:"
-          cat ios/Flutter/Generated.xcconfig
+      - name: Flutter build iOS (no codesign)
+        script: flutter build ios --release --no-codesign
 
       - name: Archive iOS
         script: |
@@ -116,7 +97,6 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM=$APPLE_TEAM_ID \
-            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID \
             PROVISIONING_PROFILE=$PROFILE_UUID \
             PROVISIONING_PROFILE_SPECIFIER=$APP_PROVISIONING_PROFILE_NAME \
             FLUTTER_ROOT=$FLUTTER_ROOT \
