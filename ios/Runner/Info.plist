@@ -43,6 +43,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FitterWelder Pro uses your photo library to attach images to welding projects and pipe spool documentation.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>FitterWelder Pro uses the camera to capture photos for welding project documentation.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
