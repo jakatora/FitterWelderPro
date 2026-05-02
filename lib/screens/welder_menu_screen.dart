@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 import 'welder_pipes_screen.dart';
 import 'welder_tanks_screen.dart';
 import 'welder_tools_screen.dart';
@@ -12,7 +13,10 @@ class WelderMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'SPAWACZ', en: 'WELDER'))),
+      appBar: AppBar(
+        title: Text(context.tr(pl: 'SPAWACZ', en: 'WELDER')),
+        actions: [HelpButton(help: kHelpWelderMenu)],
+      ),
       body: Padding(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
         child: GridView.count(

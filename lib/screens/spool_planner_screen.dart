@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../i18n/app_language.dart';
 import '../widgets/pipe_3d_preview.dart';
+import '../widgets/help_button.dart';
 
 // ── Kolory ─────────────────────────────────────────────────────────────────
 const _kOrange  = Color(0xFFF5A623);
@@ -637,6 +638,7 @@ class _SpoolPlannerScreenState extends State<SpoolPlannerScreen> {
       appBar: AppBar(
         title: Text(_tr('Projektant trasy 3D', 'Route planner 3D')),
         actions: [
+          HelpButton(help: kHelpSpoolPlanner),
           if (_step > 0)
             TextButton(
               onPressed: () => setState(() => _step = 0),

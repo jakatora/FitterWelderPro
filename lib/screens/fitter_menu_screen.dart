@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 import 'projects_screen.dart';
 import 'component_library_screen.dart';
 import 'fitter_tools_screen.dart';
@@ -18,7 +19,10 @@ class FitterMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'FITTER', en: 'FITTER'))),
+      appBar: AppBar(
+        title: Text(context.tr(pl: 'FITTER', en: 'FITTER')),
+        actions: [HelpButton(help: kHelpFitterMenu)],
+      ),
       body: Padding(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
         child: GridView.count(

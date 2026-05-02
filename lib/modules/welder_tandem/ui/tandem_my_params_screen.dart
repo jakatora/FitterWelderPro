@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
+import '../../../widgets/help_button.dart';
 import '../../../database/tandem_amp_param_dao.dart';
 import '../../../models/tandem_amp_param.dart';
 
@@ -23,7 +24,10 @@ class _TandemMyParamsScreenState extends State<TandemMyParamsScreen> {
         ? context.tr(pl: 'Tandem PION – Moje parametry', en: 'Tandem VERTICAL — My parameters')
         : context.tr(pl: 'Tandem POZIOM – Moje parametry', en: 'Tandem HORIZONTAL — My parameters');
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [HelpButton(help: kHelpTandemMyParams)],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _addEdit(),
         child: const Icon(Icons.add),

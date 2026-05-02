@@ -4,6 +4,7 @@ import '../database/tandem_tig_param_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/tandem_tig_param.dart';
 import 'welder_pipes_screen.dart';
+import '../widgets/help_button.dart';
 
 /// WELDER -> Zbiorniki
 ///
@@ -40,6 +41,7 @@ class _WelderTanksScreenState extends State<WelderTanksScreen> with SingleTicker
       appBar: AppBar(
         title: Text(_tr('ZBIORNIKI', 'TANKS')),
         actions: [
+          HelpButton(help: kHelpWelderTanks),
           IconButton(
             tooltip: _tr('Przejdź do Rury (AMP/Gazy/Zatwierdzone AMP)', 'Go to Pipes (AMP/Gases/Approved AMP)'),
             icon: const Icon(Icons.swap_horiz),

@@ -13,6 +13,7 @@ import '../models/library_component.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import '../widgets/component_icon.dart';
+import '../widgets/help_button.dart';
 
 class ProjectComponentsScreen extends StatefulWidget {
   final String projectId;
@@ -167,7 +168,10 @@ class _ProjectComponentsScreenState extends State<ProjectComponentsScreen> {
     final comps = _buildComponentInstances();
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'Komponenty / Heat', en: 'Components / Heat'))),
+      appBar: AppBar(
+        title: Text(context.tr(pl: 'Komponenty / Heat', en: 'Components / Heat')),
+        actions: [HelpButton(help: kHelpProjectComponents)],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : p == null

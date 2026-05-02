@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/library_component.dart';
+import '../widgets/help_button.dart';
 
 class ComponentLibraryScreen extends StatefulWidget {
   const ComponentLibraryScreen({super.key});
@@ -46,6 +47,7 @@ class _ComponentLibraryScreenState extends State<ComponentLibraryScreen> {
       appBar: AppBar(
         title: Text(context.tr(pl: 'Biblioteka komponentów', en: 'Component library')),
         actions: [
+          HelpButton(help: kHelpComponentLibrary),
           IconButton(onPressed: _addDialog, icon: const Icon(Icons.add)),
         ],
       ),

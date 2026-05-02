@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
+import '../../../widgets/help_button.dart';
 import 'tandem_calculator_screen.dart';
 import 'tandem_library_screen.dart';
 import 'tandem_my_params_screen.dart';
@@ -18,7 +19,10 @@ class TandemMenuScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_posName(context))),
+      appBar: AppBar(
+        title: Text(_posName(context)),
+        actions: [HelpButton(help: kHelpTandemMenu)],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(12),
         child: GridView.count(

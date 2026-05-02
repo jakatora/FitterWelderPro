@@ -8,6 +8,7 @@ import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
 import 'help_screen.dart';
 import 'welder_menu_screen.dart';
+import '../widgets/help_button.dart';
 
 // ─── Kolory spójne z motywem ──────────────────────────────────────────────────
 const _kOrange  = Color(0xFFF5A623);
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          HelpButton(help: kHelpHome),
           PopupMenuButton<AppLanguage>(
             tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),
             initialValue: lang,

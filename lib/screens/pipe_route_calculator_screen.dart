@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 class PipeRouteCalculatorScreen extends StatefulWidget {
   const PipeRouteCalculatorScreen({super.key});
@@ -73,6 +74,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Trasa rur – 3 kolanka 90°', en: 'Pipe route – 3 × 90° elbows')),
+        actions: [HelpButton(help: kHelpPipeRoute)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       appBar: AppBar(
         title: Text(context.tr(pl: 'Zeszyt ISO', en: 'ISO Notebook')),
         actions: [
+          HelpButton(help: kHelpIsoNotebook),
           IconButton(
             icon: const Icon(Icons.undo),
             tooltip: context.tr(pl: 'Cofnij', en: 'Undo'),

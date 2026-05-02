@@ -9,6 +9,7 @@ import '../database/approved_weld_param_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/weld_param.dart';
 import '../models/approved_weld_param.dart';
+import '../widgets/help_button.dart';
 
 enum WeldingMethod { tigWire, tigNoWire }
 
@@ -44,6 +45,7 @@ class _WelderPipesScreenState extends State<WelderPipesScreen> with SingleTicker
     return Scaffold(
       appBar: AppBar(
           title: Text(_tr('Rury - Welder', 'Pipes - Welder')),
+          actions: [HelpButton(help: kHelpWelderPipes)],
           bottom: TabBar(
             controller: _tab,
             tabs: [

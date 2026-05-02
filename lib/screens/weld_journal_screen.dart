@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 // ── Kolory ─────────────────────────────────────────────────────────────────
 const _kOrange = Color(0xFFF5A623);
@@ -164,6 +165,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       appBar: AppBar(
         title: Text(_tr('Dziennik spoin', 'Weld journal')),
         actions: [
+          HelpButton(help: kHelpWeldJournal),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _openEditor(null),

@@ -11,6 +11,7 @@ import 'segment_builder_screen.dart';
 import 'material_list_screen.dart';
 import 'cut_list_summary_screen.dart';
 import 'project_components_screen.dart';
+import '../widgets/help_button.dart';
 
 class FitterScreen extends StatefulWidget {
   final String projectId;
@@ -140,6 +141,7 @@ class _FitterScreenState extends State<FitterScreen> {
         actions: p == null
             ? null
             : [
+                HelpButton(help: kHelpFitter),
                 IconButton(
                   icon: const Icon(Icons.list_alt),
                   tooltip: context.tr(pl: 'Lista materiałowa', en: 'Material list'),

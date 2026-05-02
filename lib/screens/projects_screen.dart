@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
+import '../widgets/help_button.dart';
 import '../database/segment_dao.dart';
 import '../models/project.dart';
 import 'new_project_screen.dart';
@@ -41,6 +42,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       appBar: AppBar(
         title: Text(context.tr(pl: 'Projekty', en: 'Projects')),
         actions: [
+          HelpButton(help: kHelpProjects),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: context.tr(pl: 'Nowy projekt', en: 'New project'),

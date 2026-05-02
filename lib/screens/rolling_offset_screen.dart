@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 class RollingOffsetScreen extends StatefulWidget {
   const RollingOffsetScreen({super.key});
@@ -85,6 +86,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
+        actions: [HelpButton(help: kHelpRollingOffset)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

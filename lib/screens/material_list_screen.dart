@@ -5,6 +5,7 @@ import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/material_item.dart';
 import '../services/material_list_builder.dart';
+import '../widgets/help_button.dart';
 
 class MaterialListScreen extends StatefulWidget {
   final String projectId;
@@ -43,7 +44,10 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'Lista materiałowa (BOM)', en: 'Material list (BOM)'))),
+      appBar: AppBar(
+        title: Text(context.tr(pl: 'Lista materiałowa (BOM)', en: 'Material list (BOM)')),
+        actions: [HelpButton(help: kHelpMaterialList)],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty

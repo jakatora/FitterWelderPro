@@ -7,6 +7,7 @@ import '../models/library_component.dart';
 import '../services/cut_calculator.dart';
 import '../services/iso_parser.dart';
 import '../widgets/component_icon.dart';
+import '../widgets/help_button.dart';
 
 // ─── Punkt referencyjny ISO ────────────────────────────────────────────────
 // Określa, od/do którego miejsca na komponencie mierzony jest wymiar ISO.
@@ -391,7 +392,10 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     final canSave = (_cutMm != null && _cutMm! > 0);
 
     return Scaffold(
-      appBar: AppBar(title: Text(_tr('Nowy segment', 'New segment'))),
+      appBar: AppBar(
+        title: Text(_tr('Nowy segment', 'New segment')),
+        actions: [HelpButton(help: kHelpSegmentBuilder)],
+      ),
       body: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(

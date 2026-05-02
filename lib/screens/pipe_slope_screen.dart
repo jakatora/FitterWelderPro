@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 class PipeSlopeScreen extends StatefulWidget {
   const PipeSlopeScreen({super.key});
@@ -104,6 +105,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Spadek rury', en: 'Pipe slope')),
+        actions: [HelpButton(help: kHelpPipeSlope)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

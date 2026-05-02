@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 /// Skąd był mierzony wymiar (dotyczy obu boków)
 enum _RefType { inner, center, outer }
@@ -123,6 +124,7 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
           pl: 'Pomiar trasy',
           en: 'Route measurement',
         )),
+        actions: [HelpButton(help: kHelpRouteMeasure)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

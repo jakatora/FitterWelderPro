@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../data/nps_dn_od_r.dart';
+import '../widgets/help_button.dart';
 
 class DnMmScreen extends StatefulWidget {
   const DnMmScreen({super.key});
@@ -53,6 +54,7 @@ class _DnMmScreenState extends State<DnMmScreen> {
       appBar: AppBar(
         title: const Text('DN-MM'),
         actions: [
+          HelpButton(help: kHelpDnMm),
           IconButton(tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'), icon: const Icon(Icons.clear_all), onPressed: _clear),
         ],
       ),

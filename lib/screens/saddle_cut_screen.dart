@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 class SaddleCutScreen extends StatefulWidget {
   const SaddleCutScreen({super.key});
@@ -90,6 +91,7 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Saddle Cut – wycięcie siodłowe', en: 'Saddle Cut – fish-mouth cut')),
+        actions: [HelpButton(help: kHelpSaddleCut)],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

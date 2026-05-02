@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../data/nps_dn_od_r.dart';
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 const _kAccent       = Color(0xFF1A8A9B);
 const _kAccentWarm   = Color(0xFFF5A623);   // wyróżnienia wynikowe
@@ -25,6 +26,7 @@ class FitterToolsScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(context.tr(pl: 'Kalkulatory - Fitter', en: 'Calculators - Fitter')),
+          actions: [HelpButton(help: kHelpFitterTools)],
           bottom: TabBar(
             isScrollable: true,
             tabs: [

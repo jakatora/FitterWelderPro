@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
+import '../../../widgets/help_button.dart';
 import '../../../database/tandem_amp_param_dao.dart';
 import '../../../models/tandem_amp_param.dart';
 import '../tandem_calc.dart';
@@ -41,7 +42,10 @@ class _TandemCalculatorScreenState extends State<TandemCalculatorScreen> {
     final t2 = _parse(_t2Ctrl.text);
 
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [HelpButton(help: kHelpTandemCalc)],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [

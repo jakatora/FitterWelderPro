@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../widgets/help_button.dart';
 
 // ── Kolory ────────────────────────────────────────────────────────────────
 const _kOrange = Color(0xFFF5A623);
@@ -26,6 +27,7 @@ class WelderToolsScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Text(context.tr(pl: 'Kalkulatory - Spawacz', en: 'Calculators - Welder')),
+          actions: [HelpButton(help: kHelpWelderTools)],
           bottom: TabBar(
             isScrollable: true,
             tabs: [

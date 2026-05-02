@@ -7,6 +7,7 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/bar_nesting.dart';
 import '../services/pdf_export_service.dart';
+import '../widgets/help_button.dart';
 
 const _kOrange = Color(0xFFF5A623);
 const _kGreen  = Color(0xFF2ECC71);
@@ -82,6 +83,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       appBar: AppBar(
         title: const Text('CUT LIST'),
         actions: [
+          HelpButton(help: kHelpCutListSummary),
           if (p != null) ...[
             // Eksport PDF
             if (_exporting)

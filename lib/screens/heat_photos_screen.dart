@@ -9,6 +9,7 @@ import '../database/heat_photo_dao.dart';
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/heat_photo.dart';
+import '../widgets/help_button.dart';
 import '../models/library_component.dart';
 import '../models/project.dart';
 
@@ -122,7 +123,10 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
   Widget build(BuildContext context) {
     final p = _project;
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'Heat numbers', en: 'Heat numbers'))),
+      appBar: AppBar(
+        title: Text(context.tr(pl: 'Heat numbers', en: 'Heat numbers')),
+        actions: [HelpButton(help: kHelpHeatPhotos)],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _loading ? null : _add,
         icon: const Icon(Icons.add_a_photo),

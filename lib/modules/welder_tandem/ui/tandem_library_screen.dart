@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
+import '../../../widgets/help_button.dart';
 import '../../../database/tandem_amp_param_dao.dart';
 import '../../../models/tandem_amp_param.dart';
 
@@ -25,7 +26,10 @@ class _TandemLibraryScreenState extends State<TandemLibraryScreen> {
         ? context.tr(pl: 'Tandem PION – Biblioteka', en: 'Tandem VERTICAL — Library')
         : context.tr(pl: 'Tandem POZIOM – Biblioteka', en: 'Tandem HORIZONTAL — Library');
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(
+        title: Text(title),
+        actions: [HelpButton(help: kHelpTandemLibrary)],
+      ),
       body: Column(
         children: [
           Padding(

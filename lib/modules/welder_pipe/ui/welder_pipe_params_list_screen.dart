@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
+import '../../../widgets/help_button.dart';
 
 import '../local_repo.dart';
 import '../welder_pipe_param.dart';
@@ -105,7 +106,10 @@ class _WelderPipeParamsListScreenState extends State<WelderPipeParamsListScreen>
     String trL({required String pl, required String en}) => lang == AppLanguage.en ? en : pl;
 
     return Scaffold(
-      appBar: AppBar(title: Text(trL(pl: 'Moje parametry – Welder (Rury)', en: 'My parameters — Welder (Pipes)'))),
+      appBar: AppBar(
+        title: Text(trL(pl: 'Moje parametry – Welder (Rury)', en: 'My parameters — Welder (Pipes)')),
+        actions: [HelpButton(help: kHelpWelderPipeParams)],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _add,
         icon: const Icon(Icons.add),
