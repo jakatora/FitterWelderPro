@@ -31,19 +31,26 @@ workflows:
           APPLE_TEAM_ID=$APPLE_TEAM_ID
           EOF
 
-      - name: Set up code signing (Team Settings)
+      - name: Set up code signing (Apple Developer Portal)
         script: |
           set -eo pipefail
 
-          # We're not creating anything new — the team already has:
-          #  - apple_distribution_fitterwelder_2026 (cert)
-          #  - com.jakatora.fitterwelderpro app_store profile
-          # uploaded in Codemagic Team Settings → Code signing identities.
-          # `keychain add-certificates` and `xcode-project use-profiles` pick
-          # them up automatically without hitting Apple's API, so there's no
-          # need for a CERTIFICATE_PRIVATE_KEY env var.
           keychain initialize
+
+          # Fetch the existing Apple Distribution certificate + App Store
+          # provisioning profile for $BUNDLE_ID from Apple Developer Portal
+          # via the `codemagic` API integration. Both already exist:
+          #   - cert: Apple Distribution: Krzysztof Kapusta (active)
+          #   - profile: com.jakatora.fitterwelderpro app_store (valid 2027)
+          # No --create flag → no new cert request → no CERTIFICATE_PRIVATE_KEY
+          # needed. The private key matched on disk is the one Codemagic
+          # already has from the .p12 uploaded to Team Settings.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --platform IOS
+
           keychain add-certificates
+
           xcode-project use-profiles \
             --export-options-plist "$CM_BUILD_DIR/export_options.plist"
 
