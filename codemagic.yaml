@@ -4,6 +4,11 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
 
+    # App Store Connect API integration — Codemagic uses your .p8 / Key ID /
+    # Issuer ID to fetch the active distribution certificate and provisioning
+    # profile for the bundle ID below. No base64 secrets in env vars; the
+    # cert and profile are refreshed automatically each build, so an expired
+    # cert (12-month rotation) is replaced without manual yaml edits.
     integrations:
       app_store_connect: codemagic
 
@@ -14,10 +19,6 @@ workflows:
       vars:
         BUNDLE_ID: com.jakatora.fitterwelderpro
         APPLE_TEAM_ID: B7J6A7R258
-        APP_PROVISIONING_PROFILE_NAME: FitterWelderPro_AppStore
-        KEYCHAIN_PASSWORD: keychain_codemagic_2026
-      groups:
-        - ios_signing
 
     scripts:
       - name: Flutter pub get
@@ -29,103 +30,49 @@ workflows:
           APP_BUNDLE_IDENTIFIER=$BUNDLE_ID
           APPLE_TEAM_ID=$APPLE_TEAM_ID
           EOF
-          echo "Created AppStore.xcconfig:"
-          cat ios/Flutter/AppStore.xcconfig
 
-      - name: Install certificate and provisioning profile
+      - name: Set up code signing (App Store Connect API)
         script: |
           set -eo pipefail
-          CERT_PATH=/tmp/distribution.p12
-          PROFILE_PATH=/tmp/profile.mobileprovision
-          KEYCHAIN_PATH=/tmp/app-signing.keychain-db
+          keychain initialize
 
-          echo -n "$CM_CERTIFICATE" | base64 -D > $CERT_PATH
-          echo -n "$CM_PROVISIONING_PROFILE" | base64 -D > $PROFILE_PATH
+          # Pulls the active Apple Distribution cert and the App Store
+          # provisioning profile for $BUNDLE_ID from Apple Developer through
+          # the API key registered as the `codemagic` integration. If the
+          # cert was revoked / expired and a new one was created, this picks
+          # the new one automatically.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
 
-          CERT_SIZE=$(wc -c < $CERT_PATH | tr -d ' ')
-          PROFILE_SIZE=$(wc -c < $PROFILE_PATH | tr -d ' ')
-          echo "Cert size: $CERT_SIZE bytes"
-          echo "Profile size: $PROFILE_SIZE bytes"
+          keychain add-certificates
 
-          if [ "$CERT_SIZE" -eq 0 ]; then
-            echo "ERROR: CM_CERTIFICATE is empty — check ios_signing group in Codemagic"
-            exit 1
-          fi
-          if [ "$PROFILE_SIZE" -eq 0 ]; then
-            echo "ERROR: CM_PROVISIONING_PROFILE is empty — check ios_signing group in Codemagic"
-            exit 1
-          fi
+          # Write ExportOptions.plist from whatever profile was just fetched.
+          xcode-project use-profiles \
+            --export-options-plist "$CM_BUILD_DIR/export_options.plist"
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security import $CERT_PATH -P "$CM_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH -T /usr/bin/codesign
-          security list-keychains -d user -s $KEYCHAIN_PATH $(security list-keychains -d user | sed s/\"//g)
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          echo "=== ExportOptions.plist ==="
+          cat "$CM_BUILD_DIR/export_options.plist"
 
-          echo "=== Signing identities ==="
-          security find-identity -v -p codesigning $KEYCHAIN_PATH
-
-          PROFILE_UUID=$(security cms -D -i $PROFILE_PATH | plutil -extract UUID raw -)
-          PROFILE_NAME=$(security cms -D -i $PROFILE_PATH | plutil -extract Name raw -)
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Name: $PROFILE_NAME"
-
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-          echo "Installed profiles:"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
-
-          echo "PROFILE_UUID=$PROFILE_UUID" >> $CM_ENV
-
-      - name: Flutter build iOS (no codesign)
-        script: flutter build ios --release --no-codesign
-
-      - name: Archive iOS
+      - name: Build IPA
         script: |
           set -eo pipefail
-          echo "Flutter root (from Codemagic): $FLUTTER_ROOT"
-          echo "Using profile UUID: $PROFILE_UUID"
-
           mkdir -p /tmp/xcodebuild_logs
 
-          # NOTE: PROVISIONING_PROFILE / PROVISIONING_PROFILE_SPECIFIER are
-          # intentionally NOT passed as global xcodebuild flags. They would
-          # apply to every target in the workspace — including Swift Package
-          # Manager packages (e.g. sqflite_darwin) that do not support manual
-          # provisioning and would fail the archive. xcodebuild instead picks
-          # the right profile from the bundle that was just installed in
-          # ~/Library/MobileDevice/Provisioning Profiles/.
-          xcodebuild -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -archivePath build/ios/Runner.xcarchive \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath /tmp/derivedData \
-            -allowProvisioningUpdates \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            DEVELOPMENT_TEAM=$APPLE_TEAM_ID \
-            FLUTTER_ROOT=$FLUTTER_ROOT \
-            archive 2>&1 | tee /tmp/xcodebuild_logs/archive.log
+          # flutter build ipa drives xcodebuild archive + export under the
+          # hood, picking the right cert and profile from the keychain /
+          # MobileDevice store that the previous step populated. No manual
+          # PROVISIONING_PROFILE flags — SPM packages (sqflite_darwin etc.)
+          # would reject them.
+          flutter build ipa --release \
+            --export-options-plist="$CM_BUILD_DIR/export_options.plist" \
+            2>&1 | tee /tmp/xcodebuild_logs/build.log
 
-          echo "=== Archive contents ==="
-          ls -la build/ios/Runner.xcarchive/Products/Applications/
-
-      - name: Package IPA manually
-        script: |
-          set -eo pipefail
-          mkdir -p build/ios/ipa/Payload
-          cp -r build/ios/Runner.xcarchive/Products/Applications/Runner.app \
-            build/ios/ipa/Payload/
-          cd build/ios/ipa
-          zip -r ../FitterWelderPro.ipa Payload/
-          echo "=== IPA created ==="
-          ls -lh ../FitterWelderPro.ipa
-          echo "=== Verifying code signature ==="
-          codesign -dv --verbose=4 Payload/Runner.app 2>&1 | head -30
+          echo "=== IPA output ==="
+          ls -lh build/ios/ipa/
 
     artifacts:
-      - build/ios/FitterWelderPro.ipa
+      - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
