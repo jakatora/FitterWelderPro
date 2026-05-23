@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 class PipeSlopeScreen extends StatefulWidget {
@@ -137,6 +138,21 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                 suffix: '%',
                 readOnly: _mode == 'slope_from_lr',
               ),
+              if (_mode == 'length_to_rise') ...[
+                const SizedBox(height: 8),
+                _slopePresets(),
+              ],
+              const SizedBox(height: 12),
+            ],
+
+            if (_mode == 'rise_to_length') ...[
+              _field(
+                _slopeController,
+                label: context.tr(pl: 'Nachylenie', en: 'Slope'),
+                suffix: '%',
+              ),
+              const SizedBox(height: 8),
+              _slopePresets(),
               const SizedBox(height: 12),
             ],
 
@@ -251,6 +267,50 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
   );
 
+  /// Drainage-slope presets. In food & pharma the line must self-drain, so the
+  /// slope is a spec requirement — these are the values that actually appear
+  /// on hygienic-piping drawings (1:100 is the common default).
+  Widget _slopePresets() {
+    final cs = Theme.of(context).colorScheme;
+    const presets = <(String, String)>[
+      ('0.5', '1:200'),
+      ('0.67', '1:150'),
+      ('1', '1:100'),
+      ('2', '1:50'),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          context.tr(
+              pl: 'Spadki drenażowe (food/pharma):',
+              en: 'Drainage slopes (food/pharma):'),
+          style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: presets.map((p) {
+            final selected = _parse(_slopeController.text) == _parse(p.$1);
+            return ActionChip(
+              label: Text('${p.$1}%  (${p.$2})',
+                  style: const TextStyle(fontSize: 12)),
+              backgroundColor:
+                  selected ? cs.primaryContainer : cs.surfaceContainerHigh,
+              side: BorderSide(
+                  color: selected ? cs.primary : cs.outlineVariant),
+              onPressed: () {
+                setState(() => _slopeController.text = p.$1);
+                _calculate();
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
   Widget _field(TextEditingController ctrl,
       {required String label, String? suffix, bool readOnly = false}) {
     return TextField(
@@ -276,6 +336,13 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         suffixText: suffix,
         border: const OutlineInputBorder(),
         filled: true,
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.content_copy, size: 18),
+          tooltip: context.tr(pl: 'Kopiuj', en: 'Copy'),
+          onPressed: ctrl.text.trim().isEmpty
+              ? null
+              : () => copyToClipboard(context, ctrl.text, label: label),
+        ),
       ),
     );
   }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
@@ -10,7 +10,7 @@ import 'help_screen.dart';
 import 'welder_menu_screen.dart';
 import '../widgets/help_button.dart';
 
-// ─── Kolory spójne z motywem ──────────────────────────────────────────────────
+// â”€â”€â”€ Kolory spÃ³jne z motywem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _kOrange  = Color(0xFFF5A623);
 const _kGold    = Color(0xFFE8C14B);
 const _kBlue    = Color(0xFF4A9EFF);
@@ -82,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           HelpButton(help: kHelpHome),
           PopupMenuButton<AppLanguage>(
-            tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),
+            tooltip: context.tr(pl: 'ZmieÅ„ jÄ™zyk', en: 'Change language'),
             initialValue: lang,
             onSelected: context.setLanguage,
             itemBuilder: (_) => const [
@@ -116,7 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.fromLTRB(
               0, 0, 0, 24 + MediaQuery.viewPaddingOf(context).bottom),
           children: [
-            // ── HERO BANNER ────────────────────────────────────────────────
+            // â”€â”€ HERO BANNER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             _HeroBanner(
               totalProjects: _totalProjects,
               totalSegments: _totalSegments,
@@ -125,8 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 20),
 
-            // ── SEKCJA: NARZĘDZIA ──────────────────────────────────────────
-            _SectionLabel(context.tr(pl: 'Narzędzia', en: 'Tools')),
+            // â”€â”€ SEKCJA: NARZÄ˜DZIA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            _SectionLabel(context.tr(pl: 'NarzÄ™dzia', en: 'Tools')),
             const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -177,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 24),
 
-            // ── SEKCJA: OSTATNIE PROJEKTY ──────────────────────────────────
+            // â”€â”€ SEKCJA: OSTATNIE PROJEKTY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             _SectionLabel(
                 context.tr(pl: 'Ostatnie projekty', en: 'Recent projects')),
             const SizedBox(height: 10),
@@ -205,8 +205,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 14),
                       Text(
                         context.tr(
-                            pl: 'Brak projektów — zacznij w FITTER → CUT LIST',
-                            en: 'No projects yet — start in FITTER → CUT LIST'),
+                            pl: 'Brak projektÃ³w â€” zacznij w FITTER â†’ CUT LIST',
+                            en: 'No projects yet â€” start in FITTER â†’ CUT LIST'),
                         style: const TextStyle(
                             color: _kTextMut, fontSize: 13),
                       ),
@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── HERO BANNER ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ HERO BANNER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _HeroBanner extends StatelessWidget {
   final int totalProjects;
   final int totalSegments;
@@ -268,17 +268,17 @@ class _HeroBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Iskra spawalnicza — dekoracja
+          // Iskra spawalnicza â€” dekoracja
           Row(
             children: [
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _kOrange.withOpacity(0.12),
+                  color: _kOrange.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                   border:
-                      Border.all(color: _kOrange.withOpacity(0.3), width: 1),
+                      Border.all(color: _kOrange.withValues(alpha: 0.3), width: 1),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -307,8 +307,8 @@ class _HeroBanner extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             context.tr(
-                pl: 'Witaj, Spawaczu 👷',
-                en: 'Welcome, Welder 👷'),
+                pl: 'Witaj, Spawaczu ðŸ‘·',
+                en: 'Welcome, Welder ðŸ‘·'),
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
@@ -319,7 +319,7 @@ class _HeroBanner extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             context.tr(
-                pl: 'Twoje narzędzia gotowe do pracy',
+                pl: 'Twoje narzÄ™dzia gotowe do pracy',
                 en: 'Your tools are ready'),
             style: const TextStyle(fontSize: 13, color: _kTextSec),
           ),
@@ -328,14 +328,14 @@ class _HeroBanner extends StatelessWidget {
           Row(
             children: [
               _StatChip(
-                value: loading ? '–' : '$totalProjects',
+                value: loading ? 'â€“' : '$totalProjects',
                 label: context.tr(pl: 'Projekty', en: 'Projects'),
                 icon: Icons.folder_outlined,
                 color: _kOrange,
               ),
               const SizedBox(width: 10),
               _StatChip(
-                value: loading ? '–' : '$totalSegments',
+                value: loading ? 'â€“' : '$totalSegments',
                 label: context.tr(pl: 'Segmenty', en: 'Segments'),
                 icon: Icons.linear_scale,
                 color: _kBlue,
@@ -367,9 +367,9 @@ class _StatChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.2), width: 1),
+          border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
         ),
         child: Row(
           children: [
@@ -402,7 +402,7 @@ class _StatChip extends StatelessWidget {
   }
 }
 
-// ─── SEKCJA LABEL ────────────────────────────────────────────────────────────
+// â”€â”€â”€ SEKCJA LABEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _SectionLabel extends StatelessWidget {
   final String text;
   const _SectionLabel(this.text);
@@ -424,7 +424,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-// ─── KARTA MENU ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ KARTA MENU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _MenuCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -467,7 +467,7 @@ class _MenuCard extends StatelessWidget {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: accent.withOpacity(0.13),
+                      color: accent.withValues(alpha: 0.13),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(icon, size: 20, color: accent),
@@ -500,7 +500,7 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-// ─── KAFELEK PROJEKTU ─────────────────────────────────────────────────────────
+// â”€â”€â”€ KAFELEK PROJEKTU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ProjectTile extends StatelessWidget {
   final Project project;
   final VoidCallback onTap;
@@ -534,7 +534,7 @@ class _ProjectTile extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: _kOrange.withOpacity(0.10),
+                color: _kOrange.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(Icons.assignment_outlined,
@@ -558,7 +558,7 @@ class _ProjectTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Ø${project.diameterMm.toStringAsFixed(1)} mm  ·  '
+                    'Ã˜${project.diameterMm.toStringAsFixed(1)} mm  Â·  '
                     't ${project.wallThicknessMm.toStringAsFixed(1)} mm',
                     style: const TextStyle(
                         fontSize: 12, color: _kTextMut),
@@ -567,15 +567,15 @@ class _ProjectTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Badge materiału
+            // Badge materiaÅ‚u
             Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: matColor.withOpacity(0.12),
+                color: matColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
                 border:
-                    Border.all(color: matColor.withOpacity(0.3), width: 1),
+                    Border.all(color: matColor.withValues(alpha: 0.3), width: 1),
               ),
               child: Text(
                 matLabel,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
@@ -11,6 +11,7 @@ import 'segment_builder_screen.dart';
 import 'material_list_screen.dart';
 import 'cut_list_summary_screen.dart';
 import 'project_components_screen.dart';
+import 'heat_photos_screen.dart';
 import '../widgets/help_button.dart';
 
 class FitterScreen extends StatefulWidget {
@@ -144,7 +145,7 @@ class _FitterScreenState extends State<FitterScreen> {
                 HelpButton(help: kHelpFitter),
                 IconButton(
                   icon: const Icon(Icons.list_alt),
-                  tooltip: context.tr(pl: 'Lista materiałowa', en: 'Material list'),
+                  tooltip: context.tr(pl: 'Lista materiaÅ‚owa', en: 'Material list'),
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -159,6 +160,16 @@ class _FitterScreenState extends State<FitterScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => ProjectComponentsScreen(projectId: p.id)),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  tooltip: context.tr(pl: 'Zdjęcia certyfikatów / heat', en: 'Heat / certificate photos'),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => HeatPhotosScreen(projectId: p.id)),
                     );
                   },
                 ),
@@ -179,13 +190,13 @@ class _FitterScreenState extends State<FitterScreen> {
                     Card(
                       margin: const EdgeInsets.all(12),
                       child: ListTile(
-                        title: Text('Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)}'),
-                        subtitle: Text(context.tr(pl: 'Aktualna średnica w trasie: Ø${p.currentDiameterMm.toStringAsFixed(1)}', en: 'Current route diameter: Ø${p.currentDiameterMm.toStringAsFixed(1)}')),
+                        title: Text('Ã˜${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)}'),
+                        subtitle: Text(context.tr(pl: 'Aktualna Å›rednica w trasie: Ã˜${p.currentDiameterMm.toStringAsFixed(1)}', en: 'Current route diameter: Ã˜${p.currentDiameterMm.toStringAsFixed(1)}')),
                       ),
                     ),
                     Expanded(
                       child: _segments.isEmpty
-                          ? Center(child: Text(context.tr(pl: 'Brak segmentów. Dodaj pierwszy segment.', en: 'No segments yet. Add the first segment.')))
+                          ? Center(child: Text(context.tr(pl: 'Brak segmentÃ³w. Dodaj pierwszy segment.', en: 'No segments yet. Add the first segment.')))
                           : ListView.separated(
                               itemCount: _segments.length,
                               separatorBuilder: (_, __) => const Divider(height: 0),
@@ -204,9 +215,9 @@ class _FitterScreenState extends State<FitterScreen> {
                                     return await showDialog<bool>(
                                       context: context,
                                       builder: (_) => AlertDialog(
-                                        title: Text(context.tr(pl: 'Usuń segment', en: 'Delete segment')),
+                                        title: Text(context.tr(pl: 'UsuÅ„ segment', en: 'Delete segment')),
                                         content: Text(context.tr(
-                                          pl: 'Usunąć Segment ${s.seqNo}? Tej operacji nie można cofnąć.',
+                                          pl: 'UsunÄ…Ä‡ Segment ${s.seqNo}? Tej operacji nie moÅ¼na cofnÄ…Ä‡.',
                                           en: 'Delete Segment ${s.seqNo}? This cannot be undone.',
                                         )),
                                         actions: [
@@ -217,7 +228,7 @@ class _FitterScreenState extends State<FitterScreen> {
                                           ElevatedButton(
                                             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE74C3C), foregroundColor: Colors.white),
                                             onPressed: () => Navigator.pop(context, true),
-                                            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                                            child: Text(context.tr(pl: 'UsuÅ„', en: 'Delete')),
                                           ),
                                         ],
                                       ),
@@ -238,15 +249,15 @@ class _FitterScreenState extends State<FitterScreen> {
                                       final endLbl = labels == null ? '...' : labels[1];
                                       return ListTile(
                                         leading: CircleAvatar(
-                                          backgroundColor: const Color(0xFFF5A623).withOpacity(0.15),
+                                          backgroundColor: const Color(0xFFF5A623).withValues(alpha: 0.15),
                                           child: Text('${s.seqNo}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFF5A623))),
                                         ),
                                         title: Text(
-                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}  •  Ø${s.diameterMm.toStringAsFixed(1)} × t${s.wallThicknessMm.toStringAsFixed(1)}',
+                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}  â€¢  Ã˜${s.diameterMm.toStringAsFixed(1)} Ã— t${s.wallThicknessMm.toStringAsFixed(1)}',
                                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                                         ),
                                         subtitle: Text(
-                                          '$startLbl → $endLbl\nISO: ${s.isoExpr} = ${s.isoMm.toStringAsFixed(1)} mm  |  CUT: ${s.cutMm.toStringAsFixed(1)} mm',
+                                          '$startLbl â†’ $endLbl\nISO: ${s.isoExpr} = ${s.isoMm.toStringAsFixed(1)} mm  |  CUT: ${s.cutMm.toStringAsFixed(1)} mm',
                                           style: const TextStyle(fontSize: 12, height: 1.4),
                                         ),
                                         isThreeLine: true,
@@ -264,7 +275,7 @@ class _FitterScreenState extends State<FitterScreen> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           icon: const Icon(Icons.checklist),
-                          label: Text(context.tr(pl: 'Zakończ CUT LIST', en: 'Finish CUT LIST')),
+                          label: Text(context.tr(pl: 'ZakoÅ„cz CUT LIST', en: 'Finish CUT LIST')),
                           onPressed: _segments.isEmpty
                               ? null
                               : () => Navigator.push(

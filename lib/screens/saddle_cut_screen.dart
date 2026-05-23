@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 class SaddleCutScreen extends StatefulWidget {
@@ -79,6 +80,34 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     });
   }
 
+  /// Builds a tab-separated profile table the fitter can paste straight into
+  /// a worksheet or chat to the cutter.
+  Future<void> _copyProfile() async {
+    final h = _hMax;
+    final p = _profile;
+    if (h == null || p == null) return;
+    final headerOd =
+        double.tryParse(_headerOdController.text.replaceAll(',', '.')) ?? 0;
+    final branchOd =
+        double.tryParse(_branchOdController.text.replaceAll(',', '.')) ?? 0;
+    final buf = StringBuffer();
+    buf.writeln(context.tr(
+        pl: 'Saddle cut — profil wycięcia siodłowego',
+        en: 'Saddle cut — fish-mouth profile'));
+    buf.writeln('Header OD: ${headerOd.toStringAsFixed(1)} mm');
+    buf.writeln('Branch OD: ${branchOd.toStringAsFixed(1)} mm');
+    buf.writeln('h_max:     ${h.toStringAsFixed(1)} mm');
+    buf.writeln('─' * 28);
+    buf.writeln('${context.tr(pl: 'Kąt α', en: 'Angle α')}\t'
+        '${context.tr(pl: 'Głębokość', en: 'Depth')}');
+    for (final pt in p) {
+      buf.writeln('${pt.angle}°\t${pt.depth.toStringAsFixed(1)} mm');
+    }
+    if (!mounted) return;
+    await copyToClipboard(context, buf.toString(),
+        label: context.tr(pl: 'Profil saddle', en: 'Saddle profile'));
+  }
+
   @override
   void dispose() {
     _headerOdController.dispose();
@@ -91,7 +120,14 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Saddle Cut – wycięcie siodłowe', en: 'Saddle Cut – fish-mouth cut')),
-        actions: [HelpButton(help: kHelpSaddleCut)],
+        actions: [
+          HelpButton(help: kHelpSaddleCut),
+          IconButton(
+            icon: const Icon(Icons.copy_all_outlined),
+            tooltip: context.tr(pl: 'Kopiuj profil', en: 'Copy profile'),
+            onPressed: _profile == null ? null : _copyProfile,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -154,9 +190,13 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
                         context.tr(pl: 'Maks. głębokość cięcia (h_max)', en: 'Max. cut depth (h_max)'),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      Text(
-                        '${_hMax!.toStringAsFixed(1)} mm',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      CopyOnLongPress(
+                        value: _hMax!.toStringAsFixed(1),
+                        label: 'h_max',
+                        child: Text(
+                          '${_hMax!.toStringAsFixed(1)} mm',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                        ),
                       ),
                       Text(
                         context.tr(pl: 'Wzór: R − √(R²−r²)', en: 'Formula: R − √(R²−r²)'),

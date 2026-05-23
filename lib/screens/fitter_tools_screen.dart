@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_const_constructors
+﻿// ignore_for_file: prefer_const_constructors
 
 import 'dart:math' as math;
 
@@ -6,10 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../data/nps_dn_od_r.dart';
 import '../i18n/app_language.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 const _kAccent       = Color(0xFF1A8A9B);
-const _kAccentWarm   = Color(0xFFF5A623);   // wyróżnienia wynikowe
+const _kAccentWarm   = Color(0xFFF5A623);   // wyrÃ³Å¼nienia wynikowe
 const _kResultBg     = Color(0xFF152530);
 const _kResultBorder = Color(0xFF1A3A4A);
 const _kSubtle       = Color(0xFF546E7A);   // tekst pomocniczy
@@ -31,11 +32,11 @@ class FitterToolsScreen extends StatelessWidget {
             isScrollable: true,
             tabs: [
               Tab(text: context.tr(pl: 'Spadek', en: 'Slope')),
-              Tab(text: context.tr(pl: 'Cięcie kolanka', en: 'Elbow cut')),
-              Tab(text: context.tr(pl: 'Obrót kolanka', en: 'Elbow rotation')),
+              Tab(text: context.tr(pl: 'CiÄ™cie kolanka', en: 'Elbow cut')),
+              Tab(text: context.tr(pl: 'ObrÃ³t kolanka', en: 'Elbow rotation')),
               Tab(text: context.tr(pl: 'Wstawka', en: 'Insert')),
               Tab(text: context.tr(pl: 'Redukcja', en: 'Reducer')),
-              Tab(text: context.tr(pl: 'Ciężar rury', en: 'Pipe weight')),
+              Tab(text: context.tr(pl: 'CiÄ™Å¼ar rury', en: 'Pipe weight')),
               Tab(text: context.tr(pl: 'Fazowanie', en: 'Bevel')),
               Tab(text: context.tr(pl: 'Dylatacja', en: 'Expansion')),
             ],
@@ -100,13 +101,22 @@ class _ResultValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: isPrimary ? 26 : 17,
-        fontWeight: isPrimary ? FontWeight.w800 : FontWeight.w600,
-        color: isPrimary ? _kAccentWarm : const Color(0xFFE8ECF0),
-        letterSpacing: isPrimary ? -0.5 : 0,
+    // Long-press copies the numeric/text value to clipboard so a fitter can
+    // paste it straight into a chat/SMS without retyping (gloves + small keys).
+    final copyValue = text
+        .replaceAll(',', '.')
+        .replaceAll(' ', ' ')
+        .trim();
+    return CopyOnLongPress(
+      value: copyValue,
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: isPrimary ? 26 : 17,
+          fontWeight: isPrimary ? FontWeight.w800 : FontWeight.w600,
+          color: isPrimary ? _kAccentWarm : const Color(0xFFE8ECF0),
+          letterSpacing: isPrimary ? -0.5 : 0,
+        ),
       ),
     );
   }
@@ -123,9 +133,9 @@ class _ErrorText extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.1),
+          color: Colors.red.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.red.withOpacity(0.2)),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -201,7 +211,7 @@ class _SlopeTabState extends State<_SlopeTab> {
       final d = double.tryParse(_diameter.text.replaceAll(',', '.'));
       final pct = double.tryParse(_percent.text.replaceAll(',', '.'));
       if (d == null || d <= 0) {
-        _error = _tr('Podaj średnicę zewnętrzną rury D (mm)', 'Enter pipe outside diameter D (mm)');
+        _error = _tr('Podaj Å›rednicÄ™ zewnÄ™trznÄ… rury D (mm)', 'Enter pipe outside diameter D (mm)');
         return;
       }
       if (pct == null) {
@@ -214,7 +224,7 @@ class _SlopeTabState extends State<_SlopeTab> {
       _sawAngleDeg = 90.0 - _alphaDeg!;
       _deltaH = d * math.sin(alphaRad);
 
-      _hint = _tr('Zetnij ${_deltaH!.toStringAsFixed(2)} mm albo utnij na pile ${_sawAngleDeg!.toStringAsFixed(2)}°', 'Cut ${_deltaH!.toStringAsFixed(2)} mm or set the saw to ${_sawAngleDeg!.toStringAsFixed(2)}°');
+      _hint = _tr('Zetnij ${_deltaH!.toStringAsFixed(2)} mm albo utnij na pile ${_sawAngleDeg!.toStringAsFixed(2)}Â°', 'Cut ${_deltaH!.toStringAsFixed(2)} mm or set the saw to ${_sawAngleDeg!.toStringAsFixed(2)}Â°');
     });
   }
 
@@ -225,12 +235,12 @@ class _SlopeTabState extends State<_SlopeTab> {
       children: [
         _SectionTitle(_tr('Spadek rury', 'Pipe slope')),
         _SectionDesc(
-          _tr('Cięcie na skos (jedno cięcie) - policz różnicę wysokości na przekroju rury, żeby uzyskać spadek w %.', 'Single angled cut: calculate the height difference across the pipe section to achieve the required slope in %.'),
+          _tr('CiÄ™cie na skos (jedno ciÄ™cie) - policz rÃ³Å¼nicÄ™ wysokoÅ›ci na przekroju rury, Å¼eby uzyskaÄ‡ spadek w %.', 'Single angled cut: calculate the height difference across the pipe section to achieve the required slope in %.'),
         ),
         TextField(
           controller: _diameter,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Średnica zewnętrzna rury D (mm)', 'Pipe outside diameter D (mm)')),
+          decoration: InputDecoration(labelText: _tr('Åšrednica zewnÄ™trzna rury D (mm)', 'Pipe outside diameter D (mm)')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
@@ -244,13 +254,13 @@ class _SlopeTabState extends State<_SlopeTab> {
         if (_alphaDeg != null && _deltaH != null)
           _ResultCard(
             children: [
-              _ResultLabel(_tr('Kąt spadku α', 'Slope angle α')),
-              _ResultValue('${_alphaDeg!.toStringAsFixed(3)}°'),
+              _ResultLabel(_tr('KÄ…t spadku Î±', 'Slope angle Î±')),
+              _ResultValue('${_alphaDeg!.toStringAsFixed(3)}Â°'),
               const SizedBox(height: 10),
-              _ResultLabel(_tr('Kąt cięcia na pile (90° − α)', 'Saw cut angle (90° − α)')),
-              _ResultValue('${_sawAngleDeg!.toStringAsFixed(3)}°'),
+              _ResultLabel(_tr('KÄ…t ciÄ™cia na pile (90Â° âˆ’ Î±)', 'Saw cut angle (90Â° âˆ’ Î±)')),
+              _ResultValue('${_sawAngleDeg!.toStringAsFixed(3)}Â°'),
               const Divider(height: 24, color: Color(0xFF1A3A4A)),
-              _ResultLabel(_tr('Różnica góra–dół na przekroju Δh', 'Top–bottom height diff. across pipe Δh')),
+              _ResultLabel(_tr('RÃ³Å¼nica gÃ³raâ€“dÃ³Å‚ na przekroju Î”h', 'Topâ€“bottom height diff. across pipe Î”h')),
               _ResultValue('${_deltaH!.toStringAsFixed(2)} mm', isPrimary: true),
               if (_hint != null) ...[
                 const SizedBox(height: 12),
@@ -275,18 +285,18 @@ class _ElbowTabState extends State<_ElbowTab> {
   // Kolano bazowe: 90 lub 45
   String _base = '90';
 
-  // Pola wejściowe
-  final _longTotal  = TextEditingController(); // długi bok (extrados) całego kolanka
-  final _shortTotal = TextEditingController(); // krótki bok (intrados) całego kolanka
-  final _targetAngle = TextEditingController(); // kąt jaki chcemy uzyskać
+  // Pola wejÅ›ciowe
+  final _longTotal  = TextEditingController(); // dÅ‚ugi bok (extrados) caÅ‚ego kolanka
+  final _shortTotal = TextEditingController(); // krÃ³tki bok (intrados) caÅ‚ego kolanka
+  final _targetAngle = TextEditingController(); // kÄ…t jaki chcemy uzyskaÄ‡
 
   // Wyniki
-  double? _lCut;        // gdzie ciąć na długim boku
-  double? _sCut;        // gdzie ciąć na krótkim boku
-  double? _lRemain;     // pozostałość długi bok
-  double? _sRemain;     // pozostałość krótki bok
-  double? _remainAngle; // kąt pozostałości
-  double? _odDerived;   // OD wyliczone z pomiarów (weryfikacja)
+  double? _lCut;        // gdzie ciÄ…Ä‡ na dÅ‚ugim boku
+  double? _sCut;        // gdzie ciÄ…Ä‡ na krÃ³tkim boku
+  double? _lRemain;     // pozostaÅ‚oÅ›Ä‡ dÅ‚ugi bok
+  double? _sRemain;     // pozostaÅ‚oÅ›Ä‡ krÃ³tki bok
+  double? _remainAngle; // kÄ…t pozostaÅ‚oÅ›ci
+  double? _odDerived;   // OD wyliczone z pomiarÃ³w (weryfikacja)
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -312,12 +322,12 @@ class _ElbowTabState extends State<_ElbowTab> {
       if (L == null || S == null) return;
 
       if (L <= 0 || S <= 0) {
-        _error = _tr('Podaj długości boków > 0 (mm)', 'Enter side lengths > 0 (mm)');
+        _error = _tr('Podaj dÅ‚ugoÅ›ci bokÃ³w > 0 (mm)', 'Enter side lengths > 0 (mm)');
         return;
       }
       if (L <= S) {
         _error = _tr(
-          'Długi bok (extrados) musi być większy niż krótki bok (intrados)',
+          'DÅ‚ugi bok (extrados) musi byÄ‡ wiÄ™kszy niÅ¼ krÃ³tki bok (intrados)',
           'Long side (extrados) must be greater than short side (intrados)',
         );
         return;
@@ -325,16 +335,16 @@ class _ElbowTabState extends State<_ElbowTab> {
       if (T == null) return;
       if (T <= 0 || T >= baseAngle) {
         _error = _tr(
-          'Kąt docelowy musi być między 0° a ${baseAngle.toStringAsFixed(0)}°',
-          'Target angle must be between 0° and ${baseAngle.toStringAsFixed(0)}°',
+          'KÄ…t docelowy musi byÄ‡ miÄ™dzy 0Â° a ${baseAngle.toStringAsFixed(0)}Â°',
+          'Target angle must be between 0Â° and ${baseAngle.toStringAsFixed(0)}Â°',
         );
         return;
       }
 
-      // ── OBLICZENIA ───────────────────────────────────────────────────────
-      // Proporcja łuków = proporcja kątów (łuk kołowy liniowo zależy od kąta)
-      // L_cut = L_total × (θ_target / θ_base)
-      // S_cut = S_total × (θ_target / θ_base)
+      // â”€â”€ OBLICZENIA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // Proporcja Å‚ukÃ³w = proporcja kÄ…tÃ³w (Å‚uk koÅ‚owy liniowo zaleÅ¼y od kÄ…ta)
+      // L_cut = L_total Ã— (Î¸_target / Î¸_base)
+      // S_cut = S_total Ã— (Î¸_target / Î¸_base)
       final ratio = T / baseAngle;
 
       _lCut     = L * ratio;
@@ -343,7 +353,7 @@ class _ElbowTabState extends State<_ElbowTab> {
       _sRemain  = S - _sCut!;
       _remainAngle = baseAngle - T;
 
-      // OD wyliczone z pomiarów (do weryfikacji): OD = (L-S) / θ_base_rad
+      // OD wyliczone z pomiarÃ³w (do weryfikacji): OD = (L-S) / Î¸_base_rad
       final baseRad = baseAngle * math.pi / 180.0;
       _odDerived = (L - S) / baseRad;
     });
@@ -356,24 +366,24 @@ class _ElbowTabState extends State<_ElbowTab> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        _SectionTitle(_tr('Cięcie kolanka', 'Elbow cut')),
+        _SectionTitle(_tr('CiÄ™cie kolanka', 'Elbow cut')),
         _SectionDesc(_tr(
-          'Podaj wymiary całego kolanka i żądany kąt. '
-          'Program powie gdzie zaznaczyć cięcie na zewnętrznym (extrados) '
-          'i wewnętrznym (intrados) łuku.',
+          'Podaj wymiary caÅ‚ego kolanka i Å¼Ä…dany kÄ…t. '
+          'Program powie gdzie zaznaczyÄ‡ ciÄ™cie na zewnÄ™trznym (extrados) '
+          'i wewnÄ™trznym (intrados) Å‚uku.',
           'Enter the total elbow dimensions and the desired angle. '
           'The app will tell you where to mark the cut on the outer (extrados) '
           'and inner (intrados) arc.',
         )),
 
-        // ── KOLANO BAZOWE ────────────────────────────────────────────────
+        // â”€â”€ KOLANO BAZOWE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         DropdownButtonFormField<String>(
-          value: _base,
+          initialValue: _base,
           decoration: InputDecoration(
               labelText: _tr('Kolano bazowe', 'Base elbow')),
           items: const [
-            DropdownMenuItem(value: '90', child: Text('90°')),
-            DropdownMenuItem(value: '45', child: Text('45°')),
+            DropdownMenuItem(value: '90', child: Text('90Â°')),
+            DropdownMenuItem(value: '45', child: Text('45Â°')),
           ],
           onChanged: (v) {
             setState(() => _base = v ?? '90');
@@ -382,23 +392,23 @@ class _ElbowTabState extends State<_ElbowTab> {
         ),
         const SizedBox(height: 14),
 
-        // ── INSTRUKCJA POMIARU ────────────────────────────────────────────
+        // â”€â”€ INSTRUKCJA POMIARU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _kAccent.withOpacity(0.07),
+            color: _kAccent.withValues(alpha: 0.07),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _kAccent.withOpacity(0.2)),
+            border: Border.all(color: _kAccent.withValues(alpha: 0.2)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.straighten, size: 16, color: _kAccent.withOpacity(0.8)),
+                  Icon(Icons.straighten, size: 16, color: _kAccent.withValues(alpha: 0.8)),
                   const SizedBox(width: 8),
                   Text(
-                    _tr('Jak zmierzyć kolano:', 'How to measure the elbow:'),
+                    _tr('Jak zmierzyÄ‡ kolano:', 'How to measure the elbow:'),
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                   ),
                 ],
@@ -406,18 +416,18 @@ class _ElbowTabState extends State<_ElbowTab> {
               const SizedBox(height: 8),
               Text(
                 _tr(
-                  '1. Zmierz taśmą PO ŁUKU po zewnętrznej stronie (extrados) '
-                  '— to jest DŁUGI BOK.\n'
-                  '2. Zmierz taśmą PO ŁUKU po wewnętrznej stronie (intrados) '
-                  '— to jest KRÓTKI BOK.\n'
-                  '3. Wpisz żądany kąt (np. 60° z kolana 90°).\n'
-                  '4. Odmierz wynikowe L_cut i S_cut od TEGO SAMEGO końca, '
+                  '1. Zmierz taÅ›mÄ… PO ÅUKU po zewnÄ™trznej stronie (extrados) '
+                  'â€” to jest DÅUGI BOK.\n'
+                  '2. Zmierz taÅ›mÄ… PO ÅUKU po wewnÄ™trznej stronie (intrados) '
+                  'â€” to jest KRÃ“TKI BOK.\n'
+                  '3. Wpisz Å¼Ä…dany kÄ…t (np. 60Â° z kolana 90Â°).\n'
+                  '4. Odmierz wynikowe L_cut i S_cut od TEGO SAMEGO koÅ„ca, '
                   'zaznacz oba punkty i tnij.',
                   '1. Measure WITH A TAPE ALONG THE ARC on the outer side (extrados) '
-                  '— this is the LONG SIDE.\n'
+                  'â€” this is the LONG SIDE.\n'
                   '2. Measure WITH A TAPE ALONG THE ARC on the inner side (intrados) '
-                  '— this is the SHORT SIDE.\n'
-                  '3. Enter the desired angle (e.g., 60° from a 90° elbow).\n'
+                  'â€” this is the SHORT SIDE.\n'
+                  '3. Enter the desired angle (e.g., 60Â° from a 90Â° elbow).\n'
                   '4. Mark L_cut and S_cut from the SAME END and cut.',
                 ),
                 style: const TextStyle(fontSize: 12, color: Color(0xFFB0BEC5), height: 1.6),
@@ -427,14 +437,14 @@ class _ElbowTabState extends State<_ElbowTab> {
         ),
         const SizedBox(height: 14),
 
-        // ── POLA WEJŚCIOWE ────────────────────────────────────────────────
+        // â”€â”€ POLA WEJÅšCIOWE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         TextField(
           controller: _longTotal,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
             labelText: _tr(
-              'Długi bok kolanka — extrados (mm)',
-              'Long side of elbow — extrados (mm)',
+              'DÅ‚ugi bok kolanka â€” extrados (mm)',
+              'Long side of elbow â€” extrados (mm)',
             ),
             hintText: _tr('np. 141.4', 'e.g. 141.4'),
             suffixText: 'mm',
@@ -447,8 +457,8 @@ class _ElbowTabState extends State<_ElbowTab> {
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
             labelText: _tr(
-              'Krótki bok kolanka — intrados (mm)',
-              'Short side of elbow — intrados (mm)',
+              'KrÃ³tki bok kolanka â€” intrados (mm)',
+              'Short side of elbow â€” intrados (mm)',
             ),
             hintText: _tr('np. 70.7', 'e.g. 70.7'),
             suffixText: 'mm',
@@ -461,21 +471,21 @@ class _ElbowTabState extends State<_ElbowTab> {
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
             labelText: _tr(
-              'Żądany kąt kolanka (°)',
-              'Desired elbow angle (°)',
+              'Å»Ä…dany kÄ…t kolanka (Â°)',
+              'Desired elbow angle (Â°)',
             ),
             hintText: _tr('np. 60', 'e.g. 60'),
             helperText: _tr(
-              'Musi być między 0° a ${baseAngle.toStringAsFixed(0)}°',
-              'Must be between 0° and ${baseAngle.toStringAsFixed(0)}°',
+              'Musi byÄ‡ miÄ™dzy 0Â° a ${baseAngle.toStringAsFixed(0)}Â°',
+              'Must be between 0Â° and ${baseAngle.toStringAsFixed(0)}Â°',
             ),
-            suffixText: '°',
+            suffixText: 'Â°',
           ),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 16),
 
-        // ── WYNIKI ────────────────────────────────────────────────────────
+        // â”€â”€ WYNIKI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (_lCut != null && _sCut != null)
           _ResultCard(
             children: [
@@ -483,23 +493,23 @@ class _ElbowTabState extends State<_ElbowTab> {
               if (_odDerived != null) ...[
                 Row(
                   children: [
-                    Icon(Icons.info_outline, size: 13, color: _kAccent.withOpacity(0.6)),
+                    Icon(Icons.info_outline, size: 13, color: _kAccent.withValues(alpha: 0.6)),
                     const SizedBox(width: 6),
                     Text(
                       _tr(
                         'OD wyliczone z pomiaru: ${_odDerived!.toStringAsFixed(1)} mm',
                         'OD derived from measurement: ${_odDerived!.toStringAsFixed(1)} mm',
                       ),
-                      style: TextStyle(fontSize: 12, color: _kAccent.withOpacity(0.8)),
+                      style: TextStyle(fontSize: 12, color: _kAccent.withValues(alpha: 0.8)),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
               ],
 
-              // Główny wynik: gdzie ciąć
+              // GÅ‚Ã³wny wynik: gdzie ciÄ…Ä‡
               Text(
-                _tr('Odmierz od JEDNEGO końca kolanka:', 'Measure from ONE END of the elbow:'),
+                _tr('Odmierz od JEDNEGO koÅ„ca kolanka:', 'Measure from ONE END of the elbow:'),
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -511,7 +521,7 @@ class _ElbowTabState extends State<_ElbowTab> {
                 children: [
                   Expanded(
                     child: _CutMeasureBox(
-                      label: _tr('Długi bok\n(extrados)', 'Long side\n(extrados)'),
+                      label: _tr('DÅ‚ugi bok\n(extrados)', 'Long side\n(extrados)'),
                       value: '${_lCut!.toStringAsFixed(1)} mm',
                       color: _kAccentWarm,
                     ),
@@ -519,7 +529,7 @@ class _ElbowTabState extends State<_ElbowTab> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _CutMeasureBox(
-                      label: _tr('Krótki bok\n(intrados)', 'Short side\n(intrados)'),
+                      label: _tr('KrÃ³tki bok\n(intrados)', 'Short side\n(intrados)'),
                       value: '${_sCut!.toStringAsFixed(1)} mm',
                       color: _kAccentWarm,
                     ),
@@ -529,7 +539,7 @@ class _ElbowTabState extends State<_ElbowTab> {
               const SizedBox(height: 6),
               Text(
                 _tr(
-                  'Zaznacz oba punkty, połącz linią i tnij.',
+                  'Zaznacz oba punkty, poÅ‚Ä…cz liniÄ… i tnij.',
                   'Mark both points, connect them and cut.',
                 ),
                 style: const TextStyle(fontSize: 12, color: _kSubtle),
@@ -537,10 +547,10 @@ class _ElbowTabState extends State<_ElbowTab> {
 
               const Divider(height: 28, color: Color(0xFF1A3A4A)),
 
-              // Pozostałość
+              // PozostaÅ‚oÅ›Ä‡
               Text(
-                _tr('Pozostałość po cięciu (${_remainAngle!.toStringAsFixed(1)}°):',
-                    'Offcut (${_remainAngle!.toStringAsFixed(1)}°):'),
+                _tr('PozostaÅ‚oÅ›Ä‡ po ciÄ™ciu (${_remainAngle!.toStringAsFixed(1)}Â°):',
+                    'Offcut (${_remainAngle!.toStringAsFixed(1)}Â°):'),
                 style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -551,7 +561,7 @@ class _ElbowTabState extends State<_ElbowTab> {
                 children: [
                   Expanded(
                     child: _CutMeasureBox(
-                      label: _tr('Długi bok', 'Long side'),
+                      label: _tr('DÅ‚ugi bok', 'Long side'),
                       value: '${_lRemain!.toStringAsFixed(1)} mm',
                       color: const Color(0xFF9BA3C7),
                       small: true,
@@ -560,7 +570,7 @@ class _ElbowTabState extends State<_ElbowTab> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _CutMeasureBox(
-                      label: _tr('Krótki bok', 'Short side'),
+                      label: _tr('KrÃ³tki bok', 'Short side'),
                       value: '${_sRemain!.toStringAsFixed(1)} mm',
                       color: const Color(0xFF9BA3C7),
                       small: true,
@@ -571,10 +581,10 @@ class _ElbowTabState extends State<_ElbowTab> {
               const SizedBox(height: 10),
               Text(
                 _tr(
-                  'Formuła: L_cut = L_total × (θ_cel / θ_baza)  '
-                  '— łuk kołowy jest proporcjonalny do kąta.',
-                  'Formula: L_cut = L_total × (θ_target / θ_base)  '
-                  '— circular arc is proportional to the angle.',
+                  'FormuÅ‚a: L_cut = L_total Ã— (Î¸_cel / Î¸_baza)  '
+                  'â€” Å‚uk koÅ‚owy jest proporcjonalny do kÄ…ta.',
+                  'Formula: L_cut = L_total Ã— (Î¸_target / Î¸_base)  '
+                  'â€” circular arc is proportional to the angle.',
                 ),
                 style: const TextStyle(fontSize: 11, color: _kSubtle, height: 1.5),
               ),
@@ -587,7 +597,7 @@ class _ElbowTabState extends State<_ElbowTab> {
   }
 }
 
-// ── Pudełko z wymiarem cięcia ─────────────────────────────────────────────────
+// â”€â”€ PudeÅ‚ko z wymiarem ciÄ™cia â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _CutMeasureBox extends StatelessWidget {
   final String label;
   final String value;
@@ -606,9 +616,9 @@ class _CutMeasureBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.09),
+        color: color.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.25), width: 1),
+        border: Border.all(color: color.withValues(alpha: 0.25), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -617,7 +627,7 @@ class _CutMeasureBox extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 11,
-              color: color.withOpacity(0.8),
+              color: color.withValues(alpha: 0.8),
               height: 1.3,
             ),
           ),
@@ -677,7 +687,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
       final deg = double.tryParse(_deg.text.replaceAll(',', '.'));
 
       if ((circ == null || circ <= 0) && (od == null || od <= 0)) {
-        _error = _tr('Podaj OD albo obwód (mm)', 'Enter OD or circumference (mm)');
+        _error = _tr('Podaj OD albo obwÃ³d (mm)', 'Enter OD or circumference (mm)');
         return;
       }
       circ ??= math.pi * od!;
@@ -702,8 +712,8 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        _SectionTitle(_tr('Obrót kolanka', 'Elbow rotation')),
-        _SectionDesc(_tr('Przelicz obrót w % lub w stopniach na odmierzenie po obwodzie.', 'Convert rotation in % or degrees into a measured distance along the circumference.')),
+        _SectionTitle(_tr('ObrÃ³t kolanka', 'Elbow rotation')),
+        _SectionDesc(_tr('Przelicz obrÃ³t w % lub w stopniach na odmierzenie po obwodzie.', 'Convert rotation in % or degrees into a measured distance along the circumference.')),
         Row(
           children: [
             Expanded(
@@ -719,7 +729,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
               child: TextField(
                 controller: _circ,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: _tr('Obwód (mm)', 'Circ. (mm)')),
+                decoration: InputDecoration(labelText: _tr('ObwÃ³d (mm)', 'Circ. (mm)')),
                 onChanged: (_) => _calc(),
               ),
             ),
@@ -732,7 +742,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
               child: TextField(
                 controller: _percent,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: _tr('Obrót (%)', 'Rotation (%)')),
+                decoration: InputDecoration(labelText: _tr('ObrÃ³t (%)', 'Rotation (%)')),
                 onChanged: (_) => _calc(),
               ),
             ),
@@ -741,7 +751,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
               child: TextField(
                 controller: _deg,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: _tr('Obrót (°)', 'Rotation (°)')),
+                decoration: InputDecoration(labelText: _tr('ObrÃ³t (Â°)', 'Rotation (Â°)')),
                 onChanged: (_) => _calc(),
               ),
             ),
@@ -756,7 +766,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
               if (_resultDeg != null) ...[
                 const SizedBox(height: 8),
                 _ResultLabel(_tr('To odpowiada', 'Corresponds to')),
-                _ResultValue('${_resultDeg!.toStringAsFixed(1)}°'),
+                _ResultValue('${_resultDeg!.toStringAsFixed(1)}Â°'),
               ],
             ],
           ),
@@ -779,7 +789,7 @@ class _InsertTabState extends State<_InsertTab> {
   final _angle = TextEditingController();
   final _offset = TextEditingController();
 
-  // Wybór standardu promienia: 1D, 1.5D (LR), 3D, ręczny
+  // WybÃ³r standardu promienia: 1D, 1.5D (LR), 3D, rÄ™czny
   String _rMode = '1.5D';
   double? _rComputed; // obliczony R z OD + trybu
 
@@ -813,7 +823,7 @@ class _InsertTabState extends State<_InsertTab> {
       case '1.5D': return od * 1.5;
       case '3D':   return od * 3.0;
       case 'table':
-        // Szukaj najbliższego wpisu w tabeli NPS
+        // Szukaj najbliÅ¼szego wpisu w tabeli NPS
         NpsRow? best;
         double bestDiff = double.infinity;
         for (final row in kNpsTable) {
@@ -844,25 +854,25 @@ class _InsertTabState extends State<_InsertTab> {
       if (_rMode != 'manual') {
         final od = double.tryParse(_od.text.replaceAll(',', '.'));
         if (od == null || od <= 0) {
-          _error = _tr('Podaj średnicę OD rury (mm)', 'Enter pipe OD (mm)');
+          _error = _tr('Podaj Å›rednicÄ™ OD rury (mm)', 'Enter pipe OD (mm)');
           return;
         }
       }
 
       if (r == null || r <= 0) {
         _error = _rMode == 'manual'
-            ? _tr('Podaj promień kolanka R (mm)', 'Enter elbow radius R (mm)')
-            : _tr('Nie znaleziono R dla podanej średnicy', 'R not found for given diameter');
+            ? _tr('Podaj promieÅ„ kolanka R (mm)', 'Enter elbow radius R (mm)')
+            : _tr('Nie znaleziono R dla podanej Å›rednicy', 'R not found for given diameter');
         return;
       }
       _rComputed = r;
 
       if (ang == null || ang <= 0 || ang >= 180) {
-        _error = _tr('Podaj kąt kolanka θ (1°–179°)', 'Enter elbow angle θ (1°–179°)');
+        _error = _tr('Podaj kÄ…t kolanka Î¸ (1Â°â€“179Â°)', 'Enter elbow angle Î¸ (1Â°â€“179Â°)');
         return;
       }
       if (off == null || off <= 0) {
-        _error = _tr('Podaj odejście (offset) > 0 (mm)', 'Enter offset > 0 (mm)');
+        _error = _tr('Podaj odejÅ›cie (offset) > 0 (mm)', 'Enter offset > 0 (mm)');
         return;
       }
 
@@ -872,7 +882,7 @@ class _InsertTabState extends State<_InsertTab> {
       final insert  = travel - 2.0 * takeoff;
 
       if (insert.isNaN || insert.isInfinite) {
-        _error = _tr('Nieprawidłowe dane wejściowe', 'Invalid input data');
+        _error = _tr('NieprawidÅ‚owe dane wejÅ›ciowe', 'Invalid input data');
         return;
       }
 
@@ -889,26 +899,26 @@ class _InsertTabState extends State<_InsertTab> {
       children: [
         _SectionTitle(_tr('Wstawka (offset)', 'Insert (offset)')),
         _SectionDesc(_tr(
-          'Model: dwa identyczne kolanka o kącie θ.\n'
-          'Wstawka = travel − 2 × take-off\n'
-          'travel = offset / sin(θ),  take-off = R × tan(θ/2)',
-          'Model: two identical elbows at angle θ.\n'
-          'Insert = travel − 2 × take-off\n'
-          'travel = offset / sin(θ),  take-off = R × tan(θ/2)',
+          'Model: dwa identyczne kolanka o kÄ…cie Î¸.\n'
+          'Wstawka = travel âˆ’ 2 Ã— take-off\n'
+          'travel = offset / sin(Î¸),  take-off = R Ã— tan(Î¸/2)',
+          'Model: two identical elbows at angle Î¸.\n'
+          'Insert = travel âˆ’ 2 Ã— take-off\n'
+          'travel = offset / sin(Î¸),  take-off = R Ã— tan(Î¸/2)',
         )),
 
-        // ── Standard promienia ──────────────────────────────
+        // â”€â”€ Standard promienia â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         DropdownButtonFormField<String>(
-          value: _rMode,
+          initialValue: _rMode,
           decoration: InputDecoration(
             labelText: _tr('Standard promienia kolanka', 'Elbow radius standard'),
           ),
           items: [
-            DropdownMenuItem(value: '1D',    child: Text(_tr('1D — krótki promień (SR)', '1D — short radius (SR)'))),
-            DropdownMenuItem(value: '1.5D',  child: Text(_tr('1.5D — długi promień (LR) ← typowy', '1.5D — long radius (LR) ← standard'))),
-            DropdownMenuItem(value: '3D',    child: Text(_tr('3D — bardzo długi promień', '3D — extra long radius'))),
+            DropdownMenuItem(value: '1D',    child: Text(_tr('1D â€” krÃ³tki promieÅ„ (SR)', '1D â€” short radius (SR)'))),
+            DropdownMenuItem(value: '1.5D',  child: Text(_tr('1.5D â€” dÅ‚ugi promieÅ„ (LR) â† typowy', '1.5D â€” long radius (LR) â† standard'))),
+            DropdownMenuItem(value: '3D',    child: Text(_tr('3D â€” bardzo dÅ‚ugi promieÅ„', '3D â€” extra long radius'))),
             DropdownMenuItem(value: 'table', child: Text(_tr('Z tabeli NPS (ASME B16.9)', 'From NPS table (ASME B16.9)'))),
-            DropdownMenuItem(value: 'manual',child: Text(_tr('Ręcznie — wpisz R', 'Manual — enter R'))),
+            DropdownMenuItem(value: 'manual',child: Text(_tr('RÄ™cznie â€” wpisz R', 'Manual â€” enter R'))),
           ],
           onChanged: (v) {
             setState(() => _rMode = v ?? '1.5D');
@@ -917,13 +927,13 @@ class _InsertTabState extends State<_InsertTab> {
         ),
         const SizedBox(height: 10),
 
-        // ── Pole OD lub R ───────────────────────────────────
+        // â”€â”€ Pole OD lub R â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (_rMode != 'manual') ...[
           TextField(
             controller: _od,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: _tr('Średnica zewnętrzna rury OD (mm)', 'Pipe outside diameter OD (mm)'),
+              labelText: _tr('Åšrednica zewnÄ™trzna rury OD (mm)', 'Pipe outside diameter OD (mm)'),
               hintText: 'np. 60.3',
             ),
             onChanged: (_) => _calc(),
@@ -933,11 +943,11 @@ class _InsertTabState extends State<_InsertTab> {
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, size: 14, color: _kAccent.withOpacity(0.7)),
+                  Icon(Icons.info_outline, size: 14, color: _kAccent.withValues(alpha: 0.7)),
                   const SizedBox(width: 6),
                   Text(
                     _tr('R = ${_rComputed!.toStringAsFixed(2)} mm', 'R = ${_rComputed!.toStringAsFixed(2)} mm'),
-                    style: TextStyle(fontSize: 12, color: _kAccent.withOpacity(0.85)),
+                    style: TextStyle(fontSize: 12, color: _kAccent.withValues(alpha: 0.85)),
                   ),
                 ],
               ),
@@ -947,7 +957,7 @@ class _InsertTabState extends State<_InsertTab> {
             controller: _radius,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: _tr('Promień kolanka R — oś gięcia (mm)', 'Elbow bend radius R — centerline (mm)'),
+              labelText: _tr('PromieÅ„ kolanka R â€” oÅ› giÄ™cia (mm)', 'Elbow bend radius R â€” centerline (mm)'),
               hintText: 'np. 90.45',
             ),
             onChanged: (_) => _calc(),
@@ -955,27 +965,27 @@ class _InsertTabState extends State<_InsertTab> {
         ],
         const SizedBox(height: 10),
 
-        // ── Kąt kolanka ────────────────────────────────────
+        // â”€â”€ KÄ…t kolanka â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         TextField(
           controller: _angle,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: _tr('Kąt kolanka θ (°)', 'Elbow angle θ (°)'),
+            labelText: _tr('KÄ…t kolanka Î¸ (Â°)', 'Elbow angle Î¸ (Â°)'),
             hintText: '90',
-            suffixText: '°',
+            suffixText: 'Â°',
           ),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
 
-        // ── Odejście ───────────────────────────────────────
+        // â”€â”€ OdejÅ›cie â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         TextField(
           controller: _offset,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: _tr('Odejście — offset (mm)', 'Offset (mm)'),
+            labelText: _tr('OdejÅ›cie â€” offset (mm)', 'Offset (mm)'),
             hintText: 'np. 200',
-            helperText: _tr('Prostopadła odległość między osiami dwóch równoległych rur', 'Perpendicular distance between two parallel pipe centrelines'),
+            helperText: _tr('ProstopadÅ‚a odlegÅ‚oÅ›Ä‡ miÄ™dzy osiami dwÃ³ch rÃ³wnolegÅ‚ych rur', 'Perpendicular distance between two parallel pipe centrelines'),
           ),
           onChanged: (_) => _calc(),
         ),
@@ -984,13 +994,13 @@ class _InsertTabState extends State<_InsertTab> {
         if (_takeoff != null && _travel != null && _insert != null)
           _ResultCard(
             children: [
-              _ResultLabel('Take-off  T = R × tan(θ/2)'),
+              _ResultLabel('Take-off  T = R Ã— tan(Î¸/2)'),
               _ResultValue('${_takeoff!.toStringAsFixed(1)} mm'),
               const SizedBox(height: 8),
-              _ResultLabel('Travel  = offset / sin(θ)'),
+              _ResultLabel('Travel  = offset / sin(Î¸)'),
               _ResultValue('${_travel!.toStringAsFixed(1)} mm'),
               const SizedBox(height: 12),
-              _ResultLabel(_tr('Wstawka  = travel − 2×T', 'Insert  = travel − 2×T')),
+              _ResultLabel(_tr('Wstawka  = travel âˆ’ 2Ã—T', 'Insert  = travel âˆ’ 2Ã—T')),
               _ResultValue(
                 '${_insert!.toStringAsFixed(1)} mm',
                 isPrimary: _insert! > 0,
@@ -1000,15 +1010,15 @@ class _InsertTabState extends State<_InsertTab> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.1),
+                    color: Colors.orange.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     _tr(
-                      'Wstawka ujemna — kolanka nachodzą na siebie. '
-                      'Zwiększ odejście (offset) lub zmniejsz kąt/promień.',
-                      'Negative insert — elbows overlap. '
+                      'Wstawka ujemna â€” kolanka nachodzÄ… na siebie. '
+                      'ZwiÄ™ksz odejÅ›cie (offset) lub zmniejsz kÄ…t/promieÅ„.',
+                      'Negative insert â€” elbows overlap. '
                       'Increase the offset or reduce the angle/radius.',
                     ),
                     style: TextStyle(color: Colors.orange.shade300, fontSize: 13),
@@ -1018,8 +1028,8 @@ class _InsertTabState extends State<_InsertTab> {
                 const SizedBox(height: 10),
                 Text(
                   _tr(
-                    'Wstawka bardzo krótka — sprawdź wymiary i możliwości montażu.',
-                    'Insert is very short — verify dimensions and assembly clearance.',
+                    'Wstawka bardzo krÃ³tka â€” sprawdÅº wymiary i moÅ¼liwoÅ›ci montaÅ¼u.',
+                    'Insert is very short â€” verify dimensions and assembly clearance.',
                   ),
                   style: const TextStyle(color: Color(0xFF78909C), fontSize: 12),
                 ),
@@ -1030,7 +1040,7 @@ class _InsertTabState extends State<_InsertTab> {
         if (_error != null) _ErrorText(_error!),
 
         const SizedBox(height: 16),
-        // ── Tabela podpowiedzi R ─────────────────────────
+        // â”€â”€ Tabela podpowiedzi R â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (_rMode == 'manual') ...[
           Card(
             child: Padding(
@@ -1046,7 +1056,7 @@ class _InsertTabState extends State<_InsertTab> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3),
                       child: Text(
-                        'OD ${row.odMm.toStringAsFixed(1)} mm  →  R = ${row.rMm.toStringAsFixed(1)} mm  (DN${row.dn})',
+                        'OD ${row.odMm.toStringAsFixed(1)} mm  â†’  R = ${row.rMm.toStringAsFixed(1)} mm  (DN${row.dn})',
                         style: const TextStyle(fontSize: 12, color: Color(0xFFB0BEC5)),
                       ),
                     ),
@@ -1099,17 +1109,17 @@ class _ReducerTabState extends State<_ReducerTab> {
 
       if (d1 == null || d2 == null || l == null || t == null) return;
       if (l <= 0) {
-        _error = _tr('Podaj długość redukcji', 'Enter reducer length');
+        _error = _tr('Podaj dÅ‚ugoÅ›Ä‡ redukcji', 'Enter reducer length');
         return;
       }
       if ((d1 - d2).abs() < 0.0001) {
-        _error = _tr('Średnice muszą być różne', 'Diameters must be different');
+        _error = _tr('Åšrednice muszÄ… byÄ‡ rÃ³Å¼ne', 'Diameters must be different');
         return;
       }
       final maxD = math.max(d1, d2);
       final minD = math.min(d1, d2);
       if (t > maxD || t < minD) {
-        _error = _tr('Docelowa średnica musi być pomiędzy ${minD.toStringAsFixed(1)} i ${maxD.toStringAsFixed(1)}', 'Target diameter must be between ${minD.toStringAsFixed(1)} and ${maxD.toStringAsFixed(1)}');
+        _error = _tr('Docelowa Å›rednica musi byÄ‡ pomiÄ™dzy ${minD.toStringAsFixed(1)} i ${maxD.toStringAsFixed(1)}', 'Target diameter must be between ${minD.toStringAsFixed(1)} and ${maxD.toStringAsFixed(1)}');
         return;
       }
 
@@ -1125,40 +1135,40 @@ class _ReducerTabState extends State<_ReducerTab> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        _SectionTitle(_tr('Skrócenie redukcji do wymaganej średnicy', 'Trim reducer to the required diameter')),
+        _SectionTitle(_tr('SkrÃ³cenie redukcji do wymaganej Å›rednicy', 'Trim reducer to the required diameter')),
         const SizedBox(height: 12),
         TextField(
           controller: _d1,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Średnica wejścia [mm]', 'Inlet diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('Åšrednica wejÅ›cia [mm]', 'Inlet diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _d2,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Średnica wyjścia [mm]', 'Outlet diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('Åšrednica wyjÅ›cia [mm]', 'Outlet diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _len,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Długość redukcji L [mm]', 'Reducer length L [mm]')),
+          decoration: InputDecoration(labelText: _tr('DÅ‚ugoÅ›Ä‡ redukcji L [mm]', 'Reducer length L [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _target,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Wymagana średnica [mm]', 'Required diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('Wymagana Å›rednica [mm]', 'Required diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 16),
         if (_cutFromLarge != null)
           _ResultCard(
             children: [
-              _ResultLabel(_tr('Odmierz od większego końca i utnij na', 'Measure from the larger end and cut at')),
+              _ResultLabel(_tr('Odmierz od wiÄ™kszego koÅ„ca i utnij na', 'Measure from the larger end and cut at')),
               _ResultValue('${_cutFromLarge!.toStringAsFixed(1)} mm', isPrimary: true),
             ],
           ),
@@ -1168,9 +1178,9 @@ class _ReducerTabState extends State<_ReducerTab> {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// TAB 6: CIĘŻAR RURY
-// ══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// TAB 6: CIÄ˜Å»AR RURY
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _PipeWeightTab extends StatefulWidget {
   const _PipeWeightTab();
   @override State<_PipeWeightTab> createState() => _PipeWeightTabState();
@@ -1191,7 +1201,13 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   static const Map<String, double> _density = {'SS': 7930.0, 'CS': 7850.0, 'AL': 2700.0};
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-  @override void dispose() { for (final c in [_od, _t, _l, _qty]) c.dispose(); super.dispose(); }
+  @override
+  void dispose() {
+    for (final c in [_od, _t, _l, _qty]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   void _calc() {
     setState(() {
@@ -1201,7 +1217,7 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
       final l   = double.tryParse(_l.text.replaceAll(',', '.')) ?? 1000;
       final qty = double.tryParse(_qty.text.replaceAll(',', '.')) ?? 1;
       if (od == null || od <= 0) { _error = _tr('Podaj OD rury (mm)', 'Enter pipe OD (mm)'); return; }
-      if (t == null || t <= 0 || t >= od / 2) { _error = _tr('Podaj poprawną grubość ścianki', 'Enter valid wall thickness'); return; }
+      if (t == null || t <= 0 || t >= od / 2) { _error = _tr('Podaj poprawnÄ… gruboÅ›Ä‡ Å›cianki', 'Enter valid wall thickness'); return; }
       final rho = _density[_mat] ?? 7930.0;
       final kgm = rho * math.pi * (od - t) * t / 1e6;
       _kgm     = kgm;
@@ -1214,20 +1230,20 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   Widget build(BuildContext context) => ListView(
     padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
     children: [
-      _SectionTitle(_tr('Ciężar rury', 'Pipe weight')),
+      _SectionTitle(_tr('CiÄ™Å¼ar rury', 'Pipe weight')),
       _SectionDesc(_tr(
-        'm = ρ × π × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
-        'm = ρ × π × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
+        'm = Ï Ã— Ï€ Ã— (OD âˆ’ t) Ã— t   [kg/m]\n'
+        'SS 316L: Ï = 7 930 kg/mÂ³  Â·  CS: 7 850  Â·  Al: 2 700',
+        'm = Ï Ã— Ï€ Ã— (OD âˆ’ t) Ã— t   [kg/m]\n'
+        'SS 316L: Ï = 7 930 kg/mÂ³  Â·  CS: 7 850  Â·  Al: 2 700',
       )),
       DropdownButtonFormField<String>(
-        value: _mat,
-        decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
+        initialValue: _mat,
+        decoration: InputDecoration(labelText: _tr('MateriaÅ‚', 'Material')),
         items: const [
-          DropdownMenuItem(value: 'SS', child: Text('SS (nierdzewna) 7 930 kg/m³')),
-          DropdownMenuItem(value: 'CS', child: Text('CS (węglowa)   7 850 kg/m³')),
-          DropdownMenuItem(value: 'AL', child: Text('Al (aluminium) 2 700 kg/m³')),
+          DropdownMenuItem(value: 'SS', child: Text('SS (nierdzewna) 7 930 kg/mÂ³')),
+          DropdownMenuItem(value: 'CS', child: Text('CS (wÄ™glowa)   7 850 kg/mÂ³')),
+          DropdownMenuItem(value: 'AL', child: Text('Al (aluminium) 2 700 kg/mÂ³')),
         ],
         onChanged: (v) { setState(() => _mat = v ?? 'SS'); _calc(); },
       ),
@@ -1235,17 +1251,17 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
       Row(children: [
         Expanded(child: TextField(controller: _od, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'OD (mm)', hintText: '60.3'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Gr. ścianki t (mm)', 'Wall t (mm)'), hintText: '2.0'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Gr. Å›cianki t (mm)', 'Wall t (mm)'), hintText: '2.0'), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Długość (mm)', 'Length (mm)'), hintText: '1000', suffixText: 'mm'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('DÅ‚ugoÅ›Ä‡ (mm)', 'Length (mm)'), hintText: '1000', suffixText: 'mm'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _qty, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Ilość szt.', 'Qty'), hintText: '1'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _qty, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('IloÅ›Ä‡ szt.', 'Qty'), hintText: '1'), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 16),
       if (_kgm != null) _ResultCard(children: [
-        _ResultLabel(_tr('Ciężar liniowy', 'Linear weight')),
+        _ResultLabel(_tr('CiÄ™Å¼ar liniowy', 'Linear weight')),
         _ResultValue('${_kgm!.toStringAsFixed(3)} kg/m'),
         const SizedBox(height: 8),
         _ResultLabel(_tr('Odcinek ${_l.text} mm', 'Section ${_l.text} mm')),
@@ -1259,9 +1275,9 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // TAB 7: FAZOWANIE (BEVEL)
-// ══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _BevelTab extends StatefulWidget {
   const _BevelTab();
   @override State<_BevelTab> createState() => _BevelTabState();
@@ -1279,7 +1295,13 @@ class _BevelTabState extends State<_BevelTab> {
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-  @override void dispose() { for (final c in [_t, _angCtrl, _landCtrl, _gapCtrl]) c.dispose(); super.dispose(); }
+  @override
+  void dispose() {
+    for (final c in [_t, _angCtrl, _landCtrl, _gapCtrl]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   void _calc() {
     setState(() {
@@ -1287,9 +1309,9 @@ class _BevelTabState extends State<_BevelTab> {
       final t    = double.tryParse(_t.text.replaceAll(',', '.'));
       final ang  = double.tryParse(_angCtrl.text.replaceAll(',', '.')) ?? 37.5;
       final land = double.tryParse(_landCtrl.text.replaceAll(',', '.')) ?? 1.0;
-      if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki t (mm)', 'Enter wall thickness t (mm)'); return; }
+      if (t == null || t <= 0) { _error = _tr('Podaj gruboÅ›Ä‡ Å›cianki t (mm)', 'Enter wall thickness t (mm)'); return; }
       final depth = t - land;
-      if (depth <= 0) { _error = _tr('Próg ≥ grubości ścianki', 'Root face ≥ wall thickness'); return; }
+      if (depth <= 0) { _error = _tr('PrÃ³g â‰¥ gruboÅ›ci Å›cianki', 'Root face â‰¥ wall thickness'); return; }
       _depth = depth;
       _width = depth * math.tan(ang * math.pi / 180.0);
     });
@@ -1302,24 +1324,24 @@ class _BevelTabState extends State<_BevelTab> {
       _SectionTitle(_tr('Kalkulator fazowania', 'Bevel calculator')),
       _SectionDesc(_tr('Geometria fazy wg EN ISO 9692.', 'Bevel geometry per EN ISO 9692.')),
       DropdownButtonFormField<String>(
-        value: _type,
-        decoration: InputDecoration(labelText: _tr('Typ złącza', 'Joint type')),
+        initialValue: _type,
+        decoration: InputDecoration(labelText: _tr('Typ zÅ‚Ä…cza', 'Joint type')),
         items: const [
-          DropdownMenuItem(value: 'V', child: Text('V — jednofazowe (typowe TIG)')),
-          DropdownMenuItem(value: 'X', child: Text('X — dwustronne (grube ściany)')),
+          DropdownMenuItem(value: 'V', child: Text('V â€” jednofazowe (typowe TIG)')),
+          DropdownMenuItem(value: 'X', child: Text('X â€” dwustronne (grube Å›ciany)')),
         ],
         onChanged: (v) { setState(() => _type = v ?? 'V'); _calc(); },
       ),
       const SizedBox(height: 10),
-      TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
+      TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('GruboÅ›Ä‡ Å›cianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
       const SizedBox(height: 10),
       Row(children: [
         Expanded(child: TextField(controller: _angCtrl, keyboardType: TextInputType.number,
-            decoration: InputDecoration(labelText: _tr('Kąt α (°)', 'Angle α (°)'), hintText: '37.5', suffixText: '°', helperText: _tr('Typowo 30–37.5°', 'Typical 30–37.5°')),
+            decoration: InputDecoration(labelText: _tr('KÄ…t Î± (Â°)', 'Angle Î± (Â°)'), hintText: '37.5', suffixText: 'Â°', helperText: _tr('Typowo 30â€“37.5Â°', 'Typical 30â€“37.5Â°')),
             onChanged: (_) => _calc())),
         const SizedBox(width: 10),
         Expanded(child: TextField(controller: _landCtrl, keyboardType: TextInputType.number,
-            decoration: InputDecoration(labelText: _tr('Próg b (mm)', 'Root face b (mm)'), hintText: '1.0', suffixText: 'mm', helperText: _tr('Typowo 0.5–2 mm', 'Typ. 0.5–2 mm')),
+            decoration: InputDecoration(labelText: _tr('PrÃ³g b (mm)', 'Root face b (mm)'), hintText: '1.0', suffixText: 'mm', helperText: _tr('Typowo 0.5â€“2 mm', 'Typ. 0.5â€“2 mm')),
             onChanged: (_) => _calc())),
         const SizedBox(width: 10),
         Expanded(child: TextField(controller: _gapCtrl, keyboardType: TextInputType.number,
@@ -1328,19 +1350,19 @@ class _BevelTabState extends State<_BevelTab> {
       ]),
       const SizedBox(height: 16),
       if (_depth != null) _ResultCard(children: [
-        _ResultLabel(_tr('Głębokość fazy h', 'Bevel depth h')),
+        _ResultLabel(_tr('GÅ‚Ä™bokoÅ›Ä‡ fazy h', 'Bevel depth h')),
         _ResultValue('${_depth!.toStringAsFixed(2)} mm'),
         const SizedBox(height: 8),
-        _ResultLabel(_tr('Szerokość fazy na powierzchni', 'Bevel width at surface')),
+        _ResultLabel(_tr('SzerokoÅ›Ä‡ fazy na powierzchni', 'Bevel width at surface')),
         _ResultValue('${_width!.toStringAsFixed(2)} mm', isPrimary: true),
         const SizedBox(height: 10),
         Text(_tr(
-          '• Fazuj pod kątem ${_angCtrl.text}° od progu (land) ${_landCtrl.text} mm\n'
-          '• Szerokość otworu złącza: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
-          '${_type == "X" ? "• Złącze X: fazuj z obu stron po ${(_depth! / 2).toStringAsFixed(2)} mm" : ""}',
-          '• Bevel at ${_angCtrl.text}° from root face ${_landCtrl.text} mm\n'
-          '• Joint opening width: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
-          '${_type == "X" ? "• X joint: bevel both sides by ${(_depth! / 2).toStringAsFixed(2)} mm each" : ""}',
+          'â€¢ Fazuj pod kÄ…tem ${_angCtrl.text}Â° od progu (land) ${_landCtrl.text} mm\n'
+          'â€¢ SzerokoÅ›Ä‡ otworu zÅ‚Ä…cza: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
+          '${_type == "X" ? "â€¢ ZÅ‚Ä…cze X: fazuj z obu stron po ${(_depth! / 2).toStringAsFixed(2)} mm" : ""}',
+          'â€¢ Bevel at ${_angCtrl.text}Â° from root face ${_landCtrl.text} mm\n'
+          'â€¢ Joint opening width: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
+          '${_type == "X" ? "â€¢ X joint: bevel both sides by ${(_depth! / 2).toStringAsFixed(2)} mm each" : ""}',
         ), style: const TextStyle(fontSize: 12, color: _kSubtle, height: 1.6)),
       ]),
       if (_error != null) _ErrorText(_error!),
@@ -1348,9 +1370,9 @@ class _BevelTabState extends State<_BevelTab> {
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // TAB 8: DYLATACJA CIEPLNA
-// ══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _ThermalExpansionTab extends StatefulWidget {
   const _ThermalExpansionTab();
   @override State<_ThermalExpansionTab> createState() => _ThermalExpansionTabState();
@@ -1373,7 +1395,13 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
   };
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-  @override void dispose() { for (final c in [_l, _dt, _t1, _t2]) c.dispose(); super.dispose(); }
+  @override
+  void dispose() {
+    for (final c in [_l, _dt, _t1, _t2]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   void _calc() {
     setState(() {
@@ -1388,8 +1416,8 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
         dt = double.tryParse(_dt.text.replaceAll(',', '.'));
       }
       final l = double.tryParse(_l.text.replaceAll(',', '.'));
-      if (l == null || l <= 0) { _error = _tr('Podaj długość rurociągu (m)', 'Enter pipeline length (m)'); return; }
-      if (dt == null || dt < 0) { _error = _tr('Podaj różnicę temperatur ΔT', 'Enter temperature difference ΔT'); return; }
+      if (l == null || l <= 0) { _error = _tr('Podaj dÅ‚ugoÅ›Ä‡ rurociÄ…gu (m)', 'Enter pipeline length (m)'); return; }
+      if (dt == null || dt < 0) { _error = _tr('Podaj rÃ³Å¼nicÄ™ temperatur Î”T', 'Enter temperature difference Î”T'); return; }
       final a = _alpha[_mat] ?? 16e-6;
       _dLm  = a * l * dt;
       _dLmm = _dLm! * 1000.0;
@@ -1402,43 +1430,43 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
     children: [
       _SectionTitle(_tr('Dylatacja cieplna', 'Thermal expansion')),
       _SectionDesc(_tr(
-        'ΔL = α × L × ΔT\n'
-        'Ważne przy rurociągach instalowanych na zimno, pracujących w podwyższonej temperaturze.',
-        'ΔL = α × L × ΔT\n'
+        'Î”L = Î± Ã— L Ã— Î”T\n'
+        'WaÅ¼ne przy rurociÄ…gach instalowanych na zimno, pracujÄ…cych w podwyÅ¼szonej temperaturze.',
+        'Î”L = Î± Ã— L Ã— Î”T\n'
         'Important for pipelines installed cold and operating at elevated temperature.',
       )),
       DropdownButtonFormField<String>(
-        value: _mat,
-        decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
+        initialValue: _mat,
+        decoration: InputDecoration(labelText: _tr('MateriaÅ‚', 'Material')),
         items: const [
-          DropdownMenuItem(value: 'SS316L', child: Text('SS 316L   α = 16.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'SS304L', child: Text('SS 304L   α = 17.2 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'CS',     child: Text('CS (węgl.) α = 12.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'CuNi',   child: Text('CuNi 90/10 α = 17.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'Al',     child: Text('Aluminium  α = 23.6 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: 'SS316L', child: Text('SS 316L   Î± = 16.0 Ã—10â»â¶ /Â°C')),
+          DropdownMenuItem(value: 'SS304L', child: Text('SS 304L   Î± = 17.2 Ã—10â»â¶ /Â°C')),
+          DropdownMenuItem(value: 'CS',     child: Text('CS (wÄ™gl.) Î± = 12.0 Ã—10â»â¶ /Â°C')),
+          DropdownMenuItem(value: 'CuNi',   child: Text('CuNi 90/10 Î± = 17.0 Ã—10â»â¶ /Â°C')),
+          DropdownMenuItem(value: 'Al',     child: Text('Aluminium  Î± = 23.6 Ã—10â»â¶ /Â°C')),
         ],
         onChanged: (v) { setState(() => _mat = v ?? 'SS316L'); _calc(); },
       ),
       const SizedBox(height: 10),
-      TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Długość rurociągu L (m)', 'Pipeline length L (m)'), hintText: '50', suffixText: 'm'), onChanged: (_) => _calc()),
+      TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('DÅ‚ugoÅ›Ä‡ rurociÄ…gu L (m)', 'Pipeline length L (m)'), hintText: '50', suffixText: 'm'), onChanged: (_) => _calc()),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _t1, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T montażu (°C)', 'Install. T (°C)'), hintText: '20', suffixText: '°C'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _t1, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T montaÅ¼u (Â°C)', 'Install. T (Â°C)'), hintText: '20', suffixText: 'Â°C'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _t2, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T pracy (°C)', 'Oper. T (°C)'), hintText: '120', suffixText: '°C'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _t2, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T pracy (Â°C)', 'Oper. T (Â°C)'), hintText: '120', suffixText: 'Â°C'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _dt, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'ΔT (°C)', hintText: '100', suffixText: '°C', helperText: _tr('lub T1 i T2', 'or T1 and T2')), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _dt, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Î”T (Â°C)', hintText: '100', suffixText: 'Â°C', helperText: _tr('lub T1 i T2', 'or T1 and T2')), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 16),
       if (_dLmm != null) _ResultCard(children: [
-        _ResultLabel('ΔL'),
+        _ResultLabel('Î”L'),
         _ResultValue('${_dLmm!.toStringAsFixed(1)} mm', isPrimary: true),
         _ResultValue('${_dLm!.toStringAsFixed(4)} m'),
         const SizedBox(height: 10),
         Text(
           _dLmm! > 30
-            ? _tr('⚠ Dylatacja > 30 mm — wymagana kompensacja (lira, przegub, dylatator).', '⚠ Expansion > 30 mm — compensation required (expansion loop, joint or bellows).')
-            : _tr('✓ Dylatacja mała — sprawdź czy trasa ma wystarczający odcinek elastyczny.', '✓ Small expansion — verify the route has sufficient flexible section.'),
+            ? _tr('âš  Dylatacja > 30 mm â€” wymagana kompensacja (lira, przegub, dylatator).', 'âš  Expansion > 30 mm â€” compensation required (expansion loop, joint or bellows).')
+            : _tr('âœ“ Dylatacja maÅ‚a â€” sprawdÅº czy trasa ma wystarczajÄ…cy odcinek elastyczny.', 'âœ“ Small expansion â€” verify the route has sufficient flexible section.'),
           style: TextStyle(fontSize: 12, color: _dLmm! > 30 ? _kAccentWarm : _kSubtle, fontWeight: _dLmm! > 30 ? FontWeight.w600 : FontWeight.normal),
         ),
       ]),

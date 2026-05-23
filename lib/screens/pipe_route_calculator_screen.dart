@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 class PipeRouteCalculatorScreen extends StatefulWidget {
@@ -206,6 +207,13 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
         suffixText: 'mm',
         border: const OutlineInputBorder(),
         filled: true,
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.content_copy, size: 18),
+          tooltip: context.tr(pl: 'Kopiuj', en: 'Copy'),
+          onPressed: ctrl.text.trim().isEmpty
+              ? null
+              : () => copyToClipboard(context, ctrl.text, label: label),
+        ),
       ),
     );
   }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../widgets/help_button.dart';
@@ -6,6 +6,13 @@ import 'welder_pipes_screen.dart';
 import 'welder_tanks_screen.dart';
 import 'welder_tools_screen.dart';
 import 'weld_journal_screen.dart';
+import 'orbital_tig_screen.dart';
+import 'heat_tint_screen.dart';
+import 'pre_weld_checklist_screen.dart';
+import 'coupon_log_screen.dart';
+import 'tungsten_screen.dart';
+import 'passivation_screen.dart';
+import 'hydrotest_screen.dart';
 
 class WelderMenuScreen extends StatelessWidget {
   const WelderMenuScreen({super.key});
@@ -42,16 +49,65 @@ class WelderMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.calculate_outlined,
               title: context.tr(pl: 'Kalkulatory', en: 'Calculators'),
-              subtitle: context.tr(pl: 'Heat Input / Temp / O₂ / Gaz / Timer', en: 'Heat Input / Temp / O₂ / Gas / Timer'),
+              subtitle: context.tr(pl: 'Heat Input / Temp / Oâ‚‚ / Gaz / Timer', en: 'Heat Input / Temp / Oâ‚‚ / Gas / Timer'),
               accentColor: const Color(0xFF4A9EFF),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WelderToolsScreen())),
             ),
             _Tile(
               icon: Icons.article_outlined,
               title: context.tr(pl: 'Dziennik spoin', en: 'Weld journal'),
-              subtitle: context.tr(pl: 'Numeracja spoin, parametry, zdjęcia', en: 'Weld numbers, params, photos'),
+              subtitle: context.tr(pl: 'Weld map BPE, numeracja, śledzenie', en: 'BPE weld map, numbering, traceability'),
               accentColor: const Color(0xFF2ECC71),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WeldJournalScreen())),
+            ),
+            _Tile(
+              icon: Icons.donut_large_outlined,
+              title: context.tr(pl: 'Orbital TIG', en: 'Orbital TIG'),
+              subtitle: context.tr(pl: 'Parametry startowe, czas spoiny', en: 'Starting parameters, weld time'),
+              accentColor: const Color(0xFF26C6DA),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OrbitalTigScreen())),
+            ),
+            _Tile(
+              icon: Icons.palette_outlined,
+              title: context.tr(pl: 'Przebarwienia', en: 'Heat tint'),
+              subtitle: context.tr(pl: 'Karta kolorów spoiny, akceptacja', en: 'Weld colour chart, acceptance'),
+              accentColor: const Color(0xFFAB47BC),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HeatTintScreen())),
+            ),
+            _Tile(
+              icon: Icons.checklist_rtl,
+              title: context.tr(pl: 'Checklista', en: 'Checklist'),
+              subtitle: context.tr(pl: 'Kontrola przed spawaniem', en: 'Pre-weld check'),
+              accentColor: const Color(0xFFFFA726),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PreWeldChecklistScreen())),
+            ),
+            _Tile(
+              icon: Icons.science_outlined,
+              title: context.tr(pl: 'Log kuponów', en: 'Coupon log'),
+              subtitle: context.tr(pl: 'Próbki spawów dnia', en: "Daily test coupons"),
+              accentColor: const Color(0xFF66BB6A),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CouponLogScreen())),
+            ),
+            _Tile(
+              icon: Icons.bolt_outlined,
+              title: context.tr(pl: 'Elektroda wolframowa', en: 'Tungsten electrode'),
+              subtitle: context.tr(pl: 'Dobór Ø wg prądu, typy', en: 'Ø by current, types'),
+              accentColor: const Color(0xFF5C6BC0),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TungstenScreen())),
+            ),
+            _Tile(
+              icon: Icons.cleaning_services_outlined,
+              title: context.tr(pl: 'Trawienie i pasywacja', en: 'Pickling & passivation'),
+              subtitle: context.tr(pl: 'Obróbka powierzchni po spawaniu', en: 'Post-weld surface treatment'),
+              accentColor: const Color(0xFFEC407A),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PassivationScreen())),
+            ),
+            _Tile(
+              icon: Icons.water_outlined,
+              title: context.tr(pl: 'Próba ciśnieniowa', en: 'Hydrostatic test'),
+              subtitle: context.tr(pl: 'Test pressure, objętość, czas', en: 'Test pressure, volume, time'),
+              accentColor: const Color(0xFF1976D2),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HydrotestScreen())),
             ),
           ],
         ),
@@ -90,7 +146,7 @@ class _Tile extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: accentColor.withOpacity(0.12),
+                  color: accentColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, size: 24, color: accentColor),

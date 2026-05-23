@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_const_constructors
+﻿// ignore_for_file: prefer_const_constructors
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -7,9 +7,9 @@ import '../data/nps_dn_od_r.dart';
 import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  Kolory
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _kOrange = Color(0xFFF5A623);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
@@ -19,9 +19,9 @@ const _kBorder = Color(0xFF2C3354);
 const _kMuted  = Color(0xFF55607A);
 const _kSec    = Color(0xFF9BA3C7);
 
-// ──────────────────────────────────────────────────────────────────────────
-//  Ekran główny modułu
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Ekran gÅ‚Ã³wny moduÅ‚u
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class FieldAssemblyScreen extends StatelessWidget {
   const FieldAssemblyScreen({super.key});
 
@@ -31,10 +31,10 @@ class FieldAssemblyScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(context.tr(pl: 'Montaż w terenie', en: 'Field assembly')),
+          title: Text(context.tr(pl: 'MontaÅ¼ w terenie', en: 'Field assembly')),
           bottom: TabBar(
             tabs: [
-              Tab(text: context.tr(pl: 'Etaż', en: 'Offset')),
+              Tab(text: context.tr(pl: 'EtaÅ¼', en: 'Offset')),
               Tab(text: context.tr(pl: 'Prosta wstawka', en: 'Straight run')),
             ],
           ),
@@ -50,9 +50,9 @@ class FieldAssemblyScreen extends StatelessWidget {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  Wspólne widgety pomocnicze
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  WspÃ³lne widgety pomocnicze
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _InfoBox extends StatelessWidget {
   final String text;
   const _InfoBox(this.text);
@@ -62,14 +62,14 @@ class _InfoBox extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kBlue.withOpacity(0.07),
+        color: _kBlue.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kBlue.withOpacity(0.2)),
+        border: Border.all(color: _kBlue.withValues(alpha: 0.2)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline, size: 16, color: _kBlue.withOpacity(0.7)),
+          Icon(Icons.info_outline, size: 16, color: _kBlue.withValues(alpha: 0.7)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(text,
@@ -142,12 +142,12 @@ class _ResultCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [_kOrange.withOpacity(0.12), _kOrange.withOpacity(0.04)],
+          colors: [_kOrange.withValues(alpha: 0.12), _kOrange.withValues(alpha: 0.04)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _kOrange.withOpacity(0.3)),
+        border: Border.all(color: _kOrange.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,13 +203,13 @@ class _ErrorBox extends StatelessWidget {
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _kRed.withOpacity(0.1),
+        color: _kRed.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kRed.withOpacity(0.3)),
+        border: Border.all(color: _kRed.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(Icons.warning_outlined, size: 16, color: _kRed.withOpacity(0.8)),
+          Icon(Icons.warning_outlined, size: 16, color: _kRed.withValues(alpha: 0.8)),
           const SizedBox(width: 8),
           Expanded(
               child: Text(text,
@@ -220,9 +220,9 @@ class _ErrorBox extends StatelessWidget {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-//  TAB 1: ETAŻ
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  TAB 1: ETAÅ»
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _EtazTab extends StatefulWidget {
   const _EtazTab();
   @override
@@ -230,13 +230,13 @@ class _EtazTab extends StatefulWidget {
 }
 
 class _EtazTabState extends State<_EtazTab> {
-  // ── Tryb podania offsetu ─────────────────────────────────────────────
-  // DIRECT: user wpisuje offset bezpośrednio
-  // D1D2_SUM: user wpisuje D1 i D2 mierzone od swoich ścian (offset = D1+D2)
-  // D1D2_DIFF: user wpisuje D1 i D2 od wspólnej ref (offset = |D2-D1|)
+  // â”€â”€ Tryb podania offsetu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // DIRECT: user wpisuje offset bezpoÅ›rednio
+  // D1D2_SUM: user wpisuje D1 i D2 mierzone od swoich Å›cian (offset = D1+D2)
+  // D1D2_DIFF: user wpisuje D1 i D2 od wspÃ³lnej ref (offset = |D2-D1|)
   String _offsetMode = 'DIRECT';
 
-  // Pola wejściowe
+  // Pola wejÅ›ciowe
   final _offsetCtrl = TextEditingController();
   final _d1Ctrl     = TextEditingController();
   final _d2Ctrl     = TextEditingController();
@@ -253,7 +253,7 @@ class _EtazTabState extends State<_EtazTab> {
   double? _cutMm;
   String? _error;
 
-  // Historia axisMm (per OD) — proste zapamiętywanie w sesji
+  // Historia axisMm (per OD) â€” proste zapamiÄ™tywanie w sesji
   final _axisHistory = <String, double>{};
 
   final _libDao = ComponentLibraryDao();
@@ -271,20 +271,20 @@ class _EtazTabState extends State<_EtazTab> {
     super.dispose();
   }
 
-  // ── Auto-uzupełnienie axisMm z biblioteki lub tabeli NPS ───────────────
+  // â”€â”€ Auto-uzupeÅ‚nienie axisMm z biblioteki lub tabeli NPS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _lookupAxis() async {
     final odText = _odCtrl.text.replaceAll(',', '.');
     final od = double.tryParse(odText);
     if (od == null || od <= 0) return;
 
-    // 1. Sprawdź historię
+    // 1. SprawdÅº historiÄ™
     if (_axisHistory.containsKey(odText)) {
       _axisCtrl.text = _axisHistory[odText]!.toStringAsFixed(1);
       _calc();
       return;
     }
 
-    // 2. Szukaj w bibliotece komponentów (ELB90)
+    // 2. Szukaj w bibliotece komponentÃ³w (ELB90)
     try {
       final all = await _libDao.listFor(
         materialGroup: 'SS',
@@ -312,14 +312,14 @@ class _EtazTabState extends State<_EtazTab> {
       }
     }
     if (best != null && bestDiff < 5) {
-      // axisMm dla 90° = rMm (centrum do czoła = R dla kolan 90°)
+      // axisMm dla 90Â° = rMm (centrum do czoÅ‚a = R dla kolan 90Â°)
       _axisCtrl.text = best.rMm.toStringAsFixed(1);
       _axisHistory[odText] = best.rMm;
       _calc();
     }
   }
 
-  // ── Obliczenia ────────────────────────────────────────────────────────
+  // â”€â”€ Obliczenia â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   void _calc() {
     setState(() {
       _error   = null;
@@ -333,7 +333,7 @@ class _EtazTabState extends State<_EtazTab> {
       if (_offsetMode == 'DIRECT') {
         off = double.tryParse(_offsetCtrl.text.replaceAll(',', '.'));
         if (off == null || off <= 0) {
-          _error = _tr('Podaj odległość między osiami rur (mm)',
+          _error = _tr('Podaj odlegÅ‚oÅ›Ä‡ miÄ™dzy osiami rur (mm)',
               'Enter the distance between pipe axes (mm)');
           return;
         }
@@ -360,22 +360,22 @@ class _EtazTabState extends State<_EtazTab> {
       // Gap
       final gap = double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0.0;
 
-      // Kąt
+      // KÄ…t
       final angle = double.parse(_elbowAngle);
       final angleRad = angle * math.pi / 180.0;
 
-      // Travel = odległość między czołami kolan (po osi łączącej)
+      // Travel = odlegÅ‚oÅ›Ä‡ miÄ™dzy czoÅ‚ami kolan (po osi Å‚Ä…czÄ…cej)
       final travel = off / math.sin(angleRad);
       _travel = travel;
 
-      // CUT = travel - axisMm × 2 - gap × 2
+      // CUT = travel - axisMm Ã— 2 - gap Ã— 2
       final cut = travel - 2.0 * axis - 2.0 * gap;
       _cutMm = cut;
 
       if (cut < 0) {
         _error = _tr(
-          'Ujemna długość rury! Odejście za małe dla tych kolan. '
-          'Zwiększ offset lub użyj mniejszych kolan.',
+          'Ujemna dÅ‚ugoÅ›Ä‡ rury! OdejÅ›cie za maÅ‚e dla tych kolan. '
+          'ZwiÄ™ksz offset lub uÅ¼yj mniejszych kolan.',
           'Negative pipe length! Offset too small for these elbows. '
           'Increase offset or use smaller elbows.',
         );
@@ -383,7 +383,7 @@ class _EtazTabState extends State<_EtazTab> {
     });
   }
 
-  // ── BUDOWANIE UI ──────────────────────────────────────────────────────
+  // â”€â”€ BUDOWANIE UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -402,11 +402,11 @@ class _EtazTabState extends State<_EtazTab> {
         // Typ kolan
         _SectionLabel(_tr('Kolana', 'Elbows')),
         DropdownButtonFormField<String>(
-          value: _elbowAngle,
-          decoration: InputDecoration(labelText: _tr('Kąt kolan', 'Elbow angle')),
+          initialValue: _elbowAngle,
+          decoration: InputDecoration(labelText: _tr('KÄ…t kolan', 'Elbow angle')),
           items: const [
-            DropdownMenuItem(value: '90', child: Text('90°')),
-            DropdownMenuItem(value: '45', child: Text('45°')),
+            DropdownMenuItem(value: '90', child: Text('90Â°')),
+            DropdownMenuItem(value: '45', child: Text('45Â°')),
           ],
           onChanged: (v) {
             setState(() => _elbowAngle = v ?? '90');
@@ -426,8 +426,8 @@ class _EtazTabState extends State<_EtazTab> {
                 hint: 'np. 76.2',
                 unit: 'mm',
                 helperText: _tr(
-                  'Twarz kolanka → oś. Dla 90° LR: ≈1.5×OD',
-                  'Elbow face → axis. For 90° LR: ≈1.5×OD',
+                  'Twarz kolanka â†’ oÅ›. Dla 90Â° LR: â‰ˆ1.5Ã—OD',
+                  'Elbow face â†’ axis. For 90Â° LR: â‰ˆ1.5Ã—OD',
                 ),
                 onChanged: _calc,
               ),
@@ -459,7 +459,7 @@ class _EtazTabState extends State<_EtazTab> {
         // Gap
         _NumField(
           controller: _gapCtrl,
-          label: _tr('Gap na spoinę (mm)', 'Weld gap (mm)'),
+          label: _tr('Gap na spoinÄ™ (mm)', 'Weld gap (mm)'),
           hint: '2',
           unit: 'mm',
           onChanged: _calc,
@@ -469,7 +469,7 @@ class _EtazTabState extends State<_EtazTab> {
         const SizedBox(height: 12),
 
         // Tryb podania offsetu
-        _SectionLabel(_tr('Jak podajesz odległość?', 'How do you enter the distance?')),
+        _SectionLabel(_tr('Jak podajesz odlegÅ‚oÅ›Ä‡?', 'How do you enter the distance?')),
         _OffsetModeSelector(
           mode: _offsetMode,
           onChanged: (m) => setState(() {
@@ -482,22 +482,22 @@ class _EtazTabState extends State<_EtazTab> {
         // Pola offsetu
         if (_offsetMode == 'DIRECT') ...[
           _InfoBox(_tr(
-            'Wpisz odległość między osiami rur A i B '
-            '(np. zmierzoną taśmą między środkami rur).',
+            'Wpisz odlegÅ‚oÅ›Ä‡ miÄ™dzy osiami rur A i B '
+            '(np. zmierzonÄ… taÅ›mÄ… miÄ™dzy Å›rodkami rur).',
             'Enter the distance between pipe A and B axes '
             '(e.g. measured with a tape between pipe centres).',
           )),
           _NumField(
             controller: _offsetCtrl,
-            label: _tr('Odległość między osiami — OFFSET (mm)', 'Distance between axes — OFFSET (mm)'),
+            label: _tr('OdlegÅ‚oÅ›Ä‡ miÄ™dzy osiami â€” OFFSET (mm)', 'Distance between axes â€” OFFSET (mm)'),
             hint: 'np. 200',
             unit: 'mm',
             onChanged: _calc,
           ),
         ] else if (_offsetMode == 'D1D2_SUM') ...[
           _InfoBox(_tr(
-            'Zmierzyłeś od każdej ściany/punktu do swojej rury.\n'
-            'OFFSET = D1 + D2  (rury wychodzą z przeciwnych ścian).',
+            'ZmierzyÅ‚eÅ› od kaÅ¼dej Å›ciany/punktu do swojej rury.\n'
+            'OFFSET = D1 + D2  (rury wychodzÄ… z przeciwnych Å›cian).',
             'You measured from each wall to its pipe.\n'
             'OFFSET = D1 + D2  (pipes emerge from opposite walls).',
           )),
@@ -505,7 +505,7 @@ class _EtazTabState extends State<_EtazTab> {
             Expanded(
                 child: _NumField(
                     controller: _d1Ctrl,
-                    label: _tr('D1 — od ściany 1 do osi rury A', 'D1 — wall 1 to pipe A'),
+                    label: _tr('D1 â€” od Å›ciany 1 do osi rury A', 'D1 â€” wall 1 to pipe A'),
                     hint: 'mm',
                     unit: 'mm',
                     onChanged: _calc)),
@@ -513,23 +513,23 @@ class _EtazTabState extends State<_EtazTab> {
             Expanded(
                 child: _NumField(
                     controller: _d2Ctrl,
-                    label: _tr('D2 — od ściany 2 do osi rury B', 'D2 — wall 2 to pipe B'),
+                    label: _tr('D2 â€” od Å›ciany 2 do osi rury B', 'D2 â€” wall 2 to pipe B'),
                     hint: 'mm',
                     unit: 'mm',
                     onChanged: _calc)),
           ]),
         ] else ...[
           _InfoBox(_tr(
-            'Zmierzyłeś oba wymiary od TEGO SAMEGO punktu referencyjnego.\n'
-            'OFFSET = |D2 − D1|  (rury są po tej samej stronie).',
+            'ZmierzyÅ‚eÅ› oba wymiary od TEGO SAMEGO punktu referencyjnego.\n'
+            'OFFSET = |D2 âˆ’ D1|  (rury sÄ… po tej samej stronie).',
             'Both measurements from the SAME reference point.\n'
-            'OFFSET = |D2 − D1|.',
+            'OFFSET = |D2 âˆ’ D1|.',
           )),
           Row(children: [
             Expanded(
                 child: _NumField(
                     controller: _d1Ctrl,
-                    label: _tr('D1 — oś rury A od ref.', 'D1 — pipe A from ref.'),
+                    label: _tr('D1 â€” oÅ› rury A od ref.', 'D1 â€” pipe A from ref.'),
                     hint: 'mm',
                     unit: 'mm',
                     onChanged: _calc)),
@@ -537,7 +537,7 @@ class _EtazTabState extends State<_EtazTab> {
             Expanded(
                 child: _NumField(
                     controller: _d2Ctrl,
-                    label: _tr('D2 — oś rury B od ref.', 'D2 — pipe B from ref.'),
+                    label: _tr('D2 â€” oÅ› rury B od ref.', 'D2 â€” pipe B from ref.'),
                     hint: 'mm',
                     unit: 'mm',
                     onChanged: _calc)),
@@ -550,29 +550,29 @@ class _EtazTabState extends State<_EtazTab> {
         if (_offset != null && _axisMm != null && _travel != null && _cutMm != null)
           _ResultCard(children: [
             _ResultRow(
-              label: _tr('Offset (odl. między osiami)', 'Offset (between axes)'),
+              label: _tr('Offset (odl. miÄ™dzy osiami)', 'Offset (between axes)'),
               value: '${_offset!.toStringAsFixed(1)} mm',
             ),
             if (_elbowAngle != '90')
               _ResultRow(
-                label: _tr('Travel (oś łącząca kolan)', 'Travel (elbow-to-elbow axis)'),
+                label: _tr('Travel (oÅ› Å‚Ä…czÄ…ca kolan)', 'Travel (elbow-to-elbow axis)'),
                 value: '${_travel!.toStringAsFixed(1)} mm',
                 dimmed: true,
               ),
             _ResultRow(
-              label: '− 2 × axisMm',
-              value: '− ${(2 * _axisMm!).toStringAsFixed(1)} mm',
+              label: 'âˆ’ 2 Ã— axisMm',
+              value: 'âˆ’ ${(2 * _axisMm!).toStringAsFixed(1)} mm',
               dimmed: true,
             ),
             if ((double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0) > 0)
               _ResultRow(
-                label: '− 2 × gap',
-                value: '− ${(2 * (double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0)).toStringAsFixed(1)} mm',
+                label: 'âˆ’ 2 Ã— gap',
+                value: 'âˆ’ ${(2 * (double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0)).toStringAsFixed(1)} mm',
                 dimmed: true,
               ),
             const Divider(height: 16, color: _kBorder),
             _ResultRow(
-              label: _tr('Rura łącząca — CUT', 'Connecting pipe — CUT'),
+              label: _tr('Rura Å‚Ä…czÄ…ca â€” CUT', 'Connecting pipe â€” CUT'),
               value: '${_cutMm!.toStringAsFixed(1)} mm',
               primary: _cutMm! > 0,
             ),
@@ -581,11 +581,11 @@ class _EtazTabState extends State<_EtazTab> {
               Text(
                 _tr(
                   'Zaznacz kolanko:\n'
-                  '  • Długi bok (extrados): ${(_axisMm! * math.pi / 2).toStringAsFixed(1)} mm od czoła\n'
-                  '  • Krótki bok (intrados): ${(_axisMm! * math.pi / 2 - (_axisMm!)).toStringAsFixed(1)} mm od czoła',
+                  '  â€¢ DÅ‚ugi bok (extrados): ${(_axisMm! * math.pi / 2).toStringAsFixed(1)} mm od czoÅ‚a\n'
+                  '  â€¢ KrÃ³tki bok (intrados): ${(_axisMm! * math.pi / 2 - (_axisMm!)).toStringAsFixed(1)} mm od czoÅ‚a',
                   'Mark the elbow:\n'
-                  '  • Long side (extrados): ${(_axisMm! * math.pi / 2).toStringAsFixed(1)} mm from face\n'
-                  '  • Short side (intrados): ${(_axisMm! * math.pi / 2 - (_axisMm!)).toStringAsFixed(1)} mm from face',
+                  '  â€¢ Long side (extrados): ${(_axisMm! * math.pi / 2).toStringAsFixed(1)} mm from face\n'
+                  '  â€¢ Short side (intrados): ${(_axisMm! * math.pi / 2 - (_axisMm!)).toStringAsFixed(1)} mm from face',
                 ),
                 style: const TextStyle(fontSize: 11, color: _kSec, height: 1.6),
               ),
@@ -601,12 +601,12 @@ class _EtazTabState extends State<_EtazTab> {
             child: TextButton.icon(
               icon: const Icon(Icons.save_alt, size: 16),
               label: Text(_tr(
-                  'Zapamiętaj wymiar kolanka OD ${_odCtrl.text} = ${_axisMm!.toStringAsFixed(1)} mm',
+                  'ZapamiÄ™taj wymiar kolanka OD ${_odCtrl.text} = ${_axisMm!.toStringAsFixed(1)} mm',
                   'Remember elbow dim OD ${_odCtrl.text} = ${_axisMm!.toStringAsFixed(1)} mm')),
               onPressed: () {
                 _axisHistory[_odCtrl.text.replaceAll(',', '.')] = _axisMm!;
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content: Text(_tr('Zapamiętano', 'Saved')),
+                  content: Text(_tr('ZapamiÄ™tano', 'Saved')),
                   backgroundColor: _kGreen,
                 ));
               },
@@ -617,7 +617,7 @@ class _EtazTabState extends State<_EtazTab> {
   }
 }
 
-// ── Selektor trybu offsetu ─────────────────────────────────────────────────
+// â”€â”€ Selektor trybu offsetu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _OffsetModeSelector extends StatelessWidget {
   final String mode;
   final void Function(String) onChanged;
@@ -626,9 +626,9 @@ class _OffsetModeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final options = [
-      ('DIRECT',   context.tr(pl: 'Wpisuję offset', en: 'Enter offset')),
+      ('DIRECT',   context.tr(pl: 'WpisujÄ™ offset', en: 'Enter offset')),
       ('D1D2_SUM', context.tr(pl: 'D1 + D2', en: 'D1 + D2')),
-      ('D1D2_DIFF',context.tr(pl: '|D2 − D1|', en: '|D2 − D1|')),
+      ('D1D2_DIFF',context.tr(pl: '|D2 âˆ’ D1|', en: '|D2 âˆ’ D1|')),
     ];
     return Wrap(
       spacing: 8,
@@ -640,7 +640,7 @@ class _OffsetModeSelector extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: selected ? _kOrange.withOpacity(0.12) : _kCard,
+              color: selected ? _kOrange.withValues(alpha: 0.12) : _kCard,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: selected ? _kOrange : _kBorder,
@@ -662,7 +662,7 @@ class _OffsetModeSelector extends StatelessWidget {
   }
 }
 
-// ── Diagram etażu ──────────────────────────────────────────────────────────
+// â”€â”€ Diagram etaÅ¼u â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _EtazDiagram extends StatelessWidget {
   final String angle;
   final double? offset;
@@ -693,7 +693,7 @@ class _EtazDiagram extends StatelessWidget {
         children: [
           Text(
             context.tr(
-                pl: 'Schemat etażu ${angle}°', en: '${angle}° offset diagram'),
+                pl: 'Schemat etaÅ¼u $angleÂ°', en: '$angleÂ° offset diagram'),
             style: const TextStyle(
                 fontSize: 11, fontWeight: FontWeight.w600, color: _kMuted),
           ),
@@ -782,7 +782,7 @@ class _EtazPainter extends CustomPainter {
       // Rura B (pozioma, prawa)
       canvas.drawLine(Offset(W * 0.65, H * 0.75), Offset(W, H * 0.75),
           stroke3..color = pipeColor);
-      // Strzałka offset
+      // StrzaÅ‚ka offset
       final arrowPaint = Paint()
         ..color = const Color(0xFF55607A)
         ..style = PaintingStyle.stroke
@@ -793,7 +793,7 @@ class _EtazPainter extends CustomPainter {
       canvas.drawLine(Offset(W * 0.82, H * 0.68), Offset(W * 0.85, H * 0.72), arrowPaint);
       canvas.drawLine(Offset(W * 0.88, H * 0.68), Offset(W * 0.85, H * 0.72), arrowPaint);
     } else {
-      // 45° — linie ukośne
+      // 45Â° â€” linie ukoÅ›ne
       canvas.drawLine(Offset(0, H * 0.2), Offset(W * 0.3, H * 0.2),
           stroke3..color = pipeColor);
       canvas.drawLine(Offset(W * 0.3, H * 0.2), Offset(W * 0.5, H * 0.8),
@@ -814,9 +814,9 @@ class _EtazPainter extends CustomPainter {
       old.offset != offset || old.axisMm != axisMm || old.cutMm != cutMm;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  TAB 2: PROSTA WSTAWKA
-// ──────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ProstaTab extends StatefulWidget {
   const _ProstaTab();
   @override
@@ -850,7 +850,7 @@ class _ProstaTabState extends State<_ProstaTab> {
 
       final span = double.tryParse(_spanCtrl.text.replaceAll(',', '.'));
       if (span == null || span <= 0) {
-        _error = _tr('Podaj wymiar całkowity (mm)', 'Enter total dimension (mm)');
+        _error = _tr('Podaj wymiar caÅ‚kowity (mm)', 'Enter total dimension (mm)');
         return;
       }
 
@@ -869,9 +869,9 @@ class _ProstaTabState extends State<_ProstaTab> {
           16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         _InfoBox(_tr(
-          'Dwa punkty w jednej linii. Zmierz całkowity wymiar SPAN '
-          'między dwoma punktami referencyjnymi, następnie podaj '
-          'ile każdy element "zajmuje" z tego wymiaru.',
+          'Dwa punkty w jednej linii. Zmierz caÅ‚kowity wymiar SPAN '
+          'miÄ™dzy dwoma punktami referencyjnymi, nastÄ™pnie podaj '
+          'ile kaÅ¼dy element "zajmuje" z tego wymiaru.',
           'Two coaxial points. Measure the total SPAN between two '
           'reference points, then enter how much each fitting takes '
           'from that dimension.',
@@ -915,7 +915,7 @@ class _ProstaTabState extends State<_ProstaTab> {
                   Expanded(
                     child: Container(
                       height: 36,
-                      color: _kOrange.withOpacity(0.15),
+                      color: _kOrange.withValues(alpha: 0.15),
                       child: Center(
                         child: Text(
                           _cutMm != null
@@ -950,12 +950,12 @@ class _ProstaTabState extends State<_ProstaTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('← off1 →', style: TextStyle(fontSize: 9, color: _kMuted)),
+                  const Text('â† off1 â†’', style: TextStyle(fontSize: 9, color: _kMuted)),
                   Text(
-                    '←────── SPAN ──────→',
+                    'â†â”€â”€â”€â”€â”€â”€ SPAN â”€â”€â”€â”€â”€â”€â†’',
                     style: const TextStyle(fontSize: 9, color: _kSec),
                   ),
-                  const Text('← off2 →', style: TextStyle(fontSize: 9, color: _kMuted)),
+                  const Text('â† off2 â†’', style: TextStyle(fontSize: 9, color: _kMuted)),
                 ],
               ),
             ],
@@ -963,14 +963,14 @@ class _ProstaTabState extends State<_ProstaTab> {
         ),
 
         // SPAN
-        _SectionLabel(_tr('Wymiar całkowity', 'Total dimension')),
+        _SectionLabel(_tr('Wymiar caÅ‚kowity', 'Total dimension')),
         _NumField(
           controller: _spanCtrl,
-          label: _tr('SPAN — wymiar z rysunku/pomiaru (mm)', 'SPAN — measured/drawing dimension (mm)'),
+          label: _tr('SPAN â€” wymiar z rysunku/pomiaru (mm)', 'SPAN â€” measured/drawing dimension (mm)'),
           hint: 'np. 1500',
           unit: 'mm',
           helperText: _tr(
-            'Całkowity wymiar od punktu ref. 1 do punktu ref. 2',
+            'CaÅ‚kowity wymiar od punktu ref. 1 do punktu ref. 2',
             'Total dimension from ref. point 1 to ref. point 2',
           ),
           onChanged: _calc,
@@ -986,7 +986,7 @@ class _ProstaTabState extends State<_ProstaTab> {
               label: _tr('Offset komp. 1 (mm)', 'Fitting 1 offset (mm)'),
               hint: '0',
               unit: 'mm',
-              helperText: _tr('0 = czoło, axisMm = do osi', '0 = face, axisMm = to axis'),
+              helperText: _tr('0 = czoÅ‚o, axisMm = do osi', '0 = face, axisMm = to axis'),
               onChanged: _calc,
             ),
           ),
@@ -997,7 +997,7 @@ class _ProstaTabState extends State<_ProstaTab> {
               label: _tr('Offset komp. 2 (mm)', 'Fitting 2 offset (mm)'),
               hint: '0',
               unit: 'mm',
-              helperText: _tr('0 = czoło, axisMm = do osi', '0 = face, axisMm = to axis'),
+              helperText: _tr('0 = czoÅ‚o, axisMm = do osi', '0 = face, axisMm = to axis'),
               onChanged: _calc,
             ),
           ),
@@ -1005,7 +1005,7 @@ class _ProstaTabState extends State<_ProstaTab> {
         const SizedBox(height: 10),
         _NumField(
           controller: _gapCtrl,
-          label: _tr('Gap na spoinę (mm)', 'Weld gap (mm)'),
+          label: _tr('Gap na spoinÄ™ (mm)', 'Weld gap (mm)'),
           hint: '2',
           unit: 'mm',
           onChanged: _calc,
@@ -1018,22 +1018,22 @@ class _ProstaTabState extends State<_ProstaTab> {
             _ResultRow(label: 'SPAN', value: '${double.tryParse(_spanCtrl.text.replaceAll(",","."))?.toStringAsFixed(1) ?? "?"} mm'),
             if ((double.tryParse(_off1Ctrl.text.replaceAll(',', '.')) ?? 0) > 0)
               _ResultRow(
-                  label: _tr('− offset 1', '− offset 1'),
-                  value: '− ${(double.tryParse(_off1Ctrl.text.replaceAll(',', '.')) ?? 0).toStringAsFixed(1)} mm',
+                  label: _tr('âˆ’ offset 1', 'âˆ’ offset 1'),
+                  value: 'âˆ’ ${(double.tryParse(_off1Ctrl.text.replaceAll(',', '.')) ?? 0).toStringAsFixed(1)} mm',
                   dimmed: true),
             if ((double.tryParse(_off2Ctrl.text.replaceAll(',', '.')) ?? 0) > 0)
               _ResultRow(
-                  label: _tr('− offset 2', '− offset 2'),
-                  value: '− ${(double.tryParse(_off2Ctrl.text.replaceAll(',', '.')) ?? 0).toStringAsFixed(1)} mm',
+                  label: _tr('âˆ’ offset 2', 'âˆ’ offset 2'),
+                  value: 'âˆ’ ${(double.tryParse(_off2Ctrl.text.replaceAll(',', '.')) ?? 0).toStringAsFixed(1)} mm',
                   dimmed: true),
             if ((double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0) > 0)
               _ResultRow(
-                  label: _tr('− 2 × gap', '− 2 × gap'),
-                  value: '− ${(2 * (double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0)).toStringAsFixed(1)} mm',
+                  label: _tr('âˆ’ 2 Ã— gap', 'âˆ’ 2 Ã— gap'),
+                  value: 'âˆ’ ${(2 * (double.tryParse(_gapCtrl.text.replaceAll(',', '.')) ?? 0)).toStringAsFixed(1)} mm',
                   dimmed: true),
             const Divider(height: 16, color: _kBorder),
             _ResultRow(
-              label: _tr('Rura — CUT', 'Pipe — CUT'),
+              label: _tr('Rura â€” CUT', 'Pipe â€” CUT'),
               value: '${_cutMm!.toStringAsFixed(1)} mm',
               primary: _cutMm! > 0,
             ),
@@ -1046,5 +1046,5 @@ class _ProstaTabState extends State<_ProstaTab> {
 }
 
 extension on Color {
-  Color get shade300 => withOpacity(0.85);
+  Color get shade300 => withValues(alpha: 0.85);
 }

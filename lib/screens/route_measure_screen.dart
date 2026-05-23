@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 /// Skąd był mierzony wymiar (dotyczy obu boków)
@@ -65,14 +66,18 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
     final b = bRaw > 0 ? bRaw + 2 * corr : null;
 
     String? err;
-    if (a != null && a <= 0) err = context.tr(
-      pl: 'Bok długi po korekcji ≤ 0',
-      en: 'Long side after correction ≤ 0',
-    );
-    if (b != null && b <= 0) err = context.tr(
-      pl: 'Bok krótki po korekcji ≤ 0',
-      en: 'Short side after correction ≤ 0',
-    );
+    if (a != null && a <= 0) {
+      err = context.tr(
+        pl: 'Bok długi po korekcji ≤ 0',
+        en: 'Long side after correction ≤ 0',
+      );
+    }
+    if (b != null && b <= 0) {
+      err = context.tr(
+        pl: 'Bok krótki po korekcji ≤ 0',
+        en: 'Short side after correction ≤ 0',
+      );
+    }
 
     double? c, alpha, beta;
     if (a != null && a > 0 && b != null && b > 0 && err == null) {
@@ -388,11 +393,15 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            value != null ? '${value.toStringAsFixed(1)} mm' : '—',
-            style: TextStyle(
-              fontSize: 26, fontWeight: FontWeight.bold,
-              color: cs.onTertiaryContainer, letterSpacing: -0.5,
+          CopyOnLongPress(
+            value: value != null ? value.toStringAsFixed(1) : '',
+            label: label,
+            child: Text(
+              value != null ? '${value.toStringAsFixed(1)} mm' : '—',
+              style: TextStyle(
+                fontSize: 26, fontWeight: FontWeight.bold,
+                color: cs.onTertiaryContainer, letterSpacing: -0.5,
+              ),
             ),
           ),
         ],
@@ -447,11 +456,15 @@ class _RouteMeasureScreenState extends State<RouteMeasureScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label, style: TextStyle(fontSize: 11, color: fg)),
-            Text(
-              value != null ? '${value.toStringAsFixed(1)} mm' : '—',
-              style: TextStyle(
-                fontSize: 26, fontWeight: FontWeight.bold,
-                color: fg, letterSpacing: -0.5,
+            CopyOnLongPress(
+              value: value != null ? value.toStringAsFixed(1) : '',
+              label: label,
+              child: Text(
+                value != null ? '${value.toStringAsFixed(1)} mm' : '—',
+                style: TextStyle(
+                  fontSize: 26, fontWeight: FontWeight.bold,
+                  color: fg, letterSpacing: -0.5,
+                ),
               ),
             ),
             if (isNeg)

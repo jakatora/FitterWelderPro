@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
@@ -59,7 +59,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _projects.isEmpty
-            ? Center(child: Text(context.tr(pl: 'Brak projektów. Kliknij + aby dodać.', en: 'No projects yet. Click + to add one.')))
+            ? Center(child: Text(context.tr(pl: 'Brak projektÃ³w. Kliknij + aby dodaÄ‡.', en: 'No projects yet. Click + to add one.')))
               : ListView.separated(
                   itemCount: _projects.length,
                   separatorBuilder: (_, __) => const Divider(height: 0),
@@ -81,9 +81,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         return await showDialog<bool>(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: Text(context.tr(pl: 'Usuń projekt', en: 'Delete project')),
+                            title: Text(context.tr(pl: 'UsuÅ„ projekt', en: 'Delete project')),
                             content: Text(context.tr(
-                              pl: 'Usunąć "$name" wraz ze wszystkimi segmentami? Tej operacji nie można cofnąć.',
+                              pl: 'UsunÄ…Ä‡ "$name" wraz ze wszystkimi segmentami? Tej operacji nie moÅ¼na cofnÄ…Ä‡.',
                               en: 'Delete "$name" and all its segments? This cannot be undone.',
                             )),
                             actions: [
@@ -94,7 +94,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE74C3C), foregroundColor: Colors.white),
                                 onPressed: () => Navigator.pop(context, true),
-                                child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                                child: Text(context.tr(pl: 'UsuÅ„', en: 'Delete')),
                               ),
                             ],
                           ),
@@ -109,7 +109,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         leading: Container(
                           width: 42, height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF5A623).withOpacity(0.1),
+                            color: const Color(0xFFF5A623).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(Icons.assignment_outlined, size: 22, color: Color(0xFFF5A623)),
@@ -117,8 +117,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(
                           context.tr(
-                            pl: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
-                            en: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
+                            pl: 'Ã˜${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
+                            en: 'Ã˜${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
                           ),
                         ),
                         trailing: const Icon(Icons.chevron_right, size: 18),

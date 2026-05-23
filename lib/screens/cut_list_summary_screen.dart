@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
@@ -7,6 +8,7 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/bar_nesting.dart';
 import '../services/pdf_export_service.dart';
+import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
 const _kOrange = Color(0xFFF5A623);
@@ -62,7 +64,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF błąd: $e'), backgroundColor: const Color(0xFFE74C3C)),
+          SnackBar(content: Text('PDF bÅ‚Ä…d: $e'), backgroundColor: const Color(0xFFE74C3C)),
         );
       }
     } finally {
@@ -99,8 +101,13 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
               ),
             IconButton(
               icon: const Icon(Icons.share_outlined),
-              tooltip: context.tr(pl: 'Udostępnij tekst', en: 'Share text'),
+              tooltip: context.tr(pl: 'Kopiuj tekst', en: 'Copy text'),
               onPressed: () => _share(context, p),
+            ),
+            IconButton(
+              icon: const Icon(Icons.table_view_outlined),
+              tooltip: context.tr(pl: 'Kopiuj CSV', en: 'Copy CSV'),
+              onPressed: () => _copyCsv(context, p),
             ),
           ],
         ],
@@ -112,18 +119,18 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
               : ListView(
                   padding: EdgeInsets.fromLTRB(14, 14, 14, 24 + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
-                    // ── NAGŁÓWEK PROJEKTU ─────────────────────────────────
+                    // â”€â”€ NAGÅÃ“WEK PROJEKTU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                     _ProjectHeader(project: p),
                     const SizedBox(height: 16),
 
                     if (_groups.isEmpty)
-                      Center(child: Text(context.tr(pl: 'Brak segmentów.', en: 'No segments.')))
+                      Center(child: Text(context.tr(pl: 'Brak segmentÃ³w.', en: 'No segments.')))
                     else ...[
-                      // ── PODSUMOWANIE ZBIORCZE ─────────────────────────
+                      // â”€â”€ PODSUMOWANIE ZBIORCZE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                       _GlobalSummary(groups: _groups, project: p),
                       const SizedBox(height: 20),
 
-                      // ── GRUPY RURY ────────────────────────────────────
+                      // â”€â”€ GRUPY RURY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                       ..._groups.entries.map((e) {
                         final parts = e.key.split('|');
                         final d = double.parse(parts[0]);
@@ -149,7 +156,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
     );
   }
 
-  void _share(BuildContext context, Project p) {
+  String _buildTextSummary(Project p) {
     final buf = StringBuffer();
     buf.writeln('CUT LIST — ${p.name ?? p.id.substring(0, 8)}');
     buf.writeln('Material: ${p.materialGroup}  Stock: ${p.stockLengthMm.toStringAsFixed(0)} mm  Kerf: ${p.sawKerfMm.toStringAsFixed(1)} mm');
@@ -167,6 +174,47 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       }
       buf.writeln();
     }
+    return buf.toString();
+  }
+
+  /// CSV with one row per cut piece — drops straight into an Excel column on
+  /// the workshop laptop or into a foreman's spreadsheet.
+  String _buildCsv(Project p) {
+    final buf = StringBuffer();
+    buf.writeln('project;material;stock_mm;kerf_mm;diameter_mm;wall_mm;bar_no;piece_no;cut_mm;bar_remaining_mm');
+    final projectName = (p.name ?? p.id.substring(0, 8)).replaceAll(';', ',');
+    for (final e in _groups.entries) {
+      final parts = e.key.split('|');
+      final d = double.parse(parts[0]);
+      final w = double.parse(parts[1]);
+      final cuts = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
+      final plans = nestCutsToBars(cutsMm: cuts, stockLengthMm: p.stockLengthMm, sawKerfMm: p.sawKerfMm);
+      for (var i = 0; i < plans.length; i++) {
+        final b = plans[i];
+        for (var j = 0; j < b.piecesMm.length; j++) {
+          buf.writeln([
+            projectName,
+            p.materialGroup,
+            p.stockLengthMm.toStringAsFixed(0),
+            p.sawKerfMm.toStringAsFixed(1),
+            d.toStringAsFixed(1),
+            w.toStringAsFixed(1),
+            i + 1,
+            j + 1,
+            b.piecesMm[j].toStringAsFixed(0),
+            b.remainingMm.toStringAsFixed(0),
+          ].join(';'));
+        }
+      }
+    }
+    return buf.toString();
+  }
+
+  Future<void> _share(BuildContext context, Project p) async {
+    final text = _buildTextSummary(p);
+    await Clipboard.setData(ClipboardData(text: text));
+    await Haptic.copied();
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(context.tr(pl: 'Skopiowano do schowka', en: 'Copied to clipboard')),
@@ -174,9 +222,22 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       ),
     );
   }
+
+  Future<void> _copyCsv(BuildContext context, Project p) async {
+    final csv = _buildCsv(p);
+    await Clipboard.setData(ClipboardData(text: csv));
+    await Haptic.copied();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(context.tr(pl: 'CSV w schowku — wklej do Excela', en: 'CSV in clipboard — paste into Excel')),
+        backgroundColor: _kBlue,
+      ),
+    );
+  }
 }
 
-// ── Nagłówek projektu ──────────────────────────────────────────────────────
+// â”€â”€ NagÅ‚Ã³wek projektu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ProjectHeader extends StatelessWidget {
   final Project project;
   const _ProjectHeader({required this.project});
@@ -195,7 +256,7 @@ class _ProjectHeader extends StatelessWidget {
           Container(
             width: 40, height: 40,
             decoration: BoxDecoration(
-              color: _kOrange.withOpacity(0.12),
+              color: _kOrange.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(Icons.checklist_rtl, size: 22, color: _kOrange),
@@ -212,8 +273,8 @@ class _ProjectHeader extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   context.tr(
-                    pl: '${project.materialGroup}  ·  Sztanga: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
-                    en: '${project.materialGroup}  ·  Stock: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
+                    pl: '${project.materialGroup}  Â·  Sztanga: ${project.stockLengthMm.toStringAsFixed(0)} mm  Â·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
+                    en: '${project.materialGroup}  Â·  Stock: ${project.stockLengthMm.toStringAsFixed(0)} mm  Â·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
                   ),
                   style: const TextStyle(fontSize: 12, color: _kMuted),
                 ),
@@ -226,7 +287,7 @@ class _ProjectHeader extends StatelessWidget {
   }
 }
 
-// ── Podsumowanie zbiorcze ──────────────────────────────────────────────────
+// â”€â”€ Podsumowanie zbiorcze â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _GlobalSummary extends StatelessWidget {
   final Map<String, List<double>> groups;
   final Project project;
@@ -320,9 +381,9 @@ class _SummaryStatBox extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
@@ -337,7 +398,7 @@ class _SummaryStatBox extends StatelessWidget {
   }
 }
 
-// ── Grupa rury (jedna średnica/ścianka) ────────────────────────────────────
+// â”€â”€ Grupa rury (jedna Å›rednica/Å›cianka) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _PipeGroup extends StatelessWidget {
   final double diameterMm;
   final double wallMm;
@@ -363,13 +424,13 @@ class _PipeGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Nagłówek grupy
+        // NagÅ‚Ã³wek grupy
         Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: _kOrange.withOpacity(0.1),
+                color: _kOrange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Icon(Icons.oil_barrel_outlined, size: 18, color: _kOrange),
@@ -378,8 +439,8 @@ class _PipeGroup extends StatelessWidget {
             Expanded(
               child: Text(
                 context.tr(
-                  pl: 'Rura  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
-                  en: 'Pipe  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
+                  pl: 'Rura  Ã˜${diameterMm.toStringAsFixed(1)} Ã— ${wallMm.toStringAsFixed(1)} mm',
+                  en: 'Pipe  Ã˜${diameterMm.toStringAsFixed(1)} Ã— ${wallMm.toStringAsFixed(1)} mm',
                 ),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
               ),
@@ -392,7 +453,7 @@ class _PipeGroup extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // Lista odcinków do cięcia
+        // Lista odcinkÃ³w do ciÄ™cia
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -423,8 +484,8 @@ class _PipeGroup extends StatelessWidget {
               const Divider(height: 20, color: _kBorder),
               Text(
                 context.tr(
-                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Odpad: ${totalWaste.toStringAsFixed(0)} mm',
-                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Waste: ${totalWaste.toStringAsFixed(0)} mm',
+                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  Â·  Odpad: ${totalWaste.toStringAsFixed(0)} mm',
+                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  Â·  Waste: ${totalWaste.toStringAsFixed(0)} mm',
                 ),
                 style: const TextStyle(fontSize: 12, color: _kMuted),
               ),
@@ -446,7 +507,7 @@ class _PipeGroup extends StatelessWidget {
   }
 }
 
-// ── Karta sztangi z wizualizacją paskową ───────────────────────────────────
+// â”€â”€ Karta sztangi z wizualizacjÄ… paskowÄ… â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _BarCard extends StatelessWidget {
   final int index;
   final BarPlan plan;
@@ -506,8 +567,8 @@ class _BarCard extends StatelessWidget {
             children: [
               Text(
                 context.tr(
-                  pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
-                  en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                  pl: 'CiÄ™cia: ${plan.cutsCount}  Â·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                  en: 'Cuts: ${plan.cutsCount}  Â·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
                 ),
                 style: TextStyle(fontSize: 11, color: wasteColor),
               ),
@@ -516,12 +577,12 @@ class _BarCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: _kGreen.withOpacity(0.12),
+                    color: _kGreen.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: _kGreen.withOpacity(0.3)),
+                    border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
                   ),
                   child: Text(
-                    context.tr(pl: 'nadaje się na spady', en: 'usable offcut'),
+                    context.tr(pl: 'nadaje siÄ™ na spady', en: 'usable offcut'),
                     style: const TextStyle(fontSize: 10, color: _kGreen),
                   ),
                 ),
@@ -534,7 +595,7 @@ class _BarCard extends StatelessWidget {
   }
 }
 
-// ── Wizualizacja paskowa sztangi ───────────────────────────────────────────
+// â”€â”€ Wizualizacja paskowa sztangi â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _BarVisual extends StatelessWidget {
   final BarPlan plan;
   final double stockLengthMm;
@@ -548,7 +609,7 @@ class _BarVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Kolory dla kolejnych odcinków
+    // Kolory dla kolejnych odcinkÃ³w
     const pieceColors = [
       Color(0xFFF5A623),
       Color(0xFF4A9EFF),
@@ -582,7 +643,7 @@ class _BarVisual extends StatelessWidget {
                       borderRadius: BorderRadius.circular(3),
                     ),
                   ),
-                  // Kerf (cięcie piłą)
+                  // Kerf (ciÄ™cie piÅ‚Ä…)
                   if (i < plan.piecesMm.length - 1 || plan.remainingMm > 0)
                     Container(
                       width: (totalWidth * kerfPct).clamp(2.0, 6.0),
@@ -604,7 +665,7 @@ class _BarVisual extends StatelessWidget {
                   child: plan.remainingMm > 300
                       ? Center(
                           child: Text(
-                            '${plan.remainingMm.toStringAsFixed(0)}',
+                            plan.remainingMm.toStringAsFixed(0),
                             style: const TextStyle(fontSize: 9, color: _kMuted),
                           ),
                         )

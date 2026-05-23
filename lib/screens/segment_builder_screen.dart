@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -6,17 +6,18 @@ import '../i18n/app_language.dart';
 import '../models/library_component.dart';
 import '../services/cut_calculator.dart';
 import '../services/iso_parser.dart';
+import '../utils/haptic.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
 
-// ─── Punkt referencyjny ISO ────────────────────────────────────────────────
-// Określa, od/do którego miejsca na komponencie mierzony jest wymiar ISO.
+// â”€â”€â”€ Punkt referencyjny ISO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// OkreÅ›la, od/do ktÃ³rego miejsca na komponencie mierzony jest wymiar ISO.
 //
-//  FACE_NEAR  = czoło bliskie (gdzie wchodzi rura)             → offset = 0
-//  AXIS       = oś / punkt przecięcia centerlines (axial only) → offset = axisMm
-//  CENTER     = środek komponentu                              → offset = length/2
-//  FACE_FAR   = czoło dalekie (przeciwna strona)               → offset = length
-//  OPEN       = logiczny (OPEN_END, PIPE)                      → offset = 0
+//  FACE_NEAR  = czoÅ‚o bliskie (gdzie wchodzi rura)             â†’ offset = 0
+//  AXIS       = oÅ› / punkt przeciÄ™cia centerlines (axial only) â†’ offset = axisMm
+//  CENTER     = Å›rodek komponentu                              â†’ offset = length/2
+//  FACE_FAR   = czoÅ‚o dalekie (przeciwna strona)               â†’ offset = length
+//  OPEN       = logiczny (OPEN_END, PIPE)                      â†’ offset = 0
 //
 enum IsoRefPoint { faceNear, axis, center, faceFar, open }
 
@@ -33,26 +34,26 @@ extension IsoRefPointExt on IsoRefPoint {
 
   String label(BuildContext ctx) {
     switch (this) {
-      case IsoRefPoint.faceNear: return ctx.tr(pl: 'Czoło bliskie', en: 'Near face');
-      case IsoRefPoint.axis:     return ctx.tr(pl: 'Oś', en: 'Axis');
-      case IsoRefPoint.center:   return ctx.tr(pl: 'Środek', en: 'Center');
-      case IsoRefPoint.faceFar:  return ctx.tr(pl: 'Czoło dalekie', en: 'Far face');
+      case IsoRefPoint.faceNear: return ctx.tr(pl: 'CzoÅ‚o bliskie', en: 'Near face');
+      case IsoRefPoint.axis:     return ctx.tr(pl: 'OÅ›', en: 'Axis');
+      case IsoRefPoint.center:   return ctx.tr(pl: 'Åšrodek', en: 'Center');
+      case IsoRefPoint.faceFar:  return ctx.tr(pl: 'CzoÅ‚o dalekie', en: 'Far face');
       case IsoRefPoint.open:     return ctx.tr(pl: 'Koniec otwarty', en: 'Open end');
     }
   }
 
   String shortLabel(BuildContext ctx) {
     switch (this) {
-      case IsoRefPoint.faceNear: return ctx.tr(pl: 'czoło bl.', en: 'near face');
-      case IsoRefPoint.axis:     return ctx.tr(pl: 'oś', en: 'axis');
-      case IsoRefPoint.center:   return ctx.tr(pl: 'środek', en: 'center');
-      case IsoRefPoint.faceFar:  return ctx.tr(pl: 'czoło dal.', en: 'far face');
+      case IsoRefPoint.faceNear: return ctx.tr(pl: 'czoÅ‚o bl.', en: 'near face');
+      case IsoRefPoint.axis:     return ctx.tr(pl: 'oÅ›', en: 'axis');
+      case IsoRefPoint.center:   return ctx.tr(pl: 'Å›rodek', en: 'center');
+      case IsoRefPoint.faceFar:  return ctx.tr(pl: 'czoÅ‚o dal.', en: 'far face');
       case IsoRefPoint.open:     return '';
     }
   }
 }
 
-// ─── Dostępne punkty dla danego typu komponentu ───────────────────────────
+// â”€â”€â”€ DostÄ™pne punkty dla danego typu komponentu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 List<IsoRefPoint> _availableRefPoints(LibraryComponent comp) {
   if (comp.isAxial) {
     return [IsoRefPoint.axis, IsoRefPoint.faceNear];
@@ -68,7 +69,7 @@ IsoRefPoint _defaultRefPoint(LibraryComponent comp) {
   return IsoRefPoint.faceNear;
 }
 
-// ─── Obliczenie offsetu ────────────────────────────────────────────────────
+// â”€â”€â”€ Obliczenie offsetu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 double _calcOffset(LibraryComponent comp, IsoRefPoint ref) {
   switch (ref) {
     case IsoRefPoint.open:
@@ -85,20 +86,20 @@ double _calcOffset(LibraryComponent comp, IsoRefPoint ref) {
   }
 }
 
-// ─── Label dla typu komponentu ─────────────────────────────────────────────
+// â”€â”€â”€ Label dla typu komponentu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 String _typeLabel(BuildContext ctx, String type) {
   switch (type) {
-    case 'ELB90':   return ctx.tr(pl: 'Kolano 90°', en: 'Elbow 90°');
-    case 'ELB45':   return ctx.tr(pl: 'Kolano 45°', en: 'Elbow 45°');
-    case 'TEE':     return ctx.tr(pl: 'Trójnik',    en: 'Tee');
+    case 'ELB90':   return ctx.tr(pl: 'Kolano 90Â°', en: 'Elbow 90Â°');
+    case 'ELB45':   return ctx.tr(pl: 'Kolano 45Â°', en: 'Elbow 45Â°');
+    case 'TEE':     return ctx.tr(pl: 'TrÃ³jnik',    en: 'Tee');
     case 'REDUCER': return ctx.tr(pl: 'Redukcja',   en: 'Reducer');
-    case 'FLANGE':  return ctx.tr(pl: 'Kołnierz',   en: 'Flange');
-    case 'VALVE':   return ctx.tr(pl: 'Zawór',      en: 'Valve');
+    case 'FLANGE':  return ctx.tr(pl: 'KoÅ‚nierz',   en: 'Flange');
+    case 'VALVE':   return ctx.tr(pl: 'ZawÃ³r',      en: 'Valve');
     default:        return type;
   }
 }
 
-// ─── Picked ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Picked â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _Picked {
   final String tag;
   final LibraryComponent? component;
@@ -126,7 +127,7 @@ class _Picked {
   }
 }
 
-// ─── SegmentBuilderScreen ──────────────────────────────────────────────────
+// â”€â”€â”€ SegmentBuilderScreen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class SegmentBuilderScreen extends StatefulWidget {
   final String materialGroup;
   final double currentDiameter;
@@ -172,7 +173,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     super.dispose();
   }
 
-  // ── Obliczenie CUT ─────────────────────────────────────────────────────
+  // â”€â”€ Obliczenie CUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   void _recalc() {
     setState(() {
       _error = null;
@@ -182,7 +183,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       try {
         final iso = parseIsoExpression(_isoController.text);
         if (iso <= 0) {
-          _error = _tr('ISO musi być > 0', 'ISO must be > 0');
+          _error = _tr('ISO musi byÄ‡ > 0', 'ISO must be > 0');
           return;
         }
         final startOff = _startPicked!.offsetMm;
@@ -198,15 +199,15 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
         _isoMm = iso;
         _cutMm = cut;
         if (cut <= 0) {
-          _error = _tr('CUT ≤ 0 – sprawdź wymiary', 'CUT ≤ 0 – check dimensions');
+          _error = _tr('CUT â‰¤ 0 â€“ sprawdÅº wymiary', 'CUT â‰¤ 0 â€“ check dimensions');
         }
       } catch (e) {
-        _error = '${_tr('Błąd', 'Error')}: $e';
+        _error = '${_tr('BÅ‚Ä…d', 'Error')}: $e';
       }
     });
   }
 
-  // ── Wybór komponentu ───────────────────────────────────────────────────
+  // â”€â”€ WybÃ³r komponentu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Future<void> _addFromType(String typeOrLogical) async {
     setState(() {
       _isoController.text = '';
@@ -217,7 +218,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
     if (_sequence.length >= 3) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_tr('Ten segment jest kompletny. Zapisz go i dodaj następny.',
+        content: Text(_tr('Ten segment jest kompletny. Zapisz go i dodaj nastÄ™pny.',
             'This segment is complete. Save it and add the next one.')),
       ));
       return;
@@ -230,7 +231,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       }
       if (_sequence.length != 1) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_tr('Rura musi być między dwoma elementami.',
+          content: Text(_tr('Rura musi byÄ‡ miÄ™dzy dwoma elementami.',
               'The pipe must be between two components.')),
         ));
         return;
@@ -247,7 +248,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_tr('OPEN END dodaj na początku albo na końcu.',
+        content: Text(_tr('OPEN END dodaj na poczÄ…tku albo na koÅ„cu.',
             'Add OPEN END at the beginning or end.')),
       ));
       return;
@@ -255,7 +256,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
     if (_sequence.length == 1) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_tr('Dodaj najpierw rurę między elementami.',
+        content: Text(_tr('Dodaj najpierw rurÄ™ miÄ™dzy elementami.',
             'Add the pipe between components first.')),
       ));
       return;
@@ -311,7 +312,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
     if (type == 'REDUCER') {
       final out = await _askValue(
-        _tr('Redukcja – średnica WYJŚCIA (mm)', 'Reducer – OUTLET diameter (mm)'),
+        _tr('Redukcja â€“ Å›rednica WYJÅšCIA (mm)', 'Reducer â€“ OUTLET diameter (mm)'),
         'np. 48.3',
       );
       if (out == null) return null;
@@ -327,7 +328,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
     if (type == 'ELB90' || type == 'ELB45' || type == 'TEE') {
       final axis = await _askValue(
-        '${_typeLabel(context, type)} – ${_tr('wymiar do osi (mm)', 'axis dimension (mm)')}',
+        '${_typeLabel(context, type)} â€“ ${_tr('wymiar do osi (mm)', 'axis dimension (mm)')}',
         'np. 76.2',
       );
       if (axis == null) return null;
@@ -341,9 +342,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       return c;
     }
 
-    // Non-axial: długość całkowita
+    // Non-axial: dÅ‚ugoÅ›Ä‡ caÅ‚kowita
     final len = await _askValue(
-      '${_typeLabel(context, type)} – ${_tr('długość całkowita (mm)', 'total length (mm)')}',
+      '${_typeLabel(context, type)} â€“ ${_tr('dÅ‚ugoÅ›Ä‡ caÅ‚kowita (mm)', 'total length (mm)')}',
       'np. 150',
     );
     if (len == null) return null;
@@ -386,7 +387,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     );
   }
 
-  // ── BUILD ──────────────────────────────────────────────────────────────
+  // â”€â”€ BUILD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @override
   Widget build(BuildContext context) {
     final canSave = (_cutMm != null && _cutMm! > 0);
@@ -406,7 +407,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
               child: ListTile(
                 dense: true,
                 leading: const Icon(Icons.info_outline, size: 18),
-                title: Text('Ø${widget.currentDiameter.toStringAsFixed(1)}  ·  t ${widget.wallThickness.toStringAsFixed(1)} mm  ·  gap ${widget.gapMm.toStringAsFixed(1)} mm'),
+                title: Text('Ã˜${widget.currentDiameter.toStringAsFixed(1)}  Â·  t ${widget.wallThickness.toStringAsFixed(1)} mm  Â·  gap ${widget.gapMm.toStringAsFixed(1)} mm'),
               ),
             ),
             const SizedBox(height: 10),
@@ -419,14 +420,14 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _tr('Sekwencja komponentów', 'Component sequence'),
+                      _tr('Sekwencja komponentÃ³w', 'Component sequence'),
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       _tr(
-                        'Dodaj: KOMP → RURA → KOMP  (lub OPEN_END na początku/końcu)',
-                        'Add: COMP → PIPE → COMP  (or OPEN_END at start/end)',
+                        'Dodaj: KOMP â†’ RURA â†’ KOMP  (lub OPEN_END na poczÄ…tku/koÅ„cu)',
+                        'Add: COMP â†’ PIPE â†’ COMP  (or OPEN_END at start/end)',
                       ),
                       style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
                     ),
@@ -490,7 +491,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                       const SizedBox(height: 3),
                       Text(
                         _tr(
-                          'Wyrażenia są dozwolone, np. 3000+525-80',
+                          'WyraÅ¼enia sÄ… dozwolone, np. 3000+525-80',
                           'Expressions allowed, e.g. 3000+525-80',
                         ),
                         style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
@@ -501,14 +502,25 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                         keyboardType: TextInputType.text,
                         decoration: InputDecoration(
                           labelText: _tr('ISO (mm)', 'ISO (mm)'),
-                          hintText: 'np. 3000+525-80',
-                          suffixText: 'mm',
+                          hintText: _tr(
+                              'np. 3000+525-80, 5*200, (1500+200)*2',
+                              'e.g. 3000+525-80, 5*200, (1500+200)*2'),
+                          // Live evaluation shown right inside the field so a
+                          // fitter does not need to look down at the breakdown.
+                          suffixText: _isoMm != null
+                              ? '= ${_isoMm!.toStringAsFixed(1)} mm'
+                              : 'mm',
+                          suffixStyle: _isoMm != null
+                              ? const TextStyle(
+                                  color: Color(0xFFF5A623),
+                                  fontWeight: FontWeight.w700)
+                              : null,
                         ),
                         onChanged: (_) => _recalc(),
                       ),
                       if (_isoMm != null) ...[
                         const SizedBox(height: 12),
-                        // Rozbicie obliczeń
+                        // Rozbicie obliczeÅ„
                         _CalcBreakdown(
                           isoMm: _isoMm!,
                           startOffset: _startPicked!.offsetMm,
@@ -537,7 +549,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: canSave
-                  ? () => Navigator.pop(context, {
+                  ? () {
+                      Haptic.saved();
+                      Navigator.pop(context, {
                         'startKind':     _startPicked!.isLogical ? 'logical' : (_startPicked!.isAxial ? 'axial' : 'nonAxial'),
                         'endKind':       _endPicked!.isLogical   ? 'logical' : (_endPicked!.isAxial   ? 'axial' : 'nonAxial'),
                         'startValue':    _startPicked!.offsetMm,
@@ -548,7 +562,8 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                         'cutMm':         _cutMm,
                         'startLibraryId': _startPicked!.component?.id,
                         'endLibraryId':   _endPicked!.component?.id,
-                      })
+                      });
+                    }
                   : null,
               icon: const Icon(Icons.check),
               label: Text(_tr('Zapisz segment', 'Save segment')),
@@ -560,7 +575,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   }
 }
 
-// ─── Chip w sekwencji ─────────────────────────────────────────────────────
+// â”€â”€â”€ Chip w sekwencji â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _SequenceChip extends StatelessWidget {
   final _Picked picked;
   final VoidCallback onRemove;
@@ -608,7 +623,7 @@ class _SequenceChip extends StatelessWidget {
   }
 }
 
-// ─── Wizualizacja schematu ISO ────────────────────────────────────────────
+// â”€â”€â”€ Wizualizacja schematu ISO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _IsoVisualization extends StatelessWidget {
   final _Picked startPicked;
   final _Picked endPicked;
@@ -628,14 +643,14 @@ class _IsoVisualization extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1A1D26),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF5A623).withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.straighten, size: 14, color: const Color(0xFFF5A623).withOpacity(0.8)),
+              Icon(Icons.straighten, size: 14, color: const Color(0xFFF5A623).withValues(alpha: 0.8)),
               const SizedBox(width: 6),
               Text(
                 context.tr(pl: 'Schemat pomiaru ISO', en: 'ISO measurement diagram'),
@@ -693,15 +708,15 @@ class _IsoVisualization extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                startOff > 0 ? '← ${startOff.toStringAsFixed(1)} mm' : '← 0 mm',
+                startOff > 0 ? 'â† ${startOff.toStringAsFixed(1)} mm' : 'â† 0 mm',
                 style: const TextStyle(fontSize: 10, color: Color(0xFF55607A)),
               ),
               Text(
-                context.tr(pl: '── ISO ──', en: '── ISO ──'),
+                context.tr(pl: 'â”€â”€ ISO â”€â”€', en: 'â”€â”€ ISO â”€â”€'),
                 style: const TextStyle(fontSize: 10, color: Color(0xFF9BA3C7), letterSpacing: 1),
               ),
               Text(
-                endOff > 0 ? '${endOff.toStringAsFixed(1)} mm →' : '0 mm →',
+                endOff > 0 ? '${endOff.toStringAsFixed(1)} mm â†’' : '0 mm â†’',
                 style: const TextStyle(fontSize: 10, color: Color(0xFF55607A)),
               ),
             ],
@@ -710,8 +725,8 @@ class _IsoVisualization extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               context.tr(
-                pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm × ${startPicked.tag == 'OPEN_END' ? 1 : 2} sp.',
-                en: '+ gap: ${gapMm.toStringAsFixed(1)} mm × ${startPicked.tag == 'OPEN_END' ? 1 : 2} welds',
+                pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm Ã— ${startPicked.tag == 'OPEN_END' ? 1 : 2} sp.',
+                en: '+ gap: ${gapMm.toStringAsFixed(1)} mm Ã— ${startPicked.tag == 'OPEN_END' ? 1 : 2} welds',
               ),
               style: const TextStyle(fontSize: 10, color: Color(0xFF4A9EFF)),
             ),
@@ -762,7 +777,7 @@ class _CompBlock extends StatelessWidget {
             top: 0, bottom: 0,
             left: isStart ? null : 0,
             right: isStart ? 0 : null,
-            child: Container(width: 2, color: const Color(0xFFF5A623).withOpacity(0.8)),
+            child: Container(width: 2, color: const Color(0xFFF5A623).withValues(alpha: 0.8)),
           ),
         ],
       ),
@@ -770,7 +785,7 @@ class _CompBlock extends StatelessWidget {
   }
 }
 
-// ─── Rozbicie obliczeń CUT ────────────────────────────────────────────────
+// â”€â”€â”€ Rozbicie obliczeÅ„ CUT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _CalcBreakdown extends StatelessWidget {
   final double isoMm;
   final double startOffset;
@@ -809,22 +824,22 @@ class _CalcBreakdown extends StatelessWidget {
           _Row(label: 'ISO', value: '${isoMm.toStringAsFixed(1)} mm'),
           if (startOffset > 0)
             _Row(
-              label: context.tr(pl: '− offset start ($startRefLabel)', en: '− start offset ($startRefLabel)'),
-              value: '− ${startOffset.toStringAsFixed(1)} mm',
+              label: context.tr(pl: 'âˆ’ offset start ($startRefLabel)', en: 'âˆ’ start offset ($startRefLabel)'),
+              value: 'âˆ’ ${startOffset.toStringAsFixed(1)} mm',
               dimmed: true,
             ),
           if (endOffset > 0)
             _Row(
-              label: context.tr(pl: '− offset end ($endRefLabel)', en: '− end offset ($endRefLabel)'),
-              value: '− ${endOffset.toStringAsFixed(1)} mm',
+              label: context.tr(pl: 'âˆ’ offset end ($endRefLabel)', en: 'âˆ’ end offset ($endRefLabel)'),
+              value: 'âˆ’ ${endOffset.toStringAsFixed(1)} mm',
               dimmed: true,
             ),
           if (gapTotal > 0)
             _Row(
               label: context.tr(
-                  pl: '− gap ($welds × ${gapMm.toStringAsFixed(1)} mm)',
-                  en: '− gap ($welds × ${gapMm.toStringAsFixed(1)} mm)'),
-              value: '− ${gapTotal.toStringAsFixed(1)} mm',
+                  pl: 'âˆ’ gap ($welds Ã— ${gapMm.toStringAsFixed(1)} mm)',
+                  en: 'âˆ’ gap ($welds Ã— ${gapMm.toStringAsFixed(1)} mm)'),
+              value: 'âˆ’ ${gapTotal.toStringAsFixed(1)} mm',
               dimmed: true,
             ),
           const Divider(height: 14, color: Color(0xFF2C3354)),
@@ -868,7 +883,7 @@ class _Row extends StatelessWidget {
   }
 }
 
-// ─── Bottom sheet: wybór punktu referencyjnego ────────────────────────────
+// â”€â”€â”€ Bottom sheet: wybÃ³r punktu referencyjnego â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _RefPointSheet extends StatelessWidget {
   final LibraryComponent component;
   final bool isStart;
@@ -881,8 +896,8 @@ class _RefPointSheet extends StatelessWidget {
     final compLen    = component.isAxial ? component.axisMm : component.lengthMm;
 
     final titleKey = isStart
-        ? context.tr(pl: 'Gdzie ZACZYNA się wymiar ISO?', en: 'Where does the ISO START?')
-        : context.tr(pl: 'Gdzie KOŃCZY się wymiar ISO?',  en: 'Where does the ISO END?');
+        ? context.tr(pl: 'Gdzie ZACZYNA siÄ™ wymiar ISO?', en: 'Where does the ISO START?')
+        : context.tr(pl: 'Gdzie KOÅƒCZY siÄ™ wymiar ISO?',  en: 'Where does the ISO END?');
 
     return SafeArea(
       child: Padding(
@@ -904,7 +919,7 @@ class _RefPointSheet extends StatelessWidget {
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
                     ),
                     Text(
-                      'Ø${component.diameterMm.toStringAsFixed(1)}  t${component.wallThicknessMm.toStringAsFixed(1)}'
+                      'Ã˜${component.diameterMm.toStringAsFixed(1)}  t${component.wallThicknessMm.toStringAsFixed(1)}'
                       '${compLen != null ? "  L=${compLen.toStringAsFixed(1)} mm" : ""}',
                       style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
                     ),
@@ -918,9 +933,9 @@ class _RefPointSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF5A623).withOpacity(0.08),
+                color: const Color(0xFFF5A623).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFF5A623).withOpacity(0.3)),
+                border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.3)),
               ),
               child: Text(
                 titleKey,
@@ -975,23 +990,23 @@ class _RefOption extends StatelessWidget {
     switch (ref) {
       case IsoRefPoint.faceNear:
         return ctx.tr(
-          pl: 'Wymiar ISO od/do czoła komponentu przy rurze → offset = 0 mm',
-          en: 'ISO from/to the component face at the pipe → offset = 0 mm',
+          pl: 'Wymiar ISO od/do czoÅ‚a komponentu przy rurze â†’ offset = 0 mm',
+          en: 'ISO from/to the component face at the pipe â†’ offset = 0 mm',
         );
       case IsoRefPoint.axis:
         return ctx.tr(
-          pl: 'Standard ISO dla kolan/trójników — od/do osi → offset = ${offset.toStringAsFixed(1)} mm',
-          en: 'Standard ISO for elbows/tees — from/to axis → offset = ${offset.toStringAsFixed(1)} mm',
+          pl: 'Standard ISO dla kolan/trÃ³jnikÃ³w â€” od/do osi â†’ offset = ${offset.toStringAsFixed(1)} mm',
+          en: 'Standard ISO for elbows/tees â€” from/to axis â†’ offset = ${offset.toStringAsFixed(1)} mm',
         );
       case IsoRefPoint.center:
         return ctx.tr(
-          pl: 'Do środka komponentu (L/2 = ${offset.toStringAsFixed(1)} mm) → offset = ${offset.toStringAsFixed(1)} mm',
-          en: 'To the component center (L/2 = ${offset.toStringAsFixed(1)} mm) → offset = ${offset.toStringAsFixed(1)} mm',
+          pl: 'Do Å›rodka komponentu (L/2 = ${offset.toStringAsFixed(1)} mm) â†’ offset = ${offset.toStringAsFixed(1)} mm',
+          en: 'To the component center (L/2 = ${offset.toStringAsFixed(1)} mm) â†’ offset = ${offset.toStringAsFixed(1)} mm',
         );
       case IsoRefPoint.faceFar:
         return ctx.tr(
-          pl: 'Wymiar ISO do dalekiego czoła — odejmuje całą długość (${offset.toStringAsFixed(1)} mm)',
-          en: 'ISO to the far face — subtracts full length (${offset.toStringAsFixed(1)} mm)',
+          pl: 'Wymiar ISO do dalekiego czoÅ‚a â€” odejmuje caÅ‚Ä… dÅ‚ugoÅ›Ä‡ (${offset.toStringAsFixed(1)} mm)',
+          en: 'ISO to the far face â€” subtracts full length (${offset.toStringAsFixed(1)} mm)',
         );
       case IsoRefPoint.open:
         return '';
@@ -1006,12 +1021,12 @@ class _RefOption extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: isDefault
-              ? const Color(0xFFF5A623).withOpacity(0.07)
+              ? const Color(0xFFF5A623).withValues(alpha: 0.07)
               : const Color(0xFF1A1D26),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isDefault
-                ? const Color(0xFFF5A623).withOpacity(0.5)
+                ? const Color(0xFFF5A623).withValues(alpha: 0.5)
                 : const Color(0xFF2C3354),
             width: isDefault ? 1.5 : 1,
           ),
@@ -1045,10 +1060,10 @@ class _RefOption extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF5A623).withOpacity(0.15),
+                            color: const Color(0xFFF5A623).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('domyślny',
+                          child: const Text('domyÅ›lny',
                               style: TextStyle(fontSize: 9, color: Color(0xFFF5A623))),
                         ),
                       ],
@@ -1067,7 +1082,7 @@ class _RefOption extends StatelessWidget {
   }
 }
 
-// ─── Diagram komponentu z zaznaczonymi punktami ref ───────────────────────
+// â”€â”€â”€ Diagram komponentu z zaznaczonymi punktami ref â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _RefDiagram extends StatelessWidget {
   final LibraryComponent component;
   final List<IsoRefPoint> available;
@@ -1087,7 +1102,7 @@ class _RefDiagram extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Kształt komponentu
+          // KsztaÅ‚t komponentu
           Positioned(
             left: 36, right: 36, top: 10, bottom: 10,
             child: Container(
@@ -1104,19 +1119,19 @@ class _RefDiagram extends StatelessWidget {
             Positioned(
               left: 6, top: 0, bottom: 0,
               child: _DiagramDot(
-                label: context.tr(pl: 'czoło\nbliskie', en: 'near\nface'),
+                label: context.tr(pl: 'czoÅ‚o\nbliskie', en: 'near\nface'),
                 isDefault: defaultRef == IsoRefPoint.faceNear,
               ),
             ),
-          // Środek: AXIS lub CENTER
+          // Åšrodek: AXIS lub CENTER
           if (available.contains(IsoRefPoint.axis) || available.contains(IsoRefPoint.center))
             Positioned(
               left: 0, right: 0, top: 0, bottom: 0,
               child: Center(
                 child: _DiagramDot(
                   label: component.isAxial
-                      ? context.tr(pl: 'oś', en: 'axis')
-                      : context.tr(pl: 'środek', en: 'center'),
+                      ? context.tr(pl: 'oÅ›', en: 'axis')
+                      : context.tr(pl: 'Å›rodek', en: 'center'),
                   isDefault: defaultRef == IsoRefPoint.axis || defaultRef == IsoRefPoint.center,
                 ),
               ),
@@ -1126,7 +1141,7 @@ class _RefDiagram extends StatelessWidget {
             Positioned(
               right: 6, top: 0, bottom: 0,
               child: _DiagramDot(
-                label: context.tr(pl: 'czoło\ndalekie', en: 'far\nface'),
+                label: context.tr(pl: 'czoÅ‚o\ndalekie', en: 'far\nface'),
                 isDefault: defaultRef == IsoRefPoint.faceFar,
               ),
             ),
@@ -1151,7 +1166,7 @@ class _DiagramDot extends StatelessWidget {
           width: 10, height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle, color: color,
-            boxShadow: isDefault ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 6)] : null,
+            boxShadow: isDefault ? [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)] : null,
           ),
         ),
         const SizedBox(height: 2),
@@ -1163,7 +1178,7 @@ class _DiagramDot extends StatelessWidget {
   }
 }
 
-// ─── Paleta komponentów ───────────────────────────────────────────────────
+// â”€â”€â”€ Paleta komponentÃ³w â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ComponentPalette extends StatelessWidget {
   final void Function(String) onTapType;
   const _ComponentPalette({required this.onTapType});
@@ -1179,8 +1194,8 @@ class _ComponentPalette extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: axial
-                ? const Color(0xFF4A9EFF).withOpacity(0.3)
-                : const Color(0xFFF5A623).withOpacity(0.3),
+                ? const Color(0xFF4A9EFF).withValues(alpha: 0.3)
+                : const Color(0xFFF5A623).withValues(alpha: 0.3),
           ),
         ),
         child: Row(
@@ -1203,18 +1218,18 @@ class _ComponentPalette extends StatelessWidget {
     return Wrap(spacing: 8, runSpacing: 8, children: [
       _btn(context, 'ELB90',    context.tr(pl: 'Kolano 90', en: 'Elbow 90'), true),
       _btn(context, 'ELB45',    context.tr(pl: 'Kolano 45', en: 'Elbow 45'), true),
-      _btn(context, 'TEE',      context.tr(pl: 'Trójnik',   en: 'Tee'),      true),
+      _btn(context, 'TEE',      context.tr(pl: 'TrÃ³jnik',   en: 'Tee'),      true),
       _btn(context, 'PIPE',     context.tr(pl: 'Rura',      en: 'Pipe'),     true),
       _btn(context, 'REDUCER',  context.tr(pl: 'Redukcja',  en: 'Reducer'),  false),
-      _btn(context, 'FLANGE',   context.tr(pl: 'Kołnierz',  en: 'Flange'),   false),
-      _btn(context, 'VALVE',    context.tr(pl: 'Zawór',     en: 'Valve'),    false),
+      _btn(context, 'FLANGE',   context.tr(pl: 'KoÅ‚nierz',  en: 'Flange'),   false),
+      _btn(context, 'VALVE',    context.tr(pl: 'ZawÃ³r',     en: 'Valve'),    false),
       _btn(context, 'OTHER',    context.tr(pl: 'Inne',      en: 'Other'),    false),
       _btn(context, 'OPEN_END', 'Open end',                                  false),
     ]);
   }
 }
 
-// ─── Picker komponentu z biblioteki ──────────────────────────────────────
+// â”€â”€â”€ Picker komponentu z biblioteki â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ComponentPickerSheet extends StatelessWidget {
   final String type;
   final List<LibraryComponent> items;
