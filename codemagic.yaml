@@ -89,16 +89,22 @@ workflows:
 
           mkdir -p /tmp/xcodebuild_logs
 
+          # NOTE: PROVISIONING_PROFILE / PROVISIONING_PROFILE_SPECIFIER are
+          # intentionally NOT passed as global xcodebuild flags. They would
+          # apply to every target in the workspace — including Swift Package
+          # Manager packages (e.g. sqflite_darwin) that do not support manual
+          # provisioning and would fail the archive. xcodebuild instead picks
+          # the right profile from the bundle that was just installed in
+          # ~/Library/MobileDevice/Provisioning Profiles/.
           xcodebuild -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -archivePath build/ios/Runner.xcarchive \
             -destination "generic/platform=iOS" \
             -derivedDataPath /tmp/derivedData \
+            -allowProvisioningUpdates \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM=$APPLE_TEAM_ID \
-            PROVISIONING_PROFILE=$PROFILE_UUID \
-            PROVISIONING_PROFILE_SPECIFIER=$APP_PROVISIONING_PROFILE_NAME \
             FLUTTER_ROOT=$FLUTTER_ROOT \
             archive 2>&1 | tee /tmp/xcodebuild_logs/archive.log
 
