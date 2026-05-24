@@ -4,26 +4,20 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
 
-    # Codemagic-managed automatic iOS code signing. Combined with the Admin
-    # App Store Connect API key registered as `codemagic`, Codemagic generates
-    # the private key, issues / refreshes the Apple Distribution cert, creates
-    # / refreshes the App Store provisioning profile for the bundle ID, and
-    # keeps everything on its side. No .p12, no CSR, no env var with a key,
-    # no manual upload. When the cert expires in 12 months the next build
-    # renews it automatically.
     integrations:
       app_store_connect: codemagic
 
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.jakatora.fitterwelderpro
       flutter: stable
       xcode: latest
       cocoapods: default
       vars:
         BUNDLE_ID: com.jakatora.fitterwelderpro
         APPLE_TEAM_ID: B7J6A7R258
+      groups:
+        # CERTIFICATE_PRIVATE_KEY — base64-encoded 2048-bit RSA key.
+        # Generated once locally, reused for the cert's 12-month lifetime.
+        - ios_signing
 
     scripts:
       - name: Flutter pub get
@@ -36,15 +30,42 @@ workflows:
           APPLE_TEAM_ID=$APPLE_TEAM_ID
           EOF
 
+      - name: Set up code signing
+        script: |
+          set -eo pipefail
+
+          # Materialize the private key into a file because the CLI flag
+          # `--certificate-key=@file:…` is more reliable than `@env:…`
+          # for multi-line PEM payloads.
+          echo "$CERTIFICATE_PRIVATE_KEY" | base64 --decode > "$HOME/apple_key.pem"
+          chmod 600 "$HOME/apple_key.pem"
+
+          keychain initialize
+
+          # Create (or reuse) the Apple Distribution cert tied to our
+          # private key, and the App Store provisioning profile for
+          # BUNDLE_ID. Admin App Store Connect API key required.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --platform IOS \
+            --certificate-key=@file:"$HOME/apple_key.pem" \
+            --create
+
+          keychain add-certificates
+
+          xcode-project use-profiles \
+            --export-options-plist "$CM_BUILD_DIR/export_options.plist"
+
+          echo "=== ExportOptions.plist ==="
+          cat "$CM_BUILD_DIR/export_options.plist"
+
       - name: Build IPA
         script: |
           set -eo pipefail
           mkdir -p /tmp/xcodebuild_logs
 
-          # ExportOptions.plist was written by Codemagic's automatic signing
-          # pre-check using the cert + profile it just issued / fetched.
           flutter build ipa --release \
-            --export-options-plist=$HOME/export_options.plist \
+            --export-options-plist="$CM_BUILD_DIR/export_options.plist" \
             2>&1 | tee /tmp/xcodebuild_logs/build.log
 
           echo "=== IPA output ==="
