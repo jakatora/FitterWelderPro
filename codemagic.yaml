@@ -19,6 +19,11 @@ workflows:
       vars:
         BUNDLE_ID: com.jakatora.fitterwelderpro
         APPLE_TEAM_ID: B7J6A7R258
+      groups:
+        # Holds CERTIFICATE_PRIVATE_KEY (base64-encoded 2048-bit RSA key
+        # generated locally on the dev machine, persistent for the cert's
+        # 12-month lifetime).
+        - ios_signing
 
     scripts:
       - name: Flutter pub get
@@ -37,17 +42,23 @@ workflows:
 
           keychain initialize
 
-          # Fetch the existing Apple Distribution certificate + App Store
-          # provisioning profile for $BUNDLE_ID from Apple Developer Portal
-          # via the `codemagic` API integration. Both already exist:
-          #   - cert: Apple Distribution: Krzysztof Kapusta (active)
-          #   - profile: com.jakatora.fitterwelderpro app_store (valid 2027)
-          # No --create flag → no new cert request → no CERTIFICATE_PRIVATE_KEY
-          # needed. The private key matched on disk is the one Codemagic
-          # already has from the .p12 uploaded to Team Settings.
+          # Persistent private key flow (the only one that actually works
+          # for fully-automated signing on Windows-only dev machines):
+          #
+          # 1. CERTIFICATE_PRIVATE_KEY is a 2048-bit RSA key generated once
+          #    on the dev machine and stored as a base64-encoded env var
+          #    in Codemagic (group: ios_signing).
+          # 2. fetch-signing-files --create issues a fresh Apple Distribution
+          #    cert tied to that key (or reuses an existing one issued for
+          #    the same public key) and pulls the App Store provisioning
+          #    profile for BUNDLE_ID.
+          # 3. keychain add-certificates links the cert with the key.
+          # 4. xcode-project use-profiles writes ExportOptions.plist.
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
-            --platform IOS
+            --platform IOS \
+            --certificate-key=@env:CERTIFICATE_PRIVATE_KEY \
+            --create
 
           keychain add-certificates
 
