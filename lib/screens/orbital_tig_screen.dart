@@ -26,6 +26,11 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
   final _od = TextEditingController();
   final _wall = TextEditingController();
   final _volts = TextEditingController(text: '10');
+  // Welder stamp / WPS ref — optional traceability tag stamped onto the
+  // copied parameter string so a foreman receiving the paste knows WHO ran
+  // the head and against WHICH procedure. Kept as one free-text field to
+  // avoid adding rows the welder must tap through in gloves.
+  final _trace = TextEditingController();
 
   OrbitalEstimate? _est;
   String? _error;
@@ -35,6 +40,7 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
     _od.dispose();
     _wall.dispose();
     _volts.dispose();
+    _trace.dispose();
     super.dispose();
   }
 
@@ -93,18 +99,23 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.warning_amber_rounded,
-                    color: _kOrange, size: 18),
+                const ExcludeSemantics(
+                  child: Icon(Icons.warning_amber_rounded,
+                      color: _kOrange, size: 18),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    context.tr(
-                      pl: 'Wartości STARTOWE do ustawienia kuponu próbnego. '
-                          'Parametry produkcyjne zawsze wg WPS i zatwierdzonej spoiny próbnej.',
-                      en: 'STARTING values for setting up a test coupon. '
-                          'Production parameters always per the WPS and a qualified test weld.',
+                  child: Semantics(
+                    label: context.tr(pl: 'Ostrzeżenie', en: 'Warning'),
+                    child: Text(
+                      context.tr(
+                        pl: 'Wartości STARTOWE do ustawienia kuponu próbnego. '
+                            'Parametry produkcyjne zawsze wg WPS i zatwierdzonej spoiny próbnej.',
+                        en: 'STARTING values for setting up a test coupon. '
+                            'Production parameters always per the WPS and a qualified test weld.',
+                      ),
+                      style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
                     ),
-                    style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
                   ),
                 ),
               ],
@@ -115,13 +126,43 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
           // ── INPUTS ──────────────────────────────────────────────────────
           Row(
             children: [
-              Expanded(child: _field(_od, context.tr(pl: 'OD rury (mm)', en: 'Tube OD (mm)'))),
+              Expanded(
+                child: _field(
+                  _od,
+                  context.tr(pl: 'OD rury (mm)', en: 'Tube OD (mm)'),
+                  hint: '25.4',
+                ),
+              ),
               const SizedBox(width: 10),
-              Expanded(child: _field(_wall, context.tr(pl: 'Ścianka (mm)', en: 'Wall (mm)'))),
+              Expanded(
+                child: _field(
+                  _wall,
+                  context.tr(pl: 'Ścianka (mm)', en: 'Wall (mm)'),
+                  hint: '1.65',
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
-          _field(_volts, context.tr(pl: 'Napięcie łuku (V)', en: 'Arc voltage (V)')),
+          _field(
+            _volts,
+            context.tr(pl: 'Napięcie łuku (V)', en: 'Arc voltage (V)'),
+            hint: '8–12',
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _trace,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              labelText: context.tr(
+                  pl: 'Stempel spawacza / WPS (opc.)',
+                  en: 'Welder stamp / WPS (opt.)'),
+              hintText: context.tr(
+                  pl: 'np. PL-217 · WPS-316L-04',
+                  en: 'e.g. PL-217 · WPS-316L-04'),
+              hintStyle: const TextStyle(color: _kMuted),
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             context.tr(
@@ -175,6 +216,47 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
                     value: '${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm'),
               ],
             ),
+            const SizedBox(height: 10),
+            // Quick action: copy the whole parameter set in one tap so the
+            // welder can paste it into a WPS form or a chat with the foreman
+            // without long-pressing every row individually.
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final od = _p(_od.text);
+                  final wall = _p(_wall.text);
+                  final v = _p(_volts.text) ?? 10;
+                  final header = context.tr(
+                      pl: 'Orbital TIG — OD ${od?.toStringAsFixed(1)} x t ${wall?.toStringAsFixed(2)} mm, U=${v.toStringAsFixed(0)} V',
+                      en: 'Orbital TIG — OD ${od?.toStringAsFixed(1)} x t ${wall?.toStringAsFixed(2)} mm, U=${v.toStringAsFixed(0)} V');
+                  final lvl = context.tr(
+                      pl: 'L1 ${e.levelCurrentA[0].toStringAsFixed(0)}A · L2 ${e.levelCurrentA[1].toStringAsFixed(0)}A · L3 ${e.levelCurrentA[2].toStringAsFixed(0)}A · L4 ${e.levelCurrentA[3].toStringAsFixed(0)}A',
+                      en: 'L1 ${e.levelCurrentA[0].toStringAsFixed(0)}A · L2 ${e.levelCurrentA[1].toStringAsFixed(0)}A · L3 ${e.levelCurrentA[2].toStringAsFixed(0)}A · L4 ${e.levelCurrentA[3].toStringAsFixed(0)}A');
+                  final geo = context.tr(
+                      pl: 'Obwod ${e.circumferenceMm.toStringAsFixed(1)} mm · v=${e.travelSpeedMmMin.toStringAsFixed(0)} mm/min · t=${e.weldTimeSec.toStringAsFixed(1)} s · ${e.passes} przejscia · Q=${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm',
+                      en: 'Circ ${e.circumferenceMm.toStringAsFixed(1)} mm · v=${e.travelSpeedMmMin.toStringAsFixed(0)} mm/min · t=${e.weldTimeSec.toStringAsFixed(1)} s · ${e.passes} passes · Q=${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm');
+                  final trace = _trace.text.trim();
+                  final traceLine = trace.isEmpty
+                      ? ''
+                      : '\n${context.tr(pl: 'Stempel/WPS', en: 'Stamp/WPS')}: $trace';
+                  copyToClipboard(
+                    context,
+                    '$header\n$lvl\n$geo$traceLine',
+                    label: context.tr(pl: 'Parametry', en: 'Parameters'),
+                  );
+                },
+                icon: const Icon(Icons.copy_all_outlined, size: 18),
+                label: Text(context.tr(
+                    pl: 'Kopiuj wszystkie parametry',
+                    en: 'Copy all parameters')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _kBlue,
+                  side: BorderSide(color: _kBlue.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -209,12 +291,18 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
     );
   }
 
-  Widget _field(TextEditingController c, String label) {
+  Widget _field(TextEditingController c, String label, {String? hint}) {
     return TextField(
       controller: c,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-      decoration: InputDecoration(labelText: label),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint == null
+            ? null
+            : context.tr(pl: 'np. $hint', en: 'e.g. $hint'),
+        hintStyle: const TextStyle(color: _kMuted),
+      ),
       onChanged: (_) => _calc(),
     );
   }

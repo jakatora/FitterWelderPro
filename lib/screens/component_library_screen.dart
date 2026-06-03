@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/library_component.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 class ComponentLibraryScreen extends StatefulWidget {
@@ -60,9 +61,18 @@ class _ComponentLibraryScreenState extends State<ComponentLibraryScreen> {
                   separatorBuilder: (_, __) => const Divider(height: 0),
                   itemBuilder: (context, i) {
                     final c = _items[i];
+                    final label = c.displayLabel();
                     return ListTile(
-                      title: Text(c.displayLabel()),
+                      title: Text(label),
                       subtitle: Text('ID: ${c.id.substring(0, 8)}'),
+                      onLongPress: () => copyToClipboard(context, label,
+                          label: context.tr(pl: 'Komponent', en: 'Component')),
+                      trailing: IconButton(
+                        tooltip: context.tr(pl: 'Kopiuj', en: 'Copy'),
+                        icon: const Icon(Icons.copy),
+                        onPressed: () => copyToClipboard(context, label,
+                            label: context.tr(pl: 'Komponent', en: 'Component')),
+                      ),
                     );
                   },
                 ),

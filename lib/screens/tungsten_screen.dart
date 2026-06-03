@@ -140,14 +140,32 @@ class _TungstenScreenState extends State<TungstenScreen> {
           ),
 
           const SizedBox(height: 16),
-          Text(
-            context.tr(
-                pl: 'TYP ELEKTRODY', en: 'ELECTRODE TYPE'),
-            style: const TextStyle(
-                color: _kMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1),
+          Row(
+            children: [
+              Text(
+                context.tr(
+                    pl: 'TYP ELEKTRODY', en: 'ELECTRODE TYPE'),
+                style: const TextStyle(
+                    color: _kMuted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1),
+              ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: context.tr(
+                    pl: 'Kolorowa kropka = pasek na końcówce elektrody '
+                        '(oznaczenie ISO 6848). Sprawdź kolor na swojej '
+                        'elektrodzie aby zidentyfikować typ.',
+                    en: 'Coloured dot = stripe on the electrode tip '
+                        '(ISO 6848 marking). Check the colour on your '
+                        'electrode to identify the type.'),
+                triggerMode: TooltipTriggerMode.tap,
+                showDuration: const Duration(seconds: 6),
+                child: const Icon(Icons.info_outline,
+                    color: _kMuted, size: 14),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           ...kTungstenTypes.map((t) => Container(
@@ -187,25 +205,38 @@ class _TungstenScreenState extends State<TungstenScreen> {
                           ),
                         ),
                         if (t.bestForSs)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _kGreen.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(6),
+                          Tooltip(
+                            message: context.tr(
+                                pl: 'Zalecana do stali nierdzewnej (DC-)',
+                                en: 'Recommended for stainless steel (DC-)'),
+                            child: Semantics(
+                              label: context.tr(
+                                  pl: 'Zalecana do stali nierdzewnej',
+                                  en: 'Recommended for stainless steel'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: _kGreen.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('SS',
+                                    style: TextStyle(
+                                        color: _kGreen,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800)),
+                              ),
                             ),
-                            child: const Text('SS',
-                                style: TextStyle(
-                                    color: _kGreen,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800)),
                           ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Text(isPl ? t.notePl : t.noteEn,
                         style: const TextStyle(
-                            color: _kMuted, fontSize: 11, height: 1.4)),
+                            color: _kSec,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            height: 1.4)),
                   ],
                 ),
               )),

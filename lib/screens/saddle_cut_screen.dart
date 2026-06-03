@@ -94,8 +94,10 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     buf.writeln(context.tr(
         pl: 'Saddle cut — profil wycięcia siodłowego',
         en: 'Saddle cut — fish-mouth profile'));
-    buf.writeln('Header OD: ${headerOd.toStringAsFixed(1)} mm');
-    buf.writeln('Branch OD: ${branchOd.toStringAsFixed(1)} mm');
+    final headerLabel = context.tr(pl: 'OD nagłówka', en: 'Header OD');
+    final branchLabel = context.tr(pl: 'OD odgałęzienia', en: 'Branch OD');
+    buf.writeln('$headerLabel: ${headerOd.toStringAsFixed(1)} mm');
+    buf.writeln('$branchLabel: ${branchOd.toStringAsFixed(1)} mm');
     buf.writeln('h_max:     ${h.toStringAsFixed(1)} mm');
     buf.writeln('─' * 28);
     buf.writeln('${context.tr(pl: 'Kąt α', en: 'Angle α')}\t'
@@ -152,8 +154,8 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
             const SizedBox(height: 8),
             Text(
               context.tr(
-                pl: 'Użyj zewnętrznej średnicy (OD). Np. DN200=219.1mm, DN100=114.3mm.',
-                en: 'Use outside diameter (OD). E.g. DN200=219.1mm, DN100=114.3mm.',
+                pl: 'Użyj zewnętrznej średnicy (OD). Np. DN200 = 219.1 mm, DN100 = 114.3 mm.',
+                en: 'Use outside diameter (OD). E.g. DN200 = 219.1 mm, DN100 = 114.3 mm.',
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
@@ -190,14 +192,20 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
                         context.tr(pl: 'Maks. głębokość cięcia (h_max)', en: 'Max. cut depth (h_max)'),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      const SizedBox(height: 6),
                       CopyOnLongPress(
                         value: _hMax!.toStringAsFixed(1),
                         label: 'h_max',
                         child: Text(
                           '${_hMax!.toStringAsFixed(1)} mm',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                height: 1.1,
+                              ),
                         ),
                       ),
+                      const SizedBox(height: 4),
                       Text(
                         context.tr(pl: 'Wzór: R − √(R²−r²)', en: 'Formula: R − √(R²−r²)'),
                         style: Theme.of(context).textTheme.bodySmall,
@@ -279,14 +287,35 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
 
   Widget _field(TextEditingController ctrl,
       {required String label, String? suffix}) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(
-        labelText: label,
-        suffixText: suffix,
-        border: const OutlineInputBorder(),
-      ),
+    // Live range check so the fitter sees nonsense (negative, zero, or absurd
+    // OD like 99999mm) BEFORE pressing CALCULATE. Realistic pipe OD ceiling
+    // ~2000mm covers DN1800 and then some.
+    return AnimatedBuilder(
+      animation: ctrl,
+      builder: (context, _) {
+        final txt = ctrl.text.trim();
+        String? err;
+        if (txt.isNotEmpty) {
+          final v = double.tryParse(txt.replaceAll(',', '.'));
+          if (v == null) {
+            err = context.tr(pl: 'Nieprawidłowa liczba', en: 'Invalid number');
+          } else if (v <= 0) {
+            err = context.tr(pl: 'OD musi być > 0', en: 'OD must be > 0');
+          } else if (v > 2000) {
+            err = context.tr(pl: 'OD > 2000 mm — sprawdź', en: 'OD > 2000 mm — check');
+          }
+        }
+        return TextField(
+          controller: ctrl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: label,
+            suffixText: suffix,
+            border: const OutlineInputBorder(),
+            errorText: err,
+          ),
+        );
+      },
     );
   }
 }

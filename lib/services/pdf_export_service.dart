@@ -100,7 +100,12 @@ class PdfExportService {
         children: [
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
             pw.Text('CUT LIST', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: _kAccent)),
-            pw.Text(p.name ?? '', style: pw.TextStyle(fontSize: 11, color: _kMuted)),
+            // Project name sits on bare white paper in the header — _kMuted (light
+            // gray-purple) prints as nearly invisible light gray on a mono laser,
+            // so the welder can't tell which sheet belongs to which job once it's
+            // pinned on the wall. Use dark ink + slightly bigger to keep the
+            // identifier readable across the shop.
+            pw.Text(p.name ?? '', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1A1D26'))),
           ]),
           pw.Text('$page / $pages', style: pw.TextStyle(fontSize: 10, color: _kMuted)),
         ],
@@ -254,9 +259,15 @@ class PdfExportService {
     );
   }
 
+  // Data rows have no fill -> sit on bare white paper. _kText (#E8ECF0) prints
+  // invisible. Use a near-black ink so the welder can still read CUT mm off
+  // a printed sheet under workshop light. Bold CUT keeps accent for emphasis
+  // on screen but darkens on paper via a contrast-safe orange-brown.
+  static final _kInk      = PdfColor.fromHex('#1A1D26');
+  static final _kInkBold  = PdfColor.fromHex('#8A4A00');
   static pw.Widget _cell(String text, {bool bold = false}) => pw.Padding(
     padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-    child: pw.Text(text, style: pw.TextStyle(fontSize: 8, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal, color: bold ? _kAccent : _kText)),
+    child: pw.Text(text, style: pw.TextStyle(fontSize: 8, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal, color: bold ? _kInkBold : _kInk)),
   );
 
   static String _safeName(String s) => s.replaceAll(RegExp(r'[^\w\d_]'), '_');

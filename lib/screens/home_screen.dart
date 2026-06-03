@@ -1,20 +1,26 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
+import 'chat_screen.dart';
+import 'iso_scanner_screen.dart';
 import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
 import 'help_screen.dart';
+import 'jobs_screen.dart';
+import 'premium_screen.dart';
 import 'welder_menu_screen.dart';
 import '../widgets/help_button.dart';
 
-// â”€â”€â”€ Kolory spÃ³jne z motywem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Kolory spójne z motywem ──────────────────────────────────────────────────
 const _kOrange  = Color(0xFFF5A623);
 const _kGold    = Color(0xFFE8C14B);
 const _kBlue    = Color(0xFF4A9EFF);
 const _kGreen   = Color(0xFF2ECC71);
+const _kRed     = Color(0xFFE57373);
+const _kPurple  = Color(0xFFAB47BC);
 const _kBorder  = Color(0xFF2C3354);
 const _kCard    = Color(0xFF1A1D26);
 const _kTextSec = Color(0xFF9BA3C7);
@@ -44,11 +50,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _load() async {
     final projects = await _projectDao.listAll();
-    int segs = 0;
-    for (final p in projects) {
-      final s = await _segmentDao.listForProject(p.id);
-      segs += s.length;
-    }
+    // Sequential `await` per project blocks home screen open by N×~50 ms.
+    // Parallelise with `Future.wait` so total wall-time is one DAO round-trip
+    // (better-sqlite3 serialises internally; the win is the absence of
+    // intermediate `await` ticks on the UI thread).
+    final segLists = await Future.wait(
+      projects.map((p) => _segmentDao.listForProject(p.id)),
+    );
+    final segs = segLists.fold<int>(0, (n, s) => n + s.length);
     if (!mounted) return;
     setState(() {
       _totalProjects = projects.length;
@@ -82,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           HelpButton(help: kHelpHome),
           PopupMenuButton<AppLanguage>(
-            tooltip: context.tr(pl: 'ZmieÅ„ jÄ™zyk', en: 'Change language'),
+            tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),
             initialValue: lang,
             onSelected: context.setLanguage,
             itemBuilder: (_) => const [
@@ -91,19 +100,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
               decoration: BoxDecoration(
                 color: _kCard,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: _kBorder),
               ),
-              child: Text(
-                lang == AppLanguage.en ? 'EN' : 'PL',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: _kOrange,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.language, size: 14, color: _kOrange),
+                  const SizedBox(width: 6),
+                  Text(
+                    lang == AppLanguage.en ? 'EN' : 'PL',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: _kOrange,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(Icons.expand_more, size: 16, color: _kOrange),
+                ],
               ),
             ),
           ),
@@ -116,7 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.fromLTRB(
               0, 0, 0, 24 + MediaQuery.viewPaddingOf(context).bottom),
           children: [
-            // â”€â”€ HERO BANNER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── HERO BANNER ────────────────────────────────────────────────
             _HeroBanner(
               totalProjects: _totalProjects,
               totalSegments: _totalSegments,
@@ -125,8 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 20),
 
-            // â”€â”€ SEKCJA: NARZÄ˜DZIA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-            _SectionLabel(context.tr(pl: 'NarzÄ™dzia', en: 'Tools')),
+            // ── SEKCJA: NARZĘDZIA ──────────────────────────────────────────
+            _SectionLabel(context.tr(pl: 'Narzędzia', en: 'Tools')),
             const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -171,13 +189,58 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                             builder: (_) => const HelpScreen())),
                   ),
+                  _MenuCard(
+                    icon: Icons.work_outline,
+                    title: context.tr(pl: 'PRACA', en: 'JOBS'),
+                    subtitle: context.tr(
+                        pl: 'Ogłoszenia 49 PLN',
+                        en: 'Listings 49 PLN'),
+                    accent: _kRed,
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const JobsScreen())),
+                  ),
+                  _MenuCard(
+                    icon: Icons.forum_outlined,
+                    title: context.tr(pl: 'CZAT', en: 'CHAT'),
+                    subtitle: context.tr(
+                        pl: 'Rozmawiaj z fachem',
+                        en: 'Talk to pros'),
+                    accent: _kPurple,
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const ChatScreen())),
+                  ),
+                  _MenuCard(
+                    icon: Icons.document_scanner_outlined,
+                    title: context.tr(pl: 'SKANER ISO', en: 'ISO SCAN'),
+                    subtitle: context.tr(
+                        pl: 'Zdjęcie rysunku → CUT',
+                        en: 'Photo → CUT list'),
+                    accent: const Color(0xFFEF6C00),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const IsoScannerScreen())),
+                  ),
+                  _MenuCard(
+                    icon: Icons.workspace_premium,
+                    title: 'PREMIUM',
+                    subtitle: context.tr(
+                        pl: 'AI + pełne tools',
+                        en: 'AI + full tools'),
+                    accent: _kGold,
+                    badge: context.tr(pl: 'PRO', en: 'PRO'),
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const PremiumScreen())),
+                  ),
                 ],
               ),
             ),
 
             const SizedBox(height: 24),
 
-            // â”€â”€ SEKCJA: OSTATNIE PROJEKTY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── SEKCJA: OSTATNIE PROJEKTY ──────────────────────────────────
             _SectionLabel(
                 context.tr(pl: 'Ostatnie projekty', en: 'Recent projects')),
             const SizedBox(height: 10),
@@ -205,8 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 14),
                       Text(
                         context.tr(
-                            pl: 'Brak projektÃ³w â€” zacznij w FITTER â†’ CUT LIST',
-                            en: 'No projects yet â€” start in FITTER â†’ CUT LIST'),
+                            pl: 'Brak projektów — zacznij w FITTER → CUT LIST',
+                            en: 'No projects yet — start in FITTER → CUT LIST'),
                         style: const TextStyle(
                             color: _kTextMut, fontSize: 13),
                       ),
@@ -238,7 +301,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// â”€â”€â”€ HERO BANNER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── HERO BANNER ─────────────────────────────────────────────────────────────
 class _HeroBanner extends StatelessWidget {
   final int totalProjects;
   final int totalSegments;
@@ -268,7 +331,7 @@ class _HeroBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Iskra spawalnicza â€” dekoracja
+          // Iskra spawalnicza — dekoracja
           Row(
             children: [
               Container(
@@ -307,8 +370,8 @@ class _HeroBanner extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             context.tr(
-                pl: 'Witaj, Spawaczu ðŸ‘·',
-                en: 'Welcome, Welder ðŸ‘·'),
+                pl: 'Witaj, Spawaczu 👷',
+                en: 'Welcome, Welder 👷'),
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w800,
@@ -319,7 +382,7 @@ class _HeroBanner extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             context.tr(
-                pl: 'Twoje narzÄ™dzia gotowe do pracy',
+                pl: 'Twoje narzędzia gotowe do pracy',
                 en: 'Your tools are ready'),
             style: const TextStyle(fontSize: 13, color: _kTextSec),
           ),
@@ -328,14 +391,14 @@ class _HeroBanner extends StatelessWidget {
           Row(
             children: [
               _StatChip(
-                value: loading ? 'â€“' : '$totalProjects',
+                value: loading ? '–' : '$totalProjects',
                 label: context.tr(pl: 'Projekty', en: 'Projects'),
                 icon: Icons.folder_outlined,
                 color: _kOrange,
               ),
               const SizedBox(width: 10),
               _StatChip(
-                value: loading ? 'â€“' : '$totalSegments',
+                value: loading ? '–' : '$totalSegments',
                 label: context.tr(pl: 'Segmenty', en: 'Segments'),
                 icon: Icons.linear_scale,
                 color: _kBlue,
@@ -402,7 +465,7 @@ class _StatChip extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ SEKCJA LABEL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── SEKCJA LABEL ────────────────────────────────────────────────────────────
 class _SectionLabel extends StatelessWidget {
   final String text;
   const _SectionLabel(this.text);
@@ -424,13 +487,14 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ KARTA MENU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── KARTA MENU ───────────────────────────────────────────────────────────────
 class _MenuCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
   final Color accent;
   final VoidCallback onTap;
+  final String? badge;
 
   const _MenuCard({
     required this.icon,
@@ -438,6 +502,7 @@ class _MenuCard extends StatelessWidget {
     required this.subtitle,
     required this.accent,
     required this.onTap,
+    this.badge,
   });
 
   @override
@@ -463,14 +528,37 @@ class _MenuCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.13),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, size: 20, color: accent),
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(icon, size: 20, color: accent),
+                      ),
+                      const Spacer(),
+                      if (badge != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: accent.withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            badge!,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: accent,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const Spacer(),
                   Text(
@@ -500,7 +588,7 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ KAFELEK PROJEKTU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── KAFELEK PROJEKTU ─────────────────────────────────────────────────────────
 class _ProjectTile extends StatelessWidget {
   final Project project;
   final VoidCallback onTap;
@@ -558,7 +646,7 @@ class _ProjectTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Ã˜${project.diameterMm.toStringAsFixed(1)} mm  Â·  '
+                    'Ø${project.diameterMm.toStringAsFixed(1)} mm  ·  '
                     't ${project.wallThicknessMm.toStringAsFixed(1)} mm',
                     style: const TextStyle(
                         fontSize: 12, color: _kTextMut),
@@ -567,7 +655,7 @@ class _ProjectTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            // Badge materiaÅ‚u
+            // Badge materiału
             Container(
               padding:
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

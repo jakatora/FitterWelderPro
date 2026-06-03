@@ -143,13 +143,21 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),
-                    child: Text(
-                      context.tr(
-                        pl: 'Brak kuponów. Dodaj pierwszy kupon dnia przyciskiem +.',
-                        en: 'No coupons yet. Add the first coupon of the day with +.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: _kMuted, fontSize: 13),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.science_outlined,
+                            size: 48, color: _kMuted),
+                        const SizedBox(height: 12),
+                        Text(
+                          context.tr(
+                            pl: 'Brak kuponów. Dotknij + aby dodać pierwszy kupon dnia.',
+                            en: 'No coupons yet. Tap + to add the first coupon of the day.',
+                          ),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: _kMuted, fontSize: 13),
+                        ),
+                      ],
                     ),
                   ),
                 )
@@ -284,17 +292,28 @@ class _CouponEditorState extends State<_CouponEditor> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    await _dao.insert(CouponEntry(
-      id: _uuid.v4(),
-      date: _date.text.trim(),
-      welder: _welder.text.trim(),
-      machine: _machine.text.trim(),
-      size: _size.text.trim(),
-      result: _result,
-      notes: _notes.text.trim(),
-    ));
-    if (!mounted) return;
-    Navigator.pop(context, true);
+    try {
+      await _dao.insert(CouponEntry(
+        id: _uuid.v4(),
+        date: _date.text.trim(),
+        welder: _welder.text.trim(),
+        machine: _machine.text.trim(),
+        size: _size.text.trim(),
+        result: _result,
+        notes: _notes.text.trim(),
+      ));
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Nie zapisano kuponu. Spróbuj ponownie.',
+          en: 'Coupon not saved. Try again.',
+        )),
+      ));
+    }
   }
 
   @override

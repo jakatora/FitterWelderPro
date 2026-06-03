@@ -7,6 +7,7 @@ import 'welder_tanks_screen.dart';
 import 'welder_tools_screen.dart';
 import 'weld_journal_screen.dart';
 import 'orbital_tig_screen.dart';
+import 'heat_input_screen.dart';
 import 'heat_tint_screen.dart';
 import 'pre_weld_checklist_screen.dart';
 import 'coupon_log_screen.dart';
@@ -49,7 +50,7 @@ class WelderMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.calculate_outlined,
               title: context.tr(pl: 'Kalkulatory', en: 'Calculators'),
-              subtitle: context.tr(pl: 'Heat Input / Temp / Oâ‚‚ / Gaz / Timer', en: 'Heat Input / Temp / Oâ‚‚ / Gas / Timer'),
+              subtitle: context.tr(pl: 'Heat Input / Temp / O₂ / Gaz / Timer', en: 'Heat Input / Temp / O₂ / Gas / Timer'),
               accentColor: const Color(0xFF4A9EFF),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WelderToolsScreen())),
             ),
@@ -108,6 +109,13 @@ class WelderMenuScreen extends StatelessWidget {
               subtitle: context.tr(pl: 'Test pressure, objętość, czas', en: 'Test pressure, volume, time'),
               accentColor: const Color(0xFF1976D2),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HydrotestScreen())),
+            ),
+            _Tile(
+              icon: Icons.local_fire_department_outlined,
+              title: context.tr(pl: 'Heat Input + CE', en: 'Heat Input + CE'),
+              subtitle: context.tr(pl: 'Preheat z chemii • PRO', en: 'Preheat from chemistry • PRO'),
+              accentColor: const Color(0xFFE8C14B),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HeatInputScreen())),
             ),
           ],
         ),

@@ -45,6 +45,42 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
       ));
       return;
     }
+    if (r < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'R (takeout) nie może być ujemne',
+          en: 'R (takeout) cannot be negative',
+        )),
+      ));
+      return;
+    }
+    if (r > x || r > y || 2 * r > (h1 - h2).abs()) {
+      final messenger = ScaffoldMessenger.of(context);
+      final prevR = _rController.text;
+      messenger.showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'R za duże dla podanych wymiarów (odcinek wyszedłby ujemny)',
+          en: 'R too large for given dimensions (segment would be negative)',
+        )),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Wyzeruj R', en: 'Reset R'),
+          onPressed: () {
+            _rController.text = '0';
+            messenger.hideCurrentSnackBar();
+            messenger.showSnackBar(SnackBar(
+              content: Text(context.tr(pl: 'R = 0. Policz ponownie.', en: 'R = 0. Recalculate.')),
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: context.tr(pl: 'Cofnij', en: 'Undo'),
+                onPressed: () => _rController.text = prevR,
+              ),
+            ));
+          },
+        ),
+      ));
+      return;
+    }
 
     final seg1  = x - r;
     final seg2  = (h1 - h2).abs() - 2 * r;
@@ -72,6 +108,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Trasa rur – 3 kolanka 90°', en: 'Pipe route – 3 × 90° elbows')),
@@ -142,12 +179,12 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
 
             Container(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
+                color: theme.colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(8),
               ),
               padding: const EdgeInsets.all(12),
               child: Row(children: [
-                Icon(Icons.straighten, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                Icon(Icons.straighten, color: theme.colorScheme.onPrimaryContainer),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -157,7 +194,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
                     ),
                     Text(
                       _totalController.text.isEmpty ? '—' : '${_totalController.text} mm',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ]),
                 ),
@@ -170,7 +207,18 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
                 pl: 'Wzór: Odcinek = wymiar C-C − takeout. Takeout dla LR 90° = promień CLR (np. 1,5×DN).',
                 en: 'Formula: Segment = C-C dimension − takeout. Takeout for LR 90° = CLR radius (e.g. 1.5×DN).',
               ),
-              style: Theme.of(context).textTheme.bodySmall,
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            // ASME/ISO iso convention: each joint between segments is a weld;
+            // mark FW (field weld, open flag) vs SW (shop weld, filled dot) so the
+            // welder knows what to weld on site. 3 elbows = 4 joints in this route.
+            Text(
+              context.tr(
+                pl: 'Spoiny: 4 złącza (zw. spoin obwodowych). Oznacz na izometryku FW – spoina montażowa (flaga), SW – spoina warsztatowa (kropka).',
+                en: 'Welds: 4 joints (circumferential butts). Mark on iso as FW – field weld (open flag), SW – shop weld (filled dot).',
+              ),
+              style: theme.textTheme.bodySmall,
             ),
           ],
         ),
@@ -178,16 +226,19 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
     );
   }
 
-  Widget _sectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+  Widget _sectionLabel(String text) => Semantics(
+    header: true,
+    child: Text(
+      text,
+      style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+    ),
   );
 
   Widget _field(TextEditingController ctrl,
       {required String label, String? suffix, String? helper}) {
     return TextField(
       controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

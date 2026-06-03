@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../services/material_catalog.dart';
 import '../utils/haptic.dart';
 
 const _kCard   = Color(0xFF1A1D26);
@@ -19,6 +20,71 @@ class _Check {
 /// Pre-weld checklist for hygienic stainless tube — the run-through a welder
 /// does before every joint. State is in-memory only: it is a live check, not
 /// a record, and resets for the next weld.
+/// Material-specific extra checks. Pulled in when the welder picks a grade
+/// from the catalog. Keeps the universal list short and adds only the items
+/// that matter for the actual joint in front of them (P91 needs PWHT setup,
+/// Duplex needs ferrite check, etc.).
+const Map<int, List<_Check>> _pNumberExtras = {
+  // P-No 1 — C-Mn steel
+  1: [
+    _Check('Elektroda E7018 / drut ER70S-2 w zamkniętym piecu (low-H)',
+           'E7018 / ER70S-2 from sealed oven (low-H)'),
+    _Check('Bevel 30° czysty, brak rdzy, kupon poradiowany jeśli >25 mm',
+           'Bevel 30° clean, no rust, radiograph if >25 mm'),
+  ],
+  // P-No 4 — 1¼Cr-½Mo
+  4: [
+    _Check('Preheat 150-200°C zmierzony pirometrem przed pierwszą ściegą',
+           'Preheat 150-200°C verified with pyrometer before first pass'),
+    _Check('Drut/elektroda zgodna z B-grade (ER80S-B2 / E8018-B2)',
+           'Filler matches B-grade (ER80S-B2 / E8018-B2)'),
+    _Check('PWHT zaplanowany — termin i piec zarezerwowane',
+           'PWHT scheduled — slot and furnace booked'),
+  ],
+  // P-No 5 (P22 / P91 grouped)
+  5: [
+    _Check('PREHEAT KRYTYCZNY 200-250°C, interpass max 300°C',
+           'CRITICAL preheat 200-250°C, interpass max 300°C'),
+    _Check('Elektroda E9015-B9 (P91) / E9018-B3 (P22) z certyfikatu HEAT',
+           'E9015-B9 (P91) / E9018-B3 (P22) with HEAT certificate'),
+    _Check('PWHT 750-770°C / 1 h-cal OBOWIĄZKOWE — slot zarezerwowany',
+           'PWHT 750-770°C / 1 h-per-inch MANDATORY — slot booked'),
+    _Check('Brak kontaktu CS↔CrMo (uziemnienie, narzędzia)',
+           'No CS↔CrMo cross-contact (ground clamp, tools)'),
+  ],
+  // P-No 8 — Austenitic SS
+  8: [
+    _Check('Interpass <175°C — pirometr przed kolejną ściegą',
+           'Interpass <175°C — pyrometer before next bead'),
+    _Check('Drut L-grade (ER308L/ER316L) — niski C zapobiega sensitization',
+           'L-grade filler (ER308L/ER316L) — low C prevents sensitization'),
+    _Check('Argon czysty, brak N₂ w gazie formującym',
+           'Argon pure, no N₂ in backing gas'),
+    _Check('Pasywacja po spawaniu zaplanowana (kwas azotowy)',
+           'Post-weld passivation scheduled (nitric acid)'),
+  ],
+  // P-No 10 — Duplex
+  10: [
+    _Check('Interpass MAX 150°C (2205) / 100°C (2507) — pirometr CO 2 ściegi',
+           'Interpass MAX 150°C (2205) / 100°C (2507) — pyrometer every 2 passes'),
+    _Check('Gaz formujący Ar + 2% N₂ (utrzymanie austenitu)',
+           'Backing gas Ar + 2% N₂ (austenite balance)'),
+    _Check('HI w oknie 0.5-2.5 kJ/mm — wyższy → σ-phase',
+           'HI in 0.5-2.5 kJ/mm window — higher → σ-phase'),
+    _Check('Ferrite check po cooldown (target 30-60 FN)',
+           'Ferrite check after cooldown (target 30-60 FN)'),
+  ],
+  // P-No 41-45 — Ni alloys
+  43: [
+    _Check('Niski HI <1.5 kJ/mm — narrow string beads',
+           'Low HI <1.5 kJ/mm — narrow string beads'),
+    _Check('Argon czysty (>99.99%), brak Helium na nierdzewce',
+           'Pure argon (>99.99%), no Helium on SS'),
+    _Check('Drut ERNiCrMo-3 (625) z certyfikatu',
+           'ERNiCrMo-3 (625) wire with cert'),
+  ],
+};
+
 const List<_Check> _checks = [
   _Check('Szczelina fit-up ≈ 0, rury współosiowe (brak przesunięcia lic)',
          'Fit-up gap ≈ 0, tubes aligned (no land mismatch)'),
@@ -44,6 +110,22 @@ const List<_Check> _checks = [
          'Stainless-only tools used (no iron cross-contamination)'),
 ];
 
+/// Scans a preheatNote like "200–250 °C, interpass 250–300 °C" for °C numbers
+/// and appends a "  (~390–480 °F)" tail. Best-effort — if no °C number is
+/// found (notes like "Bez preheat.") returns an empty string so the tooltip
+/// stays clean.
+String _preheatFahrenheit(String note) {
+  final matches = RegExp(r'(\d+)\s*°?\s*C').allMatches(note).toList();
+  if (matches.isEmpty) return '';
+  final fs = matches
+      .map((m) => (int.parse(m.group(1)!) * 9 / 5 + 32).round())
+      .toList();
+  final tail = fs.length == 1
+      ? '${fs.first} °F'
+      : '${fs.reduce((a, b) => a < b ? a : b)}–${fs.reduce((a, b) => a > b ? a : b)} °F';
+  return '  (~$tail)';
+}
+
 class PreWeldChecklistScreen extends StatefulWidget {
   const PreWeldChecklistScreen({super.key});
 
@@ -53,6 +135,19 @@ class PreWeldChecklistScreen extends StatefulWidget {
 
 class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   final _done = <int>{};
+  MaterialSpec? _material;
+
+  /// Combined check list = universal items + extras for the picked grade's
+  /// P-Number. Index 0..len-1 stays consistent across builds because we never
+  /// re-order (extras are always appended).
+  List<_Check> get _all {
+    final list = <_Check>[..._checks];
+    if (_material != null) {
+      final extras = _pNumberExtras[_material!.pNumber];
+      if (extras != null) list.addAll(extras);
+    }
+    return list;
+  }
 
   void _toggle(int i) {
     setState(() {
@@ -63,13 +158,23 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         Haptic.tap();
       }
     });
-    if (_done.length == _checks.length) Haptic.saved();
+    if (_done.length == _all.length) Haptic.saved();
+  }
+
+  void _setMaterial(MaterialSpec? m) {
+    setState(() {
+      _material = m;
+      // Drop ticked indices that point past the new list (shorter list after
+      // deselecting a material with extras).
+      _done.removeWhere((i) => i >= _all.length);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final isPl = context.language == AppLanguage.pl;
-    final all = _done.length == _checks.length;
+    final list = _all;
+    final all = _done.length == list.length;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
@@ -116,7 +221,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                         fontWeight: FontWeight.w600),
                   ),
                 ),
-                Text('${_done.length}/${_checks.length}',
+                Text('${_done.length}/${list.length}',
                     style: TextStyle(
                         color: all ? _kGreen : _kOrange,
                         fontSize: 16,
@@ -124,19 +229,91 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               ],
             ),
           ),
+          // Material picker — adds grade-specific checks (P91 needs PWHT slot,
+          // Duplex needs ferrite check, etc.) on top of the universal list.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SizedBox(
+              // Glove-friendly: 48dp min strip so material picker chips meet
+              // the WCAG/MD3 touch target — these chips gate grade-specific
+              // safety checks (P91 PWHT, Duplex ferrite) and must be tappable
+              // through a thick welding glove without hunting.
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  ChoiceChip(
+                    label: Text(context.tr(pl: 'wszystkie', en: 'generic'),
+                        style: const TextStyle(fontSize: 11)),
+                    selected: _material == null,
+                    onSelected: (_) => _setMaterial(null),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                  ),
+                  const SizedBox(width: 6),
+                  for (final m in MaterialCatalog.all) ...[
+                    // Long-press hint surfaces preheat range in both °C and °F
+                    // for welders cross-reading EU WPS against US ASME spec sheets
+                    // without retyping into a converter.
+                    Tooltip(
+                      message: '${m.key}: ${m.preheatNote}'
+                          '${_preheatFahrenheit(m.preheatNote)}',
+                      child: ChoiceChip(
+                        label: Text(m.key, style: const TextStyle(fontSize: 11)),
+                        selected: _material?.key == m.key,
+                        onSelected: (_) => _setMaterial(m),
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
+            ),
+          ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-              itemCount: _checks.length,
+              itemCount: list.length,
               itemBuilder: (_, i) {
                 final done = _done.contains(i);
-                final c = _checks[i];
-                return GestureDetector(
-                  onTap: () => _toggle(i),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
+                final c = list[i];
+                final isExtra = i >= _checks.length;
+                // Group divider before the first material-specific extra so the
+                // jump from universal → grade-specific is visible at a glance.
+                final showDivider = isExtra && i == _checks.length;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (showDivider && _material != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(2, 6, 2, 8),
+                        child: Row(
+                          children: [
+                            Expanded(child: Container(height: 1, color: _kBorder)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(
+                                context.tr(
+                                    pl: 'Specyficzne · ${_material!.key}',
+                                    en: 'Specific to ${_material!.key}'),
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  color: _kOrange,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ),
+                            Expanded(child: Container(height: 1, color: _kBorder)),
+                          ],
+                        ),
+                      ),
+                    GestureDetector(
+                      onTap: () => _toggle(i),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 12),
                     decoration: BoxDecoration(
                       color: _kCard,
                       borderRadius: BorderRadius.circular(10),
@@ -157,23 +334,43 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text(
-                            isPl ? c.pl : c.en,
-                            style: TextStyle(
-                              fontSize: 14,
-                              height: 1.4,
-                              color: done
-                                  ? _kMuted
-                                  : const Color(0xFFE8ECF0),
-                              decoration: done
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (isExtra && _material != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 3),
+                                  child: Text(
+                                    '${_material!.key} · P${_material!.pNumber}',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      color: _kOrange,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ),
+                              Text(
+                                isPl ? c.pl : c.en,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  height: 1.4,
+                                  color: done
+                                      ? _kMuted
+                                      : const Color(0xFFE8ECF0),
+                                  decoration: done
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),

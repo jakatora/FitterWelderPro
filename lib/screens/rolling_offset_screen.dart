@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
@@ -84,6 +85,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
@@ -97,13 +99,13 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
             _sectionLabel(context.tr(pl: 'KĄT KOLAN', en: 'ELBOW ANGLE')),
             const SizedBox(height: 8),
             Row(children: [
-              _angleBtn('45', '45°'),
+              _angleBtn(cs, '45', '45°'),
               const SizedBox(width: 8),
-              _angleBtn('60', '60°'),
+              _angleBtn(cs, '60', '60°'),
               const SizedBox(width: 8),
-              _angleBtn('30', '30°'),
+              _angleBtn(cs, '30', '30°'),
               const SizedBox(width: 8),
-              _angleBtn('custom', context.tr(pl: 'Inny', en: 'Custom')),
+              _angleBtn(cs, 'custom', context.tr(pl: 'Inny', en: 'Custom')),
             ]),
             if (_selectedAngle == 'custom') ...[
               const SizedBox(height: 12),
@@ -121,7 +123,9 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
               const SizedBox(width: 12),
               Expanded(child: _field(_spreadController,
                 label: context.tr(pl: 'Spread (odchylenie boczne)', en: 'Spread (lateral offset)'),
-                suffix: 'mm')),
+                suffix: 'mm',
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _calculate())),
             ]),
             const SizedBox(height: 24),
 
@@ -176,8 +180,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
   );
 
-  Widget _angleBtn(String value, String label) {
-    final cs = Theme.of(context).colorScheme;
+  Widget _angleBtn(ColorScheme cs, String value, String label) {
     final selected = _selectedAngle == value;
     return Expanded(
       child: InkWell(
@@ -204,11 +207,21 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     );
   }
 
+  // Positive decimal only: digits + single '.' or ',' separator. Blocks '-', 'e', spaces.
+  static final _positiveDecimalFormatter =
+      FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d*'));
+
   Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix}) {
+      {required String label, String? suffix,
+      TextInputAction textInputAction = TextInputAction.next,
+      ValueChanged<String>? onSubmitted}) {
     return TextField(
       controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+      inputFormatters: [_positiveDecimalFormatter],
+      textInputAction: textInputAction,
+      onSubmitted: onSubmitted ??
+          (_) => FocusScope.of(context).nextFocus(),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

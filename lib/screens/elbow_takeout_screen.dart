@@ -23,6 +23,10 @@ class ElbowTakeoutScreen extends StatefulWidget {
 class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
   final _filter = TextEditingController();
   String _q = '';
+  // Cache filtered rows so we don't walk the full list on every rebuild
+  // (e.g. keyboard show/hide, theme changes). Recomputed only when _q changes.
+  List<ElbowTakeout> _cachedRows = kElbowTakeouts;
+  String _cachedQ = '';
 
   @override
   void dispose() {
@@ -31,12 +35,18 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
   }
 
   List<ElbowTakeout> get _rows {
-    if (_q.trim().isEmpty) return kElbowTakeouts;
+    if (_cachedQ == _q) return _cachedRows;
+    _cachedQ = _q;
     final q = _q.trim().toLowerCase();
-    return kElbowTakeouts.where((e) =>
-        '${e.dn}'.contains(q) ||
-        e.nps.toLowerCase().contains(q) ||
-        'dn${e.dn}'.contains(q)).toList();
+    if (q.isEmpty) {
+      _cachedRows = kElbowTakeouts;
+    } else {
+      _cachedRows = kElbowTakeouts.where((e) =>
+          '${e.dn}'.contains(q) ||
+          e.nps.toLowerCase().contains(q) ||
+          'dn${e.dn}'.contains(q)).toList();
+    }
+    return _cachedRows;
   }
 
   @override
@@ -53,14 +63,25 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               controller: _filter,
+              // Longest sensible token is e.g. "DN1200" / "24" — 16 chars is
+              // already 2x headroom. Caps pathological pastes silently.
+              maxLength: 16,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: context.tr(
                     pl: 'Szukaj: DN50, 2", 100…',
                     en: 'Search: DN50, 2", 100…'),
                 isDense: true,
+                counterText: '',
               ),
-              onChanged: (v) => setState(() => _q = v),
+              textInputAction: TextInputAction.search,
+              // Trim at the source so trailing whitespace from autocorrect /
+              // paste doesn't bust the filter cache or break substring match.
+              onChanged: (v) {
+                final t = v.trim();
+                if (t == _q) return;
+                setState(() => _q = t);
+              },
             ),
           ),
           const _LegendBar(),
@@ -140,13 +161,32 @@ class _Row extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('DN${e.dn}',
+                // DN + actual elbow size (NPS) on one prominent line so the
+                // fitter sees the pipe size at a glance without scanning
+                // a second muted row.
+                RichText(
+                  text: TextSpan(
                     style: const TextStyle(
-                        color: Color(0xFFE8ECF0),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800)),
-                Text('NPS ${e.nps}"',
-                    style: const TextStyle(color: _kMuted, fontSize: 11)),
+                      color: Color(0xFFE8ECF0),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    children: [
+                      TextSpan(text: 'DN${e.dn}'),
+                      TextSpan(
+                        text: '  · ${e.nps}"',
+                        style: const TextStyle(
+                          color: _kOrange,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  context.tr(pl: 'rozmiar kolanka', en: 'elbow size'),
+                  style: const TextStyle(color: _kMuted, fontSize: 10),
+                ),
               ],
             ),
           ),

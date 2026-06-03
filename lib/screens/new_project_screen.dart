@@ -98,14 +98,34 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       didPop = true;
       Navigator.pop(context, true);
     } catch (e) {
+      // Don't expose the raw exception to a user filling in a project form —
+      // map to a category they can act on; keep $e in the debug log for
+      // support. Most common causes: duplicate name (DB UNIQUE) and disk-full.
+      debugPrint('NewProjectScreen.save error: $e');
+      final raw = e.toString().toLowerCase();
+      String msg;
+      if (raw.contains('unique') || raw.contains('duplicate')) {
+        msg = context.tr(
+          pl: 'Projekt o tej nazwie już istnieje. Wybierz inną nazwę.',
+          en: 'A project with this name already exists. Pick a different name.',
+        );
+      } else if (raw.contains('disk') || raw.contains('no space')) {
+        msg = context.tr(
+          pl: 'Brak miejsca w pamięci telefonu.',
+          en: 'No storage space left on the device.',
+        );
+      } else {
+        msg = context.tr(
+          pl: 'Nie udało się zapisać projektu. Spróbuj jeszcze raz.',
+          en: 'Could not save the project. Please try again.',
+        );
+      }
       if (!mounted) return;
       setState(() {
-        _error = context.tr(pl: 'Błąd zapisu projektu: $e', en: 'Project save error: $e');
+        _error = msg;
         _saving = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_error!)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       return;
     } finally {
       // If we didn't pop (e.g. validation or exception), re-enable the button.

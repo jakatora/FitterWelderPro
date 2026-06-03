@@ -677,7 +677,7 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
       'torch_gas_lpm': 9.0,
       'purge_lpm': 2.0,
       'amps': 60.0,
-      'note': 'Placeholder zatwierdzone AMP (do podmiany na dane z Firebase).',
+      'note': 'Seed AMP — wartości startowe do edycji w bibliotece parametrów.',
       'created_at': now,
       'updated_at': now,
     });

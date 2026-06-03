@@ -1,8 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
+import '../utils/haptic.dart';
 
 const _kCard   = Color(0xFF1A1D26);
 const _kBorder = Color(0xFF2C3354);
@@ -11,8 +12,8 @@ const _kBlue   = Color(0xFF4A9EFF);
 const _kSec    = Color(0xFF9BA3C7);
 const _kMuted  = Color(0xFF55607A);
 
-/// Pocket-converter: length (mm â†” in, ft), temperature (Â°C â†” Â°F),
-/// pressure (bar â†” MPa â†” psi), mass-flow (slpm â†” l/min â†” cfh).
+/// Pocket-converter: length (mm ↔ in, ft), temperature (°C ↔ °F),
+/// pressure (bar ↔ MPa ↔ psi), mass-flow (slpm ↔ l/min ↔ cfh).
 /// Long-press any result to copy it.
 class QuickConverterScreen extends StatelessWidget {
   const QuickConverterScreen({super.key});
@@ -28,10 +29,10 @@ class QuickConverterScreen extends StatelessWidget {
           bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: context.tr(pl: 'DÅ‚ugoÅ›Ä‡', en: 'Length')),
+              Tab(text: context.tr(pl: 'Długość', en: 'Length')),
               Tab(text: context.tr(pl: 'Temperatura', en: 'Temperature')),
-              Tab(text: context.tr(pl: 'CiÅ›nienie', en: 'Pressure')),
-              Tab(text: context.tr(pl: 'PrzepÅ‚yw gazu', en: 'Gas flow')),
+              Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
+              Tab(text: context.tr(pl: 'Przepływ gazu', en: 'Gas flow')),
             ],
           ),
         ),
@@ -48,7 +49,7 @@ class QuickConverterScreen extends StatelessWidget {
   }
 }
 
-// â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── helpers ──────────────────────────────────────────────────────────────────
 double? _parse(String s) {
   if (s.trim().isEmpty) return null;
   return double.tryParse(s.replaceAll(',', '.'));
@@ -66,24 +67,30 @@ class _Row extends StatelessWidget {
   final Color color;
   const _Row({required this.label, required this.value, required this.color});
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: const TextStyle(color: _kSec, fontSize: 13)),
-            CopyOnLongPress(
-              value: value,
-              label: label,
-              child: Text(value,
-                  style: TextStyle(
-                      color: color,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3)),
+  Widget build(BuildContext context) => Semantics(
+        container: true,
+        label: '$label: $value',
+        child: ExcludeSemantics(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(label,
+                    style: const TextStyle(color: _kSec, fontSize: 13)),
+                CopyOnLongPress(
+                  value: value,
+                  label: label,
+                  child: Text(value,
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3)),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
 }
@@ -116,7 +123,7 @@ class _SmallHint extends StatelessWidget {
       );
 }
 
-// â”€â”€â”€ LENGTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── LENGTH ───────────────────────────────────────────────────────────────────
 class _LengthTab extends StatefulWidget {
   const _LengthTab();
   @override
@@ -134,6 +141,15 @@ class _LengthTabState extends State<_LengthTab> {
     'in': 25.4,
     'ft': 304.8,
   };
+
+  // Pre-built once: dropdown rebuilds on every keystroke otherwise.
+  static const _items = <DropdownMenuItem<String>>[
+    DropdownMenuItem(value: 'mm', child: Text('mm')),
+    DropdownMenuItem(value: 'cm', child: Text('cm')),
+    DropdownMenuItem(value: 'm', child: Text('m')),
+    DropdownMenuItem(value: 'in', child: Text('in')),
+    DropdownMenuItem(value: 'ft', child: Text('ft')),
+  ];
 
   @override
   void dispose() {
@@ -160,7 +176,7 @@ class _LengthTabState extends State<_LengthTab> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
                 ],
                 decoration: InputDecoration(
-                  labelText: context.tr(pl: 'WartoÅ›Ä‡', en: 'Value'),
+                  labelText: context.tr(pl: 'Wartość', en: 'Value'),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
@@ -169,10 +185,11 @@ class _LengthTabState extends State<_LengthTab> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: _src,
-                items: _toMm.keys
-                    .map((k) => DropdownMenuItem(value: k, child: Text(k)))
-                    .toList(),
-                onChanged: (k) => setState(() => _src = k ?? 'mm'),
+                items: _items,
+                onChanged: (k) {
+                  Haptic.tap();
+                  setState(() => _src = k ?? 'mm');
+                },
               ),
             ),
           ],
@@ -186,15 +203,15 @@ class _LengthTabState extends State<_LengthTab> {
             _Row(label: 'in (")', value: _fmt(mm / 25.4), color: _kBlue),
             _Row(label: 'ft', value: _fmt(mm / 304.8), color: _kSec),
             _SmallHint(context.tr(
-                pl: 'Przytrzymaj wartoÅ›Ä‡ â†’ kopia do schowka.',
-                en: 'Long-press a value â†’ copy to clipboard.')),
+                pl: 'Przytrzymaj wartość → kopia do schowka.',
+                en: 'Long-press a value → copy to clipboard.')),
           ]),
       ],
     );
   }
 }
 
-// â”€â”€â”€ TEMPERATURE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── TEMPERATURE ──────────────────────────────────────────────────────────────
 class _TempTab extends StatefulWidget {
   const _TempTab();
   @override
@@ -203,7 +220,7 @@ class _TempTab extends StatefulWidget {
 
 class _TempTabState extends State<_TempTab> {
   final _ctrl = TextEditingController();
-  String _src = 'Â°C';
+  String _src = '°C';
 
   @override
   void dispose() {
@@ -214,13 +231,15 @@ class _TempTabState extends State<_TempTab> {
   @override
   Widget build(BuildContext context) {
     final v = _parse(_ctrl.text);
+    // Kelvin cannot be negative (absolute zero floor); flag inline.
+    final kelvinBelowZero = v != null && _src == 'K' && v < 0;
     double c = 0;
-    if (v != null) {
+    if (v != null && !kelvinBelowZero) {
       switch (_src) {
-        case 'Â°C':
+        case '°C':
           c = v;
           break;
-        case 'Â°F':
+        case '°F':
           c = (v - 32) * 5 / 9;
           break;
         case 'K':
@@ -245,7 +264,13 @@ class _TempTabState extends State<_TempTab> {
                   FilteringTextInputFormatter.allow(RegExp(r'[\-0-9.,]'))
                 ],
                 decoration: InputDecoration(
-                    labelText: context.tr(pl: 'WartoÅ›Ä‡', en: 'Value')),
+                  labelText: context.tr(pl: 'Wartość', en: 'Value'),
+                  errorText: kelvinBelowZero
+                      ? context.tr(
+                          pl: 'K nie może być ujemna (zero absolutne).',
+                          en: 'K cannot be negative (absolute zero).')
+                      : null,
+                ),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -254,31 +279,31 @@ class _TempTabState extends State<_TempTab> {
               child: DropdownButtonFormField<String>(
                 initialValue: _src,
                 items: const [
-                  DropdownMenuItem(value: 'Â°C', child: Text('Â°C')),
-                  DropdownMenuItem(value: 'Â°F', child: Text('Â°F')),
+                  DropdownMenuItem(value: '°C', child: Text('°C')),
+                  DropdownMenuItem(value: '°F', child: Text('°F')),
                   DropdownMenuItem(value: 'K', child: Text('K')),
                 ],
-                onChanged: (k) => setState(() => _src = k ?? 'Â°C'),
+                onChanged: (k) => setState(() => _src = k ?? '°C'),
               ),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        if (v != null)
+        if (v != null && !kelvinBelowZero)
           _Card(children: [
-            _Row(label: 'Â°C', value: _fmt(c, frac: 1), color: _kOrange),
-            _Row(label: 'Â°F', value: _fmt(f, frac: 1), color: _kBlue),
+            _Row(label: '°C', value: _fmt(c, frac: 1), color: _kOrange),
+            _Row(label: '°F', value: _fmt(f, frac: 1), color: _kBlue),
             _Row(label: 'K', value: _fmt(k, frac: 1), color: _kSec),
             _SmallHint(context.tr(
-                pl: 'NajczÄ™sty case: konwersja temperatury podgrzewania (preheat) z PWPS w Â°F.',
-                en: 'Most common: converting preheat temperature from a PWPS given in Â°F.')),
+                pl: 'Najczęsty case: konwersja temperatury podgrzewania (preheat) z PWPS w °F.',
+                en: 'Most common: converting preheat temperature from a PWPS given in °F.')),
           ]),
       ],
     );
   }
 }
 
-// â”€â”€â”€ PRESSURE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── PRESSURE ─────────────────────────────────────────────────────────────────
 class _PressureTab extends StatefulWidget {
   const _PressureTab();
   @override
@@ -296,6 +321,14 @@ class _PressureTabState extends State<_PressureTab> {
     'psi': 0.0689476,
     'atm': 1.01325,
   };
+
+  static const _items = <DropdownMenuItem<String>>[
+    DropdownMenuItem(value: 'bar', child: Text('bar')),
+    DropdownMenuItem(value: 'MPa', child: Text('MPa')),
+    DropdownMenuItem(value: 'kPa', child: Text('kPa')),
+    DropdownMenuItem(value: 'psi', child: Text('psi')),
+    DropdownMenuItem(value: 'atm', child: Text('atm')),
+  ];
 
   @override
   void dispose() {
@@ -322,7 +355,7 @@ class _PressureTabState extends State<_PressureTab> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
                 ],
                 decoration: InputDecoration(
-                    labelText: context.tr(pl: 'WartoÅ›Ä‡', en: 'Value')),
+                    labelText: context.tr(pl: 'Wartość', en: 'Value')),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -330,9 +363,7 @@ class _PressureTabState extends State<_PressureTab> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: _src,
-                items: _toBar.keys
-                    .map((k) => DropdownMenuItem(value: k, child: Text(k)))
-                    .toList(),
+                items: _items,
                 onChanged: (k) => setState(() => _src = k ?? 'bar'),
               ),
             ),
@@ -355,7 +386,7 @@ class _PressureTabState extends State<_PressureTab> {
   }
 }
 
-// â”€â”€â”€ GAS FLOW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── GAS FLOW ─────────────────────────────────────────────────────────────────
 class _FlowTab extends StatefulWidget {
   const _FlowTab();
   @override
@@ -374,6 +405,13 @@ class _FlowTabState extends State<_FlowTab> {
     'cfh': 0.4719474,
     'scfh': 0.4719474,
   };
+
+  static const _items = <DropdownMenuItem<String>>[
+    DropdownMenuItem(value: 'l/min', child: Text('l/min')),
+    DropdownMenuItem(value: 'slpm', child: Text('slpm')),
+    DropdownMenuItem(value: 'cfh', child: Text('cfh')),
+    DropdownMenuItem(value: 'scfh', child: Text('scfh')),
+  ];
 
   @override
   void dispose() {
@@ -400,7 +438,7 @@ class _FlowTabState extends State<_FlowTab> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
                 ],
                 decoration: InputDecoration(
-                    labelText: context.tr(pl: 'WartoÅ›Ä‡', en: 'Value')),
+                    labelText: context.tr(pl: 'Wartość', en: 'Value')),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -408,9 +446,7 @@ class _FlowTabState extends State<_FlowTab> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: _src,
-                items: _toLpm.keys
-                    .map((k) => DropdownMenuItem(value: k, child: Text(k)))
-                    .toList(),
+                items: _items,
                 onChanged: (k) => setState(() => _src = k ?? 'l/min'),
               ),
             ),
@@ -424,8 +460,8 @@ class _FlowTabState extends State<_FlowTab> {
             _Row(label: 'cfh',    value: _fmt(lpm / 0.4719474), color: _kBlue),
             _Row(label: 'scfh',   value: _fmt(lpm / 0.4719474), color: _kSec),
             _SmallHint(context.tr(
-                pl: 'Argon / mix M21: typowy GMAW 12â€“18 l/min, TIG 6â€“12 l/min.',
-                en: 'Argon / M21 mix: typical GMAW 12â€“18 l/min, TIG 6â€“12 l/min.')),
+                pl: 'Argon / mix M21: typowy GMAW 12–18 l/min, TIG 6–12 l/min.',
+                en: 'Argon / M21 mix: typical GMAW 12–18 l/min, TIG 6–12 l/min.')),
           ]),
       ],
     );

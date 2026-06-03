@@ -83,6 +83,16 @@ Color _verdictColor(HeatTintVerdict v) {
   }
 }
 
+// Some data rows ship the O₂ band as a "PL / EN" slash-pair (e.g. level 10
+// "brak osłony / no purge"). Split it so each locale sees only its half.
+String _localizedO2(BuildContext context, String raw) {
+  final i = raw.indexOf(' / ');
+  if (i < 0) return raw;
+  final pl = raw.substring(0, i);
+  final en = raw.substring(i + 3);
+  return context.tr(pl: pl, en: en);
+}
+
 String _verdictLabel(BuildContext context, HeatTintVerdict v) {
   switch (v) {
     case HeatTintVerdict.pharma:
@@ -144,14 +154,17 @@ class _LevelTile extends StatelessWidget {
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('O₂ ≈ ${level.approxO2}',
-                    style: const TextStyle(color: _kMuted, fontSize: 11)),
+                Text('O₂ ≈ ${_localizedO2(context, level.approxO2)}',
+                    style: const TextStyle(
+                        color: _kSec,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
               ],
             ),
           ),
           Container(
             margin: const EdgeInsets.only(right: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               color: vc.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(8),
@@ -159,7 +172,10 @@ class _LevelTile extends StatelessWidget {
             ),
             child: Text(_verdictLabel(context, level.verdict),
                 style: TextStyle(
-                    color: vc, fontSize: 11, fontWeight: FontWeight.w800)),
+                    color: vc,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2)),
           ),
         ],
       ),

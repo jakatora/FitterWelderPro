@@ -90,6 +90,45 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  void _showFormulaInfo() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr(pl: 'Źródło wzorów', en: 'Formula source')),
+        content: SingleChildScrollView(
+          child: Text(
+            context.tr(
+              pl: 'Geometria liniowa:\n'
+                  '  Rise = Długość × (% / 100)\n'
+                  '  Kąt  = atan(Rise / Długość)\n'
+                  '  mm/m = % × 10\n\n'
+                  'Spadki drenażowe (food / pharma):\n'
+                  '  1:100 (1%) — standard dla rur procesowych i CIP.\n'
+                  '  1:200 (0.5%) — minimum dla krótkich odcinków poziomych.\n'
+                  '  1:50  (2%)  — instalacje CO2/ścieki, gdzie liczy się szybki spływ.\n\n'
+                  'Wartości spadku są zgodne z praktyką hygienic piping (ASME BPE, EHEDG) — linia musi sama się opróżniać.',
+              en: 'Linear geometry:\n'
+                  '  Rise = Length × (% / 100)\n'
+                  '  Angle = atan(Rise / Length)\n'
+                  '  mm/m  = % × 10\n\n'
+                  'Drainage slopes (food / pharma):\n'
+                  '  1:100 (1%) — default for process lines and CIP.\n'
+                  '  1:200 (0.5%) — minimum for short horizontal runs.\n'
+                  '  1:50  (2%)  — CO2 / effluent lines where fast drain matters.\n\n'
+                  'Slope values follow hygienic-piping practice (ASME BPE, EHEDG) — the line must self-drain.',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(context.tr(pl: 'OK', en: 'OK')),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     for (final c in [
@@ -137,6 +176,10 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                 label: context.tr(pl: 'Nachylenie', en: 'Slope'),
                 suffix: '%',
                 readOnly: _mode == 'slope_from_lr',
+                helperText: context.tr(
+                  pl: '1% = 10 mm/m = 1:100',
+                  en: '1% = 10 mm/m = 1:100',
+                ),
               ),
               if (_mode == 'length_to_rise') ...[
                 const SizedBox(height: 8),
@@ -150,6 +193,10 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                 _slopeController,
                 label: context.tr(pl: 'Nachylenie', en: 'Slope'),
                 suffix: '%',
+                helperText: context.tr(
+                  pl: '1% = 10 mm/m = 1:100',
+                  en: '1% = 10 mm/m = 1:100',
+                ),
               ),
               const SizedBox(height: 8),
               _slopePresets(),
@@ -211,12 +258,29 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
               label: context.tr(pl: 'mm na metr bieżący', en: 'mm per running metre'), suffix: 'mm/m'),
 
             const SizedBox(height: 16),
-            Text(
-              context.tr(
-                pl: 'Wzory: Rise = Długość × %/100  |  Kąt = atan(Rise/Długość)  |  mm/m = % × 10',
-                en: 'Formulas: Rise = Length × %/100  |  Angle = atan(Rise/Length)  |  mm/m = % × 10',
-              ),
-              style: Theme.of(context).textTheme.bodySmall,
+            // Info button so a fitter can show the foreman the formula source
+            // (food/pharma drainage convention) without leaving the screen.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    context.tr(
+                      pl: 'Wzory: Rise = Długość × %/100  |  Kąt = atan(Rise/Długość)  |  mm/m = % × 10',
+                      en: 'Formulas: Rise = Length × %/100  |  Angle = atan(Rise/Length)  |  mm/m = % × 10',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.info_outline, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: context.tr(pl: 'Źródło wzorów', en: 'Formula source'),
+                  onPressed: _showFormulaInfo,
+                ),
+              ],
             ),
           ],
         ),
@@ -234,28 +298,39 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     return Column(
       children: modes.map((m) {
         final selected = _mode == m.$1;
-        return InkWell(
-          onTap: () => setState(() => _mode = m.$1),
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: selected ? cs.primaryContainer.withValues(alpha: 0.4) : null,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected ? cs.primary : cs.outlineVariant,
+        // Custom radio row: expose selection + group membership to screen
+        // readers; the visual radio icon is decorative once Semantics conveys
+        // the state, so it is excluded to avoid double announcement.
+        return Semantics(
+          button: true,
+          inMutuallyExclusiveGroup: true,
+          selected: selected,
+          label: m.$2,
+          child: InkWell(
+            onTap: () => setState(() => _mode = m.$1),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: selected ? cs.primaryContainer.withValues(alpha: 0.4) : null,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: selected ? cs.primary : cs.outlineVariant,
+                ),
               ),
+              child: Row(children: [
+                ExcludeSemantics(
+                  child: Icon(
+                    selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                    color: selected ? cs.primary : cs.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(m.$2, style: TextStyle(color: selected ? cs.onPrimaryContainer : null)),
+              ]),
             ),
-            child: Row(children: [
-              Icon(
-                selected ? Icons.radio_button_checked : Icons.radio_button_off,
-                color: selected ? cs.primary : cs.onSurfaceVariant,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Text(m.$2, style: TextStyle(color: selected ? cs.onPrimaryContainer : null)),
-            ]),
           ),
         );
       }).toList(),
@@ -283,8 +358,8 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
       children: [
         Text(
           context.tr(
-              pl: 'Spadki drenażowe (food/pharma):',
-              en: 'Drainage slopes (food/pharma):'),
+              pl: 'Spadki drenażowe (food/pharma) — dotknij = wstaw i przelicz:',
+              en: 'Drainage slopes (food/pharma) — tap to apply and recalc:'),
           style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
         ),
         const SizedBox(height: 6),
@@ -293,17 +368,23 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
           runSpacing: 6,
           children: presets.map((p) {
             final selected = _parse(_slopeController.text) == _parse(p.$1);
-            return ActionChip(
-              label: Text('${p.$1}%  (${p.$2})',
-                  style: const TextStyle(fontSize: 12)),
-              backgroundColor:
-                  selected ? cs.primaryContainer : cs.surfaceContainerHigh,
-              side: BorderSide(
-                  color: selected ? cs.primary : cs.outlineVariant),
-              onPressed: () {
-                setState(() => _slopeController.text = p.$1);
-                _calculate();
-              },
+            return Tooltip(
+              message: context.tr(
+                pl: 'Wstaw ${p.$1}% (${p.$2}) i od razu przelicz',
+                en: 'Set ${p.$1}% (${p.$2}) and recalc immediately',
+              ),
+              child: ActionChip(
+                label: Text('${p.$1}%  (${p.$2})',
+                    style: const TextStyle(fontSize: 12)),
+                backgroundColor:
+                    selected ? cs.primaryContainer : cs.surfaceContainerHigh,
+                side: BorderSide(
+                    color: selected ? cs.primary : cs.outlineVariant),
+                onPressed: () {
+                  setState(() => _slopeController.text = p.$1);
+                  _calculate();
+                },
+              ),
             );
           }).toList(),
         ),
@@ -312,7 +393,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   }
 
   Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix, bool readOnly = false}) {
+      {required String label, String? suffix, bool readOnly = false, String? helperText}) {
     return TextField(
       controller: ctrl,
       readOnly: readOnly,
@@ -320,6 +401,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
+        helperText: helperText,
         border: const OutlineInputBorder(),
         filled: readOnly,
       ),

@@ -32,17 +32,12 @@ class BackendService {
 
   /// Performs an external search for an answer to [question].
   ///
-  /// In a full implementation this method would query a search API or
-  /// scrape trusted websites to retrieve an answer. For example, one could
-  /// call a Google Custom Search API, extract the first couple of matching
-  /// results, and compare their contents. Only when at least two sources
-  /// agree would the answer be returned. If no satisfactory answer is
-  /// found this method should return `null`.
-  ///
-  /// For this prototype it simply returns `null`, indicating that no
-  /// external answer was found.
+  /// Reserved hook for an external answer source. Today this is a stub —
+  /// the tutor flow falls back to the local cache when this returns null,
+  /// which is the only intended behaviour. Out of scope to add a real
+  /// search backend here; if anyone wants that, route the call through
+  /// the AI chat service so we keep one backend client.
   static Future<String?> searchAnswer(String question) async {
-    // TODO: Implement external web search. For now return null.
     return null;
   }
 

@@ -1,33 +1,33 @@
-﻿// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-//  Pipe3DPreview â€” peÅ‚ny 3D podglÄ…d trasy rurociÄ…gu.
+// ──────────────────────────────────────────────────────────────────────────
+//  Pipe3DPreview — pełny 3D podgląd trasy rurociągu.
 //
-//  Czyste Flutter + Canvas (bez zewnÄ™trznych bibliotek 3D).
-//  Matematyka 3D: obrÃ³t wokÃ³Å‚ osi X (pitch) i Y (yaw) + perspektywa sÅ‚aba.
-//  Segmenty rysowane z sortowaniem po gÅ‚Ä™bokoÅ›ci (painter's algorithm)
-//  oraz cieniowaniem (ciemnieje w gÅ‚Ä™bi).
+//  Czyste Flutter + Canvas (bez zewnętrznych bibliotek 3D).
+//  Matematyka 3D: obrót wokół osi X (pitch) i Y (yaw) + perspektywa słaba.
+//  Segmenty rysowane z sortowaniem po głębokości (painter's algorithm)
+//  oraz cieniowaniem (ciemnieje w głębi).
 //
-//  ObsÅ‚uguje:
-//   â€¢ przeciÄ…ganie palcem/myszÄ… â†’ obrÃ³t (pitch + yaw)
-//   â€¢ gest pinch / scroll â†’ zoom
-//   â€¢ automatyczne dopasowanie widoku do bounding boxa
-//   â€¢ podwÃ³jny tap â†’ reset widoku
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Obsługuje:
+//   • przeciąganie palcem/myszą → obrót (pitch + yaw)
+//   • gest pinch / scroll → zoom
+//   • automatyczne dopasowanie widoku do bounding boxa
+//   • podwójny tap → reset widoku
+// ──────────────────────────────────────────────────────────────────────────
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  DANE WEJÅšCIOWE
+//  DANE WEJŚCIOWE
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /// Styl rysowania pojedynczego segmentu w 3D.
 enum Pipe3DStyle {
-  pipe,      // rura miÄ™dzy elementami
-  fitting,   // armatura (zawÃ³r, koÅ‚nierz, redukcja)
+  pipe,      // rura między elementami
+  fitting,   // armatura (zawór, kołnierz, redukcja)
   elbow,     // kolano (marker w punkcie zmiany kierunku)
-  startMark, // znacznik poczÄ…tku trasy
-  endMark,   // znacznik koÅ„ca trasy
-  axis,      // oÅ› referencyjna (X/Y/Z)
+  startMark, // znacznik początku trasy
+  endMark,   // znacznik końca trasy
+  axis,      // oś referencyjna (X/Y/Z)
 }
 
 /// Pojedynczy segment trasy w przestrzeni 3D (mm).
@@ -35,7 +35,7 @@ class Pipe3DSegment {
   final double x0, y0, z0;
   final double x1, y1, z1;
   final Color color;
-  final double strokeMm;   // gruboÅ›Ä‡ wizualna (mm)
+  final double strokeMm;   // grubość wizualna (mm)
   final Pipe3DStyle style;
   final String label;
 
@@ -50,19 +50,19 @@ class Pipe3DSegment {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  WIDÅ»ET
+//  WIDŻET
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class Pipe3DPreview extends StatefulWidget {
   final List<Pipe3DSegment> segments;
 
-  /// WyÅ›wietlaj osie referencyjne X/Y/Z w rogu.
+  /// Wyświetlaj osie referencyjne X/Y/Z w rogu.
   final bool showAxes;
 
-  /// DÅ‚ugoÅ›Ä‡ osi w mm (wizualna).
+  /// Długość osi w mm (wizualna).
   final double axisLengthMm;
 
-  /// TÅ‚o.
+  /// Tło.
   final Color background;
 
   const Pipe3DPreview({
@@ -78,14 +78,14 @@ class Pipe3DPreview extends StatefulWidget {
 }
 
 class _Pipe3DPreviewState extends State<Pipe3DPreview> {
-  // KÄ…ty kamery (radiany)
-  double _pitch = -0.45; // patrzy lekko z gÃ³ry
-  double _yaw   =  0.70; // obrÃ³t wokÃ³Å‚ Y
+  // Kąty kamery (radiany)
+  double _pitch = -0.45; // patrzy lekko z góry
+  double _yaw   =  0.70; // obrót wokół Y
 
-  // MnoÅ¼nik zoomu nad auto-fit
+  // Mnożnik zoomu nad auto-fit
   double _userZoom = 1.0;
 
-  // Dla obsÅ‚ugi pinch (scale)
+  // Dla obsługi pinch (scale)
   double _scaleStart = 1.0;
 
   void _resetView() {
@@ -112,7 +112,7 @@ class _Pipe3DPreviewState extends State<Pipe3DPreview> {
                   onScaleStart: (_) { _scaleStart = _userZoom; },
                   onScaleUpdate: (d) {
                     setState(() {
-                      // ObrÃ³t â€” z delta.translation
+                      // Obrót — z delta.translation
                       if (d.pointerCount == 1) {
                         _yaw   += d.focalPointDelta.dx * 0.008;
                         _pitch += d.focalPointDelta.dy * 0.008;
@@ -151,7 +151,7 @@ class _Pipe3DPreviewState extends State<Pipe3DPreview> {
                 Positioned(
                   bottom: 8, left: 10,
                   child: Text(
-                    'przeciÄ…gnij = obrÃ³t   Â·   szczypta = zoom',
+                    'przeciągnij = obrót   ·   szczypta = zoom',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.35),
                       fontSize: 10,
@@ -168,7 +168,7 @@ class _Pipe3DPreviewState extends State<Pipe3DPreview> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  PAINTER â€” projekcja 3D â†’ 2D
+//  PAINTER — projekcja 3D → 2D
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class _Pipe3DPainter extends CustomPainter {
@@ -188,14 +188,14 @@ class _Pipe3DPainter extends CustomPainter {
     required this.axisLengthMm,
   });
 
-  /// Obraca punkt (x,y,z) wokÃ³Å‚ Y (yaw), potem X (pitch).
-  /// Zwraca (X,Y,Z) w kamerze â€” Z = gÅ‚Ä™bokoÅ›Ä‡ (im wiÄ™ksze, tym dalej).
+  /// Obraca punkt (x,y,z) wokół Y (yaw), potem X (pitch).
+  /// Zwraca (X,Y,Z) w kamerze — Z = głębokość (im większe, tym dalej).
   (double, double, double) _rotate(double x, double y, double z) {
-    // yaw (wokÃ³Å‚ Y)
+    // yaw (wokół Y)
     final cY = math.cos(yaw),  sY = math.sin(yaw);
     final x1 =  cY * x + sY * z;
     final z1 = -sY * x + cY * z;
-    // pitch (wokÃ³Å‚ X)
+    // pitch (wokół X)
     final cP = math.cos(pitch), sP = math.sin(pitch);
     final y2 = cP * y - sP * z1;
     final z2 = sP * y + cP * z1;
@@ -209,14 +209,14 @@ class _Pipe3DPainter extends CustomPainter {
       return;
     }
 
-    // â”€â”€ Oblicz bounding box w przestrzeni kamery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Oblicz bounding box w przestrzeni kamery ────────────────────────
     double minPx =  1e18, maxPx = -1e18;
     double minPy =  1e18, maxPy = -1e18;
 
     final projected = <_Projected>[];
     final allPoints = <(double, double, double)>[];
 
-    // zgromadÅº punkty do centrowania
+    // zgromadź punkty do centrowania
     for (final s in segments) {
       allPoints.add(_rotate(s.x0, s.y0, s.z0));
       allPoints.add(_rotate(s.x1, s.y1, s.z1));
@@ -253,7 +253,7 @@ class _Pipe3DPainter extends CustomPainter {
 
     double depth(double x, double y, double z) => _rotate(x, y, z).$3;
 
-    // â”€â”€ PodÅ‚oga (siatka co 200 mm w pÅ‚aszczyÅºnie XY, Z=0) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Podłoga (siatka co 200 mm w płaszczyźnie XY, Z=0) ──────────────
     final gridPaint = Paint()
       ..color = const Color(0xFF2C3354).withValues(alpha: 0.35)
       ..strokeWidth = 0.6;
@@ -264,14 +264,14 @@ class _Pipe3DPainter extends CustomPainter {
       canvas.drawLine(project(-gridSpan, a, 0), project(gridSpan, a, 0), gridPaint);
     }
 
-    // â”€â”€ Osie referencyjne â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Osie referencyjne ───────────────────────────────────────────────
     if (showAxes) {
       _drawAxis(canvas, project, 'X', axisLengthMm, 0, 0, const Color(0xFF4A9EFF));
       _drawAxis(canvas, project, 'Y', 0, axisLengthMm, 0, const Color(0xFF2ECC71));
       _drawAxis(canvas, project, 'Z', 0, 0, axisLengthMm, const Color(0xFFF5A623));
     }
 
-    // â”€â”€ Przygotuj segmenty z gÅ‚Ä™bokoÅ›ciÄ… do sortowania â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Przygotuj segmenty z głębokością do sortowania ─────────────────
     for (final s in segments) {
       final d0 = depth(s.x0, s.y0, s.z0);
       final d1 = depth(s.x1, s.y1, s.z1);
@@ -283,10 +283,10 @@ class _Pipe3DPainter extends CustomPainter {
       ));
     }
 
-    // Sortuj malejÄ…co po gÅ‚Ä™bokoÅ›ci (dalekie pierwsze â€” painter's algorithm)
+    // Sortuj malejąco po głębokości (dalekie pierwsze — painter's algorithm)
     projected.sort((a, b) => a.depth.compareTo(b.depth));
 
-    // Normalizuj gÅ‚Ä™bokoÅ›Ä‡ do [0, 1] dla cieniowania
+    // Normalizuj głębokość do [0, 1] dla cieniowania
     final dMin = projected.isEmpty ? 0.0 : projected.first.depth;
     final dMax = projected.isEmpty ? 1.0 : projected.last.depth;
     final dRange = (dMax - dMin).abs() < 1e-6 ? 1.0 : (dMax - dMin);
@@ -297,13 +297,13 @@ class _Pipe3DPainter extends CustomPainter {
     }
   }
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ──────────────────────────────────────────────────────────────────────
   //  Rysowanie pojedynczego segmentu
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ──────────────────────────────────────────────────────────────────────
   void _drawSegment(Canvas canvas, _Projected p, double scale, double depthT) {
     final s = p.seg;
 
-    // Zanikanie w gÅ‚Ä™bi â€” fronty jaÅ›niejsze, tyÅ‚ ciemniejszy
+    // Zanikanie w głębi — fronty jaśniejsze, tył ciemniejszy
     final shade = 1.0 - 0.45 * depthT;
     final col = Color.from(
       alpha: s.color.a,
@@ -347,7 +347,7 @@ class _Pipe3DPainter extends CustomPainter {
     // Minimum visual thickness
     final t = thickness.clamp(3.0, 40.0);
 
-    // CieÅ„
+    // Cień
     canvas.drawLine(p0, p1, Paint()
       ..color = Colors.black.withValues(alpha: 0.35)
       ..strokeWidth = t + 2
@@ -377,7 +377,7 @@ class _Pipe3DPainter extends CustomPainter {
 
     canvas.drawLine(p0, p1, paint);
 
-    // Dla armatury â€” znaczniki na koÅ„cach (krÃ³tkie kreski prostopadÅ‚e)
+    // Dla armatury — znaczniki na końcach (krótkie kreski prostopadłe)
     if (isFitting) {
       final markPaint = Paint()
         ..color = col
@@ -445,7 +445,7 @@ class _Pipe3DPainter extends CustomPainter {
   void _paintEmpty(Canvas canvas, Size size) {
     final tp = TextPainter(
       text: const TextSpan(
-        text: 'Dodaj komponenty â†’ trasa pojawi siÄ™ w 3D',
+        text: 'Dodaj komponenty → trasa pojawi się w 3D',
         style: TextStyle(color: Color(0xFF55607A), fontSize: 12),
       ),
       textDirection: TextDirection.ltr,

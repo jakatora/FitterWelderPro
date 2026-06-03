@@ -34,11 +34,32 @@ workflows:
         script: |
           set -eo pipefail
 
+          # ── Sanity check: did the env var reach the build? ──────────────
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "ERROR: CERTIFICATE_PRIVATE_KEY env var is empty or missing."
+            echo "Check Codemagic UI → Team settings → Global variables and"
+            echo "secrets. The variable must be:"
+            echo "  - Name:  CERTIFICATE_PRIVATE_KEY"
+            echo "  - Group: ios_signing"
+            echo "  - Secure: ✓"
+            exit 1
+          fi
+          echo "CERTIFICATE_PRIVATE_KEY received: ${#CERTIFICATE_PRIVATE_KEY} chars (base64)"
+
           # Materialize the private key into a file because the CLI flag
           # `--certificate-key=@file:…` is more reliable than `@env:…`
           # for multi-line PEM payloads.
           echo "$CERTIFICATE_PRIVATE_KEY" | base64 --decode > "$HOME/apple_key.pem"
           chmod 600 "$HOME/apple_key.pem"
+
+          KEY_SIZE=$(wc -c < "$HOME/apple_key.pem" | tr -d ' ')
+          if [ "$KEY_SIZE" -lt 1000 ]; then
+            echo "ERROR: decoded private key is too small ($KEY_SIZE bytes)."
+            echo "The base64 value in CERTIFICATE_PRIVATE_KEY is probably"
+            echo "truncated or wrapped. Re-paste the FULL one-line base64."
+            exit 1
+          fi
+          echo "Decoded key: $KEY_SIZE bytes — looks OK."
 
           keychain initialize
 

@@ -1,12 +1,13 @@
-﻿// ignore_for_file: prefer_const_constructors
+// ignore_for_file: prefer_const_constructors
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
 import '../i18n/app_language.dart';
 import '../widgets/help_button.dart';
 
-// â”€â”€ Kolory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Kolory ─────────────────────────────────────────────────────────────────
 const _kOrange = Color(0xFFF5A623);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
@@ -15,7 +16,7 @@ const _kBorder = Color(0xFF2C3354);
 const _kMuted  = Color(0xFF55607A);
 const _kSec    = Color(0xFF9BA3C7);
 
-// â”€â”€ Model spoiny â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Model spoiny ───────────────────────────────────────────────────────────
 class WeldEntry {
   final String id;
   String weldNo;
@@ -36,6 +37,7 @@ class WeldEntry {
   String heatNo2;    // material heat/lot number, part 2
   String couponRef;  // reference of the test coupon welded that shift
   String exam;       // examination result, e.g. VT OK / borescope OK
+  String wpsRef;     // qualified WPS / pWPS reference used for this joint
 
   WeldEntry({
     required this.id,
@@ -56,6 +58,7 @@ class WeldEntry {
     this.heatNo2 = '',
     this.couponRef = '',
     this.exam = '',
+    this.wpsRef = '',
   });
 
   Map<String, Object?> toRow() => {
@@ -66,6 +69,7 @@ class WeldEntry {
     'weld_type': weldType, 'fitter': fitter,
     'heat_no1': heatNo1, 'heat_no2': heatNo2,
     'coupon_ref': couponRef, 'exam': exam,
+    'wps_ref': wpsRef,
   };
 
   static WeldEntry fromRow(Map<String, Object?> r) => WeldEntry(
@@ -87,10 +91,11 @@ class WeldEntry {
     heatNo2: (r['heat_no2'] as String?) ?? '',
     couponRef: (r['coupon_ref'] as String?) ?? '',
     exam: (r['exam'] as String?) ?? '',
+    wpsRef: (r['wps_ref'] as String?) ?? '',
   );
 }
 
-// â”€â”€ DAO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DAO ─────────────────────────────────────────────────────────────────────
 class WeldJournalDao {
   static const _table = 'weld_journal';
 
@@ -115,12 +120,14 @@ class WeldJournalDao {
         heat_no1 TEXT,
         heat_no2 TEXT,
         coupon_ref TEXT,
-        exam TEXT
+        exam TEXT,
+        wps_ref TEXT
       )
     ''');
     // Migrate older databases that predate the ASME BPE weld-map columns.
     for (final col in const [
       'weld_type', 'fitter', 'heat_no1', 'heat_no2', 'coupon_ref', 'exam',
+      'wps_ref',
     ]) {
       try {
         await db.execute('ALTER TABLE $_table ADD COLUMN $col TEXT');
@@ -226,9 +233,16 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    final okCount      = _entries.where((e) => e.status == 'OK').length;
-    final nokCount     = _entries.where((e) => e.status == 'NOK').length;
-    final pendingCount = _entries.where((e) => e.status == 'PENDING').length;
+    // Single-pass tally — avoids three separate .where().length scans of the
+    // entire journal on every rebuild (filter tap, status cycle, etc.).
+    var okCount = 0, nokCount = 0, pendingCount = 0;
+    for (final e in _entries) {
+      switch (e.status) {
+        case 'OK': okCount++; break;
+        case 'NOK': nokCount++; break;
+        case 'PENDING': pendingCount++; break;
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -291,7 +305,16 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
                 // Lista
                 Expanded(
                   child: filtered.isEmpty
-                      ? Center(child: Text(_tr('Brak spoin. Kliknij + aby dodaÄ‡.', 'No welds. Tap + to add.'), style: const TextStyle(color: _kMuted)))
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.fact_check_outlined, size: 56, color: _kMuted),
+                              const SizedBox(height: 12),
+                              Text(_tr('Brak spoin. Kliknij + aby dodać.', 'No welds. Tap + to add.'), style: const TextStyle(color: _kMuted)),
+                            ],
+                          ),
+                        )
                       : ListView.separated(
                           padding: EdgeInsets.fromLTRB(14, 0, 14, 14 + MediaQuery.viewPaddingOf(context).bottom),
                           itemCount: filtered.length,
@@ -327,14 +350,14 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(_tr('UsuÅ„ spoinÄ™', 'Delete weld')),
-        content: Text(_tr('UsunÄ…Ä‡ spoinÄ™ ${e.weldNo}?', 'Delete weld ${e.weldNo}?')),
+        title: Text(_tr('Usuń spoinę', 'Delete weld')),
+        content: Text(_tr('Usunąć spoinę ${e.weldNo}?', 'Delete weld ${e.weldNo}?')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: Text(_tr('Anuluj', 'Cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: _kRed, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(context, true),
-            child: Text(_tr('UsuÅ„', 'Delete')),
+            child: Text(_tr('Usuń', 'Delete')),
           ),
         ],
       ),
@@ -358,7 +381,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 }
 
-// â”€â”€ Kafelek spoiny â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Kafelek spoiny ──────────────────────────────────────────────────────────
 class _WeldTile extends StatelessWidget {
   final WeldEntry entry;
   final VoidCallback onTap;
@@ -415,7 +438,7 @@ class _WeldTile extends StatelessWidget {
                       if (entry.material.isNotEmpty) entry.material,
                       if (entry.method.isNotEmpty) entry.method,
                       if (entry.welder.isNotEmpty) entry.welder,
-                    ].join('  Â·  '),
+                    ].join('  ·  '),
                     style: const TextStyle(fontSize: 12, color: _kMuted),
                   ),
                   if (entry.date.isNotEmpty)
@@ -443,7 +466,7 @@ class _WeldTile extends StatelessWidget {
   }
 }
 
-// â”€â”€ Edytor spoiny â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Edytor spoiny ────────────────────────────────────────────────────────────
 class _WeldEditor extends StatefulWidget {
   final WeldEntry? entry;
   final String suggestedNo;
@@ -476,6 +499,7 @@ class _WeldEditorState extends State<_WeldEditor> {
   late final TextEditingController _heat2Ctrl;
   late final TextEditingController _couponCtrl;
   late final TextEditingController _examCtrl;
+  late final TextEditingController _wpsCtrl;
   String _method = 'TIG';
   String _status = 'PENDING';
   String _weldType = 'MANUAL';
@@ -503,12 +527,13 @@ class _WeldEditorState extends State<_WeldEditor> {
     _heat2Ctrl  = TextEditingController(text: e?.heatNo2     ?? '');
     _couponCtrl = TextEditingController(text: e?.couponRef   ?? '');
     _examCtrl   = TextEditingController(text: e?.exam        ?? '');
+    _wpsCtrl    = TextEditingController(text: e?.wpsRef      ?? '');
     _method     = e?.method ?? 'TIG';
     _status     = e?.status ?? 'PENDING';
     _weldType   = e?.weldType ?? 'MANUAL';
     // Open the BPE section automatically if any field already has data.
     _showBpe = (e != null) && [
-      e.fitter, e.heatNo1, e.heatNo2, e.couponRef, e.exam,
+      e.fitter, e.heatNo1, e.heatNo2, e.couponRef, e.exam, e.wpsRef,
     ].any((s) => s.trim().isNotEmpty);
   }
 
@@ -517,7 +542,7 @@ class _WeldEditorState extends State<_WeldEditor> {
     for (final c in [
       _noCtrl, _projCtrl, _pipeCtrl, _matCtrl, _odCtrl, _tCtrl, _welderCtrl,
       _dateCtrl, _notesCtrl, _fitterCtrl, _heat1Ctrl, _heat2Ctrl, _couponCtrl,
-      _examCtrl,
+      _examCtrl, _wpsCtrl,
     ]) {
       c.dispose();
     }
@@ -551,6 +576,7 @@ class _WeldEditorState extends State<_WeldEditor> {
       heatNo2:     _heat2Ctrl.text.trim(),
       couponRef:   _couponCtrl.text.trim(),
       exam:        _examCtrl.text.trim(),
+      wpsRef:      _wpsCtrl.text.trim(),
     );
     if (widget.entry == null) {
       await _dao.insert(e);
@@ -570,7 +596,7 @@ class _WeldEditorState extends State<_WeldEditor> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              widget.entry == null ? _tr('Nowa spoina', 'New weld') : _tr('Edytuj spoinÄ™', 'Edit weld'),
+              widget.entry == null ? _tr('Nowa spoina', 'New weld') : _tr('Edytuj spoinę', 'Edit weld'),
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFE8ECF0)),
             ),
             const SizedBox(height: 16),
@@ -591,17 +617,47 @@ class _WeldEditorState extends State<_WeldEditor> {
             ),
             const SizedBox(height: 10),
             Row(children: [
-              Expanded(child: TextField(controller: _projCtrl, decoration: InputDecoration(labelText: _tr('Projekt', 'Project')))),
+              // Keyboard Next advances Project -> Pipe -> Material in one tap
+              // so gloved fingers don't have to dismiss + re-tap each field.
+              Expanded(child: TextField(
+                controller: _projCtrl,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                decoration: InputDecoration(labelText: _tr('Projekt', 'Project')),
+              )),
               const SizedBox(width: 10),
-              Expanded(child: TextField(controller: _pipeCtrl, decoration: InputDecoration(labelText: _tr('Rura / linia', 'Pipe / line')))),
+              Expanded(child: TextField(
+                controller: _pipeCtrl,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                decoration: InputDecoration(labelText: _tr('Rura / linia', 'Pipe / line')),
+              )),
             ]),
             const SizedBox(height: 10),
             Row(children: [
-              Expanded(child: TextField(controller: _matCtrl, decoration: InputDecoration(labelText: _tr('MateriaÅ‚', 'Material'), hintText: '316L'))),
+              Expanded(child: TextField(
+                controller: _matCtrl,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                decoration: InputDecoration(labelText: _tr('Materiał', 'Material'), hintText: '316L'),
+              )),
               const SizedBox(width: 10),
-              Expanded(child: TextField(controller: _odCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'OD (mm)', hintText: '60.3'))),
+              // OD and wall thickness are physically positive — restrict the
+              // soft keyboard to digits + decimal separator (no minus, no
+              // letters) so invalid values can't be typed in the first place.
+              Expanded(child: TextField(
+                controller: _odCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                decoration: InputDecoration(labelText: 'OD (mm)', hintText: '60.3'),
+              )),
               const SizedBox(width: 10),
-              Expanded(child: TextField(controller: _tCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 't (mm)', hintText: '2.0'))),
+              Expanded(child: TextField(
+                controller: _tCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                decoration: InputDecoration(labelText: 't (mm)', hintText: '2.0'),
+              )),
             ]),
             const SizedBox(height: 10),
             Row(children: [
@@ -620,7 +676,41 @@ class _WeldEditorState extends State<_WeldEditor> {
               Expanded(child: TextField(controller: _welderCtrl, decoration: InputDecoration(labelText: _tr('Spawacz', 'Welder')))),
             ]),
             const SizedBox(height: 10),
-            TextField(controller: _dateCtrl, decoration: InputDecoration(labelText: _tr('Data', 'Date'), hintText: 'YYYY-MM-DD')),
+            // Date field gets a calendar suffix so the welder doesn't have
+            // to type YYYY-MM-DD by hand — keyboard stays text-based for
+            // edge cases (back-dating, ranges) but the picker covers the
+            // common path.
+            TextField(
+              controller: _dateCtrl,
+              decoration: InputDecoration(
+                labelText: _tr('Data', 'Date'),
+                hintText: 'YYYY-MM-DD',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                  tooltip: _tr('Wybierz datę', 'Pick date'),
+                  onPressed: () async {
+                    final now = DateTime.now();
+                    DateTime? initial;
+                    final txt = _dateCtrl.text.trim();
+                    if (txt.isNotEmpty) {
+                      initial = DateTime.tryParse(txt);
+                    }
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: initial ?? now,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 1),
+                    );
+                    if (picked != null) {
+                      final yyyy = picked.year.toString().padLeft(4, '0');
+                      final mm = picked.month.toString().padLeft(2, '0');
+                      final dd = picked.day.toString().padLeft(2, '0');
+                      _dateCtrl.text = '$yyyy-$mm-$dd';
+                    }
+                  },
+                ),
+              ),
+            ),
             const SizedBox(height: 10),
             // Status
             Row(children: [
@@ -644,7 +734,7 @@ class _WeldEditorState extends State<_WeldEditor> {
                 ),
             ]),
             const SizedBox(height: 10),
-            TextField(controller: _notesCtrl, maxLines: 3, decoration: InputDecoration(labelText: _tr('Uwagi', 'Notes'), hintText: _tr('Np. graÅ„ OK, lico do szlifowania', 'E.g. root OK, cap to grind'))),
+            TextField(controller: _notesCtrl, maxLines: 3, decoration: InputDecoration(labelText: _tr('Uwagi', 'Notes'), hintText: _tr('Np. grań OK, lico do szlifowania', 'E.g. root OK, cap to grind'))),
             const SizedBox(height: 12),
 
             // ── ASME BPE weld-map section (collapsible) ──────────────────────
@@ -699,6 +789,8 @@ class _WeldEditorState extends State<_WeldEditor> {
                 Expanded(child: TextField(controller: _heat2Ctrl, decoration: InputDecoration(labelText: _tr('Nr wytopu 2', 'Heat no. 2'), hintText: 'MTR'))),
               ]),
               const SizedBox(height: 10),
+              TextField(controller: _wpsCtrl, decoration: InputDecoration(labelText: _tr('Nr WPS / pWPS', 'WPS / pWPS no.'), hintText: _tr('np. WPS-316L-TIG-01', 'e.g. WPS-316L-TIG-01'))),
+              const SizedBox(height: 10),
               TextField(controller: _couponCtrl, decoration: InputDecoration(labelText: _tr('Kupon próbny (ref.)', 'Test coupon (ref.)'), hintText: _tr('np. C-2026-05-17-A', 'e.g. C-2026-05-17-A'))),
               const SizedBox(height: 10),
               TextField(controller: _examCtrl, decoration: InputDecoration(labelText: _tr('Wynik badania', 'Examination result'), hintText: _tr('np. VT OK, boroskop poz. 2', 'e.g. VT OK, borescope lvl 2'))),
@@ -717,7 +809,7 @@ class _WeldEditorState extends State<_WeldEditor> {
   }
 }
 
-// â”€â”€ Statystyki badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Statystyki badge ─────────────────────────────────────────────────────────
 class _StatBadge extends StatelessWidget {
   final String label;
   final String value;

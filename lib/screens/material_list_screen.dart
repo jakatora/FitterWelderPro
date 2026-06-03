@@ -57,11 +57,19 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                   separatorBuilder: (_, __) => const Divider(height: 0),
                   itemBuilder: (context, i) {
                     final it = _items[i];
+                    final qty = it.quantity ?? 0;
+                    // EN singular: "1 pc" not "1 pcs"; PL "szt." is invariant.
+                    final enUnit = qty == 1 ? 'pc' : 'pcs';
+                    // PIPE is the most common row — localise so PL welders see "RURA".
+                    // Other category codes (ELB90, TEE, etc.) are shop-floor standard codes.
+                    final catLabel = it.category == 'PIPE'
+                        ? context.tr(pl: 'RURA', en: 'PIPE')
+                        : it.category;
                     return ListTile(
-                      title: Text('${it.category}  •  ${it.description}'),
+                      title: Text('$catLabel  •  ${it.description}'),
                       trailing: it.category == 'PIPE'
                           ? Text(_fmtLen(it.totalLengthMm ?? 0))
-                          : Text(context.tr(pl: '${it.quantity ?? 0} szt.', en: '${it.quantity ?? 0} pcs')),
+                          : Text(context.tr(pl: '$qty szt.', en: '$qty $enUnit')),
                     );
                   },
                 ),

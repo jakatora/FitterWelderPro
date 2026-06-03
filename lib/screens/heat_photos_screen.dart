@@ -81,17 +81,28 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DropdownButtonFormField<LibraryComponent>(
-              initialValue: selected,
-              decoration: InputDecoration(labelText: context.tr(pl: 'Komponent (opcjonalnie)', en: 'Component (optional)')),
-              items: _library
-                  .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c.displayLabel(), overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (v) => selected = v,
-            ),
+            if (_library.isEmpty)
+              // Empty library would render a tappable-but-empty dropdown —
+              // confusing on shop floor. Show a clear hint instead.
+              InputDecorator(
+                decoration: InputDecoration(labelText: context.tr(pl: 'Komponent (opcjonalnie)', en: 'Component (optional)')),
+                child: Text(
+                  context.tr(pl: 'Brak pasujących komponentów w bibliotece', en: 'No matching components in library'),
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              )
+            else
+              DropdownButtonFormField<LibraryComponent>(
+                initialValue: selected,
+                decoration: InputDecoration(labelText: context.tr(pl: 'Komponent (opcjonalnie)', en: 'Component (optional)')),
+                items: _library
+                    .map((c) => DropdownMenuItem(
+                          value: c,
+                          child: Text(c.displayLabel(), overflow: TextOverflow.ellipsis),
+                        ))
+                    .toList(),
+                onChanged: (v) => selected = v,
+              ),
             const SizedBox(height: 12),
             TextField(
               controller: noteCtrl,
@@ -157,7 +168,19 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
                                   height: 220,
                                   width: double.infinity,
                                   child: file.existsSync()
-                                      ? Image.file(file, fit: BoxFit.cover)
+                                      // `cacheWidth` decodes the bitmap at
+                                      // ~display resolution instead of the
+                                      // raw camera 4000-px width, dropping
+                                      // ~40× memory + decode cost per
+                                      // scroll. `gaplessPlayback` keeps the
+                                      // previous frame while the new one
+                                      // decodes (no white flash).
+                                      ? Image.file(
+                                          file,
+                                          fit: BoxFit.cover,
+                                          cacheWidth: 1080,
+                                          gaplessPlayback: true,
+                                        )
                                       : Center(child: Text(context.tr(pl: 'Plik nie istnieje', en: 'File does not exist'))),
                                 ),
                               ],

@@ -1,4 +1,4 @@
-﻿// ignore_for_file: prefer_const_constructors
+// ignore_for_file: prefer_const_constructors
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -8,7 +8,7 @@ import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
-// â”€â”€ Kolory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Kolory ────────────────────────────────────────────────────────────────
 const _kOrange = Color(0xFFF5A623);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
@@ -34,10 +34,10 @@ class WelderToolsScreen extends StatelessWidget {
             tabs: [
               Tab(text: context.tr(pl: 'Heat Input', en: 'Heat Input')),
               Tab(text: context.tr(pl: 'Temperatura', en: 'Preheat')),
-              Tab(text: 'Oâ‚‚ Purge'),
+              Tab(text: 'O₂ Purge'),
               Tab(text: context.tr(pl: 'Gaz', en: 'Gas')),
               Tab(text: 'Timer'),
-              Tab(text: context.tr(pl: 'CiÅ›nienie', en: 'Pressure')),
+              Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
             ],
           ),
         ),
@@ -54,7 +54,7 @@ class WelderToolsScreen extends StatelessWidget {
   }
 }
 
-// â”€â”€ WspÃ³lne widgety â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Wspólne widgety ───────────────────────────────────────────────────────
 class _NumField extends StatelessWidget {
   final TextEditingController ctrl;
   final String label;
@@ -165,9 +165,9 @@ class _HeatInputTab extends StatefulWidget {
 }
 
 class _HeatInputTabState extends State<_HeatInputTab> {
-  final _uCtrl = TextEditingController();   // napiÄ™cie V
-  final _iCtrl = TextEditingController();   // prÄ…d A
-  final _vCtrl = TextEditingController();   // prÄ™dkoÅ›Ä‡ mm/min
+  final _uCtrl = TextEditingController();   // napięcie V
+  final _iCtrl = TextEditingController();   // prąd A
+  final _vCtrl = TextEditingController();   // prędkość mm/min
   final _kCtrl = TextEditingController(text: '0.80'); // wsp. termiczny
 
   double? _hiKJmm;
@@ -187,17 +187,17 @@ class _HeatInputTabState extends State<_HeatInputTab> {
       final i = double.tryParse(_iCtrl.text.replaceAll(',', '.'));
       final v = double.tryParse(_vCtrl.text.replaceAll(',', '.'));
       final k = double.tryParse(_kCtrl.text.replaceAll(',', '.')) ?? 1.0;
-      if (u == null || u <= 0) { _error = _tr('Podaj napiÄ™cie U [V]', 'Enter voltage U [V]'); return; }
-      if (i == null || i <= 0) { _error = _tr('Podaj prÄ…d I [A]', 'Enter current I [A]'); return; }
-      if (v == null || v <= 0) { _error = _tr('Podaj prÄ™dkoÅ›Ä‡ spawania v [mm/min]', 'Enter welding speed v [mm/min]'); return; }
-      // HI [kJ/mm] = k Ã— U Ã— I Ã— 60 / (v Ã— 1000)
+      if (u == null || u <= 0) { _error = _tr('Podaj napięcie U [V]', 'Enter voltage U [V]'); return; }
+      if (i == null || i <= 0) { _error = _tr('Podaj prąd I [A]', 'Enter current I [A]'); return; }
+      if (v == null || v <= 0) { _error = _tr('Podaj prędkość spawania v [mm/min]', 'Enter welding speed v [mm/min]'); return; }
+      // HI [kJ/mm] = k × U × I × 60 / (v × 1000)
       _hiJmm  = k * u * i * 60.0 / v;
       _hiKJmm = _hiJmm! / 1000.0;
       // Ocena dla stali nierdzewnej SS 316L / 304L
-      if (_hiKJmm! < 0.3)       { _assessment = _tr('Za maÅ‚a â€” ryzyko braku wtopienia', 'Too low â€” risk of lack of fusion'); _assessColor = _kRed; }
-      else if (_hiKJmm! <= 1.0) { _assessment = _tr('Dobra â€” typowy zakres dla SS', 'Good â€” typical range for SS'); _assessColor = _kGreen; }
-      else if (_hiKJmm! <= 1.5) { _assessment = _tr('Akceptowalna â€” sprawdÅº WPS', 'Acceptable â€” verify with WPS'); _assessColor = _kOrange; }
-      else                       { _assessment = _tr('Za duÅ¼a â€” ryzyko sensityzacji SS, spawaj wolniej', 'Too high â€” risk of SS sensitisation, weld slower'); _assessColor = _kRed; }
+      if (_hiKJmm! < 0.3)       { _assessment = _tr('Za mała — ryzyko braku wtopienia', 'Too low — risk of lack of fusion'); _assessColor = _kRed; }
+      else if (_hiKJmm! <= 1.0) { _assessment = _tr('Dobra — typowy zakres dla SS', 'Good — typical range for SS'); _assessColor = _kGreen; }
+      else if (_hiKJmm! <= 1.5) { _assessment = _tr('Akceptowalna — sprawdź WPS', 'Acceptable — verify with WPS'); _assessColor = _kOrange; }
+      else                       { _assessment = _tr('Za duża — ryzyko sensityzacji SS, spawaj wolniej', 'Too high — risk of SS sensitisation, weld slower'); _assessColor = _kRed; }
     });
   }
 
@@ -207,19 +207,19 @@ class _HeatInputTabState extends State<_HeatInputTab> {
     children: [
       _InfoBox(_tr(
         'Energia liniowa wg EN 1011 / ASME IX:\n'
-        'HI = k Ã— U Ã— I Ã— 60 / (v Ã— 1000)  [kJ/mm]\n'
+        'HI = k × U × I × 60 / (v × 1000)  [kJ/mm]\n'
         'k = wsp. termiczny: TIG=0.60, MIG=0.80, MMA=1.00',
         'Heat input per EN 1011 / ASME IX:\n'
-        'HI = k Ã— U Ã— I Ã— 60 / (v Ã— 1000)  [kJ/mm]\n'
+        'HI = k × U × I × 60 / (v × 1000)  [kJ/mm]\n'
         'k = thermal efficiency: TIG=0.60, MIG=0.80, MMA=1.00',
       )),
       Row(children: [
-        Expanded(child: _NumField(ctrl: _uCtrl, label: _tr('NapiÄ™cie U', 'Voltage U'), hint: '12', unit: 'V', onChanged: _calc)),
+        Expanded(child: _NumField(ctrl: _uCtrl, label: _tr('Napięcie U', 'Voltage U'), hint: '12', unit: 'V', onChanged: _calc)),
         const SizedBox(width: 10),
-        Expanded(child: _NumField(ctrl: _iCtrl, label: _tr('PrÄ…d I', 'Current I'), hint: '80', unit: 'A', onChanged: _calc)),
+        Expanded(child: _NumField(ctrl: _iCtrl, label: _tr('Prąd I', 'Current I'), hint: '80', unit: 'A', onChanged: _calc)),
       ]),
       const SizedBox(height: 10),
-      _NumField(ctrl: _vCtrl, label: _tr('PrÄ™dkoÅ›Ä‡ spawania v', 'Welding speed v'), hint: '100', unit: 'mm/min', onChanged: _calc),
+      _NumField(ctrl: _vCtrl, label: _tr('Prędkość spawania v', 'Welding speed v'), hint: '100', unit: 'mm/min', onChanged: _calc),
       const SizedBox(height: 10),
       _NumField(ctrl: _kCtrl, label: _tr('Wsp. termiczny k (TIG=0.60, MIG=0.80, MMA=1.00)', 'Thermal eff. k (TIG=0.60, MIG=0.80, MMA=1.00)'), hint: '0.80', onChanged: _calc),
       const SizedBox(height: 14),
@@ -241,14 +241,14 @@ class _HeatInputTabState extends State<_HeatInputTab> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TAB 2: TEMPERATURA PODGRZEWANIA I MIÄ˜DZYÅšCIEGOWA
+// TAB 2: TEMPERATURA PODGRZEWANIA I MIĘDZYŚCIEGOWA
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _PreheatTab extends StatefulWidget {
   @override State<_PreheatTab> createState() => _PreheatTabState();
 }
 
 class _PreheatTabState extends State<_PreheatTab> {
-  final _tCtrl   = TextEditingController();  // gruboÅ›Ä‡ Å›cianki mm
+  final _tCtrl   = TextEditingController();  // grubość ścianki mm
   final _cCtrl   = TextEditingController();  // %C
   final _mnCtrl  = TextEditingController();  // %Mn
   final _siCtrl  = TextEditingController();  // %Si
@@ -260,8 +260,8 @@ class _PreheatTabState extends State<_PreheatTab> {
   String _matType = 'CS'; // CS lub SS (pre-set)
 
   double? _cev;
-  double? _tMin;   // temperatura podgrzewania min Â°C
-  double? _tiMax;  // temperatura miÄ™dzyÅ›ciegowa max Â°C
+  double? _tMin;   // temperatura podgrzewania min °C
+  double? _tiMax;  // temperatura międzyściegowa max °C
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -301,17 +301,17 @@ class _PreheatTabState extends State<_PreheatTab> {
       final ni = double.tryParse(_niCtrl.text.replaceAll(',', '.')) ?? 0;
       final cu = double.tryParse(_cuCtrl.text.replaceAll(',', '.')) ?? 0;
       final v  = double.tryParse(_vCtrl.text.replaceAll(',', '.')) ?? 0;
-      if (t == null || t <= 0) { _error = _tr('Podaj gruboÅ›Ä‡ Å›cianki', 'Enter wall thickness'); return; }
+      if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki', 'Enter wall thickness'); return; }
       if (c == null) { _error = _tr('Podaj % C', 'Enter % C'); return; }
       // CEV = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15  (EN ISO 17642 / IIW)
       final cev = c + mn / 6.0 + (cr + mo + v) / 5.0 + (ni + cu) / 15.0;
       _cev = cev;
       // Temperatura podgrzewania wg EN ISO 13916 / CET method uproszczona
       if (_matType == 'SS') {
-        _tMin = 0;    // SS austenitic â€” brak podgrzewania
-        _tiMax = 175; // max miÄ™dzyÅ›ciegowa wg EN ISO 16834
+        _tMin = 0;    // SS austenitic — brak podgrzewania
+        _tiMax = 175; // max międzyściegowa wg EN ISO 16834
       } else {
-        // CS: uproszczona formuÅ‚a Seferian
+        // CS: uproszczona formuła Seferian
         final tp = 350.0 * math.sqrt(cev - 0.25) + 0.25 * math.sqrt(t) - 25;
         _tMin = tp < 0 ? 0 : tp;
         _tiMax = 250;
@@ -340,13 +340,13 @@ class _PreheatTabState extends State<_PreheatTab> {
         Expanded(child: OutlinedButton(
           onPressed: _presetCS,
           style: OutlinedButton.styleFrom(side: BorderSide(color: _matType == 'CS' ? _kOrange : _kBorder)),
-          child: Text('CS (przykÅ‚ad)', style: TextStyle(color: _matType == 'CS' ? _kOrange : _kSec)),
+          child: Text('CS (przykład)', style: TextStyle(color: _matType == 'CS' ? _kOrange : _kSec)),
         )),
       ]),
       const SizedBox(height: 12),
-      _NumField(ctrl: _tCtrl, label: _tr('GruboÅ›Ä‡ Å›cianki t (mm)', 'Wall thickness t (mm)'), hint: '3.0', unit: 'mm', onChanged: _calc),
+      _NumField(ctrl: _tCtrl, label: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hint: '3.0', unit: 'mm', onChanged: _calc),
       const SizedBox(height: 10),
-      _SecLabel(_tr('SkÅ‚ad chemiczny (%)', 'Chemical composition (%)')),
+      _SecLabel(_tr('Skład chemiczny (%)', 'Chemical composition (%)')),
       Row(children: [
         Expanded(child: _NumField(ctrl: _cCtrl,  label: 'C %',  hint: '0.03', onChanged: _calc)),
         const SizedBox(width: 8),
@@ -375,10 +375,10 @@ class _PreheatTabState extends State<_PreheatTab> {
         _RRow('CEV (IIW)', _cev!.toStringAsFixed(3), primary: true),
         const Divider(height: 16, color: _kBorder),
         _RRow(_tr('Temperatura podgrzewania min.', 'Min. preheat temperature'),
-              '${_tMin!.toStringAsFixed(0)} Â°C',
+              '${_tMin!.toStringAsFixed(0)} °C',
               color: _tMin! > 0 ? _kOrange : _kGreen, primary: false),
-        _RRow(_tr('Temperatura miÄ™dzyÅ›ciegowa max.', 'Max. interpass temperature'),
-              '${_tiMax!.toStringAsFixed(0)} Â°C',
+        _RRow(_tr('Temperatura międzyściegowa max.', 'Max. interpass temperature'),
+              '${_tiMax!.toStringAsFixed(0)} °C',
               color: _kBlue),
         const SizedBox(height: 8),
         if (_matType == 'SS')
@@ -413,8 +413,8 @@ class _PreheatTabState extends State<_PreheatTab> {
             ),
           ),
         if (_matType == 'CS' && _cev! > 0.45)
-          Text(_tr('âš  CEV > 0.45 â€” wysoka skÅ‚onnoÅ›Ä‡ do pÄ™kniÄ™Ä‡ na zimno. Wymagane podgrzewanie!',
-                   'âš  CEV > 0.45 â€” high risk of cold cracking. Preheat mandatory!'),
+          Text(_tr('âš  CEV > 0.45 — wysoka skłonność do pęknięć na zimno. Wymagane podgrzewanie!',
+                   'âš  CEV > 0.45 — high risk of cold cracking. Preheat mandatory!'),
                style: const TextStyle(fontSize: 11, color: _kRed, fontWeight: FontWeight.w600)),
       ]),
       if (_error != null) _ErrBox(_error!),
@@ -423,7 +423,7 @@ class _PreheatTabState extends State<_PreheatTab> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TAB 3: Oâ‚‚ PURGE (model wykÅ‚adniczy, ppm)
+// TAB 3: O₂ PURGE (model wykładniczy, ppm)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _O2PurgeTab extends StatefulWidget {
   @override State<_O2PurgeTab> createState() => _O2PurgeTabState();
@@ -432,9 +432,9 @@ class _O2PurgeTab extends StatefulWidget {
 class _O2PurgeTabState extends State<_O2PurgeTab> {
   final _odCtrl = TextEditingController();
   final _tCtrl  = TextEditingController();
-  final _lCtrl  = TextEditingController();  // dÅ‚ugoÅ›Ä‡ mm
+  final _lCtrl  = TextEditingController();  // długość mm
   final _qCtrl  = TextEditingController();  // L/min
-  final _c0Ctrl = TextEditingController(text: '210000'); // ppm Oâ‚‚ na start (powietrze=210000ppm)
+  final _c0Ctrl = TextEditingController(text: '210000'); // ppm O₂ na start (powietrze=210000ppm)
   final _targetCtrl = TextEditingController(text: '20'); // target ppm
 
   double? _volL;
@@ -463,26 +463,26 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
       final q  = double.tryParse(_qCtrl.text.replaceAll(',', '.'));
       final c0 = double.tryParse(_c0Ctrl.text.replaceAll(',', '.')) ?? 210000;
       final target = double.tryParse(_targetCtrl.text.replaceAll(',', '.')) ?? 20;
-      if (od == null || od <= 0 || t == null || t <= 0) { _error = _tr('Podaj OD i gruboÅ›Ä‡ Å›cianki', 'Enter OD and wall thickness'); return; }
-      if (l == null || l <= 0) { _error = _tr('Podaj dÅ‚ugoÅ›Ä‡ odcinka (mm)', 'Enter section length (mm)'); return; }
-      if (q == null || q <= 0) { _error = _tr('Podaj przepÅ‚yw gazu Q (L/min)', 'Enter gas flow Q (L/min)'); return; }
+      if (od == null || od <= 0 || t == null || t <= 0) { _error = _tr('Podaj OD i grubość ścianki', 'Enter OD and wall thickness'); return; }
+      if (l == null || l <= 0) { _error = _tr('Podaj długość odcinka (mm)', 'Enter section length (mm)'); return; }
+      if (q == null || q <= 0) { _error = _tr('Podaj przepływ gazu Q (L/min)', 'Enter gas flow Q (L/min)'); return; }
       final id = od - 2.0 * t;
-      if (id <= 0) { _error = _tr('OD mniejszy niÅ¼ 2Ã—t', 'OD smaller than 2Ã—t'); return; }
-      // ObjÄ™toÅ›Ä‡ [L]
+      if (id <= 0) { _error = _tr('OD mniejszy niż 2×t', 'OD smaller than 2×t'); return; }
+      // Objętość [L]
       final vol = math.pi * (id / 2.0) * (id / 2.0) * l / 1e6;
       _volL = vol;
-      // Czas [s] aby osiÄ…gnÄ…Ä‡ target ppm: C(t) = C0 Ã— exp(-QÃ—t/V)
-      // => t = -V/Q Ã— ln(target/C0)
+      // Czas [s] aby osiągnąć target ppm: C(t) = C0 × exp(-Q×t/V)
+      // => t = -V/Q × ln(target/C0)
       final qLps = q / 60.0; // L/s
       final timeSec = -(vol / qLps) * math.log(target / c0);
       _timeSec = timeSec;
-      // StÄ™Å¼enie po 5 wymianach
+      // Stężenie po 5 wymianach
       _exchanges = q * (timeSec / 60.0) / vol;
       _finalPpm  = c0 * math.exp(-qLps * timeSec / vol);
       // Ocena
-      if (_finalPpm! <= 20)  { _assessment = _tr('DoskonaÅ‚y â€” < 20 ppm (standard pharma)', 'Excellent â€” < 20 ppm (pharma grade)'); _assessColor = _kGreen; }
-      else if (_finalPpm! <= 100) { _assessment = _tr('Dobry â€” < 100 ppm (standard przemysÅ‚owy)', 'Good â€” < 100 ppm (industrial grade)'); _assessColor = _kOrange; }
-      else { _assessment = _tr('NiewystarczajÄ…cy â€” ryzyko przebarwieÅ„', 'Insufficient â€” risk of discolouration'); _assessColor = _kRed; }
+      if (_finalPpm! <= 20)  { _assessment = _tr('Doskonały — < 20 ppm (standard pharma)', 'Excellent — < 20 ppm (pharma grade)'); _assessColor = _kGreen; }
+      else if (_finalPpm! <= 100) { _assessment = _tr('Dobry — < 100 ppm (standard przemysłowy)', 'Good — < 100 ppm (industrial grade)'); _assessColor = _kOrange; }
+      else { _assessment = _tr('Niewystarczający — ryzyko przebarwień', 'Insufficient — risk of discolouration'); _assessColor = _kRed; }
     });
   }
 
@@ -497,12 +497,12 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
     padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
     children: [
       _InfoBox(_tr(
-        'Model wykÅ‚adniczy: C(t) = Câ‚€ Ã— e^(âˆ’QÃ—t/V)\n'
-        'Standard pharma: cel < 20 ppm Oâ‚‚\n'
-        'Standard przemysÅ‚owy: < 100 ppm Oâ‚‚',
-        'Exponential model: C(t) = Câ‚€ Ã— e^(âˆ’QÃ—t/V)\n'
-        'Pharma standard: target < 20 ppm Oâ‚‚\n'
-        'Industrial standard: < 100 ppm Oâ‚‚',
+        'Model wykładniczy: C(t) = C₀ × e^(−Q×t/V)\n'
+        'Standard pharma: cel < 20 ppm O₂\n'
+        'Standard przemysłowy: < 100 ppm O₂',
+        'Exponential model: C(t) = C₀ × e^(−Q×t/V)\n'
+        'Pharma standard: target < 20 ppm O₂\n'
+        'Industrial standard: < 100 ppm O₂',
       )),
       Row(children: [
         Expanded(child: _NumField(ctrl: _odCtrl, label: 'OD (mm)', hint: '60.3', unit: 'mm', onChanged: _calc)),
@@ -510,22 +510,22 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
         Expanded(child: _NumField(ctrl: _tCtrl, label: 't (mm)', hint: '2.0', unit: 'mm', onChanged: _calc)),
       ]),
       const SizedBox(height: 10),
-      _NumField(ctrl: _lCtrl, label: _tr('DÅ‚ugoÅ›Ä‡ odcinka do purge (mm)', 'Section length to purge (mm)'), hint: '1000', unit: 'mm', onChanged: _calc),
+      _NumField(ctrl: _lCtrl, label: _tr('Długość odcinka do purge (mm)', 'Section length to purge (mm)'), hint: '1000', unit: 'mm', onChanged: _calc),
       const SizedBox(height: 10),
-      _NumField(ctrl: _qCtrl, label: _tr('PrzepÅ‚yw gazu Q (L/min)', 'Gas flow Q (L/min)'), hint: '10', unit: 'L/min', onChanged: _calc),
+      _NumField(ctrl: _qCtrl, label: _tr('Przepływ gazu Q (L/min)', 'Gas flow Q (L/min)'), hint: '10', unit: 'L/min', onChanged: _calc),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: _NumField(ctrl: _c0Ctrl, label: _tr('StÄ™Å¼enie startowe (ppm)', 'Initial concentration (ppm)'), hint: '210000', helper: _tr('Powietrze = 210 000 ppm', 'Air = 210 000 ppm'), onChanged: _calc)),
+        Expanded(child: _NumField(ctrl: _c0Ctrl, label: _tr('Stężenie startowe (ppm)', 'Initial concentration (ppm)'), hint: '210000', helper: _tr('Powietrze = 210 000 ppm', 'Air = 210 000 ppm'), onChanged: _calc)),
         const SizedBox(width: 10),
-        Expanded(child: _NumField(ctrl: _targetCtrl, label: _tr('Cel (ppm Oâ‚‚)', 'Target (ppm Oâ‚‚)'), hint: '20', onChanged: _calc)),
+        Expanded(child: _NumField(ctrl: _targetCtrl, label: _tr('Cel (ppm O₂)', 'Target (ppm O₂)'), hint: '20', onChanged: _calc)),
       ]),
       const SizedBox(height: 14),
       if (_volL != null && _timeSec != null) _ResultCard(rows: [
-        _RRow(_tr('ObjÄ™toÅ›Ä‡ odcinka', 'Section volume'), '${_volL!.toStringAsFixed(3)} L'),
+        _RRow(_tr('Objętość odcinka', 'Section volume'), '${_volL!.toStringAsFixed(3)} L'),
         _RRow(_tr('Czas purge', 'Purge time'), _fmtTime(_timeSec!), primary: true),
-        _RRow(_tr('Wymian objÄ™toÅ›ci', 'Volume changes'), _exchanges!.toStringAsFixed(1)),
+        _RRow(_tr('Wymian objętości', 'Volume changes'), _exchanges!.toStringAsFixed(1)),
         const Divider(height: 16, color: _kBorder),
-        _RRow(_tr('StÄ™Å¼enie koÅ„cowe', 'Final concentration'), '${_finalPpm!.toStringAsFixed(1)} ppm Oâ‚‚'),
+        _RRow(_tr('Stężenie końcowe', 'Final concentration'), '${_finalPpm!.toStringAsFixed(1)} ppm O₂'),
         if (_assessment != null) ...[
           const SizedBox(height: 8),
           Row(children: [
@@ -541,7 +541,7 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TAB 4: ZUÅ»YCIE GAZU
+// TAB 4: ZUŻYCIE GAZU
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _GasConsumptionTab extends StatefulWidget {
   @override State<_GasConsumptionTab> createState() => _GasConsumptionTabState();
@@ -549,13 +549,13 @@ class _GasConsumptionTab extends StatefulWidget {
 
 class _GasConsumptionTabState extends State<_GasConsumptionTab> {
   final _nCtrl    = TextEditingController(); // liczba spoin
-  final _tCtrl    = TextEditingController(); // czas spawania na spoinÄ™ [min]
+  final _tCtrl    = TextEditingController(); // czas spawania na spoinę [min]
   final _torchCtrl= TextEditingController(text: '10'); // torch L/min
   final _preCtrl  = TextEditingController(text: '5');  // pre-flow [s]
   final _postCtrl = TextEditingController(text: '10'); // post-flow [s]
   final _purgeCtrl= TextEditingController(); // purge L/min
   final _purgeTCtrl= TextEditingController(); // czas purge [min]
-  final _bottleCtrl= TextEditingController(text: '50'); // pojemnoÅ›Ä‡ butli [L gaz]
+  final _bottleCtrl= TextEditingController(text: '50'); // pojemność butli [L gaz]
 
   double? _totalL;
   double? _bottles;
@@ -581,8 +581,8 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
       final qp = double.tryParse(_purgeCtrl.text.replaceAll(',', '.')) ?? 0;
       final tp = double.tryParse(_purgeTCtrl.text.replaceAll(',', '.')) ?? 0;
       final vB = double.tryParse(_bottleCtrl.text.replaceAll(',', '.')) ?? 50;
-      if (n == null || n <= 0) { _error = _tr('Podaj liczbÄ™ spoin', 'Enter number of welds'); return; }
-      if (t == null || t <= 0) { _error = _tr('Podaj czas spawania na spoinÄ™ (min)', 'Enter weld time per joint (min)'); return; }
+      if (n == null || n <= 0) { _error = _tr('Podaj liczbę spoin', 'Enter number of welds'); return; }
+      if (t == null || t <= 0) { _error = _tr('Podaj czas spawania na spoinę (min)', 'Enter weld time per joint (min)'); return; }
       // Gas = torch_weld + pre/post + purge
       final torchWeld = n * t * qt; // L
       final prePost   = n * (pre + post) / 60.0 * qt; // L
@@ -597,14 +597,14 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
     padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
     children: [
       _InfoBox(_tr(
-        'Szacuje caÅ‚kowite zuÅ¼ycie gazu ochronnego (torch) i purge dla projektu.',
+        'Szacuje całkowite zużycie gazu ochronnego (torch) i purge dla projektu.',
         'Estimates total shielding gas (torch) and purge consumption for a project.',
       )),
       _SecLabel(_tr('Parametry spawania', 'Welding parameters')),
       Row(children: [
         Expanded(child: _NumField(ctrl: _nCtrl, label: _tr('Liczba spoin', 'Number of welds'), hint: '20', onChanged: _calc)),
         const SizedBox(width: 10),
-        Expanded(child: _NumField(ctrl: _tCtrl, label: _tr('Czas na spoinÄ™ (min)', 'Time per weld (min)'), hint: '5', unit: 'min', onChanged: _calc)),
+        Expanded(child: _NumField(ctrl: _tCtrl, label: _tr('Czas na spoinę (min)', 'Time per weld (min)'), hint: '5', unit: 'min', onChanged: _calc)),
       ]),
       const SizedBox(height: 10),
       Row(children: [
@@ -614,20 +614,20 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
         const SizedBox(width: 10),
         Expanded(child: _NumField(ctrl: _postCtrl, label: _tr('Post-flow (s)', 'Post-flow (s)'), hint: '10', unit: 's', onChanged: _calc)),
       ]),
-      _SecLabel(_tr('Purge (jeÅ›li dotyczy)', 'Purge (if applicable)')),
+      _SecLabel(_tr('Purge (jeśli dotyczy)', 'Purge (if applicable)')),
       Row(children: [
         Expanded(child: _NumField(ctrl: _purgeCtrl, label: _tr('Purge Q (L/min)', 'Purge Q (L/min)'), hint: '10', unit: 'L/min', onChanged: _calc)),
         const SizedBox(width: 10),
         Expanded(child: _NumField(ctrl: _purgeTCtrl, label: _tr('Czas purge (min)', 'Purge time (min)'), hint: '2', unit: 'min', onChanged: _calc)),
       ]),
       _SecLabel(_tr('Butla', 'Cylinder')),
-      _NumField(ctrl: _bottleCtrl, label: _tr('PojemnoÅ›Ä‡ butli (L gazu, np. Ar50L=50)', 'Cylinder capacity (L gas, e.g. Ar50L=50)'), hint: '50', unit: 'L', onChanged: _calc),
+      _NumField(ctrl: _bottleCtrl, label: _tr('Pojemność butli (L gazu, np. Ar50L=50)', 'Cylinder capacity (L gas, e.g. Ar50L=50)'), hint: '50', unit: 'L', onChanged: _calc),
       const SizedBox(height: 14),
       if (_totalL != null) _ResultCard(rows: [
-        _RRow(_tr('ÅÄ…cznie gazu', 'Total gas'), '${_totalL!.toStringAsFixed(0)} L', primary: true),
+        _RRow(_tr('Łącznie gazu', 'Total gas'), '${_totalL!.toStringAsFixed(0)} L', primary: true),
         const Divider(height: 16, color: _kBorder),
         _RRow(_tr('Liczba butli', 'Number of cylinders'), '${_bottles!.toStringAsFixed(1)} szt.'),
-        _RRow(_tr('Zapas (zaokrÄ…glij w gÃ³rÄ™)', 'Round up for safety'), '${_bottles!.ceil()} szt.', color: _kOrange),
+        _RRow(_tr('Zapas (zaokrąglij w górę)', 'Round up for safety'), '${_bottles!.ceil()} szt.', color: _kOrange),
       ]),
       if (_error != null) _ErrBox(_error!),
     ],
@@ -674,9 +674,9 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        // WybÃ³r trybu
+        // Wybór trybu
         Row(children: [
-          for (final m in [('WELD', _tr('Spawanie', 'Welding')), ('COOL', _tr('ChÅ‚odzenie', 'Cooldown')), ('PURGE', 'Purge')])
+          for (final m in [('WELD', _tr('Spawanie', 'Welding')), ('COOL', _tr('Chłodzenie', 'Cooldown')), ('PURGE', 'Purge')])
             Expanded(child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: GestureDetector(
@@ -698,9 +698,9 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
         // Parametry
         if (_mode == 'COOL') ...[
           Row(children: [
-            Expanded(child: _NumField(ctrl: _maxTempCtrl, label: _tr('Temp. max. (Â°C)', 'Max. temp. (Â°C)'), hint: '150', unit: 'Â°C', onChanged: null)),
+            Expanded(child: _NumField(ctrl: _maxTempCtrl, label: _tr('Temp. max. (°C)', 'Max. temp. (°C)'), hint: '150', unit: '°C', onChanged: null)),
             const SizedBox(width: 10),
-            Expanded(child: _NumField(ctrl: _coolTimeCtrl, label: _tr('Czas chÅ‚odz. (min)', 'Cool time (min)'), hint: '2', unit: 'min', onChanged: null)),
+            Expanded(child: _NumField(ctrl: _coolTimeCtrl, label: _tr('Czas chłodz. (min)', 'Cool time (min)'), hint: '2', unit: 'min', onChanged: null)),
           ]),
           const SizedBox(height: 12),
         ],
@@ -713,7 +713,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
           const SizedBox(height: 12),
         ],
 
-        // WyÅ›wietlacz czasu
+        // Wyświetlacz czasu
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -742,7 +742,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
             ],
             if (_alarm) ...[
               const SizedBox(height: 10),
-              Text(_tr('âœ“ CZAS MINÄ„Å', 'âœ“ TIME UP'),
+              Text(_tr('âœ“ CZAS MINĄŁ', 'âœ“ TIME UP'),
                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _kGreen)),
             ],
           ]),
@@ -765,7 +765,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// TAB 6: PRZELICZNIK CIÅšNIENIA
+// TAB 6: PRZELICZNIK CIŚNIENIA
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class _PressureConverterTab extends StatefulWidget {
   @override State<_PressureConverterTab> createState() => _PressureConverterTabState();
@@ -777,7 +777,7 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
 
   final Map<String, double> _toBar = {
     'bar': 1.0, 'MPa': 10.0, 'kPa': 0.01, 'Pa': 0.00001,
-    'PSI': 0.0689476, 'atm': 1.01325, 'kgf/cmÂ²': 0.980665,
+    'PSI': 0.0689476, 'atm': 1.01325, 'kgf/cm²': 0.980665,
   };
 
   Map<String, String>? _results;
@@ -801,12 +801,12 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
   Widget build(BuildContext context) => ListView(
     padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
     children: [
-      _InfoBox(_tr('Przelicznik jednostek ciÅ›nienia â€” prÃ³by hydrostatyczne, regulatory gazu.', 'Pressure unit converter â€” hydrostatic tests, gas regulators.')),
+      _InfoBox(_tr('Przelicznik jednostek ciśnienia — próby hydrostatyczne, regulatory gazu.', 'Pressure unit converter — hydrostatic tests, gas regulators.')),
       Row(children: [
         Expanded(child: TextField(
           controller: _valCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: _tr('WartoÅ›Ä‡', 'Value')),
+          decoration: InputDecoration(labelText: _tr('Wartość', 'Value')),
           onChanged: (_) => _calc(),
         )),
         const SizedBox(width: 10),

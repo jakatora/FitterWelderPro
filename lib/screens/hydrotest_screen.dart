@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
+import '../utils/haptic.dart';
 
 const _kCard   = Color(0xFF1A1D26);
 const _kBorder = Color(0xFF2C3354);
@@ -61,7 +62,10 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     String? error;
     double? id, volL, testPressure, fillMin;
     if (od != null && wall != null) {
-      if (wall * 2 >= od) {
+      if (od <= 0 || wall <= 0) {
+        error = _tr('OD i ścianka muszą być > 0.',
+            'OD and wall must be > 0.');
+      } else if (wall * 2 >= od) {
         error = _tr('Ścianka ≥ ½ OD — sprawdź wymiary.',
             'Wall ≥ ½ OD — check the values.');
       } else {
@@ -104,11 +108,13 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           Row(children: [
             Expanded(child: _NumField(
               ctrl: _odCtrl, label: _tr('OD (mm)', 'OD (mm)'),
-              hint: '60.3', onChanged: () => setState(() {}))),
+              hint: '60.3', onChanged: () => setState(() {}),
+              textInputAction: TextInputAction.next)),
             const SizedBox(width: 10),
             Expanded(child: _NumField(
               ctrl: _wallCtrl, label: _tr('Ścianka t (mm)', 'Wall t (mm)'),
-              hint: '3.91', onChanged: () => setState(() {}))),
+              hint: '3.91', onChanged: () => setState(() {}),
+              textInputAction: TextInputAction.next)),
           ]),
           const SizedBox(height: 10),
           _NumField(
@@ -116,6 +122,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             label: _tr('Długość linii (m)', 'Line length (m)'),
             hint: '120',
             onChanged: () => setState(() {}),
+            textInputAction: TextInputAction.next,
           ),
 
           const SizedBox(height: 14),
@@ -126,6 +133,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             label: _tr('Ciśnienie projektowe (bar)', 'Design pressure (bar)'),
             hint: '10',
             onChanged: () => setState(() {}),
+            textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 10),
           Row(
@@ -161,9 +169,11 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           const SizedBox(height: 8),
           _NumField(
             ctrl: _flowCtrl,
-            label: _tr('Wydajność pompy (l/min)', 'Pump flow (l/min)'),
+            label: _tr('Wydajność pompy (L/min)', 'Pump flow (L/min)'),
             hint: '40',
             onChanged: () => setState(() {}),
+            textInputAction: TextInputAction.done,
+            onSubmitted: () => FocusScope.of(context).unfocus(),
           ),
           const SizedBox(height: 18),
 
@@ -223,7 +233,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                       _ResRow(
                         label: _tr('Czas napełniania', 'Fill time'),
                         value: '≈ ${fillMin.toStringAsFixed(1)} min',
-                        sub: '${flowLpm.toStringAsFixed(0)} l/min',
+                        sub: '${flowLpm.toStringAsFixed(0)} L/min',
                         color: _kGreen,
                         big: false,
                       ),
@@ -324,7 +334,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     if (fillMin != null) {
       buf.writeln('${_tr('Czas napełniania', 'Fill time')}: '
           '≈ ${fillMin.toStringAsFixed(1)} min @ '
-          '${flowLpm.toStringAsFixed(0)} l/min');
+          '${flowLpm.toStringAsFixed(0)} L/min');
     }
     buf.writeln('${_tr('Min. czas próby', 'Min. hold time')}: 10 min');
     if (!mounted) return;
@@ -352,22 +362,28 @@ class _NumField extends StatelessWidget {
   final String label;
   final String? hint;
   final VoidCallback onChanged;
+  final TextInputAction? textInputAction;
+  final VoidCallback? onSubmitted;
   const _NumField({
     required this.ctrl,
     required this.label,
     required this.onChanged,
     this.hint,
+    this.textInputAction,
+    this.onSubmitted,
   });
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      textInputAction: textInputAction,
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
       ],
       decoration: InputDecoration(labelText: label, hintText: hint),
       onChanged: (_) => onChanged(),
+      onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
     );
   }
 }
@@ -386,7 +402,10 @@ class _FactorChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        if (!selected) Haptic.tap();
+        onTap();
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(

@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
 import '../database/segment_dao.dart';
 import '../models/project.dart';
@@ -57,9 +58,75 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          // Skeleton placeholder reads like a list of greyed-out rows so
+          // the user sees the screen shape immediately on tap; perceived
+          // load time drops vs. a centred spinner over an empty viewport.
+          ? ListView.builder(
+              itemCount: 6,
+              itemBuilder: (_, __) => Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 14,
+                            width: double.infinity,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 10,
+                            width: 140,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.6),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : _projects.isEmpty
-            ? Center(child: Text(context.tr(pl: 'Brak projektÃ³w. Kliknij + aby dodaÄ‡.', en: 'No projects yet. Click + to add one.')))
+            ? EmptyState(
+                icon: Icons.folder_open_outlined,
+                title: context.tr(
+                  pl: 'Brak projektów',
+                  en: 'No projects yet',
+                ),
+                subtitle: context.tr(
+                  pl: 'Dodaj pierwszy projekt, by zacząć tworzyć cut listy.',
+                  en: 'Add your first project to start building cut lists.',
+                ),
+                actionLabel: context.tr(pl: 'Dodaj projekt', en: 'Add project'),
+                onAction: () async {
+                  final created = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const NewProjectScreen()),
+                  );
+                  if (created == true) await _load();
+                },
+              )
               : ListView.separated(
                   itemCount: _projects.length,
                   separatorBuilder: (_, __) => const Divider(height: 0),
@@ -81,9 +148,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         return await showDialog<bool>(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: Text(context.tr(pl: 'UsuÅ„ projekt', en: 'Delete project')),
+                            title: Text(context.tr(pl: 'Usuń projekt', en: 'Delete project')),
                             content: Text(context.tr(
-                              pl: 'UsunÄ…Ä‡ "$name" wraz ze wszystkimi segmentami? Tej operacji nie moÅ¼na cofnÄ…Ä‡.',
+                              pl: 'Usunąć "$name" wraz ze wszystkimi segmentami? Tej operacji nie można cofnąć.',
                               en: 'Delete "$name" and all its segments? This cannot be undone.',
                             )),
                             actions: [
@@ -94,7 +161,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFE74C3C), foregroundColor: Colors.white),
                                 onPressed: () => Navigator.pop(context, true),
-                                child: Text(context.tr(pl: 'UsuÅ„', en: 'Delete')),
+                                child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
                               ),
                             ],
                           ),
@@ -117,8 +184,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(
                           context.tr(
-                            pl: 'Ã˜${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
-                            en: 'Ã˜${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
+                            pl: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
+                            en: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
                           ),
                         ),
                         trailing: const Icon(Icons.chevron_right, size: 18),

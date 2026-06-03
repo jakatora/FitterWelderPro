@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../database/project_dao.dart';
@@ -64,7 +64,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF bÅ‚Ä…d: $e'), backgroundColor: const Color(0xFFE74C3C)),
+          SnackBar(content: Text('PDF błąd: $e'), backgroundColor: const Color(0xFFE74C3C)),
         );
       }
     } finally {
@@ -119,18 +119,45 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
               : ListView(
                   padding: EdgeInsets.fromLTRB(14, 14, 14, 24 + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
-                    // â”€â”€ NAGÅÃ“WEK PROJEKTU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── NAGŁÓWEK PROJEKTU ─────────────────────────────────
                     _ProjectHeader(project: p),
                     const SizedBox(height: 16),
 
                     if (_groups.isEmpty)
-                      Center(child: Text(context.tr(pl: 'Brak segmentÃ³w.', en: 'No segments.')))
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 48),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.content_cut, size: 56, color: _kMuted.withValues(alpha: 0.6)),
+                              const SizedBox(height: 12),
+                              Text(
+                                context.tr(pl: 'Brak segmentów', en: 'No segments'),
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                              ),
+                              const SizedBox(height: 6),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                child: Text(
+                                  context.tr(
+                                    pl: 'Dodaj odcinki w izometrii, aby zobaczyć plan cięcia sztang.',
+                                    en: 'Add pieces in the isometric to see the bar cutting plan.',
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 12, color: _kMuted),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                     else ...[
-                      // â”€â”€ PODSUMOWANIE ZBIORCZE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── PODSUMOWANIE ZBIORCZE ─────────────────────────
                       _GlobalSummary(groups: _groups, project: p),
                       const SizedBox(height: 20),
 
-                      // â”€â”€ GRUPY RURY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── GRUPY RURY ────────────────────────────────────
                       ..._groups.entries.map((e) {
                         final parts = e.key.split('|');
                         final d = double.parse(parts[0]);
@@ -237,7 +264,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   }
 }
 
-// â”€â”€ NagÅ‚Ã³wek projektu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Nagłówek projektu ──────────────────────────────────────────────────────
 class _ProjectHeader extends StatelessWidget {
   final Project project;
   const _ProjectHeader({required this.project});
@@ -273,8 +300,8 @@ class _ProjectHeader extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   context.tr(
-                    pl: '${project.materialGroup}  Â·  Sztanga: ${project.stockLengthMm.toStringAsFixed(0)} mm  Â·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
-                    en: '${project.materialGroup}  Â·  Stock: ${project.stockLengthMm.toStringAsFixed(0)} mm  Â·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
+                    pl: '${project.materialGroup}  ·  Sztanga: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
+                    en: '${project.materialGroup}  ·  Stock: ${project.stockLengthMm.toStringAsFixed(0)} mm  ·  Kerf: ${project.sawKerfMm.toStringAsFixed(1)} mm',
                   ),
                   style: const TextStyle(fontSize: 12, color: _kMuted),
                 ),
@@ -287,7 +314,7 @@ class _ProjectHeader extends StatelessWidget {
   }
 }
 
-// â”€â”€ Podsumowanie zbiorcze â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Podsumowanie zbiorcze ──────────────────────────────────────────────────
 class _GlobalSummary extends StatelessWidget {
   final Map<String, List<double>> groups;
   final Project project;
@@ -398,7 +425,7 @@ class _SummaryStatBox extends StatelessWidget {
   }
 }
 
-// â”€â”€ Grupa rury (jedna Å›rednica/Å›cianka) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Grupa rury (jedna średnica/ścianka) ────────────────────────────────────
 class _PipeGroup extends StatelessWidget {
   final double diameterMm;
   final double wallMm;
@@ -424,7 +451,7 @@ class _PipeGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // NagÅ‚Ã³wek grupy
+        // Nagłówek grupy
         Row(
           children: [
             Container(
@@ -439,21 +466,21 @@ class _PipeGroup extends StatelessWidget {
             Expanded(
               child: Text(
                 context.tr(
-                  pl: 'Rura  Ã˜${diameterMm.toStringAsFixed(1)} Ã— ${wallMm.toStringAsFixed(1)} mm',
-                  en: 'Pipe  Ã˜${diameterMm.toStringAsFixed(1)} Ã— ${wallMm.toStringAsFixed(1)} mm',
+                  pl: 'Rura  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
+                  en: 'Pipe  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
                 ),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
               ),
             ),
             Text(
-              '${plans.length} ${context.tr(pl: 'szt.', en: 'bars')}',
+              '${plans.length} ${context.tr(pl: 'szt.', en: plans.length == 1 ? 'bar' : 'bars')}',
               style: const TextStyle(fontSize: 12, color: _kOrange, fontWeight: FontWeight.w600),
             ),
           ],
         ),
         const SizedBox(height: 10),
 
-        // Lista odcinkÃ³w do ciÄ™cia
+        // Lista odcinków do cięcia
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -484,8 +511,8 @@ class _PipeGroup extends StatelessWidget {
               const Divider(height: 20, color: _kBorder),
               Text(
                 context.tr(
-                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  Â·  Odpad: ${totalWaste.toStringAsFixed(0)} mm',
-                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  Â·  Waste: ${totalWaste.toStringAsFixed(0)} mm',
+                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Odpad: ${totalWaste.toStringAsFixed(0)} mm',
+                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Waste: ${totalWaste.toStringAsFixed(0)} mm',
                 ),
                 style: const TextStyle(fontSize: 12, color: _kMuted),
               ),
@@ -507,7 +534,7 @@ class _PipeGroup extends StatelessWidget {
   }
 }
 
-// â”€â”€ Karta sztangi z wizualizacjÄ… paskowÄ… â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Karta sztangi z wizualizacją paskową ───────────────────────────────────
 class _BarCard extends StatelessWidget {
   final int index;
   final BarPlan plan;
@@ -567,8 +594,8 @@ class _BarCard extends StatelessWidget {
             children: [
               Text(
                 context.tr(
-                  pl: 'CiÄ™cia: ${plan.cutsCount}  Â·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
-                  en: 'Cuts: ${plan.cutsCount}  Â·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                  pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                  en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
                 ),
                 style: TextStyle(fontSize: 11, color: wasteColor),
               ),
@@ -582,7 +609,7 @@ class _BarCard extends StatelessWidget {
                     border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
                   ),
                   child: Text(
-                    context.tr(pl: 'nadaje siÄ™ na spady', en: 'usable offcut'),
+                    context.tr(pl: 'nadaje się na spady', en: 'usable offcut'),
                     style: const TextStyle(fontSize: 10, color: _kGreen),
                   ),
                 ),
@@ -595,7 +622,7 @@ class _BarCard extends StatelessWidget {
   }
 }
 
-// â”€â”€ Wizualizacja paskowa sztangi â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Wizualizacja paskowa sztangi ───────────────────────────────────────────
 class _BarVisual extends StatelessWidget {
   final BarPlan plan;
   final double stockLengthMm;
@@ -609,7 +636,7 @@ class _BarVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Kolory dla kolejnych odcinkÃ³w
+    // Kolory dla kolejnych odcinków
     const pieceColors = [
       Color(0xFFF5A623),
       Color(0xFF4A9EFF),
@@ -643,7 +670,7 @@ class _BarVisual extends StatelessWidget {
                       borderRadius: BorderRadius.circular(3),
                     ),
                   ),
-                  // Kerf (ciÄ™cie piÅ‚Ä…)
+                  // Kerf (cięcie piłą)
                   if (i < plan.piecesMm.length - 1 || plan.remainingMm > 0)
                     Container(
                       width: (totalWidth * kerfPct).clamp(2.0, 6.0),
