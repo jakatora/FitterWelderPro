@@ -85,7 +85,19 @@ workflows:
           set -eo pipefail
           mkdir -p /tmp/xcodebuild_logs
 
+          # Auto-bump cfBundleVersion from git history. Apple requires every
+          # TestFlight upload to use a strictly higher build number than the
+          # previous one in the same app record. Tying the build number to
+          # `git rev-list --count HEAD` makes every fresh push monotonically
+          # higher without us having to remember to bump pubspec.yaml on each
+          # release. Offset +100 puts us above the manual sequence we used
+          # before this automation (we shipped up to +11 by hand and built 12
+          # via Codemagic; starting from 100 leaves a safe gap).
+          BUILD_NUMBER=$(($(git rev-list --count HEAD) + 100))
+          echo "Using cfBundleVersion = $BUILD_NUMBER (commits=$(git rev-list --count HEAD))"
+
           flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
             --export-options-plist="$CM_BUILD_DIR/export_options.plist" \
             2>&1 | tee /tmp/xcodebuild_logs/build.log
 
