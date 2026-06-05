@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for ALL network traffic in release builds. Without this the
+         Anthropic-proxied AI chat, public chat polling, Stripe checkout
+         redirects and the iso-scanner POST all silently fail and the app
+         appears to have no internet at all. Debug + profile manifests have
+         this already (Flutter tool adds it for hot reload) which is why the
+         bug only ever showed up in shipped release APK/AAB. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="Fitter Welder Pro"
         android:name="${applicationName}"
