@@ -46,6 +46,12 @@ class _JobAddScreenState extends State<JobAddScreen> {
   // the welder/fitter has typed something they would lose by backing out
   // (a 5-line job description retyped on a phone in gloves is misery).
   late final List<String> _initialSnapshot;
+  // Cache for the 14 requirement-chip widgets. Tapping a chip calls setState
+  // (line ~161) which rebuilds the form — without this cache we'd reallocate
+  // 14 Tooltips + 14 ActionChips + 14 Text widgets and re-run context.tr 14
+  // times on every chip tap. Invalidated on locale switch.
+  List<Widget>? _chipCache;
+  AppLanguage? _chipCacheLang;
 
   static const _commonReqs = [
     'TIG 141',
@@ -60,6 +66,11 @@ class _JobAddScreenState extends State<JobAddScreen> {
     'API 1104',
     'PED',
     'ISO 9606',
+    // ASME B31.3 is the process-piping code referenced by virtually every
+    // refinery / chemical-plant job spec — recruiters expect to see it on
+    // both the listing and the welder's CV.
+    'ASME B31.3',
+    'WPS/WPQR',
   ];
 
   @override
@@ -299,21 +310,7 @@ class _JobAddScreenState extends State<JobAddScreen> {
             Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: _commonReqs
-                  .map((tag) => Tooltip(
-                        message: context.tr(
-                          pl: 'Dodaj $tag do wymagań',
-                          en: 'Add $tag to requirements',
-                        ),
-                        child: ActionChip(
-                          label: Text(tag, style: const TextStyle(fontSize: 11)),
-                          onPressed: () => _addRequirement(tag),
-                          backgroundColor: _kCard,
-                          side: const BorderSide(color: _kBorder),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ))
-                  .toList(),
+              children: _buildReqChips(context),
             ),
             const SizedBox(height: 16),
 
@@ -436,6 +433,30 @@ class _JobAddScreenState extends State<JobAddScreen> {
       ),
       ),
     );
+  }
+
+  List<Widget> _buildReqChips(BuildContext context) {
+    final lang = context.language;
+    final cached = _chipCache;
+    if (cached != null && _chipCacheLang == lang) return cached;
+    final built = _commonReqs
+        .map((tag) => Tooltip(
+              message: context.tr(
+                pl: 'Dodaj $tag do wymagań',
+                en: 'Add $tag to requirements',
+              ),
+              child: ActionChip(
+                label: Text(tag, style: const TextStyle(fontSize: 11)),
+                onPressed: () => _addRequirement(tag),
+                backgroundColor: _kCard,
+                side: const BorderSide(color: _kBorder),
+                visualDensity: VisualDensity.compact,
+              ),
+            ))
+        .toList(growable: false);
+    _chipCache = built;
+    _chipCacheLang = lang;
+    return built;
   }
 
   String? _req(String? v) {

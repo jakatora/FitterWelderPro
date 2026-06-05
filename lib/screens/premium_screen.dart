@@ -1,12 +1,19 @@
 // ignore_for_file: prefer_const_constructors
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
 import 'ai_chat_screen.dart';
+
+// Persisted across cold starts so that if the user kills the app after being
+// bounced to Stripe Checkout (slow network, accidental swipe), the next launch
+// of this screen still runs the post-checkout verification poll instead of
+// silently dropping it on the floor.
+const String _kPendingCheckoutKey = 'fitter_premium_pending_checkout';
 
 // Premium subscription screen. Live against the Railway backend (Stripe
 // Checkout + webhook) since 2026-05-27. Two plans: 19 PLN / month and
@@ -43,6 +50,10 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   // overlay so the user knows we're verifying the payment instead of
   // staring at the same plan picker as before they paid.
   bool _verifying = false;
+  // True while we're hitting the backend to create a Stripe Checkout
+  // session. Without this the user taps "Wybierz" and stares at an
+  // unchanged plan picker for 1-3s on bad signal, often double-tapping.
+  bool _creatingCheckout = false;
 
   @override
   void initState() {
@@ -51,6 +62,22 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
     // Cheap re-check on screen open in case backend status changed since
     // last app start (e.g. webhook fired while app was backgrounded).
     PremiumService.instance.refreshFromBackend();
+    // Deep-link recovery: if the previous session launched Stripe Checkout
+    // but never got the resume callback (user force-killed the app, OS
+    // reaped it in background), pick the verification poll up here.
+    _resumePendingCheckoutIfAny();
+  }
+
+  Future<void> _resumePendingCheckoutIfAny() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kPendingCheckoutKey) == true) {
+        if (!mounted) return;
+        _refreshAfterCheckout();
+      }
+    } catch (_) {
+      // Best-effort recovery — never block the screen on a prefs error.
+    }
   }
 
   @override
@@ -80,6 +107,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         if (!mounted) return;
         if (s.isActive) {
           setState(() => _verifying = false);
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove(_kPendingCheckoutKey);
+          } catch (_) {}
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             backgroundColor: _kGreen,
             content: Text(context.tr(
@@ -103,6 +135,13 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       // overlay and surface a soft hint.
       if (!mounted) return;
       setState(() => _verifying = false);
+      // Clear the persisted recovery flag — we already gave the webhook its
+      // 12s window; pull-to-refresh is the recovery from here.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_kPendingCheckoutKey);
+      } catch (_) {}
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Sprawdzam płatność… potrwa to chwilę. Pociągnij ekran w dół, by odświeżyć.',
@@ -220,6 +259,23 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                           ),
                           style: const TextStyle(fontSize: 12, color: _kTextSec),
                         ),
+                        const SizedBox(height: 6),
+                        // First-time coaching: an abstract pitch ("Ask about WPS…")
+                        // doesn't show a fitter what the tool actually does. A
+                        // concrete sample prompt does — and it's quoted so it
+                        // reads as an example, not a button label.
+                        Text(
+                          context.tr(
+                            pl: 'Spróbuj tego: "Preheat dla P91 grubość 25 mm?"',
+                            en: 'Try this: "Preheat for P91, 25 mm thick?"',
+                          ),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: _kGold,
+                            height: 1.3,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -336,7 +392,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         ],
       ),
       ),
-      if (_verifying)
+      if (_verifying || _creatingCheckout)
         Positioned.fill(
           child: AbsorbPointer(
             child: Container(
@@ -355,10 +411,15 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                     const CircularProgressIndicator(color: _kGold),
                     const SizedBox(height: 14),
                     Text(
-                      context.tr(
-                        pl: 'Weryfikuję płatność…',
-                        en: 'Verifying payment…',
-                      ),
+                      _verifying
+                          ? context.tr(
+                              pl: 'Weryfikuję płatność…',
+                              en: 'Verifying payment…',
+                            )
+                          : context.tr(
+                              pl: 'Przygotowuję płatność…',
+                              en: 'Preparing checkout…',
+                            ),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
@@ -367,10 +428,15 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      context.tr(
-                        pl: 'Stripe potwierdza zakup — to chwilę potrwa.',
-                        en: 'Stripe is confirming — give it a moment.',
-                      ),
+                      _verifying
+                          ? context.tr(
+                              pl: 'Stripe potwierdza zakup — to chwilę potrwa.',
+                              en: 'Stripe is confirming — give it a moment.',
+                            )
+                          : context.tr(
+                              pl: 'Otwieram bezpieczną stronę Stripe…',
+                              en: 'Opening Stripe secure checkout…',
+                            ),
                       style: const TextStyle(fontSize: 11, color: _kTextSec),
                       textAlign: TextAlign.center,
                     ),
@@ -398,6 +464,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       return;
     }
 
+    if (mounted) setState(() => _creatingCheckout = true);
     try {
       // Make sure we have a device id available (it's lazy-loaded otherwise).
       await PremiumService.instance.init();
@@ -406,6 +473,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         deviceId: PremiumService.instance.deviceId,
       );
       if (url == null) {
+        if (mounted) setState(() => _creatingCheckout = false);
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
@@ -418,12 +486,24 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       // Open Stripe Checkout in the user's default browser. Stripe redirects
       // back to /api/fitter/billing/success once payment goes through.
       _awaitingReturn = true;
+      // Mirror the in-memory flag to disk so a cold start during the Stripe
+      // round-trip still resumes the verification poll on next launch.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_kPendingCheckoutKey, true);
+      } catch (_) {}
       final ok = await launchUrl(
         Uri.parse(url),
         mode: LaunchMode.externalApplication,
       );
+      if (mounted) setState(() => _creatingCheckout = false);
       if (!ok && context.mounted) {
         _awaitingReturn = false;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove(_kPendingCheckoutKey);
+        } catch (_) {}
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
             pl: 'Nie udało się otworzyć przeglądarki.',
@@ -433,6 +513,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       }
     } catch (e) {
       _awaitingReturn = false;
+      if (mounted) setState(() => _creatingCheckout = false);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_kPendingCheckoutKey);
+      } catch (_) {}
       if (!context.mounted) return;
       // Don't leak raw exception strings (HTTP codes, library names) to a
       // user about to part with money — show a clear, actionable message

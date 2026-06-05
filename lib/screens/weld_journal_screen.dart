@@ -16,6 +16,16 @@ const _kBorder = Color(0xFF2C3354);
 const _kMuted  = Color(0xFF55607A);
 const _kSec    = Color(0xFF9BA3C7);
 
+// Locale-aware decimal separator for stored numeric strings (OD, t).
+// Welders may type "60.3" or "60,3" — display matches the UI language so
+// the journal feels native on PL shop floors and reads correctly in EN.
+String _localizedNum(String raw) {
+  if (AppLanguageController.isEnglish) {
+    return raw.replaceAll(',', '.');
+  }
+  return raw.replaceAll('.', ',');
+}
+
 // ── Model spoiny ───────────────────────────────────────────────────────────
 class WeldEntry {
   final String id;
@@ -433,8 +443,11 @@ class _WeldTile extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     [
-                      if (entry.od.isNotEmpty) 'OD ${entry.od}',
-                      if (entry.t.isNotEmpty) 't ${entry.t}',
+                      // Show OD / wall thickness with locale-aware decimal
+                      // separator: comma in PL, dot in EN. Stored value may
+                      // be either depending on how the welder typed it.
+                      if (entry.od.isNotEmpty) 'OD ${_localizedNum(entry.od)}',
+                      if (entry.t.isNotEmpty) 't ${_localizedNum(entry.t)}',
                       if (entry.material.isNotEmpty) entry.material,
                       if (entry.method.isNotEmpty) entry.method,
                       if (entry.welder.isNotEmpty) entry.welder,
@@ -451,11 +464,14 @@ class _WeldTile extends StatelessWidget {
                 ],
               ),
             ),
-            // Delete
+            // Delete — 48dp square hit target so gloved fingertips don't
+            // miss and accidentally tap the tile (which would open editor).
             GestureDetector(
               onTap: onDelete,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
+              behavior: HitTestBehavior.opaque,
+              child: const SizedBox(
+                width: 48,
+                height: 48,
                 child: Icon(Icons.delete_outline, size: 20, color: _kMuted),
               ),
             ),

@@ -33,6 +33,10 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   Project? _project;
   List<Segment> _segments = [];
   Map<String, List<double>> _groups = {};
+  // Memoized per-group (sortedCuts, plans). Recomputed only in _load() so that
+  // build() and listView rebuilds (e.g. orientation, scroll-driven media query
+  // changes) don't re-run the nesting algorithm or re-sort the cuts list.
+  Map<String, _GroupPlan> _groupPlans = const {};
   bool _loading = true;
   bool _exporting = false;
 
@@ -47,11 +51,27 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       groups.putIfAbsent(key, () => []).add(s.cutMm);
     }
 
+    final plans = <String, _GroupPlan>{};
+    if (p != null) {
+      for (final e in groups.entries) {
+        final sorted = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
+        plans[e.key] = _GroupPlan(
+          sortedCuts: sorted,
+          plans: nestCutsToBars(
+            cutsMm: sorted,
+            stockLengthMm: p.stockLengthMm,
+            sawKerfMm: p.sawKerfMm,
+          ),
+        );
+      }
+    }
+
     setState(() {
-      _project  = p;
-      _segments = segs;
-      _groups   = groups;
-      _loading  = false;
+      _project    = p;
+      _segments   = segs;
+      _groups     = groups;
+      _groupPlans = plans;
+      _loading    = false;
     });
   }
 
@@ -158,21 +178,16 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                       const SizedBox(height: 20),
 
                       // ── GRUPY RURY ────────────────────────────────────
-                      ..._groups.entries.map((e) {
+                      ..._groupPlans.entries.map((e) {
                         final parts = e.key.split('|');
                         final d = double.parse(parts[0]);
                         final w = double.parse(parts[1]);
-                        final cuts = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
-                        final plans = nestCutsToBars(
-                          cutsMm: cuts,
-                          stockLengthMm: p.stockLengthMm,
-                          sawKerfMm: p.sawKerfMm,
-                        );
                         return _PipeGroup(
                           diameterMm: d,
                           wallMm: w,
-                          cuts: cuts,
-                          plans: plans,
+                          materialGroup: p.materialGroup,
+                          cuts: e.value.sortedCuts,
+                          plans: e.value.plans,
                           stockLengthMm: p.stockLengthMm,
                           sawKerfMm: p.sawKerfMm,
                         );
@@ -262,6 +277,14 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       ),
     );
   }
+}
+
+// Cached per-group nesting result: sorted cuts (desc) + computed bar plans.
+// Built once in _load() so rebuilds don't re-sort or re-nest.
+class _GroupPlan {
+  final List<double> sortedCuts;
+  final List<BarPlan> plans;
+  const _GroupPlan({required this.sortedCuts, required this.plans});
 }
 
 // ── Nagłówek projektu ──────────────────────────────────────────────────────
@@ -429,6 +452,7 @@ class _SummaryStatBox extends StatelessWidget {
 class _PipeGroup extends StatelessWidget {
   final double diameterMm;
   final double wallMm;
+  final String materialGroup;
   final List<double> cuts;
   final List<BarPlan> plans;
   final double stockLengthMm;
@@ -437,11 +461,19 @@ class _PipeGroup extends StatelessWidget {
   const _PipeGroup({
     required this.diameterMm,
     required this.wallMm,
+    required this.materialGroup,
     required this.cuts,
     required this.plans,
     required this.stockLengthMm,
     required this.sawKerfMm,
   });
+
+  /// ASME/ISO line-list shorthand a fitter would paint on the pipe end:
+  /// `<OD>-<MAT>-<WALL>` (e.g. 168-CS-7.1). Matches the dash-tag
+  /// convention used on piping line lists and ISO drawings so the cut
+  /// list group is unambiguous across mixed-material projects.
+  String _lineTag() =>
+      '${diameterMm.toStringAsFixed(0)}-$materialGroup-${wallMm.toStringAsFixed(1)}';
 
   @override
   Widget build(BuildContext context) {
@@ -470,6 +502,25 @@ class _PipeGroup extends StatelessWidget {
                   en: 'Pipe  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
                 ),
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+              ),
+            ),
+            // ASME line-tag chip: short pipe ID a fitter writes on the cut end.
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22263A),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: _kBorder),
+              ),
+              child: Text(
+                _lineTag(),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: Color(0xFFE8ECF0),
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
             Text(

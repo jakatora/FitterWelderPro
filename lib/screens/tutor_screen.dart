@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
+import '../i18n/app_language.dart';
 import '../services/backend_service.dart';
 
 class TutorScreen extends StatefulWidget {
@@ -14,7 +15,19 @@ class _TutorScreenState extends State<TutorScreen> {
   final List<_Message> _messages = [];
 
   @override
+  void initState() {
+    super.initState();
+    // Drives PopScope.canPop so back-nav prompt appears the moment user types.
+    _controller.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -68,12 +81,77 @@ class _TutorScreenState extends State<TutorScreen> {
           ));
         }
       });
+    }).catchError((_) {
+      // Network drop / backend 500: clear the "searching..." bubble and
+      // surface a Retry — on a noisy shop floor a frozen screen is the worst UX.
+      if (!mounted) return;
+      setState(() {
+        if (searchIndex >= 0 && searchIndex < _messages.length) {
+          _messages.removeAt(searchIndex);
+        }
+      });
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(context.tr(
+            pl: 'Brak połączenia z tutorem. Sprawdź sieć.',
+            en: 'Cannot reach tutor. Check your connection.',
+          )),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: context.tr(pl: 'Ponów', en: 'Retry'),
+            onPressed: () {
+              if (!mounted) return;
+              _controller.text = text;
+              _sendMessage();
+            },
+          ),
+        ),
+      );
     });
+  }
+
+  // Confirms discarding a half-typed question — gloves + bumpy site swipes
+  // make accidental back-nav easy, and losing a long welding query is painful.
+  Future<bool> _confirmDiscardPending() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr(
+          pl: 'Porzucić wpisane pytanie?',
+          en: 'Discard typed question?',
+        )),
+        content: Text(context.tr(
+          pl: 'Twój tekst zostanie utracony.',
+          en: 'Your text will be lost.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.tr(pl: 'Wróć', en: 'Keep editing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(context.tr(pl: 'Porzuć', en: 'Discard')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: _controller.text.trim().isEmpty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final discard = await _confirmDiscardPending();
+        if (discard && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(AppLocalizations.of(context).translate('tutor_menu_appbar')),
       ),
@@ -138,6 +216,7 @@ class _TutorScreenState extends State<TutorScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }

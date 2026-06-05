@@ -5,6 +5,7 @@ import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/library_component.dart';
 import '../utils/clipboard_helper.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
 
 class ComponentLibraryScreen extends StatefulWidget {
@@ -21,11 +22,26 @@ class _ComponentLibraryScreenState extends State<ComponentLibraryScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final list = await _dao.listAll();
-    setState(() {
-      _items = list;
-      _loading = false;
-    });
+    try {
+      final list = await _dao.listAll();
+      if (!mounted) return;
+      setState(() {
+        _items = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _items = [];
+        _loading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr(
+          pl: 'Nie udało się wczytać biblioteki: $e',
+          en: 'Could not load library: $e',
+        ))),
+      );
+    }
   }
 
   @override
@@ -55,7 +71,16 @@ class _ComponentLibraryScreenState extends State<ComponentLibraryScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty
-              ? Center(child: Text(context.tr(pl: 'Biblioteka pusta. Kliknij + aby dodać.', en: 'The library is empty. Click + to add an item.')))
+              ? EmptyState(
+                  icon: Icons.inventory_2_outlined,
+                  title: context.tr(pl: 'Biblioteka pusta', en: 'Library is empty'),
+                  subtitle: context.tr(
+                    pl: 'Dodaj pierwszy komponent, by uniknąć ponownego wpisywania średnic i grubości.',
+                    en: 'Add your first component so you stop re-typing diameters and wall thicknesses.',
+                  ),
+                  actionLabel: context.tr(pl: 'Dodaj komponent', en: 'Add component'),
+                  onAction: _addDialog,
+                )
               : ListView.separated(
                   itemCount: _items.length,
                   separatorBuilder: (_, __) => const Divider(height: 0),

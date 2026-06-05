@@ -60,6 +60,20 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   void _recompute() {
     final h = _parse(_headerCtrl);
     final b = _parse(_branchCtrl);
+    // Guard zero/blank OD before the service: rb = 0 would yield
+    // stripLengthMm = 0, which divides into Infinity inside the painter
+    // (sx = dw / 0) and renders the marker-step hint as "co 0.0 mm" —
+    // confusing nonsense for a fitter wrapping the paper template.
+    if (h <= 0 || b <= 0) {
+      final isEn = AppLanguageController.isEnglish;
+      setState(() {
+        _template = null;
+        _errorMessage = isEn
+            ? 'Enter pipe OD greater than 0 mm'
+            : 'Wpisz OD rury większe niż 0 mm';
+      });
+      return;
+    }
     try {
       setState(() {
         _template = SaddleTemplate(
@@ -249,6 +263,18 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
+          // First-time coaching: brand-new user sees default 114.3 / 60.3 / 90°
+          // without context. Quick presets map to common shop scenarios so
+          // the welder can poke the tool and learn what changes the profile.
+          _TrySomethingCallout(
+            onPick: (header, branch, angle) {
+              _headerCtrl.text = header.toStringAsFixed(1);
+              _branchCtrl.text = branch.toStringAsFixed(1);
+              setState(() => _angleDeg = angle);
+              _recompute();
+            },
+          ),
+          const SizedBox(height: 10),
           _SectionCard(
             title: context.tr(pl: 'Wymiary rur', en: 'Pipe dimensions'),
             child: Column(
@@ -858,4 +884,102 @@ class _CutProfilePainter extends CustomPainter {
       old.template.headerOdMm != template.headerOdMm ||
       old.template.branchOdMm != template.branchOdMm ||
       old.template.angleDeg != template.angleDeg;
+}
+
+// First-time coaching strip — three tap-to-load scenarios that match common
+// shop tie-ins (4"x2" 90° T, 6"x3" 45° lateral, 3"x3" equal-T 90°). Helps a
+// brand-new user who has never used a saddle calculator: instead of staring
+// at default numbers, they can poke a real case and watch the profile change.
+class _TrySomethingCallout extends StatelessWidget {
+  final void Function(double headerMm, double branchMm, double angle) onPick;
+  const _TrySomethingCallout({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final isEn = AppLanguageController.isEnglish;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: _kAccent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _kAccent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lightbulb_outline, size: 14, color: _kAccent),
+              const SizedBox(width: 6),
+              Text(
+                isEn ? 'Try this' : 'Spróbuj tego',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: _kAccent,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isEn
+                ? 'Tap a common tie-in to load the dimensions and watch the cut profile change:'
+                : 'Stuknij typowy króciec, by wczytać wymiary i zobaczyć zmianę profilu:',
+            style: const TextStyle(fontSize: 11, color: _kTextSec, height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _TryChip(
+                label: isEn ? '4" x 2" • 90° T' : '4" x 2" • 90° T',
+                onTap: () => onPick(114.3, 60.3, 90),
+              ),
+              _TryChip(
+                label: isEn ? '6" x 3" • 45° lateral' : '6" x 3" • 45° skos',
+                onTap: () => onPick(168.3, 88.9, 45),
+              ),
+              _TryChip(
+                label: isEn ? '3" x 3" equal T' : '3" x 3" równy T',
+                onTap: () => onPick(88.9, 88.9, 90),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TryChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _TryChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _kBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _kAccent.withValues(alpha: 0.5)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: _kAccent,
+          ),
+        ),
+      ),
+    );
+  }
 }

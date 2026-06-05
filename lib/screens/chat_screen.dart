@@ -221,7 +221,7 @@ class _ErrorRetry extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: Text(context.tr(pl: 'Spróbuj ponownie', en: 'Try again')),
+              label: Text(context.tr(pl: 'Spróbuj ponownie', en: 'Retry')),
             ),
           ],
         ),
@@ -459,11 +459,22 @@ class _RoomViewState extends State<_RoomView> {
       ),
     );
     if (confirm == true) {
-      await ChatService.instance.report(m.id);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Zgłoszono.', en: 'Reported.')),
-      ));
+      try {
+        await ChatService.instance.report(m.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(context.tr(pl: 'Zgłoszono.', en: 'Reported.')),
+        ));
+      } catch (e) {
+        debugPrint('ChatRoom.report error: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(context.tr(
+            pl: 'Nie udało się zgłosić. Spróbuj ponownie.',
+            en: 'Report failed. Try again.',
+          )),
+        ));
+      }
     }
   }
 

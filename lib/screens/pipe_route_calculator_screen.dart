@@ -87,10 +87,13 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
     final seg3  = y - r;
     final total = math.max(0, seg1) + math.max(0, seg2) + math.max(0, seg3);
 
-    _seg1Controller.text  = seg1.toStringAsFixed(1);
-    _seg2Controller.text  = seg2.toStringAsFixed(1);
-    _seg3Controller.text  = seg3.toStringAsFixed(1);
-    _totalController.text = total.toStringAsFixed(1);
+    // Use locale-aware decimal separator: PL writes "1234,5", EN writes "1234.5".
+    // Safe because _parse() accepts both. Matches what the welder sees on rulers/drawings.
+    final dec = AppLanguageController.isEnglish ? '.' : ',';
+    _seg1Controller.text  = seg1.toStringAsFixed(1).replaceAll('.', dec);
+    _seg2Controller.text  = seg2.toStringAsFixed(1).replaceAll('.', dec);
+    _seg3Controller.text  = seg3.toStringAsFixed(1).replaceAll('.', dec);
+    _totalController.text = total.toStringAsFixed(1).replaceAll('.', dec);
 
     setState(() {});
   }
@@ -167,6 +170,30 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
             _sectionLabel(context.tr(pl: 'WYNIKI – długości odcinków rur', en: 'RESULTS – pipe segment lengths')),
             const SizedBox(height: 12),
 
+            if (_totalController.text.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.straighten,
+                        size: 48, color: theme.colorScheme.outline),
+                      const SizedBox(height: 12),
+                      Text(
+                        context.tr(
+                          pl: 'Wpisz H1, H2, X, Y (i opcjonalnie R), potem OBLICZ.',
+                          en: 'Enter H1, H2, X, Y (and optionally R), then CALCULATE.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else ...[
             _result(_seg1Controller,
               label: context.tr(pl: 'Odcinek 1 (poziomy, X−R)', en: 'Segment 1 (horizontal, X−R)')),
             const SizedBox(height: 12),
@@ -188,10 +215,20 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(
-                      context.tr(pl: 'SUMA (bez kolanek)', en: 'TOTAL (excl. elbows)'),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    Row(children: [
+                      Text(
+                        context.tr(pl: 'SUMA (bez kolanek)', en: 'TOTAL (excl. elbows)'),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.info_outline, size: 20),
+                        tooltip: context.tr(pl: 'Wzór', en: 'Formula'),
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _showTotalFormulaDialog(context),
+                      ),
+                    ]),
                     Text(
                       _totalController.text.isEmpty ? '—' : '${_totalController.text} mm',
                       style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
@@ -200,6 +237,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
                 ),
               ]),
             ),
+            ],
 
             const SizedBox(height: 16),
             Text(
@@ -222,6 +260,43 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showTotalFormulaDialog(BuildContext ctx) {
+    showDialog<void>(
+      context: ctx,
+      builder: (d) => AlertDialog(
+        title: Text(ctx.tr(pl: 'Wzór – SUMA rur', en: 'Formula – TOTAL pipe')),
+        content: SingleChildScrollView(
+          child: Text(
+            ctx.tr(
+              pl: 'Suma = Odc.1 + Odc.2 + Odc.3 [mm]\n\n'
+                  'Odc.1 = X − R\n'
+                  'Odc.2 = |H1 − H2| − 2·R\n'
+                  'Odc.3 = Y − R\n\n'
+                  'R = takeout kolanka 90° (centre-to-face). Dla LR 90°: R = CLR ≈ 1,5·DN.\n\n'
+                  'UWAGA: suma to długość prostych odcinków rury (bez łuków kolanek). '
+                  'Aby dostać długość rozwiniętą rury z łukami, dodaj 3 × (π·R/2) ≈ 3 × 1,5708·R.\n\n'
+                  'Jednostki: wszystkie wymiary i wynik w mm.',
+              en: 'Total = Seg.1 + Seg.2 + Seg.3 [mm]\n\n'
+                  'Seg.1 = X − R\n'
+                  'Seg.2 = |H1 − H2| − 2·R\n'
+                  'Seg.3 = Y − R\n\n'
+                  'R = 90° elbow takeout (centre-to-face). For LR 90°: R = CLR ≈ 1.5·DN.\n\n'
+                  'NOTE: total is straight pipe length only (excludes elbow arcs). '
+                  'For developed pipe length including arcs, add 3 × (π·R/2) ≈ 3 × 1.5708·R.\n\n'
+                  'Units: all inputs and result in mm.',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(d).pop(),
+            child: Text(ctx.tr(pl: 'OK', en: 'OK')),
+          ),
+        ],
       ),
     );
   }
@@ -259,8 +334,9 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
         border: const OutlineInputBorder(),
         filled: true,
         suffixIcon: IconButton(
-          icon: const Icon(Icons.content_copy, size: 18),
+          icon: const Icon(Icons.content_copy, size: 24),
           tooltip: context.tr(pl: 'Kopiuj', en: 'Copy'),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           onPressed: ctrl.text.trim().isEmpty
               ? null
               : () => copyToClipboard(context, ctrl.text, label: label),

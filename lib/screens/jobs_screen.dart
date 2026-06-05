@@ -1,11 +1,11 @@
 // ignore_for_file: prefer_const_constructors
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../models/job_listing.dart';
 import '../services/jobs_service.dart';
+import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import 'job_add_screen.dart';
 
@@ -481,13 +481,28 @@ class _JobDetailScreen extends StatelessWidget {
             icon: const Icon(Icons.edit_outlined),
             tooltip: context.tr(pl: 'Edytuj', en: 'Edit'),
             onPressed: () async {
-              final res = await Navigator.push<JobListing>(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => JobAddScreen(existing: listing)),
-              );
-              if (res != null && context.mounted) {
-                Navigator.pop(context, true);
+              // Guard the edit-route push: if JobAddScreen's initState throws
+              // (e.g. SQLite handle stale after low-memory kill), the
+              // unhandled future error would otherwise crash the route with a
+              // red screen mid-edit — a fitter loses both context and the
+              // half-typed posting. Surface as a SnackBar instead.
+              try {
+                final res = await Navigator.push<JobListing>(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => JobAddScreen(existing: listing)),
+                );
+                if (res != null && context.mounted) {
+                  Navigator.pop(context, true);
+                }
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(context.tr(
+                    pl: 'Nie udało się otworzyć edycji: $e',
+                    en: 'Could not open editor: $e',
+                  )),
+                ));
               }
             },
           ),
@@ -696,11 +711,9 @@ class _JobDetailScreen extends StatelessWidget {
   }
 
   void _copy(BuildContext context, String value) {
-    Clipboard.setData(ClipboardData(text: value));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(pl: 'Skopiowano: $value', en: 'Copied: $value')),
-      duration: const Duration(milliseconds: 900),
-    ));
+    // Route via the shared helper so contact copies match calculator-screen
+    // behaviour: haptic confirmation + de-duped snackbar (hideCurrent first).
+    copyToClipboard(context, value);
   }
 }
 

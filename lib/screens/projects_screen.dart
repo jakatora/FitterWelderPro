@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
+import '../database/db.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
 import '../database/segment_dao.dart';
@@ -117,7 +118,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   pl: 'Dodaj pierwszy projekt, by zacząć tworzyć cut listy.',
                   en: 'Add your first project to start building cut lists.',
                 ),
-                actionLabel: context.tr(pl: 'Dodaj projekt', en: 'Add project'),
+                actionLabel: context.tr(pl: 'Nowy projekt', en: 'New project'),
                 onAction: () async {
                   final created = await Navigator.push(
                     context,
@@ -168,9 +169,62 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         ) ?? false;
                       },
                       onDismissed: (_) async {
-                        await _segDao.deleteAllForProject(p.id);
-                        await _dao.deleteById(p.id);
-                        await _load();
+                        // Snapshot raw rows BEFORE delete so the SnackBar Undo
+                        // can re-insert project + segments verbatim. Without
+                        // this the swipe is irreversible — a real loss on a
+                        // gloved mis-swipe at the bench.
+                        List<Map<String, Object?>> projectRows;
+                        List<Map<String, Object?>> segmentRows;
+                        try {
+                          final db = await AppDatabase.get();
+                          projectRows = await db.query('projects',
+                              where: 'id = ?', whereArgs: [p.id], limit: 1);
+                          segmentRows = await db.query('segments',
+                              where: 'project_id = ?', whereArgs: [p.id]);
+                          await _segDao.deleteAllForProject(p.id);
+                          await _dao.deleteById(p.id);
+                          await _load();
+                        } catch (e) {
+                          // DB constraint / lock / disk-full on the shop tablet
+                          // would otherwise bubble to a red screen — surface as
+                          // a SnackBar and reload so the row reappears.
+                          await _load();
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(SnackBar(
+                              content: Text(context.tr(
+                                pl: 'Nie udało się usunąć "$name": $e',
+                                en: 'Could not delete "$name": $e',
+                              )),
+                            ));
+                          return;
+                        }
+                        if (!context.mounted) return;
+                        final messenger = ScaffoldMessenger.of(context);
+                        messenger.hideCurrentSnackBar();
+                        messenger.showSnackBar(SnackBar(
+                          content: Text(context.tr(
+                            pl: 'Usunięto "$name"',
+                            en: 'Deleted "$name"',
+                          )),
+                          duration: const Duration(seconds: 6),
+                          action: SnackBarAction(
+                            label: context.tr(pl: 'Cofnij', en: 'Undo'),
+                            onPressed: () async {
+                              final db2 = await AppDatabase.get();
+                              if (projectRows.isNotEmpty) {
+                                await db2.insert('projects',
+                                    Map<String, Object?>.from(projectRows.first));
+                              }
+                              for (final r in segmentRows) {
+                                await db2.insert(
+                                    'segments', Map<String, Object?>.from(r));
+                              }
+                              await _load();
+                            },
+                          ),
+                        ));
                       },
                       child: ListTile(
                         leading: Container(

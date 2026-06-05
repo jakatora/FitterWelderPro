@@ -11,10 +11,14 @@
 
 class BackendConfig {
   // ── Base URLs ────────────────────────────────────────────────────────────
-  /// Railway-hosted FastAPI/Express backend. Reuses the PrzetargAI server;
-  /// the Fitter Welder routes live under `/api/fitter/*`.
+  /// Standalone Fitter Welder Pro backend on its own Railway project
+  /// (jubilant-charm, deployed 2026-06-05). Replaced the shared PrzetargAI
+  /// backend at backend-production-a43e3.up.railway.app — that one had a
+  /// stale Anthropic model alias and shared infra with KredytAI/PrzetargAI,
+  /// user wanted clean separation. Same /api/fitter/* route prefix so route
+  /// paths in this file did not need to change.
   static const String baseUrl =
-      'https://backend-production-a43e3.up.railway.app';
+      'https://fitter-welder-pro-backend-production.up.railway.app';
 
   // ── Feature flags ────────────────────────────────────────────────────────
   /// Set to true once Stripe checkout webhook + /api/fitter/subscribe are

@@ -122,6 +122,11 @@ class _TandemTabState extends State<_TandemTab> {
                   ],
                   selected: {_position},
                   onSelectionChanged: (s) => setState(() => _position = s.first),
+                  // Glove-friendly: ensure 48dp minimum hit target for gloved fingertips.
+                  style: ButtonStyle(
+                    minimumSize: WidgetStateProperty.all(const Size(48, 48)),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -366,8 +371,11 @@ class _TandemTabState extends State<_TandemTab> {
 
   static String _fmtPair(double t1, double? t2) {
     final b = (t2 ?? t1);
-    if ((b - t1).abs() < 0.0001) return '${t1.toStringAsFixed(1)}/${t1.toStringAsFixed(1)} mm';
-    return '${t1.toStringAsFixed(1)}/${b.toStringAsFixed(1)} mm';
+    // Locale-aware decimal: PL welders read "3,0" on calipers/drawings, EN keep ".".
+    final dec = AppLanguageController.isEnglish ? '.' : ',';
+    final a = t1.toStringAsFixed(1).replaceAll('.', dec);
+    if ((b - t1).abs() < 0.0001) return '$a/$a mm';
+    return '$a/${b.toStringAsFixed(1).replaceAll('.', dec)} mm';
   }
 
   static String _posLabel(String p) => p == 'VERTICAL' ? _trStatic('Pion', 'Vertical') : _trStatic('Poziom', 'Horizontal');
@@ -456,7 +464,48 @@ class _ApprovedTabState extends State<_ApprovedTab> {
             if (snap.connectionState != ConnectionState.done)
               const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
             if (snap.connectionState == ConnectionState.done && filtered.isEmpty)
-              Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_tr('Brak wpisów (zatwierdzonych) dla zbiorników.', 'No approved entries for tanks.')))),
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        query.isEmpty ? Icons.verified_outlined : Icons.search_off,
+                        size: 48,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        query.isEmpty
+                            ? _tr('Brak wpisów (zatwierdzonych) dla zbiorników.', 'No approved entries for tanks.')
+                            : _tr('Brak wyników dla "$query".', 'No results for "$query".'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        query.isEmpty
+                            ? _tr('Zatwierdzone parametry są tylko do odczytu. Użyj zakładki "Tandem", aby policzyć prądy z grubości ścianek.', 'Approved parameters are read-only. Use the "Tandem" tab to calculate amps from wall thicknesses.')
+                            : _tr('Wyczyść pole wyszukiwania lub spróbuj innych słów (np. "Pion", "BUTT", "3.0").', 'Clear the search field or try other terms (e.g. "Vertical", "BUTT", "3.0").'),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Theme.of(context).colorScheme.outline),
+                      ),
+                      if (query.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: () {
+                            _q.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.clear),
+                          label: Text(_tr('Wyczyść', 'Clear')),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             for (final p in filtered)
               Card(
                 child: ListTile(
@@ -491,6 +540,43 @@ class _TandemResultCard extends StatelessWidget {
   final _TandemResult result;
   const _TandemResultCard({required this.result});
 
+  void _showFormulaInfo(BuildContext context) {
+    final isEn = AppLanguageController.isEnglish;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isEn ? 'How is this calculated?' : 'Skąd wynik?'),
+        content: SingleChildScrollView(
+          child: Text(
+            isEn
+                ? 'Tandem TIG (2 welders) on SS tanks. Units: amps [A], thickness [mm].\n\n'
+                    '1) Effective thickness: t = max(t1, t2).\n'
+                    '2) If an approved entry matches exactly (position, joint, t1/t2, land, gap) -> its OUT/IN amps are used as-is.\n'
+                    '3) Horizontal without exact match -> linear interpolation by t between two nearest approved points.\n'
+                    '4) Vertical BUTT without exact match -> compute Horizontal first, then scale: OUT x (70/138), IN x (40/68) — anchored at 3/3 mm reference (H 138/68 A, V 70/40 A).\n'
+                    '5) Final fallback (no approved data): linear x = t/3 from 3/3 reference (H 137.5/67.5, V 70/40).\n'
+                    '6) All results are clamped to 15-260 A.\n\n'
+                    'OUT = wire-fed outer torch (higher current). IN = inner torch without wire (lower current).'
+                : 'Tandem TIG (2 spawaczy) na zbiornikach SS. Jednostki: amper [A], grubosc [mm].\n\n'
+                    '1) Grubosc efektywna: t = max(t1, t2).\n'
+                    '2) Jesli istnieje zatwierdzony wpis dokladnie pasujacy (pozycja, zlacze, t1/t2, land, szczelina) -> jego pradow OUT/IN uzywamy wprost.\n'
+                    '3) Poziom bez dokladnego wpisu -> interpolacja liniowa po t miedzy dwoma najblizszymi zatwierdzonymi punktami.\n'
+                    '4) Pion BUTT bez dokladnego wpisu -> najpierw liczymy Poziom, potem skalujemy: OUT x (70/138), IN x (40/68) — odniesienie 3/3 mm (Poziom 138/68 A, Pion 70/40 A).\n'
+                    '5) Ostateczny fallback (brak zatwierdzonych): liniowo x = t/3 od 3/3 (Poziom 137.5/67.5, Pion 70/40).\n'
+                    '6) Wyniki sa ograniczane do 15-260 A.\n\n'
+                    'Zewn. = palnik zewnetrzny z drutem (wiekszy prad). Wewn. = palnik wewnetrzny bez drutu (mniejszy).',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(isEn ? 'OK' : 'OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -499,6 +585,11 @@ class _TandemResultCard extends StatelessWidget {
           '${context.tr(pl: 'Zewnętrzny', en: 'Outside')}: ${result.outsideA.toStringAsFixed(0)} A   |   ${context.tr(pl: 'Wewnętrzny', en: 'Inside')}: ${result.insideA.toStringAsFixed(0)} A',
         ),
         subtitle: Text(result.source),
+        trailing: IconButton(
+          icon: const Icon(Icons.info_outline),
+          tooltip: context.tr(pl: 'Jak liczymy ten wynik?', en: 'How is this calculated?'),
+          onPressed: () => _showFormulaInfo(context),
+        ),
       ),
     );
   }

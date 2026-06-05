@@ -479,11 +479,14 @@ class _SuggestionStrip extends StatelessWidget {
       context.tr(pl: 'Moment śrub flange 4" Class 300', en: 'Bolt torque 4" Class 300 flange'),
       context.tr(pl: 'Jak zrobić saddle cut?', en: 'How to do a saddle cut?'),
     ];
-    return SizedBox(
-      height: 50,
+    // Glove-friendly: strip height + chip vertical padding bumped so each
+     // suggestion chip exposes a >=48dp tap target (was ~38dp, missed gloved
+     // fingertips). Horizontal padding also raised slightly for the same reason.
+     return SizedBox(
+      height: 64,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         itemCount: suggestions.length,
         itemBuilder: (context, i) {
           return Padding(
@@ -491,11 +494,12 @@ class _SuggestionStrip extends StatelessWidget {
             child: GestureDetector(
               onTap: () => onPick(suggestions[i]),
               child: Container(
+                constraints: const BoxConstraints(minHeight: 48),
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: _kCard,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(color: _kBorder),
                 ),
                 alignment: Alignment.center,

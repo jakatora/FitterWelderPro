@@ -47,7 +47,20 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
     if (rise <= 0 || spread <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Wpisz Rise i Spread > 0', en: 'Enter Rise and Spread > 0')),
+        content: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(context.tr(pl: 'Wpisz Rise i Spread > 0', en: 'Enter Rise and Spread > 0')),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: context.tr(pl: 'OK', en: 'OK'),
+          onPressed: () {},
+        ),
       ));
       return;
     }
@@ -72,6 +85,37 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     setState(() {});
   }
 
+  // Dirty when fitter has typed Rise/Spread/custom-angle but not yet copied results.
+  // Accidental swipe-back in gloves would silently wipe the input.
+  bool get _isDirty =>
+      _riseController.text.trim().isNotEmpty ||
+      _spreadController.text.trim().isNotEmpty ||
+      _customAngleController.text.trim().isNotEmpty;
+
+  Future<bool> _confirmDiscard() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr(pl: 'Porzucić dane?', en: 'Discard inputs?')),
+        content: Text(context.tr(
+          pl: 'Wpisane Rise, Spread i kąt zostaną utracone.',
+          en: 'Entered Rise, Spread and angle will be lost.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.tr(pl: 'Wróć do edycji', en: 'Keep editing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(context.tr(pl: 'Porzuć', en: 'Discard')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
   @override
   void dispose() {
     for (final c in [
@@ -86,7 +130,15 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final discard = await _confirmDiscard();
+        if (discard && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
         actions: [HelpButton(help: kHelpRollingOffset)],
@@ -171,6 +223,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

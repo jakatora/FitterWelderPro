@@ -27,12 +27,66 @@ class WelderMenuScreen extends StatelessWidget {
       ),
       body: Padding(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
-        child: GridView.count(
-          crossAxisCount: MediaQuery.of(context).size.width >= 800 ? 4 : 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.1,
-          children: [
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFA726).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFFA726).withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lightbulb_outline, size: 18, color: Color(0xFFFFA726)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.tr(pl: 'SPRÓBUJ TEGO', en: 'TRY THIS'),
+                              style: const TextStyle(
+                                color: Color(0xFFFFA726),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              context.tr(
+                                pl: 'Zacznij od Checklisty przed spawaniem — 1 min, zero ryzyka.',
+                                en: 'Start with Pre-weld checklist — 1 min, zero risk.',
+                              ),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const PreWeldChecklistScreen()),
+                        ),
+                        child: Text(context.tr(pl: 'Otwórz', en: 'Open')),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: MediaQuery.of(context).size.width >= 800 ? 4 : 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.1,
+              ),
+              delegate: SliverChildListDelegate([
             _Tile(
               icon: Icons.oil_barrel_outlined,
               title: context.tr(pl: 'Rury', en: 'Pipes'),
@@ -116,6 +170,8 @@ class WelderMenuScreen extends StatelessWidget {
               subtitle: context.tr(pl: 'Preheat z chemii • PRO', en: 'Preheat from chemistry • PRO'),
               accentColor: const Color(0xFFE8C14B),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HeatInputScreen())),
+            ),
+              ]),
             ),
           ],
         ),

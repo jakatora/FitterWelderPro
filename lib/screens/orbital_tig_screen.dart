@@ -223,7 +223,7 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () {
+                onPressed: () async {
                   final od = _p(_od.text);
                   final wall = _p(_wall.text);
                   final v = _p(_volts.text) ?? 10;
@@ -234,17 +234,33 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
                       pl: 'L1 ${e.levelCurrentA[0].toStringAsFixed(0)}A · L2 ${e.levelCurrentA[1].toStringAsFixed(0)}A · L3 ${e.levelCurrentA[2].toStringAsFixed(0)}A · L4 ${e.levelCurrentA[3].toStringAsFixed(0)}A',
                       en: 'L1 ${e.levelCurrentA[0].toStringAsFixed(0)}A · L2 ${e.levelCurrentA[1].toStringAsFixed(0)}A · L3 ${e.levelCurrentA[2].toStringAsFixed(0)}A · L4 ${e.levelCurrentA[3].toStringAsFixed(0)}A');
                   final geo = context.tr(
-                      pl: 'Obwod ${e.circumferenceMm.toStringAsFixed(1)} mm · v=${e.travelSpeedMmMin.toStringAsFixed(0)} mm/min · t=${e.weldTimeSec.toStringAsFixed(1)} s · ${e.passes} przejscia · Q=${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm',
+                      pl: 'Obwód ${e.circumferenceMm.toStringAsFixed(1)} mm · v=${e.travelSpeedMmMin.toStringAsFixed(0)} mm/min · t=${e.weldTimeSec.toStringAsFixed(1)} s · ${e.passes} przejścia · Q=${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm',
                       en: 'Circ ${e.circumferenceMm.toStringAsFixed(1)} mm · v=${e.travelSpeedMmMin.toStringAsFixed(0)} mm/min · t=${e.weldTimeSec.toStringAsFixed(1)} s · ${e.passes} passes · Q=${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm');
                   final trace = _trace.text.trim();
                   final traceLine = trace.isEmpty
                       ? ''
                       : '\n${context.tr(pl: 'Stempel/WPS', en: 'Stamp/WPS')}: $trace';
-                  copyToClipboard(
-                    context,
-                    '$header\n$lvl\n$geo$traceLine',
-                    label: context.tr(pl: 'Parametry', en: 'Parameters'),
-                  );
+                  // Guard the platform-channel clipboard call: on some devices
+                  // (locked screens, restricted profiles) Clipboard.setData can
+                  // throw and would otherwise surface as an unhandled async
+                  // error in the gesture handler.
+                  try {
+                    await copyToClipboard(
+                      context,
+                      '$header\n$lvl\n$geo$traceLine',
+                      label: context.tr(pl: 'Parametry', en: 'Parameters'),
+                    );
+                  } catch (_) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(SnackBar(
+                        content: Text(context.tr(
+                            pl: 'Nie udało się skopiować do schowka',
+                            en: 'Could not copy to clipboard')),
+                        duration: const Duration(milliseconds: 1400),
+                      ));
+                  }
                 },
                 icon: const Icon(Icons.copy_all_outlined, size: 18),
                 label: Text(context.tr(

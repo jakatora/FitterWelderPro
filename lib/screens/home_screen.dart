@@ -254,26 +254,70 @@ class _HomeScreenState extends State<HomeScreen> {
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: _kCard,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _kBorder),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.folder_open_outlined,
-                          color: _kTextMut, size: 28),
-                      const SizedBox(width: 14),
-                      Text(
-                        context.tr(
-                            pl: 'Brak projektów — zacznij w FITTER → CUT LIST',
-                            en: 'No projects yet — start in FITTER → CUT LIST'),
-                        style: const TextStyle(
-                            color: _kTextMut, fontSize: 13),
-                      ),
-                    ],
+                // First-time UX: tappable coaching callout — taps open FITTER
+                // menu directly so a brand-new user has a 1-tap path to value.
+                child: GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const FitterMenuScreen()),
+                  ).then((_) => _load()),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _kCard,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: _kOrange.withValues(alpha: 0.35), width: 1),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: _kOrange.withValues(alpha: 0.13),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.auto_awesome,
+                              color: _kOrange, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.tr(
+                                    pl: 'Spróbuj tego',
+                                    en: 'Try this'),
+                                style: const TextStyle(
+                                  color: _kOrange,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                context.tr(
+                                    pl: 'Otwórz FITTER → CUT LIST i dodaj '
+                                        'pierwszy segment rury. Zajmuje 30 s.',
+                                    en: 'Open FITTER → CUT LIST and add your '
+                                        'first pipe segment. Takes 30 s.'),
+                                style: const TextStyle(
+                                    color: Color(0xFFE8ECF0),
+                                    fontSize: 13,
+                                    height: 1.3),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(Icons.chevron_right,
+                            size: 20, color: _kOrange),
+                      ],
+                    ),
                   ),
                 ),
               )
@@ -646,8 +690,24 @@ class _ProjectTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Ø${project.diameterMm.toStringAsFixed(1)} mm  ·  '
-                    't ${project.wallThicknessMm.toStringAsFixed(1)} mm',
+                    // Edge-case: brand-new projects start at 0/0, and a bad
+                    // DB row could carry NaN/Infinity. Either way, rendering
+                    // "Ø0.0 mm · t 0.0 mm" / "ØNaN mm" on the tile is noise
+                    // for a fitter scanning the recent list — show a dash.
+                    () {
+                      final d = project.diameterMm;
+                      final t = project.wallThicknessMm;
+                      final dOk = d.isFinite && d > 0;
+                      final tOk = t.isFinite && t > 0;
+                      if (!dOk && !tOk) {
+                        return context.tr(
+                            pl: 'Wymiary nieustawione',
+                            en: 'Dimensions not set');
+                      }
+                      final dStr = dOk ? d.toStringAsFixed(1) : '—';
+                      final tStr = tOk ? t.toStringAsFixed(1) : '—';
+                      return 'Ø$dStr mm  ·  t $tStr mm';
+                    }(),
                     style: const TextStyle(
                         fontSize: 12, color: _kTextMut),
                   ),

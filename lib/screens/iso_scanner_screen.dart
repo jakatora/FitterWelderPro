@@ -106,17 +106,39 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
   }
 
   Future<void> _pickImage() async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    final path = res?.files.single.path;
-    if (!mounted || path == null) return;
-    setState(() {
-      _imagePath = path;
-      _aiStatus = null;
-      _lastScan = null; // a new photo invalidates the previous AI read
-    });
+    // File picker can throw on Android (permission denied, security
+    // exception, OEM picker crash) or iOS (PhotoKit not authorised). Without
+    // a catch the tap silently does nothing and the fitter is stuck staring
+    // at the empty state with no idea why — offer a Retry instead.
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      final path = res?.files.single.path;
+      if (!mounted || path == null) return;
+      setState(() {
+        _imagePath = path;
+        _aiStatus = null;
+        _lastScan = null; // a new photo invalidates the previous AI read
+      });
+    } catch (_) {
+      await Haptic.error();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_tr(
+            'Nie udało się otworzyć galerii. Sprawdź uprawnienia do zdjęć.',
+            'Could not open the gallery. Check photo permissions.',
+          )),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: _tr('Ponów', 'Retry'),
+            onPressed: _pickImage,
+          ),
+        ),
+      );
+    }
   }
 
   // ── AI analysis ─────────────────────────────────────────────────────────
@@ -448,9 +470,68 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 4)),
+    // Tune dwell to message length so a glanced glove-tap doesn't dismiss a
+    // long error before the fitter has read it (≈18 chars/sec, 4-9s window).
+    final secs = (msg.length / 18).ceil().clamp(4, 9);
+    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: _kRed, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(msg)),
+          ],
+        ),
+        duration: Duration(seconds: secs),
+        action: SnackBarAction(
+          label: _tr('Zamknij', 'Dismiss'),
+          onPressed: messenger.hideCurrentSnackBar,
+        ),
+      ),
     );
+  }
+
+  // Dirty when the fitter has a photo loaded, an AI scan result, a project
+  // name, or any typed segment data. Accidental swipe-back on a shop-floor
+  // phone (especially after a 30-90s AI scan that cost a Vision API call)
+  // would silently wipe everything.
+  bool get _isDirty {
+    if (_imagePath != null) return true;
+    if (_lastScan != null) return true;
+    if (_projectName.text.trim().isNotEmpty) return true;
+    for (final s in _segments) {
+      if (s.iso.text.trim().isNotEmpty) return true;
+      for (final d in s.deducts) {
+        if (d.name.text.trim().isNotEmpty) return true;
+        if (d.value.text.trim().isNotEmpty) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<bool> _confirmDiscard() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_tr('Porzucić skan?', 'Discard scan?')),
+        content: Text(_tr(
+          'Zdjęcie, wynik AI i wpisane wymiary zostaną utracone.',
+          'The photo, AI result and entered dimensions will be lost.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_tr('Wróć', 'Back')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(_tr('Porzuć', 'Discard')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   void _addSegment() {
@@ -553,7 +634,15 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
   }
 
   Widget _buildScannerScaffold(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_isDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final discard = await _confirmDiscard();
+        if (discard && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_tr('Skaner izometryku', 'Isometric scanner')),
         actions: [
@@ -736,6 +825,7 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -1320,7 +1410,12 @@ class _SegmentCard extends StatelessWidget {
                             (parsed < 0 || parsed > 5000);
                         return TextField(
                           controller: segment.deducts[k].value,
-                          keyboardType: TextInputType.text,
+                          // Deducts are typically a single mm value (gasket,
+                          // fitting allowance). Number pad keeps gloved entry
+                          // fast; parser already accepts both "," and "."
+                          // so the locale comma key on Android works too.
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true),
                           decoration: InputDecoration(
                             isDense: true,
                             hintText: '76',

@@ -143,6 +143,41 @@ class _MyParamsTabState extends State<_MyParamsTab> {
             return const Center(child: CircularProgressIndicator());
           }
 
+          // Error UI: DB read can fail (locked file, schema migration, etc.).
+          // Without this branch the welder would just see "No saved entries"
+          // and lose their data with no recovery path on a noisy shop floor.
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+                    const SizedBox(height: 12),
+                    Text(
+                      _tr('Nie udalo sie wczytac zapisanych parametrow.', 'Could not load saved parameters.'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${snap.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => setState(() => _refresh()),
+                      icon: const Icon(Icons.refresh),
+                      label: Text(_tr('Sprobuj ponownie', 'Retry')),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           if (items.isEmpty) {
             return Center(
               child: Text(_tr('Brak zapisanych pozycji. Dodaj swoje parametry (plus).', 'No saved entries. Add your own parameters (plus button).')),
@@ -250,10 +285,56 @@ class _MyParamsTabState extends State<_MyParamsTab> {
       return null;
     }
 
+    // Snapshot of the defaults so an accidental back-gesture only prompts when
+    // the welder has actually typed something — gloves on a phone make
+    // re-entering the whole form a punishment.
+    final initialSnapshot = <String>[
+      diameterCtrl.text, wallCtrl.text, welderModelCtrl.text,
+      torchGasCtrl.text, nozzleTypeCtrl.text, nozzleSizeCtrl.text,
+      purgeCtrl.text, ampsCtrl.text, noteCtrl.text, outletHolesCtrl.text,
+    ];
+    bool isDirty() {
+      final now = <String>[
+        diameterCtrl.text, wallCtrl.text, welderModelCtrl.text,
+        torchGasCtrl.text, nozzleTypeCtrl.text, nozzleSizeCtrl.text,
+        purgeCtrl.text, ampsCtrl.text, noteCtrl.text, outletHolesCtrl.text,
+      ];
+      for (var i = 0; i < now.length; i++) {
+        if (now[i] != initialSnapshot[i]) return true;
+      }
+      return false;
+    }
+
     return showDialog<bool>(
       context: context,
       builder: (ctx) {
-        return AlertDialog(
+        return PopScope(
+          canPop: !isDirty(),
+          onPopInvokedWithResult: (didPop, result) async {
+            if (didPop) return;
+            final discard = await showDialog<bool>(
+              context: ctx,
+              builder: (dctx) => AlertDialog(
+                title: Text(_tr('Porzucić zmiany?', 'Discard changes?')),
+                content: Text(_tr(
+                  'Wpisane parametry zostaną utracone.',
+                  'The parameters you entered will be lost.',
+                )),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dctx, false),
+                    child: Text(_tr('Wróć do edycji', 'Keep editing')),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(dctx, true),
+                    child: Text(_tr('Porzuć', 'Discard')),
+                  ),
+                ],
+              ),
+            );
+            if (discard == true && ctx.mounted) Navigator.pop(ctx, false);
+          },
+          child: AlertDialog(
           title: Text(_tr('Moje parametry - dodaj', 'My parameters - add')),
           content: SizedBox(
             width: 520,
@@ -296,7 +377,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: diameterCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: InputDecoration(labelText: _tr('Średnica rury OD [mm]', 'Pipe OD [mm]')),
                           ),
                         ),
@@ -441,6 +522,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
               child: Text(_tr('Zapisz', 'Save')),
             ),
           ],
+        ),
         );
       },
     );
@@ -1101,8 +1183,33 @@ class _GasTabState extends State<_GasTab> {
   Timer? _timer;
   int _remainingSeconds = 0;
   bool _timerRunning = false;
+  double _lastTimerMinutes = 0;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  void _showPrePurgeDoneSnack() {
+    if (!mounted) return;
+    final msg = _tr('Pre-purge: czas minął.', 'Pre-purge: time is up.');
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Row(children: [
+        const Icon(Icons.check_circle, color: Colors.white, size: 20),
+        const SizedBox(width: 8),
+        Expanded(child: Text(msg)),
+      ]),
+      backgroundColor: Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 6),
+      action: (_lastTimerMinutes > 0)
+          ? SnackBarAction(
+              label: _tr('Powtórz', 'Restart'),
+              textColor: Colors.white,
+              onPressed: () => _startTimerFromMinutes(_lastTimerMinutes),
+            )
+          : null,
+    ));
+  }
 
   @override
   void dispose() {
@@ -1341,6 +1448,7 @@ class _GasTabState extends State<_GasTab> {
 
   void _startTimerFromMinutes(double minutes) {
     final seconds = (minutes * 60).ceil();
+    _lastTimerMinutes = minutes;
     setState(() {
       _remainingSeconds = seconds;
       _timerRunning = true;
@@ -1353,7 +1461,7 @@ class _GasTabState extends State<_GasTab> {
           _remainingSeconds = 0;
           _timerRunning = false;
           t.cancel();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr('Pre-purge: czas minął.', 'Pre-purge: time is up.'))));
+          _showPrePurgeDoneSnack();
         } else {
           _remainingSeconds -= 1;
         }
@@ -1377,7 +1485,7 @@ class _GasTabState extends State<_GasTab> {
           _remainingSeconds = 0;
           _timerRunning = false;
           t.cancel();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_tr('Pre-purge: czas minął.', 'Pre-purge: time is up.'))));
+          _showPrePurgeDoneSnack();
         } else {
           _remainingSeconds -= 1;
         }

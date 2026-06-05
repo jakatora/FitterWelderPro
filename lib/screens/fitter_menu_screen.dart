@@ -33,7 +33,7 @@ class FitterMenuScreen extends StatelessWidget {
       body: Padding(
         padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
         child: GridView.count(
-          crossAxisCount: MediaQuery.of(context).size.width >= 800 ? 4 : 2,
+          crossAxisCount: MediaQuery.sizeOf(context).width >= 800 ? 4 : 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
           childAspectRatio: 1.1,
@@ -157,7 +157,7 @@ class FitterMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.grid_on,
               title: context.tr(pl: 'Zeszyt ISO', en: 'ISO Notebook'),
-              subtitle: context.tr(pl: 'Rysuj trasy rur na siatce ISO', en: 'Draw pipe routes on ISO grid'),
+              subtitle: context.tr(pl: 'Trasy + nr linii na siatce ISO', en: 'Routes + line tags on ISO grid'),
               accentColor: const Color(0xFF5C6BC0),
               onTap: () => Navigator.push(
                 context,

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -35,7 +36,19 @@ class IsoPdfExport {
     final pdfImage = pw.MemoryImage(pngBytes);
 
     // 2. Build the PDF.
-    final doc = pw.Document();
+    // Bundled Roboto with full Latin-2 coverage so Polish chars (ą/ć/ę/ł/ń/ó
+    // /ś/ź/ż) and engineering glyphs render correctly. The default Helvetica
+    // shipped with the `pdf` package is Latin-1 only — that's why prior
+    // exports rendered Polish text as blank boxes / missing glyphs.
+    final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final baseFont = pw.Font.ttf(fontBytes);
+    final theme = pw.ThemeData.withFont(
+      base: baseFont,
+      bold: baseFont,
+      italic: baseFont,
+      boldItalic: baseFont,
+    );
+    final doc = pw.Document(theme: theme);
     final now = DateTime.now();
     final stamp = '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'

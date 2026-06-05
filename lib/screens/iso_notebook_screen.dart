@@ -561,6 +561,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   static const String _kAxisCompassPref = 'iso_notebook_show_axis_compass';
   static const String _kStatusBoxPref = 'iso_notebook_show_status_box';
   static const String _kPaperModePref = 'iso_notebook_paper_mode';
+  static const String _kAxisLockPref = 'iso_notebook_axis_lock';
 
   final List<_Item> _items = [];
   final List<List<_Item>> _undo = [];
@@ -631,6 +632,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       _showAxisCompass = prefs.getBool(_kAxisCompassPref) ?? true;
       _showStatusBox = prefs.getBool(_kStatusBoxPref) ?? true;
       _paperMode = prefs.getBool(_kPaperModePref) ?? false;
+      _axisLock = prefs.getBool(_kAxisLockPref) ?? true;
       _hintLoaded = true;
     });
   }
@@ -657,6 +659,14 @@ class _IsoState extends State<IsoNotebookScreen> {
     setState(() => _paperMode = v);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPaperModePref, v);
+  }
+
+  /// A welder doing mostly sloped drain falls turns axis-lock off once and
+  /// expects it to stay off — persist across launches.
+  Future<void> _setAxisLock(bool v) async {
+    setState(() => _axisLock = v);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAxisLockPref, v);
   }
 
   /// When true (default), pipes get axis-locked to the nearest iso axis from
@@ -873,18 +883,30 @@ class _IsoState extends State<IsoNotebookScreen> {
 
       if (count == 2) {
         if (hasExisting) continue;
-        // Two-pipe junction → elbow. Re-derive angle vs leg pair so we can
-        // still pick 45° for shallow bends.
-        final v1 = _outgoing(touching[0], endpoint);
-        final v2 = _outgoing(touching[1], endpoint);
-        final dot = v1.dx * v2.dx + v1.dy * v2.dy;
-        final cosA = (dot / (v1.distance * v2.distance)).clamp(-1.0, 1.0);
-        final angleDeg = math.acos(cosA) * 180 / math.pi;
-        if (angleDeg < 100 || angleDeg > 170) continue;
-        final elbowKind =
-            angleDeg <= 140 ? _Tool.elbow90 : _Tool.elbow45;
+        // Robust rule (2026-06-04): every iso-axis CHANGE at a 2-pipe
+        // junction is a 90° elbow in the real world, no matter the on-paper
+        // pixel angle. The legs are already snapped to one of the 6 hex iso
+        // headings; the only "no elbow" case is when the two headings are
+        // opposite (|diff| == 3), meaning the pipe runs straight through.
+        // Same heading on both pipes (overlap) was already filtered out by
+        // the duplicate-leg check above. 45° elbows are NOT auto-detected —
+        // they require a slope decision and stay manual.
+        final diff = (legs[0] - legs[1]).abs();
+        if (diff == 3) continue;
         _mutate(() {
-          _items.add(_Comp(endpoint, elbowKind, dir: legs[0], dir2: legs[1]));
+          var newElbow = _Comp(endpoint, _Tool.elbow90,
+              dir: legs[0], dir2: legs[1]);
+          // Apply the last-known DN+CTE for elbow90 so a prefab job with
+          // a single DN gets every auto-inserted elbow already specced.
+          final cached = _autoFillFor(_Tool.elbow90);
+          if (cached != null) {
+            newElbow = newElbow.withElbowSpec(
+              dn: cached.dn,
+              subtype: _ElbowSubtype.lr90,
+              cte: cached.value,
+            );
+          }
+          _items.add(newElbow);
           _addAutoWeldsAt(endpoint, [legs[0], legs[1]]);
         });
       } else {
@@ -1829,8 +1851,13 @@ class _IsoState extends State<IsoNotebookScreen> {
     int dn = comp.dn ?? 50;
     _ElbowSubtype subtype = comp.elbowSubtype ??
         (comp.t == _Tool.elbow45 ? _ElbowSubtype.lr45 : _ElbowSubtype.lr90);
-    final cteCtrl = TextEditingController(
-        text: (comp.cteMm ?? _stdCte(dn, subtype)).toString());
+    // Pre-fill priority: (1) value already on this elbow, (2) per-drawing
+    // (_Tool, DN) cache so the fitter only types CTE once per size, (3)
+    // standard ASME table value. Saves a typing pass on prefab jobs that
+    // have a dozen DN50 LR 90 elbows.
+    final initialCte =
+        comp.cteMm ?? _recallCompDim(comp.t, dn) ?? _stdCte(dn, subtype);
+    final cteCtrl = TextEditingController(text: initialCte.toString());
 
     void refillCte() {
       cteCtrl.text = _stdCte(dn, subtype).toString();
@@ -2012,6 +2039,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       return;
     }
     final cteParsed = int.tryParse(cteCtrl.text.trim()) ?? _stdCte(dn, subtype);
+    _rememberCompDim(comp.t, dn, cteParsed);
     _mutate(() => _items[idx] = comp.withElbowSpec(
           dn: dn,
           subtype: subtype,
@@ -2671,6 +2699,37 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// [_lastCatalogDn] (so common DN=100 jobs don't need re-picking).
   int _lastCatalogDn = 50;
 
+  /// (_Tool, DN) → CTE / physicalLengthMm cache for THIS drawing.
+  /// Every time the fitter enters a CTE for an elbow DN50, every subsequent
+  /// elbow DN50 placed in the same session auto-fills with that value. Same
+  /// for physical components (reducer 76, valve 178…). Drops the "type the
+  /// same number for every elbow" friction — a real prefab job has dozens of
+  /// DN50 LR 90 elbows and the take-out is the same for all of them.
+  final Map<(_Tool, int), int> _compDimCache = {};
+
+  /// Last DN actually entered for each component class — so an auto-inserted
+  /// elbow can pre-apply the cached spec for that DN. Without this we'd
+  /// know the elbow has cached values but not which DN to look up.
+  final Map<_Tool, int> _lastDnByTool = {};
+
+  void _rememberCompDim(_Tool t, int dn, int value) {
+    if (dn <= 0 || value <= 0) return;
+    _compDimCache[(t, dn)] = value;
+    _lastDnByTool[t] = dn;
+  }
+
+  int? _recallCompDim(_Tool t, int dn) => _compDimCache[(t, dn)];
+
+  /// Returns the cached (DN, CTE) for [t] using the last DN the fitter
+  /// typed — null if no value has been entered for this tool class yet.
+  ({int dn, int value})? _autoFillFor(_Tool t) {
+    final dn = _lastDnByTool[t];
+    if (dn == null) return null;
+    final v = _compDimCache[(t, dn)];
+    if (v == null) return null;
+    return (dn: dn, value: v);
+  }
+
   Future<TakeoutEntry?> _pickFromCatalog(BuildContext outer) async {
     final dn = await showModalBottomSheet<int>(
       context: outer,
@@ -3012,7 +3071,128 @@ class _IsoState extends State<IsoNotebookScreen> {
             '${_pad(r.description, 18)} ${_pad(r.dn, 6)} ${_pad(r.spec, 5)}');
       }
     }
+
+    // Pipeline walk — narrative-style trace from open end through each
+    // segment + component to the other end. Matches how a real fabricator
+    // reads an iso (start at one tie-in, walk the run). Helps the fitter
+    // confirm the drawing was interpreted correctly before cutting.
+    final walk = _pipelineWalkLines();
+    if (walk.isNotEmpty) {
+      lines.add('');
+      lines.addAll(walk);
+    }
+
     return lines;
+  }
+
+  /// Walk the pipeline graph from an open end. Returns formatted text lines
+  /// — empty if the iso has no pipes or no walkable open end (e.g. it's a
+  /// closed loop, which is unusual for industrial fabrication).
+  List<String> _pipelineWalkLines() {
+    final isPl = context.language == AppLanguage.pl;
+    final pipes = _pipes;
+    if (pipes.isEmpty) return const [];
+    final tol = _s * 0.45;
+
+    // Count pipes touching every endpoint. An "open end" has count == 1.
+    int touchCount(Offset p) {
+      int c = 0;
+      for (final pipe in pipes) {
+        if ((pipe.a - p).distance < tol) c++;
+        if ((pipe.b - p).distance < tol) c++;
+      }
+      return c;
+    }
+
+    Offset? start;
+    _Seg? startPipe;
+    for (final pipe in pipes) {
+      if (touchCount(pipe.a) == 1) { start = pipe.a; startPipe = pipe; break; }
+      if (touchCount(pipe.b) == 1) { start = pipe.b; startPipe = pipe; break; }
+    }
+    // No open end → likely a closed loop. Fall back to first pipe's `a`
+    // so the user still sees a walk; numbering will reflect the loop order.
+    start ??= pipes.first.a;
+    startPipe ??= pipes.first;
+
+    _Comp? compAt(Offset p) {
+      for (final it in _items) {
+        if (it is! _Comp) continue;
+        if (it.t.isWeld) continue;
+        if (it.t == _Tool.northArrow ||
+            it.t == _Tool.flowArrow ||
+            it.t == _Tool.text) {
+          continue;
+        }
+        if ((it.pos - p).distance < tol) return it;
+      }
+      return null;
+    }
+
+    final visited = <_Seg>{};
+    final out = <String>[];
+    out.add('  ${isPl ? "TRASA RUROCIĄGU" : "PIPELINE WALK"}');
+    out.add('  ${'=' * 44}');
+    out.add('  START  →  ${_walkPointLabel(start, isPl, "open end", "otwarty koniec")}');
+
+    Offset current = start;
+    _Seg? nextPipe = startPipe;
+    int step = 0;
+    const maxSteps = 500;
+    while (nextPipe != null && step < maxSteps) {
+      step++;
+      visited.add(nextPipe);
+      final other = (nextPipe.a - current).distance < tol
+          ? nextPipe.b
+          : nextPipe.a;
+
+      final cut = _resolvedCut(nextPipe);
+      final dn = _inferredDnFor(nextPipe);
+      final cutStr = cut.isFinite ? '${cut.toStringAsFixed(0)} mm' : '—';
+      final dnTag = dn != null ? '·DN$dn ' : '';
+      out.add('  $step.  pipe  ${dnTag}cut=$cutStr');
+
+      // Component at the next endpoint?
+      final comp = compAt(other);
+      if (comp != null) {
+        final name = compName(comp.t, isPl);
+        final compDn = comp.dn != null ? ' DN${comp.dn}' : '';
+        final extra = comp.isElbow && comp.cteMm != null
+            ? ' (CTE ${comp.cteMm} mm)'
+            : (!comp.isElbow && comp.physicalLengthMm != null
+                ? ' (L ${comp.physicalLengthMm} mm)'
+                : '');
+        out.add('       →  $name$compDn$extra');
+      }
+
+      // Find next pipe from `other`, skipping already-visited.
+      _Seg? next;
+      for (final p in pipes) {
+        if (visited.contains(p)) continue;
+        if ((p.a - other).distance < tol || (p.b - other).distance < tol) {
+          next = p;
+          break;
+        }
+      }
+      if (next == null) {
+        out.add('  END  →  ${_walkPointLabel(other, isPl, "open end", "otwarty koniec")}');
+        break;
+      }
+      current = other;
+      nextPipe = next;
+    }
+    return out;
+  }
+
+  String _walkPointLabel(Offset p, bool isPl, String enFallback, String plFallback) {
+    final tol = _s * 0.45;
+    for (final it in _items) {
+      if (it is! _Comp) continue;
+      if ((it.pos - p).distance >= tol) continue;
+      if (it.t == _Tool.northArrow || it.t == _Tool.flowArrow) continue;
+      return compName(it.t, isPl);
+    }
+    return isPl ? plFallback : enFallback;
   }
 
   /// Left-pad / clip a string to exactly [width] visible chars so the
@@ -3465,9 +3645,16 @@ class _IsoState extends State<IsoNotebookScreen> {
     final compControllers = <_Comp, TextEditingController>{
       for (final c in compsNeedingData)
         c: TextEditingController(
+          // Pre-fill priority: value already on component, then per-drawing
+          // cache (so a fitter who entered 76 mm for the first DN50 elbow
+          // doesn't retype it for the next twenty), then blank.
           text: c.isElbow
-              ? (c.cteMm?.toString() ?? '')
-              : (c.physicalLengthMm?.toString() ?? ''),
+              ? (c.cteMm?.toString() ??
+                  _recallCompDim(c.t, c.dn ?? 50)?.toString() ??
+                  '')
+              : (c.physicalLengthMm?.toString() ??
+                  _recallCompDim(c.t, c.dn ?? 50)?.toString() ??
+                  ''),
         ),
     };
 
@@ -3513,15 +3700,19 @@ class _IsoState extends State<IsoNotebookScreen> {
             final idx = _items.indexOf(entry.key);
             if (idx < 0) continue;
             final c = entry.key;
+            final dn = c.dn ?? 50;
+            // Cache the value so any other same-(type, DN) components
+            // placed later in this session pre-fill with it.
+            _rememberCompDim(c.t, dn, v);
             if (c.isElbow) {
               _items[idx] = c.withElbowSpec(
-                dn: c.dn ?? 50,
+                dn: dn,
                 subtype: c.elbowSubtype ?? _ElbowSubtype.lr90,
                 cte: v,
               );
             } else {
               _items[idx] = c.withPhysicalSpec(
-                dn: c.dn ?? 50,
+                dn: dn,
                 dnOut: c.dnOut,
                 physicalLengthMm: v,
                 endA: c.endA,
@@ -3716,6 +3907,9 @@ class _IsoState extends State<IsoNotebookScreen> {
     (prefix: 'ACT',
         pl: 'Napęd zaworu — chip z symbolem siłownika (M/MOV/PV/EHV)',
         en: 'Valve actuator — chip with actuator glyph (M/MOV/PV/EHV)'),
+    (prefix: 'HOLD / H#',
+        pl: 'Wstrzymanie — czerwony heksagon z "H" obok wiadomości (nie spawać!)',
+        en: 'Hold flag — red hexagon with "H" beside the note (do not fabricate)'),
   ];
 
   void _showNotePrefixHelp(BuildContext context) {
@@ -3910,7 +4104,7 @@ class _IsoState extends State<IsoNotebookScreen> {
             // never see what the lock actually changed. A short SnackBar
             // names the new mode and explains the practical effect.
             onPressed: () {
-              setState(() => _axisLock = !_axisLock);
+              _setAxisLock(!_axisLock);
               ScaffoldMessenger.of(context)
                 ..hideCurrentSnackBar()
                 ..showSnackBar(SnackBar(
@@ -4229,7 +4423,9 @@ class _Toolbar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
           decoration: BoxDecoration(
             color: sel ? cs.primaryContainer : Colors.transparent,
-            borderRadius: BorderRadius.circular(20),
+            // const-hoisted: chip radius is fixed, avoid 24x BorderRadius
+            // re-allocations per toolbar rebuild.
+            borderRadius: const BorderRadius.all(Radius.circular(20)),
             border: Border.all(
               color: sel ? cs.primary : cs.outlineVariant,
               width: sel ? 1.5 : 1.0,
@@ -4647,59 +4843,83 @@ class _Painter extends CustomPainter {
       ..color = _gridColor
       ..strokeWidth = 0.65;
 
-    for (double y = 0; y <= size.height + dy; y += dy) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    // World-space bounds of the currently-visible canvas. The painter was
+    // already transformed (translate + scale) before _drawGrid runs, so we
+    // paint in world coords here. Drawing the grid over [wL..wR] × [wT..wB]
+    // — instead of the screen-fixed [0..w] × [0..h] — fills the entire
+    // visible area no matter how far the user has panned or zoomed out.
+    // A small margin (one grid step) ensures lines don't visibly clip at
+    // the viewport edge when the user pans mid-render.
+    final wL = -viewOffset.dx / viewScale - cStep;
+    final wT = -viewOffset.dy / viewScale - dy;
+    final wR = wL + size.width / viewScale + cStep * 2;
+    final wB = wT + size.height / viewScale + dy * 2;
+
+    // Horizontal lines — snap to whole dy steps so the rows line up with
+    // the dot lattice regardless of pan position.
+    final yStart = (wT / dy).floor() * dy;
+    for (double y = yStart; y <= wB; y += dy) {
+      canvas.drawLine(Offset(wL, y), Offset(wR, y), gridPaint);
     }
+
+    // Positive-slope diagonals (+60°): y = sqrt3 * x + c, c = y − sqrt3 * x.
+    // c at the world corners gives us the range to iterate.
     {
-      final cMin = -_sqrt3 * size.width - cStep;
-      final cMax = size.height + cStep;
-      int k = (cMin / cStep).floor();
-      while (k * cStep <= cMax) {
+      final cAtTopRight = wT - _sqrt3 * wR;
+      final cAtBottomLeft = wB - _sqrt3 * wL;
+      int k = (cAtTopRight / cStep).floor();
+      while (k * cStep <= cAtBottomLeft) {
         final c = k * cStep;
-        double x1, y1, x2, y2;
-        if (c >= 0) { x1 = 0; y1 = c; }
-        else        { x1 = -c / _sqrt3; y1 = 0; }
-        final yR = _sqrt3 * size.width + c;
-        if (yR <= size.height) { x2 = size.width; y2 = yR; }
-        else                   { x2 = (size.height - c) / _sqrt3; y2 = size.height; }
-        if (x2 >= 0 && x1 <= size.width) {
-          canvas.drawLine(Offset(x1, y1), Offset(x2, y2), gridPaint);
-        }
-        k++;
-      }
-    }
-    {
-      final cMin = -cStep;
-      final cMax = size.height + _sqrt3 * size.width + cStep;
-      int k = (cMin / cStep).floor();
-      while (k * cStep <= cMax) {
-        final c = k * cStep;
-        double x1, y1, x2, y2;
-        if (c >= 0 && c <= size.height) { x1 = 0; y1 = c; }
-        else if (c > size.height)       { x1 = (c - size.height) / _sqrt3; y1 = size.height; }
-        else                            { x1 = c / _sqrt3; y1 = 0; }
-        final yR = c - _sqrt3 * size.width;
-        if (yR >= 0 && yR <= size.height) { x2 = size.width; y2 = yR; }
-        else if (yR < 0)                  { x2 = c / _sqrt3; y2 = 0; }
-        else                              { x2 = (c - size.height) / _sqrt3; y2 = size.height; }
-        if (x2 >= 0 && x1 <= size.width) {
+        // Solve for the two intersections with the world rectangle and
+        // clip to the rectangle.
+        double x1 = wL, y1 = _sqrt3 * wL + c;
+        double x2 = wR, y2 = _sqrt3 * wR + c;
+        if (y1 < wT) { y1 = wT; x1 = (wT - c) / _sqrt3; }
+        else if (y1 > wB) { y1 = wB; x1 = (wB - c) / _sqrt3; }
+        if (y2 < wT) { y2 = wT; x2 = (wT - c) / _sqrt3; }
+        else if (y2 > wB) { y2 = wB; x2 = (wB - c) / _sqrt3; }
+        if (x1 <= wR && x2 >= wL) {
           canvas.drawLine(Offset(x1, y1), Offset(x2, y2), gridPaint);
         }
         k++;
       }
     }
 
+    // Negative-slope diagonals (−60°): y = −sqrt3 * x + c.
+    {
+      final cAtTopLeft = wT + _sqrt3 * wL;
+      final cAtBottomRight = wB + _sqrt3 * wR;
+      int k = (cAtTopLeft / cStep).floor();
+      while (k * cStep <= cAtBottomRight) {
+        final c = k * cStep;
+        double x1 = wL, y1 = -_sqrt3 * wL + c;
+        double x2 = wR, y2 = -_sqrt3 * wR + c;
+        if (y1 < wT) { y1 = wT; x1 = (c - wT) / _sqrt3; }
+        else if (y1 > wB) { y1 = wB; x1 = (c - wB) / _sqrt3; }
+        if (y2 < wT) { y2 = wT; x2 = (c - wT) / _sqrt3; }
+        else if (y2 > wB) { y2 = wB; x2 = (c - wB) / _sqrt3; }
+        if (x1 <= wR && x2 >= wL) {
+          canvas.drawLine(Offset(x1, y1), Offset(x2, y2), gridPaint);
+        }
+        k++;
+      }
+    }
+
+    // Dot lattice — also covers the world bounds so dots don't disappear
+    // when the user pans away from the origin.
     final dotPaint = Paint()
       ..color = paperMode
           ? const Color(0x66606060)
           : cs.onSurface.withValues(alpha: 0.22)
       ..strokeCap = StrokeCap.round;
-    final rows = (size.height / dy).ceil() + 2;
-    final cols = (size.width / s).ceil() + 4;
-    for (int row = 0; row <= rows; row++) {
+    final rowStart = (wT / dy).floor();
+    final rowEnd = (wB / dy).ceil();
+    final colStart = (wL / s).floor() - 1;
+    final colEnd = (wR / s).ceil() + 1;
+    for (int row = rowStart; row <= rowEnd; row++) {
       final y = row * dy;
-      final xOff = (row % 2 == 0) ? 0.0 : s / 2.0;
-      for (int col = -1; col <= cols; col++) {
+      final xOff = (row.abs() % 2 == 0) ? 0.0 : s / 2.0;
+      for (int col = colStart; col <= colEnd; col++) {
         canvas.drawCircle(Offset(col * s + xOff, y), 1.5, dotPaint);
       }
     }
@@ -5292,6 +5512,15 @@ class _Painter extends CustomPainter {
     // a top crank stub) followed by the text, in a tertiary-accent chip.
     final isActuator =
         RegExp(r"^\s*ACT\b", caseSensitive: false).hasMatch(note.text);
+    // HOLD flag (HOLD / HOLD-1 / H-1 / H1). On real ASME piping isos the
+    // hexagon with an "H" inside marks zones whose dimensions or specs are not
+    // yet released — the fitter MUST NOT cut, bend or weld that section until
+    // the hold is lifted. Drawn as an error-accent hexagon with "H" centred,
+    // with any trailing text (hold number / note) floating in a chip beside
+    // it. Pattern excludes HT / HW so it doesn't collide with heat-trace,
+    // heat-number or hot-water callouts already handled above.
+    final isHold = RegExp(r"^\s*(HOLD\b|H[-\s]?\d)", caseSensitive: false)
+        .hasMatch(note.text);
 
     final tp = TextPainter(
       text: TextSpan(
@@ -6154,6 +6383,65 @@ class _Painter extends CustomPainter {
         rr,
         Paint()
           ..color = medium
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2,
+      );
+      tp.paint(canvas, note.pos - Offset(tp.width / 2, tp.height / 2));
+      return;
+    }
+
+    if (isHold) {
+      // ASME HOLD flag: regular hexagon enclosing a bold "H", error-accent
+      // outline so the fitter sees from a meter away that fabrication of
+      // that segment is suspended. The full note text (e.g. "HOLD-2 awaiting
+      // stress calc") floats in a chip to the right so the hex stays a clean
+      // status badge rather than competing with the message.
+      const hexR = 11.0;
+      final hexCenter = Offset(note.pos.dx - tp.width / 2 - hexR - 4, note.pos.dy);
+      final hex = Path();
+      for (int i = 0; i < 6; i++) {
+        // Flat-top hexagon (real HOLD stamps are flat-top, not pointy-top).
+        final a = math.pi / 3 * i;
+        final p = Offset(
+          hexCenter.dx + hexR * math.cos(a),
+          hexCenter.dy + hexR * math.sin(a),
+        );
+        if (i == 0) {
+          hex.moveTo(p.dx, p.dy);
+        } else {
+          hex.lineTo(p.dx, p.dy);
+        }
+      }
+      hex.close();
+      canvas.drawPath(hex, Paint()..color = cs.surface);
+      canvas.drawPath(
+        hex,
+        Paint()
+          ..color = cs.error
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.8,
+      );
+      final hTp = TextPainter(
+        text: TextSpan(
+          text: 'H',
+          style: TextStyle(
+            color: cs.error,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      hTp.paint(canvas, hexCenter - Offset(hTp.width / 2, hTp.height / 2));
+      // Message chip beside the hexagon.
+      final rect = Rect.fromCenter(
+          center: note.pos, width: tp.width + 12, height: tp.height + 7);
+      final rr = RRect.fromRectAndRadius(rect, const Radius.circular(4));
+      canvas.drawRRect(rr, Paint()..color = cs.surface);
+      canvas.drawRRect(
+        rr,
+        Paint()
+          ..color = cs.error.withValues(alpha: 0.75)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.2,
       );

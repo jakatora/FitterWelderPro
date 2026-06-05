@@ -77,37 +77,63 @@ class AiChatService {
     // returning a structured response including citations.
     final url =
         Uri.parse('${BackendConfig.baseUrl}${BackendConfig.aiChat}');
-    final resp = await http.post(
-      url,
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'message': trimmed,
-        'history': history
-            .map((m) => {
-                  'role': m.role.name,
-                  'text': m.text,
-                })
-            .toList(),
-        // Server should auth via Bearer token from premium status check, but
-        // for now we send a soft identifier; backend can ignore or use it
-        // for rate-limiting per device.
-        'lang': 'pl',
-      }),
-    );
-    if (resp.statusCode != 200) {
-      throw Exception(
-          'AI request failed: ${resp.statusCode} ${resp.body}');
+    try {
+      final resp = await http
+          .post(
+            url,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'message': trimmed,
+              'history': history
+                  .map((m) => {
+                        'role': m.role.name,
+                        'text': m.text,
+                      })
+                  .toList(),
+              'lang': 'pl',
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
+      if (resp.statusCode != 200) {
+        // Backend is up but the upstream model call failed (most common cause:
+        // Anthropic returned model_not_found for a short-alias model ID like
+        // 'claude-haiku-4-5' instead of the dated 'claude-haiku-4-5-20251001').
+        // Fall through to the demo library so the fitter still gets a useful
+        // answer for common questions instead of a 500 in-app.
+        return _fallbackReply(trimmed,
+            reason: 'backend ${resp.statusCode}');
+      }
+      final body =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final text = body['text'] as String? ?? '(empty response)';
+      final cites = (body['citations'] as List?)
+              ?.map((c) => c.toString())
+              .toList() ??
+          const <String>[];
+      return ChatMessage(
+        role: ChatRole.assistant,
+        text: text,
+        citations: cites,
+      );
+    } catch (e) {
+      // Network down, timeout, TLS failure, etc. — same fallback path so the
+      // user sees something useful instead of a red exception banner.
+      return _fallbackReply(trimmed, reason: 'offline: $e');
     }
-    final body = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-    final text = body['text'] as String? ?? '(empty response)';
-    final cites = (body['citations'] as List?)
-            ?.map((c) => c.toString())
-            .toList() ??
-        const <String>[];
+  }
+
+  /// Used both for the original "demo" mode (flag off) and as a graceful
+  /// fallback when the backend errors out. Prepends a single-line apology
+  /// so the user knows we couldn't reach the live model.
+  ChatMessage _fallbackReply(String userText, {String? reason}) {
+    final demo = _demoReply(userText);
+    if (reason == null) return demo;
     return ChatMessage(
-      role: ChatRole.assistant,
-      text: text,
-      citations: cites,
+      role: demo.role,
+      text:
+          '(Tryb offline — odpowiedź z lokalnej bazy. Spróbuj ponownie za chwilę.)\n\n'
+          '${demo.text}',
+      citations: demo.citations,
     );
   }
 

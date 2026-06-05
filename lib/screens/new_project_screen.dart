@@ -133,6 +133,56 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
     }
   }
 
+  void _showKerfGapInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr(pl: 'Kerf i gap — wzory', en: 'Kerf and gap — formulas')),
+        content: SingleChildScrollView(
+          child: Text(
+            context.tr(
+              pl: 'Kerf — szerokość rzazu (strata materiału na jedno cięcie '
+                  'piły / plazmy), w mm.\n'
+                  'Gap — luz montażowy między czołami rur pod spoinę '
+                  '(np. root gap TIG), w mm.\n\n'
+                  'Cięcie listy z jednej sztangi długości L:\n'
+                  '  użyteczne = L − n·kerf\n'
+                  '     gdzie n = liczba cięć w sztandze\n\n'
+                  'Długość rury w segmencie (między dwoma elementami):\n'
+                  '  L_rury = L_C-C − takeout_1 − takeout_2 − 2·gap\n'
+                  '     gdzie takeout = wymiar kolanka/redukcji do osi\n\n'
+                  'Typowe wartości:\n'
+                  '  kerf piły taśmowej: 1,0–1,6 mm\n'
+                  '  kerf plazmy CNC: 2,0–3,5 mm\n'
+                  '  gap TIG (root): 1,5–3,0 mm',
+              en: 'Kerf — saw / plasma cut width (material lost per cut), '
+                  'in mm.\n'
+                  'Gap — fit-up gap between pipe faces for the weld '
+                  '(e.g. TIG root gap), in mm.\n\n'
+                  'Cut list from one stock bar of length L:\n'
+                  '  usable = L − n·kerf\n'
+                  '     where n = number of cuts in the bar\n\n'
+                  'Pipe length within a segment (between two fittings):\n'
+                  '  L_pipe = L_C-C − takeout_1 − takeout_2 − 2·gap\n'
+                  '     where takeout = elbow/reducer centre-to-face\n\n'
+                  'Typical values:\n'
+                  '  band-saw kerf: 1.0–1.6 mm\n'
+                  '  CNC plasma kerf: 2.0–3.5 mm\n'
+                  '  TIG root gap: 1.5–3.0 mm',
+            ),
+            style: const TextStyle(height: 1.45),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(context.tr(pl: 'OK', en: 'OK')),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -183,7 +233,14 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: context.tr(pl: 'Kerf (mm na cięcie)', en: 'Kerf (mm per cut)'),
-                  helperText: context.tr(pl: 'Np. 1.0', en: 'For example 1.0'),
+                  helperText: context.tr(pl: 'Np. 1,0', en: 'For example 1.0'),
+                  // Kerf/gap drive the BOM math but workers rarely see the
+                  // formula spelled out — a one-tap dialog beats memorising it.
+                  suffixIcon: IconButton(
+                    tooltip: context.tr(pl: 'Co to jest kerf i gap?', en: 'What are kerf and gap?'),
+                    icon: const Icon(Icons.info_outline),
+                    onPressed: () => _showKerfGapInfo(context),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -202,6 +259,9 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               ],
               SizedBox(
                 width: double.infinity,
+                // Glove-friendly: 56dp height ensures the primary CTA clears the
+                // 48dp minimum hit target even with a thick work glove on.
+                height: 56,
                 child: ElevatedButton(
                   onPressed: _saving ? null : _create,
                   child: Text(_saving ? context.tr(pl: 'Zapisywanie...', en: 'Saving...') : context.tr(pl: 'Utwórz projekt', en: 'Create project')),
