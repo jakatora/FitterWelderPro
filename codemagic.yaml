@@ -85,19 +85,24 @@ workflows:
           set -eo pipefail
           mkdir -p /tmp/xcodebuild_logs
 
-          # Auto-bump cfBundleVersion from git history. Apple requires every
-          # TestFlight upload to use a strictly higher build number than the
-          # previous one in the same app record. Tying the build number to
-          # `git rev-list --count HEAD` makes every fresh push monotonically
-          # higher without us having to remember to bump pubspec.yaml on each
-          # release. Offset +100 puts us above the manual sequence we used
-          # before this automation (we shipped up to +11 by hand and built 12
-          # via Codemagic; starting from 100 leaves a safe gap).
-          BUILD_NUMBER=$(($(git rev-list --count HEAD) + 100))
-          echo "Using cfBundleVersion = $BUILD_NUMBER (commits=$(git rev-list --count HEAD))"
+          # Auto-bump cfBundleVersion from Codemagic's built-in per-app build
+          # counter ($CM_BUILD_NUMBER, monotonically increasing per app). Apple
+          # rejects any TestFlight upload that reuses a cfBundleVersion already
+          # seen on this app record — manual bumps are error-prone (we shipped
+          # up to +11 by hand, then chased phantom +12/+13 bumps that Codemagic
+          # either re-ran or shallow-cloned around). $CM_BUILD_NUMBER is
+          # impossible to collide with itself, and the +1000 offset puts us
+          # safely above every historical hand-rolled value (+1..+12).
+          if [ -z "$CM_BUILD_NUMBER" ]; then
+            echo "ERROR: CM_BUILD_NUMBER env var missing — Codemagic should always inject this."
+            exit 1
+          fi
+          BUILD_NUMBER=$((CM_BUILD_NUMBER + 1000))
+          echo "Using cfBundleVersion = $BUILD_NUMBER (CM_BUILD_NUMBER=$CM_BUILD_NUMBER)"
 
           flutter build ipa --release \
             --build-number=$BUILD_NUMBER \
+            --build-name=0.1.6 \
             --export-options-plist="$CM_BUILD_DIR/export_options.plist" \
             2>&1 | tee /tmp/xcodebuild_logs/build.log
 
