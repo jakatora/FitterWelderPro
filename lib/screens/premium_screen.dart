@@ -14,6 +14,12 @@ import 'ai_chat_screen.dart';
 // of this screen still runs the post-checkout verification poll instead of
 // silently dropping it on the floor.
 const String _kPendingCheckoutKey = 'fitter_premium_pending_checkout';
+const String _kPendingCheckoutSetAtKey = 'fitter_premium_pending_checkout_at';
+// If a pending-checkout flag is older than this we silently drop it and
+// don't re-run verification on screen reopen — covers the "user opened
+// Stripe a week ago, never paid, now opens Premium screen again" path
+// that was leaving the app stuck in "Weryfikuję płatność…" forever.
+const Duration _kPendingCheckoutMaxAge = Duration(minutes: 30);
 
 // Premium subscription screen. Live against the Railway backend (Stripe
 // Checkout + webhook) since 2026-05-27. Two plans: 19 PLN / month and
@@ -50,6 +56,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   // overlay so the user knows we're verifying the payment instead of
   // staring at the same plan picker as before they paid.
   bool _verifying = false;
+  // Re-entrancy guard so concurrent triggers (e.g. AppLifecycleState.resumed
+  // firing while initState's recovery path is still polling) don't stack
+  // two verification loops at once — they used to ping-pong _verifying and
+  // never settle, locking the user under the overlay.
+  bool _verifyInFlight = false;
   // True while we're hitting the backend to create a Stripe Checkout
   // session. Without this the user taps "Wybierz" and stares at an
   // unchanged plan picker for 1-3s on bad signal, often double-tapping.
@@ -71,10 +82,23 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   Future<void> _resumePendingCheckoutIfAny() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_kPendingCheckoutKey) == true) {
-        if (!mounted) return;
-        _refreshAfterCheckout();
+      if (prefs.getBool(_kPendingCheckoutKey) != true) return;
+      // Stale-flag guard: if the pending was set more than 30 min ago, the
+      // user almost certainly abandoned that Stripe session. Clear it and
+      // skip — otherwise opening Premium screen days later still pops the
+      // "Weryfikuję płatność…" overlay.
+      final setAtMs = prefs.getInt(_kPendingCheckoutSetAtKey);
+      if (setAtMs != null) {
+        final age = DateTime.now()
+            .difference(DateTime.fromMillisecondsSinceEpoch(setAtMs));
+        if (age > _kPendingCheckoutMaxAge) {
+          await prefs.remove(_kPendingCheckoutKey);
+          await prefs.remove(_kPendingCheckoutSetAtKey);
+          return;
+        }
       }
+      if (!mounted) return;
+      _refreshAfterCheckout();
     } catch (_) {
       // Best-effort recovery — never block the screen on a prefs error.
     }
@@ -94,22 +118,53 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
     }
   }
 
-  // Poll a few times after Stripe Checkout — webhook usually fires within
-  // a couple of seconds but can lag. 6 tries × 2s = 12s window with a
-  // full-screen overlay so the user isn't left wondering whether the
-  // payment went through.
+  /// Wall-clock cap for the whole verification loop (regardless of polling
+  /// internals). Worst-case before: 6 polls × 8s backend timeout = 48s of
+  /// frozen overlay if the backend was slow. Now we hard-cap and bail.
+  static const Duration _kVerifyBudget = Duration(seconds: 15);
+
+  /// Manually break out of an in-flight verification — wired to the
+  /// "Anuluj" button in the overlay. Clears the persisted flag so the
+  /// overlay doesn't come back on the next screen reopen.
+  Future<void> _cancelVerification() async {
+    if (!_verifying) return;
+    setState(() {
+      _verifying = false;
+      _verifyInFlight = false;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kPendingCheckoutKey);
+      await prefs.remove(_kPendingCheckoutSetAtKey);
+    } catch (_) {}
+  }
+
+  // Poll a few times after Stripe Checkout — webhook usually fires within a
+  // couple of seconds but can lag. Hard wall-clock cap protects against
+  // backend timeouts stretching the overlay; in-flight guard prevents
+  // concurrent loops from a resume re-trigger.
   Future<void> _refreshAfterCheckout() async {
     if (!mounted) return;
+    if (_verifyInFlight) return;
+    _verifyInFlight = true;
     setState(() => _verifying = true);
+    final deadline = DateTime.now().add(_kVerifyBudget);
     try {
-      for (var i = 0; i < 6; i++) {
+      while (DateTime.now().isBefore(deadline)) {
+        if (!mounted) return;
+        if (!_verifying) return; // user hit Anuluj mid-poll
         final s = await PremiumService.instance.refreshFromBackend();
         if (!mounted) return;
+        if (!_verifying) return;
         if (s.isActive) {
-          setState(() => _verifying = false);
+          setState(() {
+            _verifying = false;
+            _verifyInFlight = false;
+          });
           try {
             final prefs = await SharedPreferences.getInstance();
             await prefs.remove(_kPendingCheckoutKey);
+            await prefs.remove(_kPendingCheckoutSetAtKey);
           } catch (_) {}
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -120,37 +175,47 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
             )),
             duration: const Duration(seconds: 4),
           ));
-          // Premium is now active — back out to the previous screen so the
-          // user immediately sees the unlocked features.
           await Future.delayed(const Duration(milliseconds: 900));
           if (!mounted) return;
           Navigator.maybePop(context);
           return;
         }
-        await Future.delayed(const Duration(seconds: 2));
-        if (!mounted) return;
+        await Future.delayed(const Duration(milliseconds: 1500));
       }
-      // Timed out without seeing the activation. Don't claim failure — the
-      // webhook may still arrive in the next few seconds. Just stop the
-      // overlay and surface a soft hint.
+      // Wall-clock cap reached. Assume the user either didn't pay or the
+      // webhook is more than 15s late — either way, get them OFF the
+      // overlay and give them an actionable next step.
       if (!mounted) return;
-      setState(() => _verifying = false);
-      // Clear the persisted recovery flag — we already gave the webhook its
-      // 12s window; pull-to-refresh is the recovery from here.
+      setState(() {
+        _verifying = false;
+        _verifyInFlight = false;
+      });
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_kPendingCheckoutKey);
+        await prefs.remove(_kPendingCheckoutSetAtKey);
       } catch (_) {}
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
-          pl: 'Sprawdzam płatność… potrwa to chwilę. Pociągnij ekran w dół, by odświeżyć.',
-          en: 'Verifying payment… give it a moment, then pull to refresh.',
+          pl: 'Nie zarejestrowaliśmy płatności. Spróbuj jeszcze raz lub odśwież ekran.',
+          en: 'No payment registered. Try again or pull to refresh.',
         )),
         duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Odśwież', en: 'Refresh'),
+          onPressed: () => PremiumService.instance.refreshFromBackend(),
+        ),
       ));
     } catch (_) {
-      if (mounted) setState(() => _verifying = false);
+      if (mounted) {
+        setState(() {
+          _verifying = false;
+          _verifyInFlight = false;
+        });
+      }
+    } finally {
+      _verifyInFlight = false;
     }
   }
 
@@ -440,6 +505,23 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                       style: const TextStyle(fontSize: 11, color: _kTextSec),
                       textAlign: TextAlign.center,
                     ),
+                    // Escape hatch — only on the verifying overlay, NOT on
+                    // the brief "preparing checkout" one. Without this the
+                    // user is locked in the overlay until the wall-clock
+                    // budget elapses, which is the bug they reported.
+                    if (_verifying) ...[
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: _cancelVerification,
+                        child: Text(
+                          context.tr(pl: 'Anuluj', en: 'Cancel'),
+                          style: const TextStyle(
+                            color: _kTextSec,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -488,9 +570,16 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       _awaitingReturn = true;
       // Mirror the in-memory flag to disk so a cold start during the Stripe
       // round-trip still resumes the verification poll on next launch.
+      // Timestamp accompanies the bool so the recovery path can drop the
+      // flag silently if it's been sitting around for >30 min (user
+      // abandoned the Stripe session and reopened Premium screen later).
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_kPendingCheckoutKey, true);
+        await prefs.setInt(
+          _kPendingCheckoutSetAtKey,
+          DateTime.now().millisecondsSinceEpoch,
+        );
       } catch (_) {}
       final ok = await launchUrl(
         Uri.parse(url),
@@ -502,6 +591,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         try {
           final prefs = await SharedPreferences.getInstance();
           await prefs.remove(_kPendingCheckoutKey);
+          await prefs.remove(_kPendingCheckoutSetAtKey);
         } catch (_) {}
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -517,6 +607,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_kPendingCheckoutKey);
+        await prefs.remove(_kPendingCheckoutSetAtKey);
       } catch (_) {}
       if (!context.mounted) return;
       // Don't leak raw exception strings (HTTP codes, library names) to a
