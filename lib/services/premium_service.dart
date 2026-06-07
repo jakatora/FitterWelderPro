@@ -214,6 +214,14 @@ class PremiumService {
   /// Checkout, and periodically while the Premium screen is open. Updates
   /// the in-memory status (broadcast via [statusStream]) when the backend
   /// reports a change.
+  /// Sticky 2-minute window after the first time the backend reports
+  /// is_active=false on a currently-active subscription. We require a
+  /// SECOND confirming "free" read inside this window before propagating
+  /// the downgrade — guards against a Stripe webhook race or a single
+  /// flaky backend response stripping PRO from a paying customer mid-job.
+  static const Duration _kDowngradeGrace = Duration(minutes: 2);
+  DateTime? _pendingDowngradeAt;
+
   Future<PremiumStatus> refreshFromBackend() async {
     if (!BackendConfig.stripeBackendLive) return _current;
     await init();
@@ -227,22 +235,55 @@ class PremiumService {
       final isActive = body['is_active'] == true;
       final planStr = body['plan'] as String?;
       final periodEnd = body['current_period_end'] as String?;
-      final next = isActive
+      final fresh = isActive
           ? PremiumStatus(
               plan: planStr == 'yearly' ? PremiumPlan.yearly : PremiumPlan.monthly,
               expiresAt: periodEnd != null ? DateTime.tryParse(periodEnd) : null,
               lastVerifiedAt: DateTime.now(),
             )
           : PremiumStatus.free().copyWith(lastVerifiedAt: DateTime.now());
-      if (next.plan != _current.plan || next.expiresAt != _current.expiresAt) {
-        await applyStatus(next);
+
+      // Downgrade-grace logic: if the user IS active right now and the
+      // backend just said "free", start a 2-minute timer and keep them
+      // active. A subsequent "free" response after the timer elapses
+      // commits the downgrade; an "active" response in the meantime
+      // clears the timer.
+      final wasActive = _current.isActive;
+      final goingFree = wasActive && !fresh.isActive;
+      if (goingFree) {
+        final pending = _pendingDowngradeAt;
+        if (pending == null) {
+          // First "free" read — record the moment, keep PRO live.
+          _pendingDowngradeAt = DateTime.now();
+          _current = _current.copyWith(lastVerifiedAt: DateTime.now());
+          _controller.add(_current);
+          return _current;
+        }
+        if (DateTime.now().difference(pending) < _kDowngradeGrace) {
+          // Still inside the grace window — keep PRO live.
+          _current = _current.copyWith(lastVerifiedAt: DateTime.now());
+          _controller.add(_current);
+          return _current;
+        }
+        // Grace exhausted with consecutive "free" reads — propagate.
+        _pendingDowngradeAt = null;
       } else {
-        _current = next;
-        _controller.add(next);
+        // Either still active or already free — no pending downgrade.
+        _pendingDowngradeAt = null;
       }
-      return next;
+
+      if (fresh.plan != _current.plan ||
+          fresh.expiresAt != _current.expiresAt) {
+        await applyStatus(fresh);
+      } else {
+        _current = fresh;
+        _controller.add(fresh);
+      }
+      return fresh;
     } catch (_) {
       // Network glitch — keep showing whatever we already have cached.
+      // Pending-downgrade timer is NOT cleared so a flaky network during
+      // the grace window doesn't reset the countdown.
       return _current;
     }
   }

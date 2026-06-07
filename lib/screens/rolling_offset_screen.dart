@@ -39,6 +39,15 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   //   Travel      = 500 × 1.4142 = 707.1mm
   //   Run         = 500/tan(45°) = 500mm
   void _calculate() {
+    // Wipe stale result fields BEFORE the validation early-returns. Without
+    // this, a fitter who computed pipe A, then mistypes Rise on pipe B and
+    // hits CALCULATE still sees the stale 707.1 in the Travel field — copies
+    // it to the saw, cuts pipe to the wrong length.
+    _trueOffsetController.clear();
+    _multiplierController.clear();
+    _travelController.clear();
+    _runController.clear();
+
     final rise   = _parse(_riseController.text);
     final spread = _parse(_spreadController.text);
     final angleDeg = _selectedAngle == 'custom'

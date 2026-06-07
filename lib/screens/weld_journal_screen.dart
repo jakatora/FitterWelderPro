@@ -135,14 +135,21 @@ class WeldJournalDao {
       )
     ''');
     // Migrate older databases that predate the ASME BPE weld-map columns.
+    // Only swallow the "duplicate column" outcome — every other SQLite error
+    // (locked DB, IO error, disk full) needs to bubble up so listAll/insert/
+    // update see the real failure and the user gets a SnackBar instead of a
+    // silently-corrupted journal that fails every subsequent save.
     for (final col in const [
       'weld_type', 'fitter', 'heat_no1', 'heat_no2', 'coupon_ref', 'exam',
       'wps_ref',
     ]) {
       try {
         await db.execute('ALTER TABLE $_table ADD COLUMN $col TEXT');
-      } catch (_) {
-        // Column already exists — fine.
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        final isDuplicate = msg.contains('duplicate column') ||
+            msg.contains('already exists');
+        if (!isDuplicate) rethrow;
       }
     }
   }
@@ -193,9 +200,34 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
-    final all = await _dao.listAll();
-    setState(() { _entries = all; _loading = false; });
+    try {
+      final all = await _dao.listAll();
+      if (!mounted) return;
+      setState(() {
+        _entries = all;
+        _loading = false;
+      });
+    } catch (e) {
+      // DAO failures (locked DB, schema migration partial-apply) used to
+      // strand the orange spinner forever — welder force-quits, loses
+      // unsaved editor state. Surface a SnackBar with Ponów action so the
+      // shift can recover without restarting the app.
+      debugPrint('WeldJournal load error: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr(
+          'Nie udało się wczytać dziennika. Spróbuj ponownie.',
+          'Failed to load journal. Try again.',
+        )),
+        action: SnackBarAction(
+          label: _tr('Ponów', 'Retry'),
+          onPressed: _load,
+        ),
+      ));
+    }
   }
 
   List<WeldEntry> get _filtered =>
@@ -352,7 +384,20 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   Future<void> _cycleStatus(WeldEntry e) async {
     final next = e.status == 'PENDING' ? 'OK' : (e.status == 'OK' ? 'NOK' : 'PENDING');
     e.status = next;
-    await _dao.update(e);
+    try {
+      await _dao.update(e);
+    } catch (err) {
+      debugPrint('WeldJournal cycleStatus error: $err');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr(
+          'Nie udało się zmienić statusu spoiny.',
+          'Failed to update weld status.',
+        )),
+      ));
+      return;
+    }
+    if (!mounted) return;
     await _load();
   }
 
@@ -372,7 +417,22 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         ],
       ),
     );
-    if (ok == true) { await _dao.delete(e.id); await _load(); }
+    if (ok != true || !mounted) return;
+    try {
+      await _dao.delete(e.id);
+    } catch (err) {
+      debugPrint('WeldJournal delete error: $err');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr(
+          'Nie udało się usunąć spoiny.',
+          'Failed to delete weld.',
+        )),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    await _load();
   }
 
   Future<void> _openEditor(WeldEntry? existing) async {
@@ -387,6 +447,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         suggester: suggestNextWeldNo,
       ),
     );
+    if (!mounted) return;
     if (result == true) await _load();
   }
 }
@@ -572,6 +633,7 @@ class _WeldEditorState extends State<_WeldEditor> {
 
   Future<void> _save() async {
     if (_noCtrl.text.trim().isEmpty) return;
+    if (!mounted) return;
     setState(() => _saving = true);
     final e = WeldEntry(
       id:          widget.entry?.id ?? _uuid.v4(),
@@ -594,13 +656,29 @@ class _WeldEditorState extends State<_WeldEditor> {
       exam:        _examCtrl.text.trim(),
       wpsRef:      _wpsCtrl.text.trim(),
     );
-    if (widget.entry == null) {
-      await _dao.insert(e);
-    } else {
-      await _dao.update(e);
+    try {
+      if (widget.entry == null) {
+        await _dao.insert(e);
+      } else {
+        await _dao.update(e);
+      }
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (err) {
+      // Without this, a DAO failure would leave _saving=true forever and the
+      // editor sheet sits at "Zapisywanie…" with no way to retry — welder
+      // loses 30s of typed traceability data.
+      debugPrint('WeldJournal save error: $err');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr(
+          'Nie udało się zapisać spoiny. Dane zostają w edytorze — spróbuj ponownie.',
+          'Failed to save weld. Your data is kept in the editor — try again.',
+        )),
+        duration: const Duration(seconds: 5),
+      ));
     }
-    if (!mounted) return;
-    Navigator.pop(context, true);
   }
 
   @override

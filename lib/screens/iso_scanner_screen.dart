@@ -254,8 +254,14 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       for (final aiSeg in result.segments) {
         if (aiSeg.auxiliary) continue; // skip auxiliary / hidden lines
         final seg = _Segment();
-        if (aiSeg.dimensionMm != null) {
-          seg.iso.text = aiSeg.dimensionMm!.toStringAsFixed(0);
+        // Clamp AI-suggested dimensions to a sane prefab range. Vision
+        // models occasionally hallucinate negative values or order-of-
+        // magnitude misreads (e.g. "1500 mm" → 150000) which would silently
+        // poison the cut list. Anything outside the band falls back to the
+        // raw string so the fitter sees the original mark on the drawing.
+        final dim = aiSeg.dimensionMm;
+        if (dim != null && dim > 0 && dim < 100000 && dim.isFinite) {
+          seg.iso.text = dim.toStringAsFixed(0);
         } else if (aiSeg.rawDimension != null && aiSeg.rawDimension!.isNotEmpty) {
           seg.iso.text = aiSeg.rawDimension!;
         }
@@ -573,9 +579,26 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     double sum = 0;
     for (final s in _segments) {
       final c = s.cutMm;
-      if (c.isFinite) sum += c;
+      // Drop NaN / infinite (unparseable ISO) AND drop negative cuts (a
+      // deduct typo or AI hallucination producing CUT < 0 would otherwise
+      // silently shrink the total — fitter cuts pipe stock by metres less
+      // than needed). `_invalidSegmentCount` surfaces the dropped count in
+      // the UI so the user knows the headline number is exclusive.
+      if (c.isFinite && c >= 0) sum += c;
     }
     return sum;
+  }
+
+  /// Number of segments excluded from `_totalCutMm` due to unparseable ISO
+  /// or a negative computed CUT. Drives the warning chip in the cut-list UI.
+  int get _invalidSegmentCount {
+    int n = 0;
+    for (final s in _segments) {
+      if (s.iso.text.trim().isEmpty) continue;
+      final c = s.cutMm;
+      if (!c.isFinite || c < 0) n++;
+    }
+    return n;
   }
 
   int get _dimensionedCount =>
@@ -782,6 +805,32 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                       fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
+                // Warning chip — surfaces segments excluded from the total
+                // because their ISO was unparseable OR resolved to a
+                // negative CUT (deduct typo, AI hallucination). Without
+                // this, a corrupt segment silently shrinks the total and
+                // the fitter pulls too little stock.
+                if (_invalidSegmentCount > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _kRed.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: _kRed.withValues(alpha: 0.6), width: 0.8),
+                    ),
+                    child: Text(
+                      '$_invalidSegmentCount '
+                      '${_tr('do sprawdzenia', 'to check')}',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: _kRed),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Text(
                   '${_tr('Suma CUT', 'Total CUT')}: '
                   '${_totalCutMm.toStringAsFixed(1)} mm',
