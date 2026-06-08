@@ -72,3 +72,15 @@ replit_export/
 
 # Claude agent worktrees (tooling metadata)
 .claude/
+
+# Audit working files (raw — large, local-only). The prioritised
+# BACKLOG_*.md files ARE tracked since they're the audit deliverable.
+.audit/
+audit_shots/
+BACKEND_DEPLOY_REPORT.md
+LOOP_PROGRESS.md
+MORNING_TEST_PLAN.md
+NIGHT_SHIFT_REPORT.md
+
+# Separate backend repo cloned in here as a sibling — never embed.
+/backend/
