@@ -637,37 +637,83 @@ class _IsoState extends State<IsoNotebookScreen> {
     });
   }
 
-  Future<void> _setHintHidden(bool v) async {
-    setState(() => _hintHidden = v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kHintHiddenPref, v);
+  /// P0r-12: shared persist-with-rollback helper for the five view toggles.
+  /// Without this each persister flipped the in-memory flag, awaited an
+  /// uncaught `setBool`, and on locked/full storage left the UI showing a
+  /// new state that quietly resets next cold-start. We now roll back the
+  /// optimistic mutation on failure and surface a Retry SnackBar so the
+  /// welder knows the preference didn't stick.
+  Future<void> _persistBool({
+    required String key,
+    required bool value,
+    required bool previous,
+    required void Function(bool) apply,
+  }) async {
+    apply(value);
+    if (!mounted) return;
+    setState(() {});
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, value);
+    } catch (e) {
+      debugPrint('ISO toggle persist error for $key: $e');
+      apply(previous);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr(
+          'Nie zapisano ustawienia — spróbuj ponownie.',
+          'Setting not saved — try again.',
+        )),
+        action: SnackBarAction(
+          label: _tr('Ponów', 'Retry'),
+          onPressed: () => _persistBool(
+            key: key,
+            value: value,
+            previous: previous,
+            apply: apply,
+          ),
+        ),
+      ));
+    }
   }
 
-  Future<void> _setShowAxisCompass(bool v) async {
-    setState(() => _showAxisCompass = v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kAxisCompassPref, v);
-  }
+  Future<void> _setHintHidden(bool v) => _persistBool(
+        key: _kHintHiddenPref,
+        value: v,
+        previous: _hintHidden,
+        apply: (b) => _hintHidden = b,
+      );
 
-  Future<void> _setShowStatusBox(bool v) async {
-    setState(() => _showStatusBox = v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kStatusBoxPref, v);
-  }
+  Future<void> _setShowAxisCompass(bool v) => _persistBool(
+        key: _kAxisCompassPref,
+        value: v,
+        previous: _showAxisCompass,
+        apply: (b) => _showAxisCompass = b,
+      );
 
-  Future<void> _setPaperMode(bool v) async {
-    setState(() => _paperMode = v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPaperModePref, v);
-  }
+  Future<void> _setShowStatusBox(bool v) => _persistBool(
+        key: _kStatusBoxPref,
+        value: v,
+        previous: _showStatusBox,
+        apply: (b) => _showStatusBox = b,
+      );
+
+  Future<void> _setPaperMode(bool v) => _persistBool(
+        key: _kPaperModePref,
+        value: v,
+        previous: _paperMode,
+        apply: (b) => _paperMode = b,
+      );
 
   /// A welder doing mostly sloped drain falls turns axis-lock off once and
   /// expects it to stay off — persist across launches.
-  Future<void> _setAxisLock(bool v) async {
-    setState(() => _axisLock = v);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kAxisLockPref, v);
-  }
+  Future<void> _setAxisLock(bool v) => _persistBool(
+        key: _kAxisLockPref,
+        value: v,
+        previous: _axisLock,
+        apply: (b) => _axisLock = b,
+      );
 
   /// When true (default), pipes get axis-locked to the nearest iso axis from
   /// the start point. This is how real iso drafting works — every pipe runs
