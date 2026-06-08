@@ -135,17 +135,36 @@ class WeldJournalDao {
       )
     ''');
     // Migrate older databases that predate the ASME BPE weld-map columns.
-    // Only swallow the "duplicate column" outcome — every other SQLite error
-    // (locked DB, IO error, disk full) needs to bubble up so listAll/insert/
-    // update see the real failure and the user gets a SnackBar instead of a
-    // silently-corrupted journal that fails every subsequent save.
+    //
+    // P0r-08: query the actual schema via PRAGMA table_info instead of
+    // relying on SQLite's localized error messages. Substring-matching
+    // "duplicate column" / "already exists" breaks on Huawei/Xiaomi ROMs
+    // that translate SQLite error strings — a benign re-migration would
+    // rethrow as fatal and block the journal cold-start. The PRAGMA path
+    // is idempotent by construction and never raises the exception in the
+    // first place.
+    final existing = <String>{};
+    try {
+      final info = await db.rawQuery('PRAGMA table_info($_table)');
+      for (final row in info) {
+        final name = row['name'] as String?;
+        if (name != null) existing.add(name);
+      }
+    } catch (_) {
+      // PRAGMA failure is rare but recoverable — fall back to the original
+      // try/catch ALTER approach so legacy DBs still migrate.
+    }
     for (final col in const [
       'weld_type', 'fitter', 'heat_no1', 'heat_no2', 'coupon_ref', 'exam',
       'wps_ref',
     ]) {
+      if (existing.contains(col)) continue;
       try {
         await db.execute('ALTER TABLE $_table ADD COLUMN $col TEXT');
       } catch (e) {
+        // Belt-and-braces: if PRAGMA missed the column (e.g. concurrent
+        // migration on another isolate) and ALTER fails as a duplicate,
+        // silently swallow only that case. Anything else bubbles up.
         final msg = e.toString().toLowerCase();
         final isDuplicate = msg.contains('duplicate column') ||
             msg.contains('already exists');
@@ -382,13 +401,19 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _cycleStatus(WeldEntry e) async {
-    final next = e.status == 'PENDING' ? 'OK' : (e.status == 'OK' ? 'NOK' : 'PENDING');
+    final prev = e.status;
+    final next = prev == 'PENDING' ? 'OK' : (prev == 'OK' ? 'NOK' : 'PENDING');
+    // P0r-09: optimistic mutation is fine for snappy UX, but we MUST be able
+    // to roll back if the DAO write fails — otherwise the on-screen NOK
+    // reads as OK while the DB still says PENDING, breaking traceability.
     e.status = next;
     try {
       await _dao.update(e);
     } catch (err) {
       debugPrint('WeldJournal cycleStatus error: $err');
+      e.status = prev; // roll back the optimistic mutation
       if (!mounted) return;
+      setState(() {}); // refresh the row to show the reverted status
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr(
           'Nie udało się zmienić statusu spoiny.',

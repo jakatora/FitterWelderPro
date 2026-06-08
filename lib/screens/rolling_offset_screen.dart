@@ -43,10 +43,18 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // this, a fitter who computed pipe A, then mistypes Rise on pipe B and
     // hits CALCULATE still sees the stale 707.1 in the Travel field — copies
     // it to the saw, cuts pipe to the wrong length.
-    _trueOffsetController.clear();
-    _multiplierController.clear();
-    _travelController.clear();
-    _runController.clear();
+    //
+    // P0r-05: the clears alone are silently invisible on the validation
+    // early-return paths because no setState fires — the copy IconButton
+    // stays "enabled" against now-empty controllers. setState here rebuilds
+    // the enable-state and also exposes the cleared form factor when the
+    // user fixes the validation error.
+    setState(() {
+      _trueOffsetController.clear();
+      _multiplierController.clear();
+      _travelController.clear();
+      _runController.clear();
+    });
 
     final rise   = _parse(_riseController.text);
     final spread = _parse(_spreadController.text);
@@ -246,7 +254,22 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     final selected = _selectedAngle == value;
     return Expanded(
       child: InkWell(
-        onTap: () => setState(() => _selectedAngle = value),
+        // P0r-06: tapping a different angle preset post-calc used to leave
+        // the 45° Travel=707.1 visible while the chip jumped to 60° — fitter
+        // copies 707.1 thinking it's the 60° value. Wipe results on every
+        // chip change AND clear the custom-angle field when switching away.
+        onTap: () => setState(() {
+          if (_selectedAngle != value) {
+            _trueOffsetController.clear();
+            _multiplierController.clear();
+            _travelController.clear();
+            _runController.clear();
+            if (value != 'custom') {
+              _customAngleController.clear();
+            }
+          }
+          _selectedAngle = value;
+        }),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(

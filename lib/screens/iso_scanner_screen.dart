@@ -257,13 +257,29 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         // Clamp AI-suggested dimensions to a sane prefab range. Vision
         // models occasionally hallucinate negative values or order-of-
         // magnitude misreads (e.g. "1500 mm" → 150000) which would silently
-        // poison the cut list. Anything outside the band falls back to the
-        // raw string so the fitter sees the original mark on the drawing.
+        // poison the cut list.
+        //
+        // P0r-02: the previous fallback to rawDimension silently re-routed
+        // the same out-of-band number through the parser as a string,
+        // bypassing this guard. Now we try-parse rawDimension and re-apply
+        // the (0, 100000) gate; if it still fails, the row is left blank
+        // so the fitter sees an empty field + the "do sprawdzenia" chip
+        // instead of an absurd auto-filled number.
         final dim = aiSeg.dimensionMm;
         if (dim != null && dim > 0 && dim < 100000 && dim.isFinite) {
           seg.iso.text = dim.toStringAsFixed(0);
-        } else if (aiSeg.rawDimension != null && aiSeg.rawDimension!.isNotEmpty) {
-          seg.iso.text = aiSeg.rawDimension!;
+        } else {
+          final raw = aiSeg.rawDimension;
+          if (raw != null && raw.isNotEmpty) {
+            try {
+              final parsed = parseIsoExpression(raw);
+              if (parsed.isFinite && parsed > 0 && parsed < 100000) {
+                seg.iso.text = raw;
+              }
+            } catch (_) {
+              // Unparseable raw + rejected dim → leave blank, surface via chip.
+            }
+          }
         }
         _segments.add(seg);
       }
@@ -591,10 +607,23 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   /// Number of segments excluded from `_totalCutMm` due to unparseable ISO
   /// or a negative computed CUT. Drives the warning chip in the cut-list UI.
+  ///
+  /// P0r-03: also counts the "ISO blank + deducts populated" case. The old
+  /// `continue` on empty-ISO silently hid these rows from BOTH the total and
+  /// the warning chip — fitter walked to the saw missing an entire cut.
   int get _invalidSegmentCount {
     int n = 0;
     for (final s in _segments) {
-      if (s.iso.text.trim().isEmpty) continue;
+      final isoEmpty = s.iso.text.trim().isEmpty;
+      final anyDeduct = s.deducts.any((d) => d.value.text.trim().isNotEmpty);
+      // Fully-empty row → not yet filled in by the user, no warning.
+      if (isoEmpty && !anyDeduct) continue;
+      // Empty ISO + populated deduct → row is in a half-filled state that
+      // produces NaN; flag explicitly so the user knows to type the ISO.
+      if (isoEmpty && anyDeduct) {
+        n++;
+        continue;
+      }
       final c = s.cutMm;
       if (!c.isFinite || c < 0) n++;
     }

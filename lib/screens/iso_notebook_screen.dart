@@ -2944,9 +2944,27 @@ class _IsoState extends State<IsoNotebookScreen> {
     for (final s in _pipes) {
       if (s.calc == null) continue;
       final v = _resolvedCut(s);
-      if (v.isFinite) sum += v;
+      // Mirror the P0-03 guard from iso_scanner_screen: drop non-finite
+      // AND negative cuts so a deduct typo / AI-misread ISO doesn't
+      // silently shrink the total. The headline mm value is then
+      // honest-by-construction and the PDF watermark + stick-nesting
+      // hint can rely on it.
+      if (v.isFinite && v >= 0) sum += v;
     }
     return sum;
+  }
+
+  /// Count of pipe segments that have a calc but resolve to NaN/inf/negative
+  /// — surfaced as a red "N do sprawdzenia" chip on the status box + PDF
+  /// watermark so the fitter knows the headline total excludes bad rows.
+  int get _invalidPipeCount {
+    int n = 0;
+    for (final s in _pipes) {
+      if (s.calc == null) continue;
+      final v = _resolvedCut(s);
+      if (!v.isFinite || v < 0) n++;
+    }
+    return n;
   }
 
   static String compName(_Tool t, bool pl) {
@@ -3448,6 +3466,16 @@ class _IsoState extends State<IsoNotebookScreen> {
       buf.writeln('  ${'─' * 24}');
       buf.writeln('  ${_tr('Suma CUT', 'Total CUT')}: '
           '${_totalMm.toStringAsFixed(1)} mm');
+      // P0r-01: Surface the count of excluded segments so the welder
+      // knows the headline total is exclusive — without this the missing
+      // rows look like the math just disagrees with the visible drawing.
+      final invalidCount = _invalidPipeCount;
+      if (invalidCount > 0) {
+        buf.writeln('  ${_tr(
+          '⚠ $invalidCount odcinek/odcinki do sprawdzenia — wymiary nieczytelne lub ujemne, wyłączone z sumy.',
+          '⚠ $invalidCount segment(s) need checking — unreadable or negative cuts excluded from total.',
+        )}');
+      }
       buf.writeln('');
     }
 
