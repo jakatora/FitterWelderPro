@@ -219,8 +219,25 @@ class PremiumService {
   /// SECOND confirming "free" read inside this window before propagating
   /// the downgrade — guards against a Stripe webhook race or a single
   /// flaky backend response stripping PRO from a paying customer mid-job.
+  ///
+  /// P0r-10 hardening: also require N consecutive "free" reads (defaults
+  /// to 3) so a permanently-misconfigured backend — wrong Stripe key on a
+  /// sideloaded APK, missing INTERNET permission masquerading as 401, etc.
+  /// — cannot strip PRO after just one grace window. Public
+  /// `clearPendingDowngrade()` lets the billing flow reset the state
+  /// machine after a successful purchase or restore.
   static const Duration _kDowngradeGrace = Duration(minutes: 2);
+  static const int _minConfirmingReads = 3;
   DateTime? _pendingDowngradeAt;
+  int _consecutiveFreeReads = 0;
+
+  /// Called by the billing flow after a successful checkout / restore so a
+  /// pending downgrade from a prior backend race doesn't fire after the
+  /// user has already paid again.
+  void clearPendingDowngrade() {
+    _pendingDowngradeAt = null;
+    _consecutiveFreeReads = 0;
+  }
 
   Future<PremiumStatus> refreshFromBackend() async {
     if (!BackendConfig.stripeBackendLive) return _current;
@@ -251,6 +268,7 @@ class PremiumService {
       final wasActive = _current.isActive;
       final goingFree = wasActive && !fresh.isActive;
       if (goingFree) {
+        _consecutiveFreeReads++;
         final pending = _pendingDowngradeAt;
         if (pending == null) {
           // First "free" read — record the moment, keep PRO live.
@@ -265,11 +283,21 @@ class PremiumService {
           _controller.add(_current);
           return _current;
         }
-        // Grace exhausted with consecutive "free" reads — propagate.
+        if (_consecutiveFreeReads < _minConfirmingReads) {
+          // Grace exhausted but we want N consecutive confirming reads
+          // before treating this as a real downgrade — protects paying
+          // users on misconfigured backends from being silently stripped.
+          _current = _current.copyWith(lastVerifiedAt: DateTime.now());
+          _controller.add(_current);
+          return _current;
+        }
+        // N consecutive frees beyond grace — propagate the downgrade.
         _pendingDowngradeAt = null;
+        _consecutiveFreeReads = 0;
       } else {
-        // Either still active or already free — no pending downgrade.
+        // Either still active or already free — clear the state machine.
         _pendingDowngradeAt = null;
+        _consecutiveFreeReads = 0;
       }
 
       if (fresh.plan != _current.plan ||

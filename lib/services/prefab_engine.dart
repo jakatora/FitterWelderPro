@@ -43,8 +43,13 @@ class PrefabEngine {
     int? leftPhysicalLenMm,
     int? rightPhysicalLenMm,
     int midPhysicalSumMm = 0,
+    bool leftIsPhysical = false,
+    bool rightIsPhysical = false,
   }) {
-    if (isoValueMm.isNaN) return double.nan;
+    // P0-09: also guard non-finite ISO (e.g. `1e500` → infinity from the
+    // parser). The legacy NaN-only guard let infinity through which then
+    // poisoned every downstream sum.
+    if (!isoValueMm.isFinite) return double.nan;
 
     final lc = leftCteMm ?? 0;
     final rc = rightCteMm ?? 0;
@@ -53,18 +58,48 @@ class PrefabEngine {
     final cteBoth = lc + rc;
     final phyBoth = lp + rp;
 
+    double cut;
     switch (ref) {
       case DimRef.centreToCentre:
-        return isoValueMm - cteBoth - midPhysicalSumMm;
+        cut = isoValueMm - cteBoth - midPhysicalSumMm;
+        break;
       case DimRef.centreToFace:
-        return isoValueMm - cteBoth - midPhysicalSumMm;
+        // P0-09: subtract ONLY the centre side's CTE — the face side stops
+        // at the face (no body subtracted). If the caller signals which
+        // side is physical via leftIsPhysical/rightIsPhysical, the face is
+        // the physical side and we credit the OTHER side's CTE only.
+        // Legacy behaviour (sum both CTEs) was a 55-76 mm over-subtraction
+        // on every elbow→flange spool, producing pipe undersized at
+        // fit-up — scrap risk on every job.
+        final double centreCte;
+        if (leftIsPhysical && !rightIsPhysical) {
+          centreCte = rc.toDouble();
+        } else if (!leftIsPhysical && rightIsPhysical) {
+          centreCte = lc.toDouble();
+        } else {
+          // Caller didn't tell us which side is the face. Fall back to
+          // the more conservative behaviour: credit the larger CTE so we
+          // don't over-cut. If both sides are zero or equal this matches
+          // the legacy single-side credit.
+          centreCte = lc > rc ? lc.toDouble() : rc.toDouble();
+        }
+        cut = isoValueMm - centreCte - midPhysicalSumMm;
+        break;
       case DimRef.faceToFace:
-        return isoValueMm - midPhysicalSumMm;
+        cut = isoValueMm - midPhysicalSumMm;
+        break;
       case DimRef.faceToEnd:
-        return isoValueMm - phyBoth - midPhysicalSumMm;
+        cut = isoValueMm - phyBoth - midPhysicalSumMm;
+        break;
       case DimRef.centreToEnd:
-        return isoValueMm - cteBoth - phyBoth - midPhysicalSumMm;
+        cut = isoValueMm - cteBoth - phyBoth - midPhysicalSumMm;
+        break;
     }
+    // P0-09: <=0 sentinel — propagating a negative number to the cut list
+    // appears in the BOM as a plausible-looking small number; NaN forces
+    // the warning chip to fire.
+    if (!cut.isFinite || cut <= 0) return double.nan;
+    return cut;
   }
 
   /// Whether the notebook should prompt the user to pick a `DimRef`.

@@ -77,9 +77,29 @@ class _Segment {
       if (d.value.text.trim().isEmpty) continue;
       try {
         v -= parseIsoExpression(d.value.text);
-      } catch (_) {}
+      } catch (_) {
+        // Silently skipped here — P0r-04 tracks the failure via
+        // `deductParseErrors` so the warning chip can fire.
+      }
     }
     return v;
+  }
+
+  /// P0r-04: counts deducts that have text but can't be parsed.
+  /// Without this, a deduct typed "abc" silently drops, `cutMm` looks
+  /// plausible, `_invalidSegmentCount` stays 0, and the welder cuts pipe
+  /// stock LONGER than the BOM says (waste) instead of seeing the warning.
+  int get deductParseErrors {
+    int n = 0;
+    for (final d in deducts) {
+      if (d.value.text.trim().isEmpty) continue;
+      try {
+        parseIsoExpression(d.value.text);
+      } catch (_) {
+        n++;
+      }
+    }
+    return n;
   }
 }
 
@@ -190,8 +210,65 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         return;
       }
 
-      // Replace current segments with the ones the AI read off the drawing.
+      // P0-06: a welder who already typed segments shouldn't lose them by
+      // tapping "Analyse AI" out of curiosity. Confirm before overwriting,
+      // and stash a snapshot so the Undo SnackBar can restore the typed
+      // rows if the AI result turns out to be off-base.
+      final hadUserInput = _segments.any(
+        (s) => s.iso.text.trim().isNotEmpty ||
+            s.deducts.any((d) => d.value.text.trim().isNotEmpty),
+      );
+      if (hadUserInput) {
+        if (!mounted) return;
+        final overwrite = await showDialog<bool>(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            title: Text(_tr(
+              'Zastąpić wpisane odcinki?',
+              'Replace typed segments?',
+            )),
+            content: Text(_tr(
+              'AI rozpoznała ${result.segments.length} odcinków. '
+                  'Zastąpienie usunie wpisane przez Ciebie dane.',
+              'AI found ${result.segments.length} segments. '
+                  'Replacing will discard the rows you typed.',
+            )),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx, false),
+                child: Text(_tr('Zachowaj moje', 'Keep mine')),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogCtx, true),
+                child: Text(_tr('Zastąp', 'Replace')),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (overwrite != true) {
+          setState(() {
+            _aiBusy = false;
+            _aiStatus = null;
+          });
+          return;
+        }
+      }
+      final snapshot = _snapshotSegments();
       _applyAiResult(result);
+      if (mounted && hadUserInput) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_tr(
+            'Zastąpiono wpisane odcinki wynikiem AI.',
+            'Replaced your segments with the AI result.',
+          )),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: _tr('Cofnij', 'Undo'),
+            onPressed: () => _restoreSegments(snapshot),
+          ),
+        ));
+      }
 
       await Haptic.saved();
       setState(() {
@@ -233,6 +310,43 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       nudge30.cancel();
       nudge60.cancel();
     }
+  }
+
+  /// P0-06: serialise the typed segment list into pure value structs so an
+  /// Undo SnackBar can rehydrate it after the AI overwrite. Stores text only
+  /// — controllers are recreated on restore to avoid disposed-controller
+  /// reuse.
+  List<({String iso, List<({String name, String value})> deducts})>
+      _snapshotSegments() {
+    return _segments
+        .map((s) => (
+              iso: s.iso.text,
+              deducts: s.deducts
+                  .map((d) => (name: d.name.text, value: d.value.text))
+                  .toList(),
+            ))
+        .toList();
+  }
+
+  void _restoreSegments(
+    List<({String iso, List<({String name, String value})> deducts})> snap,
+  ) {
+    if (!mounted) return;
+    for (final s in _segments) {
+      s.dispose();
+    }
+    setState(() {
+      _segments.clear();
+      for (final ss in snap) {
+        final seg = _Segment();
+        seg.iso.text = ss.iso;
+        for (final dd in ss.deducts) {
+          seg.deducts.add(_Deduct(dd.name, dd.value));
+        }
+        _segments.add(seg);
+      }
+      if (_segments.isEmpty) _segments.add(_Segment());
+    });
   }
 
   /// Translates an [AiScanResult] into the screen's segment list.
@@ -608,9 +722,9 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
   /// Number of segments excluded from `_totalCutMm` due to unparseable ISO
   /// or a negative computed CUT. Drives the warning chip in the cut-list UI.
   ///
-  /// P0r-03: also counts the "ISO blank + deducts populated" case. The old
-  /// `continue` on empty-ISO silently hid these rows from BOTH the total and
-  /// the warning chip — fitter walked to the saw missing an entire cut.
+  /// P0r-03: also counts the "ISO blank + deducts populated" case.
+  /// P0r-04: also counts segments with deduct parse failures, where cutMm
+  /// looks plausible but ignored an "abc" deduct — silent over-cut.
   int get _invalidSegmentCount {
     int n = 0;
     for (final s in _segments) {
@@ -625,7 +739,7 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         continue;
       }
       final c = s.cutMm;
-      if (!c.isFinite || c < 0) n++;
+      if (!c.isFinite || c < 0 || s.deductParseErrors > 0) n++;
     }
     return n;
   }

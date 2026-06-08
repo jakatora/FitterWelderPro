@@ -164,6 +164,92 @@ void main() {
       );
       expect(result.isNaN, isTrue);
     });
+
+    // P0-09 regression: infinity from parseIsoExpression('1e500') used to
+    // pass the isNaN gate and propagate as a poison value through every
+    // downstream sum. Engine now returns NaN for any non-finite ISO.
+    test('isoValueMm=infinity -> result isNaN', () {
+      final result = PrefabEngine.cutLengthMm(
+        isoValueMm: double.infinity,
+        ref: DimRef.centreToCentre,
+        leftCteMm: 55,
+        rightCteMm: 55,
+      );
+      expect(result.isNaN, isTrue);
+    });
+
+    // P0-09 regression: a result <= 0 is meaningless (you cannot cut a
+    // negative pipe) — engine now returns NaN so the warning chip fires
+    // instead of the BOM showing a plausible-looking small number.
+    test('cut <= 0 from over-subtraction -> result isNaN', () {
+      final result = PrefabEngine.cutLengthMm(
+        isoValueMm: 100,
+        ref: DimRef.centreToCentre,
+        leftCteMm: 60,
+        rightCteMm: 60,
+      );
+      // Legacy: 100 - 120 = -20. New behaviour: NaN.
+      expect(result.isNaN, isTrue);
+    });
+  });
+
+  // P0-09 regression: CTF used to subtract BOTH CTEs even though the
+  // spec says only the centre side counts. The new flag pair lets the
+  // engine pick the right side; callers that omit the flag fall back to
+  // crediting the LARGER CTE (conservative — pipe never over-cut).
+  group('DimRef.centreToFace — P0-09 fix (only centre-side CTE)', () {
+    test(
+      'flag-disambiguated: leftCte=55 + rightCte=55, rightIsPhysical=true '
+      '-> credits leftCte only -> 445 (not 390)',
+      () {
+        final result = PrefabEngine.cutLengthMm(
+          isoValueMm: 500,
+          ref: DimRef.centreToFace,
+          leftCteMm: 55,
+          rightCteMm: 55,
+          rightIsPhysical: true,
+        );
+        expect(result, 445);
+      },
+    );
+
+    test(
+      'flag-disambiguated mirror: leftIsPhysical=true credits rightCte',
+      () {
+        final result = PrefabEngine.cutLengthMm(
+          isoValueMm: 500,
+          ref: DimRef.centreToFace,
+          leftCteMm: 55,
+          rightCteMm: 76,
+          leftIsPhysical: true,
+        );
+        expect(result, 500 - 76);
+      },
+    );
+
+    test(
+      'no flags + both CTEs equal: conservative — credits one side only, '
+      'NOT both -> 445',
+      () {
+        final result = PrefabEngine.cutLengthMm(
+          isoValueMm: 500,
+          ref: DimRef.centreToFace,
+          leftCteMm: 55,
+          rightCteMm: 55,
+        );
+        expect(result, 445);
+      },
+    );
+
+    test('no flags + asymmetric CTEs: credits the larger', () {
+      final result = PrefabEngine.cutLengthMm(
+        isoValueMm: 500,
+        ref: DimRef.centreToFace,
+        leftCteMm: 55,
+        rightCteMm: 76,
+      );
+      expect(result, 500 - 76);
+    });
   });
 
   group('needsDimRefPicker', () {

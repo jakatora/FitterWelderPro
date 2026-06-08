@@ -161,6 +161,67 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
     if (_done.length == _all.length) Haptic.saved();
   }
 
+  /// P0-14: Wipe behind a confirm dialog + Undo snackbar. Without this a
+  /// phantom thumb tap during scroll was silently erasing 60-90 s of careful
+  /// pre-weld inspection — welder could strike arc believing the checklist
+  /// was completed when it had been blanked by the same gesture used to
+  /// scroll. Safety-critical.
+  Future<void> _confirmReset() async {
+    final tickedCount = _done.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(context.tr(
+          pl: 'Wyzerować checklistę?',
+          en: 'Reset checklist?',
+        )),
+        content: Text(context.tr(
+          pl: '$tickedCount pozycji jest zaznaczonych. '
+              'Tej operacji nie można cofnąć po zamknięciu pasków.',
+          en: '$tickedCount items are ticked. '
+              'This cannot be undone once the SnackBar disappears.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade400,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text(context.tr(pl: 'Wyczyść', en: 'Reset')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final snapshot = Set<int>.from(_done);
+    setState(_done.clear);
+    Haptic.error();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(
+        pl: 'Checklistę wyczyszczono ($tickedCount pozycji).',
+        en: 'Checklist reset ($tickedCount items).',
+      )),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        label: context.tr(pl: 'Cofnij', en: 'Undo'),
+        onPressed: () {
+          if (!mounted) return;
+          setState(() {
+            _done
+              ..clear()
+              ..addAll(snapshot);
+          });
+        },
+      ),
+    ));
+  }
+
   void _setMaterial(MaterialSpec? m) {
     setState(() {
       _material = m;
@@ -181,9 +242,10 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
             pl: 'Checklista przed spawaniem',
             en: 'Pre-weld checklist')),
         actions: [
-          TextButton(
-            onPressed: _done.isEmpty ? null : () => setState(_done.clear),
-            child: Text(context.tr(pl: 'Reset', en: 'Reset')),
+          IconButton(
+            icon: const Icon(Icons.clear_all),
+            tooltip: context.tr(pl: 'Wyczyść', en: 'Reset'),
+            onPressed: _done.isEmpty ? null : _confirmReset,
           ),
         ],
       ),

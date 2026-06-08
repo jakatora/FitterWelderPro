@@ -550,6 +550,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
     try {
       // Make sure we have a device id available (it's lazy-loaded otherwise).
       await PremiumService.instance.init();
+      // P0r-10: clear any pending downgrade state machine from a prior
+      // backend race — without this, a previously-armed grace timer can
+      // fire mid-checkout and momentarily strip PRO even though the user
+      // is about to (re-)purchase.
+      PremiumService.instance.clearPendingDowngrade();
       final url = await PremiumService.instance.createCheckoutSession(
         plan: plan,
         deviceId: PremiumService.instance.deviceId,

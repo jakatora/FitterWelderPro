@@ -337,9 +337,18 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
           icon: const Icon(Icons.content_copy, size: 24),
           tooltip: context.tr(pl: 'Kopiuj', en: 'Copy'),
           constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          // P0-13: clipboard always carries an unambiguous canonical-dot
+          // form. A PL-locale "1234,5" pasted into an EN-locale spreadsheet
+          // imports as "12345" — off by an order of magnitude. The visible
+          // field stays in the user's locale; only the clipboard payload
+          // gets normalised.
           onPressed: ctrl.text.trim().isEmpty
               ? null
-              : () => copyToClipboard(context, ctrl.text, label: label),
+              : () => copyToClipboard(
+                    context,
+                    ctrl.text.replaceAll(',', '.'),
+                    label: label,
+                  ),
         ),
       ),
     );

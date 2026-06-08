@@ -198,7 +198,12 @@ int _autoPhysicalDeductFor(Offset endpoint, List<_Item> items, double tol) {
     if (it is! _Comp) continue;
     try {
       if (!ComponentClassification.isPhysical(it.t.name)) continue;
-    } catch (_) {
+    } catch (e) {
+      // P0r-07: isPhysical throwing means a physical component is being
+      // silently skipped — its body length is NEVER deducted from CUT,
+      // pipe runs that body-length LONGER than designed. Log the failure
+      // so it surfaces in CI / debug — used to be invisible.
+      debugPrint('autoPhysicalDeduct isPhysical threw for ${it.t.name}: $e');
       continue;
     }
     final len = it.physicalLengthMm;
@@ -223,7 +228,10 @@ int _midPhysicalDeductFor(_Seg seg, List<_Item> items, double tol) {
     if (it is! _Comp) continue;
     try {
       if (!ComponentClassification.isPhysical(it.t.name)) continue;
-    } catch (_) {
+    } catch (e) {
+      // P0r-07: see _autoPhysicalDeductFor — data-integrity issue, not
+      // benign skip. Log so failures surface in CI/debug runs.
+      debugPrint('midPhysicalDeduct isPhysical threw for ${it.t.name}: $e');
       continue;
     }
     final len = it.physicalLengthMm;
@@ -2981,6 +2989,10 @@ class _IsoState extends State<IsoNotebookScreen> {
       leftPhysicalLenMm: leftPhys > 0 ? leftPhys : null,
       rightPhysicalLenMm: rightPhys > 0 ? rightPhys : null,
       midPhysicalSumMm: midPhys,
+      // P0-09: tell the engine which side is physical so centreToFace
+      // credits ONLY the centre side's CTE (not both).
+      leftIsPhysical: leftPhys > 0,
+      rightIsPhysical: rightPhys > 0,
     );
     return engineCut - manualDeducts;
   }

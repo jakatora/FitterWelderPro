@@ -168,6 +168,11 @@ class _JobAddScreenState extends State<JobAddScreen> {
   }
 
   Future<void> _save() async {
+    // P0-07: in-flight guard against duplicate Stripe charges. The Retry
+    // SnackBarAction calls _save again on cellular-flake — without this
+    // early-return a second tap during the createCheckout await creates a
+    // parallel Stripe Checkout session, billing the welder 49 PLN twice.
+    if (_saving) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _saving = true);
 

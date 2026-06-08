@@ -49,22 +49,41 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _load() async {
-    final projects = await _projectDao.listAll();
-    // Sequential `await` per project blocks home screen open by N×~50 ms.
-    // Parallelise with `Future.wait` so total wall-time is one DAO round-trip
-    // (better-sqlite3 serialises internally; the win is the absence of
-    // intermediate `await` ticks on the UI thread).
-    final segLists = await Future.wait(
-      projects.map((p) => _segmentDao.listForProject(p.id)),
-    );
-    final segs = segLists.fold<int>(0, (n, s) => n + s.length);
-    if (!mounted) return;
-    setState(() {
-      _totalProjects = projects.length;
-      _totalSegments = segs;
-      _recent = projects.take(3).toList();
-      _loading = false;
-    });
+    try {
+      final projects = await _projectDao.listAll();
+      // Sequential `await` per project blocks home screen open by N×~50 ms.
+      // Parallelise with `Future.wait` so total wall-time is one DAO round-trip
+      // (better-sqlite3 serialises internally; the win is the absence of
+      // intermediate `await` ticks on the UI thread).
+      final segLists = await Future.wait(
+        projects.map((p) => _segmentDao.listForProject(p.id)),
+      );
+      final segs = segLists.fold<int>(0, (n, s) => n + s.length);
+      if (!mounted) return;
+      setState(() {
+        _totalProjects = projects.length;
+        _totalSegments = segs;
+        _recent = projects.take(3).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      // P0-11: HomeScreen had ZERO error handling. A wedged spinner on cold
+      // start with stale numbers and no Retry CTA looks like a bricked app
+      // — welders force-quit and uninstall. Surface a SnackBar with Ponów.
+      debugPrint('HomeScreen load error: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Nie udało się wczytać projektów.',
+          en: 'Failed to load projects.',
+        )),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Ponów', en: 'Retry'),
+          onPressed: _load,
+        ),
+      ));
+    }
   }
 
   @override
