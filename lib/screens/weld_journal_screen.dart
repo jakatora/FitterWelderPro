@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
 import '../i18n/app_language.dart';
+import '../services/welder_identity.dart';
 import '../widgets/help_button.dart';
 
 // ── Kolory ─────────────────────────────────────────────────────────────────
@@ -615,16 +616,23 @@ class _WeldEditorState extends State<_WeldEditor> {
   void initState() {
     super.initState();
     final e = widget.entry;
+    // P0-08: On NEW entry (entry == null) auto-fill welder + fitter from
+    // the persistent identity store. The user can still type a substitute
+    // (e.g. when documenting a coworker's weld) but every new joint is
+    // welder-stamped by default — no more anonymous "ghost weld" rows
+    // that fail ISO 3834 audit. Existing entries keep their original
+    // stamp untouched.
+    final identityStamp = WelderIdentityService.instance.current?.stamp ?? '';
     _noCtrl     = TextEditingController(text: e?.weldNo     ?? widget.suggestedNo);
     _projCtrl   = TextEditingController(text: e?.projectName ?? '');
     _pipeCtrl   = TextEditingController(text: e?.pipeName    ?? '');
     _matCtrl    = TextEditingController(text: e?.material    ?? '316L');
     _odCtrl     = TextEditingController(text: e?.od          ?? '');
     _tCtrl      = TextEditingController(text: e?.t           ?? '');
-    _welderCtrl = TextEditingController(text: e?.welder      ?? '');
+    _welderCtrl = TextEditingController(text: e?.welder      ?? identityStamp);
     _dateCtrl   = TextEditingController(text: e?.date        ?? _today());
     _notesCtrl  = TextEditingController(text: e?.notes       ?? '');
-    _fitterCtrl = TextEditingController(text: e?.fitter      ?? '');
+    _fitterCtrl = TextEditingController(text: e?.fitter      ?? identityStamp);
     _heat1Ctrl  = TextEditingController(text: e?.heatNo1     ?? '');
     _heat2Ctrl  = TextEditingController(text: e?.heatNo2     ?? '');
     _couponCtrl = TextEditingController(text: e?.couponRef   ?? '');

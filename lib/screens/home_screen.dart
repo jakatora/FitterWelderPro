@@ -4,6 +4,7 @@ import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
+import '../services/welder_identity.dart';
 import 'chat_screen.dart';
 import 'iso_scanner_screen.dart';
 import 'fitter_menu_screen.dart';
@@ -11,6 +12,7 @@ import 'fitter_screen.dart';
 import 'help_screen.dart';
 import 'jobs_screen.dart';
 import 'premium_screen.dart';
+import 'welder_identity_setup_screen.dart';
 import 'welder_menu_screen.dart';
 import '../widgets/help_button.dart';
 
@@ -108,6 +110,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          // P0-08: gate to the persistent welder identity setup. Badge
+          // is open if the user hasn't saved one yet — they need it
+          // before the weld journal is audit-traceable.
+          IconButton(
+            icon: Icon(
+              WelderIdentityService.instance.current == null
+                  ? Icons.badge_outlined
+                  : Icons.badge,
+            ),
+            tooltip: context.tr(
+              pl: 'Tożsamość spawacza',
+              en: 'Welder identity',
+            ),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const WelderIdentitySetupScreen()),
+              );
+              // Trigger rebuild so the badge icon reflects newly-saved
+              // identity (filled badge) without a hot reload.
+              if (mounted) setState(() {});
+            },
+          ),
           HelpButton(help: kHelpHome),
           PopupMenuButton<AppLanguage>(
             tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),

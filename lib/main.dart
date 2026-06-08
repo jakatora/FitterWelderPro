@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app.dart';
 import 'services/premium_service.dart';
+import 'services/welder_identity.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +27,14 @@ void main() {
   }).catchError((Object e) {
     debugPrint('PremiumService startup refresh failed: $e');
     return PremiumService.instance.status;
+  });
+
+  // P0-08: hydrate persistent welder identity so the weld journal editor
+  // can auto-fill welder + fitter fields on the very first new entry of
+  // the session — no need to wait for the first await elsewhere.
+  WelderIdentityService.instance.get().catchError((Object e) {
+    debugPrint('WelderIdentityService startup hydrate failed: $e');
+    return null;
   });
 
   runApp(const CutListApp());

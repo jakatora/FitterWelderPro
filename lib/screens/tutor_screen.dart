@@ -14,6 +14,46 @@ class _TutorScreenState extends State<TutorScreen> {
   final TextEditingController _controller = TextEditingController();
   final List<_Message> _messages = [];
 
+  /// P0-10: monotonic request counter. Increment on every send; only the
+  /// response that matches the current counter is allowed to render. A
+  /// late answer to question A no longer appears under question B
+  /// (which would have the welder applying the wrong undercut/preheat
+  /// limit — joint fails NDT or service).
+  int _requestSeq = 0;
+
+  /// P0-10: pre-normalised scope dictionary. Covers the actual code
+  /// keywords welders type when asking the tutor (WPS / WPQR / PQR / HAZ /
+  /// PWHT / NDT / RT / UT / PT / VT / process codes + standards prefixes).
+  /// Without these the scope filter rejects the exact questions the tutor
+  /// exists for and the user always sees "out_of_scope" → "no_answer".
+  static const List<String> _kScopeKeywords = [
+    'spaw', 'weld', 'mont', 'fit', 'assemble',
+    'wps', 'wpqr', 'pqr', 'haz', 'pwht', 'preheat',
+    'ndt', ' rt ', ' ut ', ' pt ', ' vt ', 'rentgen', 'penetrant',
+    'gtaw', 'gmaw', 'smaw', 'fcaw', 'saw', 'tig', 'mig', 'mag',
+    'iso', 'asme', 'aws', ' en ', 'pn-en', 'din',
+    'b31', 'd1.1', '5817', '9606', '15614', '9692', '13920', 'ped',
+    'rura', 'rurociag', 'spoina', 'orbital',
+    'pipe', 'pipeline', 'joint', 'pass', 'bead', 'tube',
+  ];
+
+  /// Strips PL/EN diacritics so "świszczen" / "łuk" / etc. still match
+  /// ASCII scope keywords. Best-effort — covers PL + DE/CS extras.
+  String _ascii(String input) {
+    const map = {
+      'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n',
+      'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+      'ä': 'a', 'ö': 'o', 'ü': 'u', 'ß': 'ss',
+      'á': 'a', 'é': 'e', 'í': 'i', 'ú': 'u',
+    };
+    final buf = StringBuffer();
+    for (final ch in input.toLowerCase().runes) {
+      final s = String.fromCharCode(ch);
+      buf.write(map[s] ?? s);
+    }
+    return buf.toString();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -42,12 +82,11 @@ class _TutorScreenState extends State<TutorScreen> {
     });
     _controller.clear();
 
-    final lower = text.toLowerCase();
-    final isInScope = lower.contains('spaw') ||
-        lower.contains('weld') ||
-        lower.contains('mont') ||
-        lower.contains('fit') ||
-        lower.contains('assemble');
+    // P0-10: diacritic-insensitive scope match against the widened keyword
+    // dictionary. The old 5-word filter rejected every actual code question
+    // a welder types ("WPQR dla P91?" → out-of-scope).
+    final normalised = _ascii(text);
+    final isInScope = _kScopeKeywords.any(normalised.contains);
     if (!isInScope) {
       setState(() {
         _messages.add(_Message(
@@ -64,10 +103,17 @@ class _TutorScreenState extends State<TutorScreen> {
       ));
     });
     final searchIndex = _messages.length - 1;
+    final mySeq = ++_requestSeq;
 
-    // Attempt to retrieve or search for an answer asynchronously.
-    BackendService.getOrSearchAnswer(text).then((answer) {
-      if (!mounted) return;
+    // Attempt to retrieve or search for an answer asynchronously. The 20 s
+    // timeout guards against a backend that takes forever (frozen Render
+    // cold-start, basement-signal stall); _requestSeq ensures only the
+    // response to the LATEST question renders — a stale late answer to a
+    // prior question would otherwise display under the wrong prompt.
+    BackendService.getOrSearchAnswer(text)
+        .timeout(const Duration(seconds: 20))
+        .then((answer) {
+      if (!mounted || mySeq != _requestSeq) return;
       setState(() {
         if (searchIndex >= 0 && searchIndex < _messages.length) {
           _messages.removeAt(searchIndex);
@@ -82,9 +128,9 @@ class _TutorScreenState extends State<TutorScreen> {
         }
       });
     }).catchError((_) {
+      if (!mounted || mySeq != _requestSeq) return;
       // Network drop / backend 500: clear the "searching..." bubble and
       // surface a Retry — on a noisy shop floor a frozen screen is the worst UX.
-      if (!mounted) return;
       setState(() {
         if (searchIndex >= 0 && searchIndex < _messages.length) {
           _messages.removeAt(searchIndex);
