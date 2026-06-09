@@ -4567,29 +4567,49 @@ class _Toolbar extends StatelessWidget {
                   fontWeight: FontWeight.w700)),
         );
 
+    // P1-06 — Right-edge fade gradient on horizontal toolbar scroll strips
+    // signals there's more content off-screen (Duplex/Inconel chips hidden
+    // beyond the viewport never gate safety checks otherwise). ShaderMask
+    // with BlendMode.dstIn keeps the content where the shader alpha is high
+    // and fades it out toward the right edge.
+    Widget fadeRight(Widget child) => ShaderMask(
+          shaderCallback: (Rect bounds) => const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            stops: [0.0, 0.88, 1.0],
+            colors: [Colors.black, Colors.black, Colors.transparent],
+          ).createShader(bounds),
+          blendMode: BlendMode.dstIn,
+          child: child,
+        );
+
     return Container(
       color: cs.surfaceContainerHigh,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(8, 5, 8, 2),
-          child: Row(children: [
-            groupLabel(context.tr(pl: 'LINIE', en: 'LINES')),
-            ...lineItems.map(chip),
-            const SizedBox(width: 10),
-            Container(width: 1, height: 20, color: cs.outlineVariant),
-            const SizedBox(width: 10),
-            groupLabel(context.tr(pl: 'KSZTAŁTKI', en: 'FITTINGS')),
-            ...fittingItems.map(chip),
-          ]),
+        fadeRight(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(8, 5, 8, 2),
+            child: Row(children: [
+              groupLabel(context.tr(pl: 'LINIE', en: 'LINES')),
+              ...lineItems.map(chip),
+              const SizedBox(width: 10),
+              Container(width: 1, height: 20, color: cs.outlineVariant),
+              const SizedBox(width: 10),
+              groupLabel(context.tr(pl: 'KSZTAŁTKI', en: 'FITTINGS')),
+              ...fittingItems.map(chip),
+            ]),
+          ),
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 5),
-          child: Row(children: [
-            groupLabel(context.tr(pl: 'OPISY', en: 'ANNOTATIONS')),
-            ...annoItems.map(chip),
-          ]),
+        fadeRight(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 5),
+            child: Row(children: [
+              groupLabel(context.tr(pl: 'OPISY', en: 'ANNOTATIONS')),
+              ...annoItems.map(chip),
+            ]),
+          ),
         ),
       ]),
     );

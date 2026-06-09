@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
+import '../widgets/help_button.dart';
 
 const _kCard   = Color(0xFF1A1D26);
 const _kBorder = Color(0xFF2C3354);
@@ -26,6 +27,9 @@ class QuickConverterScreen extends StatelessWidget {
         appBar: AppBar(
           title: Text(context.tr(
               pl: 'Konwerter jednostek', en: 'Unit converter')),
+          actions: [
+            HelpButton(help: kHelpHome),
+          ],
           bottom: TabBar(
             isScrollable: true,
             tabs: [
@@ -134,6 +138,12 @@ class _LengthTabState extends State<_LengthTab> {
   final _ctrl = TextEditingController();
   String _src = 'mm';
 
+  void _clear() {
+    Haptic.tap();
+    _ctrl.clear();
+    setState(() => _src = 'mm');
+  }
+
   static const _toMm = {
     'mm': 1.0,
     'cm': 10.0,
@@ -192,6 +202,13 @@ class _LengthTabState extends State<_LengthTab> {
                 },
               ),
             ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _clear,
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -221,6 +238,12 @@ class _TempTab extends StatefulWidget {
 class _TempTabState extends State<_TempTab> {
   final _ctrl = TextEditingController();
   String _src = '°C';
+
+  void _clear() {
+    Haptic.tap();
+    _ctrl.clear();
+    setState(() => _src = '°C');
+  }
 
   @override
   void dispose() {
@@ -286,6 +309,13 @@ class _TempTabState extends State<_TempTab> {
                 onChanged: (k) => setState(() => _src = k ?? '°C'),
               ),
             ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _clear,
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -313,6 +343,12 @@ class _PressureTab extends StatefulWidget {
 class _PressureTabState extends State<_PressureTab> {
   final _ctrl = TextEditingController();
   String _src = 'bar';
+
+  void _clear() {
+    Haptic.tap();
+    _ctrl.clear();
+    setState(() => _src = 'bar');
+  }
 
   static const _toBar = {
     'bar': 1.0,
@@ -367,6 +403,13 @@ class _PressureTabState extends State<_PressureTab> {
                 onChanged: (k) => setState(() => _src = k ?? 'bar'),
               ),
             ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _clear,
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -396,6 +439,12 @@ class _FlowTab extends StatefulWidget {
 class _FlowTabState extends State<_FlowTab> {
   final _ctrl = TextEditingController();
   String _src = 'l/min';
+
+  void _clear() {
+    Haptic.tap();
+    _ctrl.clear();
+    setState(() => _src = 'l/min');
+  }
 
   // Normal conditions; rotameters on shielding-gas regulators are calibrated
   // for atmospheric flow, so l/min == slpm to engineering accuracy on site.
@@ -449,6 +498,13 @@ class _FlowTabState extends State<_FlowTab> {
                 items: _items,
                 onChanged: (k) => setState(() => _src = k ?? 'l/min'),
               ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _clear,
             ),
           ],
         ),

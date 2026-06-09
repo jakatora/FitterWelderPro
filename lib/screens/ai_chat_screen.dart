@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../services/ai_chat_service.dart';
@@ -110,9 +111,12 @@ class _AiChatBodyState extends State<_AiChatBody> {
           pl: 'Połączenie z AI nie powiodło się.',
           en: 'AI connection failed.',
         )),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 6),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: _kCard,
         action: SnackBarAction(
           label: context.tr(pl: 'Ponów', en: 'Retry'),
+          textColor: _kAccent,
           onPressed: () {
             _inputCtrl.text = text;
             _send();
@@ -172,9 +176,50 @@ class _AiChatBodyState extends State<_AiChatBody> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: _kTextSec),
+            icon: const Icon(Icons.delete_sweep_outlined, color: _kTextSec),
             tooltip: context.tr(pl: 'Wyczyść rozmowę', en: 'Clear chat'),
-            onPressed: () {
+            onPressed: () async {
+              // P1-05: only prompt when there's something to lose (more than
+              // the seeded welcome message). Refresh→delete_sweep swap makes
+              // the icon semantics match destruction (was "reload" everywhere
+              // else in the app).
+              if (_messages.length > 1) {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (dctx) => AlertDialog(
+                    backgroundColor: _kCard,
+                    title: Text(
+                      context.tr(
+                        pl: 'Wyczyścić rozmowę?',
+                        en: 'Clear chat?',
+                      ),
+                      style: const TextStyle(color: Color(0xFFE8ECF0)),
+                    ),
+                    content: Text(
+                      context.tr(
+                        pl: 'Wszystkie wiadomości w tym wątku zostaną usunięte. Tej operacji nie można cofnąć.',
+                        en: 'All messages in this thread will be deleted. This cannot be undone.',
+                      ),
+                      style: const TextStyle(color: _kTextSec),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dctx, false),
+                        child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(dctx, true),
+                        child: Text(
+                          context.tr(pl: 'Wyczyść', en: 'Clear'),
+                          style: const TextStyle(color: _kAccent),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                if (!mounted) return;
+              }
               setState(() {
                 _messages.clear();
                 _messages.add(ChatMessage(
@@ -319,7 +364,8 @@ class _MessageBubble extends StatelessWidget {
                     message.text,
                     style: const TextStyle(
                       color: Color(0xFFE8ECF0),
-                      fontSize: 14,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
                       height: 1.5,
                     ),
                   ),
@@ -346,8 +392,8 @@ class _MessageBubble extends StatelessWidget {
                                   child: Text(
                                     '📖 $c',
                                     style: TextStyle(
-                                      fontSize: 10,
-                                      color: _kAccent,
+                                      fontSize: 12,
+                                      color: _kTextSec,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -489,23 +535,33 @@ class _SuggestionStrip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         itemCount: suggestions.length,
         itemBuilder: (context, i) {
+          // P1-07 + P1-09: Material+InkWell ripple (was bare GestureDetector),
+          // haptic selectionClick on tap, vertical padding bumped to 14dp and
+          // font to 14pt for gloved-fingertip readability.
           return Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => onPick(suggestions[i]),
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 48),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _kCard,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: _kBorder),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  suggestions[i],
-                  style: const TextStyle(fontSize: 12, color: _kTextSec),
+            child: Material(
+              color: _kCard,
+              borderRadius: BorderRadius.circular(24),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  onPick(suggestions[i]);
+                },
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: _kBorder),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    suggestions[i],
+                    style: const TextStyle(fontSize: 14, color: _kTextSec),
+                  ),
                 ),
               ),
             ),
@@ -557,7 +613,7 @@ class _Composer extends StatelessWidget {
                   pl: 'Zapytaj o WPS, preheat, NACE…',
                   en: 'Ask about WPS, preheat, NACE…',
                 ),
-                hintStyle: const TextStyle(color: _kTextMut, fontSize: 13),
+                hintStyle: const TextStyle(color: _kTextMut, fontSize: 15),
                 filled: true,
                 fillColor: _kBg,
                 contentPadding:
@@ -586,6 +642,8 @@ class _Composer extends StatelessWidget {
             child: IconButton(
               icon: const Icon(Icons.send_rounded),
               color: Colors.black,
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
               onPressed: enabled ? onSend : null,
             ),
           ),

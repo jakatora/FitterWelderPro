@@ -21,7 +21,7 @@
 // translates the prefix.
 
 double parseIsoExpression(String expr) {
-  final cleaned = expr
+  final cleaned = _normaliseInput(expr)
       .replaceAll(' ', '')
       .replaceAll('\t', '')
       .replaceAll(',', '.')
@@ -40,6 +40,51 @@ double parseIsoExpression(String expr) {
   final v = p.parseExpression();
   if (!p.eof) throw const FormatException('trailing tokens');
   return v;
+}
+
+// P1-03: Normalise smart-quote / unicode noise welders paste from PDFs &
+// WhatsApp BEFORE the strict-charset gate below trips on it.
+//
+//   - U+2212 (minus sign), U+2010..U+2015 (hyphen variants, en-dash, em-dash,
+//     horizontal bar) -> ASCII '-'
+//   - Vulgar fractions ½ ¼ ¾ -> 0.5 / 0.25 / 0.75 (decimal so the divide-free
+//     parser can handle them; the parser explicitly rejects '/')
+//   - Zero-width / bidi marks U+200B..U+200F, U+202A..U+202E, U+FEFF -> dropped
+//   - Trailing unit suffix 'mm' / 'in' / '"' -> dropped (welders paste
+//     "76 mm" or '3"' from drawings)
+//   - A single thousands separator (NBSP U+00A0 / narrow NBSP U+202F /
+//     apostrophe ') between a digit and a group of exactly three digits is
+//     dropped so "1 234" / "1'234" parses as 1234. Regular ASCII space is
+//     already stripped further down; comma is handled there too (treated as
+//     decimal, not thousands — consistent with the existing PL behaviour).
+String _normaliseInput(String expr) {
+  var s = expr;
+
+  // Unicode minus / dashes -> '-'.
+  s = s.replaceAll('−', '-');
+  s = s.replaceAll(RegExp(r'[‐-―]'), '-');
+
+  // Vulgar fractions -> decimal.
+  s = s.replaceAll('½', '0.5');
+  s = s.replaceAll('¼', '0.25');
+  s = s.replaceAll('¾', '0.75');
+
+  // Zero-width / bidi / BOM marks. The whole point is to strip these from
+  // user input — they must appear in the regex literal. The lint exists to
+  // warn humans, not to break us: silence it here with the per-line ignore.
+  // ignore: text_direction_code_point_in_literal
+  s = s.replaceAll(RegExp(r'[​-‏‪-‮﻿]'), '');
+
+  // Single thousands separator between digits: NBSP / narrow NBSP / ' .
+  s = s.replaceAllMapped(
+    RegExp(r"(\d)[  '](\d{3})(?!\d)"),
+    (m) => '${m[1]}${m[2]}',
+  );
+
+  // Trailing unit suffix: mm / in / " (case-insensitive, optional ASCII space).
+  s = s.replaceAll(RegExp(r'\s*(?:mm|in|")\s*$', caseSensitive: false), '');
+
+  return s;
 }
 
 class _Parser {

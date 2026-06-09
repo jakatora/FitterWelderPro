@@ -6,6 +6,7 @@ import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/chat_service.dart';
 import '../services/premium_service.dart';
+import '../utils/haptic.dart';
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
 //   1. ChatScreen — list of rooms
@@ -69,7 +70,10 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: const Color(0xFF0F1117),
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Text(context.tr(pl: 'Czat', en: 'Chat')),
+        title: Text(
+          context.tr(pl: 'Czat', en: 'Chat'),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline),
@@ -155,7 +159,10 @@ class _ChatComingSoon extends StatelessWidget {
       backgroundColor: const Color(0xFF0F1117),
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Text(context.tr(pl: 'Czat', en: 'Chat')),
+        title: Text(
+          context.tr(pl: 'Czat', en: 'Chat'),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        ),
       ),
       body: Center(
         child: Padding(
@@ -238,9 +245,15 @@ class _RoomTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          Haptic.tap();
+          onTap();
+        },
+        child: Container(
         margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -277,6 +290,7 @@ class _RoomTile extends StatelessWidget {
             ),
             const Icon(Icons.chevron_right, color: _kTextMut),
           ],
+        ),
         ),
       ),
     );
@@ -426,7 +440,7 @@ class _RoomViewState extends State<_RoomView> {
           raw.contains('400'));
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(message),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 6),
         action: isRetryable
             ? SnackBarAction(
                 label: context.tr(pl: 'Ponów', en: 'Retry'),
@@ -491,7 +505,10 @@ class _RoomViewState extends State<_RoomView> {
           children: [
             Icon(Icons.tag, color: _kAccent, size: 18),
             const SizedBox(width: 6),
-            Text(name),
+            Text(
+              name,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
           ],
         ),
       ),
@@ -585,7 +602,8 @@ class _MessageBubble extends StatelessWidget {
                     Text(
                       message.text,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
                         color: Color(0xFFE8ECF0),
                         height: 1.35,
                       ),
@@ -593,7 +611,7 @@ class _MessageBubble extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       time,
-                      style: const TextStyle(fontSize: 10, color: _kTextMut),
+                      style: const TextStyle(fontSize: 12, color: _kTextMut),
                     ),
                   ],
                 ),
@@ -648,9 +666,11 @@ class _Composer extends StatelessWidget {
                 minLines: 1,
                 maxLength: 400,
                 textInputAction: TextInputAction.send,
+                style: const TextStyle(fontSize: 15),
                 onSubmitted: (_) => onSend(),
                 decoration: InputDecoration(
                   hintText: context.tr(pl: 'Napisz wiadomość…', en: 'Type a message…'),
+                  hintStyle: const TextStyle(fontSize: 15, color: _kTextMut),
                   counterText: '',
                   isDense: true,
                   border: const OutlineInputBorder(
@@ -664,6 +684,8 @@ class _Composer extends StatelessWidget {
             const SizedBox(width: 4),
             IconButton(
               onPressed: sending ? null : onSend,
+              iconSize: 28,
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
               icon: sending
                   ? const SizedBox(
                       width: 18,

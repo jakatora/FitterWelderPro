@@ -98,6 +98,24 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
     setState(() {});
   }
 
+  // P1-04: Wyczyść — reset all input + result controllers in one tap.
+  // 5 inputs (H1, H2, X, Y) + R get cleared (R restored to its default '0'),
+  // and the 4 result controllers (seg1, seg2, seg3, total) wipe so the
+  // empty-state placeholder reappears. Multi-job shift = 3-4 calcs back-to-back;
+  // manual field clearing in gloves is painful and inconsistent.
+  void _clearAll() {
+    _h1Controller.clear();
+    _h2Controller.clear();
+    _xController.clear();
+    _yController.clear();
+    _rController.text = '0';
+    _seg1Controller.clear();
+    _seg2Controller.clear();
+    _seg3Controller.clear();
+    _totalController.clear();
+    setState(() {});
+  }
+
   @override
   void dispose() {
     for (final c in [
@@ -115,7 +133,15 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Trasa rur – 3 kolanka 90°', en: 'Pipe route – 3 × 90° elbows')),
-        actions: [HelpButton(help: kHelpPipeRoute)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: _clearAll,
+          ),
+          HelpButton(help: kHelpPipeRoute),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),

@@ -121,7 +121,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   /// Wall-clock cap for the whole verification loop (regardless of polling
   /// internals). Worst-case before: 6 polls × 8s backend timeout = 48s of
   /// frozen overlay if the backend was slow. Now we hard-cap and bail.
-  static const Duration _kVerifyBudget = Duration(seconds: 15);
+  /// P1-11: bumped 15s → 30s — basement / workshop signal routinely makes
+  /// the legitimate Stripe webhook land 15-25s after checkout completes,
+  /// the old budget was tripping on real payers and forcing them through
+  /// the "Nie zarejestrowaliśmy płatności" branch.
+  static const Duration _kVerifyBudget = Duration(seconds: 30);
 
   /// Manually break out of an in-flight verification — wired to the
   /// "Anuluj" button in the overlay. Clears the persisted flag so the
@@ -183,7 +187,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         await Future.delayed(const Duration(milliseconds: 1500));
       }
       // Wall-clock cap reached. Assume the user either didn't pay or the
-      // webhook is more than 15s late — either way, get them OFF the
+      // webhook is more than 30s late — either way, get them OFF the
       // overlay and give them an actionable next step.
       if (!mounted) return;
       setState(() {
@@ -439,6 +443,14 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                   badge: context.tr(
                       pl: 'OSZCZĘDZASZ 35% · POPULARNE',
                       en: 'SAVE 35% · MOST POPULAR'),
+                  // P1-27: display-only — the actual Stripe
+                  // trial_period_days is wired backend-side; surface the
+                  // benefit on the card so the yearly plan reads as the
+                  // risk-free pick.
+                  trialBadge: context.tr(
+                    pl: 'Pierwsze 7 dni za darmo',
+                    en: 'First 7 days free',
+                  ),
                   highlight: true,
                   onTap: () => _startCheckout(context, PremiumPlan.yearly),
                 ),
@@ -446,10 +458,41 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
             ],
           ),
           const SizedBox(height: 16),
+          // P1-27: "Anuluj w każdej chwili" promoted to its own 13 pt line
+          // so the reassurance reads first instead of being buried in the
+          // payment-providers run-on. BLIK kept in EN copy for parity with
+          // the PL string (Polish payers using EN UI still see it).
           Text(
             context.tr(
-              pl: 'Płatność: Stripe (karta, BLIK, Apple Pay, Google Pay). Anuluj w każdej chwili.',
-              en: 'Payment: Stripe (card, Apple Pay, Google Pay). Cancel anytime.',
+              pl: 'Anuluj w każdej chwili.',
+              en: 'Cancel anytime.',
+            ),
+            style: const TextStyle(
+              fontSize: 13,
+              color: _kTextSec,
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            context.tr(
+              pl: 'Płatność: Stripe (karta, BLIK, Apple Pay, Google Pay).',
+              en: 'Payment: Stripe (card, BLIK, Apple Pay, Google Pay).',
+            ),
+            style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          // P1-27: invoice footnote so accounting-conscious buyers (sole
+          // traders, B2B fitters) see the VAT option without having to
+          // contact support pre-purchase. Fakturownia automation lands in
+          // a later milestone — for now the channel is manual e-mail.
+          Text(
+            context.tr(
+              pl: 'Faktura VAT na żądanie — napisz po zakupie.',
+              en: 'VAT invoice on request — message us after purchase.',
             ),
             style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
             textAlign: TextAlign.center,
@@ -505,19 +548,63 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                       style: const TextStyle(fontSize: 11, color: _kTextSec),
                       textAlign: TextAlign.center,
                     ),
+                    // P1-11: linear progress under the spinner — a flat bar
+                    // reads as "something is happening" even when the
+                    // spinner blends into the gold/dark palette on dimmer
+                    // workshop screens; gives the user a second visual cue
+                    // that the verification is still in flight.
+                    if (_verifying) ...[
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: 220,
+                        child: LinearProgressIndicator(
+                          minHeight: 3,
+                          backgroundColor: _kBorder,
+                          valueColor: const AlwaysStoppedAnimation<Color>(_kGold),
+                        ),
+                      ),
+                    ],
                     // Escape hatch — only on the verifying overlay, NOT on
                     // the brief "preparing checkout" one. Without this the
                     // user is locked in the overlay until the wall-clock
                     // budget elapses, which is the bug they reported.
                     if (_verifying) ...[
                       const SizedBox(height: 16),
-                      TextButton(
-                        onPressed: _cancelVerification,
-                        child: Text(
-                          context.tr(pl: 'Anuluj', en: 'Cancel'),
-                          style: const TextStyle(
-                            color: _kTextSec,
-                            fontWeight: FontWeight.w700,
+                      // P1-11: lets the payer who already saw "Payment
+                      // successful" on Stripe re-trigger the verification
+                      // poll without waiting for the budget to expire. We
+                      // also reset the in-flight flag so the call isn't
+                      // short-circuited by the re-entrancy guard.
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: TextButton(
+                          onPressed: () {
+                            _verifyInFlight = false;
+                            _refreshAfterCheckout();
+                          },
+                          child: Text(
+                            context.tr(
+                              pl: 'Już zapłaciłem',
+                              en: 'I already paid',
+                            ),
+                            style: const TextStyle(
+                              color: _kGold,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: TextButton(
+                          onPressed: _cancelVerification,
+                          child: Text(
+                            context.tr(pl: 'Anuluj', en: 'Cancel'),
+                            style: const TextStyle(
+                              color: _kTextSec,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
@@ -757,6 +844,11 @@ class _PlanCard extends StatelessWidget {
   final String price;
   final String per;
   final String? badge;
+  // P1-27: display-only free-trial badge surfaced next to the yearly card
+  // ("Pierwsze 7 dni za darmo"). The actual trial is configured on Stripe
+  // via trial_period_days on the price object — this widget only marks the
+  // plan visually so the yearly tile reads as the risk-free pick.
+  final String? trialBadge;
   final bool highlight;
   final VoidCallback onTap;
 
@@ -766,6 +858,7 @@ class _PlanCard extends StatelessWidget {
     required this.per,
     required this.badge,
     required this.onTap,
+    this.trialBadge,
     this.highlight = false,
   });
 
@@ -828,6 +921,26 @@ class _PlanCard extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: _kGreen,
                     letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+            if (trialBadge != null) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _kGold.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _kGold.withValues(alpha: 0.5)),
+                ),
+                child: Text(
+                  trialBadge!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: _kGold,
+                    letterSpacing: 0.3,
                   ),
                 ),
               ),

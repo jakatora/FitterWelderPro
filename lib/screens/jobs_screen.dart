@@ -34,6 +34,11 @@ class _JobsScreenState extends State<JobsScreen> {
   List<JobListing> _listings = const [];
   bool _loading = true;
   String? _error;
+  // P1-11 — set while we're inside the post-Stripe webhook poll loop so we can
+  // render a "waiting for payment confirmation" banner and disable the Add FAB
+  // (prevents a second Stripe Checkout session being created while the first
+  // webhook is still in flight on flaky basement/jobsite cellular).
+  bool _waitingForWebhook = false;
 
   @override
   void initState() {
@@ -64,11 +69,27 @@ class _JobsScreenState extends State<JobsScreen> {
         _loading = false;
       });
     } catch (e) {
+      // P1-01 — DAO/HTTP failure must always reset the spinner AND surface a
+      // Ponów/Retry SnackBar (frozen orange spinner is the #1 "is the app
+      // broken?" symptom on slow workshop signal — users force-quit).
+      debugPrint('[JobsScreen._load] failed: $e');
       if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(context.tr(
+            pl: 'Nie udało się wczytać ogłoszeń.',
+            en: 'Could not load listings.',
+          )),
+          action: SnackBarAction(
+            label: context.tr(pl: 'Ponów', en: 'Retry'),
+            onPressed: _load,
+          ),
+        ));
     }
   }
 
@@ -81,32 +102,64 @@ class _JobsScreenState extends State<JobsScreen> {
       MaterialPageRoute(builder: (_) => const JobAddScreen()),
     );
     if (res == true) {
-      // Webhook usually fires within ~1.5 s of the user finishing the Stripe
-      // form; the old fixed 3 s delay was either a wait-too-long (slow
-      // perceived UX) or a wait-too-short (listing missing). Poll the
-      // public list every 1.5 s up to 12 s and stop as soon as the listing
-      // count changes — the first new paid id will be the user's own.
-      final before = _listings.length;
-      for (var i = 0; i < 8; i++) {
-        await Future.delayed(const Duration(milliseconds: 1500));
+      // P1-11 — flip the banner on while we're waiting for the webhook so
+      // the user sees confirmation that something is happening; also gates
+      // the Add FAB to prevent a second Stripe Checkout being created.
+      if (!mounted) return;
+      setState(() => _waitingForWebhook = true);
+      try {
+        // Webhook usually fires within ~1.5 s of the user finishing the Stripe
+        // form; the old fixed 3 s delay was either a wait-too-long (slow
+        // perceived UX) or a wait-too-short (listing missing). Poll the
+        // public list every 1.5 s up to 12 s and stop as soon as the listing
+        // count changes — the first new paid id will be the user's own.
+        final before = _listings.length;
+        for (var i = 0; i < 8; i++) {
+          await Future.delayed(const Duration(milliseconds: 1500));
+          if (!mounted) return;
+          try {
+            final fresh = await JobsService.instance.listPublic(
+              locationLike: _filterCtrl.text.trim().isEmpty
+                  ? null
+                  : _filterCtrl.text.trim(),
+            );
+            if (!mounted) return;
+            if (fresh.length != before) {
+              setState(() => _listings = fresh);
+              return;
+            }
+          } catch (e) {
+            // P1-01 — log but don't bail; the next tick will retry. Only a
+            // total-window failure surfaces a SnackBar (below).
+            debugPrint('[JobsScreen._addNew] poll tick $i failed: $e');
+          }
+        }
+        // Webhook didn't fire within the window — fall back to a manual reload
+        // and surface a Ponów action so the user can re-poll on demand.
         if (!mounted) return;
         try {
-          final fresh = await JobsService.instance.listPublic(
-            locationLike: _filterCtrl.text.trim().isEmpty
-                ? null
-                : _filterCtrl.text.trim(),
-          );
+          await _load();
+        } catch (e) {
+          debugPrint('[JobsScreen._addNew] fallback _load failed: $e');
           if (!mounted) return;
-          if (fresh.length != before) {
-            setState(() => _listings = fresh);
-            return;
-          }
-        } catch (_) {
-          // ignore transient errors; the next tick will retry
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(
+              content: Text(context.tr(
+                pl: 'Płatność jeszcze nie potwierdzona. Spróbuj odświeżyć za chwilę.',
+                en: 'Payment not confirmed yet. Try refreshing in a moment.',
+              )),
+              action: SnackBarAction(
+                label: context.tr(pl: 'Ponów', en: 'Retry'),
+                onPressed: _load,
+              ),
+            ));
         }
+      } finally {
+        // Always lower the banner / re-enable the FAB, even on early-return
+        // (unmount, success) or a thrown poll exception.
+        if (mounted) setState(() => _waitingForWebhook = false);
       }
-      // Webhook didn't fire within the window — fall back to a manual reload.
-      if (mounted) _load();
     }
   }
 
@@ -129,12 +182,48 @@ class _JobsScreenState extends State<JobsScreen> {
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: context.tr(pl: 'Dodaj ogłoszenie', en: 'Add listing'),
-            onPressed: _addNew,
+            // P1-11 — same gate as the FAB so the duplicate-Stripe-session
+            // window is closed from every entrypoint.
+            onPressed: _waitingForWebhook ? null : _addNew,
           ),
         ],
       ),
       body: Column(
         children: [
+          // P1-11 — webhook-polling banner. Pinned to top of body so it sits
+          // above the filter + list and is visible regardless of scroll.
+          if (_waitingForWebhook)
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              color: _kGold.withValues(alpha: 0.15),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _kGold,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      context.tr(
+                        pl: 'Czekamy na potwierdzenie płatności…',
+                        en: 'Waiting for payment confirmation…',
+                      ),
+                      style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFFE8ECF0),
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
             child: TextField(
@@ -208,7 +297,20 @@ class _JobsScreenState extends State<JobsScreen> {
                         ),
                       )
                 : _listings.isEmpty
-                    ? _EmptyState(onAdd: _addNew)
+                    // P1-10 — distinguish "no listings match this filter" from
+                    // "no listings at all". A filter-empty state must offer a
+                    // "Wyczyść filtr" action so the user doesn't conclude the
+                    // module is broken when they typed e.g. "Płlock".
+                    ? (_filterCtrl.text.trim().isNotEmpty
+                        ? _FilterEmptyState(
+                            query: _filterCtrl.text.trim(),
+                            onClear: () {
+                              _filterCtrl.clear();
+                              setState(() {});
+                              _load();
+                            },
+                          )
+                        : _EmptyState(onAdd: _addNew))
                     : RefreshIndicator(
                         color: _kAccent,
                         onRefresh: _load,
@@ -228,11 +330,15 @@ class _JobsScreenState extends State<JobsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: _kAccent,
+        // P1-11 — disable while a Stripe webhook poll is in flight so the user
+        // can't tap-mash a second Checkout session into existence.
+        backgroundColor: _waitingForWebhook
+            ? _kAccent.withValues(alpha: 0.4)
+            : _kAccent,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: Text(context.tr(pl: 'Dodaj', en: 'Add')),
-        onPressed: _addNew,
+        onPressed: _waitingForWebhook ? null : _addNew,
       ),
     );
   }
@@ -449,6 +555,65 @@ class _EmptyState extends StatelessWidget {
               icon: const Icon(Icons.add),
               label: Text(
                   context.tr(pl: 'Dodaj ogłoszenie', en: 'Add listing')),
+              style: FilledButton.styleFrom(
+                backgroundColor: _kAccent,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Filter-empty state (P1-10) — separate from no-data empty state so a typoed
+// filter doesn't look like a broken module.
+// ════════════════════════════════════════════════════════════════════════════
+class _FilterEmptyState extends StatelessWidget {
+  final String query;
+  final VoidCallback onClear;
+  const _FilterEmptyState({required this.query, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.search_off, color: _kTextMut, size: 44),
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                pl: 'Brak ogłoszeń dla "$query"',
+                en: 'No listings for "$query"',
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFE8ECF0),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.tr(
+                pl: 'Spróbuj innej lokalizacji lub wyczyść filtr.',
+                en: 'Try another location or clear the filter.',
+              ),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 13, color: _kTextSec, height: 1.5),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: onClear,
+              icon: const Icon(Icons.clear),
+              label: Text(context.tr(pl: 'Wyczyść filtr', en: 'Clear filter')),
               style: FilledButton.styleFrom(
                 backgroundColor: _kAccent,
                 padding:

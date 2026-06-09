@@ -25,7 +25,28 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   String _selectedAngle = '45';
   final _customAngleController = TextEditingController();
 
+  // P1-12: yellow banner when multiplier > 10 (extreme shallow angle → tiny
+  // sin(θ) blows the Travel/Multiplier up; fitter should double-check kąt).
+  bool _showMultiplierWarning = false;
+
   double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
+
+  // P1-04: Wyczyść — reset all controllers + selected angle back to 45°
+  // default. Multi-job shift = 3-4 calcs back-to-back; manual field clearing
+  // in gloves is painful and inconsistent.
+  void _resetAll() {
+    setState(() {
+      _riseController.clear();
+      _spreadController.clear();
+      _customAngleController.clear();
+      _trueOffsetController.clear();
+      _multiplierController.clear();
+      _travelController.clear();
+      _runController.clear();
+      _selectedAngle = '45';
+      _showMultiplierWarning = false;
+    });
+  }
 
   // Rolling offset formulas:
   //   True Offset = √(Rise² + Spread²)
@@ -54,6 +75,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       _multiplierController.clear();
       _travelController.clear();
       _runController.clear();
+      _showMultiplierWarning = false;
     });
 
     final rise   = _parse(_riseController.text);
@@ -81,9 +103,15 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       ));
       return;
     }
-    if (angleDeg <= 0 || angleDeg >= 90) {
+    // P1-12: Reject angle ≤ 5° or ≥ 89°; allow exactly 90° as edge case
+    // (Run = 0, Multiplier = 1). Below 5° sin(θ) collapses → multiplier
+    // explodes; above 89° (except 90°) tan(θ) blows up.
+    if (angleDeg <= 5 || (angleDeg >= 89 && angleDeg != 90)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Kąt musi być między 1° a 89°', en: 'Angle must be between 1° and 89°')),
+        content: Text(context.tr(
+          pl: 'Kąt musi być > 5° i < 89° (lub dokładnie 90°)',
+          en: 'Angle must be > 5° and < 89° (or exactly 90°)',
+        )),
       ));
       return;
     }
@@ -92,14 +120,19 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     final trueOffset = math.sqrt(rise * rise + spread * spread);
     final multiplier = 1.0 / math.sin(angleRad);
     final travel     = trueOffset * multiplier;
-    final run        = trueOffset / math.tan(angleRad);
+    // 90° edge case: tan(π/2) is mathematically infinite, but math.tan
+    // returns a huge finite float. Pin Run to 0.0 explicitly so the saw
+    // gets a clean reading.
+    final run        = angleDeg == 90 ? 0.0 : trueOffset / math.tan(angleRad);
 
     _trueOffsetController.text = trueOffset.toStringAsFixed(1);
     _multiplierController.text = multiplier.toStringAsFixed(4);
     _travelController.text     = travel.toStringAsFixed(1);
     _runController.text        = run.toStringAsFixed(1);
 
-    setState(() {});
+    setState(() {
+      _showMultiplierWarning = multiplier > 10;
+    });
   }
 
   // Dirty when fitter has typed Rise/Spread/custom-angle but not yet copied results.
@@ -158,7 +191,16 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       child: Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
-        actions: [HelpButton(help: kHelpRollingOffset)],
+        actions: [
+          // P1-04: explicit reset of every controller + chip state. 48 dp
+          // tap target via default IconButton constraints.
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+            onPressed: _resetAll,
+          ),
+          HelpButton(help: kHelpRollingOffset),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -211,6 +253,36 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
             _sectionLabel(context.tr(pl: 'WYNIKI', en: 'RESULTS')),
             const SizedBox(height: 12),
+            // P1-12: yellow banner when multiplier > 10 → very shallow kąt,
+            // tiny sin(θ) blows Travel up; fitter should re-check angle.
+            if (_showMultiplierWarning) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  border: Border.all(color: Colors.amber),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Colors.amber, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        context.tr(
+                          pl: 'Multiplier > 10 — sprawdź kąt; bardzo płaskie kolano daje ogromny Travel.',
+                          en: 'Multiplier > 10 — check angle; a very shallow elbow yields a huge Travel.',
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             _result(_trueOffsetController,
               label: context.tr(pl: 'True Offset = √(Rise²+Spread²)', en: 'True Offset = √(Rise²+Spread²)')),
             const SizedBox(height: 12),
@@ -264,6 +336,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
             _multiplierController.clear();
             _travelController.clear();
             _runController.clear();
+            _showMultiplierWarning = false;
             if (value != 'custom') {
               _customAngleController.clear();
             }

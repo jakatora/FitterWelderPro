@@ -6,6 +6,8 @@ import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/material_item.dart';
 import '../services/material_list_builder.dart';
+import '../utils/clipboard_helper.dart';
+import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
 class MaterialListScreen extends StatefulWidget {
@@ -26,6 +28,12 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
 
   late final MaterialListBuilder _builder;
   bool _loading = true;
+  // P1-10: when true the empty state is shown because we have no project id
+  // (deep-link / restored route without args, no last-known pid in prefs) —
+  // NOT because the project has zero segments. The empty-state UI branches on
+  // this so the welder sees the actionable message instead of the "add
+  // segments first" hint that would be a dead-end here.
+  bool _missingPid = false;
   List<MaterialItem> _items = [];
 
   @override
@@ -37,28 +45,59 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    var pid = widget.projectId;
-    // Recover last-known BOM project if caller handed us an empty id (e.g.
-    // route restored from OS state without args). Real navigation always
-    // passes a non-empty id, so this branch is a safety net only.
-    if (pid.isEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      pid = prefs.getString(_kLastBomProjectIdPref) ?? '';
+    try {
+      var pid = widget.projectId;
+      // Recover last-known BOM project if caller handed us an empty id (e.g.
+      // route restored from OS state without args). Real navigation always
+      // passes a non-empty id, so this branch is a safety net only.
+      if (pid.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        if (!mounted) return;
+        pid = prefs.getString(_kLastBomProjectIdPref) ?? '';
+      }
+      // Track whether we tried to load with an empty pid so the empty-state UI
+      // can distinguish "missing project id" from "no segments yet" (P1-10).
+      _missingPid = pid.isEmpty;
+      final items = pid.isEmpty
+          ? <MaterialItem>[]
+          : await _builder.buildForProject(pid);
+      if (!mounted) return;
+      // Persist on every successful, non-empty load so the next cold start has
+      // a known-good fallback. Done after the build so we never persist a junk id.
+      if (pid.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        if (!mounted) return;
+        await prefs.setString(_kLastBomProjectIdPref, pid);
+        if (!mounted) return;
+      }
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e, st) {
+      debugPrint('material_list _load failed: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _items = [];
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(context.tr(
+              pl: 'Nie udało się wczytać listy materiałowej.',
+              en: 'Failed to load material list.',
+            )),
+            duration: const Duration(seconds: 7),
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction(
+              label: context.tr(pl: 'Ponów', en: 'Retry'),
+              onPressed: _load,
+            ),
+          ),
+        );
     }
-    final items = pid.isEmpty
-        ? <MaterialItem>[]
-        : await _builder.buildForProject(pid);
-    // Persist on every successful, non-empty load so the next cold start has
-    // a known-good fallback. Done after the build so we never persist a junk id.
-    if (pid.isNotEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kLastBomProjectIdPref, pid);
-    }
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      _loading = false;
-    });
   }
 
   String _fmtLen(double mm) {
@@ -85,13 +124,48 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.inventory_2_outlined, size: 56, color: Colors.black38),
+                        Icon(
+                          _missingPid
+                              ? Icons.folder_off_outlined
+                              : Icons.inventory_2_outlined,
+                          size: 56,
+                          color: Colors.black38,
+                        ),
                         const SizedBox(height: 12),
                         Text(
-                          context.tr(pl: 'Brak danych (dodaj segmenty).', en: 'No data yet. Add segments first.'),
+                          _missingPid
+                              ? context.tr(
+                                  pl: 'Brak projektu — otwórz BOM z poziomu konkretnego projektu.',
+                                  en: 'No project selected — open BOM from a specific project.',
+                                )
+                              : context.tr(
+                                  pl: 'Brak danych (dodaj segmenty).',
+                                  en: 'No data yet. Add segments first.',
+                                ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                         ),
+                        const SizedBox(height: 12),
+                        // P1-10: "Wyczyść filtr" semantic — when we landed here because
+                        // the stored last-known pid is stale (project was deleted) the
+                        // welder needs a way to wipe that pref and back out. The Retry
+                        // re-runs _load after clearing so they immediately get the
+                        // "no project" branch and can pick a fresh one from the menu.
+                        if (_missingPid)
+                          TextButton.icon(
+                            onPressed: () async {
+                              final prefs = await SharedPreferences.getInstance();
+                              if (!mounted) return;
+                              await prefs.remove(_kLastBomProjectIdPref);
+                              if (!mounted) return;
+                              await _load();
+                            },
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: Text(context.tr(
+                              pl: 'Wyczyść filtr',
+                              en: 'Clear filter',
+                            )),
+                          ),
                         const SizedBox(height: 16),
                         // First-time coaching: BOM is auto-built from segments, but a
                         // brand-new user lands here from the project menu without ever
@@ -144,11 +218,43 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                     final catLabel = it.category == 'PIPE'
                         ? context.tr(pl: 'RURA', en: 'PIPE')
                         : it.category;
-                    return ListTile(
-                      title: Text('$catLabel  •  ${it.description}'),
-                      trailing: it.category == 'PIPE'
-                          ? Text(_fmtLen(it.totalLengthMm ?? 0))
-                          : Text(context.tr(pl: '$qty szt.', en: '$qty $enUnit')),
+                    final trailingText = it.category == 'PIPE'
+                        ? _fmtLen(it.totalLengthMm ?? 0)
+                        : context.tr(pl: '$qty szt.', en: '$qty $enUnit');
+                    // P3-10: long-press copies "CAT - desc - trailing" so welder
+                    // can paste a single BOM line straight into chat/SMS to the
+                    // storeroom without re-typing through gloves.
+                    final copyPayload =
+                        '$catLabel - ${it.description} - $trailingText';
+                    // P1-09: Material+InkWell row with 48dp min-height tap target
+                    // and haptic on tap so gloved users get a confirmation that
+                    // the tap landed even when sunlight washes out the ripple.
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          Haptic.tap();
+                        },
+                        onLongPress: () =>
+                            copyToClipboard(context, copyPayload),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                      '$catLabel  •  ${it.description}'),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(trailingText),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),

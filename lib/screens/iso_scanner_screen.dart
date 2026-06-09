@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../services/iso_parser.dart';
@@ -137,6 +138,54 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       );
       final path = res?.files.single.path;
       if (!mounted || path == null) return;
+
+      // P1-02: validate picked image before any AI call. Cloud-stub photos,
+      // zero-byte temp files and 12 MP HDR shots burn Claude Vision tokens
+      // and jobsite 4G bandwidth — refuse them up front with a specific
+      // PL/EN toast so the fitter picks a real photo instead.
+      final file = File(path);
+      if (!file.existsSync()) {
+        await Haptic.error();
+        if (!mounted) return;
+        _toast(_tr(
+          'Plik nie istnieje lub jest niedostępny. Wybierz inne zdjęcie.',
+          'File does not exist or is unavailable. Pick another photo.',
+        ));
+        return;
+      }
+      final ext = path.toLowerCase().split('.').last;
+      const allowedExt = {'jpg', 'jpeg', 'png', 'webp', 'heic'};
+      if (!allowedExt.contains(ext)) {
+        await Haptic.error();
+        if (!mounted) return;
+        _toast(_tr(
+          'Nieobsługiwany format. Użyj JPG, PNG, WEBP lub HEIC.',
+          'Unsupported format. Use JPG, PNG, WEBP or HEIC.',
+        ));
+        return;
+      }
+      final size = file.lengthSync();
+      const minBytes = 1024; // 1 KB — anything smaller is a stub/placeholder.
+      const maxBytes = 8 * 1024 * 1024; // 8 MB — Railway / Claude Vision cap.
+      if (size < minBytes) {
+        await Haptic.error();
+        if (!mounted) return;
+        _toast(_tr(
+          'Zdjęcie jest zbyt małe lub uszkodzone. Wybierz inne.',
+          'Photo is too small or corrupted. Pick another one.',
+        ));
+        return;
+      }
+      if (size > maxBytes) {
+        await Haptic.error();
+        if (!mounted) return;
+        _toast(_tr(
+          'Zdjęcie przekracza 8 MB. Zmniejsz rozdzielczość i spróbuj ponownie.',
+          'Photo exceeds 8 MB. Reduce the resolution and try again.',
+        ));
+        return;
+      }
+
       setState(() {
         _imagePath = path;
         _aiStatus = null;
@@ -402,9 +451,15 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
     // Prefer the line number from the title block (richer), fall back to
     // the top-level lineNumber.
-    final tbLine = result.titleBlock.lineNumber;
+    //
+    // P1-13: AI-returned line numbers occasionally carry embedded CR/LF from
+    // multi-line OCR. Strip them and clamp to the same 80-char ceiling the
+    // _projectName field enforces so the auto-fill stays within bounds.
+    final tbLineRaw = result.titleBlock.lineNumber;
+    final tbLine = tbLineRaw?.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
     if ((tbLine ?? '').isNotEmpty && _projectName.text.trim().isEmpty) {
-      _projectName.text = tbLine!;
+      final clamped = tbLine!.length > 80 ? tbLine.substring(0, 80) : tbLine;
+      _projectName.text = clamped;
     }
     setState(() {
       _lastScan = result;
@@ -921,8 +976,15 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
             color: _kCard,
             child: TextField(
               controller: _projectName,
+              // P1-13: cap project name length and strip newlines so the
+              // value is safe for clipboard, PDF watermark and AI prompts.
+              maxLength: 80,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
+              ],
               decoration: InputDecoration(
                 isDense: true,
+                counterText: '',
                 labelText:
                     _tr('Nazwa rurociągu / linia', 'Pipe run / line name'),
                 hintText: _tr('np. 6"-CWS-1234', 'e.g. 6"-CWS-1234'),
@@ -1396,7 +1458,13 @@ class _MissingInputRow extends StatelessWidget {
       },
     );
     if (pick == null) return;
-    final label = need.componentId ?? need.type;
+    // P1-13: AI-suggested componentId / type can contain newlines or be
+    // surprisingly long (whole sentence pasted as an id). Strip CR/LF and
+    // cap at 24 chars so the deduct name controller stays compact and the
+    // clipboard / PDF / AI re-prompt downstream don't break a line.
+    final rawLabel = need.componentId ?? need.type;
+    var label = rawLabel.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (label.length > 24) label = label.substring(0, 24);
     onApply(pick, label, suggestedMm.toString());
   }
 }

@@ -1,21 +1,24 @@
 // ignore_for_file: prefer_const_constructors
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../i18n/app_language.dart';
 import '../services/material_catalog.dart';
 import '../utils/clipboard_helper.dart';
+import '../widgets/help_button.dart';
 
 // Heat input + preheat calculator for arc welding (SMAW / GMAW / FCAW / GTAW / SAW).
 //
 // Heat input:
 //   HI [kJ/mm] = (V × I × 60) / (travel_speed_mm_min × 1000) × η
-//   η = arc efficiency factor:
-//     - SMAW (stick): 0.80
-//     - GMAW (MIG):   0.80
-//     - FCAW:         0.80
-//     - GTAW (TIG):   0.60
-//     - SAW:          0.90
+//   η = arc efficiency factor (ISO/IEC TR 17671-1 / ISO/IEC 1011-1):
+//     - SMAW (stick):  0.80
+//     - GMAW (MIG):    0.80
+//     - FCAW-G (gas):  0.80
+//     - FCAW-S (self): 0.75
+//     - GTAW (TIG):    0.60
+//     - SAW:           1.00
 //
 // Carbon equivalent — IIW formula (most common):
 //   CE_IIW = C + Mn/6 + (Cr + Mo + V)/5 + (Ni + Cu)/15
@@ -71,7 +74,24 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   /// + surface the recommended preheat note next to the CE result.
   MaterialSpec? _material;
 
+  /// Capture the previous chemistry before overwriting with [m]. Returned map
+  /// is later used by the Undo SnackBar action so a stray chip tap can be
+  /// reversed without re-typing 7 cells.
+  Map<TextEditingController, String> _snapshotChemistry() => {
+        _cCtrl: _cCtrl.text,
+        _mnCtrl: _mnCtrl.text,
+        _crCtrl: _crCtrl.text,
+        _moCtrl: _moCtrl.text,
+        _vCtrl: _vCtrl.text,
+        _niCtrl: _niCtrl.text,
+        _cuCtrl: _cuCtrl.text,
+        _wpsMinCtrl: _wpsMinCtrl.text,
+        _wpsMaxCtrl: _wpsMaxCtrl.text,
+      };
+
   void _applyMaterial(MaterialSpec m) {
+    final prev = _snapshotChemistry();
+    final prevMaterial = _material;
     setState(() {
       _material = m;
       _cCtrl.text = m.c.toStringAsFixed(2);
@@ -84,15 +104,92 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _wpsMinCtrl.text = m.hiMin.toStringAsFixed(1);
       _wpsMaxCtrl.text = m.hiMax.toStringAsFixed(1);
     });
+    // P1-16: notify + offer Undo so a misclick doesn't silently wipe a custom
+    // chemistry the welder spent 60 s entering off a 3.1 cert.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(
+            context.tr(
+              pl: 'Nadpisano chemię gatunkiem ${m.key}',
+              en: 'Chemistry overwritten with ${m.key}',
+            ),
+          ),
+          action: SnackBarAction(
+            label: context.tr(pl: 'Cofnij', en: 'Undo'),
+            onPressed: () {
+              if (!mounted) return;
+              setState(() {
+                prev.forEach((ctrl, text) => ctrl.text = text);
+                _material = prevMaterial;
+              });
+            },
+          ),
+        ),
+      );
   }
 
+  /// Clear the selected material chip without touching chemistry — used when
+  /// the welder taps an already-selected chip. P1-16.
+  void _clearMaterialSelection() {
+    setState(() => _material = null);
+  }
+
+  /// Wyczyść — wipes all inputs + chip back to factory defaults. P1-04.
+  void _resetAll() {
+    setState(() {
+      _voltsCtrl.text = '22';
+      _ampsCtrl.text = '110';
+      _travelCtrl.text = '200';
+      _process = 'SMAW';
+      _cCtrl.text = '0.20';
+      _mnCtrl.text = '1.00';
+      _crCtrl.text = '0.00';
+      _moCtrl.text = '0.00';
+      _vCtrl.text = '0.00';
+      _niCtrl.text = '0.00';
+      _cuCtrl.text = '0.00';
+      _thicknessCtrl.text = '15';
+      _wpsMinCtrl.text = '1.0';
+      _wpsMaxCtrl.text = '2.5';
+      _material = null;
+    });
+  }
+
+  // P1-16: per-process arc efficiency. FCAW split into FCAW-G (gas-shielded,
+  // 0.80) and FCAW-S (self-shielded, 0.75); SAW bumped to 1.00 per ISO/IEC 1011-1.
   static const Map<String, double> _efficiency = {
     'SMAW': 0.80,
     'GMAW': 0.80,
-    'FCAW': 0.80,
+    'FCAW-G': 0.80,
+    'FCAW-S': 0.75,
     'GTAW': 0.60,
-    'SAW': 0.90,
+    'SAW': 1.00,
   };
+
+  // P1-16: sensible default (V, I, travel mm/min) per process. Swapped in when
+  // the welder changes process so HI lands inside a realistic WPS window even
+  // before any field is touched.
+  static const Map<String, List<double>> _defaultParams = {
+    'SMAW': [22, 110, 200],
+    'GMAW': [24, 180, 350],
+    'FCAW-G': [26, 200, 320],
+    'FCAW-S': [24, 180, 280],
+    'GTAW': [12, 100, 90],
+    'SAW': [32, 500, 600],
+  };
+
+  List<double> _defaultParamsFor(String process) =>
+      _defaultParams[process] ?? const [22, 110, 200];
+
+  void _applyDefaultParams(String process) {
+    final p = _defaultParamsFor(process);
+    _voltsCtrl.text = p[0].toStringAsFixed(0);
+    _ampsCtrl.text = p[1].toStringAsFixed(0);
+    _travelCtrl.text = p[2].toStringAsFixed(0);
+  }
 
   double _parse(TextEditingController c) =>
       double.tryParse(c.text.replaceAll(',', '.')) ?? 0.0;
@@ -154,7 +251,13 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     final hi = _heatInputKjPerMm;
     final wpsMin = _parse(_wpsMinCtrl);
     final wpsMax = _parse(_wpsMaxCtrl);
+    // P1-16: ±10% tolerance band on the WPS range, matching the way a welding
+    // inspector reads "Heat input ±10%" on a qualified pWPS.
+    final wpsMinTol = wpsMin * 0.90;
+    final wpsMaxTol = wpsMax * 1.10;
     final inRange = hi >= wpsMin && hi <= wpsMax;
+    final inToleranceBand =
+        !inRange && hi >= wpsMinTol && hi <= wpsMaxTol && hi > 0;
 
     final ce = _ce;
     final thickness = _parse(_thicknessCtrl);
@@ -189,6 +292,26 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               ),
             ],
           ),
+          actions: [
+            // P1-26: one-tap share of the full trace (HI + CE + Preheat) so a
+            // welder can paste it straight into a WhatsApp to the inspector.
+            IconButton(
+              tooltip: context.tr(pl: 'Udostępnij wynik', en: 'Share result'),
+              icon: const Icon(Icons.ios_share),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: () => _shareTrace(hi, ce, preheat),
+            ),
+            // P1-04: Wyczyść — resets all controllers + clears material chip.
+            IconButton(
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              icon: const Icon(Icons.refresh),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _resetAll,
+            ),
+            // P1-14: hooked into the shared HelpButton (Heat Input is covered
+            // by the kHelpWelderTools bottom sheet).
+            HelpButton(help: kHelpWelderTools),
+          ],
           bottom: TabBar(
             isScrollable: false,
             indicatorColor: _kAccent,
@@ -200,7 +323,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
         body: TabBarView(
           children: [
-            _heatInputTab(hi, wpsMin, wpsMax, inRange),
+            _heatInputTab(hi, wpsMin, wpsMax, inRange, inToleranceBand),
             _preheatTab(ce, preheat),
           ],
         ),
@@ -209,7 +332,11 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   }
 
   // ─── Tab 1: Heat input ──────────────────────────────────────────────────
-  Widget _heatInputTab(double hi, double wpsMin, double wpsMax, bool inRange) {
+  Widget _heatInputTab(
+      double hi, double wpsMin, double wpsMax, bool inRange, bool inToleranceBand) {
+    // P1-16: "OK" colour reused both for strict in-range AND for the ±10%
+    // tolerance band (welder still inside qualified pWPS).
+    final okColour = inRange ? _kGreen : (inToleranceBand ? _kGold : _kAccent);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -219,7 +346,13 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
             children: [
               _ProcessSelector(
                 value: _process,
-                onChanged: (v) => setState(() => _process = v),
+                efficiency: _efficiency,
+                onChanged: (v) => setState(() {
+                  _process = v;
+                  // P1-16: swap sensible defaults so HI lands inside the WPS
+                  // window before the welder touches a field.
+                  _applyDefaultParams(v);
+                }),
               ),
               const SizedBox(height: 12),
               Row(
@@ -229,6 +362,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       label: context.tr(pl: 'Napięcie', en: 'Voltage'),
                       ctrl: _voltsCtrl,
                       suffix: 'V',
+                      rejectNegative: true,
                       onChanged: () => setState(() {}),
                     ),
                   ),
@@ -238,6 +372,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       label: context.tr(pl: 'Prąd', en: 'Current'),
                       ctrl: _ampsCtrl,
                       suffix: 'A',
+                      rejectNegative: true,
                       onChanged: () => setState(() {}),
                     ),
                   ),
@@ -248,6 +383,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 label: context.tr(pl: 'Prędkość spawania', en: 'Travel speed'),
                 ctrl: _travelCtrl,
                 suffix: 'mm/min',
+                rejectNegative: true,
                 onChanged: () => setState(() {}),
               ),
             ],
@@ -264,6 +400,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   label: context.tr(pl: 'Min', en: 'Min'),
                   ctrl: _wpsMinCtrl,
                   suffix: 'kJ/mm',
+                  rejectNegative: true,
                   onChanged: () => setState(() {}),
                 ),
               ),
@@ -273,6 +410,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   label: context.tr(pl: 'Max', en: 'Max'),
                   ctrl: _wpsMaxCtrl,
                   suffix: 'kJ/mm',
+                  rejectNegative: true,
                   onChanged: () => setState(() {}),
                 ),
               ),
@@ -287,15 +425,16 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: inRange
-                  ? [_kGreen.withValues(alpha: 0.20), _kGreen.withValues(alpha: 0.05)]
-                  : [_kAccent.withValues(alpha: 0.20), _kAccent.withValues(alpha: 0.05)],
+              colors: [
+                okColour.withValues(alpha: 0.20),
+                okColour.withValues(alpha: 0.05),
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: (inRange ? _kGreen : _kAccent).withValues(alpha: 0.4),
+              color: okColour.withValues(alpha: 0.4),
               width: 1.5,
             ),
           ),
@@ -305,8 +444,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               Row(
                 children: [
                   Icon(
-                    inRange ? Icons.check_circle_outline : Icons.warning_amber_outlined,
-                    color: inRange ? _kGreen : _kAccent,
+                    inRange
+                        ? Icons.check_circle_outline
+                        : (inToleranceBand
+                            ? Icons.info_outline
+                            : Icons.warning_amber_outlined),
+                    color: okColour,
                     size: 22,
                   ),
                   const SizedBox(width: 8),
@@ -341,11 +484,13 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 textBaseline: TextBaseline.alphabetic,
                 children: [
                   Text(
-                    hi.toStringAsFixed(3),
+                    // P1-16: HI to 2 decimals — matches the precision welders
+                    // see on a qualified WPS sheet.
+                    hi.toStringAsFixed(2),
                     style: TextStyle(
                       fontSize: 42,
                       fontWeight: FontWeight.w900,
-                      color: inRange ? _kGreen : _kAccent,
+                      color: okColour,
                       height: 1,
                     ),
                   ),
@@ -364,15 +509,20 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               Text(
                 inRange
                     ? context.tr(
-                        pl: '✓ W zakresie WPS ($wpsMin - $wpsMax kJ/mm)',
-                        en: '✓ Within WPS range ($wpsMin - $wpsMax kJ/mm)',
+                        pl: '✓ W zakresie WPS (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
+                        en: '✓ Within WPS range (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
                       )
-                    : context.tr(
-                        pl: '⚠ POZA zakresem WPS ($wpsMin - $wpsMax kJ/mm) — koryguj parametry',
-                        en: '⚠ OUT of WPS range ($wpsMin - $wpsMax kJ/mm) — adjust parameters',
-                      ),
+                    : inToleranceBand
+                        ? context.tr(
+                            pl: '~ W paśmie tolerancji ±10% (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
+                            en: '~ Within ±10% tolerance band (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
+                          )
+                        : context.tr(
+                            pl: '⚠ POZA zakresem WPS (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm) — koryguj parametry',
+                            en: '⚠ OUT of WPS range (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm) — adjust parameters',
+                          ),
                 style: TextStyle(
-                  color: inRange ? _kGreen : _kAccent,
+                  color: okColour,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
@@ -380,8 +530,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               const SizedBox(height: 4),
               Text(
                 context.tr(
-                  pl: 'Efektywność łuku $_process: ${(_efficiency[_process]! * 100).toStringAsFixed(0)}%',
-                  en: 'Arc efficiency $_process: ${(_efficiency[_process]! * 100).toStringAsFixed(0)}%',
+                  pl: 'Efektywność łuku $_process: ${((_efficiency[_process] ?? 0.80) * 100).toStringAsFixed(0)}%',
+                  en: 'Arc efficiency $_process: ${((_efficiency[_process] ?? 0.80) * 100).toStringAsFixed(0)}%',
                 ),
                 style: const TextStyle(color: _kTextMut, fontSize: 11),
               ),
@@ -390,16 +540,16 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 onPressed: () {
                   copyToClipboard(
                     context,
-                    '${hi.toStringAsFixed(3)} kJ/mm ($_process)',
+                    '${hi.toStringAsFixed(2)} kJ/mm ($_process)',
                     label: 'HI',
                   );
                 },
                 icon: const Icon(Icons.copy, size: 16),
                 label: Text(context.tr(pl: 'Kopiuj wynik', en: 'Copy result')),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: inRange ? _kGreen : _kAccent,
+                  foregroundColor: okColour,
                   side: BorderSide(
-                    color: (inRange ? _kGreen : _kAccent).withValues(alpha: 0.5),
+                    color: okColour.withValues(alpha: 0.5),
                   ),
                 ),
               ),
@@ -444,12 +594,27 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 runSpacing: 6,
                 children: [
                   for (final m in MaterialCatalog.all)
-                    ChoiceChip(
-                      label: Text(m.key, style: const TextStyle(fontSize: 11)),
-                      selected: _material?.key == m.key,
-                      onSelected: (_) => _applyMaterial(m),
-                      labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                      materialTapTargetSize: MaterialTapTargetSize.padded,
+                    Tooltip(
+                      // P1-16: per-chip tooltip with the recommended preheat
+                      // note so a welder can scan grade options without
+                      // committing to an overwrite.
+                      message:
+                          '${m.name} · P-No ${m.pNumber}\n${m.preheatNote}',
+                      child: ChoiceChip(
+                        label: Text(m.key, style: const TextStyle(fontSize: 11)),
+                        selected: _material?.key == m.key,
+                        onSelected: (_) {
+                          // P1-16: tap on the already-selected chip clears the
+                          // selection without rewriting chemistry.
+                          if (_material?.key == m.key) {
+                            _clearMaterialSelection();
+                          } else {
+                            _applyMaterial(m);
+                          }
+                        },
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                      ),
                     ),
                 ],
               ),
@@ -497,6 +662,34 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                           ),
                         ),
                       ],
+                      // P1-17: P-No ≥ 3 (Cr-Mo, low-alloy, creep-resistant)
+                      // → mandatory low-H electrodes irrespective of CE.
+                      // Surfaced here so it lands BEFORE the welder strikes.
+                      if (_material!.pNumber >= 3) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.bolt_outlined,
+                                size: 14, color: _kGold),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                context.tr(
+                                  pl: 'Stosuj elektrody niskowodorowe (E7018-1 H4R lub równoważne) — P-No ${_material!.pNumber}.',
+                                  en: 'Use low-hydrogen electrodes (E7018-1 H4R or equivalent) — P-No ${_material!.pNumber}.',
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: _kGold,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -539,6 +732,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       label: context.tr(pl: 'Grubość', en: 'Thickness'),
                       ctrl: _thicknessCtrl,
                       suffix: 'mm',
+                      rejectNegative: true,
                       onChanged: () => setState(() {}),
                     ),
                   ),
@@ -743,7 +937,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'SMAW / GMAW / FCAW = 0.80\nGTAW (TIG) = 0.60\nSAW = 0.90',
+                'SMAW / GMAW / FCAW-G = 0.80\nFCAW-S = 0.75\nGTAW (TIG) = 0.60\nSAW = 1.00',
                 style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
@@ -766,6 +960,54 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ],
       ),
     );
+  }
+
+  // P1-26: build the one-line trace combining HI + CE + Preheat + material.
+  // Welder pastes this into a WhatsApp message to the inspector — no need to
+  // re-type any number.
+  String _buildTraceString(double hi, double ce, _PreheatRec rec) {
+    final mat = _material?.key ??
+        context.tr(pl: 'własny skład', en: 'custom chem.');
+    final preheatLine = rec.tempC > 0
+        ? '${rec.tempC.toStringAsFixed(0)} °C'
+        : context.tr(pl: 'brak', en: 'none');
+    return context.tr(
+      pl: 'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · η ${(_efficiency[_process] ?? 0.80).toStringAsFixed(2)})\n'
+          'CE_IIW: ${ce.toStringAsFixed(3)} · Materiał: $mat\n'
+          'Preheat: $preheatLine — ${rec.note}',
+      en: 'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · η ${(_efficiency[_process] ?? 0.80).toStringAsFixed(2)})\n'
+          'CE_IIW: ${ce.toStringAsFixed(3)} · Material: $mat\n'
+          'Preheat: $preheatLine — ${rec.note}',
+    );
+  }
+
+  Future<void> _shareTrace(double hi, double ce, _PreheatRec rec) async {
+    try {
+      await Share.share(
+        _buildTraceString(hi, ce, rec),
+        subject: context.tr(
+          pl: 'Heat input + Preheat — wynik',
+          en: 'Heat input + Preheat — result',
+        ),
+      );
+    } catch (e) {
+      debugPrint('heat_input share failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(context.tr(
+              pl: 'Nie udało się udostępnić — spróbuj ponownie',
+              en: 'Share failed — try again',
+            )),
+            action: SnackBarAction(
+              label: context.tr(pl: 'Ponów', en: 'Retry'),
+              onPressed: () => _shareTrace(hi, ce, rec),
+            ),
+          ),
+        );
+    }
   }
 
   Color _severityColor(String s) {
@@ -833,11 +1075,15 @@ class _NumField extends StatelessWidget {
   final TextEditingController ctrl;
   final String? suffix;
   final VoidCallback onChanged;
+  // P1-30: when true, negative values (including parse-as-negative) surface a
+  // PL/EN errorText instead of silently propagating into HI/CE math.
+  final bool rejectNegative;
   const _NumField({
     required this.label,
     required this.ctrl,
     this.suffix,
     required this.onChanged,
+    this.rejectNegative = false,
   });
 
   /// Derived from the controller text so the parent doesn't need to plumb a
@@ -849,8 +1095,18 @@ class _NumField extends StatelessWidget {
     return double.tryParse(t.replaceAll(',', '.')) == null;
   }
 
+  /// P1-30: non-empty negative value on a field marked rejectNegative.
+  bool get _negative {
+    if (!rejectNegative) return false;
+    final t = ctrl.text.trim();
+    if (t.isEmpty) return false;
+    final v = double.tryParse(t.replaceAll(',', '.'));
+    return v != null && v < 0;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasError = _invalid || _negative;
     return TextField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -864,9 +1120,14 @@ class _NumField extends StatelessWidget {
         filled: true,
         fillColor: _kBg,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        errorText: _invalid
-            ? context.tr(pl: 'Nieprawidłowa liczba', en: 'Invalid number')
-            : null,
+        errorText: !hasError
+            ? null
+            : _negative
+                ? context.tr(
+                    pl: 'Wartość musi być > 0',
+                    en: 'Value must be > 0',
+                  )
+                : context.tr(pl: 'Nieprawidłowa liczba', en: 'Invalid number'),
         errorStyle: const TextStyle(fontSize: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -887,10 +1148,16 @@ class _NumField extends StatelessWidget {
 
 class _ProcessSelector extends StatelessWidget {
   final String value;
+  final Map<String, double> efficiency;
   final ValueChanged<String> onChanged;
-  const _ProcessSelector({required this.value, required this.onChanged});
+  const _ProcessSelector({
+    required this.value,
+    required this.efficiency,
+    required this.onChanged,
+  });
 
-  static const _options = ['SMAW', 'GMAW', 'FCAW', 'GTAW', 'SAW'];
+  // P1-16: FCAW split into FCAW-G / FCAW-S, SAW kept as the high-η option.
+  static const _options = ['SMAW', 'GMAW', 'FCAW-G', 'FCAW-S', 'GTAW', 'SAW'];
 
   @override
   Widget build(BuildContext context) {
@@ -899,29 +1166,39 @@ class _ProcessSelector extends StatelessWidget {
       runSpacing: 6,
       children: _options.map((opt) {
         final active = opt == value;
+        final eta = efficiency[opt] ?? 0.80;
         return Semantics(
           button: true,
           selected: active,
           label: '$opt ${context.tr(pl: 'proces spawania', en: 'welding process')}',
-          child: GestureDetector(
-            onTap: () => onChanged(opt),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: active ? _kAccent.withValues(alpha: 0.18) : _kBg,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: active ? _kAccent : _kBorder,
-                  width: active ? 1.5 : 1,
+          // P1-16: per-chip tooltip surfaces η so a welder can sanity-check
+          // before tapping (long-press on Material to peek, tap to commit).
+          child: Tooltip(
+            message: context.tr(
+              pl: '$opt — η = ${eta.toStringAsFixed(2)}',
+              en: '$opt — η = ${eta.toStringAsFixed(2)}',
+            ),
+            child: GestureDetector(
+              onTap: () => onChanged(opt),
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 40),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: active ? _kAccent.withValues(alpha: 0.18) : _kBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: active ? _kAccent : _kBorder,
+                    width: active ? 1.5 : 1,
+                  ),
                 ),
-              ),
-              child: ExcludeSemantics(
-                child: Text(
-                  opt,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                    color: active ? _kAccent : _kTextSec,
+                child: ExcludeSemantics(
+                  child: Text(
+                    opt,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                      color: active ? _kAccent : _kTextSec,
+                    ),
                   ),
                 ),
               ),
