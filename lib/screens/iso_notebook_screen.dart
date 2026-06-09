@@ -80,15 +80,21 @@ class _CutCalc {
     double v;
     try {
       v = parseIsoExpression(iso);
-    } catch (_) {
+    } catch (e) {
+      // P0r-07: log unparseable ISO so the case is visible in CI / debug
+      // builds — silent NaN was hiding malformed input from anybody
+      // looking at logs after a wrong-cut report.
+      debugPrint('_CutCalc ISO parse failed for "$iso": $e');
       return double.nan;
     }
     for (final d in deducts) {
       if (d.value.trim().isEmpty) continue;
       try {
         v -= parseIsoExpression(d.value);
-      } catch (_) {
-        // skip unreadable deduct
+      } catch (e) {
+        // P0r-07: deduct parse failures used to silently drop and the
+        // total looked plausible — log so CI sees the bad row.
+        debugPrint('_CutCalc deduct parse failed for "${d.value}": $e');
       }
     }
     return v;
@@ -1404,13 +1410,21 @@ class _IsoState extends State<IsoNotebookScreen> {
             if (isoCtrl.text.trim().isNotEmpty) {
               isoMm = parseIsoExpression(isoCtrl.text);
             }
-          } catch (_) {}
+          } catch (e) {
+            // P0r-07: live preview swallows the error to keep the dialog
+            // responsive while the user is mid-typing — log so we can
+            // diagnose drift later if the preview disagrees with the
+            // final saved value.
+            debugPrint('_askCalc live ISO parse failed: $e');
+          }
           double deductSum = 0;
           for (final r in rows) {
             if (r.$2.text.trim().isEmpty) continue;
             try {
               deductSum += parseIsoExpression(r.$2.text);
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('_askCalc live deduct parse failed: $e');
+            }
           }
           final cutMm = (isoMm == null) ? null : isoMm - deductSum;
 
@@ -2950,7 +2964,8 @@ class _IsoState extends State<IsoNotebookScreen> {
     double isoMm;
     try {
       isoMm = parseIsoExpression(c.iso);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('_resolvedCut ISO parse failed for "${c.iso}": $e');
       return double.nan;
     }
     // Per-end elbow CTE totals (was a single sum in the legacy implementation;
@@ -2976,7 +2991,12 @@ class _IsoState extends State<IsoNotebookScreen> {
       if (d.value.trim().isEmpty) continue;
       try {
         manualDeducts += parseIsoExpression(d.value);
-      } catch (_) {}
+      } catch (e) {
+        // P0r-07 + P0r-04 sister: log manual deduct parse failure so the
+        // total-shrink-mystery is debuggable. The engine still proceeds
+        // because dropping ONE bad deduct preserves the rest of the math.
+        debugPrint('_resolvedCut manual deduct parse failed: $e');
+      }
     }
     final leftPhys = _autoPhysicalDeductFor(seg.a, _items, tol);
     final rightPhys = _autoPhysicalDeductFor(seg.b, _items, tol);
@@ -3726,7 +3746,14 @@ class _IsoState extends State<IsoNotebookScreen> {
             (it.physicalLengthMm == null || it.physicalLengthMm! <= 0)) {
           compsNeedingData.add(it);
         }
-      } catch (_) {}
+      } catch (e) {
+        // P0r-07: isPhysical failure means a needs-data physical component
+        // is silently SKIPPED from the data-collection step → the user is
+        // never prompted to enter its length → the engine subtracts 0
+        // instead of the real body length → wrong cut. Log so future CI
+        // surfaces the corruption.
+        debugPrint('compsNeedingData isPhysical threw for ${it.t.name}: $e');
+      }
     }
     final compControllers = <_Comp, TextEditingController>{
       for (final c in compsNeedingData)
@@ -6701,7 +6728,13 @@ class _Painter extends CustomPainter {
           c.physicalLengthMm == null) {
         missing = true;
       }
-    } catch (_) {}
+    } catch (e) {
+      // P0r-07: isPhysical throw here means the missing-data dashed-marker
+      // is NOT drawn on the canvas — the welder doesn't see that the
+      // component needs a body length entered. Log to surface the silent
+      // corruption.
+      debugPrint('missingMarker isPhysical threw: $e');
+    }
     if (!missing) return;
     final radius = s * 0.52;
     final paint = Paint()
