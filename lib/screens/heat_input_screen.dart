@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/pipe_schedules.dart';
 import '../i18n/app_language.dart';
 import '../services/material_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -74,6 +76,17 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   /// + surface the recommended preheat note next to the CE result.
   MaterialSpec? _material;
 
+  // P2-05: DN/SCH picker — heat_input has no OD/wall fields, so we surface
+  // the auto-filled values as a hint chip below the material strip. Last
+  // pick persists via SharedPreferences so a welder cycling between calcs
+  // keeps the same spool size.
+  static const String _kPrefsDn = 'heat_input_pipe_dn';
+  static const String _kPrefsSch = 'heat_input_pipe_sch';
+  int? _selectedDn;
+  String? _selectedSch;
+  double? _hintOdMm;
+  double? _hintWallMm;
+
   /// Capture the previous chemistry before overwriting with [m]. Returned map
   /// is later used by the Undo SnackBar action so a stray chip tap can be
   /// reversed without re-typing 7 cells.
@@ -137,6 +150,99 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     setState(() => _material = null);
   }
 
+  // P2-05: restore the last DN/SCH the welder picked so they don't re-tap
+  // through 18 sizes every shift.
+  Future<void> _restorePipeSize() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      final dn = prefs.getInt(_kPrefsDn);
+      final sch = prefs.getString(_kPrefsSch);
+      if (dn == null || sch == null) return;
+      _applyPipeSize(dn: dn, sch: sch, persist: false);
+    } catch (e) {
+      debugPrint('[heat_input] restore pipe size failed: $e');
+    }
+  }
+
+  Future<void> _persistPipeSize(int dn, String sch) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kPrefsDn, dn);
+      await prefs.setString(_kPrefsSch, sch);
+    } catch (e) {
+      debugPrint('[heat_input] persist pipe size failed: $e');
+    }
+  }
+
+  /// P2-05: resolve a (DN, SCH) pair against the offline ASME B36.10/19 table
+  /// and stash the OD + wall as hint values. heat_input does not have OD/wall
+  /// fields of its own, so the result is shown as a read-only hint badge.
+  void _applyPipeSize({
+    required int dn,
+    required String sch,
+    bool persist = true,
+  }) {
+    PipeRow? row;
+    for (final r in kPipeWalls) {
+      if (r.dn == dn) {
+        row = r;
+        break;
+      }
+    }
+    if (row == null) return;
+    final wall = row.walls[sch];
+    if (wall == null) return;
+    final od = row.od;
+    setState(() {
+      _selectedDn = dn;
+      _selectedSch = sch;
+      _hintOdMm = od;
+      _hintWallMm = wall;
+    });
+    if (persist) {
+      _persistPipeSize(dn, sch);
+    }
+  }
+
+  /// P2-05: open the DN/SCH picker. Same showModalBottomSheet pattern used
+  /// by NpsTableSheet — DN row tap commits, SCH chips above filter on which
+  /// schedule (and hide cells where the wall isn't normally produced).
+  Future<void> _openPipeSizePicker() async {
+    final picked = await showModalBottomSheet<({int dn, String sch})>(
+      context: context,
+      backgroundColor: _kCard,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _DnSchPickerSheet(
+        initialDn: _selectedDn,
+        initialSch: _selectedSch ?? 'STD',
+      ),
+    );
+    if (picked == null) return;
+    if (!mounted) return;
+    _applyPipeSize(dn: picked.dn, sch: picked.sch);
+  }
+
+  void _clearPipeSize() {
+    setState(() {
+      _selectedDn = null;
+      _selectedSch = null;
+      _hintOdMm = null;
+      _hintWallMm = null;
+    });
+    // Best-effort wipe of the persisted pick.
+    SharedPreferences.getInstance().then((p) {
+      p.remove(_kPrefsDn);
+      p.remove(_kPrefsSch);
+    }).catchError((e) {
+      debugPrint('[heat_input] clear pipe size failed: $e');
+    });
+  }
+
   /// Wyczyść — wipes all inputs + chip back to factory defaults. P1-04.
   void _resetAll() {
     setState(() {
@@ -155,6 +261,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _wpsMinCtrl.text = '1.0';
       _wpsMaxCtrl.text = '2.5';
       _material = null;
+      // P2-05: Wyczyść also drops the DN/SCH hint so the welder starts
+      // from a clean slate.
+      _selectedDn = null;
+      _selectedSch = null;
+      _hintOdMm = null;
+      _hintWallMm = null;
     });
   }
 
@@ -194,6 +306,14 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   double _parse(TextEditingController c) =>
       double.tryParse(c.text.replaceAll(',', '.')) ?? 0.0;
 
+
+  @override
+  void initState() {
+    super.initState();
+    // P2-05: rehydrate the last DN/SCH pick so the hint chip shows up
+    // immediately on the Preheat tab.
+    _restorePipeSize();
+  }
 
   @override
   void dispose() {
@@ -618,6 +738,94 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                     ),
                 ],
               ),
+              // P2-05: DN/SCH picker sits BELOW the material chip strip.
+              // heat_input has no OD/wall input fields, so the resolved
+              // values are surfaced as a read-only hint chip; this still
+              // gives the welder a sanity check for HI / preheat decisions
+              // (thicker wall → more conservative preheat).
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _openPipeSizePicker,
+                      icon: const Text('📋', style: TextStyle(fontSize: 14)),
+                      label: Text(
+                        _selectedDn == null
+                            ? context.tr(
+                                pl: 'DN / SCH (rozmiar rury)',
+                                en: 'DN / SCH (pipe size)',
+                              )
+                            : context.tr(
+                                pl: 'DN$_selectedDn · Sch $_selectedSch',
+                                en: 'DN$_selectedDn · Sch $_selectedSch',
+                              ),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _kTextSec,
+                        side: BorderSide(color: _kBorder),
+                        minimumSize: const Size(0, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_selectedDn != null) ...[
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: context.tr(
+                        pl: 'Wyczyść rozmiar rury',
+                        en: 'Clear pipe size',
+                      ),
+                      icon: const Icon(Icons.close, size: 18),
+                      color: _kTextMut,
+                      constraints: const BoxConstraints(
+                          minWidth: 48, minHeight: 48),
+                      onPressed: _clearPipeSize,
+                    ),
+                  ],
+                ],
+              ),
+              if (_hintOdMm != null && _hintWallMm != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _kBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: _kBorder.withValues(alpha: 0.8)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 14, color: _kTextMut),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          context.tr(
+                            pl: 'Z tabeli: OD ${_hintOdMm!.toStringAsFixed(2)} mm · '
+                                'ścianka ${_hintWallMm!.toStringAsFixed(2)} mm '
+                                '(ASME B36.10/19)',
+                            en: 'From table: OD ${_hintOdMm!.toStringAsFixed(2)} mm · '
+                                'wall ${_hintWallMm!.toStringAsFixed(2)} mm '
+                                '(ASME B36.10/19)',
+                          ),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _kTextSec,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (_material != null) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -1282,6 +1490,183 @@ class _InfoCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// P2-05: DN / SCH picker bottom sheet (ASME B36.10M / B36.19M).
+// Same showModalBottomSheet pattern used by NpsTableSheet — schedule chips
+// at the top filter the column, DN rows commit on tap. Pop result is a
+// ({int dn, String sch}) record consumed by `_applyPipeSize`.
+// ════════════════════════════════════════════════════════════════════════════
+class _DnSchPickerSheet extends StatefulWidget {
+  final int? initialDn;
+  final String initialSch;
+  const _DnSchPickerSheet({
+    required this.initialDn,
+    required this.initialSch,
+  });
+
+  @override
+  State<_DnSchPickerSheet> createState() => _DnSchPickerSheetState();
+}
+
+class _DnSchPickerSheetState extends State<_DnSchPickerSheet> {
+  late String _sch;
+
+  @override
+  void initState() {
+    super.initState();
+    _sch = kSchedules.contains(widget.initialSch) ? widget.initialSch : 'STD';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxH = MediaQuery.sizeOf(context).height * 0.72;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.tr(
+                  pl: 'Wybierz rozmiar rury (DN / SCH)',
+                  en: 'Pick pipe size (DN / SCH)',
+                ),
+                style: const TextStyle(
+                  color: Color(0xFFE8ECF0),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                context.tr(
+                  pl: 'ASME B36.10M (CS / alloy) + B36.19M (stainless).',
+                  en: 'ASME B36.10M (CS / alloy) + B36.19M (stainless).',
+                ),
+                style: const TextStyle(
+                  color: _kTextMut,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final s in kSchedules) ...[
+                      ChoiceChip(
+                        label: Text(
+                          s == 'STD' ? 'STD' : 'Sch $s',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        selected: _sch == s,
+                        onSelected: (_) => setState(() => _sch = s),
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: _kBorder, height: 1),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: kPipeWalls.length,
+                  separatorBuilder: (_, __) =>
+                      const Divider(color: _kBorder, height: 1),
+                  itemBuilder: (ctx, i) {
+                    final row = kPipeWalls[i];
+                    final wall = row.walls[_sch];
+                    final selected = widget.initialDn == row.dn;
+                    return InkWell(
+                      onTap: wall == null
+                          ? null
+                          : () => Navigator.of(ctx).pop(
+                                (dn: row.dn, sch: _sch),
+                              ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 10),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 72,
+                                child: Text(
+                                  'DN${row.dn}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: selected
+                                        ? _kOrange
+                                        : const Color(0xFFE8ECF0),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 60,
+                                child: Text(
+                                  '${row.nps}"',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _kTextMut,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  context.tr(
+                                    pl: 'OD ${row.od.toStringAsFixed(2)} mm',
+                                    en: 'OD ${row.od.toStringAsFixed(2)} mm',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _kTextSec,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 96,
+                                child: Text(
+                                  wall == null
+                                      ? '—'
+                                      : context.tr(
+                                          pl: 't ${wall.toStringAsFixed(2)} mm',
+                                          en: 't ${wall.toStringAsFixed(2)} mm',
+                                        ),
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: wall == null
+                                        ? _kTextMut
+                                        : const Color(0xFFE8ECF0),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

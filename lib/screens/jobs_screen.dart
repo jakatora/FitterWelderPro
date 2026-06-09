@@ -1,5 +1,7 @@
 // ignore_for_file: prefer_const_constructors
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
@@ -74,6 +76,13 @@ class _JobsScreenState extends State<JobsScreen> {
       // broken?" symptom on slow workshop signal — users force-quit).
       debugPrint('[JobsScreen._load] failed: $e');
       if (!mounted) return;
+      // P2-08 — if we already have cached listings on screen (refresh-after-
+      // stale-cache: pull-to-refresh or filter-change failed but the list is
+      // populated), DON'T blank the list — keep the cached rows visible and
+      // surface a distinct "showing saved data" SnackBar so the fitter knows
+      // the numbers may be out of date. Only on a cold-start failure do we
+      // expose the generic "could not load" + empty-state error path.
+      final hasStaleCache = _listings.isNotEmpty;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -81,10 +90,15 @@ class _JobsScreenState extends State<JobsScreen> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: Text(context.tr(
-            pl: 'Nie udało się wczytać ogłoszeń.',
-            en: 'Could not load listings.',
-          )),
+          content: Text(hasStaleCache
+              ? context.tr(
+                  pl: 'Nie udało się odświeżyć — pokazuję zapisane dane.',
+                  en: 'Could not refresh — showing saved data.',
+                )
+              : context.tr(
+                  pl: 'Nie udało się wczytać ogłoszeń.',
+                  en: 'Could not load listings.',
+                )),
           action: SnackBarAction(
             label: context.tr(pl: 'Ponów', en: 'Retry'),
             onPressed: _load,
@@ -264,9 +278,12 @@ class _JobsScreenState extends State<JobsScreen> {
           ),
           Expanded(
             child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: _kAccent),
-                  )
+                // P2-15 — replace the centred CircularProgressIndicator with a
+                // 3-card shimmer skeleton + "Ładuję ogłoszenia…" label and a
+                // 6 s slow-network prompt. Mirrors the actual _JobCard layout
+                // so the LCP shift on success is minimal — the fitter sees the
+                // list materialise rather than a blank flash.
+                ? _LoadingSkeleton(onRetry: _load)
                 : _error != null && _listings.isEmpty
                     ? Center(
                         child: Padding(
@@ -879,6 +896,207 @@ class _JobDetailScreen extends StatelessWidget {
     // Route via the shared helper so contact copies match calculator-screen
     // behaviour: haptic confirmation + de-duped snackbar (hideCurrent first).
     copyToClipboard(context, value);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Loading skeleton (P2-15) — 3 shimmer-pulse placeholder job cards + label
+// "Ładuję ogłoszenia…" + 6 s slow-network nudge ("Wolne połączenie? Ponów").
+// Stateful so we own the shimmer AnimationController + the 6 s Timer and can
+// dispose both cleanly when _loading flips false (parent re-creates this
+// subtree on every list state transition).
+// ════════════════════════════════════════════════════════════════════════════
+class _LoadingSkeleton extends StatefulWidget {
+  final VoidCallback onRetry;
+  const _LoadingSkeleton({required this.onRetry});
+
+  @override
+  State<_LoadingSkeleton> createState() => _LoadingSkeletonState();
+}
+
+class _LoadingSkeletonState extends State<_LoadingSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  Timer? _slowTimer;
+  bool _slow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+    // P2-15 — 6 s threshold; after that, surface a slow-network prompt with
+    // Ponów so the fitter on basement / depot signal can choose to retry
+    // rather than stare at the shimmer indefinitely.
+    _slowTimer = Timer(const Duration(seconds: 6), () {
+      if (!mounted) return;
+      setState(() => _slow = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _slowTimer?.cancel();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _kAccent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                context.tr(
+                  pl: 'Ładuję ogłoszenia…',
+                  en: 'Loading listings…',
+                ),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: _kTextSec,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 3-4 shimmer skeleton job cards mirroring _JobCard's layout.
+        for (var i = 0; i < 3; i++)
+          _SkeletonJobCard(pulse: _pulse, indexSeed: i),
+        if (_slow) ...[
+          const SizedBox(height: 8),
+          Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: _kGold.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _kGold.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.sync_problem, size: 18, color: _kGold),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    context.tr(
+                      pl: 'Wolne połączenie. Spróbuj ponownie lub poczekaj chwilę.',
+                      en: 'Slow connection. Try again or wait a moment.',
+                    ),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFFE8ECF0),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  child: TextButton(
+                    onPressed: widget.onRetry,
+                    child: Text(
+                      context.tr(pl: 'Ponów', en: 'Retry'),
+                      style: TextStyle(
+                        color: _kAccent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// Single shimmer-pulsing skeleton card. Mirrors _JobCard padding/shape so the
+// transition to real data looks like content materialising in place rather
+// than a flash. `indexSeed` desynchronises the pulse a touch between cards.
+class _SkeletonJobCard extends StatelessWidget {
+  final AnimationController pulse;
+  final int indexSeed;
+  const _SkeletonJobCard({required this.pulse, required this.indexSeed});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (context, _) {
+        // Offset each card's phase slightly so they don't strobe in lockstep.
+        final phased = (pulse.value + indexSeed * 0.18) % 1.0;
+        // Triangle wave 0.35 → 0.75 → 0.35 — keeps contrast above the kBg.
+        final t = phased < 0.5 ? phased * 2 : (1 - phased) * 2;
+        final alpha = 0.35 + 0.40 * t;
+        final barColor = _kBorder.withValues(alpha: alpha);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: _kCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _kBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _bar(width: 200, height: 14, color: barColor),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _bar(width: 110, height: 10, color: barColor),
+                  const SizedBox(width: 12),
+                  _bar(width: 90, height: 10, color: barColor),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _bar(width: 70, height: 10, color: barColor),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _bar(width: 40, height: 14, color: barColor),
+                  const SizedBox(width: 6),
+                  _bar(width: 52, height: 14, color: barColor),
+                  const SizedBox(width: 6),
+                  _bar(width: 36, height: 14, color: barColor),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _bar({required double width, required double height, required Color color}) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
   }
 }
 

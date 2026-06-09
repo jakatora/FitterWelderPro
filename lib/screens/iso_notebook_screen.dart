@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -576,6 +577,14 @@ class _IsoState extends State<IsoNotebookScreen> {
   static const String _kStatusBoxPref = 'iso_notebook_show_status_box';
   static const String _kPaperModePref = 'iso_notebook_paper_mode';
   static const String _kAxisLockPref = 'iso_notebook_axis_lock';
+  // P2-04: persistent fullscreen + color-legend toggles. Stable prefix keeps
+  // them grouped with the other ISO notebook view preferences.
+  static const String _kFullscreenPref = 'iso_notebook_fullscreen';
+  static const String _kColorLegendPref = 'iso_notebook_show_color_legend';
+  // P2-04: once the canvas has 10+ segments the color legend auto-hides
+  // because the welder is past the discovery stage and the legend just eats
+  // canvas real estate. The user toggle in "Widok" still wins.
+  static const int _kColorLegendAutoHideThreshold = 10;
 
   final List<_Item> _items = [];
   final List<List<_Item>> _undo = [];
@@ -598,6 +607,16 @@ class _IsoState extends State<IsoNotebookScreen> {
   bool _showAxisCompass = true;
   bool _showStatusBox = true;
   bool _paperMode = false;
+
+  /// P2-04: collapses the toolbar + summary into a thin 40 dp strip when on,
+  /// giving the canvas the full screen for dimensioning a busy iso. Toggled
+  /// from the AppBar fullscreen IconButton.
+  bool _fullscreen = false;
+
+  /// P2-04: user-controlled color legend toggle. Default true so first-time
+  /// users see the color key; auto-hidden by [_legendAutoHidden] once the
+  /// canvas has [_kColorLegendAutoHideThreshold]+ segments.
+  bool _showColorLegend = true;
 
   /// Canvas viewport — pan offset and zoom scale applied uniformly to every
   /// world-space draw call AND inversely to every incoming gesture position
@@ -647,6 +666,8 @@ class _IsoState extends State<IsoNotebookScreen> {
       _showStatusBox = prefs.getBool(_kStatusBoxPref) ?? true;
       _paperMode = prefs.getBool(_kPaperModePref) ?? false;
       _axisLock = prefs.getBool(_kAxisLockPref) ?? true;
+      _fullscreen = prefs.getBool(_kFullscreenPref) ?? false;
+      _showColorLegend = prefs.getBool(_kColorLegendPref) ?? true;
       _hintLoaded = true;
     });
   }
@@ -727,6 +748,25 @@ class _IsoState extends State<IsoNotebookScreen> {
         value: v,
         previous: _axisLock,
         apply: (b) => _axisLock = b,
+      );
+
+  /// P2-04: fullscreen toggle persists so a fitter who prefers the slim
+  /// canvas keeps it across sessions.
+  Future<void> _setFullscreen(bool v) => _persistBool(
+        key: _kFullscreenPref,
+        value: v,
+        previous: _fullscreen,
+        apply: (b) => _fullscreen = b,
+      );
+
+  /// P2-04: color-legend toggle persists; auto-hide above
+  /// [_kColorLegendAutoHideThreshold] segments is computed in build() and
+  /// does NOT overwrite the persisted preference.
+  Future<void> _setShowColorLegend(bool v) => _persistBool(
+        key: _kColorLegendPref,
+        value: v,
+        previous: _showColorLegend,
+        apply: (b) => _showColorLegend = b,
       );
 
   /// When true (default), pipes get axis-locked to the nearest iso axis from
@@ -1430,9 +1470,117 @@ class _IsoState extends State<IsoNotebookScreen> {
 
           void rebuild() => setLocal(() {});
 
+          // P1-18: live-result card extracted so it can sit ABOVE the
+          // ISO input as the new headline. Welder no longer has to scroll
+          // past 5+ controls to see the CUT value while typing.
+          Widget buildLiveResultCard() => Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.tertiaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: cs.tertiary.withValues(alpha: 0.5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(_tr('ISO', 'ISO'),
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurfaceVariant)),
+                        const Spacer(),
+                        Text(
+                          isoMm == null
+                              ? '—'
+                              : '${isoMm.toStringAsFixed(1)} mm',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface),
+                        ),
+                      ],
+                    ),
+                    if (calcMode && rows.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(_tr('Suma odejmowań', 'Total deducts'),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: cs.onSurfaceVariant)),
+                          const Spacer(),
+                          Text(
+                            '− ${deductSum.toStringAsFixed(1)} mm',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: cs.tertiary),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const Divider(height: 18),
+                    Text(
+                      _tr('CUT — rura do ucięcia',
+                          'CUT — pipe to saw'),
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurfaceVariant,
+                          letterSpacing: 0.6),
+                    ),
+                    const SizedBox(height: 6),
+                    Center(
+                      child: Text(
+                        cutMm == null
+                            ? '—'
+                            : '${cutMm.toStringAsFixed(1)} mm',
+                        style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: (cutMm != null && cutMm < 0)
+                                ? cs.error
+                                : cs.primary,
+                            letterSpacing: -0.5,
+                            height: 1.1),
+                      ),
+                    ),
+                    if (cutMm != null && cutMm < 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          _tr(
+                              'Komponenty dłuższe niż ISO — sprawdź wymiary.',
+                              'Components longer than ISO — check dimensions.'),
+                          style: TextStyle(
+                              fontSize: 11, color: cs.error),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+
           return AlertDialog(
-            title: Text(_tr('Wymiar / cięcie odcinka',
-                'Segment dimension / cut')),
+            // P1-18: title gets an icon-only "Usuń" header button with a
+            // second-tap confirm — replaces the footer TextButton so the
+            // destructive action lives next to the segment label and won't
+            // get glove-tapped from the OK row.
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(_tr('Wymiar / cięcie odcinka',
+                      'Segment dimension / cut')),
+                ),
+                if (current != null)
+                  _RemoveHeaderButton(
+                    tr: _tr,
+                    onConfirmed: () =>
+                        Navigator.pop(dctx, const _CalcResult.removed()),
+                  ),
+              ],
+            ),
             content: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: SingleChildScrollView(
@@ -1440,6 +1588,11 @@ class _IsoState extends State<IsoNotebookScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // ── P1-18: live-result card pinned to TOP so the welder
+                    // sees the live CUT before scrolling past advanced options.
+                    buildLiveResultCard(),
+                    const SizedBox(height: 12),
+
                     // ── Mode switch ──────────────────────────────────────────
                     SegmentedButton<bool>(
                       segments: [
@@ -1588,106 +1741,6 @@ class _IsoState extends State<IsoNotebookScreen> {
                         ],
                       ),
                       const SizedBox(height: 6),
-
-                      // ── Live result card ───────────────────────────────────
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: cs.tertiaryContainer.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: cs.tertiary.withValues(alpha: 0.5)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Text(_tr('ISO', 'ISO'),
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: cs.onSurfaceVariant)),
-                                const Spacer(),
-                                Text(
-                                  isoMm == null
-                                      ? '—'
-                                      : '${isoMm.toStringAsFixed(1)} mm',
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: cs.onSurface),
-                                ),
-                              ],
-                            ),
-                            if (rows.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Text(_tr('Suma odejmowań', 'Total deducts'),
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: cs.onSurfaceVariant)),
-                                  const Spacer(),
-                                  Text(
-                                    '− ${deductSum.toStringAsFixed(1)} mm',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: cs.tertiary),
-                                  ),
-                                ],
-                              ),
-                            ],
-                            const Divider(height: 18),
-                            // Headline result: stacked label + large number so
-                            // the cut value never gets crammed by the label on
-                            // narrow dialogs.
-                            Text(
-                              _tr('CUT — rura do ucięcia',
-                                  'CUT — pipe to saw'),
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: cs.onSurfaceVariant,
-                                  letterSpacing: 0.6),
-                            ),
-                            const SizedBox(height: 6),
-                            Center(
-                              child: Text(
-                                cutMm == null
-                                    ? '—'
-                                    : '${cutMm.toStringAsFixed(1)} mm',
-                                style: TextStyle(
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.w900,
-                                    color: (cutMm != null && cutMm < 0)
-                                        ? cs.error
-                                        : cs.primary,
-                                    letterSpacing: -0.5,
-                                    height: 1.1),
-                              ),
-                            ),
-                            if (cutMm != null && cutMm < 0)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  _tr(
-                                      'Komponenty dłuższe niż ISO — sprawdź wymiary.',
-                                      'Components longer than ISO — check dimensions.'),
-                                  style: TextStyle(
-                                      fontSize: 11, color: cs.error),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ] else if (isoMm != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        '= ${isoMm.toStringAsFixed(1)} mm',
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w800),
-                      ),
                     ],
 
                     const SizedBox(height: 8),
@@ -1698,111 +1751,143 @@ class _IsoState extends State<IsoNotebookScreen> {
                       style: TextStyle(
                           fontSize: 11, color: cs.onSurfaceVariant),
                     ),
-                    const SizedBox(height: 14),
-                    // Slope tag — only relevant for off-axis lines (drains,
-                    // vents, condensate falls). Left blank for level pipe.
-                    Text(
-                      _tr('Spadek (drain / vent)', 'Slope (drain / vent)'),
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurfaceVariant,
-                          letterSpacing: 0.4),
-                    ),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: slopeCtrl,
-                      decoration: InputDecoration(
-                        hintText: _tr(
-                            'np. 1:100, FALL 25mm, 5° w dół',
-                            'e.g. 1:100, FALL 25mm, 5° down'),
-                        isDense: true,
-                      ),
-                    ),
-                    // ── DimRef picker — only when a physical-length component
-                    // (flange, cap, valve, reducer…) sits on at least one end
-                    // of this segment. For pure axial-on-both-sides runs the
-                    // designer always dimensions centre-to-centre, so we hide
-                    // the row entirely to avoid noise.
-                    Builder(builder: (_) {
-                      bool endHasPhysical(Offset? p) {
-                        if (p == null) return false;
-                        const physicalTools = <_Tool>{
-                          _Tool.reducer,
-                          _Tool.flange,
-                          _Tool.blindFlange,
-                          _Tool.cap,
-                          _Tool.gateValve,
-                          _Tool.ballValve,
-                          _Tool.checkValve,
-                          _Tool.globeValve,
-                          _Tool.butterflyValve,
-                        };
-                        for (final it in _items) {
-                          if (it is! _Comp) continue;
-                          if (!physicalTools.contains(it.t)) continue;
-                          if ((it.pos - p).distance < _s * 0.45) return true;
-                        }
-                        return false;
-                      }
+                    const SizedBox(height: 8),
 
-                      final showPicker =
-                          endHasPhysical(segA) || endHasPhysical(segB);
-                      if (!showPicker) return const SizedBox.shrink();
-                      final cs2 = Theme.of(dctx).colorScheme;
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _tr('Wymiar ISO odnosi się do',
-                                  'ISO dimension is measured between'),
+                    // ── P1-18: advanced options collapsed under an
+                    // ExpansionTile so the dialog focuses on the headline CUT
+                    // + ISO input. Slope / DimRef / insulated remain reachable
+                    // but no longer fight the live-result card for screen real
+                    // estate on a 360 dp phone in gloves.
+                    Theme(
+                      data: Theme.of(dctx).copyWith(
+                        dividerColor: Colors.transparent,
+                      ),
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: EdgeInsets.zero,
+                        title: Text(
+                          _tr('Opcje zaawansowane', 'Advanced options'),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurfaceVariant,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        children: [
+                          const SizedBox(height: 6),
+                          // Slope tag — only relevant for off-axis lines
+                          // (drains, vents, condensate falls). Left blank for
+                          // level pipe.
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _tr('Spadek (drain / vent)',
+                                  'Slope (drain / vent)'),
                               style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: cs2.onSurfaceVariant,
+                                  color: cs.onSurfaceVariant,
                                   letterSpacing: 0.4),
                             ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: [
-                                for (final r in DimRef.values)
-                                  ChoiceChip(
-                                    label: Text(r.code),
-                                    selected: refLocal == r,
-                                    onSelected: (_) =>
-                                        setLocal(() => refLocal = r),
-                                  ),
-                              ],
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: slopeCtrl,
+                            decoration: InputDecoration(
+                              hintText: _tr(
+                                  'np. 1:100, FALL 25mm, 5° w dół',
+                                  'e.g. 1:100, FALL 25mm, 5° down'),
+                              isDense: true,
                             ),
-                          ],
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 6),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      title: Text(_tr('Rura izolowana', 'Insulated pipe'),
-                          style: const TextStyle(fontSize: 13)),
-                      value: insulFlag,
-                      onChanged: (v) => setLocal(() => insulFlag = v ?? false),
+                          ),
+                          // ── DimRef picker — only when a physical-length
+                          // component (flange, cap, valve, reducer…) sits on
+                          // at least one end of this segment. For pure
+                          // axial-on-both-sides runs the designer always
+                          // dimensions centre-to-centre, so we hide the row
+                          // entirely to avoid noise.
+                          Builder(builder: (_) {
+                            bool endHasPhysical(Offset? p) {
+                              if (p == null) return false;
+                              const physicalTools = <_Tool>{
+                                _Tool.reducer,
+                                _Tool.flange,
+                                _Tool.blindFlange,
+                                _Tool.cap,
+                                _Tool.gateValve,
+                                _Tool.ballValve,
+                                _Tool.checkValve,
+                                _Tool.globeValve,
+                                _Tool.butterflyValve,
+                              };
+                              for (final it in _items) {
+                                if (it is! _Comp) continue;
+                                if (!physicalTools.contains(it.t)) continue;
+                                if ((it.pos - p).distance < _s * 0.45) {
+                                  return true;
+                                }
+                              }
+                              return false;
+                            }
+
+                            final showPicker =
+                                endHasPhysical(segA) || endHasPhysical(segB);
+                            if (!showPicker) return const SizedBox.shrink();
+                            final cs2 = Theme.of(dctx).colorScheme;
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _tr('Wymiar ISO odnosi się do',
+                                        'ISO dimension is measured between'),
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: cs2.onSurfaceVariant,
+                                        letterSpacing: 0.4),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      for (final r in DimRef.values)
+                                        ChoiceChip(
+                                          label: Text(r.code),
+                                          selected: refLocal == r,
+                                          onSelected: (_) => setLocal(
+                                              () => refLocal = r),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 6),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity:
+                                ListTileControlAffinity.leading,
+                            title: Text(
+                                _tr('Rura izolowana', 'Insulated pipe'),
+                                style: const TextStyle(fontSize: 13)),
+                            value: insulFlag,
+                            onChanged: (v) =>
+                                setLocal(() => insulFlag = v ?? false),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
             actions: [
-              if (current != null)
-                TextButton(
-                  onPressed: () =>
-                      Navigator.pop(dctx, const _CalcResult.removed()),
-                  child: Text(_tr('Usuń', 'Remove'),
-                      style: TextStyle(color: Theme.of(dctx).colorScheme.error)),
-                ),
               TextButton(
                 onPressed: () => Navigator.pop(dctx, null),
                 child: Text(_tr('Anuluj', 'Cancel')),
@@ -4198,39 +4283,84 @@ class _IsoState extends State<IsoNotebookScreen> {
             tooltip: _tr('Cofnij', 'Undo'),
             onPressed: _undo.isEmpty ? null : _undoAction,
           ),
-          IconButton(
-            icon: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              transitionBuilder: (child, anim) => ScaleTransition(
-                scale: anim,
-                child: FadeTransition(opacity: anim, child: child),
+          // P1-46: axis-lock IconButton gets `toggled` semantics + a
+          // SemanticsService.announce so screen readers hear the new state.
+          Semantics(
+            toggled: _axisLock,
+            button: true,
+            label: _tr('Blokada osi izometrycznej', 'Isometric axis lock'),
+            child: IconButton(
+              icon: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                transitionBuilder: (child, anim) => ScaleTransition(
+                  scale: anim,
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Icon(
+                  _axisLock ? Icons.lock : Icons.lock_open,
+                  key: ValueKey<bool>(_axisLock),
+                ),
               ),
-              child: Icon(
-                _axisLock ? Icons.lock : Icons.lock_open,
-                key: ValueKey<bool>(_axisLock),
-              ),
+              tooltip: _axisLock
+                  ? _tr('Wyłącz blokadę osi (slope)',
+                      'Disable axis lock (slope)')
+                  : _tr('Włącz blokadę osi', 'Enable axis lock'),
+              // On phones the tooltip only fires on long-press, so most users
+              // never see what the lock actually changed. A short SnackBar
+              // names the new mode and explains the practical effect.
+              onPressed: () {
+                final next = !_axisLock;
+                _setAxisLock(next);
+                // ignore: deprecated_member_use
+                SemanticsService.announce(
+                  next
+                      ? _tr('Blokada osi włączona', 'Axis lock on')
+                      : _tr('Blokada osi wyłączona', 'Axis lock off'),
+                  Directionality.of(context),
+                );
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(SnackBar(
+                    content: Text(next
+                        ? _tr(
+                            'Blokada osi: WŁ. — rury trzymają się 3 osi izo',
+                            'Axis lock: ON — pipes snap to the 3 iso axes')
+                        : _tr(
+                            'Blokada osi: WYŁ. — wolne rysowanie pod kątem (slope)',
+                            'Axis lock: OFF — free-angle drawing (slope)')),
+                    duration: const Duration(seconds: 2),
+                  ));
+              },
             ),
-            tooltip: _axisLock
-                ? _tr('Wyłącz blokadę osi (slope)', 'Disable axis lock (slope)')
-                : _tr('Włącz blokadę osi', 'Enable axis lock'),
-            // On phones the tooltip only fires on long-press, so most users
-            // never see what the lock actually changed. A short SnackBar
-            // names the new mode and explains the practical effect.
-            onPressed: () {
-              _setAxisLock(!_axisLock);
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(SnackBar(
-                  content: Text(_axisLock
-                      ? _tr(
-                          'Blokada osi: WŁ. — rury trzymają się 3 osi izo',
-                          'Axis lock: ON — pipes snap to the 3 iso axes')
-                      : _tr(
-                          'Blokada osi: WYŁ. — wolne rysowanie pod kątem (slope)',
-                          'Axis lock: OFF — free-angle drawing (slope)')),
-                  duration: const Duration(seconds: 2),
-                ));
-            },
+          ),
+          // P2-04: fullscreen toggle — collapses toolbar + summary to a 40 dp
+          // strip so the canvas grabs the rest of the screen. Tooltip flips
+          // PL/EN. Semantics mirrors a toggle for screen readers.
+          Semantics(
+            toggled: _fullscreen,
+            button: true,
+            label: _tr('Tryb pełnoekranowy', 'Fullscreen mode'),
+            child: IconButton(
+              icon: Icon(_fullscreen
+                  ? Icons.fullscreen_exit
+                  : Icons.fullscreen),
+              tooltip: _fullscreen
+                  ? _tr('Wyjdź z pełnego ekranu', 'Exit fullscreen')
+                  : _tr('Pełny ekran', 'Fullscreen'),
+              onPressed: () {
+                final next = !_fullscreen;
+                _setFullscreen(next);
+                // ignore: deprecated_member_use
+                SemanticsService.announce(
+                  next
+                      ? _tr('Tryb pełnoekranowy włączony',
+                          'Fullscreen mode on')
+                      : _tr('Tryb pełnoekranowy wyłączony',
+                          'Fullscreen mode off'),
+                  Directionality.of(context),
+                );
+              },
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_outlined),
@@ -4265,6 +4395,12 @@ class _IsoState extends State<IsoNotebookScreen> {
                   break;
                 case 'paper':
                   _setPaperMode(!_paperMode);
+                  break;
+                case 'legend':
+                  // P2-04: explicit user toggle wins over the auto-hide
+                  // heuristic (which only kicks in above the segment
+                  // threshold and only when this preference is already on).
+                  _setShowColorLegend(!_showColorLegend);
                   break;
                 case 'pan':
                   setState(() => _panMode = !_panMode);
@@ -4326,6 +4462,14 @@ class _IsoState extends State<IsoNotebookScreen> {
                 child:
                     Text(_tr('Panel statusu (ISO/SEG/CUT)', 'Status panel')),
               ),
+              // P2-04: dedicated toggle for the on-canvas color legend so
+              // users can hide it once they've memorised the I/II/III key.
+              CheckedPopupMenuItem<String>(
+                value: 'legend',
+                checked: _showColorLegend,
+                child: Text(_tr('Pokaż legendę kolorów',
+                    'Show color legend')),
+              ),
               CheckedPopupMenuItem<String>(
                 value: 'paper',
                 checked: _paperMode,
@@ -4338,7 +4482,20 @@ class _IsoState extends State<IsoNotebookScreen> {
       ),
       body: Column(
         children: [
-          _Toolbar(tool: _tool, onTool: (t) => setState(() => _tool = t), cs: cs),
+          // P2-04: in fullscreen mode the full toolbar collapses to a 40 dp
+          // strip with a tap-to-expand affordance. The slim strip still shows
+          // the active tool so the welder doesn't lose context.
+          if (_fullscreen)
+            _FullscreenStrip(
+              tool: _tool,
+              cs: cs,
+              onExpand: () => _setFullscreen(false),
+            )
+          else
+            _Toolbar(
+                tool: _tool,
+                onTool: (t) => setState(() => _tool = t),
+                cs: cs),
           Expanded(
             child: Stack(
               children: [
@@ -4351,12 +4508,21 @@ class _IsoState extends State<IsoNotebookScreen> {
                     onLongPressStart: _longPress,
                     child: RepaintBoundary(
                       key: _canvasKey,
+                      // P1-46: canvas Semantics declares itself a button with
+                      // explicit onTap/onLongPress actions so screen readers
+                      // and Switch Access can trigger the same gestures used
+                      // by the GestureDetector above. Tap centres on the
+                      // visible canvas viewport; long-press fires delete-at-
+                      // centre to match the on-screen long-press behaviour.
                       child: Semantics(
                         label: _tr(
                           'Płótno szkicu izometrycznego — przeciągnij aby rysować, dotknij aby wybrać',
                           'Isometric sketch canvas — drag to draw, tap to select',
                         ),
+                        button: true,
                         container: true,
+                        onTap: () => _semanticCanvasTap(),
+                        onLongPress: () => _semanticCanvasLongPress(),
                         child: CustomPaint(
                           painter: _Painter(
                             items: _items,
@@ -4374,6 +4540,13 @@ class _IsoState extends State<IsoNotebookScreen> {
                             // grid snap, so the hint would be misleading.
                             axisLock: _axisLock && _tool == _Tool.pipe,
                             showStatusBox: _showStatusBox,
+                            // P2-04: legend auto-hides above the threshold
+                            // (the user has plainly learned the colour key by
+                            // then) and otherwise honours the persisted
+                            // preference.
+                            showColorLegend: _showColorLegend &&
+                                pipeCount <
+                                    _kColorLegendAutoHideThreshold,
                             paperMode: _paperMode,
                             viewOffset: _viewOffset,
                             viewScale: _viewScale,
@@ -4472,16 +4645,179 @@ class _IsoState extends State<IsoNotebookScreen> {
               ],
             ),
           ),
-          _SummaryBar(
-            tool: _tool,
-            pipeCount: pipeCount,
-            dimensioned: dimensioned,
-            totalMm: totalMm,
-            cs: cs,
-          ),
+          // P2-04: summary bar hides in fullscreen mode to give the canvas
+          // the full lower edge. Live values stay reachable via the slim
+          // top strip's tap-to-expand.
+          if (!_fullscreen)
+            _SummaryBar(
+              tool: _tool,
+              pipeCount: pipeCount,
+              dimensioned: dimensioned,
+              totalMm: totalMm,
+              cs: cs,
+            ),
         ],
       ),
     );
+  }
+
+  // ── P1-46 — Semantic gesture proxies ────────────────────────────────────────
+  //
+  // The canvas Semantics node exposes button-like onTap / onLongPress so
+  // screen readers and Switch Access can drive the same gestures the welder
+  // would normally use with a finger. We map both to the centre of the
+  // rendered canvas because the assistive event has no localPosition.
+
+  Offset? _semanticCanvasCentre() {
+    final ctx = _canvasKey.currentContext;
+    final renderObj = ctx?.findRenderObject();
+    if (renderObj is! RenderBox || !renderObj.hasSize) return null;
+    final size = renderObj.size;
+    return Offset(size.width / 2, size.height / 2);
+  }
+
+  void _semanticCanvasTap() {
+    final centre = _semanticCanvasCentre();
+    if (centre == null) return;
+    _tapUp(TapUpDetails(
+      kind: PointerDeviceKind.touch,
+      localPosition: centre,
+    ));
+  }
+
+  void _semanticCanvasLongPress() {
+    final centre = _semanticCanvasCentre();
+    if (centre == null) return;
+    _longPress(LongPressStartDetails(
+      localPosition: centre,
+      globalPosition: centre,
+    ));
+  }
+}
+
+// ─── P2-04 — Slim fullscreen toolbar strip ──────────────────────────────────
+//
+// 40 dp tall replacement for [_Toolbar] when fullscreen is on. Shows the
+// active tool's icon + label and a tap target that exits fullscreen so the
+// welder can swap tools without diving into the popup.
+class _FullscreenStrip extends StatelessWidget {
+  final _Tool tool;
+  final ColorScheme cs;
+  final VoidCallback onExpand;
+  const _FullscreenStrip({
+    required this.tool,
+    required this.cs,
+    required this.onExpand,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _toolLabel(context, tool);
+    return Semantics(
+      button: true,
+      label: context.tr(
+          pl: 'Rozwiń pasek narzędzi — aktywne: $label',
+          en: 'Expand toolbar — active: $label'),
+      child: InkWell(
+        onTap: onExpand,
+        child: Container(
+          height: 40,
+          color: cs.surfaceContainerHigh,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Icon(Icons.fullscreen_exit,
+                  size: 18, color: cs.onSurfaceVariant),
+              const SizedBox(width: 8),
+              Text(
+                context.tr(pl: 'Aktywne:', en: 'Active:'),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurfaceVariant,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                context.tr(
+                    pl: 'Dotknij aby rozwinąć',
+                    en: 'Tap to expand'),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _toolLabel(BuildContext context, _Tool t) {
+    switch (t) {
+      case _Tool.pipe:
+        return context.tr(pl: 'Rura', en: 'Pipe');
+      case _Tool.thin:
+        return context.tr(pl: 'Linia', en: 'Line');
+      case _Tool.dashed:
+        return context.tr(pl: 'Ukryta', en: 'Hidden');
+      case _Tool.elbow90:
+        return context.tr(pl: 'Kolano 90°', en: 'Elbow 90°');
+      case _Tool.elbow45:
+        return context.tr(pl: 'Kolano 45°', en: 'Elbow 45°');
+      case _Tool.tee:
+        return context.tr(pl: 'Trójnik', en: 'Tee');
+      case _Tool.olet:
+        return context.tr(pl: 'Olet', en: 'Olet');
+      case _Tool.reducer:
+        return context.tr(pl: 'Redukcja', en: 'Reducer');
+      case _Tool.flange:
+        return context.tr(pl: 'Kołnierz', en: 'Flange');
+      case _Tool.blindFlange:
+        return context.tr(pl: 'Ślepy', en: 'Blind');
+      case _Tool.cap:
+        return context.tr(pl: 'Zaślepka', en: 'Cap');
+      case _Tool.gateValve:
+        return context.tr(pl: 'Zasuwa', en: 'Gate valve');
+      case _Tool.ballValve:
+        return context.tr(pl: 'Kulowy', en: 'Ball valve');
+      case _Tool.checkValve:
+        return context.tr(pl: 'Zwrotny', en: 'Check valve');
+      case _Tool.globeValve:
+        return context.tr(pl: 'Grzybek', en: 'Globe valve');
+      case _Tool.butterflyValve:
+        return context.tr(pl: 'Motylek', en: 'Butterfly');
+      case _Tool.weld:
+        return context.tr(pl: 'Spoina W', en: 'Shop weld');
+      case _Tool.fieldWeld:
+        return context.tr(pl: 'Spoina M', en: 'Field weld');
+      case _Tool.support:
+        return context.tr(pl: 'Podpora', en: 'Support');
+      case _Tool.instrument:
+        return context.tr(pl: 'Instrument', en: 'Instrument');
+      case _Tool.spoolBreak:
+        return context.tr(pl: 'Podział', en: 'Spool break');
+      case _Tool.northArrow:
+        return context.tr(pl: 'Północ', en: 'North');
+      case _Tool.flowArrow:
+        return context.tr(pl: 'Przepływ', en: 'Flow');
+      case _Tool.text:
+        return context.tr(pl: 'Tekst', en: 'Text');
+    }
   }
 }
 
@@ -4528,43 +4864,59 @@ class _Toolbar extends StatelessWidget {
 
     Widget chip((_Tool, IconData, String) e) {
       final sel = tool == e.$1;
-      return GestureDetector(
-        onTap: () => onTool(e.$1),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          margin: const EdgeInsets.symmetric(horizontal: 3),
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-          decoration: BoxDecoration(
-            color: sel ? cs.primaryContainer : Colors.transparent,
-            // const-hoisted: chip radius is fixed, avoid 24x BorderRadius
-            // re-allocations per toolbar rebuild.
-            borderRadius: const BorderRadius.all(Radius.circular(20)),
-            border: Border.all(
-              color: sel ? cs.primary : cs.outlineVariant,
-              width: sel ? 1.5 : 1.0,
+      // P1-46: wrap each toolbar chip in `Semantics(selected, button)` so
+      // screen readers announce "wybrane / selected" on the active tool.
+      return Semantics(
+        selected: sel,
+        button: true,
+        label: e.$3,
+        child: GestureDetector(
+          onTap: () => onTool(e.$1),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: sel ? cs.primaryContainer : Colors.transparent,
+              // const-hoisted: chip radius is fixed, avoid 24x BorderRadius
+              // re-allocations per toolbar rebuild.
+              borderRadius: const BorderRadius.all(Radius.circular(20)),
+              border: Border.all(
+                color: sel ? cs.primary : cs.outlineVariant,
+                width: sel ? 1.5 : 1.0,
+              ),
             ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              // P1-46: chip glyph is decorative — the label conveys identity
+              // to assistive tech, so silence the icon.
+              ExcludeSemantics(
+                child: Icon(e.$2,
+                    size: 15,
+                    color: sel ? cs.primary : cs.onSurfaceVariant),
+              ),
+              const SizedBox(width: 4),
+              Text(e.$3,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                  color: sel ? cs.primary : cs.onSurface,
+                )),
+            ]),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(e.$2, size: 15, color: sel ? cs.primary : cs.onSurfaceVariant),
-            const SizedBox(width: 4),
-            Text(e.$3,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: sel ? FontWeight.bold : FontWeight.normal,
-                color: sel ? cs.primary : cs.onSurface,
-              )),
-          ]),
         ),
       );
     }
 
-    Widget groupLabel(String s) => Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: Text(s,
-              style: TextStyle(
-                  fontSize: 10,
-                  color: cs.onSurfaceVariant,
-                  fontWeight: FontWeight.w700)),
+    Widget groupLabel(String s) => Semantics(
+          header: true,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Text(s,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w700)),
+          ),
         );
 
     // P1-06 — Right-edge fade gradient on horizontal toolbar scroll strips
@@ -4731,6 +5083,7 @@ class _Painter extends CustomPainter {
   final String projectName;
   final bool axisLock;
   final bool showStatusBox;
+  final bool showColorLegend;
   final bool paperMode;
   final Offset viewOffset;
   final double viewScale;
@@ -4747,6 +5100,7 @@ class _Painter extends CustomPainter {
     required this.projectName,
     this.axisLock = false,
     this.showStatusBox = true,
+    this.showColorLegend = true,
     this.paperMode = false,
     this.viewOffset = Offset.zero,
     this.viewScale = 1.0,
@@ -4786,7 +5140,9 @@ class _Painter extends CustomPainter {
     if (dragA != null && dragB != null) _drawPreview(canvas);
     canvas.restore();
     if (showStatusBox) _drawTitleBlock(canvas, size);
-    _drawColorLegend(canvas, size);
+    // P2-04: legend visibility now driven by the user toggle + the
+    // auto-hide threshold computed in the parent build().
+    if (showColorLegend) _drawColorLegend(canvas, size);
   }
 
   void _drawColorLegend(Canvas canvas, Size size) {
@@ -7334,6 +7690,7 @@ class _Painter extends CustomPainter {
       tool != old.tool ||
       axisLock != old.axisLock ||
       showStatusBox != old.showStatusBox ||
+      showColorLegend != old.showColorLegend ||
       paperMode != old.paperMode ||
       viewOffset != old.viewOffset ||
       viewScale != old.viewScale;
@@ -7821,4 +8178,66 @@ class _AxisCompassPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _AxisCompassPainter old) =>
       old.mapping?.nsAxis != mapping?.nsAxis;
+}
+
+// ─── P1-18 — Icon-only "Usuń" header button with second-tap confirm ──────────
+//
+// First tap arms the button (icon turns red, label flips to "Potwierdź" /
+// "Confirm" and the hit area is held for 3 s). Second tap inside that window
+// fires [onConfirmed]; otherwise the button silently re-disarms. Keeps a
+// destructive footer button out of the OK row where it kept getting
+// glove-mis-tapped, while still requiring two deliberate taps.
+class _RemoveHeaderButton extends StatefulWidget {
+  final String Function(String pl, String en) tr;
+  final VoidCallback onConfirmed;
+  const _RemoveHeaderButton({required this.tr, required this.onConfirmed});
+
+  @override
+  State<_RemoveHeaderButton> createState() => _RemoveHeaderButtonState();
+}
+
+class _RemoveHeaderButtonState extends State<_RemoveHeaderButton> {
+  bool _armed = false;
+  Timer? _disarm;
+
+  @override
+  void dispose() {
+    _disarm?.cancel();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    if (_armed) {
+      _disarm?.cancel();
+      widget.onConfirmed();
+      return;
+    }
+    setState(() => _armed = true);
+    _disarm?.cancel();
+    _disarm = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _armed = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final label = _armed
+        ? widget.tr('Potwierdź usunięcie', 'Confirm remove')
+        : widget.tr('Usuń odcinek', 'Remove segment');
+    return Semantics(
+      button: true,
+      label: label,
+      child: IconButton(
+        tooltip: label,
+        icon: Icon(
+          _armed ? Icons.delete_forever : Icons.delete_outline,
+          color: cs.error,
+        ),
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        onPressed: _handleTap,
+      ),
+    );
+  }
 }

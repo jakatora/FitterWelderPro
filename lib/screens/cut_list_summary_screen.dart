@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +12,54 @@ import '../services/bar_nesting.dart';
 import '../services/pdf_export_service.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+
+// ── i18n helpers (P1-38) ────────────────────────────────────────────────────
+/// PL/EN plural rule for "bar / sztanga".
+///
+/// PL: 1 sztanga / 2-4 sztangi / 5+ sztang (with the usual 12-14 exception);
+/// EN: 1 bar / N bars.
+String pluralBars(int n, BuildContext context) {
+  if (context.language == AppLanguage.en) {
+    return n == 1 ? '$n bar' : '$n bars';
+  }
+  final mod10 = n % 10;
+  final mod100 = n % 100;
+  if (n == 1) return '$n sztanga';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$n sztangi';
+  }
+  return '$n sztang';
+}
+
+/// PL/EN plural rule for "piece / odcinek".
+///
+/// PL: 1 odcinek / 2-4 odcinki / 5+ odcinków;
+/// EN: 1 piece / N pieces.
+String pluralPieces(int n, BuildContext context) {
+  if (context.language == AppLanguage.en) {
+    return n == 1 ? '$n piece' : '$n pieces';
+  }
+  final mod10 = n % 10;
+  final mod100 = n % 100;
+  if (n == 1) return '$n odcinek';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return '$n odcinki';
+  }
+  return '$n odcinków';
+}
+
+/// Quote a CSV/line-tag value if it contains separator chars, quotes, or
+/// whitespace. Doubles embedded `"` per RFC 4180 so the same tag round-trips
+/// when re-imported into Excel/LibreOffice. Used both for the ASME line-tag
+/// chip (defensive — `materialGroup` may someday contain a space) and every
+/// CSV cell.
+String csvQuote(String raw) {
+  if (raw.contains(RegExp(r'[",;\s]'))) {
+    final escaped = raw.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+  return raw;
+}
 
 const _kOrange = Color(0xFFF5A623);
 const _kGreen  = Color(0xFF2ECC71);
@@ -39,56 +89,151 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   Map<String, _GroupPlan> _groupPlans = const {};
   bool _loading = true;
   bool _exporting = false;
+  // P1-44: load lifecycle hardening — guard against reentrancy, stale awaits
+  // (rotation / projectId change) and post-dispose setState.
+  bool _loadInFlight = false;
+  int _loadGen = 0;
+  // P1-44: surfaces _load failures with a Retry CTA rather than wedging the
+  // spinner.
+  String? _loadError;
+  // P1-44: signals the in-flight _exportPdf to bail out before touching
+  // setState() / ScaffoldMessenger after dispose. Effectively a cooperative
+  // cancellation flag — we can't kill the awaited Future on platform side, but
+  // we can stop poisoning a dead State.
+  bool _disposed = false;
+  // P1-44: single re-entrancy guard reused by _share + _copyCsv so a frantic
+  // double-tap on the share IconButton doesn't push two clipboard writes /
+  // two snackbars on top of each other.
+  bool _copyInFlight = false;
 
   Future<void> _load() async {
-    setState(() => _loading = true);
-    final p    = await _projectDao.getById(widget.projectId);
-    final segs = await _segmentDao.listForProject(widget.projectId);
-
-    final groups = <String, List<double>>{};
-    for (final s in segs) {
-      final key = '${s.diameterMm}|${s.wallThicknessMm}';
-      groups.putIfAbsent(key, () => []).add(s.cutMm);
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+    final gen = ++_loadGen;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
     }
+    try {
+      final p    = await _projectDao.getById(widget.projectId);
+      if (gen != _loadGen || !mounted) return;
+      final segs = await _segmentDao.listForProject(widget.projectId);
+      if (gen != _loadGen || !mounted) return;
 
-    final plans = <String, _GroupPlan>{};
-    if (p != null) {
-      for (final e in groups.entries) {
-        final sorted = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
-        plans[e.key] = _GroupPlan(
-          sortedCuts: sorted,
-          plans: nestCutsToBars(
-            cutsMm: sorted,
-            stockLengthMm: p.stockLengthMm,
-            sawKerfMm: p.sawKerfMm,
-          ),
-        );
+      final groups = <String, List<double>>{};
+      for (final s in segs) {
+        final key = '${s.diameterMm}|${s.wallThicknessMm}';
+        groups.putIfAbsent(key, () => []).add(s.cutMm);
       }
-    }
 
-    setState(() {
-      _project    = p;
-      _segments   = segs;
-      _groups     = groups;
-      _groupPlans = plans;
-      _loading    = false;
-    });
+      final plans = <String, _GroupPlan>{};
+      if (p != null) {
+        for (final e in groups.entries) {
+          final sorted = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
+          plans[e.key] = _GroupPlan(
+            sortedCuts: sorted,
+            plans: nestCutsToBars(
+              cutsMm: sorted,
+              stockLengthMm: p.stockLengthMm,
+              sawKerfMm: p.sawKerfMm,
+            ),
+          );
+        }
+      }
+
+      if (gen != _loadGen || !mounted) return;
+      setState(() {
+        _project    = p;
+        _segments   = segs;
+        _groups     = groups;
+        _groupPlans = plans;
+        _loading    = false;
+        _loadError  = null;
+      });
+    } catch (e, st) {
+      debugPrint('[CutListSummary] _load failed: $e\n$st');
+      if (gen != _loadGen || !mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = '$e';
+      });
+    } finally {
+      _loadInFlight = false;
+    }
+  }
+
+  /// Maps a low-level filesystem failure into an actionable PL/EN message the
+  /// fitter can act on without leaving the cut-list screen.
+  ///
+  /// Errno 13 (PathAccessException, EACCES) and the typical
+  /// "no space left on device" cases dominate field reports — both have a
+  /// concrete remediation ("zwolnij ~5 MB"), so we surface that instead of
+  /// the raw `OSError: errno = 13` blob.
+  String _exportErrorMessage(BuildContext context, Object error) {
+    final isPermission = error is PathAccessException ||
+        (error is FileSystemException && (error.osError?.errorCode == 13));
+    final isNoSpace = error is FileSystemException &&
+        (error.osError?.errorCode == 28 ||
+         (error.message.toLowerCase().contains('no space')) ||
+         (error.osError?.message.toLowerCase().contains('no space') ?? false));
+    if (isPermission || isNoSpace) {
+      return context.tr(
+        pl: 'Brak miejsca na pliki tymczasowe — zwolnij ~5 MB i spróbuj ponownie.',
+        en: 'No space for temp files — free ~5 MB and try again.',
+      );
+    }
+    return context.tr(
+      pl: 'Nie udało się wygenerować PDF: $error',
+      en: 'PDF export failed: $error',
+    );
   }
 
   Future<void> _exportPdf() async {
+    // P1-28: re-entrancy guard before any await — double-tapping the IconButton
+    // on flaky touchscreens otherwise queues a second exportCutList while the
+    // first is still writing to /tmp.
+    if (_exporting) return;
     final p = _project;
-    if (p == null || _segments.isEmpty) return;
+    // Snapshot segments so a concurrent _load() (e.g. user navigated back and
+    // forward, hot-restart, or a future projectId-change driven reload) cannot
+    // race the PDF builder mid-write.
+    final segsSnapshot = List<Segment>.unmodifiable(_segments);
+    if (p == null || segsSnapshot.isEmpty) return;
+    await Haptic.tap();
+    if (!mounted) return;
     setState(() => _exporting = true);
     try {
-      await PdfExportService.exportCutList(project: p, segments: _segments);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF błąd: $e'), backgroundColor: const Color(0xFFE74C3C)),
-        );
-      }
+      await PdfExportService.exportCutList(project: p, segments: segsSnapshot);
+    } catch (e, st) {
+      debugPrint('[CutListSummary] _exportPdf failed: $e\n$st');
+      // P1-44: cooperative cancellation — user may have popped back during
+      // the await, in which case there is no Scaffold to message.
+      if (_disposed || !mounted) return;
+      await Haptic.error();
+      if (_disposed || !mounted) return;
+      final msg = _exportErrorMessage(context, e);
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: _kRed,
+          duration: const Duration(seconds: 7),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: context.tr(pl: 'Spróbuj ponownie', en: 'Try again'),
+            textColor: Colors.white,
+            onPressed: () {
+              if (_disposed || !mounted) return;
+              _exportPdf();
+            },
+          ),
+        ),
+      );
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (!_disposed && mounted) setState(() => _exporting = false);
     }
   }
 
@@ -99,8 +244,36 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant CutListSummaryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // P1-44: if the projectId is swapped on us (parent rebuild routing the
+    // same Navigator entry at a different record), discard any in-flight load
+    // and refetch.
+    if (oldWidget.projectId != widget.projectId) {
+      _loadGen++; // invalidate previous gen
+      _loadInFlight = false;
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    // P1-44: signal in-flight _exportPdf / _share / _copyCsv to bail before
+    // they call setState on this dead State.
+    _disposed = true;
+    _loadGen++;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = _project;
+    // P1-28: gate every export action on having BOTH a non-empty cut plan and
+    // not being mid-export. _exporting separately drives the spinner swap
+    // below, but disabled state is shared so a queued-render second tap on
+    // the Share/CSV button can't slip through while PDF is writing.
+    final exportsEnabled =
+        !_exporting && _groups.isNotEmpty && _segments.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('CUT LIST'),
@@ -117,24 +290,29 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
               IconButton(
                 icon: const Icon(Icons.picture_as_pdf_outlined),
                 tooltip: context.tr(pl: 'Eksportuj PDF', en: 'Export PDF'),
-                onPressed: _exportPdf,
+                // ≥48dp tap target preserved via Material default IconButton
+                // BoxConstraints; greyed-out state communicated by the null
+                // onPressed (theme handles the alpha).
+                onPressed: exportsEnabled ? _exportPdf : null,
               ),
             IconButton(
               icon: const Icon(Icons.share_outlined),
               tooltip: context.tr(pl: 'Kopiuj tekst', en: 'Copy text'),
-              onPressed: () => _share(context, p),
+              onPressed: exportsEnabled ? () => _share(context, p) : null,
             ),
             IconButton(
               icon: const Icon(Icons.table_view_outlined),
               tooltip: context.tr(pl: 'Kopiuj CSV', en: 'Copy CSV'),
-              onPressed: () => _copyCsv(context, p),
+              onPressed: exportsEnabled ? () => _copyCsv(context, p) : null,
             ),
           ],
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: _kOrange))
-          : p == null
+          : _loadError != null
+              ? _LoadErrorView(error: _loadError!, onRetry: _load)
+              : p == null
               ? Center(child: Text(context.tr(pl: 'Nie znaleziono projektu', en: 'Project not found')))
               : ListView(
                   padding: EdgeInsets.fromLTRB(14, 14, 14, 24 + MediaQuery.viewPaddingOf(context).bottom),
@@ -221,10 +399,22 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
 
   /// CSV with one row per cut piece — drops straight into an Excel column on
   /// the workshop laptop or into a foreman's spreadsheet.
-  String _buildCsv(Project p) {
+  ///
+  /// P1-38: header localisation + RFC 4180 quoting.
+  /// The leading `# generated by …` comment line lets us evolve the schema
+  /// without breaking older importers that strip leading `#` lines.
+  /// Headers are localised per active language, but the `materialGroup` is
+  /// passed through unchanged so the ASME short-tag (CS / SS / DSS / IN) is
+  /// stable across locales.
+  String _buildCsv(Project p, BuildContext context) {
     final buf = StringBuffer();
-    buf.writeln('project;material;stock_mm;kerf_mm;diameter_mm;wall_mm;bar_no;piece_no;cut_mm;bar_remaining_mm');
-    final projectName = (p.name ?? p.id.substring(0, 8)).replaceAll(';', ',');
+    buf.writeln('# generated by FitterWelderPro');
+    final headers = context.tr(
+      pl: 'projekt;materiał;sztanga_mm;rzaz_mm;średnica_mm;ścianka_mm;nr_sztangi;nr_odcinka;cięcie_mm;pozostało_mm',
+      en: 'project;material;stock_mm;kerf_mm;diameter_mm;wall_mm;bar_no;piece_no;cut_mm;bar_remaining_mm',
+    );
+    buf.writeln(headers);
+    final projectName = (p.name ?? p.id.substring(0, 8));
     for (final e in _groups.entries) {
       final parts = e.key.split('|');
       final d = double.parse(parts[0]);
@@ -235,8 +425,8 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
         final b = plans[i];
         for (var j = 0; j < b.piecesMm.length; j++) {
           buf.writeln([
-            projectName,
-            p.materialGroup,
+            csvQuote(projectName),
+            csvQuote(p.materialGroup),
             p.stockLengthMm.toStringAsFixed(0),
             p.sawKerfMm.toStringAsFixed(1),
             d.toStringAsFixed(1),
@@ -253,27 +443,104 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   }
 
   Future<void> _share(BuildContext context, Project p) async {
-    final text = _buildTextSummary(p);
-    await Clipboard.setData(ClipboardData(text: text));
-    await Haptic.copied();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(context.tr(pl: 'Skopiowano do schowka', en: 'Copied to clipboard')),
-        backgroundColor: _kGreen,
-      ),
-    );
+    // P1-44: shared re-entrancy guard with _copyCsv — a frantic double-tap on
+    // the share IconButton (gloves + flaky touchscreen) otherwise lands two
+    // SnackBars and writes the clipboard twice.
+    if (_copyInFlight) return;
+    _copyInFlight = true;
+    try {
+      final text = _buildTextSummary(p);
+      await Clipboard.setData(ClipboardData(text: text));
+      await Haptic.copied();
+      if (_disposed || !context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(context.tr(pl: 'Skopiowano do schowka', en: 'Copied to clipboard')),
+          backgroundColor: _kGreen,
+        ),
+      );
+    } finally {
+      _copyInFlight = false;
+    }
   }
 
   Future<void> _copyCsv(BuildContext context, Project p) async {
-    final csv = _buildCsv(p);
-    await Clipboard.setData(ClipboardData(text: csv));
-    await Haptic.copied();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(context.tr(pl: 'CSV w schowku — wklej do Excela', en: 'CSV in clipboard — paste into Excel')),
-        backgroundColor: _kBlue,
+    if (_copyInFlight) return;
+    _copyInFlight = true;
+    try {
+      final csv = _buildCsv(p, context);
+      await Clipboard.setData(ClipboardData(text: csv));
+      await Haptic.copied();
+      if (_disposed || !context.mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(context.tr(pl: 'CSV w schowku — wklej do Excela', en: 'CSV in clipboard — paste into Excel')),
+          backgroundColor: _kBlue,
+        ),
+      );
+    } finally {
+      _copyInFlight = false;
+    }
+  }
+}
+
+// ── _LoadErrorView ─────────────────────────────────────────────────────────
+// P1-44: replaces the silent wedged spinner / blank screen when `_load` blows
+// up (DB locked, sqflite migration race) with an explicit Retry CTA so the
+// welder doesn't conclude the app is bricked.
+class _LoadErrorView extends StatelessWidget {
+  final String error;
+  final Future<void> Function() onRetry;
+  const _LoadErrorView({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: _kRed),
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                pl: 'Nie udało się wczytać planu cięcia',
+                en: 'Failed to load cut plan',
+              ),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFE8ECF0),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              error,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: _kMuted),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: _kOrange),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: Text(
+                  context.tr(pl: 'Spróbuj ponownie', en: 'Try again'),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -472,8 +739,14 @@ class _PipeGroup extends StatelessWidget {
   /// `<OD>-<MAT>-<WALL>` (e.g. 168-CS-7.1). Matches the dash-tag
   /// convention used on piping line lists and ISO drawings so the cut
   /// list group is unambiguous across mixed-material projects.
-  String _lineTag() =>
-      '${diameterMm.toStringAsFixed(0)}-$materialGroup-${wallMm.toStringAsFixed(1)}';
+  ///
+  /// P1-38: defensive RFC 4180 quoting when `materialGroup` happens to
+  /// contain a space, comma or quote — keeps the tag stable when copied
+  /// into a CSV cell or a foreman's spreadsheet.
+  String _lineTag() {
+    final raw = '${diameterMm.toStringAsFixed(0)}-$materialGroup-${wallMm.toStringAsFixed(1)}';
+    return csvQuote(raw);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -524,7 +797,10 @@ class _PipeGroup extends StatelessWidget {
               ),
             ),
             Text(
-              '${plans.length} ${context.tr(pl: 'szt.', en: plans.length == 1 ? 'bar' : 'bars')}',
+              // P1-38: pluralBars centralises the PL `1/2-4/5+` rule so the
+              // same `${n} szt.` shorthand here matches the `_GlobalSummary`
+              // box; EN cleanly toggles bar/bars.
+              pluralBars(plans.length, context),
               style: const TextStyle(fontSize: 12, color: _kOrange, fontWeight: FontWeight.w600),
             ),
           ],
@@ -543,7 +819,11 @@ class _PipeGroup extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                context.tr(pl: 'Odcinki (${cuts.length} szt.)', en: 'Pieces (${cuts.length})'),
+                // P1-38: pluralPieces centralises PL odcinek/odcinki/odcinków
+                // so the inline `szt.` shorthand follows the same rule as
+                // pluralBars. EN folds to "1 piece" / "N pieces" — natural
+                // for both header and parenthetical use.
+                pluralPieces(cuts.length, context),
                 style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _kMuted, letterSpacing: 0.5),
               ),
               const SizedBox(height: 6),
@@ -665,6 +945,33 @@ class _BarCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ],
+          ),
+          // P1-28: long-press-to-copy hint per result card. Surfaces the
+          // discoverable gesture so a foreman scanning the cut list knows the
+          // piece-mm row is copyable to the saw operator without scrolling
+          // back up to the AppBar "share" IconButton. Keeps the hint at 10pt
+          // muted to avoid competing with the actual numbers.
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                Icons.touch_app_outlined,
+                size: 11,
+                color: _kMuted.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                context.tr(
+                  pl: 'Przytrzymaj aby skopiować',
+                  en: 'Long-press to copy',
+                ),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: _kMuted.withValues(alpha: 0.7),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ],
           ),
         ],

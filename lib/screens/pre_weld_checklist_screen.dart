@@ -466,28 +466,10 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (showDivider && _material != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(2, 6, 2, 8),
-                        child: Row(
-                          children: [
-                            Expanded(child: Container(height: 1, color: _kBorder)),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                              child: Text(
-                                context.tr(
-                                    pl: 'Specyficzne · ${_material!.key}',
-                                    en: 'Specific to ${_material!.key}'),
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                  color: _kOrange,
-                                  letterSpacing: 0.6,
-                                ),
-                              ),
-                            ),
-                            Expanded(child: Container(height: 1, color: _kBorder)),
-                          ],
-                        ),
+                      _SectionDivider(
+                        label: context.tr(
+                            pl: 'Specyficzne · ${_material!.key}',
+                            en: 'Specific to ${_material!.key}'),
                       ),
                     GestureDetector(
                       onTap: () => _toggle(c),
@@ -523,8 +505,12 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                                   padding: const EdgeInsets.only(bottom: 3),
                                   child: Text(
                                     '${_material!.key} · P${_material!.pNumber}',
-                                    style: TextStyle(
-                                      fontSize: 9,
+                                    style: const TextStyle(
+                                      // P3-08: bumped 9 → 11 pt min for
+                                      // micro labels (outdoor readability +
+                                      // WCAG-ish floor for inline P-No prefix
+                                      // chip).
+                                      fontSize: 11,
                                       fontWeight: FontWeight.w900,
                                       color: _kOrange,
                                       letterSpacing: 0.4,
@@ -556,6 +542,43 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// P3-08: extracted divider widget used between the universal checklist
+/// section and the material-specific section. Centralises the 1 dp rule +
+/// 11 pt micro-label styling so the universal / specific transition reads
+/// the same everywhere. Keeps min font 11 pt for outdoor readability —
+/// previous 10 pt inline label fell below the floor the audit set for
+/// micro labels on this safety-critical screen.
+class _SectionDivider extends StatelessWidget {
+  final String label;
+  const _SectionDivider({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 8),
+      child: Row(
+        children: [
+          Expanded(child: Container(height: 1, color: _kBorder)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              label,
+              style: const TextStyle(
+                // P3-08: 11 pt min for micro labels (was 10 pt — below floor).
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: _kOrange,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+          Expanded(child: Container(height: 1, color: _kBorder)),
         ],
       ),
     );

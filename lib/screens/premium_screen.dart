@@ -1,5 +1,7 @@
 // ignore_for_file: prefer_const_constructors
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -25,7 +27,7 @@ const Duration _kPendingCheckoutMaxAge = Duration(minutes: 30);
 // Checkout + webhook) since 2026-05-27. Two plans: 19 PLN / month and
 // 149 PLN / year (35% saving on yearly).
 // Premium features:
-//   - AI Chat z bazą wiedzy 270 KB (Claude Haiku 4.5 + RAG z piping_knowledge.md)
+//   - AI Chat z bazą wiedzy 30+ norm ASME/EN/AWS (Claude Haiku 4.5 + RAG z piping_knowledge.md)
 //   - Coping template generator (PDF)
 //   - Bolt torque chart (interaktywny)
 //   - Heat input + preheat calculator
@@ -66,10 +68,26 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   // unchanged plan picker for 1-3s on bad signal, often double-tapping.
   bool _creatingCheckout = false;
 
+  // P2-06: rotate 2-3 sample AI prompts every few seconds on the "Try AI"
+  // tile. A static "Preheat dla P91…" example becomes wallpaper after the
+  // second visit; cycling concrete questions keeps the tile pulling the eye
+  // toward the killer feature on each return to the screen.
+  int _promptIndex = 0;
+  Timer? _promptTimer;
+  static const Duration _kPromptRotateInterval = Duration(seconds: 4);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // P2-06: kick off the prompt-rotation timer. Cancelled in dispose so we
+    // never call setState on an unmounted widget.
+    _promptTimer = Timer.periodic(_kPromptRotateInterval, (_) {
+      if (!mounted) return;
+      setState(() {
+        _promptIndex = (_promptIndex + 1) % 3;
+      });
+    });
     // Cheap re-check on screen open in case backend status changed since
     // last app start (e.g. webhook fired while app was backgrounded).
     PremiumService.instance.refreshFromBackend();
@@ -106,6 +124,11 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
 
   @override
   void dispose() {
+    // P2-06: stop rotating sample prompts the moment the screen leaves the
+    // tree — periodic Timer holds a reference to setState and would crash
+    // mounted-safe assertions if it kept firing.
+    _promptTimer?.cancel();
+    _promptTimer = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -223,6 +246,30 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
     }
   }
 
+  // P2-06: three concrete fitter prompts cycled by _promptTimer. PL/EN pairs
+  // kept in lock-step so a language switch mid-rotation doesn't flash a
+  // mismatched example. Pulled out into a method so the tile itself can stay
+  // const-friendly aside from the dynamic text.
+  String _rotatingPromptText(BuildContext context) {
+    switch (_promptIndex % 3) {
+      case 0:
+        return context.tr(
+          pl: 'Spróbuj tego: "Preheat dla P91 grubość 25 mm?"',
+          en: 'Try this: "Preheat for P91, 25 mm thick?"',
+        );
+      case 1:
+        return context.tr(
+          pl: 'Spróbuj tego: "Ile minut purgi argonem dla DN100 INOX?"',
+          en: 'Try this: "How long argon purge for DN100 stainless?"',
+        );
+      default:
+        return context.tr(
+          pl: 'Spróbuj tego: "Hold time NDT po spawaniu 13CrMo4-5?"',
+          en: 'Try this: "NDT hold time after welding 13CrMo4-5?"',
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -291,53 +338,38 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              context.tr(pl: 'Wypróbuj AI Asystenta', en: 'Try the AI Assistant'),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFFE8ECF0),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4A9EFF).withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              child: Text(
-                                context.tr(pl: 'DEMO', en: 'DEMO'),
-                                style: const TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF4A9EFF),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
+                        // P1-41: dropped the fake "DEMO" badge — there is no
+                        // real demo behind it (the tile already routes through
+                        // the PremiumGate to AiChatScreen). Showing mockup
+                        // content on a paywall screen erodes trust; leave the
+                        // title bare and let the actual gate behaviour speak.
+                        Text(
+                          context.tr(pl: 'Wypróbuj AI Asystenta', en: 'Try the AI Assistant'),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFE8ECF0),
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           context.tr(
-                            pl: 'Zapytaj o WPS, NACE, preheat — baza 270 KB wiedzy.',
-                            en: 'Ask about WPS, NACE, preheat — 270 KB knowledge base.',
+                            // P2-06: swap "270 KB" (engineering jargon, means
+                            // nothing to a fitter) for the human unit "30+
+                            // norm ASME/EN/AWS" so the reader sees the actual
+                            // breadth of the knowledge base.
+                            pl: 'Zapytaj o WPS, NACE, preheat — 30+ norm ASME/EN/AWS.',
+                            en: 'Ask about WPS, NACE, preheat — 30+ standards ASME/EN/AWS.',
                           ),
                           style: const TextStyle(fontSize: 12, color: _kTextSec),
                         ),
                         const SizedBox(height: 6),
-                        // First-time coaching: an abstract pitch ("Ask about WPS…")
-                        // doesn't show a fitter what the tool actually does. A
-                        // concrete sample prompt does — and it's quoted so it
-                        // reads as an example, not a button label.
+                        // P2-06: rotating sample prompt — three concrete fitter
+                        // questions cycle every 4 s so the tile shows different
+                        // capabilities on each glance (preheat, gas purge, NDT
+                        // hold) instead of being a single static example.
                         Text(
-                          context.tr(
-                            pl: 'Spróbuj tego: "Preheat dla P91 grubość 25 mm?"',
-                            en: 'Try this: "Preheat for P91, 25 mm thick?"',
-                          ),
+                          _rotatingPromptText(context),
                           style: const TextStyle(
                             fontSize: 11,
                             fontStyle: FontStyle.italic,
@@ -354,16 +386,25 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
             ),
           ),
           const SizedBox(height: 20),
+          // P2-06: mini comparison table sits above the feature tiles so the
+          // glanceable "what flips on" question gets answered before the user
+          // reads any prose. Four rows cover the differentiators the support
+          // inbox keeps surfacing: AI chat, no ads, cloud sync, calculator
+          // gates (heat input / preheat).
+          const _FreeVsPremiumTable(),
+          const SizedBox(height: 20),
           _SectionLabel(context.tr(pl: 'Co dostajesz', en: 'What you get')),
           const SizedBox(height: 10),
           _FeatureTile(
             icon: Icons.smart_toy_outlined,
             title: context.tr(pl: 'AI Asystent z bazą wiedzy', en: 'AI Assistant w/ knowledge base'),
             body: context.tr(
+              // P2-06: "270 KB" → "30+ norm ASME/EN/AWS" so the size metric
+              // becomes a coverage metric a fitter can evaluate at a glance.
               pl: 'Zapytaj o WPS, preheat dla P91, NACE compliance, ASME B31 — '
-                  'odpowiada z 270 KB skondensowanej wiedzy z prawdziwych standardów.',
+                  'odpowiada z 30+ norm ASME/EN/AWS skondensowanych w jednej bazie.',
               en: 'Ask about WPS, P91 preheat, NACE compliance, ASME B31 — '
-                  'answers from 270 KB of curated standards knowledge.',
+                  'answers from 30+ ASME/EN/AWS standards curated in one base.',
             ),
           ),
           _FeatureTile(
@@ -451,6 +492,15 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                     pl: 'Pierwsze 7 dni za darmo',
                     en: 'First 7 days free',
                   ),
+                  // P2-06: per-month equivalent line under the yearly price —
+                  // 149 PLN / 12 ≈ 12.42 PLN/mc; we surface "≈12 zł/mc" so a
+                  // buyer comparing the two plans sees the yearly is ~35%
+                  // cheaper per month at a glance instead of doing mental
+                  // long division in gloves.
+                  perMonthEquivalent: context.tr(
+                    pl: '≈ 12 zł/mc',
+                    en: '≈ 12 PLN/mo',
+                  ),
                   highlight: true,
                   onTap: () => _startCheckout(context, PremiumPlan.yearly),
                 ),
@@ -497,6 +547,45 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
             style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
             textAlign: TextAlign.center,
           ),
+          // P1-41: subtle "Maybe later" handoff. A paywall with no clear
+          // way out reads as a trap on first contact — a single muted line
+          // ("Pomiń teraz") + a 48 dp tap target lets the user defer the
+          // decision without having to hunt for the back gesture. Kept
+          // visually quiet so it doesn't compete with the FilledButtons.
+          const SizedBox(height: 14),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+              child: TextButton(
+                onPressed: () {
+                  if (!mounted) return;
+                  // If a verification or checkout-prep overlay happens to be
+                  // up we dismiss it first; otherwise pop the route. Either
+                  // path gives the user the obvious "out" the hint promises.
+                  if (_verifying || _creatingCheckout) {
+                    setState(() {
+                      _verifying = false;
+                      _verifyInFlight = false;
+                      _creatingCheckout = false;
+                    });
+                    return;
+                  }
+                  Navigator.maybePop(context);
+                },
+                child: Text(
+                  context.tr(pl: 'Pomiń teraz', en: 'Maybe later'),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _kTextMut,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                    decorationColor: _kTextMut,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
         ],
       ),
       ),
@@ -725,7 +814,10 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      // P1-41: tightened vertical padding from 20 → 14 so the hero plus the
+      // price pill below fit above the fold on 360 dp phones (Pixel 4a class)
+      // without forcing the user to scroll to see what Premium costs.
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF2A2218), Color(0xFF1A1D26)],
@@ -742,23 +834,50 @@ class _Hero extends StatelessWidget {
             children: [
               Icon(Icons.workspace_premium, color: _kGold, size: 28),
               const SizedBox(width: 10),
-              Text(
-                context.tr(pl: 'Fitter Welder Pro+', en: 'Fitter Welder Pro+'),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFFE8ECF0),
+              Expanded(
+                child: Text(
+                  context.tr(pl: 'Fitter Welder Pro+', en: 'Fitter Welder Pro+'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFFE8ECF0),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             context.tr(
               pl: 'Pełen arsenał monterski + AI asystent w jednej apce.',
               en: 'Full fitter arsenal + AI assistant in one app.',
             ),
-            style: const TextStyle(fontSize: 14, color: _kTextSec),
+            style: const TextStyle(fontSize: 13, color: _kTextSec),
+          ),
+          const SizedBox(height: 10),
+          // P1-41: compact price pill — the actual numbers (19 PLN/mc and 149
+          // PLN/rok) MUST be visible without scrolling on a 360 dp phone, so
+          // we surface them inside the hero. The full _PlanCard row stays
+          // further down for the tap target + badges.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: _kGold.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _kGold.withValues(alpha: 0.4)),
+            ),
+            child: Text(
+              context.tr(
+                pl: '19 PLN/mc  ·  149 PLN/rok (-35%)',
+                en: '19 PLN/mo  ·  149 PLN/yr (-35%)',
+              ),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: _kGold,
+                letterSpacing: 0.2,
+              ),
+            ),
           ),
         ],
       ),
@@ -849,6 +968,10 @@ class _PlanCard extends StatelessWidget {
   // via trial_period_days on the price object — this widget only marks the
   // plan visually so the yearly tile reads as the risk-free pick.
   final String? trialBadge;
+  // P2-06: per-month equivalent caption (e.g. "≈ 12 zł/mc") so the yearly
+  // card communicates its monthly cost directly instead of asking the buyer
+  // to divide 149 by 12 in their head.
+  final String? perMonthEquivalent;
   final bool highlight;
   final VoidCallback onTap;
 
@@ -859,6 +982,7 @@ class _PlanCard extends StatelessWidget {
     required this.badge,
     required this.onTap,
     this.trialBadge,
+    this.perMonthEquivalent,
     this.highlight = false,
   });
 
@@ -906,6 +1030,20 @@ class _PlanCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (perMonthEquivalent != null) ...[
+              // P2-06: per-month equivalent line ("≈ 12 zł/mc") rendered
+              // immediately under the headline price — small, muted, so it
+              // reads as supporting math rather than a second price tag.
+              const SizedBox(height: 2),
+              Text(
+                perMonthEquivalent!,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _kTextSec,
+                ),
+              ),
+            ],
             if (badge != null) ...[
               const SizedBox(height: 8),
               Container(
@@ -966,4 +1104,135 @@ class _PlanCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// P2-06: compact "Free vs Premium" comparison table. Four rows cover the
+// differentiators that come up most often in support tickets and the
+// upgrade-flow analytics: AI chat, ads, cloud sync, and the calculator
+// gates (heat input / preheat / coping). Free column shows a muted "—" so
+// the eye-track jumps to the green check on the Premium side.
+class _FreeVsPremiumTable extends StatelessWidget {
+  const _FreeVsPremiumTable();
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <_FvpRow>[
+      _FvpRow(
+        label: context.tr(pl: 'AI asystent (chat)', en: 'AI assistant (chat)'),
+        free: false,
+      ),
+      _FvpRow(
+        label: context.tr(pl: 'Bez reklam', en: 'No ads'),
+        free: false,
+      ),
+      _FvpRow(
+        label: context.tr(pl: 'Cloud sync (telefon ↔ tablet)', en: 'Cloud sync (phone ↔ tablet)'),
+        free: false,
+      ),
+      _FvpRow(
+        label: context.tr(
+          pl: 'Kalkulatory zaawansowane (heat input, preheat)',
+          en: 'Advanced calculators (heat input, preheat)',
+        ),
+        free: false,
+      ),
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: _kCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Column(
+        children: [
+          // Header row.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+            child: Row(
+              children: [
+                const Expanded(child: SizedBox.shrink()),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    context.tr(pl: 'Free', en: 'Free'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: _kTextMut,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    context.tr(pl: 'Premium', en: 'Premium'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: _kGold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: _kBorder),
+          for (int i = 0; i < rows.length; i++) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      rows[i].label,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFFE8ECF0),
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 64,
+                    child: Center(
+                      child: rows[i].free
+                          ? const Icon(Icons.check_rounded,
+                              color: _kGreen, size: 18)
+                          : const Text(
+                              '—',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: _kTextMut,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(
+                    width: 64,
+                    child: Center(
+                      child: Icon(Icons.check_rounded,
+                          color: _kGold, size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (i < rows.length - 1)
+              const Divider(height: 1, color: _kBorder),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FvpRow {
+  final String label;
+  final bool free;
+  const _FvpRow({required this.label, required this.free});
 }

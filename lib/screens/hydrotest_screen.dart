@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/pipe_schedules.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
@@ -69,7 +70,87 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   /// ASME B31.3 default test factor is 1.5 × design.
   double _factor = 1.5;
 
+  // P2-05: jednostka ciśnienia projektowego — wartość w polu jest interpretowana
+  // jako ta jednostka i konwertowana do barów wewnętrznie (kalkulacje liczą w bar).
+  // 'bar' | 'MPa' | 'psi'
+  String _designUnit = 'bar';
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  // P2-05: konwersja wartości projektowej (w wybranej jednostce) → bar.
+  double? _designBarFromInput(double? v) {
+    if (v == null) return null;
+    switch (_designUnit) {
+      case 'MPa':
+        return v * 10.0; // 1 MPa = 10 bar
+      case 'psi':
+        return v / 14.5038; // 1 bar ≈ 14.5038 psi
+      case 'bar':
+      default:
+        return v;
+    }
+  }
+
+  // P2-05: zakres pickera DN/SCH — zgodnie z backlog (DN15..DN300 × SCH10/40/80).
+  // Reuse danych z lib/data/pipe_schedules.dart (kPipeWalls, kSchedules).
+  // Kolumny 10S → "SCH 10" w UI (typowo "Schedule 10" — mapowane na 10S).
+  static const List<int> _kPickerDn = [
+    15, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300,
+  ];
+  static const List<String> _kPickerSch = ['10S', '40', '80'];
+
+  String _schLabel(String key) {
+    switch (key) {
+      case '10S':
+        return 'SCH 10';
+      case '40':
+        return 'SCH 40';
+      case '80':
+        return 'SCH 80';
+      default:
+        return 'SCH $key';
+    }
+  }
+
+  Future<void> _openDnSchPicker() async {
+    Haptic.tap();
+    final picked = await showModalBottomSheet<_DnSchPick>(
+      context: context,
+      backgroundColor: _kCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _DnSchPickerSheet(
+        dnList: _kPickerDn,
+        schList: _kPickerSch,
+        schLabel: _schLabel,
+      ),
+    );
+    if (!mounted || picked == null) return;
+    final row = kPipeWalls.firstWhere(
+      (r) => r.dn == picked.dn,
+      orElse: () => kPipeWalls.first,
+    );
+    final wall = row.walls[picked.sch];
+    if (wall == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_tr(
+            'Brak danych dla DN${picked.dn} × ${_schLabel(picked.sch)}',
+            'No data for DN${picked.dn} × ${_schLabel(picked.sch)}',
+          )),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _odCtrl.text = row.od.toStringAsFixed(1);
+      _wallCtrl.text = wall.toStringAsFixed(2);
+    });
+    debugPrint('[hydrotest] dn/sch picked: DN${picked.dn} ${picked.sch} '
+        '→ OD=${row.od} wall=$wall');
+  }
 
   @override
   void dispose() {
@@ -90,7 +171,11 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     _lengthCtrl.clear();
     _designCtrl.clear();
     _flowCtrl.text = '40';
-    setState(() => _factor = 1.5);
+    setState(() {
+      _factor = 1.5;
+      // P2-05: reset jednostki ciśnienia projektowego do bar (domyślnie).
+      _designUnit = 'bar';
+    });
     FocusScope.of(context).unfocus();
     debugPrint('[hydrotest] reset all controllers');
   }
@@ -131,11 +216,14 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     return null;
   }
 
-  String? _designError(double? v) {
+  // P2-05: walidator dostaje wartość surową z pola (w wybranej jednostce);
+  // limit sensowności kalibrujemy do ekwiwalentu w barach.
+  String? _designError(double? raw) {
     if (_designCtrl.text.trim().isEmpty) return null;
-    if (v == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
-    if (v <= 0) return _tr('Ciśnienie musi być > 0', 'Pressure must be > 0');
-    if (v > _kMaxDesignBar) return _tr('Sprawdź ciśnienie', 'Check pressure');
+    if (raw == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
+    if (raw <= 0) return _tr('Ciśnienie musi być > 0', 'Pressure must be > 0');
+    final bar = _designBarFromInput(raw) ?? raw;
+    if (bar > _kMaxDesignBar) return _tr('Sprawdź ciśnienie', 'Check pressure');
     return null;
   }
 
@@ -152,14 +240,16 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     final od = _p(_odCtrl);
     final wall = _p(_wallCtrl);
     final lengthM = _p(_lengthCtrl);
-    final design = _p(_designCtrl);
+    final designInput = _p(_designCtrl);
+    // P2-05: wewnętrznie wszystkie obliczenia w barach; wejście może być w bar/MPa/psi.
+    final design = _designBarFromInput(designInput);
     final flowLpm = _p(_flowCtrl) ?? 0;
 
     // P1-30: zsyp do per-field errorText.
     final odErr     = _odError(od);
     final wallErr   = _wallError(wall, od);
     final lengthErr = _lengthError(lengthM);
-    final designErr = _designError(design);
+    final designErr = _designError(designInput);
     final flowErr   = _flowError(_p(_flowCtrl));
 
     String? error;
@@ -251,7 +341,30 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
 
           // ── Geometry ──
           _SectionHeader(_tr('GEOMETRIA RURY', 'PIPE GEOMETRY')),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          // P2-05: szybki picker DN/SCH — auto-fill OD + ścianki z B36.10M.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: TextButton.icon(
+                onPressed: _openDnSchPicker,
+                icon: const Icon(Icons.list_alt, size: 18, color: _kBlue),
+                label: Text(
+                  _tr('📋 DN/SCH — wybierz z tabeli',
+                      '📋 DN/SCH — pick from table'),
+                  style: const TextStyle(
+                      color: _kBlue, fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  minimumSize: const Size(48, 48),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
           Row(children: [
             Expanded(child: _NumField(
               ctrl: _odCtrl, label: _tr('OD (mm)', 'OD (mm)'),
@@ -278,14 +391,51 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           const SizedBox(height: 14),
           _SectionHeader(_tr('CIŚNIENIE', 'PRESSURE')),
           const SizedBox(height: 8),
-          _NumField(
-            ctrl: _designCtrl,
-            label: _tr('Ciśnienie projektowe (bar)', 'Design pressure (bar)'),
-            hint: '10',
-            onChanged: () => setState(() {}),
-            errorText: designErr,
-            textInputAction: TextInputAction.next,
+          // P2-05: pole + przełącznik jednostki (bar / MPa / psi) obok siebie.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _NumField(
+                  ctrl: _designCtrl,
+                  label: _tr(
+                      'Ciśnienie projektowe ($_designUnit)',
+                      'Design pressure ($_designUnit)'),
+                  hint: _designUnit == 'psi'
+                      ? '145'
+                      : (_designUnit == 'MPa' ? '1.0' : '10'),
+                  onChanged: () => setState(() {}),
+                  errorText: designErr,
+                  textInputAction: TextInputAction.next,
+                ),
+              ),
+              const SizedBox(width: 10),
+              _PressureUnitToggle(
+                value: _designUnit,
+                onChanged: (u) {
+                  if (u == _designUnit) return;
+                  Haptic.tap();
+                  setState(() => _designUnit = u);
+                  debugPrint('[hydrotest] design unit → $u');
+                },
+              ),
+            ],
           ),
+          // P2-05: live preview "= X MPa" (zawsze widoczne gdy wartość parsuje się).
+          if (designInput != null && designErr == null && design != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                _designUnit == 'MPa'
+                    ? '= ${design.toStringAsFixed(2)} bar '
+                        '= ${(design * 14.5038).toStringAsFixed(0)} psi'
+                    : '= ${(design / 10).toStringAsFixed(3)} MPa'
+                        '${_designUnit == 'psi'
+                            ? '  = ${design.toStringAsFixed(2)} bar'
+                            : ''}',
+                style: const TextStyle(color: _kMuted, fontSize: 11),
+              ),
+            ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -671,6 +821,261 @@ class _ResRow extends StatelessWidget {
                 style: const TextStyle(color: _kMuted, fontSize: 11)),
           ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2-05: DN/SCH picker + przełącznik jednostki ciśnienia projektowego.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// P2-05: zwracany z bottom sheeta wybór użytkownika.
+class _DnSchPick {
+  final int dn;
+  final String sch;
+  const _DnSchPick(this.dn, this.sch);
+}
+
+/// P2-05: bottom-sheet picker — DN15..DN300 × SCH10/40/80.
+/// Czyta `kPipeWalls` z lib/data/pipe_schedules.dart (offline).
+class _DnSchPickerSheet extends StatefulWidget {
+  final List<int> dnList;
+  final List<String> schList;
+  final String Function(String) schLabel;
+  const _DnSchPickerSheet({
+    required this.dnList,
+    required this.schList,
+    required this.schLabel,
+  });
+
+  @override
+  State<_DnSchPickerSheet> createState() => _DnSchPickerSheetState();
+}
+
+class _DnSchPickerSheetState extends State<_DnSchPickerSheet> {
+  int? _dn;
+  String? _sch;
+
+  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  PipeRow? _rowFor(int dn) {
+    for (final r in kPipeWalls) {
+      if (r.dn == dn) return r;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final row = _dn == null ? null : _rowFor(_dn!);
+    final wall =
+        (row != null && _sch != null) ? row.walls[_sch!] : null;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 12,
+            bottom: 16 + MediaQuery.viewPaddingOf(context).bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // drag handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: _kBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              _tr('Wybierz DN i SCH', 'Pick DN and SCH'),
+              style: const TextStyle(
+                  color: _kOrange,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _tr('ASME B36.10M — auto-wypełni OD i ściankę.',
+                  'ASME B36.10M — auto-fills OD and wall.'),
+              style: const TextStyle(color: _kMuted, fontSize: 11),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _tr('DN', 'DN'),
+              style: const TextStyle(
+                  color: _kSec, fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final dn in widget.dnList)
+                  ChoiceChip(
+                    label: Text('DN$dn'),
+                    selected: _dn == dn,
+                    onSelected: (_) {
+                      Haptic.tap();
+                      setState(() => _dn = dn);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _tr('Schedule', 'Schedule'),
+              style: const TextStyle(
+                  color: _kSec, fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final s in widget.schList)
+                  ChoiceChip(
+                    label: Text(widget.schLabel(s)),
+                    selected: _sch == s,
+                    onSelected: (_) {
+                      Haptic.tap();
+                      setState(() => _sch = s);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            // preview
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF12141C),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _kBorder),
+              ),
+              child: Text(
+                row == null
+                    ? _tr('Wybierz DN', 'Pick a DN')
+                    : (_sch == null
+                        ? '${_tr('DN', 'DN')}${row.dn}  ·  '
+                            'OD ${row.od.toStringAsFixed(1)} mm  ·  '
+                            '${_tr('wybierz SCH', 'pick SCH')}'
+                        : (wall == null
+                            ? _tr(
+                                'Brak danych dla DN${row.dn} × ${widget.schLabel(_sch!)}',
+                                'No data for DN${row.dn} × ${widget.schLabel(_sch!)}')
+                            : 'DN${row.dn}  ·  '
+                                'OD ${row.od.toStringAsFixed(1)} mm  ·  '
+                                't ${wall.toStringAsFixed(2)} mm  '
+                                '(${widget.schLabel(_sch!)})')),
+                style: const TextStyle(
+                    color: _kSec,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                    ),
+                    child: Text(_tr('Anuluj', 'Cancel'),
+                        style: const TextStyle(color: _kSec)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: (_dn != null && _sch != null && wall != null)
+                        ? () => Navigator.pop(
+                            context, _DnSchPick(_dn!, _sch!))
+                        : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _kOrange,
+                      minimumSize: const Size(48, 48),
+                    ),
+                    child: Text(_tr('Wybierz', 'Pick'),
+                        style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// P2-05: trzy-pozycyjny segmented control bar / MPa / psi.
+class _PressureUnitToggle extends StatelessWidget {
+  final String value;
+  final ValueChanged<String> onChanged;
+  const _PressureUnitToggle({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(String key, String label) {
+      final selected = key == value;
+      return ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        child: InkWell(
+          onTap: () => onChanged(key),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: selected
+                  ? _kOrange.withValues(alpha: 0.14)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected ? _kOrange : _kSec,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _kCard,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _kBorder),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          cell('bar', 'bar'),
+          cell('MPa', 'MPa'),
+          cell('psi', 'psi'),
+        ],
+      ),
     );
   }
 }

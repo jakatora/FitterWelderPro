@@ -110,12 +110,20 @@ class _JobAddScreenState extends State<JobAddScreen> {
   }
 
   Future<bool> _confirmDiscard() async {
+    // P3-07: PL copy switched from "Porzucić zmiany?" to "Odrzucić wpisane
+    // dane?" (welder-friendly, plain language); "Wróć do edycji" → "Anuluj".
+    // P1-29: naked English "Discard" replaced with localised "Porzuć zmiany"
+    // / "Discard changes" so the destructive action reads in the active UI
+    // language on both sides.
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _kCard,
         title: Text(
-          context.tr(pl: 'Porzucić zmiany?', en: 'Discard changes?'),
+          context.tr(
+            pl: 'Odrzucić wpisane dane?',
+            en: 'Discard changes?',
+          ),
           style: const TextStyle(color: Color(0xFFE8ECF0)),
         ),
         content: Text(
@@ -128,12 +136,14 @@ class _JobAddScreenState extends State<JobAddScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(context.tr(pl: 'Wróć do edycji', en: 'Keep editing')),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Keep editing')),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: _kAccent),
-            child: Text(context.tr(pl: 'Porzuć', en: 'Discard')),
+            child: Text(
+              context.tr(pl: 'Porzuć zmiany', en: 'Discard changes'),
+            ),
           ),
         ],
       ),
@@ -195,10 +205,11 @@ class _JobAddScreenState extends State<JobAddScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!ok && mounted) {
+        // P3-04: snackbar punctuation hygiene — drop trailing period.
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
-            pl: 'Nie udało się otworzyć przeglądarki.',
-            en: 'Failed to open browser.',
+            pl: 'Nie udało się otworzyć przeglądarki',
+            en: 'Failed to open browser',
           )),
         ));
         setState(() => _saving = false);
@@ -212,14 +223,20 @@ class _JobAddScreenState extends State<JobAddScreen> {
       debugPrint('JobAddScreen.save error: $e');
       if (!mounted) return;
       setState(() => _saving = false);
+      // P1-29: SnackBarAction wording — PL "Ponów" → "Spróbuj ponownie"
+      // (matches the standardised retry label used elsewhere).
+      // P3-04: snackbar punctuation hygiene — drop trailing period.
+      // P0-07: the in-flight guard `if (_saving) return;` at the top of
+      // _save() already prevents duplicate Stripe Checkout sessions when the
+      // welder reflex-taps Retry; do not add a second gate here.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
-          pl: 'Nie udało się utworzyć płatności. Sprawdź połączenie.',
-          en: 'Could not create the payment. Check your connection.',
+          pl: 'Nie udało się utworzyć płatności. Sprawdź połączenie',
+          en: 'Could not create the payment. Check your connection',
         )),
         duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: context.tr(pl: 'Ponów', en: 'Retry'),
+          label: context.tr(pl: 'Spróbuj ponownie', en: 'Retry'),
           onPressed: _save,
         ),
       ));
@@ -241,10 +258,20 @@ class _JobAddScreenState extends State<JobAddScreen> {
       backgroundColor: _kBg,
       appBar: AppBar(
         backgroundColor: _kCard,
+        // P1-29: standardise AppBar title — "Nowe ogłoszenie" →
+        // "Nowe ogłoszenie pracy" (matches the "ogłoszenie pracy"
+        // phrasing the rest of the jobs flow uses, less ambiguous for
+        // welders coming in from the home tile).
         title: Text(
           isEdit
-              ? context.tr(pl: 'Edytuj ogłoszenie', en: 'Edit listing')
-              : context.tr(pl: 'Nowe ogłoszenie', en: 'New listing'),
+              ? context.tr(
+                  pl: 'Edytuj ogłoszenie pracy',
+                  en: 'Edit job listing',
+                )
+              : context.tr(
+                  pl: 'Nowe ogłoszenie pracy',
+                  en: 'New job listing',
+                ),
         ),
       ),
       body: Form(
@@ -257,9 +284,13 @@ class _JobAddScreenState extends State<JobAddScreen> {
             _Field(
               label: context.tr(pl: 'Tytuł ogłoszenia *', en: 'Title *'),
               ctrl: _titleCtrl,
+              // P1-29: spell out "SS" (stainless steel / INOX) — the SS
+              // abbreviation also denotes Single-Side on bevel prep, so the
+              // hint was ambiguous to a welder skim-reading.
+              // P3-04/P3-07: em-dash replaced with ASCII hyphen.
               hint: context.tr(
-                pl: 'np. Spawacz TIG 141 — rurociągi SS',
-                en: 'e.g. TIG 141 welder — SS piping',
+                pl: 'np. Spawacz TIG 141 - rurociągi INOX',
+                en: 'e.g. TIG 141 welder - stainless steel piping',
               ),
               validator: _req,
             ),
@@ -325,9 +356,12 @@ class _JobAddScreenState extends State<JobAddScreen> {
               label: context.tr(pl: 'Opis stanowiska *', en: 'Description *'),
               ctrl: _descriptionCtrl,
               maxLines: 5,
+              // P3-04 / P3-07: drop the trailing ellipsis on the description
+              // hint (ASCII-clean source). The trailing comma already signals
+              // "and so on" without the Unicode glyph.
               hint: context.tr(
-                pl: 'Zakres prac, obiekt, czas trwania zlecenia, zakwaterowanie…',
-                en: 'Scope, site, contract length, accommodation…',
+                pl: 'Zakres prac, obiekt, czas trwania zlecenia, zakwaterowanie',
+                en: 'Scope, site, contract length, accommodation',
               ),
               validator: _req,
             ),
@@ -422,13 +456,18 @@ class _JobAddScreenState extends State<JobAddScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            // P3-07: soften the roadmap footer — "pojawią się" was an
+            // overcommitted promise (we cannot guarantee sync ships next
+            // update); "mogą pojawić się" matches the EN "may arrive" and
+            // protects against revenue dispute if a paying user takes the
+            // copy literally.
             Text(
               context.tr(
                 pl: '* Pola wymagane. Ogłoszenie jest zapisywane lokalnie '
                     '(MVP). Synchronizacja między urządzeniami i płatne wyróżnienia '
-                    'pojawią się w kolejnej aktualizacji.',
+                    'mogą pojawić się w kolejnej aktualizacji.',
                 en: '* Required fields. Listing is saved locally (MVP). '
-                    'Cross-device sync and paid highlighting arrive in the next update.',
+                    'Cross-device sync and paid highlighting may arrive in the next update.',
               ),
               style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
               textAlign: TextAlign.center,
@@ -446,9 +485,12 @@ class _JobAddScreenState extends State<JobAddScreen> {
     if (cached != null && _chipCacheLang == lang) return cached;
     final built = _commonReqs
         .map((tag) => Tooltip(
+              // P1-29: quote the tag in tooltip — tags like "P-1 (CS)" or
+              // "6G" otherwise blur into the surrounding sentence ("Dodaj
+              // 6G do wymagań" reads as garble in gloves).
               message: context.tr(
-                pl: 'Dodaj $tag do wymagań',
-                en: 'Add $tag to requirements',
+                pl: 'Dodaj "$tag" do wymagań',
+                en: 'Add "$tag" to requirements',
               ),
               child: ActionChip(
                 label: Text(tag, style: const TextStyle(fontSize: 11)),

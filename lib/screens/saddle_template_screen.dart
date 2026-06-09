@@ -1,5 +1,3 @@
-// ignore_for_file: prefer_const_constructors
-
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -23,6 +21,87 @@ const _kTextMut = Color(0xFF55607A);
 const _kGold = Color(0xFFE8C14B);
 const _kAccentDim = Color(0x3326A69A);
 
+// Pre-modulated colour constants (P1-20): hoisting these to top-level `const`
+// lets every paint and decoration share one immutable Color instance instead
+// of allocating a fresh one on each build / paint call.
+const _kGoldBg = Color(0x26E8C14B); // _kGold @ 15% alpha — PRO badge background
+const _kGoldBorder = Color(0x4DE8C14B); // _kGold @ 30% alpha — PRO badge border
+const _kAccentCallout = Color(0x1426A69A); // _kAccent @ 8% — Try-this callout bg
+const _kAccentCalloutBorder = Color(0x5926A69A); // _kAccent @ 35% — callout border
+const _kAccentChipActive = Color(0x2E26A69A); // _kAccent @ 18% — angle chip active
+const _kAccentChipBorder = Color(0x8026A69A); // _kAccent @ 50% — try-chip border
+const _kErrorBg = Color(0x1AE57373); // red @ 10% — error box bg
+const _kErrorBorder = Color(0x66E57373); // red @ 40% — error box border
+const _kError = Color(0xFFE57373);
+const _kGridLine = Color(0x662C3354); // _kBorder @ 40% — preview grid
+const _kGuideLine = Color(0x8055607A); // _kTextMut @ 50% — 0/90/180/270/360 guides
+const _kBaseline = Color(0xFFE8ECF0);
+
+// P1-39 — Typed failure cases for saddle template computation. The underlying
+// service throws English-only `ArgumentError`s and previously we matched on
+// the message substring inside the widget. That coupled UI copy to backend
+// wording and made the error category invisible to callers (analytics, tests,
+// future paywall gates). The enum gives every failure a stable identity and a
+// localised (PL + EN) message via the extension getter below; the widget keeps
+// no knowledge of the raw exception strings.
+enum SaddleTemplateException {
+  invalidGeometry, // OD ≤ 0 or non-finite numeric inputs
+  branchExceedsHeader, // branchOdMm > headerOdMm
+  angleOutOfRange, // angleDeg < 15 || > 90
+  wallTooThick, // reserved for future wall-thickness sanity (see P1-30 saddle)
+  unknown, // fallback when the service throws something we can't classify
+}
+
+extension SaddleTemplateExceptionMessage on SaddleTemplateException {
+  // Returns a bilingual error string. Callers pass the literal user input so
+  // the message can echo back the values the welder typed — matches the
+  // pattern already established for header/branch OD diagnostics.
+  String localized({
+    required bool isEn,
+    String? headerInput,
+    String? branchInput,
+    String? angleInput,
+  }) {
+    switch (this) {
+      case SaddleTemplateException.invalidGeometry:
+        return isEn
+            ? 'Enter pipe OD greater than 0 mm'
+            : 'Wpisz OD rury większe niż 0 mm';
+      case SaddleTemplateException.branchExceedsHeader:
+        return isEn
+            ? 'Branch OD (${branchInput ?? '?'}) must be ≤ header OD (${headerInput ?? '?'})'
+            : 'OD rury bocznej (${branchInput ?? '?'}) musi być ≤ OD rury głównej (${headerInput ?? '?'})';
+      case SaddleTemplateException.angleOutOfRange:
+        return isEn
+            ? 'Angle must be in [15°, 90°], got ${angleInput ?? '?'}°'
+            : 'Kąt musi być w zakresie [15°, 90°], wpisano ${angleInput ?? '?'}°';
+      case SaddleTemplateException.wallTooThick:
+        return isEn
+            ? 'Wall thickness exceeds pipe radius — check wall input'
+            : 'Grubość ścianki przekracza promień rury — sprawdź wpis ścianki';
+      case SaddleTemplateException.unknown:
+        return isEn
+            ? 'Could not compute template — check inputs'
+            : 'Nie udało się policzyć szablonu — sprawdź wpisane wartości';
+    }
+  }
+}
+
+// Maps an arbitrary thrown object from the SaddleTemplate service to a typed
+// enum case. The service still throws English `ArgumentError`, so this is the
+// only place that touches the raw message text — anywhere else in the widget
+// only deals with the enum.
+SaddleTemplateException _classifySaddleError(Object e) {
+  final raw = e is ArgumentError ? e.message.toString() : e.toString();
+  if (raw.contains('Branch OD') && raw.contains('header OD')) {
+    return SaddleTemplateException.branchExceedsHeader;
+  }
+  if (raw.contains('Angle must be')) {
+    return SaddleTemplateException.angleOutOfRange;
+  }
+  return SaddleTemplateException.unknown;
+}
+
 class SaddleTemplateScreen extends StatefulWidget {
   const SaddleTemplateScreen({super.key});
 
@@ -37,13 +116,27 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   double _angleDeg = 90;
 
   SaddleTemplate? _template;
-  String? _errorMessage;
+  SaddleTemplateException? _errorKind;
+  // P1-20: cache the painter so CustomPaint receives the same instance across
+  // unrelated rebuilds. The painter is rebuilt only when `_template` changes
+  // (i.e. inside `_recompute`), which is exactly when shouldRepaint would have
+  // returned true anyway — but now we skip the painter-construction churn too.
+  _CutProfilePainter? _painter;
   bool _exporting = false;
+  // P1-39: defer the initial `_recompute` from initState to
+  // didChangeDependencies. AppLanguageController locale may not be resolved
+  // yet during initState on cold start (and InheritedWidget lookups are
+  // disallowed there anyway); deferring lets the first error message render
+  // in the right language without a swap-after-first-frame flicker.
+  bool _didInitialCompute = false;
 
   @override
-  void initState() {
-    super.initState();
-    _recompute();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didInitialCompute) {
+      _didInitialCompute = true;
+      _recompute();
+    }
   }
 
   @override
@@ -64,54 +157,46 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
     // stripLengthMm = 0, which divides into Infinity inside the painter
     // (sx = dw / 0) and renders the marker-step hint as "co 0.0 mm" —
     // confusing nonsense for a fitter wrapping the paper template.
-    if (h <= 0 || b <= 0) {
-      final isEn = AppLanguageController.isEnglish;
+    if (h <= 0 || b <= 0 || !h.isFinite || !b.isFinite) {
       setState(() {
         _template = null;
-        _errorMessage = isEn
-            ? 'Enter pipe OD greater than 0 mm'
-            : 'Wpisz OD rury większe niż 0 mm';
+        _painter = null;
+        _errorKind = SaddleTemplateException.invalidGeometry;
       });
       return;
     }
     try {
+      final tpl = SaddleTemplate(
+        headerOdMm: h,
+        branchOdMm: b,
+        angleDeg: _angleDeg,
+      );
       setState(() {
-        _template = SaddleTemplate(
-          headerOdMm: h,
-          branchOdMm: b,
-          angleDeg: _angleDeg,
-        );
-        _errorMessage = null;
+        _template = tpl;
+        _painter = _CutProfilePainter(tpl);
+        _errorKind = null;
       });
     } catch (e) {
       setState(() {
         _template = null;
-        _errorMessage = _localizeError(e);
+        _painter = null;
+        _errorKind = _classifySaddleError(e);
       });
     }
   }
 
-  // Service throws English-only ArgumentErrors; remap the known cases to
-  // bilingual messages so the _ErrorBox isn't English-only for PL users.
-  // Uses the static current language because _recompute may run from
-  // initState where InheritedWidget lookups are not allowed.
-  String _localizeError(Object e) {
-    final raw = e is ArgumentError ? e.message.toString() : e.toString();
-    final isEn = AppLanguageController.isEnglish;
-    final h = _headerCtrl.text.trim();
-    final b = _branchCtrl.text.trim();
-    if (raw.contains('Branch OD') && raw.contains('header OD')) {
-      return isEn
-          ? 'Branch OD ($b) must be ≤ header OD ($h)'
-          : 'OD rury bocznej ($b) musi być ≤ OD rury głównej ($h)';
-    }
-    if (raw.contains('Angle must be')) {
-      final a = _angleDeg.toStringAsFixed(0);
-      return isEn
-          ? 'Angle must be in [15°, 90°], got $a°'
-          : 'Kąt musi być w zakresie [15°, 90°], wpisano $a°';
-    }
-    return raw;
+  // Resolves the active `_errorKind` to a bilingual string. Kept as an
+  // instance helper because it needs the live controller text to echo back
+  // user input in the message (header/branch OD, angle).
+  String _resolveErrorMessage() {
+    final kind = _errorKind;
+    if (kind == null) return '';
+    return kind.localized(
+      isEn: AppLanguageController.isEnglish,
+      headerInput: _headerCtrl.text.trim(),
+      branchInput: _branchCtrl.text.trim(),
+      angleInput: _angleDeg.toStringAsFixed(0),
+    );
   }
 
   // Welder/fitter usually inherits a "fish-mouth" tool with no explanation —
@@ -126,7 +211,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Row(
           children: [
-            Icon(Icons.functions, color: _kAccent, size: 20),
+            const Icon(Icons.functions, color: _kAccent, size: 20),
             const SizedBox(width: 8),
             Text(
               isEn ? 'How is it calculated?' : 'Jak to się liczy?',
@@ -186,7 +271,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(
+            child: const Text(
               'OK',
               style: TextStyle(color: _kAccent, fontWeight: FontWeight.w700),
             ),
@@ -236,11 +321,11 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: _kGold.withValues(alpha: 0.15),
+                color: _kGoldBg,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _kGold.withValues(alpha: 0.3)),
+                border: Border.all(color: _kGoldBorder),
               ),
-              child: Text(
+              child: const Text(
                 'PRO',
                 style: TextStyle(
                   fontSize: 10,
@@ -255,7 +340,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         actions: [
           IconButton(
             tooltip: context.tr(pl: 'Wzór i jak liczymy', en: 'Formula & how it works'),
-            icon: Icon(Icons.help_outline, color: _kTextSec),
+            icon: const Icon(Icons.help_outline, color: _kTextSec),
             onPressed: _showFormulaHelp,
           ),
         ],
@@ -376,12 +461,20 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          if (_errorMessage != null)
-            _ErrorBox(message: _errorMessage!)
+          if (_errorKind != null)
+            _ErrorBox(message: _resolveErrorMessage())
           else if (_template != null) ...[
-            _PreviewCard(template: _template!),
+            // P1-20: isolate the heavy CustomPaint subtree and the metrics row
+            // from unrelated rebuilds (text-field onChanged → setState in the
+            // parent) so the rasterised layer can be reused across frames.
+            RepaintBoundary(
+              child: _PreviewCard(
+                template: _template!,
+                painter: _painter!,
+              ),
+            ),
             const SizedBox(height: 12),
-            _MetricsRow(template: _template!),
+            RepaintBoundary(child: _MetricsRow(template: _template!)),
             const SizedBox(height: 8),
             // Marking step hint — arc spacing between adjacent offset rows
             // (every 5° around the branch). Fitter wraps the paper strip and
@@ -399,7 +492,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                       : 0.0;
                   return Row(
                     children: [
-                      Icon(Icons.straighten, size: 13, color: _kTextMut),
+                      const Icon(Icons.straighten, size: 13, color: _kTextMut),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -461,7 +554,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 16, color: _kAccent),
+                const Icon(Icons.info_outline, size: 16, color: _kAccent),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -584,7 +677,7 @@ class _AngleChip extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: active ? _kAccent.withValues(alpha: 0.18) : _kBg,
+              color: active ? _kAccentChipActive : _kBg,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: active ? _kAccent : _kBorder,
@@ -615,18 +708,18 @@ class _ErrorBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFE57373).withValues(alpha: 0.1),
+        color: _kErrorBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE57373).withValues(alpha: 0.4)),
+        border: Border.all(color: _kErrorBorder),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: const Color(0xFFE57373), size: 20),
+          const Icon(Icons.error_outline, color: _kError, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(fontSize: 13, color: Color(0xFFE57373)),
+              style: const TextStyle(fontSize: 13, color: _kError),
             ),
           ),
         ],
@@ -730,7 +823,10 @@ class _Metric extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 class _PreviewCard extends StatelessWidget {
   final SaddleTemplate template;
-  const _PreviewCard({required this.template});
+  // P1-20: receive the painter from the parent so we reuse the cached
+  // instance instead of constructing a new _CutProfilePainter every build.
+  final _CutProfilePainter painter;
+  const _PreviewCard({required this.template, required this.painter});
 
   @override
   Widget build(BuildContext context) {
@@ -759,7 +855,7 @@ class _PreviewCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: CustomPaint(
-                painter: _CutProfilePainter(template),
+                painter: painter,
                 size: Size.infinite,
               ),
             ),
@@ -789,7 +885,7 @@ class _CutProfilePainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, bgPaint);
 
     final gridPaint = Paint()
-      ..color = _kBorder.withValues(alpha: 0.4)
+      ..color = _kGridLine
       ..strokeWidth = 0.5;
     for (int i = 1; i < 10; i++) {
       final x = size.width * i / 10;
@@ -849,7 +945,7 @@ class _CutProfilePainter extends CustomPainter {
       Offset(pad, baselineY),
       Offset(pad + template.stripLengthMm * sx, baselineY),
       Paint()
-        ..color = const Color(0xFFE8ECF0)
+        ..color = _kBaseline
         ..strokeWidth = 1,
     );
 
@@ -861,7 +957,7 @@ class _CutProfilePainter extends CustomPainter {
         Offset(x, pad),
         Offset(x, baselineY),
         Paint()
-          ..color = _kTextMut.withValues(alpha: 0.5)
+          ..color = _kGuideLine
           ..strokeWidth = 0.5,
       );
       _drawText(canvas, '$phi°', Offset(x - 8, pad - 2), 9, _kTextMut);
@@ -900,16 +996,16 @@ class _TrySomethingCallout extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(
-        color: _kAccent.withValues(alpha: 0.08),
+        color: _kAccentCallout,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kAccent.withValues(alpha: 0.35)),
+        border: Border.all(color: _kAccentCalloutBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.lightbulb_outline, size: 14, color: _kAccent),
+              const Icon(Icons.lightbulb_outline, size: 14, color: _kAccent),
               const SizedBox(width: 6),
               Text(
                 isEn ? 'Try this' : 'Spróbuj tego',
@@ -969,7 +1065,7 @@ class _TryChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: _kBg,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _kAccent.withValues(alpha: 0.5)),
+          border: Border.all(color: _kAccentChipBorder),
         ),
         child: Text(
           label,

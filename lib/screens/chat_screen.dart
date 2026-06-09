@@ -20,6 +20,28 @@ const _kAccent = Color(0xFFAB47BC); // purple accent — distinct from premium g
 const _kBorder = Color(0xFF2C3354);
 const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = Color(0xFF55607A);
+// P3-13 — chevron polish (brighter than _kTextMut so the affordance reads
+// under workshop fluorescents) + brighter edit-nickname icon.
+const _kChevron = Color(0xFFB0B7D4);
+const _kIconBright = Color(0xFFE0E4F2);
+
+// P1-43 — nickname guard rails. The backlog asks for a max length of 20 and
+// a rejection of "special" characters. We allow Unicode letters/digits, a
+// single internal space, dash and underscore — enough for "Krzysiek 304L"
+// but no zero-width / control chars / emojis / punctuation that gets
+// confused with the @mention prefix on the rendering side.
+const _kNicknameMax = 20;
+final RegExp _kNicknameAllowed = RegExp(r'^[\p{L}\p{N} _-]+$', unicode: true);
+
+// P1-43 — minimum visible message length. Single-character "k" / "ok!" feels
+// like accidental keyboard mash and rate-limits faster than it informs.
+const int _kMinMessageChars = 2;
+
+// P1-42 — 30s heartbeat throttle while the app is in background. When the
+// Timer fires AppLifecycleState.paused we instead schedule a single
+// poll at most every 30s so we keep up with light traffic without
+// draining a backgrounded phone.
+const Duration _kBackgroundHeartbeat = Duration(seconds: 30);
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -76,7 +98,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person_outline),
+            // P3-13 — brighter edit-nickname icon so the affordance reads
+            // in direct sunlight / tinted-visor scenarios.
+            icon: const Icon(Icons.person_outline, color: _kIconBright),
             tooltip: context.tr(pl: 'Ksywka', en: 'Nickname'),
             onPressed: _editNickname,
           ),
@@ -89,6 +113,9 @@ class _ChatScreenState extends State<ChatScreen> {
               : RefreshIndicator(
                   onRefresh: _loadRooms,
                   child: ListView.builder(
+                    // P1-42 — keep pull-to-refresh active even when the
+                    // rooms list is empty (zero-rooms cold-start state).
+                    physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: _rooms?.length ?? 0,
                     itemBuilder: (_, i) {
                       final r = _rooms![i];
@@ -119,28 +146,67 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final res = await showDialog<String>(
         context: context,
-        builder: (dctx) => AlertDialog(
-          title: Text(context.tr(pl: 'Twoja ksywka', en: 'Your nickname')),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            maxLength: 32,
-            decoration: InputDecoration(
-              hintText: context.tr(pl: 'np. Krzysiek 304L', en: 'e.g. Mike 304L'),
-              counterText: '',
-            ),
-            onSubmitted: (v) => Navigator.pop(dctx, v.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dctx, null),
-              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dctx, ctrl.text.trim()),
-              child: const Text('OK'),
-            ),
-          ],
+        builder: (dctx) => StatefulBuilder(
+          builder: (dctx, setS) {
+            // P1-43 — inline guard: 20-char cap and special-char rejection,
+            // surfaced via errorText instead of dismissing the dialog with
+            // an empty value.
+            final raw = ctrl.text.trim();
+            String? errorText;
+            if (raw.isEmpty) {
+              errorText = null; // hide while empty so we don't shout on open
+            } else if (raw.length > _kNicknameMax) {
+              errorText = context.tr(
+                pl: 'Max $_kNicknameMax znaków.',
+                en: 'Max $_kNicknameMax characters.',
+              );
+            } else if (!_kNicknameAllowed.hasMatch(raw)) {
+              errorText = context.tr(
+                pl: 'Bez znaków specjalnych — litery, cyfry, spacja, - lub _.',
+                en: 'No special characters — letters, digits, space, - or _.',
+              );
+            }
+            final canSave = raw.isNotEmpty && errorText == null;
+            return AlertDialog(
+              title: Text(context.tr(pl: 'Twoja ksywka', en: 'Your nickname')),
+              content: TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLength: _kNicknameMax,
+                onChanged: (_) => setS(() {}),
+                decoration: InputDecoration(
+                  hintText: context.tr(
+                      pl: 'np. Krzysiek 304L', en: 'e.g. Mike 304L'),
+                  helperText: context.tr(
+                    pl: 'Max $_kNicknameMax znaków, bez znaków specjalnych.',
+                    en: 'Max $_kNicknameMax chars, no special characters.',
+                  ),
+                  errorText: errorText,
+                ),
+                onSubmitted: (v) {
+                  final t = v.trim();
+                  if (t.isEmpty ||
+                      t.length > _kNicknameMax ||
+                      !_kNicknameAllowed.hasMatch(t)) {
+                    return;
+                  }
+                  Navigator.pop(dctx, t);
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dctx, null),
+                  child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                ),
+                ElevatedButton(
+                  onPressed: canSave
+                      ? () => Navigator.pop(dctx, raw)
+                      : null,
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
         ),
       );
       if (res != null && res.isNotEmpty) {
@@ -288,7 +354,8 @@ class _RoomTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: _kTextMut),
+            // P3-13 — brighter chevron so the affordance reads off the card.
+            const Icon(Icons.chevron_right, color: _kChevron),
           ],
         ),
         ),
@@ -307,38 +374,89 @@ class _RoomView extends StatefulWidget {
   State<_RoomView> createState() => _RoomViewState();
 }
 
-class _RoomViewState extends State<_RoomView> {
+class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   final _scroll = ScrollController();
   final _ctrl = TextEditingController();
   final List<ChatMessage> _messages = [];
+  // P1-42 — composite (id + createdAt-iso) seen-set so identical-timestamp
+  // burst posts from different ids still dedupe correctly even if the
+  // backend recycles ids or returns the same message across two polls.
+  final Set<String> _seenKeys = <String>{};
   bool _loading = true;
   bool _sending = false;
+  // P3-13 — polling loading dot in AppBar. Goes true around each poll so the
+  // user can see "the app is alive and watching the channel".
+  bool _polling = false;
   String? _error;
   Timer? _poller;
   String _myDeviceId = '';
+  // P1-42 — lifecycle pause + 30s heartbeat throttle while backgrounded.
+  AppLifecycleState _lifecycle = AppLifecycleState.resumed;
+  DateTime? _lastBackgroundPoll;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bootstrap();
   }
 
   Future<void> _bootstrap() async {
     await PremiumService.instance.init();
+    // P1-43 — read PremiumService.deviceId (NOT nickname) so the isMine
+    // check is stable across nickname edits. Guarded against empty in the
+    // bubble too.
     _myDeviceId = PremiumService.instance.deviceId;
     await _refresh(initial: true);
-    _poller = Timer.periodic(const Duration(seconds: 8), (_) => _pollDelta());
+    _poller = Timer.periodic(const Duration(seconds: 8), (_) => _onTick());
+  }
+
+  // P1-42 — pause polling on AppLifecycleState.paused, resume on resumed
+  // with an immediate delta poll then the regular periodic cadence.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycle = state;
+    if (state == AppLifecycleState.resumed) {
+      // Fire one immediate catch-up; the periodic Timer keeps running.
+      _pollDelta();
+    }
+  }
+
+  // The 8s Timer always fires; we route through _onTick to skip work when
+  // the app is paused/inactive (battery) and throttle background polls to
+  // a 30s heartbeat.
+  void _onTick() {
+    if (!mounted) return;
+    if (_lifecycle == AppLifecycleState.paused ||
+        _lifecycle == AppLifecycleState.inactive ||
+        _lifecycle == AppLifecycleState.hidden) {
+      final last = _lastBackgroundPoll;
+      if (last != null &&
+          DateTime.now().difference(last) < _kBackgroundHeartbeat) {
+        return; // throttle: at most one poll per 30 s while backgrounded
+      }
+      _lastBackgroundPoll = DateTime.now();
+    }
+    _pollDelta();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poller?.cancel();
     _scroll.dispose();
     _ctrl.dispose();
     super.dispose();
   }
 
+  // P1-42 — composite key for dedupe: identical-timestamp messages with
+  // distinct ids still get through; identical id+timestamp pairs get
+  // filtered as duplicates of the same logical post.
+  String _keyOf(ChatMessage m) =>
+      '${m.id}|${m.createdAt.toUtc().millisecondsSinceEpoch}';
+
   Future<void> _refresh({bool initial = false}) async {
+    if (mounted) setState(() => _polling = true);
     try {
       final msgs = await ChatService.instance
           .listMessages(widget.room.id, limit: 100);
@@ -347,7 +465,13 @@ class _RoomViewState extends State<_RoomView> {
         _messages
           ..clear()
           ..addAll(msgs);
+        // P1-42 — rebuild the composite-key seen-set from scratch on full
+        // refresh so we don't grow it unbounded across reconnects.
+        _seenKeys
+          ..clear()
+          ..addAll(msgs.map(_keyOf));
         _loading = false;
+        _polling = false;
         _error = null;
       });
       if (initial) {
@@ -358,25 +482,47 @@ class _RoomViewState extends State<_RoomView> {
       setState(() {
         _error = e.toString();
         _loading = false;
+        _polling = false;
       });
     }
   }
 
   Future<void> _pollDelta() async {
-    if (!mounted || _messages.isEmpty) return;
+    if (!mounted) return;
+    // P1-42 — empty-room first-message: if we have no messages yet, do a
+    // full refresh instead of bailing. Otherwise the first post ever made
+    // to a brand-new room is invisible until the user pulls-to-refresh.
+    if (_messages.isEmpty) {
+      await _refresh();
+      return;
+    }
+    if (mounted) setState(() => _polling = true);
     final last = _messages.last.createdAt.toUtc().toIso8601String();
     try {
       final delta = await ChatService.instance
           .listMessages(widget.room.id, sinceIso: last, limit: 50);
-      if (delta.isEmpty || !mounted) return;
-      // Dedup by id — a posted message may already be in the list.
-      final knownIds = _messages.map((m) => m.id).toSet();
-      final fresh = delta.where((m) => !knownIds.contains(m.id)).toList();
-      if (fresh.isEmpty) return;
-      setState(() => _messages.addAll(fresh));
+      if (!mounted) return;
+      if (delta.isEmpty) {
+        setState(() => _polling = false);
+        return;
+      }
+      // P1-42 — dedupe on composite (id + createdAt) so identical-timestamp
+      // burst posts with distinct ids still come through; identical id+ts
+      // pairs (the same logical message we already have) get filtered.
+      final fresh = delta.where((m) => !_seenKeys.contains(_keyOf(m))).toList();
+      if (fresh.isEmpty) {
+        setState(() => _polling = false);
+        return;
+      }
+      setState(() {
+        _messages.addAll(fresh);
+        _seenKeys.addAll(fresh.map(_keyOf));
+        _polling = false;
+      });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     } catch (_) {
       // Quiet failure — next poll might succeed.
+      if (mounted) setState(() => _polling = false);
     }
   }
 
@@ -392,6 +538,19 @@ class _RoomViewState extends State<_RoomView> {
   Future<void> _send() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty || _sending) return;
+    // P1-43 — minimum 2 visible characters. Single-character mash usually
+    // means a gloved misfire; refuse and tell the user how to fix it
+    // instead of burning a 429 budget on noise.
+    if (text.length < _kMinMessageChars) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Za krótka wiadomość — napisz przynajmniej $_kMinMessageChars znaki.',
+          en: 'Message too short — write at least $_kMinMessageChars characters.',
+        )),
+        duration: const Duration(seconds: 4),
+      ));
+      return;
+    }
     setState(() => _sending = true);
     try {
       final msg = await ChatService.instance
@@ -400,6 +559,9 @@ class _RoomViewState extends State<_RoomView> {
       if (!mounted) return;
       setState(() {
         _messages.add(msg);
+        // P1-42 — record the composite key so the next _pollDelta dedupes
+        // this optimistically-appended message against the backend echo.
+        _seenKeys.add(_keyOf(msg));
         _sending = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -509,6 +671,20 @@ class _RoomViewState extends State<_RoomView> {
               name,
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
+            // P3-13 — polling loading dot in AppBar (visible only while a
+            // poll is in flight). Tells the user the channel is being
+            // watched without dominating the title row.
+            if (_polling) ...[
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(_kAccent),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -521,17 +697,37 @@ class _RoomViewState extends State<_RoomView> {
                     ? _ErrorRetry(onRetry: () => _refresh(initial: true))
                     : RefreshIndicator(
                         onRefresh: () => _refresh(),
-                        child: ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          itemCount: _messages.length,
-                          itemBuilder: (_, i) => _MessageBubble(
-                            message: _messages[i],
-                            isMine: _messages[i].deviceId == _myDeviceId,
-                            onLongPress: () => _reportMessage(_messages[i]),
-                          ),
-                        ),
+                        // P1-42 — render the empty-room CTA inside a
+                        // scrollable so pull-to-refresh keeps working at
+                        // zero messages.
+                        child: _messages.isEmpty
+                            ? ListView(
+                                physics:
+                                    const AlwaysScrollableScrollPhysics(),
+                                children: const [
+                                  SizedBox(height: 80),
+                                  _EmptyRoomCta(),
+                                ],
+                              )
+                            : ListView.builder(
+                                controller: _scroll,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                itemCount: _messages.length,
+                                itemBuilder: (_, i) => _MessageBubble(
+                                  message: _messages[i],
+                                  // P1-43 — guard isMine against the race
+                                  // where _myDeviceId hasn't loaded yet
+                                  // (PremiumService init in progress); an
+                                  // empty deviceId on both sides would
+                                  // otherwise falsely flag every message
+                                  // as mine.
+                                  isMine: _myDeviceId.isNotEmpty &&
+                                      _messages[i].deviceId == _myDeviceId,
+                                  onLongPress: () =>
+                                      _reportMessage(_messages[i]),
+                                ),
+                              ),
                       ),
           ),
           _Composer(
@@ -540,6 +736,49 @@ class _RoomViewState extends State<_RoomView> {
             onSend: _send,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// P1-42 — empty-room first-message CTA. Renders when _messages.isEmpty so
+// the welder knows the channel is alive and that posting first is welcome.
+class _EmptyRoomCta extends StatelessWidget {
+  const _EmptyRoomCta();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.forum_outlined, size: 48, color: _kAccent),
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                pl: 'Witaj — bądź pierwszy',
+                en: 'Welcome — be the first',
+              ),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFE8ECF0),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.tr(
+                pl: 'Napisz pierwszą wiadomość w tym kanale.',
+                en: 'Post the first message in this channel.',
+              ),
+              style: const TextStyle(fontSize: 13, color: _kTextSec),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -558,7 +797,10 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final time = _formatTime(message.createdAt.toLocal());
-    final color = isMine ? _kAccent.withValues(alpha: 0.25) : _kCard;
+    // P3-13 — bump own-bubble alpha into 0.45-0.55 band so the welder can
+    // distinguish their own posts at a glance under workshop lighting; the
+    // previous 0.25 was washed-out on AMOLED panels at low brightness.
+    final color = isMine ? _kAccent.withValues(alpha: 0.50) : _kCard;
     final align = isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     return GestureDetector(
       onLongPress: isMine ? null : onLongPress,
@@ -666,11 +908,13 @@ class _Composer extends StatelessWidget {
                 minLines: 1,
                 maxLength: 400,
                 textInputAction: TextInputAction.send,
-                style: const TextStyle(fontSize: 15),
+                // P3-13 — composer font 15 → 16 for outdoor readability
+                // (sweat / tinted visor / direct sun).
+                style: const TextStyle(fontSize: 16),
                 onSubmitted: (_) => onSend(),
                 decoration: InputDecoration(
                   hintText: context.tr(pl: 'Napisz wiadomość…', en: 'Type a message…'),
-                  hintStyle: const TextStyle(fontSize: 15, color: _kTextMut),
+                  hintStyle: const TextStyle(fontSize: 16, color: _kTextMut),
                   counterText: '',
                   isDense: true,
                   border: const OutlineInputBorder(

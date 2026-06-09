@@ -1,10 +1,9 @@
-// ignore_for_file: prefer_const_constructors
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../services/ai_chat_service.dart';
+import '../services/premium_service.dart';
 import '../widgets/premium_gate.dart';
 
 // AI Chat screen — Premium feature wrapped in PremiumGate. Live against
@@ -20,6 +19,33 @@ const _kAccent = Color(0xFFE8C14B);
 const _kAccentBlue = Color(0xFF4A9EFF);
 const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = Color(0xFF55607A);
+const _kTextPrimary = Color(0xFFE8ECF0);
+
+// P1-20: cache the alpha-modulated palette derivatives as top-level const so
+// each rebuild (and every message bubble repaint) re-uses the same Color
+// objects instead of recomputing `withValues(alpha: ...)` per frame.
+const _kAccentSoft = Color(0x26E8C14B); // ~0.15 alpha — assistant avatar
+const _kAccentChipFill = Color(0x1AE8C14B); // ~0.10 alpha — citation chip fill
+const _kAccentChipBorder = Color(0x40E8C14B); // ~0.25 alpha — citation chip border
+const _kAccentDot = Color(0xB3E8C14B); // ~0.70 alpha — typing dot
+const _kBlueSoft = Color(0x264A9EFF); // ~0.15 alpha — user avatar
+const _kBlueBubble = Color(0x2E4A9EFF); // ~0.18 alpha — user bubble fill
+const _kBlueBubbleBorder = Color(0x4D4A9EFF); // ~0.30 alpha — user bubble border
+
+// P1-20: hoist message TextStyles to top-level const so every bubble shares
+// the same StyleSpan; saves an allocation per rebuild and lets the engine
+// short-circuit text-layout equality checks.
+const _kMessageTextStyle = TextStyle(
+  color: _kTextPrimary,
+  fontSize: 15,
+  fontWeight: FontWeight.w500,
+  height: 1.5,
+);
+const _kCitationTextStyle = TextStyle(
+  fontSize: 12,
+  color: _kTextSec,
+  fontWeight: FontWeight.w600,
+);
 
 class AiChatScreen extends StatelessWidget {
   const AiChatScreen({super.key});
@@ -45,21 +71,62 @@ class _AiChatBodyState extends State<_AiChatBody> {
   final _scrollCtrl = ScrollController();
   final _focus = FocusNode();
   final _messages = <ChatMessage>[];
-  bool _typing = false;
+  // P1-20: hoist the typing flag to a ValueNotifier so the typing-indicator
+  // toggle only repaints the ListView footer (via ValueListenableBuilder)
+  // instead of the entire body Column. Send-button enabled state listens to
+  // the same notifier.
+  final ValueNotifier<bool> _typing = ValueNotifier<bool>(false);
+
+  // P1-36: welcome message is locale-aware. We can't reach context.tr from
+  // initState, so seed lazily on the first didChangeDependencies (and re-seed
+  // if the user toggles language while the welcome is still the only message
+  // on screen — auditor and welder must see the same language in a snapshot).
+  bool _welcomeSeeded = false;
 
   @override
-  void initState() {
-    super.initState();
-    // Welcome message — seeded into the conversation so the UI never looks
-    // empty. Stored as an assistant message so the styling matches.
-    _messages.add(ChatMessage(
-      role: ChatRole.assistant,
-      text:
-          'Cześć! 👋 Jestem AI asystentem od piping + welding (Claude Haiku 4.5).\n\n'
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // First-paint seed: nothing in the thread yet.
+    if (!_welcomeSeeded) {
+      _welcomeSeeded = true;
+      _messages.add(_buildWelcomeMessage(context));
+      return;
+    }
+    // Locale flipped while the welcome is still the only thing on screen —
+    // re-render it in the new language. We do NOT touch real conversation
+    // once the user has sent anything, to preserve auditability.
+    if (_messages.length == 1 && _messages.first.role == ChatRole.assistant) {
+      final next = _buildWelcomeMessage(context);
+      if (next.text != _messages.first.text) {
+        setState(() {
+          _messages[0] = next;
+        });
+      }
+    }
+  }
+
+  // P1-36: PL/EN welcome text per backlog hint. The full text retains the
+  // existing tone (Claude Haiku 4.5 + 270 KB knowledge base + citation tap),
+  // with the trigger headline localised exactly as the backlog calls out.
+  ChatMessage _buildWelcomeMessage(BuildContext ctx) {
+    final headline = ctx.tr(
+      pl: 'Cześć — zapytaj o spawanie / fit-up',
+      en: 'Hi — ask me about welding / fit-up',
+    );
+    final body = ctx.tr(
+      pl: 'Jestem AI asystentem od piping + welding (Claude Haiku 4.5).\n\n'
           'Pytaj o WPS, preheat, NACE, ASME, NDT, kalkulacje — odpowiadam z bazy 270 KB '
           'skondensowanej wiedzy z prawdziwych norm.\n\n'
           'Cytuję sekcję z której pochodzi odpowiedź — kliknij, by zobaczyć kontekst.',
-    ));
+      en: "I'm the AI assistant for piping + welding (Claude Haiku 4.5).\n\n"
+          'Ask about WPS, preheat, NACE, ASME, NDT, calculations — I answer from a 270 KB '
+          'condensed library of real standards.\n\n'
+          'Each reply cites the source section — tap to see the context.',
+    );
+    return ChatMessage(
+      role: ChatRole.assistant,
+      text: '$headline\n\n$body',
+    );
   }
 
   @override
@@ -67,18 +134,19 @@ class _AiChatBodyState extends State<_AiChatBody> {
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _focus.dispose();
+    _typing.dispose();
     super.dispose();
   }
 
   Future<void> _send() async {
     final text = _inputCtrl.text.trim();
-    if (text.isEmpty || _typing) return;
+    if (text.isEmpty || _typing.value) return;
 
     setState(() {
       _messages.add(ChatMessage(role: ChatRole.user, text: text));
-      _typing = true;
       _inputCtrl.clear();
     });
+    _typing.value = true;
     _scrollToBottom();
 
     try {
@@ -86,8 +154,8 @@ class _AiChatBodyState extends State<_AiChatBody> {
       if (!mounted) return;
       setState(() {
         _messages.add(reply);
-        _typing = false;
       });
+      _typing.value = false;
       _scrollToBottom();
     } catch (e) {
       // The previous build silently left `_typing = true` on any backend
@@ -103,8 +171,8 @@ class _AiChatBodyState extends State<_AiChatBody> {
               ? '⚠️ Nie udało się pobrać odpowiedzi. Sprawdź połączenie i spróbuj ponownie.'
               : "⚠️ Couldn't fetch a reply. Check your connection and try again.",
         ));
-        _typing = false;
       });
+      _typing.value = false;
       _scrollToBottom();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
@@ -158,13 +226,14 @@ class _AiChatBodyState extends State<_AiChatBody> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: _kAccentBlue.withValues(alpha: 0.15),
+                  // P1-20: const colors instead of per-build `withValues`.
+                  color: _kBlueSoft,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: _kAccentBlue.withValues(alpha: 0.3)),
+                  border: Border.all(color: _kBlueBubbleBorder),
                 ),
                 child: Text(
                   context.tr(pl: 'DEMO', en: 'DEMO'),
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
                     color: _kAccentBlue,
@@ -222,13 +291,10 @@ class _AiChatBodyState extends State<_AiChatBody> {
               }
               setState(() {
                 _messages.clear();
-                _messages.add(ChatMessage(
-                  role: ChatRole.assistant,
-                  text: context.tr(
-                    pl: 'Cześć! 👋 Co chcesz wiedzieć?',
-                    en: 'Hi! 👋 What can I help with?',
-                  ),
-                ));
+                // P1-36: re-seed with the same locale-aware welcome the
+                // initial paint uses, so both code paths render identical
+                // copy in the user's current language.
+                _messages.add(_buildWelcomeMessage(context));
               });
             },
           ),
@@ -238,24 +304,60 @@ class _AiChatBodyState extends State<_AiChatBody> {
         child: Column(
           children: [
             Expanded(
-              child: ListView.builder(
-                controller: _scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-                itemCount: _messages.length + (_typing ? 1 : 0),
-                itemBuilder: (context, i) {
-                  if (i == _messages.length && _typing) {
-                    return const _TypingIndicator();
-                  }
-                  return _MessageBubble(message: _messages[i]);
+              // P1-20: rebuilds the list only when `_typing` flips so the
+              // surrounding Scaffold / AppBar / SafeArea stay still. The
+              // composer below listens to the same notifier independently.
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _typing,
+                builder: (context, typing, _) {
+                  // P1-36: surface a DEMO chip on the welcome bubble while
+                  // the user is on the free plan — telegraphs the upsell
+                  // without nagging copy. The chip disappears as soon as
+                  // the welder sends anything (`_messages.length > 1`) so
+                  // it never interrupts a real conversation.
+                  final showDemoOnWelcome = _messages.length == 1 &&
+                      !PremiumService.instance.isPremium;
+                  return ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                    itemCount: _messages.length + (typing ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i == _messages.length && typing) {
+                        return const RepaintBoundary(child: _TypingIndicator());
+                      }
+                      final msg = _messages[i];
+                      // P1-20: stable ValueKey on the bubble lets the
+                      // ListView short-circuit element diff/rebuild when
+                      // the list grows by one. RepaintBoundary isolates the
+                      // bubble's paint to its own layer so a new bubble
+                      // doesn't repaint the entire scroll viewport.
+                      return RepaintBoundary(
+                        key: ValueKey<int>(i),
+                        child: _MessageBubble(
+                          message: msg,
+                          showDemoChip: i == 0 && showDemoOnWelcome,
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),
             if (_messages.length <= 1) _SuggestionStrip(onPick: _useSuggestion),
-            _Composer(
-              controller: _inputCtrl,
-              focusNode: _focus,
-              onSend: _send,
-              enabled: !_typing,
+            // P1-20: composer is its own repaint layer; the only thing it
+            // depends on is the `_typing` notifier (controls enabled state).
+            RepaintBoundary(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _typing,
+                builder: (context, typing, _) {
+                  return _Composer(
+                    controller: _inputCtrl,
+                    focusNode: _focus,
+                    onSend: _send,
+                    enabled: !typing,
+                  );
+                },
+              ),
             ),
           ],
         ),
@@ -319,7 +421,13 @@ void _showCitation(BuildContext context, String citation) {
 // ═══════════════════════════════════════════════════════════════════════════
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  const _MessageBubble({required this.message});
+  // P1-36: when true, render a small DEMO chip inside the welcome bubble so
+  // the welder sees they're on the free plan without a separate banner.
+  final bool showDemoChip;
+  const _MessageBubble({
+    required this.message,
+    this.showDemoChip = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -334,8 +442,8 @@ class _MessageBubble extends StatelessWidget {
             Container(
               width: 32,
               height: 32,
-              decoration: BoxDecoration(
-                color: _kAccent.withValues(alpha: 0.15),
+              decoration: const BoxDecoration(
+                color: _kAccentSoft,
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.smart_toy_outlined,
@@ -346,29 +454,28 @@ class _MessageBubble extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: isUser
-                    ? _kAccentBlue.withValues(alpha: 0.18)
-                    : _kCard,
+                color: isUser ? _kBlueBubble : _kCard,
                 borderRadius: BorderRadius.circular(14).copyWith(
                   topLeft: Radius.circular(isUser ? 14 : 4),
                   topRight: Radius.circular(isUser ? 4 : 14),
                 ),
                 border: Border.all(
-                  color: isUser ? _kAccentBlue.withValues(alpha: 0.3) : _kBorder,
+                  color: isUser ? _kBlueBubbleBorder : _kBorder,
                 ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // P1-20: hoisted top-level const TextStyle — shared across
+                  // every bubble so the engine can short-circuit equality.
                   SelectableText(
                     message.text,
-                    style: const TextStyle(
-                      color: Color(0xFFE8ECF0),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      height: 1.5,
-                    ),
+                    style: _kMessageTextStyle,
                   ),
+                  if (showDemoChip) ...[
+                    const SizedBox(height: 8),
+                    const _DemoBadge(),
+                  ],
                   if (message.citations.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(
@@ -382,20 +489,16 @@ class _MessageBubble extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 8, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: _kAccent.withValues(alpha: 0.1),
+                                    color: _kAccentChipFill,
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
-                                      color: _kAccent.withValues(alpha: 0.25),
+                                      color: _kAccentChipBorder,
                                       width: 0.6,
                                     ),
                                   ),
                                   child: Text(
                                     '📖 $c',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _kTextSec,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                    style: _kCitationTextStyle,
                                   ),
                                 ),
                               ))
@@ -411,14 +514,47 @@ class _MessageBubble extends StatelessWidget {
             Container(
               width: 32,
               height: 32,
-              decoration: BoxDecoration(
-                color: _kAccentBlue.withValues(alpha: 0.15),
+              decoration: const BoxDecoration(
+                color: _kBlueSoft,
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.person_outline,
                   color: _kAccentBlue, size: 18),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P1-36: small inline DEMO badge rendered on the welcome bubble when the
+// user is on the free plan. Sized to remain glance-readable in sunlight but
+// not steal the eye from the welcome copy itself.
+// ═══════════════════════════════════════════════════════════════════════════
+class _DemoBadge extends StatelessWidget {
+  const _DemoBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: _kAccentChipFill,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _kAccentChipBorder, width: 0.6),
+      ),
+      child: Text(
+        context.tr(
+          pl: 'DEMO · tryb darmowy',
+          en: 'DEMO · free tier',
+        ),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: _kAccent,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -461,8 +597,8 @@ class _TypingIndicatorState extends State<_TypingIndicator>
           Container(
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
-              color: _kAccent.withValues(alpha: 0.15),
+            decoration: const BoxDecoration(
+              color: _kAccentSoft,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.smart_toy_outlined,
@@ -488,11 +624,13 @@ class _TypingIndicatorState extends State<_TypingIndicator>
                       padding: const EdgeInsets.symmetric(horizontal: 2),
                       child: Transform.scale(
                         scale: scale,
+                        // P1-20: const color (hoisted) instead of per-frame
+                        // `withValues(alpha:)` allocation.
                         child: Container(
                           width: 6,
                           height: 6,
-                          decoration: BoxDecoration(
-                            color: _kAccent.withValues(alpha: 0.7),
+                          decoration: const BoxDecoration(
+                            color: _kAccentDot,
                             shape: BoxShape.circle,
                           ),
                         ),
