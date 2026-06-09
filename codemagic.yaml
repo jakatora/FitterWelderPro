@@ -86,19 +86,31 @@ workflows:
           mkdir -p /tmp/xcodebuild_logs
 
           # Auto-bump cfBundleVersion from Codemagic's built-in per-app build
-          # counter ($CM_BUILD_NUMBER, monotonically increasing per app). Apple
-          # rejects any TestFlight upload that reuses a cfBundleVersion already
-          # seen on this app record — manual bumps are error-prone (we shipped
-          # up to +11 by hand, then chased phantom +12/+13 bumps that Codemagic
-          # either re-ran or shallow-cloned around). $CM_BUILD_NUMBER is
-          # impossible to collide with itself, and the +1000 offset puts us
-          # safely above every historical hand-rolled value (+1..+12).
-          if [ -z "$CM_BUILD_NUMBER" ]; then
-            echo "ERROR: CM_BUILD_NUMBER env var missing — Codemagic should always inject this."
-            exit 1
+          # counter. Apple rejects any TestFlight upload that reuses a
+          # cfBundleVersion already seen on this app record — manual bumps are
+          # error-prone (we shipped up to +11 by hand, then chased phantom
+          # +12/+13 bumps that Codemagic either re-ran or shallow-cloned
+          # around). The +1000 offset puts us safely above every historical
+          # hand-rolled value (+1..+12).
+          #
+          # Codemagic env-var naming has drifted across CLI versions:
+          #   - $CM_BUILD_NUMBER (legacy, still injected by yaml workflows)
+          #   - $PROJECT_BUILD_NUMBER (current, primary in the new builder)
+          #   - $BUILD_NUMBER (Codemagic UI workflows / API trigger)
+          # Accept any of them; default to a Unix-timestamp-derived monotonic
+          # value when ALL three are missing so manually-triggered re-runs
+          # still produce a fresh number instead of failing the script.
+          RAW_COUNTER="${PROJECT_BUILD_NUMBER:-${CM_BUILD_NUMBER:-${BUILD_NUMBER:-}}}"
+          if [ -z "$RAW_COUNTER" ]; then
+            # Seconds since 2026-01-01 — fits comfortably under cfBundleVersion's
+            # 18-digit ceiling, monotonically increases on every script run.
+            RAW_COUNTER=$(( $(date +%s) - 1767225600 ))
+            echo "NOTE: no Codemagic build-number env var found, falling back to wall-clock counter $RAW_COUNTER"
+          else
+            echo "Using Codemagic counter $RAW_COUNTER (PROJECT_BUILD_NUMBER=$PROJECT_BUILD_NUMBER CM_BUILD_NUMBER=$CM_BUILD_NUMBER BUILD_NUMBER=$BUILD_NUMBER)"
           fi
-          BUILD_NUMBER=$((CM_BUILD_NUMBER + 1000))
-          echo "Using cfBundleVersion = $BUILD_NUMBER (CM_BUILD_NUMBER=$CM_BUILD_NUMBER)"
+          BUILD_NUMBER=$((RAW_COUNTER + 1000))
+          echo "Using cfBundleVersion = $BUILD_NUMBER"
 
           flutter build ipa --release \
             --build-number=$BUILD_NUMBER \
