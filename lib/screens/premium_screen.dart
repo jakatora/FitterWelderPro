@@ -591,7 +591,15 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
       ),
       if (_verifying || _creatingCheckout)
         Positioned.fill(
-          child: AbsorbPointer(
+          // GestureDetector swallows taps on the dimmer area so they don't
+          // leak through to the plan-picker tiles behind. We deliberately
+          // avoid AbsorbPointer here — it pointed at the whole subtree and
+          // killed taps on the "Anuluj" / "Już zapłaciłem" buttons inside
+          // the overlay, locking the user under the spinner until the
+          // wall-clock budget elapsed. The user-reported bug.
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {},
             child: Container(
               color: Colors.black.withValues(alpha: 0.65),
               alignment: Alignment.center,
