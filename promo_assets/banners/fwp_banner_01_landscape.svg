@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 628" width="1200" height="628" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <!-- ============ DEFS ============ -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F1115"/>
+      <stop offset="55%" stop-color="#141826"/>
+      <stop offset="100%" stop-color="#0F1115"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#E8C14B"/>
+    </linearGradient>
+    <linearGradient id="phoneFrame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2C3354"/>
+      <stop offset="100%" stop-color="#1A1D26"/>
+    </linearGradient>
+    <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1A1D26"/>
+      <stop offset="100%" stop-color="#0F1115"/>
+    </linearGradient>
+    <linearGradient id="gloveGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5A623"/>
+      <stop offset="60%" stop-color="#D88A12"/>
+      <stop offset="100%" stop-color="#A86508"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.7">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.45"/>
+    </radialGradient>
+    <pattern id="gridPattern" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2C3354" stroke-width="0.5" opacity="0.3"/>
+    </pattern>
+    <clipPath id="screenClip">
+      <rect x="170" y="115" width="240" height="430" rx="22" ry="22"/>
+    </clipPath>
+  </defs>
+
+  <!-- ============ BACKGROUND ============ -->
+  <rect width="1200" height="628" fill="url(#bgGrad)"/>
+  <rect width="1200" height="628" fill="url(#gridPattern)"/>
+  <rect width="1200" height="628" fill="url(#vignette)"/>
+
+  <!-- Subtle diagonal accent stripes (workshop feel) -->
+  <g opacity="0.06">
+    <polygon points="0,0 180,0 90,628 -90,628" fill="#F5A623"/>
+    <polygon points="1100,0 1200,0 1200,628 1010,628" fill="#E8C14B"/>
+  </g>
+
+  <!-- Faint blueprint pipe arc top-right -->
+  <g opacity="0.08" fill="none" stroke="#9BA3C7" stroke-width="1.2">
+    <circle cx="1100" cy="80" r="160"/>
+    <circle cx="1100" cy="80" r="200"/>
+    <path d="M 940 80 A 160 160 0 0 1 1100 -80" stroke="#F5A623" stroke-width="2" opacity="0.6"/>
+  </g>
+
+  <!-- ============ TOP-LEFT WORDMARK ============ -->
+  <g transform="translate(36,40)">
+    <!-- mini logo: iso-pipe elbow -->
+    <g transform="translate(0,0)">
+      <path d="M 4 22 L 4 10 A 6 6 0 0 1 10 4 L 22 4"
+            fill="none" stroke="url(#orangeGrad)" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="4" cy="22" r="2" fill="#F5A623"/>
+      <circle cx="22" cy="4" r="2" fill="#E8C14B"/>
+      <!-- mask silhouette -->
+      <path d="M 12 14 L 20 14 L 19 19 L 13 19 Z" fill="#2C3354" opacity="0.85"/>
+      <rect x="14" y="15.5" width="4" height="1.2" fill="#E8C14B"/>
+    </g>
+    <text x="38" y="14" fill="#E8ECF0" font-size="13" font-weight="800" letter-spacing="3">FITTER WELDER PRO</text>
+    <text x="38" y="29" fill="#9BA3C7" font-size="9" font-weight="500" letter-spacing="2.5">PIPING · ISOMETRICS · WELDING LOG</text>
+  </g>
+
+  <!-- top-right small stamp -->
+  <g transform="translate(1040,46)">
+    <rect x="0" y="0" width="124" height="28" rx="14" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+    <circle cx="14" cy="14" r="4" fill="#2ECC71"/>
+    <text x="24" y="18" fill="#9BA3C7" font-size="10" font-weight="600" letter-spacing="1.2">ISO 3834 READY</text>
+  </g>
+
+  <!-- ============ LEFT 60% — HAND + PHONE MOCKUP ============ -->
+  <g transform="translate(40,80)">
+
+    <!-- soft glow behind phone -->
+    <ellipse cx="290" cy="330" rx="260" ry="200" fill="#F5A623" opacity="0.10"/>
+    <ellipse cx="290" cy="330" rx="180" ry="140" fill="#F5A623" opacity="0.08"/>
+
+    <!-- ============ GLOVED HAND (back/palm holding phone) ============ -->
+    <g transform="translate(0,0)">
+
+      <!-- Forearm / cuff (coming from bottom-left) -->
+      <path d="M 30 540
+               L 70 470
+               L 110 430
+               L 90 540
+               Z"
+            fill="url(#gloveGrad)" stroke="#7A4A08" stroke-width="1.5"/>
+      <!-- cuff stripes -->
+      <path d="M 50 510 L 88 470" stroke="#7A4A08" stroke-width="2" opacity="0.6"/>
+      <path d="M 60 525 L 98 485" stroke="#7A4A08" stroke-width="2" opacity="0.6"/>
+
+      <!-- Palm (behind phone, supporting) -->
+      <path d="M 80 470
+               C 70 450, 80 410, 110 395
+               L 200 365
+               C 230 358, 260 365, 270 385
+               L 290 430
+               C 295 460, 280 490, 250 500
+               L 130 510
+               C 100 510, 85 495, 80 470 Z"
+            fill="url(#gloveGrad)" stroke="#7A4A08" stroke-width="1.8"/>
+
+      <!-- knuckle/stitch lines on palm -->
+      <path d="M 120 405 Q 170 395 230 400" fill="none" stroke="#7A4A08" stroke-width="1.2" opacity="0.55" stroke-dasharray="3 3"/>
+      <path d="M 110 440 Q 180 430 260 435" fill="none" stroke="#7A4A08" stroke-width="1.2" opacity="0.45" stroke-dasharray="3 3"/>
+
+      <!-- Thumb wrapping around phone bottom-left -->
+      <path d="M 150 470
+               C 130 480, 120 505, 140 525
+               L 200 550
+               C 220 555, 240 545, 245 525
+               L 240 495
+               Z"
+            fill="url(#gloveGrad)" stroke="#7A4A08" stroke-width="1.8"/>
+      <path d="M 175 510 Q 210 520 235 515" fill="none" stroke="#7A4A08" stroke-width="1" opacity="0.5"/>
+
+      <!-- Index finger curling over top of phone -->
+      <path d="M 380 100
+               C 390 90, 410 90, 418 105
+               L 430 220
+               C 432 240, 420 252, 402 252
+               L 380 252
+               C 365 252, 358 240, 360 222
+               Z"
+            fill="url(#gloveGrad)" stroke="#7A4A08" stroke-width="1.6"/>
+      <path d="M 378 150 Q 400 148 418 152" fill="none" stroke="#7A4A08" stroke-width="1" opacity="0.5"/>
+      <path d="M 378 190 Q 400 188 418 192" fill="none" stroke="#7A4A08" stroke-width="1" opacity="0.5"/>
+
+      <!-- Middle finger tip peeking right side -->
+      <path d="M 408 240
+               C 428 240, 438 260, 432 285
+               L 425 340
+               C 420 358, 402 360, 392 348
+               L 388 245
+               Z"
+            fill="url(#gloveGrad)" stroke="#7A4A08" stroke-width="1.6"/>
+
+    </g>
+
+    <!-- ============ PHONE ============ -->
+    <g transform="translate(130,30)">
+      <!-- outer shadow -->
+      <rect x="6" y="10" width="260" height="450" rx="34" fill="#000" opacity="0.5"/>
+      <!-- frame -->
+      <rect x="0" y="0" width="260" height="450" rx="32" fill="url(#phoneFrame)" stroke="#2C3354" stroke-width="2"/>
+      <!-- inner bezel -->
+      <rect x="8" y="8" width="244" height="434" rx="26" fill="#0F1115"/>
+
+      <!-- screen -->
+      <rect x="14" y="14" width="232" height="422" rx="22" fill="url(#screenGrad)" clip-path="url(#screenClip)"/>
+
+      <!-- notch -->
+      <rect x="100" y="14" width="60" height="14" rx="7" fill="#0F1115"/>
+      <circle cx="148" cy="21" r="2" fill="#2C3354"/>
+
+      <!-- ============ APP UI inside screen ============ -->
+      <g transform="translate(14,28)">
+
+        <!-- status bar -->
+        <text x="12" y="14" fill="#9BA3C7" font-size="9" font-weight="700">09:42</text>
+        <g transform="translate(195,8)">
+          <rect x="0" y="0" width="3" height="6" rx="0.5" fill="#9BA3C7"/>
+          <rect x="5" y="-1" width="3" height="7" rx="0.5" fill="#9BA3C7"/>
+          <rect x="10" y="-2" width="3" height="8" rx="0.5" fill="#9BA3C7"/>
+          <rect x="16" y="0" width="14" height="6" rx="1" fill="none" stroke="#9BA3C7" stroke-width="0.8"/>
+          <rect x="17" y="1" width="10" height="4" rx="0.5" fill="#2ECC71"/>
+        </g>
+
+        <!-- app header -->
+        <g transform="translate(0,28)">
+          <text x="12" y="12" fill="#E8ECF0" font-size="13" font-weight="800">Lista cięć</text>
+          <text x="12" y="26" fill="#9BA3C7" font-size="8" font-weight="500">Projekt: RUR-2026-014 · 12 poz.</text>
+          <!-- gear icon -->
+          <circle cx="210" cy="14" r="8" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+          <circle cx="210" cy="14" r="2.5" fill="none" stroke="#9BA3C7" stroke-width="0.8"/>
+          <g stroke="#9BA3C7" stroke-width="0.8">
+            <line x1="210" y1="8" x2="210" y2="10"/>
+            <line x1="210" y1="18" x2="210" y2="20"/>
+            <line x1="204" y1="14" x2="206" y2="14"/>
+            <line x1="214" y1="14" x2="216" y2="14"/>
+          </g>
+        </g>
+
+        <!-- segmented control -->
+        <g transform="translate(8,68)">
+          <rect x="0" y="0" width="204" height="22" rx="11" fill="#1A1D26" stroke="#2C3354" stroke-width="0.6"/>
+          <rect x="2" y="2" width="66" height="18" rx="9" fill="url(#orangeGrad)"/>
+          <text x="35" y="14" fill="#0F1115" font-size="8" font-weight="800" text-anchor="middle">Cięcie</text>
+          <text x="102" y="14" fill="#9BA3C7" font-size="8" font-weight="600" text-anchor="middle">Spawy</text>
+          <text x="170" y="14" fill="#9BA3C7" font-size="8" font-weight="600" text-anchor="middle">Materiał</text>
+        </g>
+
+        <!-- table header -->
+        <g transform="translate(8,100)">
+          <text x="0" y="8" fill="#55607A" font-size="6.5" font-weight="700" letter-spacing="0.5">DN</text>
+          <text x="32" y="8" fill="#55607A" font-size="6.5" font-weight="700" letter-spacing="0.5">L (mm)</text>
+          <text x="92" y="8" fill="#55607A" font-size="6.5" font-weight="700" letter-spacing="0.5">SCH</text>
+          <text x="128" y="8" fill="#55607A" font-size="6.5" font-weight="700" letter-spacing="0.5">SZT</text>
+          <text x="162" y="8" fill="#55607A" font-size="6.5" font-weight="700" letter-spacing="0.5">STAN</text>
+          <line x1="0" y1="13" x2="204" y2="13" stroke="#2C3354" stroke-width="0.5"/>
+        </g>
+
+        <!-- table rows -->
+        <g transform="translate(8,118)" font-family="ui-monospace, Consolas, monospace">
+
+          <!-- row 1 -->
+          <rect x="-2" y="0" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.6"/>
+          <text x="0" y="14" fill="#E8ECF0" font-size="8.5" font-weight="700">DN50</text>
+          <text x="32" y="14" fill="#E8ECF0" font-size="8.5" font-weight="600">1240</text>
+          <text x="92" y="14" fill="#9BA3C7" font-size="8.5">40</text>
+          <text x="128" y="14" fill="#E8ECF0" font-size="8.5" font-weight="700">×4</text>
+          <circle cx="168" cy="11" r="3" fill="#2ECC71"/>
+          <text x="174" y="14" fill="#2ECC71" font-size="7.5" font-weight="700">OK</text>
+
+          <!-- row 2 -->
+          <rect x="-2" y="24" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.4"/>
+          <text x="0" y="38" fill="#E8ECF0" font-size="8.5" font-weight="700">DN100</text>
+          <text x="32" y="38" fill="#E8ECF0" font-size="8.5" font-weight="600">3 460</text>
+          <text x="92" y="38" fill="#9BA3C7" font-size="8.5">80</text>
+          <text x="128" y="38" fill="#E8ECF0" font-size="8.5" font-weight="700">×2</text>
+          <circle cx="168" cy="35" r="3" fill="#2ECC71"/>
+          <text x="174" y="38" fill="#2ECC71" font-size="7.5" font-weight="700">OK</text>
+
+          <!-- row 3 -->
+          <rect x="-2" y="48" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.6"/>
+          <text x="0" y="62" fill="#E8ECF0" font-size="8.5" font-weight="700">DN200</text>
+          <text x="32" y="62" fill="#E8ECF0" font-size="8.5" font-weight="600">880</text>
+          <text x="92" y="62" fill="#9BA3C7" font-size="8.5">40</text>
+          <text x="128" y="62" fill="#E8ECF0" font-size="8.5" font-weight="700">×6</text>
+          <circle cx="168" cy="59" r="3" fill="#F5A623"/>
+          <text x="174" y="62" fill="#F5A623" font-size="7.5" font-weight="700">CUT</text>
+
+          <!-- row 4 -->
+          <rect x="-2" y="72" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.4"/>
+          <text x="0" y="86" fill="#E8ECF0" font-size="8.5" font-weight="700">DN25</text>
+          <text x="32" y="86" fill="#E8ECF0" font-size="8.5" font-weight="600">2 150</text>
+          <text x="92" y="86" fill="#9BA3C7" font-size="8.5">40</text>
+          <text x="128" y="86" fill="#E8ECF0" font-size="8.5" font-weight="700">×8</text>
+          <circle cx="168" cy="83" r="3" fill="#2ECC71"/>
+          <text x="174" y="86" fill="#2ECC71" font-size="7.5" font-weight="700">OK</text>
+
+          <!-- row 5 -->
+          <rect x="-2" y="96" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.6"/>
+          <text x="0" y="110" fill="#E8ECF0" font-size="8.5" font-weight="700">DN80</text>
+          <text x="32" y="110" fill="#E8ECF0" font-size="8.5" font-weight="600">4 720</text>
+          <text x="92" y="110" fill="#9BA3C7" font-size="8.5">80</text>
+          <text x="128" y="110" fill="#E8ECF0" font-size="8.5" font-weight="700">×1</text>
+          <circle cx="168" cy="107" r="3" fill="#E74C3C"/>
+          <text x="174" y="110" fill="#E74C3C" font-size="7.5" font-weight="700">!</text>
+
+          <!-- row 6 -->
+          <rect x="-2" y="120" width="208" height="22" rx="4" fill="#1A1D26" opacity="0.4"/>
+          <text x="0" y="134" fill="#E8ECF0" font-size="8.5" font-weight="700">DN150</text>
+          <text x="32" y="134" fill="#E8ECF0" font-size="8.5" font-weight="600">540</text>
+          <text x="92" y="134" fill="#9BA3C7" font-size="8.5">40</text>
+          <text x="128" y="134" fill="#E8ECF0" font-size="8.5" font-weight="700">×3</text>
+          <circle cx="168" cy="131" r="3" fill="#2ECC71"/>
+          <text x="174" y="134" fill="#2ECC71" font-size="7.5" font-weight="700">OK</text>
+
+        </g>
+
+        <!-- WPS / weld parameter card -->
+        <g transform="translate(8,275)">
+          <rect x="0" y="0" width="204" height="58" rx="8" fill="#1A1D26" stroke="#2C3354" stroke-width="0.6"/>
+          <text x="8" y="12" fill="#9BA3C7" font-size="6.5" font-weight="700" letter-spacing="0.8">WPS-141 · TIG · 304L</text>
+
+          <!-- AMP -->
+          <g transform="translate(8,18)">
+            <text x="0" y="8" fill="#55607A" font-size="6" font-weight="600">AMP</text>
+            <text x="0" y="22" fill="#F5A623" font-size="13" font-weight="800">165</text>
+            <text x="26" y="22" fill="#9BA3C7" font-size="7">A</text>
+          </g>
+          <!-- °C -->
+          <g transform="translate(58,18)">
+            <text x="0" y="8" fill="#55607A" font-size="6" font-weight="600">PREHEAT</text>
+            <text x="0" y="22" fill="#E8C14B" font-size="13" font-weight="800">350</text>
+            <text x="28" y="22" fill="#9BA3C7" font-size="7">°C</text>
+          </g>
+          <!-- stamp -->
+          <g transform="translate(118,18)">
+            <text x="0" y="8" fill="#55607A" font-size="6" font-weight="600">STAMP</text>
+            <text x="0" y="22" fill="#E8ECF0" font-size="11" font-weight="800">JK-014</text>
+          </g>
+          <!-- mini gauge -->
+          <g transform="translate(168,18)">
+            <circle cx="14" cy="14" r="12" fill="none" stroke="#2C3354" stroke-width="2"/>
+            <path d="M 14 26 A 12 12 0 0 1 26 14" fill="none" stroke="#2ECC71" stroke-width="2"/>
+            <text x="14" y="17" fill="#E8ECF0" font-size="7" font-weight="800" text-anchor="middle">82%</text>
+          </g>
+        </g>
+
+        <!-- bottom action bar -->
+        <g transform="translate(8,343)">
+          <rect x="0" y="0" width="98" height="26" rx="13" fill="url(#orangeGrad)"/>
+          <polygon points="14,8 14,18 22,13" fill="#0F1115"/>
+          <text x="28" y="17" fill="#0F1115" font-size="9" font-weight="800">EKSPORT PDF</text>
+
+          <rect x="106" y="0" width="98" height="26" rx="13" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+          <text x="155" y="17" fill="#E8ECF0" font-size="9" font-weight="700" text-anchor="middle">+ DODAJ POZ.</text>
+        </g>
+
+        <!-- home indicator -->
+        <rect x="76" y="385" width="60" height="3" rx="1.5" fill="#2C3354"/>
+      </g>
+
+      <!-- side button -->
+      <rect x="260" y="100" width="2" height="36" rx="1" fill="#2C3354"/>
+      <rect x="-2" y="80" width="2" height="22" rx="1" fill="#2C3354"/>
+      <rect x="-2" y="110" width="2" height="40" rx="1" fill="#2C3354"/>
+    </g>
+
+    <!-- tiny floating sparks/welding arc particles -->
+    <g opacity="0.85">
+      <circle cx="450" cy="180" r="2.5" fill="#F5A623"/>
+      <circle cx="470" cy="220" r="1.8" fill="#E8C14B"/>
+      <circle cx="445" cy="240" r="1.4" fill="#F5A623"/>
+      <circle cx="490" cy="190" r="1.2" fill="#E8C14B"/>
+      <circle cx="465" cy="260" r="2" fill="#F5A623" opacity="0.7"/>
+    </g>
+  </g>
+
+  <!-- ============ RIGHT 40% — CAPTION + PILLS ============ -->
+  <g transform="translate(640,90)">
+
+    <!-- tag badge -->
+    <g transform="translate(0,0)">
+      <rect x="0" y="0" width="180" height="26" rx="13" fill="#1A1D26" stroke="#F5A623" stroke-width="1"/>
+      <circle cx="14" cy="13" r="4" fill="#F5A623"/>
+      <text x="26" y="17" fill="#E8C14B" font-size="10" font-weight="800" letter-spacing="1.5">DLA MONTERA · WELDER</text>
+    </g>
+
+    <!-- PL caption — dominant -->
+    <text x="0" y="100" fill="#E8ECF0" font-size="52" font-weight="900" letter-spacing="-1.5">Lista cięć</text>
+    <text x="0" y="155" fill="#F5A623" font-size="52" font-weight="900" letter-spacing="-1.5">w rękawicach.</text>
+
+    <!-- divider -->
+    <line x1="0" y1="180" x2="60" y2="180" stroke="#F5A623" stroke-width="3"/>
+
+    <!-- EN caption — smaller -->
+    <text x="0" y="215" fill="#9BA3C7" font-size="24" font-weight="600" letter-spacing="-0.5">Cut list in gloves.</text>
+
+    <!-- ===== FEATURE PILLS (5) ===== -->
+    <g transform="translate(0,245)" font-size="11" font-weight="700">
+
+      <!-- pill 1 — Bez konta -->
+      <g transform="translate(0,0)">
+        <rect x="0" y="0" width="118" height="28" rx="14" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <circle cx="14" cy="14" r="4" fill="#2ECC71"/>
+        <path d="M 12 14 L 13.5 15.5 L 16 12.5" stroke="#0F1115" stroke-width="1.2" fill="none"/>
+        <text x="24" y="18" fill="#E8ECF0">Bez konta</text>
+      </g>
+
+      <!-- pill 2 — Bez reklam -->
+      <g transform="translate(126,0)">
+        <rect x="0" y="0" width="126" height="28" rx="14" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <circle cx="14" cy="14" r="4" fill="#2ECC71"/>
+        <path d="M 12 14 L 13.5 15.5 L 16 12.5" stroke="#0F1115" stroke-width="1.2" fill="none"/>
+        <text x="24" y="18" fill="#E8ECF0">Bez reklam</text>
+      </g>
+
+      <!-- pill 3 — Offline -->
+      <g transform="translate(260,0)">
+        <rect x="0" y="0" width="92" height="28" rx="14" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <circle cx="14" cy="14" r="5" fill="none" stroke="#E8C14B" stroke-width="1.4"/>
+        <path d="M 11 14 L 17 14 M 14 11 Q 17 14 14 17 M 14 11 Q 11 14 14 17" stroke="#E8C14B" stroke-width="0.8" fill="none"/>
+        <text x="24" y="18" fill="#E8ECF0">Offline</text>
+      </g>
+
+      <!-- pill 4 — 90 kalkulatorów -->
+      <g transform="translate(0,40)">
+        <rect x="0" y="0" width="170" height="28" rx="14" fill="#1A1D26" stroke="#F5A623" stroke-width="1.2"/>
+        <rect x="9" y="9" width="10" height="10" rx="1.5" fill="none" stroke="#F5A623" stroke-width="1.2"/>
+        <line x1="11" y1="12" x2="17" y2="12" stroke="#F5A623" stroke-width="0.8"/>
+        <line x1="11" y1="14.5" x2="17" y2="14.5" stroke="#F5A623" stroke-width="0.8"/>
+        <line x1="11" y1="17" x2="17" y2="17" stroke="#F5A623" stroke-width="0.8"/>
+        <text x="26" y="18" fill="#E8ECF0">90 kalkulatorów</text>
+      </g>
+
+      <!-- pill 5 — ISO 3834 -->
+      <g transform="translate(178,40)">
+        <rect x="0" y="0" width="110" height="28" rx="14" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <g transform="translate(8,7)">
+          <path d="M 7 0 L 14 4 L 14 10 C 14 12, 11 14, 7 14 C 3 14, 0 12, 0 10 L 0 4 Z"
+                fill="none" stroke="#E8C14B" stroke-width="1.3"/>
+          <path d="M 4 7 L 6 9 L 10 5" stroke="#E8C14B" stroke-width="1.3" fill="none"/>
+        </g>
+        <text x="30" y="18" fill="#E8ECF0">ISO 3834</text>
+      </g>
+    </g>
+
+    <!-- info microline -->
+    <text x="0" y="330" fill="#55607A" font-size="11" font-weight="500">
+      Izometryki · WPS · BOM · PWHT · stempel JK-014 / WP-022
+    </text>
+  </g>
+
+  <!-- ============ BOTTOM STRIP — CTA ============ -->
+  <g transform="translate(0,556)">
+    <!-- strip background -->
+    <rect x="0" y="0" width="1200" height="72" fill="#0F1115"/>
+    <line x1="0" y1="0" x2="1200" y2="0" stroke="#2C3354" stroke-width="1"/>
+
+    <!-- CTA chip on left of strip -->
+    <g transform="translate(40,16)">
+      <rect x="0" y="0" width="360" height="40" rx="20" fill="url(#orangeGrad)"/>
+      <text x="22" y="25" fill="#0F1115" font-size="14" font-weight="900">Pobierz darmo</text>
+      <text x="148" y="25" fill="#0F1115" font-size="14" font-weight="600" opacity="0.7">·</text>
+      <text x="160" y="25" fill="#0F1115" font-size="14" font-weight="800">Get it free</text>
+
+      <!-- Play triangle glyph -->
+      <g transform="translate(298,11)">
+        <circle cx="9" cy="9" r="9" fill="#0F1115"/>
+        <polygon points="6,4 6,14 15,9" fill="#E8C14B"/>
+      </g>
+      <!-- Apple silhouette glyph -->
+      <g transform="translate(324,11)">
+        <circle cx="9" cy="9" r="9" fill="#0F1115"/>
+        <path d="M 9 5
+                 C 7 5, 5 6.5, 5 9
+                 C 5 11.5, 6.5 14, 9 14
+                 C 11.5 14, 13 11.5, 13 9
+                 C 13 6.5, 11 5, 9 5 Z
+                 M 9 4
+                 C 9.5 3.5, 10 3, 10.5 3"
+              fill="#E8ECF0" stroke="none"/>
+        <circle cx="10.2" cy="4.5" r="0.8" fill="#0F1115"/>
+      </g>
+    </g>
+
+    <!-- right-side small data: workshop chips -->
+    <g transform="translate(440,28)" font-size="10" font-weight="700" font-family="ui-monospace, Consolas, monospace">
+      <g transform="translate(0,0)">
+        <rect x="0" y="0" width="76" height="20" rx="10" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+        <text x="38" y="13" fill="#9BA3C7" text-anchor="middle">DN15..300</text>
+      </g>
+      <g transform="translate(84,0)">
+        <rect x="0" y="0" width="92" height="20" rx="10" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+        <text x="46" y="13" fill="#9BA3C7" text-anchor="middle">L 100..5000 mm</text>
+      </g>
+      <g transform="translate(184,0)">
+        <rect x="0" y="0" width="82" height="20" rx="10" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+        <text x="41" y="13" fill="#9BA3C7" text-anchor="middle">AMP 80..220</text>
+      </g>
+      <g transform="translate(274,0)">
+        <rect x="0" y="0" width="80" height="20" rx="10" fill="#1A1D26" stroke="#2C3354" stroke-width="0.8"/>
+        <text x="40" y="13" fill="#9BA3C7" text-anchor="middle">100..900°C</text>
+      </g>
+      <g transform="translate(362,0)">
+        <rect x="0" y="0" width="92" height="20" rx="10" fill="#1A1D26" stroke="#F5A623" stroke-width="0.8"/>
+        <text x="46" y="13" fill="#F5A623" text-anchor="middle">WP-022 · JK-014</text>
+      </g>
+    </g>
+
+    <!-- domain on far right -->
+    <text x="1160" y="42" fill="#55607A" font-size="11" font-weight="700" text-anchor="end" letter-spacing="1.2">fitterwelderpro.app</text>
+  </g>
+
+  <!-- subtle border frame -->
+  <rect x="0.5" y="0.5" width="1199" height="627" fill="none" stroke="#2C3354" stroke-width="1" opacity="0.6"/>
+</svg>

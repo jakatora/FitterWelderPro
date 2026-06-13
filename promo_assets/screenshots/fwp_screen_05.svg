@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796" width="1290" height="2796">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F1115"/>
+      <stop offset="1" stop-color="#161922"/>
+    </linearGradient>
+    <linearGradient id="appBarGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1A1D26"/>
+      <stop offset="1" stop-color="#1F2330"/>
+    </linearGradient>
+    <linearGradient id="captionGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F5A623"/>
+      <stop offset="1" stop-color="#E8C14B"/>
+    </linearGradient>
+    <linearGradient id="goldBadgeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E8C14B"/>
+      <stop offset="1" stop-color="#C99A2E"/>
+    </linearGradient>
+    <linearGradient id="okGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2ECC71"/>
+      <stop offset="1" stop-color="#21A85B"/>
+    </linearGradient>
+    <linearGradient id="nokGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E74C3C"/>
+      <stop offset="1" stop-color="#B23528"/>
+    </linearGradient>
+    <linearGradient id="pendGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F5A623"/>
+      <stop offset="1" stop-color="#C77E15"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="4" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1290" height="2796" fill="url(#bgGrad)"/>
+
+  <!-- Phone frame -->
+  <rect x="0" y="0" width="1290" height="2796" rx="80" ry="80" fill="#0B0D12"/>
+  <rect x="16" y="16" width="1258" height="2764" rx="68" ry="68" fill="#0F1115"/>
+
+  <!-- Status bar -->
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+    <text x="100" y="98" fill="#E8ECF0" font-size="38" font-weight="700">09:41</text>
+    <!-- Notch -->
+    <rect x="525" y="46" width="240" height="60" rx="30" fill="#000"/>
+    <!-- Signal -->
+    <g transform="translate(1040,72)" fill="#E8ECF0">
+      <rect x="0" y="14" width="8" height="10" rx="1"/>
+      <rect x="14" y="9" width="8" height="15" rx="1"/>
+      <rect x="28" y="4" width="8" height="20" rx="1"/>
+      <rect x="42" y="-2" width="8" height="26" rx="1"/>
+    </g>
+    <!-- Wifi -->
+    <g transform="translate(1110,76)" fill="#E8ECF0">
+      <path d="M0 12 Q22 -10 44 12 L38 18 Q22 4 6 18 Z"/>
+      <path d="M10 22 Q22 10 34 22 L29 27 Q22 21 15 27 Z"/>
+      <circle cx="22" cy="32" r="4"/>
+    </g>
+    <!-- Battery -->
+    <g transform="translate(1170,68)">
+      <rect x="0" y="0" width="86" height="36" rx="9" fill="none" stroke="#E8ECF0" stroke-width="3"/>
+      <rect x="88" y="12" width="6" height="12" rx="2" fill="#E8ECF0"/>
+      <rect x="6" y="6" width="62" height="24" rx="4" fill="#2ECC71"/>
+    </g>
+  </g>
+
+  <!-- App Bar -->
+  <rect x="16" y="140" width="1258" height="200" fill="url(#appBarGrad)"/>
+  <text x="60" y="248" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="56" font-weight="800" fill="#E8ECF0">Dziennik spoin</text>
+  <text x="60" y="298" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="500" fill="#9BA3C7">SP-2026-014 · Linia procesowa</text>
+
+  <!-- Gold welder badge -->
+  <g transform="translate(1010,205)">
+    <rect x="0" y="0" width="120" height="64" rx="32" fill="url(#goldBadgeGrad)"/>
+    <path d="M28 32 L40 44 L62 22" fill="none" stroke="#1A1D26" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="72" y="42" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="800" fill="#1A1D26">JK</text>
+  </g>
+
+  <!-- Add icon -->
+  <g transform="translate(1160,205)">
+    <rect x="0" y="0" width="64" height="64" rx="20" fill="#2C3354"/>
+    <line x1="32" y1="18" x2="32" y2="46" stroke="#E8C14B" stroke-width="6" stroke-linecap="round"/>
+    <line x1="18" y1="32" x2="46" y2="32" stroke="#E8C14B" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- Stats row -->
+  <g transform="translate(60,380)">
+    <!-- OK -->
+    <rect x="0" y="0" width="282" height="160" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <circle cx="36" cy="36" r="10" fill="#2ECC71"/>
+    <text x="58" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#9BA3C7">OK</text>
+    <text x="22" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="72" font-weight="900" fill="#2ECC71">18</text>
+    <text x="130" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="500" fill="#55607A">spoin</text>
+
+    <!-- NOK -->
+    <rect x="298" y="0" width="282" height="160" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <circle cx="334" cy="36" r="10" fill="#E74C3C"/>
+    <text x="356" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#9BA3C7">NOK</text>
+    <text x="320" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="72" font-weight="900" fill="#E74C3C">1</text>
+    <text x="378" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="500" fill="#55607A">do poprawy</text>
+
+    <!-- PENDING -->
+    <rect x="596" y="0" width="282" height="160" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <circle cx="632" cy="36" r="10" fill="#F5A623"/>
+    <text x="654" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#9BA3C7">PENDING</text>
+    <text x="618" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="72" font-weight="900" fill="#F5A623">3</text>
+    <text x="676" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="500" fill="#55607A">w NDT</text>
+
+    <!-- TOTAL -->
+    <rect x="894" y="0" width="282" height="160" rx="20" fill="#1A1D26" stroke="#E8C14B" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="916" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#E8C14B">TOTAL</text>
+    <text x="916" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="72" font-weight="900" fill="#E8ECF0">22</text>
+    <text x="1010" y="120" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="500" fill="#55607A">spoin</text>
+  </g>
+
+  <!-- Filter chips -->
+  <g transform="translate(60,580)">
+    <!-- ALL (selected) -->
+    <rect x="0" y="0" width="180" height="72" rx="36" fill="#F5A623"/>
+    <text x="90" y="48" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="800" fill="#0F1115">ALL · 22</text>
+    <!-- OK -->
+    <rect x="200" y="0" width="170" height="72" rx="36" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+    <circle cx="232" cy="36" r="9" fill="#2ECC71"/>
+    <text x="252" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#E8ECF0">OK · 18</text>
+    <!-- NOK -->
+    <rect x="390" y="0" width="180" height="72" rx="36" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+    <circle cx="422" cy="36" r="9" fill="#E74C3C"/>
+    <text x="442" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#E8ECF0">NOK · 1</text>
+    <!-- PENDING -->
+    <rect x="590" y="0" width="240" height="72" rx="36" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+    <circle cx="622" cy="36" r="9" fill="#F5A623"/>
+    <text x="642" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#E8ECF0">PENDING · 3</text>
+    <!-- WPQR alert -->
+    <rect x="850" y="0" width="326" height="72" rx="36" fill="#1A1D26" stroke="#E8C14B" stroke-width="2"/>
+    <path d="M880 38 L890 22 L900 38 Z" fill="#E8C14B"/>
+    <circle cx="890" cy="34" r="2" fill="#1A1D26"/>
+    <text x="912" y="46" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="700" fill="#E8C14B">WPQR · 30 dni</text>
+  </g>
+
+  <!-- Entry card 1: W-018 OK with WPQR amber chip -->
+  <g transform="translate(60,690)">
+    <rect x="0" y="0" width="1170" height="280" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="80" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#E8ECF0">W-018</text>
+    <text x="32" y="124" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="600" fill="#9BA3C7">SP-2026-014 · Header DN150 SCH40</text>
+    <text x="32" y="166" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#55607A">Mat: 316L · TIG 141 · 110 A · 220 °C</text>
+    <!-- bottom strip -->
+    <line x1="32" y1="190" x2="1138" y2="190" stroke="#2C3354" stroke-width="2"/>
+    <text x="32" y="240" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="700" fill="#E8C14B">JK-014</text>
+    <text x="148" y="240" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#9BA3C7">2026-06-09 · 14:22</text>
+    <!-- WPQR amber chip -->
+    <rect x="460" y="210" width="280" height="50" rx="25" fill="#3A2C0F" stroke="#E8C14B" stroke-width="2"/>
+    <circle cx="488" cy="235" r="10" fill="#E8C14B"/>
+    <text x="508" y="244" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="800" fill="#E8C14B">WPQR za 30 dni</text>
+    <!-- OK status badge -->
+    <rect x="950" y="32" width="188" height="68" rx="34" fill="url(#okGrad)"/>
+    <path d="M982 66 L998 82 L1024 56" fill="none" stroke="#0F1115" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1042" y="76" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="900" fill="#0F1115">OK</text>
+  </g>
+
+  <!-- Entry card 2: W-017 OK -->
+  <g transform="translate(60,985)">
+    <rect x="0" y="0" width="1170" height="240" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="80" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#E8ECF0">W-017</text>
+    <text x="32" y="124" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="600" fill="#9BA3C7">SP-2026-014 · Elbow 90° DN100 SCH40</text>
+    <text x="32" y="166" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#55607A">Mat: 316L · TIG+MMA · 145 A · 180 °C</text>
+    <line x1="32" y1="186" x2="1138" y2="186" stroke="#2C3354" stroke-width="2"/>
+    <text x="32" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="700" fill="#E8C14B">JK-014</text>
+    <text x="148" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#9BA3C7">2026-06-09 · 11:48</text>
+    <rect x="950" y="32" width="188" height="68" rx="34" fill="url(#okGrad)"/>
+    <path d="M982 66 L998 82 L1024 56" fill="none" stroke="#0F1115" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1042" y="76" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="900" fill="#0F1115">OK</text>
+  </g>
+
+  <!-- Entry card 3: W-016 NOK -->
+  <g transform="translate(60,1240)">
+    <rect x="0" y="0" width="1170" height="240" rx="24" fill="#1A1D26" stroke="#E74C3C" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="80" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#E8ECF0">W-016</text>
+    <text x="32" y="124" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="600" fill="#9BA3C7">SP-2026-014 · Reducer DN150/DN100</text>
+    <text x="32" y="166" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#E74C3C">Defekt: porowatość · do napraw. wg ISO 5817-C</text>
+    <line x1="32" y1="186" x2="1138" y2="186" stroke="#2C3354" stroke-width="2"/>
+    <text x="32" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="700" fill="#E8C14B">JK-014</text>
+    <text x="148" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#9BA3C7">2026-06-08 · 16:05</text>
+    <rect x="930" y="32" width="208" height="68" rx="34" fill="url(#nokGrad)"/>
+    <line x1="962" y1="56" x2="986" y2="80" stroke="#FFF" stroke-width="6" stroke-linecap="round"/>
+    <line x1="986" y1="56" x2="962" y2="80" stroke="#FFF" stroke-width="6" stroke-linecap="round"/>
+    <text x="1002" y="76" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="900" fill="#FFF">NOK</text>
+  </g>
+
+  <!-- Entry card 4: W-015 OK -->
+  <g transform="translate(60,1495)">
+    <rect x="0" y="0" width="1170" height="240" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="80" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#E8ECF0">W-015</text>
+    <text x="32" y="124" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="600" fill="#9BA3C7">SP-2026-014 · Tee DN80 SCH40</text>
+    <text x="32" y="166" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#55607A">Mat: 316L · TIG 141 · 95 A · 150 °C</text>
+    <line x1="32" y1="186" x2="1138" y2="186" stroke="#2C3354" stroke-width="2"/>
+    <text x="32" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="700" fill="#E8C14B">JK-014</text>
+    <text x="148" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#9BA3C7">2026-06-08 · 10:32</text>
+    <rect x="950" y="32" width="188" height="68" rx="34" fill="url(#okGrad)"/>
+    <path d="M982 66 L998 82 L1024 56" fill="none" stroke="#0F1115" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1042" y="76" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="900" fill="#0F1115">OK</text>
+  </g>
+
+  <!-- Entry card 5: W-014 PENDING -->
+  <g transform="translate(60,1750)">
+    <rect x="0" y="0" width="1170" height="240" rx="24" fill="#1A1D26" stroke="#F5A623" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="80" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#E8ECF0">W-014</text>
+    <text x="32" y="124" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="600" fill="#9BA3C7">SP-2026-014 · Flange WN DN200 SCH80</text>
+    <text x="32" y="166" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#F5A623">NDT: RT-100% · zlecone 07.06 · oczekiwanie</text>
+    <line x1="32" y1="186" x2="1138" y2="186" stroke="#2C3354" stroke-width="2"/>
+    <text x="32" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="700" fill="#E8C14B">WP-022</text>
+    <text x="170" y="222" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="24" font-weight="500" fill="#9BA3C7">2026-06-07 · 13:18</text>
+    <rect x="900" y="32" width="238" height="68" rx="34" fill="url(#pendGrad)"/>
+    <circle cx="932" cy="66" r="14" fill="none" stroke="#0F1115" stroke-width="5"/>
+    <line x1="932" y1="58" x2="932" y2="68" stroke="#0F1115" stroke-width="5" stroke-linecap="round"/>
+    <line x1="932" y1="68" x2="940" y2="74" stroke="#0F1115" stroke-width="5" stroke-linecap="round"/>
+    <text x="956" y="76" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="26" font-weight="900" fill="#0F1115">PENDING</text>
+  </g>
+
+  <!-- Handover summary bar -->
+  <g transform="translate(60,2010)">
+    <rect x="0" y="0" width="1170" height="148" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="2" filter="url(#cardShadow)"/>
+    <text x="32" y="58" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="28" font-weight="700" fill="#9BA3C7">Następna spoina · plan dnia</text>
+    <text x="32" y="110" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="36" font-weight="800" fill="#E8ECF0">W-019 · Header DN150 SCH40</text>
+    <rect x="900" y="34" width="238" height="80" rx="20" fill="#2C3354"/>
+    <text x="1019" y="68" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="22" font-weight="700" fill="#9BA3C7">Zgrzew o</text>
+    <text x="1019" y="102" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="32" font-weight="900" fill="#E8C14B">07:15</text>
+  </g>
+
+  <!-- Export handover button -->
+  <g transform="translate(60,2180)">
+    <rect x="0" y="0" width="1170" height="120" rx="24" fill="#2C3354"/>
+    <rect x="0" y="0" width="1170" height="120" rx="24" fill="url(#captionGrad)" opacity="0.18"/>
+    <g transform="translate(40,30)">
+      <rect x="0" y="0" width="60" height="60" rx="10" fill="none" stroke="#E8C14B" stroke-width="4"/>
+      <line x1="14" y1="22" x2="46" y2="22" stroke="#E8C14B" stroke-width="4"/>
+      <line x1="14" y1="34" x2="46" y2="34" stroke="#E8C14B" stroke-width="4"/>
+      <line x1="14" y1="46" x2="34" y2="46" stroke="#E8C14B" stroke-width="4"/>
+    </g>
+    <text x="130" y="78" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="38" font-weight="800" fill="#E8ECF0">Eksport handover · PDF + WPS-Pack</text>
+    <g transform="translate(1080,40)">
+      <path d="M0 20 L30 20 M20 10 L30 20 L20 30" fill="none" stroke="#E8C14B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+
+  <!-- Caption banner -->
+  <g transform="translate(0,2380)">
+    <rect x="0" y="0" width="1290" height="320" fill="url(#captionGrad)"/>
+    <rect x="0" y="0" width="1290" height="6" fill="#0F1115" opacity="0.25"/>
+    <text x="60" y="130" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="64" font-weight="900" fill="#0F1115">Dziennik spawów:</text>
+    <text x="60" y="208" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="58" font-weight="800" fill="#0F1115">22 spoiny gotowe do handover.</text>
+    <text x="60" y="276" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="44" font-weight="600" fill="#1A1D26">Weld journal: 22 welds ready for handover.</text>
+  </g>
+
+  <!-- Home indicator -->
+  <rect x="445" y="2730" width="400" height="10" rx="5" fill="#E8ECF0" opacity="0.65"/>
+</svg>

@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FitterWelderPro - promo assets</title>
+<style>
+  :root {
+    --bg: #0F1115;
+    --panel: #1A1D26;
+    --panel-2: #1F2330;
+    --border: #2C3354;
+    --text: #E8ECF0;
+    --muted: #8A93A8;
+    --accent: #F5A623;
+    --accent-2: #E8C14B;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-2); text-decoration: underline; }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: linear-gradient(180deg, #0F1115 0%, rgba(15,17,21,0.92) 100%);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .topbar-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    display: grid;
+    place-items: center;
+    color: #1A1306;
+    font-weight: 900;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 10px rgba(245,166,35,0.25);
+  }
+  .brand-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .brand-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .topbar-meta {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  main { max-width: 1320px; margin: 0 auto; padding: 28px; }
+
+  .section {
+    margin: 32px 0 56px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-head h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .section-head .accent {
+    color: var(--accent);
+  }
+  .section-head .count {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  /* Screenshot grid: 4 per row */
+  .grid-shots {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 22px;
+  }
+  @media (max-width: 1100px) { .grid-shots { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 820px)  { .grid-shots { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px)  { .grid-shots { grid-template-columns: 1fr; } }
+
+  .tile {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .tile:hover {
+    transform: translateY(-2px);
+    border-color: rgba(245,166,35,0.5);
+  }
+  .tile-frame {
+    background: #0B0D11;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    padding: 10px;
+    overflow: hidden;
+  }
+  .tile-frame.shot { aspect-ratio: 200 / 432; }
+  .tile-frame svg, .tile-frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 6px;
+  }
+  .tile-frame.shot svg, .tile-frame.shot img {
+    max-width: 200px;
+    max-height: 432px;
+    width: 100%;
+    height: auto;
+  }
+  .tile-title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .tile-caption {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.45;
+    min-height: 34px;
+  }
+  .tile-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(44,51,84,0.7);
+  }
+  .tile-spec {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .dl {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(245,166,35,0.35);
+    background: rgba(245,166,35,0.08);
+    color: var(--accent-2);
+  }
+  .dl:hover { background: rgba(245,166,35,0.18); color: var(--accent-2); text-decoration: none; }
+
+  /* Banner grids by aspect ratio */
+  .grid-landscape { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
+  .grid-square    { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
+  .grid-portrait  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  @media (max-width: 900px) {
+    .grid-landscape, .grid-square, .grid-portrait { grid-template-columns: 1fr; }
+  }
+
+  .tile-frame.landscape { aspect-ratio: 1200 / 628; }
+  .tile-frame.square    { aspect-ratio: 1 / 1; }
+  .tile-frame.portrait  { aspect-ratio: 1200 / 1500; }
+
+  footer {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px 28px 48px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+  footer code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--accent-2);
+    font-size: 11.5px;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-mark">FWP</div>
+      <div>
+        <div class="brand-title">FitterWelderPro promo assets</div>
+        <div class="brand-sub">Screenshots &amp; banners - SVG source</div>
+      </div>
+    </div>
+    <div class="topbar-meta">PL / EN &middot; offline-ready &middot; ISO 3834</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ SCREENSHOTS ============ -->
+  <section class="section">
+    <div class="section-head">
+      <h2>Zrzuty ekranu <span class="accent">/ App Store screenshots</span></h2>
+      <span class="count">8 plikow &middot; 1290 &times; 2796 px</span>
+    </div>
+
+    <div class="grid-shots">
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_01.svg" type="image/svg+xml" aria-label="Ekran 01"></object></div>
+        <div class="tile-title">01 &middot; Stempel spawacza</div>
+        <div class="tile-caption">Ekran startowy z stemplem JK-014 / WP-022 i skrotami do najczesciej uzywanych narzedzi (ISO scanner, lista ciec, dziennik spoin).</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_01.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_02.svg" type="image/svg+xml" aria-label="Ekran 02"></object></div>
+        <div class="tile-title">02 &middot; Lista ciec</div>
+        <div class="tile-caption">Cut list z ISO parsera - 5 odcinkow DN150 SCH40 z sumaryczna dlugoscia 1450 mm, gotowe do wyslania na pile.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_02.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_03.svg" type="image/svg+xml" aria-label="Ekran 03"></object></div>
+        <div class="tile-title">03 &middot; Rolling offset</div>
+        <div class="tile-caption">Kalkulator skosu rurowego - rise / spread / advance, takeoff z trzech wymiarow w jednej operacji.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_03.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_04.svg" type="image/svg+xml" aria-label="Ekran 04"></object></div>
+        <div class="tile-title">04 &middot; Saddle template</div>
+        <div class="tile-caption">Szablon siodelka - przeciecie dwoch rur (OD main 168.3 / OD branch 60.3) z gotowym konturem do nawiniecia.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_04.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_05.svg" type="image/svg+xml" aria-label="Ekran 05"></object></div>
+        <div class="tile-title">05 &middot; Dziennik spoin</div>
+        <div class="tile-caption">Welding log SP-2026-014 - status PENDING / w NDT / do poprawy / TOTAL, traceability na poziomie WPS.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_05.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_06.svg" type="image/svg+xml" aria-label="Ekran 06"></object></div>
+        <div class="tile-title">06 &middot; Chat AI - tutor</div>
+        <div class="tile-caption">Tutor spawalniczy oparty o Claude Haiku - pyta o P-No, preheat, PWHT, WPS, ISO 5817. Online &amp; podpowiada normy.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_06.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_07.svg" type="image/svg+xml" aria-label="Ekran 07"></object></div>
+        <div class="tile-title">07 &middot; Heat input</div>
+        <div class="tile-caption">Kalkulator energii liniowej (HI) z tolerancja WPS &plusmn;10% wg ISO/TR 17671-1, dla SMAW / GTAW / GMAW / FCAW-G.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_07.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame shot"><object data="screenshots/fwp_screen_08.svg" type="image/svg+xml" aria-label="Ekran 08"></object></div>
+        <div class="tile-title">08 &middot; Ciecie z pretow</div>
+        <div class="tile-caption">Bar nesting - 12 m pret &Oslash; 60.3 &times; 3.2 S235, rzaz pily 2 mm, minimalizacja odpadu liniowego.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1290&times;2796</span>
+          <a class="dl" href="screenshots/fwp_screen_08.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ BANNERS - LANDSCAPE ============ -->
+  <section class="section">
+    <div class="section-head">
+      <h2>Banery <span class="accent">/ landscape</span></h2>
+      <span class="count">2 pliki &middot; 1200 &times; 628 px</span>
+    </div>
+    <div class="grid-landscape">
+
+      <div class="tile">
+        <div class="tile-frame landscape"><object data="banners/fwp_banner_01_landscape.svg" type="image/svg+xml" aria-label="Banner 01"></object></div>
+        <div class="tile-title">01 &middot; Piping &middot; ISO &middot; Welding log</div>
+        <div class="tile-caption">Hero do social/web (1200&times;628) - FITTER WELDER PRO + lista ciec projektu RUR-2026-014 (12 poz., ISO 3834 ready).</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;628</span>
+          <a class="dl" href="banners/fwp_banner_01_landscape.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame landscape"><object data="banners/fwp_banner_02_landscape.svg" type="image/svg+xml" aria-label="Banner 02"></object></div>
+        <div class="tile-title">02 &middot; Czyta ISO tak jak Ty</div>
+        <div class="tile-caption">Claim &quot;Czyta ISO tak jak Ty / Reads ISO the way you do&quot; - DWG LINE 14-A, DN80, REV.02, takeoff 1450 mm.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;628</span>
+          <a class="dl" href="banners/fwp_banner_02_landscape.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ BANNERS - SQUARE ============ -->
+  <section class="section">
+    <div class="section-head">
+      <h2>Banery <span class="accent">/ square</span></h2>
+      <span class="count">2 pliki &middot; 1200 &times; 1200 px</span>
+    </div>
+    <div class="grid-square">
+
+      <div class="tile">
+        <div class="tile-frame square"><object data="banners/fwp_banner_03_square.svg" type="image/svg+xml" aria-label="Banner 03"></object></div>
+        <div class="tile-title">03 &middot; 90 kalkulatorow &middot; offline</div>
+        <div class="tile-caption">Feed Instagram / LinkedIn - 90 kalkulatorow, OFFLINE READY, v2.4 PL/EN/DE, &quot;zero reklam&quot;.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;1200</span>
+          <a class="dl" href="banners/fwp_banner_03_square.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame square"><object data="banners/fwp_banner_04_square.svg" type="image/svg+xml" aria-label="Banner 04"></object></div>
+        <div class="tile-title">04 &middot; Welder stamp JK-014</div>
+        <div class="tile-caption">Pipe Fitter &amp; Welder Toolkit - stempel JK-014 / WP-022, kafelki Lista ciec / Dziennik spoin / WPS / NDT.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;1200</span>
+          <a class="dl" href="banners/fwp_banner_04_square.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ BANNERS - PORTRAIT ============ -->
+  <section class="section">
+    <div class="section-head">
+      <h2>Banery <span class="accent">/ portrait</span></h2>
+      <span class="count">2 pliki &middot; 1200 &times; 1500 px</span>
+    </div>
+    <div class="grid-portrait">
+
+      <div class="tile">
+        <div class="tile-frame portrait"><object data="banners/fwp_banner_05_portrait.svg" type="image/svg+xml" aria-label="Banner 05"></object></div>
+        <div class="tile-title">05 &middot; Opinie terenowe</div>
+        <div class="tile-caption">Format Stories / Pinterest - field testimonial 05/12, DN 150 SCH 40 A106 GR.B, L = 2350 mm, amp 145.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;1500</span>
+          <a class="dl" href="banners/fwp_banner_05_portrait.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-frame portrait"><object data="banners/fwp_banner_06_portrait.svg" type="image/svg+xml" aria-label="Banner 06"></object></div>
+        <div class="tile-title">06 &middot; ISO 3834 ready</div>
+        <div class="tile-caption">Compliance pillar - ISO 3834 Part 2 + EN ISO 9606, &quot;Quality &middot; Traceability &middot; Compliance &middot; AUDIT READY&quot;.</div>
+        <div class="tile-foot">
+          <span class="tile-spec">1200&times;1500</span>
+          <a class="dl" href="banners/fwp_banner_06_portrait.svg" download>Download SVG</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Tile data is embedded as inline <code>&lt;object&gt;</code> referencing local SVG sources - no remote CSS, no JS, no fonts.
+  Aby wyeksportowac PNG (np. do App Store / Play Store), uruchom <code>powershell ./convert_to_png.ps1</code> w tym katalogu.
+</footer>
+
+</body>
+</html>

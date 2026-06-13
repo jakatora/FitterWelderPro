@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#13161E"/>
+      <stop offset="100%" stop-color="#0F1115"/>
+    </linearGradient>
+    <linearGradient id="captionGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#E8C14B"/>
+    </linearGradient>
+    <linearGradient id="calcGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#E8B23A"/>
+    </linearGradient>
+    <linearGradient id="travelGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1F2230"/>
+      <stop offset="100%" stop-color="#1A1D26"/>
+    </linearGradient>
+    <filter id="shadowSoft"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="4"/><feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="glowOrange"><feGaussianBlur in="SourceAlpha" stdDeviation="10"/><feComponentTransfer><feFuncA type="linear" slope="0.6"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+
+  <!-- Outer background -->
+  <rect width="1290" height="2796" fill="#06070A"/>
+
+  <!-- Phone frame outer -->
+  <rect x="16" y="16" width="1258" height="2764" rx="80" ry="80" fill="#000000"/>
+  <!-- Inner viewport -->
+  <rect x="32" y="32" width="1226" height="2732" rx="64" ry="64" fill="url(#bgGrad)"/>
+
+  <!-- Clip mask for content -->
+  <clipPath id="screenClip">
+    <rect x="32" y="32" width="1226" height="2732" rx="64" ry="64"/>
+  </clipPath>
+
+  <g clip-path="url(#screenClip)">
+
+    <!-- ============== STATUS BAR ============== -->
+    <g transform="translate(32,32)">
+      <text x="80" y="62" font-size="34" font-weight="700" fill="#E8ECF0">09:41</text>
+      <!-- Dynamic island -->
+      <rect x="488" y="22" width="250" height="60" rx="30" fill="#000000"/>
+      <!-- Signal bars -->
+      <g transform="translate(990,42)">
+        <rect x="0" y="14" width="6" height="8" rx="1" fill="#E8ECF0"/>
+        <rect x="10" y="10" width="6" height="12" rx="1" fill="#E8ECF0"/>
+        <rect x="20" y="6" width="6" height="16" rx="1" fill="#E8ECF0"/>
+        <rect x="30" y="2" width="6" height="20" rx="1" fill="#E8ECF0"/>
+      </g>
+      <!-- Wifi -->
+      <g transform="translate(1050,44)" fill="#E8ECF0">
+        <path d="M 0 14 Q 20 -4 40 14 L 36 18 Q 20 4 4 18 Z"/>
+        <path d="M 8 22 Q 20 12 32 22 L 28 26 Q 20 18 12 26 Z"/>
+        <circle cx="20" cy="30" r="3"/>
+      </g>
+      <!-- Battery -->
+      <g transform="translate(1110,46)">
+        <rect x="0" y="0" width="58" height="28" rx="6" fill="none" stroke="#E8ECF0" stroke-width="2"/>
+        <rect x="60" y="9" width="4" height="10" rx="1" fill="#E8ECF0"/>
+        <rect x="3" y="3" width="48" height="22" rx="3" fill="#2ECC71"/>
+      </g>
+    </g>
+
+    <!-- ============== APP BAR ============== -->
+    <g transform="translate(32,124)">
+      <rect x="0" y="0" width="1226" height="180" fill="#13161E"/>
+      <line x1="0" y1="180" x2="1226" y2="180" stroke="#2C3354" stroke-width="1"/>
+
+      <!-- Back arrow -->
+      <g transform="translate(60,70)" fill="none" stroke="#E8ECF0" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 40 0 L 0 40 L 40 80"/>
+      </g>
+
+      <!-- Title -->
+      <text x="150" y="115" font-size="56" font-weight="800" fill="#E8ECF0">Rolling offset</text>
+
+      <!-- Clear icon (right) -->
+      <g transform="translate(1080,60)">
+        <rect x="0" y="0" width="80" height="80" rx="20" fill="#1A1D26"/>
+        <g transform="translate(20,20)" fill="none" stroke="#F5A623" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 6 12 L 34 12"/>
+          <path d="M 12 12 L 12 36 Q 12 40 16 40 L 24 40 Q 28 40 28 36 L 28 12"/>
+          <path d="M 14 6 L 26 6 L 28 12 L 12 12 Z"/>
+          <line x1="17" y1="18" x2="17" y2="34"/>
+          <line x1="23" y1="18" x2="23" y2="34"/>
+        </g>
+        <text x="40" y="78" font-size="14" font-weight="700" fill="#9BA3C7" text-anchor="middle">Wyczyść</text>
+      </g>
+    </g>
+
+    <!-- ============== CONTENT START ============== -->
+    <g transform="translate(80,360)">
+
+      <!-- Section label -->
+      <text x="0" y="30" font-size="26" font-weight="700" fill="#9BA3C7" letter-spacing="2">DANE WEJŚCIOWE</text>
+
+      <!-- Two input cards (Rise + Spread) -->
+      <g transform="translate(0,60)" filter="url(#shadowSoft)">
+        <!-- Rise card -->
+        <rect x="0" y="0" width="525" height="220" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <text x="36" y="50" font-size="24" font-weight="600" fill="#9BA3C7">Rise (wzniesienie)</text>
+        <text x="36" y="140" font-size="78" font-weight="800" fill="#E8ECF0">500</text>
+        <text x="240" y="140" font-size="36" font-weight="600" fill="#55607A">mm</text>
+        <!-- small icon -->
+        <g transform="translate(440,40)" fill="none" stroke="#F5A623" stroke-width="3" stroke-linecap="round">
+          <path d="M 20 50 L 20 10 M 10 20 L 20 10 L 30 20"/>
+        </g>
+        <!-- Steppers -->
+        <g transform="translate(36,170)">
+          <rect x="0" y="0" width="56" height="36" rx="10" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+          <text x="28" y="26" font-size="26" font-weight="700" fill="#9BA3C7" text-anchor="middle">−</text>
+          <rect x="70" y="0" width="56" height="36" rx="10" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+          <text x="98" y="26" font-size="26" font-weight="700" fill="#9BA3C7" text-anchor="middle">+</text>
+          <text x="160" y="26" font-size="18" font-weight="600" fill="#55607A">DN150 typ.</text>
+        </g>
+      </g>
+
+      <!-- Spread card -->
+      <g transform="translate(605,60)" filter="url(#shadowSoft)">
+        <rect x="0" y="0" width="525" height="220" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+        <text x="36" y="50" font-size="24" font-weight="600" fill="#9BA3C7">Spread (rozstaw)</text>
+        <text x="36" y="140" font-size="78" font-weight="800" fill="#E8ECF0">500</text>
+        <text x="240" y="140" font-size="36" font-weight="600" fill="#55607A">mm</text>
+        <g transform="translate(440,40)" fill="none" stroke="#F5A623" stroke-width="3" stroke-linecap="round">
+          <path d="M 0 30 L 50 30 M 0 30 L 10 22 M 0 30 L 10 38 M 50 30 L 40 22 M 50 30 L 40 38"/>
+        </g>
+        <g transform="translate(36,170)">
+          <rect x="0" y="0" width="56" height="36" rx="10" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+          <text x="28" y="26" font-size="26" font-weight="700" fill="#9BA3C7" text-anchor="middle">−</text>
+          <rect x="70" y="0" width="56" height="36" rx="10" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+          <text x="98" y="26" font-size="26" font-weight="700" fill="#9BA3C7" text-anchor="middle">+</text>
+          <text x="160" y="26" font-size="18" font-weight="600" fill="#55607A">poziom: równo</text>
+        </g>
+      </g>
+
+      <!-- Angle section -->
+      <text x="0" y="350" font-size="26" font-weight="700" fill="#9BA3C7" letter-spacing="2">KĄT KOLANA</text>
+
+      <!-- Angle chips row -->
+      <g transform="translate(0,380)">
+        <!-- 30° -->
+        <rect x="0" y="0" width="250" height="120" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+        <text x="125" y="78" font-size="56" font-weight="800" fill="#E8ECF0" text-anchor="middle">30°</text>
+
+        <!-- 45° SELECTED -->
+        <g filter="url(#glowOrange)">
+          <rect x="290" y="-4" width="250" height="128" rx="22" fill="#F5A623"/>
+          <text x="415" y="80" font-size="60" font-weight="900" fill="#0F1115" text-anchor="middle">45°</text>
+          <circle cx="510" cy="22" r="14" fill="#0F1115"/>
+          <path d="M 504 22 L 509 27 L 517 18" fill="none" stroke="#F5A623" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+
+        <!-- 60° -->
+        <rect x="580" y="0" width="250" height="120" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+        <text x="705" y="78" font-size="56" font-weight="800" fill="#E8ECF0" text-anchor="middle">60°</text>
+
+        <!-- Inny (Custom) -->
+        <rect x="870" y="0" width="260" height="120" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2" stroke-dasharray="6 4"/>
+        <text x="1000" y="68" font-size="38" font-weight="700" fill="#9BA3C7" text-anchor="middle">Inny</text>
+        <text x="1000" y="100" font-size="22" font-weight="500" fill="#55607A" text-anchor="middle">custom °</text>
+      </g>
+
+      <!-- CALCULATE button -->
+      <g transform="translate(0,560)" filter="url(#shadowSoft)">
+        <rect x="0" y="0" width="1130" height="120" rx="24" fill="url(#calcGrad)"/>
+        <g transform="translate(380,42)" fill="none" stroke="#0F1115" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="0" y="-2" width="44" height="44" rx="6"/>
+          <line x1="10" y1="10" x2="34" y2="10"/>
+          <line x1="10" y1="22" x2="22" y2="22"/>
+          <line x1="28" y1="22" x2="34" y2="22"/>
+          <line x1="10" y1="32" x2="22" y2="32"/>
+          <line x1="28" y1="32" x2="34" y2="32"/>
+        </g>
+        <text x="445" y="76" font-size="44" font-weight="900" fill="#0F1115" letter-spacing="2">OBLICZ OFFSET</text>
+      </g>
+
+      <!-- Results header -->
+      <text x="0" y="760" font-size="26" font-weight="700" fill="#9BA3C7" letter-spacing="2">WYNIKI</text>
+      <g transform="translate(960,740)">
+        <rect x="0" y="0" width="170" height="40" rx="20" fill="#0F1115" stroke="#2ECC71" stroke-width="2"/>
+        <circle cx="22" cy="20" r="6" fill="#2ECC71"/>
+        <text x="40" y="27" font-size="20" font-weight="700" fill="#2ECC71">LIVE</text>
+        <text x="92" y="27" font-size="18" font-weight="500" fill="#9BA3C7">JK-014</text>
+      </g>
+
+      <!-- Results panel -->
+      <g transform="translate(0,790)" filter="url(#shadowSoft)">
+        <rect x="0" y="0" width="1130" height="600" rx="28" fill="#1A1D26" stroke="#2C3354" stroke-width="1"/>
+
+        <!-- True Offset row -->
+        <g transform="translate(0,0)">
+          <text x="40" y="60" font-size="26" font-weight="600" fill="#9BA3C7">True Offset</text>
+          <text x="40" y="120" font-size="58" font-weight="800" fill="#E8ECF0">707,1</text>
+          <text x="280" y="120" font-size="32" font-weight="600" fill="#55607A">mm</text>
+          <!-- copy icon -->
+          <g transform="translate(1020,60)">
+            <rect x="0" y="0" width="60" height="60" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+            <g transform="translate(16,16)" fill="none" stroke="#9BA3C7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="0" y="6" width="20" height="22" rx="3"/>
+              <path d="M 6 6 L 6 2 Q 6 0 8 0 L 26 0 Q 28 0 28 2 L 28 22 Q 28 24 26 24 L 20 24"/>
+            </g>
+          </g>
+          <line x1="40" y1="150" x2="1090" y2="150" stroke="#2C3354" stroke-width="1"/>
+        </g>
+
+        <!-- Multiplier row -->
+        <g transform="translate(0,150)">
+          <text x="40" y="60" font-size="26" font-weight="600" fill="#9BA3C7">Multiplier (1/sin θ)</text>
+          <text x="40" y="120" font-size="58" font-weight="800" fill="#E8ECF0">1,4142</text>
+          <text x="290" y="120" font-size="32" font-weight="600" fill="#55607A">×</text>
+          <text x="340" y="120" font-size="22" font-weight="600" fill="#55607A">(√2)</text>
+          <g transform="translate(1020,60)">
+            <rect x="0" y="0" width="60" height="60" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+            <g transform="translate(16,16)" fill="none" stroke="#9BA3C7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="0" y="6" width="20" height="22" rx="3"/>
+              <path d="M 6 6 L 6 2 Q 6 0 8 0 L 26 0 Q 28 0 28 2 L 28 22 Q 28 24 26 24 L 20 24"/>
+            </g>
+          </g>
+          <line x1="40" y1="150" x2="1090" y2="150" stroke="#2C3354" stroke-width="1"/>
+        </g>
+
+        <!-- Travel row (HIGHLIGHTED) -->
+        <g transform="translate(0,300)">
+          <rect x="16" y="8" width="1098" height="134" rx="18" fill="url(#travelGlow)" stroke="#E8C14B" stroke-width="2.5"/>
+          <rect x="16" y="8" width="6" height="134" rx="3" fill="#F5A623"/>
+          <text x="40" y="60" font-size="26" font-weight="700" fill="#E8C14B">Travel (długość rury)</text>
+          <text x="40" y="120" font-size="62" font-weight="900" fill="#F5A623">707,1</text>
+          <text x="296" y="120" font-size="32" font-weight="700" fill="#E8C14B">mm</text>
+          <g transform="translate(420,80)">
+            <rect x="0" y="0" width="120" height="40" rx="20" fill="#F5A623" opacity="0.18"/>
+            <text x="60" y="27" font-size="20" font-weight="800" fill="#F5A623" text-anchor="middle">GŁÓWNY</text>
+          </g>
+          <g transform="translate(1020,50)">
+            <rect x="0" y="0" width="60" height="60" rx="14" fill="#0F1115" stroke="#F5A623" stroke-width="1.5"/>
+            <g transform="translate(16,16)" fill="none" stroke="#F5A623" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="0" y="6" width="20" height="22" rx="3"/>
+              <path d="M 6 6 L 6 2 Q 6 0 8 0 L 26 0 Q 28 0 28 2 L 28 22 Q 28 24 26 24 L 20 24"/>
+            </g>
+          </g>
+        </g>
+
+        <!-- Run row -->
+        <g transform="translate(0,460)">
+          <line x1="40" y1="0" x2="1090" y2="0" stroke="#2C3354" stroke-width="1"/>
+          <text x="40" y="60" font-size="26" font-weight="600" fill="#9BA3C7">Run (rzut poziomy)</text>
+          <text x="40" y="120" font-size="58" font-weight="800" fill="#E8ECF0">500,0</text>
+          <text x="240" y="120" font-size="32" font-weight="600" fill="#55607A">mm</text>
+          <g transform="translate(1020,60)">
+            <rect x="0" y="0" width="60" height="60" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1"/>
+            <g transform="translate(16,16)" fill="none" stroke="#9BA3C7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="0" y="6" width="20" height="22" rx="3"/>
+              <path d="M 6 6 L 6 2 Q 6 0 8 0 L 26 0 Q 28 0 28 2 L 28 22 Q 28 24 26 24 L 20 24"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <!-- Footer hint -->
+      <g transform="translate(0,1420)">
+        <rect x="0" y="0" width="1130" height="80" rx="18" fill="#13161E" stroke="#2C3354" stroke-width="1"/>
+        <g transform="translate(28,26)" fill="none" stroke="#E8C14B" stroke-width="3" stroke-linecap="round">
+          <circle cx="14" cy="14" r="13"/>
+          <line x1="14" y1="8" x2="14" y2="16"/>
+          <circle cx="14" cy="21" r="1.5" fill="#E8C14B" stroke="none"/>
+        </g>
+        <text x="80" y="52" font-size="28" font-weight="700" fill="#E8C14B">1 / sin(45°) = √2 ≈ 1,4142</text>
+        <text x="640" y="52" font-size="22" font-weight="500" fill="#55607A">— stała mnożnik 45°</text>
+      </g>
+
+      <!-- Stamp / spawacz hint -->
+      <g transform="translate(0,1525)">
+        <text x="0" y="30" font-size="22" font-weight="600" fill="#55607A">Spaw: JK-014 · WPS WP-022 · DN150 SCH40 · 6G</text>
+      </g>
+
+    </g>
+
+    <!-- ============== CAPTION BANNER ============== -->
+    <g transform="translate(32,2564)">
+      <rect x="0" y="0" width="1226" height="200" fill="url(#captionGrad)"/>
+      <text x="613" y="92" font-size="64" font-weight="900" fill="#0F1115" text-anchor="middle">Rolling offset w dwie sekundy.</text>
+      <text x="613" y="156" font-size="44" font-weight="600" fill="#1A1D26" text-anchor="middle" opacity="0.88">Rolling offset in two seconds.</text>
+    </g>
+
+  </g>
+
+  <!-- Phone notch / dynamic island outline (above clip) handled inside clip -->
+</svg>

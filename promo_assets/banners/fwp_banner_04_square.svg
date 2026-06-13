@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <!-- Background base -->
+  <rect width="1200" height="1200" fill="#0F1115"/>
+
+  <!-- Subtle radial vignette via layered rects with opacity -->
+  <rect x="0" y="0" width="1200" height="1200" fill="#1A1D26" opacity="0.35"/>
+
+  <!-- Faint grid lines (workshop blueprint feel) -->
+  <g stroke="#2C3354" stroke-width="1" opacity="0.18">
+    <line x1="0" y1="150" x2="1200" y2="150"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="0" y1="450" x2="1200" y2="450"/>
+    <line x1="0" y1="600" x2="1200" y2="600"/>
+    <line x1="0" y1="750" x2="1200" y2="750"/>
+    <line x1="0" y1="900" x2="1200" y2="900"/>
+    <line x1="0" y1="1050" x2="1200" y2="1050"/>
+    <line x1="150" y1="0" x2="150" y2="1200"/>
+    <line x1="300" y1="0" x2="300" y2="1200"/>
+    <line x1="450" y1="0" x2="450" y2="1200"/>
+    <line x1="600" y1="0" x2="600" y2="1200"/>
+    <line x1="750" y1="0" x2="750" y2="1200"/>
+    <line x1="900" y1="0" x2="900" y2="1200"/>
+    <line x1="1050" y1="0" x2="1050" y2="1200"/>
+  </g>
+
+  <!-- Diagonal accent stripe top-right -->
+  <polygon points="900,0 1200,0 1200,300" fill="#1A1D26" opacity="0.7"/>
+  <polygon points="1000,0 1200,0 1200,200" fill="#F5A623" opacity="0.12"/>
+
+  <!-- Diagonal accent stripe bottom-left -->
+  <polygon points="0,1050 0,1200 200,1200" fill="#F5A623" opacity="0.1"/>
+
+  <!-- Wordmark top -->
+  <text x="600" y="100" text-anchor="middle" font-size="22" font-weight="600" fill="#55607A" letter-spacing="14">FITTER WELDER PRO</text>
+  <line x1="380" y1="125" x2="820" y2="125" stroke="#2C3354" stroke-width="1"/>
+
+  <!-- Welder stamp top-right -->
+  <g transform="translate(1050,70)">
+    <rect x="-90" y="-30" width="180" height="60" rx="6" fill="none" stroke="#2C3354" stroke-width="1.5"/>
+    <text x="0" y="-8" text-anchor="middle" font-size="11" font-weight="700" fill="#55607A" letter-spacing="2">WELDER STAMP</text>
+    <text x="0" y="18" text-anchor="middle" font-size="20" font-weight="900" fill="#E8C14B" letter-spacing="3">JK-014</text>
+  </g>
+
+  <!-- Data chip top-left -->
+  <g transform="translate(150,70)">
+    <rect x="-90" y="-30" width="180" height="60" rx="6" fill="none" stroke="#2C3354" stroke-width="1.5"/>
+    <text x="0" y="-8" text-anchor="middle" font-size="11" font-weight="700" fill="#55607A" letter-spacing="2">PROJECT</text>
+    <text x="0" y="18" text-anchor="middle" font-size="20" font-weight="900" fill="#9BA3C7" letter-spacing="3">WP-022</text>
+  </g>
+
+  <!-- LOGO MARK: iso pipe elbow + welder mask silhouette -->
+  <g transform="translate(600,440)">
+    <!-- Outer ring frame -->
+    <circle cx="0" cy="0" r="230" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+    <circle cx="0" cy="0" r="215" fill="none" stroke="#F5A623" stroke-width="1.5" opacity="0.4"/>
+
+    <!-- Iso pipe elbow (back layer) - vertical pipe -->
+    <g opacity="0.95">
+      <!-- Vertical pipe body -->
+      <path d="M -120,-160 L -60,-160 L -60,20 L -120,20 Z" fill="#2C3354" stroke="#F5A623" stroke-width="3"/>
+      <!-- Vertical pipe inner shading -->
+      <path d="M -110,-150 L -70,-150 L -70,10 L -110,10 Z" fill="#0F1115" opacity="0.4"/>
+      <!-- Horizontal pipe body -->
+      <path d="M -60,-40 L 160,-40 L 160,20 L -60,20 Z" fill="#2C3354" stroke="#F5A623" stroke-width="3"/>
+      <!-- Horizontal pipe inner shading -->
+      <path d="M -50,-30 L 150,-30 L 150,10 L -50,10 Z" fill="#0F1115" opacity="0.4"/>
+      <!-- Elbow joint highlight (weld seam) -->
+      <path d="M -60,-40 L -60,20" stroke="#F5A623" stroke-width="4"/>
+      <!-- Weld bead dots along seam -->
+      <circle cx="-60" cy="-30" r="3" fill="#E8C14B"/>
+      <circle cx="-60" cy="-15" r="3" fill="#E8C14B"/>
+      <circle cx="-60" cy="0" r="3" fill="#E8C14B"/>
+      <circle cx="-60" cy="15" r="3" fill="#E8C14B"/>
+      <!-- Pipe end circles (open ends) -->
+      <ellipse cx="-90" cy="-160" rx="30" ry="8" fill="#0F1115" stroke="#F5A623" stroke-width="2"/>
+      <ellipse cx="160" cy="-10" rx="8" ry="30" fill="#0F1115" stroke="#F5A623" stroke-width="2"/>
+    </g>
+
+    <!-- Welder mask silhouette (front layer, overlapping elbow) -->
+    <g transform="translate(20,30)">
+      <!-- Mask outer body -->
+      <path d="M -90,-90 Q -90,-130 -50,-135 L 50,-135 Q 90,-130 90,-90 L 90,30 Q 90,80 60,100 L 40,110 L -40,110 L -60,100 Q -90,80 -90,30 Z" fill="#F5A623" stroke="#E8C14B" stroke-width="3"/>
+      <!-- Mask viewing window (dark) -->
+      <rect x="-65" y="-80" width="130" height="50" rx="4" fill="#0F1115" stroke="#2C3354" stroke-width="2"/>
+      <!-- Window reflection slash -->
+      <path d="M -55,-70 L -25,-40 L -15,-40 L -45,-70 Z" fill="#E8C14B" opacity="0.5"/>
+      <path d="M 10,-70 L 25,-55 L 35,-55 L 20,-70 Z" fill="#E8C14B" opacity="0.3"/>
+      <!-- Mask chin strap -->
+      <path d="M -50,50 L 50,50 L 40,80 L -40,80 Z" fill="#0F1115" opacity="0.4"/>
+      <!-- Mask bolt accents -->
+      <circle cx="-80" cy="-10" r="6" fill="#0F1115" stroke="#E8C14B" stroke-width="1.5"/>
+      <circle cx="80" cy="-10" r="6" fill="#0F1115" stroke="#E8C14B" stroke-width="1.5"/>
+      <circle cx="-80" cy="-10" r="2" fill="#E8C14B"/>
+      <circle cx="80" cy="-10" r="2" fill="#E8C14B"/>
+    </g>
+
+    <!-- Spark accents around logo -->
+    <g fill="#E8C14B">
+      <circle cx="-180" cy="-100" r="3"/>
+      <circle cx="-160" cy="-130" r="2"/>
+      <circle cx="170" cy="80" r="3"/>
+      <circle cx="190" cy="50" r="2"/>
+      <circle cx="-150" cy="160" r="2.5"/>
+      <circle cx="150" cy="-180" r="2"/>
+    </g>
+
+    <!-- Arc flash glow lines -->
+    <g stroke="#F5A623" stroke-width="1.5" opacity="0.5" fill="none">
+      <path d="M 90,-120 L 130,-150"/>
+      <path d="M 100,-100 L 150,-110"/>
+      <path d="M -100,140 L -140,160"/>
+    </g>
+  </g>
+
+  <!-- LOGO TEXT BELOW MARK -->
+  <text x="600" y="730" text-anchor="middle" font-size="58" font-weight="900" fill="#E8ECF0" letter-spacing="4">FITTER<tspan fill="#F5A623">WELDER</tspan>PRO</text>
+  <text x="600" y="762" text-anchor="middle" font-size="16" font-weight="600" fill="#55607A" letter-spacing="8">PIPE FITTER &amp; WELDER TOOLKIT</text>
+
+  <!-- Divider -->
+  <line x1="350" y1="800" x2="850" y2="800" stroke="#2C3354" stroke-width="1"/>
+
+  <!-- 3-line tagline -->
+  <g transform="translate(600,850)">
+    <text x="0" y="0" text-anchor="middle" font-size="28" font-weight="700" fill="#E8ECF0">
+      <tspan fill="#F5A623">Lista cięć</tspan>
+      <tspan fill="#55607A"> / </tspan>
+      <tspan fill="#F5A623">Dziennik spoin</tspan>
+      <tspan fill="#55607A"> / </tspan>
+      <tspan fill="#F5A623">90 kalkulatorów</tspan>
+    </text>
+    <!-- Sample data chip strip -->
+    <g transform="translate(0,30)" font-size="13" font-weight="600" letter-spacing="2">
+      <text x="-300" y="0" text-anchor="middle" fill="#9BA3C7">DN15..DN300</text>
+      <text x="-150" y="0" text-anchor="middle" fill="#9BA3C7">100..5000 mm</text>
+      <text x="0" y="0" text-anchor="middle" fill="#2ECC71">80..220 A</text>
+      <text x="150" y="0" text-anchor="middle" fill="#E74C3C">100..900 °C</text>
+      <text x="300" y="0" text-anchor="middle" fill="#E8C14B">ISO 5817</text>
+    </g>
+  </g>
+
+  <!-- PL caption (bigger, weight 900) -->
+  <text x="600" y="960" text-anchor="middle" font-size="46" font-weight="900" fill="#E8ECF0" letter-spacing="1">Zrobione przez montera.</text>
+
+  <!-- EN caption (smaller) -->
+  <text x="600" y="1000" text-anchor="middle" font-size="26" font-weight="500" fill="#9BA3C7" font-style="italic">Built by a fitter.</text>
+
+  <!-- Sub line -->
+  <text x="600" y="1040" text-anchor="middle" font-size="18" font-weight="600" fill="#55607A" letter-spacing="3">CZYNNY MONTER · DZIAŁA OFFLINE · WORKS OFFLINE</text>
+
+  <!-- CTA chip bottom (Pobierz / Get it) -->
+  <g transform="translate(600,1110)">
+    <rect x="-260" y="-38" width="520" height="76" rx="38" fill="#F5A623"/>
+    <rect x="-258" y="-36" width="516" height="72" rx="36" fill="none" stroke="#E8C14B" stroke-width="2"/>
+
+    <!-- Play triangle icon -->
+    <g transform="translate(-200,0)">
+      <circle cx="0" cy="0" r="22" fill="#0F1115"/>
+      <polygon points="-7,-11 -7,11 11,0" fill="#F5A623"/>
+    </g>
+
+    <!-- Text -->
+    <text x="-150" y="-4" text-anchor="start" font-size="20" font-weight="900" fill="#0F1115" letter-spacing="1">POBIERZ / GET IT</text>
+    <text x="-150" y="20" text-anchor="start" font-size="13" font-weight="700" fill="#0F1115" opacity="0.7" letter-spacing="2">PLAY · APP STORE</text>
+
+    <!-- Apple silhouette glyph -->
+    <g transform="translate(210,0)">
+      <circle cx="0" cy="0" r="22" fill="#0F1115"/>
+      <!-- Apple shape -->
+      <path d="M 0,-12 C -4,-12 -8,-9 -8,-4 C -10,-4 -12,0 -12,4 C -12,9 -8,13 -3,13 C -1,13 0,12 1,12 C 2,12 3,13 5,13 C 10,13 12,8 12,4 C 12,0 10,-4 8,-4 C 8,-9 4,-12 0,-12 Z" fill="#F5A623"/>
+      <!-- Leaf -->
+      <path d="M 2,-14 Q 5,-16 6,-12 Q 3,-11 2,-13 Z" fill="#F5A623"/>
+    </g>
+  </g>
+
+  <!-- Corner technical marks -->
+  <g stroke="#2C3354" stroke-width="2" fill="none">
+    <path d="M 30,30 L 30,70 M 30,30 L 70,30"/>
+    <path d="M 1170,30 L 1170,70 M 1170,30 L 1130,30"/>
+    <path d="M 30,1170 L 30,1130 M 30,1170 L 70,1170"/>
+    <path d="M 1170,1170 L 1170,1130 M 1170,1170 L 1130,1170"/>
+  </g>
+
+  <!-- Version stamp -->
+  <text x="50" y="1175" font-size="10" font-weight="600" fill="#2C3354" letter-spacing="2">v1.0 · ISO · PN-EN</text>
+  <text x="1150" y="1175" text-anchor="end" font-size="10" font-weight="600" fill="#2C3354" letter-spacing="2">SQUARE 1200×1200</text>
+</svg>

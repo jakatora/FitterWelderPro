@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796" width="1290" height="2796" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+<defs>
+<linearGradient id="cg" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#F5A623"/><stop offset="100%" stop-color="#E8C14B"/></linearGradient>
+<linearGradient id="ab" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1A1D26"/><stop offset="100%" stop-color="#141720"/></linearGradient>
+<linearGradient id="ss" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#2A1E12"/><stop offset="100%" stop-color="#3A2A14"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="4" result="o"/><feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1290" height="2796" fill="#0F1115"/>
+<rect width="1290" height="2796" rx="80" fill="#05070B"/>
+<rect x="16" y="16" width="1258" height="2764" rx="68" fill="#0F1115"/>
+<!-- STATUS BAR -->
+<g transform="translate(0,16)">
+<rect x="16" width="1258" height="60" fill="#0F1115"/>
+<text x="120" y="42" font-size="32" font-weight="700" fill="#E8ECF0">09:41</text>
+<rect x="525" y="14" width="240" height="40" rx="20" fill="#05070B"/>
+<g transform="translate(1040,22)" fill="#E8ECF0"><rect y="20" width="6" height="10"/><rect x="10" y="14" width="6" height="16"/><rect x="20" y="8" width="6" height="22"/><rect x="30" y="2" width="6" height="28"/></g>
+<g transform="translate(1095,28)" fill="none" stroke="#E8ECF0" stroke-width="4" stroke-linecap="round"><path d="M0 14Q18-4 36 14"/><path d="M6 20Q18 8 30 20"/><circle cx="18" cy="24" r="3" fill="#E8ECF0" stroke="none"/></g>
+<g transform="translate(1155,22)"><rect width="60" height="28" rx="6" fill="none" stroke="#E8ECF0" stroke-width="3"/><rect x="62" y="9" width="5" height="10" rx="2" fill="#E8ECF0"/><rect x="4" y="4" width="48" height="20" rx="3" fill="#2ECC71"/></g>
+</g>
+<!-- APP BAR -->
+<g transform="translate(16,76)">
+<rect width="1258" height="180" fill="url(#ab)"/>
+<line y1="180" x2="1258" y2="180" stroke="#2C3354" stroke-width="2"/>
+<g transform="translate(40,60)" stroke="#E8ECF0" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M40 30L10 60L40 90"/><line x1="10" y1="60" x2="80" y2="60"/></g>
+<text x="160" y="80" font-size="56" font-weight="800" fill="#E8ECF0">Cut list</text>
+<text x="160" y="130" font-size="30" font-weight="500" fill="#9BA3C7">ISO parser • 5 odcinków</text>
+<g transform="translate(1010,55)" fill="none" stroke="#E8ECF0" stroke-width="5" stroke-linecap="round"><rect y="10" width="70" height="55" rx="10"/><circle cx="35" cy="38" r="16"/><rect x="20" width="30" height="14" rx="4" fill="#1A1D26"/></g>
+<g transform="translate(1100,55)" fill="none" stroke="#E8ECF0" stroke-width="5" stroke-linecap="round"><circle cx="15" cy="15" r="12"/><circle cx="55" cy="38" r="12"/><circle cx="15" cy="60" r="12"/><line x1="26" y1="22" x2="45" y2="32"/><line x1="26" y1="52" x2="45" y2="44"/></g>
+<g transform="translate(1190,80)" fill="#E8ECF0"><circle r="6"/><circle cy="22" r="6"/><circle cy="-22" r="6"/></g>
+</g>
+<!-- PROJECT FIELD -->
+<g transform="translate(40,290)" filter="url(#sh)">
+<rect width="1210" height="130" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<text x="32" y="42" font-size="24" font-weight="600" fill="#55607A" letter-spacing="2">PROJEKT</text>
+<text x="32" y="98" font-size="42" font-weight="700" fill="#E8ECF0">SP-2026-014 Inox header</text>
+<g transform="translate(1100,42)" fill="none" stroke="#F5A623" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+<rect x="-5" y="-5" width="70" height="60" rx="14" fill="#2A1E12" stroke-width="2"/>
+<path d="M12 38L12 46L20 46L42 24L34 16Z"/><line x1="34" y1="16" x2="42" y2="24"/>
+</g>
+</g>
+<!-- SUMA CUT -->
+<g transform="translate(40,450)" filter="url(#sh)">
+<rect width="1210" height="120" rx="22" fill="url(#ss)" stroke="#F5A623" stroke-width="2"/>
+<g transform="translate(36,40)" fill="none" stroke="#F5A623" stroke-width="4"><rect width="60" height="40" rx="4"/><line x1="10" x2="10" y2="20"/><line x1="22" x2="22" y2="14"/><line x1="34" x2="34" y2="20"/><line x1="46" x2="46" y2="14"/></g>
+<text x="120" y="50" font-size="30" font-weight="700" fill="#E8C14B" letter-spacing="3">SUMA CUT</text>
+<text x="120" y="98" font-size="34" font-weight="500" fill="#9BA3C7">5 odcinków • DN150 SCH40</text>
+<text x="1170" y="80" text-anchor="end" font-size="62" font-weight="900" fill="#F5A623">1450.0 mm</text>
+</g>
+<!-- SEG 1 -->
+<g transform="translate(40,600)" filter="url(#sh)">
+<rect width="1210" height="240" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<circle cx="58" cy="58" r="32" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/>
+<text x="58" y="72" text-anchor="middle" font-size="36" font-weight="800" fill="#F5A623">1</text>
+<text x="110" y="50" font-size="32" font-weight="700" fill="#E8ECF0">Spool A · header</text>
+<text x="110" y="86" font-size="24" font-weight="500" fill="#9BA3C7">DN150 · SCH40 · 304L</text>
+<g transform="translate(1020,30)"><rect width="80" height="40" rx="20" fill="#1F2A1F" stroke="#2ECC71" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#2ECC71">AI</text></g>
+<g transform="translate(1110,30)"><rect width="80" height="40" rx="10" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#F5A623">1150</text></g>
+<rect x="110" y="110" width="1060" height="56" rx="10" fill="#0F1115" stroke="#2C3354"/>
+<text x="130" y="150" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="34" font-weight="700" fill="#E8C14B">5×200 + 150</text>
+<text x="1150" y="150" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="26" font-weight="600" fill="#55607A">= 1150 mm</text>
+<text x="130" y="200" font-size="24" font-weight="600" fill="#9BA3C7">− elbow takeout: 76 mm</text>
+<text x="130" y="226" font-size="24" font-weight="600" fill="#9BA3C7">− flange face: 35 mm</text>
+</g>
+<!-- SEG 2 -->
+<g transform="translate(40,860)" filter="url(#sh)">
+<rect width="1210" height="200" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<circle cx="58" cy="58" r="32" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/>
+<text x="58" y="72" text-anchor="middle" font-size="36" font-weight="800" fill="#F5A623">2</text>
+<text x="110" y="50" font-size="32" font-weight="700" fill="#E8ECF0">Branch B</text>
+<text x="110" y="86" font-size="24" font-weight="500" fill="#9BA3C7">DN80 · SCH40 · 304L</text>
+<g transform="translate(1110,30)"><rect width="80" height="40" rx="10" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#F5A623">1450</text></g>
+<rect x="110" y="110" width="1060" height="56" rx="10" fill="#0F1115" stroke="#2C3354"/>
+<text x="130" y="150" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="34" font-weight="700" fill="#E8C14B">1450</text>
+<text x="1150" y="150" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="26" font-weight="600" fill="#55607A">= 1450 mm</text>
+</g>
+<!-- SEG 3 flagged -->
+<g transform="translate(40,1080)" filter="url(#sh)">
+<rect width="1210" height="240" rx="22" fill="#1A1D26" stroke="#E74C3C" stroke-width="3"/>
+<circle cx="58" cy="58" r="32" fill="#3A1414" stroke="#E74C3C" stroke-width="2"/>
+<text x="58" y="72" text-anchor="middle" font-size="36" font-weight="800" fill="#E74C3C">3</text>
+<text x="110" y="50" font-size="32" font-weight="700" fill="#E8ECF0">Tee node C</text>
+<text x="110" y="86" font-size="24" font-weight="500" fill="#9BA3C7">DN150 · trójnik 90°</text>
+<g transform="translate(940,30)"><rect width="80" height="40" rx="20" fill="#1F2A1F" stroke="#2ECC71" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#2ECC71">AI</text></g>
+<g transform="translate(1030,30)"><rect width="160" height="40" rx="20" fill="#3A1414" stroke="#E74C3C" stroke-width="2"/><circle cx="22" cy="20" r="9" fill="none" stroke="#E74C3C" stroke-width="3"/><line x1="22" y1="14" x2="22" y2="22" stroke="#E74C3C" stroke-width="3"/><circle cx="22" cy="26" r="2" fill="#E74C3C"/><text x="40" y="28" font-size="20" font-weight="800" fill="#E74C3C">do sprawdzenia</text></g>
+<rect x="110" y="110" width="1060" height="56" rx="10" fill="#0F1115" stroke="#E74C3C"/>
+<text x="130" y="150" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="34" font-weight="700" fill="#E8C14B">76 + 76 + 1298</text>
+<text x="1150" y="150" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="26" font-weight="600" fill="#55607A">= 1450 mm</text>
+<text x="130" y="200" font-size="24" font-weight="600" fill="#E74C3C">! kolizja z DN80 branch — sprawdź wymiar W3</text>
+<text x="130" y="226" font-size="22" font-weight="500" fill="#9BA3C7">stempel: JK-014 · WP-022</text>
+</g>
+<!-- SEG 4 -->
+<g transform="translate(40,1340)" filter="url(#sh)">
+<rect width="1210" height="200" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<circle cx="58" cy="58" r="32" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/>
+<text x="58" y="72" text-anchor="middle" font-size="36" font-weight="800" fill="#F5A623">4</text>
+<text x="110" y="50" font-size="32" font-weight="700" fill="#E8ECF0">Reducer to DN100</text>
+<text x="110" y="86" font-size="24" font-weight="500" fill="#9BA3C7">DN150/100 · concentric</text>
+<g transform="translate(940,30)"><rect width="80" height="40" rx="20" fill="#1F2A1F" stroke="#2ECC71" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#2ECC71">AI</text></g>
+<g transform="translate(1110,30)"><rect width="80" height="40" rx="10" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#F5A623">820</text></g>
+<rect x="110" y="110" width="1060" height="56" rx="10" fill="#0F1115" stroke="#2C3354"/>
+<text x="130" y="150" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="34" font-weight="700" fill="#E8C14B">4×180 + 100</text>
+<text x="1150" y="150" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="26" font-weight="600" fill="#55607A">= 820 mm</text>
+</g>
+<!-- SEG 5 -->
+<g transform="translate(40,1560)" filter="url(#sh)">
+<rect width="1210" height="240" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<circle cx="58" cy="58" r="32" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/>
+<text x="58" y="72" text-anchor="middle" font-size="36" font-weight="800" fill="#F5A623">5</text>
+<text x="110" y="50" font-size="32" font-weight="700" fill="#E8ECF0">End flange D</text>
+<text x="110" y="86" font-size="24" font-weight="500" fill="#9BA3C7">DN150 · WN RF · #150</text>
+<g transform="translate(1110,30)"><rect width="80" height="40" rx="10" fill="#2A1E12" stroke="#F5A623" stroke-width="2"/><text x="40" y="28" text-anchor="middle" font-size="22" font-weight="800" fill="#F5A623">980</text></g>
+<rect x="110" y="110" width="1060" height="56" rx="10" fill="#0F1115" stroke="#2C3354"/>
+<text x="130" y="150" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="34" font-weight="700" fill="#E8C14B">(2×320) + 340</text>
+<text x="1150" y="150" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="26" font-weight="600" fill="#55607A">= 980 mm</text>
+<text x="130" y="200" font-size="24" font-weight="600" fill="#9BA3C7">− flange face: 35 mm</text>
+<text x="130" y="226" font-size="24" font-weight="600" fill="#9BA3C7">+ root gap: 3 mm · WPS GTAW</text>
+</g>
+<!-- ADD BUTTON -->
+<g transform="translate(40,1830)">
+<rect width="1210" height="110" rx="22" fill="none" stroke="#F5A623" stroke-width="3" stroke-dasharray="14,10"/>
+<g transform="translate(420,38)" fill="none" stroke="#F5A623" stroke-width="6" stroke-linecap="round"><circle cx="18" cy="18" r="20"/><line x1="6" y1="18" x2="30" y2="18"/><line x1="18" y1="6" x2="18" y2="30"/></g>
+<text x="475" y="73" font-size="38" font-weight="800" fill="#F5A623">Dodaj odcinek</text>
+</g>
+<!-- QUICK ACTIONS -->
+<g transform="translate(40,1970)">
+<g><rect width="390" height="100" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<g transform="translate(28,30)" fill="none" stroke="#E8C14B" stroke-width="4" stroke-linejoin="round"><path d="M0 0L30 0L44 14L44 44L0 44Z"/><path d="M30 0L30 14L44 14"/></g>
+<text x="100" y="48" font-size="26" font-weight="700" fill="#E8ECF0">Eksport PDF</text>
+<text x="100" y="76" font-size="20" font-weight="500" fill="#9BA3C7">cut list + ISO</text></g>
+<g transform="translate(410,0)"><rect width="390" height="100" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<g transform="translate(28,28)" fill="none" stroke="#F5A623" stroke-width="4" stroke-linecap="round"><path d="M6 22A12 12 0 0 1 30 22L30 30"/><path d="M38 22A12 12 0 0 0 14 22L14 30"/></g>
+<text x="100" y="48" font-size="26" font-weight="700" fill="#E8ECF0">WPS GTAW-304</text>
+<text x="100" y="76" font-size="20" font-weight="500" fill="#9BA3C7">110 A · 95 °C interpass</text></g>
+<g transform="translate(820,0)"><rect width="390" height="100" rx="20" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<g transform="translate(28,30)" fill="none" stroke="#2ECC71" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><circle cx="22" cy="22" r="20"/><path d="M12 22L20 30L34 14"/></g>
+<text x="100" y="48" font-size="26" font-weight="700" fill="#E8ECF0">Stempel</text>
+<text x="100" y="76" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="22" font-weight="700" fill="#2ECC71">JK-014 / WP-022</text></g>
+</g>
+<!-- TIP -->
+<g transform="translate(40,2100)">
+<rect width="1210" height="100" rx="20" fill="#141720" stroke="#2C3354"/>
+<g transform="translate(30,30)" fill="none" stroke="#E8C14B" stroke-width="4" stroke-linecap="round"><circle cx="20" cy="20" r="18"/><line x1="20" y1="12" x2="20" y2="22"/><circle cx="20" cy="30" r="2.5" fill="#E8C14B"/></g>
+<text x="100" y="42" font-size="24" font-weight="700" fill="#E8ECF0">Parser ISO obsługuje nawiasy, mnożenie i ułamki</text>
+<text x="100" y="76" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="22" font-weight="500" fill="#9BA3C7">np. (3×120 + 75) − 35 → 400 mm</text>
+</g>
+<!-- NAV -->
+<g transform="translate(40,2240)">
+<rect width="1210" height="140" rx="30" fill="#1A1D26" stroke="#2C3354" stroke-width="2"/>
+<g transform="translate(60,30)" fill="none" stroke="#55607A" stroke-width="4" stroke-linejoin="round"><path d="M0 40L30 14L60 40L60 70L0 70Z"/><text x="30" y="100" text-anchor="middle" font-size="20" font-weight="600" fill="#55607A" stroke="none">Home</text></g>
+<g transform="translate(280,30)"><rect x="-20" y="-10" width="180" height="100" rx="20" fill="#2A1E12"/>
+<g fill="none" stroke="#F5A623" stroke-width="4" stroke-linecap="round"><rect x="6" y="14" width="60" height="56" rx="6"/><line x1="16" y1="30" x2="56" y2="30"/><line x1="16" y1="46" x2="56" y2="46"/><line x1="16" y1="62" x2="40" y2="62"/></g>
+<text x="80" y="50" font-size="24" font-weight="800" fill="#F5A623">Cut list</text>
+<text x="80" y="78" font-size="18" font-weight="600" fill="#E8C14B">5 odc.</text></g>
+<g transform="translate(580,30)" fill="none" stroke="#55607A" stroke-width="4" stroke-linecap="round"><circle cx="30" cy="40" r="26"/><path d="M30 22L30 40L42 48"/><text x="30" y="100" text-anchor="middle" font-size="20" font-weight="600" fill="#55607A" stroke="none">Heat log</text></g>
+<g transform="translate(800,30)" fill="none" stroke="#55607A" stroke-width="4" stroke-linejoin="round"><path d="M8 60L20 36L34 50L52 22L60 60Z"/><text x="34" y="100" text-anchor="middle" font-size="20" font-weight="600" fill="#55607A" stroke="none">WPS</text></g>
+<g transform="translate(1020,30)" fill="none" stroke="#55607A" stroke-width="4" stroke-linecap="round"><circle cx="30" cy="28" r="14"/><path d="M8 70Q30 50 52 70"/><text x="30" y="100" text-anchor="middle" font-size="20" font-weight="600" fill="#55607A" stroke="none">Profil</text></g>
+</g>
+<!-- CAPTION BANNER -->
+<g transform="translate(0,2580)">
+<rect width="1290" height="200" fill="url(#cg)"/>
+<rect width="1290" height="4" fill="#E8C14B"/>
+<text x="60" y="92" font-size="64" font-weight="900" fill="#0F1115">Lista cięć z parserem ISO: 5×200+150.</text>
+<text x="60" y="160" font-size="44" font-weight="600" fill="#1A1D26">Cut list with an ISO parser: 5×200+150.</text>
+</g>
+<rect x="495" y="2740" width="300" height="10" rx="5" fill="#55607A"/>
+</svg>

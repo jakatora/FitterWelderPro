@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <!-- Background -->
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="20%" r="70%">
+      <stop offset="0%" stop-color="#1A1D26"/>
+      <stop offset="60%" stop-color="#0F1115"/>
+      <stop offset="100%" stop-color="#0A0C12"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8C14B"/>
+      <stop offset="100%" stop-color="#F5A623"/>
+    </linearGradient>
+    <linearGradient id="chipGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1F2330"/>
+      <stop offset="100%" stop-color="#161923"/>
+    </linearGradient>
+    <linearGradient id="phoneGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E2230"/>
+      <stop offset="100%" stop-color="#13161F"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="1500" fill="url(#bgGlow)"/>
+
+  <!-- Subtle blueprint grid -->
+  <g opacity="0.06" stroke="#2C3354" stroke-width="1">
+    <line x1="0" y1="150" x2="1200" y2="150"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="0" y1="450" x2="1200" y2="450"/>
+    <line x1="0" y1="600" x2="1200" y2="600"/>
+    <line x1="0" y1="750" x2="1200" y2="750"/>
+    <line x1="0" y1="900" x2="1200" y2="900"/>
+    <line x1="0" y1="1050" x2="1200" y2="1050"/>
+    <line x1="0" y1="1200" x2="1200" y2="1200"/>
+    <line x1="0" y1="1350" x2="1200" y2="1350"/>
+    <line x1="150" y1="0" x2="150" y2="1500"/>
+    <line x1="300" y1="0" x2="300" y2="1500"/>
+    <line x1="450" y1="0" x2="450" y2="1500"/>
+    <line x1="600" y1="0" x2="600" y2="1500"/>
+    <line x1="750" y1="0" x2="750" y2="1500"/>
+    <line x1="900" y1="0" x2="900" y2="1500"/>
+    <line x1="1050" y1="0" x2="1050" y2="1500"/>
+  </g>
+
+  <!-- Top brand strip with wordmark -->
+  <g transform="translate(60,60)">
+    <!-- Logo: orange iso-pipe elbow + welder mask -->
+    <g>
+      <!-- Pipe elbow -->
+      <path d="M 0 30 L 28 30 Q 50 30 50 52 L 50 80" fill="none" stroke="#F5A623" stroke-width="8" stroke-linecap="round"/>
+      <circle cx="0" cy="30" r="5" fill="#F5A623"/>
+      <circle cx="50" cy="80" r="5" fill="#F5A623"/>
+      <!-- Welder mask silhouette -->
+      <path d="M 60 18 Q 60 8 72 8 L 96 8 Q 108 8 108 18 L 108 38 Q 108 56 96 56 L 72 56 Q 60 56 60 38 Z" fill="#1A1D26" stroke="#E8C14B" stroke-width="2.5"/>
+      <rect x="66" y="22" width="36" height="10" rx="2" fill="#E8C14B"/>
+    </g>
+    <text x="130" y="38" fill="#E8ECF0" font-size="22" font-weight="800" letter-spacing="3">FITTER WELDER PRO</text>
+    <text x="130" y="58" fill="#9BA3C7" font-size="12" font-weight="600" letter-spacing="4">QUALITY · TRACEABILITY · COMPLIANCE</text>
+  </g>
+
+  <!-- Compliance badge top-right -->
+  <g transform="translate(1010,75)">
+    <circle cx="0" cy="0" r="42" fill="none" stroke="#2ECC71" stroke-width="2.5"/>
+    <path d="M -16 0 L -4 14 L 18 -12" fill="none" stroke="#2ECC71" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="0" y="62" text-anchor="middle" fill="#2ECC71" font-size="11" font-weight="800" letter-spacing="2">AUDIT READY</text>
+  </g>
+
+  <!-- Headline -->
+  <g transform="translate(60,200)">
+    <text x="0" y="0" fill="#F5A623" font-size="20" font-weight="800" letter-spacing="6">ZGODNOŚĆ · COMPLIANCE</text>
+    <text x="0" y="80" fill="#E8ECF0" font-size="92" font-weight="900" letter-spacing="-2">ISO 3834</text>
+    <text x="0" y="148" fill="#E8C14B" font-size="48" font-weight="900" letter-spacing="-1">ready.</text>
+  </g>
+
+  <!-- Credential chips stack -->
+  <g transform="translate(60,400)">
+    <!-- Chip 1: ISO 3834 -->
+    <g transform="translate(0,0)">
+      <rect x="0" y="0" width="520" height="74" rx="14" fill="url(#chipGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+      <circle cx="40" cy="37" r="16" fill="none" stroke="#E8C14B" stroke-width="2.2"/>
+      <path d="M 31 37 L 38 44 L 50 31" fill="none" stroke="#E8C14B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="72" y="34" fill="#FFFFFF" font-size="24" font-weight="800" letter-spacing="0.5">ISO 3834</text>
+      <text x="72" y="56" fill="#9BA3C7" font-size="13" font-weight="600">Quality requirements · fusion welding</text>
+      <text x="495" y="44" text-anchor="end" fill="#E8C14B" font-size="12" font-weight="800" letter-spacing="1.5">PART 2</text>
+    </g>
+
+    <!-- Chip 2: EN ISO 9606 -->
+    <g transform="translate(0,90)">
+      <rect x="0" y="0" width="520" height="74" rx="14" fill="url(#chipGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+      <circle cx="40" cy="37" r="16" fill="none" stroke="#E8C14B" stroke-width="2.2"/>
+      <path d="M 31 37 L 38 44 L 50 31" fill="none" stroke="#E8C14B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="72" y="34" fill="#FFFFFF" font-size="24" font-weight="800" letter-spacing="0.5">EN ISO 9606</text>
+      <text x="72" y="56" fill="#9BA3C7" font-size="13" font-weight="600">Qualification testing of welders</text>
+      <text x="495" y="44" text-anchor="end" fill="#E8C14B" font-size="12" font-weight="800" letter-spacing="1.5">141 / 311</text>
+    </g>
+
+    <!-- Chip 3: ASME IX -->
+    <g transform="translate(0,180)">
+      <rect x="0" y="0" width="520" height="74" rx="14" fill="url(#chipGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+      <circle cx="40" cy="37" r="16" fill="none" stroke="#E8C14B" stroke-width="2.2"/>
+      <path d="M 31 37 L 38 44 L 50 31" fill="none" stroke="#E8C14B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="72" y="34" fill="#FFFFFF" font-size="24" font-weight="800" letter-spacing="0.5">ASME IX</text>
+      <text x="72" y="56" fill="#9BA3C7" font-size="13" font-weight="600">Welding & brazing qualifications</text>
+      <text x="495" y="44" text-anchor="end" fill="#E8C14B" font-size="12" font-weight="800" letter-spacing="1.5">QW-482</text>
+    </g>
+
+    <!-- Chip 4: PED 2014/68/EU -->
+    <g transform="translate(0,270)">
+      <rect x="0" y="0" width="520" height="74" rx="14" fill="url(#chipGrad)" stroke="url(#goldGrad)" stroke-width="2.5"/>
+      <circle cx="40" cy="37" r="16" fill="none" stroke="#E8C14B" stroke-width="2.2"/>
+      <path d="M 31 37 L 38 44 L 50 31" fill="none" stroke="#E8C14B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="72" y="34" fill="#FFFFFF" font-size="24" font-weight="800" letter-spacing="0.5">PED 2014/68/EU</text>
+      <text x="72" y="56" fill="#9BA3C7" font-size="13" font-weight="600">Pressure equipment directive</text>
+      <text x="495" y="44" text-anchor="end" fill="#E8C14B" font-size="12" font-weight="800" letter-spacing="1.5">CAT III</text>
+    </g>
+  </g>
+
+  <!-- Phone mockup on the right -->
+  <g transform="translate(670,395)">
+    <!-- Phone body -->
+    <rect x="0" y="0" width="460" height="640" rx="46" fill="#0A0C12" stroke="#2C3354" stroke-width="3"/>
+    <rect x="14" y="14" width="432" height="612" rx="34" fill="url(#phoneGrad)"/>
+    <!-- Notch -->
+    <rect x="195" y="22" width="70" height="14" rx="7" fill="#0A0C12"/>
+
+    <!-- App header -->
+    <g transform="translate(34,60)">
+      <text x="0" y="20" fill="#9BA3C7" font-size="11" font-weight="700" letter-spacing="2">JOURNAL · DZIENNIK</text>
+      <text x="0" y="50" fill="#E8ECF0" font-size="22" font-weight="900">Weld Log</text>
+      <!-- Stamp badge -->
+      <g transform="translate(280,10)">
+        <rect x="0" y="0" width="84" height="36" rx="8" fill="#1A1D26" stroke="#F5A623" stroke-width="1.5"/>
+        <text x="42" y="23" text-anchor="middle" fill="#F5A623" font-size="13" font-weight="800" letter-spacing="1">JK-014</text>
+      </g>
+    </g>
+
+    <!-- Weld row 1 -->
+    <g transform="translate(34,160)">
+      <rect x="0" y="0" width="392" height="86" rx="12" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+      <circle cx="22" cy="22" r="6" fill="#2ECC71"/>
+      <text x="40" y="27" fill="#E8ECF0" font-size="14" font-weight="800">W-2026-0141</text>
+      <text x="385" y="27" text-anchor="end" fill="#9BA3C7" font-size="11" font-weight="600">12.06.2026 · 09:42</text>
+      <text x="22" y="52" fill="#9BA3C7" font-size="11" font-weight="600">DN150 · L 2400 mm · 6G · 141</text>
+      <text x="22" y="72" fill="#55607A" font-size="10" font-weight="600">A 165 · V 24 · °C 320 · stamp JK-014</text>
+      <text x="385" y="72" text-anchor="end" fill="#2ECC71" font-size="11" font-weight="800">PASS</text>
+    </g>
+
+    <!-- Weld row 2 -->
+    <g transform="translate(34,256)">
+      <rect x="0" y="0" width="392" height="86" rx="12" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+      <circle cx="22" cy="22" r="6" fill="#2ECC71"/>
+      <text x="40" y="27" fill="#E8ECF0" font-size="14" font-weight="800">W-2026-0142</text>
+      <text x="385" y="27" text-anchor="end" fill="#9BA3C7" font-size="11" font-weight="600">12.06.2026 · 11:17</text>
+      <text x="22" y="52" fill="#9BA3C7" font-size="11" font-weight="600">DN80 · L 1200 mm · 5G · 111</text>
+      <text x="22" y="72" fill="#55607A" font-size="10" font-weight="600">A 110 · V 22 · °C 240 · stamp WP-022</text>
+      <text x="385" y="72" text-anchor="end" fill="#2ECC71" font-size="11" font-weight="800">PASS</text>
+    </g>
+
+    <!-- Weld row 3 -->
+    <g transform="translate(34,352)">
+      <rect x="0" y="0" width="392" height="86" rx="12" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+      <circle cx="22" cy="22" r="6" fill="#2ECC71"/>
+      <text x="40" y="27" fill="#E8ECF0" font-size="14" font-weight="800">W-2026-0143</text>
+      <text x="385" y="27" text-anchor="end" fill="#9BA3C7" font-size="11" font-weight="600">12.06.2026 · 13:55</text>
+      <text x="22" y="52" fill="#9BA3C7" font-size="11" font-weight="600">DN300 · L 4800 mm · 2G · 311</text>
+      <text x="22" y="72" fill="#55607A" font-size="10" font-weight="600">A 205 · V 28 · °C 780 · stamp JK-014</text>
+      <text x="385" y="72" text-anchor="end" fill="#2ECC71" font-size="11" font-weight="800">PASS</text>
+    </g>
+
+    <!-- Weld row 4 -->
+    <g transform="translate(34,448)">
+      <rect x="0" y="0" width="392" height="86" rx="12" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+      <circle cx="22" cy="22" r="6" fill="#2ECC71"/>
+      <text x="40" y="27" fill="#E8ECF0" font-size="14" font-weight="800">W-2026-0144</text>
+      <text x="385" y="27" text-anchor="end" fill="#9BA3C7" font-size="11" font-weight="600">12.06.2026 · 15:30</text>
+      <text x="22" y="52" fill="#9BA3C7" font-size="11" font-weight="600">DN50 · L 850 mm · 6G · 141</text>
+      <text x="22" y="72" fill="#55607A" font-size="10" font-weight="600">A 95 · V 20 · °C 180 · stamp WP-022</text>
+      <text x="385" y="72" text-anchor="end" fill="#2ECC71" font-size="11" font-weight="800">PASS</text>
+    </g>
+
+    <!-- Export PDF button -->
+    <g transform="translate(34,556)">
+      <rect x="0" y="0" width="392" height="50" rx="14" fill="url(#goldGrad)"/>
+      <!-- PDF icon -->
+      <g transform="translate(20,13)">
+        <rect x="0" y="0" width="20" height="24" rx="2" fill="#0F1115"/>
+        <path d="M 14 0 L 20 6 L 14 6 Z" fill="#1A1D26"/>
+        <text x="10" y="19" text-anchor="middle" fill="#F5A623" font-size="8" font-weight="900">PDF</text>
+      </g>
+      <text x="196" y="32" text-anchor="middle" fill="#0F1115" font-size="16" font-weight="900" letter-spacing="1">EXPORT PDF · AUDIT REPORT</text>
+    </g>
+  </g>
+
+  <!-- Bottom captions -->
+  <g transform="translate(60,1130)">
+    <text x="0" y="0" fill="#E8ECF0" font-size="30" font-weight="900" letter-spacing="-0.5">Każda spoina — z numerem,</text>
+    <text x="0" y="38" fill="#E8ECF0" font-size="30" font-weight="900" letter-spacing="-0.5">stemplem, datą.</text>
+    <text x="0" y="68" fill="#F5A623" font-size="20" font-weight="800">Eksport PDF do audytu.</text>
+
+    <line x1="0" y1="92" x2="1080" y2="92" stroke="#2C3354" stroke-width="1"/>
+
+    <text x="0" y="124" fill="#9BA3C7" font-size="22" font-weight="700" letter-spacing="-0.3">Every weld — number, stamp, date.</text>
+    <text x="0" y="152" fill="#E8C14B" font-size="18" font-weight="700">PDF export for audit.</text>
+  </g>
+
+  <!-- Footer wordmark + CTA chip -->
+  <g transform="translate(60,1380)">
+    <!-- Mini logo -->
+    <g transform="translate(0,8)">
+      <path d="M 0 18 L 18 18 Q 32 18 32 32 L 32 48" fill="none" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="0" cy="18" r="3.5" fill="#F5A623"/>
+      <circle cx="32" cy="48" r="3.5" fill="#F5A623"/>
+      <path d="M 40 10 Q 40 4 48 4 L 64 4 Q 72 4 72 10 L 72 24 Q 72 36 64 36 L 48 36 Q 40 36 40 24 Z" fill="#1A1D26" stroke="#E8C14B" stroke-width="1.8"/>
+      <rect x="44" y="13" width="24" height="7" rx="1.5" fill="#E8C14B"/>
+    </g>
+    <text x="90" y="32" fill="#E8ECF0" font-size="18" font-weight="800" letter-spacing="3">FITTER WELDER PRO</text>
+    <text x="90" y="52" fill="#55607A" font-size="11" font-weight="600" letter-spacing="2">fitterwelderpro.app</text>
+
+    <!-- CTA chip -->
+    <g transform="translate(740,8)">
+      <rect x="0" y="0" width="340" height="56" rx="28" fill="url(#goldGrad)"/>
+      <text x="24" y="36" fill="#0F1115" font-size="17" font-weight="900" letter-spacing="0.5">Pobierz / Get it</text>
+      <!-- Play triangle -->
+      <g transform="translate(220,18)">
+        <polygon points="0,0 0,22 18,11" fill="#0F1115"/>
+      </g>
+      <!-- Apple silhouette -->
+      <g transform="translate(258,14)">
+        <path d="M 14 8 C 11 8 9 6 7 6 C 4 6 1 9 1 14 C 1 19 4 26 7 26 C 9 26 11 24 14 24 C 17 24 19 26 21 26 C 24 26 27 19 27 14 C 27 9 24 6 21 6 C 19 6 17 8 14 8 Z" fill="#0F1115"/>
+        <path d="M 16 3 C 14 4 13 6 14 8 C 16 7 17 5 16 3 Z" fill="#0F1115"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- Decorative corner accents -->
+  <g opacity="0.4">
+    <path d="M 0 0 L 60 0 L 60 4 L 4 4 L 4 60 L 0 60 Z" fill="#F5A623"/>
+    <path d="M 1200 1500 L 1140 1500 L 1140 1496 L 1196 1496 L 1196 1440 L 1200 1440 Z" fill="#F5A623"/>
+  </g>
+
+  <!-- Document number stamp top-right of phone area -->
+  <g transform="translate(950,360)" opacity="0.85">
+    <rect x="0" y="0" width="180" height="28" rx="6" fill="none" stroke="#55607A" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="90" y="19" text-anchor="middle" fill="#9BA3C7" font-size="11" font-weight="700" letter-spacing="2.5">DOC · WPS-2026-014</text>
+  </g>
+</svg>

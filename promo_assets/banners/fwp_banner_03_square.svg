@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <!-- ============ BACKGROUND ============ -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F1115"/>
+      <stop offset="0.55" stop-color="#141823"/>
+      <stop offset="1" stop-color="#0B0D12"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5D77A"/>
+      <stop offset="0.45" stop-color="#E8C14B"/>
+      <stop offset="1" stop-color="#B8902C"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F5A623"/>
+      <stop offset="1" stop-color="#E89010"/>
+    </linearGradient>
+    <radialGradient id="glowOrange" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F5A623" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#F5A623" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGold" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#E8C14B" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#E8C14B" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="gridPattern" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M60 0 L0 0 0 60" fill="none" stroke="#2C3354" stroke-opacity="0.18" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="1200" fill="url(#bgGrad)"/>
+  <rect width="1200" height="1200" fill="url(#gridPattern)"/>
+
+  <!-- ambient glows -->
+  <circle cx="600" cy="500" r="500" fill="url(#glowGold)"/>
+  <circle cx="220" cy="980" r="320" fill="url(#glowOrange)"/>
+  <circle cx="980" cy="220" r="280" fill="url(#glowOrange)"/>
+
+  <!-- corner crosshairs -->
+  <g stroke="#2C3354" stroke-width="1.5" opacity="0.55">
+    <line x1="40" y1="40" x2="100" y2="40"/>
+    <line x1="40" y1="40" x2="40" y2="100"/>
+    <line x1="1160" y1="40" x2="1100" y2="40"/>
+    <line x1="1160" y1="40" x2="1160" y2="100"/>
+    <line x1="40" y1="1160" x2="100" y2="1160"/>
+    <line x1="40" y1="1160" x2="40" y2="1100"/>
+    <line x1="1160" y1="1160" x2="1100" y2="1160"/>
+    <line x1="1160" y1="1160" x2="1160" y2="1100"/>
+  </g>
+
+  <!-- ============ TOP BAR ============ -->
+  <g transform="translate(60,60)">
+    <!-- Logo: iso-pipe elbow + welder mask -->
+    <g transform="translate(0,0)">
+      <!-- pipe elbow ring -->
+      <circle cx="32" cy="32" r="28" fill="none" stroke="#F5A623" stroke-width="6"/>
+      <path d="M32 4 A28 28 0 0 1 60 32 L48 32 A16 16 0 0 0 32 16 Z" fill="#F5A623"/>
+      <!-- mask silhouette -->
+      <rect x="20" y="22" width="24" height="22" rx="3" fill="#1A1D26" stroke="#E8C14B" stroke-width="2"/>
+      <rect x="24" y="28" width="16" height="5" fill="#2ECC71" opacity="0.85"/>
+    </g>
+    <text x="80" y="28" font-size="20" font-weight="800" fill="#E8ECF0" letter-spacing="3">FITTER WELDER PRO</text>
+    <text x="80" y="52" font-size="13" font-weight="600" fill="#9BA3C7" letter-spacing="2">PIPING • SADDLES • HYDROTEST • WPS</text>
+
+    <!-- status chip -->
+    <g transform="translate(900,8)">
+      <rect x="0" y="0" width="180" height="48" rx="24" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+      <circle cx="24" cy="24" r="6" fill="#2ECC71"/>
+      <circle cx="24" cy="24" r="10" fill="none" stroke="#2ECC71" stroke-opacity="0.4" stroke-width="2"/>
+      <text x="42" y="22" font-size="11" font-weight="700" fill="#9BA3C7" letter-spacing="2">OFFLINE READY</text>
+      <text x="42" y="38" font-size="11" font-weight="600" fill="#55607A" letter-spacing="1">v2.4 • PL / EN / DE</text>
+    </g>
+  </g>
+
+  <!-- ============ DOMINANT "90" ============ -->
+  <g transform="translate(600,540)">
+    <!-- subtle shadow -->
+    <text x="8" y="8" text-anchor="middle" font-size="720" font-weight="900"
+          fill="#000" opacity="0.45" letter-spacing="-30">90</text>
+    <!-- back stroke -->
+    <text x="0" y="0" text-anchor="middle" font-size="720" font-weight="900"
+          fill="none" stroke="#2C3354" stroke-width="3" letter-spacing="-30">90</text>
+    <!-- main fill -->
+    <text x="0" y="0" text-anchor="middle" font-size="720" font-weight="900"
+          fill="url(#goldGrad)" letter-spacing="-30">90</text>
+    <!-- highlight strip -->
+    <text x="0" y="-160" text-anchor="middle" font-size="720" font-weight="900"
+          fill="#FFFFFF" opacity="0.08" letter-spacing="-30" clip-path="inset(0 0 60% 0)">90</text>
+  </g>
+
+  <!-- decorative tick marks around "90" -->
+  <g stroke="#2C3354" stroke-width="2" opacity="0.7">
+    <line x1="120" y1="540" x2="180" y2="540"/>
+    <line x1="120" y1="500" x2="160" y2="500"/>
+    <line x1="120" y1="580" x2="160" y2="580"/>
+    <line x1="1020" y1="540" x2="1080" y2="540"/>
+    <line x1="1040" y1="500" x2="1080" y2="500"/>
+    <line x1="1040" y1="580" x2="1080" y2="580"/>
+  </g>
+
+  <!-- ============ CAPTION / LABEL ============ -->
+  <g transform="translate(600,640)">
+    <text x="0" y="0" text-anchor="middle" font-size="56" font-weight="900"
+          fill="url(#orangeGrad)" letter-spacing="14">KALKULATORÓW</text>
+    <text x="0" y="34" text-anchor="middle" font-size="22" font-weight="700"
+          fill="#9BA3C7" letter-spacing="10">CALCULATORS / RECHNER</text>
+  </g>
+
+  <!-- PL/EN headline strip above 90 -->
+  <g transform="translate(600,200)">
+    <rect x="-360" y="-44" width="720" height="58" rx="29" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+    <text x="0" y="-4" text-anchor="middle" font-size="34" font-weight="900" fill="#E8ECF0" letter-spacing="2">
+      90 kalkulatorów. <tspan fill="#F5A623">Zero reklam.</tspan>
+    </text>
+    <text x="0" y="32" text-anchor="middle" font-size="18" font-weight="700" fill="#9BA3C7" letter-spacing="3">
+      90 CALCULATORS · ZERO ADS · ZERO ACCOUNTS
+    </text>
+  </g>
+
+  <!-- ============ 5x2 GRID OF MINI CALC ICONS ============ -->
+  <g transform="translate(120,720)">
+    <!-- panel bg -->
+    <rect x="-20" y="-20" width="980" height="280" rx="20" fill="#1A1D26" fill-opacity="0.55" stroke="#2C3354" stroke-width="1.5"/>
+
+    <!-- row labels -->
+    <text x="-4" y="-30" font-size="11" font-weight="700" fill="#55607A" letter-spacing="3">10 / 90 KEY TOOLS</text>
+    <text x="956" y="-30" text-anchor="end" font-size="11" font-weight="700" fill="#55607A" letter-spacing="3">OFFLINE • ISO • DN15–DN300</text>
+
+    <!-- ICON 1: SADDLE -->
+    <g transform="translate(0,0)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(20,18)">
+        <!-- branch pipe top -->
+        <rect x="60" y="0" width="22" height="34" fill="none" stroke="#E8C14B" stroke-width="2"/>
+        <!-- header pipe -->
+        <path d="M0 50 Q70 30 140 50 Q70 70 0 50 Z" fill="none" stroke="#F5A623" stroke-width="2"/>
+        <ellipse cx="71" cy="50" rx="14" ry="6" fill="none" stroke="#E74C3C" stroke-width="1.5" stroke-dasharray="3 2"/>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">SADDLE</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">DN150</text>
+    </g>
+
+    <!-- ICON 2: ROLLING OFFSET -->
+    <g transform="translate(195,0)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(20,20)">
+        <line x1="0" y1="55" x2="40" y2="55" stroke="#F5A623" stroke-width="4"/>
+        <line x1="40" y1="55" x2="100" y2="15" stroke="#E8C14B" stroke-width="4"/>
+        <line x1="100" y1="15" x2="140" y2="15" stroke="#F5A623" stroke-width="4"/>
+        <line x1="40" y1="55" x2="40" y2="15" stroke="#9BA3C7" stroke-width="1" stroke-dasharray="3 2"/>
+        <line x1="40" y1="15" x2="100" y2="15" stroke="#9BA3C7" stroke-width="1" stroke-dasharray="3 2"/>
+        <text x="60" y="13" font-size="9" font-weight="700" fill="#2ECC71">45°</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">ROLLING OFF</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">847 mm</text>
+    </g>
+
+    <!-- ICON 3: HYDROTEST -->
+    <g transform="translate(390,0)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(30,15)">
+        <!-- gauge -->
+        <circle cx="55" cy="40" r="32" fill="#0F1115" stroke="#E8C14B" stroke-width="2"/>
+        <circle cx="55" cy="40" r="32" fill="none" stroke="#E74C3C" stroke-width="3" stroke-dasharray="100 200" transform="rotate(-90 55 40)"/>
+        <line x1="55" y1="40" x2="78" y2="22" stroke="#F5A623" stroke-width="2.5"/>
+        <circle cx="55" cy="40" r="3" fill="#F5A623"/>
+        <text x="55" y="68" text-anchor="middle" font-size="8" font-weight="700" fill="#9BA3C7">bar</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">HYDROTEST</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">22.5 bar</text>
+    </g>
+
+    <!-- ICON 4: HEAT INPUT -->
+    <g transform="translate(585,0)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(20,20)">
+        <!-- flame -->
+        <path d="M40 60 Q20 50 25 30 Q30 35 32 25 Q40 5 50 25 Q55 15 56 30 Q62 50 40 60 Z" fill="url(#orangeGrad)"/>
+        <!-- arc waveform -->
+        <path d="M75 50 L85 30 L95 55 L105 25 L115 50 L125 35 L135 50" fill="none" stroke="#E8C14B" stroke-width="2"/>
+        <text x="105" y="20" text-anchor="middle" font-size="9" font-weight="700" fill="#2ECC71">kJ/mm</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">HEAT INPUT</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">1.42 kJ</text>
+    </g>
+
+    <!-- ICON 5: TUNGSTEN -->
+    <g transform="translate(780,0)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(30,20)">
+        <!-- electrode -->
+        <rect x="0" y="32" width="80" height="10" fill="#9BA3C7"/>
+        <polygon points="80,32 110,37 80,42" fill="#E8C14B"/>
+        <!-- color band -->
+        <rect x="10" y="32" width="6" height="10" fill="#E74C3C"/>
+        <circle cx="113" cy="37" r="4" fill="#F5A623" opacity="0.8"/>
+        <circle cx="113" cy="37" r="8" fill="none" stroke="#F5A623" stroke-opacity="0.4" stroke-width="1.5"/>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">TUNGSTEN</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">2.4 mm</text>
+    </g>
+
+    <!-- ROW 2 -->
+    <!-- ICON 6: PIPE ROUTE -->
+    <g transform="translate(0,130)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(15,20)">
+        <path d="M0 50 L40 50 Q50 50 50 40 L50 15 Q50 5 60 5 L110 5 Q120 5 120 15 L120 55 Q120 65 130 65 L150 65" fill="none" stroke="#F5A623" stroke-width="3"/>
+        <circle cx="0" cy="50" r="4" fill="#2ECC71"/>
+        <circle cx="150" cy="65" r="4" fill="#E74C3C"/>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">PIPE ROUTE</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">3.2 m</text>
+    </g>
+
+    <!-- ICON 7: DN/SCH -->
+    <g transform="translate(195,130)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(30,18)">
+        <!-- pipe cross-section -->
+        <circle cx="55" cy="40" r="30" fill="none" stroke="#E8C14B" stroke-width="2"/>
+        <circle cx="55" cy="40" r="20" fill="#0F1115" stroke="#F5A623" stroke-width="2"/>
+        <!-- arrows -->
+        <line x1="20" y1="40" x2="90" y2="40" stroke="#9BA3C7" stroke-width="1" stroke-dasharray="2 2"/>
+        <text x="55" y="86" text-anchor="middle" font-size="9" font-weight="700" fill="#9BA3C7">SCH 40</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">DN / SCH</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">DN80</text>
+    </g>
+
+    <!-- ICON 8: QUICK CONVERTER -->
+    <g transform="translate(390,130)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(20,22)">
+        <rect x="0" y="0" width="55" height="50" rx="6" fill="#1A1D26" stroke="#2C3354"/>
+        <text x="27" y="22" text-anchor="middle" font-size="11" font-weight="800" fill="#E8C14B">mm</text>
+        <text x="27" y="40" text-anchor="middle" font-size="14" font-weight="900" fill="#E8ECF0">168</text>
+        <path d="M62 25 L82 25 M77 20 L82 25 L77 30" fill="none" stroke="#F5A623" stroke-width="2"/>
+        <rect x="85" y="0" width="55" height="50" rx="6" fill="#1A1D26" stroke="#2C3354"/>
+        <text x="112" y="22" text-anchor="middle" font-size="11" font-weight="800" fill="#E8C14B">in</text>
+        <text x="112" y="40" text-anchor="middle" font-size="14" font-weight="900" fill="#E8ECF0">6.61</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">CONVERTER</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">SI / IMP</text>
+    </g>
+
+    <!-- ICON 9: ELBOW TAKEOUT -->
+    <g transform="translate(585,130)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(25,18)">
+        <!-- elbow -->
+        <path d="M0 70 L0 40 A40 40 0 0 1 40 0 L70 0" fill="none" stroke="#F5A623" stroke-width="6"/>
+        <path d="M0 70 L0 50 A50 50 0 0 1 50 0 L70 0" fill="none" stroke="#E8C14B" stroke-width="1.5" stroke-dasharray="3 2"/>
+        <!-- center mark -->
+        <circle cx="0" cy="0" r="3" fill="#E74C3C"/>
+        <text x="80" y="40" font-size="10" font-weight="700" fill="#9BA3C7">90°LR</text>
+        <text x="80" y="55" font-size="10" font-weight="700" fill="#E8ECF0">114.3</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">ELBOW TAKE</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">152 mm</text>
+    </g>
+
+    <!-- ICON 10: PRE-WELD -->
+    <g transform="translate(780,130)">
+      <rect width="180" height="110" rx="14" fill="#0F1115" stroke="#2C3354" stroke-width="1.2"/>
+      <g transform="translate(20,18)">
+        <!-- two pipes meeting with bevel -->
+        <polygon points="0,30 60,30 70,40 70,50 60,60 0,60" fill="none" stroke="#F5A623" stroke-width="2"/>
+        <polygon points="140,30 80,30 70,40 70,50 80,60 140,60" fill="none" stroke="#E8C14B" stroke-width="2"/>
+        <!-- root gap -->
+        <line x1="70" y1="40" x2="70" y2="50" stroke="#E74C3C" stroke-width="2"/>
+        <text x="70" y="20" text-anchor="middle" font-size="9" font-weight="700" fill="#2ECC71">37.5°</text>
+        <text x="70" y="75" text-anchor="middle" font-size="9" font-weight="700" fill="#9BA3C7">gap 2.4</text>
+      </g>
+      <text x="10" y="100" font-size="11" font-weight="700" fill="#E8ECF0" letter-spacing="1">PRE-WELD</text>
+      <text x="170" y="100" text-anchor="end" font-size="10" font-weight="700" fill="#F5A623">ROOT OK</text>
+    </g>
+  </g>
+
+  <!-- ============ DATA STRIP ============ -->
+  <g transform="translate(60,1030)">
+    <rect x="0" y="0" width="1080" height="48" rx="12" fill="#1A1D26" stroke="#2C3354" stroke-width="1.2"/>
+    <g font-size="12" font-weight="700" letter-spacing="2">
+      <text x="20" y="20" fill="#55607A">JOB</text>
+      <text x="20" y="38" fill="#E8ECF0">P-2041-A</text>
+
+      <text x="140" y="20" fill="#55607A">PIPE</text>
+      <text x="140" y="38" fill="#E8ECF0">DN150 · SCH80</text>
+
+      <text x="320" y="20" fill="#55607A">LENGTH</text>
+      <text x="320" y="38" fill="#E8ECF0">2 480 mm</text>
+
+      <text x="470" y="20" fill="#55607A">AMP</text>
+      <text x="470" y="38" fill="#E8ECF0">142 A</text>
+
+      <text x="580" y="20" fill="#55607A">PRE-HEAT</text>
+      <text x="580" y="38" fill="#E8ECF0">175 °C</text>
+
+      <text x="730" y="20" fill="#55607A">PWHT</text>
+      <text x="730" y="38" fill="#E8ECF0">620 °C</text>
+
+      <text x="850" y="20" fill="#55607A">STAMP</text>
+      <text x="850" y="38" fill="#F5A623">JK-014 / WP-022</text>
+    </g>
+  </g>
+
+  <!-- ============ FOOTER ============ -->
+  <g transform="translate(60,1100)">
+    <text x="0" y="20" font-size="22" font-weight="800" fill="#E8ECF0" letter-spacing="2">
+      Zero reklam. <tspan fill="#9BA3C7">Zero kont.</tspan> <tspan fill="#E8C14B">Zero internetu.</tspan>
+    </text>
+    <text x="0" y="46" font-size="13" font-weight="700" fill="#55607A" letter-spacing="3">
+      NO ADS · NO ACCOUNTS · WORKS OFFLINE ON THE PIPE RACK
+    </text>
+
+    <!-- CTA chip -->
+    <g transform="translate(820,0)">
+      <rect x="0" y="0" width="260" height="56" rx="28" fill="url(#orangeGrad)"/>
+      <rect x="0" y="0" width="260" height="56" rx="28" fill="none" stroke="#E8C14B" stroke-width="1.5" opacity="0.6"/>
+      <!-- Play triangle -->
+      <polygon points="22,16 22,40 44,28" fill="#0F1115"/>
+      <!-- Apple silhouette -->
+      <path d="M70 18 C66 18 62 22 62 28 C62 34 66 40 70 40 C72 40 74 39 76 39 C78 39 80 40 82 40 C86 40 90 34 90 28 C90 24 87 22 84 22 C82 22 80 23 78 23 C76 23 74 22 72 22 C71 22 70 18 70 18 Z M76 14 C77 12 78 11 80 11 C80 13 79 14 78 15 C77 16 75 17 75 16 C75 15 75 14 76 14 Z" fill="#0F1115"/>
+      <text x="240" y="24" text-anchor="end" font-size="14" font-weight="900" fill="#0F1115" letter-spacing="2">POBIERZ</text>
+      <text x="240" y="44" text-anchor="end" font-size="11" font-weight="800" fill="#0F1115" letter-spacing="2" opacity="0.8">GET IT FREE</text>
+    </g>
+  </g>
+
+  <!-- vertical wordmark right edge -->
+  <g transform="translate(1160,600) rotate(-90)">
+    <text x="0" y="0" text-anchor="middle" font-size="12" font-weight="700" fill="#2C3354" letter-spacing="8">FITTER WELDER PRO · BUILT BY PIPEFITTERS · 2026</text>
+  </g>
+
+  <!-- vertical spec left edge -->
+  <g transform="translate(40,600) rotate(-90)">
+    <text x="0" y="0" text-anchor="middle" font-size="12" font-weight="700" fill="#2C3354" letter-spacing="8">ISO 5817 · EN 13480 · ASME B31.3 · PED 2014/68/EU</text>
+  </g>
+</svg>

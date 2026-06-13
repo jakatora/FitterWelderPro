@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+<defs>
+<linearGradient id="cap" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#F5A623"/><stop offset="1" stop-color="#E8C14B"/></linearGradient>
+<linearGradient id="cg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#1F2330"/><stop offset="1" stop-color="#1A1D26"/></linearGradient>
+<linearGradient id="cv" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#F5A623"/><stop offset=".5" stop-color="#E8C14B"/><stop offset="1" stop-color="#F5A623"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="4" result="b"/><feComponentTransfer><feFuncA type="linear" slope=".4"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1290" height="2796" fill="#0F1115"/>
+<rect x="8" y="8" width="1274" height="2780" rx="80" fill="#0B0D12" stroke="#2C3354" stroke-width="2"/>
+<rect x="16" y="16" width="1258" height="2764" rx="72" fill="#0F1115"/>
+
+<!-- Status bar -->
+<text x="120" y="92" fill="#E8ECF0" font-size="34" font-weight="700">09:41</text>
+<rect x="525" y="48" width="240" height="56" rx="28" fill="#000"/>
+<g fill="#E8ECF0"><rect x="1040" y="78" width="6" height="10" rx="1"/><rect x="1050" y="74" width="6" height="14" rx="1"/><rect x="1060" y="70" width="6" height="18" rx="1"/><rect x="1070" y="66" width="6" height="22" rx="1"/></g>
+<path d="M1100 84Q1118 64 1136 84M1106 88Q1118 74 1130 88" stroke="#E8ECF0" stroke-width="4" fill="none" stroke-linecap="round"/>
+<circle cx="1118" cy="90" r="3" fill="#E8ECF0"/>
+<rect x="1150" y="72" width="44" height="20" rx="4" fill="none" stroke="#E8ECF0" stroke-width="2"/>
+<rect x="1194" y="78" width="4" height="8" rx="1" fill="#E8ECF0"/>
+<rect x="1153" y="75" width="36" height="14" rx="2" fill="#E8ECF0"/>
+
+<!-- AppBar -->
+<rect x="16" y="120" width="1258" height="180" fill="#1A1D26"/>
+<path d="M80 210L50 210M50 210L70 195M50 210L70 225" stroke="#E8ECF0" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="120" y="226" fill="#E8ECF0" font-size="56" font-weight="800">Saddle template</text>
+<circle cx="1110" cy="210" r="6" fill="none" stroke="#9BA3C7" stroke-width="3"/>
+<path d="M1090 210A20 20 0 1 1 1110 230" stroke="#9BA3C7" stroke-width="4" fill="none" stroke-linecap="round"/>
+<path d="M1090 210L1082 202M1090 210L1082 218" stroke="#9BA3C7" stroke-width="4" fill="none" stroke-linecap="round"/>
+<g fill="#9BA3C7"><circle cx="1190" cy="200" r="5"/><circle cx="1190" cy="220" r="5"/><circle cx="1190" cy="240" r="5"/></g>
+
+<!-- Inputs card -->
+<g filter="url(#sh)">
+<rect x="60" y="340" width="1170" height="320" rx="28" fill="url(#cg)" stroke="#2C3354" stroke-width="1.5"/>
+<text x="96" y="394" fill="#9BA3C7" font-size="28" font-weight="700" letter-spacing="2">INPUTS</text>
+<text x="1110" y="394" fill="#55607A" font-size="24" font-weight="600" text-anchor="end">JK-014</text>
+<text x="96" y="450" fill="#55607A" font-size="24" font-weight="600">OD main</text>
+<text x="96" y="500" fill="#E8ECF0" font-size="44" font-weight="800">168.3</text><text x="232" y="500" fill="#9BA3C7" font-size="28" font-weight="600">mm</text>
+<text x="430" y="450" fill="#55607A" font-size="24" font-weight="600">OD branch</text>
+<text x="430" y="500" fill="#E8ECF0" font-size="44" font-weight="800">60.3</text><text x="540" y="500" fill="#9BA3C7" font-size="28" font-weight="600">mm</text>
+<text x="740" y="450" fill="#55607A" font-size="24" font-weight="600">Wall</text>
+<text x="740" y="500" fill="#E8ECF0" font-size="44" font-weight="800">7.1</text><text x="820" y="500" fill="#9BA3C7" font-size="28" font-weight="600">mm</text>
+<text x="960" y="450" fill="#55607A" font-size="24" font-weight="600">Material</text>
+<text x="960" y="500" fill="#E8ECF0" font-size="36" font-weight="800">P235GH</text>
+<line x1="96" y1="540" x2="1194" y2="540" stroke="#2C3354" stroke-width="1.5"/>
+<text x="96" y="588" fill="#9BA3C7" font-size="26" font-weight="700">Branch angle</text>
+<text x="1110" y="588" fill="#F5A623" font-size="34" font-weight="800" text-anchor="end">90°</text>
+<rect x="96" y="610" width="1098" height="10" rx="5" fill="#2C3354"/>
+<rect x="96" y="610" width="549" height="10" rx="5" fill="url(#cv)"/>
+<circle cx="645" cy="615" r="22" fill="#F5A623" stroke="#0F1115" stroke-width="4"/>
+<text x="96" y="652" fill="#55607A" font-size="20" font-weight="600">30°</text>
+<text x="1194" y="652" fill="#55607A" font-size="20" font-weight="600" text-anchor="end">150°</text>
+</g>
+
+<!-- Saddle curve card -->
+<g filter="url(#sh)">
+<rect x="60" y="700" width="1170" height="640" rx="28" fill="url(#cg)" stroke="#2C3354" stroke-width="1.5"/>
+<text x="96" y="754" fill="#9BA3C7" font-size="28" font-weight="700" letter-spacing="2">SADDLE CURVE</text>
+<text x="1110" y="754" fill="#55607A" font-size="24" font-weight="600" text-anchor="end">unwrap π·D</text>
+<g stroke="#2C3354" stroke-width="1" opacity=".5">
+<path d="M96 820H1194M96 940H1194M96 1060H1194M96 1180H1194M96 1300H1194M96 820V1300M279 820V1300M462 820V1300M645 820V1300M828 820V1300M1011 820V1300M1194 820V1300"/>
+</g>
+<g fill="#55607A" font-size="18" font-weight="600">
+<text x="96" y="1330">0°</text>
+<text x="279" y="1330" text-anchor="middle">60°</text>
+<text x="462" y="1330" text-anchor="middle">120°</text>
+<text x="645" y="1330" text-anchor="middle">180°</text>
+<text x="828" y="1330" text-anchor="middle">240°</text>
+<text x="1011" y="1330" text-anchor="middle">300°</text>
+<text x="1194" y="1330" text-anchor="end">360°</text>
+</g>
+<g fill="#55607A" font-size="16" font-weight="600" text-anchor="end">
+<text x="78" y="828">31</text><text x="78" y="1068">15</text><text x="78" y="1308">0</text>
+</g>
+<path d="M96 820C168 828 232 852 296 894C360 946 424 1006 488 1062C552 1106 616 1130 645 1132C674 1130 738 1106 802 1062C866 1006 930 946 994 894C1058 852 1122 828 1194 820" fill="none" stroke="url(#cv)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+<g fill="#F5A623">
+<circle cx="96" cy="820" r="6"/><circle cx="279" cy="900" r="6"/><circle cx="462" cy="1020" r="6"/><circle cx="645" cy="1132" r="6"/><circle cx="828" cy="1020" r="6"/><circle cx="1011" cy="900" r="6"/><circle cx="1194" cy="820" r="6"/>
+</g>
+<line x1="645" y1="820" x2="645" y2="1132" stroke="#E8C14B" stroke-width="2" stroke-dasharray="6 6"/>
+<rect x="668" y="950" width="160" height="50" rx="10" fill="#0F1115" stroke="#F5A623" stroke-width="1.5"/>
+<text x="748" y="982" fill="#F5A623" font-size="22" font-weight="800" text-anchor="middle">31.2 mm</text>
+</g>
+
+<!-- Metric chips -->
+<g>
+<rect x="60" y="1380" width="370" height="120" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+<text x="96" y="1422" fill="#55607A" font-size="22" font-weight="700" letter-spacing="2">CUT POINTS</text>
+<text x="96" y="1478" fill="#E8C14B" font-size="48" font-weight="900">72</text>
+<rect x="460" y="1380" width="370" height="120" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+<text x="496" y="1422" fill="#55607A" font-size="22" font-weight="700" letter-spacing="2">STEP</text>
+<text x="496" y="1478" fill="#E8C14B" font-size="48" font-weight="900">5°</text>
+<rect x="860" y="1380" width="370" height="120" rx="22" fill="#1A1D26" stroke="#2C3354" stroke-width="1.5"/>
+<text x="896" y="1422" fill="#55607A" font-size="22" font-weight="700" letter-spacing="2">MAX OFFSET</text>
+<text x="896" y="1478" fill="#F5A623" font-size="48" font-weight="900">31.2 <tspan fill="#9BA3C7" font-size="28" font-weight="700">mm</tspan></text>
+</g>
+
+<!-- Cut data table -->
+<g filter="url(#sh)">
+<rect x="60" y="1540" width="1170" height="620" rx="28" fill="url(#cg)" stroke="#2C3354" stroke-width="1.5"/>
+<text x="96" y="1594" fill="#9BA3C7" font-size="28" font-weight="700" letter-spacing="2">CUT DATA</text>
+<text x="1110" y="1594" fill="#55607A" font-size="24" font-weight="600" text-anchor="end">preview · 6/72</text>
+<rect x="96" y="1620" width="1098" height="60" rx="12" fill="#0F1115"/>
+<g fill="#55607A" font-size="22" font-weight="700" letter-spacing="1">
+<text x="140" y="1660">ANGLE</text><text x="460" y="1660">OFFSET</text><text x="820" y="1660">MARK</text><text x="1150" y="1660" text-anchor="end">OK</text>
+</g>
+<g font-family="ui-monospace, Menlo, Consolas, monospace">
+<text x="140" y="1730" fill="#E8ECF0" font-size="30" font-weight="700">0°</text>
+<text x="460" y="1730" fill="#F5A623" font-size="30" font-weight="800">0.0 mm</text>
+<text x="140" y="1810" fill="#E8ECF0" font-size="30" font-weight="700">5°</text>
+<text x="460" y="1810" fill="#F5A623" font-size="30" font-weight="800">1.2 mm</text>
+<text x="140" y="1890" fill="#E8ECF0" font-size="30" font-weight="700">10°</text>
+<text x="460" y="1890" fill="#F5A623" font-size="30" font-weight="800">4.7 mm</text>
+<text x="140" y="1970" fill="#E8ECF0" font-size="30" font-weight="700">15°</text>
+<text x="460" y="1970" fill="#F5A623" font-size="30" font-weight="800">10.4 mm</text>
+<text x="140" y="2050" fill="#E8ECF0" font-size="30" font-weight="700">20°</text>
+<text x="460" y="2050" fill="#F5A623" font-size="30" font-weight="800">17.9 mm</text>
+<text x="140" y="2130" fill="#E8ECF0" font-size="30" font-weight="700">25°</text>
+<text x="460" y="2130" fill="#F5A623" font-size="30" font-weight="800">26.1 mm</text>
+</g>
+<g fill="#9BA3C7" font-size="28" font-weight="600">
+<text x="820" y="1730">A · top</text><text x="820" y="1810">A1</text><text x="820" y="1890">A2</text><text x="820" y="1970">A3</text><text x="820" y="2050">A4</text><text x="820" y="2130">A5</text>
+</g>
+<g fill="#2ECC71"><circle cx="1150" cy="1722" r="14"/><circle cx="1150" cy="1802" r="14"/><circle cx="1150" cy="1882" r="14"/><circle cx="1150" cy="1962" r="14"/><circle cx="1150" cy="2042" r="14"/><circle cx="1150" cy="2122" r="14"/></g>
+<g stroke="#0F1115" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M1143 1722L1149 1728L1158 1716"/><path d="M1143 1802L1149 1808L1158 1796"/><path d="M1143 1882L1149 1888L1158 1876"/><path d="M1143 1962L1149 1968L1158 1956"/><path d="M1143 2042L1149 2048L1158 2036"/><path d="M1143 2122L1149 2128L1158 2116"/>
+</g>
+<g stroke="#2C3354" stroke-width="1">
+<path d="M96 1755H1194M96 1835H1194M96 1915H1194M96 1995H1194M96 2075H1194"/>
+</g>
+</g>
+
+<!-- Action buttons -->
+<rect x="60" y="2200" width="555" height="130" rx="26" fill="#1A1D26" stroke="#F5A623" stroke-width="2.5"/>
+<circle cx="155" cy="2265" r="14" fill="none" stroke="#F5A623" stroke-width="4"/>
+<circle cx="230" cy="2235" r="14" fill="none" stroke="#F5A623" stroke-width="4"/>
+<circle cx="230" cy="2295" r="14" fill="none" stroke="#F5A623" stroke-width="4"/>
+<line x1="168" y1="2258" x2="217" y2="2242" stroke="#F5A623" stroke-width="4" stroke-linecap="round"/>
+<line x1="168" y1="2272" x2="217" y2="2288" stroke="#F5A623" stroke-width="4" stroke-linecap="round"/>
+<text x="290" y="2280" fill="#F5A623" font-size="42" font-weight="800">Share</text>
+<rect x="675" y="2200" width="555" height="130" rx="26" fill="#F5A623"/>
+<rect x="730" y="2230" width="56" height="70" rx="6" fill="#0F1115"/>
+<path d="M786 2230L786 2248L804 2248Z" fill="#1A1D26"/>
+<text x="758" y="2287" fill="#F5A623" font-size="20" font-weight="900" text-anchor="middle">PDF</text>
+<text x="830" y="2280" fill="#0F1115" font-size="42" font-weight="900">Export PDF</text>
+
+<text x="645" y="2390" fill="#55607A" font-size="22" font-weight="600" text-anchor="middle">Stamp: JK-014 · Spec: WP-022 · Cert P235GH EN 10216-2</text>
+
+<!-- Caption banner -->
+<rect y="2420" width="1290" height="376" fill="url(#cap)"/>
+<g opacity=".18" stroke="#0F1115" stroke-width="2" fill="none">
+<circle cx="1180" cy="2500" r="60"/><circle cx="1180" cy="2500" r="90"/>
+<path d="M1100 2500H1260M1180 2420V2580"/>
+</g>
+<text x="60" y="2560" fill="#0F1115" font-size="64" font-weight="900">Saddle cut bez kartki i ołówka.</text>
+<text x="60" y="2640" fill="#0F1115" font-size="44" font-weight="600" opacity=".85">Saddle cut without paper or pencil.</text>
+<circle cx="60" cy="2720" r="10" fill="#0F1115"/>
+<text x="86" y="2730" fill="#0F1115" font-size="28" font-weight="800" letter-spacing="3">FITTER WELDER PRO</text>
+</svg>

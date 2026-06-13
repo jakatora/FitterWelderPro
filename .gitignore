@@ -84,3 +84,7 @@ NIGHT_SHIFT_REPORT.md
 
 # Separate backend repo cloned in here as a sibling — never embed.
 /backend/
+
+# Generated PNG exports from promo_assets/convert_to_png.ps1 (source SVG is
+# tracked; raster outputs are derived and would bloat the repo).
+/promo_assets/png/
