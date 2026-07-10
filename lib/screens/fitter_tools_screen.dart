@@ -10,7 +10,7 @@ import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 const _kAccent       = Color(0xFF1A8A9B);
-const _kAccentWarm   = Color(0xFFF5A623);   // wyróżnienia wynikowe
+const _kAccentWarm   = Color(0xFFFF8E1E);   // wyróżnienia wynikowe
 const _kResultBg     = Color(0xFF152530);
 const _kResultBorder = Color(0xFF1A3A4A);
 const _kSubtle       = Color(0xFF546E7A);   // tekst pomocniczy
@@ -114,7 +114,7 @@ class _ResultValue extends StatelessWidget {
         style: TextStyle(
           fontSize: isPrimary ? 26 : 17,
           fontWeight: isPrimary ? FontWeight.w800 : FontWeight.w600,
-          color: isPrimary ? _kAccentWarm : const Color(0xFFE8ECF0),
+          color: isPrimary ? _kAccentWarm : const Color(0xFFE7ECF3),
           letterSpacing: isPrimary ? -0.5 : 0,
         ),
       ),
@@ -157,7 +157,7 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0), letterSpacing: -0.2),
+      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3), letterSpacing: -0.2),
     );
   }
 }
@@ -513,7 +513,7 @@ class _ElbowTabState extends State<_ElbowTab> {
                 style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFFE8ECF0)),
+                    color: Color(0xFFE7ECF3)),
               ),
               const SizedBox(height: 12),
 
@@ -1240,10 +1240,10 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
       DropdownButtonFormField<String>(
         initialValue: _mat,
         decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
-        items: const [
-          DropdownMenuItem(value: 'SS', child: Text('SS (nierdzewna) 7 930 kg/m³')),
-          DropdownMenuItem(value: 'CS', child: Text('CS (węglowa)   7 850 kg/m³')),
-          DropdownMenuItem(value: 'AL', child: Text('Al (aluminium) 2 700 kg/m³')),
+        items: [
+          DropdownMenuItem(value: 'SS', child: Text(_tr('SS (nierdzewna) 7 930 kg/m³', 'SS (stainless)  7 930 kg/m³'))),
+          DropdownMenuItem(value: 'CS', child: Text(_tr('CS (węglowa)   7 850 kg/m³', 'CS (carbon)     7 850 kg/m³'))),
+          DropdownMenuItem(value: 'AL', child: Text(_tr('Al (aluminium) 2 700 kg/m³', 'Al (aluminium)  2 700 kg/m³'))),
         ],
         onChanged: (v) { setState(() => _mat = v ?? 'SS'); _calc(); },
       ),
@@ -1439,11 +1439,11 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
         initialValue: _mat,
         decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
         items: const [
-          DropdownMenuItem(value: 'SS316L', child: Text('SS 316L   α = 16.0 ×10â»â¶ /°C')),
-          DropdownMenuItem(value: 'SS304L', child: Text('SS 304L   α = 17.2 ×10â»â¶ /°C')),
-          DropdownMenuItem(value: 'CS',     child: Text('CS (węgl.) α = 12.0 ×10â»â¶ /°C')),
-          DropdownMenuItem(value: 'CuNi',   child: Text('CuNi 90/10 α = 17.0 ×10â»â¶ /°C')),
-          DropdownMenuItem(value: 'Al',     child: Text('Aluminium  α = 23.6 ×10â»â¶ /°C')),
+          DropdownMenuItem(value: 'SS316L', child: Text('SS 316L   α = 16.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: 'SS304L', child: Text('SS 304L   α = 17.2 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: 'CS',     child: Text('CS (węgl.) α = 12.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: 'CuNi',   child: Text('CuNi 90/10 α = 17.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: 'Al',     child: Text('Aluminium  α = 23.6 ×10⁻⁶ /°C')),
         ],
         onChanged: (v) { setState(() => _mat = v ?? 'SS316L'); _calc(); },
       ),
@@ -1465,8 +1465,8 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
         const SizedBox(height: 10),
         Text(
           _dLmm! > 30
-            ? _tr('âš  Dylatacja > 30 mm — wymagana kompensacja (lira, przegub, dylatator).', 'âš  Expansion > 30 mm — compensation required (expansion loop, joint or bellows).')
-            : _tr('âœ“ Dylatacja mała — sprawdź czy trasa ma wystarczający odcinek elastyczny.', 'âœ“ Small expansion — verify the route has sufficient flexible section.'),
+            ? _tr('⚠ Dylatacja > 30 mm — wymagana kompensacja (lira, przegub, dylatator).', '⚠ Expansion > 30 mm — compensation required (expansion loop, joint or bellows).')
+            : _tr('✓ Dylatacja mała — sprawdź czy trasa ma wystarczający odcinek elastyczny.', '✓ Small expansion — verify the route has sufficient flexible section.'),
           style: TextStyle(fontSize: 12, color: _dLmm! > 30 ? _kAccentWarm : _kSubtle, fontWeight: _dLmm! > 30 ? FontWeight.w600 : FontWeight.normal),
         ),
       ]),

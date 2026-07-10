@@ -59,4 +59,31 @@ void main() {
     expect(closestByDn(10).dn, 15);
     expect(closestByDn(1000).dn, 600);
   });
+
+  // Regression guard (audit 2026-07-07): the lr45 column for DN90+ used to be
+  // lr90/2 (ratio 0.5), overstating the 45° takeout by ~20%. Pin the exact
+  // ASME B16.9 45° LR centre-to-end values so this can never come back.
+  test('lr45 matches ASME B16.9 45° LR takeout table exactly', () {
+    const expected = <int, int>{
+      15: 16, 20: 19, 25: 22, 32: 25, 40: 29, 50: 35, 65: 44, 80: 51,
+      90: 57, 100: 64, 125: 79, 150: 95, 200: 127, 250: 159, 300: 190,
+      350: 222, 400: 254, 450: 286, 500: 318, 600: 381,
+    };
+    for (final e in kElbowTakeouts) {
+      expect(e.lr45, expected[e.dn],
+          reason: 'DN${e.dn}: lr45=${e.lr45} != B16.9 ${expected[e.dn]}');
+    }
+  });
+
+  test('45° takeout ratio is ~tan(22.5°)=0.414, never the buggy 0.5', () {
+    // From DN100 up the geometry is clean; a 45° elbow is 0.414 of the 90°,
+    // not half. Anything >= 0.45 means the lr90/2 bug regressed.
+    for (final e in kElbowTakeouts.where((e) => e.dn >= 100)) {
+      final ratio = e.lr45 / e.lr90;
+      expect(ratio, lessThan(0.45),
+          reason: 'DN${e.dn}: lr45/lr90=$ratio looks like the 0.5 bug');
+      expect(ratio, greaterThan(0.38),
+          reason: 'DN${e.dn}: lr45/lr90=$ratio too small');
+    }
+  });
 }

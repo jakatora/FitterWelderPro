@@ -33,15 +33,15 @@ import '../widgets/help_button.dart';
 //
 // Specific alloys override the rule (P91 / P22 / 304L / Inconel etc.).
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFEF5350);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 const _kGold = Color(0xFFE8C14B);
 const _kGreen = Color(0xFF2ECC71);
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 
 class HeatInputScreen extends StatefulWidget {
   const HeatInputScreen({super.key});
@@ -1111,7 +1111,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
         title: Text(
           context.tr(pl: 'Skąd ten wynik?', en: 'Where does this come from?'),
-          style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 15, fontWeight: FontWeight.w800),
+          style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 15, fontWeight: FontWeight.w800),
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -1128,7 +1128,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               const SizedBox(height: 6),
               Text(
                 'HI [kJ/mm] = (V × I × 60) / (s × 1000) × η',
-                style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
+                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
@@ -1146,7 +1146,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               const SizedBox(height: 4),
               Text(
                 'SMAW / GMAW / FCAW-G = 0.80\nFCAW-S = 0.75\nGTAW (TIG) = 0.60\nSAW = 1.00',
-                style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 12, height: 1.5),
+                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
@@ -1319,7 +1319,7 @@ class _NumField extends StatelessWidget {
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       onChanged: (_) => onChanged(),
-      style: const TextStyle(color: Color(0xFFE8ECF0)),
+      style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: _kTextSec, fontSize: 12),
@@ -1449,7 +1449,7 @@ class _CeRow extends StatelessWidget {
             width: 80,
             child: Text(
               preheat,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFE8ECF0), fontWeight: FontWeight.w700),
+              style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3), fontWeight: FontWeight.w700),
             ),
           ),
           Expanded(
@@ -1540,7 +1540,7 @@ class _DnSchPickerSheetState extends State<_DnSchPickerSheet> {
                   en: 'Pick pipe size (DN / SCH)',
                 ),
                 style: const TextStyle(
-                  color: Color(0xFFE8ECF0),
+                  color: Color(0xFFE7ECF3),
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1611,7 +1611,7 @@ class _DnSchPickerSheetState extends State<_DnSchPickerSheet> {
                                     fontWeight: FontWeight.w800,
                                     color: selected
                                         ? _kOrange
-                                        : const Color(0xFFE8ECF0),
+                                        : const Color(0xFFE7ECF3),
                                   ),
                                 ),
                               ),
@@ -1652,7 +1652,7 @@ class _DnSchPickerSheetState extends State<_DnSchPickerSheet> {
                                     fontWeight: FontWeight.w700,
                                     color: wall == null
                                         ? _kTextMut
-                                        : const Color(0xFFE8ECF0),
+                                        : const Color(0xFFE7ECF3),
                                   ),
                                 ),
                               ),

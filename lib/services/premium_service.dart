@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/backend_config.dart';
+import '../config/feature_flags.dart';
 import 'api_client.dart';
 
 // Premium subscription state for Fitter Welder Pro.
@@ -210,6 +211,7 @@ class PremiumService {
   /// Debug-only: grants Premium locally so we can test gated features
   /// without a payment backend. **Strip from production builds.**
   Future<void> debugUnlockPro() async {
+    if (!kDebugMode) return; // dev-only Premium bypass — no-op in release
     _preDebugStatus ??= _current;
     await applyStatus(PremiumStatus(
       plan: PremiumPlan.lifetime,
@@ -218,6 +220,7 @@ class PremiumService {
   }
 
   Future<void> debugClear() async {
+    if (!kDebugMode) return; // dev-only — no-op in release
     _preDebugStatus ??= _current;
     await applyStatus(PremiumStatus.free());
   }
@@ -369,6 +372,11 @@ class PremiumService {
   }
 
   Future<PremiumStatus> refreshFromBackend() async {
+    // While the paid tier is off, never ask the billing backend anything. This
+    // is the single choke-point: no device_id is sent for subscription status
+    // at startup or from the Premium screen. Flip kPaidFeaturesEnabled=true
+    // when Stripe goes live. (Audit P0, 2026-07-07)
+    if (!kPaidFeaturesEnabled) return _current;
     if (!BackendConfig.stripeBackendLive) return _current;
     await init();
     final id = deviceId;

@@ -5,11 +5,11 @@ import '../data/pipe_schedules.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 /// Wall thickness lookup per ASME B36.10M / B36.19M.
 /// Long-press a wall to copy. Switch between wall-mm and kg/m view via the
@@ -150,7 +150,7 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
                                 en: 'No results for "${_q.trim()}"'),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                                color: Color(0xFFE8ECF0),
+                                color: Color(0xFFE7ECF3),
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700),
                           ),
@@ -274,7 +274,7 @@ class _Row extends StatelessWidget {
                 children: [
                   Text('DN${row.dn}',
                       style: const TextStyle(
-                          color: Color(0xFFE8ECF0),
+                          color: Color(0xFFE7ECF3),
                           fontSize: 13,
                           fontWeight: FontWeight.w800)),
                   Text('Ø ${row.od.toStringAsFixed(1)}',

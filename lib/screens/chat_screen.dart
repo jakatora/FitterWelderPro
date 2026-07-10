@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
+import '../services/blocked_users.dart';
 import '../services/chat_service.dart';
+import '../services/content_filter.dart';
 import '../services/premium_service.dart';
 import '../utils/haptic.dart';
+import 'profile_screen.dart';
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
 //   1. ChatScreen — list of rooms
@@ -15,23 +18,19 @@ import '../utils/haptic.dart';
 // optimistically appended so the user sees immediate feedback even before
 // the backend confirms (the next poll will dedup against id).
 
-const _kCard = Color(0xFF1A1D26);
+const _kCard = Color(0xFF141821);
 const _kAccent = Color(0xFFAB47BC); // purple accent — distinct from premium gold
-const _kBorder = Color(0xFF2C3354);
+const _kBorder = Color(0xFF2A3140);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 // P3-13 — chevron polish (brighter than _kTextMut so the affordance reads
 // under workshop fluorescents) + brighter edit-nickname icon.
 const _kChevron = Color(0xFFB0B7D4);
 const _kIconBright = Color(0xFFE0E4F2);
 
-// P1-43 — nickname guard rails. The backlog asks for a max length of 20 and
-// a rejection of "special" characters. We allow Unicode letters/digits, a
-// single internal space, dash and underscore — enough for "Krzysiek 304L"
-// but no zero-width / control chars / emojis / punctuation that gets
-// confused with the @mention prefix on the rendering side.
-const _kNicknameMax = 20;
-final RegExp _kNicknameAllowed = RegExp(r'^[\p{L}\p{N} _-]+$', unicode: true);
+// Podpis pod wiadomością pochodzi z profilu (imię i nazwisko). Nie ma osobnej,
+// dowolnie zmiennej ksywki — nie ma więc czego walidować. Kto chce zmienić to,
+// co widzą inni, robi to w jednym miejscu: w profilu.
 
 // P1-43 — minimum visible message length. Single-character "k" / "ok!" feels
 // like accidental keyboard mash and rate-limits faster than it informs.
@@ -89,7 +88,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return _ChatComingSoon();
     }
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1117),
+      backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
         title: Text(
@@ -98,11 +97,9 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            // P3-13 — brighter edit-nickname icon so the affordance reads
-            // in direct sunlight / tinted-visor scenarios.
             icon: const Icon(Icons.person_outline, color: _kIconBright),
-            tooltip: context.tr(pl: 'Ksywka', en: 'Nickname'),
-            onPressed: _editNickname,
+            tooltip: context.tr(pl: 'Twój profil', en: 'Your profile'),
+            onPressed: _openProfile,
           ),
         ],
       ),
@@ -139,82 +136,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _editNickname() async {
-    final current = await ChatService.instance.getNickname();
-    if (!mounted) return;
-    final ctrl = TextEditingController(text: current);
-    try {
-      final res = await showDialog<String>(
-        context: context,
-        builder: (dctx) => StatefulBuilder(
-          builder: (dctx, setS) {
-            // P1-43 — inline guard: 20-char cap and special-char rejection,
-            // surfaced via errorText instead of dismissing the dialog with
-            // an empty value.
-            final raw = ctrl.text.trim();
-            String? errorText;
-            if (raw.isEmpty) {
-              errorText = null; // hide while empty so we don't shout on open
-            } else if (raw.length > _kNicknameMax) {
-              errorText = context.tr(
-                pl: 'Max $_kNicknameMax znaków.',
-                en: 'Max $_kNicknameMax characters.',
-              );
-            } else if (!_kNicknameAllowed.hasMatch(raw)) {
-              errorText = context.tr(
-                pl: 'Bez znaków specjalnych — litery, cyfry, spacja, - lub _.',
-                en: 'No special characters — letters, digits, space, - or _.',
-              );
-            }
-            final canSave = raw.isNotEmpty && errorText == null;
-            return AlertDialog(
-              title: Text(context.tr(pl: 'Twoja ksywka', en: 'Your nickname')),
-              content: TextField(
-                controller: ctrl,
-                autofocus: true,
-                maxLength: _kNicknameMax,
-                onChanged: (_) => setS(() {}),
-                decoration: InputDecoration(
-                  hintText: context.tr(
-                      pl: 'np. Krzysiek 304L', en: 'e.g. Mike 304L'),
-                  helperText: context.tr(
-                    pl: 'Max $_kNicknameMax znaków, bez znaków specjalnych.',
-                    en: 'Max $_kNicknameMax chars, no special characters.',
-                  ),
-                  errorText: errorText,
-                ),
-                onSubmitted: (v) {
-                  final t = v.trim();
-                  if (t.isEmpty ||
-                      t.length > _kNicknameMax ||
-                      !_kNicknameAllowed.hasMatch(t)) {
-                    return;
-                  }
-                  Navigator.pop(dctx, t);
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dctx, null),
-                  child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-                ),
-                ElevatedButton(
-                  onPressed: canSave
-                      ? () => Navigator.pop(dctx, raw)
-                      : null,
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
-        ),
-      );
-      if (res != null && res.isNotEmpty) {
-        await ChatService.instance.setNickname(res);
-      }
-    } finally {
-      ctrl.dispose();
-    }
+  /// Tożsamość na czacie edytuje się w profilu — nie ma osobnej ksywki.
+  Future<void> _openProfile() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ProfileScreen()),
+    );
+    if (mounted) setState(() {});
   }
 }
 
@@ -222,7 +150,7 @@ class _ChatComingSoon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1117),
+      backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
         title: Text(
@@ -243,7 +171,7 @@ class _ChatComingSoon extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFFE8ECF0),
+                  color: Color(0xFFE7ECF3),
                 ),
               ),
               const SizedBox(height: 8),
@@ -279,7 +207,7 @@ class _ErrorRetry extends StatelessWidget {
             Text(
               context.tr(pl: 'Brak połączenia z czatem', en: 'Chat unreachable'),
               style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                  fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
             ),
             const SizedBox(height: 4),
             Text(
@@ -347,7 +275,7 @@ class _RoomTile extends StatelessWidget {
                       style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFFE8ECF0))),
+                          color: Color(0xFFE7ECF3))),
                   const SizedBox(height: 2),
                   Text(desc,
                       style: const TextStyle(fontSize: 12, color: _kTextSec, height: 1.3)),
@@ -401,8 +329,16 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     _bootstrap();
   }
 
+  /// Wiadomości bez tych od zablokowanych autorów. Filtrujemy po stronie
+  /// klienta i po `deviceId`, nie po nazwie — nazwę można zmienić, blokada
+  /// ma przetrwać.
+  List<ChatMessage> get _visibleMessages => _messages
+      .where((m) => !BlockedUsers.instance.isBlocked(m.deviceId))
+      .toList();
+
   Future<void> _bootstrap() async {
     await PremiumService.instance.init();
+    await BlockedUsers.instance.load();
     // P1-43 — read PremiumService.deviceId (NOT nickname) so the isMine
     // check is stable across nickname edits. Guarded against empty in the
     // bubble too.
@@ -551,6 +487,21 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       ));
       return;
     }
+    // Filtr treści obraźliwych — pierwsza z trzech rzeczy, których Apple wymaga
+    // przy treściach od użytkowników (obok zgłaszania i blokowania). Zatrzymujemy
+    // przy wysyłce, żeby taka wiadomość w ogóle nie trafiła do innych.
+    if (ContentFilter.isObjectionable(text)) {
+      Haptic.error();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: const Color(0xFFF0655A),
+        content: Text(context.tr(
+          pl: 'Ta wiadomość łamie zasady czatu. Bez wyzwisk.',
+          en: 'This message breaks the chat rules. No insults.',
+        )),
+        duration: const Duration(seconds: 4),
+      ));
+      return;
+    }
     setState(() => _sending = true);
     try {
       final msg = await ChatService.instance
@@ -613,6 +564,113 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     }
   }
 
+  /// Przytrzymanie wiadomości daje realny wybór. Apple przy treściach od
+  /// użytkowników (wytyczna 1.2) wymaga i zgłaszania treści, i blokowania
+  /// osób — apka miała tylko to pierwsze. Monter powiedziałby prościej:
+  /// „chcę tego gościa po prostu nie widzieć".
+  Future<void> _messageActions(ChatMessage m) async {
+    final isMine = _myDeviceId.isNotEmpty && m.deviceId == _myDeviceId;
+    if (isMine) return; // nie zgłasza się i nie blokuje samego siebie
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: _kCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  m.nickname,
+                  style: const TextStyle(
+                      color: _kTextSec, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: Color(0xFFF5B23D)),
+              title: Text(context.tr(
+                  pl: 'Zgłoś wiadomość', en: 'Report message')),
+              subtitle: Text(
+                context.tr(
+                    pl: 'Trafi do moderacji', en: 'Sent to moderation'),
+                style: const TextStyle(color: _kTextMut, fontSize: 12),
+              ),
+              onTap: () => Navigator.pop(sctx, 'report'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block, color: Color(0xFFF0655A)),
+              title: Text(context.tr(
+                  pl: 'Zablokuj autora', en: 'Block author')),
+              subtitle: Text(
+                context.tr(
+                    pl: 'Przestaniesz widzieć jego wiadomości',
+                    en: 'You stop seeing their messages'),
+                style: const TextStyle(color: _kTextMut, fontSize: 12),
+              ),
+              onTap: () => Navigator.pop(sctx, 'block'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || action == null) return;
+    if (action == 'report') {
+      await _reportMessage(m);
+    } else if (action == 'block') {
+      await _blockAuthor(m);
+    }
+  }
+
+  Future<void> _blockAuthor(ChatMessage m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Zablokować ${m.nickname}?', en: 'Block ${m.nickname}?')),
+        content: Text(context.tr(
+          pl: 'Nie zobaczysz więcej jego wiadomości. Blokada zostaje na Twoim '
+              'telefonie — on się o niej nie dowie. Odblokujesz go w profilu.',
+          en: 'You will no longer see their messages. The block stays on your '
+              'phone — they are not told. Undo it in your profile.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF0655A),
+                foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(pl: 'Zablokuj', en: 'Block')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await BlockedUsers.instance.block(m.deviceId, m.nickname);
+    if (!mounted) return;
+    Haptic.saved();
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(
+        pl: 'Zablokowano ${m.nickname}.',
+        en: 'Blocked ${m.nickname}.',
+      )),
+    ));
+  }
+
   Future<void> _reportMessage(ChatMessage m) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -660,7 +718,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         ? widget.room.namePl
         : widget.room.nameEn;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1117),
+      backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
         title: Row(
@@ -700,7 +758,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                         // P1-42 — render the empty-room CTA inside a
                         // scrollable so pull-to-refresh keeps working at
                         // zero messages.
-                        child: _messages.isEmpty
+                        child: _visibleMessages.isEmpty
                             ? ListView(
                                 physics:
                                     const AlwaysScrollableScrollPhysics(),
@@ -713,9 +771,9 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                                 controller: _scroll,
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 8),
-                                itemCount: _messages.length,
+                                itemCount: _visibleMessages.length,
                                 itemBuilder: (_, i) => _MessageBubble(
-                                  message: _messages[i],
+                                  message: _visibleMessages[i],
                                   // P1-43 — guard isMine against the race
                                   // where _myDeviceId hasn't loaded yet
                                   // (PremiumService init in progress); an
@@ -723,9 +781,9 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                                   // otherwise falsely flag every message
                                   // as mine.
                                   isMine: _myDeviceId.isNotEmpty &&
-                                      _messages[i].deviceId == _myDeviceId,
+                                      _visibleMessages[i].deviceId == _myDeviceId,
                                   onLongPress: () =>
-                                      _reportMessage(_messages[i]),
+                                      _messageActions(_visibleMessages[i]),
                                 ),
                               ),
                       ),
@@ -764,7 +822,7 @@ class _EmptyRoomCta extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
               textAlign: TextAlign.center,
             ),
@@ -846,7 +904,7 @@ class _MessageBubble extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                         height: 1.35,
                       ),
                     ),

@@ -249,8 +249,8 @@ class _FitterScreenState extends State<FitterScreen> {
                                       final endLbl = labels == null ? '...' : labels[1];
                                       return ListTile(
                                         leading: CircleAvatar(
-                                          backgroundColor: const Color(0xFFF5A623).withValues(alpha: 0.15),
-                                          child: Text('${s.seqNo}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFF5A623))),
+                                          backgroundColor: const Color(0xFFFF8E1E).withValues(alpha: 0.15),
+                                          child: Text('${s.seqNo}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFFF8E1E))),
                                         ),
                                         title: Text(
                                           '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}  •  Ø${s.diameterMm.toStringAsFixed(1)} × t${s.wallThicknessMm.toStringAsFixed(1)}',

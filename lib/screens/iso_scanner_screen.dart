@@ -12,13 +12,13 @@ import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/premium_gate.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ISO SCANNER — read a piping isometric from a phone photo / scan and turn
@@ -895,7 +895,7 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
           Expanded(
             flex: 5,
             child: Container(
-              color: const Color(0xFF0F1117),
+              color: const Color(0xFF0B0E13),
               child: Stack(
                 children: [
                   Positioned.fill(

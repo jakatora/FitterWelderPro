@@ -12,14 +12,14 @@ import '../widgets/premium_gate.dart';
 // itself is dumb pipe: it owns the message list, scroll behaviour and the
 // typing indicator; AiChatService handles everything network/model-side.
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE8C14B);
 const _kAccentBlue = Color(0xFF4A9EFF);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
-const _kTextPrimary = Color(0xFFE8ECF0);
+const _kTextMut = Color(0xFF5A6478);
+const _kTextPrimary = Color(0xFFE7ECF3);
 
 // P1-20: cache the alpha-modulated palette derivatives as top-level const so
 // each rebuild (and every message bubble repaint) re-uses the same Color
@@ -262,7 +262,7 @@ class _AiChatBodyState extends State<_AiChatBody> {
                         pl: 'Wyczyścić rozmowę?',
                         en: 'Clear chat?',
                       ),
-                      style: const TextStyle(color: Color(0xFFE8ECF0)),
+                      style: const TextStyle(color: Color(0xFFE7ECF3)),
                     ),
                     content: Text(
                       context.tr(
@@ -377,7 +377,7 @@ void _showCitation(BuildContext context, String citation) {
   showDialog<void>(
     context: context,
     builder: (dctx) => AlertDialog(
-      backgroundColor: const Color(0xFF1A1D26),
+      backgroundColor: const Color(0xFF141821),
       title: Row(
         children: [
           const Text('📖  ', style: TextStyle(fontSize: 18)),
@@ -404,7 +404,7 @@ void _showCitation(BuildContext context, String citation) {
         ),
         style: const TextStyle(
           fontSize: 12,
-          color: Color(0xFFE8ECF0),
+          color: Color(0xFFE7ECF3),
           height: 1.5,
         ),
       ),
@@ -745,7 +745,7 @@ class _Composer extends StatelessWidget {
               maxLines: 4,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => onSend(),
-              style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 14),
+              style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 14),
               decoration: InputDecoration(
                 hintText: context.tr(
                   pl: 'Zapytaj o WPS, preheat, NACE…',

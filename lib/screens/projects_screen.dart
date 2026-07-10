@@ -230,10 +230,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         leading: Container(
                           width: 42, height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF5A623).withValues(alpha: 0.1),
+                            color: const Color(0xFFFF8E1E).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.assignment_outlined, size: 22, color: Color(0xFFF5A623)),
+                          child: const Icon(Icons.assignment_outlined, size: 22, color: Color(0xFFFF8E1E)),
                         ),
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(

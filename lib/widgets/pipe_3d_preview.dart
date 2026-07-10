@@ -255,7 +255,7 @@ class _Pipe3DPainter extends CustomPainter {
 
     // ── Podłoga (siatka co 200 mm w płaszczyźnie XY, Z=0) ──────────────
     final gridPaint = Paint()
-      ..color = const Color(0xFF2C3354).withValues(alpha: 0.35)
+      ..color = const Color(0xFF2A3140).withValues(alpha: 0.35)
       ..strokeWidth = 0.6;
     const gridStep = 200.0;
     const gridSpan = 2000.0;
@@ -268,7 +268,7 @@ class _Pipe3DPainter extends CustomPainter {
     if (showAxes) {
       _drawAxis(canvas, project, 'X', axisLengthMm, 0, 0, const Color(0xFF4A9EFF));
       _drawAxis(canvas, project, 'Y', 0, axisLengthMm, 0, const Color(0xFF2ECC71));
-      _drawAxis(canvas, project, 'Z', 0, 0, axisLengthMm, const Color(0xFFF5A623));
+      _drawAxis(canvas, project, 'Z', 0, 0, axisLengthMm, const Color(0xFFFF8E1E));
     }
 
     // ── Przygotuj segmenty z głębokością do sortowania ─────────────────
@@ -446,7 +446,7 @@ class _Pipe3DPainter extends CustomPainter {
     final tp = TextPainter(
       text: const TextSpan(
         text: 'Dodaj komponenty → trasa pojawi się w 3D',
-        style: TextStyle(color: Color(0xFF55607A), fontSize: 12),
+        style: TextStyle(color: Color(0xFF5A6478), fontSize: 12),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

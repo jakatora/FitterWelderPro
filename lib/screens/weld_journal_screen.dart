@@ -9,12 +9,12 @@ import '../services/welder_identity.dart';
 import '../widgets/help_button.dart';
 
 // ── Kolory ─────────────────────────────────────────────────────────────────
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kMuted  = Color(0xFF55607A);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kMuted  = Color(0xFF5A6478);
 const _kSec    = Color(0xFF9BA3C7);
 
 // Locale-aware decimal separator for stored numeric strings (OD, t).
@@ -465,7 +465,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D26),
+      backgroundColor: const Color(0xFF141821),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => _WeldEditor(
         entry: existing,
@@ -521,7 +521,7 @@ class _WeldTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Text(entry.weldNo, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFE8ECF0))),
+                    Text(entry.weldNo, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFFE7ECF3))),
                     if (entry.projectName.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Expanded(child: Text(entry.projectName, style: const TextStyle(fontSize: 12, color: _kSec), overflow: TextOverflow.ellipsis)),
@@ -724,7 +724,7 @@ class _WeldEditorState extends State<_WeldEditor> {
           children: [
             Text(
               widget.entry == null ? _tr('Nowa spoina', 'New weld') : _tr('Edytuj spoinę', 'Edit weld'),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFE8ECF0)),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFE7ECF3)),
             ),
             const SizedBox(height: 16),
             // Numer spoiny
@@ -886,7 +886,7 @@ class _WeldEditorState extends State<_WeldEditor> {
                         style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFFE8ECF0)),
+                            color: Color(0xFFE7ECF3)),
                       ),
                     ),
                     Icon(_showBpe ? Icons.expand_less : Icons.expand_more,

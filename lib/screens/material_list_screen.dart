@@ -35,7 +35,9 @@ const TextStyle _kTrailingStyle = TextStyle(
 );
 const TextStyle _kMetaStyle = TextStyle(
   fontSize: 12,
-  color: Colors.black54,
+  // P2: dark-theme contrast — black meta text was near-invisible on the dark
+  // BOM background. Use a light muted slate so qty / mm↔in stays readable.
+  color: Color(0xFF9BA3C7),
   fontFeatures: [FontFeature.tabularFigures()],
 );
 
@@ -236,7 +238,9 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                               ? Icons.folder_off_outlined
                               : Icons.inventory_2_outlined,
                           size: 56,
-                          color: Colors.black38,
+                          // P3: dark-theme contrast — black38 empty-state icon
+                          // was invisible on the dark background; muted slate.
+                          color: const Color(0xFF5A6478),
                         ),
                         const SizedBox(height: 12),
                         Text(

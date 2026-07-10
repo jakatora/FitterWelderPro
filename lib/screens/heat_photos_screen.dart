@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -12,6 +13,7 @@ import '../models/heat_photo.dart';
 import '../widgets/help_button.dart';
 import '../models/library_component.dart';
 import '../models/project.dart';
+import '../utils/haptic.dart';
 
 class HeatPhotosScreen extends StatefulWidget {
   final String projectId;
@@ -74,7 +76,7 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
 
     if (!mounted) return;
 
-    await showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(context.tr(pl: 'Dodaj HEAT number (opcjonalnie)', en: 'Add HEAT number (optional)')),
@@ -88,7 +90,7 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
                 decoration: InputDecoration(labelText: context.tr(pl: 'Komponent (opcjonalnie)', en: 'Component (optional)')),
                 child: Text(
                   context.tr(pl: 'Brak pasujących komponentów w bibliotece', en: 'No matching components in library'),
-                  style: const TextStyle(color: Colors.black54),
+                  style: const TextStyle(color: Color(0xFF9BA3C7)),
                 ),
               )
             else
@@ -111,22 +113,89 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
           ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(context.tr(pl: 'Zapisz', en: 'Save'))),
         ],
       ),
     );
+
+    // 'Anuluj' (or dismiss by tapping outside) returns null/false — abort
+    // without writing a record.
+    if (confirmed != true) return;
+
+    // The picker hands back a path inside its volatile cache; that copy is
+    // wiped on cache-clear, which would silently destroy the heat/MTR
+    // traceability evidence. Copy the file into an app-owned persistent
+    // directory and store THAT path instead.
+    String persistentPath;
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final heatDir = Directory('${docsDir.path}/heat_photos');
+      if (!await heatDir.exists()) {
+        await heatDir.create(recursive: true);
+      }
+      final ext = picked.files.single.extension;
+      final fileName =
+          '${const Uuid().v4()}${ext != null && ext.isNotEmpty ? '.$ext' : '.jpg'}';
+      final destPath = '${heatDir.path}${Platform.pathSeparator}$fileName';
+      await File(path).copy(destPath);
+      persistentPath = destPath;
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.tr(
+              pl: 'Nie udało się zapisać zdjęcia', en: 'Failed to save photo')),
+        ),
+      );
+      await Haptic.error();
+      return;
+    }
 
     final now = DateTime.now().millisecondsSinceEpoch;
     await _dao.insert({
       'id': const Uuid().v4(),
       'project_id': p.id,
       'library_component_id': selected?.id,
-      'image_path': path,
+      'image_path': persistentPath,
       'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
       'created_at': now,
     });
 
+    await Haptic.saved();
+    await _load();
+  }
+
+  Future<void> _delete(HeatPhoto item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.tr(pl: 'Usunąć zdjęcie?', en: 'Delete photo?')),
+        content: Text(context.tr(
+          pl: 'Tej operacji nie można cofnąć — dowód traceability zostanie usunięty.',
+          en: 'This cannot be undone — the traceability evidence will be removed.',
+        )),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(context.tr(pl: 'Usuń', en: 'Delete'))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    await _dao.deleteById(item.id);
+    // Best-effort removal of the on-disk copy we own.
+    try {
+      final f = File(item.imagePath);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+
+    await Haptic.saved();
+    if (!mounted) return;
     await _load();
   }
 
@@ -148,7 +217,28 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
           : p == null
               ? Center(child: Text(context.tr(pl: 'Nie znaleziono projektu', en: 'Project not found')))
               : _items.isEmpty
-                  ? Center(child: Text(context.tr(pl: 'Brak zdjęć. Dodaj pierwsze.', en: 'No photos yet. Add the first one.')))
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.add_a_photo_outlined, size: 56, color: Color(0xFF9BA3C7)),
+                            const SizedBox(height: 16),
+                            Text(
+                              context.tr(pl: 'Brak zdjęć heat/MTR. Dodaj pierwsze.', en: 'No heat/MTR photos yet. Add the first one.'),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _add,
+                              icon: const Icon(Icons.add_a_photo),
+                              label: Text(context.tr(pl: 'Dodaj zdjęcie', en: 'Add photo')),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : ListView.separated(
                       padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
                       itemCount: _items.length,
@@ -162,8 +252,21 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (it.note != null) Text(it.note!, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                if (it.note != null) const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: it.note != null
+                                          ? Text(it.note!, style: const TextStyle(fontWeight: FontWeight.w600))
+                                          : const SizedBox.shrink(),
+                                    ),
+                                    IconButton(
+                                      tooltip: context.tr(pl: 'Usuń', en: 'Delete'),
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () => _delete(it),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
                                 SizedBox(
                                   height: 220,
                                   width: double.infinity,

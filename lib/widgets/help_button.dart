@@ -71,9 +71,9 @@ class _HelpSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const kCard   = Color(0xFF1A1D26);
-    const kBorder = Color(0xFF2C3354);
-    const kOrange = Color(0xFFF5A623);
+    const kCard   = Color(0xFF141821);
+    const kBorder = Color(0xFF2A3140);
+    const kOrange = Color(0xFFFF8E1E);
     const kSec    = Color(0xFF9BA3C7);
 
     return DraggableScrollableSheet(
@@ -123,7 +123,7 @@ class _HelpSheet extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFE8ECF0),
+                      color: Color(0xFFE7ECF3),
                     ),
                   ),
                 ),
@@ -167,8 +167,8 @@ class _StepRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const kOrange = Color(0xFFF5A623);
-    const kBorder = Color(0xFF2C3354);
+    const kOrange = Color(0xFFFF8E1E);
+    const kBorder = Color(0xFF2A3140);
     const kSec    = Color(0xFF9BA3C7);
 
     return Padding(
@@ -222,12 +222,12 @@ final kHelpHome = ScreenHelp(
   stepsPl: [
     HelpStep('🔧', 'FITTER — twórz listy cięć, używaj kalkulatorów i siatki ISO.'),
     HelpStep('⚡', 'SPAWACZ — parametry, gazy, dziennik spoin i kalkulatory spawalnicze.'),
-    HelpStep('ðŸ“', 'Ostatnie projekty — szybki powrót do ostatnio otwartych projektów.'),
+    HelpStep('📁', 'Ostatnie projekty — szybki powrót do ostatnio otwartych projektów.'),
   ],
   stepsEn: [
     HelpStep('🔧', 'FITTER — create cut lists, use calculators and the ISO notebook.'),
     HelpStep('⚡', 'WELDER — parameters, gases, weld journal and welding calculators.'),
-    HelpStep('ðŸ“', 'Recent projects — quick return to recently opened projects.'),
+    HelpStep('📁', 'Recent projects — quick return to recently opened projects.'),
   ],
 );
 
@@ -240,15 +240,15 @@ final kHelpFitterMenu = ScreenHelp(
       'The pipe fitter tool hub. Here you find the Cut List for project management, the DN-MM table, pipe geometry calculators, the component library and the ISO notebook.',
   stepsPl: [
     HelpStep('📋', 'CUT LIST — projekty, segmenty i listy cięć z BOM.'),
-    HelpStep('ðŸ“', 'Kalkulatory — cięcie kolanka, rolling offset, saddle cut, trasa rur i więcej.'),
+    HelpStep('📐', 'Kalkulatory — cięcie kolanka, rolling offset, saddle cut, trasa rur i więcej.'),
     HelpStep('📚', 'Biblioteka komponentów — twój katalog kolan, redukcji, zaworów i kołnierzy.'),
-    HelpStep('ðŸ—’ï¸', 'Zeszyt ISO — rysuj trasy na siatce izometrycznej.'),
+    HelpStep('🗒️', 'Zeszyt ISO — rysuj trasy na siatce izometrycznej.'),
   ],
   stepsEn: [
     HelpStep('📋', 'CUT LIST — projects, segments and cut lists with BOM.'),
-    HelpStep('ðŸ“', 'Calculators — elbow cut, rolling offset, saddle cut, pipe route and more.'),
+    HelpStep('📐', 'Calculators — elbow cut, rolling offset, saddle cut, pipe route and more.'),
     HelpStep('📚', 'Component library — your catalogue of elbows, reducers, valves and flanges.'),
-    HelpStep('ðŸ—’ï¸', 'ISO Notebook — draw pipe routes on an isometric grid.'),
+    HelpStep('🗒️', 'ISO Notebook — draw pipe routes on an isometric grid.'),
   ],
 );
 
@@ -261,15 +261,15 @@ final kHelpWelderMenu = ScreenHelp(
       'The welder tool hub. Here you find welding parameters for pipes and tanks, calculators (heat input, temperature, gas, O₂) and the weld journal.',
   stepsPl: [
     HelpStep('🔥', 'Rury — zestawy AMP, gazy osłonowe, zatwierdzone WPS, Twoje parametry.'),
-    HelpStep('ðŸ›¢ï¸', 'Zbiorniki — parametry TIG dla zbiorników i tandem TIG.'),
+    HelpStep('🛢️', 'Zbiorniki — parametry TIG dla zbiorników i tandem TIG.'),
     HelpStep('🗮', 'Kalkulatory — heat input, temperatura podgrzewania, przepływ gazu, timer.'),
-    HelpStep('ðŸ“', 'Dziennik spoin — rejestruj spoiny z datą, numerem i statusem.'),
+    HelpStep('📝', 'Dziennik spoin — rejestruj spoiny z datą, numerem i statusem.'),
   ],
   stepsEn: [
     HelpStep('🔥', 'Pipes — AMP sets, shielding gases, approved WPS, your parameters.'),
-    HelpStep('ðŸ›¢ï¸', 'Tanks — TIG parameters for tanks and tandem TIG.'),
+    HelpStep('🛢️', 'Tanks — TIG parameters for tanks and tandem TIG.'),
     HelpStep('🗮', 'Calculators — heat input, preheat temperature, gas flow, timer.'),
-    HelpStep('ðŸ“', 'Weld journal — log welds with date, number and status.'),
+    HelpStep('📝', 'Weld journal — log welds with date, number and status.'),
   ],
 );
 
@@ -283,12 +283,12 @@ final kHelpProjects = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Kliknij + (góra prawo) aby dodać nowy projekt.'),
     HelpStep('👆', 'Dotknij projektu aby otworzyć jego segmenty i cut listę.'),
-    HelpStep('ðŸ—‘ï¸', 'Przesuń w lewo na projekcie aby go usunąć.'),
+    HelpStep('🗑️', 'Przesuń w lewo na projekcie aby go usunąć.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Tap + (top right) to add a new project.'),
     HelpStep('👆', 'Tap a project to open its segments and cut list.'),
-    HelpStep('ðŸ—‘ï¸', 'Swipe left on a project to delete it.'),
+    HelpStep('🗑️', 'Swipe left on a project to delete it.'),
   ],
 );
 
@@ -321,13 +321,13 @@ final kHelpSegmentBuilder = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj komponent z listy lub biblioteki przyciskiem +.'),
     HelpStep('↕️', 'Przeciągaj komponenty aby zmienić ich kolejność w segmencie.'),
-    HelpStep('ðŸ“', 'Wpisz wymiary ISO — aplikacja przeliczy długość odcinka rury.'),
+    HelpStep('📏', 'Wpisz wymiary ISO — aplikacja przeliczy długość odcinka rury.'),
     HelpStep('✅', 'Zatwierdź segment aby zapisać go do projektu.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a component from the list or library with the + button.'),
     HelpStep('↕️', 'Drag components to reorder them in the segment.'),
-    HelpStep('ðŸ“', 'Enter ISO dimensions — the app calculates the pipe spool length.'),
+    HelpStep('📏', 'Enter ISO dimensions — the app calculates the pipe spool length.'),
     HelpStep('✅', 'Confirm the segment to save it to the project.'),
   ],
 );
@@ -342,14 +342,14 @@ final kHelpComponentLibrary = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj nowy komponent przyciskiem + (góra prawo).'),
     HelpStep('✏️', 'Dotknij komponentu aby edytować jego wymiary.'),
-    HelpStep('ðŸ—‘ï¸', 'Przesuń w lewo aby usunąć komponent.'),
-    HelpStep('ðŸ”', 'Filtruj listę wpisując typ lub średnicę w polu wyszukiwania.'),
+    HelpStep('🗑️', 'Przesuń w lewo aby usunąć komponent.'),
+    HelpStep('🔍', 'Filtruj listę wpisując typ lub średnicę w polu wyszukiwania.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a new component with the + button (top right).'),
     HelpStep('✏️', 'Tap a component to edit its dimensions.'),
-    HelpStep('ðŸ—‘ï¸', 'Swipe left to delete a component.'),
-    HelpStep('ðŸ”', 'Filter the list by typing a type or diameter in the search field.'),
+    HelpStep('🗑️', 'Swipe left to delete a component.'),
+    HelpStep('🔍', 'Filter the list by typing a type or diameter in the search field.'),
   ],
 );
 
@@ -363,12 +363,12 @@ final kHelpCutListSummary = ScreenHelp(
   stepsPl: [
     HelpStep('📋', 'Przejrzyj listę cięć — każdy wiersz to jeden odcinek rury.'),
     HelpStep('📊', 'Sekcja BOM pokazuje łączne ilości kolan, redukcji i innych komponentów.'),
-    HelpStep('ðŸ“¤', 'Użyj przycisku eksport aby zapisać zestawienie do PDF.'),
+    HelpStep('📤', 'Użyj przycisku eksport aby zapisać zestawienie do PDF.'),
   ],
   stepsEn: [
     HelpStep('📋', 'Review the cut list — each row is one pipe spool.'),
     HelpStep('📊', 'The BOM section shows total quantities of elbows, reducers and other components.'),
-    HelpStep('ðŸ“¤', 'Use the export button to save the summary as a PDF.'),
+    HelpStep('📤', 'Use the export button to save the summary as a PDF.'),
   ],
 );
 
@@ -380,18 +380,18 @@ final kHelpFitterTools = ScreenHelp(
   bodyEn:
       'A set of geometry calculators for pipe fitters. Switch between tabs: Slope, Elbow cut, Elbow rotation, Insert, Reducer, Pipe weight, Bevel and Thermal expansion.',
   stepsPl: [
-    HelpStep('ðŸ“', 'Spadek — oblicz miter (1 cięcie) dla wymaganego kąta nachylenia.'),
-    HelpStep('âœ‚ï¸', 'Cięcie kolanka — skróć kolano 90° do wymaganego kąta docelowego.'),
-    HelpStep('ðŸ”„', 'Obrót kolanka — oblicz % / ° obrotu dla odejścia bocznego.'),
-    HelpStep('ðŸ“', 'Wstawka — oblicz długość odcinka między dwoma kołnierzami/czołami.'),
-    HelpStep('ðŸ—œï¸', 'Redukcja — oblicz skrócenie dla docelowej średnicy wyjściowej.'),
+    HelpStep('📐', 'Spadek — oblicz miter (1 cięcie) dla wymaganego kąta nachylenia.'),
+    HelpStep('✂️', 'Cięcie kolanka — skróć kolano 90° do wymaganego kąta docelowego.'),
+    HelpStep('🔄', 'Obrót kolanka — oblicz % / ° obrotu dla odejścia bocznego.'),
+    HelpStep('📏', 'Wstawka — oblicz długość odcinka między dwoma kołnierzami/czołami.'),
+    HelpStep('🗜️', 'Redukcja — oblicz skrócenie dla docelowej średnicy wyjściowej.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“', 'Slope — calculate miter (1 cut) for a required inclination angle.'),
-    HelpStep('âœ‚ï¸', 'Elbow cut — trim a 90° elbow down to the required target angle.'),
-    HelpStep('ðŸ”„', 'Elbow rotation — calculate % / ° of rotation for a lateral offset.'),
-    HelpStep('ðŸ“', 'Insert — calculate spool length between two flanges or faces.'),
-    HelpStep('ðŸ—œï¸', 'Reducer — calculate trimming for the required outlet diameter.'),
+    HelpStep('📐', 'Slope — calculate miter (1 cut) for a required inclination angle.'),
+    HelpStep('✂️', 'Elbow cut — trim a 90° elbow down to the required target angle.'),
+    HelpStep('🔄', 'Elbow rotation — calculate % / ° of rotation for a lateral offset.'),
+    HelpStep('📏', 'Insert — calculate spool length between two flanges or faces.'),
+    HelpStep('🗜️', 'Reducer — calculate trimming for the required outlet diameter.'),
   ],
 );
 
@@ -403,14 +403,14 @@ final kHelpDnMm = ScreenHelp(
   bodyEn:
       'Nominal conversion table: DN (metric), NPS (inch) and actual outside diameter OD in millimetres. Enter a value in the DN or OD field to filter the table.',
   stepsPl: [
-    HelpStep('ðŸ”¢', 'Wpisz DN aby znaleźć odpowiednie OD i NPS.'),
-    HelpStep('ðŸ“', 'Wpisz OD (mm) aby znaleźć najbliższy DN/NPS (tolerancja ±0.25 mm).'),
-    HelpStep('ðŸ”', 'Pole tekstowe filtruje po NPS, np. "1 1/2".'),
+    HelpStep('🔢', 'Wpisz DN aby znaleźć odpowiednie OD i NPS.'),
+    HelpStep('📐', 'Wpisz OD (mm) aby znaleźć najbliższy DN/NPS (tolerancja ±0.25 mm).'),
+    HelpStep('🔍', 'Pole tekstowe filtruje po NPS, np. "1 1/2".'),
   ],
   stepsEn: [
-    HelpStep('ðŸ”¢', 'Enter DN to find the corresponding OD and NPS.'),
-    HelpStep('ðŸ“', 'Enter OD (mm) to find the closest DN/NPS (tolerance ±0.25 mm).'),
-    HelpStep('ðŸ”', 'Text field filters by NPS, e.g. "1 1/2".'),
+    HelpStep('🔢', 'Enter DN to find the corresponding OD and NPS.'),
+    HelpStep('📐', 'Enter OD (mm) to find the closest DN/NPS (tolerance ±0.25 mm).'),
+    HelpStep('🔍', 'Text field filters by NPS, e.g. "1 1/2".'),
   ],
 );
 
@@ -422,15 +422,15 @@ final kHelpPipeRoute = ScreenHelp(
   bodyEn:
       'Calculates pipe spool lengths for a route with 3 × 90° elbows: horizontal X → vertical ΔH → horizontal Y. Takes the elbow takeout R into account.',
   stepsPl: [
-    HelpStep('ðŸ“', 'Wpisz H1 i H2 — poziomy startowy i końcowy (różnica = ΔH).'),
-    HelpStep('↔ï¸', 'Wpisz X i Y — odległości poziome.'),
-    HelpStep('ðŸ”„', 'Wpisz R — wymiar kolanka face-to-centre dla Twojego LR 90°.'),
+    HelpStep('📏', 'Wpisz H1 i H2 — poziomy startowy i końcowy (różnica = ΔH).'),
+    HelpStep('↔️', 'Wpisz X i Y — odległości poziome.'),
+    HelpStep('🔄', 'Wpisz R — wymiar kolanka face-to-centre dla Twojego LR 90°.'),
     HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“', 'Enter H1 and H2 — start and end elevations (difference = ΔH).'),
-    HelpStep('↔ï¸', 'Enter X and Y — horizontal distances.'),
-    HelpStep('ðŸ”„', 'Enter R — elbow takeout face-to-centre for your LR 90°.'),
+    HelpStep('📏', 'Enter H1 and H2 — start and end elevations (difference = ΔH).'),
+    HelpStep('↔️', 'Enter X and Y — horizontal distances.'),
+    HelpStep('🔄', 'Enter R — elbow takeout face-to-centre for your LR 90°.'),
     HelpStep('✅', 'Tap Calculate — you get 3 cut lengths.'),
   ],
 );
@@ -444,15 +444,15 @@ final kHelpRollingOffset = ScreenHelp(
       'Calculates Travel (spool length) for an offset running simultaneously vertically (Rise) and horizontally (Spread). Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ).',
   stepsPl: [
     HelpStep('↕️', 'Rise — odchylenie pionowe (w mm).'),
-    HelpStep('↔ï¸', 'Spread — odchylenie poziome (w mm).'),
-    HelpStep('ðŸ”„', 'Kąt kolanka — wybierz 45°, 30°, 60° lub podaj własny.'),
-    HelpStep('ðŸ“', 'Wynik: True Offset, Travel, Run i Multiplier.'),
+    HelpStep('↔️', 'Spread — odchylenie poziome (w mm).'),
+    HelpStep('🔄', 'Kąt kolanka — wybierz 45°, 30°, 60° lub podaj własny.'),
+    HelpStep('📐', 'Wynik: True Offset, Travel, Run i Multiplier.'),
   ],
   stepsEn: [
     HelpStep('↕️', 'Rise — vertical deviation (in mm).'),
-    HelpStep('↔ï¸', 'Spread — horizontal deviation (in mm).'),
-    HelpStep('ðŸ”„', 'Elbow angle — choose 45°, 30°, 60° or enter your own.'),
-    HelpStep('ðŸ“', 'Results: True Offset, Travel, Run and Multiplier.'),
+    HelpStep('↔️', 'Spread — horizontal deviation (in mm).'),
+    HelpStep('🔄', 'Elbow angle — choose 45°, 30°, 60° or enter your own.'),
+    HelpStep('📐', 'Results: True Offset, Travel, Run and Multiplier.'),
   ],
 );
 
@@ -464,13 +464,13 @@ final kHelpPipeSlope = ScreenHelp(
   bodyEn:
       'Converts pipe slope between formats: percent (%), millimetres per metre (mm/m) and angle in degrees. You can also calculate rise (height) for a given length and slope.',
   stepsPl: [
-    HelpStep('ðŸ“', 'Wybierz tryb: długość→rise, rise→długość lub slope ze znanych wartości.'),
-    HelpStep('ðŸ”¢', 'Wpisz dane i kliknij Oblicz.'),
+    HelpStep('📐', 'Wybierz tryb: długość→rise, rise→długość lub slope ze znanych wartości.'),
+    HelpStep('🔢', 'Wpisz dane i kliknij Oblicz.'),
     HelpStep('📊', 'Wynik pokazuje slope w %, mm/m i stopniach równocześnie.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“', 'Choose mode: length→rise, rise→length or slope from known values.'),
-    HelpStep('ðŸ”¢', 'Enter the data and tap Calculate.'),
+    HelpStep('📐', 'Choose mode: length→rise, rise→length or slope from known values.'),
+    HelpStep('🔢', 'Enter the data and tap Calculate.'),
     HelpStep('📊', 'Result shows slope in %, mm/m and degrees simultaneously.'),
   ],
 );
@@ -483,14 +483,14 @@ final kHelpSaddleCut = ScreenHelp(
   bodyEn:
       'Calculates the saddle cut depth on the branch pipe for a perpendicular T-junction. The result is the cut profile at 8 angular positions around the pipe circumference.',
   stepsPl: [
-    HelpStep('ðŸ“', 'Wpisz OD rury głównej (header) i rury odgałęzieniowej (branch).'),
+    HelpStep('📏', 'Wpisz OD rury głównej (header) i rury odgałęzieniowej (branch).'),
     HelpStep('📊', 'Profil pokazuje głębokość cięcia co 22.5° (0°, 22.5°, 45°... 90°).'),
-    HelpStep('ðŸ’¡', 'Głębokość 0 mm jest na wierzchołku (90°), max na boku (0°).'),
+    HelpStep('💡', 'Głębokość 0 mm jest na wierzchołku (90°), max na boku (0°).'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“', 'Enter the OD of the header pipe and the branch pipe.'),
+    HelpStep('📏', 'Enter the OD of the header pipe and the branch pipe.'),
     HelpStep('📊', 'Profile shows cut depth every 22.5° (0°, 22.5°, 45°... 90°).'),
-    HelpStep('ðŸ’¡', 'Depth 0 mm is at the top (90°), maximum depth is at the side (0°).'),
+    HelpStep('💡', 'Depth 0 mm is at the top (90°), maximum depth is at the side (0°).'),
   ],
 );
 
@@ -502,14 +502,14 @@ final kHelpRouteMeasure = ScreenHelp(
   bodyEn:
       'Converts tape-measured dimensions to C-C (centre-to-centre) dimensions. Enter side A and B dimensions, pipe OD and elbow centre-to-face — the app calculates C-C dimensions and cut lengths.',
   stepsPl: [
-    HelpStep('ðŸ“', 'Wybierz typ pomiaru: inner (wewnątrz), center (C-C) lub outer (zewnątrz).'),
-    HelpStep('ðŸ”¢', 'Wpisz wymiary A, B, OD rury i wymiar kolanka do osi (C-F).'),
-    HelpStep('ðŸ“', 'Wynik: długości C-C dla obu boków, kąt skos i długości do cięcia.'),
+    HelpStep('📏', 'Wybierz typ pomiaru: inner (wewnątrz), center (C-C) lub outer (zewnątrz).'),
+    HelpStep('🔢', 'Wpisz wymiary A, B, OD rury i wymiar kolanka do osi (C-F).'),
+    HelpStep('📐', 'Wynik: długości C-C dla obu boków, kąt skos i długości do cięcia.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“', 'Choose measurement type: inner, center (C-C) or outer.'),
-    HelpStep('ðŸ”¢', 'Enter dimensions A, B, pipe OD and elbow centre-to-face (C-F).'),
-    HelpStep('ðŸ“', 'Result: C-C lengths for both sides, diagonal angle and cut lengths.'),
+    HelpStep('📏', 'Choose measurement type: inner, center (C-C) or outer.'),
+    HelpStep('🔢', 'Enter dimensions A, B, pipe OD and elbow centre-to-face (C-F).'),
+    HelpStep('📐', 'Result: C-C lengths for both sides, diagonal angle and cut lengths.'),
   ],
 );
 
@@ -549,15 +549,15 @@ final kHelpWelderPipes = ScreenHelp(
       'TIG welding parameter sets for pipes: current (AMP), shielding gases, approved WPS and your own sets. Browse and edit sets matched to pipe OD and wall thickness.',
   stepsPl: [
     HelpStep('📋', 'AMP — referencyjne prądy dla typowych średnic rur SS/CS.'),
-    HelpStep('ðŸ’¨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
+    HelpStep('💨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
     HelpStep('✅', 'Zatwierdzone — zestawy WPS zatwierdzone w Twoim zakładzie.'),
-    HelpStep('ðŸ‘¤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
+    HelpStep('👤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
   ],
   stepsEn: [
     HelpStep('📋', 'AMP — reference currents for typical pipe diameters SS/CS.'),
-    HelpStep('ðŸ’¨', 'Gases — recommended mixes and flow rates for different materials.'),
+    HelpStep('💨', 'Gases — recommended mixes and flow rates for different materials.'),
     HelpStep('✅', 'Approved — WPS sets approved in your workshop.'),
-    HelpStep('ðŸ‘¤', 'Mine — your own parameter sets saved locally.'),
+    HelpStep('👤', 'Mine — your own parameter sets saved locally.'),
   ],
 );
 
@@ -570,11 +570,11 @@ final kHelpWelderTanks = ScreenHelp(
       'TIG welding parameter sets for tanks and larger sections, including tandem TIG (two torches). Contains AMP and Tandem TIG tabs.',
   stepsPl: [
     HelpStep('⚡', 'AMP — referencyjne prądy dla zgrzewów obwodowych i podłużnych zbiorników.'),
-    HelpStep('ðŸ”€', 'Tandem TIG — parametry dla procesu z dwoma elektrodami (lead + trail).'),
+    HelpStep('🔀', 'Tandem TIG — parametry dla procesu z dwoma elektrodami (lead + trail).'),
   ],
   stepsEn: [
     HelpStep('⚡', 'AMP — reference currents for circumferential and longitudinal tank welds.'),
-    HelpStep('ðŸ”€', 'Tandem TIG — parameters for the dual-electrode process (lead + trail).'),
+    HelpStep('🔀', 'Tandem TIG — parameters for the dual-electrode process (lead + trail).'),
   ],
 );
 
@@ -586,16 +586,16 @@ final kHelpWelderTools = ScreenHelp(
   bodyEn:
       'Welding calculators in tabs: Heat Input (kJ/mm), Preheat temperature, O₂ purge, Gas consumption, Weld timer and Pressure converter.',
   stepsPl: [
-    HelpStep('ðŸŒ¡ï¸', 'Heat Input — oblicza kJ/mm ze: napięcia, prądu i prędkości spawania.'),
+    HelpStep('🌡️', 'Heat Input — oblicza kJ/mm ze: napięcia, prądu i prędkości spawania.'),
     HelpStep('🔥', 'Temperatura — wymagana temperatura podgrzewania wg grubości i C.E.'),
-    HelpStep('ðŸ’¨', 'O₂ Purge — czas i ilość gazu do wypłukania rury przed spawaniem.'),
-    HelpStep('â±ï¸', 'Timer — stoper do mierzenia czasu łuku dla heat input.'),
+    HelpStep('💨', 'O₂ Purge — czas i ilość gazu do wypłukania rury przed spawaniem.'),
+    HelpStep('⏱️', 'Timer — stoper do mierzenia czasu łuku dla heat input.'),
   ],
   stepsEn: [
-    HelpStep('ðŸŒ¡ï¸', 'Heat Input — calculates kJ/mm from: voltage, current and travel speed.'),
+    HelpStep('🌡️', 'Heat Input — calculates kJ/mm from: voltage, current and travel speed.'),
     HelpStep('🔥', 'Preheat — required preheat temperature based on thickness and C.E.'),
-    HelpStep('ðŸ’¨', 'O₂ Purge — time and gas volume to purge a pipe before welding.'),
-    HelpStep('â±ï¸', 'Timer — stopwatch to measure arc time for heat input.'),
+    HelpStep('💨', 'O₂ Purge — time and gas volume to purge a pipe before welding.'),
+    HelpStep('⏱️', 'Timer — stopwatch to measure arc time for heat input.'),
   ],
 );
 
@@ -609,14 +609,14 @@ final kHelpWeldJournal = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj nową spoinę przyciskiem + (góra prawo).'),
     HelpStep('✏️', 'Dotknij spoiny aby edytować jej dane.'),
-    HelpStep('ðŸŸ¢', 'Zmień status: OK (zielony), NOK (czerwony), Pending (pomarańczowy).'),
-    HelpStep('ðŸ“¤', 'Eksportuj dziennik do PDF lub CSV.'),
+    HelpStep('🟢', 'Zmień status: OK (zielony), NOK (czerwony), Pending (pomarańczowy).'),
+    HelpStep('📤', 'Eksportuj dziennik do PDF lub CSV.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a new weld with the + button (top right).'),
     HelpStep('✏️', 'Tap a weld entry to edit its data.'),
-    HelpStep('ðŸŸ¢', 'Change status: OK (green), NOK (red), Pending (orange).'),
-    HelpStep('ðŸ“¤', 'Export the journal to PDF or CSV.'),
+    HelpStep('🟢', 'Change status: OK (green), NOK (red), Pending (orange).'),
+    HelpStep('📤', 'Export the journal to PDF or CSV.'),
   ],
 );
 
@@ -629,11 +629,11 @@ final kHelpMaterialList = ScreenHelp(
       'A material breakdown for a segment or project. Shows pipes, components and their quantities. You can export the list or copy it to the clipboard.',
   stepsPl: [
     HelpStep('📋', 'Każdy wiersz to jeden typ elementu z ilością i jednostką.'),
-    HelpStep('ðŸ“¤', 'Eksportuj przyciskiem w górnym prawym rogu (PDF lub schowek).'),
+    HelpStep('📤', 'Eksportuj przyciskiem w górnym prawym rogu (PDF lub schowek).'),
   ],
   stepsEn: [
     HelpStep('📋', 'Each row is one type of element with quantity and unit.'),
-    HelpStep('ðŸ“¤', 'Export with the button in the top right (PDF or clipboard).'),
+    HelpStep('📤', 'Export with the button in the top right (PDF or clipboard).'),
   ],
 );
 
@@ -647,12 +647,12 @@ final kHelpTandemMenu = ScreenHelp(
   stepsPl: [
     HelpStep('🗮', 'Kalkulator — oblicz parametry lead i trail na podstawie materiału i OD.'),
     HelpStep('📚', 'Biblioteka — przeglądaj zestawy zatwierdzone dla różnych aplikacji.'),
-    HelpStep('ðŸ‘¤', 'Moje parametry — Twoje własne zestawy zapisane lokalnie.'),
+    HelpStep('👤', 'Moje parametry — Twoje własne zestawy zapisane lokalnie.'),
   ],
   stepsEn: [
     HelpStep('🗮', 'Calculator — calculate lead and trail parameters based on material and OD.'),
     HelpStep('📚', 'Library — browse sets approved for different applications.'),
-    HelpStep('ðŸ‘¤', 'My params — your own parameter sets saved locally.'),
+    HelpStep('👤', 'My params — your own parameter sets saved locally.'),
   ],
 );
 
@@ -664,12 +664,12 @@ final kHelpTandemCalc = ScreenHelp(
   bodyEn:
       'Calculates Tandem TIG process parameters (lead + trail) for tank and large-section welding. Results include suggested currents, voltages, travel speed and heat input.',
   stepsPl: [
-    HelpStep('ðŸ”¢', 'Wpisz OD, grubość ścianki i materiał.'),
+    HelpStep('🔢', 'Wpisz OD, grubość ścianki i materiał.'),
     HelpStep('⚡', 'Wybierz tryb spawania i pozycję.'),
     HelpStep('✅', 'Kliknij Oblicz aby zobaczyć parametry lead i trail.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ”¢', 'Enter OD, wall thickness and material.'),
+    HelpStep('🔢', 'Enter OD, wall thickness and material.'),
     HelpStep('⚡', 'Choose the welding mode and position.'),
     HelpStep('✅', 'Tap Calculate to see lead and trail parameters.'),
   ],
@@ -685,12 +685,12 @@ final kHelpWelderPipeParams = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj nowy zestaw przyciskiem +.'),
     HelpStep('✏️', 'Dotknij zestawu aby edytować parametry.'),
-    HelpStep('ðŸ—‘ï¸', 'Przesuń w lewo aby usunąć zestaw.'),
+    HelpStep('🗑️', 'Przesuń w lewo aby usunąć zestaw.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a new set with the + button.'),
     HelpStep('✏️', 'Tap a set to edit its parameters.'),
-    HelpStep('ðŸ—‘ï¸', 'Swipe left to delete a set.'),
+    HelpStep('🗑️', 'Swipe left to delete a set.'),
   ],
 );
 
@@ -703,14 +703,14 @@ final kHelpSpoolPlanner = ScreenHelp(
       'A 3D visual pipe route planner. Define successive segments along X, Y and Z axes and the app draws a route preview and calculates total lengths in each direction.',
   stepsPl: [
     HelpStep('➕', 'Dodaj odcinek: wybierz oś (X/Y/Z) i wpisz długość.'),
-    HelpStep('ðŸ”„', 'Podgląd 3D obraca się automatycznie po każdym dodaniu.'),
-    HelpStep('ðŸ—‘ï¸', 'Usuń ostatni odcinek przyciskiem Cofnij.'),
+    HelpStep('🔄', 'Podgląd 3D obraca się automatycznie po każdym dodaniu.'),
+    HelpStep('🗑️', 'Usuń ostatni odcinek przyciskiem Cofnij.'),
     HelpStep('📊', 'Zestawienie na dole pokazuje sumy w osi X, Y i Z.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a segment: choose axis (X/Y/Z) and enter the length.'),
-    HelpStep('ðŸ”„', 'The 3D preview rotates automatically after each addition.'),
-    HelpStep('ðŸ—‘ï¸', 'Remove the last segment with the Undo button.'),
+    HelpStep('🔄', 'The 3D preview rotates automatically after each addition.'),
+    HelpStep('🗑️', 'Remove the last segment with the Undo button.'),
     HelpStep('📊', 'The summary at the bottom shows totals for X, Y and Z axes.'),
   ],
 );
@@ -723,14 +723,14 @@ final kHelpHeatPhotos = ScreenHelp(
   bodyEn:
       'A photo gallery of material certificates (heat numbers) assigned to the project. You can add, view and delete label photos for material traceability.',
   stepsPl: [
-    HelpStep('ðŸ“·', 'Dodaj zdjęcie aparatem lub z galerii przyciskiem +.'),
-    HelpStep('ðŸ”', 'Dotknij miniatury aby zobaczyć pełny podgląd.'),
-    HelpStep('ðŸ—‘ï¸', 'Przytrzymaj miniaturę aby usunąć zdjęcie.'),
+    HelpStep('📷', 'Dodaj zdjęcie aparatem lub z galerii przyciskiem +.'),
+    HelpStep('🔍', 'Dotknij miniatury aby zobaczyć pełny podgląd.'),
+    HelpStep('🗑️', 'Przytrzymaj miniaturę aby usunąć zdjęcie.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ“·', 'Add a photo from the camera or gallery with the + button.'),
-    HelpStep('ðŸ”', 'Tap a thumbnail to see the full preview.'),
-    HelpStep('ðŸ—‘ï¸', 'Long-press a thumbnail to delete the photo.'),
+    HelpStep('📷', 'Add a photo from the camera or gallery with the + button.'),
+    HelpStep('🔍', 'Tap a thumbnail to see the full preview.'),
+    HelpStep('🗑️', 'Long-press a thumbnail to delete the photo.'),
   ],
 );
 
@@ -742,13 +742,13 @@ final kHelpProjectComponents = ScreenHelp(
   bodyEn:
       'Project component view with heat number assignment. For each component you can assign a material certificate number and a label photo.',
   stepsPl: [
-    HelpStep('ðŸ”¢', 'Wpisz numer heatu (wytopienia) dla każdego komponentu.'),
-    HelpStep('ðŸ“·', 'Dodaj zdjęcie certyfikatu materiałowego przyciskiem aparatu.'),
+    HelpStep('🔢', 'Wpisz numer heatu (wytopienia) dla każdego komponentu.'),
+    HelpStep('📷', 'Dodaj zdjęcie certyfikatu materiałowego przyciskiem aparatu.'),
     HelpStep('✅', 'Zapisz przypisania przyciskiem w górnym prawym rogu.'),
   ],
   stepsEn: [
-    HelpStep('ðŸ”¢', 'Enter the heat number for each component.'),
-    HelpStep('ðŸ“·', 'Add a material certificate photo with the camera button.'),
+    HelpStep('🔢', 'Enter the heat number for each component.'),
+    HelpStep('📷', 'Add a material certificate photo with the camera button.'),
     HelpStep('✅', 'Save the assignments with the button in the top right.'),
   ],
 );
@@ -763,12 +763,12 @@ final kHelpFieldAssembly = ScreenHelp(
   stepsPl: [
     HelpStep('📋', 'Lista spoolów pokazuje status każdego prefabrykatu.'),
     HelpStep('✅', 'Dotknij spool\'a aby zmienić jego status montażu.'),
-    HelpStep('ðŸ“¤', 'Eksportuj raport statusu przyciskiem w górnym prawym rogu.'),
+    HelpStep('📤', 'Eksportuj raport statusu przyciskiem w górnym prawym rogu.'),
   ],
   stepsEn: [
     HelpStep('📋', 'The spool list shows the status of each prefab.'),
     HelpStep('✅', 'Tap a spool to change its assembly status.'),
-    HelpStep('ðŸ“¤', 'Export the status report with the button in the top right.'),
+    HelpStep('📤', 'Export the status report with the button in the top right.'),
   ],
 );
 
@@ -799,11 +799,11 @@ final kHelpTandemMyParams = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj nowy zestaw przyciskiem +.'),
     HelpStep('✏️', 'Dotknij zestawu aby edytować parametry.'),
-    HelpStep('ðŸ—‘ï¸', 'Przesuń w lewo aby usunąć zestaw.'),
+    HelpStep('🗑️', 'Przesuń w lewo aby usunąć zestaw.'),
   ],
   stepsEn: [
     HelpStep('➕', 'Add a new set with the + button.'),
     HelpStep('✏️', 'Tap a set to edit its parameters.'),
-    HelpStep('ðŸ—‘ï¸', 'Swipe left to delete a set.'),
+    HelpStep('🗑️', 'Swipe left to delete a set.'),
   ],
 );

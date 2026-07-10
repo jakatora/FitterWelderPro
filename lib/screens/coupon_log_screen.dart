@@ -5,12 +5,13 @@ import '../database/db.dart';
 import '../i18n/app_language.dart';
 import '../utils/haptic.dart';
 
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kMuted  = Color(0xFF55607A);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kMuted  = Color(0xFF5A6478); // decorative icons / hairlines only
+const _kTextMut = Color(0xFF7A83A0); // secondary text that carries content
 const _kSec    = Color(0xFF9BA3C7);
 
 /// A test coupon ("kupon próbny") is a sacrificial weld a welder makes — on
@@ -127,6 +128,67 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
     }
   }
 
+  Future<void> _delete(CouponEntry e) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Usunąć kupon?', en: 'Delete coupon?')),
+        content: Text(context.tr(
+          pl: 'Kupon próbny zostanie usunięty z dziennika audytowego.',
+          en: 'This test coupon will be removed from the audit log.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: _kRed, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _dao.delete(e.id);
+    } catch (err) {
+      debugPrint('CouponLog delete error: $err');
+      if (!mounted) return;
+      // Fire-and-forget: awaiting the haptic opens an async gap and the
+      // BuildContext below would no longer be provably mounted.
+      Haptic.error();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Nie udało się usunąć kuponu.',
+          en: 'Failed to delete coupon.',
+        )),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    await Haptic.saved();
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(pl: 'Usunięto kupon.', en: 'Coupon deleted.')),
+      action: SnackBarAction(
+        label: context.tr(pl: 'Cofnij', en: 'Undo'),
+        onPressed: () async {
+          try {
+            await _dao.insert(e);
+          } catch (err) {
+            debugPrint('CouponLog undo error: $err');
+          }
+          if (mounted) await _load();
+        },
+      ),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -155,7 +217,7 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
                             en: 'No coupons yet. Tap + to add the first coupon of the day.',
                           ),
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: _kMuted, fontSize: 13),
+                          style: const TextStyle(color: _kTextMut, fontSize: 13),
                         ),
                       ],
                     ),
@@ -166,10 +228,7 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
                   itemCount: _items.length,
                   itemBuilder: (_, i) => _CouponTile(
                     entry: _items[i],
-                    onDelete: () async {
-                      await _dao.delete(_items[i].id);
-                      _load();
-                    },
+                    onDelete: () => _delete(_items[i]),
                   ),
                 ),
       floatingActionButton: FloatingActionButton.extended(
@@ -223,13 +282,13 @@ class _CouponTile extends StatelessWidget {
                     if (entry.size.isNotEmpty) entry.size,
                   ].join('  ·  '),
                   style: const TextStyle(
-                      color: Color(0xFFE8ECF0),
+                      color: Color(0xFFE7ECF3),
                       fontSize: 13,
                       fontWeight: FontWeight.w700),
                 ),
                 if (entry.date.isNotEmpty)
                   Text(entry.date,
-                      style: const TextStyle(color: _kMuted, fontSize: 11)),
+                      style: const TextStyle(color: _kTextMut, fontSize: 11)),
                 if (entry.notes.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 3),
@@ -243,9 +302,13 @@ class _CouponTile extends StatelessWidget {
           ),
           GestureDetector(
             onTap: onDelete,
-            child: const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Icon(Icons.delete_outline, size: 20, color: _kMuted),
+            behavior: HitTestBehavior.opaque,
+            child: const SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(
+                child: Icon(Icons.delete_outline, size: 20, color: _kMuted),
+              ),
             ),
           ),
         ],
@@ -335,7 +398,7 @@ class _CouponEditorState extends State<_CouponEditor> {
                   style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFFE8ECF0))),
+                      color: Color(0xFFE7ECF3))),
               const SizedBox(height: 16),
               TextField(controller: _date, decoration: InputDecoration(labelText: _tr('Data', 'Date'))),
               const SizedBox(height: 10),

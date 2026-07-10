@@ -35,12 +35,12 @@ const Duration _kPendingCheckoutMaxAge = Duration(minutes: 30);
 //   - Bez reklam
 //   - Cloud sync między urządzeniami
 
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kGold = Color(0xFFE8C14B);
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 const _kGreen = Color(0xFF2ECC71);
 
 class PremiumScreen extends StatefulWidget {
@@ -273,7 +273,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1117),
+      backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
         title: ShaderMask(
@@ -315,7 +315,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF2A2218), Color(0xFF1A1D26)],
+                  colors: [Color(0xFF2A2218), Color(0xFF141821)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -348,7 +348,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFFE8ECF0),
+                            color: Color(0xFFE7ECF3),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -628,7 +628,7 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -828,7 +828,7 @@ class _Hero extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF2A2218), Color(0xFF1A1D26)],
+          colors: [Color(0xFF2A2218), Color(0xFF141821)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -848,7 +848,7 @@ class _Hero extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFE8ECF0),
+                    color: Color(0xFFE7ECF3),
                   ),
                 ),
               ),
@@ -949,7 +949,7 @@ class _FeatureTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFFE8ECF0),
+                    color: Color(0xFFE7ECF3),
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1016,7 +1016,7 @@ class _PlanCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
             ),
             const SizedBox(height: 8),
@@ -1029,7 +1029,7 @@ class _PlanCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
-                    color: highlight ? _kGold : const Color(0xFFE8ECF0),
+                    color: highlight ? _kGold : const Color(0xFFE7ECF3),
                   ),
                 ),
                 Text(
@@ -1099,7 +1099,7 @@ class _PlanCard extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: highlight ? _kGold : _kCard,
                   side: BorderSide(color: highlight ? _kGold : _kBorder),
-                  foregroundColor: highlight ? Colors.black : const Color(0xFFE8ECF0),
+                  foregroundColor: highlight ? Colors.black : const Color(0xFFE7ECF3),
                 ),
                 child: Text(
                   context.tr(pl: 'Wybierz', en: 'Choose'),
@@ -1199,7 +1199,7 @@ class _FreeVsPremiumTable extends StatelessWidget {
                       rows[i].label,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                         height: 1.3,
                       ),
                     ),

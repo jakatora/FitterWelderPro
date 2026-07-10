@@ -35,12 +35,12 @@ import '../utils/clipboard_helper.dart';
 //   - Re-torque after first thermal cycle (PTFE-lined: after 24 h cure).
 //   - Always tighten in star pattern at 25/50/75/100% of target.
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFAB47BC);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 const _kGold = Color(0xFFE8C14B);
 
 class BoltTorqueScreen extends StatefulWidget {
@@ -796,7 +796,7 @@ class _DropdownRow<T> extends StatelessWidget {
               isExpanded: true,
               dropdownColor: _kCard,
               icon: const Icon(Icons.keyboard_arrow_down, color: _kTextMut),
-              style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 14),
+              style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 14),
               items: items
                   .map((e) => DropdownMenuItem<T>(
                         value: e,

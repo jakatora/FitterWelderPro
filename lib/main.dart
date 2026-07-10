@@ -1,20 +1,22 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'app.dart';
+import 'data/db_bootstrap.dart';
 import 'services/premium_service.dart';
+import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
+
+  // Fabryka bazy zależna od platformy (desktop → FFI, web → SQLite w WASM,
+  // mobile → wbudowana). Wybór rozstrzyga warunkowy import, bo `dart:ffi`
+  // i `dart:js_interop` wykluczają się nawzajem. Nie pytamy tu o platformę
+  // przez `dart:io Platform` — to rzucało `Unsupported operation:
+  // Platform._operatingSystem` i wywracało aplikację w przeglądarce.
+  initDatabaseFactory();
 
   // Fire-and-forget: hydrate Premium status from backend so the gate is open
   // immediately if the user already paid. Failure leaves the cached state
@@ -34,6 +36,13 @@ void main() {
   // the session — no need to wait for the first await elsewhere.
   WelderIdentityService.instance.get().catchError((Object e) {
     debugPrint('WelderIdentityService startup hydrate failed: $e');
+    return null;
+  });
+
+  // Warm the first-run user profile (first + last name) so the RootGate can
+  // decide onboarding-vs-home from cache without a visible spinner flash.
+  UserProfileService.instance.get().catchError((Object e) {
+    debugPrint('UserProfileService startup hydrate failed: $e');
     return null;
   });
 

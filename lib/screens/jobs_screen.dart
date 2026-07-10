@@ -16,13 +16,13 @@ import 'job_add_screen.dart';
 // 6b adds Firestore sync + Stripe one-time payment, the same UI continues
 // to work — the DAO swaps to a Firestore-backed repository under the hood.
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE57373);
 const _kGold = Color(0xFFE8C14B);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 
 class JobsScreen extends StatefulWidget {
   const JobsScreen({super.key});
@@ -231,7 +231,7 @@ class _JobsScreenState extends State<JobsScreen> {
                       ),
                       style: const TextStyle(
                           fontSize: 13,
-                          color: Color(0xFFE8ECF0),
+                          color: Color(0xFFE7ECF3),
                           fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -242,7 +242,7 @@ class _JobsScreenState extends State<JobsScreen> {
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
             child: TextField(
               controller: _filterCtrl,
-              style: const TextStyle(color: Color(0xFFE8ECF0)),
+              style: const TextStyle(color: Color(0xFFE7ECF3)),
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: context.tr(
@@ -399,7 +399,7 @@ class _JobCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFFE8ECF0),
+                          color: Color(0xFFE7ECF3),
                         ),
                       ),
                     ),
@@ -552,7 +552,7 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
             ),
             const SizedBox(height: 6),
@@ -613,7 +613,7 @@ class _FilterEmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
             ),
             const SizedBox(height: 6),
@@ -708,7 +708,7 @@ class _JobDetailScreen extends StatelessWidget {
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w900,
-              color: Color(0xFFE8ECF0),
+              color: Color(0xFFE7ECF3),
             ),
           ),
           const SizedBox(height: 6),
@@ -751,7 +751,7 @@ class _JobDetailScreen extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFFE8ECF0),
+                            color: Color(0xFFE7ECF3),
                           ),
                         ),
                       ],
@@ -788,7 +788,7 @@ class _JobDetailScreen extends StatelessWidget {
                   child: Text(
                     r,
                     style: const TextStyle(
-                        fontSize: 12, color: Color(0xFFE8ECF0)),
+                        fontSize: 12, color: Color(0xFFE7ECF3)),
                   ),
                 );
               }).toList(),
@@ -815,7 +815,7 @@ class _JobDetailScreen extends StatelessWidget {
             child: SelectableText(
               listing.description,
               style: const TextStyle(
-                fontSize: 14, color: Color(0xFFE8ECF0), height: 1.5,
+                fontSize: 14, color: Color(0xFFE7ECF3), height: 1.5,
               ),
             ),
           ),
@@ -858,7 +858,7 @@ class _JobDetailScreen extends StatelessWidget {
         backgroundColor: _kCard,
         title: Text(
           context.tr(pl: 'Usunąć ogłoszenie?', en: 'Delete listing?'),
-          style: const TextStyle(color: Color(0xFFE8ECF0)),
+          style: const TextStyle(color: Color(0xFFE7ECF3)),
         ),
         content: Text(
           context.tr(
@@ -1001,7 +1001,7 @@ class _LoadingSkeletonState extends State<_LoadingSkeleton>
                     ),
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Color(0xFFE8ECF0),
+                      color: Color(0xFFE7ECF3),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1128,7 +1128,7 @@ class _ContactRow extends StatelessWidget {
             Expanded(
               child: SelectableText(
                 label,
-                style: const TextStyle(fontSize: 14, color: Color(0xFFE8ECF0)),
+                style: const TextStyle(fontSize: 14, color: Color(0xFFE7ECF3)),
               ),
             ),
             IconButton(

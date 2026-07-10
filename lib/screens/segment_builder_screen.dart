@@ -322,7 +322,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     final refPoint = await showModalBottomSheet<IsoRefPoint>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1A1D26),
+      backgroundColor: const Color(0xFF141821),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -527,7 +527,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                                 const Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 4),
                                   child: Icon(Icons.arrow_forward_ios,
-                                      size: 12, color: Color(0xFF55607A)),
+                                      size: 12, color: Color(0xFF5A6478)),
                                 ),
                             ],
                           ],
@@ -585,7 +585,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                               : 'mm',
                           suffixStyle: _isoMm != null
                               ? const TextStyle(
-                                  color: Color(0xFFF5A623),
+                                  color: Color(0xFFFF8E1E),
                                   fontWeight: FontWeight.w700)
                               : null,
                         ),
@@ -666,7 +666,7 @@ class _SequenceChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF22263A),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF2C3354)),
+        border: Border.all(color: const Color(0xFF2A3140)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -681,16 +681,16 @@ class _SequenceChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(label,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE8ECF0))),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE7ECF3))),
               if (refLbl.isNotEmpty)
                 Text(refLbl,
-                    style: const TextStyle(fontSize: 10, color: Color(0xFFF5A623))),
+                    style: const TextStyle(fontSize: 10, color: Color(0xFFFF8E1E))),
             ],
           ),
           const SizedBox(width: 6),
           GestureDetector(
             onTap: onRemove,
-            child: const Icon(Icons.close, size: 14, color: Color(0xFF55607A)),
+            child: const Icon(Icons.close, size: 14, color: Color(0xFF5A6478)),
           ),
         ],
       ),
@@ -716,16 +716,16 @@ class _IsoVisualization extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1D26),
+        color: const Color(0xFF141821),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.3)),
+        border: Border.all(color: const Color(0xFFFF8E1E).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.straighten, size: 14, color: const Color(0xFFF5A623).withValues(alpha: 0.8)),
+              Icon(Icons.straighten, size: 14, color: const Color(0xFFFF8E1E).withValues(alpha: 0.8)),
               const SizedBox(width: 6),
               Text(
                 context.tr(pl: 'Schemat pomiaru ISO', en: 'ISO measurement diagram'),
@@ -754,14 +754,14 @@ class _IsoVisualization extends StatelessWidget {
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   decoration: BoxDecoration(
                     color: const Color(0xFF22263A),
-                    border: Border.all(color: const Color(0xFFF5A623)),
+                    border: Border.all(color: const Color(0xFFFF8E1E)),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Center(
                     child: Text(
                       context.tr(pl: 'RURA', en: 'PIPE'),
                       style: const TextStyle(
-                          fontSize: 10, color: Color(0xFFF5A623), fontWeight: FontWeight.w800),
+                          fontSize: 10, color: Color(0xFFFF8E1E), fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
@@ -784,7 +784,7 @@ class _IsoVisualization extends StatelessWidget {
             children: [
               Text(
                 startOff > 0 ? '← ${startOff.toStringAsFixed(1)} mm' : '← 0 mm',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF55607A)),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF5A6478)),
               ),
               Text(
                 context.tr(pl: '── ISO ──', en: '── ISO ──'),
@@ -792,7 +792,7 @@ class _IsoVisualization extends StatelessWidget {
               ),
               Text(
                 endOff > 0 ? '${endOff.toStringAsFixed(1)} mm →' : '0 mm →',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF55607A)),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF5A6478)),
               ),
             ],
           ),
@@ -828,7 +828,7 @@ class _CompBlock extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 2),
       decoration: BoxDecoration(
         color: const Color(0xFF22263A),
-        border: Border.all(color: const Color(0xFF2C3354)),
+        border: Border.all(color: const Color(0xFF2A3140)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Stack(
@@ -838,12 +838,12 @@ class _CompBlock extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(label,
-                    style: const TextStyle(fontSize: 9, color: Color(0xFFE8ECF0)),
+                    style: const TextStyle(fontSize: 9, color: Color(0xFFE7ECF3)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
                 if (refLabel.isNotEmpty)
                   Text(refLabel,
-                      style: const TextStyle(fontSize: 8, color: Color(0xFFF5A623))),
+                      style: const TextStyle(fontSize: 8, color: Color(0xFFFF8E1E))),
               ],
             ),
           ),
@@ -852,7 +852,7 @@ class _CompBlock extends StatelessWidget {
             top: 0, bottom: 0,
             left: isStart ? null : 0,
             right: isStart ? 0 : null,
-            child: Container(width: 2, color: const Color(0xFFF5A623).withValues(alpha: 0.8)),
+            child: Container(width: 2, color: const Color(0xFFFF8E1E).withValues(alpha: 0.8)),
           ),
         ],
       ),
@@ -891,7 +891,7 @@ class _CalcBreakdown extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF151821),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF2C3354)),
+        border: Border.all(color: const Color(0xFF2A3140)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -917,7 +917,7 @@ class _CalcBreakdown extends StatelessWidget {
               value: '− ${gapTotal.toStringAsFixed(1)} mm',
               dimmed: true,
             ),
-          const Divider(height: 14, color: Color(0xFF2C3354)),
+          const Divider(height: 14, color: Color(0xFF2A3140)),
           if (cutMm != null)
             Center(
               child: Text(
@@ -925,7 +925,7 @@ class _CalcBreakdown extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: cutMm! > 0 ? const Color(0xFFF5A623) : const Color(0xFFE74C3C),
+                  color: cutMm! > 0 ? const Color(0xFFFF8E1E) : const Color(0xFFE74C3C),
                   letterSpacing: -0.5,
                 ),
               ),
@@ -944,7 +944,7 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = dimmed ? const Color(0xFF55607A) : const Color(0xFF9BA3C7);
+    final color = dimmed ? const Color(0xFF5A6478) : const Color(0xFF9BA3C7);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -991,7 +991,7 @@ class _RefPointSheet extends StatelessWidget {
                   children: [
                     Text(
                       _typeLabel(context, component.type),
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
                     ),
                     Text(
                       'Ø${component.diameterMm.toStringAsFixed(1)}  t${component.wallThicknessMm.toStringAsFixed(1)}'
@@ -1008,14 +1008,14 @@ class _RefPointSheet extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF5A623).withValues(alpha: 0.08),
+                color: const Color(0xFFFF8E1E).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.3)),
+                border: Border.all(color: const Color(0xFFFF8E1E).withValues(alpha: 0.3)),
               ),
               child: Text(
                 titleKey,
                 style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFF5A623)),
+                    fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFFFF8E1E)),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -1096,13 +1096,13 @@ class _RefOption extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: isDefault
-              ? const Color(0xFFF5A623).withValues(alpha: 0.07)
-              : const Color(0xFF1A1D26),
+              ? const Color(0xFFFF8E1E).withValues(alpha: 0.07)
+              : const Color(0xFF141821),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isDefault
-                ? const Color(0xFFF5A623).withValues(alpha: 0.5)
-                : const Color(0xFF2C3354),
+                ? const Color(0xFFFF8E1E).withValues(alpha: 0.5)
+                : const Color(0xFF2A3140),
             width: isDefault ? 1.5 : 1,
           ),
         ),
@@ -1112,7 +1112,7 @@ class _RefOption extends StatelessWidget {
               width: 10, height: 10,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isDefault ? const Color(0xFFF5A623) : const Color(0xFF55607A),
+                color: isDefault ? const Color(0xFFFF8E1E) : const Color(0xFF5A6478),
               ),
             ),
             const SizedBox(width: 12),
@@ -1127,7 +1127,7 @@ class _RefOption extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: isDefault ? const Color(0xFFF5A623) : const Color(0xFFE8ECF0),
+                          color: isDefault ? const Color(0xFFFF8E1E) : const Color(0xFFE7ECF3),
                         ),
                       ),
                       if (isDefault) ...[
@@ -1135,11 +1135,11 @@ class _RefOption extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF5A623).withValues(alpha: 0.15),
+                            color: const Color(0xFFFF8E1E).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text('domyślny',
-                              style: TextStyle(fontSize: 9, color: Color(0xFFF5A623))),
+                          child: Text(context.tr(pl: 'domyślny', en: 'default'),
+                              style: const TextStyle(fontSize: 9, color: Color(0xFFFF8E1E))),
                         ),
                       ],
                     ],
@@ -1173,7 +1173,7 @@ class _RefDiagram extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF151821),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF2C3354)),
+        border: Border.all(color: const Color(0xFF2A3140)),
       ),
       child: Stack(
         children: [
@@ -1184,7 +1184,7 @@ class _RefDiagram extends StatelessWidget {
               decoration: BoxDecoration(
                 color: const Color(0xFF22263A),
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: const Color(0xFF2C3354)),
+                border: Border.all(color: const Color(0xFF2A3140)),
               ),
               child: Center(child: ComponentIcon(type: component.type, size: 22)),
             ),
@@ -1233,7 +1233,7 @@ class _DiagramDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isDefault ? const Color(0xFFF5A623) : const Color(0xFF4A9EFF);
+    final color = isDefault ? const Color(0xFFFF8E1E) : const Color(0xFF4A9EFF);
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1270,18 +1270,18 @@ class _ComponentPalette extends StatelessWidget {
           border: Border.all(
             color: axial
                 ? const Color(0xFF4A9EFF).withValues(alpha: 0.3)
-                : const Color(0xFFF5A623).withValues(alpha: 0.3),
+                : const Color(0xFFFF8E1E).withValues(alpha: 0.3),
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (type == 'OPEN_END')
-              const Icon(Icons.open_in_new, size: 18, color: Color(0xFFE8ECF0))
+              const Icon(Icons.open_in_new, size: 18, color: Color(0xFFE7ECF3))
             else
               ComponentIcon(type: type, size: 18),
             const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFE8ECF0))),
+            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3))),
           ],
         ),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../config/feature_flags.dart';
 import '../widgets/help_button.dart';
 import 'projects_screen.dart';
 import 'component_library_screen.dart';
@@ -42,7 +43,7 @@ class FitterMenuScreen extends StatelessWidget {
               icon: Icons.assignment_outlined,
               title: 'CUT LIST',
               subtitle: context.tr(pl: 'Projekty', en: 'Projects'),
-              accentColor: const Color(0xFFF5A623),
+              accentColor: const Color(0xFFFF8E1E),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProjectsScreen())),
             ),
             _Tile(
@@ -164,16 +165,19 @@ class FitterMenuScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const IsoNotebookScreen()),
               ),
             ),
-            _Tile(
-              icon: Icons.document_scanner_outlined,
-              title: context.tr(pl: 'Skaner izometryku', en: 'Iso scanner'),
-              subtitle: context.tr(pl: 'Zdjęcie rysunku → CUT list', en: 'Photo of drawing → CUT list'),
-              accentColor: const Color(0xFFEF6C00),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const IsoScannerScreen()),
+            // Metered Claude Vision — hidden entirely while kAiScannerEnabled
+            // is false, so nobody triggers a per-scan bill.
+            if (kAiScannerEnabled)
+              _Tile(
+                icon: Icons.document_scanner_outlined,
+                title: context.tr(pl: 'Skaner izometryku', en: 'Iso scanner'),
+                subtitle: context.tr(pl: 'Zdjęcie rysunku → CUT list', en: 'Photo of drawing → CUT list'),
+                accentColor: const Color(0xFFEF6C00),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const IsoScannerScreen()),
+                ),
               ),
-            ),
             _Tile(
               icon: Icons.table_rows_outlined,
               title: context.tr(pl: 'Wymiary kolan', en: 'Elbow takeouts'),
@@ -227,7 +231,7 @@ class FitterMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.bolt_outlined,
               title: context.tr(pl: 'Moment śrub', en: 'Bolt torque'),
-              subtitle: context.tr(pl: 'B7/B7M/B16/B8M • PRO', en: 'B7/B7M/B16/B8M • PRO'),
+              subtitle: context.tr(pl: 'B7/B7M/B16/B8M', en: 'B7/B7M/B16/B8M'),
               accentColor: const Color(0xFFE8C14B),
               onTap: () => Navigator.push(
                 context,
@@ -237,7 +241,7 @@ class FitterMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.crop_din_outlined,
               title: context.tr(pl: 'Saddle / Coping', en: 'Saddle / Coping'),
-              subtitle: context.tr(pl: 'Szablon PDF do druku • PRO', en: 'Printable PDF template • PRO'),
+              subtitle: context.tr(pl: 'Szablon PDF do druku', en: 'Printable PDF template'),
               accentColor: const Color(0xFF26A69A),
               onTap: () => Navigator.push(
                 context,
@@ -269,29 +273,47 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 24, color: accentColor),
+        splashColor: accentColor.withValues(alpha: 0.10),
+        highlightColor: accentColor.withValues(alpha: 0.05),
+        child: Stack(
+          children: [
+            // Accent spine — consistent instrument-edge signature across menus.
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: 0,
+              child: Container(width: 3, color: accentColor),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 14, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: accentColor.withValues(alpha: 0.22)),
+                    ),
+                    child: Icon(icon, size: 23, color: accentColor),
+                  ),
+                  const Spacer(),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                ],
               ),
-              const Spacer(),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(subtitle, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

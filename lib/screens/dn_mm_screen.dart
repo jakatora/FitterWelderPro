@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../data/nps_dn_od_r.dart';
+import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 class DnMmScreen extends StatefulWidget {
@@ -129,12 +130,22 @@ class _DnMmScreenState extends State<DnMmScreen> {
                         ],
                         rows: [
                           for (final r in rows)
-                            DataRow(cells: [
-                              DataCell(Text(r.nps)),
-                              DataCell(Text(r.dn.toString())),
-                              DataCell(Text(r.odMm.toStringAsFixed(r.odMm % 1 == 0 ? 0 : 2))),
-                              DataCell(Text(r.rMm.toStringAsFixed(r.rMm % 1 == 0 ? 0 : 2))),
-                            ]),
+                            DataRow(
+                              // Long-press a reference row to copy it as a
+                              // single line (e.g. into a chat/SMS to a foreman).
+                              // copyToClipboard already fires Haptic.copied().
+                              onLongPress: () => copyToClipboard(
+                                context,
+                                '${r.nps}  DN${r.dn}  OD ${r.odMm.toStringAsFixed(r.odMm % 1 == 0 ? 0 : 2)} mm  R ${r.rMm.toStringAsFixed(r.rMm % 1 == 0 ? 0 : 2)} mm',
+                                label: 'DN/OD',
+                              ),
+                              cells: [
+                                DataCell(Text(r.nps)),
+                                DataCell(Text(r.dn.toString())),
+                                DataCell(Text(r.odMm.toStringAsFixed(r.odMm % 1 == 0 ? 0 : 2))),
+                                DataCell(Text(r.rMm.toStringAsFixed(r.rMm % 1 == 0 ? 0 : 2))),
+                              ],
+                            ),
                         ],
                       ),
                     ),

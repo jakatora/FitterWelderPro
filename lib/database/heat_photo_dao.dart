@@ -17,4 +17,9 @@ class HeatPhotoDao {
     );
     return rows.map(HeatPhoto.fromRow).toList();
   }
+
+  Future<void> deleteById(String id) async {
+    final db = await AppDatabase.get();
+    await db.delete('heat_photos', where: 'id = ?', whereArgs: [id]);
+  }
 }

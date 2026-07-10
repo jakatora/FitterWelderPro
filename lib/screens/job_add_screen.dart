@@ -15,12 +15,12 @@ import '../services/jobs_service.dart';
 //   4. Stripe webhook flips the draft to is_paid=1 and sets expires_at=+30d
 //   5. JobsScreen picks the listing up on next refresh
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE57373); // matches the home "PRACA" tile colour
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 
 class JobAddScreen extends StatefulWidget {
   /// Edit mode is signalled by passing an existing listing; null = create new.
@@ -124,7 +124,7 @@ class _JobAddScreenState extends State<JobAddScreen> {
             pl: 'Odrzucić wpisane dane?',
             en: 'Discard changes?',
           ),
-          style: const TextStyle(color: Color(0xFFE8ECF0)),
+          style: const TextStyle(color: Color(0xFFE7ECF3)),
         ),
         content: Text(
           context.tr(
@@ -407,7 +407,7 @@ class _JobAddScreenState extends State<JobAddScreen> {
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFFE8ECF0),
+                            color: Color(0xFFE7ECF3),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -556,7 +556,7 @@ class _Field extends StatelessWidget {
       maxLines: maxLines,
       keyboardType: keyboardType,
       validator: validator,
-      style: const TextStyle(color: Color(0xFFE8ECF0)),
+      style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: _kTextSec, fontSize: 12),

@@ -6,12 +6,12 @@ import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 /// Pocket-converter: length (mm ↔ in, ft), temperature (°C ↔ °F),
 /// pressure (bar ↔ MPa ↔ psi), mass-flow (slpm ↔ l/min ↔ cfh).

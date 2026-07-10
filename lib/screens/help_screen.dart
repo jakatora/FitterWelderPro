@@ -21,11 +21,11 @@ import '../services/help_search.dart';
 //   │  Active search → flat result list w/score  │
 //   └────────────────────────────────────────────┘
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 const _kAccent = Color(0xFF2ECC71);
 
 class HelpScreen extends StatefulWidget {
@@ -111,7 +111,7 @@ class _HelpScreenState extends State<HelpScreen> {
               focusNode: _searchFocus,
               onChanged: _onSearchChanged,
               textInputAction: TextInputAction.search,
-              style: const TextStyle(color: Color(0xFFE8ECF0)),
+              style: const TextStyle(color: Color(0xFFE7ECF3)),
               decoration: InputDecoration(
                 hintText: context.tr(
                   pl: 'Szukaj: WPS, NACE, preheat, NPSH...',
@@ -238,7 +238,7 @@ class _HelpScreenState extends State<HelpScreen> {
         backgroundColor: _kCard,
         title: Text(
           context.tr(pl: 'O bazie wiedzy', en: 'About knowledge base'),
-          style: const TextStyle(color: Color(0xFFE8ECF0)),
+          style: const TextStyle(color: Color(0xFFE7ECF3)),
         ),
         content: Text(
           context.tr(
@@ -397,7 +397,7 @@ class _CategoryCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFFE8ECF0),
+                          color: Color(0xFFE7ECF3),
                         ),
                       ),
                       Text(
@@ -489,7 +489,7 @@ class _EntryRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: expanded ? accent : const Color(0xFFE8ECF0),
+                        color: expanded ? accent : const Color(0xFFE7ECF3),
                       ),
                       highlightColor: accent,
                     ),
@@ -726,7 +726,7 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
               textAlign: TextAlign.center,
             ),

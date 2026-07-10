@@ -212,6 +212,23 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     tooltip: _tr('Usuń', 'Delete'),
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (dctx) => AlertDialog(
+                          title: Text(_tr('Usunąć zapisane parametry?', 'Delete saved parameters?')),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dctx, false),
+                              child: Text(_tr('Anuluj', 'Cancel')),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(dctx, true),
+                              child: Text(_tr('Usuń', 'Delete')),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true) return;
                       await _dao.deleteById(p.id);
                       setState(() => _refresh());
                     },

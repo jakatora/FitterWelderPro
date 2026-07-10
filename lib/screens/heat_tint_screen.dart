@@ -3,14 +3,14 @@ import 'package:flutter/material.dart';
 import '../data/heat_tint.dart';
 import '../i18n/app_language.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kGreen  = Color(0xFF2ECC71);
 const _kBlue   = Color(0xFF4A9EFF);
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 /// Weld discoloration chart — the welder reads the inside bead colour against
 /// the chart and gets a pass/fail verdict for food vs pharma acceptance.
@@ -150,7 +150,7 @@ class _LevelTile extends StatelessWidget {
               children: [
                 Text(isPl ? level.namePl : level.nameEn,
                     style: const TextStyle(
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                         fontSize: 14,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),

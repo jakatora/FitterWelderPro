@@ -112,9 +112,20 @@ workflows:
           BUILD_NUMBER=$((RAW_COUNTER + 1000))
           echo "Using cfBundleVersion = $BUILD_NUMBER"
 
+          # cfBundleShortVersionString bierzemy z pubspec.yaml — JEDNO źródło
+          # prawdy razem z Androidem. Było tu zaszyte na sztywno "0.1.6", więc
+          # po podbiciu wersji iOS wysyłał do TestFlight starą liczbę, a Android
+          # nową. Numery rozjeżdżały się przy każdym wydaniu.
+          VERSION_NAME=$(sed -n 's/^version:[[:space:]]*\([^+]*\)+.*/\1/p' pubspec.yaml | tr -d '[:space:]')
+          if [ -z "$VERSION_NAME" ]; then
+            echo "BŁĄD: nie udało się odczytać wersji z pubspec.yaml" >&2
+            exit 1
+          fi
+          echo "Using cfBundleShortVersionString = $VERSION_NAME (z pubspec.yaml)"
+
           flutter build ipa --release \
             --build-number=$BUILD_NUMBER \
-            --build-name=0.1.6 \
+            --build-name=$VERSION_NAME \
             --export-options-plist="$CM_BUILD_DIR/export_options.plist" \
             2>&1 | tee /tmp/xcodebuild_logs/build.log
 

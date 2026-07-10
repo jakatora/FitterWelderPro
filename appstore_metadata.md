@@ -50,7 +50,8 @@ Standard dimensions for elbows, tees, reducers and flanges in SS and CS — alwa
 Sketch pipe routes directly on an isometric dot grid. Three line types: pipe, centre line, hidden line. Undo and clear in one tap.
 
 Built by a pipe fitter, for pipe fitters.
-Works fully offline. No account required. No ads.
+Calculators and projects work offline. No ads, no tracking.
+The public chat needs a connection and shows your name next to your messages.
 ```
 
 ### Keywords (max 100 chars — paste as one line, comma-separated)
@@ -113,7 +114,8 @@ Standardowe wymiary kolanek, trójników, redukcji i kołnierzy w SS i CS — za
 Rysuj trasy rur na izometrycznej siatce kropek. Trzy rodzaje linii: rura, linia centralna, linia ukryta. Cofnij i wyczyść jednym dotknięciem.
 
 Stworzone przez montera, dla monterów.
-Działa w pełni offline. Nie wymaga konta. Bez reklam.
+Kalkulatory i projekty działają offline. Bez reklam i śledzenia.
+Publiczny czat wymaga połączenia i podpisuje wiadomości Twoim imieniem.
 ```
 
 ### Słowa kluczowe (max 100 znaków)
@@ -148,12 +150,25 @@ Last updated: January 2026
 FitterWelder Pro ("the App") is developed by Krzysztof Kapusta.
 
 DATA COLLECTION
-The App does not collect, store, or transmit any personal data. All calculations 
-and project data are stored locally on your device only and are never sent to any 
-server or third party.
+Calculations, projects, cut lists, the weld journal, photos and your block list
+are stored locally on your device and are never sent anywhere.
+
+When — and only when — you post a message in the public chat, the App sends the
+message text, the first and last name from your profile, a timestamp and a random
+installation identifier (not a phone number, IMEI or advertising ID) to the chat
+server. Everyone using the App can read those messages together with your name.
+Reporting a message sends its id and your installation identifier.
+
+Payments (Stripe), the AI assistant and the drawing scanner are DISABLED in this
+version and send no data.
 
 ANALYTICS
 The App does not use any analytics, crash reporting, or tracking services.
+
+USER-GENERATED CONTENT
+The chat is public. Users must accept the Terms of Use before posting, may report
+messages and may block other users. Reported content is reviewed within 24 hours.
+Contact: jakatora68@gmail.com
 
 THIRD-PARTY SERVICES
 The App does not integrate any third-party SDKs, advertising networks, or social 

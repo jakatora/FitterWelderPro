@@ -12,12 +12,12 @@ import '../services/saddle_template.dart';
 // Premium-tagged (PRO badge in title). Free while the global gate flag
 // stays off; will be paywalled when `kPremiumGateEnforced` flips to true.
 
-const _kBg = Color(0xFF0F1117);
-const _kCard = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
+const _kBg = Color(0xFF0B0E13);
+const _kCard = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFF26A69A);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF55607A);
+const _kTextMut = Color(0xFF5A6478);
 const _kGold = Color(0xFFE8C14B);
 const _kAccentDim = Color(0x3326A69A);
 
@@ -35,7 +35,7 @@ const _kErrorBorder = Color(0x66E57373); // red @ 40% — error box border
 const _kError = Color(0xFFE57373);
 const _kGridLine = Color(0x662C3354); // _kBorder @ 40% — preview grid
 const _kGuideLine = Color(0x8055607A); // _kTextMut @ 50% — 0/90/180/270/360 guides
-const _kBaseline = Color(0xFFE8ECF0);
+const _kBaseline = Color(0xFFE7ECF3);
 
 // P1-39 — Typed failure cases for saddle template computation. The underlying
 // service throws English-only `ArgumentError`s and previously we matched on
@@ -215,7 +215,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             const SizedBox(width: 8),
             Text(
               isEn ? 'How is it calculated?' : 'Jak to się liczy?',
-              style: const TextStyle(color: Color(0xFFE8ECF0), fontSize: 16),
+              style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 16),
             ),
           ],
         ),
@@ -430,7 +430,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             title: context.tr(pl: 'Opis (opcjonalnie)', en: 'Description (optional)'),
             child: TextField(
               controller: _projectCtrl,
-              style: const TextStyle(color: Color(0xFFE8ECF0)),
+              style: const TextStyle(color: Color(0xFFE7ECF3)),
               decoration: InputDecoration(
                 hintText: context.tr(
                   pl: 'np. "Linia 12-WP-3045  /  TIE-IN B"',
@@ -632,7 +632,7 @@ class _NumField extends StatelessWidget {
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       onChanged: (_) => onChanged(),
-      style: const TextStyle(color: Color(0xFFE8ECF0)),
+      style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: _kTextSec, fontSize: 12),

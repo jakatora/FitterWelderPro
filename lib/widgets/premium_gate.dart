@@ -148,7 +148,7 @@ class _LockedOverlay extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFE8ECF0),
+                    color: Color(0xFFE7ECF3),
                   ),
                   textAlign: TextAlign.center,
                 ),

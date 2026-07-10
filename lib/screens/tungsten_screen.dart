@@ -9,12 +9,12 @@ import '../i18n/app_language.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kGreen  = Color(0xFF2ECC71);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 // SharedPreferences keys (P2-14 persistence)
 const _kPrefOverrides = 'prefs_tungsten_overrides';
@@ -323,7 +323,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                   pl: 'Nadpisać wybór? Powód:',
                   en: 'Override pick? Reason:'),
               style: const TextStyle(
-                  color: Color(0xFFE8ECF0),
+                  color: Color(0xFFE7ECF3),
                   fontSize: 16,
                   fontWeight: FontWeight.w700),
             ),
@@ -689,7 +689,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                                 style: TextStyle(
                                     color: hit
                                         ? _kOrange
-                                        : const Color(0xFFE8ECF0),
+                                        : const Color(0xFFE7ECF3),
                                     fontSize: 15,
                                     fontWeight: FontWeight.w800)),
                             const SizedBox(width: 8),
@@ -922,7 +922,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                         const SizedBox(width: 8),
                         Text(t.code,
                             style: const TextStyle(
-                                color: Color(0xFFE8ECF0),
+                                color: Color(0xFFE7ECF3),
                                 fontSize: 14,
                                 fontWeight: FontWeight.w800)),
                         const SizedBox(width: 8),

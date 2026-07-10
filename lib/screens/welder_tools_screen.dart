@@ -9,13 +9,13 @@ import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 // ── Kolory ────────────────────────────────────────────────────────────────
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kMuted  = Color(0xFF55607A);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kMuted  = Color(0xFF5A6478);
 const _kSec    = Color(0xFF9BA3C7);
 
 class WelderToolsScreen extends StatelessWidget {
@@ -109,7 +109,7 @@ class _RRow extends StatelessWidget {
           child: Text(value, style: TextStyle(
             fontSize: primary ? 22 : 14,
             fontWeight: primary ? FontWeight.w800 : FontWeight.w600,
-            color: color ?? (primary ? _kOrange : const Color(0xFFE8ECF0)),
+            color: color ?? (primary ? _kOrange : const Color(0xFFE7ECF3)),
             letterSpacing: primary ? -0.4 : 0,
           )),
         ),
@@ -311,8 +311,12 @@ class _PreheatTabState extends State<_PreheatTab> {
         _tMin = 0;    // SS austenitic — brak podgrzewania
         _tiMax = 175; // max międzyściegowa wg EN ISO 16834
       } else {
-        // CS: uproszczona formuła Seferian
-        final tp = 350.0 * math.sqrt(cev - 0.25) + 0.25 * math.sqrt(t) - 25;
+        // CS: uproszczona formuła Seferian. Dla CEV ≤ 0.25 (stal
+        // niskowęglowa) podgrzewanie nie jest wymagane — bez tego strażnika
+        // sqrt(liczby ujemnej) dawało NaN i wynik "NaN °C" na ekranie. (audit)
+        final tp = cev <= 0.25
+            ? 0.0
+            : 350.0 * math.sqrt(cev - 0.25) + 0.25 * math.sqrt(t) - 25;
         _tMin = tp < 0 ? 0 : tp;
         _tiMax = 250;
       }
@@ -340,7 +344,7 @@ class _PreheatTabState extends State<_PreheatTab> {
         Expanded(child: OutlinedButton(
           onPressed: _presetCS,
           style: OutlinedButton.styleFrom(side: BorderSide(color: _matType == 'CS' ? _kOrange : _kBorder)),
-          child: Text('CS (przykład)', style: TextStyle(color: _matType == 'CS' ? _kOrange : _kSec)),
+          child: Text(_tr('CS (przykład)', 'CS (example)'), style: TextStyle(color: _matType == 'CS' ? _kOrange : _kSec)),
         )),
       ]),
       const SizedBox(height: 12),
@@ -742,7 +746,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
             ],
             if (_alarm) ...[
               const SizedBox(height: 10),
-              Text(_tr('âœ“ CZAS MINĄŁ', 'âœ“ TIME UP'),
+              Text(_tr('✓ CZAS MINĄŁ', '✓ TIME UP'),
                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _kGreen)),
             ],
           ]),

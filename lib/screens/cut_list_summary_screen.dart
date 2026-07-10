@@ -61,13 +61,13 @@ String csvQuote(String raw) {
   return raw;
 }
 
-const _kOrange = Color(0xFFF5A623);
+const _kOrange = Color(0xFFFF8E1E);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kBlue   = Color(0xFF4A9EFF);
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kMuted  = Color(0xFF55607A);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kMuted  = Color(0xFF5A6478);
 
 class CutListSummaryScreen extends StatefulWidget {
   final String projectId;
@@ -332,7 +332,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                               const SizedBox(height: 12),
                               Text(
                                 context.tr(pl: 'Brak segmentów', en: 'No segments'),
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
                               ),
                               const SizedBox(height: 6),
                               Padding(
@@ -515,7 +515,7 @@ class _LoadErrorView extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE8ECF0),
+                color: Color(0xFFE7ECF3),
               ),
               textAlign: TextAlign.center,
             ),
@@ -585,7 +585,7 @@ class _ProjectHeader extends StatelessWidget {
               children: [
                 Text(
                   project.name?.isNotEmpty == true ? project.name! : 'CUT LIST',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -774,7 +774,7 @@ class _PipeGroup extends StatelessWidget {
                   pl: 'Rura  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
                   en: 'Pipe  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
                 ),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE8ECF0)),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
               ),
             ),
             // ASME line-tag chip: short pipe ID a fitter writes on the cut end.
@@ -791,7 +791,7 @@ class _PipeGroup extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 10,
                   fontFamily: 'monospace',
-                  color: Color(0xFFE8ECF0),
+                  color: Color(0xFFE7ECF3),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -836,7 +836,7 @@ class _PipeGroup extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: _kBorder),
                   ),
-                  child: Text('${c.toStringAsFixed(0)} mm', style: const TextStyle(fontSize: 12, color: Color(0xFFE8ECF0))),
+                  child: Text('${c.toStringAsFixed(0)} mm', style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3))),
                 )).toList(),
               ),
               const Divider(height: 20, color: _kBorder),
@@ -918,7 +918,7 @@ class _BarCard extends StatelessWidget {
           // Odcinki
           Text(
             plan.piecesMm.map((x) => x.toStringAsFixed(0)).join('  +  '),
-            style: const TextStyle(fontSize: 13, color: Color(0xFFE8ECF0), fontWeight: FontWeight.w500),
+            style: const TextStyle(fontSize: 13, color: Color(0xFFE7ECF3), fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 4),
           Row(
@@ -996,7 +996,7 @@ class _BarVisual extends StatelessWidget {
   Widget build(BuildContext context) {
     // Kolory dla kolejnych odcinków
     const pieceColors = [
-      Color(0xFFF5A623),
+      Color(0xFFFF8E1E),
       Color(0xFF4A9EFF),
       Color(0xFF2ECC71),
       Color(0xFFAB47BC),
@@ -1033,7 +1033,7 @@ class _BarVisual extends StatelessWidget {
                     Container(
                       width: (totalWidth * kerfPct).clamp(2.0, 6.0),
                       height: 24,
-                      color: const Color(0xFF0F1117),
+                      color: const Color(0xFF0B0E13),
                     ),
                 ],
               );
@@ -1044,7 +1044,7 @@ class _BarVisual extends StatelessWidget {
                 child: Container(
                   height: 24,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2C3354),
+                    color: const Color(0xFF2A3140),
                     borderRadius: BorderRadius.circular(3),
                   ),
                   child: plan.remainingMm > 300

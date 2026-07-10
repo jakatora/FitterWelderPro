@@ -4,12 +4,12 @@ import '../data/sanitary_tube.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 void _showSourceInfo(BuildContext context) {
   showDialog<void>(
@@ -243,7 +243,7 @@ class _Row extends StatelessWidget {
               children: [
                 Text(t.size,
                     style: const TextStyle(
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                         fontSize: 13,
                         fontWeight: FontWeight.w800)),
                 if (t.wallNote.isNotEmpty)
@@ -254,7 +254,7 @@ class _Row extends StatelessWidget {
           ),
           _Cell(value: t.od.toStringAsFixed(2), color: _kOrange, label: '${t.size} OD'),
           _Cell(value: t.wall.toStringAsFixed(2), color: _kBlue, label: '${t.size} wall'),
-          _Cell(value: t.id.toStringAsFixed(2), color: const Color(0xFFE8ECF0), label: '${t.size} ID'),
+          _Cell(value: t.id.toStringAsFixed(2), color: const Color(0xFFE7ECF3), label: '${t.size} ID'),
           _Cell(value: t.massPerMeter.toStringAsFixed(2), color: _kMuted, label: '${t.size} kg/m'),
           _Cell(value: t.litresPerMeter.toStringAsFixed(3), color: _kGreen, label: '${t.size} L/m'),
         ],

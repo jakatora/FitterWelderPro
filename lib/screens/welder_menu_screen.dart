@@ -167,7 +167,7 @@ class WelderMenuScreen extends StatelessWidget {
             _Tile(
               icon: Icons.local_fire_department_outlined,
               title: context.tr(pl: 'Heat Input + CE', en: 'Heat Input + CE'),
-              subtitle: context.tr(pl: 'Preheat z chemii • PRO', en: 'Preheat from chemistry • PRO'),
+              subtitle: context.tr(pl: 'Preheat z chemii', en: 'Preheat from chemistry'),
               accentColor: const Color(0xFFE8C14B),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HeatInputScreen())),
             ),
@@ -198,29 +198,47 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, size: 24, color: accentColor),
+        splashColor: accentColor.withValues(alpha: 0.10),
+        highlightColor: accentColor.withValues(alpha: 0.05),
+        child: Stack(
+          children: [
+            // Accent spine — consistent instrument-edge signature across menus.
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: 0,
+              child: Container(width: 3, color: accentColor),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 14, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: accentColor.withValues(alpha: 0.22)),
+                    ),
+                    child: Icon(icon, size: 23, color: accentColor),
+                  ),
+                  const Spacer(),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                ],
               ),
-              const Spacer(),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(subtitle, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -5,14 +5,14 @@ import '../data/support_spacing.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 
-const _kCard   = Color(0xFF1A1D26);
-const _kBorder = Color(0xFF2C3354);
-const _kOrange = Color(0xFFF5A623);
+const _kCard   = Color(0xFF141821);
+const _kBorder = Color(0xFF2A3140);
+const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF55607A);
+const _kMuted  = Color(0xFF5A6478);
 
 /// Pipe support configuration — spacing calculator + reference + support
 /// types + placement rules. The "must-have" knowledge fitters carry between
@@ -429,7 +429,7 @@ class _TableTab extends StatelessWidget {
                         children: [
                           Text('DN${s.dn}',
                               style: const TextStyle(
-                                  color: Color(0xFFE8ECF0),
+                                  color: Color(0xFFE7ECF3),
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800)),
                           Text('${s.nps}"',
@@ -523,7 +523,7 @@ class _TypesTab extends StatelessWidget {
                     child: Text(
                       isPl ? t.namePl : t.nameEn,
                       style: const TextStyle(
-                          color: Color(0xFFE8ECF0),
+                          color: Color(0xFFE7ECF3),
                           fontSize: 15,
                           fontWeight: FontWeight.w800),
                     ),
@@ -619,7 +619,7 @@ class _RulesTab extends StatelessWidget {
                   child: Text(
                     isPl ? r.pl : r.en,
                     style: const TextStyle(
-                        color: Color(0xFFE8ECF0),
+                        color: Color(0xFFE7ECF3),
                         fontSize: 13,
                         height: 1.45),
                   ),
