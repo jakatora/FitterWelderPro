@@ -50,7 +50,10 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        // Google Play (od 31.08.2026): apka musi celować w Android 16 (API 36)
+        // lub nowszy, inaczej nie da się jej aktualizować. compileSdk = 36 już
+        // jest ustawione wyżej.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

@@ -2,11 +2,12 @@ name: cut_list_app
 description: "Fitter Welder Pro — cut list builder, ISO parser, pipe-fitting and welding calculators for industrial pipe construction."
 publish_to: "none"
 # Nazwa wersji (0.2.0) → Android versionName, iOS CFBundleShortVersionString.
-# Numer po "+" (13) → Android versionCode. Oba sklepy odrzucają upload z numerem
-# nie wyższym niż ostatnio przyjęty; poprzednie wydanie miało 12.
+# Numer po "+" (14) → Android versionCode. Oba sklepy odrzucają upload z numerem
+# nie wyższym niż ostatnio przyjęty; poprzednie wydanie na Play miało 13.
+# 14 = wydanie zgodne z wymogiem Google Play targetSdk 36 (Android 16, od 31.08.2026).
 # iOS CFBundleVersion NIE bierze się stąd — codemagic.yaml wylicza go z licznika
 # builda Codemagic (+1000), więc nie trzeba go tu podbijać.
-version: 0.2.0+13
+version: 0.2.0+14
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
