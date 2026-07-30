@@ -65,6 +65,17 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // R8: skracanie i optymalizacja kodu + usuwanie nieuzywanych zasobow.
+            // Play Console zaleca to dla mniejszego rozmiaru i zuzycia pamieci.
+            // UWAGA: R8 potrafi sie skompilowac, a wywalic w runtime (strip przez
+            // refleksje) — dlatego release z R8 trzeba przetestowac na SCIEZCE
+            // TESTOWEJ (na telefonie) zanim trafi na produkcje.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

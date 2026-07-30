@@ -1155,6 +1155,10 @@ class _ImageViewer extends StatelessWidget {
               child: Image.file(
                 File(path),
                 fit: BoxFit.contain,
+                // Dekoduj do ~2048 px zamiast surowych ~4000 px z aparatu —
+                // duzo mniej pamieci, a zoom (do 8x) nadal ostry. (Play:
+                // "probkowanie w dol bitmap")
+                cacheWidth: 2048,
               ),
             ),
           ),
