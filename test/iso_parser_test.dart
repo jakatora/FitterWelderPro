@@ -160,14 +160,26 @@ void main() {
       expect(parseIsoExpression('3000MM'), 3000);
     });
 
-    test('trailing in unit dropped', () {
-      expect(parseIsoExpression('76in'), 76);
-      expect(parseIsoExpression('76 in'), 76);
+    // WHY these two tests changed: the previous version asserted
+    // `parseIsoExpression('76in') == 76` and `parseIsoExpression('76"') == 76`,
+    // i.e. they *guarded the bug* — the normaliser deleted the inch suffix
+    // instead of converting it, so every imperial dimension came out 25.4x too
+    // small and a 1930 mm spool would have been cut to 76 mm. Inches are now
+    // converted to the app's internal base unit (mm), so these tests assert the
+    // conversion instead of the deletion.
+    test('trailing in unit converts inches to millimetres', () {
+      expect(parseIsoExpression('76in'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('76 in'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('76IN'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('76inch'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('76 inches'), closeTo(1930.4, 1e-9));
     });
 
-    test('trailing inch quote dropped', () {
-      expect(parseIsoExpression('76"'), 76);
-      expect(parseIsoExpression('76 "'), 76);
+    test('trailing inch quote converts inches to millimetres', () {
+      expect(parseIsoExpression('76"'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('76 "'), closeTo(1930.4, 1e-9));
+      // ASCII double apostrophe — what an all-ASCII drawing export produces.
+      expect(parseIsoExpression("76''"), closeTo(1930.4, 1e-9));
     });
 
     test('NBSP thousands separator stripped', () {
@@ -188,6 +200,103 @@ void main() {
       );
     });
 
+  });
+
+  // Imperial isometrics are a real, shipped use case (the app is on Google
+  // Play worldwide, the saddle template has an inch preview and the material
+  // list is dual-unit), so the parser must UNDERSTAND inches rather than throw
+  // them away. The suffix declares the unit of the whole expression; the
+  // returned value is always millimetres, like everywhere else in the app.
+  group('parseIsoExpression — units', () {
+    test('no suffix means millimetres (unchanged behaviour)', () {
+      expect(parseIsoExpression('3000'), 3000);
+      expect(parseIsoExpression('3000+525-80'), 3445);
+    });
+
+    test('mm suffix is a no-op, not a conversion', () {
+      expect(parseIsoExpression('3000mm'), 3000);
+      expect(parseIsoExpression('3000 mm'), 3000);
+      expect(parseIsoExpression('3000MM'), 3000);
+    });
+
+    test('inch suffix applies to the whole expression', () {
+      // 70 + 6 = 76 in -> 1930.4 mm. If the suffix only bound to the last
+      // number the result would be 70 + 152.4 = 222.4 mm.
+      expect(parseIsoExpression('70+6"'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('(70+6) in'), closeTo(1930.4, 1e-9));
+      expect(parseIsoExpression('4*19"'), closeTo(1930.4, 1e-9));
+    });
+
+    test('mm suffix survives arithmetic', () {
+      expect(parseIsoExpression('3000+525-80 mm'), 3445);
+    });
+
+    test('inch suffix keeps the sign of a negative expression', () {
+      expect(parseIsoExpression('-5"'), closeTo(-127.0, 1e-9));
+    });
+
+    test('decimal inches', () {
+      expect(parseIsoExpression('2.5"'), closeTo(63.5, 1e-9));
+      expect(parseIsoExpression('2,5"'), closeTo(63.5, 1e-9));
+    });
+
+    test('a lone unit with no number is still an error', () {
+      expect(() => parseIsoExpression('mm'), throwsFormatException);
+      expect(() => parseIsoExpression('"'), throwsFormatException);
+    });
+  });
+
+  // WHY this group exists: the normaliser used to rewrite '½' to the bare
+  // string '0.5', so '4½' concatenated into '40.5' — a fitter typing a
+  // perfectly normal 4½" got 40.5 instead of 4.5. A vulgar fraction after a
+  // number is an implicit ADDITION and is now expanded as one, in brackets so
+  // it cannot be broken apart by surrounding * or -.
+  group('parseIsoExpression — mixed fractions', () {
+    test('vulgar fraction after a whole number adds to it', () {
+      expect(parseIsoExpression('4½'), 4.5);
+      expect(parseIsoExpression('4¼'), 4.25);
+      expect(parseIsoExpression('4¾'), 4.75);
+    });
+
+    test('multi-digit whole part is kept intact', () {
+      // The old bug would have produced '10' + '(4+0.5)' here if only the
+      // last digit had been captured.
+      expect(parseIsoExpression('104½'), 104.5);
+    });
+
+    test('optional space between whole number and fraction', () {
+      expect(parseIsoExpression('4 ½'), 4.5);
+    });
+
+    test('bare fraction with no whole part still works', () {
+      expect(parseIsoExpression('½'), 0.5);
+      expect(parseIsoExpression('100+½'), 100.5);
+    });
+
+    test('mixed number is bracketed, so precedence is preserved', () {
+      // '4½*2' must be (4+0.5)*2 = 9, never 4+(0.5*2) = 5.
+      expect(parseIsoExpression('4½*2'), 9);
+      expect(parseIsoExpression('100-4½'), 95.5);
+    });
+
+    test('mixed number with inch suffix', () {
+      expect(parseIsoExpression('4½"'), closeTo(114.3, 1e-9));
+      expect(parseIsoExpression('4½ in'), closeTo(114.3, 1e-9));
+    });
+
+    test('ASCII mixed fraction "4 1/2" adds to the whole number', () {
+      expect(parseIsoExpression('4 1/2'), 4.5);
+      expect(parseIsoExpression('4 3/4"'), closeTo(120.65, 1e-9));
+    });
+
+    test('a bare n/d fraction is still rejected — it is division', () {
+      // Deliberate: a standalone '3/4' is numerically identical to the
+      // division '3/4', and this parser rejects division on purpose (see the
+      // file header). Only the mixed form '4 1/2', which cannot be read as
+      // arithmetic, is accepted. Rejecting here keeps '3000/2' an error too.
+      expect(() => parseIsoExpression('3/4"'), throwsFormatException);
+      expect(() => parseIsoExpression('3/4'), throwsFormatException);
+    });
   });
 
   group('parseIsoExpression — errors', () {

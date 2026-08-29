@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -230,7 +231,10 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
         _isoMm = iso;
         _cutMm = cut;
         if (cut <= 0) {
-          _error = _tr('CUT â‰¤ 0 – sprawdź wymiary', 'CUT â‰¤ 0 – check dimensions');
+          // The '≤' had been stored double-encoded (UTF-8 bytes re-read as
+          // Latin-1), so the one message meant to STOP an impossible cut
+          // rendered as three garbage glyphs on site and was ignored.
+          _error = _tr('CUT ≤ 0 — sprawdź wymiary', 'CUT ≤ 0 — check dimensions');
         }
       } catch (e) {
         _error = '${_tr('Błąd', 'Error')}: $e';
@@ -240,13 +244,11 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
   // ── Wybór komponentu ───────────────────────────────────────────────────
   Future<void> _addFromType(String typeOrLogical) async {
-    setState(() {
-      _isoController.text = '';
-      _isoMm = null;
-      _cutMm = null;
-      _error = null;
-    });
-
+    // The "already complete" guard has to run BEFORE anything is cleared.
+    // Clearing first meant a mistap on the palette — easy in work gloves —
+    // was not just a no-op: it silently wiped the ISO dimension the fitter
+    // had already read off the drawing, forcing a re-read and inviting a
+    // typo in the value the saw is set from.
     if (_sequence.length >= 3) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr('Ten segment jest kompletny. Zapisz go i dodaj następny.',
@@ -254,6 +256,15 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       ));
       return;
     }
+
+    // Past this point the sequence is going to change, so any ISO/CUT worked
+    // out from the previous one is stale and must not stay on screen.
+    setState(() {
+      _isoController.text = '';
+      _isoMm = null;
+      _cutMm = null;
+      _error = null;
+    });
 
     // Logiczne (PIPE / OPEN_END)
     if (typeOrLogical == 'PIPE') {
@@ -397,7 +408,15 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
         title: Text(title),
         content: TextField(
           controller: c,
-          keyboardType: TextInputType.number,
+          // Takeouts are decimal millimetres — the hints passed in literally
+          // read "np. 76.2" / "np. 48.3" — but TextInputType.number opens the
+          // iOS numeric pad, which has NO decimal and NO comma key. The fitter
+          // could only enter 762, losing 686 mm into the component library and
+          // into every cut computed from it afterwards. The filter keeps both
+          // separators because the parse below normalises ',' to '.'.
+          // Same field pattern as weld_journal_screen.dart.
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           autofocus: true,
           decoration: InputDecoration(hintText: hint),
         ),

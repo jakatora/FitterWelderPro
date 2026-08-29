@@ -34,6 +34,15 @@ import 'package:share_plus/share_plus.dart';
 // For angles ≠ 90° we apply a tilt correction: the effective z grows by
 //   z' = z / sin(angleRad)
 // This handles 45°, 60° branches with the same formula.
+//
+// The tilt term rb·cos(α)·cos(φ) makes the raw depth go negative over the part
+// of the circumference that sits "short" (roughly φ = 120°..240° for DN100 on
+// DN200 @45°). That is a baseline artefact, not an invalid value, so depth is
+// reported relative to the SHALLOWEST point of the whole profile: the raw
+// curve is computed first, then shifted by −min. d = 0 therefore marks the
+// crown and every other value is what the fitter measures down from it.
+// Clamping the points one by one would flatten the curve; shifting preserves
+// its shape.
 
 class SaddleCutPoint {
   /// Position around branch circumference, in degrees (0..360).
@@ -44,7 +53,8 @@ class SaddleCutPoint {
   final double xMm;
 
   /// Depth of the cut measured from the long side ("crown") of the branch
-  /// down to the line where the saddle meets the header (mm).
+  /// down to the line where the saddle meets the header (mm). The crown is the
+  /// shallowest point of the profile, so this is 0 there and never negative.
   final double depthMm;
 
   const SaddleCutPoint(this.phiDeg, this.xMm, this.depthMm);
@@ -61,8 +71,10 @@ class SaddleTemplate {
 
   late final List<SaddleCutPoint> points;
 
-  /// Maximum depth of the cut — at φ = 90° / 270° (the branch sides that sit
-  /// deepest into the header).
+  /// Maximum depth of the cut, i.e. the span from the crown down to the
+  /// deepest point of the profile. For a 90° branch the deepest point is at
+  /// φ = 90° / 270° (the branch sides that sit deepest into the header); for
+  /// oblique branches the tilt term moves it to the long side at φ = 0°/360°.
   late final double maxDepthMm;
 
   /// Total unrolled strip length = π × branch_OD.
@@ -89,10 +101,28 @@ class SaddleTemplate {
     }
 
     final pts = <SaddleCutPoint>[];
-    double maxD = 0;
+
+    // The profile is built in TWO passes on purpose.
+    //
+    // WHY: for oblique branches the tilt term rb·cos(α)·cos(φ) legitimately
+    // pushes the raw depth below zero on the "acute" side of the branch — for
+    // DN100 on DN200 @45° every point between 120° and 240° comes out
+    // negative. The old code clamped each point on its own
+    // (`if (dRaw < 0) dRaw = 0;`), which replaced a third of the cut line with
+    // a dead-straight segment: the fitter got a flat line instead of a curve
+    // and the template did not fit the pipe. A negative raw depth does not
+    // mean "out of range", it only means that this point of the branch sticks
+    // out past the level we happened to start measuring from — a baseline
+    // problem. So pass 1 keeps every raw depth and records the minimum, and
+    // pass 2 moves the WHOLE profile by −min. A shift leaves every Δdepth
+    // untouched (shape preserved) and parks the 0 mm reference on the
+    // shallowest point, i.e. the crown of the fish-mouth.
+    final rawDepths = List<double>.filled(pointsCount, 0.0);
+    final phis = List<double>.filled(pointsCount, 0.0);
+    double minD = double.infinity;
+
     for (int i = 0; i < pointsCount; i++) {
       final phi = (i / (pointsCount - 1)) * 2 * math.pi;
-      final phiDeg = phi * 180 / math.pi;
       final sinPhi = math.sin(phi);
 
       // depth at this angular position
@@ -108,11 +138,23 @@ class SaddleTemplate {
         final tiltAdd = rb * math.cos(angleRad) * math.cos(phi);
         dRaw = (rh - z) / sinA + tiltAdd;
       }
-      if (dRaw < 0) dRaw = 0;
-      if (dRaw > maxD) maxD = dRaw;
+
+      phis[i] = phi;
+      rawDepths[i] = dRaw;
+      if (dRaw < minD) minD = dRaw;
+    }
+
+    // Baseline shift. At α = 90° the raw minimum is exactly 0 (z = rh at
+    // φ = 0/180/360), so this pass is a no-op there — the 90° template, the
+    // one fitters already print from, comes out identical to before.
+    double maxD = 0;
+    for (int i = 0; i < pointsCount; i++) {
+      final phi = phis[i];
+      final depth = rawDepths[i] - minD;
+      if (depth > maxD) maxD = depth;
 
       final x = rb * phi; // unrolled circumference (mm)
-      pts.add(SaddleCutPoint(phiDeg, x, dRaw));
+      pts.add(SaddleCutPoint(phi * 180 / math.pi, x, depth));
     }
 
     points = pts;
