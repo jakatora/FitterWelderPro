@@ -63,43 +63,28 @@ class _Deduct {
 class _CutCalc {
   final String iso;
   final List<_Deduct> deducts;
-  /// How the on-drawing ISO dimension was measured. Phase 1: only consulted
-  /// by [_IsoState._resolvedCut] via [prefab.PrefabEngine]; the legacy
-  /// [cutMm] getter ignores it for backwards-compat.
+
+  /// How the on-drawing ISO dimension was measured. Consumed by
+  /// [_IsoState._resolvedCut] via [prefab.PrefabEngine].
   final DimRef ref;
   const _CutCalc(this.iso, {this.deducts = const [], this.ref = DimRef.centreToCentre});
 
   bool get hasDeducts => deducts.isNotEmpty;
 
-  /// Resolved cut length in mm. NaN if the ISO itself cannot be parsed;
-  /// unreadable deducts are skipped (so partial input still gives a number).
-  double get cutMm {
-    // Parenthesised ISO means "reference only" — never a cut target, so the
-    // BOM and on-drawing CUT skip it entirely.
+  /// Parenthesised ISO — "(1500)" — is a REFERENCE dimension: printed on the
+  /// drawing, never sawn. Kept as a flag rather than a second cut formula so
+  /// the exclusion happens in one place ([_IsoState._resolvedCut]).
+  bool get isReference {
     final t = iso.trim();
-    if (t.startsWith('(') && t.endsWith(')')) return double.nan;
-    double v;
-    try {
-      v = parseIsoExpression(iso);
-    } catch (e) {
-      // P0r-07: log unparseable ISO so the case is visible in CI / debug
-      // builds — silent NaN was hiding malformed input from anybody
-      // looking at logs after a wrong-cut report.
-      debugPrint('_CutCalc ISO parse failed for "$iso": $e');
-      return double.nan;
-    }
-    for (final d in deducts) {
-      if (d.value.trim().isEmpty) continue;
-      try {
-        v -= parseIsoExpression(d.value);
-      } catch (e) {
-        // P0r-07: deduct parse failures used to silently drop and the
-        // total looked plausible — log so CI sees the bad row.
-        debugPrint('_CutCalc deduct parse failed for "${d.value}": $e');
-      }
-    }
-    return v;
+    return t.startsWith('(') && t.endsWith(')');
   }
+
+  // NOTE: there is deliberately no `cutMm` getter here any more. It computed
+  // ISO minus hand-typed deducts ONLY — no DimRef, no automatic take-outs, no
+  // valve/flange bodies — and the drawing, the title block and the clipboard
+  // summary all rendered it while the cut list underneath rendered the engine
+  // result. A 2000 mm run between two DN100 elbows printed 2000 on the sheet
+  // and 1696 in the table. [_IsoState._resolvedCut] is now the only formula.
 }
 
 /// Dialog return value: distinguishes "set new value", "remove", "cancel".
@@ -176,22 +161,150 @@ int _stdCte(int dn, _ElbowSubtype t) {
   };
 }
 
-/// Sum of CTE values from every elbow with a known `cteMm` that lies on one
-/// of the segment's endpoints. This is what makes "ISO 500 − 55 (oś
-/// kolanka) − 55 (oś kolanka) = CUT 390" math happen automatically — the
-/// user just enters the ISO dimension, the table values do the rest.
-int _autoElbowDeductFor(_Seg seg, List<_Item> items, double tol) {
-  int total = 0;
+/// `true` when [t] is dimensioned to its CENTRELINE (elbow / tee / olet).
+///
+/// Wraps [ComponentClassification.isAxial], which throws on tool names it
+/// cannot classify (line tools, annotations). A throw here must not be read
+/// as "axial" — it would push an unpriced symbol into the take-out sum — so
+/// it is logged and treated as not-axial.
+bool _isAxialTool(_Tool t) {
+  try {
+    return ComponentClassification.isAxial(t.name);
+  } catch (e) {
+    debugPrint('isAxialTool threw for ${t.name}: $e');
+    return false;
+  }
+}
+
+/// Centre-to-end take-out (mm) of an axial component, or `null` when the
+/// component carries no usable dimension.
+///
+/// Axial = the drawn dimension runs to the fitting's CENTRELINE, so the pipe
+/// stops one CTE short of it (elbow, tee, olet). Resolution order:
+///   1. the CTE the fitter entered on the component,
+///   2. for a tee, ASME B16.9 run/branch CTE for its DN,
+///   3. nothing — and the caller must SAY so rather than quietly using 0.
+///
+/// An olet deliberately has no table fallback: a weldolet is welded onto the
+/// OUTSIDE of the run, so its branch take-out is run-OD/2 + fitting height,
+/// not the B16.9 tee CTE. Substituting the tee value there would trade one
+/// silent wrong number for another.
+int? _axialTakeoutOf(_Comp c) {
+  if (!_isAxialTool(c.t)) return null;
+  final explicit = c.cteMm;
+  if (explicit != null && explicit > 0) return explicit;
+  if (c.isElbow) return null; // elbow CTE only ever comes from its spec sheet
+  if (c.t != _Tool.tee) return null;
+  final dn = c.dn;
+  if (dn == null) return null;
+  final v = TakeoutCatalog.tee[dn];
+  return (v != null && v > 0) ? v : null;
+}
+
+/// Catalog deduct labels that already represent the take-out of the fitting
+/// named [toolName] (a `_Tool.name`), lower-cased.
+///
+/// The manual deduct picker (`_pickFromCatalog` → [TakeoutCatalog.entriesForDn])
+/// writes these exact strings into `_Deduct.name`. When such a row is present
+/// the fitter has ALREADY booked that fitting by hand, so the automatic pass
+/// must stand down for one component of that kind — otherwise the take-out is
+/// subtracted twice and the pipe comes out short.
+///
+/// Public + string-keyed so a test can assert these stay in step with the
+/// labels [TakeoutCatalog.entriesForDn] actually produces; renaming a catalog
+/// entry without updating this map would silently restore the double-count.
+Set<String> isoManualDeductAliases(String toolName) {
+  switch (toolName) {
+    case 'elbow90':
+      return const {'kolano 90° lr (cte)', 'kolano 90° sr (cte)'};
+    case 'elbow45':
+      return const {'kolano 45° lr (cte)'};
+    case 'tee':
+      return const {'trójnik (cte)'};
+    default:
+      return const {};
+  }
+}
+
+/// Automatic axial take-outs for one segment, split per end, plus the axial
+/// components on its ends that could NOT be resolved.
+class _AxialTakeouts {
+  final int leftMm;
+  final int rightMm;
+
+  /// Axial components sitting on an endpoint with no usable take-out. They
+  /// contribute 0 — the cut list and the canvas must flag them so the fitter
+  /// sees a gap instead of trusting a silently short subtraction.
+  final List<_Comp> missing;
+
+  const _AxialTakeouts({
+    required this.leftMm,
+    required this.rightMm,
+    required this.missing,
+  });
+
+  int get totalMm => leftMm + rightMm;
+}
+
+/// Resolve the axial take-outs on both ends of [seg].
+///
+/// WHY THIS REPLACED THE ELBOW-ONLY VERSION: the automatic pass used to test
+/// `it.isElbow` and skip everything else, so a tee or an olet on a segment end
+/// added nothing and said nothing. An elbow→tee run dimensioned centre-to-
+/// centre at DN100 came out 102 mm long with no warning anywhere.
+///
+/// [manual] is the segment's hand-entered deduct list; rows whose name matches
+/// a catalog label for a component found here suppress ONE automatic
+/// contribution of that kind, so the manual path (which already existed) and
+/// the automatic one can coexist without double-counting.
+_AxialTakeouts _axialTakeoutsFor(
+  _Seg seg,
+  List<_Item> items,
+  double tol, {
+  List<_Deduct> manual = const [],
+}) {
+  // Multiset of hand-entered deduct labels still available to suppress an
+  // automatic contribution.
+  final unclaimed = <String, int>{};
+  for (final d in manual) {
+    if (d.value.trim().isEmpty) continue;
+    final key = d.name.trim().toLowerCase();
+    if (key.isEmpty) continue;
+    unclaimed[key] = (unclaimed[key] ?? 0) + 1;
+  }
+  bool claimedByHand(_Tool t) {
+    for (final alias in isoManualDeductAliases(t.name)) {
+      final n = unclaimed[alias];
+      if (n != null && n > 0) {
+        unclaimed[alias] = n - 1;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  int left = 0;
+  int right = 0;
+  final missing = <_Comp>[];
   for (final it in items) {
     if (it is! _Comp) continue;
-    if (!it.isElbow) continue;
-    final cte = it.cteMm;
-    if (cte == null || cte <= 0) continue;
-    if ((it.pos - seg.a).distance < tol || (it.pos - seg.b).distance < tol) {
-      total += cte;
+    final onA = (it.pos - seg.a).distance < tol;
+    final onB = (it.pos - seg.b).distance < tol;
+    if (!onA && !onB) continue;
+    if (!_isAxialTool(it.t)) continue;
+    final cte = _axialTakeoutOf(it);
+    if (cte == null) {
+      missing.add(it);
+      continue;
+    }
+    if (claimedByHand(it.t)) continue;
+    if (onA) {
+      left += cte;
+    } else {
+      right += cte;
     }
   }
-  return total;
+  return _AxialTakeouts(leftMm: left, rightMm: right, missing: missing);
 }
 
 /// Sum of `physicalLengthMm` for every physical component sitting near
@@ -335,6 +448,25 @@ class _Comp implements _Item {
         endB: endB,
       );
 
+  /// Persist the DN + centre-to-end take-out of a NON-elbow axial fitting
+  /// (tee, olet). Separate from [withElbowSpec] because `elbowSubtype` is
+  /// meaningless here and must stay null — a tee carrying "90° LR" would
+  /// print a nonsense spec label on the drawing.
+  _Comp withAxialSpec({required int dn, int? cte, String? label}) => _Comp(
+        pos,
+        t,
+        dir: dir,
+        dir2: dir2,
+        label: label ?? this.label,
+        dn: dn,
+        elbowSubtype: null,
+        cteMm: cte,
+        physicalLengthMm: physicalLengthMm,
+        dnOut: dnOut,
+        endA: endA,
+        endB: endB,
+      );
+
   /// Persist physical-length / outlet-DN / end-connection spec captured by
   /// the reducer / valve / flange / cap spec sheets. Mirrors [withElbowSpec]
   /// for axial components — copies pos/t/dir/dir2/label/cte from `this` and
@@ -431,21 +563,108 @@ const List<_Axis> _isoAxisByDir = [
   _Axis.i, _Axis.iii, _Axis.ii, _Axis.i, _Axis.iii, _Axis.ii,
 ];
 
-/// Reasonable physical lengths in mm so the user doesn't have to type the
-/// number on every placement. Pulled from ASME B16.10 / B16.5 / B16.9.
-/// Mirrors [TakeoutCatalog.flangeWN150] — kept inline so the spec sheet
-/// helpers can default-fill without a catalog round-trip.
+/// ASME B16.5 column C — thickness of the flange disc, Class 150 RF.
+///
+/// This is ONLY the plate, measured from the raised face to the back of the
+/// disc. It is the right number for a SLIP-ON / socket / threaded flange,
+/// where the pipe is pushed through the disc and the run loses just that
+/// plate.
+///
+/// It is the WRONG number for a weld neck — see [_flangeWnLengthThruHub].
 const Map<int, int> _flangeFaceDefault = {
   15: 11, 20: 12, 25: 14, 32: 16, 40: 17, 50: 19, 65: 22, 80: 24,
   100: 24, 150: 25, 200: 28, 250: 30, 300: 32,
 };
 
-/// Class-150 face-to-face dims (B16.10) — applies to gate / globe / ball /
-/// check as a sane starting point. Butterfly is wafer-style and much shorter
-/// but we keep one table to avoid per-valve-kind branching in the picker.
-const Map<int, int> _valveDefault = {
-  50: 178, 65: 191, 80: 203, 100: 229, 150: 267, 200: 292, 250: 330, 300: 356,
+/// ASME B16.5 column Y — "length through hub" of a WELD NECK flange,
+/// Class 150 RF, rounded to whole millimetres (component lengths are stored
+/// as `int` mm; the exact table value follows each entry as a comment).
+///
+/// WHY THIS EXISTS: the notebook used to subtract column C (disc thickness)
+/// for every flange, weld neck included. A DN100 WN flange is 76.2 mm from
+/// the raised face to the butt-weld end of its hub, but column C says 24 mm
+/// — so the pipe came out 52 mm TOO LONG on every WN joint. The pipe is
+/// welded to the far end of the hub, not to the back of the disc, so Y is
+/// the dimension that actually leaves the pipe run.
+const Map<int, int> _flangeWnLengthThruHub = {
+  15: 48,   // 47.8
+  20: 52,   // 52.3
+  25: 56,   // 55.6
+  32: 57,   // 57.2
+  40: 62,   // 62.0
+  50: 64,   // 63.5
+  65: 70,   // 69.9
+  80: 70,   // 69.9
+  100: 76,  // 76.2
+  150: 89,  // 88.9
+  200: 102, // 101.6
+  250: 108, // 108.0
+  300: 114, // 114.3
 };
+
+/// Axial length (mm) that a flange of nominal size [dn] takes out of the run.
+///
+/// Weld neck → ASME B16.5 column Y (length through hub), because the pipe is
+/// butt-welded to the END of the hub. Every other end type (slip-on, socket,
+/// threaded, lap joint) → column C, because the pipe passes through the disc
+/// and only the plate thickness is lost.
+///
+/// Returns `null` when the DN is outside the Class 150 tables — the caller
+/// must then ask the fitter instead of inventing a number.
+///
+/// Public + free-standing so it can be unit-tested without pumping the
+/// screen; see `test/screens/iso_notebook_takeouts_test.dart`.
+int? isoFlangeAxialLengthMm({
+  required int dn,
+  required EndConnection type,
+}) =>
+    type == EndConnection.weldNeck
+        ? _flangeWnLengthThruHub[dn]
+        : _flangeFaceDefault[dn];
+
+/// Face-to-face body length (mm) of a wafer-style butterfly valve, Class 150.
+///
+/// WHY THIS EXISTS: a butterfly valve is a disc clamped BETWEEN two flanges —
+/// its body is a few centimetres thick, not the length of a gate valve. The
+/// notebook used to subtract the gate number for it: 229 mm instead of ~52 mm
+/// at DN100, i.e. a pipe 177 mm short. That length cannot be welded back on
+/// — it is scrap.
+const Map<int, int> _butterflyWafer150 = {
+  50: 43, 65: 46, 80: 46, 100: 52, 150: 56, 200: 60, 250: 68, 300: 78,
+};
+
+/// Default face-to-face length (mm) for a valve, keyed by `_Tool.name`.
+///
+/// WHY PER TYPE: a single B16.10 gate-valve table used to back all five valve
+/// kinds on the palette. Butterfly is wafer (much shorter) and globe / check
+/// sit in B16.10's OTHER Class 150 column (DN100 = 292, not 229), so one
+/// table meant a wrong deduct on three kinds out of five.
+///
+/// Takes the tool NAME rather than the private `_Tool` enum so the lookup is
+/// a pure function that tests can call, mirroring
+/// [ComponentClassification.behaviourOfToolName].
+///
+/// Returns `null` when the type/DN pair is not covered — the caller must
+/// leave the field empty and let the fitter type the value off the datasheet
+/// rather than pre-filling a wrong number.
+int? isoValveFaceToFaceMm(String toolName, int dn) {
+  switch (toolName) {
+    case 'gateValve':
+      return TakeoutCatalog.gateValve150[dn];
+    case 'ballValve':
+      return TakeoutCatalog.ballValve150[dn];
+    case 'checkValve':
+      return TakeoutCatalog.checkValve150[dn];
+    case 'globeValve':
+      // B16.10 Class 150 tabulates globe, lift check and swing check in ONE
+      // column, so the catalog's check-valve row IS the globe row.
+      return TakeoutCatalog.checkValve150[dn];
+    case 'butterflyValve':
+      return _butterflyWafer150[dn];
+    default:
+      return null;
+  }
+}
 
 /// Reading derived from an on-canvas North arrow. With no arrow on the
 /// drawing, axes stay anonymous (I/II/III); with one, lines get N/E/Up
@@ -589,6 +808,14 @@ class _IsoState extends State<IsoNotebookScreen> {
   final List<_Item> _items = [];
   final List<List<_Item>> _undo = [];
   int _version = 0; // bumped on every mutation → forces a repaint
+
+  /// `true` once the drawing has been touched in this session.
+  ///
+  /// The whole route lives in `_items` in RAM — only the view toggles reach
+  /// SharedPreferences — so a back gesture used to throw away an afternoon of
+  /// dimensioning without a word. Guards the [PopScope] in [build]; the same
+  /// pattern as `iso_scanner_screen` and `segment_builder_screen`.
+  bool _dirty = false;
 
   Offset? _dragA, _dragB;
   _Tool _tool = _Tool.pipe;
@@ -798,7 +1025,38 @@ class _IsoState extends State<IsoNotebookScreen> {
     setState(() {
       f();
       _version++;
+      // Every drawing change funnels through here, so this is the one place
+      // that has to remember there is unsaved work.
+      _dirty = true;
     });
+  }
+
+  /// "Leave without saving?" — shown by the [PopScope] guard when the fitter
+  /// backs out of a drawing that only exists in memory.
+  Future<bool> _confirmDiscard() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(_tr('Wyjść bez zapisu?', 'Leave without saving?')),
+        content: Text(_tr(
+          'Rysunek, wymiary i cut lista są tylko w pamięci — po wyjściu przepadną. '
+          'Możesz najpierw skopiować zestawienie albo wyeksportować PDF.',
+          'The sketch, its dimensions and the cut list live only in memory — '
+          'leaving discards them. You can copy the summary or export the PDF first.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(_tr('Wróć do rysunku', 'Keep editing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(_tr('Wyjdź', 'Leave')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   // ── isometric snap ──────────────────────────────────────────────────────────
@@ -1466,7 +1724,46 @@ class _IsoState extends State<IsoNotebookScreen> {
               debugPrint('_askCalc live deduct parse failed: $e');
             }
           }
-          final cutMm = (isoMm == null) ? null : isoMm - deductSum;
+          // Live CUT, through the SAME engine the drawing and the cut list
+          // use. The preview used to be ISO minus the typed rows only, so a
+          // segment between two DN100 elbows promised 2000 mm here and then
+          // appeared as 1696 mm everywhere else the moment OK was pressed.
+          // A throwaway _Seg carries the in-progress calc into _resolvedCut;
+          // the take-out lookups are positional, so an uncommitted segment
+          // resolves exactly as the committed one will.
+          double? cutMm;
+          // Take-outs the engine read off the drawing itself, i.e. the part
+          // of the reduction the typed rows do NOT explain.
+          double autoDeduct = 0;
+          if (isoMm != null) {
+            final pa = segA;
+            final pb = segB;
+            if (pa != null && pb != null) {
+              final preview = _Seg(
+                pa,
+                pb,
+                _Tool.pipe,
+                calc: _CutCalc(
+                  isoCtrl.text,
+                  deducts: [
+                    for (final r in rows)
+                      if (r.$2.text.trim().isNotEmpty)
+                        _Deduct(r.$1.text, r.$2.text),
+                  ],
+                  ref: refLocal,
+                ),
+              );
+              final v = _resolvedCut(preview);
+              // NaN means the engine rejected it (unreadable / non-positive).
+              // Fall back to the raw subtraction so the card can still show
+              // the negative number and its "components longer than ISO"
+              // warning instead of going blank.
+              cutMm = v.isFinite ? v : isoMm - deductSum;
+              autoDeduct = isoMm - deductSum - cutMm;
+            } else {
+              cutMm = isoMm - deductSum;
+            }
+          }
 
           void rebuild() => setLocal(() {});
 
@@ -1513,6 +1810,31 @@ class _IsoState extends State<IsoNotebookScreen> {
                           const Spacer(),
                           Text(
                             '− ${deductSum.toStringAsFixed(1)} mm',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: cs.tertiary),
+                          ),
+                        ],
+                      ),
+                    ],
+                    // Gap between "ISO − typed rows" and the engine's CUT:
+                    // the take-outs read straight off the drawing (elbow /
+                    // tee CTEs, valve and flange bodies). Without this row
+                    // the headline would drop several hundred millimetres
+                    // with nothing on screen to account for it.
+                    if (autoDeduct.abs() > 0.05) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                              _tr('Kształtki z rysunku',
+                                  'Fittings on the drawing'),
+                              style: TextStyle(
+                                  fontSize: 11, color: cs.onSurfaceVariant)),
+                          const Spacer(),
+                          Text(
+                            '− ${autoDeduct.toStringAsFixed(1)} mm',
                             style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
@@ -2412,7 +2734,22 @@ class _IsoState extends State<IsoNotebookScreen> {
     int dn = 50;
     EndConnection type =
         kind == _Tool.blindFlange ? EndConnection.slipOn : EndConnection.weldNeck;
-    final lenCtrl = TextEditingController(text: '${_flangeFaceDefault[dn] ?? 24}');
+    // Tracks the value the table last wrote into the field. A fitter who
+    // typed their own number keeps it when they change DN or end type; an
+    // untouched field follows the table. Without this the type chips either
+    // clobbered manual input or (as before) did nothing at all.
+    String lastAutoLen = '';
+    final lenCtrl = TextEditingController();
+    void applyTableLen() {
+      final v = isoFlangeAxialLengthMm(dn: dn, type: type);
+      final next = v?.toString() ?? '';
+      if (lenCtrl.text.trim().isEmpty || lenCtrl.text == lastAutoLen) {
+        lenCtrl.text = next;
+        lastAutoLen = next;
+      }
+    }
+
+    applyTableLen();
     try {
       return await showModalBottomSheet<
           ({int dn, int physicalLengthMm, EndConnection type})>(
@@ -2461,7 +2798,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                         if (v == null) return;
                         setLocal(() {
                           dn = v;
-                          lenCtrl.text = '${_flangeFaceDefault[v] ?? 24}';
+                          applyTableLen();
                         });
                       },
                     ),
@@ -2484,12 +2821,27 @@ class _IsoState extends State<IsoNotebookScreen> {
                             label: Text(t.code,
                                 style: const TextStyle(fontSize: 11)),
                             selected: t == type,
-                            onSelected: (_) => setLocal(() => type = t),
+                            // Changing WN↔SO changes WHICH B16.5 column
+                            // applies (Y vs C), so the length field has to
+                            // follow. Before this it never moved, and a WN
+                            // flange silently kept the 24 mm disc thickness.
+                            onSelected: (_) => setLocal(() {
+                              type = t;
+                              applyTableLen();
+                            }),
                           ),
                       ],
                     ),
                     const SizedBox(height: 10),
-                    Text(_tr('Długość czoła (mm)', 'Face length (mm)'),
+                    // "Długość czoła" read like "thickness of the raised
+                    // face" and hid the WN/SO difference. Name the dimension
+                    // that is actually subtracted from the ISO.
+                    Text(
+                        type == EndConnection.weldNeck
+                            ? _tr('Długość kołnierza po osi (Y)',
+                                'Flange length along the axis (Y)')
+                            : _tr('Długość kołnierza po osi (grubość tarczy C)',
+                                'Flange length along the axis (disc thickness C)'),
                         style: TextStyle(
                             fontSize: 11, color: cs.onSurfaceVariant)),
                     TextField(
@@ -2502,10 +2854,16 @@ class _IsoState extends State<IsoNotebookScreen> {
                       ],
                       decoration: InputDecoration(
                         isDense: true,
-                        hintText: _tr('np. 24', 'e.g. 24'),
-                        helperText: _tr(
-                            'Zakres 1–9999 mm. Domyślne z ASME B16.5 — popraw jeśli inna klasa.',
-                            'Range 1–9999 mm. Defaults from ASME B16.5 — adjust for other classes.'),
+                        hintText: type == EndConnection.weldNeck
+                            ? _tr('np. 76', 'e.g. 76')
+                            : _tr('np. 24', 'e.g. 24'),
+                        helperText: type == EndConnection.weldNeck
+                            ? _tr(
+                                'Zakres 1–9999 mm. ASME B16.5 kol. Y (długość przez piastę) — popraw jeśli inna klasa.',
+                                'Range 1–9999 mm. ASME B16.5 col. Y (length through hub) — adjust for other classes.')
+                            : _tr(
+                                'Zakres 1–9999 mm. ASME B16.5 kol. C (grubość tarczy) — popraw jeśli inna klasa.',
+                                'Range 1–9999 mm. ASME B16.5 col. C (disc thickness) — adjust for other classes.'),
                         helperMaxLines: 2,
                       ),
                     ),
@@ -2529,9 +2887,18 @@ class _IsoState extends State<IsoNotebookScreen> {
                             // default so they can just press it and move on.
                             String? lenError;
                             if (raw.isEmpty) {
-                              lenError = _tr(
-                                  'Wpisz długość czoła kołnierza. Domyślnie ${_flangeFaceDefault[dn] ?? 24} mm.',
-                                  'Enter the flange face length. Default is ${_flangeFaceDefault[dn] ?? 24} mm.');
+                              // Quote the column that matches the selected
+                              // end type — quoting C at a WN flange is what
+                              // produced the 52 mm error in the first place.
+                              final tableVal =
+                                  isoFlangeAxialLengthMm(dn: dn, type: type);
+                              lenError = tableVal == null
+                                  ? _tr(
+                                      'Brak wartości tablicowej dla DN$dn ${type.code} — wpisz długość z karty katalogowej.',
+                                      'No table value for DN$dn ${type.code} — enter the length from the datasheet.')
+                                  : _tr(
+                                      'Wpisz długość kołnierza po osi. Wg ASME B16.5 dla DN$dn ${type.code}: $tableVal mm.',
+                                      'Enter the flange length along the axis. ASME B16.5 for DN$dn ${type.code}: $tableVal mm.');
                             } else if (len == null) {
                               lenError = _tr(
                                   'Same cyfry — bez jednostek ani kropek.',
@@ -2586,7 +2953,22 @@ class _IsoState extends State<IsoNotebookScreen> {
     int dn = 50;
     EndConnection endA = EndConnection.buttWeld;
     EndConnection endB = EndConnection.buttWeld;
-    final lenCtrl = TextEditingController(text: '${_valveDefault[dn] ?? 178}');
+    // Per-kind table (see [isoValveFaceToFaceMm]). When the kind/DN pair has
+    // no tabulated value the field stays EMPTY on purpose: the old code fell
+    // back to 178 mm — the DN50 gate length — for every uncovered size, which
+    // is a wrong number wearing the costume of a default.
+    String lastAutoLen = '';
+    final lenCtrl = TextEditingController();
+    void applyTableLen() {
+      final v = isoValveFaceToFaceMm(kind.name, dn);
+      final next = v?.toString() ?? '';
+      if (lenCtrl.text.trim().isEmpty || lenCtrl.text == lastAutoLen) {
+        lenCtrl.text = next;
+        lastAutoLen = next;
+      }
+    }
+
+    applyTableLen();
     try {
       return await showModalBottomSheet<({
         int dn,
@@ -2635,7 +3017,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                         if (v == null) return;
                         setLocal(() {
                           dn = v;
-                          lenCtrl.text = '${_valveDefault[v] ?? 178}';
+                          applyTableLen();
                         });
                       },
                     ),
@@ -2655,9 +3037,21 @@ class _IsoState extends State<IsoNotebookScreen> {
                       textInputAction: TextInputAction.done,
                       decoration: InputDecoration(
                         isDense: true,
-                        helperText: _tr(
-                            'Zakres 1-9999 mm. Domyślnie B16.10 kl. 150.',
-                            'Range 1-9999 mm. Default B16.10 cl. 150.'),
+                        // Name the source per valve kind — "B16.10 cl.150"
+                        // was printed under a butterfly valve too, which is
+                        // wafer-style and not in B16.10 at all.
+                        helperText: isoValveFaceToFaceMm(kind.name, dn) == null
+                            ? _tr(
+                                'Brak wartości tablicowej dla DN$dn — wpisz z karty katalogowej.',
+                                'No table value for DN$dn — enter it from the datasheet.')
+                            : kind == _Tool.butterflyValve
+                                ? _tr(
+                                    'Zakres 1-9999 mm. Korpus wafer kl.150 — zawór siedzi MIĘDZY kołnierzami.',
+                                    'Range 1-9999 mm. Wafer body cl.150 — the valve sits BETWEEN the flanges.')
+                                : _tr(
+                                    'Zakres 1-9999 mm. Domyślnie B16.10 kl. 150.',
+                                    'Range 1-9999 mm. Default B16.10 cl. 150.'),
+                        helperMaxLines: 2,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -2716,7 +3110,22 @@ class _IsoState extends State<IsoNotebookScreen> {
                         ElevatedButton(
                           onPressed: () {
                             final len = int.tryParse(lenCtrl.text.trim());
-                            if (len == null || len <= 0) return;
+                            if (len == null || len <= 0) {
+                              // The field can now legitimately open EMPTY
+                              // (kind/DN outside the tables), so a silent
+                              // no-op OK would look like a frozen button.
+                              ScaffoldMessenger.of(bctx)
+                                ..clearSnackBars()
+                                ..showSnackBar(SnackBar(
+                                  content: Text(_tr(
+                                    'Wpisz długość face-to-face zaworu (mm).',
+                                    'Enter the valve face-to-face length (mm).',
+                                  )),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 3),
+                                ));
+                              return;
+                            }
                             Navigator.pop(bctx, (
                               dn: dn,
                               physicalLengthMm: len,
@@ -3027,7 +3436,14 @@ class _IsoState extends State<IsoNotebookScreen> {
           ],
         ),
       );
-      if (name != null) setState(() => _projectName = name);
+      // The line number is part of the unsaved drawing, not a view setting —
+      // it has to arm the same leave-guard the sketch does.
+      if (name != null) {
+        setState(() {
+          _projectName = name;
+          _dirty = true;
+        });
+      }
     } finally {
       ctrl.dispose();
     }
@@ -3037,13 +3453,19 @@ class _IsoState extends State<IsoNotebookScreen> {
   List<_Seg> get _pipes =>
       _items.whereType<_Seg>().where((s) => s.t == _Tool.pipe).toList();
 
-  /// Total of all resolved CUTs (deducts already applied).
-  /// Resolved CUT for a single segment = manual cut from [_CutCalc] minus
-  /// any standard elbow CTEs that sit at this segment's endpoints. Returns
-  /// NaN when the manual cut itself is unreadable.
+  /// THE cut length of [seg], in millimetres — the single number the drawing,
+  /// the title block, the cut list, the BOM and the PDF all render.
+  ///
+  /// Everything routes through [prefab.PrefabEngine]; there is deliberately no
+  /// second formula anywhere in this file. Returns NaN when the ISO itself is
+  /// unreadable or the engine rejects the result.
   double _resolvedCut(_Seg seg) {
     final c = seg.calc;
     if (c == null) return double.nan;
+    // "(1500)" is a reference dimension, not a cut target. The legacy getter
+    // enforced this and `_resolvedCut` did not, so the summary bar counted
+    // REF runs into the total while the title block left them out.
+    if (c.isReference) return double.nan;
     // Parse ISO expression — preserve the original try/catch contract: a
     // garbled formula yields NaN so the BOM rendering can show "(unreadable)".
     double isoMm;
@@ -3053,21 +3475,12 @@ class _IsoState extends State<IsoNotebookScreen> {
       debugPrint('_resolvedCut ISO parse failed for "${c.iso}": $e');
       return double.nan;
     }
-    // Per-end elbow CTE totals (was a single sum in the legacy implementation;
-    // PrefabEngine needs them split so refs like centreToFace can credit only
-    // the left side). User deduct rows are folded in here too because the
-    // user-typed list represents centre-to-end contributions.
-    int leftCte = 0;
-    int rightCte = 0;
+    // Per-end axial take-out totals (elbow / tee / olet). PrefabEngine needs
+    // them split so refs like centreToFace can credit only the left side.
     final tol = _s * 0.45;
-    for (final it in _items) {
-      if (it is! _Comp) continue;
-      if (!it.isElbow) continue;
-      final cte = it.cteMm;
-      if (cte == null || cte <= 0) continue;
-      if ((it.pos - seg.a).distance < tol) leftCte += cte;
-      if ((it.pos - seg.b).distance < tol) rightCte += cte;
-    }
+    final axial = _axialTakeoutsFor(seg, _items, tol, manual: c.deducts);
+    final leftCte = axial.leftMm;
+    final rightCte = axial.rightMm;
     // Also subtract any manually typed deduct rows (Phase 1 keeps them as
     // generic centre-to-end style debits so existing drawings keep producing
     // the same CUT). Unreadable rows are skipped, mirroring legacy `cutMm`.
@@ -3174,7 +3587,8 @@ class _IsoState extends State<IsoNotebookScreen> {
         continue;
       }
       final cut = _resolvedCut(s);
-      final autoCte = _autoElbowDeductFor(s, _items, tol);
+      final axial = _axialTakeoutsFor(s, _items, tol, manual: c.deducts);
+      final autoCte = axial.totalMm;
       final leftPhys = _autoPhysicalDeductFor(s.a, _items, tol);
       final rightPhys = _autoPhysicalDeductFor(s.b, _items, tol);
       final midPhys = _midPhysicalDeductFor(s, _items, tol);
@@ -3188,9 +3602,11 @@ class _IsoState extends State<IsoNotebookScreen> {
       final hasAnyDeduct = c.hasDeducts || autoCte > 0 ||
           endPhysSum > 0 || midPhys > 0;
       final refTag = isPl ? c.ref.labelPl : c.ref.labelEn;
-      final cutStr = cut.isFinite
-          ? '${cut.toStringAsFixed(1)} mm'
-          : (isPl ? '(nieczytelne)' : '(unreadable)');
+      final cutStr = c.isReference
+          ? (isPl ? '(wymiar odniesienia)' : '(reference dimension)')
+          : cut.isFinite
+              ? '${cut.toStringAsFixed(1)} mm'
+              : (isPl ? '(nieczytelne)' : '(unreadable)');
       final inferredDn = _inferredDnFor(s);
       final dnTag = inferredDn != null ? '  DN$inferredDn' : '';
       if (hasAnyDeduct) {
@@ -3199,7 +3615,7 @@ class _IsoState extends State<IsoNotebookScreen> {
           lines.add('       − ${d.name.isEmpty ? "?" : d.name}: ${d.value}');
         }
         if (autoCte > 0) {
-          lines.add('       − ${isPl ? "oś kolanek" : "elbow CTE"}: $autoCte mm');
+          lines.add('       − ${isPl ? "oś kształtek" : "fitting CTE"}: $autoCte mm');
         }
         if (endPhysicalsActive && leftPhys > 0) {
           lines.add('       − ${isPl ? "komponent (lewy)" : "component (left)"}: $leftPhys mm');
@@ -3214,6 +3630,13 @@ class _IsoState extends State<IsoNotebookScreen> {
       } else {
         lines.add(
             '  $n.$dnTag  ${c.iso}${cut.isFinite ? " = $cutStr" : ""}   [$refTag]');
+      }
+      // An axial fitting with no take-out contributed 0 to the CUT above.
+      // Silence there reads as "nothing to subtract"; say it out loud so the
+      // fitter knows the number is short of a deduct rather than final.
+      for (final m in axial.missing) {
+        lines.add('       ! ${compName(m.t, isPl)}: '
+            '${isPl ? "brak wymiaru (CTE) — NIE odjęto" : "no dimension (CTE) — NOT deducted"}');
       }
       if (s.hasSlope) {
         lines.add('       (${isPl ? "spadek" : "slope"}: ${s.slope})');
@@ -3610,10 +4033,16 @@ class _IsoState extends State<IsoNotebookScreen> {
           buf.writeln('  $n. ${_tr('(bez wymiaru)', '(no dimension)')}');
           continue;
         }
-        final cut = c.cutMm;
-        final cutStr = cut.isFinite
-            ? '${cut.toStringAsFixed(1)} mm'
-            : _tr('(nieczytelne)', '(unreadable)');
+        // Was `c.cutMm` — the clipboard summary reported the pre-engine
+        // number while the "Suma CUT" line right below it came from
+        // `_totalMm` (the engine). The two disagreed by every automatic
+        // take-out on the drawing.
+        final cut = _resolvedCut(s);
+        final cutStr = c.isReference
+            ? _tr('(wymiar odniesienia)', '(reference dimension)')
+            : cut.isFinite
+                ? '${cut.toStringAsFixed(1)} mm'
+                : _tr('(nieczytelne)', '(unreadable)');
         if (c.hasDeducts) {
           buf.writeln('  $n. ${_tr('ISO', 'ISO')}: ${c.iso}');
           for (final d in c.deducts) {
@@ -3796,6 +4225,50 @@ class _IsoState extends State<IsoNotebookScreen> {
       ));
   }
 
+  /// DN to assume for [c] when it doesn't carry one: the size of a pipe that
+  /// touches it, else null. Lets a tee inherit DN100 from the run it sits on
+  /// instead of forcing the fitter to restate a size the drawing already
+  /// shows.
+  int? _dnForComp(_Comp c) {
+    if (c.dn != null) return c.dn;
+    final tol = _s * 0.45;
+    for (final p in _pipes) {
+      if ((p.a - c.pos).distance < tol || (p.b - c.pos).distance < tol) {
+        final inf = _inferredDnFor(p);
+        if (inf != null) return inf;
+      }
+    }
+    return null;
+  }
+
+  /// Pre-fill for the batch-dimension row of [c].
+  ///
+  /// Priority: value already on the component → per-drawing (tool, DN) cache
+  /// (so the first DN50 elbow's 76 mm carries to the next twenty) → for a tee
+  /// only, the B16.9 table for its DN → blank.
+  ///
+  /// The tee is the one kind with a table fallback because it is the one kind
+  /// with no other place in the app to state its take-out; an elbow keeps its
+  /// existing blank row, since its own spec sheet already offers the ASME
+  /// value. The DN behind a table pre-fill is shown on the row (see
+  /// [_DimensionsSheet]) so the number is never anonymous.
+  String _prefillFor(_Comp c) {
+    final dn = _dnForComp(c);
+    if (_isAxialTool(c.t)) {
+      final own = c.cteMm;
+      if (own != null && own > 0) return own.toString();
+      if (dn == null) return '';
+      final cached = _recallCompDim(c.t, dn);
+      if (cached != null) return cached.toString();
+      if (c.t == _Tool.tee) return TakeoutCatalog.tee[dn]?.toString() ?? '';
+      return '';
+    }
+    final own = c.physicalLengthMm;
+    if (own != null && own > 0) return own.toString();
+    if (dn == null) return '';
+    return _recallCompDim(c.t, dn)?.toString() ?? '';
+  }
+
   // ── batch dimension entry (called from "Wymiary" button) ──────────────────
   /// Opens a bottom sheet listing every pipe segment that doesn't yet have
   /// a dimension and lets the user fill them all in one pass. Tap-edit on
@@ -3826,6 +4299,13 @@ class _IsoState extends State<IsoNotebookScreen> {
         compsNeedingData.add(it);
         continue;
       }
+      // Tees / olets were never collected here, so there was no screen in
+      // the app where their take-out could be entered — the automatic pass
+      // had nothing to read and the fitting silently deducted 0.
+      if (_isAxialTool(it.t) && _axialTakeoutOf(it) == null) {
+        compsNeedingData.add(it);
+        continue;
+      }
       try {
         if (ComponentClassification.isPhysical(it.t.name) &&
             (it.physicalLengthMm == null || it.physicalLengthMm! <= 0)) {
@@ -3842,18 +4322,7 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
     final compControllers = <_Comp, TextEditingController>{
       for (final c in compsNeedingData)
-        c: TextEditingController(
-          // Pre-fill priority: value already on component, then per-drawing
-          // cache (so a fitter who entered 76 mm for the first DN50 elbow
-          // doesn't retype it for the next twenty), then blank.
-          text: c.isElbow
-              ? (c.cteMm?.toString() ??
-                  _recallCompDim(c.t, c.dn ?? 50)?.toString() ??
-                  '')
-              : (c.physicalLengthMm?.toString() ??
-                  _recallCompDim(c.t, c.dn ?? 50)?.toString() ??
-                  ''),
-        ),
+        c: TextEditingController(text: _prefillFor(c)),
     };
 
     try {
@@ -3872,6 +4341,7 @@ class _IsoState extends State<IsoNotebookScreen> {
               componentControllers: compControllers,
               tr: (pl, en) => sheetCtx.tr(pl: pl, en: en),
               compName: (t) => compName(t, sheetCtx.language == AppLanguage.pl),
+              dnOf: _dnForComp,
             ),
           );
         },
@@ -3898,7 +4368,7 @@ class _IsoState extends State<IsoNotebookScreen> {
             final idx = _items.indexOf(entry.key);
             if (idx < 0) continue;
             final c = entry.key;
-            final dn = c.dn ?? 50;
+            final dn = _dnForComp(c) ?? 50;
             // Cache the value so any other same-(type, DN) components
             // placed later in this session pre-fill with it.
             _rememberCompDim(c.t, dn, v);
@@ -3908,6 +4378,12 @@ class _IsoState extends State<IsoNotebookScreen> {
                 subtype: c.elbowSubtype ?? _ElbowSubtype.lr90,
                 cte: v,
               );
+            } else if (_isAxialTool(c.t)) {
+              // Tee / olet: the typed number is a CENTRE-TO-END take-out, not
+              // a body length. Routing it through withPhysicalSpec (as the
+              // single else-branch used to) parked it in a field the axial
+              // deduct path never reads — the value vanished on save.
+              _items[idx] = c.withAxialSpec(dn: dn, cte: v);
             } else {
               _items[idx] = c.withPhysicalSpec(
                 dn: dn,
@@ -4226,17 +4702,41 @@ class _IsoState extends State<IsoNotebookScreen> {
     // so calling all three in build() used to be quadratic-ish on every frame.
     final pipes = _pipes;
     final pipeCount = pipes.length;
+    // The CUT of every dimensioned segment, computed ONCE per frame and
+    // shared with the painter. The painter cannot reach `_items`-wide context
+    // (DimRef, automatic take-outs, mid-run bodies), so handing it finished
+    // numbers is what stops the drawing and the cut list beneath it from
+    // printing two different lengths for the same pipe.
+    //
+    // Covers EVERY `_Seg`, not just pipes: thin / dashed lines can carry a
+    // dimension too and `_drawDim` renders them, so a pipes-only map would
+    // leave those labels with no value to draw.
+    final cutBySeg = <_Seg, double>{};
+    for (final it in _items) {
+      if (it is! _Seg || it.calc == null) continue;
+      cutBySeg[it] = _resolvedCut(it);
+    }
     int dimensioned = 0;
     double totalMm = 0;
     for (final s in pipes) {
-      if (s.calc == null) continue;
+      final v = cutBySeg[s];
+      if (v == null) continue; // undimensioned
       dimensioned++;
-      final v = _resolvedCut(s);
-      if (v.isFinite) totalMm += v;
+      // Match `_totalMm`: a negative or non-finite row is excluded from the
+      // headline and counted by `_invalidPipeCount` instead.
+      if (v.isFinite && v >= 0) totalMm += v;
     }
     final hasComp = _items.any((it) => it is _Comp || it is _Note);
     final mapping = _currentMapping;
-    return Scaffold(
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        final discard = await _confirmDiscard();
+        if (discard && mounted) nav.pop();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Tooltip(
           message: _tr(
@@ -4534,6 +5034,9 @@ class _IsoState extends State<IsoNotebookScreen> {
                             cs: cs,
                             mapping: mapping,
                             projectName: _projectName,
+                            cutBySeg: cutBySeg,
+                            missingDimLabel:
+                                _tr('brak wymiaru', 'no dimension'),
                             // Ghost extension shows which iso axis the snap is
                             // locked to — only meaningful for the pipe tool with
                             // axis-lock on. Other line tools fall back to free
@@ -4658,6 +5161,7 @@ class _IsoState extends State<IsoNotebookScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 
@@ -5088,6 +5592,23 @@ class _Painter extends CustomPainter {
   final Offset viewOffset;
   final double viewScale;
 
+  /// CUT length per pipe segment, in millimetres, already resolved by
+  /// [prefab.PrefabEngine] in the screen state.
+  ///
+  /// WHY IT IS PASSED IN: the painter has no access to `_items`-wide context
+  /// (auto take-outs, DimRef, mid-run components), so it used to run its OWN
+  /// shorter formula — ISO minus hand-typed deducts minus elbow CTEs. The
+  /// drawing and the cut list under it therefore disagreed, and the PDF
+  /// export put both numbers on one sheet: 2000 on the dimension line, 1696
+  /// in the table. There is now exactly one calculation and the painter only
+  /// renders its result. Missing key ⇒ nothing to render, never a fallback
+  /// formula.
+  final Map<_Seg, double> cutBySeg;
+
+  /// Localised "no dimension" tag for a fitting whose take-out is unknown.
+  /// Painters have no BuildContext, so the string is resolved by the caller.
+  final String missingDimLabel;
+
   const _Painter({
     required this.items,
     required this.version,
@@ -5098,6 +5619,8 @@ class _Painter extends CustomPainter {
     required this.cs,
     required this.mapping,
     required this.projectName,
+    required this.cutBySeg,
+    required this.missingDimLabel,
     this.axisLock = false,
     this.showStatusBox = true,
     this.showColorLegend = true,
@@ -5232,8 +5755,12 @@ class _Painter extends CustomPainter {
         final c = it.calc;
         if (c == null) continue;
         dimensioned++;
-        final v = c.cutMm;
-        if (v.isFinite) total += v;
+        // Same engine result the cut list and the summary bar print. The
+        // legacy `c.cutMm` shortcut here is what made the title block on the
+        // exported PDF disagree with the table printed beneath it. Negative /
+        // non-finite rows are excluded exactly as `_totalMm` excludes them.
+        final v = cutBySeg[it];
+        if (v != null && v.isFinite && v >= 0) total += v;
       } else if (it is _Comp) {
         if (it.t == _Tool.northArrow || it.t == _Tool.flowArrow) continue;
         compCount++;
@@ -5823,14 +6350,35 @@ class _Painter extends CustomPainter {
     final unit = Offset(d.dx / len, d.dy / len);
     final norm = Offset(-unit.dy, unit.dx);
 
-    // Auto-deduct elbow CTEs that sit at the segment's endpoints so the
-    // CUT shown on the drawing matches what the fitter must saw.
-    final autoDeduct = _autoElbowDeductFor(seg, items, s * 0.45);
-    final base = c.cutMm;
-    final cutMm = base.isFinite ? base - autoDeduct : base;
-    final hasAuto = autoDeduct > 0;
-    final isCut = c.hasDeducts || hasAuto;
-    final accent = isCut ? cs.tertiary : cs.primary;
+    // The CUT rendered here is the engine's, handed down in `cutBySeg`.
+    // The painter used to recompute it from ISO minus elbow CTEs and typed
+    // deducts only, which ignored DimRef, mid-run bodies and flange/valve
+    // lengths — that is the discrepancy the PDF export put on one page.
+    final cutMm = cutBySeg[seg] ?? double.nan;
+    // ISO as typed, for the secondary line. Parse failure only costs the
+    // "ISO ####" caption; it never feeds the CUT.
+    double base;
+    try {
+      base = parseIsoExpression(c.iso);
+    } catch (e) {
+      debugPrint('_drawDim ISO parse failed for "${c.iso}": $e');
+      base = double.nan;
+    }
+    final isoTrim = c.iso.trim();
+    // "(1500)" — a reference dimension. Never a cut target, so it resolves to
+    // NaN by design and must NOT be painted as a fault.
+    final isRef = isoTrim.startsWith('(') && isoTrim.endsWith(')');
+    // A value that differs from the raw ISO is a CUT, not a plain dimension
+    // — colour it as such regardless of WHICH deduct produced the difference.
+    final isCut = c.hasDeducts ||
+        (base.isFinite && cutMm.isFinite && (base - cutMm).abs() > 0.05);
+    // Non-finite OR non-positive: the engine could not produce a length a
+    // saw can cut. The old label printed the negative millimetres straight
+    // onto the drawing while the table beside it said "(nieczytelne)".
+    final cutUsable = !isRef && cutMm.isFinite && cutMm > 0;
+    final accent = (!isRef && !cutUsable)
+        ? cs.error
+        : (isCut ? cs.tertiary : cs.primary);
 
     // Dim line sits ~16 px out from the pipe centreline (away from the axis
     // chip on the opposite side).
@@ -5857,17 +6405,20 @@ class _Painter extends CustomPainter {
     canvas.drawLine(extA - tickHalf, extA + tickHalf, thin);
     canvas.drawLine(extB - tickHalf, extB + tickHalf, thin);
 
-    final isoTrim = c.iso.trim();
-    final isRef = isoTrim.startsWith('(') && isoTrim.endsWith(')');
     String label;
     if (isRef) {
       label = '(REF) $isoTrim';
-    } else if (!cutMm.isFinite) {
-      // Unreadable expression: paint the raw ISO so the user sees what they
-      // typed, but cap the chip width — a pasted 60-char garbled string would
-      // otherwise span the whole canvas and bury adjacent labels.
-      final raw = c.iso;
-      label = raw.isEmpty ? '?' : (raw.length > 14 ? '${raw.substring(0, 13)}…' : raw);
+    } else if (!cutUsable) {
+      // Unreadable expression OR a cut that came out zero/negative (deducts
+      // longer than the ISO). Both mean "there is no length to saw here":
+      // paint the raw ISO behind a warning glyph so the fitter sees what they
+      // typed instead of a minus sign they might read as a real measurement.
+      // Cap the chip width — a pasted 60-char garbled string would otherwise
+      // span the whole canvas and bury adjacent labels.
+      final raw = c.iso.trim();
+      final shown =
+          raw.isEmpty ? '?' : (raw.length > 12 ? '${raw.substring(0, 11)}…' : raw);
+      label = '⚠ $shown';
     } else {
       label = cutMm == cutMm.roundToDouble()
           ? cutMm.toStringAsFixed(0)
@@ -5901,9 +6452,10 @@ class _Painter extends CustomPainter {
     );
     tp.paint(canvas, Offset(rect.left + 4, rect.top));
 
-    // Second line shows the resolved CUT explicitly when auto-deduct
-    // applied — so the user sees both the ISO they typed AND the CUT.
-    if (isCut && base.isFinite && cutMm.isFinite && base != cutMm) {
+    // Second line shows the ISO the fitter typed whenever the headline number
+    // is a CUT — so the drawing carries both, and the two can be reconciled
+    // against the cut list without opening a dialog.
+    if (isCut && cutUsable && base.isFinite && base != cutMm) {
       final isoStr = base == base.roundToDouble()
           ? base.toStringAsFixed(0)
           : base.toStringAsFixed(1);
@@ -7099,6 +7651,11 @@ class _Painter extends CustomPainter {
   void _drawMissingDataRing(Canvas canvas, _Comp c) {
     bool missing = false;
     if (c.isElbow && c.dn == null) missing = true;
+    // Tee / olet: no take-out means it contributed 0 mm to every cut around
+    // it. Previously nothing on the canvas said so — the fitting looked as
+    // finished as a fully specced elbow while quietly leaving its CTE out of
+    // the maths.
+    if (_isAxialTool(c.t) && _axialTakeoutOf(c) == null) missing = true;
     try {
       if (ComponentClassification.isPhysical(c.t.name) &&
           c.physicalLengthMm == null) {
@@ -7128,6 +7685,30 @@ class _Painter extends CustomPainter {
     for (int i = 0; i < n; i++) {
       canvas.drawArc(rect, i * sweepStep, sweepOn, false, paint);
     }
+    // A dashed ring alone reads as "selected" to a fitter who has not learnt
+    // the convention. Spell the reason out under the symbol.
+    final tp = TextPainter(
+      text: TextSpan(
+        text: missingDimLabel,
+        style: TextStyle(
+          color: cs.error,
+          fontSize: 8.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.2,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final chip = Rect.fromCenter(
+      center: c.pos + Offset(0, radius + tp.height * 0.65 + 1),
+      width: tp.width + 6,
+      height: tp.height + 2,
+    );
+    canvas.drawRect(
+      chip,
+      Paint()..color = _bgColor.withValues(alpha: 0.92),
+    );
+    tp.paint(canvas, Offset(chip.left + 3, chip.top + 1));
   }
 
   /// Two-line tag drawn on the upper-right of an elbow component:
@@ -7685,6 +8266,9 @@ class _Painter extends CustomPainter {
   @override
   bool shouldRepaint(_Painter old) =>
       version != old.version ||
+      // Language switch changes only this string; without it the canvas kept
+      // the old "brak wymiaru" tag until the next drawing edit.
+      missingDimLabel != old.missingDimLabel ||
       dragA != old.dragA ||
       dragB != old.dragB ||
       tool != old.tool ||
@@ -7707,6 +8291,11 @@ class _DimensionsSheet extends StatefulWidget {
   final String Function(String pl, String en) tr;
   final String Function(_Tool tool) compName;
 
+  /// DN the parent resolved for a component — its own, or the size of a pipe
+  /// touching it. Shown on the row so a table pre-fill is never an anonymous
+  /// number the fitter has to trust blind.
+  final int? Function(_Comp comp) dnOf;
+
   const _DimensionsSheet({
     required this.segments,
     required this.controllers,
@@ -7714,6 +8303,7 @@ class _DimensionsSheet extends StatefulWidget {
     required this.componentControllers,
     required this.tr,
     required this.compName,
+    required this.dnOf,
   });
 
   @override
@@ -7829,7 +8419,13 @@ class _DimensionsSheetState extends State<_DimensionsSheet> {
                       }
                       final comp = widget.components[compIdx - 1];
                       final cctrl = widget.componentControllers[comp]!;
-                      final dnTag = comp.dn != null ? ' · DN${comp.dn}' : '';
+                      final resolvedDn = widget.dnOf(comp);
+                      // Was `comp.dn`, which is null on exactly the fittings
+                      // that land in this list — the row said "Trójnik" with
+                      // no size next to a pre-filled table value.
+                      final dnTag =
+                          resolvedDn != null ? ' · DN$resolvedDn' : '';
+                      final isAxial = _isAxialTool(comp.t);
                       return Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -7868,7 +8464,10 @@ class _DimensionsSheetState extends State<_DimensionsSheet> {
                                   textInputAction: TextInputAction.next,
                                   decoration: InputDecoration(
                                     isDense: true,
-                                    hintText: comp.isElbow
+                                    // Tee / olet ask for a CTE too, not a body
+                                    // length — the old `isElbow` test showed
+                                    // them the wrong prompt entirely.
+                                    hintText: isAxial
                                         ? widget.tr(
                                             'Do osi (CTE) np. 76',
                                             'Centre-to-end e.g. 76')

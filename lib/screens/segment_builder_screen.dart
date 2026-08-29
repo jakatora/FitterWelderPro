@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/library_component.dart';
+import '../models/segment.dart';
 import '../services/cut_calculator.dart';
 import '../services/iso_parser.dart';
 import '../utils/haptic.dart';
@@ -100,6 +101,59 @@ String _typeLabel(BuildContext ctx, String type) {
   }
 }
 
+// ─── Tagi elementów logicznych ────────────────────────────────────────────
+// Both strings are also the type codes the palette buttons send into
+// `_addFromType`, and are written there as literals — keep them in step.
+
+/// Tag of the pipe that every segment is built around.
+const String kPipeTag = 'PIPE';
+
+/// Tag of a logical (library-less) end of a segment.
+const String kOpenEndTag = 'OPEN_END';
+
+/// Whether a picked sequence forms one complete, measurable segment.
+///
+/// A segment is a single length of pipe between two anchors, so the only
+/// complete shape is START → PIPE → END: three entries with the pipe in the
+/// middle. Anything shorter has nothing to cut; a pipe anywhere but the
+/// middle means two components were picked back to back.
+///
+/// Pulled out of the widget as a pure function over the tag list because this
+/// one rule gates three separate things — whether the ISO field is shown,
+/// whether CUT is computed at all, and whether a further palette tap is
+/// rejected as "segment already complete" — and it can be tested here without
+/// pumping a screen or touching the component-library database.
+bool isSegmentSequenceComplete(List<String> tags) =>
+    tags.length >= 3 && tags[1] == kPipeTag;
+
+/// Splits a stored `segments.iso_ref` back into its START and END codes.
+///
+/// The column holds both reference points joined with '|' (see the save
+/// payload at the bottom of this screen), e.g. 'AXIS|FACE_NEAR'. Rows written
+/// before that encoding existed hold the plain default 'FACE', and rows can
+/// in principle hold anything, so this never throws: a missing half comes
+/// back as an empty string and [isoRefPointFromCode] falls back to the
+/// component's own default rather than silently measuring from the wrong
+/// point — which would change the cut length.
+({String start, String end}) splitIsoRef(String isoRef) {
+  final parts = isoRef.split('|');
+  return (
+    start: parts.isNotEmpty ? parts[0].trim() : '',
+    end: parts.length > 1 ? parts[1].trim() : '',
+  );
+}
+
+/// Decodes one half of a stored `iso_ref` into a reference point.
+///
+/// Unknown or legacy codes ('FACE', '') resolve to [fallback] — the default
+/// point for that component type — never to an arbitrary enum value.
+IsoRefPoint isoRefPointFromCode(String code, {required IsoRefPoint fallback}) {
+  for (final p in IsoRefPoint.values) {
+    if (p.code == code) return p;
+  }
+  return fallback;
+}
+
 // ─── Picked ────────────────────────────────────────────────────────────────
 class _Picked {
   final String tag;
@@ -135,12 +189,23 @@ class SegmentBuilderScreen extends StatefulWidget {
   final double wallThickness;
   final double gapMm;
 
+  /// Segment being corrected, or null when a brand-new one is being built.
+  ///
+  /// Until this existed a saved segment was read-only: a mistyped ISO value
+  /// (3450 for 3540) could only be fixed by deleting the segment and
+  /// rebuilding the entire sequence — palette, START, pipe, palette, END,
+  /// dimension — in gloves, on a scaffold. When set, the screen opens with
+  /// the sequence and the ISO expression already restored and the caller
+  /// writes the result back with UPDATE instead of INSERT.
+  final Segment? existing;
+
   const SegmentBuilderScreen({
     super.key,
     required this.materialGroup,
     required this.currentDiameter,
     required this.wallThickness,
     required this.gapMm,
+    this.existing,
   });
 
   @override
@@ -153,13 +218,16 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
   final List<_Picked> _sequence = [];
 
+  List<String> get _tags => [for (final p in _sequence) p.tag];
+
   bool get hasStart => _sequence.isNotEmpty;
-  bool get hasPipe  => _sequence.length >= 2 && _sequence[1].tag == 'PIPE';
   bool get hasEnd   => _sequence.length >= 3;
-  bool get readyForIso => hasStart && hasPipe && hasEnd;
+  bool get readyForIso => isSegmentSequenceComplete(_tags);
 
   _Picked? get _startPicked => hasStart ? _sequence[0] : null;
   _Picked? get _endPicked   => hasEnd   ? _sequence[2] : null;
+
+  bool get _isEditing => widget.existing != null;
 
   final _isoController = TextEditingController();
   double? _isoMm;
@@ -167,23 +235,46 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   String? _error;
   bool _saving = false;
 
+  /// Signature of the state the screen opened with: empty for a new segment,
+  /// the restored segment for a correction. See [_isDirty].
+  String _baseline = '';
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
-  // Dirty when the fitter has built any sequence or typed an ISO expression.
-  // Accidental swipe-back on a shop-floor phone would silently wipe it.
-  bool get _isDirty =>
-      !_saving &&
-      (_sequence.isNotEmpty || _isoController.text.trim().isNotEmpty);
+  /// Everything a save would write, flattened into one comparable string.
+  /// The offsets are derived from component + reference point, so those two
+  /// plus the tag fully describe a pick.
+  String _signature() => [
+        for (final p in _sequence)
+          '${p.tag}/${p.component?.id ?? ''}/${p.refPoint.code}',
+        _isoController.text.trim(),
+      ].join('|');
+
+  // Dirty when the fitter changed something since the screen opened — an
+  // accidental swipe-back on a shop-floor phone would silently wipe it.
+  //
+  // Compared against a baseline rather than asking "is anything filled in?":
+  // in edit mode the answer to that is always yes, so merely opening a
+  // segment to read it and backing out would raise a "discard?" dialog and
+  // train the fitter to dismiss the one prompt that protects real work.
+  bool get _isDirty => !_saving && _signature() != _baseline;
 
   Future<bool> _confirmDiscard() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_tr('Porzucić segment?', 'Discard segment?')),
-        content: Text(_tr(
-          'Sekwencja i wpisany wymiar ISO zostaną utracone.',
-          'The sequence and entered ISO value will be lost.',
-        )),
+        title: Text(_isEditing
+            ? _tr('Porzucić poprawki?', 'Discard changes?')
+            : _tr('Porzucić segment?', 'Discard segment?')),
+        content: Text(_isEditing
+            ? _tr(
+                'Segment zostanie bez zmian — poprawki nie zostaną zapisane.',
+                'The segment stays as it was — your changes will be lost.',
+              )
+            : _tr(
+                'Sekwencja i wpisany wymiar ISO zostaną utracone.',
+                'The sequence and entered ISO value will be lost.',
+              )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -200,9 +291,93 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // Post-frame rather than straight from initState: the restore reports
+    // problems through ScaffoldMessenger and localises them with `context.tr`
+    // (an InheritedWidget lookup), and neither is legal until the element is
+    // mounted in the tree.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreExisting());
+  }
+
+  @override
   void dispose() {
     _isoController.dispose();
     super.dispose();
+  }
+
+  // ── Odtworzenie zapisanego segmentu (tryb edycji) ──────────────────────
+  /// Rebuilds the on-screen sequence and ISO expression from a saved segment.
+  ///
+  /// Only the two anchors are stored (`start_*` / `end_*`); the pipe between
+  /// them is implied by the shape of every segment, so it is re-inserted here.
+  /// Offsets are deliberately NOT taken from the stored `*_value_mm` columns
+  /// but recomputed from the library component and reference point, so that a
+  /// takeout corrected in the library since (a 76.2 typed as 762) is picked up
+  /// by this edit instead of being frozen into the row forever.
+  Future<void> _restoreExisting() async {
+    final seg = widget.existing;
+    if (seg == null) return;
+
+    final refs = splitIsoRef(seg.isoRef);
+    final start = await _restorePick(seg.startLibraryId, refs.start);
+    if (!mounted) return;
+    final end = start == null
+        ? null
+        : await _restorePick(seg.endLibraryId, refs.end);
+    if (!mounted) return;
+
+    setState(() {
+      if (start != null) {
+        _sequence
+          ..add(start)
+          ..add(_Picked(
+              tag: kPipeTag, component: null, refPoint: IsoRefPoint.open));
+        if (end != null) _sequence.add(end);
+      }
+      _isoController.text = seg.isoExpr;
+      // Inside the same setState as the restore itself: _isDirty is read
+      // during build (PopScope.canPop), so a baseline assigned afterwards
+      // would leave the screen looking dirty for one frame and pop a
+      // "discard changes?" dialog at a fitter who only pressed back.
+      _baseline = _signature();
+    });
+    _recalc();
+
+    // A component can be missing if it was deleted from the library after the
+    // segment was welded, and then the sequence cannot be shown complete.
+    // Say so plainly instead of leaving a half-built segment unexplained, and
+    // carry the saved ISO expression in the message: rebuilding the sequence
+    // clears the ISO field by design, so this is the fitter's only chance to
+    // see the dimension without walking back to the drawing.
+    if (!isSegmentSequenceComplete(_tags) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: const Duration(seconds: 8),
+        content: Text(_tr(
+          'Komponentu z biblioteki już nie ma — wybierz go ponownie. '
+              'Zapisany wymiar ISO: ${seg.isoExpr}',
+          'A component is gone from the library — pick it again. '
+              'Saved ISO dimension: ${seg.isoExpr}',
+        )),
+      ));
+    }
+  }
+
+  Future<_Picked?> _restorePick(String? libraryId, String refCode) async {
+    if (libraryId == null) {
+      // No library row means the anchor was logical, and OPEN_END is the only
+      // logical anchor a segment can start or finish on (PIPE lives strictly
+      // in the middle).
+      return _Picked(
+          tag: kOpenEndTag, component: null, refPoint: IsoRefPoint.open);
+    }
+    final comp = await _dao.getById(libraryId);
+    if (comp == null) return null;
+    return _Picked(
+      tag: comp.type,
+      component: comp,
+      refPoint: isoRefPointFromCode(refCode, fallback: _defaultRefPoint(comp)),
+    );
   }
 
   // ── Obliczenie CUT ─────────────────────────────────────────────────────
@@ -249,7 +424,11 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     // was not just a no-op: it silently wiped the ISO dimension the fitter
     // had already read off the drawing, forcing a re-read and inviting a
     // typo in the value the saw is set from.
-    if (_sequence.length >= 3) {
+    // Two conditions, not one: the sequence is complete (the normal case), or
+    // it already holds three picks in some order the fitter has to untangle
+    // with the chip X. Dropping the length half would let a tangled sequence
+    // grow without limit — it can never be saved, so there is nothing to add.
+    if (isSegmentSequenceComplete(_tags) || _sequence.length >= 3) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr('Ten segment jest kompletny. Zapisz go i dodaj następny.',
             'This segment is complete. Save it and add the next one.')),
@@ -452,7 +631,13 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
       },
       child: Scaffold(
       appBar: AppBar(
-        title: Text(_tr('Nowy segment', 'New segment')),
+        // In edit mode name the segment being corrected: the fitter arrives
+        // here from a list of numbered segments and must be able to see he
+        // opened the right one before he changes a dimension.
+        title: Text(_isEditing
+            ? _tr('Popraw segment ${widget.existing!.seqNo}',
+                'Edit segment ${widget.existing!.seqNo}')
+            : _tr('Nowy segment', 'New segment')),
         actions: [HelpButton(help: kHelpSegmentBuilder)],
       ),
       body: SingleChildScrollView(
@@ -659,7 +844,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                     }
                   : null,
               icon: const Icon(Icons.check),
-              label: Text(_tr('Zapisz segment', 'Save segment')),
+              label: Text(_isEditing
+                  ? _tr('Zapisz zmiany', 'Save changes')
+                  : _tr('Zapisz segment', 'Save segment')),
             ),
           ],
         ),

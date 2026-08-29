@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
 import '../i18n/app_language.dart';
+import '../services/weld_journal_export.dart';
 import '../services/welder_identity.dart';
 import '../widgets/help_button.dart';
 
@@ -82,6 +83,33 @@ class WeldEntry {
     'coupon_ref': couponRef, 'exam': exam,
     'wps_ref': wpsRef,
   };
+
+  /// Immutable snapshot handed to the export layer.
+  ///
+  /// Written out field by field (instead of reusing [toRow]) so the compiler
+  /// flags any journal field that gets added here and forgotten in the CSV /
+  /// PDF — a silently missing heat number is exactly the kind of hole that
+  /// only shows up when an inspector asks for it.
+  WeldJournalRecord toExportRecord() => WeldJournalRecord(
+        weldNo: weldNo,
+        projectName: projectName,
+        pipeName: pipeName,
+        material: material,
+        od: od,
+        t: t,
+        method: method,
+        welder: welder,
+        date: date,
+        notes: notes,
+        status: status,
+        weldType: weldType,
+        fitter: fitter,
+        heatNo1: heatNo1,
+        heatNo2: heatNo2,
+        couponRef: couponRef,
+        exam: exam,
+        wpsRef: wpsRef,
+      );
 
   static WeldEntry fromRow(Map<String, Object?> r) => WeldEntry(
     id: r['id'] as String,
@@ -212,6 +240,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   final _dao = WeldJournalDao();
   List<WeldEntry> _entries = [];
   bool _loading = true;
+  bool _exporting = false;
   String _filter = 'ALL'; // ALL / OK / NOK / PENDING
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -311,6 +340,20 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         title: Text(_tr('Dziennik spoin', 'Weld journal')),
         actions: [
           HelpButton(help: kHelpWeldJournal),
+          // Data OUT. The journal is the only document a welder can put on
+          // the table at a quality audit, yet nothing could leave the phone
+          // — no PDF, no CSV, not even a clipboard copy — even though
+          // README.md and kHelpWeldJournal both promise "PDF lub CSV".
+          IconButton(
+            icon: const Icon(Icons.table_view_outlined),
+            tooltip: _tr('Eksport CSV (Excel)', 'Export CSV (Excel)'),
+            onPressed: _exporting ? null : _exportCsv,
+          ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            tooltip: _tr('Eksport PDF', 'Export PDF'),
+            onPressed: _exporting ? null : _exportPdf,
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _openEditor(null),
@@ -461,10 +504,89 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     await _load();
   }
 
+  /// Rows handed to the exporter — the CURRENT view, filter included.
+  ///
+  /// Exporting the filtered list is deliberate: "give me only the NOKs" is a
+  /// real request from QA, and WYSIWYG is the only rule a welder can verify
+  /// on the spot. The filter is written into the file name and printed in
+  /// the PDF header so a partial journal can never be mistaken for the whole
+  /// one.
+  List<WeldJournalRecord> _exportRecords() =>
+      _filtered.map((e) => e.toExportRecord()).toList();
+
+  bool _hasSomethingToExport() {
+    if (_filtered.isNotEmpty) return true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr(
+        'Brak spoin do wyeksportowania.',
+        'No welds to export.',
+      )),
+    ));
+    return false;
+  }
+
+  /// Shared wrapper: renders/writes/shares, and never leaves the buttons
+  /// dead. A failed export used to be impossible; now that it exists it must
+  /// not fail silently either — a welder who thinks the file went out and
+  /// finds nothing in the mail is worse off than one who sees an error.
+  Future<void> _runExport(Future<void> Function() job) async {
+    // Guards a double tap: PDF rendering takes a moment on a big journal and
+    // two share sheets racing each other end with the second one holding a
+    // stale file handle.
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      await job();
+    } catch (err) {
+      debugPrint('WeldJournal export error: $err');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_tr(
+            'Nie udało się wyeksportować dziennika.',
+            'Failed to export the journal.',
+          )),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _exportCsv() async {
+    if (!_hasSomethingToExport()) return;
+    final records = _exportRecords();
+    await _runExport(() => WeldJournalExport.shareCsv(
+          records: records,
+          filterLabel: _filter,
+        ));
+  }
+
+  Future<void> _exportPdf() async {
+    if (!_hasSomethingToExport()) return;
+    final records = _exportRecords();
+    // Identity stamp is only a fallback — if the rows already name their
+    // welders, those go on the header instead.
+    final stamp = WelderIdentityService.instance.current?.stamp ?? '';
+    await _runExport(() => WeldJournalExport.sharePdf(
+          records: records,
+          filterLabel: _filter,
+          welderFallback: stamp,
+        ));
+  }
+
   Future<void> _openEditor(WeldEntry? existing) async {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      // The editor holds up to 15 hand-typed traceability fields (heat
+      // numbers, WPS, coupon, exam result). With the defaults, one stray tap
+      // on the scrim — or a gloved thumb brushing downwards — closed the
+      // sheet and threw all of it away without a word. Both gestures are off
+      // now; the only ways out are the X button and the system back gesture,
+      // and both route through the "Porzucić wpis?" confirmation in
+      // _WeldEditorState._handleClose().
+      isDismissible: false,
+      enableDrag: false,
       backgroundColor: const Color(0xFF141821),
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => _WeldEditor(
@@ -609,6 +731,14 @@ class _WeldEditorState extends State<_WeldEditor> {
 
   bool _saving = false;
   bool _showBpe = false;
+  bool _closing = false;
+
+  /// The form exactly as it was opened. Compared field by field, so a sheet
+  /// nobody touched closes silently (a NEW entry already arrives pre-filled
+  /// with the suggested number, 316L, today's date and the owner's stamp —
+  /// prompting for that would train the welder to dismiss the dialog), while
+  /// one typed character arms the discard guard.
+  late final Map<String, String> _initial;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
@@ -645,6 +775,79 @@ class _WeldEditorState extends State<_WeldEditor> {
     _showBpe = (e != null) && [
       e.fitter, e.heatNo1, e.heatNo2, e.couponRef, e.exam, e.wpsRef,
     ].any((s) => s.trim().isNotEmpty);
+    _initial = _snapshot();
+  }
+
+  /// Every user-editable value in one flat map — the dropdowns too, because
+  /// switching TIG -> MMA or PENDING -> NOK is work worth protecting.
+  Map<String, String> _snapshot() => {
+        'no': _noCtrl.text,
+        'proj': _projCtrl.text,
+        'pipe': _pipeCtrl.text,
+        'mat': _matCtrl.text,
+        'od': _odCtrl.text,
+        't': _tCtrl.text,
+        'welder': _welderCtrl.text,
+        'date': _dateCtrl.text,
+        'notes': _notesCtrl.text,
+        'fitter': _fitterCtrl.text,
+        'heat1': _heat1Ctrl.text,
+        'heat2': _heat2Ctrl.text,
+        'coupon': _couponCtrl.text,
+        'exam': _examCtrl.text,
+        'wps': _wpsCtrl.text,
+        'method': _method,
+        'status': _status,
+        'weldType': _weldType,
+      };
+
+  /// True once anything differs from the state the sheet was opened in.
+  bool get _isDirty {
+    final now = _snapshot();
+    for (final field in _initial.entries) {
+      if (now[field.key] != field.value) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _confirmDiscard() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_tr('Porzucić wpis?', 'Discard entry?')),
+        content: Text(_tr(
+          'Wypełnione pola spoiny zostaną utracone.',
+          'The weld data you entered will be lost.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_tr('Wróć do edycji', 'Keep editing')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(_tr('Porzuć', 'Discard')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  /// The one and only exit path. The X button and the system back gesture
+  /// both land here, so neither can slip past the confirmation.
+  Future<void> _handleClose() async {
+    if (_saving) return;  // a write is in flight — let _save() close the sheet
+    if (_closing) return; // second back press must not stack a second dialog
+    final nav = Navigator.of(context);
+    if (!_isDirty) {
+      nav.pop();
+      return;
+    }
+    _closing = true;
+    final discard = await _confirmDiscard();
+    _closing = false;
+    if (discard && mounted) nav.pop();
   }
 
   @override
@@ -716,16 +919,44 @@ class _WeldEditorState extends State<_WeldEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    // canPop is a constant `false`, not `!_isDirty` as in
+    // segment_builder_screen.dart, and that difference is deliberate: typing
+    // into a TextField does NOT rebuild this sheet, so a `!_isDirty` value
+    // would stay registered as it was on the first build (`true`, because an
+    // untouched form is clean) and the back gesture would drop 15 filled
+    // fields without asking — the exact bug being fixed here. With `false`
+    // the decision is made in the callback, at pop time, on fresh state.
+    // Navigator.pop() from _save() / _handleClose() is unconditional and is
+    // not blocked by this.
+    return PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleClose();
+      },
+      child: SafeArea(
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(16, 20, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              widget.entry == null ? _tr('Nowa spoina', 'New weld') : _tr('Edytuj spoinę', 'Edit weld'),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFE7ECF3)),
-            ),
+            Row(children: [
+              Expanded(
+                child: Text(
+                  widget.entry == null ? _tr('Nowa spoina', 'New weld') : _tr('Edytuj spoinę', 'Edit weld'),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFFE7ECF3)),
+                ),
+              ),
+              // Required, not decorative: with isDismissible/enableDrag off
+              // there is no scrim tap and no drag-down left, and iOS has no
+              // hardware back button — without this the sheet would have no
+              // exit at all on an iPhone.
+              IconButton(
+                icon: const Icon(Icons.close, size: 20, color: _kSec),
+                tooltip: _tr('Zamknij', 'Close'),
+                onPressed: _saving ? null : _handleClose,
+              ),
+            ]),
             const SizedBox(height: 16),
             // Numer spoiny
             TextField(
@@ -931,6 +1162,7 @@ class _WeldEditorState extends State<_WeldEditor> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

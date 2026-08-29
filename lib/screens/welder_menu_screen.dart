@@ -2,6 +2,7 @@
 
 import '../i18n/app_language.dart';
 import '../widgets/help_button.dart';
+import '../widgets/wpqr_chip.dart';
 import 'welder_pipes_screen.dart';
 import 'welder_tanks_screen.dart';
 import 'welder_tools_screen.dart';
@@ -29,6 +30,15 @@ class WelderMenuScreen extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
         child: CustomScrollView(
           slivers: [
+            // Above the "try this" tip on purpose: an expired WPQR outranks
+            // any suggestion on this menu. Every tile below leads to work
+            // that gets stamped with the welder's identity, so the state of
+            // that qualification belongs in the header, not three screens
+            // deep in the identity form. Draws nothing while the WPQR is
+            // valid or no expiry date was entered.
+            const SliverToBoxAdapter(
+              child: WpqrChipLive(padding: EdgeInsets.only(bottom: 12)),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 12),

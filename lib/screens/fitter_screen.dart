@@ -70,18 +70,9 @@ class _FitterScreenState extends State<FitterScreen> {
     final seq = await _segmentDao.nextSeqNo(p.id);
     final segId = const Uuid().v4();
 
-    final startKind = (result['startKind'] as String?) ?? 'logical';
-    final endKind = (result['endKind'] as String?) ?? 'logical';
-
-    final startLibraryId = result['startLibraryId'] as String?;
-    final endLibraryId = result['endLibraryId'] as String?;
-
-    final startValue = (result['startValue'] as num).toDouble();
-    final endValue = (result['endValue'] as num).toDouble();
-    final isoExpr = (result['isoExpr'] as String).trim();
-    final isoRef = (result['isoRef'] as String?) ?? 'FACE';
-    final isoMm = (result['isoMm'] as num).toDouble();
-    final cutMm = (result['cutMm'] as num).toDouble();
+    final measured = _measuredColumns(result);
+    final endLibraryId = measured['end_library_id'] as String?;
+    final endValue = measured['end_value_mm'] as double;
 
     // Segment diameter is the current project diameter at time of creation.
     // If START is a reducer (out matches current), diameter remains current.
@@ -93,16 +84,7 @@ class _FitterScreenState extends State<FitterScreen> {
       'seq_no': seq,
       'diameter_mm': segDiameter,
       'wall_thickness_mm': p.wallThicknessMm,
-      'start_kind': startKind,
-      'start_library_id': startLibraryId,
-      'start_value_mm': startValue,
-      'end_kind': endKind,
-      'end_library_id': endLibraryId,
-      'end_value_mm': endValue,
-      'iso_ref': isoRef,
-      'iso_expr': isoExpr,
-      'iso_mm': isoMm,
-      'cut_mm': cutMm,
+      ...measured,
       'created_at': now,
       'updated_at': now,
     });
@@ -123,6 +105,85 @@ class _FitterScreenState extends State<FitterScreen> {
       }
     }
 
+    await _load();
+  }
+
+  /// Columns that come back from SegmentBuilderScreen — everything the fitter
+  /// actually measured, i.e. every column an edit is allowed to change.
+  ///
+  /// Shared by [_addSegment] and [_editSegment] so a corrected segment is
+  /// written exactly the way a new one is; two hand-written copies of this
+  /// mapping would be free to drift, and a column read differently on the
+  /// edit path is a silently wrong cut length.
+  Map<String, Object?> _measuredColumns(Map<String, dynamic> result) => {
+        'start_kind': (result['startKind'] as String?) ?? 'logical',
+        'start_library_id': result['startLibraryId'] as String?,
+        'start_value_mm': (result['startValue'] as num).toDouble(),
+        'end_kind': (result['endKind'] as String?) ?? 'logical',
+        'end_library_id': result['endLibraryId'] as String?,
+        'end_value_mm': (result['endValue'] as num).toDouble(),
+        'iso_ref': (result['isoRef'] as String?) ?? 'FACE',
+        'iso_expr': (result['isoExpr'] as String).trim(),
+        'iso_mm': (result['isoMm'] as num).toDouble(),
+        'cut_mm': (result['cutMm'] as num).toDouble(),
+      };
+
+  /// Reopens a saved segment for correction.
+  ///
+  /// Before this, a typo in a dimension (3450 for 3540) could only be undone
+  /// by swiping the segment away — behind a "cannot be undone" dialog — and
+  /// rebuilding the whole sequence from the palette. The update below keeps
+  /// the row's id and seq_no, so the segment holds its place in the cut list
+  /// and in the PDF; only what the fitter re-measured changes.
+  Future<void> _editSegment(Segment s) async {
+    final p = _project;
+    if (p == null) return;
+
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SegmentBuilderScreen(
+          materialGroup: p.materialGroup,
+          // The segment's OWN diameter and wall, not the project's current
+          // ones: the route may have passed through a reducer since this
+          // segment was built, and the palette has to offer the fittings this
+          // segment is actually made of.
+          currentDiameter: s.diameterMm,
+          wallThickness: s.wallThicknessMm,
+          gapMm: p.gapMm,
+          existing: s,
+        ),
+      ),
+    );
+
+    if (result == null) return;
+
+    final changed = await _segmentDao.update({
+      'id': s.id,
+      // seq_no is passed for completeness; SegmentDao.update drops it, along
+      // with id/project_id/created_at, so an edit can never renumber the
+      // sheet the fitter is cutting from.
+      'seq_no': s.seqNo,
+      'diameter_mm': s.diameterMm,
+      'wall_thickness_mm': s.wallThicknessMm,
+      ..._measuredColumns(result),
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    // Deliberately NOT re-running the REDUCER auto-diameter step from
+    // _addSegment: the route diameter was already advanced when this segment
+    // was first saved, so applying it a second time would shift the rest of
+    // the route on every re-save of the same segment.
+
+    if (!mounted) return;
+    if (changed == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Tego segmentu już nie ma — poprawki nie zostały zapisane.',
+          en: 'This segment no longer exists — changes were not saved.',
+        )),
+      ));
+    }
     await _load();
   }
 
@@ -216,9 +277,14 @@ class _FitterScreenState extends State<FitterScreen> {
                                       context: context,
                                       builder: (_) => AlertDialog(
                                         title: Text(context.tr(pl: 'Usuń segment', en: 'Delete segment')),
+                                        // Deleting is no longer the only way
+                                        // to fix a bad dimension, so say so
+                                        // here — this dialog is exactly where
+                                        // a fitter lands who only wanted to
+                                        // correct a digit.
                                         content: Text(context.tr(
-                                          pl: 'Usunąć Segment ${s.seqNo}? Tej operacji nie można cofnąć.',
-                                          en: 'Delete Segment ${s.seqNo}? This cannot be undone.',
+                                          pl: 'Usunąć Segment ${s.seqNo}? Tej operacji nie można cofnąć.\n\nAby tylko poprawić wymiar — anuluj i dotknij segmentu.',
+                                          en: 'Delete Segment ${s.seqNo}? This cannot be undone.\n\nTo just fix a dimension — cancel and tap the segment.',
                                         )),
                                         actions: [
                                           TextButton(
@@ -261,7 +327,14 @@ class _FitterScreenState extends State<FitterScreen> {
                                           style: const TextStyle(fontSize: 12, height: 1.4),
                                         ),
                                         isThreeLine: true,
-                                        trailing: const Icon(Icons.chevron_right, size: 18),
+                                        // The chevron had always been here but
+                                        // led nowhere: the row was inert, so
+                                        // the only way to fix a dimension was
+                                        // to swipe the segment away and build
+                                        // it again. A pencil says what the tap
+                                        // now does.
+                                        trailing: const Icon(Icons.edit_outlined, size: 18),
+                                        onTap: () => _editSegment(s),
                                       );
                                     },
                                   ),

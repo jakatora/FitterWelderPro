@@ -7,8 +7,10 @@ import '../legal/legal_texts.dart';
 import '../services/blocked_users.dart';
 import '../services/legal_consent.dart';
 import '../services/user_profile.dart';
+import '../services/welder_identity.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
+import '../widgets/wpqr_chip.dart';
 import 'legal_screen.dart';
 import 'root_gate.dart';
 
@@ -140,14 +142,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
+        // Wyliczenka urosła o tożsamość spawacza, a to jest ostrzeżenie przed
+        // nieodwracalnym kasowaniem — na małym telefonie albo przy dużej
+        // czcionce systemowej niescrollowalny dialog ucina tekst zamiast go
+        // pokazać. Scrollowalny nie ucina nigdy.
+        scrollable: true,
         title: Text(context.tr(pl: 'Usunąć moje dane?', en: 'Delete my data?')),
+        // Tekst wymieniał trzy rzeczy, a tożsamości spawacza nie — bo kod jej
+        // nie kasował. Stempel, nr WPQR i e-mail to dane osobowe w rozumieniu
+        // RODO i JEDYNA rzecz, którą aplikacja przykleja do każdej spoiny;
+        // przemilczenie ich przy „usuń moje dane" było i błędem, i obietnicą
+        // bez pokrycia.
         content: Text(context.tr(
-          pl: 'Skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na zasady '
-              'oraz listę zablokowanych. Projekty i cut listy zostają.\n\n'
+          pl: 'Skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na zasady, '
+              'listę zablokowanych oraz tożsamość spawacza: stempel, numer WPQR, '
+              'datę ważności uprawnienia, jednostkę certyfikującą i e-mail. '
+              'Nowe spoiny przestaną się podpisywać Twoim stemplem.\n\n'
+              'Projekty, cut listy i zapisane spoiny zostają — razem ze '
+              'stemplem, którym już je podpisałeś.\n\n'
               'Wiadomości, które już wysłałeś na czat, widzą inni — o ich '
               'usunięcie poproś na ${AppLinks.supportEmail}.',
-          en: 'We will erase your name, your consent and your block list from this '
-              'phone. Projects and cut lists stay.\n\n'
+          en: 'We will erase your name, your consent, your block list and your '
+              'welder identity from this phone: stamp, WPQR number, expiry '
+              'date, certification body and e-mail. New welds will no longer '
+              'be signed with your stamp.\n\n'
+              'Projects, cut lists and saved welds stay — including the stamp '
+              'you already signed them with.\n\n'
               'Messages you already posted are visible to others — ask us to '
               'remove them at ${AppLinks.supportEmail}.',
         )),
@@ -169,6 +189,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     await UserProfileService.instance.clear();
     await LegalConsent.instance.clear();
+    // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
+    // telefonie komplet danych spawacza (stempel, nr WPQR, e-mail), a
+    // weld_journal_screen dalej pre-wypełniał nimi pole „spawacz" — nowe
+    // spoiny podpisywały się człowiekiem, który właśnie kazał się usunąć.
+    // WelderIdentityService.clear() istniał od P0-08 i nie wołał go NIKT.
+    await WelderIdentityService.instance.clear();
     for (final u in BlockedUsers.instance.all) {
       await BlockedUsers.instance.unblock(u.deviceId);
     }
@@ -207,6 +233,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
               children: [
                 _Identity(name: fullName),
+                // Ostrzeżenie o uprawnieniu tuż pod nazwiskiem, bo to ten sam
+                // temat: czym się podpisujesz. Znika samo, gdy WPQR jest
+                // ważny albo nie ma daty — i znika od razu po „usuń moje
+                // dane", bo słucha strumienia zmian tożsamości.
+                const WpqrChipLive(padding: EdgeInsets.only(top: 16)),
                 const SizedBox(height: 20),
 
                 // Uczciwość zamiast ogólników: dokładnie co widzą inni.
