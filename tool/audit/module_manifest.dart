@@ -114,7 +114,7 @@ const moduleManifest = <ModuleAuditEntry>[
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
       status: AuditStatus.passed,
-      scenario: 'Kolano 90 stopni DN 100 wyświetla długość zabudowy.',
+      scenario: 'Dane kolana 90 stopni LR DN 100 zawierają take-out 152 mm.',
       evidence: [
         'test/audit/fitter_calculations_audit_test.dart: kolano 90° LR DN100 ma take-out 152 mm',
       ]),
@@ -156,7 +156,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          '12 V, 100 A, 100 mm/min, GTAW wyświetla 0,43 kJ/mm; prędkość 0 lub ujemna jest odrzucana.',
+          '12 V, 100 A, 100 mm/min, GTAW wyświetla 0,43 kJ/mm; prędkość 0 i -1 jest odrzucana.',
       evidence: [
         'test/audit/welder_calculations_audit_test.dart: GTAW 0,432 kJ/mm (0,43 w UI) oraz odrzucenie prędkości 0 i -1',
       ]),
@@ -296,7 +296,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Estimator orbitalnego TIG zwraca cztery skończone dodatnie poziomy prądu.',
+          'Estimator orbitalnego TIG dla 50,8 × 1,65 mm zwraca cztery skończone dodatnie poziomy prądu.',
       evidence: [
         'test/audit/welder_calculations_audit_test.dart: cztery skończone dodatnie poziomy prądu orbitalnego TIG',
       ]),
@@ -336,7 +336,7 @@ const moduleManifest = <ModuleAuditEntry>[
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
       status: AuditStatus.passed,
-      scenario: 'Spadek 2 procent na 10 m zwraca różnicę wysokości 200 mm.',
+      scenario: 'Spadek 1 procent na 10 m zwraca różnicę wysokości 100 mm.',
       evidence: [
         'test/audit/fitter_calculations_audit_test.dart: spadek 1% na 10 m daje 100 mm',
       ]),
@@ -436,7 +436,8 @@ const moduleManifest = <ModuleAuditEntry>[
       category: AuditCategory.fitter,
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
-      scenario: 'Wymiary dwóch rur generują szablon rozwinięcia siodła.',
+      scenario:
+          'Szablon siodła 200/100 mm przy 45 stopniach zawiera 73 punkty o skończonych, nieujemnych i symetrycznych głębokościach.',
       evidence: [
         'test/audit/fitter_calculations_audit_test.dart: saddle jest symetryczny, skończony i nieujemny',
       ]),
@@ -485,7 +486,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.high,
       status: AuditStatus.passed,
       scenario:
-          'Dobór wolframu DC zwraca elektrodę pokrywającą każdy prąd od 15 do 400 A bez luk.',
+          'Dobór wolframu DC zwraca elektrodę pokrywającą prądy od 15 do 400 A sprawdzone co 0,5 A.',
       evidence: [
         'test/audit/welder_calculations_audit_test.dart: pasma wolframu pokrywają 15-400 A co 0,5 A bez luk',
       ]),
