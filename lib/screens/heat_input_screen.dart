@@ -504,6 +504,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 ctrl: _travelCtrl,
                 suffix: 'mm/min',
                 rejectNegative: true,
+                rejectZero: true,
                 onChanged: () => setState(() {}),
               ),
             ],
@@ -1286,12 +1287,14 @@ class _NumField extends StatelessWidget {
   // P1-30: when true, negative values (including parse-as-negative) surface a
   // PL/EN errorText instead of silently propagating into HI/CE math.
   final bool rejectNegative;
+  final bool rejectZero;
   const _NumField({
     required this.label,
     required this.ctrl,
     this.suffix,
     required this.onChanged,
     this.rejectNegative = false,
+    this.rejectZero = false,
   });
 
   /// Derived from the controller text so the parent doesn't need to plumb a
@@ -1312,9 +1315,17 @@ class _NumField extends StatelessWidget {
     return v != null && v < 0;
   }
 
+  bool get _zero {
+    if (!rejectZero) return false;
+    final t = ctrl.text.trim();
+    if (t.isEmpty) return false;
+    final v = double.tryParse(t.replaceAll(',', '.'));
+    return v != null && v == 0;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasError = _invalid || _negative;
+    final hasError = _invalid || _negative || _zero;
     return TextField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1330,7 +1341,7 @@ class _NumField extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         errorText: !hasError
             ? null
-            : _negative
+            : _negative || _zero
                 ? context.tr(
                     pl: 'Wartość musi być > 0',
                     en: 'Value must be > 0',

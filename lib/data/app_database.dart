@@ -13,7 +13,8 @@ class AppDatabase {
 
   Future<Database> get db async {
     final existing = _db;
-    if (existing != null) return existing;
+    if (existing != null && existing.isOpen) return existing;
+    _db = null;
 
     final path = await _dbPath();
     _db = await openDatabase(

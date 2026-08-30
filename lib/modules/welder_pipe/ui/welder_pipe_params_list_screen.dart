@@ -33,10 +33,6 @@ class _WelderPipeParamsListScreenState extends State<WelderPipeParamsListScreen>
   }
 
   Future<void> _load() async {
-    final messenger = ScaffoldMessenger.of(context);
-    final lang = context.language;
-    String trL({required String pl, required String en}) => lang == AppLanguage.en ? en : pl;
-
     setState(() => _loading = true);
     try {
       final list = await _repo.listMyParams();
@@ -48,6 +44,9 @@ class _WelderPipeParamsListScreenState extends State<WelderPipeParamsListScreen>
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
+      final messenger = ScaffoldMessenger.of(context);
+      final lang = context.language;
+      String trL({required String pl, required String en}) => lang == AppLanguage.en ? en : pl;
       _snack(messenger, trL(pl: 'Nie udało się wczytać parametrów.', en: 'Failed to load parameters.'));
     }
   }

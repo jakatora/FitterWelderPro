@@ -51,6 +51,10 @@ class UnitParser {
     r'''^\s*(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches|'')\s*$''',
   );
 
+  static final RegExp _mixedInchesRe = RegExp(
+    r'''^\s*(\d+)\s+(\d+)\s*/\s*(\d+)\s*(?:"|in|inch|inches|'')\s*$''',
+  );
+
   static final RegExp _mmRe = RegExp(
     r'^\s*(\d+(?:\.\d+)?)\s*(?:mm|millimetre|millimetres|millimeter|millimeters)?\s*$',
   );
@@ -70,6 +74,15 @@ class UnitParser {
   }
 
   static double? _tryInches(String s) {
+    final mixed = _mixedInchesRe.firstMatch(s);
+    if (mixed != null) {
+      final whole = double.parse(mixed.group(1)!);
+      final numerator = double.parse(mixed.group(2)!);
+      final denominator = double.parse(mixed.group(3)!);
+      if (denominator == 0) return null;
+      return (whole + numerator / denominator) * _mmPerInch;
+    }
+
     final m = _inchesRe.firstMatch(s);
     if (m == null) return null;
     final inches = double.tryParse(m.group(1)!);

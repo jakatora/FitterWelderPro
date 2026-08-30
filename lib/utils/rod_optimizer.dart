@@ -10,7 +10,18 @@ class BarPlan {
   BarPlan({required this.stockLengthMm, required this.kerfMm}) : piecesMm = [];
 
   /// Number of cuts needed
-  int get cutsCount => piecesMm.isEmpty ? 0 : piecesMm.length - 1;
+  int get cutsCount => _cutsFor(
+        piecesCount: piecesMm.length,
+        piecesLength: piecesMm.fold<double>(0, (sum, piece) => sum + piece),
+      );
+
+  int _cutsFor({required int piecesCount, required double piecesLength}) {
+    if (piecesCount == 0) return 0;
+    final internalCuts = piecesCount - 1;
+    final lengthAtLastPiece = piecesLength + internalCuts * kerfMm;
+    final fullyConsumed = (stockLengthMm - lengthAtLastPiece).abs() < 1e-6;
+    return fullyConsumed ? internalCuts : piecesCount;
+  }
 
   /// Total length used (pieces + kerf losses)
   double get usedLength {
@@ -24,17 +35,18 @@ class BarPlan {
 
   /// Whether a piece fits on this bar
   bool canFit(double pieceMm) {
-    if (piecesMm.isEmpty) return pieceMm <= stockLengthMm;
-    return usedLength + kerfMm + pieceMm <= stockLengthMm;
+    final candidateLength =
+        piecesMm.fold<double>(pieceMm, (sum, piece) => sum + piece);
+    final candidateCuts = _cutsFor(
+      piecesCount: piecesMm.length + 1,
+      piecesLength: candidateLength,
+    );
+    return candidateLength + candidateCuts * kerfMm <= stockLengthMm;
   }
 
   /// Add a piece to this bar
   bool addPiece(double pieceMm) {
     if (!canFit(pieceMm)) return false;
-    if (piecesMm.isNotEmpty) {
-      // Add kerf for the cut before this piece
-      piecesMm.add(kerfMm);
-    }
     piecesMm.add(pieceMm);
     return true;
   }
@@ -60,6 +72,7 @@ class RodOptimizer {
 
   /// Optimize a list of cut pieces using FFD algorithm
   /// Returns list of BarPlans with pieces nested
+  /// Throws [ArgumentError] if a piece cannot fit with the required kerf.
   List<BarPlan> optimize(List<double> piecesMm) {
     // Sort pieces in descending order (First-Fit Decreasing)
     final sortedPieces = List<double>.from(piecesMm)
@@ -81,7 +94,13 @@ class RodOptimizer {
       // If not placed, create a new bar
       if (!placed) {
         final newBar = BarPlan(stockLengthMm: stockLengthMm, kerfMm: kerfMm);
-        newBar.addPiece(piece);
+        if (!newBar.addPiece(piece)) {
+          throw ArgumentError.value(
+            piece,
+            'piecesMm',
+            'Piece cannot fit in stock with the required kerf',
+          );
+        }
         bars.add(newBar);
       }
     }
@@ -90,6 +109,7 @@ class RodOptimizer {
   }
 
   /// Calculate summary statistics for the optimization
+  /// Throws [ArgumentError] instead of returning a partially allocated result.
   OptimizationResult calculateResult(List<double> piecesMm) {
     final bars = optimize(piecesMm);
     final totalUsed = bars.fold<double>(0, (sum, bar) => sum + bar.usedLength);
@@ -180,7 +200,6 @@ class TrackedBarPlan extends BarPlan {
   bool addPiece(double pieceMm, {int? segmentId, int? runId}) {
     if (!canFit(pieceMm)) return false;
     if (piecesMm.isNotEmpty) {
-      piecesMm.add(kerfMm);
       pieceOrigins.add(BarPieceOrigin(type: OriginType.kerf));
     }
     piecesMm.add(pieceMm);

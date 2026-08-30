@@ -23,8 +23,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _loading = true;
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     final list = await _dao.listAll();
+    if (!mounted) return;
     setState(() {
       _projects = list;
       _loading = false;
@@ -150,8 +152,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           builder: (_) => AlertDialog(
                             title: Text(context.tr(pl: 'Usuń projekt', en: 'Delete project')),
                             content: Text(context.tr(
-                              pl: 'Usunąć "$name" wraz ze wszystkimi segmentami? Tej operacji nie można cofnąć.',
-                              en: 'Delete "$name" and all its segments? This cannot be undone.',
+                              pl: 'Usunąć "$name" wraz ze wszystkimi segmentami, zdjęciami i numerami wytopów? Możesz użyć „Cofnij” przez 6 sekund.',
+                              en: 'Delete "$name" with all segments, photos, and heat numbers? You can use Undo for 6 seconds.',
                             )),
                             actions: [
                               TextButton(
@@ -209,8 +211,18 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           action: SnackBarAction(
                             label: context.tr(pl: 'Cofnij', en: 'Undo'),
                             onPressed: () async {
-                              await _dao.restore(deleted);
-                              await _load();
+                              try {
+                                await _dao.restore(deleted);
+                                await _load();
+                              } catch (e) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                  content: Text(context.tr(
+                                    pl: 'Nie udało się przywrócić "$name": $e',
+                                    en: 'Could not restore "$name": $e',
+                                  )),
+                                ));
+                              }
                             },
                           ),
                         ));
@@ -245,7 +257,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => FitterScreen(projectId: p.id)),
-                        ).then((_) => _load()),
+                        ).then((_) {
+                          if (mounted) _load();
+                        }),
                       ),
                     );
                   },

@@ -71,20 +71,15 @@ class ProjectDao {
 
   Future<Project?> getById(String id) async {
     final db = await AppDatabase.get();
-    final rows = await db.query('projects', where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows =
+        await db.query('projects', where: 'id = ?', whereArgs: [id], limit: 1);
     if (rows.isEmpty) return null;
     return Project.fromRow(rows.first);
   }
 
-  /// Deletes the projects row only.
-  ///
-  /// Leaves segments, heat photos and component heats behind - prefer
-  /// [deleteProjectCascade] for anything the user calls "delete project".
-  /// Kept for the scan-import rollback, which removes a project it has only
-  /// just written and that therefore has no photos or heats yet.
+  /// Deletes all project rows atomically; the UI keeps the cascade snapshot for Undo.
   Future<void> deleteById(String projectId) async {
-    final db = await AppDatabase.get();
-    await db.delete('projects', where: 'id = ?', whereArgs: [projectId]);
+    await deleteProjectCascade(projectId);
   }
 
   /// Deletes a project and everything that hangs off it, atomically.
@@ -235,7 +230,8 @@ class ProjectDao {
     );
   }
 
-  Future<void> updateCurrentDiameter(String projectId, double currentDiameter) async {
+  Future<void> updateCurrentDiameter(
+      String projectId, double currentDiameter) async {
     final db = await AppDatabase.get();
     await db.update(
       'projects',

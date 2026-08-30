@@ -1,11 +1,13 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
 
 /// Local SQLite database.
 ///
 /// NOTE: Keep schema and DAO/models in sync.
 class AppDatabase {
   static Database? _db;
+  static String? _databasePathForTesting;
 
   // Bump this whenever you change schema.
   // v16: schema self-heal for users who installed earlier builds with version
@@ -23,7 +25,7 @@ class AppDatabase {
     if (_db != null) return _db!;
 
     final dbPath = await getDatabasesPath();
-    final path = p.join(dbPath, 'cutlist.db');
+    final path = _databasePathForTesting ?? p.join(dbPath, 'cutlist.db');
 
     _db = await openDatabase(
       path,
@@ -256,6 +258,22 @@ CREATE TABLE IF NOT EXISTS projects (
 
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
+  }
+
+  @visibleForTesting
+  static Future<void> configureForTesting(String databasePath) async {
+    final existing = _db;
+    _db = null;
+    if (existing != null && existing.isOpen) await existing.close();
+    _databasePathForTesting = databasePath;
+  }
+
+  @visibleForTesting
+  static Future<void> clearTestingConfiguration() async {
+    final existing = _db;
+    _db = null;
+    _databasePathForTesting = null;
+    if (existing != null && existing.isOpen) await existing.close();
   }
 
   /// Creates every table and index the current schema defines.
