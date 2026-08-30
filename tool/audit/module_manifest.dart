@@ -93,9 +93,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/cut_list_summary_screen.dart',
       category: AuditCategory.project,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia.'),
+          'Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: suma cięć i rzazów nie przekracza długości pręta',
+      ]),
   ModuleAuditEntry(
       id: 'dn-mm',
       entryPoint: 'DnMmScreen',
@@ -110,8 +113,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/elbow_takeout_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Kolano 90 stopni DN 100 wyświetla długość zabudowy.'),
+      status: AuditStatus.passed,
+      scenario: 'Kolano 90 stopni DN 100 wyświetla długość zabudowy.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: kolano 90° LR DN100 ma take-out 152 mm',
+      ]),
   ModuleAuditEntry(
       id: 'fitter-menu',
       entryPoint: 'FitterMenuScreen',
@@ -290,17 +296,24 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/pipe_schedule_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'NPS 2 Schedule 40 pokazuje grubość ścianki i średnicę wewnętrzną.'),
+          'NPS 2 Schedule 40 pokazuje grubość ścianki i średnicę wewnętrzną.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: DN100 Sch40 daje OD 114.3 mm i ściankę 6.02 mm',
+        'test/audit/fitter_calculations_audit_test.dart: nieznany schedule pozostawia grubość pustą',
+      ]),
   ModuleAuditEntry(
       id: 'pipe-slope',
       entryPoint: 'PipeSlopeScreen',
       sourcePath: 'lib/screens/pipe_slope_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Spadek 2 procent na 10 m zwraca różnicę wysokości 200 mm.'),
+      status: AuditStatus.passed,
+      scenario: 'Spadek 2 procent na 10 m zwraca różnicę wysokości 200 mm.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: spadek 1% na 10 m daje 100 mm',
+      ]),
   ModuleAuditEntry(
       id: 'pre-weld-checklist',
       entryPoint: 'PreWeldChecklistScreen',
@@ -348,8 +361,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/quick_converter_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: '25,4 mm konwertuje się na 1 cal.'),
+      status: AuditStatus.passed,
+      scenario: '25,4 mm konwertuje się na 1 cal.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: 1 in = 25.4 mm, a 1 1/2 in = 38.1 mm',
+      ]),
   ModuleAuditEntry(
       id: 'register',
       entryPoint: 'RegisterScreen',
@@ -364,8 +380,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/rolling_offset_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Dwa przesunięcia osi wyliczają długość rozwinięcia.'),
+      status: AuditStatus.passed,
+      scenario: 'Dwa przesunięcia osi wyliczają długość rozwinięcia.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: rolling offset 300/400 mm daje true offset 500 mm',
+      ]),
   ModuleAuditEntry(
       id: 'saddle-cut',
       entryPoint: 'SaddleCutScreen',
@@ -381,8 +400,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/saddle_template_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.safetyCritical,
-      status: AuditStatus.unverified,
-      scenario: 'Wymiary dwóch rur generują szablon rozwinięcia siodła.'),
+      status: AuditStatus.passed,
+      scenario: 'Wymiary dwóch rur generują szablon rozwinięcia siodła.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: saddle jest symetryczny, skończony i nieujemny',
+      ]),
   ModuleAuditEntry(
       id: 'sanitary-tube',
       entryPoint: 'SanitaryTubeScreen',
@@ -406,9 +428,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/segment_builder_screen.dart',
       category: AuditCategory.project,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario:
-          'Użytkownik dodaje segment z długością i średnicą do projektu.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik dodaje segment z długością i średnicą do projektu.',
+      evidence: [
+        'test/audit/fitter_calculations_audit_test.dart: odcinek 1200 mm między dwoma kolanami ma CUT 896 mm',
+        'test/audit/fitter_calculations_audit_test.dart: kolano–kołnierz nie daje CUT przed potwierdzeniem referencji',
+      ]),
   ModuleAuditEntry(
       id: 'support-config',
       entryPoint: 'SupportConfigScreen',
