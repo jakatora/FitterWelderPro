@@ -32,7 +32,7 @@
 
 ---
 
-### Zadanie 1: Manifest i kontrola kompletności
+### Task 1: Manifest i kontrola kompletności
 
 **Pliki:**
 - Utwórz: `tool/audit/module_manifest.dart`
@@ -102,7 +102,7 @@ git add tool/audit/module_manifest.dart test/audit/module_manifest_test.dart
 git commit -m "test: zinwentaryzuj wszystkie moduly aplikacji"
 ```
 
-### Zadanie 2: Referencyjne obliczenia monterskie
+### Task 2: Referencyjne obliczenia monterskie
 
 **Pliki:**
 - Utwórz: `test/audit/fitter_calculations_audit_test.dart`
@@ -149,7 +149,7 @@ git add test/audit/fitter_calculations_audit_test.dart tool/audit/module_manifes
 git commit -m "test: zweryfikuj obliczenia monterskie"
 ```
 
-### Zadanie 3: Referencyjne obliczenia spawalnicze
+### Task 3: Referencyjne obliczenia spawalnicze
 
 **Pliki:**
 - Utwórz: `test/audit/welder_calculations_audit_test.dart`
@@ -191,7 +191,7 @@ git add test/audit/welder_calculations_audit_test.dart tool/audit/module_manifes
 git commit -m "test: zweryfikuj obliczenia spawalnicze"
 ```
 
-### Zadanie 4: Integralność danych, migracje i eksporty
+### Task 4: Integralność danych, migracje i eksporty
 
 **Pliki:**
 - Utwórz: `test/audit/data_integrity_audit_test.dart`
@@ -226,7 +226,7 @@ git add test/audit/data_integrity_audit_test.dart tool/audit/module_manifest.dar
 git commit -m "test: zabezpiecz dane i eksporty"
 ```
 
-### Zadanie 5: Smoke test wszystkich ekranów
+### Task 5: Smoke test wszystkich ekranów
 
 **Pliki:**
 - Utwórz: `test/audit/module_smoke_test.dart`
@@ -274,7 +274,7 @@ git add test/audit/module_smoke_test.dart tool/audit/module_manifest.dart lib/sc
 git commit -m "test: sprawdz wszystkie ekrany aplikacji"
 ```
 
-### Zadanie 6: Raport i kolejka napraw
+### Task 6: Raport i kolejka napraw
 
 **Pliki:**
 - Utwórz: `tool/audit/render_audit_report.dart`
