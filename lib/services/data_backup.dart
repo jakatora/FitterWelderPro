@@ -1,0 +1,1147 @@
+/// One-file backup and restore for everything this phone keeps locally.
+///
+/// Until now a fitter's work could not leave the device. The cut-list
+/// database and the heat/MTR certificate photos live in the app sandbox, so
+/// handing the documentation to a foreman at the end of a contract, moving
+/// from Android to iOS, or recovering after a lost phone were all impossible.
+/// This file closes that hole with a plain `.zip` the user owns.
+///
+/// ## Nothing is uploaded
+/// The archive is written to the app's temporary directory and handed to the
+/// OS share sheet ([Share.shareXFiles]). There is no cloud, no backend, no
+/// network call anywhere in this file. Where the file goes afterwards is the
+/// user's decision, made in the system share sheet.
+///
+/// ## Why a hand-written ZIP writer
+/// The task allowed `package:archive` "if it is in pubspec.lock". It IS in
+/// the lock file — but only as a **transitive** dependency (nothing in
+/// `pubspec.yaml` declares it). Importing a transitive package directly
+/// breaks the `depend_on_referenced_packages` lint that `flutter_lints`
+/// enables, and it silently breaks the build the day the package that
+/// actually pulls `archive` in drops it. Declaring it properly would mean
+/// editing `pubspec.yaml`, which is outside this change's scope. So this file
+/// carries its own ~150-line ZIP writer/reader, STORE method (no
+/// compression), no ZIP64. Consequences, stated honestly:
+///   * the archive is not smaller than the sum of its parts — but its bulk is
+///     JPEGs, which do not compress anyway;
+///   * every desktop OS opens it with a double-click, so the foreman does not
+///     need this app to read the photos;
+///   * the reader only understands STORE, and says so in plain language if it
+///     meets a deflated archive from some other tool.
+///
+/// ## Layout of the archive
+/// ```
+/// manifest.json          — what this is, when it was made, what is inside
+/// db/cutlist.db          — main database (projects, cut lists, weld journal)
+/// db/cut_list_app.db     — welder-pipe module database
+/// heat_photos/<uuid>.jpg — heat / MTR certificate photos
+/// ```
+///
+/// ## All-or-nothing restore
+/// Restore runs in two strictly separated phases:
+///   1. **Read phase** — the archive is opened, the manifest validated, every
+///      database extracted to a staging directory, opened read-only and read
+///      into memory, and every photo extracted to staging. Nothing the app
+///      currently owns is touched. A foreign file, a truncated download or a
+///      corrupt entry fails here, and the user's live data never moved.
+///   2. **Commit phase** — photos are copied into place first (a stray photo
+///      file nothing references is harmless), then each database is refilled
+///      inside a single `transaction`, so a failure mid-way rolls that
+///      database back to exactly what it was.
+///
+/// The one honest caveat: the app owns two SQLite files, and SQLite has no
+/// two-phase commit across databases. Each database is atomic on its own; a
+/// disk-full error between them could in theory leave the first restored and
+/// the second not. Every failure that depends on the *file* (the realistic
+/// one) is already ruled out by the read phase.
+///
+/// ## Why absolute photo paths are rewritten
+/// `heat_photos.image_path` and `component_heats.image_path` store absolute
+/// paths. iOS changes the app container UUID on every reinstall and Android
+/// paths do not exist on iOS at all, so a byte-identical database restored on
+/// another phone would point at photos that are not there. Every restored row
+/// whose file name is present in the archive is re-anchored to this device's
+/// `heat_photos` directory ([relinkPhotoPath]).
+///
+/// ## What is deliberately NOT in the backup
+/// Everything stored in `SharedPreferences`: the user profile, the welder
+/// identity (stamp / WPQR), the accepted rules version, and — decisively —
+/// the Premium entitlement. A backup file is user-editable and freely
+/// shareable; restoring preferences would turn "send me your backup" into a
+/// way to copy someone's paid status and to bypass the consent gate. The
+/// restore dialog says this out loud instead of pretending otherwise.
+///
+/// ## Shape of this file
+/// As in `weld_journal_export.dart`, the top half is PURE Dart — file naming,
+/// the ZIP codec, manifest parsing, archive validation, row projection — with
+/// no I/O, no plugins and no globals, and is covered by
+/// `test/services/data_backup_test.dart`. The bottom half ([DataBackup]) does
+/// the platform work and is verified by reading.
+library;
+
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../data/app_database.dart' as module_db;
+import '../database/db.dart' as cutlist_db;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PURE HALF — naming, ZIP codec, manifest, validation, row projection.
+// Keep free of I/O so the tests stay honest.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Marker written into every manifest. A file without it is not ours.
+const String kBackupApp = 'fitter-welder-pro';
+
+/// Archive layout version. Bump only on a breaking layout change; the reader
+/// refuses anything newer than it understands rather than guessing.
+const String kBackupFormatKey = 'format';
+
+/// Current archive layout version.
+const int kBackupFormatVersion = 1;
+
+/// Entry that identifies the archive. Its absence is the "foreign file" test.
+const String kManifestEntry = 'manifest.json';
+
+/// Folder inside the archive holding the SQLite files.
+const String kDbEntryPrefix = 'db/';
+
+/// Folder inside the archive holding the heat / MTR photos.
+const String kPhotoEntryPrefix = 'heat_photos/';
+
+/// First bytes of every SQLite 3 file, per the file-format spec.
+const String kSqliteMagic = 'SQLite format 3\u0000';
+
+/// Columns that hold an absolute photo path and therefore need re-anchoring
+/// after a restore, keyed by table.
+const Map<String, String> kPhotoPathColumns = {
+  'heat_photos': 'image_path',
+  'component_heats': 'image_path',
+};
+
+/// A problem with the *file the user picked*, phrased for the user.
+///
+/// Carries both languages because a service has no `BuildContext` and must
+/// not guess the UI language; the screen picks with `context.tr`.
+class BackupFormatException implements Exception {
+  final String messagePl;
+  final String messageEn;
+
+  const BackupFormatException({required this.messagePl, required this.messageEn});
+
+  @override
+  String toString() => 'BackupFormatException: $messageEn';
+}
+
+/// `fitter-welder-pro-backup-2026-08-30-143502.zip`.
+///
+/// Sortable (year first), free of characters any file system or share target
+/// dislikes, and second-resolution so two backups taken in the same minute do
+/// not overwrite each other in the temp directory. Local time on purpose —
+/// the name is read by a human who knows when they pressed the button.
+String backupFileName(DateTime when) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  final year = when.year.toString().padLeft(4, '0');
+  return 'fitter-welder-pro-backup-$year-${two(when.month)}-${two(when.day)}'
+      '-${two(when.hour)}${two(when.minute)}${two(when.second)}.zip';
+}
+
+/// `2026-08-30 14:35` — shown in the overwrite warning so the user can tell
+/// whether they picked the backup they meant to.
+String formatBackupTimestamp(DateTime when) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  final local = when.isUtc ? when.toLocal() : when;
+  return '${local.year.toString().padLeft(4, '0')}-${two(local.month)}-'
+      '${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+}
+
+/// True when [bytes] starts with the SQLite 3 file signature.
+///
+/// Guards the restore against an archive that carries the right entry name
+/// with the wrong content (a renamed text file, a half-finished download).
+bool looksLikeSqliteDatabase(List<int> bytes) {
+  final magic = utf8.encode(kSqliteMagic);
+  if (bytes.length < magic.length) return false;
+  for (var i = 0; i < magic.length; i++) {
+    if (bytes[i] != magic[i]) return false;
+  }
+  return true;
+}
+
+/// Last path segment, accepting BOTH separators.
+///
+/// A backup made on Android carries `/data/.../heat_photos/x.jpg` and one
+/// made on a desktop build carries `C:\...\heat_photos\x.jpg`; the restoring
+/// device may use the other one, so `p.basename` (host-separator only) is not
+/// enough here.
+String zipEntryBaseName(String path) {
+  var cut = -1;
+  for (var i = path.length - 1; i >= 0; i--) {
+    final c = path.codeUnitAt(i);
+    if (c == 0x2F /* / */ || c == 0x5C /* \ */) {
+      cut = i;
+      break;
+    }
+  }
+  return path.substring(cut + 1);
+}
+
+/// Re-anchors one stored photo path onto this device.
+///
+/// Returns [stored] unchanged when it is null/blank, or when the archive did
+/// not carry that file — losing the original string would destroy the only
+/// record of which file the row ever pointed at, and an unreadable path is
+/// still better evidence than an empty column.
+String? relinkPhotoPath(
+  String? stored, {
+  required String heatPhotosDir,
+  required Set<String> restoredPhotoNames,
+}) {
+  if (stored == null) return null;
+  if (stored.trim().isEmpty) return stored;
+  final base = zipEntryBaseName(stored);
+  if (base.isEmpty || !restoredPhotoNames.contains(base)) return stored;
+  return p.join(heatPhotosDir, base);
+}
+
+final RegExp _kPlainTableName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+
+/// Tables the restore is allowed to wipe and refill.
+///
+/// Excludes SQLite's own bookkeeping (`sqlite_sequence`, `sqlite_stat1`) and
+/// Android's injected `android_metadata`; overwriting those breaks the live
+/// connection instead of restoring user data. The name-shape check also means
+/// every table name this file interpolates into a `PRAGMA` is a plain
+/// identifier, never attacker-controlled SQL.
+bool isRestorableTable(String name) {
+  if (!_kPlainTableName.hasMatch(name)) return false;
+  if (name.toLowerCase().startsWith('sqlite_')) return false;
+  if (name == 'android_metadata') return false;
+  return true;
+}
+
+/// Keeps only columns the *live* schema still has, and re-anchors photo paths.
+///
+/// A backup made by an older build carries fewer columns than the current
+/// schema (fine — SQLite fills the defaults) and a backup made by a newer
+/// build carries columns this one has never heard of (dropping them is the
+/// only option that does not fail the whole restore). Rows that share no
+/// column at all with the live table are skipped rather than inserted empty.
+List<Map<String, Object?>> prepareRows({
+  required String table,
+  required List<Map<String, Object?>> rows,
+  required Set<String> liveColumns,
+  required String heatPhotosDir,
+  required Set<String> restoredPhotoNames,
+}) {
+  final pathColumn = kPhotoPathColumns[table];
+  final out = <Map<String, Object?>>[];
+  for (final row in rows) {
+    final projected = <String, Object?>{};
+    for (final entry in row.entries) {
+      if (!liveColumns.contains(entry.key)) continue;
+      projected[entry.key] = entry.value;
+    }
+    if (projected.isEmpty) continue;
+    if (pathColumn != null && projected.containsKey(pathColumn)) {
+      projected[pathColumn] = relinkPhotoPath(
+        projected[pathColumn] as String?,
+        heatPhotosDir: heatPhotosDir,
+        restoredPhotoNames: restoredPhotoNames,
+      );
+    }
+    out.add(projected);
+  }
+  return out;
+}
+
+/// What the archive says about itself.
+class BackupManifest {
+  final String app;
+  final int formatVersion;
+  final DateTime createdAt;
+  final List<String> databases;
+  final int photoCount;
+
+  const BackupManifest({
+    required this.app,
+    required this.formatVersion,
+    required this.createdAt,
+    required this.databases,
+    required this.photoCount,
+  });
+
+  /// UTC on the wire so a backup made in one time zone and read in another
+  /// still reports the moment it was taken; rendered back in local time by
+  /// [formatBackupTimestamp].
+  String encode() => jsonEncode({
+        'app': app,
+        kBackupFormatKey: formatVersion,
+        'createdAt': createdAt.toUtc().toIso8601String(),
+        'databases': databases,
+        'photoCount': photoCount,
+      });
+
+  static BackupManifest decode(List<int> bytes) {
+    Object? raw;
+    try {
+      raw = jsonDecode(utf8.decode(bytes));
+    } catch (_) {
+      throw _notOurBackup;
+    }
+    if (raw is! Map) throw _notOurBackup;
+    if (raw['app'] != kBackupApp) throw _notOurBackup;
+
+    final format = raw[kBackupFormatKey];
+    if (format is! int) throw _notOurBackup;
+    if (format > kBackupFormatVersion) {
+      throw const BackupFormatException(
+        messagePl: 'Ta kopia pochodzi z nowszej wersji aplikacji. '
+            'Zaktualizuj Fitter Welder Pro i spróbuj ponownie.',
+        messageEn: 'This backup was made by a newer version of the app. '
+            'Update Fitter Welder Pro and try again.',
+      );
+    }
+
+    DateTime created;
+    try {
+      created = DateTime.parse(raw['createdAt'] as String).toLocal();
+    } catch (_) {
+      throw _notOurBackup;
+    }
+
+    final dbs = raw['databases'];
+    if (dbs is! List) throw _notOurBackup;
+
+    final photos = raw['photoCount'];
+
+    return BackupManifest(
+      app: kBackupApp,
+      formatVersion: format,
+      createdAt: created,
+      databases: dbs.whereType<String>().toList(growable: false),
+      photoCount: photos is int ? photos : 0,
+    );
+  }
+}
+
+const BackupFormatException _notOurBackup = BackupFormatException(
+  messagePl: 'To nie jest kopia zapasowa Fitter Welder Pro. '
+      'Wybierz plik, który aplikacja sama zapisała.',
+  messageEn: 'This is not a Fitter Welder Pro backup. '
+      'Pick a file this app created itself.',
+);
+
+/// The validated inventory of an archive: manifest plus the entry names the
+/// restore is going to read.
+class BackupContents {
+  final BackupManifest manifest;
+
+  /// `cutlist.db` -> `db/cutlist.db`.
+  final Map<String, String> databaseEntries;
+
+  /// Full entry names under `heat_photos/`.
+  final List<String> photoEntries;
+
+  const BackupContents({
+    required this.manifest,
+    required this.databaseEntries,
+    required this.photoEntries,
+  });
+
+  int get photoCount => photoEntries.length;
+}
+
+/// Validates an archive from its entry list and manifest bytes alone.
+///
+/// Pure on purpose: this is the whole "is this our file, and is it complete"
+/// decision, and it is made before a single byte of live data is touched.
+BackupContents describeBackup({
+  required List<String> entryNames,
+  required List<int>? manifestBytes,
+}) {
+  if (manifestBytes == null) throw _notOurBackup;
+  final manifest = BackupManifest.decode(manifestBytes);
+
+  final databaseEntries = <String, String>{};
+  final photoEntries = <String>[];
+  for (final name in entryNames) {
+    if (name.startsWith(kDbEntryPrefix)) {
+      final file = name.substring(kDbEntryPrefix.length);
+      if (file.isEmpty || file.contains('/')) continue;
+      databaseEntries[file] = name;
+    } else if (name.startsWith(kPhotoEntryPrefix)) {
+      final file = name.substring(kPhotoEntryPrefix.length);
+      if (file.isEmpty || file.contains('/')) continue;
+      photoEntries.add(name);
+    }
+  }
+
+  if (databaseEntries.isEmpty) {
+    throw const BackupFormatException(
+      messagePl: 'Ta kopia nie zawiera bazy danych — nie ma czego przywrócić.',
+      messageEn: 'This backup contains no database — there is nothing to restore.',
+    );
+  }
+
+  // A manifest that promises a database the archive does not carry means a
+  // truncated or hand-edited file. Restoring half of it would silently drop
+  // whole modules, so refuse before the warning dialog is ever shown.
+  for (final declared in manifest.databases) {
+    if (!databaseEntries.containsKey(declared)) {
+      throw const BackupFormatException(
+        messagePl: 'Kopia jest niekompletna — brakuje w niej pliku bazy '
+            'wymienionego w opisie. Plik mógł się nie doczytać do końca.',
+        messageEn: 'The backup is incomplete — a database listed in its '
+            'manifest is missing. The file may have been truncated.',
+      );
+    }
+  }
+
+  return BackupContents(
+    manifest: manifest,
+    databaseEntries: databaseEntries,
+    photoEntries: photoEntries,
+  );
+}
+
+// ───────────────────────────── minimal ZIP codec ───────────────────────────
+
+const int _kLocalHeaderSig = 0x04034b50;
+const int _kCentralHeaderSig = 0x02014b50;
+const int _kEocdSig = 0x06054b50;
+const int _kMaxUint16 = 0xFFFF;
+const int _kMaxUint32 = 0xFFFFFFFF;
+
+Uint32List? _crcTable;
+
+Uint32List _buildCrcTable() {
+  final table = Uint32List(256);
+  for (var i = 0; i < 256; i++) {
+    var c = i;
+    for (var bit = 0; bit < 8; bit++) {
+      c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+    }
+    table[i] = c;
+  }
+  return table;
+}
+
+/// CRC-32 (IEEE 802.3), the checksum the ZIP format mandates per entry.
+int crc32(List<int> data) {
+  final table = _crcTable ??= _buildCrcTable();
+  var crc = 0xFFFFFFFF;
+  for (final byte in data) {
+    crc = table[(crc ^ byte) & 0xFF] ^ (crc >> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) & _kMaxUint32;
+}
+
+void _u16(BytesBuilder b, int v) => b.add([v & 0xFF, (v >> 8) & 0xFF]);
+
+void _u32(BytesBuilder b, int v) => b.add([
+      v & 0xFF,
+      (v >> 8) & 0xFF,
+      (v >> 16) & 0xFF,
+      (v >> 24) & 0xFF,
+    ]);
+
+int _rd16(Uint8List b, int o) => b[o] | (b[o + 1] << 8);
+
+int _rd32(Uint8List b, int o) =>
+    b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
+
+int _dosTime(DateTime t) => (t.hour << 11) | (t.minute << 5) | (t.second ~/ 2);
+
+int _dosDate(DateTime t) {
+  // The DOS date epoch is 1980; clamp rather than write a negative year field.
+  final year = t.year < 1980 ? 1980 : t.year;
+  return ((year - 1980) << 9) | (t.month << 5) | t.day;
+}
+
+class _CentralRecord {
+  final Uint8List name;
+  final int crc;
+  final int size;
+  final int offset;
+  final int dosTime;
+  final int dosDate;
+
+  const _CentralRecord({
+    required this.name,
+    required this.crc,
+    required this.size,
+    required this.offset,
+    required this.dosTime,
+    required this.dosDate,
+  });
+}
+
+/// Streaming ZIP writer, STORE method only.
+///
+/// Writes through a callback rather than returning bytes so the caller can
+/// pipe straight into an [IOSink] and never hold more than one photo in
+/// memory — a fitter with 400 certificate photos would otherwise OOM the
+/// phone. Tests pass `BytesBuilder.add` and get the archive in memory.
+class ZipBuilder {
+  final void Function(List<int> chunk) _write;
+  final List<_CentralRecord> _records = [];
+  int _offset = 0;
+  bool _finished = false;
+
+  ZipBuilder(this._write);
+
+  /// Bytes written so far, i.e. the size of the archive once [finish] ran.
+  int get length => _offset;
+
+  void _emit(List<int> chunk) {
+    _write(chunk);
+    _offset += chunk.length;
+  }
+
+  /// Appends one stored (uncompressed) entry.
+  void addFile(String name, List<int> data, {DateTime? modified}) {
+    if (_finished) {
+      throw StateError('ZipBuilder.addFile() after finish()');
+    }
+    if (data.length > _kMaxUint32 || _offset > _kMaxUint32) {
+      throw const BackupFormatException(
+        messagePl: 'Kopia przekracza 4 GB — tyle nie zmieści się w tym formacie.',
+        messageEn: 'The backup exceeds 4 GB, which this format cannot hold.',
+      );
+    }
+    final nameBytes = Uint8List.fromList(utf8.encode(name));
+    final when = modified ?? DateTime.now();
+    final dosTime = _dosTime(when);
+    final dosDate = _dosDate(when);
+    final crc = crc32(data);
+    final offset = _offset;
+
+    final header = BytesBuilder();
+    _u32(header, _kLocalHeaderSig);
+    _u16(header, 20); // version needed to extract: 2.0
+    _u16(header, 0x0800); // flag bit 11: file name is UTF-8
+    _u16(header, 0); // method 0 = stored
+    _u16(header, dosTime);
+    _u16(header, dosDate);
+    _u32(header, crc);
+    _u32(header, data.length); // compressed == uncompressed when stored
+    _u32(header, data.length);
+    _u16(header, nameBytes.length);
+    _u16(header, 0); // no extra field
+
+    _emit(header.takeBytes());
+    _emit(nameBytes);
+    _emit(data);
+
+    _records.add(_CentralRecord(
+      name: nameBytes,
+      crc: crc,
+      size: data.length,
+      offset: offset,
+      dosTime: dosTime,
+      dosDate: dosDate,
+    ));
+  }
+
+  /// Writes the central directory and end-of-central-directory record.
+  void finish() {
+    if (_finished) return;
+    _finished = true;
+    if (_records.length > _kMaxUint16) {
+      throw const BackupFormatException(
+        messagePl: 'Kopia ma zbyt wiele plików (limit 65535).',
+        messageEn: 'The backup has too many files (limit is 65535).',
+      );
+    }
+
+    final directoryOffset = _offset;
+    for (final r in _records) {
+      final entry = BytesBuilder();
+      _u32(entry, _kCentralHeaderSig);
+      _u16(entry, 20); // version made by
+      _u16(entry, 20); // version needed
+      _u16(entry, 0x0800); // UTF-8 name
+      _u16(entry, 0); // stored
+      _u16(entry, r.dosTime);
+      _u16(entry, r.dosDate);
+      _u32(entry, r.crc);
+      _u32(entry, r.size);
+      _u32(entry, r.size);
+      _u16(entry, r.name.length);
+      _u16(entry, 0); // extra
+      _u16(entry, 0); // comment
+      _u16(entry, 0); // disk number start
+      _u16(entry, 0); // internal attributes
+      _u32(entry, 0); // external attributes
+      _u32(entry, r.offset);
+      _emit(entry.takeBytes());
+      _emit(r.name);
+    }
+    final directorySize = _offset - directoryOffset;
+
+    final eocd = BytesBuilder();
+    _u32(eocd, _kEocdSig);
+    _u16(eocd, 0); // this disk
+    _u16(eocd, 0); // disk with directory
+    _u16(eocd, _records.length);
+    _u16(eocd, _records.length);
+    _u32(eocd, directorySize);
+    _u32(eocd, directoryOffset);
+    _u16(eocd, 0); // no archive comment
+    _emit(eocd.takeBytes());
+  }
+}
+
+/// Random-access byte source the ZIP reader walks.
+///
+/// Abstracted so restore can seek inside a multi-hundred-megabyte file on
+/// disk ([FileZipSource]) while tests work on an in-memory buffer
+/// ([BytesZipSource]) — same reader code, no temp files in the test run.
+abstract class ZipSource {
+  int get length;
+
+  /// Returns exactly [count] bytes at [offset], or throws.
+  Uint8List read(int offset, int count);
+}
+
+class BytesZipSource implements ZipSource {
+  final Uint8List _bytes;
+
+  BytesZipSource(List<int> bytes) : _bytes = Uint8List.fromList(bytes);
+
+  @override
+  int get length => _bytes.length;
+
+  @override
+  Uint8List read(int offset, int count) {
+    if (offset < 0 || count < 0 || offset + count > _bytes.length) {
+      throw _damagedArchive;
+    }
+    return Uint8List.sublistView(_bytes, offset, offset + count);
+  }
+}
+
+class FileZipSource implements ZipSource {
+  final RandomAccessFile _raf;
+  final int _length;
+
+  FileZipSource._(this._raf, this._length);
+
+  factory FileZipSource.open(File file) {
+    final raf = file.openSync();
+    return FileZipSource._(raf, raf.lengthSync());
+  }
+
+  @override
+  int get length => _length;
+
+  @override
+  Uint8List read(int offset, int count) {
+    if (offset < 0 || count < 0 || offset + count > _length) {
+      throw _damagedArchive;
+    }
+    _raf.setPositionSync(offset);
+    final bytes = _raf.readSync(count);
+    if (bytes.length != count) throw _damagedArchive;
+    return bytes;
+  }
+
+  void close() => _raf.closeSync();
+}
+
+const BackupFormatException _damagedArchive = BackupFormatException(
+  messagePl: 'Plik kopii jest uszkodzony albo niedokończony. '
+      'Skopiuj go jeszcze raz z miejsca, w którym go trzymasz.',
+  messageEn: 'The backup file is damaged or incomplete. '
+      'Copy it again from wherever you keep it.',
+);
+
+/// One entry as described by the central directory.
+class ZipEntry {
+  final String name;
+  final int method;
+  final int crc;
+  final int size;
+  final int compressedSize;
+  final int localHeaderOffset;
+
+  const ZipEntry({
+    required this.name,
+    required this.method,
+    required this.crc,
+    required this.size,
+    required this.compressedSize,
+    required this.localHeaderOffset,
+  });
+}
+
+/// Parses the central directory — the authoritative index of a ZIP file.
+///
+/// Reads the index rather than scanning local headers forward, so a file with
+/// junk prepended (some mail clients do this) still reads correctly.
+List<ZipEntry> readZipDirectory(ZipSource source) {
+  final total = source.length;
+  if (total < 22) throw _notOurBackup;
+
+  // The EOCD sits at the very end, after an optional comment of up to 64 KiB.
+  final tailLength = total < 66000 ? total : 66000;
+  final tail = source.read(total - tailLength, tailLength);
+  var eocd = -1;
+  for (var i = tail.length - 22; i >= 0; i--) {
+    if (_rd32(tail, i) == _kEocdSig) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw _notOurBackup;
+
+  final count = _rd16(tail, eocd + 10);
+  final directorySize = _rd32(tail, eocd + 12);
+  final directoryOffset = _rd32(tail, eocd + 16);
+  if (directoryOffset + directorySize > total) throw _damagedArchive;
+
+  final directory = source.read(directoryOffset, directorySize);
+  final entries = <ZipEntry>[];
+  var pos = 0;
+  for (var i = 0; i < count; i++) {
+    if (pos + 46 > directory.length || _rd32(directory, pos) != _kCentralHeaderSig) {
+      throw _damagedArchive;
+    }
+    final flags = _rd16(directory, pos + 8);
+    final nameLength = _rd16(directory, pos + 28);
+    final extraLength = _rd16(directory, pos + 30);
+    final commentLength = _rd16(directory, pos + 32);
+    if (pos + 46 + nameLength > directory.length) throw _damagedArchive;
+    final nameBytes =
+        Uint8List.sublistView(directory, pos + 46, pos + 46 + nameLength);
+    entries.add(ZipEntry(
+      name: (flags & 0x0800) != 0
+          ? utf8.decode(nameBytes, allowMalformed: true)
+          : latin1.decode(nameBytes),
+      method: _rd16(directory, pos + 10),
+      crc: _rd32(directory, pos + 16),
+      compressedSize: _rd32(directory, pos + 20),
+      size: _rd32(directory, pos + 24),
+      localHeaderOffset: _rd32(directory, pos + 42),
+    ));
+    pos += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+/// Reads and CRC-verifies one entry.
+///
+/// The CRC check is the reason a half-copied backup is caught in the read
+/// phase instead of being written over the fitter's live database.
+Uint8List readZipEntryBytes(ZipSource source, ZipEntry entry) {
+  if (entry.method != 0) {
+    throw const BackupFormatException(
+      messagePl: 'Ten plik ZIP jest skompresowany przez inny program. '
+          'Przywracaj kopię dokładnie w tej postaci, w jakiej zapisała ją '
+          'aplikacja — bez rozpakowywania i pakowania na nowo.',
+      messageEn: 'This ZIP was compressed by another tool. Restore the backup '
+          'exactly as the app wrote it — do not unpack and re-zip it.',
+    );
+  }
+  final header = source.read(entry.localHeaderOffset, 30);
+  if (_rd32(header, 0) != _kLocalHeaderSig) throw _damagedArchive;
+  final dataOffset = entry.localHeaderOffset +
+      30 +
+      _rd16(header, 26) + // file name length
+      _rd16(header, 28); // extra field length
+  final bytes = source.read(dataOffset, entry.compressedSize);
+  if (crc32(bytes) != entry.crc) throw _damagedArchive;
+  return bytes;
+}
+
+/// What a completed restore actually put back, for the confirmation snackbar.
+class RestoreReport {
+  final DateTime createdAt;
+  final int databaseCount;
+  final int rowCount;
+  final int photoCount;
+
+  const RestoreReport({
+    required this.createdAt,
+    required this.databaseCount,
+    required this.rowCount,
+    required this.photoCount,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM HALF — files, sqflite, share sheet. Verified by reading.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// One live SQLite file the app owns, with the two things backup needs: where
+/// its file is, and how to reach the open handle the rest of the app uses.
+class _LiveDatabase {
+  final String fileName;
+  final Future<String> Function() resolvePath;
+  final Future<Database> Function() open;
+
+  const _LiveDatabase(this.fileName, this.resolvePath, this.open);
+}
+
+class DataBackup {
+  DataBackup._();
+
+  /// The app writes TWO databases and a fitter's data is split across both, so
+  /// backing up only `cutlist.db` would quietly lose the welder-pipe module.
+  /// Everything below is generic over this list — nothing knows the schemas.
+  static final List<_LiveDatabase> _databases = [
+    // Wrapped in closures rather than torn off, because the accessor on the
+    // main database is literally named `get` and a bare tear-off of it reads
+    // like a property access to anyone maintaining this list.
+    _LiveDatabase(
+      'cutlist.db',
+      _cutListDbPath,
+      () => cutlist_db.AppDatabase.get(),
+    ),
+    _LiveDatabase(
+      'cut_list_app.db',
+      _moduleDbPath,
+      () => module_db.AppDatabase.instance.db,
+    ),
+  ];
+
+  static Future<String> _cutListDbPath() async =>
+      p.join(await getDatabasesPath(), 'cutlist.db');
+
+  static Future<String> _moduleDbPath() async =>
+      p.join((await getApplicationDocumentsDirectory()).path, 'cut_list_app.db');
+
+  /// Mirrors `heat_photos_screen.dart`, which copies picked certificate photos
+  /// into `<documents>/heat_photos` precisely so they survive a cache wipe.
+  static Future<Directory> _heatPhotosDir() async =>
+      Directory(p.join((await getApplicationDocumentsDirectory()).path, 'heat_photos'));
+
+  /// Writes the archive into the temporary directory and returns it.
+  ///
+  /// Split from [shareBackupFile] so the file-producing half can be driven
+  /// from a driver test without opening a share sheet nobody can dismiss.
+  static Future<File> createBackupFile({DateTime? now}) async {
+    final stamp = now ?? DateTime.now();
+    final tempDir = await getTemporaryDirectory();
+    final target = File(p.join(tempDir.path, backupFileName(stamp)));
+    if (await target.exists()) await target.delete();
+
+    final staging = Directory(
+      p.join(tempDir.path, 'fwp_backup_${stamp.millisecondsSinceEpoch}'),
+    );
+    await staging.create(recursive: true);
+
+    try {
+      final snapshots = <String, File>{};
+      for (final db in _databases) {
+        final live = File(await db.resolvePath());
+        if (!await live.exists()) continue;
+        snapshots[db.fileName] = await _snapshot(db, live, staging);
+      }
+
+      final heatDir = await _heatPhotosDir();
+      final photos = <File>[];
+      if (await heatDir.exists()) {
+        for (final item in heatDir.listSync(followLinks: false)) {
+          if (item is File) photos.add(item);
+        }
+        // Stable order keeps two backups of unchanged data byte-comparable,
+        // which is how a user can tell nothing was lost between them.
+        photos.sort((a, b) => a.path.compareTo(b.path));
+      }
+
+      final manifest = BackupManifest(
+        app: kBackupApp,
+        formatVersion: kBackupFormatVersion,
+        createdAt: stamp,
+        databases: snapshots.keys.toList(growable: false),
+        photoCount: photos.length,
+      );
+
+      final sink = target.openWrite();
+      final zip = ZipBuilder(sink.add);
+      try {
+        zip.addFile(kManifestEntry, utf8.encode(manifest.encode()),
+            modified: stamp);
+        for (final entry in snapshots.entries) {
+          zip.addFile('$kDbEntryPrefix${entry.key}',
+              await entry.value.readAsBytes(),
+              modified: stamp);
+          // Flush between entries so the sink's buffer never grows past one
+          // file; without this the whole archive would queue up in RAM.
+          await sink.flush();
+        }
+        for (final photo in photos) {
+          zip.addFile('$kPhotoEntryPrefix${p.basename(photo.path)}',
+              await photo.readAsBytes(),
+              modified: stamp);
+          await sink.flush();
+        }
+        zip.finish();
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+
+      if (!await target.exists() || await target.length() < 22) {
+        throw const BackupFormatException(
+          messagePl: 'Nie udało się zapisać kopii — sprawdź, czy w telefonie '
+              'jest wolne miejsce.',
+          messageEn: 'Could not write the backup — check that the phone has '
+              'free storage.',
+        );
+      }
+      return target;
+    } finally {
+      if (await staging.exists()) await staging.delete(recursive: true);
+    }
+  }
+
+  /// A consistent copy of one live database.
+  ///
+  /// `VACUUM INTO` produces a transactionally consistent, defragmented file
+  /// even while the app holds the database open — the correct primitive here.
+  /// It needs SQLite 3.27+, which old Android system libraries predate, so the
+  /// fallback checkpoints the WAL (folding recent writes back into the main
+  /// file) and copies. Copying without the checkpoint could ship a database
+  /// missing the last few saves.
+  static Future<File> _snapshot(
+    _LiveDatabase db,
+    File live,
+    Directory staging,
+  ) async {
+    final target = File(p.join(staging.path, db.fileName));
+    final handle = await db.open();
+    try {
+      if (await target.exists()) await target.delete();
+      await handle.execute('VACUUM INTO ?', [target.path]);
+      if (await target.exists() && await target.length() > 0) return target;
+    } catch (_) {
+      // Fall through to the checkpoint + copy path below.
+    }
+    try {
+      await handle.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {
+      // Not in WAL mode, or the pragma is unavailable: the plain copy below
+      // is already correct in that case.
+    }
+    return live.copy(target.path);
+  }
+
+  /// Hands an already-written archive to the system share sheet.
+  ///
+  /// The share sheet is the whole delivery mechanism: the file goes wherever
+  /// the user sends it and nowhere else. Kept separate from
+  /// [createBackupFile] so the caller can take its progress indicator down
+  /// before the sheet appears — a spinner stranded behind a system sheet
+  /// looks like the app hung.
+  ///
+  /// The explicit `application/zip` MIME type is the same fix
+  /// `iso_pdf_export.dart` documents: without it some Android launchers offer
+  /// only text targets and the file appears unshareable.
+  static Future<void> shareBackupFile(File file) async {
+    final name = p.basename(file.path);
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/zip', name: name)],
+      subject: 'Fitter Welder Pro — $name',
+    );
+  }
+
+  /// Validates a picked file and reports what is inside it. Writes nothing.
+  static Future<BackupContents> inspect(String path) async {
+    final source = FileZipSource.open(File(path));
+    try {
+      return _describe(source, _indexEntries(source));
+    } finally {
+      source.close();
+    }
+  }
+
+  static Map<String, ZipEntry> _indexEntries(ZipSource source) => {
+        for (final entry in readZipDirectory(source)) entry.name: entry,
+      };
+
+  static BackupContents _describe(
+    ZipSource source,
+    Map<String, ZipEntry> entries,
+  ) {
+    final manifestEntry = entries[kManifestEntry];
+    return describeBackup(
+      entryNames: entries.keys.toList(growable: false),
+      manifestBytes:
+          manifestEntry == null ? null : readZipEntryBytes(source, manifestEntry),
+    );
+  }
+
+  /// Replaces this device's data with the contents of [path].
+  ///
+  /// See the library doc for the two-phase guarantee: everything that can fail
+  /// because of the *file* fails before any live write happens.
+  static Future<RestoreReport> restore(String path) async {
+    final source = FileZipSource.open(File(path));
+    final tempDir = await getTemporaryDirectory();
+    final staging = Directory(
+      p.join(tempDir.path, 'fwp_restore_${DateTime.now().millisecondsSinceEpoch}'),
+    );
+
+    try {
+      final entries = _indexEntries(source);
+      final contents = _describe(source, entries);
+      await staging.create(recursive: true);
+
+      // ---- Phase 1: read the whole archive. Live data still untouched.
+      final tablesByDatabase = <String, Map<String, List<Map<String, Object?>>>>{};
+      for (final db in contents.databaseEntries.entries) {
+        final bytes = readZipEntryBytes(source, entries[db.value]!);
+        if (!looksLikeSqliteDatabase(bytes)) {
+          throw const BackupFormatException(
+            messagePl: 'Plik w kopii nie jest bazą danych. '
+                'Kopia jest uszkodzona albo została podmieniona.',
+            messageEn: 'A file inside the backup is not a database. '
+                'The backup is damaged or was tampered with.',
+          );
+        }
+        final staged = File(p.join(staging.path, db.key));
+        await staged.writeAsBytes(bytes, flush: true);
+        tablesByDatabase[db.key] = await _readAllTables(staged.path);
+      }
+
+      final stagedPhotos = Directory(p.join(staging.path, 'heat_photos'));
+      await stagedPhotos.create(recursive: true);
+      final photoNames = <String>{};
+      for (final name in contents.photoEntries) {
+        final base = zipEntryBaseName(name);
+        if (base.isEmpty) continue;
+        final bytes = readZipEntryBytes(source, entries[name]!);
+        await File(p.join(stagedPhotos.path, base)).writeAsBytes(bytes, flush: true);
+        photoNames.add(base);
+      }
+
+      // ---- Phase 2: commit. Photos first: a file nothing references is
+      // harmless, a row pointing at a missing file is not.
+      final heatDir = await _heatPhotosDir();
+      if (!await heatDir.exists()) await heatDir.create(recursive: true);
+      for (final base in photoNames) {
+        await File(p.join(stagedPhotos.path, base))
+            .copy(p.join(heatDir.path, base));
+      }
+
+      var rows = 0;
+      var restoredDatabases = 0;
+      for (final db in _databases) {
+        final tables = tablesByDatabase[db.fileName];
+        if (tables == null) continue;
+        rows += await _writeIntoLive(db, tables, heatDir.path, photoNames);
+        restoredDatabases++;
+      }
+
+      return RestoreReport(
+        createdAt: contents.manifest.createdAt,
+        databaseCount: restoredDatabases,
+        rowCount: rows,
+        photoCount: photoNames.length,
+      );
+    } finally {
+      source.close();
+      if (await staging.exists()) await staging.delete(recursive: true);
+    }
+  }
+
+  /// Reads every restorable table out of a staged database file.
+  ///
+  /// Opened read-only and with `singleInstance: false` so this temporary
+  /// handle can never collide with, or be handed out in place of, one of the
+  /// app's own cached connections.
+  static Future<Map<String, List<Map<String, Object?>>>> _readAllTables(
+    String path,
+  ) async {
+    final db = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
+    );
+    try {
+      final names = (await db.rawQuery(
+              "SELECT name FROM sqlite_master WHERE type = 'table'"))
+          .map((row) => row['name'] as String)
+          .where(isRestorableTable)
+          .toList();
+      final out = <String, List<Map<String, Object?>>>{};
+      for (final table in names) {
+        out[table] = (await db.query(table))
+            .map((row) => Map<String, Object?>.from(row))
+            .toList();
+      }
+      return out;
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// Wipes and refills one live database inside a single transaction.
+  ///
+  /// Tables the backup does not mention are left alone — that is how a table
+  /// added by a newer schema version (and its seeded reference data) survives
+  /// restoring an older backup instead of ending up empty.
+  static Future<int> _writeIntoLive(
+    _LiveDatabase target,
+    Map<String, List<Map<String, Object?>>> tables,
+    String heatPhotosDir,
+    Set<String> photoNames,
+  ) async {
+    final db = await target.open();
+    var written = 0;
+    await db.transaction((txn) async {
+      // `cut_list_app.db` switches `foreign_keys` ON, so deleting parents
+      // before children (or inserting children before parents) would trip a
+      // constraint mid-restore. Deferring the check to COMMIT lets the whole
+      // refill be judged once, as a unit — which is exactly the guarantee the
+      // user was promised.
+      try {
+        await txn.execute('PRAGMA defer_foreign_keys = ON');
+      } catch (_) {
+        // Older SQLite without the pragma: the transaction still rolls back
+        // as a whole, we just lose the ordering freedom.
+      }
+
+      final liveTables = (await txn.rawQuery(
+              "SELECT name FROM sqlite_master WHERE type = 'table'"))
+          .map((row) => row['name'] as String)
+          .where(isRestorableTable)
+          .toSet();
+
+      final batch = txn.batch();
+      for (final table in liveTables) {
+        if (tables.containsKey(table)) batch.delete(table);
+      }
+      for (final entry in tables.entries) {
+        if (!liveTables.contains(entry.key)) continue;
+        // Safe to interpolate: isRestorableTable() already proved the name is
+        // a plain identifier.
+        final columns = (await txn.rawQuery('PRAGMA table_info("${entry.key}")'))
+            .map((row) => row['name'] as String)
+            .toSet();
+        final rows = prepareRows(
+          table: entry.key,
+          rows: entry.value,
+          liveColumns: columns,
+          heatPhotosDir: heatPhotosDir,
+          restoredPhotoNames: photoNames,
+        );
+        for (final row in rows) {
+          batch.insert(entry.key, row,
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        written += rows.length;
+      }
+      await batch.commit(noResult: true);
+    });
+    return written;
+  }
+}

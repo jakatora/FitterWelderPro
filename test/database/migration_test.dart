@@ -1,0 +1,593 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:cut_list_app/database/db.dart';
+
+/// Every table and column the shipping schema is expected to have once a
+/// database has been migrated to [AppDatabase.schemaVersion].
+///
+/// Hand-written on purpose: if someone adds a column to `createSchema` and
+/// forgets the matching migration step, the point is that this list disagrees
+/// with the migrated database and the test fails. That is exactly how the
+/// missing `component_library.diameter_out_mm` step was found — it was in
+/// createSchema and in ComponentLibraryDao's REDUCER lookup, but no
+/// `oldVersion <` block ever added it to an existing table.
+const Map<String, List<String>> _expectedSchema = <String, List<String>>{
+  'component_library': <String>[
+    'id',
+    'material_group',
+    'type',
+    'diameter_mm',
+    'wall_thickness_mm',
+    'axis_mm',
+    'length_mm',
+    'measurement_mode',
+    'diameter_out_mm',
+    'created_at',
+    'updated_at',
+  ],
+  'projects': <String>[
+    'id',
+    'name',
+    'material_group',
+    'diameter_mm',
+    'wall_thickness_mm',
+    'current_diameter_mm',
+    'stock_length_mm',
+    'saw_kerf_mm',
+    'gap_mm',
+    'created_at',
+    'updated_at',
+  ],
+  'segments': <String>[
+    'id',
+    'project_id',
+    'seq_no',
+    'diameter_mm',
+    'wall_thickness_mm',
+    'start_kind',
+    'start_library_id',
+    'start_value_mm',
+    'end_kind',
+    'end_library_id',
+    'end_value_mm',
+    'iso_ref',
+    'iso_expr',
+    'iso_mm',
+    'cut_mm',
+    'created_at',
+    'updated_at',
+  ],
+  'heat_photos': <String>[
+    'id',
+    'project_id',
+    'library_component_id',
+    'image_path',
+    'note',
+    'created_at',
+  ],
+  'component_heats': <String>[
+    'id',
+    'project_id',
+    'component_key',
+    'heat_no',
+    'image_path',
+    'note',
+    'created_at',
+  ],
+  'weld_params': <String>[
+    'id',
+    'method',
+    'base_material',
+    'welder_model',
+    'diameter_mm',
+    'wall_thickness_mm',
+    'electrode_mm',
+    'torch_gas_lpm',
+    'nozzle_type',
+    'nozzle_size',
+    'purge_lpm',
+    'amps',
+    'outlet_holes',
+    'tempo',
+    'note',
+    'created_at',
+    'updated_at',
+  ],
+  'approved_weld_params': <String>[
+    'id',
+    'method',
+    'base_material',
+    'diameter_mm',
+    'wall_thickness_mm',
+    'electrode_mm',
+    'torch_gas_lpm',
+    'purge_lpm',
+    'amps',
+    'note',
+    'created_at',
+    'updated_at',
+  ],
+  'tandem_tig_params': <String>[
+    'id',
+    'material_group',
+    'position',
+    'joint_type',
+    'land_mm',
+    'gap_mm',
+    'wall_thickness_mm',
+    'wall_thickness2_mm',
+    'outside_amps',
+    'inside_amps',
+    'approved',
+    'note',
+    'created_at',
+    'updated_at',
+  ],
+};
+
+// ── Legacy schemas ────────────────────────────────────────────────────────
+//
+// Reconstructed by reading the migration ladder backwards: whatever a
+// `oldVersion < N` block adds is by definition absent from version N - 1.
+
+/// v1: the three original tables, before the v2/v3 column additions.
+Future<void> _buildV1(Database db) async {
+  await db.execute('''
+CREATE TABLE component_library (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  axis_mm REAL,
+  length_mm REAL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  current_diameter_mm REAL NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE segments (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  seq_no INTEGER NOT NULL,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  start_kind TEXT NOT NULL,
+  start_library_id TEXT,
+  start_value_mm REAL NOT NULL,
+  end_kind TEXT NOT NULL,
+  end_library_id TEXT,
+  end_value_mm REAL NOT NULL,
+  iso_expr TEXT NOT NULL,
+  iso_mm REAL NOT NULL,
+  cut_mm REAL NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (project_id, seq_no)
+);
+''');
+}
+
+/// v4: v1 plus the v2 and v3 columns, plus the heat_photos table.
+Future<void> _buildV4(Database db) async {
+  await _buildV1(db);
+  await db.execute("ALTER TABLE projects ADD COLUMN material_group TEXT NOT NULL DEFAULT 'SS';");
+  await db.execute('ALTER TABLE projects ADD COLUMN stock_length_mm REAL NOT NULL DEFAULT 6000;');
+  await db.execute('ALTER TABLE projects ADD COLUMN saw_kerf_mm REAL NOT NULL DEFAULT 1;');
+  await db.execute("ALTER TABLE component_library ADD COLUMN material_group TEXT NOT NULL DEFAULT 'SS';");
+  await db.execute('ALTER TABLE component_library ADD COLUMN measurement_mode TEXT;');
+  await db.execute("ALTER TABLE segments ADD COLUMN iso_ref TEXT NOT NULL DEFAULT 'FACE';");
+  await db.execute('''
+CREATE TABLE heat_photos (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  library_component_id TEXT,
+  image_path TEXT NOT NULL,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
+}
+
+/// v10: v4 plus component_heats, weld_params (already carrying its v7/v10
+/// columns) and tandem_tig_params in its original v8 shape — no
+/// wall_thickness2_mm (v11) and no gap_mm (v15). approved_weld_params does not
+/// exist yet (v13) and projects has no gap_mm yet (v12).
+Future<void> _buildV10(Database db) async {
+  await _buildV4(db);
+  await db.execute('''
+CREATE TABLE component_heats (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  component_key TEXT NOT NULL,
+  heat_no TEXT NOT NULL,
+  image_path TEXT,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE weld_params (
+  id TEXT PRIMARY KEY,
+  method TEXT NOT NULL,
+  base_material TEXT NOT NULL,
+  welder_model TEXT,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  electrode_mm REAL NOT NULL,
+  torch_gas_lpm REAL NOT NULL,
+  nozzle_type TEXT,
+  nozzle_size TEXT,
+  purge_lpm REAL NOT NULL,
+  amps REAL NOT NULL,
+  outlet_holes INTEGER,
+  tempo TEXT,
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE tandem_tig_params (
+  id TEXT PRIMARY KEY,
+  material_group TEXT NOT NULL,
+  position TEXT NOT NULL,
+  joint_type TEXT NOT NULL,
+  land_mm REAL,
+  wall_thickness_mm REAL NOT NULL,
+  outside_amps REAL NOT NULL,
+  inside_amps REAL NOT NULL,
+  approved INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+}
+
+/// v16: the state a device is in after the v16 self-heal block ran — every
+/// table present and every *projects* column repaired.
+///
+/// component_library is deliberately left without diameter_out_mm: the v16
+/// block only ever healed `projects`, so this is what an upgraded device
+/// actually looks like, and the 16 -> 17 step has to close the gap.
+Future<void> _buildV16(Database db) async {
+  await _buildV10(db);
+  await db.execute('ALTER TABLE tandem_tig_params ADD COLUMN wall_thickness2_mm REAL;');
+  await db.execute('ALTER TABLE tandem_tig_params ADD COLUMN gap_mm REAL;');
+  await db.execute('ALTER TABLE projects ADD COLUMN gap_mm REAL NOT NULL DEFAULT 0;');
+  await db.execute('''
+CREATE TABLE approved_weld_params (
+  id TEXT PRIMARY KEY,
+  method TEXT NOT NULL,
+  base_material TEXT NOT NULL,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  electrode_mm REAL NOT NULL,
+  torch_gas_lpm REAL NOT NULL,
+  purge_lpm REAL NOT NULL,
+  amps REAL NOT NULL,
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+}
+
+void main() {
+  setUpAll(sqfliteFfiInit);
+
+  late Directory tmp;
+
+  setUp(() async {
+    tmp = await Directory.systemTemp.createTemp('fwp_migration_');
+  });
+
+  tearDown(() async {
+    if (await tmp.exists()) await tmp.delete(recursive: true);
+  });
+
+  /// Creates a database at [version] with [buildLegacy]'s schema, closes it,
+  /// then reopens it at the shipping version so sqflite calls
+  /// [AppDatabase.migrate] exactly the way it does on a user's device.
+  Future<Database> migrateFrom(
+    int version,
+    Future<void> Function(Database db) buildLegacy, {
+    Future<void> Function(Database db)? seedData,
+  }) async {
+    final path = '${tmp.path}/legacy_v$version.db';
+    final legacy = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: version,
+        onCreate: (db, _) async {
+          await buildLegacy(db);
+          if (seedData != null) await seedData(db);
+        },
+      ),
+    );
+    await legacy.close();
+
+    return databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onUpgrade: AppDatabase.migrate,
+      ),
+    );
+  }
+
+  Future<Set<String>> tablesOf(Database db) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table';",
+    );
+    return rows.map((r) => r['name'] as String).toSet();
+  }
+
+  Future<Set<String>> columnsOf(Database db, String table) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table);');
+    return rows.map((r) => r['name'] as String).toSet();
+  }
+
+  Future<void> expectShippingSchema(Database db, {required int from}) async {
+    final tables = await tablesOf(db);
+    for (final entry in _expectedSchema.entries) {
+      expect(
+        tables,
+        contains(entry.key),
+        reason: 'table ${entry.key} is missing after migrating from v$from',
+      );
+      final columns = await columnsOf(db, entry.key);
+      for (final column in entry.value) {
+        expect(
+          columns,
+          contains(column),
+          reason: '${entry.key}.$column is missing after migrating from v$from',
+        );
+      }
+    }
+  }
+
+  // ── Schema completeness from each historical starting point ─────────────
+
+  for (final start in <int, Future<void> Function(Database)>{
+    1: _buildV1,
+    4: _buildV4,
+    10: _buildV10,
+    16: _buildV16,
+  }.entries) {
+    test('v${start.key} -> current: every table and column is present', () async {
+      final db = await migrateFrom(start.key, start.value);
+      addTearDown(db.close);
+
+      await expectShippingSchema(db, from: start.key);
+      expect(await db.getVersion(), AppDatabase.schemaVersion);
+    });
+  }
+
+  test('a migrated database has the same shape as a freshly created one', () async {
+    // Guards the drift that the version ladder cannot catch on its own: a
+    // column added to createSchema without a matching migration step reaches
+    // new installs but never reaches upgrades.
+    final freshPath = '${tmp.path}/fresh.db';
+    final fresh = await databaseFactoryFfi.openDatabase(
+      freshPath,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: (db, _) => AppDatabase.createSchema(db),
+      ),
+    );
+    addTearDown(fresh.close);
+
+    for (final start in <int, Future<void> Function(Database)>{
+      1: _buildV1,
+      4: _buildV4,
+      10: _buildV10,
+      16: _buildV16,
+    }.entries) {
+      final migrated = await migrateFrom(start.key, start.value);
+      addTearDown(migrated.close);
+
+      for (final table in _expectedSchema.keys) {
+        expect(
+          await columnsOf(migrated, table),
+          await columnsOf(fresh, table),
+          reason: 'v${start.key} -> current left $table a different shape '
+              'than a fresh install gets',
+        );
+      }
+    }
+  });
+
+  // ── The missing-table case ─────────────────────────────────────────────
+
+  test('PRAGMA table_info on an unknown table returns rows, not an error', () async {
+    // The premise behind the _ensureColumn bug below: SQLite answers an empty
+    // result set instead of failing, so "no rows" cannot be read as "the
+    // column is missing" — it may mean the table is missing.
+    final db = await databaseFactoryFfi.openDatabase(
+      '${tmp.path}/pragma.db',
+      options: OpenDatabaseOptions(version: 1),
+    );
+    addTearDown(db.close);
+
+    expect(await db.rawQuery('PRAGMA table_info(no_such_table);'), isEmpty);
+  });
+
+  test('a database missing a table still migrates instead of bricking', () async {
+    // A v2 install whose `segments` table never made it. The v3 step calls
+    // _ensureColumn(db, 'segments', 'iso_ref', ...); before the fix, PRAGMA
+    // returned nothing, the code concluded the column was missing, and
+    // ALTER TABLE segments threw "no such table: segments" — which aborted
+    // onUpgrade, which made openDatabase throw, which meant the app could not
+    // start at all and no later version could ever repair it.
+    Future<void> buildV2WithoutSegments(Database db) async {
+      await db.execute('''
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  material_group TEXT NOT NULL DEFAULT 'SS',
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  current_diameter_mm REAL NOT NULL,
+  stock_length_mm REAL NOT NULL DEFAULT 6000,
+  saw_kerf_mm REAL NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+      await db.execute('''
+CREATE TABLE component_library (
+  id TEXT PRIMARY KEY,
+  material_group TEXT NOT NULL DEFAULT 'SS',
+  type TEXT NOT NULL,
+  diameter_mm REAL NOT NULL,
+  wall_thickness_mm REAL NOT NULL,
+  axis_mm REAL,
+  length_mm REAL,
+  measurement_mode TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+    }
+
+    final db = await migrateFrom(2, buildV2WithoutSegments);
+    addTearDown(db.close);
+
+    await expectShippingSchema(db, from: 2);
+    expect(await columnsOf(db, 'segments'), contains('iso_ref'));
+  });
+
+  test('a database missing every table migrates from an empty file', () async {
+    // The worst version of the same shape: the stored version number says 12,
+    // the file holds nothing. Every _ensureColumn and every seed INSERT in the
+    // ladder used to throw here.
+    final db = await migrateFrom(12, (_) async {});
+    addTearDown(db.close);
+
+    await expectShippingSchema(db, from: 12);
+  });
+
+  // ── Data survival, not just column presence ────────────────────────────
+
+  test('v1 rows survive the migration and get the new column defaults', () async {
+    final db = await migrateFrom(
+      1,
+      _buildV1,
+      seedData: (legacy) async {
+        await legacy.insert('projects', <String, Object?>{
+          'id': 'p1',
+          'name': 'Rack 12',
+          'diameter_mm': 60.3,
+          'wall_thickness_mm': 2.0,
+          'current_diameter_mm': 60.3,
+          'created_at': 1000,
+          'updated_at': 1000,
+        });
+        await legacy.insert('segments', <String, Object?>{
+          'id': 's1',
+          'project_id': 'p1',
+          'seq_no': 1,
+          'diameter_mm': 60.3,
+          'wall_thickness_mm': 2.0,
+          'start_kind': 'ELBOW',
+          'start_library_id': null,
+          'start_value_mm': 38.0,
+          'end_kind': 'FACE',
+          'end_library_id': null,
+          'end_value_mm': 0.0,
+          'iso_expr': '1200',
+          'iso_mm': 1200.0,
+          'cut_mm': 1162.0,
+          'created_at': 1000,
+          'updated_at': 1000,
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    final project = (await db.query('projects', where: 'id = ?', whereArgs: ['p1'])).single;
+    expect(project['name'], 'Rack 12');
+    // Lengths are millimetres throughout.
+    expect((project['diameter_mm']! as num).toDouble(), 60.3);
+    expect(project['material_group'], 'SS');
+    // Read through num: the ALTER TABLE defaults are integer literals on REAL
+    // columns, so whether they come back as int or double is SQLite's business,
+    // not something this test should pin down.
+    expect((project['stock_length_mm']! as num).toDouble(), 6000.0);
+    expect((project['saw_kerf_mm']! as num).toDouble(), 1.0);
+    expect((project['gap_mm']! as num).toDouble(), 0.0);
+
+    final segment = (await db.query('segments', where: 'id = ?', whereArgs: ['s1'])).single;
+    expect((segment['cut_mm']! as num).toDouble(), 1162.0);
+    expect(segment['iso_ref'], 'FACE');
+  });
+
+  test('the approved seed data lands on every upgrade path', () async {
+    // _seedApprovedData is the other statement in the ladder that touches a
+    // table by name, so a missing tandem_tig_params or approved_weld_params
+    // used to abort the migration here rather than in _ensureColumn.
+    for (final start in <int, Future<void> Function(Database)>{
+      1: _buildV1,
+      10: _buildV10,
+      16: _buildV16,
+    }.entries) {
+      final db = await migrateFrom(start.key, start.value);
+      addTearDown(db.close);
+
+      final tandem = await db.query(
+        'tandem_tig_params',
+        where: 'id = ?',
+        whereArgs: ['APPROVED_TANDEM_H_BUTT_3_3'],
+      );
+      expect(
+        (tandem.single['outside_amps']! as num).toDouble(),
+        140.0,
+        reason: 'seed missing after migrating from v${start.key}',
+      );
+
+      final amp = await db.query(
+        'approved_weld_params',
+        where: 'id = ?',
+        whereArgs: ['APPROVED_PIPE_TIGWIRE_60_2'],
+      );
+      expect(
+        (amp.single['amps']! as num).toDouble(),
+        60.0,
+        reason: 'seed missing after migrating from v${start.key}',
+      );
+    }
+  });
+
+  test('migrate is idempotent when it runs twice over the same file', () async {
+    // Devices do re-run upgrades: an install that is rolled back and rolled
+    // forward again replays the ladder. Every step has to survive that.
+    final db = await migrateFrom(1, _buildV1);
+    addTearDown(db.close);
+
+    await AppDatabase.migrate(db, 1, AppDatabase.schemaVersion);
+    await expectShippingSchema(db, from: 1);
+
+    // Seeding twice must not duplicate the approved rows the welder reads off.
+    final seeded = await db.query(
+      'tandem_tig_params',
+      where: 'id = ?',
+      whereArgs: ['APPROVED_TANDEM_H_BUTT_3_3'],
+    );
+    expect(seeded, hasLength(1));
+  });
+}

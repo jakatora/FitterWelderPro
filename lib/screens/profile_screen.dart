@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -5,6 +8,7 @@ import '../config/app_links.dart';
 import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
 import '../services/blocked_users.dart';
+import '../services/data_backup.dart';
 import '../services/legal_consent.dart';
 import '../services/user_profile.dart';
 import '../services/welder_identity.dart';
@@ -42,6 +46,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _lastError;
   bool _saving = false;
   bool _loading = true;
+
+  // Backup/restore blocks the whole screen while it runs: both operations
+  // touch every table, and a second tap mid-restore would race the first.
+  bool _busy = false;
 
   @override
   void initState() {
@@ -132,6 +140,216 @@ class _ProfileScreenState extends State<ProfileScreen> {
       )),
       duration: const Duration(seconds: 6),
     ));
+  }
+
+  // ───────────────────────── Kopia zapasowa / restore ─────────────────────
+  //
+  // Do tej pory dane montera nie miały jak wyjść z telefonu: bazy SQLite i
+  // zdjęcia certyfikatów wytopu żyły wyłącznie w piaskownicy aplikacji, więc
+  // nie dało się ani oddać dokumentacji brygadziście na koniec kontraktu, ani
+  // przejść z Androida na iOS, ani odzyskać czegokolwiek po zgubieniu
+  // telefonu. Obie pozycje siedzą w profilu, bo to jedyny ekran, który już
+  // dziś mówi wprost „to są Twoje dane i to z nimi robimy".
+  //
+  // Plik nigdzie nie leci sam: powstaje w katalogu tymczasowym i trafia
+  // prosto do systemowego arkusza udostępniania. Dokąd pójdzie dalej,
+  // decyduje monter — żadnej chmury, żadnego backendu.
+
+  /// Renders a service-level failure in the user's language.
+  ///
+  /// Reads the language from the controller's static rather than from
+  /// `context.tr`, because this runs after an `await` when the screen may
+  /// already be gone and an `InheritedWidget` lookup would throw on top of
+  /// the error we are trying to report.
+  String _describeBackupError(Object error) {
+    if (error is BackupFormatException) {
+      return AppLanguageController.isEnglish ? error.messageEn : error.messagePl;
+    }
+    return '$error';
+  }
+
+  /// Runs [task] behind a non-dismissible progress dialog.
+  ///
+  /// Returns false when [task] threw — the reason is shown in a snackbar
+  /// before returning, so every caller can simply bail out on false.
+  Future<bool> _runBlocking(String label, Future<void> Function() task) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.4, color: kArc),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Text(label)),
+          ],
+        ),
+      ),
+    );
+
+    Object? failure;
+    try {
+      await task();
+    } catch (e) {
+      failure = e;
+    }
+
+    // Take the dialog down BEFORE the snackbar, otherwise the explanation
+    // lands behind the barrier and the user only sees a spinner vanish.
+    if (navigator.canPop()) navigator.pop();
+    if (mounted) setState(() => _busy = false);
+    if (failure == null) return true;
+
+    Haptic.error();
+    messenger.showSnackBar(SnackBar(
+      content: Text(_describeBackupError(failure)),
+      duration: const Duration(seconds: 8),
+    ));
+    return false;
+  }
+
+  Future<void> _backup() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ready = context.tr(
+      pl: 'Kopia gotowa. Wybierz, gdzie ją zapisać albo komu wysłać.',
+      en: 'Backup ready. Choose where to save it or who to send it to.',
+    );
+
+    File? archive;
+    final built = await _runBlocking(
+      context.tr(pl: 'Pakuję kopię zapasową…', en: 'Packing your backup…'),
+      () async {
+        archive = await DataBackup.createBackupFile();
+      },
+    );
+    final file = archive;
+    if (!built || file == null || !mounted) return;
+
+    Haptic.saved();
+    messenger.showSnackBar(SnackBar(content: Text(ready)));
+    // Sharing happens with the progress dialog already dismissed, so the
+    // system sheet is the only thing on screen.
+    await DataBackup.shareBackupFile(file);
+  }
+
+  Future<void> _restore() async {
+    if (_busy) return;
+
+    // No extension filter on purpose: iOS reports the archive as
+    // `public.zip-archive` and Android hands back a `content://` URI whose
+    // name may carry no extension at all, so a filter would hide the very
+    // file this app wrote. The archive proves its own identity instead —
+    // DataBackup.inspect() reads the manifest and refuses a foreign file
+    // without touching anything.
+    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    final picked = result?.files.single;
+    final path = picked?.path;
+    if (picked == null || path == null || !mounted) return;
+    final pickedName = picked.name;
+
+    BackupContents? found;
+    final read = await _runBlocking(
+      context.tr(pl: 'Sprawdzam plik…', en: 'Checking the file…'),
+      () async {
+        found = await DataBackup.inspect(path);
+      },
+    );
+    final contents = found;
+    if (!read || contents == null || !mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        // Same reason as the delete dialog below: this is a warning about an
+        // irreversible operation, and a non-scrollable dialog truncates it on
+        // a small phone or at a large system font size.
+        scrollable: true,
+        title: Text(context.tr(
+            pl: 'Nadpisać dane z tego pliku?', en: 'Overwrite with this file?')),
+        content: Text(context.tr(
+          pl: 'Plik: $pickedName\n'
+              'Zapisany: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
+              'Zdjęcia wytopów w pliku: ${contents.photoCount}.\n\n'
+              'Przywracanie SKASUJE wszystko, co masz teraz w tym telefonie — '
+              'projekty, cut listy, dziennik spoin i zdjęcia — i wstawi w to '
+              'miejsce zawartość pliku. Tego nie da się cofnąć, więc jeśli '
+              'masz tu coś, czego w pliku nie ma, najpierw zrób kopię.\n\n'
+              'Nic nie ruszymy, dopóki nie przeczytamy całego pliku do końca. '
+              'Jeśli jest uszkodzony albo obcy — powiemy o tym i zostawimy '
+              'Twoje dane w spokoju.\n\n'
+              'Kopia nie zawiera Twojego imienia, tożsamości spawacza '
+              '(stempel, WPQR) ani zgody na zasady — te zostają takie, jakie '
+              'są na tym telefonie.',
+          en: 'File: $pickedName\n'
+              'Created: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
+              'Heat photos in the file: ${contents.photoCount}.\n\n'
+              'Restoring will ERASE everything currently on this phone — '
+              'projects, cut lists, weld journal and photos — and replace it '
+              'with the contents of the file. This cannot be undone, so if '
+              'you have anything here that is not in the file, back it up '
+              'first.\n\n'
+              'Nothing is touched until the whole file has been read. If it '
+              'is damaged or foreign we will say so and leave your data '
+              'alone.\n\n'
+              'The backup does not carry your name, your welder identity '
+              '(stamp, WPQR) or your consent — those stay exactly as they '
+              'are on this phone.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(pl: 'Nadpisz', en: 'Overwrite')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    RestoreReport? outcome;
+    final restored = await _runBlocking(
+      context.tr(pl: 'Przywracam dane…', en: 'Restoring your data…'),
+      () async {
+        outcome = await DataBackup.restore(path);
+      },
+    );
+    final report = outcome;
+    if (!restored || report == null || !mounted) return;
+
+    Haptic.saved();
+    messenger.showSnackBar(SnackBar(
+      // Liczby podane w formie „etykieta: N", bo polska odmiana rzeczownika
+      // po liczbie (1 rekord / 2 rekordy / 5 rekordów) i tak nie zmieści się
+      // w jednym stringu, a „1 rekordów" wygląda jak błąd aplikacji.
+      content: Text(context.tr(
+        pl: 'Przywrócono. Rekordy: ${report.rowCount}. '
+            'Zdjęcia: ${report.photoCount}.',
+        en: 'Restored. Records: ${report.rowCount}. '
+            'Photos: ${report.photoCount}.',
+      )),
+      duration: const Duration(seconds: 6),
+    ));
+    // Every screen underneath is rendering rows that no longer exist. Same
+    // exit as „usuń moje dane": rebuild the app from the gate.
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const RootGate()),
+      (route) => false,
+    );
   }
 
   /// Google Play wymaga ścieżki usunięcia danych, gdy aplikacja cokolwiek
@@ -370,6 +588,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       )),
 
                 const SizedBox(height: 32),
+                _Label(context.tr(pl: 'Twoje dane', en: 'Your data')),
+                const SizedBox(height: 8),
+                _Notice(
+                  icon: Icons.inventory_2_outlined,
+                  accent: kTextSec,
+                  title: context.tr(
+                      pl: 'Co jest w kopii', en: "What's in the backup"),
+                  body: context.tr(
+                    pl: 'Jeden plik ZIP: projekty, cut listy, dziennik spoin i '
+                        'zdjęcia wytopów. Otworzysz go na komputerze bez tej '
+                        'aplikacji. Powstaje w telefonie i idzie prosto do '
+                        'arkusza udostępniania — sami nie wysyłamy go nigdzie. '
+                        'Nie ma w nim Twojej tożsamości spawacza ani zgody na '
+                        'zasady; te zostają na telefonie.',
+                    en: 'One ZIP file: projects, cut lists, weld journal and '
+                        'heat photos. It opens on a computer without this app. '
+                        'It is built on the phone and handed straight to the '
+                        'share sheet — we never send it anywhere ourselves. It '
+                        'does not carry your welder identity or your consent; '
+                        'those stay on the phone.',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _LinkTile(
+                  icon: Icons.save_alt,
+                  label: context.tr(
+                      pl: 'Kopia zapasowa', en: 'Back up my data'),
+                  subtitle: context.tr(
+                      pl: 'Zapisz wszystko do jednego pliku',
+                      en: 'Save everything to one file'),
+                  onTap: _busy ? null : _backup,
+                ),
+                _LinkTile(
+                  icon: Icons.settings_backup_restore,
+                  label: context.tr(
+                      pl: 'Przywróć z pliku', en: 'Restore from a file'),
+                  subtitle: context.tr(
+                      pl: 'Nadpisze dane na tym telefonie',
+                      en: 'Overwrites the data on this phone'),
+                  onTap: _busy ? null : _restore,
+                ),
+
+                const SizedBox(height: 32),
                 _Label(context.tr(pl: 'Zasady i prywatność', en: 'Rules and privacy')),
                 const SizedBox(height: 8),
                 _LinkTile(
@@ -417,7 +678,11 @@ class _LinkTile extends StatelessWidget {
   final String label;
   final String? subtitle;
   final bool danger;
-  final VoidCallback onTap;
+
+  /// Nullable so backup/restore can be greyed out while one of them is
+  /// running — a second tap mid-restore would race the first over the same
+  /// tables. A disabled tile that still looks tappable is worse than none.
+  final VoidCallback? onTap;
 
   const _LinkTile({
     required this.icon,
@@ -429,7 +694,12 @@ class _LinkTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? kFail : kText;
+    final enabled = onTap != null;
+    final color = !enabled
+        ? kTextMut
+        : danger
+            ? kFail
+            : kText;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -438,8 +708,15 @@ class _LinkTile extends StatelessWidget {
         border: Border.all(color: kBorder),
       ),
       child: ListTile(
+        enabled: enabled,
         minVerticalPadding: 12,
-        leading: Icon(icon, color: danger ? kFail : kTextSec, size: 20),
+        leading: Icon(icon,
+            color: !enabled
+                ? kTextMut
+                : danger
+                    ? kFail
+                    : kTextSec,
+            size: 20),
         title: Text(label,
             style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14)),
         subtitle: subtitle == null

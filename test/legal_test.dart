@@ -177,8 +177,14 @@ void main() {
 
       // Dialog musi wprost powiedzieć, co znika. Kasowanie stempla bez
       // uprzedzenia to niespodzianka, a nie zgoda.
+      // Szukamy WEWNATRZ okna potwierdzenia: opis kopii zapasowej na tym samym
+      // ekranie tez mowi o tozsamosci spawacza ("nie zabiera jej do backupu"),
+      // wiec globalny findsOneWidget lapalby dwa teksty naraz.
       expect(
-        find.textContaining('welder identity'),
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.textContaining('welder identity'),
+        ),
         findsOneWidget,
         reason: 'okno potwierdzenia nie wymienia tożsamości spawacza',
       );

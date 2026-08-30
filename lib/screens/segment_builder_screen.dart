@@ -6,8 +6,8 @@ import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/library_component.dart';
 import '../models/segment.dart';
-import '../services/cut_calculator.dart';
 import '../services/iso_parser.dart';
+import '../services/prefab_engine.dart';
 import '../utils/haptic.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
@@ -86,6 +86,71 @@ double _calcOffset(LibraryComponent comp, IsoRefPoint ref) {
       if (comp.isAxial) return comp.axisMm ?? 0;
       return comp.lengthMm ?? 0;
   }
+}
+
+// ─── CUT ───────────────────────────────────────────────────────────────────
+
+/// The engine stop-type an ISO reference point stands for.
+///
+/// The reference point records WHERE on the anchor the tape was hooked, which
+/// is exactly what [SideStop] models: near face and open end stop at the pipe
+/// face, axis and centre stop on the component's centreline, far face runs
+/// through the whole body to the other side of it.
+SideStop stopForRefPoint(IsoRefPoint ref) {
+  switch (ref) {
+    case IsoRefPoint.faceNear:
+    case IsoRefPoint.open:
+      return SideStop.face;
+    case IsoRefPoint.axis:
+    case IsoRefPoint.center:
+      return SideStop.centre;
+    case IsoRefPoint.faceFar:
+      return SideStop.end;
+  }
+}
+
+/// CUT length of one builder segment in millimetres, or NaN when the numbers
+/// cannot make a cuttable pipe (ISO shorter than what the ends and the weld
+/// gaps take off it).
+///
+/// Goes through [PrefabEngine] instead of doing its own arithmetic, because
+/// the engine is the single source of truth for CUT and the builder was
+/// quietly disagreeing with it: the builder subtracted `welds × gap`, a term
+/// the engine did not know existed, so the SAME run entered here and in the
+/// ISO notebook came out different by the gap total — with nothing on either
+/// screen to explain which number the fitter should saw to. The gap now lives
+/// in the engine (`weldGapMm` / `weldCount`) and both screens read one rule.
+///
+/// [startOffsetMm] / [endOffsetMm] are the offsets from `_calcOffset` — the
+/// distance from the anchor's reference point to the pipe face — handed to
+/// the engine as the take-out or the body length according to that side's
+/// stop, which is the same number either way.
+double builderCutMm({
+  required double isoMm,
+  required IsoRefPoint startRef,
+  required double startOffsetMm,
+  required IsoRefPoint endRef,
+  required double endOffsetMm,
+  required double gapMm,
+  required int welds,
+}) {
+  final startStop = stopForRefPoint(startRef);
+  final endStop = stopForRefPoint(endRef);
+  return PrefabEngine.cutLengthMm(
+    isoValueMm: isoMm,
+    // Both stops are known exactly here, so the engine is given them
+    // outright and needs no DimRef to guess from — which also lets the
+    // builder express shapes DimRef cannot name, such as far-face on BOTH
+    // anchors.
+    leftStop: startStop,
+    rightStop: endStop,
+    leftCteMm: startStop == SideStop.centre ? startOffsetMm : null,
+    leftPhysicalLenMm: startStop == SideStop.end ? startOffsetMm : null,
+    rightCteMm: endStop == SideStop.centre ? endOffsetMm : null,
+    rightPhysicalLenMm: endStop == SideStop.end ? endOffsetMm : null,
+    weldGapMm: gapMm,
+    weldCount: welds,
+  );
 }
 
 // ─── Label dla typu komponentu ─────────────────────────────────────────────
@@ -393,19 +458,24 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           _error = _tr('ISO musi być > 0', 'ISO must be > 0');
           return;
         }
-        final startOff = _startPicked!.offsetMm;
-        final endOff   = _endPicked!.offsetMm;
-        final baseCut  = calculateCutOffsets(
+        // One formula, in PrefabEngine — including the weld gap, which used
+        // to be subtracted here and nowhere else, so the same run measured
+        // in the ISO notebook came out `welds × gap` longer.
+        final cut = builderCutMm(
           isoMm: iso,
-          startOffsetMm: startOff,
-          endOffsetMm:   endOff,
+          startRef: _startPicked!.refPoint,
+          startOffsetMm: _startPicked!.offsetMm,
+          endRef: _endPicked!.refPoint,
+          endOffsetMm: _endPicked!.offsetMm,
+          gapMm: widget.gapMm,
+          welds: (_startPicked!.tag == 'OPEN_END') ? 1 : 2,
         );
-        final welds    = (_startPicked!.tag == 'OPEN_END') ? 1 : 2;
-        final gapTotal = widget.gapMm > 0 ? (welds * widget.gapMm) : 0.0;
-        final cut      = baseCut - gapTotal;
         _isoMm = iso;
         _cutMm = cut;
-        if (cut <= 0) {
+        // The engine answers NaN — not a negative number — for anything it
+        // refuses to hand to the saw, so the guard tests finiteness rather
+        // than the sign.
+        if (!cut.isFinite || cut <= 0) {
           // The '≤' had been stored double-encoded (UTF-8 bytes re-read as
           // Latin-1), so the one message meant to STOP an impossible cut
           // rendered as three garbage glyphs on site and was ignored.
@@ -1127,11 +1197,19 @@ class _CalcBreakdown extends StatelessWidget {
           if (cutMm != null)
             Center(
               child: Text(
-                'CUT = ${cutMm!.toStringAsFixed(1)} mm',
+                // The engine reports "not a cuttable length" as NaN, and
+                // 'CUT = NaN mm' is a number-shaped thing a tired fitter can
+                // mistake for one. A dash says plainly there is nothing to
+                // cut; the red stop message below the breakdown says why.
+                cutMm!.isFinite
+                    ? 'CUT = ${cutMm!.toStringAsFixed(1)} mm'
+                    : 'CUT = —',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: cutMm! > 0 ? const Color(0xFFFF8E1E) : const Color(0xFFE74C3C),
+                  color: (cutMm!.isFinite && cutMm! > 0)
+                      ? const Color(0xFFFF8E1E)
+                      : const Color(0xFFE74C3C),
                   letterSpacing: -0.5,
                 ),
               ),

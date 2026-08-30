@@ -10,15 +10,39 @@ library;
 
 import '../models/prefab/dim_ref.dart';
 
+/// Where the ISO dimension stops on ONE side of a segment.
+///
+/// A [DimRef] names a PAIR of stops but not which side each one belongs to:
+/// `CTF` is the same code whether the centre is at the left anchor or at the
+/// right one. The `leftIsPhysical` / `rightIsPhysical` flags cannot close
+/// that gap either — they say WHICH side carries a body, not whether that
+/// body lies inside the dimensioned span for the chosen reference point (the
+/// very same valve contributes 0 at a [face] stop and its whole body at an
+/// [end] stop). A caller that knows its own geometry states both stops and
+/// the engine never has to guess.
+enum SideStop {
+  /// The dimension stops AT the component face, so none of the component
+  /// lies inside the dimensioned span: this side subtracts nothing.
+  face,
+
+  /// The dimension runs THROUGH the component to its far end, so this side
+  /// subtracts the component's physical body length.
+  end,
+
+  /// The dimension stops at the component's axial centreline, so this side
+  /// subtracts its centre-to-end take-out.
+  centre,
+}
+
 class PrefabEngine {
   const PrefabEngine._();
 
   /// Cut length of a pipe segment in millimetres, given the ISO dimension
-  /// between two anchors and how that dimension was measured (`ref`).
+  /// between two anchors and how that dimension was measured.
   ///
   /// The engine is direction-agnostic: it sums per-side contributions based
-  /// on which DimRef stop-type applies to each side, then picks values out
-  /// of `leftCteMm` / `rightCteMm` (axial — for sides that stop at centre)
+  /// on which [SideStop] applies to each side, then picks values out of
+  /// `leftCteMm` / `rightCteMm` (axial — for sides that stop at centre)
   /// and `leftPhysicalLenMm` / `rightPhysicalLenMm` (physical body — for
   /// sides that go all the way through to the end). DimRef pairs are
   /// symmetric: `CTF` covers both axial-physical and physical-axial spool
@@ -32,74 +56,187 @@ class PrefabEngine {
   ///             the way through the component to its far end, so the pipe
   ///             stops at the component's face, which is body-length short)
   ///
+  /// Each rule applies to ONE side. Every DimRef therefore spends exactly
+  /// two contributions — one per anchor — and the only open question is
+  /// which side gets which. [leftStop] / [rightStop] answer it outright, and
+  /// with both given [ref] is not needed at all (pass null): that also
+  /// covers shapes DimRef cannot name, such as a dimension running through
+  /// the body at BOTH anchors. Without them the engine falls back to:
+  ///   * exactly one side flagged physical → that side takes the stop that
+  ///     consumes a body (`end`, or `face` for the centre/face pair, which
+  ///     is the side a bodied component sits on in CTF);
+  ///   * otherwise the assignment that subtracts MORE wins — the same
+  ///     conservative tie-break the CTF path has always used.
+  ///
+  /// Both fall-backs still spend one contribution per side. The FTE and CTE
+  /// branches used to subtract the body of BOTH ends (CTE both CTEs on top
+  /// of that), contradicting the per-side rules right above them: an FTE run
+  /// between two DN100 valves lost 458 mm instead of 229 and the pipe came
+  /// back 229 mm short — scrap, on a dimension the fitter had read correctly.
+  ///
   /// `midPhysicalSumMm` is always subtracted — components living between
   /// the two ends add to the dimensioned span no matter how the ends were
   /// measured.
+  ///
+  /// `weldGapMm` × `weldCount` is subtracted last: the root gap left open at
+  /// each joint is length the saw must not take. Both default to 0 so that
+  /// callers which never modelled the gap keep their exact numbers. The
+  /// segment builder used to apply the gap itself, in a formula this engine
+  /// knew nothing about, so one run measured in the builder and in the ISO
+  /// notebook produced two different cut lengths with nothing on either
+  /// screen to explain the difference.
+  ///
+  /// The four component-length parameters take `num` rather than `int` so a
+  /// caller holding sub-millimetre take-outs (a 76.2 mm elbow) does not have
+  /// to round before asking. `int` arguments still satisfy `num`, so this is
+  /// invisible to callers that pass whole millimetres.
   static double cutLengthMm({
     required double isoValueMm,
-    required DimRef ref,
-    int? leftCteMm,
-    int? rightCteMm,
-    int? leftPhysicalLenMm,
-    int? rightPhysicalLenMm,
-    int midPhysicalSumMm = 0,
+    DimRef? ref,
+    num? leftCteMm,
+    num? rightCteMm,
+    num? leftPhysicalLenMm,
+    num? rightPhysicalLenMm,
+    num midPhysicalSumMm = 0,
     bool leftIsPhysical = false,
     bool rightIsPhysical = false,
+    SideStop? leftStop,
+    SideStop? rightStop,
+    double weldGapMm = 0,
+    int weldCount = 0,
   }) {
     // P0-09: also guard non-finite ISO (e.g. `1e500` → infinity from the
     // parser). The legacy NaN-only guard let infinity through which then
     // poisoned every downstream sum.
     if (!isoValueMm.isFinite) return double.nan;
 
-    final lc = leftCteMm ?? 0;
-    final rc = rightCteMm ?? 0;
-    final lp = leftPhysicalLenMm ?? 0;
-    final rp = rightPhysicalLenMm ?? 0;
-    final cteBoth = lc + rc;
-    final phyBoth = lp + rp;
+    final lc = (leftCteMm ?? 0).toDouble();
+    final rc = (rightCteMm ?? 0).toDouble();
+    final lp = (leftPhysicalLenMm ?? 0).toDouble();
+    final rp = (rightPhysicalLenMm ?? 0).toDouble();
 
-    double cut;
-    switch (ref) {
-      case DimRef.centreToCentre:
-        cut = isoValueMm - cteBoth - midPhysicalSumMm;
-        break;
-      case DimRef.centreToFace:
-        // P0-09: subtract ONLY the centre side's CTE — the face side stops
-        // at the face (no body subtracted). If the caller signals which
-        // side is physical via leftIsPhysical/rightIsPhysical, the face is
-        // the physical side and we credit the OTHER side's CTE only.
-        // Legacy behaviour (sum both CTEs) was a 55-76 mm over-subtraction
-        // on every elbow→flange spool, producing pipe undersized at
-        // fit-up — scrap risk on every job.
-        final double centreCte;
-        if (leftIsPhysical && !rightIsPhysical) {
-          centreCte = rc.toDouble();
-        } else if (!leftIsPhysical && rightIsPhysical) {
-          centreCte = lc.toDouble();
-        } else {
-          // Caller didn't tell us which side is the face. Fall back to
-          // the more conservative behaviour: credit the larger CTE so we
-          // don't over-cut. If both sides are zero or equal this matches
-          // the legacy single-side credit.
-          centreCte = lc > rc ? lc.toDouble() : rc.toDouble();
-        }
-        cut = isoValueMm - centreCte - midPhysicalSumMm;
-        break;
-      case DimRef.faceToFace:
-        cut = isoValueMm - midPhysicalSumMm;
-        break;
-      case DimRef.faceToEnd:
-        cut = isoValueMm - phyBoth - midPhysicalSumMm;
-        break;
-      case DimRef.centreToEnd:
-        cut = isoValueMm - cteBoth - phyBoth - midPhysicalSumMm;
-        break;
-    }
+    final stops = _resolveStops(
+      ref: ref,
+      leftStop: leftStop,
+      rightStop: rightStop,
+      leftIsPhysical: leftIsPhysical,
+      rightIsPhysical: rightIsPhysical,
+      lc: lc,
+      rc: rc,
+      lp: lp,
+      rp: rp,
+    );
+    // Neither an explicit stop pair nor a DimRef: there is no rule to apply,
+    // and inventing one is how a wrong length reaches the saw. NaN is the
+    // engine's established "do not cut this" signal.
+    if (stops == null) return double.nan;
+
+    final endsSum = _sideDeduction(stops.left, lc, lp) +
+        _sideDeduction(stops.right, rc, rp);
+
+    // A negative gap or a negative weld count is nonsense input, not a
+    // reason to ADD length to the pipe.
+    final gapTotal = (weldGapMm.isFinite && weldGapMm > 0 && weldCount > 0)
+        ? weldGapMm * weldCount
+        : 0.0;
+
+    final cut = isoValueMm - endsSum - midPhysicalSumMm.toDouble() - gapTotal;
+
     // P0-09: <=0 sentinel — propagating a negative number to the cut list
     // appears in the BOM as a plausible-looking small number; NaN forces
     // the warning chip to fire.
     if (!cut.isFinite || cut <= 0) return double.nan;
     return cut;
+  }
+
+  /// What one side takes off the dimension, per the rules documented on
+  /// [cutLengthMm]. The single place those three rules are spelled out in
+  /// code, so a side can never be charged twice for one stop.
+  static double _sideDeduction(SideStop stop, double cteMm, double physicalMm) {
+    switch (stop) {
+      case SideStop.centre:
+        return cteMm;
+      case SideStop.face:
+        return 0;
+      case SideStop.end:
+        return physicalMm;
+    }
+  }
+
+  /// The pair of stops a [DimRef] describes — in no particular side order,
+  /// because the code itself carries none.
+  static (SideStop, SideStop) _stopPairFor(DimRef ref) {
+    switch (ref) {
+      case DimRef.centreToCentre:
+        return (SideStop.centre, SideStop.centre);
+      case DimRef.centreToFace:
+        return (SideStop.centre, SideStop.face);
+      case DimRef.faceToFace:
+        return (SideStop.face, SideStop.face);
+      case DimRef.faceToEnd:
+        return (SideStop.face, SideStop.end);
+      case DimRef.centreToEnd:
+        return (SideStop.centre, SideStop.end);
+    }
+  }
+
+  /// Works out which stop belongs to which side, or null when there is
+  /// nothing to work from. See [cutLengthMm] for the precedence order.
+  static ({SideStop left, SideStop right})? _resolveStops({
+    required DimRef? ref,
+    required SideStop? leftStop,
+    required SideStop? rightStop,
+    required bool leftIsPhysical,
+    required bool rightIsPhysical,
+    required double lc,
+    required double rc,
+    required double lp,
+    required double rp,
+  }) {
+    // Told outright — no DimRef needed, nothing to guess.
+    if (leftStop != null && rightStop != null) {
+      return (left: leftStop, right: rightStop);
+    }
+    if (ref == null) return null;
+
+    final (a, b) = _stopPairFor(ref);
+
+    // One side pinned: the other takes what is left of the pair. A pinned
+    // stop that is not in the pair contradicts `ref`; guessing which of the
+    // two the caller meant would be worse than dropping the hint, so that
+    // case falls through to the rules below.
+    if (leftStop != null && (leftStop == a || leftStop == b)) {
+      return (left: leftStop, right: leftStop == a ? b : a);
+    }
+    if (rightStop != null && (rightStop == a || rightStop == b)) {
+      return (left: rightStop == a ? b : a, right: rightStop);
+    }
+
+    // Symmetric pair (CTC, FTF): both sides get the same stop, so no
+    // ordering question exists.
+    if (a == b) return (left: a, right: b);
+
+    // Exactly one bodied side: that side is the one the dimension either
+    // stops at (CTF) or runs through (FTE, CTE), so the axial stop goes to
+    // the other side. This is the flag pair's real job — narrowing the
+    // ordering — rather than deciding whether a body counts at all.
+    if (leftIsPhysical != rightIsPhysical) {
+      final bodied = (a == SideStop.end || b == SideStop.end)
+          ? SideStop.end
+          : (a == SideStop.centre ? b : a);
+      final other = bodied == a ? b : a;
+      return leftIsPhysical
+          ? (left: bodied, right: other)
+          : (left: other, right: bodied);
+    }
+
+    // Both sides bodied, or neither: the drawing code alone cannot say which
+    // anchor was measured which way. Take the assignment that subtracts more
+    // — the tie-break the CTF path already used ("credit the larger CTE"),
+    // now applied to every asymmetric pair instead of only that one.
+    final direct = _sideDeduction(a, lc, lp) + _sideDeduction(b, rc, rp);
+    final swapped = _sideDeduction(b, lc, lp) + _sideDeduction(a, rc, rp);
+    return direct >= swapped ? (left: a, right: b) : (left: b, right: a);
   }
 
   /// Whether the notebook should prompt the user to pick a `DimRef`.

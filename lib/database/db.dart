@@ -12,6 +12,13 @@ class AppDatabase {
   // already bumped but missing some columns (e.g. projects.gap_mm).
   static const int _dbVersion = 17;
 
+  /// The schema version [get] opens the database at.
+  ///
+  /// Exposed so `test/database/migration_test.dart` migrates to whatever the
+  /// app actually ships instead of to a hard-coded 17 that silently stops
+  /// matching the next time someone bumps [_dbVersion].
+  static int get schemaVersion => _dbVersion;
+
   static Future<Database> get() async {
     if (_db != null) return _db!;
 
@@ -22,28 +29,75 @@ class AppDatabase {
       path,
       version: _dbVersion,
       onCreate: (db, _) async {
-        await _createSchema(db);
+        await createSchema(db);
         await _seedApprovedData(db);
       },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        // ---- Projects
-        if (oldVersion < 2) {
-          await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
-          await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
-          await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
+      onUpgrade: migrate,
+    );
 
-          await _ensureColumn(db, 'component_library', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
-          await _ensureColumn(db, 'component_library', 'measurement_mode', 'TEXT');
-        }
+    // Neither onCreate nor onUpgrade runs when the stored version already
+    // equals [_dbVersion], so a database that is at 17 but missing a table
+    // (the exact state the v16 self-heal was written for) would reach
+    // _seedApprovedData below and throw "no such table" on every single
+    // launch, with no upgrade left to repair it. _createTables is all
+    // CREATE TABLE IF NOT EXISTS, so this costs a few no-op DDL statements.
+    // Tables only: _createIndexes names columns, and if this database is
+    // stamped 17 while holding a legacy layout, those columns may be absent.
+    await _createTables(_db!);
+    await _seedApprovedData(_db!);
+    return _db!;
+  }
 
-        // ---- Segments
-        if (oldVersion < 3) {
-          await _ensureColumn(db, 'segments', 'iso_ref', "TEXT NOT NULL DEFAULT 'FACE'");
-        }
+  /// Applies every schema step needed to bring a database from [oldVersion]
+  /// up to [newVersion].
+  ///
+  /// Public on purpose: this is the entry point `test/database/migration_test.dart`
+  /// drives. Seventeen schema versions shipped without a single migration test,
+  /// and v16 exists only because one of those migrations had already failed on
+  /// users' devices — an untestable closure inside [get] is how that happened.
+  static Future<void> migrate(Database db, int oldVersion, int newVersion) async {
+    // Self-heal FIRST, for every upgrade path — not just the v16 one.
+    //
+    // The steps below reach for tables with ALTER TABLE (via [_ensureColumn])
+    // and with INSERT (via [_seedApprovedData]). Both throw "no such table" on
+    // a database that is missing one, which aborts onUpgrade, which makes
+    // openDatabase throw, which bricks the app on launch with no way back.
+    // The v16 block already did this for `projects` alone after users hit
+    // exactly that; every statement in [_createTables] is CREATE TABLE IF
+    // NOT EXISTS, so running the whole thing is idempotent and covers every
+    // table rather than just `projects`.
+    await _createTables(db);
 
-        // ---- Photos / heats
-        if (oldVersion < 4) {
-          await db.execute('''
+    // Column drift the version ladder never covered.
+    //
+    // component_library.diameter_out_mm is in [createSchema] and is both
+    // written and queried by ComponentLibraryDao (the REDUCER branch of its
+    // lookup selects on it), but no `oldVersion <` block below ever adds it.
+    // _createTables cannot help: CREATE TABLE IF NOT EXISTS sees the legacy
+    // table and leaves it alone. So every database whose component_library
+    // predates that column reaches v17 without it and throws "no such column"
+    // on the first reducer lookup. Unconditional, because a 16 -> 17 upgrade
+    // skips every block below.
+    await _ensureColumn(db, 'component_library', 'diameter_out_mm', 'REAL');
+
+    // ---- Projects
+    if (oldVersion < 2) {
+      await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
+      await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
+
+      await _ensureColumn(db, 'component_library', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(db, 'component_library', 'measurement_mode', 'TEXT');
+    }
+
+    // ---- Segments
+    if (oldVersion < 3) {
+      await _ensureColumn(db, 'segments', 'iso_ref', "TEXT NOT NULL DEFAULT 'FACE'");
+    }
+
+    // ---- Photos / heats
+    if (oldVersion < 4) {
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS heat_photos (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -54,10 +108,10 @@ CREATE TABLE IF NOT EXISTS heat_photos (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
-        }
-        if (oldVersion < 5) {
-          await db.execute('''
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS component_heats (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -69,13 +123,13 @@ CREATE TABLE IF NOT EXISTS component_heats (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
-        }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
+    }
 
-        // ---- Welder pipes: user weld params
-        if (oldVersion < 6) {
-          await db.execute('''
+    // ---- Welder pipes: user weld params
+    if (oldVersion < 6) {
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_params (
   id TEXT PRIMARY KEY,
   method TEXT NOT NULL,
@@ -96,22 +150,22 @@ CREATE TABLE IF NOT EXISTS weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-        }
-        if (oldVersion < 7) {
-          await _ensureColumn(db, 'weld_params', 'welder_model', 'TEXT');
-        }
-        // Add newer weld_params columns for very old DBs.
-        if (oldVersion < 10) {
-          await _ensureColumn(db, 'weld_params', 'nozzle_type', 'TEXT');
-          await _ensureColumn(db, 'weld_params', 'nozzle_size', 'TEXT');
-          await _ensureColumn(db, 'weld_params', 'outlet_holes', 'INTEGER');
-          await _ensureColumn(db, 'weld_params', 'tempo', 'TEXT');
-        }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+    }
+    if (oldVersion < 7) {
+      await _ensureColumn(db, 'weld_params', 'welder_model', 'TEXT');
+    }
+    // Add newer weld_params columns for very old DBs.
+    if (oldVersion < 10) {
+      await _ensureColumn(db, 'weld_params', 'nozzle_type', 'TEXT');
+      await _ensureColumn(db, 'weld_params', 'nozzle_size', 'TEXT');
+      await _ensureColumn(db, 'weld_params', 'outlet_holes', 'INTEGER');
+      await _ensureColumn(db, 'weld_params', 'tempo', 'TEXT');
+    }
 
-        // ---- Welder tanks: tandem TIG approved params
-        if (oldVersion < 8) {
-          await db.execute('''
+    // ---- Welder tanks: tandem TIG approved params
+    if (oldVersion < 8) {
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS tandem_tig_params (
   id TEXT PRIMARY KEY,
   material_group TEXT NOT NULL,
@@ -128,25 +182,25 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
-        }
-        if (oldVersion < 11) {
-          await _ensureColumn(db, 'tandem_tig_params', 'wall_thickness2_mm', 'REAL');
-        }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
+    }
+    if (oldVersion < 11) {
+      await _ensureColumn(db, 'tandem_tig_params', 'wall_thickness2_mm', 'REAL');
+    }
 
-        // ---- Welder tanks: optional gap for GAP and BEVEL (e.g. faza + szczelina)
-        if (oldVersion < 15) {
-          await _ensureColumn(db, 'tandem_tig_params', 'gap_mm', 'REAL');
-        }
+    // ---- Welder tanks: optional gap for GAP and BEVEL (e.g. faza + szczelina)
+    if (oldVersion < 15) {
+      await _ensureColumn(db, 'tandem_tig_params', 'gap_mm', 'REAL');
+    }
 
-        // ---- Projects: optional welding gap
-        if (oldVersion < 12) {
-          await _ensureColumn(db, 'projects', 'gap_mm', 'REAL NOT NULL DEFAULT 0');
-        }
+    // ---- Projects: optional welding gap
+    if (oldVersion < 12) {
+      await _ensureColumn(db, 'projects', 'gap_mm', 'REAL NOT NULL DEFAULT 0');
+    }
 
-        // ---- Approved AMP table (Welder pipes)
-        if (oldVersion < 13) {
-          await db.execute('''
+    // ---- Approved AMP table (Welder pipes)
+    if (oldVersion < 13) {
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS approved_weld_params (
   id TEXT PRIMARY KEY,
   method TEXT NOT NULL,
@@ -162,18 +216,18 @@ CREATE TABLE IF NOT EXISTS approved_weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-          await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-        }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+    }
 
-        // ---- Seed / patch approved data
-        if (oldVersion < 15) {
-          await _seedApprovedData(db);
-        }
+    // ---- Seed / patch approved data
+    if (oldVersion < 15) {
+      await _seedApprovedData(db);
+    }
 
-        // ---- v16: schema self-heal (idempotent)
-        if (oldVersion < 16) {
-          // Ensure core tables exist (safe if already created).
-          await db.execute('''
+    // ---- v16: schema self-heal (idempotent)
+    if (oldVersion < 16) {
+      // Ensure core tables exist (safe if already created).
+      await db.execute('''
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT,
@@ -189,24 +243,39 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 ''');
 
-          // Ensure critical columns exist even if version was previously bumped.
-          await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
-          await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
-          await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
-          await _ensureColumn(db, 'projects', 'gap_mm', 'REAL NOT NULL DEFAULT 0');
-        }
+      // Ensure critical columns exist even if version was previously bumped.
+      await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
+      await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
+      await _ensureColumn(db, 'projects', 'gap_mm', 'REAL NOT NULL DEFAULT 0');
+    }
 
-        if (oldVersion < 17) {
-          await _seedApprovedData(db);
-        }
-      },
-    );
+    if (oldVersion < 17) {
+      await _seedApprovedData(db);
+    }
 
-    await _seedApprovedData(_db!);
-    return _db!;
+    // Last, now that every column the indexes reference exists.
+    await _createIndexes(db);
   }
 
-  static Future<void> _createSchema(Database db) async {
+  /// Creates every table and index the current schema defines.
+  ///
+  /// Every statement is CREATE ... IF NOT EXISTS, so it is idempotent and safe
+  /// to run against a populated database. Split in two underneath, because the
+  /// two halves are NOT equally safe on a legacy schema - see [_createTables]
+  /// and [_createIndexes].
+  static Future<void> createSchema(Database db) async {
+    await _createTables(db);
+    await _createIndexes(db);
+  }
+
+  /// CREATE TABLE IF NOT EXISTS for every table, and nothing else.
+  ///
+  /// Safe to run against a database of ANY vintage, which is what makes it
+  /// usable as the self-heal at the top of [migrate]: none of these
+  /// statements names a column of a table it is not itself creating, so an
+  /// old table simply survives untouched.
+  static Future<void> _createTables(Database db) async {
     await db.execute('''
 CREATE TABLE IF NOT EXISTS component_library (
   id TEXT PRIMARY KEY,
@@ -223,8 +292,6 @@ CREATE TABLE IF NOT EXISTS component_library (
   UNIQUE (material_group, type, diameter_mm, wall_thickness_mm, diameter_out_mm)
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -240,7 +307,6 @@ CREATE TABLE IF NOT EXISTS projects (
   updated_at INTEGER NOT NULL
 );
 ''');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS segments (
   id TEXT PRIMARY KEY,
@@ -264,8 +330,6 @@ CREATE TABLE IF NOT EXISTS segments (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_segments_project ON segments(project_id);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS heat_photos (
   id TEXT PRIMARY KEY,
@@ -277,8 +341,6 @@ CREATE TABLE IF NOT EXISTS heat_photos (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS component_heats (
   id TEXT PRIMARY KEY,
@@ -291,9 +353,6 @@ CREATE TABLE IF NOT EXISTS component_heats (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_params (
   id TEXT PRIMARY KEY,
@@ -315,8 +374,6 @@ CREATE TABLE IF NOT EXISTS weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS approved_weld_params (
   id TEXT PRIMARY KEY,
@@ -333,8 +390,6 @@ CREATE TABLE IF NOT EXISTS approved_weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-
     await db.execute('''
 CREATE TABLE IF NOT EXISTS tandem_tig_params (
   id TEXT PRIMARY KEY,
@@ -353,6 +408,25 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   updated_at INTEGER NOT NULL
 );
 ''');
+  }
+
+  /// CREATE INDEX IF NOT EXISTS for every index.
+  ///
+  /// Kept apart from [_createTables] because indexes DO name columns, and on
+  /// a legacy database those columns may not exist yet: idx_library_d_w
+  /// indexes component_library(material_group, ...), and material_group is
+  /// only added to that table by the v2 step. Running this before the
+  /// column ladder throws "no such column: material_group" and takes the
+  /// whole migration - and the app launch - down with it. [migrate]
+  /// therefore calls it last, once every column is in place.
+  static Future<void> _createIndexes(Database db) async {
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_segments_project ON segments(project_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
   }
 
@@ -683,11 +757,28 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
     });
   }
 
-  static Future<void> _ensureColumn(Database db, String table, String column, String sqlType) async {
+  /// Adds [column] to [table] unless it is already there.
+  ///
+  /// Returns false when [table] does not exist. That case has to be handled
+  /// explicitly: `PRAGMA table_info` on an unknown table returns an EMPTY
+  /// result set rather than an error, so the old code read "no such column",
+  /// issued `ALTER TABLE <missing> ADD COLUMN ...`, and threw "no such
+  /// table" — aborting onUpgrade and leaving openDatabase, and therefore the
+  /// whole app, unable to start. [migrate] now runs [createSchema] first so
+  /// this should not trigger, but a column added here for a table that
+  /// [createSchema] does not define must degrade to a no-op, never to a brick.
+  static Future<bool> _ensureColumn(Database db, String table, String column, String sqlType) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?;",
+      [table],
+    );
+    if (tables.isEmpty) return false;
+
     final info = await db.rawQuery('PRAGMA table_info($table);');
     final exists = info.any((r) => r['name'] == column);
     if (!exists) {
       await db.execute('ALTER TABLE $table ADD COLUMN $column $sqlType;');
     }
+    return true;
   }
 }

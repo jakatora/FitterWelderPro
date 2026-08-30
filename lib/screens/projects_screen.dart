@@ -1,11 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
-import '../database/db.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
-import '../database/segment_dao.dart';
 import '../models/project.dart';
 import 'new_project_screen.dart';
 import 'fitter_screen.dart';
@@ -19,7 +19,6 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   final _dao = ProjectDao();
-  final _segDao = SegmentDao();
   List<Project> _projects = [];
   bool _loading = true;
 
@@ -169,25 +168,23 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         ) ?? false;
                       },
                       onDismissed: (_) async {
-                        // Snapshot raw rows BEFORE delete so the SnackBar Undo
-                        // can re-insert project + segments verbatim. Without
-                        // this the swipe is irreversible — a real loss on a
-                        // gloved mis-swipe at the bench.
-                        List<Map<String, Object?>> projectRows;
-                        List<Map<String, Object?>> segmentRows;
+                        // One transaction over segments, heat photos,
+                        // component heats and the project itself. The screen
+                        // used to run two separate deletes and snapshot the
+                        // rows by hand: a failure between them left a project
+                        // whose cut list had already been wiped, and heat
+                        // rows plus their .jpg files were never touched at
+                        // all, so every deleted project leaked orphans.
+                        // deleteProjectCascade returns the snapshot Undo needs.
+                        DeletedProject deleted;
                         try {
-                          final db = await AppDatabase.get();
-                          projectRows = await db.query('projects',
-                              where: 'id = ?', whereArgs: [p.id], limit: 1);
-                          segmentRows = await db.query('segments',
-                              where: 'project_id = ?', whereArgs: [p.id]);
-                          await _segDao.deleteAllForProject(p.id);
-                          await _dao.deleteById(p.id);
+                          deleted = await _dao.deleteProjectCascade(p.id);
                           await _load();
                         } catch (e) {
                           // DB constraint / lock / disk-full on the shop tablet
                           // would otherwise bubble to a red screen — surface as
-                          // a SnackBar and reload so the row reappears.
+                          // a SnackBar and reload so the row reappears. The
+                          // transaction rolled back, so the project is intact.
                           await _load();
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context)
@@ -203,7 +200,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         if (!context.mounted) return;
                         final messenger = ScaffoldMessenger.of(context);
                         messenger.hideCurrentSnackBar();
-                        messenger.showSnackBar(SnackBar(
+                        final bar = messenger.showSnackBar(SnackBar(
                           content: Text(context.tr(
                             pl: 'Usunięto "$name"',
                             en: 'Deleted "$name"',
@@ -212,19 +209,21 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           action: SnackBarAction(
                             label: context.tr(pl: 'Cofnij', en: 'Undo'),
                             onPressed: () async {
-                              final db2 = await AppDatabase.get();
-                              if (projectRows.isNotEmpty) {
-                                await db2.insert('projects',
-                                    Map<String, Object?>.from(projectRows.first));
-                              }
-                              for (final r in segmentRows) {
-                                await db2.insert(
-                                    'segments', Map<String, Object?>.from(r));
-                              }
+                              await _dao.restore(deleted);
                               await _load();
                             },
                           ),
                         ));
+                        // The .jpg files outlive the rows until Undo is off
+                        // the table: a re-insert can bring a heat_photos row
+                        // back, nothing can bring back a deleted photo.
+                        // SnackBarClosedReason.action == Undo was pressed;
+                        // timeout / swipe / replaced-by-another-bar all mean
+                        // the delete stands, so the files can go.
+                        unawaited(bar.closed.then((reason) async {
+                          if (reason == SnackBarClosedReason.action) return;
+                          await _dao.purgePhotoFiles(deleted);
+                        }));
                       },
                       child: ListTile(
                         leading: Container(

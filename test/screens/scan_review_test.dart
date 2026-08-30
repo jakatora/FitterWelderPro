@@ -318,17 +318,25 @@ void main() {
     await tester.runAsync(() async {
       await tester.tap(_saveButton());
       await tester.pump();
-      // Give the insert chain room to finish before we go looking for it.
-      await Future<void>.delayed(const Duration(milliseconds: 500));
     });
     await _settle(tester);
 
+    // Odpytujemy baze, zamiast czekac stale 500 ms: przy uruchomieniu calej
+    // suity (wspoldzielona baza sqflite_ffi) lancuch insertow potrafi trwac
+    // dluzej i test stawal sie losowy.
     final saved = await tester.runAsync(() async {
-      final projects = await projectDao.listAll();
-      final mine = projects.where((p) => p.name == name).toList();
-      if (mine.isEmpty) return null;
-      final segments = await segmentDao.listForProject(mine.first.id);
-      return (project: mine.first, segments: segments);
+      for (var i = 0; i < 60; i++) {
+        final projects = await projectDao.listAll();
+        final mine = projects.where((p) => p.name == name).toList();
+        if (mine.isNotEmpty) {
+          final segments = await segmentDao.listForProject(mine.first.id);
+          if (segments.length == 2) {
+            return (project: mine.first, segments: segments);
+          }
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      return null;
     });
 
     expect(saved, isNotNull, reason: 'projekt nie został zapisany');
@@ -351,7 +359,14 @@ void main() {
     // Sprawdzamy OBECNOSC cut listy, bo to jest wlasciwy wynik; brak ekranu
     // przegladu docieramy dopiero po doliczeniu animacji przejscia — w trakcie
     // niej oba ekrany sa w drzewie i asercja "findsNothing" lapala poprzedni.
-    expect(find.text('CUT LIST'), findsOneWidget);
+    // Czekamy, az cut lista sie pojawi, zamiast zakladac stale opoznienie:
+    // pod obciazeniem calej suity (wspoldzielona baza sqflite_ffi) przejscie
+    // trwa dluzej niz przy uruchomieniu tego pliku osobno.
+    for (var i = 0; i < 40 && find.text('CUT LIST').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('CUT LIST'), findsOneWidget,
+        reason: 'monter mial wyladowac na cut liscie po zapisie');
     await _settle(tester);
     expect(find.text('Sprawdź skan'), findsNothing);
 

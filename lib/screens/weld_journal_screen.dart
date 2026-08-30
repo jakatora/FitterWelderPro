@@ -1,9 +1,11 @@
 // ignore_for_file: prefer_const_constructors
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
+import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../services/weld_journal_export.dart';
 import '../services/welder_identity.dart';
@@ -26,6 +28,52 @@ String _localizedNum(String raw) {
     return raw.replaceAll(',', '.');
   }
   return raw.replaceAll('.', ',');
+}
+
+// ── Ostatni projekt ────────────────────────────────────────────────────────
+
+/// SharedPreferences key holding the project last used in the journal.
+///
+/// A welder logs ~30 joints a shift, all on the same job, and "Projekt" opened
+/// as an empty TextField on every one of them. Retyping a name 30 times with a
+/// glove on is not just slow: one slip ("Blok 4" vs "Blok4") silently splits
+/// the status filter, the weld-number suggester — which matches entries on
+/// `projectName` — and the CSV/PDF export into two projects that no longer
+/// reconcile at an audit. Remembering the last name costs one string.
+const String kLastWeldProjectPrefsKey = 'weld_journal.last_project_v1';
+
+/// Reads the remembered project name, or `''` when there is none.
+///
+/// Never throws. A preferences store that cannot be read is a convenience
+/// lost, not a reason to keep a welder from logging a joint.
+Future<String> loadLastWeldProject() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(kLastWeldProjectPrefsKey)?.trim() ?? '';
+  } catch (e) {
+    debugPrint('[weld_journal] read last project failed: $e');
+    return '';
+  }
+}
+
+/// Remembers [name] as the project to pre-fill next time.
+///
+/// An empty name CLEARS the memory instead of storing a blank: a welder who
+/// deliberately saved a weld with no project is telling us the old one no
+/// longer applies, and pre-filling it again on the next entry would put a
+/// wrong project on a joint.
+Future<void> saveLastWeldProject(String name) async {
+  final trimmed = name.trim();
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (trimmed.isEmpty) {
+      await prefs.remove(kLastWeldProjectPrefsKey);
+    } else {
+      await prefs.setString(kLastWeldProjectPrefsKey, trimmed);
+    }
+  } catch (e) {
+    debugPrint('[weld_journal] persist last project failed: $e');
+  }
 }
 
 // ── Model spoiny ───────────────────────────────────────────────────────────
@@ -281,6 +329,28 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
 
   List<WeldEntry> get _filtered =>
       _filter == 'ALL' ? _entries : _entries.where((e) => e.status == _filter).toList();
+
+  /// Project names already present in the journal, de-duplicated and sorted.
+  ///
+  /// Feeds the editor's project picker alongside [ProjectDao]. Kept here
+  /// rather than queried again in the sheet because the journal is already in
+  /// memory, and because a name a welder typed himself is exactly the one the
+  /// cut-list side of the app does not know about.
+  ///
+  /// De-duplicated case-insensitively but stored in the casing first seen —
+  /// "blok 4" and "Blok 4" are the same job, and offering both would recreate
+  /// the split this picker exists to prevent.
+  List<String> get _journalProjects {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final e in _entries) {
+      final n = e.projectName.trim();
+      if (n.isEmpty || !seen.add(n.toLowerCase())) continue;
+      out.add(n);
+    }
+    out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return out;
+  }
 
   int get _nextNo {
     if (_entries.isEmpty) return 1;
@@ -593,6 +663,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         entry: existing,
         suggestedNo: suggestNextWeldNo(existing?.projectName),
         suggester: suggestNextWeldNo,
+        journalProjects: _journalProjects,
       ),
     );
     if (!mounted) return;
@@ -698,10 +769,16 @@ class _WeldEditor extends StatefulWidget {
   /// Called when the user taps the auto-number icon; returns a suggestion
   /// based on the current project name typed in the editor.
   final String Function(String? projectName) suggester;
+
+  /// Project names already used in the journal — one half of what the project
+  /// picker offers; the other half comes from [ProjectDao].
+  final List<String> journalProjects;
+
   const _WeldEditor({
     required this.entry,
     required this.suggestedNo,
     required this.suggester,
+    required this.journalProjects,
   });
   @override State<_WeldEditor> createState() => _WeldEditorState();
 }
@@ -733,12 +810,25 @@ class _WeldEditorState extends State<_WeldEditor> {
   bool _showBpe = false;
   bool _closing = false;
 
+  /// True while the weld number is still the app's own suggestion.
+  ///
+  /// The suggester keys off the project name, so picking a project has to be
+  /// able to re-run it ("W-007" → "SP-001-W006"). It must NOT do that once the
+  /// welder has typed his own number — hence the flag: any keystroke in the
+  /// number field hands ownership over and the picker stops rewriting it.
+  bool _autoNo = false;
+
   /// The form exactly as it was opened. Compared field by field, so a sheet
   /// nobody touched closes silently (a NEW entry already arrives pre-filled
-  /// with the suggested number, 316L, today's date and the owner's stamp —
-  /// prompting for that would train the welder to dismiss the dialog), while
-  /// one typed character arms the discard guard.
-  late final Map<String, String> _initial;
+  /// with the suggested number, 316L, today's date, the owner's stamp and —
+  /// since the project picker landed — the last project used; prompting for
+  /// that would train the welder to dismiss the dialog), while one typed
+  /// character arms the discard guard.
+  ///
+  /// Not `final`: the remembered project arrives from an async preferences
+  /// read AFTER initState has taken the first snapshot, and that pre-fill has
+  /// to be folded in — see [_restoreLastProject].
+  late Map<String, String> _initial;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
@@ -775,7 +865,63 @@ class _WeldEditorState extends State<_WeldEditor> {
     _showBpe = (e != null) && [
       e.fitter, e.heatNo1, e.heatNo2, e.couponRef, e.exam, e.wpsRef,
     ].any((s) => s.trim().isNotEmpty);
+    // Only a NEW entry carries an app-generated number; an existing weld's
+    // number is the welder's and must never be rewritten under him.
+    _autoNo = e == null;
     _initial = _snapshot();
+    if (e == null) _restoreLastProject();
+  }
+
+  /// Pre-fills the project on a NEW entry from the last one used.
+  ///
+  /// Runs after initState because SharedPreferences is async, which is why it
+  /// has to re-take [_initial]: the first snapshot was captured before this
+  /// value landed, so without the re-take an untouched sheet would read as
+  /// dirty and "Porzucić wpis?" would fire on every close. A value the APP
+  /// filled in is not work worth protecting — the same reasoning that already
+  /// covers the suggested number, 316L, today's date and the owner's stamp.
+  Future<void> _restoreLastProject() async {
+    final last = await loadLastWeldProject();
+    if (!mounted || last.isEmpty) return;
+    // Do not fight the welder: if he started typing while the preference was
+    // still loading, his text wins.
+    if (_projCtrl.text.trim().isNotEmpty) return;
+    setState(() {
+      _projCtrl.text = last;
+      if (_autoNo) _noCtrl.text = widget.suggester(last);
+      _initial = _snapshot();
+    });
+  }
+
+  /// Opens the project list and applies the pick.
+  ///
+  /// The field itself stays free text — a welder documenting a job that is not
+  /// in the app has to be able to type its name — so this only removes the
+  /// reason to retype one that already exists.
+  Future<void> _pickProject() async {
+    FocusScope.of(context).unfocus();
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _kCard,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _ProjectPickerSheet(
+        journalProjects: widget.journalProjects,
+        current: _projCtrl.text.trim(),
+      ),
+    );
+    if (picked == null) return;
+    if (!mounted) return;
+    setState(() {
+      _projCtrl.text = picked;
+      // Project-scoped numbering only makes sense while the number is still
+      // ours to change.
+      if (_autoNo) _noCtrl.text = widget.suggester(picked);
+    });
+    // Remembered now, not only on save: a welder who picks the project and
+    // then abandons the sheet has still told us which job he is on.
+    await saveLastWeldProject(picked);
   }
 
   /// Every user-editable value in one flat map — the dropdowns too, because
@@ -898,6 +1044,10 @@ class _WeldEditorState extends State<_WeldEditor> {
       } else {
         await _dao.update(e);
       }
+      // Remember the project for the next joint. Done here rather than only in
+      // the picker so a name typed by hand is remembered too — that is the
+      // case the picker cannot cover, and the one where retyping hurts most.
+      await saveLastWeldProject(e.projectName);
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (err) {
@@ -961,6 +1111,9 @@ class _WeldEditorState extends State<_WeldEditor> {
             // Numer spoiny
             TextField(
               controller: _noCtrl,
+              // Typing here takes the number away from the app: the project
+              // picker must not overwrite a number the welder chose himself.
+              onChanged: (_) => _autoNo = false,
               decoration: InputDecoration(
                 labelText: _tr('Numer spoiny', 'Weld number'),
                 hintText: 'W-001 lub SP-001-W005',
@@ -969,6 +1122,8 @@ class _WeldEditorState extends State<_WeldEditor> {
                   tooltip: _tr('Następny numer wg projektu', 'Next number for this project'),
                   onPressed: () => setState(() {
                     _noCtrl.text = widget.suggester(_projCtrl.text);
+                    // Asking for a suggestion hands the number back to the app.
+                    _autoNo = true;
                   }),
                 ),
               ),
@@ -977,11 +1132,27 @@ class _WeldEditorState extends State<_WeldEditor> {
             Row(children: [
               // Keyboard Next advances Project -> Pipe -> Material in one tap
               // so gloved fingers don't have to dismiss + re-tap each field.
+              // Projekt: free text WITH a picker, not one or the other.
+              //
+              // Thirty joints a shift, one job — and this was a bare TextField
+              // retyped by thumb every time. A single typo ("Blok 4"/"Blok4")
+              // forks the filter, the number suggester and the export into two
+              // projects nobody can reconcile at an audit. The list fixes the
+              // common path; the field stays typable because a welder is often
+              // documenting a job that exists only on the drawing.
               Expanded(child: TextField(
                 controller: _projCtrl,
                 textInputAction: TextInputAction.next,
                 onSubmitted: (_) => FocusScope.of(context).nextFocus(),
-                decoration: InputDecoration(labelText: _tr('Projekt', 'Project')),
+                decoration: InputDecoration(
+                  labelText: _tr('Projekt', 'Project'),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.folder_open_outlined, size: 18),
+                    tooltip: _tr('Wybierz projekt z listy',
+                        'Pick a project from the list'),
+                    onPressed: _saving ? null : _pickProject,
+                  ),
+                ),
               )),
               const SizedBox(width: 10),
               Expanded(child: TextField(
@@ -1163,6 +1334,244 @@ class _WeldEditorState extends State<_WeldEditor> {
           ],
         ),
       ),
+      ),
+    );
+  }
+}
+
+// ── Wybór projektu ──────────────────────────────────────────────────────────
+
+/// Bottom sheet offering the projects a weld can be filed under.
+///
+/// Two sources, merged and de-duplicated:
+///   * [ProjectDao] — projects created on the cut-list side of the app;
+///   * the names already used in this journal — a welder is often documenting
+///     a job that exists only on the drawing, and once he has typed it on the
+///     first joint the other twenty-nine should come from a list.
+///
+/// Returns the picked name through `Navigator.pop`, or `null` when dismissed.
+/// It never offers a "new project" action: creating a project belongs to the
+/// project screen, and typing a fresh name straight into the field behind this
+/// sheet already works.
+class _ProjectPickerSheet extends StatefulWidget {
+  final List<String> journalProjects;
+
+  /// Name currently in the field, so the list can show which one is in use.
+  final String current;
+
+  const _ProjectPickerSheet({
+    required this.journalProjects,
+    required this.current,
+  });
+
+  @override
+  State<_ProjectPickerSheet> createState() => _ProjectPickerSheetState();
+}
+
+class _ProjectPickerSheetState extends State<_ProjectPickerSheet> {
+  List<String> _appProjects = const [];
+  bool _loading = true;
+
+  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final projects = await ProjectDao().listAll();
+      if (!mounted) return;
+      setState(() {
+        _appProjects = projects
+            .map((p) => (p.name ?? '').trim())
+            .where((n) => n.isNotEmpty)
+            .toList();
+        _loading = false;
+      });
+    } catch (e) {
+      // Degrade, don't empty: the journal half of the list needs no database
+      // and is the half a welder reaches for most. A DAO failure here must not
+      // turn the picker into a dead sheet.
+      debugPrint('[weld_journal] project list failed: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  /// Merged list, de-duplicated case-insensitively and sorted by name.
+  ///
+  /// App projects are added first so they win a duplicate: when the same name
+  /// exists on both sides it is one job, and "project in the app" is the more
+  /// informative label of the two.
+  List<({String name, bool fromApp})> get _entries {
+    final seen = <String>{};
+    final out = <({String name, bool fromApp})>[];
+    for (final n in _appProjects) {
+      if (seen.add(n.toLowerCase())) out.add((name: n, fromApp: true));
+    }
+    for (final n in widget.journalProjects) {
+      if (seen.add(n.toLowerCase())) out.add((name: n, fromApp: false));
+    }
+    out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _entries;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            16, 12, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: _kBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              _tr('Wybierz projekt', 'Pick a project'),
+              style: const TextStyle(
+                  color: _kOrange,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _tr(
+                'Projekty z aplikacji i nazwy już użyte w dzienniku. Nazwę spoza '
+                'listy nadal wpiszesz ręcznie w polu "Projekt".',
+                'Projects from the app plus names already used in the journal. '
+                'A name that is not here can still be typed into the "Project" '
+                'field by hand.',
+              ),
+              style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(
+                    child: CircularProgressIndicator(color: _kOrange)),
+              )
+            else if (entries.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  _tr(
+                    'Brak projektów. Wpisz nazwę w polu "Projekt" — pojawi się '
+                    'tu przy następnej spoinie.',
+                    'No projects yet. Type a name into the "Project" field — it '
+                    'will show up here on the next weld.',
+                  ),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: _kMuted, fontSize: 13, height: 1.4),
+                ),
+              )
+            else
+              // Capped and scrollable: a foreman's phone can hold dozens of
+              // projects and the sheet must not grow past the screen.
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.5),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: entries.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                  itemBuilder: (_, i) {
+                    final it = entries[i];
+                    final selected = it.name.toLowerCase() ==
+                        widget.current.toLowerCase();
+                    return InkWell(
+                      onTap: () => Navigator.pop(context, it.name),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        // 48 dp minimum: gloved thumbs, and a mis-tap here
+                        // files the weld under the wrong job.
+                        constraints: const BoxConstraints(minHeight: 48),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? _kOrange.withValues(alpha: 0.12)
+                              : const Color(0xFF12141C),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: selected ? _kOrange : _kBorder,
+                              width: selected ? 1.5 : 1),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              it.fromApp
+                                  ? Icons.folder_outlined
+                                  : Icons.history,
+                              size: 18,
+                              color: selected ? _kOrange : _kMuted,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    it.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: selected
+                                          ? _kOrange
+                                          : const Color(0xFFE7ECF3),
+                                    ),
+                                  ),
+                                  Text(
+                                    it.fromApp
+                                        ? _tr('projekt w aplikacji',
+                                            'project in the app')
+                                        : _tr('użyty w dzienniku',
+                                            'used in the journal'),
+                                    style: const TextStyle(
+                                        fontSize: 10, color: _kMuted),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (selected)
+                              const Icon(Icons.check, size: 18, color: _kOrange),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              child: Text(_tr('Anuluj', 'Cancel'),
+                  style: const TextStyle(color: _kSec)),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 import '../data/pipe_schedules.dart';
+import '../database/hydrotest_dao.dart';
 import '../i18n/app_language.dart';
+import '../services/hydrotest_export.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
@@ -47,6 +50,44 @@ const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
 const _kMuted  = Color(0xFF5A6478);
 
+/// Converts a pressure typed in [unit] into bar — the app's base unit for
+/// pressure, in the calculator and in `hydrotest_dao.dart` alike.
+///
+/// Top-level and pure so there is exactly ONE implementation of the two
+/// conversion factors on this screen. The design-pressure field and the gauge
+/// readings on the save sheet both route through here; two hand-written copies
+/// of `v / 14.5038` is how a filed protocol ends up quoting a test pressure
+/// the crew never ran.
+///
+/// An unrecognised [unit] is read as bar rather than throwing: the value comes
+/// from a three-way toggle that cannot produce anything else, and a calculator
+/// that crashes mid-typing is worse than one that falls back to its default.
+double pressureToBar(double value, String unit) {
+  switch (unit) {
+    case 'MPa':
+      return value * kBarPerMpa; // 1 MPa = 10 bar
+    case 'psi':
+      return value / kPsiPerBar; // 1 bar ≈ 14.5038 psi
+    case 'bar':
+    default:
+      return value;
+  }
+}
+
+/// Inverse of [pressureToBar] — used to pre-fill a gauge field with a
+/// calculated value in whichever unit the crew is reading.
+double pressureFromBar(double bar, String unit) {
+  switch (unit) {
+    case 'MPa':
+      return bar / kBarPerMpa;
+    case 'psi':
+      return bar * kPsiPerBar;
+    case 'bar':
+    default:
+      return bar;
+  }
+}
+
 /// Hydrostatic-test calculator for a pipe run.
 /// Inputs the design pressure and pipe geometry, gives back:
 ///   • test pressure   = factor × design (1.5 per ASME B31.3 § 345.4.2)
@@ -75,19 +116,46 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   // 'bar' | 'MPa' | 'psi'
   String _designUnit = 'bar';
 
+  /// Register of saved tests. The calculator itself stays stateless; this is
+  /// the only thing on the screen that outlives a pop.
+  final _dao = HydrotestDao();
+  static const _uuid = Uuid();
+
+  /// How many tests are already filed — drives the register button's label.
+  int _registerCount = 0;
+
+  /// True while a PDF is rendering, so a double tap cannot start two share
+  /// sheets racing for the same temp file (same guard the weld journal uses).
+  bool _busy = false;
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
   // P2-05: konwersja wartości projektowej (w wybranej jednostce) → bar.
-  double? _designBarFromInput(double? v) {
-    if (v == null) return null;
-    switch (_designUnit) {
-      case 'MPa':
-        return v * 10.0; // 1 MPa = 10 bar
-      case 'psi':
-        return v / 14.5038; // 1 bar ≈ 14.5038 psi
-      case 'bar':
-      default:
-        return v;
+  // Delegates to the top-level [pressureToBar] so the save sheet's gauge
+  // fields and this field can never drift apart.
+  double? _designBarFromInput(double? v) =>
+      v == null ? null : pressureToBar(v, _designUnit);
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshRegisterCount();
+  }
+
+  /// Refreshes the filed-test counter.
+  ///
+  /// Failure is swallowed on purpose (logged, not surfaced): a welder opening
+  /// this screen wants the arithmetic, and a database that cannot be counted
+  /// must not put an error banner between him and the test pressure. The
+  /// failure becomes visible the moment he actually opens the register or
+  /// tries to save, where it can be acted on.
+  Future<void> _refreshRegisterCount() async {
+    try {
+      final n = await _dao.count();
+      if (!mounted) return;
+      setState(() => _registerCount = n);
+    } catch (e) {
+      debugPrint('[hydrotest] register count failed: $e');
     }
   }
 
@@ -557,9 +625,209 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             // P1-15: dolny baner BHP zdjęty — pasek bezpieczeństwa jest teraz
             // pinowany NAD wejściami (zawsze widoczny, nie tylko po wyliczeniu).
           ],
+
+          // ── Register ────────────────────────────────────────────────────
+          // The calculation used to die with the screen: the share button only
+          // copied a line of text to the clipboard, so a pressure test — an
+          // ACCEPTANCE step that ASME B31.3 § 345.2.7 wants a retained record
+          // of — left nothing behind. Filing it here is what turns this screen
+          // from a calculator into a document.
+          //
+          // Placed at the end of the list rather than in the AppBar because
+          // the bar already carries four actions; a fifth and sixth would push
+          // the title off a 360 dp phone.
+          const SizedBox(height: 22),
+          _SectionHeader(_tr('REJESTR PRÓB', 'TEST REGISTER')),
+          const SizedBox(height: 6),
+          Text(
+            _tr(
+              'Zapisana próba zostaje w telefonie: system/linia, data, manometr, '
+              'ciśnienie początkowe i końcowe, temperatura, czas wytrzymania, '
+              'wynik i świadek — z protokołem PDF do podpisu.',
+              'A saved test stays on the phone: system/line, date, gauge, start '
+              'and end pressure, temperature, hold time, result and witness — '
+              'with a PDF protocol to sign.',
+            ),
+            style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.35),
+          ),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+              child: FilledButton.icon(
+                // Saving needs a test pressure: a protocol whose central
+                // number is blank is not a protocol.
+                onPressed: (testPressure == null || _busy)
+                    ? null
+                    : () => _openSaveSheet(
+                          od: od,
+                          wall: wall,
+                          lengthM: lengthM,
+                          design: design,
+                          testPressure: testPressure,
+                          volL: volL,
+                        ),
+                icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
+                label: Text(_tr('Zapisz próbę', 'Save test')),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _kOrange,
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size(48, 48),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _openRegister,
+                icon: const Icon(Icons.fact_check_outlined,
+                    size: 18, color: _kBlue),
+                label: Text(
+                  _registerCount > 0
+                      ? _tr('Rejestr ($_registerCount)',
+                          'Register ($_registerCount)')
+                      : _tr('Rejestr', 'Register'),
+                  style: const TextStyle(color: _kBlue),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: _kBorder),
+                  minimumSize: const Size(48, 48),
+                ),
+              ),
+            ),
+          ]),
+          if (testPressure == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _tr('Podaj ciśnienie projektowe, żeby zapisać próbę.',
+                    'Enter the design pressure to save a test.'),
+                style: const TextStyle(color: _kMuted, fontSize: 11),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  /// Collects the witnessed half of the test and files it.
+  ///
+  /// The calculated values are passed in from `build` and stored as a snapshot
+  /// (see [HydrotestRecord]): a protocol reprinted next year must show the
+  /// numbers the crew worked to, not whatever the calculator would produce
+  /// today.
+  Future<void> _openSaveSheet({
+    required double? od,
+    required double? wall,
+    required double? lengthM,
+    required double? design,
+    required double? testPressure,
+    required double? volL,
+  }) async {
+    Haptic.tap();
+    final draft = await showModalBottomSheet<_HydrotestDraft>(
+      context: context,
+      backgroundColor: _kCard,
+      isScrollControlled: true,
+      // Same reasoning as the weld-journal editor: this sheet holds a dozen
+      // hand-typed fields witnessed at the manifold, and neither a stray tap
+      // on the scrim nor a gloved thumb brushing downwards may throw them
+      // away. The Cancel button and the system back gesture remain.
+      isDismissible: false,
+      enableDrag: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: _HydrotestSaveSheet(
+          initialUnit: _designUnit,
+          testPressureBar: testPressure,
+        ),
+      ),
+    );
+    if (draft == null) return;
+    // Separate line, not `draft == null || !mounted`: everything below reads
+    // the BuildContext, and a bare `if (!mounted) return;` is the form the
+    // analyzer recognises as the guard for it.
+    if (!mounted) return;
+
+    final record = HydrotestRecord(
+      id: _uuid.v4(),
+      systemName: draft.systemName,
+      date: draft.date,
+      gauge: draft.gauge,
+      pressureStartBar: draft.pressureStartBar,
+      pressureEndBar: draft.pressureEndBar,
+      temperatureC: draft.temperatureC,
+      holdMinutes: draft.holdMinutes,
+      result: draft.result,
+      witness: draft.witness,
+      odMm: od,
+      wallMm: wall,
+      // Metres on screen, MILLIMETRES in the database — every other length in
+      // the app is stored in mm and this one is not going to be the exception.
+      lineLengthMm: lengthM == null ? null : lengthM * 1000.0,
+      designBar: design,
+      factor: _factor,
+      testPressureBar: testPressure,
+      volumeL: volL,
+      notes: draft.notes,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    // Messenger AND every string are resolved BEFORE the write: all of them
+    // read the BuildContext, and after an await this State may be gone.
+    final messenger = ScaffoldMessenger.of(context);
+    final failedMsg =
+        _tr('Nie udało się zapisać próby.', 'Failed to save the test.');
+    final savedMsg =
+        _tr('Próba zapisana w rejestrze.', 'Test filed in the register.');
+    final pdfLabel = _tr('Protokół PDF', 'PDF protocol');
+    try {
+      await _dao.insert(record);
+    } catch (e) {
+      debugPrint('[hydrotest] save failed: $e');
+      messenger.showSnackBar(SnackBar(content: Text(failedMsg)));
+      return;
+    }
+    Haptic.saved();
+    debugPrint('[hydrotest] saved test ${record.id} → ${record.result}');
+    messenger.showSnackBar(SnackBar(
+      content: Text(savedMsg),
+      // The protocol is the point of saving, so it is one tap away from the
+      // confirmation rather than buried in the register list.
+      action: SnackBarAction(
+        label: pdfLabel,
+        onPressed: () => _sharePdf(record),
+      ),
+    ));
+    await _refreshRegisterCount();
+  }
+
+  Future<void> _sharePdf(HydrotestRecord record) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await shareHydrotestProtocol(context, record);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openRegister() async {
+    Haptic.tap();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _kCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _HydrotestRegisterSheet(dao: _dao),
+    );
+    if (!mounted) return;
+    // The sheet can delete rows, so the badge is re-read rather than guessed.
+    await _refreshRegisterCount();
   }
 
   Future<void> _copyReport({
@@ -1074,6 +1342,870 @@ class _PressureUnitToggle extends StatelessWidget {
           cell('bar', 'bar'),
           cell('MPa', 'MPa'),
           cell('psi', 'psi'),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REJESTR PRÓB — zapis, lista, protokół PDF.
+// Test register — filing, listing, PDF protocol.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Renders the protocol and hands it to the OS share sheet, reporting a
+/// failure instead of leaving a dead button.
+///
+/// Top-level because two places need it: the calculator screen (right after a
+/// save) and the register list. The messenger is captured BEFORE the await so
+/// the error path never reaches for a `BuildContext` across an async gap — the
+/// sheet it belongs to may well be gone by then.
+Future<void> shareHydrotestProtocol(
+  BuildContext context,
+  HydrotestRecord record,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final failed = context.tr(
+    pl: 'Nie udało się utworzyć protokołu PDF.',
+    en: 'Failed to create the PDF protocol.',
+  );
+  try {
+    await HydrotestExport.sharePdf(record: record);
+  } catch (e) {
+    debugPrint('[hydrotest] pdf export failed: $e');
+    messenger.showSnackBar(SnackBar(content: Text(failed)));
+  }
+}
+
+/// The witnessed half of a test, as collected by [_HydrotestSaveSheet].
+///
+/// Deliberately separate from [HydrotestRecord]: the sheet knows what happened
+/// at the manifold, the screen knows the calculation and the uuid. Handing a
+/// half-built record around would invite somebody to file one with the
+/// calculated fields left null.
+class _HydrotestDraft {
+  final String systemName;
+  final String date;
+  final String gauge;
+  final double? pressureStartBar;
+  final double? pressureEndBar;
+  final double? temperatureC;
+  final double? holdMinutes;
+  final String result;
+  final String witness;
+  final String notes;
+
+  const _HydrotestDraft({
+    required this.systemName,
+    required this.date,
+    required this.gauge,
+    required this.result,
+    this.pressureStartBar,
+    this.pressureEndBar,
+    this.temperatureC,
+    this.holdMinutes,
+    this.witness = '',
+    this.notes = '',
+  });
+}
+
+/// Bottom sheet that collects what was actually witnessed at the test.
+///
+/// Only two fields are mandatory — the system tag and the PASS/FAIL verdict.
+/// Everything else may be left blank on purpose: a crew without a thermometer
+/// must still be able to file a record, and the printed protocol names what is
+/// missing (see `hydrotestMissingNote`) instead of hiding the gap behind a
+/// zero.
+class _HydrotestSaveSheet extends StatefulWidget {
+  /// Pressure unit the calculator screen was set to — the gauge fields open in
+  /// the same unit so the welder does not switch context mid-test.
+  final String initialUnit;
+
+  /// Calculated test pressure in bar; pre-fills the "start pressure" field,
+  /// which is what the pump is brought up to.
+  final double? testPressureBar;
+
+  const _HydrotestSaveSheet({
+    required this.initialUnit,
+    required this.testPressureBar,
+  });
+
+  @override
+  State<_HydrotestSaveSheet> createState() => _HydrotestSaveSheetState();
+}
+
+class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
+  final _systemCtrl = TextEditingController();
+  final _gaugeCtrl = TextEditingController();
+  final _endCtrl = TextEditingController();
+  final _tempCtrl = TextEditingController();
+  // Pre-filled with the code minimum: 10 min is what the crew is aiming for,
+  // and typing over it is quicker than typing it from scratch.
+  final _holdCtrl = TextEditingController(text: '10');
+  final _witnessCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+  late final TextEditingController _dateCtrl;
+  late final TextEditingController _startCtrl;
+
+  late String _unit;
+
+  /// Null until the crew picks. There is deliberately NO default: the app
+  /// records a test, it does not sign one off, and a pre-selected PASS is
+  /// exactly the kind of default that gets tapped through.
+  String? _result;
+
+  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  @override
+  void initState() {
+    super.initState();
+    _unit = widget.initialUnit;
+    _dateCtrl = TextEditingController(text: _today());
+    final p = widget.testPressureBar;
+    _startCtrl = TextEditingController(
+      text: p == null ? '' : pressureFromBar(p, _unit).toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _systemCtrl, _gaugeCtrl, _endCtrl, _tempCtrl, _holdCtrl,
+      _witnessCtrl, _notesCtrl, _dateCtrl, _startCtrl,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  static String _today() {
+    final n = DateTime.now();
+    return '${n.year.toString().padLeft(4, '0')}-'
+        '${n.month.toString().padLeft(2, '0')}-'
+        '${n.day.toString().padLeft(2, '0')}';
+  }
+
+  double? _num(TextEditingController c) => c.text.trim().isEmpty
+      ? null
+      : double.tryParse(c.text.replaceAll(',', '.'));
+
+  /// A gauge reading converted to bar, the unit the register stores.
+  double? _bar(TextEditingController c) {
+    final v = _num(c);
+    return v == null ? null : pressureToBar(v, _unit);
+  }
+
+  double? get _dropBar {
+    final a = _bar(_startCtrl);
+    final b = _bar(_endCtrl);
+    if (a == null || b == null) return null;
+    return a - b;
+  }
+
+  bool get _canSave => _systemCtrl.text.trim().isNotEmpty && _result != null;
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(_dateCtrl.text.trim()) ?? now,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1),
+    );
+    if (picked == null) return;
+    setState(() {
+      _dateCtrl.text = '${picked.year.toString().padLeft(4, '0')}-'
+          '${picked.month.toString().padLeft(2, '0')}-'
+          '${picked.day.toString().padLeft(2, '0')}';
+    });
+  }
+
+  void _submit() {
+    if (!_canSave) return;
+    Haptic.tap();
+    Navigator.pop(
+      context,
+      _HydrotestDraft(
+        systemName: _systemCtrl.text.trim(),
+        date: _dateCtrl.text.trim(),
+        gauge: _gaugeCtrl.text.trim(),
+        pressureStartBar: _bar(_startCtrl),
+        pressureEndBar: _bar(_endCtrl),
+        temperatureC: _num(_tempCtrl),
+        holdMinutes: _num(_holdCtrl),
+        result: _result!,
+        witness: _witnessCtrl.text.trim(),
+        notes: _notesCtrl.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hold = _num(_holdCtrl);
+    final shortHold = hold != null && hold < kHydrotestMinHoldMinutes;
+    final drop = _dropBar;
+    final passWithDrop = _result == kHydrotestPass &&
+        drop != null &&
+        drop > kHydrotestDropEpsilonBar;
+    final startBar = _bar(_startCtrl);
+    final endBar = _bar(_endCtrl);
+
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 12,
+          bottom: 16 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: _kBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              _tr('Zapisz próbę do rejestru', 'File the test'),
+              style: const TextStyle(
+                  color: _kOrange,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _tr(
+                'Wpis trafia do rejestru w telefonie i można z niego wydrukować '
+                'protokół. Wynik PASS/FAIL ustala inżynier QC — aplikacja tylko '
+                'go zapisuje.',
+                'The entry goes into the register on this phone and can be '
+                'printed as a protocol. The PASS/FAIL verdict is the QC '
+                "engineer's — the app only records it.",
+              ),
+              style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.35),
+            ),
+            const SizedBox(height: 14),
+
+            _SectionHeader(_tr('IDENTYFIKACJA', 'IDENTIFICATION')),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _systemCtrl,
+              textInputAction: TextInputAction.next,
+              // Rebuild on every keystroke: the Save button is gated on this
+              // field being non-empty, so it has to react as it is typed.
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: _tr('System / linia *', 'System / line *'),
+                hintText: _tr('np. WFI-101', 'e.g. WFI-101'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _dateCtrl,
+              decoration: InputDecoration(
+                labelText: _tr('Data próby', 'Test date'),
+                hintText: 'YYYY-MM-DD',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                  tooltip: _tr('Wybierz datę', 'Pick date'),
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                  onPressed: _pickDate,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _gaugeCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                // ASME B31.3 § 345.5.1 wants a calibrated gauge; the protocol
+                // has to be able to name which one.
+                labelText: _tr(
+                    'Manometr (nr / kalibracja)', 'Gauge (no. / calibration)'),
+                hintText: _tr(
+                    'np. M-12 / kal. 2026-03', 'e.g. M-12 / cal. 2026-03'),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            _SectionHeader(_tr('PRZEBIEG PRÓBY', 'TEST RECORD')),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _NumField(
+                    ctrl: _startCtrl,
+                    label: _tr('Ciśnienie pocz. ($_unit)',
+                        'Start pressure ($_unit)'),
+                    onChanged: () => setState(() {}),
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _PressureUnitToggle(
+                  value: _unit,
+                  onChanged: (u) {
+                    if (u == _unit) return;
+                    Haptic.tap();
+                    // Same semantics as the calculator's toggle: the typed
+                    // NUMBER stays, its unit changes. Silently converting the
+                    // digits under a welder's thumb is worse than making him
+                    // read the "stored as … bar" line below.
+                    setState(() => _unit = u);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _NumField(
+              ctrl: _endCtrl,
+              label: _tr('Ciśnienie końcowe ($_unit)', 'End pressure ($_unit)'),
+              onChanged: () => setState(() {}),
+              textInputAction: TextInputAction.next,
+            ),
+            // Only shown for MPa/psi: in bar the field value and the stored
+            // value are the same number and the line would be noise.
+            if (_unit != 'bar' && startBar != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text(
+                  '${_tr('Zapis w rejestrze', 'Stored as')}: '
+                  '${startBar.toStringAsFixed(2)} bar'
+                  '${endBar == null ? '' : ' → ${endBar.toStringAsFixed(2)} bar'}',
+                  style: const TextStyle(color: _kMuted, fontSize: 11),
+                ),
+              ),
+            if (drop != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text(
+                  '${_tr('Spadek ciśnienia', 'Pressure drop')}: '
+                  '${drop.toStringAsFixed(2)} bar',
+                  style: TextStyle(
+                    color: drop > kHydrotestDropEpsilonBar ? _kRed : _kGreen,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: _NumField(
+                  ctrl: _tempCtrl,
+                  label: _tr('Temperatura (°C)', 'Temperature (°C)'),
+                  hint: '12',
+                  onChanged: () => setState(() {}),
+                  textInputAction: TextInputAction.next,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _NumField(
+                  ctrl: _holdCtrl,
+                  label: _tr('Czas wytrzymania (min)', 'Hold time (min)'),
+                  hint: '10',
+                  onChanged: () => setState(() {}),
+                  textInputAction: TextInputAction.next,
+                ),
+              ),
+            ]),
+            if (shortHold)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Czas wytrzymania krótszy niż 10 min (ASME B31.3 § 345.4.2). '
+                    'Zostanie to odnotowane na protokole.',
+                    'Hold time shorter than 10 min (ASME B31.3 § 345.4.2). '
+                    'It will be noted on the protocol.',
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 16),
+            _SectionHeader(_tr('WYNIK', 'RESULT')),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: _ResultChip(
+                  label: _tr('PASS — pozytywny', 'PASS'),
+                  color: _kGreen,
+                  selected: _result == kHydrotestPass,
+                  onTap: () => setState(() => _result = kHydrotestPass),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ResultChip(
+                  label: _tr('FAIL — negatywny', 'FAIL'),
+                  color: _kRed,
+                  selected: _result == kHydrotestFail,
+                  onTap: () => setState(() => _result = kHydrotestFail),
+                ),
+              ),
+            ]),
+            if (passWithDrop)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Wynik PASS mimo spadku ciśnienia — uzasadnij w uwagach '
+                    '(np. zmiana temperatury). Ostrzeżenie trafi na protokół.',
+                    'PASS despite a pressure drop — justify it in the notes '
+                    '(e.g. temperature change). The warning goes on the protocol.',
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _witnessCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: _tr('Świadek / inspektor', 'Witness / inspector'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _notesCtrl,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: _tr('Uwagi', 'Notes'),
+                hintText: _tr(
+                    'np. odpowietrzenie na najwyższym punkcie, korki 2×',
+                    'e.g. vented at high point, 2 blinds fitted'),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                  child: Text(_tr('Anuluj', 'Cancel'),
+                      style: const TextStyle(color: _kSec)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _canSave ? _submit : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _kOrange,
+                    minimumSize: const Size(48, 48),
+                  ),
+                  child: Text(_tr('Zapisz', 'Save'),
+                      style: const TextStyle(
+                          color: Colors.black, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ]),
+            if (!_canSave)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _tr('Wymagane: system/linia i wynik PASS/FAIL.',
+                      'Required: system/line and the PASS/FAIL result.'),
+                  style: const TextStyle(color: _kMuted, fontSize: 11),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Orange advisory strip used inside the save sheet. Not red: none of these
+/// conditions blocks the save — the crew may have a good reason, and the note
+/// is carried onto the protocol either way.
+class _SheetWarning extends StatelessWidget {
+  final String text;
+  const _SheetWarning({required this.text});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _kOrange.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _kOrange.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: _kOrange, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(text,
+                  style: const TextStyle(
+                      color: _kSec, fontSize: 11, height: 1.35)),
+            ),
+          ],
+        ),
+      );
+}
+
+/// PASS / FAIL selector. Deliberately a pair of large chips rather than a
+/// dropdown: gloved thumbs, and the verdict is the one field nobody may miss.
+class _ResultChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ResultChip({
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        if (!selected) Haptic.tap();
+        onTap();
+      },
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.14) : _kCard,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: selected ? color : _kBorder, width: selected ? 1.5 : 1),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: selected ? color : _kSec,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The filed tests, newest first, each with a one-tap PDF protocol.
+class _HydrotestRegisterSheet extends StatefulWidget {
+  final HydrotestDao dao;
+  const _HydrotestRegisterSheet({required this.dao});
+  @override
+  State<_HydrotestRegisterSheet> createState() =>
+      _HydrotestRegisterSheetState();
+}
+
+class _HydrotestRegisterSheetState extends State<_HydrotestRegisterSheet> {
+  List<HydrotestRecord> _rows = const [];
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+
+  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await widget.dao.listAll();
+      if (!mounted) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      // Reported INSIDE the sheet, not as a SnackBar: a snack behind a modal
+      // is a message the welder never sees, and this is the one place where a
+      // broken register has to be actionable (Retry).
+      debugPrint('[hydrotest] register load failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = _tr('Nie udało się wczytać rejestru.',
+            'Failed to load the register.');
+      });
+    }
+  }
+
+  Future<void> _share(HydrotestRecord r) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await shareHydrotestProtocol(context, r);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _delete(HydrotestRecord r) async {
+    final label = r.systemName.trim().isEmpty ? r.date : r.systemName.trim();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_tr('Usunąć próbę?', 'Delete test?')),
+        content: Text(_tr(
+          'Wpis "$label" zniknie z rejestru. Wydrukowane protokoły zostają.',
+          'The "$label" entry disappears from the register. Printed protocols stay.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_tr('Anuluj', 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: _kRed, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(_tr('Usuń', 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!mounted) return;
+    // Both resolved before the delete — see the same note in _openSaveSheet.
+    final messenger = ScaffoldMessenger.of(context);
+    final failedMsg =
+        _tr('Nie udało się usunąć próby.', 'Failed to delete the test.');
+    try {
+      await widget.dao.deleteById(r.id);
+    } catch (e) {
+      debugPrint('[hydrotest] register delete failed: $e');
+      messenger.showSnackBar(SnackBar(content: Text(failedMsg)));
+      return;
+    }
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.82,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: _kBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    _tr('Rejestr prób ciśnieniowych', 'Pressure test register'),
+                    style: const TextStyle(
+                        color: _kOrange,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: _kSec),
+                  tooltip: _tr('Zamknij', 'Close'),
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Expanded(child: _body()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _body() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: _kOrange));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 44, color: _kRed),
+            const SizedBox(height: 10),
+            Text(_error!, style: const TextStyle(color: _kSec, fontSize: 13)),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: _load,
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              child: Text(_tr('Ponów', 'Retry'),
+                  style: const TextStyle(color: _kBlue)),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_rows.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.fact_check_outlined, size: 52, color: _kMuted),
+            const SizedBox(height: 12),
+            Text(
+              _tr(
+                  'Brak zapisanych prób.\nPolicz próbę i naciśnij "Zapisz próbę".',
+                  'No tests filed yet.\nRun a calculation and tap "Save test".'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _kMuted, fontSize: 13, height: 1.4),
+            ),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      padding:
+          EdgeInsets.only(bottom: 8 + MediaQuery.viewPaddingOf(context).bottom),
+      itemCount: _rows.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) => _HydrotestRegisterTile(
+        record: _rows[i],
+        busy: _busy,
+        onShare: () => _share(_rows[i]),
+        onDelete: () => _delete(_rows[i]),
+      ),
+    );
+  }
+}
+
+/// One filed test. Shows the three things a foreman scans a register for:
+/// which line, when, and did it hold.
+class _HydrotestRegisterTile extends StatelessWidget {
+  final HydrotestRecord record;
+  final bool busy;
+  final VoidCallback onShare;
+  final VoidCallback onDelete;
+
+  const _HydrotestRegisterTile({
+    required this.record,
+    required this.busy,
+    required this.onShare,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String tr(String pl, String en) => context.tr(pl: pl, en: en);
+    final passed = record.passed;
+    final ink = passed ? _kGreen : _kRed;
+    final system = record.systemName.trim();
+    final details = <String>[
+      if (record.date.trim().isNotEmpty) record.date.trim(),
+      if (record.testPressureBar != null)
+        '${record.testPressureBar!.toStringAsFixed(1)} bar',
+      if (record.holdMinutes != null)
+        '${record.holdMinutes!.toStringAsFixed(0)} min',
+      if (record.volumeL != null) '${record.volumeL!.toStringAsFixed(0)} L',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF12141C),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ink.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: ink.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              passed ? Icons.check_circle_outline : Icons.cancel_outlined,
+              color: ink,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  system.isEmpty ? tr('(bez systemu)', '(no system)') : system,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFE7ECF3)),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  details.join('  ·  '),
+                  style: const TextStyle(fontSize: 11, color: _kMuted),
+                ),
+                // A short hold is the most common reason a filed test does not
+                // survive review, so it is flagged in the list too — not only
+                // on the printed protocol.
+                if (!record.meetsMinimumHold)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      tr('czas wytrzymania < 10 min', 'hold time < 10 min'),
+                      style: const TextStyle(fontSize: 10, color: _kOrange),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined,
+                size: 20, color: _kBlue),
+            tooltip: tr('Protokół PDF', 'PDF protocol'),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: busy ? null : onShare,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 20, color: _kMuted),
+            tooltip: tr('Usuń', 'Delete'),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: busy ? null : onDelete,
+          ),
         ],
       ),
     );
