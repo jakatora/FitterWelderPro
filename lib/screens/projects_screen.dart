@@ -21,6 +21,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   bool _loading = true;
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     final list = await _dao.listAll();
     if (!mounted) return;
@@ -235,7 +236,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => FitterScreen(projectId: p.id)),
-                        ).then((_) => _load()),
+                        ).then((_) {
+                          if (mounted) _load();
+                        }),
                       ),
                     );
                   },

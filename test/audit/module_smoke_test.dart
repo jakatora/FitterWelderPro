@@ -9,7 +9,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/l10n/app_localizations.dart';
 import 'package:cut_list_app/legal/legal_texts.dart';
+import 'package:cut_list_app/database/db.dart' as production_db;
 import 'package:cut_list_app/database/project_dao.dart';
+import 'package:cut_list_app/models/job_listing.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
 import 'package:cut_list_app/screens/bolt_torque_screen.dart';
@@ -65,6 +67,7 @@ import 'package:cut_list_app/screens/welder_menu_screen.dart';
 import 'package:cut_list_app/screens/welder_pipes_screen.dart';
 import 'package:cut_list_app/screens/welder_tanks_screen.dart';
 import 'package:cut_list_app/screens/welder_tools_screen.dart';
+import 'package:cut_list_app/services/chat_service.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
 import 'package:cut_list_app/modules/welder_pipe/ui/welder_pipe_param_edit_screen.dart';
@@ -212,33 +215,43 @@ Future<void> _settleStart(WidgetTester tester) async {
 
 void main() {
   final originalHttpOverrides = HttpOverrides.current;
+  late Directory smokeDirectory;
+  late String smokeDatabasePath;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     HttpOverrides.global = _OfflineHttpOverrides();
+    smokeDirectory = await Directory.systemTemp.createTemp('fwp-smoke-');
+    smokeDatabasePath =
+        '${smokeDirectory.path}${Platform.pathSeparator}cutlist-smoke.db';
+    await production_db.AppDatabase.configureForTesting(smokeDatabasePath);
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    try {
-      await ProjectDao().insert(Project(
-        id: _projectId,
-        name: 'Projekt audytu ekranów',
-        materialGroup: 'SS',
-        diameterMm: 114.3,
-        wallThicknessMm: 3.05,
-        currentDiameterMm: 114.3,
-        stockLengthMm: 6000,
-        sawKerfMm: 3,
-        gapMm: 0,
-        createdAt: now,
-        updatedAt: now,
-      ));
-    } catch (_) {
-      // A previous failed smoke run can leave this deterministic fixture.
-    }
+    await ProjectDao().insert(Project(
+      id: _projectId,
+      name: 'Projekt audytu ekranów',
+      materialGroup: 'SS',
+      diameterMm: 114.3,
+      wallThicknessMm: 3.05,
+      currentDiameterMm: 114.3,
+      stockLengthMm: 6000,
+      sawKerfMm: 3,
+      gapMm: 0,
+      createdAt: now,
+      updatedAt: now,
+    ));
+    final fixture = await ProjectDao().getById(_projectId);
+    expect(fixture?.name, 'Projekt audytu ekranów');
   });
 
-  tearDownAll(() {
+  tearDownAll(() async {
+    await production_db.AppDatabase.clearTestingConfiguration();
+    await deleteDatabase(smokeDatabasePath);
+    expect(await databaseExists(smokeDatabasePath), isFalse);
+    if (await smokeDirectory.exists()) {
+      await smokeDirectory.delete(recursive: true);
+    }
     HttpOverrides.global = originalHttpOverrides;
   });
 
@@ -251,13 +264,14 @@ void main() {
   });
 
   test('każdy wpis manifestu ma bezpieczną fabrykę ekranu', () {
-    expect(
-      {for (final entry in moduleManifest) entry.entryPoint},
-      {
-        for (final entry in moduleManifest)
-          buildAuditedScreen(entry.entryPoint).runtimeType.toString()
-      },
-    );
+    for (final entry in moduleManifest) {
+      final screen = buildAuditedScreen(entry.entryPoint);
+      expect(
+        screen.runtimeType.toString(),
+        entry.entryPoint,
+        reason: '${entry.entryPoint} ma wskazywać własny typ widżetu',
+      );
+    }
   });
 
   for (final entry in moduleManifest) {
@@ -292,34 +306,88 @@ void main() {
     expect(find.text('spawacz@example.com'), findsOneWidget);
     expect(find.text('haslo-123'), findsOneWidget);
     expect(find.text('inne-haslo'), findsOneWidget);
+    expect(
+      find.text('Uzupełnij pola i upewnij się, że hasła są takie same.'),
+      findsOneWidget,
+    );
     expect(find.byType(Scaffold), findsOneWidget);
   });
 
-  testWidgets('ekrany sieciowe pokazują akcję ponowienia w trybie offline',
+  testWidgets('Ponów naprawdę ponawia Chat i pokazuje wynik drugiej próby',
       (tester) async {
-    for (final (screen, retryLabel) in <(Widget, String)>[
-      (
-        ChatScreen(
-          loadRooms: () async =>
-              throw const SocketException('audit: czat offline'),
-        ),
-        'Spróbuj ponownie'
-      ),
-      (
-        JobsScreen(
-          loadListings: ({String? locationLike}) async =>
-              throw const SocketException('audit: ogłoszenia offline'),
-        ),
-        'Ponów'
-      ),
-    ]) {
-      await tester.pumpWidget(_testApp(screen));
-      await _settleStart(tester);
-      await tester.pump();
-      expect(find.text(retryLabel), findsWidgets);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 11));
-    }
+    var calls = 0;
+    await tester.pumpWidget(_testApp(ChatScreen(
+      loadRooms: () async {
+        calls++;
+        if (calls == 1) {
+          throw const SocketException('audit: czat offline');
+        }
+        return const [
+          ChatRoom(
+            id: 'audit-room',
+            namePl: 'Pokój po ponowieniu',
+            nameEn: 'Room after retry',
+            descPl: 'Połączenie wróciło',
+            descEn: 'Connection restored',
+          ),
+        ];
+      },
+    )));
+    await _settleStart(tester);
+    expect(calls, 1);
+    await tester.tap(find.text('Spróbuj ponownie'));
+    await _settleStart(tester);
+    expect(calls, 2);
+    expect(find.text('Pokój po ponowieniu'), findsOneWidget);
+  });
+
+  testWidgets('Ponów naprawdę ponawia Jobs i pokazuje wynik drugiej próby',
+      (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(_testApp(JobsScreen(
+      loadListings: ({String? locationLike}) async {
+        calls++;
+        if (calls == 1) {
+          throw const SocketException('audit: ogłoszenia offline');
+        }
+        return [
+          JobListing(
+            id: 'audit-job',
+            title: 'Oferta po ponowieniu',
+            company: 'Audit',
+            location: 'Warsztat',
+            description: 'Test retry',
+            requirementsCsv: 'TIG 141',
+            createdAt: DateTime(2026, 8, 30).millisecondsSinceEpoch,
+          ),
+        ];
+      },
+    )));
+    await _settleStart(tester);
+    expect(calls, 1);
+    await tester.tap(find.text('Ponów'));
+    await _settleStart(tester);
+    expect(calls, 2);
+    expect(find.text('Oferta po ponowieniu'), findsOneWidget);
+  });
+
+  testWidgets('ProjectsScreen nie aktualizuje stanu po zamknięciu podczas load',
+      (tester) async {
+    await tester.pumpWidget(_testApp(const ProjectsScreen()));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settleStart(tester);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('ProjectsScreen chroni _load przed pierwszym setState i callback', () {
+    final source = File('lib/screens/projects_screen.dart').readAsStringSync();
+    final loadStart = source.indexOf('Future<void> _load() async {');
+    final firstGuard = source.indexOf('if (!mounted) return;', loadStart);
+    final firstSetState =
+        source.indexOf('setState(() => _loading = true)', loadStart);
+    expect(firstGuard, inInclusiveRange(loadStart, firstSetState));
+    expect(source, contains('if (mounted) _load();'));
   });
 
   testWidgets('główne akcje formularzy mają etykiety semantyczne',
