@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/feature_flags.dart';
 import '../i18n/app_language.dart';
 import '../services/iso_parser.dart';
 import '../services/iso_scanner_ai.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/premium_gate.dart';
+import 'scan_review_screen.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -31,11 +35,78 @@ const _kMuted  = Color(0xFF5A6478);
 //     flange thickness, valve width…)
 //
 // CUT = ISO − Σ take-outs. Per-segment results and a grand total are shown
-// live; the whole cut list is one tap away from the clipboard.
+// live; the whole cut list is one tap away from the clipboard, and one tap
+// away from a real project (ScanReviewScreen → ProjectDao/SegmentDao).
+//
+// This is the ONLY screen in the app that needs a connection: the scan is a
+// Claude Vision call on the Railway backend. Everything else — calculators,
+// cut lists, journals — works with the phone in flight mode, so the screen
+// says so out loud instead of letting a failed scan read as a broken app.
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Per-install daily scan budget.
+///
+/// Every scan is a paid Vision call and the backend enforces no per-device
+/// limit of its own (see [kAiScannerEnabled]), so the count is kept here, in
+/// the fitter's own SharedPreferences, and shown to him before he spends it.
+/// Kept deliberately dumb: a day string plus a counter. It rolls over on the
+/// local calendar day, which is the "resets at midnight" the UI promises.
+class _ScanBudget {
+  static const String _kDayKey = 'iso_scan_day_v1';
+  static const String _kCountKey = 'iso_scan_count_v1';
+
+  static String _today() {
+    final now = DateTime.now();
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$m-$d';
+  }
+
+  /// Scans already spent today. A storage failure returns 0 — a fitter who
+  /// paid for Premium must not be locked out because SharedPreferences
+  /// hiccuped; the paywall is still in front of him.
+  static Future<int> usedToday() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_kDayKey) != _today()) return 0;
+      return prefs.getInt(_kCountKey) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<int> remainingToday() async =>
+      (kAiScanDailyLimitPerDevice - await usedToday()).clamp(0, 1 << 30);
+
+  /// Books one scan. Called when a request actually reached the model, i.e.
+  /// when the money was (or may have been) spent — never for a request that
+  /// died on the device or was refused before it got there.
+  static Future<void> record() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = _today();
+      final used = prefs.getString(_kDayKey) == today
+          ? (prefs.getInt(_kCountKey) ?? 0)
+          : 0;
+      await prefs.setString(_kDayKey, today);
+      await prefs.setInt(_kCountKey, used + 1);
+    } catch (_) {
+      // Losing one tick of the counter is not worth failing a scan the
+      // fitter already paid for.
+    }
+  }
+}
+
 class IsoScannerScreen extends StatefulWidget {
-  const IsoScannerScreen({super.key});
+  /// Scan result to start from.
+  ///
+  /// Production always leaves this null and gets its result from the network.
+  /// A widget test injects one so the path from a finished scan to the review
+  /// screen can be walked without spending a Vision call.
+  @visibleForTesting
+  final AiScanResult? initialScan;
+
+  const IsoScannerScreen({super.key, this.initialScan});
 
   @override
   State<IsoScannerScreen> createState() => _IsoScannerScreenState();
@@ -114,7 +185,24 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
   String? _aiStatus; // shown under the image during scan
   AiScanResult? _lastScan; // for title block strip, BOM and weld list views
 
+  /// Scans left in today's per-install budget. Null until the first read of
+  /// SharedPreferences comes back.
+  int? _scansLeft;
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  @override
+  void initState() {
+    super.initState();
+    _lastScan = widget.initialScan;
+    _refreshBudget();
+  }
+
+  Future<void> _refreshBudget() async {
+    final left = await _ScanBudget.remainingToday();
+    if (!mounted) return;
+    setState(() => _scansLeft = left);
+  }
 
   @override
   void dispose() {
@@ -215,6 +303,26 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     final path = _imagePath;
     if (path == null) return;
 
+    // Spend the daily budget before the request, not after: a scan the
+    // fitter cannot afford should never leave the phone.
+    final left = await _ScanBudget.remainingToday();
+    if (!mounted) return;
+    setState(() => _scansLeft = left);
+    if (left <= 0) {
+      await Haptic.error();
+      if (!mounted) return;
+      _toast(_tr(
+        'Dzienny limit skanów wyczerpany '
+            '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
+            'Odnowi się po północy — do tego czasu wpisz wymiary ręcznie.',
+        'Daily scan limit used up '
+            '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
+            'It resets after midnight — until then type the dimensions in '
+            'by hand.',
+      ));
+      return;
+    }
+
     setState(() {
       _aiBusy = true;
       _aiStatus = _tr('Wysyłam zdjęcie do AI…', 'Sending photo to AI…');
@@ -243,6 +351,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     try {
       // ~30-60s round trip on Sonnet. Don't block UI; user sees the spinner.
       final result = await scanIsoImage(path);
+
+      // The model ran, so the call was billed whatever the drawing turned
+      // out to be — book it against today's budget before anything else.
+      await _ScanBudget.record();
+      unawaited(_refreshBudget());
 
       if (!mounted) return;
 
@@ -337,27 +450,118 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         await _showAiReview(result);
       }
     } on IsoScannerAiException catch (e) {
-      if (!mounted) return;
-      await Haptic.error();
-      setState(() {
-        _aiBusy = false;
-        _aiStatus = null;
-      });
-      _toast(e.message);
+      // The request reached the server. Whether it reached the model depends
+      // on the status: a 5xx or a timeout can mean the scan was billed and
+      // the answer got lost, so those count against the budget; a refusal
+      // (400 / 429) never got that far and must not.
+      final status = e.statusCode ?? 0;
+      if (status >= 500) await _ScanBudget.record();
+      unawaited(_refreshBudget());
+      await _failScan(_serverErrorMessage(e));
+    } on TimeoutException {
+      // 150 s without an answer. Sonnet may well have run and been charged.
+      await _ScanBudget.record();
+      unawaited(_refreshBudget());
+      await _failScan(_tr(
+        'Serwer nie odpowiedział w czasie. Przy słabym zasięgu spróbuj '
+            'jeszcze raz albo zrób mniejsze zdjęcie.',
+        'The server did not answer in time. On a weak signal try again or '
+            'use a smaller photo.',
+      ));
+    } on SocketException {
+      await _failScan(_offlineMessage());
+    } on http.ClientException {
+      await _failScan(_offlineMessage());
     } catch (e) {
-      if (!mounted) return;
-      await Haptic.error();
-      setState(() {
-        _aiBusy = false;
-        _aiStatus = null;
-      });
-      _toast(_tr(
-        'Nie udało się połączyć z serwerem AI. Sprawdź internet.',
-        'Could not reach the AI server. Check your connection.',
+      await _failScan(_tr(
+        'Skan się nie udał: $e',
+        'The scan failed: $e',
       ));
     } finally {
       nudge30.cancel();
       nudge60.cancel();
+    }
+  }
+
+  /// Clears the busy state and explains what went wrong.
+  Future<void> _failScan(String message) async {
+    if (!mounted) return;
+    await Haptic.error();
+    if (!mounted) return;
+    setState(() {
+      _aiBusy = false;
+      _aiStatus = null;
+    });
+    _toast(message);
+  }
+
+  /// The one error the rest of this app never produces.
+  ///
+  /// Every other tool works in flight mode, so "no connection" has to be
+  /// said in full here — otherwise a fitter in a cellar reads a failed scan
+  /// as a broken app and stops trusting the numbers it does have.
+  String _offlineMessage() => _tr(
+        'Brak połączenia z internetem. Skan rysunku to jedyna funkcja, która '
+            'go wymaga — reszta aplikacji działa offline. Wpisz wymiary '
+            'ręcznie albo spróbuj w zasięgu.',
+        'No internet connection. Scanning a drawing is the only feature that '
+            'needs one — the rest of the app works offline. Type the '
+            'dimensions in by hand, or try again in coverage.',
+      );
+
+  /// Turns an HTTP failure into something a fitter can act on.
+  ///
+  /// The backend answers `{error: {code, message}}` for its own refusals, and
+  /// [scanIsoImage] already pulls that message out — but the shared rate
+  /// limiter in front of the route answers with a bare 429 and no JSON at
+  /// all, which used to surface as "Błąd serwera (429)". Each status now
+  /// says what it means and what to do next.
+  String _serverErrorMessage(IsoScannerAiException e) {
+    switch (e.statusCode) {
+      case 429:
+        // express-rate-limit: 120 requests / 60 s, shared by everyone on
+        // this IP. It is a per-minute window, not a daily quota — say so
+        // rather than inventing a renewal time we cannot know.
+        return _tr(
+          'Serwer chwilowo odrzuca żądania (limit zapytań). Odczekaj minutę '
+              'i spróbuj ponownie. Dziś zostało Ci '
+              '${_scansLeft ?? kAiScanDailyLimitPerDevice} '
+              'z $kAiScanDailyLimitPerDevice skanów.',
+          'The server is refusing requests for the moment (rate limit). Wait '
+              'a minute and try again. You have '
+              '${_scansLeft ?? kAiScanDailyLimitPerDevice} of '
+              '$kAiScanDailyLimitPerDevice scans left today.',
+        );
+      case 503:
+        return _tr(
+          'Skaner AI jest chwilowo wyłączony po stronie serwera. '
+              'Spróbuj później — wymiary możesz wpisać ręcznie.',
+          'The AI scanner is switched off on the server for now. Try later — '
+              'you can type the dimensions in by hand.',
+        );
+      case 413:
+        return _tr(
+          'Zdjęcie jest za duże dla serwera. Zrób je jeszcze raz w niższej '
+              'rozdzielczości albo przytnij do samego rysunku.',
+          'The photo is too large for the server. Retake it at a lower '
+              'resolution or crop it to the drawing.',
+        );
+      case 400:
+        return _tr(
+          'Serwer odrzucił zdjęcie: ${e.message}',
+          'The server rejected the photo: ${e.message}',
+        );
+      default:
+        final status = e.statusCode ?? 0;
+        if (status >= 500) {
+          return _tr(
+            'Błąd serwera skanera (${e.statusCode}). To nie Twoje zdjęcie — '
+                'spróbuj ponownie za chwilę.',
+            'Scanner server error (${e.statusCode}). It is not your photo — '
+                'try again in a moment.',
+          );
+        }
+        return e.message;
     }
   }
 
@@ -802,6 +1006,28 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
   int get _dimensionedCount =>
       _segments.where((s) => s.iso.text.trim().isNotEmpty).length;
 
+  /// Whether a scan result is on hand that the planner can work from.
+  bool get _canOpenReview {
+    final scan = _lastScan;
+    return !_aiBusy && scan != null && !scan.isError && scan.segments.isNotEmpty;
+  }
+
+  /// Hands the scan to the review screen, where it becomes a project.
+  void _openScanReview() {
+    final scan = _lastScan;
+    if (scan == null) return;
+    Haptic.tap();
+    final name = _projectName.text.trim();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ScanReviewScreen(
+          scan: scan,
+          suggestedName: name.isEmpty ? null : name,
+        ),
+      ),
+    );
+  }
+
   Future<void> _copySummary() async {
     final buf = StringBuffer();
     buf.writeln(_projectName.text.trim().isEmpty
@@ -854,6 +1080,63 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     );
   }
 
+  /// One line the fitter reads before he spends a scan: that this screen
+  /// needs a connection (nothing else in the app does), and how many scans
+  /// today's budget has left.
+  Widget _scanBudgetStrip() {
+    final left = _scansLeft;
+    final exhausted = left != null && left <= 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      color: _kCard,
+      child: Row(
+        children: [
+          Icon(
+            exhausted ? Icons.hourglass_bottom : Icons.wifi_tethering,
+            size: 14,
+            color: exhausted ? _kRed : _kBlue,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              exhausted
+                  ? _tr(
+                      'Limit skanów na dziś wyczerpany — odnowi się po '
+                          'północy. Wymiary wpiszesz ręcznie.',
+                      'Today\'s scan budget is used up — it resets after '
+                          'midnight. You can still type dimensions in.',
+                    )
+                  : _tr(
+                      'Skan wymaga internetu (reszta aplikacji działa '
+                          'offline).',
+                      'Scanning needs internet (the rest of the app works '
+                          'offline).',
+                    ),
+              style: TextStyle(
+                fontSize: 11.5,
+                color: exhausted ? _kRed : _kSec,
+                fontWeight: exhausted ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+          ),
+          if (left != null) ...[
+            const SizedBox(width: 8),
+            Text(
+              _tr('Skany dziś: $left/$kAiScanDailyLimitPerDevice',
+                  'Scans today: $left/$kAiScanDailyLimitPerDevice'),
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: exhausted ? _kRed : _kMuted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildScannerScaffold(BuildContext context) {
     return PopScope(
       canPop: !_isDirty,
@@ -881,6 +1164,15 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                 : const Icon(Icons.auto_awesome),
             tooltip: _tr('Analizuj AI', 'Analyse with AI'),
             onPressed: (_imagePath == null || _aiBusy) ? null : _runAiAnalysis,
+          ),
+          // The way out that ends in a cut list instead of a clipboard.
+          // Only live once a scan actually came back — a hand-typed segment
+          // list has no components for the planner to work from.
+          IconButton(
+            icon: const Icon(Icons.playlist_add_check_circle_outlined),
+            tooltip: _tr('Utwórz projekt z tego skanu',
+                'Create a project from this scan'),
+            onPressed: _canOpenReview ? _openScanReview : null,
           ),
           IconButton(
             icon: const Icon(Icons.copy_all_outlined),
@@ -965,6 +1257,9 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
               ),
             ),
           ),
+
+          // ── What the scan costs and what it needs ──────────────────────
+          _scanBudgetStrip(),
 
           // ── Title block strip from AI (line number, class, material…) ──
           if (_lastScan != null && _lastScan!.titleBlock.hasAnything)
@@ -1118,6 +1413,14 @@ class _PickEmpty extends StatelessWidget {
                 'Zoom dwoma palcami • przeciągaj jednym palcem',
                 'Pinch to zoom • drag with one finger'),
             style: const TextStyle(color: _kMuted, fontSize: 11),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            tr(
+                'Analiza AI wymaga internetu — reszta aplikacji działa offline.',
+                'AI analysis needs internet — the rest of the app works offline.'),
+            style: const TextStyle(color: _kBlue, fontSize: 11),
             textAlign: TextAlign.center,
           ),
         ],

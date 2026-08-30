@@ -20,6 +20,23 @@ class BackendConfig {
   static const String baseUrl =
       'https://fitter-welder-pro-backend-production.up.railway.app';
 
+  /// Skaner izometrii celuje w INNY backend niz reszta apki — i to jest swiadome.
+  ///
+  /// Stan na 2026-08-29, sprawdzony realnym zadaniem POST /api/fitter/scan-iso:
+  ///   • dedykowany backend (baseUrl powyzej): /health = 200, ale scan-iso = **500**,
+  ///   • wspoldzielony backend PrzetargAI: scan-iso = **200**, model claude-sonnet-5,
+  ///     poprawnie odczytal testowa izometrie (2 segmenty, kolano 90 LR, dwa kolnierze,
+  ///     DN100/SCH40/A312 316L) i sam policzyl wymiar zapisany jako "1500+250".
+  ///
+  /// Powod przeniesienia skanera na wlasny backend byl inny — „stale Anthropic model
+  /// alias" na wspoldzielonym — i wlasnie zostal usuniety (alias podniesiony do
+  /// claude-sonnet-5, tanszego i nowszego niz poprzedni claude-sonnet-4-6).
+  ///
+  /// Po naprawie dedykowanego backendu wystarczy usunac te stala i wrocic do baseUrl.
+  /// Nie ruszamy tu pozostalych tras (czat, platnosci) — one dzialaja na dedykowanym.
+  static const String scannerBaseUrl =
+      'https://backend-production-a43e3.up.railway.app';
+
   // ── Feature flags ────────────────────────────────────────────────────────
   /// Set to true once Stripe checkout webhook + /api/fitter/subscribe are
   /// live on Railway. Until then, PremiumScreen renders the "Coming soon"

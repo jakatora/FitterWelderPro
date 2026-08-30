@@ -12,6 +12,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:cut_list_app/app.dart';
+import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/screens/iso_scanner_screen.dart';
+import 'package:cut_list_app/services/iso_scanner_ai.dart';
+import 'package:cut_list_app/services/premium_service.dart';
 
 import 'test_prefs.dart';
 
@@ -89,7 +93,7 @@ void main() {
     await drainTimers(tester);
   });
 
-  testWidgets('ekran główny: czat jest, płatne i AI zniknęły całkowicie',
+  testWidgets('ekran główny: czat i skaner ISO są, płatne wciąż ukryte',
       (tester) async {
     await boot(tester, withProfile: true);
 
@@ -98,11 +102,14 @@ void main() {
     expect(find.byIcon(Icons.waves_outlined), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
+    // Skaner ISO jest włączony (kAiScannerEnabled = true), odkąd zdjęcie
+    // rysunku prowadzi do gotowej cut listy — kafel ma być widoczny.
+    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
+
     // Ukryte całkowicie — nie "Wkrótce", ma ich nie być:
     expect(find.text('PREMIUM'), findsNothing);
     expect(find.byIcon(Icons.workspace_premium), findsNothing);
     expect(find.byIcon(Icons.work_outline), findsNothing); // PRACA
-    expect(find.byIcon(Icons.document_scanner_outlined), findsNothing); // ISO
     // I żadnego napisu "WKRÓTCE" na kaflach.
     expect(find.text('WKRÓTCE'), findsNothing);
     expect(find.text('SOON'), findsNothing);
@@ -154,15 +161,16 @@ void main() {
     await drainTimers(tester);
   });
 
-  testWidgets('monter sprawdza wymiary kolan; skaner ISO jest ukryty w menu Fitter',
+  testWidgets('monter sprawdza wymiary kolan; skaner ISO stoi w menu Fitter',
       (tester) async {
     await boot(tester, withProfile: true);
 
     await tester.tap(find.byIcon(Icons.handyman_outlined)); // FITTER
     await settle(tester);
 
-    // Skaner ISO (płatne Claude Vision) ma być ukryty także tutaj.
-    expect(find.byIcon(Icons.document_scanner_outlined), findsNothing);
+    // Skaner ISO jest tu widoczny — to wejście do ścieżki
+    // „zdjęcie rysunku → przegląd → cut lista".
+    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
 
     // "Wymiary kolan" — tabela takeoutów.
     final elbows = find.byIcon(Icons.table_rows_outlined);
@@ -189,6 +197,93 @@ void main() {
     expect(find.text('64'), findsOneWidget);
     expect(find.text('76'), findsNothing);
     expect(find.textContaining('NaN'), findsNothing);
+    await drainTimers(tester);
+  });
+
+  testWidgets('skaner ISO bez Premium: monter trafia na bramkę, nie na skan',
+      (tester) async {
+    await boot(tester, withProfile: true);
+
+    await tester.tap(find.byIcon(Icons.handyman_outlined)); // FITTER
+    await settle(tester);
+
+    final scanner = find.byIcon(Icons.document_scanner_outlined);
+    await tester.ensureVisible(scanner);
+    await settle(tester);
+    await tester.tap(scanner);
+    await settle(tester);
+
+    // Każdy skan to płatne wywołanie Claude Vision, więc ekran stoi za
+    // PremiumGate(alwaysEnforced). Ikony zamiast napisów — asercja ma być
+    // niezależna od języka interfejsu.
+    expect(find.byIcon(Icons.lock_open_outlined), findsOneWidget);
+    await drainTimers(tester);
+  });
+
+  testWidgets('z wyniku skanu monter przechodzi do ekranu przeglądu',
+      (tester) async {
+    tester.view.physicalSize = const Size(1100, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    seedOnboardedUser();
+
+    // Skaner jest płatny; test odblokowuje Premium lokalnie i sprząta po sobie.
+    await PremiumService.instance.applyStatus(
+      const PremiumStatus(plan: PremiumPlan.lifetime),
+    );
+    addTearDown(() => PremiumService.instance.applyStatus(PremiumStatus.free()));
+
+    // Wynik skanu wstrzyknięty zamiast wywołania sieciowego — chodzi o drogę
+    // z gotowego odczytu do przeglądu, nie o samo rozpoznawanie rysunku.
+    final scan = AiScanResult(
+      sizeNotation: 'DN',
+      titleBlock: AiTitleBlock(
+        lineNumber: 'DN100-CWS-1234',
+        material: 'A312 TP304L',
+        schedule: '10S',
+      ),
+      segments: [
+        AiSegment(
+          id: 's1',
+          dimensionMm: 1500,
+          rawDimension: '1500',
+          toId: 'c1',
+          confidence: AiConfidence.high,
+        ),
+      ],
+      components: [
+        AiComponent(id: 'c1', type: 'elbow90', confidence: AiConfidence.high),
+      ],
+    );
+
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(home: IsoScannerScreen(initialScan: scan)),
+    ));
+    await settle(tester);
+
+    // Skan to jedyna funkcja w apce wymagająca sieci — ekran mówi to wprost.
+    expect(find.textContaining('wymaga internetu'), findsWidgets);
+
+    final toProject = find.byIcon(Icons.playlist_add_check_circle_outlined);
+    expect(toProject, findsOneWidget);
+    expect(
+      tester.widget<IconButton>(find.ancestor(
+        of: toProject,
+        matching: find.byType(IconButton),
+      )).onPressed,
+      isNotNull,
+      reason: 'po udanej analizie przycisk ma być aktywny',
+    );
+
+    await tester.tap(toProject);
+    await settle(tester);
+
+    // Ekran przeglądu: plan projektu z rysunku, z policzonym cięciem
+    // (1500 − 152 mm take-outu kolana DN100 LR).
+    expect(find.text('Sprawdź skan'), findsOneWidget);
+    expect(find.text('114.3'), findsOneWidget);
+    expect(find.textContaining('CUT 1348'), findsOneWidget);
     await drainTimers(tester);
   });
 }

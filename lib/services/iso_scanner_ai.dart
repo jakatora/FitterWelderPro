@@ -19,9 +19,13 @@ import '../config/backend_config.dart';
 import '../data/elbow_takeouts.dart';
 import 'premium_service.dart';
 
+// Skaner celuje w scannerBaseUrl, nie w baseUrl reszty apki: dedykowany backend
+// oddaje na /api/fitter/scan-iso HTTP 500, a wspoldzielony odpowiada poprawnie
+// (sprawdzone realnym zadaniem 2026-08-29 — patrz komentarz w BackendConfig).
+// Nadpisanie przez --dart-define=ISO_AI_BASE=... dziala jak dotad.
 const String kIsoAiBase = String.fromEnvironment(
   'ISO_AI_BASE',
-  defaultValue: BackendConfig.baseUrl,
+  defaultValue: BackendConfig.scannerBaseUrl,
 );
 
 // ─────────────────────────────────────────────────────────────────────────
