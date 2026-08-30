@@ -43,7 +43,9 @@ const int _kMinMessageChars = 2;
 const Duration _kBackgroundHeartbeat = Duration(seconds: 30);
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final Future<List<ChatRoom>> Function()? loadRooms;
+
+  const ChatScreen({super.key, this.loadRooms});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -66,7 +68,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _error = null;
     });
     try {
-      final rooms = await ChatService.instance.listRooms();
+      final rooms = await (widget.loadRooms?.call() ??
+          ChatService.instance.listRooms());
       if (!mounted) return;
       setState(() {
         _rooms = rooms;

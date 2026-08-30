@@ -25,7 +25,10 @@ const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = Color(0xFF5A6478);
 
 class JobsScreen extends StatefulWidget {
-  const JobsScreen({super.key});
+  final Future<List<JobListing>> Function({String? locationLike})?
+      loadListings;
+
+  const JobsScreen({super.key, this.loadListings});
 
   @override
   State<JobsScreen> createState() => _JobsScreenState();
@@ -60,11 +63,12 @@ class _JobsScreenState extends State<JobsScreen> {
       _error = null;
     });
     try {
-      final all = await JobsService.instance.listPublic(
-        locationLike: _filterCtrl.text.trim().isEmpty
-            ? null
-            : _filterCtrl.text.trim(),
-      );
+      final locationLike = _filterCtrl.text.trim().isEmpty
+          ? null
+          : _filterCtrl.text.trim();
+      final all = widget.loadListings == null
+          ? await JobsService.instance.listPublic(locationLike: locationLike)
+          : await widget.loadListings!(locationLike: locationLike);
       if (!mounted) return;
       setState(() {
         _listings = all;

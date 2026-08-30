@@ -23,6 +23,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final list = await _dao.listAll();
+    if (!mounted) return;
     setState(() {
       _projects = list;
       _loading = false;

@@ -61,7 +61,10 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.medium,
       status: AuditStatus.unverified,
       scenario:
-          'Zalogowany użytkownik otwiera rozmowę i widzi historię wiadomości.'),
+          'Zalogowany użytkownik otwiera rozmowę i widzi historię wiadomości.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: ChatScreen w wymuszonym trybie offline pokazuje Spróbuj ponownie',
+      ]),
   ModuleAuditEntry(
       id: 'component-library',
       entryPoint: 'ComponentLibraryScreen',
@@ -121,16 +124,22 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/fitter_menu_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.low,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera menu narzędzi montera.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera menu narzędzi montera.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: FitterMenuScreen renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'fitter',
       entryPoint: 'FitterScreen',
       sourcePath: 'lib/screens/fitter_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.low,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera główny ekran montera.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera główny ekran montera.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: FitterScreen renderuje z istniejącym projektem przy skali 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'fitter-tools',
       entryPoint: 'FitterToolsScreen',
@@ -232,15 +241,21 @@ const moduleManifest = <ModuleAuditEntry>[
       category: AuditCategory.social,
       risk: AuditRisk.medium,
       status: AuditStatus.unverified,
-      scenario: 'Użytkownik przegląda listę ofert pracy.'),
+      scenario: 'Użytkownik przegląda listę ofert pracy.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: JobsScreen w wymuszonym trybie offline pokazuje Ponów',
+      ]),
   ModuleAuditEntry(
       id: 'legal',
       entryPoint: 'LegalScreen',
       sourcePath: 'lib/screens/legal_screen.dart',
       category: AuditCategory.document,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera politykę prywatności w aplikacji.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera politykę prywatności w aplikacji.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: LegalScreen renderuje politykę prywatności przy skali 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'material-list',
       entryPoint: 'MaterialListScreen',
@@ -340,8 +355,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/premium_screen.dart',
       category: AuditCategory.account,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik widzi plan premium bez inicjowania płatności.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik widzi plan premium bez inicjowania płatności.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: PremiumScreen renderuje offline bez uruchomienia płatności',
+      ]),
   ModuleAuditEntry(
       id: 'profile',
       entryPoint: 'ProfileScreen',
@@ -502,24 +520,33 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/welder_menu_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.low,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera menu modułów spawacza.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera menu modułów spawacza.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: WelderMenuScreen renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'welder-pipes',
       entryPoint: 'WelderPipesScreen',
       sourcePath: 'lib/screens/welder_pipes_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera narzędzia spawalnicze dla rur.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera narzędzia spawalnicze dla rur.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: WelderPipesScreen renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'welder-tanks',
       entryPoint: 'WelderTanksScreen',
       sourcePath: 'lib/screens/welder_tanks_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera narzędzia spawalnicze dla zbiorników.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera narzędzia spawalnicze dla zbiorników.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: WelderTanksScreen renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'welder-tools',
       entryPoint: 'WelderToolsScreen',
@@ -577,8 +604,11 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/modules/welder_tandem/ui/tandem_menu_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.low,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera menu modułu tandemowego TIG.'),
+      status: AuditStatus.passed,
+      scenario: 'Użytkownik otwiera menu modułu tandemowego TIG.',
+      evidence: [
+        'test/audit/module_smoke_test.dart: TandemMenuScreen renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'tandem-my-params',
       entryPoint: 'TandemMyParamsScreen',
