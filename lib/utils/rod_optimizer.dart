@@ -10,7 +10,18 @@ class BarPlan {
   BarPlan({required this.stockLengthMm, required this.kerfMm}) : piecesMm = [];
 
   /// Number of cuts needed
-  int get cutsCount => piecesMm.isEmpty ? 0 : piecesMm.length - 1;
+  int get cutsCount => _cutsFor(
+        piecesCount: piecesMm.length,
+        piecesLength: piecesMm.fold<double>(0, (sum, piece) => sum + piece),
+      );
+
+  int _cutsFor({required int piecesCount, required double piecesLength}) {
+    if (piecesCount == 0) return 0;
+    final internalCuts = piecesCount - 1;
+    final lengthAtLastPiece = piecesLength + internalCuts * kerfMm;
+    final fullyConsumed = (stockLengthMm - lengthAtLastPiece).abs() < 1e-6;
+    return fullyConsumed ? internalCuts : piecesCount;
+  }
 
   /// Total length used (pieces + kerf losses)
   double get usedLength {
@@ -24,8 +35,13 @@ class BarPlan {
 
   /// Whether a piece fits on this bar
   bool canFit(double pieceMm) {
-    if (piecesMm.isEmpty) return pieceMm <= stockLengthMm;
-    return usedLength + kerfMm + pieceMm <= stockLengthMm;
+    final candidateLength =
+        piecesMm.fold<double>(pieceMm, (sum, piece) => sum + piece);
+    final candidateCuts = _cutsFor(
+      piecesCount: piecesMm.length + 1,
+      piecesLength: candidateLength,
+    );
+    return candidateLength + candidateCuts * kerfMm <= stockLengthMm;
   }
 
   /// Add a piece to this bar
@@ -176,7 +192,6 @@ class TrackedBarPlan extends BarPlan {
   bool addPiece(double pieceMm, {int? segmentId, int? runId}) {
     if (!canFit(pieceMm)) return false;
     if (piecesMm.isNotEmpty) {
-      piecesMm.add(kerfMm);
       pieceOrigins.add(BarPieceOrigin(type: OriginType.kerf));
     }
     piecesMm.add(pieceMm);

@@ -122,14 +122,50 @@ void main() {
         () {
       final result = RodOptimizer(stockLengthMm: 6000, kerfMm: 3)
           .calculateResult(const [3000, 2000, 900]);
+      final bar = result.bars.single;
 
       expect(
-        result.bars.expand((bar) => bar.piecesMm),
+        bar.piecesMm,
         unorderedEquals(const [3000.0, 2000.0, 900.0]),
       );
-      for (final bar in result.bars) {
-        expect(bar.remainingLength, greaterThanOrEqualTo(0));
-      }
+      expect(bar.cutsCount, 3);
+      expect(result.totalKerfLoss, 9);
+      expect(result.totalUsedLength, 5909);
+      expect(bar.remainingLength, 91);
+    });
+
+    test('rod optimizer keeps n-1 cuts for fully consumed stock', () {
+      final onePiece = BarPlan(stockLengthMm: 6000, kerfMm: 3)
+        ..addPiece(6000);
+      final threePieces = BarPlan(stockLengthMm: 6000, kerfMm: 0)
+        ..addPiece(2000)
+        ..addPiece(2000)
+        ..addPiece(2000);
+      final twoPiecesWithKerf = BarPlan(stockLengthMm: 6000, kerfMm: 3)
+        ..addPiece(2998.5)
+        ..addPiece(2998.5);
+
+      expect(onePiece.cutsCount, 0);
+      expect(onePiece.usedLength, 6000);
+      expect(onePiece.remainingLength, 0);
+      expect(threePieces.cutsCount, 2);
+      expect(threePieces.usedLength, 6000);
+      expect(threePieces.remainingLength, 0);
+      expect(twoPiecesWithKerf.cutsCount, 1);
+      expect(twoPiecesWithKerf.usedLength, 6000);
+      expect(twoPiecesWithKerf.remainingLength, 0);
+    });
+
+    test('tracked rod plan keeps kerf out of its piece list', () {
+      final plan = TrackedBarPlan(stockLengthMm: 6000, kerfMm: 3);
+
+      expect(plan.addPiece(3000, segmentId: 1), isTrue);
+      expect(plan.addPiece(2000, segmentId: 2), isTrue);
+      expect(plan.addPiece(900, segmentId: 3), isTrue);
+      expect(plan.piecesMm, const [3000.0, 2000.0, 900.0]);
+      expect(plan.cutsCount, 3);
+      expect(plan.usedLength, 5909);
+      expect(plan.remainingLength, 91);
     });
 
     testWidgets('hydrotest rejects pressure beyond the screen range',
