@@ -145,8 +145,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/heat_input_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.safetyCritical,
-      status: AuditStatus.unverified,
-      scenario: '12 V, 100 A, 100 mm/min, GTAW daje 0,432 kJ/mm.'),
+      status: AuditStatus.passed,
+      scenario:
+          '12 V, 100 A, 100 mm/min, GTAW wyświetla 0,43 kJ/mm; prędkość 0 lub ujemna jest odrzucana.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: GTAW 0,432 kJ/mm (0,43 w UI) oraz odrzucenie prędkości 0 i -1',
+      ]),
   ModuleAuditEntry(
       id: 'heat-photos',
       entryPoint: 'HeatPhotosScreen',
@@ -161,8 +165,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/heat_tint_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Kolor nalotu po spawaniu wskazuje zalecane czyszczenie.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Ekran oznacza wartości O2 jako orientacyjne, a specyfikację projektu lub WPS jako wiążące.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: heat tint jest oznaczony jako porada orientacyjna z wiążącym WPS',
+      ]),
   ModuleAuditEntry(
       id: 'help',
       entryPoint: 'HelpScreen',
@@ -186,9 +194,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/hydrotest_screen.dart',
       category: AuditCategory.fitter,
       risk: AuditRisk.safetyCritical,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'Instalacja o podanym ciśnieniu roboczym wylicza ciśnienie próby hydrostatycznej.'),
+          'Ciśnienie projektowe powyżej zakresu ekranu jest odrzucane bez wyniku ciśnienia testowego.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: 2001 bar pokazuje błąd zakresu i nie tworzy wyniku',
+      ]),
   ModuleAuditEntry(
       id: 'iso-notebook',
       entryPoint: 'IsoNotebookScreen',
@@ -268,17 +279,24 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/orbital_tig_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.safetyCritical,
-      status: AuditStatus.unverified,
-      scenario: 'Parametry orbitalnego TIG wyliczają czas i energię spoiny.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Estimator orbitalnego TIG zwraca cztery skończone dodatnie poziomy prądu.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: cztery skończone dodatnie poziomy prądu orbitalnego TIG',
+      ]),
   ModuleAuditEntry(
       id: 'passivation',
       entryPoint: 'PassivationScreen',
       sourcePath: 'lib/screens/passivation_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'Użytkownik dobiera proces pasywacji do materiału nierdzewnego.'),
+          'Ekran oznacza pasywację jako przewodnik procesowy, a kartę produktu i specyfikację projektu jako wiążące.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: passivation jest oznaczone jako przewodnik nienormatywny',
+      ]),
   ModuleAuditEntry(
       id: 'pipe-route-calculator',
       entryPoint: 'PipeRouteCalculatorScreen',
@@ -432,9 +450,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/tungsten_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'TIG AC dla aluminium wskazuje odpowiednią elektrodę wolframową.'),
+          'Dobór wolframu DC zwraca elektrodę pokrywającą każdy prąd od 15 do 400 A bez luk.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: pasma wolframu pokrywają 15-400 A co 0,5 A bez luk',
+      ]),
   ModuleAuditEntry(
       id: 'tutor',
       entryPoint: 'TutorScreen',
@@ -516,8 +537,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/modules/welder_tandem/ui/tandem_calculator_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.safetyCritical,
-      status: AuditStatus.unverified,
-      scenario: 'Parametry tandemowego TIG wyliczają wartości dla obu łuków.'),
+      status: AuditStatus.domainReview,
+      scenario:
+          'Asymetryczny zestaw zachowuje inside/outside; mapowanie tych pól na lead/trail wymaga potwierdzenia domenowego.',
+      evidence: [
+        'test/audit/welder_calculations_audit_test.dart: asymetryczne 83/137 A nie jest zamieniane',
+      ]),
   ModuleAuditEntry(
       id: 'tandem-library',
       entryPoint: 'TandemLibraryScreen',

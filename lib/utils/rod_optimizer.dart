@@ -31,10 +31,6 @@ class BarPlan {
   /// Add a piece to this bar
   bool addPiece(double pieceMm) {
     if (!canFit(pieceMm)) return false;
-    if (piecesMm.isNotEmpty) {
-      // Add kerf for the cut before this piece
-      piecesMm.add(kerfMm);
-    }
     piecesMm.add(pieceMm);
     return true;
   }
