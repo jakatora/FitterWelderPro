@@ -348,8 +348,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/profile_screen.dart',
       category: AuditCategory.account,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik otwiera i aktualizuje profil.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Istniejący user_profile_v1 odtwarza polskie imię i nazwisko bez utraty znaków.',
+      evidence: [
+        'test/audit/data_integrity_audit_test.dart: UserProfileService odczytuje istniejący user_profile_v1',
+      ]),
   ModuleAuditEntry(
       id: 'project-components',
       entryPoint: 'ProjectComponentsScreen',
@@ -364,8 +368,14 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/projects_screen.dart',
       category: AuditCategory.project,
       risk: AuditRisk.medium,
-      status: AuditStatus.unverified,
-      scenario: 'Użytkownik widzi listę zapisanych projektów.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Edycja projektu i segmentu przeżywa ponowne otwarcie, a usunięcie atomowo usuwa tylko jego dane zależne.',
+      evidence: [
+        'test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy',
+        'test/audit/data_integrity_audit_test.dart: usunięcie projektu atomowo usuwa tylko jego dane zależne',
+        'test/audit/data_integrity_audit_test.dart: błąd ograniczenia cofa niepełne usunięcie projektu',
+      ]),
   ModuleAuditEntry(
       id: 'quick-converter',
       entryPoint: 'QuickConverterScreen',
@@ -433,9 +443,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/segment_builder_screen.dart',
       category: AuditCategory.project,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
+      status: AuditStatus.passed,
       scenario:
-          'Użytkownik dodaje segment z długością i średnicą do projektu.'),
+          'Zapisany CUT 896 mm oraz poprawiona wartość ISO segmentu przeżywają ponowne otwarcie bazy.',
+      evidence: [
+        'test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy',
+      ]),
   ModuleAuditEntry(
       id: 'support-config',
       entryPoint: 'SupportConfigScreen',
@@ -470,8 +483,12 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/weld_journal_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Spawacz dodaje wpis do dziennika z procesem i parametrami.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Przekazany filtrowany zbiór NOK jest zgodny w CSV i podsumowaniu PDF.',
+      evidence: [
+        'test/audit/data_integrity_audit_test.dart: CSV i podsumowanie PDF dostają ten sam filtrowany zbiór NOK',
+      ]),
   ModuleAuditEntry(
       id: 'welder-identity-setup',
       entryPoint: 'WelderIdentitySetupScreen',
@@ -529,8 +546,12 @@ const moduleManifest = <ModuleAuditEntry>[
           'lib/modules/welder_pipe/ui/welder_pipe_params_list_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.unverified,
-      scenario: 'Spawacz przegląda lokalną listę zapisanych parametrów rur.'),
+      status: AuditStatus.passed,
+      scenario:
+          'Migracja v3-v5 zachowuje lokalny rekord parametrów rury i nie duplikuje danych startowych po ponownym otwarciu.',
+      evidence: [
+        'test/audit/data_integrity_audit_test.dart: migracja v3-v5 zachowuje rekord i jest stabilna po ponownym otwarciu',
+      ]),
   ModuleAuditEntry(
       id: 'tandem-calculator',
       entryPoint: 'TandemCalculatorScreen',

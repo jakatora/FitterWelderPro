@@ -27,15 +27,25 @@ class ProjectDao {
 
   Future<Project?> getById(String id) async {
     final db = await AppDatabase.get();
-    final rows = await db.query('projects', where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows =
+        await db.query('projects', where: 'id = ?', whereArgs: [id], limit: 1);
     if (rows.isEmpty) return null;
     return Project.fromRow(rows.first);
   }
 
-  /// Kasuje projekt (bez kaskady — usuń segmenty osobno przez SegmentDao).
+  /// Kasuje projekt i wszystkie dane należące do niego w jednej transakcji.
   Future<void> deleteById(String projectId) async {
     final db = await AppDatabase.get();
-    await db.delete('projects', where: 'id = ?', whereArgs: [projectId]);
+    await db.transaction((txn) async {
+      for (final table in ['segments', 'heat_photos', 'component_heats']) {
+        await txn.delete(
+          table,
+          where: 'project_id = ?',
+          whereArgs: [projectId],
+        );
+      }
+      await txn.delete('projects', where: 'id = ?', whereArgs: [projectId]);
+    });
   }
 
   Future<void> updateName(String projectId, String name) async {
@@ -48,7 +58,8 @@ class ProjectDao {
     );
   }
 
-  Future<void> updateCurrentDiameter(String projectId, double currentDiameter) async {
+  Future<void> updateCurrentDiameter(
+      String projectId, double currentDiameter) async {
     final db = await AppDatabase.get();
     await db.update(
       'projects',
