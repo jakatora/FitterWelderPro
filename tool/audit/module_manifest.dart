@@ -370,11 +370,13 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.medium,
       status: AuditStatus.passed,
       scenario:
-          'Edycja projektu i segmentu przeżywa ponowne otwarcie, a usunięcie atomowo usuwa tylko jego dane zależne.',
+          'Edycja przeżywa ponowne otwarcie, a usunięcie i Cofnij atomowo obejmują projekt, segmenty, zdjęcia i numery wytopów.',
       evidence: [
         'test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy',
         'test/audit/data_integrity_audit_test.dart: usunięcie projektu atomowo usuwa tylko jego dane zależne',
         'test/audit/data_integrity_audit_test.dart: błąd ograniczenia cofa niepełne usunięcie projektu',
+        'test/audit/data_integrity_audit_test.dart: snapshot Cofnij odtwarza projekt i wszystkie zależności',
+        'test/audit/data_integrity_audit_test.dart: ProjectsScreen deleguje usunięcie i Cofnij wyłącznie do atomowego API',
       ]),
   ModuleAuditEntry(
       id: 'quick-converter',
@@ -483,12 +485,9 @@ const moduleManifest = <ModuleAuditEntry>[
       sourcePath: 'lib/screens/weld_journal_screen.dart',
       category: AuditCategory.welder,
       risk: AuditRisk.high,
-      status: AuditStatus.passed,
+      status: AuditStatus.unverified,
       scenario:
-          'Przekazany filtrowany zbiór NOK jest zgodny w CSV i podsumowaniu PDF.',
-      evidence: [
-        'test/audit/data_integrity_audit_test.dart: CSV i podsumowanie PDF dostają ten sam filtrowany zbiór NOK',
-      ]),
+          'Aktywny filtr ekranu przekazuje dokładnie ten sam zbiór do integracji CSV i PDF.'),
   ModuleAuditEntry(
       id: 'welder-identity-setup',
       entryPoint: 'WelderIdentitySetupScreen',
@@ -548,9 +547,9 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.high,
       status: AuditStatus.passed,
       scenario:
-          'Migracja v3-v5 zachowuje lokalny rekord parametrów rury i nie duplikuje danych startowych po ponownym otwarciu.',
+          'Migracja v3-v5 zachowuje lokalny rekord parametrów rury, a restart produkcyjnej bazy nie duplikuje danych startowych.',
       evidence: [
-        'test/audit/data_integrity_audit_test.dart: migracja v3-v5 zachowuje rekord i jest stabilna po ponownym otwarciu',
+        'test/audit/data_integrity_audit_test.dart: migracja v3-v5 zachowuje rekord po restarcie produkcyjnej bazy',
       ]),
   ModuleAuditEntry(
       id: 'tandem-calculator',

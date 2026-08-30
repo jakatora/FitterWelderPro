@@ -1,6 +1,20 @@
 import '../database/db.dart';
 import '../models/project.dart';
 
+class ProjectDeletionSnapshot {
+  const ProjectDeletionSnapshot({
+    this.projectRows = const [],
+    this.segmentRows = const [],
+    this.heatPhotoRows = const [],
+    this.componentHeatRows = const [],
+  });
+
+  final List<Map<String, Object?>> projectRows;
+  final List<Map<String, Object?>> segmentRows;
+  final List<Map<String, Object?>> heatPhotoRows;
+  final List<Map<String, Object?>> componentHeatRows;
+}
+
 class ProjectDao {
   Future<void> insert(Project p) async {
     final db = await AppDatabase.get();
@@ -33,10 +47,37 @@ class ProjectDao {
     return Project.fromRow(rows.first);
   }
 
-  /// Kasuje projekt i wszystkie dane należące do niego w jednej transakcji.
-  Future<void> deleteById(String projectId) async {
+  /// Zapisuje komplet danych projektu i usuwa je w tej samej transakcji.
+  Future<ProjectDeletionSnapshot> deleteWithSnapshot(String projectId) async {
     final db = await AppDatabase.get();
-    await db.transaction((txn) async {
+    return db.transaction((txn) async {
+      List<Map<String, Object?>> copyRows(List<Map<String, Object?>> rows) =>
+          rows.map((row) => Map<String, Object?>.from(row)).toList();
+
+      final snapshot = ProjectDeletionSnapshot(
+        projectRows: copyRows(await txn.query(
+          'projects',
+          where: 'id = ?',
+          whereArgs: [projectId],
+          limit: 1,
+        )),
+        segmentRows: copyRows(await txn.query(
+          'segments',
+          where: 'project_id = ?',
+          whereArgs: [projectId],
+        )),
+        heatPhotoRows: copyRows(await txn.query(
+          'heat_photos',
+          where: 'project_id = ?',
+          whereArgs: [projectId],
+        )),
+        componentHeatRows: copyRows(await txn.query(
+          'component_heats',
+          where: 'project_id = ?',
+          whereArgs: [projectId],
+        )),
+      );
+
       for (final table in ['segments', 'heat_photos', 'component_heats']) {
         await txn.delete(
           table,
@@ -45,7 +86,31 @@ class ProjectDao {
         );
       }
       await txn.delete('projects', where: 'id = ?', whereArgs: [projectId]);
+      return snapshot;
     });
+  }
+
+  Future<void> restoreDeletion(ProjectDeletionSnapshot snapshot) async {
+    final db = await AppDatabase.get();
+    await db.transaction((txn) async {
+      for (final row in snapshot.projectRows) {
+        await txn.insert('projects', Map<String, Object?>.from(row));
+      }
+      for (final row in snapshot.segmentRows) {
+        await txn.insert('segments', Map<String, Object?>.from(row));
+      }
+      for (final row in snapshot.heatPhotoRows) {
+        await txn.insert('heat_photos', Map<String, Object?>.from(row));
+      }
+      for (final row in snapshot.componentHeatRows) {
+        await txn.insert('component_heats', Map<String, Object?>.from(row));
+      }
+    });
+  }
+
+  /// Kasuje projekt atomowo. Ekran z Cofnij używa [deleteWithSnapshot].
+  Future<void> deleteById(String projectId) async {
+    await deleteWithSnapshot(projectId);
   }
 
   Future<void> updateName(String projectId, String name) async {

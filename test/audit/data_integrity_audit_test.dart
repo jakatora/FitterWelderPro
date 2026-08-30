@@ -17,7 +17,6 @@ import 'package:cut_list_app/models/project.dart' as cut_model;
 import 'package:cut_list_app/models/weld_param.dart';
 import 'package:cut_list_app/services/cut_calculator.dart';
 import 'package:cut_list_app/services/user_profile.dart';
-import 'package:cut_list_app/services/weld_journal_export.dart';
 
 const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -60,6 +59,53 @@ Map<String, Object?> _segment({
       'created_at': 1000,
       'updated_at': 1000,
     };
+
+Future<void> _insertProjectGraph(String id) async {
+  final db = await cut_db.AppDatabase.get();
+  await ProjectDao().insert(_project(id, id));
+  await ProjectDao().updateName(id, id);
+  await SegmentDao().insert(_segment(
+    id: 'segment-$id',
+    projectId: id,
+    seqNo: 1,
+    cutMm: 896,
+  ));
+  await db.insert('heat_photos', {
+    'id': 'photo-$id',
+    'project_id': id,
+    'library_component_id': null,
+    'image_path': '/documents/$id.jpg',
+    'note': id,
+    'created_at': 1000,
+  });
+  await db.insert('component_heats', {
+    'id': 'heat-$id',
+    'project_id': id,
+    'component_key': 'pipe-60.3',
+    'heat_no': 'H-$id',
+    'image_path': null,
+    'note': id,
+    'created_at': 1000,
+  });
+}
+
+Future<Map<String, int>> _projectGraphCounts(String id) async {
+  final db = await cut_db.AppDatabase.get();
+  final result = <String, int>{};
+  for (final table in [
+    'projects',
+    'segments',
+    'heat_photos',
+    'component_heats'
+  ]) {
+    result[table] = Sqflite.firstIntValue(await db.rawQuery(
+          'SELECT COUNT(*) FROM $table WHERE ${table == 'projects' ? 'id' : 'project_id'} = ?',
+          [id],
+        )) ??
+        0;
+  }
+  return result;
+}
 
 Future<void> _createRepositoryV3(String path) async {
   final db = await databaseFactoryFfi.openDatabase(
@@ -147,7 +193,7 @@ void main() {
         .setMockMethodCallHandler(_pathProviderChannel, null);
   });
 
-  test('migracja v3-v5 zachowuje rekord i jest stabilna po ponownym otwarciu',
+  test('migracja v3-v5 zachowuje rekord po restarcie produkcyjnej bazy',
       () async {
     final db = await repository_db.AppDatabase.instance.db;
 
@@ -166,18 +212,16 @@ void main() {
     ));
     expect(firstSeedCount, greaterThan(0));
 
-    final reopened = await databaseFactoryFfi.openDatabase(
-      repositoryPath,
-      options: OpenDatabaseOptions(singleInstance: false),
-    );
-    addTearDown(reopened.close);
-    final reopenedSeedCount = Sqflite.firstIntValue(await reopened.rawQuery(
+    await db.close();
+    final restarted = await repository_db.AppDatabase.instance.db;
+    final restartedSeedCount = Sqflite.firstIntValue(await restarted.rawQuery(
       'SELECT COUNT(*) FROM tandem_amp_params WHERE approved = 1',
     ));
-    expect(reopenedSeedCount, firstSeedCount,
-        reason: 'ponowne otwarcie nie może duplikować danych migracyjnych');
+    expect(restartedSeedCount, firstSeedCount,
+        reason: 'restart przez produkcyjny AppDatabase nie może duplikować '
+            'danych migracyjnych');
     expect(
-      await reopened.query('welder_pipe_params',
+      await restarted.query('welder_pipe_params',
           where: 'signature = ?', whereArgs: ['legacy-signature']),
       hasLength(1),
     );
@@ -240,36 +284,16 @@ void main() {
   test('usunięcie projektu atomowo usuwa tylko jego dane zależne', () async {
     final db = await cut_db.AppDatabase.get();
     final projectDao = ProjectDao();
-    final segmentDao = SegmentDao();
 
     for (final id in ['delete-a', 'keep-b']) {
-      await projectDao.insert(_project(id, id));
-      await segmentDao.insert(_segment(
-        id: 'segment-$id',
-        projectId: id,
-        seqNo: 1,
-        cutMm: 896,
-      ));
-      await db.insert('heat_photos', {
-        'id': 'photo-$id',
-        'project_id': id,
-        'library_component_id': null,
-        'image_path': '/documents/$id.jpg',
-        'note': id,
-        'created_at': 1000,
-      });
-      await db.insert('component_heats', {
-        'id': 'heat-$id',
-        'project_id': id,
-        'component_key': 'pipe-60.3',
-        'heat_no': 'H-$id',
-        'image_path': null,
-        'note': id,
-        'created_at': 1000,
-      });
+      await _insertProjectGraph(id);
     }
 
-    await projectDao.deleteById('delete-a');
+    final snapshot = await projectDao.deleteWithSnapshot('delete-a');
+    expect(snapshot.projectRows, hasLength(1));
+    expect(snapshot.segmentRows, hasLength(1));
+    expect(snapshot.heatPhotoRows, hasLength(1));
+    expect(snapshot.componentHeatRows, hasLength(1));
 
     for (final table in [
       'projects',
@@ -293,14 +317,7 @@ void main() {
   test('błąd ograniczenia cofa niepełne usunięcie projektu', () async {
     final db = await cut_db.AppDatabase.get();
     final projectDao = ProjectDao();
-    final segmentDao = SegmentDao();
-    await projectDao.insert(_project('rollback-project', 'Rollback'));
-    await segmentDao.insert(_segment(
-      id: 'rollback-segment',
-      projectId: 'rollback-project',
-      seqNo: 1,
-      cutMm: 896,
-    ));
+    await _insertProjectGraph('rollback-project');
     await db.execute('''
 CREATE TRIGGER abort_rollback_project
 BEFORE DELETE ON projects
@@ -313,15 +330,54 @@ END;
         () => db.execute('DROP TRIGGER IF EXISTS abort_rollback_project'));
 
     await expectLater(
-      projectDao.deleteById('rollback-project'),
+      projectDao.deleteWithSnapshot('rollback-project'),
       throwsA(isA<DatabaseException>()),
     );
     expect(await projectDao.getById('rollback-project'), isNotNull);
     expect(
-      await segmentDao.listForProject('rollback-project'),
-      hasLength(1),
-      reason: 'skasowany wcześniej segment musi wrócić z rollbacku',
-    );
+        await _projectGraphCounts('rollback-project'),
+        {
+          'projects': 1,
+          'segments': 1,
+          'heat_photos': 1,
+          'component_heats': 1,
+        },
+        reason: 'rollback musi przywrócić każdy wcześniej usuwany zbiór');
+  });
+
+  test('snapshot Cofnij odtwarza projekt i wszystkie zależności', () async {
+    const id = 'undo-project';
+    final projectDao = ProjectDao();
+    await _insertProjectGraph(id);
+
+    final snapshot = await projectDao.deleteWithSnapshot(id);
+    expect(await _projectGraphCounts(id), {
+      'projects': 0,
+      'segments': 0,
+      'heat_photos': 0,
+      'component_heats': 0,
+    });
+
+    await projectDao.restoreDeletion(snapshot);
+
+    expect(await _projectGraphCounts(id), {
+      'projects': 1,
+      'segments': 1,
+      'heat_photos': 1,
+      'component_heats': 1,
+    });
+  });
+
+  test('ProjectsScreen deleguje usunięcie i Cofnij wyłącznie do atomowego API',
+      () {
+    final source = File('lib/screens/projects_screen.dart').readAsStringSync();
+
+    expect(source, contains('await _dao.deleteWithSnapshot(p.id)'));
+    expect(source, contains('await _dao.restoreDeletion(snapshot)'));
+    expect(source, isNot(contains('deleteAllForProject')));
+    expect(source, isNot(contains('_segDao')));
+    expect(source, contains('zdjęciami i numerami wytopów'));
+    expect(source, contains('użyć „Cofnij” przez 6 sekund'));
   });
 
   test('WeldParamDao zachowuje wszystkie pola parametru podczas edycji',
@@ -330,7 +386,7 @@ END;
     const original = WeldParam(
       id: 'audit-weld-param',
       method: 'TIG_WIRE',
-      baseMaterial: 'SS',
+      baseMaterial: 'CS',
       welderModel: 'Kemppi X5',
       diameterMm: 60.3,
       wallThicknessMm: 2.0,
@@ -405,33 +461,5 @@ END;
     expect(profile!.firstName, 'Łukasz');
     expect(profile.lastName, 'Żółć');
     expect(profile.fullName, 'Łukasz Żółć');
-  });
-
-  test('CSV i podsumowanie PDF dostają ten sam filtrowany zbiór NOK', () {
-    const nokA = WeldJournalRecord(
-      weldNo: 'W-NOK-1',
-      status: 'NOK',
-      welder: 'JK-14',
-      date: '2026-08-29',
-    );
-    const nokB = WeldJournalRecord(
-      weldNo: 'W-NOK-2',
-      status: 'NOK',
-      welder: 'JK-14',
-      date: '2026-08-30',
-    );
-    const filteredRecords = [nokA, nokB];
-
-    final csv = buildWeldJournalCsv(filteredRecords);
-    final pdfTally = weldJournalTally(filteredRecords);
-
-    expect(csv.contains('W-NOK-1'), isTrue);
-    expect(csv.contains('W-NOK-2'), isTrue);
-    expect(csv.contains('W-OK-OMITTED'), isFalse);
-    expect(pdfTally.total, 2);
-    expect(pdfTally.nok, 2);
-    expect(pdfTally.ok, 0);
-    expect(weldJournalDateRange(filteredRecords), '2026-08-29 - 2026-08-30');
-    expect(weldJournalWelders(filteredRecords), 'JK-14');
   });
 }
