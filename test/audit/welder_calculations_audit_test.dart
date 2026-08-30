@@ -156,6 +156,33 @@ void main() {
       expect(twoPiecesWithKerf.remainingLength, 0);
     });
 
+    test('rod optimizer rejects infeasible 5998 mm piece', () {
+      final optimizer = RodOptimizer(stockLengthMm: 6000, kerfMm: 3);
+
+      expect(
+        () => optimizer.optimize(const [5998]),
+        throwsA(isA<ArgumentError>()
+            .having((error) => error.invalidValue, 'invalidValue', 5998)),
+      );
+      expect(
+        () => optimizer.calculateResult(const [5998]),
+        throwsArgumentError,
+      );
+    });
+
+    test('rod optimizer rejects mixed input containing infeasible piece', () {
+      final optimizer = RodOptimizer(stockLengthMm: 6000, kerfMm: 3);
+      // The full stock piece is placed before the infeasible one after sorting.
+      const pieces = [6000.0, 5998.0, 900.0];
+
+      expect(
+        () => optimizer.optimize(pieces),
+        throwsA(isA<ArgumentError>()
+            .having((error) => error.invalidValue, 'invalidValue', 5998)),
+      );
+      expect(() => optimizer.calculateResult(pieces), throwsArgumentError);
+    });
+
     test('tracked rod plan keeps kerf out of its piece list', () {
       final plan = TrackedBarPlan(stockLengthMm: 6000, kerfMm: 3);
 

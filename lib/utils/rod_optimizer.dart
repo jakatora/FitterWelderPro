@@ -72,6 +72,7 @@ class RodOptimizer {
 
   /// Optimize a list of cut pieces using FFD algorithm
   /// Returns list of BarPlans with pieces nested
+  /// Throws [ArgumentError] if a piece cannot fit with the required kerf.
   List<BarPlan> optimize(List<double> piecesMm) {
     // Sort pieces in descending order (First-Fit Decreasing)
     final sortedPieces = List<double>.from(piecesMm)
@@ -93,7 +94,13 @@ class RodOptimizer {
       // If not placed, create a new bar
       if (!placed) {
         final newBar = BarPlan(stockLengthMm: stockLengthMm, kerfMm: kerfMm);
-        newBar.addPiece(piece);
+        if (!newBar.addPiece(piece)) {
+          throw ArgumentError.value(
+            piece,
+            'piecesMm',
+            'Piece cannot fit in stock with the required kerf',
+          );
+        }
         bars.add(newBar);
       }
     }
@@ -102,6 +109,7 @@ class RodOptimizer {
   }
 
   /// Calculate summary statistics for the optimization
+  /// Throws [ArgumentError] instead of returning a partially allocated result.
   OptimizationResult calculateResult(List<double> piecesMm) {
     final bars = optimize(piecesMm);
     final totalUsed = bars.fold<double>(0, (sum, bar) => sum + bar.usedLength);
