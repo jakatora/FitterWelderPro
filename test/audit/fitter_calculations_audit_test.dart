@@ -75,6 +75,10 @@ void main() {
       expect(UnitParser.parseToMm('1 1/2 in'), closeTo(38.1, 1e-9));
     });
 
+    test('ułamek cala z mianownikiem 0 jest odrzucany', () {
+      expect(UnitParser.parseToMm('1 1/0 in'), isNull);
+    });
+
     test('kolano 90° LR DN100 ma take-out 152 mm', () {
       final elbow = kElbowTakeouts.singleWhere((entry) => entry.dn == 100);
 
@@ -137,6 +141,12 @@ void main() {
         sawKerfMm: sawKerfMm,
       );
 
+      expect(plans, isNotEmpty);
+      expect(
+        plans.expand((plan) => plan.piecesMm),
+        unorderedEquals(const [2400.0, 1800.0, 1200.0, 900.0]),
+      );
+
       for (final plan in plans) {
         final piecesLength =
             plan.piecesMm.fold<double>(0, (sum, piece) => sum + piece);
@@ -153,6 +163,8 @@ void main() {
         angleDeg: 45,
       );
       final last = template.points.length - 1;
+
+      expect(template.points, hasLength(73));
 
       for (var i = 0; i < template.points.length; i++) {
         final depth = template.points[i].depthMm;
