@@ -73,6 +73,9 @@ replit_export/
 # Claude agent worktrees (tooling metadata)
 .claude/
 
+# Isolated implementation worktrees used by Codex/Superpowers.
+.worktrees/
+
 # Audit working files (raw — large, local-only). The prioritised
 # BACKLOG_*.md files ARE tracked since they're the audit deliverable.
 .audit/
