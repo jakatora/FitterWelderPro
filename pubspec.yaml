@@ -20,6 +20,11 @@ dependencies:
     sdk: flutter
   sqflite: ^2.3.0
   sqflite_common_ffi: ^2.3.3
+  # BEZ TEGO APLIKACJA NA WINDOWSIE NIE WSTAJE. `sqflite_common_ffi` sam nie dostarcza
+  # silnika — szuka `sqlite3.dll` obok pliku wykonywalnego i przy starcie wywala
+  # „Failed to load dynamic library 'sqlite3.dll'" (zmierzone 2026-08-31). Build przechodzi,
+  # więc usterki nie widać aż do pierwszego uruchomienia.
+  sqlite3_flutter_libs: ^0.5.24
   path: ^1.9.0
   path_provider: ^2.1.2
   uuid: ^4.3.3
