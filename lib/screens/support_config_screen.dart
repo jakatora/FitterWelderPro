@@ -75,27 +75,30 @@ class _CalcTabState extends State<_CalcTab> {
 
   @override
   Widget build(BuildContext context) {
-    final span = closestSpanByDn(_dn);
-    int spacingMm = _waterFilled ? span.waterMm : span.vaporMm;
     // Insulation reduces allowable spacing by 12 % (mid of 10–15 % rule).
-    if (_insulated) spacingMm = (spacingMm * 0.88).round();
-    final lengthM =
-        double.tryParse(_length.text.replaceAll(',', '.')) ?? 0;
+    final spacingMm = maxSupportSpacingMm(
+      _dn,
+      liquidFilled: _waterFilled,
+      insulated: _insulated,
+    );
+    final lengthText = _length.text;
+    final lengthMm = runLengthMm(lengthText);
     // Sanity cap: longest realistic straight pipe run is ~500 m. Larger values
     // almost always mean a unit slip (mm typed as m) — surface it, don't
     // silently emit a count of thousands of supports.
-    final lengthErr = _length.text.isEmpty
+    final lengthErr = lengthText.isEmpty
         ? null
-        : (lengthM <= 0
+        : ((lengthMm == null || lengthMm <= 0)
             ? _tr('Wpisz > 0', 'Enter > 0')
-            : (lengthM > 500
+            : (lengthMm > 500000
                 ? _tr('Maks. 500 m (sprawdź jednostki)',
                     'Max 500 m (check units)')
                 : null));
-    final lengthMm = lengthM * 1000;
-    final supportCount = (lengthMm > 0 && lengthErr == null)
-        ? (lengthMm / spacingMm).ceil() + 1
+    final supportCount = (lengthErr == null && lengthMm != null)
+        ? supportsOnRun(lengthMm, spacingMm)
         : null;
+    final spacingText = formatMmAsMetres(spacingMm);
+    final lengthShown = lengthMm == null ? '' : formatMmAsMetres(lengthMm);
 
     return ListView(
       padding: EdgeInsets.fromLTRB(
@@ -217,10 +220,7 @@ class _CalcTabState extends State<_CalcTab> {
               ),
               const SizedBox(height: 4),
               Text(
-                _tr(
-                  '≈ ${(spacingMm / 1000).toStringAsFixed(1)} m',
-                  '≈ ${(spacingMm / 1000).toStringAsFixed(1)} m',
-                ),
+                '$spacingText m',
                 style: const TextStyle(color: _kMuted, fontSize: 12),
               ),
               if (supportCount != null) ...[
@@ -233,7 +233,7 @@ class _CalcTabState extends State<_CalcTab> {
                     _CopyValue(
                       value: supportCount.toString(),
                       label: 'supports',
-                      suffix: ' szt.',
+                      suffix: _tr(' szt.', ' pcs'),
                       color: _kGreen,
                       big: true,
                     ),
@@ -242,10 +242,8 @@ class _CalcTabState extends State<_CalcTab> {
                 const SizedBox(height: 4),
                 Text(
                   _tr(
-                      '${lengthM.toStringAsFixed(1)} m ÷ '
-                          '${(spacingMm / 1000).toStringAsFixed(1)} m + 1 (pierwsza)',
-                      '${lengthM.toStringAsFixed(1)} m ÷ '
-                          '${(spacingMm / 1000).toStringAsFixed(1)} m + 1 (start)'),
+                      '⌈$lengthShown m ÷ $spacingText m⌉ + 1 (pierwsza)',
+                      '⌈$lengthShown m ÷ $spacingText m⌉ + 1 (start)'),
                   style: const TextStyle(color: _kMuted, fontSize: 11),
                 ),
               ],

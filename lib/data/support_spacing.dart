@@ -63,6 +63,49 @@ SupportSpan closestSpanByDn(int dn) {
   return best;
 }
 
+// ── Spacing calculator ───────────────────────────────────────────────────────
+
+/// Insulation ≥ 50 mm reduces allowable spacing by 12 % (mid of the
+/// 10–15 % rule listed in [kPlacementRules]).
+const double kInsulationSpacingFactor = 0.88;
+
+/// Max support spacing in whole millimetres for the closest tabulated DN.
+int maxSupportSpacingMm(
+  int dn, {
+  required bool liquidFilled,
+  required bool insulated,
+}) {
+  final span = closestSpanByDn(dn);
+  final base = liquidFilled ? span.waterMm : span.vaporMm;
+  return insulated ? (base * kInsulationSpacingFactor).round() : base;
+}
+
+/// Number of supports on a straight run: ⌈run ÷ spacing⌉ + 1 (the first one).
+/// Integer arithmetic only, so a run that is an exact multiple of the spacing
+/// never gains a phantom support from floating-point noise.
+/// Returns null for a non-positive run or spacing.
+int? supportsOnRun(int runMm, int spacingMm) {
+  if (runMm <= 0 || spacingMm <= 0) return null;
+  return (runMm + spacingMm - 1) ~/ spacingMm + 1;
+}
+
+/// Parses a run length typed in metres (comma or dot) into whole millimetres.
+/// Returns null when the text is not a number.
+int? runLengthMm(String text) {
+  final v = double.tryParse(text.trim().replaceAll(',', '.'));
+  if (v == null || !v.isFinite) return null;
+  return (v * 1000).round();
+}
+
+/// Millimetres shown as metres without hiding significant digits:
+/// 3000 → "3.0", 2640 → "2.64", 3784 → "3.784".
+String formatMmAsMetres(int mm) {
+  final m = mm / 1000;
+  if (mm % 100 == 0) return m.toStringAsFixed(1);
+  if (mm % 10 == 0) return m.toStringAsFixed(2);
+  return m.toStringAsFixed(3);
+}
+
 // ── Support types ────────────────────────────────────────────────────────────
 //
 // The mechanical role each type plays on a piping system. Pure reference;
