@@ -10,6 +10,7 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/bar_nesting.dart';
 import '../services/cut_list_csv.dart';
+import '../services/cut_list_summary.dart';
 import '../services/pdf_export_service.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
@@ -75,10 +76,11 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   Project? _project;
   List<Segment> _segments = [];
   Map<String, List<double>> _groups = {};
-  // Memoized per-group (sortedCuts, plans). Recomputed only in _load() so that
-  // build() and listView rebuilds (e.g. orientation, scroll-driven media query
-  // changes) don't re-run the nesting algorithm or re-sort the cuts list.
-  Map<String, _GroupPlan> _groupPlans = const {};
+  // Single nesting result shared by the global summary box and the group
+  // cards. Built with summarizeCutList — the same function the PDF export
+  // uses — so the screen and the PDF can never disagree on bars or waste.
+  // Recomputed only in _load() so rebuilds don't re-run the nesting.
+  CutListSummary? _summary;
   bool _loading = true;
   bool _exporting = false;
   // P1-44: load lifecycle hardening — guard against reentrancy, stale awaits
@@ -120,27 +122,20 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
         groups.putIfAbsent(key, () => []).add(s.cutMm);
       }
 
-      final plans = <String, _GroupPlan>{};
-      if (p != null) {
-        for (final e in groups.entries) {
-          final sorted = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
-          plans[e.key] = _GroupPlan(
-            sortedCuts: sorted,
-            plans: nestCutsToBars(
-              cutsMm: sorted,
+      final summary = p == null
+          ? null
+          : summarizeCutList(
+              segments: segs,
               stockLengthMm: p.stockLengthMm,
               sawKerfMm: p.sawKerfMm,
-            ),
-          );
-        }
-      }
+            );
 
       if (gen != _loadGen || !mounted) return;
       setState(() {
         _project    = p;
         _segments   = segs;
         _groups     = groups;
-        _groupPlans = plans;
+        _summary    = summary;
         _loading    = false;
         _loadError  = null;
       });
@@ -260,6 +255,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   @override
   Widget build(BuildContext context) {
     final p = _project;
+    final summary = _summary;
     // P1-28: gate every export action on having BOTH a non-empty cut plan and
     // not being mid-export. _exporting separately drives the spinner swap
     // below, but disabled state is shared so a queued-render second tap on
@@ -313,7 +309,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                     _ProjectHeader(project: p),
                     const SizedBox(height: 16),
 
-                    if (_groups.isEmpty)
+                    if (_groups.isEmpty || summary == null)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 48),
                         child: Center(
@@ -344,20 +340,17 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                       )
                     else ...[
                       // ── PODSUMOWANIE ZBIORCZE ─────────────────────────
-                      _GlobalSummary(groups: _groups, project: p),
+                      CutListGlobalSummary(summary: summary),
                       const SizedBox(height: 20),
 
                       // ── GRUPY RURY ────────────────────────────────────
-                      ..._groupPlans.entries.map((e) {
-                        final parts = e.key.split('|');
-                        final d = double.parse(parts[0]);
-                        final w = double.parse(parts[1]);
+                      ...summary.groups.map((g) {
                         return _PipeGroup(
-                          diameterMm: d,
-                          wallMm: w,
+                          diameterMm: g.diameterMm,
+                          wallMm: g.wallMm,
                           materialGroup: p.materialGroup,
-                          cuts: e.value.sortedCuts,
-                          plans: e.value.plans,
+                          cuts: g.cutsMm,
+                          plans: g.plans,
                           stockLengthMm: p.stockLengthMm,
                           sawKerfMm: p.sawKerfMm,
                         );
@@ -510,14 +503,6 @@ class _LoadErrorView extends StatelessWidget {
   }
 }
 
-// Cached per-group nesting result: sorted cuts (desc) + computed bar plans.
-// Built once in _load() so rebuilds don't re-sort or re-nest.
-class _GroupPlan {
-  final List<double> sortedCuts;
-  final List<BarPlan> plans;
-  const _GroupPlan({required this.sortedCuts, required this.plans});
-}
-
 // ── Nagłówek projektu ──────────────────────────────────────────────────────
 class _ProjectHeader extends StatelessWidget {
   final Project project;
@@ -569,33 +554,18 @@ class _ProjectHeader extends StatelessWidget {
 }
 
 // ── Podsumowanie zbiorcze ──────────────────────────────────────────────────
-class _GlobalSummary extends StatelessWidget {
-  final Map<String, List<double>> groups;
-  final Project project;
-  const _GlobalSummary({required this.groups, required this.project});
+/// Global totals box (bars, net pipe, waste). Reads everything from a
+/// [CutListSummary] — the same object the PDF header uses — so the numbers on
+/// screen always match the group cards below and the exported PDF.
+class CutListGlobalSummary extends StatelessWidget {
+  final CutListSummary summary;
+  const CutListGlobalSummary({super.key, required this.summary});
 
   @override
   Widget build(BuildContext context) {
-    int totalBars = 0;
-    double totalCutMm = 0;
-    double totalWasteMm = 0;
-
-    for (final e in groups.entries) {
-      final cuts = List<double>.from(e.value);
-      final plans = nestCutsToBars(
-        cutsMm: cuts,
-        stockLengthMm: project.stockLengthMm,
-        sawKerfMm: project.sawKerfMm,
-      );
-      totalBars += plans.length;
-      for (final b in plans) {
-        totalCutMm += b.piecesMm.fold(0, (s, v) => s + v);
-        totalWasteMm += b.remainingMm;
-      }
-    }
-
-    final totalMaterialMm = totalBars * project.stockLengthMm;
-    final wastePct = totalMaterialMm > 0 ? (totalWasteMm / totalMaterialMm * 100) : 0.0;
+    final totalBars = summary.totalBars;
+    final totalCutMm = summary.totalNetMm;
+    final wastePct = summary.wastePct;
     final wasteColor = wastePct < 10 ? _kGreen : (wastePct < 25 ? _kOrange : _kRed);
 
     return Container(
@@ -762,7 +732,7 @@ class _PipeGroup extends StatelessWidget {
             ),
             Text(
               // P1-38: pluralBars centralises the PL `1/2-4/5+` rule so the
-              // same `${n} szt.` shorthand here matches the `_GlobalSummary`
+              // same `${n} szt.` shorthand here matches the global summary
               // box; EN cleanly toggles bar/bars.
               pluralBars(plans.length, context),
               style: const TextStyle(fontSize: 12, color: _kOrange, fontWeight: FontWeight.w600),
