@@ -165,8 +165,9 @@ class FitterMenuScreen extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const IsoNotebookScreen()),
               ),
             ),
-            // Metered Claude Vision — hidden entirely while kAiScannerEnabled
-            // is false, so nobody triggers a per-scan bill.
+            // Metered Claude Vision behind an always-enforced Premium gate.
+            // The tile follows kAiScannerEnabled; without an active plan the
+            // screen shows the Premium gate instead of the camera.
             if (kAiScannerEnabled)
               _Tile(
                 icon: Icons.document_scanner_outlined,

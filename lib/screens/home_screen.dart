@@ -274,6 +274,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           MaterialPageRoute(
                               builder: (_) => const JobsScreen())),
                     ),
+                  // Skaner jest włączony (kAiScannerEnabled). Sam ekran stoi
+                  // za bramką Premium — bez aktywnego planu pokazuje bramkę.
                   if (kAiScannerEnabled)
                     _MenuCard(
                       icon: Icons.document_scanner_outlined,
