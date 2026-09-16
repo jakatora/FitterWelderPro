@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/bar_nesting.dart';
+import '../services/cut_list_summary.dart';
 
 // ─── Kolory PDF ────────────────────────────────────────────────────────────
 final _kAccent   = PdfColor.fromHex('#F5A623');
@@ -24,30 +25,12 @@ class PdfExportService {
   }) async {
     final doc = pw.Document();
 
-    // Grupuj wg średnicy + ścianki
-    final groups = <String, List<double>>{};
-    for (final s in segments) {
-      final key = '${s.diameterMm}|${s.wallThicknessMm}';
-      groups.putIfAbsent(key, () => []).add(s.cutMm);
-    }
-
-    // Oblicz podsumowanie
-    int totalBars = 0;
-    double totalNet = 0;
-    double totalWaste = 0;
-    final groupPlans = <String, List<BarPlan>>{};
-    for (final e in groups.entries) {
-      final cuts = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
-      final plans = nestCutsToBars(
-        cutsMm: cuts,
-        stockLengthMm: project.stockLengthMm,
-        sawKerfMm: project.sawKerfMm,
-      );
-      groupPlans[e.key] = plans;
-      totalBars  += plans.length;
-      totalNet   += cuts.fold(0.0, (s, v) => s + v);
-      totalWaste += plans.fold(0.0, (s, b) => s + b.remainingMm);
-    }
+    // Grupowanie wg średnicy + ścianki i sumy — wspólna, testowalna funkcja.
+    final summary = summarizeCutList(
+      segments: segments,
+      stockLengthMm: project.stockLengthMm,
+      sawKerfMm: project.sawKerfMm,
+    );
 
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -58,20 +41,21 @@ class PdfExportService {
         style: pw.TextStyle(fontSize: 8, color: _kMuted),
       ),
       build: (ctx) => [
-        _buildSummaryBlock(project, totalBars, totalNet, totalWaste, segments.length),
+        _buildSummaryBlock(
+          project,
+          summary.totalBars,
+          summary.totalNetMm,
+          summary.totalWasteMm,
+          summary.segmentCount,
+        ),
         pw.SizedBox(height: 20),
-        ...groupPlans.entries.map((e) {
-          final parts = e.key.split('|');
-          final d = double.parse(parts[0]);
-          final w = double.parse(parts[1]);
-          return _buildGroupBlock(
-            diameterMm: d,
-            wallMm: w,
-            cuts: groups[e.key]!,
-            plans: e.value,
-            project: project,
-          );
-        }),
+        ...summary.groups.map((g) => _buildGroupBlock(
+              diameterMm: g.diameterMm,
+              wallMm: g.wallMm,
+              cuts: g.cutsMm,
+              plans: g.plans,
+              project: project,
+            )),
         pw.SizedBox(height: 20),
         _buildSegmentTable(segments),
       ],
