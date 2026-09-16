@@ -241,6 +241,11 @@ class AiBomItem {
       );
 }
 
+/// A standalone "45" in a question / hint: not part of a longer number, so
+/// `DN450` or a component id like `E-145` never reads as a 45° elbow, while
+/// `45°`, `45 deg` and `elbow45` still do.
+final RegExp _fortyFiveRe = RegExp(r'(?<!\d)45(?!\d)');
+
 class AiNeedsInput {
   final String ask;
   final String? componentId;
@@ -299,9 +304,14 @@ class AiNeedsInput {
     return t.contains(' sr') || t.contains('short radius');
   }
 
+  /// Whether the question is about a 45° elbow.
+  ///
+  /// A plain substring check used to fire on `DN450` or `E-145` and suggest
+  /// the much smaller 45° take-out for a 90° elbow — the fitter would then
+  /// deduct too little and cut the pipe too long.
   bool get is45 {
     final t = '${hint ?? ''} $ask';
-    return t.contains('45');
+    return _fortyFiveRe.hasMatch(t);
   }
 
   /// Best-effort suggested take-out in millimetres for this missing input,
