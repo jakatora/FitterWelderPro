@@ -215,6 +215,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       final savedIds = prefs.getStringList('$_kDoneKeyPrefix$today');
       final savedMaterialKey = prefs.getString('$_kMaterialKeyPrefix$today');
       if (!mounted) return;
+      var droppedStale = false;
       setState(() {
         if (savedIds != null) {
           _done
@@ -224,7 +225,15 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         if (savedMaterialKey != null) {
           _material = MaterialCatalog.findByKey(savedMaterialKey);
         }
+        // A saved tick whose check is no longer on the list (renamed
+        // catalog key, material that failed to restore) must not count
+        // towards "all set" — that would false-affirm an unchecked item.
+        final validIds = _all.map((c) => c.id).toSet();
+        final before = _done.length;
+        _done.removeWhere((id) => !validIds.contains(id));
+        droppedStale = _done.length != before;
       });
+      if (droppedStale) _persist();
     } catch (_) {
       // Best-effort hydrate — leave the state in its default empty form
       // if SharedPreferences is unavailable / corrupted.
@@ -260,6 +269,12 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
     return list;
   }
 
+  /// Number of ticked items that are actually on the current list. Counting
+  /// `_done.length` directly would let a stale ID stand in for an unchecked
+  /// item and show "all set" too early.
+  int _doneCountIn(List<_Check> list) =>
+      list.where((c) => _done.contains(c.id)).length;
+
   void _toggle(_Check check) {
     setState(() {
       if (_done.contains(check.id)) {
@@ -269,7 +284,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         Haptic.tap();
       }
     });
-    if (_done.length == _all.length) Haptic.saved();
+    final list = _all;
+    if (_doneCountIn(list) == list.length) Haptic.saved();
     _persist();
   }
 
@@ -354,7 +370,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   Widget build(BuildContext context) {
     final isPl = context.language == AppLanguage.pl;
     final list = _all;
-    final all = _done.length == list.length;
+    final doneCount = _doneCountIn(list);
+    final all = list.isNotEmpty && doneCount == list.length;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
@@ -402,7 +419,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                         fontWeight: FontWeight.w600),
                   ),
                 ),
-                Text('${_done.length}/${list.length}',
+                Text('$doneCount/${list.length}',
                     style: TextStyle(
                         color: all ? _kGreen : _kOrange,
                         fontSize: 16,
