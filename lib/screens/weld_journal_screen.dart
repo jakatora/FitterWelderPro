@@ -182,6 +182,29 @@ class WeldEntry {
   );
 }
 
+// ── Filtr = eksport ─────────────────────────────────────────────────────────
+
+/// The entries the journal list shows for [filter] (`ALL` / `OK` / `NOK` /
+/// `PENDING`), in the order given.
+///
+/// This is the ONE place the status filter is decided. The list on screen and
+/// the CSV/PDF export both go through it, so "what I see" and "what the
+/// inspector gets" cannot drift apart. `ALL` returns a copy, never the
+/// caller's list, so the result can be handed around without aliasing the
+/// screen state.
+List<WeldEntry> filterWeldEntries(List<WeldEntry> entries, String filter) =>
+    filter == 'ALL'
+        ? List<WeldEntry>.of(entries)
+        : entries.where((e) => e.status == filter).toList();
+
+/// Rows handed to the exporter for [filter] — exactly [filterWeldEntries],
+/// mapped to export records, order preserved.
+List<WeldJournalRecord> weldJournalExportRecords(
+        List<WeldEntry> entries, String filter) =>
+    filterWeldEntries(entries, filter)
+        .map((e) => e.toExportRecord())
+        .toList();
+
 // ── DAO ─────────────────────────────────────────────────────────────────────
 class WeldJournalDao {
   static const _table = 'weld_journal';
@@ -276,9 +299,9 @@ class WeldJournalDao {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // EKRAN DZIENNIKA
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 class WeldJournalScreen extends StatefulWidget {
   const WeldJournalScreen({super.key});
   @override State<WeldJournalScreen> createState() => _WeldJournalScreenState();
@@ -327,8 +350,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     }
   }
 
-  List<WeldEntry> get _filtered =>
-      _filter == 'ALL' ? _entries : _entries.where((e) => e.status == _filter).toList();
+  List<WeldEntry> get _filtered => filterWeldEntries(_entries, _filter);
 
   /// Project names already present in the journal, de-duplicated and sorted.
   ///
@@ -580,9 +602,10 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// real request from QA, and WYSIWYG is the only rule a welder can verify
   /// on the spot. The filter is written into the file name and printed in
   /// the PDF header so a partial journal can never be mistaken for the whole
-  /// one.
+  /// one. Goes through [weldJournalExportRecords], the same selection the
+  /// list uses via [filterWeldEntries].
   List<WeldJournalRecord> _exportRecords() =>
-      _filtered.map((e) => e.toExportRecord()).toList();
+      weldJournalExportRecords(_entries, _filter);
 
   bool _hasSomethingToExport() {
     if (_filtered.isNotEmpty) return true;
