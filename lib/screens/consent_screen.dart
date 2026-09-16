@@ -25,6 +25,10 @@ class _ConsentScreenState extends State<ConsentScreen> {
   bool _saving = false;
 
   Future<void> _accept() async {
+    // Przycisk wyłącza się dopiero po przebudowie ekranu. Dwa szybkie
+    // stuknięcia przed kolejną klatką nie mogą zapisać zgody dwa razy ani
+    // dwa razy przełączyć bramy startowej.
+    if (_saving) return;
     if (!_checked) {
       Haptic.error();
       return;
