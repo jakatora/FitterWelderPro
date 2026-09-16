@@ -163,7 +163,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         .map((s) => s.sourceId)
         .toSet();
 
+    // The fitter's answer only fills a reference the planner could not
+    // derive. Where the two ends already decide it, a leftover answer must
+    // not override the derived one.
     _segments = base.segments.map((s) {
+      if (s.dimRef != null) return s;
       final choice = _refChoice[s.sourceId];
       return choice == null ? s : s.withDimRef(choice);
     }).toList(growable: false);
@@ -280,6 +284,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   ///
   /// [type] `null` means "open end" — the reference is cleared and the
   /// segment simply stops there.
+  ///
+  /// The fitter's earlier answer to "how was it measured" is dropped: it was
+  /// given for the component that sat on this end before, and a different
+  /// body (or none) makes it a different question.
   void _setEndComponent(
     PlannedSegment segment, {
     required bool isStart,
@@ -291,6 +299,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           .where((s) => s.id == segment.sourceId)
           .toList(growable: false);
       if (source.isEmpty) return;
+      _refChoice.remove(segment.sourceId);
       final existingId = isStart ? source.first.fromId : source.first.toId;
 
       String? targetId;
