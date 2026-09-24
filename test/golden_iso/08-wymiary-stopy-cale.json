@@ -1,0 +1,116 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "08-wymiary-stopy-cale",
+  "title": "Rysunek ASME: wymiary w stopach i calach, NPS 4",
+  "drawing": "Otwarty koniec → kolano E1 → kolano E2 → otwarty koniec; wymiary 4'-6\", 3'-0\", 2'-1 1/2\" — AI nie przeliczyło ich na mm. NPS 4 STD A106 Gr.B (CS), 150#. Kolano 90° LR NPS 4: A = 152 mm.",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ASME",
+      "sizeNotation": "NPS",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-4-P-1001",
+        "sheet": "1/1",
+        "revision": "0",
+        "lineNumber": "4\"-P-1001-CS",
+        "pipeClass": "150#",
+        "material": "A106 Gr.B",
+        "schedule": "STD",
+        "units": "in"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": null,
+          "rawDimension": "4'-6\"",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "dimensionMm": null,
+          "rawDimension": "3'-0\"",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "dimensionMm": null,
+          "rawDimension": "2'-1 1/2\"",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 20,
+          "description": "PIPE SMLS BE",
+          "material": "A106 Gr.B",
+          "size": "4\"",
+          "schedule": "STD"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "takeoutAssumedLongRadius"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1219.6,
+            "calc": "4'-6\" = 54 in = 1371.6 mm; 1371.6 − 152 = 1219.6"
+          },
+          {
+            "id": "s2",
+            "cutMm": 610.4,
+            "calc": "3'-0\" = 36 in = 914.4 mm; 914.4 − 152 − 152 = 610.4"
+          },
+          {
+            "id": "s3",
+            "cutMm": 495.7,
+            "calc": "2'-1 1/2\" = 25.5 in = 647.7 mm; 647.7 − 152 = 495.7"
+          }
+        ]
+      }
+    }
+  ]
+}

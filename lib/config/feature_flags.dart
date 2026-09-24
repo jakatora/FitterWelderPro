@@ -12,9 +12,9 @@
 //   • Job board (backend not deployed) → kJobsEnabled
 //
 // The one metered feature that IS live is the ISO scanner
-// (kAiScannerEnabled): every scan is a Claude Vision call, so read the note
-// on that flag before touching it — it says exactly which caps exist and
-// which do not.
+// (kAiScannerEnabled + kAiScannerFreeTier): every scan is a Claude Vision
+// call, free for the user within a daily limit. Read the note on
+// [kAiScannerEnabled] before touching it — it lists which caps exist where.
 //
 // IMPORTANT (audit P0): once kCommunityEnabled is true the app talks to the
 // Railway backend, so the store listing may NOT claim "works fully offline /
@@ -30,41 +30,59 @@ const bool kPaidFeaturesEnabled = false;
 /// be reviewed and saved as a real project with a cut list
 /// (`scan_review_screen.dart`) instead of ending in the clipboard.
 ///
-/// What actually caps the bill — read out of `backend/src`, not assumed:
-///   • `PremiumGate(alwaysEnforced: true)` on the scanner screen: only an
-///     active Premium subscription can reach the camera at all;
-///   • [kAiScanDailyLimitPerDevice]: a per-install daily budget that the
-///     scanner screen enforces and shows before every scan.
+/// Since 2026-09-25 it runs in a FREE tier ([kAiScannerFreeTier]) against the
+/// dedicated backend (`BackendConfig.scannerBaseUrl` == `baseUrl`). What caps
+/// the bill — read out of `backend/src` (version of 2026-09-24), not assumed:
+///   • server, per install: `AI_SCAN_DAILY_PER_DEVICE` scans per UTC day
+///     (default 10), keyed by `device_id` bound to the install secret on
+///     first use (TOFU, `X-Install-Secret`) — answers 429 `RATE_LIMITED`
+///     with `Retry-After`;
+///   • server, per IP: `AI_SCAN_DAILY_PER_IP` per UTC day (default 30) and
+///     `AI_SCAN_PER_IP_PER_MIN` per minute (default 6), both checked BEFORE
+///     the 10 MB body is read;
+///   • server, money: monthly `AI_BUDGET_SOFT_USD` / `AI_BUDGET_HARD_USD`
+///     gate in front of every Anthropic call — 503 `AI_BUDGET_EXCEEDED`;
+///   • server, optional: `AI_SCAN_REQUIRES_PREMIUM=true` turns the route into
+///     Premium-only (402 `PREMIUM_REQUIRED`); default false;
+///   • client: [kAiScanDailyLimitPerDevice], a per-install counter the
+///     scanner screen shows ("Pozostało dziś: N") and enforces before a
+///     photo leaves the phone. A safety fuse only — a reinstall resets it.
 ///
-/// What does NOT cap it: the backend. `/api/fitter/scan-iso` has no
-/// per-device daily limit and no budget gate. The only server-side control
-/// is the shared 120-requests-per-minute IP limiter in `app.js` (verified
-/// live: the route answers with `ratelimit-limit: 120`, `ratelimit-policy:
-/// 120;w=60`), and `AI_BUDGET_SOFT_USD` / `AI_BUDGET_HARD_USD` are declared
-/// in `config/env.js` and never read by anything. Until a real cap lands
-/// server-side, the two caps above are the only ones there are — and both
-/// live on a device the user controls.
+/// The OLD deployment of the dedicated backend (before 2026-09-24) answers
+/// `/scan-iso` with 500 and has none of the server caps above; the client
+/// then shows a plain "scanner not available yet" message
+/// (`iso_scanner_ai.dart`). The scanner must not be advertised before the
+/// owner deploys the new backend and a real scan returns 200.
 ///
-/// The menu tiles (home screen, FITTER menu) follow [kAiScannerReachable],
-/// not this flag: while Premium cannot be bought the tile would lead only to
-/// a gate with no way through, so it stays hidden
-/// (`test/welder_journey_test.dart` pins that behaviour).
+/// The menu tiles (home screen, FITTER menu) follow [kAiScannerReachable]
+/// (`test/welder_journey_test.dart`, `test/config/scanner_flags_test.dart`).
 const bool kAiScannerEnabled = true;
 
-/// Whether a user can actually unlock the ISO scanner by buying Premium.
+/// Free tier of the ISO scanner: no Premium needed, daily limits instead
+/// (server `AI_SCAN_DAILY_PER_DEVICE` + [kAiScanDailyLimitPerDevice]).
 ///
-/// The scanner screen sits behind `PremiumGate(alwaysEnforced: true)`, and
-/// Premium cannot be bought while [kPaidFeaturesEnabled] is false. The menu
-/// tiles follow this constant, so the scanner is never offered as a dead end.
-const bool kAiScannerReachable = kAiScannerEnabled && kPaidFeaturesEnabled;
+/// With this on the scanner screen is NOT wrapped in a Premium gate. Before
+/// the first scan the user is told where the photo goes (our server +
+/// Anthropic) and asked to agree (`widgets/scan_consent_gate.dart`).
+/// Switch off to put the scanner back behind `PremiumGate(alwaysEnforced)`
+/// — then it is reachable only once Premium can be bought.
+const bool kAiScannerFreeTier = true;
+
+/// Whether the ISO scanner leads somewhere usable: either the free tier is
+/// on, or Premium can actually be bought. The menu tiles follow this
+/// constant, so the scanner is never offered as a dead end or a price screen.
+const bool kAiScannerReachable =
+    kAiScannerEnabled && (kPaidFeaturesEnabled || kAiScannerFreeTier);
 
 /// Scans one install may run per calendar day before the scanner refuses.
 ///
-/// A fitter works through a handful of drawings a day, so this sits far above
-/// normal use and far below a runaway loop. It is a client-side budget — a
-/// reinstall resets it — so it protects against an accident (a stuck retry, a
-/// curious afternoon), not against abuse. Abuse still needs a server-side cap.
-const int kAiScanDailyLimitPerDevice = 25;
+/// Equal to the backend default `AI_SCAN_DAILY_PER_DEVICE` (10), so the
+/// "Pozostało dziś: N" the screen shows matches what the server allows. If
+/// the owner raises the server limit, raise this too — otherwise the phone
+/// stops first. It is a client-side fuse — a reinstall resets it — so it
+/// protects against an accident (a stuck retry, a curious afternoon); the
+/// server caps are what stop abuse.
+const int kAiScanDailyLimitPerDevice = 10;
 
 /// Job board. The backend route exists but `jobsBackendLive` is false, so the
 /// listings would be device-local only. Hidden while false.

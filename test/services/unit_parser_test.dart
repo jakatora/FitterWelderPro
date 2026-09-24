@@ -54,6 +54,26 @@ void main() {
     test("just feet 5'", () {
       expect(UnitParser.parseToMm('5\''), closeTo(1524.0, 0.01));
     });
+
+    // ASME isometrics write feet and inches with a hyphen, inches often with
+    // a fraction — the AI hands these over as rawDimension when it does not
+    // convert them itself (golden set 08).
+    test("drawing notation 4'-6\" (hyphen)", () {
+      expect(UnitParser.parseToMm('4\'-6"'), closeTo(1371.6, 1e-9));
+      expect(UnitParser.parseToMm('4\' - 6"'), closeTo(1371.6, 1e-9));
+      expect(UnitParser.parseToMm('3\'-0"'), closeTo(914.4, 1e-9));
+    });
+
+    test("fractional inches after feet: 2'-1 1/2\" and 1'-0 3/4\"", () {
+      // 2 ft 1.5 in = 25.5 in = 647.7 mm; 1 ft 0.75 in = 12.75 in = 323.85 mm
+      expect(UnitParser.parseToMm('2\'-1 1/2"'), closeTo(647.7, 1e-9));
+      expect(UnitParser.parseToMm('1\'-0 3/4"'), closeTo(323.85, 1e-9));
+      expect(UnitParser.parseToMm('1\' 1/2"'), closeTo(317.5, 1e-9));
+    });
+
+    test('a zero denominator is not a length', () {
+      expect(UnitParser.parseToMm('2\'-1 1/0"'), isNull);
+    });
   });
 
   group('invalid', () {

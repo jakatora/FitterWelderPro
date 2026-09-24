@@ -1,0 +1,120 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "03-kolano-sr-oznaczenie",
+  "title": "Kolano 90° SR z oznaczeniem na rysunku + kolano LR",
+  "drawing": "Otwarty koniec → kolano E1 opisane „90° SR\" → kolano E2 (LR) → otwarty koniec. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1001",
+        "sheet": "1/1",
+        "revision": "B",
+        "lineNumber": "DN100-P-1001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "dimensionMm": 500,
+          "rawDimension": "500",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° SR",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "takeoutAssumedLongRadius"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 898,
+            "calc": "1000 − 102 (SR) = 898"
+          },
+          {
+            "id": "s2",
+            "cutMm": 746,
+            "calc": "1000 − 102 (SR) − 152 (LR) = 746"
+          },
+          {
+            "id": "s3",
+            "cutMm": 348,
+            "calc": "500 − 152 = 348"
+          }
+        ]
+      }
+    }
+  ]
+}

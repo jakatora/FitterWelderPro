@@ -21,28 +21,24 @@ class BackendConfig {
   static const String baseUrl =
       'https://fitter-welder-pro-backend-production.up.railway.app';
 
-  /// Skaner izometrii celuje w INNY backend niz reszta apki — i to jest swiadome.
+  /// Skaner izometrii — ten sam dedykowany backend co reszta aplikacji.
   ///
-  /// Stan na 2026-08-29, sprawdzony realnym zadaniem POST /api/fitter/scan-iso:
-  ///   • dedykowany backend (baseUrl powyzej): /health = 200, ale scan-iso = **500**,
-  ///   • wspoldzielony backend PrzetargAI: scan-iso = **200**, model claude-sonnet-5,
-  ///     poprawnie odczytal testowa izometrie (2 segmenty, kolano 90 LR, dwa kolnierze,
-  ///     DN100/SCH40/A312 316L) i sam policzyl wymiar zapisany jako "1500+250".
+  /// WYMAGA wdrożonej wersji backendu z 2026-09-24 (sekret instalacji TOFU,
+  /// dzienne limity na urządzenie i IP, bramka budżetu AI, model
+  /// claude-sonnet-5, rozpoznawanie typu obrazu). Stara wersja dedykowanego
+  /// backendu odpowiada na POST /api/fitter/scan-iso kodem **500** (zaszyty
+  /// identyfikator modelu, którego API nie zna) — aplikacja pokazuje wtedy
+  /// zrozumiały komunikat „skaner nie jest jeszcze dostępny" zamiast „Błąd
+  /// 500" (`iso_scanner_ai.dart`), tak samo przy 404 (brak trasy).
   ///
-  /// Powod przeniesienia skanera na wlasny backend byl inny — „stale Anthropic model
-  /// alias" na wspoldzielonym — i wlasnie zostal usuniety (alias podniesiony do
-  /// claude-sonnet-5, tanszego i nowszego niz poprzedni claude-sonnet-4-6).
+  /// Historia: 2026-08-29 skaner tymczasowo celował we współdzielony backend
+  /// PrzetargAI (backend-production-a43e3), bo tylko tam scan-iso zwracało
+  /// 200. Tamten backend nie ma limitów per urządzenie ani bramki budżetu tej
+  /// aplikacji, więc darmowego trybu skanera nie wolno było na nim oprzeć.
   ///
-  /// Po naprawie dedykowanego backendu wystarczy usunac te stala i wrocic do baseUrl.
-  /// Nie ruszamy tu pozostalych tras (czat, platnosci) — one dzialaja na dedykowanym.
-  ///
-  /// 2026-09-24: nowa wersja dedykowanego backendu (sekret instalacji, limity
-  /// dzienne i bramka budżetu AI na /scan-iso) jest gotowa, ale jeszcze NIE
-  /// wdrożona. Po wdrożeniu i sprawdzeniu realnym skanem (HTTP 200) można
-  /// przełączyć skaner na [baseUrl]. Aplikacja wysyła już nagłówki
-  /// X-Device-Id / X-Install-Secret — backend PrzetargAI je ignoruje.
-  static const String scannerBaseUrl =
-      'https://backend-production-a43e3.up.railway.app';
+  /// Przed publikacją: wdrożyć backend, zrobić jeden prawdziwy skan (HTTP 200)
+  /// i sprawdzić 429 po przekroczeniu `AI_SCAN_DAILY_PER_DEVICE`.
+  static const String scannerBaseUrl = baseUrl;
 
   // ── Feature flags ────────────────────────────────────────────────────────
   /// Set to true once Stripe checkout webhook + /api/fitter/subscribe are

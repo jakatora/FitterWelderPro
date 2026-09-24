@@ -6,7 +6,9 @@ import '../services/legal_consent.dart';
 import '../services/user_profile.dart';
 
 // Bramka przed wszystkim, co wysyła dane na serwer pod nazwiskiem montera
-// (dziś: czat; jutro: ogłoszenia, skaner — patrz `ToolSpec.needsAccount`).
+// (dziś: czat; jutro: ogłoszenia — patrz `ToolSpec.needsAccount`). Skaner ISO
+// tu nie trafia: zdjęcie nie idzie pod nazwiskiem, więc pyta tylko o zgodę na
+// wysyłkę (`scan_consent_gate.dart`).
 //
 // Kalkulatory, projekty i dziennik działają offline i bez konta, więc aplikacja
 // startuje prosto na ekran główny. Imienia, nazwiska i akceptacji zasad

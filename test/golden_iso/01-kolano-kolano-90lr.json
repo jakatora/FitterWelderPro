@@ -1,0 +1,152 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "01-kolano-kolano-90lr",
+  "title": "Prosty odcinek kolano–kolano 90° LR, szczelina 2 mm",
+  "drawing": "Otwarty koniec → kolano E1 → kolano E2 → otwarty koniec. Wymiary oś–oś / oś–koniec rury. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 2,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1001",
+        "sheet": "1/1",
+        "revision": "B",
+        "lineNumber": "DN100-P-1001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1500,
+          "rawDimension": "1500",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "dimensionMm": 1200,
+          "rawDimension": "1200",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "dimensionMm": 700,
+          "rawDimension": "700",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "W1",
+          "type": "weld",
+          "weldNo": "1",
+          "weldType": "BW",
+          "confidence": "high"
+        },
+        {
+          "id": "W2",
+          "type": "weld",
+          "weldNo": "2",
+          "weldType": "BW",
+          "confidence": "high"
+        },
+        {
+          "id": "W3",
+          "type": "weld",
+          "weldNo": "3",
+          "weldType": "BW",
+          "confidence": "high"
+        },
+        {
+          "id": "W4",
+          "type": "weld",
+          "weldNo": "4",
+          "weldType": "BW",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "note": "Nic do potwierdzenia — same kształtki osiowe.",
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "takeoutAssumedLongRadius"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1346,
+            "proposed": "CTC",
+            "calc": "1500 − 152 (E1) − 2×1 spoina = 1346"
+          },
+          {
+            "id": "s2",
+            "cutMm": 892,
+            "proposed": "CTC",
+            "calc": "1200 − 152 − 152 − 2×2 spoiny = 892"
+          },
+          {
+            "id": "s3",
+            "cutMm": 546,
+            "proposed": "CTC",
+            "calc": "700 − 152 − 2×1 = 546"
+          }
+        ]
+      }
+    }
+  ]
+}

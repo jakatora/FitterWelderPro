@@ -1,0 +1,130 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "06-kolnierz-wn-na-koncu",
+  "title": "Kołnierz WN na końcu linii — wymiar do przylgi",
+  "drawing": "Otwarty koniec → kolano E1 → kołnierz WN F1 (RF, Class 150). Wymiar E1–F1 od osi kolana do przylgi kołnierza. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1001",
+        "sheet": "1/1",
+        "revision": "B",
+        "lineNumber": "DN100-P-1001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1500,
+          "rawDimension": "1500",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "F1",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "F1",
+          "type": "flange",
+          "label": "WN RF 150#",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "note": "Propozycja: oś kolana – przylga kołnierza (Y odejmowane), ale bez potwierdzenia nie ma cięcia.",
+      "expect": {
+        "canSave": false,
+        "gaps": [
+          "dimensionReferenceUnknown"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1348,
+            "calc": "1500 − 152 = 1348"
+          },
+          {
+            "id": "s2",
+            "cutMm": null,
+            "proposed": "CTE",
+            "calc": "brak — propozycja 1000 − 152 − 76 = 772 czeka na potwierdzenie"
+          }
+        ]
+      }
+    },
+    {
+      "fitter": {
+        "references": {
+          "s2": "proposal"
+        }
+      },
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1348,
+            "calc": "1500 − 152 = 1348"
+          },
+          {
+            "id": "s2",
+            "cutMm": 772,
+            "calc": "1000 − 152 (E1) − 76 (Y kołnierza WN, B16.5) = 772"
+          }
+        ]
+      }
+    }
+  ]
+}

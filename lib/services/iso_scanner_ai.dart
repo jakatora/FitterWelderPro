@@ -16,20 +16,21 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show compute, debugPrint;
+import 'package:flutter/foundation.dart'
+    show compute, debugPrint, visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
 import '../config/backend_config.dart';
+import '../config/feature_flags.dart';
 import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
 import 'premium_service.dart';
 
-// Skaner celuje w scannerBaseUrl, nie w baseUrl reszty apki: dedykowany backend
-// oddaje na /api/fitter/scan-iso HTTP 500, a wspoldzielony odpowiada poprawnie
-// (sprawdzone realnym zadaniem 2026-08-29 — patrz komentarz w BackendConfig).
-// Po wdrożeniu nowej wersji dedykowanego backendu i sprawdzeniu skanu (200)
-// można przełączyć skaner z powrotem na BackendConfig.baseUrl.
+// Skaner celuje w BackendConfig.scannerBaseUrl — od 2026-09-25 ten sam
+// dedykowany backend co reszta apki (wymaga wdrożonej wersji z 2026-09-24,
+// patrz komentarz w BackendConfig). Stara wersja odpowiada 500, brak trasy
+// 404 — oba przypadki dostają zrozumiały komunikat ([friendlyScanError]).
 // Nadpisanie przez --dart-define=ISO_AI_BASE=... dziala jak dotad.
 const String kIsoAiBase = String.fromEnvironment(
   'ISO_AI_BASE',
@@ -433,9 +434,45 @@ class AiScanResult {
 class IsoScannerAiException implements Exception {
   final String message;
   final int? statusCode;
-  IsoScannerAiException(this.message, {this.statusCode});
+
+  /// Kod maszynowy z odpowiedzi serwera (`error.code`), np. `RATE_LIMITED`,
+  /// `AI_BUDGET_EXCEEDED`, `PREMIUM_REQUIRED`. Null, gdy serwer go nie podał.
+  final String? code;
+
+  /// Z nagłówka `Retry-After` — za ile serwer przyjmie kolejny skan.
+  final Duration? retryAfter;
+
+  IsoScannerAiException(
+    this.message, {
+    this.statusCode,
+    this.code,
+    this.retryAfter,
+  });
+
+  /// Dzienny limit (urządzenia albo sieci), nie minutowy: serwer liczy dobę
+  /// UTC, więc `Retry-After` jest wtedy liczony w godzinach, a minutowy
+  /// limiter odpowiada najwyżej 60 s.
+  bool get isDailyLimit =>
+      statusCode == 429 &&
+      retryAfter != null &&
+      retryAfter! > const Duration(minutes: 5);
+
+  /// Czy żądanie mogło dojść do modelu (i kosztować). Odmowy, które serwer
+  /// wydaje PRZED wywołaniem Claude — limity, budżet, Premium, zły format,
+  /// brak trasy, brak konfiguracji AI — nie zjadają klientowego limitu.
+  bool get reachedModel {
+    final s = statusCode ?? 0;
+    if (s < 500) return false;
+    const beforeModel = {
+      'AI_BUDGET_EXCEEDED',
+      'SERVICE_UNAVAILABLE',
+      'AI_CONFIG',
+    };
+    return !beforeModel.contains(code);
+  }
+
   @override
-  String toString() => 'IsoScannerAiException($statusCode): $message';
+  String toString() => 'IsoScannerAiException($statusCode $code): $message';
 }
 
 String _tr(String pl, String en) => AppLanguageController.isEnglish ? en : pl;
@@ -676,8 +713,21 @@ Future<RgbaImage> _decodeWithPlatform(Uint8List bytes, int maxLongSide) async {
   }
 }
 
-/// Komunikat dla odmowy serwera, której monter sam nie naprawi ponowieniem.
-String? _friendlyScanError(int status, String? code) {
+String _hhmm(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// Komunikat dla montera na odmowę serwera skanera — co się stało i co zrobić.
+///
+/// Null, gdy odpowiedź nie wymaga tłumaczenia (np. 400 z czytelnym tekstem
+/// serwera, który ekran pokaże sam). Czysta funkcja: [now] podaje zegar, żeby
+/// godzinę odnowienia limitu dało się sprawdzić w teście.
+@visibleForTesting
+String? friendlyScanError(
+  int status,
+  String? code, {
+  Duration? retryAfter,
+  DateTime Function() now = DateTime.now,
+}) {
   if (code != null && code.startsWith('INSTALL_SECRET_')) {
     return _tr(
       'Serwer skanera nie rozpoznał tej instalacji aplikacji. Uruchom '
@@ -697,12 +747,79 @@ String? _friendlyScanError(int status, String? code) {
     );
   }
   if (status == 402 || code == 'PREMIUM_REQUIRED') {
+    // Właściciel może włączyć AI_SCAN_REQUIRES_PREMIUM na serwerze. Dopóki
+    // Premium nie da się kupić w aplikacji, nie odsyłamy do zakupu.
+    return kPaidFeaturesEnabled
+        ? _tr(
+            'Skaner rysunków jest dostępny w planie Premium. Wymiary możesz '
+                'też wpisać ręcznie.',
+            'The drawing scanner is available with Premium. You can also '
+                'type the dimensions in by hand.',
+          )
+        : _tr(
+            'Skaner rysunków jest chwilowo dostępny tylko w planie Premium, '
+                'którego nie da się jeszcze kupić w aplikacji. Wymiary wpisz '
+                'ręcznie — lista cięć działa bez skanera.',
+            'The drawing scanner is for Premium only for now, and Premium '
+                'cannot be bought in the app yet. Type the dimensions in by '
+                'hand — the cut list works without the scanner.',
+          );
+  }
+  if (status == 429) {
+    final wait = retryAfter;
+    if (wait != null && wait > const Duration(minutes: 5)) {
+      final at = _hhmm(now().add(wait));
+      return _tr(
+        'Dzienny limit skanów został wykorzystany. Odnowi się ok. $at — do '
+            'tego czasu wpisz wymiary ręcznie.',
+        'The daily scan limit is used up. It renews at about $at — until '
+            'then type the dimensions in by hand.',
+      );
+    }
     return _tr(
-      'Skaner rysunków jest dostępny w planie Premium.',
-      'The drawing scanner is available with Premium.',
+      'Za dużo skanów naraz — odczekaj minutę i spróbuj ponownie.',
+      'Too many scans at once — wait a minute and try again.',
+    );
+  }
+  if (code == 'AI_BUDGET_EXCEEDED') {
+    return _tr(
+      'Skaner jest wyłączony do końca miesiąca — wyczerpał się miesięczny '
+          'budżet AI. Wymiary wpisz ręcznie; lista cięć działa bez skanera.',
+      'The scanner is off until the end of the month — the monthly AI '
+          'budget is used up. Type the dimensions in by hand; the cut list '
+          'works without the scanner.',
+    );
+  }
+  if (code == 'AI_BUSY') {
+    return _tr(
+      'Skaner jest chwilowo przeciążony — spróbuj za minutę.',
+      'The scanner is busy right now — try again in a minute.',
+    );
+  }
+  if (status == 404 ||
+      status == 500 ||
+      code == 'AI_CONFIG' ||
+      code == 'SERVICE_UNAVAILABLE') {
+    // 404: serwer nie ma jeszcze trasy skanera; 500: stara wersja backendu
+    // (sprzed 2026-09-24); AI_CONFIG / SERVICE_UNAVAILABLE: serwer bez
+    // skonfigurowanego AI. Monter nic tu nie naprawi ponowieniem.
+    return _tr(
+      'Skaner nie jest jeszcze dostępny na naszym serwerze. Spróbuj później '
+          '— wymiary możesz wpisać ręcznie, reszta aplikacji działa bez niego.',
+      'The scanner is not available on our server yet. Try again later — '
+          'you can type the dimensions in by hand; the rest of the app works '
+          'without it.',
     );
   }
   return null;
+}
+
+Duration? _retryAfter(Map<String, String> headers) {
+  final raw = headers['retry-after']?.trim();
+  if (raw == null || raw.isEmpty) return null;
+  final seconds = int.tryParse(raw);
+  if (seconds == null || seconds < 0) return null;
+  return Duration(seconds: seconds);
 }
 
 Future<AiScanResult> scanIsoImage(
@@ -712,6 +829,7 @@ Future<AiScanResult> scanIsoImage(
   // to absorb a slow uplink without falsely cancelling a successful scan.
   Duration timeout = const Duration(seconds: 150),
   PlatformImageDecoder? platformDecoder,
+  DateTime Function() clock = DateTime.now,
 }) async {
   final file = File(imagePath);
   if (!await file.exists()) {
@@ -754,13 +872,24 @@ Future<AiScanResult> scanIsoImage(
       }
       if (err is Map && err['code'] is String) code = err['code'] as String;
     } catch (_) {}
-    final friendly = _friendlyScanError(resp.statusCode, code);
+    final retryAfter = _retryAfter(resp.headers);
+    final friendly = friendlyScanError(
+      resp.statusCode,
+      code,
+      retryAfter: retryAfter,
+      now: clock,
+    );
     if (friendly != null) {
       // Surowa odpowiedź tylko do logu.
       debugPrint('scanIsoImage ${resp.statusCode} $code: $message');
       message = friendly;
     }
-    throw IsoScannerAiException(message, statusCode: resp.statusCode);
+    throw IsoScannerAiException(
+      message,
+      statusCode: resp.statusCode,
+      code: code,
+      retryAfter: retryAfter,
+    );
   }
 
   final envelope = jsonDecode(resp.body) as Map<String, dynamic>;
