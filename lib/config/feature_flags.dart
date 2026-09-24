@@ -45,18 +45,17 @@ const bool kPaidFeaturesEnabled = false;
 /// server-side, the two caps above are the only ones there are — and both
 /// live on a device the user controls.
 ///
-/// The menu tiles (home screen, FITTER menu) follow this flag: the scanner
-/// tile is visible whenever the scanner is on, and the screen itself shows
-/// the Premium gate to anyone without an active plan
+/// The menu tiles (home screen, FITTER menu) follow [kAiScannerReachable],
+/// not this flag: while Premium cannot be bought the tile would lead only to
+/// a gate with no way through, so it stays hidden
 /// (`test/welder_journey_test.dart` pins that behaviour).
 const bool kAiScannerEnabled = true;
 
 /// Whether a user can actually unlock the ISO scanner by buying Premium.
 ///
 /// The scanner screen sits behind `PremiumGate(alwaysEnforced: true)`, and
-/// Premium cannot be bought while [kPaidFeaturesEnabled] is false. This does
-/// NOT hide the menu tiles — those follow [kAiScannerEnabled] — it only says
-/// whether the gate in front of the scanner has a working way through.
+/// Premium cannot be bought while [kPaidFeaturesEnabled] is false. The menu
+/// tiles follow this constant, so the scanner is never offered as a dead end.
 const bool kAiScannerReachable = kAiScannerEnabled && kPaidFeaturesEnabled;
 
 /// Scans one install may run per calendar day before the scanner refuses.

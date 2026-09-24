@@ -274,9 +274,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           MaterialPageRoute(
                               builder: (_) => const JobsScreen())),
                     ),
-                  // Skaner jest włączony (kAiScannerEnabled). Sam ekran stoi
-                  // za bramką Premium — bez aktywnego planu pokazuje bramkę.
-                  if (kAiScannerEnabled)
+                  // Skaner stoi za bramką Premium, której nie da się przejść,
+                  // dopóki płatności są wyłączone — kafel pokazujemy dopiero,
+                  // gdy zakup jest możliwy (kAiScannerReachable).
+                  if (kAiScannerReachable)
                     _MenuCard(
                       icon: Icons.document_scanner_outlined,
                       title: context.tr(pl: 'SKANER ISO', en: 'ISO SCAN'),

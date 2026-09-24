@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/test_database.dart';
 
 import 'package:cut_list_app/app.dart';
+import 'package:cut_list_app/config/feature_flags.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/iso_scanner_screen.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
@@ -79,7 +80,7 @@ void main() {
     expect(find.text('FITTER'), findsOneWidget);
   });
 
-  testWidgets('ekran główny: czat i skaner ISO są, płatne wciąż ukryte',
+  testWidgets('ekran główny: czat jest, płatne i skaner bez zakupu ukryte',
       (tester) async {
     await boot(tester, withProfile: true);
 
@@ -88,9 +89,10 @@ void main() {
     expect(find.byIcon(Icons.waves_outlined), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
-    // Skaner ISO jest włączony (kAiScannerEnabled = true), odkąd zdjęcie
-    // rysunku prowadzi do gotowej cut listy — kafel ma być widoczny.
-    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
+    // Skaner stoi za bramką Premium; póki Premium nie da się kupić, kafel
+    // byłby ślepym zaułkiem, więc go nie ma.
+    expect(find.byIcon(Icons.document_scanner_outlined),
+        kAiScannerReachable ? findsOneWidget : findsNothing);
 
     // Ukryte całkowicie — nie "Wkrótce", ma ich nie być:
     expect(find.text('PREMIUM'), findsNothing);
@@ -145,16 +147,16 @@ void main() {
     expect(find.textContaining('NaN'), findsNothing);
   });
 
-  testWidgets('monter sprawdza wymiary kolan; skaner ISO stoi w menu Fitter',
+  testWidgets('monter sprawdza wymiary kolan; skaner tylko gdy da się go kupić',
       (tester) async {
     await boot(tester, withProfile: true);
 
     await tester.tap(find.byIcon(Icons.handyman_outlined)); // FITTER
     await settle(tester);
 
-    // Skaner ISO jest tu widoczny — to wejście do ścieżki
-    // „zdjęcie rysunku → przegląd → cut lista".
-    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
+    // Kafel skanera tylko wtedy, gdy bramkę Premium da się przejść.
+    expect(find.byIcon(Icons.document_scanner_outlined),
+        kAiScannerReachable ? findsOneWidget : findsNothing);
 
     // "Wymiary kolan" — tabela takeoutów.
     final elbows = find.byIcon(Icons.table_rows_outlined);
@@ -183,17 +185,19 @@ void main() {
     expect(find.textContaining('NaN'), findsNothing);
   });
 
-  testWidgets('skaner ISO bez Premium: monter trafia na bramkę, nie na skan',
+  testWidgets('skaner ISO bez Premium: ekran pokazuje bramkę, nie skan',
       (tester) async {
-    await boot(tester, withProfile: true);
+    tester.view.physicalSize = const Size(1100, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    seedOnboardedUser();
 
-    await tester.tap(find.byIcon(Icons.handyman_outlined)); // FITTER
-    await settle(tester);
-
-    final scanner = find.byIcon(Icons.document_scanner_outlined);
-    await tester.ensureVisible(scanner);
-    await settle(tester);
-    await tester.tap(scanner);
+    // Z menu skanera nie widać (kafel ukryty), ale ekran nadal musi się
+    // bronić sam — np. gdy wejście wróci razem z płatnościami.
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: IsoScannerScreen()),
+    ));
     await settle(tester);
 
     // Każdy skan to płatne wywołanie Claude Vision, więc ekran stoi za

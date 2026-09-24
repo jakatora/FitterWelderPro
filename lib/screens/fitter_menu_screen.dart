@@ -166,9 +166,9 @@ class FitterMenuScreen extends StatelessWidget {
               ),
             ),
             // Metered Claude Vision behind an always-enforced Premium gate.
-            // The tile follows kAiScannerEnabled; without an active plan the
-            // screen shows the Premium gate instead of the camera.
-            if (kAiScannerEnabled)
+            // Shown only while that gate has a working way through
+            // (kAiScannerReachable) — otherwise the tile is a dead end.
+            if (kAiScannerReachable)
               _Tile(
                 icon: Icons.document_scanner_outlined,
                 title: context.tr(pl: 'Skaner izometryku', en: 'Iso scanner'),
