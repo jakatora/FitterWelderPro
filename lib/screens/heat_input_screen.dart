@@ -12,6 +12,7 @@ import '../services/material_catalog.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 // Heat input + preheat calculator for arc welding (SMAW / GMAW / FCAW / GTAW / SAW).
 // All arithmetic lives in lib/domain/welding/ (heat_input.dart, preheat.dart);
@@ -295,7 +296,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   double? get _etaOverride {
     final t = _etaCtrl.text.trim();
     if (t.isEmpty) return null;
-    return double.tryParse(t.replaceAll(',', '.')) ?? double.nan;
+    return parseDecimal(t) ?? double.nan;
   }
 
   /// Empty override, or one inside (0; 1] — the range EN 1011-1 allows.
@@ -329,13 +330,13 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   }
 
   double _parse(TextEditingController c) =>
-      double.tryParse(c.text.replaceAll(',', '.')) ?? 0.0;
+      parseDecimal(c.text) ?? 0.0;
 
   /// Empty field → null (used for the optional WPS bounds).
   double? _parseOptional(TextEditingController c) {
     final t = c.text.trim();
     if (t.isEmpty) return null;
-    return double.tryParse(t.replaceAll(',', '.'));
+    return parseDecimal(t);
   }
 
   @override
@@ -1722,7 +1723,7 @@ class _NumField extends StatelessWidget {
   bool get _invalid {
     final t = ctrl.text.trim();
     if (t.isEmpty) return false;
-    return double.tryParse(t.replaceAll(',', '.')) == null;
+    return parseDecimal(t) == null;
   }
 
   /// P1-30: non-empty negative value on a field marked rejectNegative.
@@ -1730,7 +1731,7 @@ class _NumField extends StatelessWidget {
     if (!rejectNegative) return false;
     final t = ctrl.text.trim();
     if (t.isEmpty) return false;
-    final v = double.tryParse(t.replaceAll(',', '.'));
+    final v = parseDecimal(t);
     return v != null && v < 0;
   }
 
@@ -1738,7 +1739,7 @@ class _NumField extends StatelessWidget {
     if (!rejectZero) return false;
     final t = ctrl.text.trim();
     if (t.isEmpty) return false;
-    final v = double.tryParse(t.replaceAll(',', '.'));
+    final v = parseDecimal(t);
     return v != null && v == 0;
   }
 
@@ -1747,7 +1748,7 @@ class _NumField extends StatelessWidget {
     if (max == null) return false;
     final t = ctrl.text.trim();
     if (t.isEmpty) return false;
-    final v = double.tryParse(t.replaceAll(',', '.'));
+    final v = parseDecimal(t);
     return v != null && v > max;
   }
 
@@ -1759,7 +1760,11 @@ class _NumField extends StatelessWidget {
     final hasError = _invalid || _negative || _zero || _tooHigh;
     return TextField(
       controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      // No minus key on the pad (nothing here is negative), but a field that
+      // FLAGS a negative (rejectNegative) lets a pasted '-' through, so the
+      // welder sees "must be > 0" instead of the sign silently vanishing.
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(signed: rejectNegative),
       onChanged: (_) => onChanged(),
       style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(

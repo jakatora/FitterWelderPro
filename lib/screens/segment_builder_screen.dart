@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -11,6 +10,8 @@ import '../services/prefab_engine.dart';
 import '../utils/haptic.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
+import '../widgets/iso_expression_keys.dart';
+import '../widgets/number_field.dart';
 import '../theme/app_theme.dart' show kTextMut;
 
 // `splitIsoRef` lives next to the rule that decodes a saved row for the
@@ -797,14 +798,13 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
         content: TextField(
           controller: c,
           // Takeouts are decimal millimetres — the hints passed in literally
-          // read "np. 76.2" / "np. 48.3" — but TextInputType.number opens the
-          // iOS numeric pad, which has NO decimal and NO comma key. The fitter
-          // could only enter 762, losing 686 mm into the component library and
-          // into every cut computed from it afterwards. The filter keeps both
-          // separators because the parse below normalises ',' to '.'.
-          // Same field pattern as weld_journal_screen.dart.
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+          // read "np. 76.2" / "np. 48.3" — but the plain number keypad on iOS
+          // has NO decimal and NO comma key. The fitter could only enter 762,
+          // losing 686 mm into the component library and into every cut
+          // computed from it afterwards. The shared keyboard/filter keeps both
+          // separators and parseDecimal reads ',' as '.'.
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           autofocus: true,
           decoration: InputDecoration(hintText: hint),
         ),
@@ -815,7 +815,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final v = double.tryParse(c.text.replaceAll(',', '.'));
+              final v = parseDecimal(c.text);
               Navigator.pop(context, (v != null && v > 0) ? v : null);
             },
             child: Text(_tr('OK', 'OK')),
@@ -986,12 +986,17 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: _isoController,
-                        keyboardType: TextInputType.text,
+                        // Decimal pad (with the comma) for the numbers; the
+                        // operators come from the key bar right below. The
+                        // full QWERTY this field used to open made a gloved
+                        // fitter hunt for digits on the letters page.
+                        keyboardType: numberKeyboard(),
+                        inputFormatters: isoExpressionInputFormatters(),
                         decoration: InputDecoration(
                           labelText: _tr('ISO (mm)', 'ISO (mm)'),
                           hintText: _tr(
-                              'np. 3000+525-80, 5*200, (1500+200)*2',
-                              'e.g. 3000+525-80, 5*200, (1500+200)*2'),
+                              'np. 3000+525-80, 5×200, (1500+200)×2',
+                              'e.g. 3000+525-80, 5×200, (1500+200)×2'),
                           // Live evaluation shown right inside the field so a
                           // fitter does not need to look down at the breakdown.
                           suffixText: _isoMm != null
@@ -1003,6 +1008,12 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                                   fontWeight: FontWeight.w700)
                               : null,
                         ),
+                        onChanged: (_) => _recalc(),
+                      ),
+                      const SizedBox(height: 8),
+                      // + − × ( ) " ⌫ — big keys, inserted at the cursor.
+                      IsoExpressionKeyBar(
+                        controller: _isoController,
                         onChanged: (_) => _recalc(),
                       ),
                       if (_isoMm != null) ...[

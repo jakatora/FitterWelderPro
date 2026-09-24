@@ -190,6 +190,124 @@ void main() {
     },
   );
 
+  group('ISO field: decimal pad + operator key bar', () {
+    Finder isoField() => find.byType(TextField);
+
+    String isoText(WidgetTester tester) =>
+        tester.widget<TextField>(isoField()).controller!.text;
+
+    /// What the decimal pad does: the IME sends the whole new value — the
+    /// current text with the digits appended at the cursor (the end).
+    Future<void> typeDigits(WidgetTester tester, String digits) async {
+      await tester.enterText(isoField(), isoText(tester) + digits);
+      await tester.pump();
+    }
+
+    Future<void> tapKey(WidgetTester tester, String label) async {
+      final key = find.byKey(ValueKey('iso-key-$label'));
+      await tester.ensureVisible(key);
+      await tester.tap(key);
+      await tester.pump();
+    }
+
+    Future<void> openIsoCard(WidgetTester tester) async {
+      _useTallPhone(tester);
+      await tester.pumpWidget(_wrap(_screen()));
+      await tester.pumpAndSettle();
+      await _buildCompleteSequence(tester);
+      await tester.pumpAndSettle();
+      expect(isoField(), findsOneWidget);
+    }
+
+    testWidgets('opens the numeric pad with a decimal key, not QWERTY',
+        (tester) async {
+      await openIsoCard(tester);
+      final field = tester.widget<TextField>(isoField());
+      expect(field.keyboardType.decimal, isTrue,
+          reason: 'the numbers need the decimal pad (with the comma)');
+      expect(field.keyboardType, isNot(TextInputType.text),
+          reason: 'full QWERTY made a gloved fitter hunt for digits');
+    });
+
+    testWidgets('taps on the bar build 3000+525-80 and CUT follows',
+        (tester) async {
+      await openIsoCard(tester);
+
+      await typeDigits(tester, '3000');
+      await tapKey(tester, '+');
+      expect(isoText(tester), '3000+');
+      await typeDigits(tester, '525');
+      await tapKey(tester, '−');
+      await typeDigits(tester, '80');
+
+      expect(isoText(tester), '3000+525-80',
+          reason: 'the minus key must insert the ASCII "-" the parser reads');
+      // Open end → pipe → open end, no gap: CUT is the ISO dimension.
+      expect(find.text('CUT = 3445.0 mm'), findsOneWidget);
+
+      // Backspace takes the last character off — and CUT follows again.
+      await tapKey(tester, '⌫');
+      expect(isoText(tester), '3000+525-8');
+      expect(find.text('CUT = 3517.0 mm'), findsOneWidget);
+    });
+
+    testWidgets('brackets, × and the inch key reach the parser',
+        (tester) async {
+      await openIsoCard(tester);
+
+      await tapKey(tester, '(');
+      await typeDigits(tester, '1500');
+      await tapKey(tester, '+');
+      await typeDigits(tester, '200');
+      await tapKey(tester, ')');
+      await tapKey(tester, '×');
+      await typeDigits(tester, '2');
+      expect(isoText(tester), '(1500+200)×2');
+      expect(find.text('CUT = 3400.0 mm'), findsOneWidget);
+
+      await tester.enterText(isoField(), '76');
+      await tester.pump();
+      await tapKey(tester, '"');
+      expect(isoText(tester), '76"');
+      expect(find.text('CUT = 1930.4 mm'), findsOneWidget,
+          reason: '76" is 1930.4 mm, not 76 mm');
+    });
+
+    testWidgets('a key inserts at the cursor, not only at the end',
+        (tester) async {
+      await openIsoCard(tester);
+      await tester.enterText(isoField(), '3000525');
+      await tester.pump();
+      final ctrl = tester.widget<TextField>(isoField()).controller!;
+      ctrl.selection = const TextSelection.collapsed(offset: 4);
+      await tapKey(tester, '+');
+      expect(isoText(tester), '3000+525');
+      expect(ctrl.selection.baseOffset, 5);
+      expect(find.text('CUT = 3525.0 mm'), findsOneWidget);
+    });
+
+    testWidgets('every key is at least 48 dp for gloved fingers',
+        (tester) async {
+      await openIsoCard(tester);
+      for (final label in ['+', '−', '×', '(', ')', '"', '⌫']) {
+        final size = tester.getSize(find.byKey(ValueKey('iso-key-$label')));
+        expect(size.width, greaterThanOrEqualTo(48), reason: label);
+        expect(size.height, greaterThanOrEqualTo(48), reason: label);
+      }
+    });
+
+    testWidgets('the comma a Polish pad types is read as a decimal point',
+        (tester) async {
+      await openIsoCard(tester);
+      await tester.enterText(isoField(), '1020,5');
+      await tester.pump();
+      await tapKey(tester, '+');
+      await typeDigits(tester, '20');
+      expect(isoText(tester), '1020,5+20');
+      expect(find.text('CUT = 1040.5 mm'), findsOneWidget);
+    });
+  });
+
   // The remaining defect — the dot-less keypad in `_askValue` — only opens
   // after a component-library lookup, and sqflite futures never resolve
   // inside the widget-test fake-async zone, so it cannot be driven through

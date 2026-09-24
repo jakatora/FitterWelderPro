@@ -142,7 +142,7 @@ void main() {
       await _pump(tester);
       await _openTab(tester, 'O₂ Purge');
 
-      await _enter(tester, 'OD (mm)', '60.3');
+      await _enter(tester, 'OD (mm)', '60,3');
       await _enter(tester, 't (mm)', '2');
       await _enter(tester, 'Section length to purge (mm)', '1000');
       await _enter(tester, 'Gas flow Q (L/min)', '10');
@@ -172,7 +172,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await _enter(tester, 'Max. interpass temp. from WPS (°C)', '150');
-      await _enter(tester, 'Cool time (min)', '0.05'); // 3 s
+      await _enter(tester, 'Cool time (min)', '0,05'); // 3 s
       await tester.tap(find.text('Start'));
       await tester.pump(const Duration(seconds: 4));
 

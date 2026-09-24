@@ -5,6 +5,7 @@ import '../../../widgets/help_button.dart';
 import '../../../database/tandem_amp_param_dao.dart';
 import '../../../models/tandem_amp_param.dart';
 import '../tandem_calc.dart';
+import '../../../widgets/number_field.dart';
 
 class TandemCalculatorScreen extends StatefulWidget {
   final String position; // HORIZONTAL/VERTICAL
@@ -24,7 +25,7 @@ class _TandemCalculatorScreenState extends State<TandemCalculatorScreen> {
   String _tempo = 'NORMAL';   // SLOW/NORMAL/FAST
   bool _saving = false;
 
-  double _parse(String s) => double.tryParse(s.replaceAll(',', '.')) ?? 0;
+  double _parse(String s) => parseDecimal(s) ?? 0;
 
   @override
   void dispose() {
@@ -62,7 +63,8 @@ class _TandemCalculatorScreenState extends State<TandemCalculatorScreen> {
                       Expanded(
                         child: TextField(
                           controller: _t1Ctrl,
-                          keyboardType: TextInputType.number,
+                          keyboardType: numberKeyboard(),
+                          inputFormatters: numberInputFormatters(),
                           decoration: InputDecoration(labelText: context.tr(pl: 'Ścianka t1 [mm]', en: 'Wall t1 [mm]')),
                           onChanged: (_) => setState(() {}),
                         ),
@@ -71,7 +73,8 @@ class _TandemCalculatorScreenState extends State<TandemCalculatorScreen> {
                       Expanded(
                         child: TextField(
                           controller: _t2Ctrl,
-                          keyboardType: TextInputType.number,
+                          keyboardType: numberKeyboard(),
+                          inputFormatters: numberInputFormatters(),
                           decoration: InputDecoration(labelText: context.tr(pl: 'Ścianka t2 [mm]', en: 'Wall t2 [mm]')),
                           onChanged: (_) => setState(() {}),
                         ),

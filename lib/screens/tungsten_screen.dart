@@ -9,6 +9,7 @@ import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -434,7 +435,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
     final reason = ctrl.text.trim();
     if (reason.isEmpty) return;
     final ampsParsed =
-        double.tryParse(_amps.text.replaceAll(',', '.')) ?? 0;
+        parseDecimal(_amps.text) ?? 0;
     final record = TungstenOverride(
       suggestedDiaMm: suggested?.diaMm ?? tapped.diaMm,
       usedDiaMm: tapped.diaMm,
@@ -480,7 +481,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
   @override
   Widget build(BuildContext context) {
     final isPl = context.language == AppLanguage.pl;
-    final a = double.tryParse(_amps.text.replaceAll(',', '.'));
+    final a = parseDecimal(_amps.text);
     final pick = (a != null && a > 0) ? sizeForCurrent(a) : null;
     // Out-of-range = entered current is outside the union of all electrode
     // bands (below kTungstenSizes.first.minA or above kTungstenSizes.last.maxA).
@@ -519,10 +520,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
         children: [
           TextField(
             controller: _amps,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
-            ],
+            keyboardType: numberKeyboard(),
+            inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(
               labelText: context.tr(
                   pl: 'Prąd spawania (A, DC-)', en: 'Welding current (A, DC-)'),

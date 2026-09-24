@@ -243,7 +243,10 @@ void main() {
     await _calculate(tester, '100', '60');
     await _tap(tester, find.text('Pokaż jak'));
     await tester.ensureVisible(find.byType(TextField).first);
-    await tester.enterText(find.byType(TextField).first, 'NaN');
+    // Letters ('NaN') cannot get into the field any more — the numeric
+    // filter refuses them — so the invalid input is one that CAN be typed on
+    // the decimal pad: a doubled separator.
+    await tester.enterText(find.byType(TextField).first, '1,,2');
     await _tap(tester, find.text('Oblicz profil'));
     expect(_copy(tester).onPressed, isNull);
     expect(tester.takeException(), isNull);

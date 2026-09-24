@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../data/support_spacing.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
+import '../widgets/number_field.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -181,10 +181,8 @@ class _CalcTabState extends State<_CalcTab> {
         const SizedBox(height: 8),
         TextField(
           controller: _length,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
-          ],
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Długość prostego odcinka', 'Straight run length'),
             suffixText: 'm',

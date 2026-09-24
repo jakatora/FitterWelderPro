@@ -36,6 +36,8 @@ import '../services/iso_parser.dart';
 import '../utils/haptic.dart';
 import 'cut_list_summary_screen.dart';
 import '../theme/app_theme.dart' show kTextMut;
+import '../widgets/iso_expression_keys.dart';
+import '../widgets/number_field.dart';
 
 const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -168,7 +170,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   /// "no gap": the field starts at 0, so an empty one means the fitter
   /// deleted it and has not said what it is.
   double? get _gapMm {
-    final v = double.tryParse(_gapCtrl.text.trim().replaceAll(',', '.'));
+    final v = parseDecimal(_gapCtrl.text);
     if (v == null || !v.isFinite || v < 0) return null;
     return v;
   }
@@ -955,10 +957,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _gapCtrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-            ],
+            keyboardType: numberKeyboard(),
+            inputFormatters: numberInputFormatters(),
             onChanged: (_) => _apply(() {}),
             decoration: InputDecoration(
               isDense: true,
@@ -1034,7 +1034,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       children: [
         TextField(
           controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           onChanged: (_) => _apply(() {}),
           decoration: InputDecoration(
             isDense: true,
@@ -1371,7 +1372,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 double? _positive(String raw) {
-  final v = double.tryParse(raw.trim().replaceAll(',', '.'));
+  final v = parseDecimal(raw);
   if (v == null || !v.isFinite || v <= 0) return null;
   return v;
 }
@@ -1585,10 +1586,12 @@ class _DimensionDialogState extends State<_DimensionDialog> {
             autofocus: true,
             // Klawiatura MUSI mieć kropkę: podpowiedź pokazuje wymiar dziesiętny,
             // a iOS na zwykłym `number` kropki nie daje (audyt 2026-08-29).
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,+*() "a-zA-Z½¼¾-]')),
-            ],
+            // Działania (+ − × ( ) ") dokłada pasek przycisków pod polem —
+            // klawiatura dziesiętna iOS ich nie ma. Filtr to ten sam zestaw
+            // znaków, który rozumie parser ISO (wcześniej gubił ×, · i /,
+            // więc wklejone „5×200" zamieniało się po cichu w 5200).
+            keyboardType: numberKeyboard(),
+            inputFormatters: isoExpressionInputFormatters(),
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             decoration: InputDecoration(
               labelText: _tr('Wymiar z rysunku', 'Dimension from the drawing'),
@@ -1606,6 +1609,8 @@ class _DimensionDialogState extends State<_DimensionDialog> {
               if (_mm != null) Navigator.pop(context, (mm: _mm!, expr: _ctrl.text.trim()));
             },
           ),
+          const SizedBox(height: 8),
+          IsoExpressionKeyBar(controller: _ctrl, onChanged: _przelicz),
           const SizedBox(height: 14),
           Row(
             children: [

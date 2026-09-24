@@ -8,6 +8,7 @@ import '../services/orbital_tig.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -89,7 +90,7 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
   }
 
   double? _p(String s) =>
-      s.trim().isEmpty ? null : double.tryParse(s.replaceAll(',', '.'));
+      s.trim().isEmpty ? null : parseDecimal(s);
 
   // P1-19: schedule a recompute ~150 ms after the last keystroke. If another
   // keystroke arrives the prior timer is cancelled — only the trailing edge
@@ -477,12 +478,12 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
       {String? hint, String? errorText}) {
     return TextField(
       controller: c,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: numberKeyboard(),
       // P1-30: only digits + decimal separator allowed — no minus sign, so the
       // hardware keyboard cannot inject a negative OD/wall/V in the first
       // place. Defence-in-depth: _calc still rejects negatives in case the
       // controller is mutated programmatically.
-      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+      inputFormatters: numberInputFormatters(),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint == null

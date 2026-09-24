@@ -6,6 +6,7 @@ import '../i18n/app_language.dart';
 import '../services/saddle_template.dart';
 import '../services/saddle_print_layout.dart';
 import '../theme/app_theme.dart' show kTextMut;
+import '../widgets/number_field.dart';
 
 // Saddle / coping template screen — inputs header + branch OD + angle,
 // shows live preview of the cut profile, and exports a printable PDF
@@ -175,7 +176,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   }
 
   double _parse(TextEditingController c) =>
-      double.tryParse(c.text.replaceAll(',', '.')) ?? 0;
+      parseDecimal(c.text) ?? 0;
 
   void _recompute() {
     _lastHeaderText = _headerCtrl.text;
@@ -720,7 +721,8 @@ class _NumField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(
         labelText: label,

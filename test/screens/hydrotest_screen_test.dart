@@ -123,8 +123,8 @@ void main() {
 
   testWidgets('§345.2.1(a): ostrzeżenie, gdy σ przy Pt > Re', (tester) async {
     await _pump(tester);
-    await _enter(tester, 'OD (mm)', '60.3');
-    await _enter(tester, 'Wall t (mm)', '3.91');
+    await _enter(tester, 'OD (mm)', '60,3');
+    await _enter(tester, 'Wall t (mm)', '3,91');
     await _enter(tester, 'Design pressure (bar)', '100');
     await _enter(tester, 'Yield at test temp. (MPa) — optional', '100');
     expect(
@@ -178,7 +178,7 @@ void main() {
     await _enter(tester, 'System / line *', 'WFI-101');
     await _enter(tester, 'Company', 'Montaż Rur');
     await _enter(tester, 'Test fluid', 'Woda');
-    await _enter(tester, 'Relief valve set pressure (bar)', '19.5');
+    await _enter(tester, 'Relief valve set pressure (bar)', '19,5');
     await _enter(tester, 'Notes', 'Korki 2×.');
     await _tapText(tester, 'PASS');
     await tester.ensureVisible(find.text('Save'));

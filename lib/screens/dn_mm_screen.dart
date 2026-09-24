@@ -4,6 +4,7 @@ import '../i18n/app_language.dart';
 import '../data/nps_dn_od_r.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 /// Short label of the dimensional series of an OD row.
 String _seriesLabel(BuildContext context, OdSeries s) => switch (s) {
@@ -41,7 +42,7 @@ class _DnMmScreenState extends State<DnMmScreen> {
   List<NpsRow> _filter() {
     final q = _q.trim().toLowerCase();
     int? dn = int.tryParse(_dnCtrl.text.trim());
-    double? mm = double.tryParse(_mmCtrl.text.replaceAll(',', '.').trim());
+    double? mm = parseDecimal(_mmCtrl.text);
 
     return kNpsTable.where((r) {
       if (dn != null && r.dn == dn) return true;
@@ -82,7 +83,8 @@ class _DnMmScreenState extends State<DnMmScreen> {
                 Expanded(
                   child: TextField(
                     controller: _dnCtrl,
-                    keyboardType: TextInputType.number,
+                    keyboardType: numberKeyboard(decimal: false),
+                    inputFormatters: numberInputFormatters(decimal: false),
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(labelText: 'DN', hintText: context.tr(pl: 'np. 50', en: 'e.g. 50')),
                     onChanged: (_) => setState(() {}),
@@ -94,7 +96,8 @@ class _DnMmScreenState extends State<DnMmScreen> {
                   child: TextField(
                     controller: _mmCtrl,
                     focusNode: _mmFocus,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+                    keyboardType: numberKeyboard(),
+                    inputFormatters: numberInputFormatters(),
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(labelText: 'OD [mm]', hintText: context.tr(pl: 'np. 60,3', en: 'e.g. 60.3')),
                     onChanged: (_) => setState(() {}),

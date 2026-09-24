@@ -21,6 +21,8 @@ import '../models/prefab/dim_ref.dart';
 import '../services/prefab_engine.dart' as prefab;
 import '../models/prefab/end_connection.dart';
 import '../services/component_classification.dart';
+import '../widgets/iso_expression_keys.dart';
+import '../widgets/number_field.dart';
 
 // Autosave: the drawing <-> JSON codec and the "saved sketches" sheet live
 // next door because they need the private model classes below.
@@ -2854,8 +2856,8 @@ class _IsoState extends State<IsoNotebookScreen> {
                     const SizedBox(height: 12),
                     TextField(
                       controller: cteCtrl,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: false),
+                      keyboardType: numberKeyboard(decimal: false),
+                      inputFormatters: numberInputFormatters(decimal: false),
                       decoration: InputDecoration(
                         labelText: _tr('CTE — oś do czoła', 'CTE — centre to end'),
                         helperText: _stdCte(dn, subtype) <= 0
@@ -3050,8 +3052,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                     const SizedBox(height: 4),
                     TextField(
                       controller: lenCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: false, signed: false),
+                      keyboardType: numberKeyboard(decimal: false),
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(4),
@@ -3259,8 +3260,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                             fontSize: 11, color: cs.onSurfaceVariant)),
                     TextField(
                       controller: lenCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: false, signed: false),
+                      keyboardType: numberKeyboard(decimal: false),
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(4),
@@ -3441,8 +3441,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                             fontSize: 11, color: cs.onSurfaceVariant)),
                     TextField(
                       controller: lenCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: false, signed: false),
+                      keyboardType: numberKeyboard(decimal: false),
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(4),
@@ -3619,8 +3618,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                             fontSize: 11, color: cs.onSurfaceVariant)),
                     TextField(
                       controller: lenCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: false, signed: false),
+                      keyboardType: numberKeyboard(decimal: false),
                       inputFormatters: [
                         FilteringTextInputFormatter.digitsOnly,
                         LengthLimitingTextInputFormatter(4),
@@ -8912,8 +8910,8 @@ class _DimensionsSheetState extends State<_DimensionsSheet> {
                                 const SizedBox(height: 4),
                                 TextField(
                                   controller: cctrl,
-                                  keyboardType: const TextInputType
-                                      .numberWithOptions(decimal: false),
+                                  keyboardType: numberKeyboard(decimal: false),
+                                  inputFormatters: numberInputFormatters(decimal: false),
                                   textInputAction: TextInputAction.next,
                                   decoration: InputDecoration(
                                     isDense: true,
@@ -8982,9 +8980,8 @@ class _DimensionsSheetState extends State<_DimensionsSheet> {
                             // read once on save in `_enterAllDimensions`.
                             child: TextField(
                               controller: ctrl,
-                              keyboardType: const TextInputType
-                                  .numberWithOptions(
-                                  decimal: true, signed: true),
+                              keyboardType: numberKeyboard(signed: true),
+                              inputFormatters: isoExpressionInputFormatters(),
                               textInputAction:
                                   i == widget.segments.length - 1
                                       ? TextInputAction.done

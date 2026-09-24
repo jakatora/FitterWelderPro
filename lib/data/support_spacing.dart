@@ -1,3 +1,4 @@
+import '../utils/decimal_parse.dart';
 // Maximum pipe support spacing per MSS SP-69 / ASME B31 reference tables.
 // Spacing is the longest distance allowed between two supports for a straight
 // run carrying water (full of liquid) or vapor (empty / gas / steam).
@@ -92,7 +93,7 @@ int? supportsOnRun(int runMm, int spacingMm) {
 /// Parses a run length typed in metres (comma or dot) into whole millimetres.
 /// Returns null when the text is not a number.
 int? runLengthMm(String text) {
-  final v = double.tryParse(text.trim().replaceAll(',', '.'));
+  final v = parseDecimal(text);
   if (v == null || !v.isFinite) return null;
   return (v * 1000).round();
 }

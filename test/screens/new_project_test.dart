@@ -69,7 +69,7 @@ void main() {
 
     // enterText runs the value through the field's inputFormatters, so this
     // asserts the filter keeps '.' / ',' (the whole point of the fix) while
-    // rejecting characters double.tryParse would choke on.
+    // refusing characters the parser would choke on.
     final diameter = _fieldWithLabel('Pipe diameter (mm)');
     await tester.enterText(diameter, '76.2');
     expect(
@@ -79,12 +79,22 @@ void main() {
     );
 
     final wall = _fieldWithLabel('Wall thickness (mm)');
+    await tester.enterText(wall, '2,77');
+    expect(
+      tester.widget<TextField>(wall).controller?.text,
+      '2,77',
+      reason: 'the comma a Polish decimal pad types must survive the filter',
+    );
+
+    // A paste with letters in it is refused as a whole — the field keeps
+    // its value. Cutting the letters out instead ('2a,7x7' → '2,77') would
+    // hand the parser a number nobody typed; with '1e5' it becomes '15'.
     await tester.enterText(wall, '2a,7x7');
     expect(
       tester.widget<TextField>(wall).controller?.text,
       '2,77',
-      reason: 'letters must be filtered out before double.tryParse sees them '
-          'and rejects the whole value as "invalid wall thickness"',
+      reason: 'letters must never reach the parser, and must never be '
+          'silently cut out of a value either',
     );
   });
 }

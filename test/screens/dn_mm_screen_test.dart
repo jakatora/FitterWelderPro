@@ -40,7 +40,7 @@ void main() {
       controller: AppLanguageController(AppLanguage.pl),
       child: const MaterialApp(home: DnMmScreen()),
     ));
-    await tester.enterText(find.byType(TextField).at(1), '101.6');
+    await tester.enterText(find.byType(TextField).at(1), '101,6');
     await tester.pumpAndSettle();
     expect(find.text('3 1/2"'), findsOneWidget);
     expect(find.text('90'), findsOneWidget);

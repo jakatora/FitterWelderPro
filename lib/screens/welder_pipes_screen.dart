@@ -13,6 +13,7 @@ import '../i18n/app_language.dart';
 import '../models/weld_param.dart';
 import '../models/approved_weld_param.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 enum WeldingMethod { tigWire, tigNoWire }
 
@@ -300,7 +301,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
     }
 
     String? reqNum(String? v) {
-      final x = double.tryParse((v ?? '').replaceAll(',', '.'));
+      final x = parseDecimal(v);
       if (x == null || x <= 0) return _tr('Wpisz liczbę > 0', 'Enter a number > 0');
       return null;
     }
@@ -397,7 +398,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: diameterCtrl,
                             validator: reqNum,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Średnica rury OD [mm]', 'Pipe OD [mm]')),
                           ),
                         ),
@@ -406,7 +408,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: wallCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Grubość ścianki t [mm]', 'Wall thickness t [mm]')),
                           ),
                         ),
@@ -432,7 +435,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: torchGasCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz na palnik [L/min]', 'Torch gas [L/min]')),
                           ),
                         ),
@@ -441,7 +445,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: purgeCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz do środka (purge) [L/min]', 'Internal gas (purge) [L/min]')),
                           ),
                         ),
@@ -474,14 +479,16 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     TextFormField(
                       controller: ampsCtrl,
                       validator: reqNum,
-                      keyboardType: TextInputType.number,
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       decoration: InputDecoration(labelText: _tr('Ampery [A]', 'Amps [A]')),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: outletHolesCtrl,
                       validator: reqInt0,
-                      keyboardType: TextInputType.number,
+                      keyboardType: numberKeyboard(decimal: false),
+                      inputFormatters: numberInputFormatters(decimal: false),
                       decoration: InputDecoration(
                         labelText: _tr('Ilość otworów wylotowych', 'Number of outlet holes'),
                         helperText: _tr('Opcjonalnie (np. dla purge)', 'Optional (for example for purge)'),
@@ -521,14 +528,14 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                   method: _methodToDb(method),
                   baseMaterial: baseMaterial,
                   welderModel: welderModelCtrl.text.trim().isEmpty ? null : welderModelCtrl.text.trim(),
-                  diameterMm: double.parse(diameterCtrl.text.replaceAll(',', '.')),
-                  wallThicknessMm: double.parse(wallCtrl.text.replaceAll(',', '.')),
+                  diameterMm: parseDecimal(diameterCtrl.text)!,
+                  wallThicknessMm: parseDecimal(wallCtrl.text)!,
                   electrodeMm: electrode,
-                  torchGasLpm: double.parse(torchGasCtrl.text.replaceAll(',', '.')),
+                  torchGasLpm: parseDecimal(torchGasCtrl.text)!,
                   nozzleType: nozzleTypeCtrl.text.trim().isEmpty ? null : nozzleTypeCtrl.text.trim(),
                   nozzleSize: nozzleSizeCtrl.text.trim().isEmpty ? null : nozzleSizeCtrl.text.trim(),
-                  purgeLpm: double.parse(purgeCtrl.text.replaceAll(',', '.')),
-                  amps: double.parse(ampsCtrl.text.replaceAll(',', '.')),
+                  purgeLpm: parseDecimal(purgeCtrl.text)!,
+                  amps: parseDecimal(ampsCtrl.text)!,
                   outletHoles: int.parse(outletHolesCtrl.text.trim()),
                   tempo: tempo,
                   note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
@@ -575,7 +582,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
     }
 
     String? reqNum(String? v) {
-      final x = double.tryParse((v ?? '').replaceAll(',', '.'));
+      final x = parseDecimal(v);
       if (x == null || x <= 0) return _tr('Wpisz liczbę > 0', 'Enter a number > 0');
       return null;
     }
@@ -626,7 +633,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: diameterCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Średnica rury OD [mm]', 'Pipe OD [mm]')),
                           ),
                         ),
@@ -635,7 +643,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: wallCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Grubość ścianki t [mm]', 'Wall thickness t [mm]')),
                           ),
                         ),
@@ -661,7 +670,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: torchGasCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz na palnik [L/min]', 'Torch gas [L/min]')),
                           ),
                         ),
@@ -670,7 +680,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           child: TextFormField(
                             controller: purgeCtrl,
                             validator: reqNum,
-                            keyboardType: TextInputType.number,
+                            keyboardType: numberKeyboard(),
+                            inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz do środka (purge) [L/min]', 'Internal gas (purge) [L/min]')),
                           ),
                         ),
@@ -703,14 +714,16 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     TextFormField(
                       controller: ampsCtrl,
                       validator: reqNum,
-                      keyboardType: TextInputType.number,
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       decoration: InputDecoration(labelText: _tr('Ampery [A]', 'Amps [A]')),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: outletHolesCtrl,
                       validator: reqInt0,
-                      keyboardType: TextInputType.number,
+                      keyboardType: numberKeyboard(decimal: false),
+                      inputFormatters: numberInputFormatters(decimal: false),
                       decoration: InputDecoration(
                         labelText: _tr('Ilość otworów wylotowych', 'Number of outlet holes'),
                         helperText: _tr('Opcjonalnie (np. dla purge)', 'Optional (for example for purge)'),
@@ -750,14 +763,14 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                   method: _methodToDb(method),
                   baseMaterial: baseMaterial,
                   welderModel: welderModelCtrl.text.trim().isEmpty ? null : welderModelCtrl.text.trim(),
-                  diameterMm: double.parse(diameterCtrl.text.replaceAll(',', '.')),
-                  wallThicknessMm: double.parse(wallCtrl.text.replaceAll(',', '.')),
+                  diameterMm: parseDecimal(diameterCtrl.text)!,
+                  wallThicknessMm: parseDecimal(wallCtrl.text)!,
                   electrodeMm: electrode,
-                  torchGasLpm: double.parse(torchGasCtrl.text.replaceAll(',', '.')),
+                  torchGasLpm: parseDecimal(torchGasCtrl.text)!,
                   nozzleType: nozzleTypeCtrl.text.trim().isEmpty ? null : nozzleTypeCtrl.text.trim(),
                   nozzleSize: nozzleSizeCtrl.text.trim().isEmpty ? null : nozzleSizeCtrl.text.trim(),
-                  purgeLpm: double.parse(purgeCtrl.text.replaceAll(',', '.')),
-                  amps: double.parse(ampsCtrl.text.replaceAll(',', '.')),
+                  purgeLpm: parseDecimal(purgeCtrl.text)!,
+                  amps: parseDecimal(ampsCtrl.text)!,
                   outletHoles: int.parse(outletHolesCtrl.text.trim()),
                   tempo: tempo,
                   note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
@@ -815,8 +828,8 @@ class _AmpTabState extends State<_AmpTab> {
 
   @override
   Widget build(BuildContext context) {
-    final d = double.tryParse(_diamCtrl.text.replaceAll(',', '.')) ?? 0;
-    final t = double.tryParse(_tCtrl.text.replaceAll(',', '.')) ?? 0;
+    final d = parseDecimal(_diamCtrl.text) ?? 0;
+    final t = parseDecimal(_tCtrl.text) ?? 0;
     final method = widget.methodGetter();
 
     // The calculator is for single-pass manual TIG. Above t = 3 mm the joint
@@ -846,14 +859,16 @@ class _AmpTabState extends State<_AmpTab> {
         const SizedBox(height: 10),
         TextField(
           controller: _diamCtrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Średnica zewnętrzna rury OD [mm]', 'Pipe OD [mm]')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _tCtrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Grubość ścianki t [mm]', 'Wall thickness t [mm]'),
             helperText: _tr('Maks. 3 mm — powyżej fazowanie + multi-pass',
@@ -1309,12 +1324,12 @@ class _GasTabState extends State<_GasTab> {
 
   @override
   Widget build(BuildContext context) {
-    final od = double.tryParse(_odCtrl.text.replaceAll(',', '.')) ?? 0;
-    final t = double.tryParse(_tCtrl.text.replaceAll(',', '.')) ?? 0;
-    final len = double.tryParse(_lenCtrl.text.replaceAll(',', '.')) ?? 0;
-    final qIn = double.tryParse(_flowInCtrl.text.replaceAll(',', '.')) ?? 0; // L/min
+    final od = parseDecimal(_odCtrl.text) ?? 0;
+    final t = parseDecimal(_tCtrl.text) ?? 0;
+    final len = parseDecimal(_lenCtrl.text) ?? 0;
+    final qIn = parseDecimal(_flowInCtrl.text) ?? 0; // L/min
     final nVents = int.tryParse(_ventsCtrl.text) ?? 0;
-    final ventDiaMm = double.tryParse(_ventDiaCtrl.text.replaceAll(',', '.')) ?? 0;
+    final ventDiaMm = parseDecimal(_ventDiaCtrl.text) ?? 0;
     final nChanges = int.tryParse(_nChangesCtrl.text) ?? 0;
 
     // clamp() on num returns num; we need a double for volume calculations.
@@ -1357,28 +1372,32 @@ class _GasTabState extends State<_GasTab> {
         const SizedBox(height: 8),
         TextField(
           controller: _odCtrl,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Średnica zewnętrzna rury OD [mm]', 'Pipe OD [mm]')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _tCtrl,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Grubość ścianki t [mm]', 'Wall thickness t [mm]')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _lenCtrl,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Długość odcinka do purge L [mm]', 'Section length to purge L [mm]')),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _flowInCtrl,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Przepływ gazu do środka Q [L/min]', 'Internal gas flow Q [L/min]'),
             helperText: _tr('Czas przedmuchu liczony dla tego Q', 'Pre-purge time is calculated for this Q'),
@@ -1391,7 +1410,8 @@ class _GasTabState extends State<_GasTab> {
             Expanded(
               child: TextField(
                 controller: _ventDiaCtrl,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: _tr('Średnica otworu wylotowego [mm]', 'Outlet hole diameter [mm]')),
                 onChanged: (_) => setState(() {}),
               ),
@@ -1400,7 +1420,8 @@ class _GasTabState extends State<_GasTab> {
             Expanded(
               child: TextField(
                 controller: _ventsCtrl,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(decimal: false),
+                inputFormatters: numberInputFormatters(decimal: false),
                 decoration: InputDecoration(labelText: _tr('Liczba otworów (szt.)', 'Number of holes (pcs)')),
                 onChanged: (_) => setState(() {}),
               ),
@@ -1438,7 +1459,8 @@ class _GasTabState extends State<_GasTab> {
             Expanded(
               child: TextField(
                 controller: _nChangesCtrl,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(decimal: false),
+                inputFormatters: numberInputFormatters(decimal: false),
                 decoration: InputDecoration(labelText: _tr('Wymiany objętości N', 'Volume changes N')),
                 onChanged: (_) => setState(() {}),
               ),

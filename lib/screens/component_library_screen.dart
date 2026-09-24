@@ -7,6 +7,7 @@ import '../models/library_component.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 class ComponentLibraryScreen extends StatefulWidget {
   const ComponentLibraryScreen({super.key});
@@ -136,8 +137,8 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
       _saving = true;
     });
 
-    final d = double.tryParse(_diameter.text.replaceAll(',', '.'));
-    final w = double.tryParse(_wall.text.replaceAll(',', '.'));
+    final d = parseDecimal(_diameter.text);
+    final w = parseDecimal(_wall.text);
     if (d == null || d <= 0) {
       setState(() {
         _error = context.tr(pl: 'Podaj średnicę', en: 'Enter diameter');
@@ -158,7 +159,7 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
     double? out;
 
     if (_isAxial) {
-      axis = double.tryParse(_axis.text.replaceAll(',', '.'));
+      axis = parseDecimal(_axis.text);
       if (axis == null || axis <= 0) {
         setState(() {
           _error = context.tr(pl: 'Podaj wymiar do osi', en: 'Enter axis dimension');
@@ -167,7 +168,7 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
         return;
       }
     } else {
-      len = double.tryParse(_len.text.replaceAll(',', '.'));
+      len = parseDecimal(_len.text);
       if (_type != 'OPEN_END') {
         if (len == null || len < 0) {
           setState(() {
@@ -178,7 +179,7 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
         }
       }
       if (_isReducer) {
-        out = double.tryParse(_diamOut.text.replaceAll(',', '.'));
+        out = parseDecimal(_diamOut.text);
         if (out == null || out <= 0) {
           setState(() {
             _error = context.tr(pl: 'Podaj średnicę wyjściową redukcji', en: 'Enter reducer outlet diameter');
@@ -248,25 +249,29 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
             ),
             TextField(
               controller: _diameter,
-              keyboardType: TextInputType.number,
+              keyboardType: numberKeyboard(),
+              inputFormatters: numberInputFormatters(),
               decoration: InputDecoration(labelText: context.tr(pl: 'Średnica (mm)', en: 'Diameter (mm)')),
             ),
             TextField(
               controller: _wall,
-              keyboardType: TextInputType.number,
+              keyboardType: numberKeyboard(),
+              inputFormatters: numberInputFormatters(),
               decoration: InputDecoration(labelText: context.tr(pl: 'Grubość ścianki (mm)', en: 'Wall thickness (mm)')),
             ),
             const SizedBox(height: 8),
             if (_isAxial)
               TextField(
                 controller: _axis,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Wymiar do osi A (mm)', en: 'A dimension to axis (mm)')),
               )
             else
               TextField(
                 controller: _len,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Długość L (mm)', en: 'Length L (mm)')),
               ),
             if (!_isAxial && !_isReducer)
@@ -283,7 +288,8 @@ class _AddComponentDialogState extends State<_AddComponentDialog> {
             if (_isReducer)
               TextField(
                 controller: _diamOut,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Średnica wyjściowa (mm)', en: 'Outlet diameter (mm)')),
               ),
             if (_error != null) Padding(

@@ -5,6 +5,7 @@ import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
+import '../widgets/number_field.dart';
 
 class PipeSlopeScreen extends StatefulWidget {
   const PipeSlopeScreen({super.key});
@@ -25,7 +26,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   final _mmPerMController = TextEditingController();
   (double, double, double)? _lastCalculation;
 
-  double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
+  double _parse(String v) => parseDecimal(v) ?? 0;
 
   // Pipe slope formulas:
   //   Rise = Length × slope% / 100
@@ -453,7 +454,8 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
       controller: ctrl,
       readOnly: readOnly,
       onChanged: (_) => setState(_clearComputed),
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

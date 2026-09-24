@@ -238,7 +238,8 @@ void main() {
       expect(find.textContaining('Arc efficiency GTAW: 60%'), findsOneWidget);
 
       // Energia łuku 12·100·60/90/1000 = 0,80 kJ/mm × η z WPS 0,80 = 0,64.
-      await _enter(tester, eta, '0.8');
+      // Przecinek — tak wpisuje η polska klawiatura dziesiętna.
+      await _enter(tester, eta, '0,8');
       expect(find.text('0.64'), findsOneWidget);
       expect(find.textContaining('η from WPS: 0.80'), findsOneWidget);
 
@@ -247,7 +248,12 @@ void main() {
       expect(find.textContaining('Check η from WPS'), findsOneWidget);
       expect(find.textContaining('NaN'), findsNothing);
 
+      // Litery nie wejdą do pola liczbowego (filtr odrzuca całą edycję), więc
+      // „zła wartość" to coś, co da się wystukać na klawiaturze: dwa
+      // separatory.
       await _enter(tester, eta, 'abc');
+      expect(tester.widget<TextField>(_field(eta)).controller?.text, '1.5');
+      await _enter(tester, eta, '0,8,5');
       expect(find.text('Invalid number'), findsOneWidget);
       expect(find.textContaining('NaN'), findsNothing);
 
