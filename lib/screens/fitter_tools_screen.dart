@@ -64,7 +64,7 @@ class FitterToolsScreen extends StatelessWidget {
       initialIndex: initialTab.clamp(0, 7),
       child: Scaffold(
         appBar: AppBar(
-          title: Text(context.tr(pl: 'Kalkulatory - Fitter', en: 'Calculators - Fitter')),
+          title: Text(context.tr(pl: 'Kalkulatory montera', en: 'Fitter calculators')),
           actions: [HelpButton(help: kHelpFitterTools)],
           bottom: TabBar(
             isScrollable: true,

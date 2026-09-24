@@ -11,6 +11,7 @@ import '../services/prefab_engine.dart';
 import '../utils/haptic.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // `splitIsoRef` lives next to the rule that decodes a saved row for the
 // gap recompute; re-exported so this screen stays its home for callers.
@@ -939,7 +940,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                                 const Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 4),
                                   child: Icon(Icons.arrow_forward_ios,
-                                      size: 12, color: Color(0xFF5A6478)),
+                                      size: 12, color: kTextMut),
                                 ),
                             ],
                           ],
@@ -1108,7 +1109,7 @@ class _SequenceChip extends StatelessWidget {
           const SizedBox(width: 6),
           GestureDetector(
             onTap: onRemove,
-            child: const Icon(Icons.close, size: 14, color: Color(0xFF5A6478)),
+            child: const Icon(Icons.close, size: 14, color: kTextMut),
           ),
         ],
       ),
@@ -1209,7 +1210,7 @@ class _IsoVisualization extends StatelessWidget {
             children: [
               Text(
                 startOff > 0 ? '← ${startOff.toStringAsFixed(1)} mm' : '← 0 mm',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF5A6478)),
+                style: const TextStyle(fontSize: 10, color: kTextMut),
               ),
               Text(
                 context.tr(pl: '── ISO ──', en: '── ISO ──'),
@@ -1217,7 +1218,7 @@ class _IsoVisualization extends StatelessWidget {
               ),
               Text(
                 endOff > 0 ? '${endOff.toStringAsFixed(1)} mm →' : '0 mm →',
-                style: const TextStyle(fontSize: 10, color: Color(0xFF5A6478)),
+                style: const TextStyle(fontSize: 10, color: kTextMut),
               ),
             ],
           ),
@@ -1379,7 +1380,7 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = dimmed ? const Color(0xFF5A6478) : const Color(0xFF9BA3C7);
+    final color = dimmed ? kTextMut : const Color(0xFF9BA3C7);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -1570,7 +1571,7 @@ class _RefOption extends StatelessWidget {
               width: 10, height: 10,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isDefault ? const Color(0xFFFF8E1E) : const Color(0xFF5A6478),
+                color: isDefault ? const Color(0xFFFF8E1E) : kTextMut,
               ),
             ),
             const SizedBox(width: 12),

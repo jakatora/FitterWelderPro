@@ -150,6 +150,13 @@ void main() {
       'lib/screens/weld_journal_screen.dart',
       'lib/screens/welder_tools_screen.dart',
       'lib/widgets/pipe_3d_preview.dart',
+      'lib/screens/bolt_torque_screen.dart',
+      'lib/screens/cut_list_summary_screen.dart',
+      'lib/screens/elbow_takeout_screen.dart',
+      'lib/screens/hydrotest_screen.dart',
+      'lib/screens/material_list_screen.dart',
+      'lib/screens/scan_review_screen.dart',
+      'lib/screens/segment_builder_screen.dart',
     ];
     for (final path in files) {
       final src = File(path).readAsStringSync().toUpperCase();

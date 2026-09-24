@@ -382,7 +382,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
           children: [
             Expanded(
                 child: Text(
-                    context.tr(pl: 'Saddle / Coping', en: 'Saddle / Coping'),
+                    context.tr(pl: 'Szablon siodła do druku', en: 'Printable saddle template'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 8),

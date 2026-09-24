@@ -8,6 +8,7 @@ import '../domain/bolting/bolt_torque.dart';
 import '../i18n/app_language.dart';
 import '../services/flange_catalog.dart';
 import '../utils/clipboard_helper.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Bolt torque calculator for flanged joints — ASME PCC-1 approach.
 //
@@ -42,7 +43,7 @@ const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFAB47BC);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut;
 const _kGold = Color(0xFFE8C14B);
 
 class BoltTorqueScreen extends StatefulWidget {

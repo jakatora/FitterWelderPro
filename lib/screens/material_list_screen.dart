@@ -12,6 +12,7 @@ import '../services/material_list_builder.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // ── Tekst BOM (wiersz na ekranie, kopiowanie, udostępnianie) ────────────────
 // Pure functions of (item, language) so the on-screen row, the long-press
@@ -423,7 +424,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                           size: 56,
                           // P3: dark-theme contrast — black38 empty-state icon
                           // was invisible on the dark background; muted slate.
-                          color: const Color(0xFF5A6478),
+                          color: kTextMut,
                         ),
                         const SizedBox(height: 12),
                         Text(

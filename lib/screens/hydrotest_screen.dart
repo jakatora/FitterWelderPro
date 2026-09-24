@@ -12,6 +12,7 @@ import '../services/hydrotest_export.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // P1-14: lokalna definicja pomocy dla ekranu hydrotest
 // (kHelpHydrotest nie istnieje w help_button.dart — dodajemy lokalnie,
@@ -60,7 +61,7 @@ const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut;
 
 /// Converts a pressure typed in [unit] into bar — the app's base unit for
 /// pressure, in the calculator and in `hydrotest_dao.dart` alike.

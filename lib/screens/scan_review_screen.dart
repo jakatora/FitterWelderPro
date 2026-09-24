@@ -35,6 +35,7 @@ import '../services/scan_to_project.dart';
 import '../services/iso_parser.dart';
 import '../utils/haptic.dart';
 import 'cut_list_summary_screen.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -43,7 +44,7 @@ const _kAmber = Color(0xFFFFC44D);
 const _kRed = Color(0xFFE74C3C);
 const _kGreen = Color(0xFF2ECC71);
 const _kSec = Color(0xFF9BA3C7);
-const _kMuted = Color(0xFF5A6478);
+const _kMuted = kTextMut;
 
 /// Default stock bar length (mm) for a project created from a scan — the
 /// same 6 m the manual "new project" form starts from.

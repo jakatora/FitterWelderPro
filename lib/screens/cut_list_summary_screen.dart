@@ -16,6 +16,7 @@ import '../services/pdf_export_service.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // csvQuote moved to services/cut_list_csv.dart; re-exported so existing
 // imports of this screen keep working.
@@ -62,7 +63,7 @@ const _kRed    = Color(0xFFE74C3C);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut;
 // Split cuts (longer than a stock bar) — amber, distinct from the orange
 // brand accent so the extra-weld warning does not read as decoration.
 const _kWarn   = Color(0xFFFFC107);
