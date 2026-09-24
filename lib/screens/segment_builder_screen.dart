@@ -71,6 +71,28 @@ IsoRefPoint _defaultRefPoint(LibraryComponent comp) {
   return IsoRefPoint.faceNear;
 }
 
+/// Reference point of a library anchor restored from a saved row.
+///
+/// A packed code written by this screen wins. A row from before the packing
+/// (`'FACE'`, or an empty END half) names no point, and the component's
+/// current default is not a safe stand-in: defaults may change, and the row
+/// was cut with whatever point produced its stored [storedValueMm]. So the
+/// point whose offset reproduces that stored value is taken first, and only
+/// when none does (the library value changed since) the default.
+IsoRefPoint restoredRefPoint(
+  LibraryComponent comp,
+  String code, {
+  required double storedValueMm,
+}) {
+  for (final p in IsoRefPoint.values) {
+    if (p.code == code) return p;
+  }
+  for (final p in _availableRefPoints(comp)) {
+    if ((_calcOffset(comp, p) - storedValueMm).abs() < 0.05) return p;
+  }
+  return _defaultRefPoint(comp);
+}
+
 // ─── Obliczenie offsetu ────────────────────────────────────────────────────
 double _calcOffset(LibraryComponent comp, IsoRefPoint ref) {
   switch (ref) {
@@ -96,18 +118,10 @@ double _calcOffset(LibraryComponent comp, IsoRefPoint ref) {
 /// is exactly what [SideStop] models: near face and open end stop at the pipe
 /// face, axis and centre stop on the component's centreline, far face runs
 /// through the whole body to the other side of it.
-SideStop stopForRefPoint(IsoRefPoint ref) {
-  switch (ref) {
-    case IsoRefPoint.faceNear:
-    case IsoRefPoint.open:
-      return SideStop.face;
-    case IsoRefPoint.axis:
-    case IsoRefPoint.center:
-      return SideStop.centre;
-    case IsoRefPoint.faceFar:
-      return SideStop.end;
-  }
-}
+///
+/// Goes through [sideStopForRefCode] — the table a saved row is decoded with —
+/// so the enum on screen and the code in the database cannot disagree.
+SideStop stopForRefPoint(IsoRefPoint ref) => sideStopForRefCode(ref.code)!;
 
 /// CUT length of one builder segment in millimetres, or NaN when the numbers
 /// cannot make a cuttable pipe (ISO shorter than what the ends and the weld
@@ -134,22 +148,17 @@ double builderCutMm({
   required double gapMm,
   required int welds,
 }) {
-  final startStop = stopForRefPoint(startRef);
-  final endStop = stopForRefPoint(endRef);
-  return PrefabEngine.cutLengthMm(
-    isoValueMm: isoMm,
-    // Both stops are known exactly here, so the engine is given them
-    // outright and needs no DimRef to guess from — which also lets the
-    // builder express shapes DimRef cannot name, such as far-face on BOTH
-    // anchors.
-    leftStop: startStop,
-    rightStop: endStop,
-    leftCteMm: startStop == SideStop.centre ? startOffsetMm : null,
-    leftPhysicalLenMm: startStop == SideStop.end ? startOffsetMm : null,
-    rightCteMm: endStop == SideStop.centre ? endOffsetMm : null,
-    rightPhysicalLenMm: endStop == SideStop.end ? endOffsetMm : null,
-    weldGapMm: gapMm,
-    weldCount: welds,
+  // Both stops are known exactly here, so the engine is given them outright
+  // and needs no DimRef to guess from — which also lets the builder express
+  // shapes DimRef cannot name, such as far-face on BOTH anchors.
+  return PrefabEngine.anchoredCutMm(
+    isoMm: isoMm,
+    startStop: stopForRefPoint(startRef),
+    startOffsetMm: startOffsetMm,
+    endStop: stopForRefPoint(endRef),
+    endOffsetMm: endOffsetMm,
+    gapMm: gapMm,
+    welds: welds,
   );
 }
 
@@ -175,6 +184,12 @@ const String kPipeTag = 'PIPE';
 
 /// Tag of a logical (library-less) end of a segment.
 const String kOpenEndTag = 'OPEN_END';
+
+/// Tag of an anchor restored from a saved row that has no component-library
+/// record behind it — the ISO scan review writes every fitting that way (its
+/// take-out comes from the ASME tables, not from the library). Never on the
+/// palette: such an anchor can only be kept as it was, or removed.
+const String kStoredAnchorTag = 'STORED';
 
 /// Number of welds — and so of root gaps — on a builder segment whose anchors
 /// carry [startTag] and [endTag]: one per anchor that is not [kOpenEndTag].
@@ -233,18 +248,74 @@ IsoRefPoint isoRefPointFromCode(String code, {required IsoRefPoint fallback}) {
   return fallback;
 }
 
+/// Reference point of a saved anchor that has no component-library record,
+/// or null when that anchor is an OPEN_END.
+///
+/// Decided by the stored kind, not by the missing library id: only a
+/// `'logical'` anchor is an open end. An `'axial'` / `'nonAxial'` anchor is a
+/// real fitting whose take-off was stored in `*_value_mm` (the scan review
+/// writes them so) and must come back as one — with its point decoded from
+/// the stored code. A code that names no point (legacy, garbage) falls back to
+/// the point that subtracts exactly the stored value: nothing for a zero,
+/// the centreline take-out for an axial fitting, the body for anything else.
+IsoRefPoint? restoredStoredAnchor({
+  required String kind,
+  required double valueMm,
+  required String refCode,
+}) {
+  if (kind == 'logical') return null;
+  final IsoRefPoint fallback;
+  if (valueMm == 0) {
+    fallback = IsoRefPoint.faceNear;
+  } else if (kind == 'axial') {
+    fallback = IsoRefPoint.axis;
+  } else {
+    fallback = IsoRefPoint.faceFar;
+  }
+  final p = isoRefPointFromCode(refCode, fallback: fallback);
+  // OPEN is the code of a logical end; on a fitting it can only be a broken
+  // row, and it subtracts nothing — same as the fallback for a zero.
+  return p == IsoRefPoint.open ? fallback : p;
+}
+
 // ─── Picked ────────────────────────────────────────────────────────────────
 class _Picked {
   final String tag;
   final LibraryComponent? component;
   final IsoRefPoint refPoint;
 
-  _Picked({required this.tag, required this.component, required this.refPoint});
+  /// For a [kStoredAnchorTag] anchor only: the saved `*_kind` ('axial' /
+  /// 'nonAxial') and `*_value_mm` — what the side took off when it was
+  /// saved. With no library record there is nothing to recompute it from.
+  final String? storedKind;
+  final double? storedOffsetMm;
 
-  bool get isLogical => component == null;
-  bool get isAxial   => component?.isAxial ?? false;
+  _Picked({required this.tag, required this.component, required this.refPoint})
+      : storedKind = null,
+        storedOffsetMm = null;
+
+  _Picked.stored({
+    required String kind,
+    required double offsetMm,
+    required this.refPoint,
+  })  : tag = kStoredAnchorTag,
+        component = null,
+        storedKind = kind,
+        storedOffsetMm = offsetMm;
+
+  bool get isStored  => storedKind != null;
+  bool get isLogical => component == null && !isStored;
+  bool get isAxial   => component?.isAxial ?? (storedKind == 'axial');
+
+  /// Value for `segments.start_kind` / `end_kind`.
+  String get kindCode {
+    if (isStored) return storedKind!;
+    if (isLogical) return 'logical';
+    return isAxial ? 'axial' : 'nonAxial';
+  }
 
   double get offsetMm {
+    if (isStored) return storedOffsetMm!;
     if (isLogical) return 0;
     return _calcOffset(component!, refPoint);
   }
@@ -252,6 +323,11 @@ class _Picked {
   String chipLabel(BuildContext ctx) {
     if (tag == 'OPEN_END') return ctx.tr(pl: 'Open end', en: 'Open end');
     if (tag == 'PIPE')     return ctx.tr(pl: 'Rura',     en: 'Pipe');
+    if (isStored) {
+      return isAxial
+          ? ctx.tr(pl: 'Kształtka (skan)', en: 'Fitting (scan)')
+          : ctx.tr(pl: 'Element (skan)', en: 'Component (scan)');
+    }
     return _typeLabel(ctx, component?.type ?? tag);
   }
 
@@ -328,7 +404,8 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   /// plus the tag fully describe a pick.
   String _signature() => [
         for (final p in _sequence)
-          '${p.tag}/${p.component?.id ?? ''}/${p.refPoint.code}',
+          '${p.tag}/${p.component?.id ?? ''}/${p.refPoint.code}'
+              '/${p.storedKind ?? ''}/${p.storedOffsetMm ?? ''}',
         _isoController.text.trim(),
       ].join('|');
 
@@ -393,20 +470,33 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   ///
   /// Only the two anchors are stored (`start_*` / `end_*`); the pipe between
   /// them is implied by the shape of every segment, so it is re-inserted here.
-  /// Offsets are deliberately NOT taken from the stored `*_value_mm` columns
-  /// but recomputed from the library component and reference point, so that a
-  /// takeout corrected in the library since (a 76.2 typed as 762) is picked up
-  /// by this edit instead of being frozen into the row forever.
+  /// For an anchor with a library record the offset is deliberately NOT taken
+  /// from the stored `*_value_mm` column but recomputed from the library
+  /// component and reference point, so that a takeout corrected in the
+  /// library since (a 76.2 typed as 762) is picked up by this edit instead of
+  /// being frozen into the row forever. An anchor with NO library record (the
+  /// scan review writes every fitting that way) has nothing to recompute
+  /// from, so its stored kind, value and point are restored as they are.
   Future<void> _restoreExisting() async {
     final seg = widget.existing;
     if (seg == null) return;
 
     final refs = splitIsoRef(seg.isoRef);
-    final start = await _restorePick(seg.startLibraryId, refs.start);
+    final start = await _restorePick(
+      kind: seg.startKind,
+      libraryId: seg.startLibraryId,
+      valueMm: seg.startValueMm,
+      refCode: refs.start,
+    );
     if (!mounted) return;
     final end = start == null
         ? null
-        : await _restorePick(seg.endLibraryId, refs.end);
+        : await _restorePick(
+            kind: seg.endKind,
+            libraryId: seg.endLibraryId,
+            valueMm: seg.endValueMm,
+            refCode: refs.end,
+          );
     if (!mounted) return;
 
     setState(() {
@@ -445,20 +535,40 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     }
   }
 
-  Future<_Picked?> _restorePick(String? libraryId, String refCode) async {
+  Future<_Picked?> _restorePick({
+    required String kind,
+    required String? libraryId,
+    required double valueMm,
+    required String refCode,
+  }) async {
     if (libraryId == null) {
-      // No library row means the anchor was logical, and OPEN_END is the only
-      // logical anchor a segment can start or finish on (PIPE lives strictly
-      // in the middle).
-      return _Picked(
-          tag: kOpenEndTag, component: null, refPoint: IsoRefPoint.open);
+      final stored = restoredStoredAnchor(
+        kind: kind,
+        valueMm: valueMm,
+        refCode: refCode,
+      );
+      if (stored == null) {
+        // Only a genuinely logical anchor is an OPEN_END — the one logical
+        // anchor a segment can start or finish on (PIPE lives strictly in
+        // the middle). This used to be assumed for EVERY row without a
+        // library id, which turned each scanned elbow into an open end with
+        // offset 0: "Save changes" on an untouched scanned segment then
+        // rewrote its CUT to the bare ISO dimension.
+        return _Picked(
+            tag: kOpenEndTag, component: null, refPoint: IsoRefPoint.open);
+      }
+      return _Picked.stored(
+        kind: kind,
+        offsetMm: valueMm,
+        refPoint: stored,
+      );
     }
     final comp = await _dao.getById(libraryId);
     if (comp == null) return null;
     return _Picked(
       tag: comp.type,
       component: comp,
-      refPoint: isoRefPointFromCode(refCode, fallback: _defaultRefPoint(comp)),
+      refPoint: restoredRefPoint(comp, refCode, storedValueMm: valueMm),
     );
   }
 
@@ -918,8 +1028,8 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                       Haptic.saved();
                       _saving = true;
                       Navigator.pop(context, {
-                        'startKind':     _startPicked!.isLogical ? 'logical' : (_startPicked!.isAxial ? 'axial' : 'nonAxial'),
-                        'endKind':       _endPicked!.isLogical   ? 'logical' : (_endPicked!.isAxial   ? 'axial' : 'nonAxial'),
+                        'startKind':     _startPicked!.kindCode,
+                        'endKind':       _endPicked!.kindCode,
                         'startValue':    _startPicked!.offsetMm,
                         'endValue':      _endPicked!.offsetMm,
                         'isoRef':        '${_startPicked!.refPoint.code}|${_endPicked!.refPoint.code}',
@@ -967,6 +1077,9 @@ class _SequenceChip extends StatelessWidget {
         children: [
           if (picked.component != null)
             ComponentIcon(type: picked.component!.type, size: 16)
+          else if (picked.isStored)
+            const Icon(Icons.document_scanner_outlined,
+                size: 16, color: Color(0xFF9BA3C7))
           else
             const Icon(Icons.open_in_new, size: 16, color: Color(0xFF9BA3C7)),
           const SizedBox(width: 6),

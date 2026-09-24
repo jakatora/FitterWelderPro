@@ -34,8 +34,96 @@ enum SideStop {
   centre,
 }
 
+/// The stop a stored reference-point code stands for, or null for a code
+/// that names no stop (legacy `'FACE'`, an empty half, garbage).
+///
+/// The codes are the ones `segments.iso_ref` holds, `START|END`, written by
+/// the segment builder (`IsoRefPoint.code`) and by the scan review:
+///   * `FACE_NEAR`, `OPEN` — the dimension stops at the face the pipe meets
+///     (or at a free pipe end), nothing of the anchor lies in the span;
+///   * `AXIS`, `CENTER` — it stops on the anchor's centreline;
+///   * `FACE_FAR` — it runs through the anchor's body to its far face.
+///
+/// One table for every reader: the builder maps its enum through it, and a
+/// saved row is decoded with it when the project's gap changes, so a code can
+/// never mean one stop on screen and another in the recompute.
+SideStop? sideStopForRefCode(String code) {
+  switch (code) {
+    case 'FACE_NEAR':
+    case 'OPEN':
+      return SideStop.face;
+    case 'AXIS':
+    case 'CENTER':
+      return SideStop.centre;
+    case 'FACE_FAR':
+      return SideStop.end;
+  }
+  return null;
+}
+
 class PrefabEngine {
   const PrefabEngine._();
+
+  /// CUT of a pipe between two anchors whose stops are known exactly, each
+  /// with the length that stop takes off ([startOffsetMm] / [endOffsetMm]:
+  /// the take-out for a centre stop, the body for an end stop, ignored for a
+  /// face stop), less [gapMm] × [welds]. NaN when there is nothing to cut.
+  ///
+  /// This is the rule every anchored caller shares — the segment builder, the
+  /// scan review, and the recompute of saved segments after a project's gap
+  /// changes — so a segment saved on one of those paths and reopened on
+  /// another comes back with the same number.
+  static double anchoredCutMm({
+    required double isoMm,
+    required SideStop startStop,
+    required double startOffsetMm,
+    required SideStop endStop,
+    required double endOffsetMm,
+    required double gapMm,
+    required int welds,
+  }) {
+    return cutLengthMm(
+      isoValueMm: isoMm,
+      leftStop: startStop,
+      rightStop: endStop,
+      leftCteMm: startStop == SideStop.centre ? startOffsetMm : null,
+      leftPhysicalLenMm: startStop == SideStop.end ? startOffsetMm : null,
+      rightCteMm: endStop == SideStop.centre ? endOffsetMm : null,
+      rightPhysicalLenMm: endStop == SideStop.end ? endOffsetMm : null,
+      weldGapMm: gapMm,
+      weldCount: welds,
+    );
+  }
+
+  /// Which stop [cutLengthMm] gives each side for the same arguments, or null
+  /// when it has nothing to work from (it would return NaN).
+  ///
+  /// Public so a caller that measured by [DimRef] can store what was actually
+  /// subtracted on each side — the scan review writes these stops into
+  /// `segments.iso_ref` — instead of a guess that reopens as a different cut.
+  static ({SideStop left, SideStop right})? resolveSideStops({
+    DimRef? ref,
+    num? leftCteMm,
+    num? rightCteMm,
+    num? leftPhysicalLenMm,
+    num? rightPhysicalLenMm,
+    bool leftIsPhysical = false,
+    bool rightIsPhysical = false,
+    SideStop? leftStop,
+    SideStop? rightStop,
+  }) {
+    return _resolveStops(
+      ref: ref,
+      leftStop: leftStop,
+      rightStop: rightStop,
+      leftIsPhysical: leftIsPhysical,
+      rightIsPhysical: rightIsPhysical,
+      lc: (leftCteMm ?? 0).toDouble(),
+      rc: (rightCteMm ?? 0).toDouble(),
+      lp: (leftPhysicalLenMm ?? 0).toDouble(),
+      rp: (rightPhysicalLenMm ?? 0).toDouble(),
+    );
+  }
 
   /// Cut length of a pipe segment in millimetres, given the ISO dimension
   /// between two anchors and how that dimension was measured.

@@ -34,6 +34,7 @@ import '../data/pipe_schedules.dart';
 import '../models/prefab/component_behaviour.dart';
 import '../models/prefab/dim_ref.dart';
 import 'component_classification.dart';
+import 'iso_parser.dart';
 import 'iso_scanner_ai.dart';
 import 'prefab_engine.dart';
 import 'takeout_catalog.dart';
@@ -293,10 +294,21 @@ class ScanEndpoint {
     return isAxial ? takeoutMm : 0;
   }
 
-  /// Reference point code the segment builder writes into `segments.iso_ref`.
-  /// Axial fittings are dimensioned to their axis, everything else to the
-  /// near face.
-  String get isoRefCode => isAxial ? 'AXIS' : 'FACE_NEAR';
+  /// Reference point code the segment builder writes into `segments.iso_ref`,
+  /// as proposed before the fitter confirmed how the dimension was measured:
+  /// axial fittings to their axis, an end with nothing fitted (open end,
+  /// weld, support) as `OPEN` — the code the builder gives its own open end —
+  /// and everything else to the near face. Once the reference is known the
+  /// stored code comes from [PlannedSegment.anchorColumns] instead.
+  String get isoRefCode {
+    if (isAxial) return 'AXIS';
+    if (kind == ScanEndKind.logical) return 'OPEN';
+    return 'FACE_NEAR';
+  }
+
+  /// Whether nothing is welded here, so no root gap is taken off: the same
+  /// end the segment builder calls OPEN_END and stores as kind `logical`.
+  bool get isOpenEnd => kind == ScanEndKind.logical;
 }
 
 /// One length of pipe between two ends, in route order.
@@ -338,6 +350,10 @@ class PlannedSegment {
   /// other segment — a branch, typically a tee header.
   final bool isBranch;
 
+  /// Root gap per weld (mm) of the project this segment will be saved into —
+  /// the same `projects.gap_mm` the segment builder subtracts. 0 = none.
+  final double gapMm;
+
   const PlannedSegment({
     required this.sourceId,
     required this.seqNo,
@@ -351,7 +367,15 @@ class PlannedSegment {
     this.confidence = AiConfidence.unknown,
     this.startsNewRun = false,
     this.isBranch = false,
+    this.gapMm = 0,
   });
+
+  /// Welds on this run — one per end something is welded to, none for an
+  /// open end ([PrefabEngine.weldCountForEnds], the builder's rule).
+  int get weldCount => PrefabEngine.weldCountForEnds(
+        startIsOpenEnd: start.isOpenEnd,
+        endIsOpenEnd: end.isOpenEnd,
+      );
 
   /// Copy with a resolved dimension reference and the cut that follows from
   /// it. Used by the screen once the fitter answers a
@@ -370,6 +394,7 @@ class PlannedSegment {
       confidence: confidence,
       startsNewRun: startsNewRun,
       isBranch: isBranch,
+      gapMm: gapMm,
     );
   }
 
@@ -384,8 +409,121 @@ class PlannedSegment {
       end.offsetMm != null;
 
   /// Value for `segments.iso_ref`, in the `START|END` encoding the segment
-  /// builder writes.
-  String get isoRefCode => '${start.isoRefCode}|${end.isoRefCode}';
+  /// builder writes: the stops actually used once the reference is known,
+  /// the proposal before that.
+  String get isoRefCode {
+    final cols = anchorColumns;
+    if (cols != null) return '${cols.startRef}|${cols.endRef}';
+    return '${start.isoRefCode}|${end.isoRefCode}';
+  }
+
+  /// What `segments.start_value_mm` / `end_value_mm` / `iso_ref` must hold for
+  /// this run, or null while the cut is not known.
+  ///
+  /// Each side stores the stop [PrefabEngine] actually used for it and the
+  /// length that stop took off — the take-out on a centre stop, the body on
+  /// an end stop, nothing on a face stop. Written that way the row explains
+  /// its own `cut_mm`: the segment builder reopens it with the same stops and
+  /// the same numbers and arrives at the same cut. Before this the row always
+  /// said `AXIS` / `FACE_NEAR` with the take-out (or 0), so a run measured
+  /// through a valve body (face-to-end) was stored as if it stopped at the
+  /// valve face, and an untouched "Save changes" gave the body back to the
+  /// pipe.
+  ({String startRef, double startValueMm, String endRef, double endValueMm})?
+      get anchorColumns {
+    final ref = dimRef;
+    if (ref == null || cutMm == null) return null;
+    final a = _resolvedAnchors(this, ref);
+    if (a == null) return null;
+    return (
+      startRef: _storedRefCode(start, a.startStop),
+      startValueMm: a.startMm,
+      endRef: _storedRefCode(end, a.endStop),
+      endValueMm: a.endMm,
+    );
+  }
+}
+
+/// Code for `segments.iso_ref` of one side of a scanned run.
+String _storedRefCode(ScanEndpoint e, SideStop stop) {
+  // Nothing fitted: whatever the stop, nothing is taken off, and `OPEN` is
+  // what the builder calls — and restores as — an end like that.
+  if (e.isOpenEnd) return 'OPEN';
+  switch (stop) {
+    case SideStop.face:
+      return 'FACE_NEAR';
+    case SideStop.centre:
+      return e.isAxial ? 'AXIS' : 'CENTER';
+    case SideStop.end:
+      return 'FACE_FAR';
+  }
+}
+
+/// The `segments` row the scan review writes for [seg], or null while [seg]
+/// is not complete.
+///
+/// Pure, so the round trip "scan → saved row → segment builder" can be tested
+/// without a screen: the anchors go in as [PlannedSegment.anchorColumns]
+/// describe them and the ISO text is one the builder's parser reads back to
+/// the same millimetres.
+Map<String, Object?>? segmentRowFor(
+  PlannedSegment seg, {
+  required String id,
+  required String projectId,
+  required double diameterMm,
+  required double wallThicknessMm,
+  required int nowMs,
+}) {
+  final isoMm = seg.isoMm;
+  final cutMm = seg.cutMm;
+  final cols = seg.anchorColumns;
+  if (isoMm == null || cutMm == null || cols == null || !seg.isComplete) {
+    return null;
+  }
+  return {
+    'id': id,
+    'project_id': projectId,
+    'seq_no': seg.seqNo,
+    'diameter_mm': diameterMm,
+    'wall_thickness_mm': wallThicknessMm,
+    'start_kind': seg.start.kind.code,
+    // No component-library row exists for a scanned fitting — its take-off
+    // is in start_value_mm / end_value_mm and the point it was measured to
+    // in iso_ref (see PlannedSegment.anchorColumns).
+    'start_library_id': null,
+    'start_value_mm': cols.startValueMm,
+    'end_kind': seg.end.kind.code,
+    'end_library_id': null,
+    'end_value_mm': cols.endValueMm,
+    'iso_ref': '${cols.startRef}|${cols.endRef}',
+    'iso_expr': _storedIsoExpr(seg.isoExpr, isoMm),
+    'iso_mm': isoMm,
+    'cut_mm': cutMm,
+    'created_at': nowMs,
+    'updated_at': nowMs,
+  };
+}
+
+/// ISO text for `segments.iso_expr`: the dimension as printed when the
+/// builder's parser reads it back to [isoMm], otherwise [isoMm] itself.
+///
+/// The builder puts this text in its ISO field on "edit" and recomputes from
+/// it. A drawing's `4'-6"` it cannot parse would leave the edit with no CUT
+/// and a dead save button, and the old whole-millimetre fallback turned a
+/// 1371.6 dimension into 1372 on the first re-save.
+String _storedIsoExpr(String? raw, double isoMm) {
+  final t = raw?.trim();
+  if (t != null && t.isNotEmpty) {
+    try {
+      if ((parseIsoExpression(t) - isoMm).abs() < 0.0005) return t;
+    } on FormatException {
+      // Falls through to the number itself.
+    }
+  }
+  var text = isoMm.toStringAsFixed(3);
+  text = text.replaceFirst(RegExp(r'0+$'), '');
+  if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+  return text;
 }
 
 /// The complete plan: header, segments, and everything still open.
@@ -446,7 +584,11 @@ ScanPlan planFromScan(
   AiScanResult scan, {
   double? diameterMm,
   double? wallThicknessMm,
+  double gapMm = 0,
 }) {
+  // The project's root gap per weld, exactly as the segment builder takes it
+  // off. A nonsense value (negative, NaN) is not a reason to LENGTHEN a pipe.
+  final gap = (gapMm.isFinite && gapMm > 0) ? gapMm : 0.0;
   final gaps = <ScanIssue>[];
   final warnings = <ScanIssue>[];
 
@@ -720,6 +862,7 @@ ScanPlan planFromScan(
       confidence: seg.confidence,
       startsNewRun: position > 0 && route.runStarts.contains(position),
       isBranch: _touchesBranch(seg, route.branchNodes),
+      gapMm: gap,
     );
 
     if (dimRef != null) {
@@ -757,6 +900,7 @@ ScanPlan planFromScan(
         confidence: segment.confidence,
         startsNewRun: segment.startsNewRun,
         isBranch: segment.isBranch,
+        gapMm: segment.gapMm,
       );
     }
 
@@ -790,7 +934,34 @@ ScanPlan planFromScan(
 /// Public because the screen calls it again after the fitter answers a
 /// [ScanIssueCode.dimensionReferenceUnknown] gap: the plan itself never
 /// picks a reference it cannot derive.
+///
+/// The segment's root gap ([PlannedSegment.gapMm]) comes off once per weld
+/// ([PlannedSegment.weldCount]), through the same
+/// [PrefabEngine.anchoredCutMm] the segment builder uses. This screen used to
+/// save every project with gap 0 and cut without it, so a scanned run and the
+/// same run rebuilt by hand differed by the gap on every joint.
 double? cutMmForSegment(PlannedSegment segment, DimRef ref) {
+  final a = _resolvedAnchors(segment, ref);
+  if (a == null) return null;
+  final cut = PrefabEngine.anchoredCutMm(
+    isoMm: segment.isoMm!,
+    startStop: a.startStop,
+    startOffsetMm: a.startMm,
+    endStop: a.endStop,
+    endOffsetMm: a.endMm,
+    gapMm: segment.gapMm,
+    welds: segment.weldCount,
+  );
+  return cut.isFinite ? cut : null;
+}
+
+/// The stop [PrefabEngine] gives each side of [segment] under [ref], with the
+/// length that stop takes off; null when an input it needs is not known.
+///
+/// Shared by [cutMmForSegment] and [PlannedSegment.anchorColumns], so the
+/// saved row describes exactly the arithmetic its cut came from.
+({SideStop startStop, double startMm, SideStop endStop, double endMm})?
+    _resolvedAnchors(PlannedSegment segment, DimRef ref) {
   final iso = segment.isoMm;
   if (iso == null || !iso.isFinite || iso <= 0) return null;
 
@@ -819,8 +990,7 @@ double? cutMmForSegment(PlannedSegment segment, DimRef ref) {
     return null;
   }
 
-  final cut = PrefabEngine.cutLengthMm(
-    isoValueMm: iso,
+  final stops = PrefabEngine.resolveSideStops(
     ref: ref,
     leftCteMm: leftCte,
     rightCteMm: rightCte,
@@ -829,7 +999,25 @@ double? cutMmForSegment(PlannedSegment segment, DimRef ref) {
     leftIsPhysical: start.isPhysical,
     rightIsPhysical: end.isPhysical,
   );
-  return cut.isFinite ? cut : null;
+  if (stops == null) return null;
+
+  double takes(SideStop stop, int? cte, int? body) {
+    switch (stop) {
+      case SideStop.centre:
+        return (cte ?? 0).toDouble();
+      case SideStop.end:
+        return (body ?? 0).toDouble();
+      case SideStop.face:
+        return 0;
+    }
+  }
+
+  return (
+    startStop: stops.left,
+    startMm: takes(stops.left, leftCte, leftBody),
+    endStop: stops.right,
+    endMm: takes(stops.right, rightCte, rightBody),
+  );
 }
 
 int? _roundOrNull(double? v) => v?.round();

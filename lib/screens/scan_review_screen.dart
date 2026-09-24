@@ -475,41 +475,25 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       projectWritten = true;
 
       for (final seg in _segments) {
-        final isoMm = seg.isoMm;
-        final cutMm = seg.cutMm;
-        final startOffset = seg.start.offsetMm;
-        final endOffset = seg.end.offsetMm;
-        if (isoMm == null ||
-            cutMm == null ||
-            startOffset == null ||
-            endOffset == null) {
+        // One pure function builds the row, so what is saved here is exactly
+        // what the segment builder reads back on "edit": each side's stop in
+        // iso_ref and the length it took off in *_value_mm. The row used to
+        // say AXIS / FACE_NEAR whatever reference the fitter confirmed, and
+        // an untouched re-save in the builder then changed the cut.
+        final row = segmentRowFor(
+          seg,
+          id: const Uuid().v4(),
+          projectId: projectId,
+          diameterMm: diameterMm,
+          wallThicknessMm: wallMm,
+          nowMs: now,
+        );
+        if (row == null) {
           // Unreachable while _canSave holds; kept so a future change to the
           // gate can never silently write a segment with a missing column.
           throw StateError('segment ${seg.seqNo} is incomplete');
         }
-        await segmentDao.insert({
-          'id': const Uuid().v4(),
-          'project_id': projectId,
-          'seq_no': seg.seqNo,
-          'diameter_mm': diameterMm,
-          'wall_thickness_mm': wallMm,
-          'start_kind': seg.start.kind.code,
-          // No component-library row exists for a scanned fitting — the
-          // take-out is already baked into start_value_mm / end_value_mm.
-          'start_library_id': null,
-          'start_value_mm': startOffset,
-          'end_kind': seg.end.kind.code,
-          'end_library_id': null,
-          'end_value_mm': endOffset,
-          'iso_ref': seg.isoRefCode,
-          'iso_expr': (seg.isoExpr?.trim().isNotEmpty ?? false)
-              ? seg.isoExpr!.trim()
-              : isoMm.toStringAsFixed(0),
-          'iso_mm': isoMm,
-          'cut_mm': cutMm,
-          'created_at': now,
-          'updated_at': now,
-        });
+        await segmentDao.insert(row);
       }
     } catch (e) {
       await _rollback(
