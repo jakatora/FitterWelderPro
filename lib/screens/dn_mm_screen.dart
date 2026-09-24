@@ -5,6 +5,16 @@ import '../data/nps_dn_od_r.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
+/// Short label of the dimensional series of an OD row.
+String _seriesLabel(BuildContext context, OdSeries s) => switch (s) {
+      OdSeries.asme => 'ASME',
+      OdSeries.en1 => 'EN s.1',
+      OdSeries.asmeAndEn1 => 'ASME / EN s.1',
+      OdSeries.en2 => 'EN s.2',
+      OdSeries.en3 => 'EN s.3',
+      OdSeries.other => context.tr(pl: 'inna', en: 'other'),
+    };
+
 class DnMmScreen extends StatefulWidget {
   const DnMmScreen({super.key});
 
@@ -120,38 +130,68 @@ class _DnMmScreenState extends State<DnMmScreen> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      child: DataTable(
-                        columns: const [
-                          DataColumn(label: Text('NPS')),
-                          DataColumn(label: Text('DN')),
-                          DataColumn(label: Text('OD [mm]')),
-                          DataColumn(label: Text('R [mm]')),
-                        ],
-                        rows: [
-                          for (final r in rows)
-                            DataRow(
-                              // Long-press a reference row to copy it as a
-                              // single line (e.g. into a chat/SMS to a foreman).
-                              // copyToClipboard already fires Haptic.copied().
-                              onLongPress: () => copyToClipboard(
-                                context,
-                                '${r.nps}  DN${r.dn}  OD ${r.odMm.toStringAsFixed(r.odMm % 1 == 0 ? 0 : 2)} mm  R ${r.rMm.toStringAsFixed(r.rMm % 1 == 0 ? 0 : 2)} mm',
-                                label: 'DN/OD',
-                              ),
-                              cells: [
-                                DataCell(Text(r.nps)),
-                                DataCell(Text(r.dn.toString())),
-                                DataCell(Text(r.odMm.toStringAsFixed(r.odMm % 1 == 0 ? 0 : 2))),
-                                DataCell(Text(r.rMm.toStringAsFixed(r.rMm % 1 == 0 ? 0 : 2))),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
+                  : _table(context, rows),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _table(BuildContext context, List<NpsRow> rows) {
+    String fmt(double v) => v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columnSpacing: 18,
+              columns: [
+                const DataColumn(label: Text('NPS')),
+                const DataColumn(label: Text('DN')),
+                const DataColumn(label: Text('OD [mm]')),
+                const DataColumn(label: Text('R [mm]')),
+                DataColumn(label: Text(context.tr(pl: 'Seria', en: 'Series'))),
+              ],
+              rows: [
+                for (final r in rows)
+                  DataRow(
+                    // Long-press a reference row to copy it as a
+                    // single line (e.g. into a chat/SMS to a foreman).
+                    // copyToClipboard already fires Haptic.copied().
+                    onLongPress: () => copyToClipboard(
+                      context,
+                      '${r.nps}  DN${r.dn}  OD ${fmt(r.odMm)} mm  R ${fmt(r.rMm)} mm',
+                      label: 'DN/OD',
+                    ),
+                    cells: [
+                      DataCell(Text(r.nps)),
+                      DataCell(Text(r.dn.toString())),
+                      DataCell(Text(fmt(r.odMm))),
+                      DataCell(Text(fmt(r.rMm))),
+                      DataCell(Text(_seriesLabel(context, r.series))),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+            child: Text(
+              context.tr(
+                pl: 'R — promień kolana LR (= wymiar A kolana 90°) wg ASME B16.9 / EN 10253-2 dla serii ASME i EN s.1. '
+                    'Dla EN s.2 / s.3 i „inna” wartość orientacyjna — sprawdź kartę kolana. '
+                    'NPS 3 1/2" to DN90.',
+                en: 'R — LR elbow radius (= dimension A of the 90° elbow) per ASME B16.9 / EN 10253-2 for the ASME and EN s.1 series. '
+                    'For EN s.2 / s.3 and "other" it is indicative only — check the elbow datasheet. '
+                    'NPS 3 1/2" is DN90.',
+              ),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }

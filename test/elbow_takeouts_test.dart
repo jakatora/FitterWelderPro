@@ -22,18 +22,83 @@ void main() {
       final p = kElbowTakeouts[i - 1];
       final c = kElbowTakeouts[i];
       expect(c.lr90 >= p.lr90, isTrue, reason: 'DN${c.dn}: lr90 dropped');
-      expect(c.sr90 >= p.sr90, isTrue, reason: 'DN${c.dn}: sr90 dropped');
+      if (p.sr90 != null && c.sr90 != null) {
+        expect(c.sr90! >= p.sr90!, isTrue, reason: 'DN${c.dn}: sr90 dropped');
+      }
       expect(c.lr45 > 0, isTrue);
       expect(c.lr90 > 0, isTrue);
-      expect(c.sr90 > 0, isTrue);
+      if (c.sr90 != null) expect(c.sr90! > 0, isTrue);
     }
   });
 
   test('LR90 is always longer than SR90 (long vs short radius)', () {
-    for (final e in kElbowTakeouts) {
-      expect(e.lr90 > e.sr90, isTrue,
+    for (final e in kElbowTakeouts.where((e) => e.sr90 != null)) {
+      expect(e.lr90 > e.sr90!, isTrue,
           reason: 'DN${e.dn}: lr90=${e.lr90} should be > sr90=${e.sr90}');
     }
+  });
+
+  // ASME B16.9-2018 Tab. 6.1-1 (LR A) — NPS 1/2, 3/4, 1 are all 1.50 in. =
+  // 38 mm; from NPS 1-1/4 A = 1.5 × NPS (e.g. NPS 4: 6.00 in. = 152 mm).
+  test('lr90 matches ASME B16.9 Table 6.1-1 exactly', () {
+    const expected = <int, int>{
+      15: 38, 20: 38, 25: 38, 32: 48, 40: 57, 50: 76, 65: 95, 80: 114,
+      90: 133, 100: 152, 125: 190, 150: 229, 200: 305, 250: 381, 300: 457,
+      350: 533, 400: 610, 450: 686, 500: 762, 600: 914,
+    };
+    for (final e in kElbowTakeouts) {
+      expect(e.lr90, expected[e.dn], reason: 'DN${e.dn}');
+    }
+  });
+
+  // ASME B16.9-2018 Tab. 6.1-4 (SR A = 1.0 × NPS) starts at NPS 1. DN15 and
+  // DN20 used to show 25 mm — an elbow the standard does not define.
+  test('sr90 matches ASME B16.9 Table 6.1-4; none below NPS 1', () {
+    const expected = <int, int?>{
+      15: null, 20: null, 25: 25, 32: 32, 40: 38, 50: 51, 65: 64, 80: 76,
+      90: 89, 100: 102, 125: 127, 150: 152, 200: 203, 250: 254, 300: 305,
+      350: 356, 400: 406, 450: 457, 500: 508, 600: 610,
+    };
+    for (final e in kElbowTakeouts) {
+      expect(e.sr90, expected[e.dn], reason: 'DN${e.dn}');
+    }
+  });
+
+  // ASME B16.9-2018 Tab. 6.1-6 (3D radius), A / B; none for NPS 1/2.
+  test('3D radius columns match ASME B16.9 Table 6.1-6', () {
+    const a = <int, int?>{
+      15: null, 20: 57, 25: 76, 32: 95, 40: 114, 50: 152, 65: 190, 80: 229,
+      90: 267, 100: 305, 125: 381, 150: 457, 200: 610, 250: 762, 300: 914,
+      350: 1067, 400: 1219, 450: 1372, 500: 1524, 600: 1829,
+    };
+    const b = <int, int?>{
+      15: null, 20: 24, 25: 31, 32: 39, 40: 47, 50: 63, 65: 79, 80: 95,
+      90: 111, 100: 127, 125: 157, 150: 189, 200: 252, 250: 316, 300: 378,
+      350: 441, 400: 505, 450: 568, 500: 632, 600: 757,
+    };
+    for (final e in kElbowTakeouts) {
+      expect(e.r3d90, a[e.dn], reason: 'A DN${e.dn}');
+      expect(e.r3d45, b[e.dn], reason: 'B DN${e.dn}');
+    }
+  });
+
+  test('npsIn agrees with the NPS label', () {
+    double parse(String nps) => nps.split(' ').fold(0.0, (sum, part) {
+          if (part.contains('/')) {
+            final f = part.split('/');
+            return sum + double.parse(f[0]) / double.parse(f[1]);
+          }
+          return sum + double.parse(part);
+        });
+    for (final e in kElbowTakeouts) {
+      expect(e.npsIn, parse(e.nps), reason: 'DN${e.dn}');
+    }
+  });
+
+  test('elbowTakeoutForDn is exact — no nearest-DN substitution', () {
+    expect(elbowTakeoutForDn(100)!.lr90, 152);
+    expect(elbowTakeoutForDn(110), isNull);
+    expect(elbowTakeoutForDn(550), isNull);
   });
 
   test('LR45 is always shorter than LR90 on the same DN', () {

@@ -6,6 +6,68 @@ import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
+/// Straight-pipe lengths of the route X (horizontal) → |H1−H2| (vertical) →
+/// Y (horizontal): TWO 90° elbows, three pipe segments, four butt welds.
+class PipeRouteResult {
+  /// X − R: from the reference to the face of elbow 1.
+  final double seg1;
+
+  /// |H1−H2| − 2R: between the faces of elbow 1 and elbow 2.
+  final double seg2;
+
+  /// Y − R: from the face of elbow 2 to the reference.
+  final double seg3;
+
+  /// Σ of the (non-negative) straight segments — what goes on the saw.
+  final double total;
+
+  /// Number of 90° elbows in this route.
+  final int elbowCount;
+
+  /// Centreline arc length of the elbows: 2 × (π·R/2) = π·R.
+  final double arcsMm;
+
+  /// Developed centreline length, straights + arcs = total + π·R
+  /// (= X + |H1−H2| + Y − (4 − π)·R).
+  final double developedMm;
+
+  const PipeRouteResult({
+    required this.seg1,
+    required this.seg2,
+    required this.seg3,
+    required this.total,
+    required this.elbowCount,
+    required this.arcsMm,
+    required this.developedMm,
+  });
+}
+
+/// Pure calculation behind [PipeRouteCalculatorScreen]; [r] is the take-out
+/// (centre-to-face) of one 90° elbow — for an LR elbow its CLR radius.
+PipeRouteResult computePipeRoute({
+  required double h1,
+  required double h2,
+  required double x,
+  required double y,
+  required double r,
+}) {
+  const elbows = 2;
+  final seg1 = x - r;
+  final seg2 = (h1 - h2).abs() - 2 * r;
+  final seg3 = y - r;
+  final total = math.max(0.0, seg1) + math.max(0.0, seg2) + math.max(0.0, seg3);
+  final arcs = elbows * (math.pi * r / 2);
+  return PipeRouteResult(
+    seg1: seg1,
+    seg2: seg2,
+    seg3: seg3,
+    total: total,
+    elbowCount: elbows,
+    arcsMm: arcs,
+    developedMm: total + arcs,
+  );
+}
+
 class PipeRouteCalculatorScreen extends StatefulWidget {
   const PipeRouteCalculatorScreen({super.key});
 
@@ -58,8 +120,13 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
 
   double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
 
+  /// Last successful result — feeds the developed-length line in the
+  /// formula dialog.
+  PipeRouteResult? _last;
+
   // Route: horizontal X → vertical |H1−H2| → horizontal Y
-  // 3 × 90° elbows. Pipe segments between elbows (face-to-face, not C-C):
+  // 2 × 90° elbows (4 butt welds). Pipe segments between elbows
+  // (face-to-face, not C-C):
   //   Segment1 = X − R          (from wall/reference to face of elbow 1)
   //   Segment2 = |H1−H2| − 2R   (between face of elbow 1 and face of elbow 2)
   //   Segment3 = Y − R          (from face of elbow 2 to wall/reference)
@@ -114,10 +181,12 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
       return;
     }
 
-    final seg1  = x - r;
-    final seg2  = (h1 - h2).abs() - 2 * r;
-    final seg3  = y - r;
-    final total = math.max(0, seg1) + math.max(0, seg2) + math.max(0, seg3);
+    final res   = computePipeRoute(h1: h1, h2: h2, x: x, y: y, r: r);
+    final seg1  = res.seg1;
+    final seg2  = res.seg2;
+    final seg3  = res.seg3;
+    final total = res.total;
+    _last = res;
 
     // P1-22: decimal separator follows the user's `prefs_decimal_separator`
     // pref. 'auto' falls back to PL/EN locale; explicit 'dot'/'comma' overrides
@@ -172,6 +241,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     _seg2Controller.clear();
     _seg3Controller.clear();
     _totalController.clear();
+    _last = null;
     setState(() {});
     // P1-22: also wipe persisted inputs so a fresh launch starts clean.
     _saveSettings();
@@ -291,7 +361,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(pl: 'Trasa rur – 3 kolanka 90°', en: 'Pipe route – 3 × 90° elbows')),
+        title: Text(context.tr(pl: 'Trasa rur – 2 kolana 90°', en: 'Pipe route – 2 × 90° elbows')),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -465,15 +535,15 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
               const SizedBox(height: 16),
               Text(
                 context.tr(
-                  pl: 'Wzór: Odcinek = wymiar C-C − takeout. Takeout dla LR 90° = promień CLR (np. 1,5×DN).',
-                  en: 'Formula: Segment = C-C dimension − takeout. Takeout for LR 90° = CLR radius (e.g. 1.5×DN).',
+                  pl: 'Wzór: Odcinek = wymiar C-C − takeout. Takeout kolana LR 90° = promień CLR = wymiar A wg ASME B16.9 (np. DN100 → 152 mm).',
+                  en: 'Formula: Segment = C-C dimension − takeout. LR 90° elbow takeout = CLR radius = dimension A per ASME B16.9 (e.g. DN100 → 152 mm).',
                 ),
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
               // ASME/ISO iso convention: each joint between segments is a weld;
               // mark FW (field weld, open flag) vs SW (shop weld, filled dot) so the
-              // welder knows what to weld on site. 3 elbows = 4 joints in this route.
+              // welder knows what to weld on site. 2 elbows = 4 joints in this route.
               Text(
                 context.tr(
                   pl: 'Spoiny: 4 złącza (zw. spoin obwodowych). Oznacz na izometryku FW – spoina montażowa (flaga), SW – spoina warsztatowa (kropka).',
@@ -558,7 +628,26 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     );
   }
 
+  String _fmt(double v) {
+    final String dec;
+    switch (_decimalSeparatorPref) {
+      case 'dot':   dec = '.'; break;
+      case 'comma': dec = ','; break;
+      default:      dec = AppLanguageController.isEnglish ? '.' : ',';
+    }
+    return v.toStringAsFixed(_routeDecimals.clamp(0, 2)).replaceAll('.', dec);
+  }
+
   void _showTotalFormulaDialog(BuildContext ctx) {
+    final last = _last;
+    final currentPl = last == null
+        ? ''
+        : '\n\nDla bieżących danych: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)}) '
+            '= ${_fmt(last.developedMm)} mm długości rozwiniętej.';
+    final currentEn = last == null
+        ? ''
+        : '\n\nFor the current inputs: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)}) '
+            '= ${_fmt(last.developedMm)} mm developed length.';
     showDialog<void>(
       context: ctx,
       builder: (d) => AlertDialog(
@@ -570,17 +659,21 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                   'Odc.1 = X − R\n'
                   'Odc.2 = |H1 − H2| − 2·R\n'
                   'Odc.3 = Y − R\n\n'
-                  'R = takeout kolanka 90° (centre-to-face). Dla LR 90°: R = CLR ≈ 1,5·DN.\n\n'
+                  'R = takeout kolanka 90° (centre-to-face). Dla LR 90°: R = CLR = wymiar A wg ASME B16.9 '
+                  '(≈ 1,5 × NPS × 25,4; DN100 → 152 mm).\n\n'
                   'UWAGA: suma to długość prostych odcinków rury (bez łuków kolanek). '
-                  'Aby dostać długość rozwiniętą rury z łukami, dodaj 3 × (π·R/2) ≈ 3 × 1,5708·R.\n\n'
+                  'Trasa ma 2 kolana 90°, więc długość rozwinięta osi z łukami = suma + 2 × (π·R/2) = suma + π·R.'
+                  '$currentPl\n\n'
                   'Jednostki: wszystkie wymiary i wynik w mm.',
               en: 'Total = Seg.1 + Seg.2 + Seg.3 [mm]\n\n'
                   'Seg.1 = X − R\n'
                   'Seg.2 = |H1 − H2| − 2·R\n'
                   'Seg.3 = Y − R\n\n'
-                  'R = 90° elbow takeout (centre-to-face). For LR 90°: R = CLR ≈ 1.5·DN.\n\n'
+                  'R = 90° elbow takeout (centre-to-face). For LR 90°: R = CLR = dimension A per ASME B16.9 '
+                  '(≈ 1.5 × NPS × 25.4; DN100 → 152 mm).\n\n'
                   'NOTE: total is straight pipe length only (excludes elbow arcs). '
-                  'For developed pipe length including arcs, add 3 × (π·R/2) ≈ 3 × 1.5708·R.\n\n'
+                  'The route has 2 × 90° elbows, so the developed centreline length including arcs = total + 2 × (π·R/2) = total + π·R.'
+                  '$currentEn\n\n'
                   'Units: all inputs and result in mm.',
             ),
           ),
@@ -650,7 +743,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   }
 }
 
-// P1-33: tiny inline route sketch. Three 90° elbows connecting two horizontal
+// P1-33: tiny inline route sketch. Two 90° elbows connecting two horizontal
 // runs (X, Y) at different heights (H1, H2). Labels show which dimension is
 // which so a first-time user can map the input fields to the physical route
 // without leaving the screen for help.
@@ -717,8 +810,7 @@ class _RouteSketchPainter extends CustomPainter {
     final topY = padTop;
     final botY = h - padBot;
     final xStart = padX;
-    final corner1X = w * 0.40;
-    final corner2X = w * 0.60;
+    final corner1X = w * 0.40; // both elbows sit on this vertical
     final yEnd = w - padX;
     final r = 8.0; // visual elbow radius
 
@@ -728,17 +820,15 @@ class _RouteSketchPainter extends CustomPainter {
       ..quadraticBezierTo(corner1X, topY, corner1X, topY + r)
       ..lineTo(corner1X, botY - r)
       ..quadraticBezierTo(corner1X, botY, corner1X + r, botY)
-      ..lineTo(corner2X - r, botY)
-      // second corner here would route back up; instead we go horizontal
-      // along bottom to Y end (3 × 90° elbows = up→over→down style), but for
-      // a flat sketch we simplify to "across top → down → across bottom".
+      // Across top (X) → down (|H1−H2|) → across bottom (Y): two 90° elbows,
+      // matching the segment formulas.
       ..lineTo(yEnd, botY);
     canvas.drawPath(path, pipe);
 
     // Dimension ticks (very small)
     canvas.drawLine(Offset(xStart, topY - 6), Offset(xStart, topY + 6), dim);
     canvas.drawLine(Offset(corner1X, topY - 6), Offset(corner1X, topY + 6), dim);
-    canvas.drawLine(Offset(corner2X, botY - 6), Offset(corner2X, botY + 6), dim);
+    canvas.drawLine(Offset(corner1X, botY - 6), Offset(corner1X, botY + 6), dim);
     canvas.drawLine(Offset(yEnd, botY - 6), Offset(yEnd, botY + 6), dim);
 
     // Labels
@@ -759,13 +849,13 @@ class _RouteSketchPainter extends CustomPainter {
     // |H1-H2| spans vertical drop
     label('|H1−H2|', Offset(corner1X + 22, (topY + botY) / 2));
     // Y spans bottom horizontal
-    label('Y', Offset((corner2X + yEnd) / 2, botY + 8));
+    label('Y', Offset((corner1X + yEnd) / 2, botY + 8));
     // H1 at start, H2 at end
     label('H1', Offset(xStart, topY + 12));
     label('H2', Offset(yEnd, botY - 12));
-    // R near corners
+    // R near the two elbows
     label('R', Offset(corner1X - 12, topY + 12));
-    label('R', Offset(corner2X + 12, botY - 12));
+    label('R', Offset(corner1X + 12, botY - 12));
   }
 
   @override
