@@ -8,9 +8,12 @@ import '../utils/haptic.dart';
 import 'legal_screen.dart';
 
 // Zgoda dla osób, które mają już profil, ale nie akceptowały zasad — albo
-// akceptowały ich starszą wersję. Nowi użytkownicy zgadzają się w onboardingu.
+// akceptowały ich starszą wersję. Kto jeszcze się nie przedstawił, zgadza się
+// w kroku imienia i nazwiska (onboarding_name_screen.dart).
 //
-// Ekran jest bramą: bez akceptacji nie ma czatu, bo nie ma czatu bez zasad.
+// Ekran jest bramą CZATU, nie aplikacji: bez akceptacji nie ma czatu, bo nie
+// ma czatu bez zasad — ale kalkulatory działają dalej. Pokazuje go bramka
+// lib/widgets/community_gate.dart.
 
 class ConsentScreen extends StatefulWidget {
   final VoidCallback onAccepted;
@@ -42,11 +45,18 @@ class _ConsentScreenState extends State<ConsentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Zgoda była, ale na starszą wersję zasad — mówimy „zmieniliśmy". Kto
+    // zgody nigdy nie dał (np. wpisał imię w profilu), słyszy, po co ona jest.
+    final rulesChanged = LegalConsent.instance.acceptedAt != null &&
+        !LegalConsent.instance.isAccepted;
     return Scaffold(
       backgroundColor: kBg,
+      // Krok otwierany z ekranu głównego — musi dać się z niego wycofać.
+      appBar: AppBar(backgroundColor: kBg),
       body: SafeArea(
+        top: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
           children: [
             Center(
               child: Container(
@@ -55,7 +65,8 @@ class _ConsentScreenState extends State<ConsentScreen> {
                 decoration: BoxDecoration(
                   color: kArc.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: kArc.withValues(alpha: 0.4), width: 1.5),
+                  border: Border.all(
+                      color: kArc.withValues(alpha: 0.4), width: 1.5),
                 ),
                 child: const Icon(Icons.gavel_outlined, color: kArc, size: 30),
               ),
@@ -69,14 +80,24 @@ class _ConsentScreenState extends State<ConsentScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              context.tr(
-                pl: 'Zmieniliśmy zasady. Zanim napiszesz na czacie, przeczytaj '
-                    'je i zaakceptuj.',
-                en: 'The rules have changed. Read and accept them before you post '
-                    'in chat.',
-              ),
+              rulesChanged
+                  ? context.tr(
+                      pl: 'Zmieniliśmy zasady. Zanim napiszesz na czacie, '
+                          'przeczytaj je i zaakceptuj.',
+                      en: 'The rules have changed. Read and accept them before '
+                          'you post in chat.',
+                    )
+                  : context.tr(
+                      pl: 'Na czacie piszesz pod własnym nazwiskiem. Zanim '
+                          'napiszesz, przeczytaj zasady i zaakceptuj je. '
+                          'Kalkulatory działają bez tego.',
+                      en: 'In chat you post under your own name. Read and '
+                          'accept the rules before you post. The calculators '
+                          'work without this.',
+                    ),
               textAlign: TextAlign.center,
-              style: const TextStyle(color: kTextSec, fontSize: 13, height: 1.5),
+              style:
+                  const TextStyle(color: kTextSec, fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 26),
             const _Bullets(),
@@ -84,12 +105,14 @@ class _ConsentScreenState extends State<ConsentScreen> {
             _DocButton(
               icon: Icons.description_outlined,
               label: context.tr(pl: 'Regulamin', en: 'Terms of Use'),
-              onTap: () => Navigator.push(context, LegalScreen.route(termsOfUse)),
+              onTap: () =>
+                  Navigator.push(context, LegalScreen.route(termsOfUse)),
             ),
             const SizedBox(height: 8),
             _DocButton(
               icon: Icons.privacy_tip_outlined,
-              label: context.tr(pl: 'Polityka prywatności', en: 'Privacy Policy'),
+              label:
+                  context.tr(pl: 'Polityka prywatności', en: 'Privacy Policy'),
               onTap: () =>
                   Navigator.push(context, LegalScreen.route(privacyPolicy)),
             ),
@@ -195,7 +218,8 @@ class _DocButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _DocButton({required this.icon, required this.label, required this.onTap});
+  const _DocButton(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -219,7 +243,9 @@ class _DocButton extends StatelessWidget {
               Expanded(
                 child: Text(label,
                     style: const TextStyle(
-                        color: kText, fontSize: 14, fontWeight: FontWeight.w600)),
+                        color: kText,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600)),
               ),
               const Icon(Icons.chevron_right, size: 20, color: kTextMut),
             ],
@@ -237,28 +263,25 @@ class _ConsentCheckbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Cały wiersz jest celem dotyku (min. 48 dp), nie tylko pole wyboru.
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: kMinTapTarget),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: Checkbox(
-                value: value,
-                activeColor: kArc,
-                checkColor: Colors.black,
-                onChanged: (v) => onChanged(v ?? false),
-              ),
+            Checkbox(
+              value: value,
+              activeColor: kArc,
+              checkColor: Colors.black,
+              onChanged: (v) => onChanged(v ?? false),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 4),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.only(top: 12, right: 4, bottom: 8),
                 child: Text(
                   context.tr(
                     pl: 'Mam ukończone $kMinimumAge lat, przeczytałem Regulamin '

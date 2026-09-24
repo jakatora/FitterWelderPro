@@ -1,12 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../config/feature_flags.dart';
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
+import '../services/tool_usage.dart';
+import '../services/user_profile.dart';
 import '../services/welder_identity.dart';
+import '../theme/app_theme.dart';
+import '../widgets/community_gate.dart';
+import '../widgets/tool_registry.dart';
+import '../widgets/tool_tiles.dart';
 import 'chat_screen.dart';
-import 'iso_scanner_screen.dart';
 import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
 import 'help_screen.dart';
@@ -15,20 +23,26 @@ import 'premium_screen.dart';
 import 'profile_screen.dart';
 import 'welder_identity_setup_screen.dart';
 import 'welder_menu_screen.dart';
-import '../config/feature_flags.dart';
-import '../widgets/help_button.dart';
 
-// ─── Kolory spójne z motywem ──────────────────────────────────────────────────
-const _kOrange  = Color(0xFFFF8E1E);
-const _kGold    = Color(0xFFE8C14B);
-const _kBlue    = Color(0xFF4A9EFF);
-const _kGreen   = Color(0xFF2ECC71);
-const _kRed     = Color(0xFFE57373);
-const _kPurple  = Color(0xFFAB47BC);
-const _kBorder  = Color(0xFF2A3140);
-const _kCard    = Color(0xFF141821);
-const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+// Ekran główny — pierwsze, co monter widzi po otwarciu aplikacji.
+//
+// Kolejność ułożona pod „szybko sprawdzić jedną rzecz na rusztowaniu":
+//   1. krótkie powitanie (imię z profilu, jeśli jest) + liczniki w jednej linii,
+//   2. wyszukiwarka narzędzi,
+//   3. przypięte narzędzia (długie przytrzymanie dowolnego narzędzia),
+//   4. ostatnio używane (4 pozycje, zapisywane lokalnie),
+//   5. działy: Monter, Spawacz, Czat,
+//   6. ostatnie projekty.
+//
+// Pomoc jest jedna: ikona „?" w pasku otwiera bazę wiedzy. Dawny kafel POMOC
+// ją dublował.
+
+const _kBlue = Color(0xFF4A9EFF);
+const _kPurple = Color(0xFFAB47BC);
+const _kRed = Color(0xFFE57373);
+
+/// Ile ostatnio używanych narzędzi pokazuje ekran główny.
+const int kRecentShown = 4;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,6 +54,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _projectDao = ProjectDao();
   final _segmentDao = SegmentDao();
+
+  final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
+  String _query = '';
+
+  UserProfile? _profile;
+  StreamSubscription<UserProfile?>? _profileSub;
 
   List<Project> _recent = [];
   int _totalProjects = 0;
@@ -55,6 +76,24 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _load();
+    ToolUsageStore.instance.load();
+    // Imię do powitania: z pamięci od razu, z dysku chwilę później, a po
+    // edycji w profilu — ze strumienia zmian.
+    _profile = UserProfileService.instance.current;
+    UserProfileService.instance.get().then((p) {
+      if (mounted) setState(() => _profile = p);
+    });
+    _profileSub = UserProfileService.instance.changes.listen((p) {
+      if (mounted) setState(() => _profile = p);
+    });
+  }
+
+  @override
+  void dispose() {
+    _profileSub?.cancel();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -93,24 +132,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _push(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+
+  /// Czat, ogłoszenia i Premium wysyłają dane na serwer — imię, nazwisko i
+  /// zasady zbiera bramka dopiero tutaj, nie przy starcie aplikacji.
+  Future<void> _openBehindGate(Widget screen) async {
+    if (!await ensureCommunityAccess(context)) return;
+    if (!mounted) return;
+    await _push(screen);
+  }
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    setState(() => _query = '');
+  }
+
   @override
   Widget build(BuildContext context) {
     final lang = context.language;
     return Scaffold(
-      backgroundColor: const Color(0xFF0B0E13),
+      backgroundColor: kBg,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF141821),
-        title: ShaderMask(
-          shaderCallback: (b) => const LinearGradient(
-            colors: [_kOrange, _kGold],
-          ).createShader(b),
-          child: const Text(
-            'FITTER WELDER PRO',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-              color: Colors.white,
+        backgroundColor: kCard,
+        title: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: ShaderMask(
+            shaderCallback: (b) => const LinearGradient(
+              colors: [kArc, kGold],
+            ).createShader(b),
+            child: const Text(
+              'FITTER WELDER PRO',
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1,
+                color: Colors.white,
+              ),
             ),
           ),
         ),
@@ -129,11 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
               en: 'Welder identity',
             ),
             onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const WelderIdentitySetupScreen()),
-              );
+              await _push(const WelderIdentitySetupScreen());
               // Trigger rebuild so the badge icon reflects newly-saved
               // identity (filled badge) without a hot reload.
               if (mounted) setState(() {});
@@ -142,388 +198,461 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.person_outline),
             tooltip: context.tr(pl: 'Twój profil', en: 'Your profile'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
+            onPressed: () => _push(const ProfileScreen()),
+          ),
+          IconButton(
+            icon: const Icon(Icons.help_outline_rounded),
+            tooltip: context.tr(pl: 'Pomoc', en: 'Help'),
+            onPressed: () => _push(const HelpScreen()),
+          ),
+          _LanguageButton(lang: lang),
+        ],
+      ),
+      body: RefreshIndicator(
+        color: kArc,
+        onRefresh: _load,
+        child: ListenableBuilder(
+          listenable: ToolUsageStore.instance,
+          builder: (context, _) => ListView(
+            padding: EdgeInsets.fromLTRB(
+                0, 0, 0, 24 + MediaQuery.viewPaddingOf(context).bottom),
+            children: [
+              _Greeting(
+                firstName: _profile?.firstName,
+                totalProjects: _totalProjects,
+                totalSegments: _totalSegments,
+                unknownCounts: _loading || _loadFailed,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: _SearchField(
+                  controller: _searchCtrl,
+                  focusNode: _searchFocus,
+                  hasText: _query.isNotEmpty,
+                  onChanged: (v) => setState(() => _query = v),
+                  onClear: _clearSearch,
+                  onSubmitted: (v) {
+                    final hits = searchTools(v, lang);
+                    if (hits.isNotEmpty) openTool(context, hits.first.tool);
+                  },
+                ),
+              ),
+              if (_query.trim().isNotEmpty)
+                ..._searchResults(lang)
+              else
+                ..._dashboard(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _searchResults(AppLanguage lang) {
+    final hits = searchTools(_query, lang);
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+        child: ToolSectionLabel(
+          context.tr(pl: 'Wyniki', en: 'Results'),
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+        ),
+      ),
+      if (hits.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _NoResults(
+            query: _query.trim(),
+            onHelp: () => _push(const HelpScreen()),
+          ),
+        )
+      else
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final hit in hits)
+                ToolRow(tool: hit.tool, showSection: true),
+            ],
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _dashboard() {
+    final store = ToolUsageStore.instance;
+    final pinned = resolveTools(store.favorites);
+    // Przypięte już są na górze — w „ostatnio używanych" byłyby drugi raz.
+    final recent = resolveTools(
+      store.recent.where((id) => !store.isFavorite(id)),
+      limit: kRecentShown,
+    );
+
+    return [
+      // ── PRZYPIĘTE ───────────────────────────────────────────────────────
+      if (pinned.isNotEmpty) ...[
+        _Label(context.tr(pl: 'Przypięte', en: 'Pinned')),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TwoColumnTiles(
+            children: [
+              for (final t in pinned)
+                ToolCompactTile(tool: t, keyPrefix: 'pinned'),
+            ],
+          ),
+        ),
+      ],
+
+      // ── OSTATNIO UŻYWANE ────────────────────────────────────────────────
+      if (recent.isNotEmpty) ...[
+        _Label(context.tr(pl: 'Ostatnio używane', en: 'Recently used')),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TwoColumnTiles(
+            children: [
+              for (final t in recent)
+                ToolCompactTile(tool: t, keyPrefix: 'recent'),
+            ],
+          ),
+        ),
+        if (pinned.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.push_pin_outlined, size: 14, color: kTextMut),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    context.tr(
+                      pl: 'Przytrzymaj kafel, żeby przypiąć go na górze.',
+                      en: 'Long-press a tile to pin it to the top.',
+                    ),
+                    style: const TextStyle(fontSize: 12, color: kTextMut),
+                  ),
+                ),
+              ],
             ),
           ),
-          HelpButton(help: kHelpHome),
-          PopupMenuButton<AppLanguage>(
-            tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),
-            initialValue: lang,
-            onSelected: context.setLanguage,
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: AppLanguage.pl, child: Text('Polski')),
-              PopupMenuItem(value: AppLanguage.en, child: Text('English')),
-            ],
+      ],
+
+      // ── DZIAŁY ──────────────────────────────────────────────────────────
+      _Label(context.tr(pl: 'Narzędzia', en: 'Tools')),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: TwoColumnTiles(children: _sectionTiles()),
+      ),
+
+      // ── OSTATNIE PROJEKTY ───────────────────────────────────────────────
+      _Label(context.tr(pl: 'Ostatnie projekty', en: 'Recent projects')),
+      if (_loading)
+        const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: CircularProgressIndicator(color: kArc)),
+        )
+      else if (_loadFailed)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _LoadError(onRetry: _load),
+        )
+      else if (_recent.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          // First-time UX: one tap straight into the cut list — the shortest
+          // path to value for a brand-new user.
+          child: _TryThis(onTap: () async {
+            final cutList = toolById('cut_list');
+            if (cutList == null) return;
+            await openTool(context, cutList);
+            if (mounted) _load();
+          }),
+        )
+      else
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: _recent
+                .map((p) => _ProjectTile(
+                      project: p,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => FitterScreen(projectId: p.id)),
+                      ).then((_) => _load()),
+                    ))
+                .toList(),
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _sectionTiles() {
+    final scanner = toolById('iso_scanner');
+    return [
+      _SectionTile(
+        icon: Icons.handyman_outlined,
+        title: context.tr(pl: 'MONTER', en: 'FITTER'),
+        subtitle:
+            context.tr(pl: 'Cięcie, kolana, trasy', en: 'Cuts, elbows, routes'),
+        accent: kArc,
+        onTap: () => _push(const FitterMenuScreen()),
+      ),
+      _SectionTile(
+        icon: Icons.waves_outlined,
+        title: context.tr(pl: 'SPAWACZ', en: 'WELDER'),
+        subtitle:
+            context.tr(pl: 'Parametry i dziennik', en: 'Parameters, journal'),
+        accent: _kBlue,
+        onTap: () => _push(const WelderMenuScreen()),
+      ),
+      // ── Społeczność — darmowa dla wszystkich ──────────────────────────
+      if (kCommunityEnabled)
+        _SectionTile(
+          icon: Icons.forum_outlined,
+          title: context.tr(pl: 'CZAT', en: 'CHAT'),
+          subtitle: context.tr(pl: 'Rozmowy z fachowcami', en: 'Talk to pros'),
+          accent: _kPurple,
+          onTap: () => _openBehindGate(const ChatScreen()),
+        ),
+      // ── Płatne / metered — ukryte całkowicie, nie "wkrótce" ───────────
+      if (kJobsEnabled)
+        _SectionTile(
+          icon: Icons.work_outline,
+          title: context.tr(pl: 'PRACA', en: 'JOBS'),
+          subtitle: context.tr(pl: 'Ogłoszenia 49 PLN', en: 'Listings 49 PLN'),
+          accent: _kRed,
+          onTap: () => _openBehindGate(const JobsScreen()),
+        ),
+      // Skaner stoi za bramką Premium, której nie da się przejść, dopóki
+      // płatności są wyłączone — kafel pokazujemy dopiero, gdy zakup jest
+      // możliwy (kAiScannerReachable → rejestr narzędzi).
+      if (scanner != null)
+        _SectionTile(
+          icon: scanner.icon,
+          title: context.tr(pl: 'SKANER ISO', en: 'ISO SCAN'),
+          subtitle: context.tr(
+              pl: 'Zdjęcie rysunku → lista cięć', en: 'Photo → cut list'),
+          accent: scanner.color,
+          onTap: () => openTool(context, scanner),
+        ),
+      if (kPaidFeaturesEnabled)
+        _SectionTile(
+          icon: Icons.workspace_premium,
+          title: 'PREMIUM',
+          subtitle:
+              context.tr(pl: 'AI + pełne narzędzia', en: 'AI + full tools'),
+          accent: kGold,
+          onTap: () => _openBehindGate(const PremiumScreen()),
+        ),
+    ];
+  }
+}
+
+// ─── PRZEŁĄCZNIK JĘZYKA ───────────────────────────────────────────────────────
+// Cel dotyku co najmniej 48 dp — wcześniej ok. 30 dp, nie do trafienia w
+// rękawicy.
+class _LanguageButton extends StatelessWidget {
+  final AppLanguage lang;
+  const _LanguageButton({required this.lang});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: PopupMenuButton<AppLanguage>(
+        key: const ValueKey('home-language'),
+        tooltip: context.tr(pl: 'Zmień język', en: 'Change language'),
+        initialValue: lang,
+        onSelected: context.setLanguage,
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: AppLanguage.pl, child: Text('Polski')),
+          PopupMenuItem(value: AppLanguage.en, child: Text('English')),
+        ],
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: kMinTapTarget + 8,
+            minHeight: kMinTapTarget,
+          ),
+          child: Center(
             child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+              padding: const EdgeInsets.fromLTRB(10, 7, 8, 7),
               decoration: BoxDecoration(
-                color: _kCard,
+                color: kBg,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _kBorder),
+                border: Border.all(color: kBorder),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.language, size: 14, color: _kOrange),
+                  const Icon(Icons.language, size: 15, color: kArc),
                   const SizedBox(width: 6),
                   Text(
                     lang == AppLanguage.en ? 'EN' : 'PL',
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: _kOrange,
+                      fontSize: 13.5,
+                      color: kArc,
                     ),
                   ),
                   const SizedBox(width: 2),
-                  Icon(Icons.expand_more, size: 16, color: _kOrange),
+                  const Icon(Icons.expand_more, size: 16, color: kArc),
                 ],
               ),
             ),
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        color: _kOrange,
-        onRefresh: _load,
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(
-              0, 0, 0, 24 + MediaQuery.viewPaddingOf(context).bottom),
-          children: [
-            // ── HERO BANNER ────────────────────────────────────────────────
-            _HeroBanner(
-              totalProjects: _totalProjects,
-              totalSegments: _totalSegments,
-              loading: _loading,
-              failed: _loadFailed,
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── SEKCJA: NARZĘDZIA ──────────────────────────────────────────
-            _SectionLabel(context.tr(pl: 'Narzędzia', en: 'Tools')),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.55,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  _MenuCard(
-                    icon: Icons.handyman_outlined,
-                    title: 'FITTER',
-                    subtitle: context.tr(
-                        pl: 'Cut list, kalkulatory',
-                        en: 'Cut list, calculators'),
-                    accent: _kOrange,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(
-                            builder: (_) => const FitterMenuScreen())),
-                  ),
-                  _MenuCard(
-                    icon: Icons.waves_outlined,
-                    title: context.tr(pl: 'SPAWACZ', en: 'WELDER'),
-                    subtitle: context.tr(
-                        pl: 'Parametry, gazy',
-                        en: 'Params, gases'),
-                    accent: _kBlue,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(
-                            builder: (_) => const WelderMenuScreen())),
-                  ),
-                  _MenuCard(
-                    icon: Icons.help_outline_rounded,
-                    title: context.tr(pl: 'POMOC', en: 'HELP'),
-                    subtitle: context.tr(
-                        pl: 'Porady, FAQ',
-                        en: 'Tips, FAQ'),
-                    accent: _kGreen,
-                    onTap: () => Navigator.push(context,
-                        MaterialPageRoute(
-                            builder: (_) => const HelpScreen())),
-                  ),
-                  // ── Społeczność — darmowa dla wszystkich ──────────────────
-                  if (kCommunityEnabled)
-                    _MenuCard(
-                      icon: Icons.forum_outlined,
-                      title: context.tr(pl: 'CZAT', en: 'CHAT'),
-                      subtitle: context.tr(
-                          pl: 'Rozmawiaj z fachem',
-                          en: 'Talk to pros'),
-                      accent: _kPurple,
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(
-                              builder: (_) => const ChatScreen())),
-                    ),
-                  // ── Płatne / metered — ukryte całkowicie, nie "wkrótce" ───
-                  if (kJobsEnabled)
-                    _MenuCard(
-                      icon: Icons.work_outline,
-                      title: context.tr(pl: 'PRACA', en: 'JOBS'),
-                      subtitle: context.tr(
-                          pl: 'Ogłoszenia 49 PLN',
-                          en: 'Listings 49 PLN'),
-                      accent: _kRed,
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(
-                              builder: (_) => const JobsScreen())),
-                    ),
-                  // Skaner stoi za bramką Premium, której nie da się przejść,
-                  // dopóki płatności są wyłączone — kafel pokazujemy dopiero,
-                  // gdy zakup jest możliwy (kAiScannerReachable).
-                  if (kAiScannerReachable)
-                    _MenuCard(
-                      icon: Icons.document_scanner_outlined,
-                      title: context.tr(pl: 'SKANER ISO', en: 'ISO SCAN'),
-                      subtitle: context.tr(
-                          pl: 'Zdjęcie rysunku → CUT',
-                          en: 'Photo → CUT list'),
-                      accent: const Color(0xFFEF6C00),
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(
-                              builder: (_) => const IsoScannerScreen())),
-                    ),
-                  if (kPaidFeaturesEnabled)
-                    _MenuCard(
-                      icon: Icons.workspace_premium,
-                      title: 'PREMIUM',
-                      subtitle: context.tr(
-                          pl: 'AI + pełne tools',
-                          en: 'AI + full tools'),
-                      accent: _kGold,
-                      badge: context.tr(pl: 'PRO', en: 'PRO'),
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(
-                              builder: (_) => const PremiumScreen())),
-                    ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── SEKCJA: OSTATNIE PROJEKTY ──────────────────────────────────
-            _SectionLabel(
-                context.tr(pl: 'Ostatnie projekty', en: 'Recent projects')),
-            const SizedBox(height: 10),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(
-                    child: CircularProgressIndicator(color: _kOrange)),
-              )
-            else if (_loadFailed)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _LoadError(onRetry: _load),
-              )
-            else if (_recent.isEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                // First-time UX: tappable coaching callout — taps open FITTER
-                // menu directly so a brand-new user has a 1-tap path to value.
-                child: GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const FitterMenuScreen()),
-                  ).then((_) => _load()),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _kCard,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: _kOrange.withValues(alpha: 0.35), width: 1),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: _kOrange.withValues(alpha: 0.13),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.auto_awesome,
-                              color: _kOrange, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                context.tr(
-                                    pl: 'Spróbuj tego',
-                                    en: 'Try this'),
-                                style: const TextStyle(
-                                  color: _kOrange,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                context.tr(
-                                    pl: 'Otwórz FITTER → CUT LIST i dodaj '
-                                        'pierwszy segment rury. Zajmuje 30 s.',
-                                    en: 'Open FITTER → CUT LIST and add your '
-                                        'first pipe segment. Takes 30 s.'),
-                                style: const TextStyle(
-                                    color: Color(0xFFE7ECF3),
-                                    fontSize: 13,
-                                    height: 1.3),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.chevron_right,
-                            size: 20, color: _kOrange),
-                      ],
-                    ),
-                  ),
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: _recent
-                      .map((p) => _ProjectTile(
-                            project: p,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      FitterScreen(projectId: p.id)),
-                            ).then((_) => _load()),
-                          ))
-                      .toList(),
-                ),
-              ),
-          ],
         ),
       ),
     );
   }
 }
 
-// ─── HERO BANNER ─────────────────────────────────────────────────────────────
-class _HeroBanner extends StatelessWidget {
+// ─── POWITANIE ───────────────────────────────────────────────────────────────
+// Dawny baner zajmował ok. 30% ekranu (znaczek „Aktywny", duże liczniki).
+// Zostało jedno zdanie i jedna linia liczb.
+class _Greeting extends StatelessWidget {
+  final String? firstName;
   final int totalProjects;
   final int totalSegments;
-  final bool loading;
-  final bool failed;
 
-  const _HeroBanner({
+  /// Po błędzie odczytu (albo w trakcie) liczba jest NIEZNANA, nie zerowa.
+  final bool unknownCounts;
+
+  const _Greeting({
+    required this.firstName,
     required this.totalProjects,
     required this.totalSegments,
-    required this.loading,
-    required this.failed,
+    required this.unknownCounts,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = firstName?.trim() ?? '';
+    final projects = unknownCounts ? '–' : '$totalProjects';
+    final segments = unknownCounts ? '–' : '$totalSegments';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name.isEmpty
+                ? context.tr(pl: 'Witaj', en: 'Welcome')
+                : context.tr(pl: 'Cześć, $name', en: 'Hi, $name'),
+            key: const ValueKey('home-greeting'),
+            style: const TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w800,
+              color: kText,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 3),
+          // Forma „etykieta: N" — polska odmiana po liczbie (1 projekt,
+          // 2 projekty, 5 projektów) nie mieści się w jednym szablonie.
+          Text(
+            context.tr(
+              pl: 'Projekty: $projects  ·  Segmenty: $segments',
+              en: 'Projects: $projects  ·  Segments: $segments',
+            ),
+            style: const TextStyle(fontSize: 13, color: kTextSec),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── WYSZUKIWARKA ─────────────────────────────────────────────────────────────
+class _SearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool hasText;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
+  final VoidCallback onClear;
+
+  const _SearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.hasText,
+    required this.onChanged,
+    required this.onSubmitted,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: const ValueKey('home-tool-search'),
+      controller: controller,
+      focusNode: focusNode,
+      textInputAction: TextInputAction.search,
+      style: const TextStyle(color: kText, fontSize: 15.5),
+      decoration: InputDecoration(
+        hintText: context.tr(
+          pl: 'Szukaj narzędzia, np. kolano, spadek',
+          en: 'Find a tool, e.g. elbow, slope',
+        ),
+        prefixIcon: const Icon(Icons.search, color: kTextSec),
+        suffixIcon: hasText
+            ? IconButton(
+                icon: const Icon(Icons.close, color: kTextSec),
+                tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+                onPressed: onClear,
+              )
+            : null,
+      ),
+      onChanged: onChanged,
+      onSubmitted: onSubmitted,
+    );
+  }
+}
+
+class _NoResults extends StatelessWidget {
+  final String query;
+  final VoidCallback onHelp;
+  const _NoResults({required this.query, required this.onHelp});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF141821), Color(0xFF22263A), Color(0xFF1A1D2E)],
-        ),
-        border: Border(
-          bottom: BorderSide(color: _kBorder, width: 1),
-        ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Iskra spawalnicza — dekoracja
-          Row(
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _kOrange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border:
-                      Border.all(color: _kOrange.withValues(alpha: 0.3), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: _kGreen,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      context.tr(pl: 'Aktywny', en: 'Active'),
-                      style: const TextStyle(
-                          color: _kGreen,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
           Text(
             context.tr(
-                pl: 'Witaj, Spawaczu 👷',
-                en: 'Welcome, Welder 👷'),
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFFE7ECF3),
-              letterSpacing: -0.3,
+              pl: 'Brak narzędzia dla „$query".',
+              en: 'No tool matches "$query".',
             ),
+            style: const TextStyle(
+                color: kText, fontSize: 14, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(
             context.tr(
-                pl: 'Twoje narzędzia gotowe do pracy',
-                en: 'Your tools are ready'),
-            style: const TextStyle(fontSize: 13, color: _kTextSec),
+              pl: 'Spróbuj innego słowa, np. „kolano", „spadek", „DN".',
+              en: 'Try another word, e.g. "elbow", "slope", "DN".',
+            ),
+            style: const TextStyle(color: kTextSec, fontSize: 12.5),
           ),
-          const SizedBox(height: 18),
-          // Statystyki
-          Row(
-            children: [
-              // Po błędzie odczytu liczba jest NIEZNANA, nie zerowa.
-              _StatChip(
-                value: (loading || failed) ? '–' : '$totalProjects',
-                label: context.tr(pl: 'Projekty', en: 'Projects'),
-                icon: Icons.folder_outlined,
-                color: _kOrange,
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(kMinTapTarget, kMinTapTarget),
               ),
-              const SizedBox(width: 10),
-              _StatChip(
-                value: (loading || failed) ? '–' : '$totalSegments',
-                label: context.tr(pl: 'Segmenty', en: 'Segments'),
-                icon: Icons.linear_scale,
-                color: _kBlue,
-              ),
-            ],
+              onPressed: onHelp,
+              icon: const Icon(Icons.help_outline_rounded, size: 18),
+              label: Text(
+                  context.tr(pl: 'Szukaj w pomocy', en: 'Search the help')),
+            ),
           ),
         ],
       ),
@@ -531,76 +660,160 @@ class _HeroBanner extends StatelessWidget {
   }
 }
 
-class _StatChip extends StatelessWidget {
-  final String value;
-  final String label;
-  final IconData icon;
-  final Color color;
+// ─── ETYKIETA SEKCJI ─────────────────────────────────────────────────────────
+class _Label extends StatelessWidget {
+  final String text;
+  const _Label(this.text);
 
-  const _StatChip({
-    required this.value,
-    required this.label,
+  @override
+  Widget build(BuildContext context) {
+    return ToolSectionLabel(
+      text,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 10),
+    );
+  }
+}
+
+// ─── KAFEL DZIAŁU ─────────────────────────────────────────────────────────────
+class _SectionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _SectionTile({
     required this.icon,
-    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.accent,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Material(
+      color: kCard,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: kBorder),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        splashColor: accent.withValues(alpha: 0.10),
+        highlightColor: accent.withValues(alpha: 0.06),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 76),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+            child: Row(
               children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    height: 1,
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: accent.withValues(alpha: 0.25)),
                   ),
+                  child: Icon(icon, size: 22, color: accent),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: const TextStyle(
-                      fontSize: 11, color: _kTextMut, height: 1),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w800,
+                          color: kText,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: kTextSec, height: 1.3),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-// ─── SEKCJA LABEL ────────────────────────────────────────────────────────────
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
+// ─── PIERWSZY KROK ────────────────────────────────────────────────────────────
+class _TryThis extends StatelessWidget {
+  final VoidCallback onTap;
+  const _TryThis({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: _kTextMut,
-          letterSpacing: 1.5,
+    return Material(
+      color: kCard,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: kArc.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: kArc.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.auto_awesome, color: kArc, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.tr(pl: 'SPRÓBUJ TEGO', en: 'TRY THIS'),
+                      style: const TextStyle(
+                        color: kArc,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      context.tr(
+                          pl: 'Otwórz listę cięć i dodaj pierwszy segment '
+                              'rury. Zajmuje 30 s.',
+                          en: 'Open the cut list and add your first pipe '
+                              'segment. Takes 30 s.'),
+                      style: const TextStyle(
+                          color: kText, fontSize: 13, height: 1.3),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, size: 20, color: kArc),
+            ],
+          ),
         ),
       ),
     );
@@ -620,9 +833,9 @@ class _LoadError extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _kCard,
+        color: kCard,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF0655A).withValues(alpha: 0.35)),
+        border: Border.all(color: kFail.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
@@ -630,11 +843,10 @@ class _LoadError extends StatelessWidget {
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-              color: const Color(0xFFF0655A).withValues(alpha: 0.12),
+              color: kFail.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.cloud_off_outlined,
-                color: Color(0xFFF0655A), size: 20),
+            child: const Icon(Icons.cloud_off_outlined, color: kFail, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -646,9 +858,7 @@ class _LoadError extends StatelessWidget {
                       pl: 'Nie udało się wczytać projektów',
                       en: 'Could not load projects'),
                   style: const TextStyle(
-                      color: Color(0xFFE7ECF3),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700),
+                      color: kText, fontSize: 14, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -656,7 +866,7 @@ class _LoadError extends StatelessWidget {
                       pl: 'Twoje dane są bezpieczne. Kalkulatory działają.',
                       en: 'Your data is safe. The calculators still work.'),
                   style: const TextStyle(
-                      color: _kTextMut, fontSize: 12, height: 1.3),
+                      color: kTextSec, fontSize: 12, height: 1.3),
                 ),
               ],
             ),
@@ -666,128 +876,10 @@ class _LoadError extends StatelessWidget {
             onPressed: onRetry,
             child: Text(
               context.tr(pl: 'Ponów', en: 'Retry'),
-              style: const TextStyle(
-                  color: _kOrange, fontWeight: FontWeight.w700),
+              style: const TextStyle(color: kArc, fontWeight: FontWeight.w700),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─── KARTA MENU ───────────────────────────────────────────────────────────────
-class _MenuCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color accent;
-  final VoidCallback onTap;
-  final String? badge;
-
-  const _MenuCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.accent,
-    required this.onTap,
-    this.badge,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1B1F29), Color(0xFF14171E)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder, width: 1),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: accent.withValues(alpha: 0.10),
-          highlightColor: accent.withValues(alpha: 0.06),
-          child: Stack(
-            children: [
-              // Accent spine — a thin vertical channel that reads like the
-              // labelled edge of a measuring instrument, not decoration.
-              Positioned(
-                top: 0,
-                bottom: 0,
-                left: 0,
-                child: Container(width: 3, color: accent),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(15, 14, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(11),
-                            border: Border.all(
-                                color: accent.withValues(alpha: 0.25)),
-                          ),
-                          child: Icon(icon, size: 21, color: accent),
-                        ),
-                        const Spacer(),
-                        if (badge != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: accent.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: accent.withValues(alpha: 0.40)),
-                            ),
-                            child: Text(
-                              badge!,
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                                color: accent,
-                                letterSpacing: 0.6,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFFEDF1F7),
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                          fontSize: 11, color: _kTextMut, height: 1.3),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -806,98 +898,99 @@ class _ProjectTile extends StatelessWidget {
         ? project.name!
         : context.tr(pl: 'Projekt', en: 'Project');
 
-    final matColor =
-        project.materialGroup == 'SS' ? _kBlue : _kOrange;
+    final matColor = project.materialGroup == 'SS' ? _kBlue : kArc;
     final matLabel = project.materialGroup;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: _kCard,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: kCard,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _kBorder, width: 1),
+          side: const BorderSide(color: kBorder),
         ),
-        child: Row(
-          children: [
-            // Ikona
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: _kOrange.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.assignment_outlined,
-                  size: 22, color: _kOrange),
-            ),
-            const SizedBox(width: 12),
-            // Dane projektu
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFE7ECF3),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: kArc.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    // Edge-case: brand-new projects start at 0/0, and a bad
-                    // DB row could carry NaN/Infinity. Either way, rendering
-                    // "Ø0.0 mm · t 0.0 mm" / "ØNaN mm" on the tile is noise
-                    // for a fitter scanning the recent list — show a dash.
-                    () {
-                      final d = project.diameterMm;
-                      final t = project.wallThicknessMm;
-                      final dOk = d.isFinite && d > 0;
-                      final tOk = t.isFinite && t > 0;
-                      if (!dOk && !tOk) {
-                        return context.tr(
-                            pl: 'Wymiary nieustawione',
-                            en: 'Dimensions not set');
-                      }
-                      final dStr = dOk ? d.toStringAsFixed(1) : '—';
-                      final tStr = tOk ? t.toStringAsFixed(1) : '—';
-                      return 'Ø$dStr mm  ·  t $tStr mm';
-                    }(),
-                    style: const TextStyle(
-                        fontSize: 12, color: _kTextMut),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Badge materiału
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: matColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-                border:
-                    Border.all(color: matColor.withValues(alpha: 0.3), width: 1),
-              ),
-              child: Text(
-                matLabel,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: matColor,
+                  child: const Icon(Icons.assignment_outlined,
+                      size: 22, color: kArc),
                 ),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: kText,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        // Edge-case: brand-new projects start at 0/0, and a bad
+                        // DB row could carry NaN/Infinity. Either way, rendering
+                        // "Ø0.0 mm · t 0.0 mm" / "ØNaN mm" on the tile is noise
+                        // for a fitter scanning the recent list — show a dash.
+                        () {
+                          final d = project.diameterMm;
+                          final t = project.wallThicknessMm;
+                          final dOk = d.isFinite && d > 0;
+                          final tOk = t.isFinite && t > 0;
+                          if (!dOk && !tOk) {
+                            return context.tr(
+                                pl: 'Wymiary nieustawione',
+                                en: 'Dimensions not set');
+                          }
+                          final dStr = dOk ? d.toStringAsFixed(1) : '—';
+                          final tStr = tOk ? t.toStringAsFixed(1) : '—';
+                          return 'Ø$dStr mm  ·  t $tStr mm';
+                        }(),
+                        style: const TextStyle(fontSize: 12, color: kTextSec),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Badge materiału
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: matColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: matColor.withValues(alpha: 0.3), width: 1),
+                  ),
+                  child: Text(
+                    matLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: matColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(Icons.chevron_right, size: 18, color: kTextMut),
+              ],
             ),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, size: 18, color: _kTextMut),
-          ],
+          ),
         ),
       ),
     );

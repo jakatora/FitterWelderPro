@@ -5,30 +5,27 @@ import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
 import '../services/legal_consent.dart';
 import '../services/user_profile.dart';
+import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
 import 'legal_screen.dart';
 
-// First-run onboarding. Captures the user's first + last name BEFORE the app
-// opens, so their public chat messages are signed with a real identity
-// ("widać, że to ja piszę"). Mandatory: the RootGate keeps showing this until
-// a valid profile is saved. Purely additive — touches no calculator logic.
+// Przedstaw się, zanim napiszesz na czacie: imię, nazwisko i akceptacja zasad
+// w jednym kroku. Imię i nazwisko podpisują publiczne wiadomości („widać, że
+// to ja piszę").
+//
+// NIE jest już bramą startową aplikacji — kalkulatory działają bez konta.
+// Pokazuje ją bramka przed czatem (lib/widgets/community_gate.dart), a
+// [onDone] zamyka ten krok i wpuszcza dalej. Purely additive — touches no
+// calculator logic.
 
-const _kBg = Color(0xFF0B0E13);
-const _kCard = Color(0xFF141821);
-const _kBorder = Color(0xFF2A3140);
-const _kGold = Color(0xFFE8C14B);
-const _kOrange = Color(0xFFFF8E1E);
-const _kText = Color(0xFFE7ECF3);
-const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kErrorRed = Color(0xFFE57373);
 
 // Unicode-aware: allow letters (incl. Polish diacritics), spaces, apostrophe
 // and dash (e.g. "Anna-Maria", "O'Brien"). Min 2 chars.
 final RegExp _kNameAllowed = RegExp(r"^[\p{L} '\-]{2,}$", unicode: true);
 
 class OnboardingNameScreen extends StatefulWidget {
-  /// Called once a valid profile has been saved so the gate can rebuild
-  /// into the home screen.
+  /// Called once a valid profile has been saved and the rules accepted.
   final VoidCallback onDone;
 
   const OnboardingNameScreen({super.key, required this.onDone});
@@ -47,8 +44,8 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
   String? _lastError;
   bool _saving = false;
 
-  /// Bez zaznaczenia nie da się wejść — Apple wymaga akceptacji zasad, zanim
-  /// użytkownik cokolwiek opublikuje na publicznym czacie.
+  /// Bez zaznaczenia nie da się przejść dalej — Apple wymaga akceptacji zasad,
+  /// zanim użytkownik cokolwiek opublikuje na publicznym czacie.
   bool _accepted = false;
 
   @override
@@ -63,7 +60,8 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
   String? _validate(String value) {
     final v = value.trim();
     if (v.isEmpty) {
-      return context.tr(pl: 'To pole jest wymagane.', en: 'This field is required.');
+      return context.tr(
+          pl: 'To pole jest wymagane.', en: 'This field is required.');
     }
     if (!_kNameAllowed.hasMatch(v)) {
       return context.tr(
@@ -75,6 +73,8 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
   }
 
   Future<void> _submit() async {
+    // Dwa szybkie stuknięcia nie mogą zapisać profilu dwa razy.
+    if (_saving) return;
     final firstErr = _validate(_firstCtrl.text);
     final lastErr = _validate(_lastCtrl.text);
     setState(() {
@@ -115,197 +115,198 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
   Widget build(BuildContext context) {
     final lang = context.language;
     return Scaffold(
-      backgroundColor: _kBg,
+      backgroundColor: kBg,
+      // Krok otwierany z ekranu głównego — musi dać się z niego wycofać.
+      // Przełącznik języka siedzi w pasku, żeby nie zabierał miejsca formularzowi.
+      appBar: AppBar(
+        backgroundColor: kBg,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: _LangToggle(lang: lang, onChanged: context.setLanguage),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - 36),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Language toggle — a first-run user may prefer EN.
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: _LangToggle(
-                        lang: lang,
-                        onChanged: context.setLanguage,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // Brand mark.
-                    Center(
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              _kOrange.withValues(alpha: 0.22),
-                              _kGold.withValues(alpha: 0.10),
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: _kGold.withValues(alpha: 0.35), width: 1.5),
-                        ),
-                        child: const Icon(Icons.engineering_outlined,
-                            color: _kGold, size: 36),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    ShaderMask(
-                      shaderCallback: (b) => const LinearGradient(
-                        colors: [_kOrange, _kGold],
-                      ).createShader(b),
-                      child: Text(
-                        context.tr(pl: 'Witaj na pokładzie', en: 'Welcome aboard'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      context.tr(
-                        pl: 'Podaj imię i nazwisko — będą Twoim podpisem, '
-                            'żeby na czacie było widać, że to Ty piszesz.',
-                        en: 'Enter your first and last name — it becomes your '
-                            'signature so others can see it is you on the chat.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 13, color: _kTextSec, height: 1.5),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      context.tr(
-                        pl: 'Nie ma anonimowej ksywki — na budowie odpowiadasz '
-                            'za to, co mówisz.',
-                        en: 'There is no anonymous nickname — on site you answer '
-                            'for what you say.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 12, color: _kTextMut, height: 1.4),
-                    ),
-                    const SizedBox(height: 28),
-                    _FieldLabel(context.tr(pl: 'Imię', en: 'First name')),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _firstCtrl,
-                      focusNode: _firstFocus,
-                      textInputAction: TextInputAction.next,
-                      textCapitalization: TextCapitalization.words,
-                      autofocus: true,
-                      style: const TextStyle(color: _kText, fontSize: 16),
-                      decoration: _decoration(
-                        hint: context.tr(pl: 'np. Jan', en: 'e.g. John'),
-                        icon: Icons.person_outline,
-                        error: _firstError,
-                      ),
-                      onChanged: (_) {
-                        if (_firstError != null) setState(() => _firstError = null);
-                      },
-                      onSubmitted: (_) => _lastFocus.requestFocus(),
-                    ),
-                    const SizedBox(height: 18),
-                    _FieldLabel(context.tr(pl: 'Nazwisko', en: 'Last name')),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _lastCtrl,
-                      focusNode: _lastFocus,
-                      textInputAction: TextInputAction.done,
-                      textCapitalization: TextCapitalization.words,
-                      style: const TextStyle(color: _kText, fontSize: 16),
-                      decoration: _decoration(
-                        hint: context.tr(pl: 'np. Kowalski', en: 'e.g. Smith'),
-                        icon: Icons.badge_outlined,
-                        error: _lastError,
-                      ),
-                      onChanged: (_) {
-                        if (_lastError != null) setState(() => _lastError = null);
-                      },
-                      onSubmitted: (_) => _submit(),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        const Icon(Icons.lock_outline, size: 14, color: _kTextMut),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          // Uczciwie i konkretnie. Poprzednia wersja mówiła
-                          // „dane zostają na Twoim telefonie" — a nazwisko leci
-                          // na serwer z każdą wiadomością na czacie — oraz
-                          // odsyłała do ustawień, których w aplikacji nie było.
-                          child: Text(
-                            context.tr(
-                              pl: 'Twoje projekty i obliczenia zostają na '
-                                  'telefonie. Imię i nazwisko wysyłamy tylko '
-                                  'wtedy, gdy napiszesz na czacie. Zmienisz je '
-                                  'w profilu.',
-                              en: 'Your projects and calculations stay on this '
-                                  'phone. Your name is sent only when you post '
-                                  'in chat. You can change it in your profile.',
-                            ),
-                            style: const TextStyle(
-                                fontSize: 11, color: _kTextMut, height: 1.4),
-                          ),
-                        ),
+        top: false,
+        // Cały formularz budowany od razu (nie leniwie jak ListView), żeby
+        // przycisk na dole istniał także na niskim ekranie.
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Brand mark.
+              Center(
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        kArc.withValues(alpha: 0.22),
+                        kGold.withValues(alpha: 0.10),
                       ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    const SizedBox(height: 18),
-                    _ConsentRow(
-                      value: _accepted,
-                      onChanged: (v) => setState(() => _accepted = v),
-                      onTerms: () =>
-                          Navigator.push(context, LegalScreen.route(termsOfUse)),
-                      onPrivacy: () => Navigator.push(
-                          context, LegalScreen.route(privacyPolicy)),
-                    ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      height: 52,
-                      child: FilledButton(
-                        onPressed: (_saving || !_accepted) ? null : _submit,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _kGold,
-                          foregroundColor: Colors.black,
-                          disabledBackgroundColor: _kGold.withValues(alpha: 0.4),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: _saving
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2.5, color: Colors.black),
-                              )
-                            : Text(
-                                context.tr(pl: 'Zaczynamy', en: "Let's go"),
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                        color: kGold.withValues(alpha: 0.35), width: 1.5),
+                  ),
+                  child:
+                      const Icon(Icons.forum_outlined, color: kGold, size: 32),
                 ),
               ),
-            );
-          },
+              const SizedBox(height: 16),
+              Text(
+                context.tr(
+                    pl: 'Zanim napiszesz na czacie',
+                    en: 'Before you post in chat'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: kText,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  pl: 'Podaj imię i nazwisko — będą Twoim podpisem, '
+                      'żeby na czacie było widać, że to Ty piszesz.',
+                  en: 'Enter your first and last name — it becomes your '
+                      'signature so others can see it is you on the chat.',
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 13.5, color: kTextSec, height: 1.5),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  pl: 'Nie ma anonimowej ksywki — na budowie odpowiadasz '
+                      'za to, co mówisz.',
+                  en: 'There is no anonymous nickname — on site you answer '
+                      'for what you say.',
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 12.5, color: kTextMut, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              _FieldLabel(context.tr(pl: 'Imię', en: 'First name')),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _firstCtrl,
+                focusNode: _firstFocus,
+                textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.words,
+                autofocus: true,
+                style: const TextStyle(color: kText, fontSize: 16),
+                decoration: _decoration(
+                  hint: context.tr(pl: 'np. Jan', en: 'e.g. John'),
+                  icon: Icons.person_outline,
+                  error: _firstError,
+                ),
+                onChanged: (_) {
+                  if (_firstError != null) setState(() => _firstError = null);
+                },
+                onSubmitted: (_) => _lastFocus.requestFocus(),
+              ),
+              const SizedBox(height: 18),
+              _FieldLabel(context.tr(pl: 'Nazwisko', en: 'Last name')),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _lastCtrl,
+                focusNode: _lastFocus,
+                textInputAction: TextInputAction.done,
+                textCapitalization: TextCapitalization.words,
+                style: const TextStyle(color: kText, fontSize: 16),
+                decoration: _decoration(
+                  hint: context.tr(pl: 'np. Kowalski', en: 'e.g. Smith'),
+                  icon: Icons.badge_outlined,
+                  error: _lastError,
+                ),
+                onChanged: (_) {
+                  if (_lastError != null) setState(() => _lastError = null);
+                },
+                onSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(Icons.lock_outline, size: 14, color: kTextMut),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    // Uczciwie i konkretnie: nazwisko leci na serwer z każdą
+                    // wiadomością na czacie, a nic poza tym.
+                    child: Text(
+                      context.tr(
+                        pl: 'Kalkulatory, projekty i obliczenia działają bez '
+                            'tego kroku i zostają na telefonie. Imię i nazwisko '
+                            'wysyłamy tylko wtedy, gdy napiszesz na czacie. '
+                            'Zmienisz je w profilu.',
+                        en: 'Calculators, projects and results work without this '
+                            'step and stay on this phone. Your name is sent only '
+                            'when you post in chat. You can change it in your '
+                            'profile.',
+                      ),
+                      style: const TextStyle(
+                          fontSize: 12, color: kTextMut, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _ConsentRow(
+                value: _accepted,
+                onChanged: (v) => setState(() => _accepted = v),
+                onTerms: () =>
+                    Navigator.push(context, LegalScreen.route(termsOfUse)),
+                onPrivacy: () =>
+                    Navigator.push(context, LegalScreen.route(privacyPolicy)),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: (_saving || !_accepted) ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kGold,
+                    foregroundColor: Colors.black,
+                    disabledBackgroundColor: kGold.withValues(alpha: 0.4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2.5, color: Colors.black),
+                        )
+                      : Text(
+                          context.tr(
+                              pl: 'Zapisz i dalej', en: 'Save and continue'),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -319,33 +320,36 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
     return InputDecoration(
       hintText: hint,
       errorText: error,
-      prefixIcon: Icon(icon, color: _kTextSec, size: 20),
+      prefixIcon: Icon(icon, color: kTextSec, size: 20),
       filled: true,
-      fillColor: _kCard,
-      hintStyle: const TextStyle(color: _kTextMut),
+      fillColor: kCard,
+      hintStyle: const TextStyle(color: kTextMut),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: _kBorder),
+        borderSide: const BorderSide(color: kBorder),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: _kOrange, width: 1.5),
+        borderSide: const BorderSide(color: kArc, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE57373)),
+        borderSide: const BorderSide(color: _kErrorRed),
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE57373), width: 1.5),
+        borderSide: const BorderSide(color: _kErrorRed, width: 1.5),
       ),
     );
   }
 }
 
 /// Zgoda na zasady w tym samym kroku, w którym monter się przedstawia.
-/// Odnośniki są klikalne — regulamin dostępny bez Internetu, wprost z aplikacji.
+///
+/// Cały wiersz jest celem dotyku (min. 48 dp) — wcześniej trzeba było trafić
+/// w pole 30×30, a stuknięcie w tekst nic nie robiło. Odnośniki w tekście
+/// dalej otwierają regulamin i politykę (dostępne bez Internetu).
 class _ConsentRow extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -362,61 +366,70 @@ class _ConsentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const linkStyle = TextStyle(
-      fontSize: 12,
-      color: _kGold,
+      fontSize: 13,
+      color: kGold,
       height: 1.45,
       fontWeight: FontWeight.w700,
       decoration: TextDecoration.underline,
-      decorationColor: _kGold,
+      decorationColor: kGold,
     );
-    const bodyStyle = TextStyle(fontSize: 12, color: _kTextSec, height: 1.45);
+    const bodyStyle = TextStyle(fontSize: 13, color: kTextSec, height: 1.45);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 30,
-          height: 30,
-          child: Checkbox(
-            value: value,
-            activeColor: _kGold,
-            checkColor: Colors.black,
-            onChanged: (v) => onChanged(v ?? false),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 5),
-            child: Text.rich(
-              TextSpan(
-                style: bodyStyle,
-                children: [
-                  TextSpan(
-                    text: context.tr(
-                      pl: 'Mam ukończone $kMinimumAge lat i akceptuję ',
-                      en: 'I am at least $kMinimumAge years old and I accept the ',
+    return InkWell(
+      key: const ValueKey('onboarding-consent-row'),
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => onChanged(!value),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: kMinTapTarget),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Checkbox(
+                value: value,
+                activeColor: kGold,
+                checkColor: Colors.black,
+                onChanged: (v) => onChanged(v ?? false),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12, right: 4),
+                  child: Text.rich(
+                    TextSpan(
+                      style: bodyStyle,
+                      children: [
+                        TextSpan(
+                          text: context.tr(
+                            pl: 'Mam ukończone $kMinimumAge lat i akceptuję ',
+                            en: 'I am at least $kMinimumAge years old and I '
+                                'accept the ',
+                          ),
+                        ),
+                        TextSpan(
+                          text: context.tr(pl: 'Regulamin', en: 'Terms of Use'),
+                          style: linkStyle,
+                          recognizer: TapGestureRecognizer()..onTap = onTerms,
+                        ),
+                        TextSpan(
+                            text: context.tr(pl: ' oraz ', en: ' and the ')),
+                        TextSpan(
+                          text: context.tr(
+                              pl: 'Politykę prywatności', en: 'Privacy Policy'),
+                          style: linkStyle,
+                          recognizer: TapGestureRecognizer()..onTap = onPrivacy,
+                        ),
+                        const TextSpan(text: '.'),
+                      ],
                     ),
                   ),
-                  TextSpan(
-                    text: context.tr(pl: 'Regulamin', en: 'Terms of Use'),
-                    style: linkStyle,
-                    recognizer: TapGestureRecognizer()..onTap = onTerms,
-                  ),
-                  TextSpan(text: context.tr(pl: ' oraz ', en: ' and the ')),
-                  TextSpan(
-                    text: context.tr(
-                        pl: 'Politykę prywatności', en: 'Privacy Policy'),
-                    style: linkStyle,
-                    recognizer: TapGestureRecognizer()..onTap = onPrivacy,
-                  ),
-                  const TextSpan(text: '.'),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -430,15 +443,16 @@ class _FieldLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: const TextStyle(
-        fontSize: 11,
+        fontSize: 11.5,
         fontWeight: FontWeight.w700,
-        color: _kTextSec,
+        color: kTextSec,
         letterSpacing: 1.2,
       ),
     );
   }
 }
 
+/// PL / EN. Każdy przycisk ma co najmniej 48×48 dp — wcześniej ok. 34 dp.
 class _LangToggle extends StatelessWidget {
   final AppLanguage lang;
   final ValueChanged<AppLanguage> onChanged;
@@ -448,9 +462,9 @@ class _LangToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: _kCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kBorder),
+        color: kCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -464,20 +478,31 @@ class _LangToggle extends StatelessWidget {
 
   Widget _langChip(String label, AppLanguage value) {
     final selected = lang == value;
-    return GestureDetector(
-      onTap: () => onChanged(value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? _kOrange.withValues(alpha: 0.15) : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: selected ? _kOrange : _kTextMut,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        key: ValueKey('onboarding-lang-${value.name}'),
+        borderRadius: BorderRadius.circular(11),
+        onTap: () => onChanged(value),
+        child: Container(
+          constraints: const BoxConstraints(
+            minWidth: kMinTapTarget,
+            minHeight: kMinTapTarget,
+          ),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: selected ? kArc.withValues(alpha: 0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: selected ? kArc : kTextMut,
+            ),
           ),
         ),
       ),

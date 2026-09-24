@@ -422,7 +422,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     if (!mounted) return;
     Haptic.saved();
-    // Wracamy do bramy startowej: bez profilu i zgody aplikacja zaczyna od nowa.
+    // Wracamy na ekran główny od nowa. Kalkulatory działają dalej; czat przy
+    // następnym wejściu zapyta o imię, nazwisko i zasady (community_gate.dart).
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const RootGate()),
       (route) => false,
@@ -796,9 +797,15 @@ class _Identity extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                context.tr(
-                    pl: 'Tak podpisane są Twoje wiadomości',
-                    en: 'This signs your messages'),
+                // Bez imienia aplikacja działa w całości — poza czatem, który
+                // podpisuje wiadomości imieniem i nazwiskiem.
+                name.isEmpty
+                    ? context.tr(
+                        pl: 'Potrzebne tylko do pisania na czacie',
+                        en: 'Only needed to post in chat')
+                    : context.tr(
+                        pl: 'Tak podpisane są Twoje wiadomości',
+                        en: 'This signs your messages'),
                 style: const TextStyle(color: kTextMut, fontSize: 12),
               ),
             ],

@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/legal/legal_texts.dart';
+import 'package:cut_list_app/screens/home_screen.dart';
+import 'package:cut_list_app/screens/onboarding_name_screen.dart';
 import 'package:cut_list_app/screens/profile_screen.dart';
 import 'package:cut_list_app/services/blocked_users.dart';
 import 'package:cut_list_app/services/content_filter.dart';
@@ -207,6 +209,12 @@ void main() {
       );
       // Kontrola, że nie zepsuliśmy tego, co ekran kasował już wcześniej.
       expect(prefs.getString('user_profile_v1'), isNull);
+
+      // Po usunięciu danych aplikacja wraca na ekran główny, a nie do
+      // formularza imienia: kalkulatory działają bez konta, o imię i zasady
+      // zapyta dopiero czat.
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byType(OnboardingNameScreen), findsNothing);
     });
   });
 }

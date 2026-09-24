@@ -1,7 +1,8 @@
 // "Welder journey" — walks the real app the way a fitter/welder would on a
-// site: first launch, introduce yourself, look at what's on the home screen,
-// run a preheat calculation on low-carbon steel, and check the elbow takeout
-// reference table.
+// site: first launch straight into the tools, introduce yourself only when
+// opening the chat, look at what's on the home screen, run a preheat
+// calculation on low-carbon steel, and check the elbow takeout reference
+// table.
 //
 // These drive the actual production widgets (no mocks beyond SharedPreferences
 // and the sqflite FFI factory), so they catch what a unit test on the data
@@ -14,9 +15,13 @@ import 'support/test_database.dart';
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/config/feature_flags.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/screens/chat_screen.dart';
 import 'package:cut_list_app/screens/iso_scanner_screen.dart';
+import 'package:cut_list_app/screens/onboarding_name_screen.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
+import 'package:cut_list_app/services/legal_consent.dart';
 import 'package:cut_list_app/services/premium_service.dart';
+import 'package:cut_list_app/services/user_profile.dart';
 
 import 'test_prefs.dart';
 
@@ -30,7 +35,8 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    // Brama startowa sprawdza profil ORAZ akceptację zasad.
+    // Profil i zgoda są potrzebne dopiero na czacie; ziarno decyduje, czy
+    // bramka czatu o nie zapyta.
     if (withProfile) {
       seedOnboardedUser();
     } else {
@@ -54,12 +60,19 @@ void main() {
   }
 
   testWidgets(
-      'pierwsze uruchomienie: monter musi się przedstawić, zanim wejdzie',
-      (tester) async {
+      'pierwsze uruchomienie: narzędzia od razu, przedstawia się dopiero przy '
+      'czacie', (tester) async {
     await boot(tester, withProfile: false);
+    await settle(tester);
 
-    // Brama startowa trzyma go na onboardingu — narzędzi jeszcze nie widać.
-    expect(find.text('FITTER'), findsNothing);
+    // Kalkulatory działają offline i bez konta — ekran główny od razu.
+    expect(find.byIcon(Icons.handyman_outlined), findsOneWidget); // MONTER
+    expect(find.byType(OnboardingNameScreen), findsNothing);
+
+    // Dopiero czat pyta o imię, nazwisko i zasady.
+    await tester.tap(find.byIcon(Icons.forum_outlined)); // CZAT
+    await settle(tester);
+    expect(find.byType(OnboardingNameScreen), findsOneWidget);
 
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(2));
@@ -76,16 +89,23 @@ void main() {
     await tester.tap(find.byType(FilledButton));
     await settle(tester);
 
-    // Po przedstawieniu się i akceptacji zasad wchodzi do narzędzi.
-    expect(find.text('FITTER'), findsOneWidget);
+    // Po przedstawieniu się i akceptacji zasad wchodzi na czat.
+    expect(find.byType(ChatScreen), findsOneWidget);
+    expect(UserProfileService.instance.current?.fullName, 'Marek Kowalczyk');
+    expect(LegalConsent.instance.isAccepted, isTrue);
+
+    // Domknij żądania czatu (atrapa HTTP odpowiada 400, limit czasu 8 s).
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('ekran główny: czat jest, płatne i skaner bez zakupu ukryte',
       (tester) async {
     await boot(tester, withProfile: true);
 
-    // Widoczne: FITTER, SPAWACZ, POMOC, CZAT (ikony są niezależne od języka).
-    expect(find.byIcon(Icons.handyman_outlined), findsOneWidget); // FITTER
+    // Widoczne: MONTER, SPAWACZ, CZAT (ikony są niezależne od języka).
+    // Kafla POMOC nie ma — pomoc jest pod ikoną „?" w pasku.
+    expect(find.byIcon(Icons.handyman_outlined), findsOneWidget); // MONTER
     expect(find.byIcon(Icons.waves_outlined), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
@@ -151,7 +171,7 @@ void main() {
       (tester) async {
     await boot(tester, withProfile: true);
 
-    await tester.tap(find.byIcon(Icons.handyman_outlined)); // FITTER
+    await tester.tap(find.byIcon(Icons.handyman_outlined)); // MONTER
     await settle(tester);
 
     // Kafel skanera tylko wtedy, gdy bramkę Premium da się przejść.

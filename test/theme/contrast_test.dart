@@ -4,6 +4,7 @@
 // dla zwykłego tekstu to 4,5:1. Stary kTextMut (#5A6478) miał 3,25:1 na tle
 // i 2,98:1 na karcie, a biały tekst na bursztynowym FAB-ie 2,30:1.
 
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -107,5 +108,23 @@ void main() {
 
   test('cel dotyku z motywu ma co najmniej 48 dp', () {
     expect(kMinTapTarget, greaterThanOrEqualTo(48));
+  });
+
+  // Ekrany z tego zakresu korzystają z tokenu, a nie z własnej kopii starej
+  // wartości — inaczej zmiana tokenu by ich nie dotknęła.
+  test('ekrany startowe i menu nie trzymają kopii starego #5A6478', () {
+    const files = [
+      'lib/screens/home_screen.dart',
+      'lib/screens/onboarding_name_screen.dart',
+      'lib/screens/consent_screen.dart',
+      'lib/screens/fitter_menu_screen.dart',
+      'lib/screens/welder_menu_screen.dart',
+      'lib/screens/profile_screen.dart',
+      'lib/widgets/tool_tiles.dart',
+    ];
+    for (final path in files) {
+      final src = File(path).readAsStringSync().toUpperCase();
+      expect(src.contains('0XFF5A6478'), isFalse, reason: path);
+    }
   });
 }
