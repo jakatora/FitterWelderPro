@@ -43,9 +43,30 @@ class UnitParser {
 
   // --- internal helpers ---------------------------------------------------
 
+  /// Feet, then optional inches: `4' 11"`, `4'-6"` (drawing notation with a
+  /// hyphen), `2'-1 1/2"`, `1' 1/2"` (fractional inches).
   static final RegExp _feetInchRe = RegExp(
-    r'''^\s*(\d+(?:\.\d+)?)\s*(?:'|ft|feet|foot)\s*(?:(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches|''))?\s*$''',
+    r'''^\s*(\d+(?:\.\d+)?)\s*(?:'|ft|feet|foot)\s*-?\s*(?:(\d+(?:\.\d+)?|\d+\s+\d+\s*/\s*\d+|\d+\s*/\s*\d+)\s*(?:"|in|inch|inches|''))?\s*$''',
   );
+
+  /// Inches as written after feet: `6`, `6.5`, `1 1/2`, `3/4`. Null for a
+  /// zero denominator.
+  static double? _inchPart(String raw) {
+    final t = raw.trim();
+    final mixed = RegExp(r'^(\d+)\s+(\d+)\s*/\s*(\d+)$').firstMatch(t);
+    if (mixed != null) {
+      final den = double.parse(mixed.group(3)!);
+      if (den == 0) return null;
+      return double.parse(mixed.group(1)!) + double.parse(mixed.group(2)!) / den;
+    }
+    final frac = RegExp(r'^(\d+)\s*/\s*(\d+)$').firstMatch(t);
+    if (frac != null) {
+      final den = double.parse(frac.group(2)!);
+      if (den == 0) return null;
+      return double.parse(frac.group(1)!) / den;
+    }
+    return double.tryParse(t);
+  }
 
   static final RegExp _inchesRe = RegExp(
     r'''^\s*(\d+(?:\.\d+)?)\s*(?:"|in|inch|inches|'')\s*$''',
@@ -66,7 +87,7 @@ class UnitParser {
     if (feet == null) return null;
     double inches = 0;
     if (m.group(2) != null) {
-      final parsed = double.tryParse(m.group(2)!);
+      final parsed = _inchPart(m.group(2)!);
       if (parsed == null) return null;
       inches = parsed;
     }

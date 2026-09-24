@@ -1,0 +1,118 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "04-trojnik-odgalezienie",
+  "title": "Trójnik równoprzelotowy z odgałęzieniem",
+  "drawing": "Otwarty koniec → trójnik T1 → otwarty koniec (przelot) + odgałęzienie T1 → otwarty koniec. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1001",
+        "sheet": "1/1",
+        "revision": "B",
+        "lineNumber": "DN100-P-1001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "T1",
+          "dimensionMm": 800,
+          "rawDimension": "800",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "T1",
+          "toId": null,
+          "dimensionMm": 600,
+          "rawDimension": "600",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "T1",
+          "toId": null,
+          "dimensionMm": 500,
+          "rawDimension": "500",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "T1",
+          "type": "tee",
+          "label": "TEE EQ DN100",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [
+    "Spec §9: rozgałęzienie powinno blokować automatyczny zapis — dziś planista zgłasza tylko ostrzeżenie branchInRoute.",
+    "Trójnik redukcyjny (M ≠ C) i średnica odgałęzienia nie są odczytywane — schemat AI nie ma DN per segment ani rozmiaru wylotu."
+  ],
+  "steps": [
+    {
+      "note": "Dziś rozgałęzienie jest tylko ostrzeżeniem (branchInRoute) — patrz knownLimitations.",
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "branchInRoute"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 695,
+            "calc": "800 − 105 (C trójnika) = 695"
+          },
+          {
+            "id": "s2",
+            "cutMm": 495,
+            "calc": "600 − 105 = 495"
+          },
+          {
+            "id": "s3",
+            "cutMm": 395,
+            "calc": "500 − 105 (M odgałęzienia = C dla trójnika równego) = 395"
+          }
+        ]
+      }
+    }
+  ]
+}

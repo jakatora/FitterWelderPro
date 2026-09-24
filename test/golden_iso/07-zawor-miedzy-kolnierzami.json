@@ -1,0 +1,204 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "07-zawor-miedzy-kolnierzami",
+  "title": "Zasuwa kołnierzowa między dwoma kołnierzami WN",
+  "drawing": "Otwarty koniec → kolano E1 → kołnierz F1 | zasuwa V1 (FTF 229) | kołnierz F2 → kolano E2 → otwarty koniec. Wymiary do przylg kołnierzy; wymiar zaworu 229 to linia pomocnicza. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1001",
+        "sheet": "1/1",
+        "revision": "B",
+        "lineNumber": "DN100-P-1001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s0",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1200,
+          "rawDimension": "1200",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s1",
+          "fromId": "E1",
+          "toId": "F1",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "sv",
+          "fromId": "F1",
+          "toId": "F2",
+          "dimensionMm": 229,
+          "rawDimension": "229",
+          "auxiliary": true,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "F2",
+          "toId": "E2",
+          "dimensionMm": 700,
+          "rawDimension": "700",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "dimensionMm": 900,
+          "rawDimension": "900",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "F1",
+          "type": "flange",
+          "label": "WN RF 150#",
+          "confidence": "high"
+        },
+        {
+          "id": "V1",
+          "type": "valve",
+          "label": "GATE VALVE 4\" 150#",
+          "confidence": "high",
+          "valveType": "gate"
+        },
+        {
+          "id": "F2",
+          "type": "flange",
+          "label": "WN RF 150#",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [
+    "Zawór nie jest końcem żadnego odcinka rury — trasa rozpada się na dwa ciągi (ostrzeżenie routeNotContinuous). Schemat AI nie ma relacji „element skręcany z elementem”.",
+    "Długość zabudowy zaworu nie jest sprawdzana z wymiarem 229 z rysunku (linia pomocnicza jest pomijana)."
+  ],
+  "steps": [
+    {
+      "expect": {
+        "canSave": false,
+        "gaps": [
+          "dimensionReferenceUnknown"
+        ],
+        "warnings": [
+          "auxiliarySegmentsSkipped",
+          "routeNotContinuous"
+        ],
+        "segments": [
+          {
+            "id": "s0",
+            "cutMm": 1048,
+            "calc": "1200 − 152 = 1048"
+          },
+          {
+            "id": "s1",
+            "cutMm": null,
+            "proposed": "CTE",
+            "calc": "czeka na potwierdzenie"
+          },
+          {
+            "id": "s2",
+            "cutMm": null,
+            "proposed": "CTE",
+            "calc": "czeka na potwierdzenie"
+          },
+          {
+            "id": "s3",
+            "cutMm": 748,
+            "calc": "900 − 152 = 748"
+          }
+        ]
+      }
+    },
+    {
+      "fitter": {
+        "references": {
+          "s1": "proposal",
+          "s2": "proposal"
+        }
+      },
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {
+            "id": "s0",
+            "cutMm": 1048,
+            "calc": "1200 − 152 = 1048"
+          },
+          {
+            "id": "s1",
+            "cutMm": 772,
+            "calc": "1000 − 152 − 76 (Y F1) = 772"
+          },
+          {
+            "id": "s2",
+            "cutMm": 472,
+            "calc": "700 − 76 (Y F2) − 152 = 472"
+          },
+          {
+            "id": "s3",
+            "cutMm": 748,
+            "calc": "900 − 152 = 748"
+          }
+        ]
+      }
+    }
+  ]
+}

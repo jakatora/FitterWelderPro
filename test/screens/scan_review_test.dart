@@ -192,10 +192,23 @@ void main() {
     // The drawing-wide doubt is quoted verbatim…
     expect(find.textContaining('AI nie jest pewna'), findsOneWidget);
     expect(find.textContaining('częściowo zasłonięty'), findsOneWidget);
-    // …and the segment carries its own warning next to the number.
-    expect(find.textContaining('Niepewny odczyt wymiaru 1500'), findsOneWidget);
+    // …and the doubt about the number is listed at the top AND next to it.
+    expect(find.textContaining('Niepewny odczyt wymiaru 1500'),
+        findsNWidgets(2));
 
-    // A low-confidence reading is a warning, not a block — the fitter decides.
+    // Spec §9 rule 6: an uncertain value never becomes a cut silently. The
+    // cut is shown, but nothing is saved until the fitter confirms the number.
+    expect(find.textContaining('CUT 1348'), findsOneWidget);
+    expect(_saveEnabled(tester), isFalse);
+
+    // He checks the drawing and confirms the number as read.
+    await tester.tap(find.text('ISO 1500'));
+    await _settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
+    await _settle(tester);
+
+    expect(find.textContaining('Niepewny odczyt wymiaru'), findsNothing);
+    expect(find.textContaining('CUT 1348'), findsOneWidget);
     expect(_saveEnabled(tester), isTrue);
   });
 

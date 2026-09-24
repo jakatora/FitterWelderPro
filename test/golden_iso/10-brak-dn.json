@@ -1,0 +1,142 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "10-brak-dn",
+  "title": "Brak średnicy na rysunku — blokada, potem średnica od montera",
+  "drawing": "Otwarty koniec → E1 → E2 → otwarty koniec; w tabelce i BOM brak rozmiaru. Po wpisaniu OD 114,3 (DN100) take-outy wynikają z tabel. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "unknown",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-2002",
+        "lineNumber": "P-2002-A1A",
+        "pipeClass": "CL150",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1500,
+          "rawDimension": "1500",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "dimensionMm": 1200,
+          "rawDimension": "1200",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "dimensionMm": 800,
+          "rawDimension": "800",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 31000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "note": "Bez DN nie ma take-outów ani ścianki — nic się nie tnie.",
+      "expect": {
+        "canSave": false,
+        "gaps": [
+          "missingDiameter",
+          "missingWallThickness",
+          "missingTakeout"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": null,
+            "calc": "brak DN → brak take-outu kolana"
+          },
+          {
+            "id": "s2",
+            "cutMm": null,
+            "calc": "brak DN"
+          },
+          {
+            "id": "s3",
+            "cutMm": null,
+            "calc": "brak DN"
+          }
+        ]
+      }
+    },
+    {
+      "note": "Monter wpisuje średnicę zewnętrzną 114,3 i ściankę 6,02.",
+      "fitter": {
+        "diameterMm": 114.3,
+        "wallThicknessMm": 6.02
+      },
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1348,
+            "calc": "1500 − 152 = 1348"
+          },
+          {
+            "id": "s2",
+            "cutMm": 896,
+            "calc": "1200 − 152 − 152 = 896"
+          },
+          {
+            "id": "s3",
+            "cutMm": 648,
+            "calc": "800 − 152 = 648"
+          }
+        ]
+      }
+    }
+  ]
+}

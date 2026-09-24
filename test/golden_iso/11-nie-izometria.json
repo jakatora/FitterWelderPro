@@ -1,0 +1,44 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 1,
+  "id": "11-nie-izometria",
+  "title": "Zdjęcie, które nie jest izometrią",
+  "drawing": "Model rozpoznał, że to nie rysunek izometryczny (np. zdjęcie P&ID albo placu budowy).",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "unknown",
+      "sizeNotation": "unknown",
+      "isHygienic": false,
+      "titleBlock": {
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [],
+      "components": [],
+      "elevations": [],
+      "billOfMaterials": [],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": [
+        "not_an_isometric"
+      ]
+    },
+    "tookMs": 9000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": false,
+        "gaps": [
+          "scanFailed"
+        ],
+        "segments": []
+      }
+    }
+  ]
+}

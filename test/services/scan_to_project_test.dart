@@ -802,7 +802,7 @@ void main() {
   // ── Confidence ─────────────────────────────────────────────────────────
 
   group('confidence', () {
-    test('a low-confidence reading is warned about by its printed value', () {
+    test('a low-confidence reading blocks the save until confirmed', () {
       final plan = planFromScan(_scan(
         components: [_comp('e1', 'elbow90'), _comp('e2', 'elbow90')],
         segments: [
@@ -816,15 +816,29 @@ void main() {
       ));
 
       final low =
-          plan.warnings.where((w) => w.code == ScanIssueCode.lowConfidence);
+          plan.gaps.where((g) => g.code == ScanIssueCode.lowConfidence);
       expect(low, hasLength(1));
       expect(low.single.segmentId, 's1');
       expect(low.single.dimensionLabel, '1200',
           reason: 'the screen highlights exactly this number');
-      expect(low.single.blocking, isFalse);
-      // A shaky reading is still worth planning — it just gets flagged.
+      // Spec §9 rule 6: an uncertain value never becomes a cut silently.
+      expect(low.single.blocking, isTrue);
+      // The cut is still shown, so the fitter sees what he confirms…
       expect(plan.segments.single.cutMm, closeTo(896, 0.001));
-      expect(plan.canSave, isTrue);
+      // …but it is not saved until he does.
+      expect(plan.canSave, isFalse);
+    });
+
+    test('an unread dimension is not reported twice', () {
+      final plan = planFromScan(_scan(
+        components: [_comp('e1', 'elbow90'), _comp('e2', 'elbow90')],
+        segments: [
+          _seg('s1', from: 'e1', to: 'e2', confidence: AiConfidence.low),
+        ],
+      ));
+      expect(_codes(plan.gaps), contains(ScanIssueCode.missingDimension));
+      expect(_codes(plan.gaps), isNot(contains(ScanIssueCode.lowConfidence)));
+      expect(_codes(plan.warnings), contains(ScanIssueCode.lowConfidence));
     });
 
     test('an absent confidence is treated as unsure, not as certain', () {
@@ -835,7 +849,7 @@ void main() {
         ],
       ));
 
-      expect(_codes(plan.warnings), contains(ScanIssueCode.lowConfidence));
+      expect(_codes(plan.gaps), contains(ScanIssueCode.lowConfidence));
     });
 
     test('a high-confidence reading raises nothing', () {

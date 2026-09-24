@@ -103,7 +103,8 @@ enum ScanIssueCode {
   /// A segment carries no readable dimension.
   missingDimension,
 
-  /// The model was unsure about a dimension.
+  /// The model was unsure about a dimension. Blocking while the number was
+  /// read (the fitter confirms it), a warning when it was not read at all.
   lowConfidence,
 
   /// A component type the app does not know.
@@ -882,18 +883,34 @@ ScanPlan planFromScan(
     // ── Confidence ───────────────────────────────────────────────────
     // The fitter has to see what the model was unsure about, by the number
     // as printed, so the screen can highlight exactly that dimension.
+    //
+    // Since 2026-09-25 (spec §9, rule 6: an uncertain value never becomes a
+    // cut length silently) a shaky number that WAS read blocks the save
+    // until the fitter confirms it — re-entering it on the review screen
+    // marks it as his own reading. The cut is still computed and shown, so
+    // he sees what he is confirming. A dimension that was not read at all is
+    // already blocked by [ScanIssueCode.missingDimension]; the doubt about it
+    // stays a warning so it is not reported twice.
     if (seg.confidence == AiConfidence.low ||
         seg.confidence == AiConfidence.unknown) {
-      warnings.add(ScanIssue(
+      final issue = ScanIssue(
         code: ScanIssueCode.lowConfidence,
-        blocking: false,
+        blocking: isoMm != null,
         segmentId: segmentId,
         dimensionLabel: dimensionLabel,
-        pl: 'Niepewny odczyt wymiaru ${dimensionLabel ?? "(brak)"} — '
-            'sprawdź na rysunku.',
-        en: 'Low-confidence reading of ${dimensionLabel ?? "(none)"} — '
-            'check it against the drawing.',
-      ));
+        pl: isoMm != null
+            ? 'Niepewny odczyt wymiaru ${dimensionLabel ?? ""} — sprawdź go '
+                'na rysunku i potwierdź (stuknij wymiar ISO odcinka).'
+            : 'Niepewny odczyt wymiaru ${dimensionLabel ?? "(brak)"} — '
+                'sprawdź na rysunku.',
+        en: isoMm != null
+            ? 'Low-confidence reading of ${dimensionLabel ?? ""} — check it '
+                'against the drawing and confirm it (tap the segment\'s ISO '
+                'dimension).'
+            : 'Low-confidence reading of ${dimensionLabel ?? "(none)"} — '
+                'check it against the drawing.',
+      );
+      (issue.blocking ? gaps : warnings).add(issue);
     }
 
     // ── Dimension reference ──────────────────────────────────────────
