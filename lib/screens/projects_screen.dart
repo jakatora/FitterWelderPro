@@ -39,6 +39,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     _load();
   }
 
+  /// Name, stock length, kerf and gap of an existing project. A changed gap
+  /// recomputes every saved CUT of the project (see
+  /// [ProjectDao.updateSettings]).
+  Future<void> _editSettings(Project p) async {
+    final result = await showProjectSettingsDialog(context, p, dao: _dao);
+    if (result == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(projectSettingsSavedMessage(context, result)),
+        duration: const Duration(seconds: 6),
+      ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -249,11 +265,22 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(
                           context.tr(
-                            pl: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
-                            en: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup}',
+                            pl: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup} | gap ${p.gapMm.toStringAsFixed(1)}',
+                            en: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup} | gap ${p.gapMm.toStringAsFixed(1)}',
                           ),
                         ),
-                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        // Name, stock, kerf and gap used to be frozen at
+                        // creation. A visible button (not only the long
+                        // press) because a long press is undiscoverable in
+                        // gloves.
+                        trailing: IconButton(
+                          icon: const Icon(Icons.tune),
+                          tooltip: context.tr(
+                              pl: 'Ustawienia projektu',
+                              en: 'Project settings'),
+                          onPressed: () => _editSettings(p),
+                        ),
+                        onLongPress: () => _editSettings(p),
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => FitterScreen(projectId: p.id)),

@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
+import 'fitter_screen.dart';
 
 class NewProjectScreen extends StatefulWidget {
   const NewProjectScreen({super.key});
@@ -97,7 +98,16 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       await _dao.insert(p);
       if (!mounted) return;
       didPop = true;
-      Navigator.pop(context, true);
+      // Straight into the new project: the next thing a fitter does with a
+      // fresh project is add its first segment, and dropping him back on the
+      // list only made him find and open it again. The form is REPLACED, so
+      // "back" from the project lands on the list; `result: true` still
+      // tells the list a project was created, so it reloads underneath.
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => FitterScreen(projectId: p.id)),
+        result: true,
+      );
     } catch (e) {
       // Don't expose the raw exception to a user filling in a project form —
       // map to a category they can act on; keep $e in the debug log for
@@ -287,6 +297,229 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─── Ustawienia istniejącego projektu ─────────────────────────────────────
+
+String _fmtNumber(double v) {
+  var t = v.toStringAsFixed(3);
+  t = t.replaceFirst(RegExp(r'0+$'), '');
+  if (t.endsWith('.')) t = t.substring(0, t.length - 1);
+  return t;
+}
+
+/// Opens the settings of an existing [project] — name, stock length, kerf
+/// and gap — and saves them through [ProjectDao.updateSettings].
+///
+/// Returns what the save did, or null when the fitter backed out. A gap that
+/// leaves some segment with nothing to cut is refused inside the dialog and
+/// nothing is changed.
+Future<ProjectSettingsUpdate?> showProjectSettingsDialog(
+  BuildContext context,
+  Project project, {
+  ProjectDao? dao,
+}) {
+  return showDialog<ProjectSettingsUpdate>(
+    context: context,
+    builder: (_) => _ProjectSettingsDialog(
+      project: project,
+      dao: dao ?? ProjectDao(),
+    ),
+  );
+}
+
+/// One line for a SnackBar after [showProjectSettingsDialog] saved.
+String projectSettingsSavedMessage(
+  BuildContext context,
+  ProjectSettingsUpdate result,
+) {
+  if (result.recomputed == 0) {
+    return context.tr(
+      pl: 'Zapisano ustawienia projektu.',
+      en: 'Project settings saved.',
+    );
+  }
+  final base = context.tr(
+    pl: 'Zapisano. Gap zmieniony — przeliczono CUT ${result.recomputed} '
+        'segmentów.',
+    en: 'Saved. Gap changed — CUT recomputed for ${result.recomputed} '
+        'segments.',
+  );
+  if (result.changedBeyondGap.isEmpty) return base;
+  final list = result.changedBeyondGap.join(', ');
+  return '$base ${context.tr(
+    pl: 'Sprawdź segmenty: $list — ich CUT zmienił się o więcej niż różnica '
+        'gapu (były zapisane starą regułą).',
+    en: 'Check segments: $list — their CUT moved by more than the gap '
+        'difference (they were saved under an old rule).',
+  )}';
+}
+
+class _ProjectSettingsDialog extends StatefulWidget {
+  final Project project;
+  final ProjectDao dao;
+  const _ProjectSettingsDialog({required this.project, required this.dao});
+
+  @override
+  State<_ProjectSettingsDialog> createState() => _ProjectSettingsDialogState();
+}
+
+class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
+  late final TextEditingController _name =
+      TextEditingController(text: widget.project.name ?? '');
+  late final TextEditingController _stock =
+      TextEditingController(text: _fmtNumber(widget.project.stockLengthMm));
+  late final TextEditingController _kerf =
+      TextEditingController(text: _fmtNumber(widget.project.sawKerfMm));
+  late final TextEditingController _gap =
+      TextEditingController(text: _fmtNumber(widget.project.gapMm));
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _stock.dispose();
+    _kerf.dispose();
+    _gap.dispose();
+    super.dispose();
+  }
+
+  double? _parse(TextEditingController c) =>
+      double.tryParse(c.text.trim().replaceAll(',', '.'));
+
+  bool get _gapChanges {
+    final g = _parse(_gap);
+    return g != null && (g - widget.project.gapMm).abs() > 1e-9;
+  }
+
+  Future<void> _save() async {
+    final stock = _parse(_stock);
+    final kerf = _parse(_kerf);
+    final gap = _parse(_gap);
+    String? error;
+    if (stock == null || !stock.isFinite || stock <= 0) {
+      error = context.tr(
+          pl: 'Podaj poprawną długość sztangi', en: 'Enter a valid stock length');
+    } else if (kerf == null || !kerf.isFinite || kerf < 0) {
+      error = context.tr(pl: 'Podaj poprawny kerf', en: 'Enter a valid kerf');
+    } else if (gap == null || !gap.isFinite || gap < 0) {
+      error = context.tr(pl: 'Podaj poprawny gap', en: 'Enter a valid gap');
+    }
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+
+    setState(() {
+      _error = null;
+      _saving = true;
+    });
+    final typedName = _name.text.trim();
+    try {
+      final result = await widget.dao.updateSettings(
+        widget.project.id,
+        name: typedName.isEmpty ? null : typedName,
+        stockLengthMm: stock!,
+        sawKerfMm: kerf!,
+        gapMm: gap!,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, result);
+    } on GapMakesCutImpossible catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = context.tr(
+          pl: 'Przy gapie ${_fmtNumber(e.gapMm)} mm segment ${e.seqNo} nie ma '
+              'już czego ciąć (CUT ≤ 0). Nic nie zostało zmienione.',
+          en: 'With a ${_fmtNumber(e.gapMm)} mm gap segment ${e.seqNo} has '
+              'nothing left to cut (CUT ≤ 0). Nothing was changed.',
+        );
+      });
+    } catch (e) {
+      debugPrint('ProjectSettingsDialog.save error: $e');
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = context.tr(
+          pl: 'Nie udało się zapisać ustawień. Nic nie zostało zmienione.',
+          en: 'Could not save the settings. Nothing was changed.',
+        );
+      });
+    }
+  }
+
+  Widget _mmField(TextEditingController c, String label, {String? helper}) {
+    return TextField(
+      controller: c,
+      enabled: !_saving,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(labelText: label, helperText: helper),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(context.tr(pl: 'Ustawienia projektu', en: 'Project settings')),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _name,
+              enabled: !_saving,
+              decoration: InputDecoration(
+                labelText:
+                    context.tr(pl: 'Nazwa (opcjonalnie)', en: 'Name (optional)'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _mmField(_stock,
+                context.tr(pl: 'Długość sztangi (mm)', en: 'Stock length (mm)')),
+            const SizedBox(height: 8),
+            _mmField(_kerf,
+                context.tr(pl: 'Kerf (mm na cięcie)', en: 'Kerf (mm per cut)')),
+            const SizedBox(height: 8),
+            _mmField(
+              _gap,
+              context.tr(pl: 'Gap (mm na spoinę)', en: 'Gap (mm per weld)'),
+            ),
+            if (_gapChanges) ...[
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  pl: 'Zmiana gapu przeliczy CUT wszystkich segmentów tego '
+                      'projektu (gap × liczba spoin każdego segmentu).',
+                  en: 'Changing the gap recomputes the CUT of every segment '
+                      'in this project (gap × welds of each segment).',
+                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFFFFC44D)),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Color(0xFFEF5350))),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
+        ),
+      ],
     );
   }
 }

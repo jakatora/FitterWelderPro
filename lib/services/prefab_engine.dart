@@ -34,8 +34,159 @@ enum SideStop {
   centre,
 }
 
+/// Splits a stored `segments.iso_ref` back into its START and END codes.
+///
+/// The column holds both reference points joined with '|' (see the save
+/// payload of the segment builder), e.g. 'AXIS|FACE_NEAR'. Rows written
+/// before that encoding existed hold the plain default 'FACE', and rows can
+/// in principle hold anything, so this never throws: a missing half comes
+/// back as an empty string and the reader falls back to the point the stored
+/// value implies rather than silently measuring from the wrong point — which
+/// would change the cut length.
+({String start, String end}) splitIsoRef(String isoRef) {
+  final parts = isoRef.split('|');
+  return (
+    start: parts.isNotEmpty ? parts[0].trim() : '',
+    end: parts.length > 1 ? parts[1].trim() : '',
+  );
+}
+
+/// The stop a stored reference-point code stands for, or null for a code
+/// that names no stop (legacy `'FACE'`, an empty half, garbage).
+///
+/// The codes are the ones `segments.iso_ref` holds, `START|END`, written by
+/// the segment builder (`IsoRefPoint.code`) and by the scan review:
+///   * `FACE_NEAR`, `OPEN` — the dimension stops at the face the pipe meets
+///     (or at a free pipe end), nothing of the anchor lies in the span;
+///   * `AXIS`, `CENTER` — it stops on the anchor's centreline;
+///   * `FACE_FAR` — it runs through the anchor's body to its far face.
+///
+/// One table for every reader: the builder maps its enum through it, and a
+/// saved row is decoded with it when the project's gap changes, so a code can
+/// never mean one stop on screen and another in the recompute.
+SideStop? sideStopForRefCode(String code) {
+  switch (code) {
+    case 'FACE_NEAR':
+    case 'OPEN':
+      return SideStop.face;
+    case 'AXIS':
+    case 'CENTER':
+      return SideStop.centre;
+    case 'FACE_FAR':
+      return SideStop.end;
+  }
+  return null;
+}
+
 class PrefabEngine {
   const PrefabEngine._();
+
+  /// CUT of a pipe between two anchors whose stops are known exactly, each
+  /// with the length that stop takes off ([startOffsetMm] / [endOffsetMm]:
+  /// the take-out for a centre stop, the body for an end stop, ignored for a
+  /// face stop), less [gapMm] × [welds]. NaN when there is nothing to cut.
+  ///
+  /// This is the rule every anchored caller shares — the segment builder, the
+  /// scan review, and the recompute of saved segments after a project's gap
+  /// changes — so a segment saved on one of those paths and reopened on
+  /// another comes back with the same number.
+  static double anchoredCutMm({
+    required double isoMm,
+    required SideStop startStop,
+    required double startOffsetMm,
+    required SideStop endStop,
+    required double endOffsetMm,
+    required double gapMm,
+    required int welds,
+  }) {
+    return cutLengthMm(
+      isoValueMm: isoMm,
+      leftStop: startStop,
+      rightStop: endStop,
+      leftCteMm: startStop == SideStop.centre ? startOffsetMm : null,
+      leftPhysicalLenMm: startStop == SideStop.end ? startOffsetMm : null,
+      rightCteMm: endStop == SideStop.centre ? endOffsetMm : null,
+      rightPhysicalLenMm: endStop == SideStop.end ? endOffsetMm : null,
+      weldGapMm: gapMm,
+      weldCount: welds,
+    );
+  }
+
+  /// CUT of a saved `segments` row at [gapMm], by the segment builder's rule:
+  /// [anchoredCutMm] with [weldCountForEnds] welds, an end being open exactly
+  /// when its stored kind is `logical` (the builder's OPEN_END).
+  ///
+  /// Used when a project's gap changes, so every saved cut is recomputed the
+  /// way the builder would compute it — not shifted by a delta, which would
+  /// carry forward whatever weld count the row was once saved with.
+  ///
+  /// It deliberately reads the take-off each side STORED (`*_value_mm`), not
+  /// the component library: changing the gap must change the gap and nothing
+  /// else, never quietly pull in a library value edited since.
+  ///
+  /// A side whose code names no stop (legacy `'FACE'`, an empty half) takes
+  /// off exactly its stored value — the only reading that reproduces the cut
+  /// the row was saved with.
+  static double storedSegmentCutMm({
+    required double isoMm,
+    required String isoRef,
+    required String startKind,
+    required double startValueMm,
+    required String endKind,
+    required double endValueMm,
+    required double gapMm,
+  }) {
+    final codes = splitIsoRef(isoRef);
+    SideStop stopFor(String code, String kind, double valueMm) {
+      final known = sideStopForRefCode(code);
+      if (known != null) return known;
+      if (kind == 'logical' || valueMm == 0) return SideStop.face;
+      return kind == 'axial' ? SideStop.centre : SideStop.end;
+    }
+
+    return anchoredCutMm(
+      isoMm: isoMm,
+      startStop: stopFor(codes.start, startKind, startValueMm),
+      startOffsetMm: startValueMm,
+      endStop: stopFor(codes.end, endKind, endValueMm),
+      endOffsetMm: endValueMm,
+      gapMm: gapMm,
+      welds: weldCountForEnds(
+        startIsOpenEnd: startKind == 'logical',
+        endIsOpenEnd: endKind == 'logical',
+      ),
+    );
+  }
+
+  /// Which stop [cutLengthMm] gives each side for the same arguments, or null
+  /// when it has nothing to work from (it would return NaN).
+  ///
+  /// Public so a caller that measured by [DimRef] can store what was actually
+  /// subtracted on each side — the scan review writes these stops into
+  /// `segments.iso_ref` — instead of a guess that reopens as a different cut.
+  static ({SideStop left, SideStop right})? resolveSideStops({
+    DimRef? ref,
+    num? leftCteMm,
+    num? rightCteMm,
+    num? leftPhysicalLenMm,
+    num? rightPhysicalLenMm,
+    bool leftIsPhysical = false,
+    bool rightIsPhysical = false,
+    SideStop? leftStop,
+    SideStop? rightStop,
+  }) {
+    return _resolveStops(
+      ref: ref,
+      leftStop: leftStop,
+      rightStop: rightStop,
+      leftIsPhysical: leftIsPhysical,
+      rightIsPhysical: rightIsPhysical,
+      lc: (leftCteMm ?? 0).toDouble(),
+      rc: (rightCteMm ?? 0).toDouble(),
+      lp: (leftPhysicalLenMm ?? 0).toDouble(),
+      rp: (rightPhysicalLenMm ?? 0).toDouble(),
+    );
+  }
 
   /// Cut length of a pipe segment in millimetres, given the ISO dimension
   /// between two anchors and how that dimension was measured.
@@ -80,11 +231,19 @@ class PrefabEngine {
   ///
   /// `weldGapMm` × `weldCount` is subtracted last: the root gap left open at
   /// each joint is length the saw must not take. Both default to 0 so that
-  /// callers which never modelled the gap keep their exact numbers. The
-  /// segment builder used to apply the gap itself, in a formula this engine
-  /// knew nothing about, so one run measured in the builder and in the ISO
-  /// notebook produced two different cut lengths with nothing on either
-  /// screen to explain the difference.
+  /// callers which never modelled the gap keep their exact numbers.
+  ///
+  /// Who actually passes a gap — "one engine" does not mean more than this:
+  ///   * the segment builder and the scan review do, with the project's
+  ///     `gap_mm` and [weldCountForEnds] welds, both through
+  ///     [anchoredCutMm] (the scan review used to save gap 0 and pass none),
+  ///     and so does the recompute of saved segments when a project's gap is
+  ///     edited ([storedSegmentCutMm]);
+  ///   * the ISO notebook does NOT: it has no gap setting and calls this with
+  ///     the defaults. With a project gap above 0 the same run therefore comes
+  ///     out `gap × welds` longer in the notebook than in the builder. The
+  ///     engine agreeing with itself does not make those two screens agree —
+  ///     only the notebook passing a gap would.
   ///
   /// The four component-length parameters take `num` rather than `int` so a
   /// caller holding sub-millimetre take-outs (a 76.2 mm elbow) does not have
@@ -238,6 +397,24 @@ class PrefabEngine {
     final swapped = _sideDeduction(b, lc, lp) + _sideDeduction(a, rc, rp);
     return direct >= swapped ? (left: a, right: b) : (left: b, right: a);
   }
+
+  /// How many welded joints — and therefore how many root gaps — a pipe run
+  /// between two anchors has: one for every anchor the pipe is welded to, none
+  /// for a free end (OPEN_END: the pipe simply stops there, nothing is welded
+  /// and no gap is left open).
+  ///
+  /// The single rule behind `weldCount` for every caller that has anchors
+  /// rather than a drawing: the segment builder (its CUT, its breakdown and
+  /// its diagram label), the scan review and the recompute of saved segments
+  /// after a project's gap changes. The builder used to decide this from the
+  /// START alone (`START == OPEN_END ? 1 : 2`), so an elbow → open end run lost
+  /// two gaps for its one weld and an open → open run lost one gap for none —
+  /// both times a pipe cut short by the gap, which cannot be welded back on.
+  static int weldCountForEnds({
+    required bool startIsOpenEnd,
+    required bool endIsOpenEnd,
+  }) =>
+      (startIsOpenEnd ? 0 : 1) + (endIsOpenEnd ? 0 : 1);
 
   /// Whether the notebook should prompt the user to pick a `DimRef`.
   ///

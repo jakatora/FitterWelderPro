@@ -17,8 +17,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/database/component_library_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/models/library_component.dart';
+import 'package:cut_list_app/models/segment.dart';
 import 'package:cut_list_app/screens/segment_builder_screen.dart';
+
+import '../support/test_database.dart';
 
 /// SegmentBuilderScreen calls `context.tr`, which needs AppLanguageScope in
 /// the tree — mirror the app's main() setup. English so labels are stable.
@@ -71,6 +76,8 @@ String _screenSource() =>
     File('lib/screens/segment_builder_screen.dart').readAsStringSync();
 
 void main() {
+  useTestDatabase();
+
   testWidgets(
     'a rejected palette tap does not wipe an already typed ISO dimension',
     (tester) async {
@@ -112,12 +119,59 @@ void main() {
     'the CUT <= 0 stop message renders readable text, not mojibake',
     (tester) async {
       _useTallPhone(tester);
-      // 100 mm gap on a single weld against a 50 mm ISO forces CUT = -50.
-      await tester.pumpWidget(_wrap(_screen(gapMm: 100)));
-      await tester.pumpAndSettle();
-
-      await _buildCompleteSequence(tester);
-      await tester.pumpAndSettle();
+      // Elbow (152 mm to the axis) → pipe → open end: ONE weld. A 100 mm gap
+      // on that weld against a 50 mm ISO: 50 − 152 − 100 × 1 = −202 → stop.
+      //
+      // This used to be OPEN_END → pipe → OPEN_END, which only went negative
+      // because the builder charged a gap to a run with no weld in it at all
+      // (the start-only weld count). An open → open run has nothing to take
+      // off, so it can never produce CUT ≤ 0 from the gap any more.
+      await tester.runAsync(() => ComponentLibraryDao().insert(LibraryComponent(
+            id: 'elb-cut-stop',
+            materialGroup: 'SS',
+            type: 'ELB90',
+            diameterMm: 114.39,
+            wallThicknessMm: 3.05,
+            axisMm: 152,
+            lengthMm: null,
+            measurementMode: null,
+            diameterOutMm: null,
+            createdAt: 1,
+            updatedAt: 1,
+          )));
+      await tester.pumpWidget(_wrap(SegmentBuilderScreen(
+        materialGroup: 'SS',
+        currentDiameter: 114.39,
+        wallThickness: 3.05,
+        gapMm: 100,
+        existing: Segment(
+          id: 'seg-cut-stop',
+          projectId: 'proj-cut-stop',
+          seqNo: 1,
+          diameterMm: 114.39,
+          wallThicknessMm: 3.05,
+          startKind: 'axial',
+          startLibraryId: 'elb-cut-stop',
+          startValueMm: 152,
+          endKind: 'logical',
+          endLibraryId: null,
+          endValueMm: 0,
+          isoRef: 'AXIS|OPEN',
+          isoExpr: '1000',
+          isoMm: 1000,
+          cutMm: 848,
+          createdAt: 1,
+          updatedAt: 1,
+        ),
+      )));
+      for (var i = 0;
+          i < 60 && find.byType(TextField).evaluate().isEmpty;
+          i++) {
+        await flushTestDatabase(tester);
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
 
       await tester.enterText(find.byType(TextField), '50');
       await tester.pump();
