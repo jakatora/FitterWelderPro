@@ -161,7 +161,9 @@ void main() {
     test('same fitting type on non-neighbouring boundaries stays two pieces',
         () async {
       // Segment 1 ends on a tee and segment 3 starts on a tee, but segment 2
-      // sits between them — these are two different physical tees.
+      // sits between them. Neither tee carries a run (end of one segment +
+      // start of the next), so neither is a branch point the other could
+      // hang off — these stay two different physical tees.
       final items = await build([
         _seg(seq: 1, end: 'lib-tee'),
         _seg(seq: 2),

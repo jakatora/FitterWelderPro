@@ -1,4 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' show Rect;
+
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -7,25 +11,74 @@ import 'package:share_plus/share_plus.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/bar_nesting.dart';
+import '../services/cut_list_csv.dart' show cutListFileStem;
 import '../services/cut_list_summary.dart';
 
 // ─── Kolory PDF ────────────────────────────────────────────────────────────
-final _kAccent   = PdfColor.fromHex('#F5A623');
-final _kCard     = PdfColor.fromHex('#1A1D26');
-final _kBorder   = PdfColor.fromHex('#2C3354');
-final _kText     = PdfColor.fromHex('#E8ECF0');
-final _kMuted    = PdfColor.fromHex('#9BA3C7');
-final _kGreen    = PdfColor.fromHex('#2ECC71');
+// The cut list is PRINTED — usually on a worn mono laser in the workshop —
+// and pinned next to the saw. The old screen palette (#E8ECF0 text, dark
+// card fills, orange accents) came out as invisible light grey on white paper
+// and burned toner on solid blocks. Everything here is dark ink on bare
+// paper: text in black / dark grey, structure in thin lines, no fills.
+final PdfColor _kInk = PdfColors.black;
+final PdfColor _kInkMuted = PdfColor.fromHex('#404040');
+final PdfColor _kRule = PdfColor.fromHex('#555555');
+
+const double _kHairline = 0.6;
+const double _kRuleStrong = 1.2;
 
 class PdfExportService {
   /// Generuje CUT LIST jako PDF i udostępnia przez share sheet.
+  ///
+  /// [sharePositionOrigin] anchors the share popover on iPad.
   static Future<void> exportCutList({
     required Project project,
     required List<Segment> segments,
+    bool english = false,
+    Rect? sharePositionOrigin,
   }) async {
-    final doc = pw.Document();
+    final now = DateTime.now();
+    final bytes = await buildCutListPdf(
+      project: project,
+      segments: segments,
+      english: english,
+      generatedAt: now,
+    );
+    final dir = await getTemporaryDirectory();
+    final name = 'CutList_${cutListFileStem(project.name ?? '')}_'
+        '${now.millisecondsSinceEpoch}.pdf';
+    final file = File('${dir.path}${Platform.pathSeparator}$name');
+    await file.writeAsBytes(bytes, flush: true);
+    // A truncated write (full disk) would otherwise be shared as a corrupt
+    // attachment and only discovered at the saw.
+    if (!await file.exists() || (await file.length()) < 100) {
+      throw FileSystemException('PDF zapisany niepoprawnie', file.path);
+    }
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/pdf', name: name)],
+      subject: 'CUT LIST — ${project.name ?? ''}',
+      sharePositionOrigin: sharePositionOrigin,
+    );
+  }
 
-    // Grupowanie wg średnicy + ścianki i sumy — wspólna, testowalna funkcja.
+  /// Builds the cut-list PDF (A4) and returns its bytes. No file, no share
+  /// sheet — so it can be checked in tests.
+  ///
+  /// Text is set in the bundled Roboto (full Latin-2): the `pdf` package's
+  /// default Helvetica is Latin-1 only, so ą/ć/ę/ł/ń/ś/ź/ż in project names
+  /// and headings came out as empty boxes.
+  static Future<Uint8List> buildCutListPdf({
+    required Project project,
+    required List<Segment> segments,
+    bool english = false,
+    DateTime? generatedAt,
+  }) async {
+    final doc = pw.Document(theme: await _loadTheme());
+    final t = _Tr(english);
+    final stamp = _stamp(generatedAt ?? DateTime.now());
+
+    // Grupowanie wg średnicy + ścianki i sumy — wspólna, testowalna funkcja
+    // (ta sama co ekran i CSV).
     final summary = summarizeCutList(
       segments: segments,
       stockLengthMm: project.stockLengthMm,
@@ -36,62 +89,91 @@ class PdfExportService {
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(32),
       header: (ctx) => _buildHeader(project, ctx.pageNumber, ctx.pagesCount),
-      footer: (_) => pw.Text(
-        'Fitter Welder Pro  ·  ${DateTime.now().toString().substring(0, 16)}',
-        style: pw.TextStyle(fontSize: 8, color: _kMuted),
+      footer: (_) => pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 6),
+        child: pw.Text(
+          'Fitter Welder Pro  ·  $stamp',
+          style: pw.TextStyle(fontSize: 8, color: _kInkMuted),
+        ),
       ),
       build: (ctx) => [
-        _buildSummaryBlock(
-          project,
-          summary.totalBars,
-          summary.totalNetMm,
-          summary.totalWasteMm,
-          summary.segmentCount,
-        ),
-        pw.SizedBox(height: 20),
-        ...summary.groups.map((g) => _buildGroupBlock(
-              diameterMm: g.diameterMm,
-              wallMm: g.wallMm,
-              cuts: g.cutsMm,
-              plans: g.plans,
-              project: project,
-            )),
-        pw.SizedBox(height: 20),
-        _buildSegmentTable(segments),
+        _buildSummaryBlock(project, summary, t),
+        if (summary.splitCuts.isNotEmpty) ...[
+          pw.SizedBox(height: 10),
+          _buildWarnings(project, summary, t),
+        ],
+        pw.SizedBox(height: 16),
+        ...summary.groups.map((g) => _buildGroupBlock(g, project, t)),
+        pw.SizedBox(height: 8),
+        _buildSegmentTable(segments, summary, t),
       ],
     ));
 
-    // Zapisz do pliku tymczasowego
-    final bytes = await doc.save();
-    final dir   = await getTemporaryDirectory();
-    final name  = 'CutList_${_safeName(project.name ?? 'projekt')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-    final file  = File('${dir.path}/$name');
-    await file.writeAsBytes(bytes);
+    return doc.save();
+  }
 
-    // Udostępnij
-    await Share.shareXFiles([XFile(file.path)], subject: 'CUT LIST — ${project.name ?? ''}');
+  static Future<pw.ThemeData> _loadTheme() async {
+    final regular =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
+    // Only the regular face ships today; a bold file dropped into
+    // assets/fonts/ (and declared in pubspec) is picked up without a code
+    // change. Until then bold text uses the regular face and emphasis comes
+    // from size and rules.
+    pw.Font bold = regular;
+    try {
+      bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
+    } catch (_) {
+      // Asset not bundled — keep regular.
+    }
+    return pw.ThemeData.withFont(
+      base: regular,
+      bold: bold,
+      italic: regular,
+      boldItalic: bold,
+    );
+  }
+
+  static String _stamp(DateTime d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${d.year}-${two(d.month)}-${two(d.day)} '
+        '${two(d.hour)}:${two(d.minute)}';
   }
 
   // ── Nagłówek strony ──────────────────────────────────────────────────────
   static pw.Widget _buildHeader(Project p, int page, int pages) {
     return pw.Container(
-      padding: const pw.EdgeInsets.only(bottom: 10),
+      margin: const pw.EdgeInsets.only(bottom: 12),
+      padding: const pw.EdgeInsets.only(bottom: 6),
       decoration: pw.BoxDecoration(
-        border: pw.Border(bottom: pw.BorderSide(color: _kAccent, width: 1.5)),
+        border: pw.Border(
+          bottom: pw.BorderSide(color: _kInk, width: _kRuleStrong),
+        ),
       ),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: pw.CrossAxisAlignment.end,
         children: [
-          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Text('CUT LIST', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: _kAccent)),
-            // Project name sits on bare white paper in the header — _kMuted (light
-            // gray-purple) prints as nearly invisible light gray on a mono laser,
-            // so the welder can't tell which sheet belongs to which job once it's
-            // pinned on the wall. Use dark ink + slightly bigger to keep the
-            // identifier readable across the shop.
-            pw.Text(p.name ?? '', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1A1D26'))),
-          ]),
-          pw.Text('$page / $pages', style: pw.TextStyle(fontSize: 10, color: _kMuted)),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('CUT LIST',
+                    style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _kInk)),
+                // Project name identifies the sheet once it is pinned on the
+                // wall — dark ink, same size as the section titles.
+                pw.Text(p.name ?? '',
+                    style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _kInk)),
+              ],
+            ),
+          ),
+          pw.Text('$page / $pages',
+              style: pw.TextStyle(fontSize: 9, color: _kInkMuted)),
         ],
       ),
     );
@@ -99,160 +181,270 @@ class PdfExportService {
 
   // ── Blok podsumowania ────────────────────────────────────────────────────
   static pw.Widget _buildSummaryBlock(
-      Project p, int totalBars, double totalNetMm, double totalWasteMm, int segCount) {
-    final wastePct = totalBars > 0 ? (totalWasteMm / (totalBars * p.stockLengthMm) * 100) : 0.0;
+      Project p, CutListSummary summary, _Tr t) {
     return pw.Container(
-      padding: const pw.EdgeInsets.all(12),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 8),
       decoration: pw.BoxDecoration(
-        color: PdfColor.fromHex('#1A1D26'),
-        borderRadius: pw.BorderRadius.circular(8),
-        border: pw.Border.all(color: _kBorder),
+        border: pw.Border.all(color: _kInk, width: 0.8),
       ),
       child: pw.Row(
         children: [
-          _summaryCell('Materiał',    p.materialGroup),
-          _summaryCell('Sztanga',     '${p.stockLengthMm.toStringAsFixed(0)} mm'),
-          _summaryCell('Kerf',        '${p.sawKerfMm.toStringAsFixed(1)} mm'),
-          _summaryCell('Segmenty',    '$segCount'),
-          _summaryCell('Sztangi',     '$totalBars'),
-          _summaryCell('Rura netto',  '${(totalNetMm/1000).toStringAsFixed(2)} m'),
-          _summaryCell('Odpad',       '${wastePct.toStringAsFixed(1)}%'),
+          _summaryCell(t('Materiał', 'Material'), p.materialGroup),
+          _summaryCell(t('Sztanga', 'Stock'),
+              '${p.stockLengthMm.toStringAsFixed(0)} mm'),
+          _summaryCell(
+              t('Rzaz', 'Kerf'), '${p.sawKerfMm.toStringAsFixed(1)} mm'),
+          _summaryCell(t('Segmenty', 'Segments'), '${summary.segmentCount}'),
+          _summaryCell(t('Sztangi', 'Bars'), '${summary.totalBars}'),
+          _summaryCell(t('Rura netto', 'Net pipe'),
+              '${(summary.totalNetMm / 1000).toStringAsFixed(2)} m'),
+          _summaryCell(
+              t('Odpad', 'Waste'), '${summary.wastePct.toStringAsFixed(1)}%'),
         ],
       ),
     );
   }
 
   static pw.Widget _summaryCell(String label, String value) => pw.Expanded(
-    child: pw.Column(children: [
-      pw.Text(value, style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: _kAccent)),
-      pw.Text(label, style: pw.TextStyle(fontSize: 8, color: _kMuted)),
-    ]),
-  );
+        child: pw.Column(children: [
+          pw.Text(value,
+              style: pw.TextStyle(
+                  fontSize: 12, fontWeight: pw.FontWeight.bold, color: _kInk)),
+          pw.Text(label, style: pw.TextStyle(fontSize: 8, color: _kInkMuted)),
+        ]),
+      );
+
+  // ── Ostrzeżenia: cięcie dłuższe niż sztanga ──────────────────────────────
+  static pw.Widget _buildWarnings(Project p, CutListSummary summary, _Tr t) {
+    // Thick left rule + thin frame: stands out on a mono print without a
+    // filled (toner) background.
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: pw.BoxDecoration(
+        border: pw.Border(
+          left: pw.BorderSide(color: _kInk, width: 3),
+          top: pw.BorderSide(color: _kInk, width: 0.8),
+          right: pw.BorderSide(color: _kInk, width: 0.8),
+          bottom: pw.BorderSide(color: _kInk, width: 0.8),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          for (final piece in summary.splitCuts)
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Text(
+                '${t('UWAGA', 'WARNING')}: ${oversizeCutWarning(
+                  piece,
+                  stockLengthMm: p.stockLengthMm,
+                  english: t.english,
+                )}',
+                style: pw.TextStyle(fontSize: 10, color: _kInk),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   // ── Blok grupy rur ────────────────────────────────────────────────────────
-  static pw.Widget _buildGroupBlock({
-    required double diameterMm,
-    required double wallMm,
-    required List<double> cuts,
-    required List<BarPlan> plans,
-    required Project project,
-  }) {
-    final sortedCuts = List<double>.from(cuts)..sort((a, b) => b.compareTo(a));
+  static pw.Widget _buildGroupBlock(CutListGroup g, Project project, _Tr t) {
+    // Same rule as the nesting: non-positive / non-finite cuts are not pipe.
+    final netMm = g.cutsMm
+        .where((c) => c.isFinite && c > 0)
+        .fold<double>(0, (s, v) => s + v);
+    final wasteMm = g.plans.fold<double>(0, (s, b) => s + b.remainingMm);
+    final pieceCount = g.cutsMm.length;
+    final barCount = g.plans.length;
+    final title = 'Ø${g.diameterMm.toStringAsFixed(1)} × '
+        '${g.wallMm.toStringAsFixed(1)} mm  ·  '
+        '${t.pieces(pieceCount)}  ·  ${t.bars(barCount)}';
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          color: _kCard,
-          child: pw.Text(
-            'Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm  ·  ${cuts.length} odcinków  ·  ${plans.length} sztangi',
-            style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kAccent),
-          ),
-        ),
-        // Odcinki
-        pw.Container(
-          padding: const pw.EdgeInsets.all(8),
-          decoration: pw.BoxDecoration(border: pw.Border.all(color: _kBorder)),
-          child: pw.Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: sortedCuts.map((c) => pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#22263A'),
-                borderRadius: pw.BorderRadius.circular(4),
-              ),
-              child: pw.Text('${c.toStringAsFixed(0)} mm', style: pw.TextStyle(fontSize: 9, color: _kText)),
-            )).toList(),
-          ),
-        ),
-        pw.SizedBox(height: 6),
-        // Sztangi
-        ...plans.asMap().entries.map((entry) {
-          final i   = entry.key;
-          final bar = entry.value;
-          final wastePct = project.stockLengthMm > 0 ? (bar.remainingMm / project.stockLengthMm * 100) : 0.0;
-          return pw.Container(
-            margin: const pw.EdgeInsets.only(bottom: 4),
-            padding: const pw.EdgeInsets.all(8),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: _kBorder),
-              borderRadius: pw.BorderRadius.circular(4),
+          width: double.infinity,
+          padding: const pw.EdgeInsets.only(bottom: 3),
+          decoration: pw.BoxDecoration(
+            border: pw.Border(
+              bottom: pw.BorderSide(color: _kInk, width: _kRuleStrong),
             ),
-            child: pw.Row(
+          ),
+          child: pw.Text(title,
+              style: pw.TextStyle(
+                  fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kInk)),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Table(
+          border: pw.TableBorder(
+            horizontalInside: pw.BorderSide(color: _kRule, width: _kHairline),
+            bottom: pw.BorderSide(color: _kRule, width: _kHairline),
+          ),
+          columnWidths: const {
+            0: pw.FixedColumnWidth(44),
+            1: pw.FlexColumnWidth(),
+            2: pw.FixedColumnWidth(40),
+            3: pw.FixedColumnWidth(84),
+          },
+          children: [
+            pw.TableRow(
+              decoration: pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: _kInk, width: 0.8),
+                ),
+              ),
               children: [
-                pw.SizedBox(width: 60,
-                  child: pw.Text('Sztanga ${i+1}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _kAccent))),
-                pw.Expanded(
-                  child: pw.Text(bar.piecesMm.map((x) => x.toStringAsFixed(0)).join(' + '),
-                      style: pw.TextStyle(fontSize: 10, color: _kText))),
-                pw.Text('Cięcia: ${bar.cutsCount}', style: pw.TextStyle(fontSize: 8, color: _kMuted)),
-                pw.SizedBox(width: 10),
-                pw.Text('Zostaje: ${bar.remainingMm.toStringAsFixed(0)} mm (${wastePct.toStringAsFixed(0)}%)',
-                    style: pw.TextStyle(fontSize: 8, color: wastePct < 10 ? _kGreen : _kMuted)),
+                _head(t('Sztanga', 'Bar')),
+                _head(t('Odcinki (segment: mm)', 'Pieces (segment: mm)')),
+                _head(t('Cięcia', 'Cuts')),
+                _head(t('Zostaje', 'Remaining')),
               ],
             ),
-          );
-        }),
+            for (var i = 0; i < g.plans.length; i++)
+              _barRow(i, g.plans[i], project),
+          ],
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          t(
+            'Netto: ${(netMm / 1000).toStringAsFixed(3)} m  ·  '
+                'Odpad: ${wasteMm.toStringAsFixed(0)} mm',
+            'Net: ${(netMm / 1000).toStringAsFixed(3)} m  ·  '
+                'Waste: ${wasteMm.toStringAsFixed(0)} mm',
+          ),
+          style: pw.TextStyle(fontSize: 9, color: _kInkMuted),
+        ),
         pw.SizedBox(height: 14),
       ],
     );
   }
 
+  static pw.TableRow _barRow(int index, BarPlan bar, Project project) {
+    final wastePct = project.stockLengthMm > 0
+        ? (bar.remainingMm / project.stockLengthMm * 100)
+        : 0.0;
+    return pw.TableRow(
+      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+      children: [
+        _cell('${index + 1}', size: 11, bold: true),
+        // Pieces are the numbers the saw operator reads: largest type on the
+        // page, each prefixed with its segment tag (S03, S03 (1/2)).
+        _cell(formatBarPieces(bar), size: 11),
+        _cell('${bar.cutsCount}'),
+        _cell('${bar.remainingMm.toStringAsFixed(0)} mm '
+            '(${wastePct.toStringAsFixed(0)}%)'),
+      ],
+    );
+  }
+
   // ── Tabela segmentów ─────────────────────────────────────────────────────
-  static pw.Widget _buildSegmentTable(List<Segment> segments) {
+  static pw.Widget _buildSegmentTable(
+      List<Segment> segments, CutListSummary summary, _Tr t) {
     if (segments.isEmpty) return pw.SizedBox();
+    // Segment → bar numbers, looked up per diameter/wall group (bar numbers
+    // restart in every group).
+    final barsFor = <String, String>{};
+    for (final g in summary.groups) {
+      g.barsByLabel.forEach((label, bars) {
+        barsFor['${g.diameterMm}|${g.wallMm}|$label'] = bars.join(', ');
+      });
+    }
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text('LISTA SEGMENTÓW', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kAccent)),
-        pw.SizedBox(height: 8),
+        pw.Text(t('LISTA SEGMENTÓW', 'SEGMENT LIST'),
+            style: pw.TextStyle(
+                fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kInk)),
+        pw.SizedBox(height: 6),
         pw.Table(
-          border: pw.TableBorder.all(color: _kBorder, width: 0.5),
-          columnWidths: {
-            0: const pw.FixedColumnWidth(35),
-            1: const pw.FixedColumnWidth(60),
-            2: const pw.FlexColumnWidth(2),
-            3: const pw.FixedColumnWidth(60),
-            4: const pw.FixedColumnWidth(60),
+          border: pw.TableBorder.all(color: _kRule, width: _kHairline),
+          columnWidths: const {
+            0: pw.FixedColumnWidth(48),
+            1: pw.FixedColumnWidth(58),
+            2: pw.FlexColumnWidth(2),
+            3: pw.FixedColumnWidth(54),
+            4: pw.FixedColumnWidth(54),
+            5: pw.FixedColumnWidth(48),
           },
           children: [
-            // Header
             pw.TableRow(
-              decoration: pw.BoxDecoration(color: _kCard),
-              children: ['Nr', 'Ø×t', 'ISO', 'ISO mm', 'CUT mm'].map((h) =>
-                pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  child: pw.Text(h, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: _kAccent)),
-                )).toList(),
-            ),
-            // Data
-            ...segments.map((s) => pw.TableRow(
+              decoration: pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: _kInk, width: 0.8),
+                ),
+              ),
               children: [
-                _cell('${s.seqNo}'),
-                _cell('${s.diameterMm.toStringAsFixed(0)}×${s.wallThicknessMm.toStringAsFixed(1)}'),
-                _cell(s.isoExpr),
-                _cell(s.isoMm.toStringAsFixed(1)),
-                _cell(s.cutMm.toStringAsFixed(1), bold: true),
+                _head('Segment'),
+                _head('Ø×t'),
+                _head('ISO'),
+                _head('ISO mm'),
+                _head('CUT mm'),
+                _head(t('Sztanga', 'Bar')),
               ],
-            )),
+            ),
+            ...segments.map((s) {
+              final label = segmentLabel(s);
+              return pw.TableRow(
+                children: [
+                  _cell(label, bold: true),
+                  _cell('${s.diameterMm.toStringAsFixed(0)}×'
+                      '${s.wallThicknessMm.toStringAsFixed(1)}'),
+                  _cell(s.isoExpr),
+                  _cell(s.isoMm.toStringAsFixed(1)),
+                  _cell(s.cutMm.toStringAsFixed(1), size: 10, bold: true),
+                  _cell(barsFor['${s.diameterMm}|${s.wallThicknessMm}|$label'] ??
+                      '—'),
+                ],
+              );
+            }),
           ],
         ),
       ],
     );
   }
 
-  // Data rows have no fill -> sit on bare white paper. _kText (#E8ECF0) prints
-  // invisible. Use a near-black ink so the welder can still read CUT mm off
-  // a printed sheet under workshop light. Bold CUT keeps accent for emphasis
-  // on screen but darkens on paper via a contrast-safe orange-brown.
-  static final _kInk      = PdfColor.fromHex('#1A1D26');
-  static final _kInkBold  = PdfColor.fromHex('#8A4A00');
-  static pw.Widget _cell(String text, {bool bold = false}) => pw.Padding(
-    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-    child: pw.Text(text, style: pw.TextStyle(fontSize: 8, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal, color: bold ? _kInkBold : _kInk)),
-  );
+  static pw.Widget _head(String text) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: pw.Text(text,
+            style: pw.TextStyle(
+                fontSize: 8, fontWeight: pw.FontWeight.bold, color: _kInk)),
+      );
 
-  static String _safeName(String s) => s.replaceAll(RegExp(r'[^\w\d_]'), '_');
+  static pw.Widget _cell(String text, {double size = 9, bool bold = false}) =>
+      pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: pw.Text(text,
+            style: pw.TextStyle(
+              fontSize: size,
+              fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: _kInk,
+            )),
+      );
+}
+
+/// PL/EN picker for the PDF (no BuildContext here) plus the PL plural forms
+/// used in group titles.
+class _Tr {
+  final bool english;
+  const _Tr(this.english);
+
+  String call(String pl, String en) => english ? en : pl;
+
+  String pieces(int n) => english
+      ? (n == 1 ? '1 piece' : '$n pieces')
+      : '$n ${_pl(n, 'odcinek', 'odcinki', 'odcinków')}';
+
+  String bars(int n) => english
+      ? (n == 1 ? '1 bar' : '$n bars')
+      : '$n ${_pl(n, 'sztanga', 'sztangi', 'sztang')}';
+
+  static String _pl(int n, String one, String few, String many) {
+    if (n == 1) return one;
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+    return many;
+  }
 }
