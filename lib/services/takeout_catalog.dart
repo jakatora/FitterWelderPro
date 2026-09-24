@@ -89,11 +89,16 @@ class TakeoutCatalog {
   // ── Class 150 RF flange — ASME B16.5 column C, DISC thickness ────────────
   // Right for slip-on / socket / threaded flanges (the pipe passes through
   // the disc). NOT the take-out of a weld neck — see [flangeWN150Y].
-  // (The name is historical; `scan_to_project` still reads it.)
-  static const flangeWN150 = <int, int>{
+  static const flangeThickness150C = <int, int>{
     15: 11, 20: 12, 25: 14, 32: 16, 40: 17, 50: 19, 65: 22, 80: 24,
     100: 24, 150: 25, 200: 28, 250: 30, 300: 32,
   };
+
+  /// Historical name of [flangeThickness150C] — despite "WN" it is the DISC
+  /// thickness (column C), NOT a weld-neck take-out. Kept only because
+  /// `scan_to_project` still reads it; a weld-neck flange must use
+  /// [flangeWN150Y] (DN100: 76 mm, not 24).
+  static const flangeWN150 = flangeThickness150C;
 
   // ── Class 150 RF weld-neck flange — ASME B16.5 column Y ──────────────────
   // Length through hub, raised face included — the pipe is butt-welded to
@@ -148,7 +153,7 @@ class TakeoutCatalog {
     add('Redukcja (FTF)', reducer);
     add('Zaślepka (face)', cap);
     add('Kołnierz WN cl.150 (Y, przez szyjkę)', flangeWN150Y);
-    add('Kołnierz SO cl.150 (tarcza C)', flangeWN150);
+    add('Kołnierz SO cl.150 (tarcza C)', flangeThickness150C);
     add('Zawór zasuwowy cl.150 (FTF)', gateValve150);
     add('Zawór kulowy cl.150 (FTF)', ballValve150);
     add('Zawór zwrotny cl.150 (FTF)', checkValve150);

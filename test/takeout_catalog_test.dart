@@ -91,6 +91,34 @@ void main() {
     });
   });
 
+  group('TakeoutCatalog — kołnierze ASME B16.5 Class 150 RF', () {
+    // B16.5 Class 150 (wymiary z przylgą 1,6 mm): C = grubość talerza,
+    // Y = długość przez szyjkę kołnierza WN. NPS 4: C = 0.94 in → 24 mm,
+    // Y = 3.00 in = 76,2 → 76 mm. NPS 8 i NPS 10: Y = 4.00 in = 101,6.
+    test('kolumna C (talerz) i Y (WN, przez szyjkę) są rozdzielone', () {
+      expect(TakeoutCatalog.flangeThickness150C[100], 24);
+      expect(TakeoutCatalog.flangeWN150Y[100], 76);
+      expect(TakeoutCatalog.flangeWN150Y[250], 102);
+      for (final dn in TakeoutCatalog.flangeWN150Y.keys) {
+        expect(TakeoutCatalog.flangeWN150Y[dn]!,
+            greaterThan(TakeoutCatalog.flangeThickness150C[dn]!),
+            reason: 'DN$dn: Y musi być dłuższe od grubości talerza C');
+      }
+    });
+
+    test('stara nazwa flangeWN150 to nadal kolumna C (alias dla skanera)', () {
+      expect(TakeoutCatalog.flangeWN150, TakeoutCatalog.flangeThickness150C);
+    });
+
+    test('picker: WN liczy Y, SO liczy C', () {
+      final byName = {
+        for (final e in TakeoutCatalog.entriesForDn(100)) e.name: e.mm,
+      };
+      expect(byName['Kołnierz WN cl.150 (Y, przez szyjkę)'], 76);
+      expect(byName['Kołnierz SO cl.150 (tarcza C)'], 24);
+    });
+  });
+
   group('TakeoutCatalog — zawory ASME B16.10 Class 150', () {
     test('zwrotny klapowy (swing check): DN150 356, DN200 495, DN250 622, '
         'DN300 698', () {

@@ -63,7 +63,7 @@ void main() {
             e.value,
             reason: 'DN${e.key}');
         expect(isoFlangeAxialLengthMm(dn: e.key, type: EndConnection.slipOn),
-            TakeoutCatalog.flangeWN150[e.key],
+            TakeoutCatalog.flangeThickness150C[e.key],
             reason: 'DN${e.key} C');
       }
     });
