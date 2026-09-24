@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/component_library_dao.dart';
+import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/material_item.dart';
@@ -9,6 +12,90 @@ import '../services/material_list_builder.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
+
+// ── Tekst BOM (wiersz na ekranie, kopiowanie, udostępnianie) ────────────────
+// Pure functions of (item, language) so the on-screen row, the long-press
+// copy of one row and the "copy all" / "share" of the whole list can never
+// disagree — and can be checked without a widget tree.
+
+/// Chip / line label for [item]'s category. PIPE and the kind-only fittings
+/// are localised; library codes (ELB90, TEE…) are shop-floor standard and
+/// stay as they are.
+String bomCategoryLabel(MaterialItem item, {required bool english}) {
+  if (item.category == 'PIPE') return english ? 'PIPE' : 'RURA';
+  if (item.endKind != null) return english ? 'FITTING' : 'KSZT.';
+  return item.category;
+}
+
+/// Row description in the active language. Library fittings keep their
+/// library label; fittings known only by their end kind (ISO-scanner
+/// projects, deleted library entries) say what is known and what is not.
+String bomDescription(MaterialItem item, {required bool english}) {
+  if (item.category == 'PIPE') {
+    // The builder writes an English "Pipe Ø…" label; the PL screen says Rura.
+    return english || !item.description.startsWith('Pipe ')
+        ? item.description
+        : 'Rura ${item.description.substring(5)}';
+  }
+  final kind = item.endKind;
+  if (kind == null) return item.description;
+  final axial = kind == 'axial';
+  final dia =
+      item.diameterMm == null ? '' : ' Ø${item.diameterMm!.toStringAsFixed(1)}';
+  final t = item.takeoutMm;
+  final takeout = axial && t != null && t > 0
+      ? (english
+          ? ' · C-E ${t.toStringAsFixed(1)} mm'
+          : ' · do osi ${t.toStringAsFixed(1)} mm')
+      : '';
+  final what = axial
+      ? (english ? 'Axial fitting (elbow / tee)' : 'Kształtka osiowa (kolano / trójnik)')
+      : (english
+          ? 'Fitting with body (flange / valve / reducer)'
+          : 'Kształtka z korpusem (kołnierz / zawór / redukcja)');
+  final why = item.libraryEntryMissing
+      ? (english ? 'deleted from the component library' : 'usunięta z biblioteki komponentów')
+      : (english
+          ? 'type unknown (scanned project), check the drawing'
+          : 'typ nieznany (projekt ze skanu), sprawdź rysunek');
+  return '$what$dia$takeout — $why';
+}
+
+/// `3.500 m` for pipes, `4 szt.` / `4 pcs` / `1 pc` for fittings.
+String bomQuantityText(MaterialItem item, {required bool english}) {
+  if (item.category == 'PIPE') {
+    final mm = item.totalLengthMm ?? 0;
+    // Guard against NaN/Infinity propagating from upstream aggregations —
+    // on the shop floor "NaN m" is unreadable through gloves and noise.
+    if (!mm.isFinite) return '— m';
+    return '${(mm / 1000.0).toStringAsFixed(3)} m';
+  }
+  final qty = item.quantity ?? 0;
+  if (!english) return '$qty szt.';
+  return qty == 1 ? '1 pc' : '$qty pcs';
+}
+
+/// One BOM line as the storeroom reads it: `KAT - opis - ilość`.
+String bomLine(MaterialItem item, {required bool english}) =>
+    '${bomCategoryLabel(item, english: english)} - '
+    '${bomDescription(item, english: english)} - '
+    '${bomQuantityText(item, english: english)}';
+
+/// The whole BOM as plain text for the clipboard / share sheet.
+String buildBomText({
+  required List<MaterialItem> items,
+  required String? projectName,
+  required bool english,
+}) {
+  final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
+  final buf = StringBuffer(
+      projectName == null || projectName.isEmpty ? title : '$title — $projectName');
+  buf.writeln();
+  for (final item in items) {
+    buf.writeln(bomLine(item, english: english));
+  }
+  return buf.toString();
+}
 
 // P1-35: category-coded chip colors promoted to top-level const literals so
 // the per-row build doesn't allocate a new Color each frame. Muted alphas keep
@@ -43,7 +130,12 @@ const TextStyle _kMetaStyle = TextStyle(
 
 class MaterialListScreen extends StatefulWidget {
   final String projectId;
-  const MaterialListScreen({super.key, required this.projectId});
+
+  /// Test seam: a builder over fake DAOs. Production passes nothing and gets
+  /// the SQLite-backed builder.
+  final MaterialListBuilder? builder;
+
+  const MaterialListScreen({super.key, required this.projectId, this.builder});
 
   @override
   State<MaterialListScreen> createState() => _MaterialListScreenState();
@@ -72,12 +164,88 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   // while we surface the "showing saved data — Ponów" SnackBar.
   // ignore: unused_field
   bool _staleCache = false;
+  // Title line of the copied / shared BOM, so the storeroom knows which job
+  // the list belongs to. Null when the project has no name.
+  String? _projectName;
+  // Anchor for the iPad share popover.
+  final _shareButtonKey = GlobalKey();
+  bool _shareInFlight = false;
 
   @override
   void initState() {
     super.initState();
-    _builder = MaterialListBuilder(SegmentDao(), ComponentLibraryDao());
+    _builder = widget.builder ??
+        MaterialListBuilder(SegmentDao(), ComponentLibraryDao(), ProjectDao());
     _load();
+  }
+
+  bool get _english => context.language == AppLanguage.en;
+
+  /// "Kopiuj całość": the whole BOM (one line per row, project in the title)
+  /// to the clipboard — until now only single rows could be copied, by long
+  /// press, one at a time.
+  Future<void> _copyAll() async {
+    if (_items.isEmpty) return;
+    final text = buildBomText(
+      items: _items,
+      projectName: _projectName,
+      english: _english,
+    );
+    final done = context.tr(
+      pl: 'Skopiowano listę materiałową (${_items.length} poz.)',
+      en: 'Material list copied (${_items.length} rows)',
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    await Haptic.copied();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(done),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
+
+  /// "Udostępnij": the whole BOM through the OS share sheet (SMS, mail,
+  /// messenger to the storeroom).
+  Future<void> _shareAll() async {
+    if (_items.isEmpty || _shareInFlight) return;
+    _shareInFlight = true;
+    final english = _english;
+    final text = buildBomText(
+      items: _items,
+      projectName: _projectName,
+      english: english,
+    );
+    final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
+    final failed = context.tr(
+      pl: 'Nie udało się udostępnić listy',
+      en: 'Could not share the list',
+    );
+    final box = _shareButtonKey.currentContext?.findRenderObject();
+    final origin = box is RenderBox && box.hasSize
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+    try {
+      await Haptic.tap();
+      await Share.share(
+        text,
+        subject: _projectName == null ? title : '$title — $_projectName',
+        sharePositionOrigin: origin,
+      );
+    } catch (e, st) {
+      debugPrint('material_list share failed: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('$failed: $e'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    } finally {
+      _shareInFlight = false;
+    }
   }
 
   /// Loads (or reloads) the BOM. When [isRefresh] is true the previous list
@@ -106,6 +274,16 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
           ? <MaterialItem>[]
           : await _builder.buildForProject(pid);
       if (!mounted) return;
+      // Best effort: the BOM is still useful without a title.
+      String? projectName;
+      if (pid.isNotEmpty) {
+        try {
+          projectName = await _builder.projectName(pid);
+        } catch (e) {
+          debugPrint('material_list projectName failed: $e');
+        }
+        if (!mounted) return;
+      }
       // Persist on every successful, non-empty load so the next cold start has
       // a known-good fallback. Done after the build so we never persist a junk id.
       if (pid.isNotEmpty) {
@@ -116,6 +294,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       }
       setState(() {
         _items = items;
+        _projectName = projectName;
         _loading = false;
         _staleCache = false;
       });
@@ -189,14 +368,6 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
     }
   }
 
-  String _fmtLen(double mm) {
-    // Guard against NaN/Infinity propagating from upstream aggregations —
-    // on the shop floor "NaN m" is unreadable through gloves and noise.
-    if (!mm.isFinite) return '— m';
-    final m = mm / 1000.0;
-    return '${m.toStringAsFixed(3)} m';
-  }
-
   /// P1-35: dual-units helper. 1 in = 25.4 mm — the imperial figure is what
   /// a fitter actually reads off a tape measure on a US-spec spool, so we
   /// always surface it as a secondary value next to the metric.
@@ -212,17 +383,29 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // P1-35: hoist the localised category label for PIPE so it isn't computed
-    // per row per build. Other category codes (ELB90, TEE, etc.) are shop-
-    // floor standard codes and stay as-is across PL/EN.
-    final pipeLabel = context.tr(pl: 'RURA', en: 'PIPE');
-    final szt = context.tr(pl: 'szt.', en: 'pcs');
-    final sztSingularEn = context.tr(pl: 'szt.', en: 'pc');
+    // Labels, descriptions and quantities come from the bom* functions above
+    // (PIPE and kind-only fittings localised; library codes such as ELB90 /
+    // TEE are shop-floor standard and stay as-is across PL/EN).
+    final english = _english;
+    final hasItems = !_loading && _items.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Lista materiałowa (BOM)', en: 'Material list (BOM)')),
-        actions: [HelpButton(help: kHelpMaterialList)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy_all_outlined),
+            tooltip: context.tr(pl: 'Kopiuj całość', en: 'Copy all'),
+            onPressed: hasItems ? _copyAll : null,
+          ),
+          IconButton(
+            key: _shareButtonKey,
+            icon: const Icon(Icons.share_outlined),
+            tooltip: context.tr(pl: 'Udostępnij', en: 'Share'),
+            onPressed: hasItems ? _shareAll : null,
+          ),
+          HelpButton(help: kHelpMaterialList),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -330,33 +513,27 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 0),
                     itemBuilder: (context, i) {
                       final it = _items[i];
-                      final qty = it.quantity ?? 0;
-                      // EN singular: "1 pc" not "1 pcs"; PL "szt." is invariant.
-                      final unit = qty == 1 ? sztSingularEn : szt;
-                      // PIPE is the most common row — localise so PL welders see "RURA".
                       final isPipe = it.category == 'PIPE';
-                      final catLabel = isPipe ? pipeLabel : it.category;
                       // Dual-unit trailing (P1-35): metric + imperial side-by-
                       // side for PIPE rows; piece-count for everything else.
-                      final trailingText = isPipe
-                          ? _fmtLen(it.totalLengthMm ?? 0)
-                          : '$qty $unit';
+                      // EN singular: "1 pc" not "1 pcs"; PL "szt." is invariant.
+                      final trailingText =
+                          bomQuantityText(it, english: english);
                       final trailingDual = isPipe
                           ? _fmtLenDual(it.totalLengthMm ?? 0)
                           : null;
-                      // P3-10: long-press copies "CAT - desc - trailing" so welder
-                      // can paste a single BOM line straight into chat/SMS to the
-                      // storeroom without re-typing through gloves.
-                      final copyPayload =
-                          '$catLabel - ${it.description} - $trailingText';
                       return _BomRow(
-                        catLabel: catLabel,
+                        catLabel: bomCategoryLabel(it, english: english),
                         category: it.category,
-                        description: it.description,
+                        description: bomDescription(it, english: english),
                         trailingText: trailingText,
                         trailingDual: trailingDual,
-                        qtyText: isPipe ? null : '$qty $unit',
-                        copyPayload: copyPayload,
+                        qtyText: isPipe ? null : trailingText,
+                        // P3-10: long-press copies "CAT - desc - trailing" so
+                        // welder can paste a single BOM line straight into
+                        // chat/SMS to the storeroom without re-typing through
+                        // gloves. Same line format as "Kopiuj całość".
+                        copyPayload: bomLine(it, english: english),
                       );
                     },
                   ),
@@ -465,7 +642,9 @@ class _BomRow extends StatelessWidget {
                       children: [
                         Text(
                           description,
-                          maxLines: 2,
+                          // 3 lines: a fitting known only from a scan carries
+                          // "type unknown — check the drawing" after its size.
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 14,
