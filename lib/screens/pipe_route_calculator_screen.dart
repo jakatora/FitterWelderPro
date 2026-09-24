@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 /// Straight-pipe lengths of the route X (horizontal) → |H1−H2| (vertical) →
 /// Y (horizontal): TWO 90° elbows, three pipe segments, four butt welds.
@@ -118,7 +119,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   final FocusNode _yFocus  = FocusNode();
   final FocusNode _rFocus  = FocusNode();
 
-  double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
+  double _parse(String v) => parseDecimal(v) ?? 0;
 
   /// Last successful result — feeds the developed-length line in the
   /// formula dialog.
@@ -701,7 +702,8 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     return TextField(
       controller: ctrl,
       focusNode: focusNode,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

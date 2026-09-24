@@ -5,6 +5,7 @@ import '../i18n/app_language.dart';
 import '../models/tandem_tig_param.dart';
 import 'welder_pipes_screen.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 /// WELDER -> Zbiorniki
 ///
@@ -85,7 +86,7 @@ class _TandemTabState extends State<_TandemTab> {
   final _t1Ctrl = TextEditingController(text: '3.0');
   final _t2Ctrl = TextEditingController(text: '3.0');
 
-  double _parseD(String s) => double.tryParse(s.replaceAll(',', '.')) ?? 0.0;
+  double _parseD(String s) => parseDecimal(s) ?? 0.0;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
@@ -134,7 +135,8 @@ class _TandemTabState extends State<_TandemTab> {
                     Expanded(
                       child: TextField(
                         controller: _t1Ctrl,
-                        keyboardType: TextInputType.number,
+                        keyboardType: numberKeyboard(),
+                        inputFormatters: numberInputFormatters(),
                         decoration: InputDecoration(labelText: _tr('Ścianka 1 (t1) [mm]', 'Wall 1 (t1) [mm]')),
                         onChanged: (_) => setState(() {}),
                       ),
@@ -143,7 +145,8 @@ class _TandemTabState extends State<_TandemTab> {
                     Expanded(
                       child: TextField(
                         controller: _t2Ctrl,
-                        keyboardType: TextInputType.number,
+                        keyboardType: numberKeyboard(),
+                        inputFormatters: numberInputFormatters(),
                         decoration: InputDecoration(labelText: _tr('Ścianka 2 (t2) [mm]', 'Wall 2 (t2) [mm]')),
                         onChanged: (_) => setState(() {}),
                       ),
@@ -173,7 +176,8 @@ class _TandemTabState extends State<_TandemTab> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _gapCtrl,
-                    keyboardType: TextInputType.number,
+                    keyboardType: numberKeyboard(),
+                    inputFormatters: numberInputFormatters(),
                     decoration: InputDecoration(labelText: _tr('Szczelina [mm]', 'Gap [mm]')),
                     onChanged: (_) => setState(() {}),
                   ),

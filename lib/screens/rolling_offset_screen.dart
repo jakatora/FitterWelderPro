@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
@@ -8,6 +7,7 @@ import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
+import '../widgets/number_field.dart';
 
 /// Roll of the offset plane (= how far the elbow is turned) measured from
 /// the vertical, in degrees: atan(Spread / Rise). Rise is the vertical and
@@ -95,7 +95,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     );
   }
 
-  double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
+  double _parse(String v) => parseDecimal(v) ?? 0;
 
   // P1-04: Wyczyść — reset all controllers + selected angle back to 45°
   // default. Multi-job shift = 3-4 calcs back-to-back; manual field clearing
@@ -549,10 +549,6 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     );
   }
 
-  // Positive decimal only: digits + single '.' or ',' separator. Blocks '-', 'e', spaces.
-  static final _positiveDecimalFormatter =
-      FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d*'));
-
   Widget _field(TextEditingController ctrl,
       {required String label, String? suffix,
       TextInputAction textInputAction = TextInputAction.next,
@@ -560,8 +556,11 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     return TextField(
       controller: ctrl,
       onChanged: (_) => setState(_clearComputed),
-      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
-      inputFormatters: [_positiveDecimalFormatter],
+      // Positive decimal only: digits and '.' / ','. The shared formatter
+      // refuses '-', 'e' and letters outright (the old prefix filter cut a
+      // paste like "1e5" down to "1" without a word).
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       textInputAction: textInputAction,
       onSubmitted: onSubmitted ??
           (_) => FocusScope.of(context).nextFocus(),

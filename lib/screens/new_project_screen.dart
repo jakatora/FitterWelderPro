@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
 import 'fitter_screen.dart';
+import '../widgets/number_field.dart';
 
 class NewProjectScreen extends StatefulWidget {
   const NewProjectScreen({super.key});
@@ -34,11 +34,11 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
 
     bool didPop = false;
 
-    final d = double.tryParse(_diameter.text.replaceAll(',', '.'));
-    final w = double.tryParse(_wall.text.replaceAll(',', '.'));
-    final stock = double.tryParse(_stock.text.replaceAll(',', '.'));
-    final kerf = double.tryParse(_kerf.text.replaceAll(',', '.'));
-    final gap = double.tryParse(_gap.text.replaceAll(',', '.'));
+    final d = parseDecimal(_diameter.text);
+    final w = parseDecimal(_wall.text);
+    final stock = parseDecimal(_stock.text);
+    final kerf = parseDecimal(_kerf.text);
+    final gap = parseDecimal(_gap.text);
 
     if (d == null || d <= 0) {
       setState(() {
@@ -218,32 +218,32 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                 onChanged: _saving ? null : (v) => setState(() => _materialGroup = v ?? 'SS'),
               ),
               const SizedBox(height: 12),
-              // Every field below is parsed with
-              // double.tryParse(text.replaceAll(',', '.')) — i.e. the code
-              // expects a decimal separator — but they asked for the plain
-              // TextInputType.number keypad, which on iOS has neither '.'
-              // nor ','. Ø76.2 could only be typed as 762 and the project
-              // (and every cut in it) was then built on a bogus diameter.
-              // The filter keeps both separators and blocks anything else, so
-              // double.tryParse cannot be handed a value it will reject.
+              // Every field below is parsed with parseDecimal(text) — i.e.
+              // the code expects a decimal separator — but they used to ask
+              // for the plain TextInputType.number keypad, which on iOS has
+              // neither '.' nor ','. Ø76.2 could only be typed as 762 and the
+              // project (and every cut in it) was then built on a bogus
+              // diameter. The shared keyboard/filter from number_field.dart
+              // keeps both separators and blocks anything else, so the parser
+              // cannot be handed a value it will reject.
               TextField(
                 controller: _diameter,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Średnica rury (mm)', en: 'Pipe diameter (mm)')),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _wall,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: context.tr(pl: 'Grubość ścianki (mm)', en: 'Wall thickness (mm)')),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _stock,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(
                   labelText: context.tr(pl: 'Długość sztangi (mm)', en: 'Stock length (mm)'),
                   helperText: context.tr(pl: 'Domyślnie 6000', en: 'Default 6000'),
@@ -254,8 +254,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                 controller: _kerf,
                 // Its own helper text says "Np. 1,0" — the field must be able
                 // to produce that.
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(
                   labelText: context.tr(pl: 'Kerf (mm na cięcie)', en: 'Kerf (mm per cut)'),
                   helperText: context.tr(pl: 'Np. 1,0', en: 'For example 1.0'),
@@ -271,8 +271,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _gap,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(
                   labelText: context.tr(pl: 'Gap (mm na spoinę)', en: 'Gap (mm per weld)'),
                   helperText: context.tr(pl: 'Domyślnie 0', en: 'Default 0'),
@@ -388,7 +388,7 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
   }
 
   double? _parse(TextEditingController c) =>
-      double.tryParse(c.text.trim().replaceAll(',', '.'));
+      parseDecimal(c.text);
 
   bool get _gapChanges {
     final g = _parse(_gap);
@@ -456,8 +456,8 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
     return TextField(
       controller: c,
       enabled: !_saving,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(labelText: label, helperText: helper),
     );

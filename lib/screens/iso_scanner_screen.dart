@@ -14,6 +14,8 @@ import '../services/iso_scanner_ai.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
+import '../widgets/iso_expression_keys.dart';
+import '../widgets/number_field.dart';
 import '../widgets/premium_gate.dart';
 import 'scan_review_screen.dart';
 
@@ -1988,8 +1990,11 @@ class _SegmentCard extends StatelessWidget {
                           // fitting allowance). Number pad keeps gloved entry
                           // fast; parser already accepts both "," and "."
                           // so the locale comma key on Android works too.
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true, signed: true),
+                          // Signed keypad (iOS: numbers & punctuation) so an
+                          // expression like 2×38 or a "-" is still typeable;
+                          // the filter is the ISO parser's own character set.
+                          keyboardType: numberKeyboard(signed: true),
+                          inputFormatters: isoExpressionInputFormatters(),
                           decoration: InputDecoration(
                             isDense: true,
                             hintText: '76',

@@ -6,6 +6,7 @@ import '../community_sync_service.dart';
 import '../local_repo.dart';
 import '../welder_pipe_param.dart';
 import '../param_signature.dart';
+import '../../../widgets/number_field.dart';
 
 enum WeldTempo { slow, normal, fast }
 
@@ -126,7 +127,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
     messenger.showSnackBar(SnackBar(content: Text(t)));
   }
 
-  double _parse(String s) => double.parse(s.replaceAll(',', '.'));
+  double _parse(String s) =>
+      parseDecimal(s) ?? (throw FormatException('invalid number', s));
 
   bool get _isCarbonSteel => _material.trim().toUpperCase() == 'CARBON_STEEL';
 
@@ -248,7 +250,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     child: TextFormField(
                       controller: _odCtrl,
                       decoration: InputDecoration(labelText: trL(pl: 'Średnica OD (mm)', en: 'OD diameter (mm)'), prefixIcon: const Icon(Icons.straighten)),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       validator: (v) => (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                       enabled: !_saving,
                     ),
@@ -258,7 +261,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     child: TextFormField(
                       controller: _wtCtrl,
                       decoration: InputDecoration(labelText: trL(pl: 'Ścianka WT (mm)', en: 'Wall WT (mm)'), prefixIcon: const Icon(Icons.straighten_outlined)),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       validator: (v) => (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                       enabled: !_saving,
                     ),
@@ -285,7 +289,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
               TextFormField(
                 controller: _ampsCtrl,
                 decoration: const InputDecoration(labelText: 'AMP', prefixIcon: Icon(Icons.bolt_outlined)),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 validator: (v) => (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                 enabled: !_saving,
               ),
@@ -297,7 +302,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     child: TextFormField(
                       controller: _cupCtrl,
                       decoration: InputDecoration(labelText: trL(pl: 'Porcelanka (rozmiar)', en: 'Cup (size)'), prefixIcon: const Icon(Icons.circle_outlined)),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       validator: (v) => (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                       enabled: !_saving,
                     ),
@@ -307,7 +313,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     child: TextFormField(
                       controller: _electrodeCtrl,
                       decoration: InputDecoration(labelText: trL(pl: 'Elektroda (mm)', en: 'Electrode (mm)'), prefixIcon: const Icon(Icons.flash_on_outlined)),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       validator: (v) => (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                       enabled: !_saving,
                     ),
@@ -362,7 +369,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     labelText: trL(pl: 'Ile gazu do rury (L/min)', en: 'Purge flow (L/min)'),
                     prefixIcon: const Icon(Icons.water_drop_outlined),
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: numberKeyboard(),
+                  inputFormatters: numberInputFormatters(),
                   validator: (v) {
                     if (_isCarbonSteel && !_purgeEnabled) return null;
                     return (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null;
@@ -390,7 +398,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                 TextFormField(
                   controller: _wireCtrl,
                   decoration: InputDecoration(labelText: trL(pl: 'Drut (mm)', en: 'Wire (mm)'), prefixIcon: const Icon(Icons.linear_scale)),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: numberKeyboard(),
+                  inputFormatters: numberInputFormatters(),
                   validator: (v) => _wireEnabled && (v ?? '').trim().isEmpty ? trL(pl: 'Wymagane', en: 'Required') : null,
                   enabled: !_saving,
                 ),
@@ -414,7 +423,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                         labelText: trL(pl: 'Ilość otworów wylotowych', en: 'Outlet holes count'),
                         prefixIcon: const Icon(Icons.grid_3x3_outlined),
                       ),
-                      keyboardType: TextInputType.number,
+                      keyboardType: numberKeyboard(decimal: false),
+                      inputFormatters: numberInputFormatters(decimal: false),
                       validator: (v) {
                         final x = int.tryParse((v ?? '').trim());
                         if (x == null || x <= 0) return trL(pl: 'Wpisz liczbę > 0', en: 'Enter a number > 0');

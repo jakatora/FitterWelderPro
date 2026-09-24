@@ -9,6 +9,7 @@ import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 // All arithmetic of these calculators lives in lib/domain/welding/ — this
 // screen only parses the fields and renders the results.
@@ -28,7 +29,7 @@ const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 const _kSec    = Color(0xFF9BA3C7);
 
 double? _num(TextEditingController c) =>
-    double.tryParse(c.text.trim().replaceAll(',', '.'));
+    parseDecimal(c.text);
 
 class WelderToolsScreen extends StatelessWidget {
   /// Zakładka otwierana na starcie (jak `FitterToolsScreen(initialTab:)`).
@@ -79,11 +80,14 @@ class _NumField extends StatelessWidget {
   final String? unit;
   final String? helper;
   final VoidCallback? onChanged;
-  const _NumField({required this.ctrl, required this.label, this.hint, this.unit, this.helper, this.onChanged});
+  /// False for whole-number fields (seconds read with int.tryParse).
+  final bool decimal;
+  const _NumField({required this.ctrl, required this.label, this.hint, this.unit, this.helper, this.onChanged, this.decimal = true});
   @override
   Widget build(BuildContext context) => TextField(
     controller: ctrl,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    keyboardType: numberKeyboard(decimal: decimal),
+    inputFormatters: numberInputFormatters(decimal: decimal),
     decoration: InputDecoration(labelText: label, hintText: hint, suffixText: unit, helperText: helper, helperMaxLines: 3),
     onChanged: (_) => onChanged?.call(),
   );
@@ -555,7 +559,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
         ],
         if (_mode == 'PURGE') ...[
           Row(children: [
-            Expanded(child: _NumField(ctrl: _purgeInputCtrl, label: _tr('Czas purge (s)', 'Purge time (s)'), hint: '90', unit: 's', onChanged: null)),
+            Expanded(child: _NumField(ctrl: _purgeInputCtrl, label: _tr('Czas purge (s)', 'Purge time (s)'), hint: '90', unit: 's', onChanged: null, decimal: false)),
             const SizedBox(width: 10),
             ElevatedButton(onPressed: () => setState(() => _purgeSec = int.tryParse(_purgeInputCtrl.text) ?? 90), child: Text(_tr('Ustaw', 'Set'))),
           ]),
@@ -664,7 +668,8 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
       Row(children: [
         Expanded(child: TextField(
           controller: _valCtrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Wartość', 'Value')),
           onChanged: (_) => _calc(),
         )),

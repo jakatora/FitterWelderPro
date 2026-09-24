@@ -9,6 +9,7 @@ import '../i18n/app_language.dart';
 import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 const _kAccent       = Color(0xFF1A8A9B);
 const _kAccentWarm   = Color(0xFFFF8E1E);   // wyróżnienia wynikowe
@@ -246,8 +247,8 @@ class _SlopeTabState extends State<_SlopeTab> {
       _deltaH = null;
       _sawAngleDeg = null;
       _hint = null;
-      final d = double.tryParse(_diameter.text.replaceAll(',', '.'));
-      final pct = double.tryParse(_percent.text.replaceAll(',', '.'));
+      final d = parseDecimal(_diameter.text);
+      final pct = parseDecimal(_percent.text);
       if (d == null || d <= 0) {
         _error = _tr('Podaj średnicę zewnętrzną rury D (mm)', 'Enter pipe outside diameter D (mm)');
         return;
@@ -278,14 +279,16 @@ class _SlopeTabState extends State<_SlopeTab> {
         ),
         TextField(
           controller: _diameter,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Średnica zewnętrzna rury D (mm)', 'Pipe outside diameter D (mm)')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _percent,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Spadek (%)', 'Slope (%)')),
           onChanged: (_) => _calc(),
         ),
@@ -354,9 +357,9 @@ class _ElbowTabState extends State<_ElbowTab> {
       _lCut = _sCut = _lRemain = _sRemain = _remainAngle = _odDerived = null;
 
       final baseAngle = double.parse(_base);
-      final L = double.tryParse(_longTotal.text.replaceAll(',', '.'));
-      final S = double.tryParse(_shortTotal.text.replaceAll(',', '.'));
-      final T = double.tryParse(_targetAngle.text.replaceAll(',', '.'));
+      final L = parseDecimal(_longTotal.text);
+      final S = parseDecimal(_shortTotal.text);
+      final T = parseDecimal(_targetAngle.text);
 
       if (L == null || S == null) return;
 
@@ -479,7 +482,8 @@ class _ElbowTabState extends State<_ElbowTab> {
         // ── POLA WEJŚCIOWE ────────────────────────────────────────────────
         TextField(
           controller: _longTotal,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr(
               'Długi bok kolanka — extrados (mm)',
@@ -493,7 +497,8 @@ class _ElbowTabState extends State<_ElbowTab> {
         const SizedBox(height: 10),
         TextField(
           controller: _shortTotal,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr(
               'Krótki bok kolanka — intrados (mm)',
@@ -507,7 +512,8 @@ class _ElbowTabState extends State<_ElbowTab> {
         const SizedBox(height: 10),
         TextField(
           controller: _targetAngle,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr(
               'Żądany kąt kolanka (°)',
@@ -720,10 +726,10 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
       _resultMm = null;
       _resultDeg = null;
 
-      final od = double.tryParse(_od.text.replaceAll(',', '.'));
-      double? circ = double.tryParse(_circ.text.replaceAll(',', '.'));
-      final pct = double.tryParse(_percent.text.replaceAll(',', '.'));
-      final deg = double.tryParse(_deg.text.replaceAll(',', '.'));
+      final od = parseDecimal(_od.text);
+      double? circ = parseDecimal(_circ.text);
+      final pct = parseDecimal(_percent.text);
+      final deg = parseDecimal(_deg.text);
 
       if ((circ == null || circ <= 0) && (od == null || od <= 0)) {
         _error = _tr('Podaj OD albo obwód (mm)', 'Enter OD or circumference (mm)');
@@ -758,7 +764,8 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
             Expanded(
               child: TextField(
                 controller: _od,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: _tr('OD (mm)', 'OD (mm)')),
                 onChanged: (_) => _calc(),
               ),
@@ -767,7 +774,8 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
             Expanded(
               child: TextField(
                 controller: _circ,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: _tr('Obwód (mm)', 'Circ. (mm)')),
                 onChanged: (_) => _calc(),
               ),
@@ -780,7 +788,8 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
             Expanded(
               child: TextField(
                 controller: _percent,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: _tr('Obrót (%)', 'Rotation (%)')),
                 onChanged: (_) => _calc(),
               ),
@@ -789,7 +798,8 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
             Expanded(
               child: TextField(
                 controller: _deg,
-                keyboardType: TextInputType.number,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
                 decoration: InputDecoration(labelText: _tr('Obrót (°)', 'Rotation (°)')),
                 onChanged: (_) => _calc(),
               ),
@@ -862,7 +872,7 @@ class _InsertTabState extends State<_InsertTab> {
   /// Take-out from the ASME B16.9 tables for the OD entered; sets [_error]
   /// and returns null when no standard elbow exists.
   double? _tableTakeoff(double ang) {
-    final od = double.tryParse(_od.text.replaceAll(',', '.'));
+    final od = parseDecimal(_od.text);
     if (od == null || od <= 0) {
       _error = _tr('Podaj średnicę OD rury (mm)', 'Enter pipe OD (mm)');
       return null;
@@ -938,12 +948,12 @@ class _InsertTabState extends State<_InsertTab> {
       _sizeInfo = null;
       _source = null;
 
-      final ang = double.tryParse(_angle.text.replaceAll(',', '.'));
-      final off = double.tryParse(_offset.text.replaceAll(',', '.'));
+      final ang = parseDecimal(_angle.text);
+      final off = parseDecimal(_offset.text);
 
       double? takeoff;
       if (_rMode == 'manual') {
-        final r = double.tryParse(_radius.text.replaceAll(',', '.'));
+        final r = parseDecimal(_radius.text);
         if (r == null || r <= 0) {
           _error = _tr('Podaj promień kolanka R (mm)', 'Enter elbow radius R (mm)');
           return;
@@ -959,7 +969,7 @@ class _InsertTabState extends State<_InsertTab> {
           'R × tan(θ/2) = ${_f(r)} × tan(${_f(ang / 2)}°) — R entered manually',
         );
       } else {
-        final od = double.tryParse(_od.text.replaceAll(',', '.'));
+        final od = parseDecimal(_od.text);
         if (od == null || od <= 0) {
           _error = _tr('Podaj średnicę OD rury (mm)', 'Enter pipe OD (mm)');
           return;
@@ -1033,7 +1043,8 @@ class _InsertTabState extends State<_InsertTab> {
         if (_rMode != 'manual') ...[
           TextField(
             controller: _od,
-            keyboardType: TextInputType.number,
+            keyboardType: numberKeyboard(),
+            inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(
               labelText: _tr('Średnica zewnętrzna rury OD (mm)', 'Pipe outside diameter OD (mm)'),
               hintText: 'np. 60.3',
@@ -1060,7 +1071,8 @@ class _InsertTabState extends State<_InsertTab> {
         ] else ...[
           TextField(
             controller: _radius,
-            keyboardType: TextInputType.number,
+            keyboardType: numberKeyboard(),
+            inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(
               labelText: _tr('Promień kolanka R — oś gięcia (mm)', 'Elbow bend radius R — centerline (mm)'),
               hintText: _tr('np. 76 (DN50 LR)', 'e.g. 76 (DN50 LR)'),
@@ -1073,7 +1085,8 @@ class _InsertTabState extends State<_InsertTab> {
         // ── Kąt kolanka ────────────────────────────────────
         TextField(
           controller: _angle,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Kąt kolanka θ (°)', 'Elbow angle θ (°)'),
             hintText: '90',
@@ -1086,7 +1099,8 @@ class _InsertTabState extends State<_InsertTab> {
         // ── Odejście ───────────────────────────────────────
         TextField(
           controller: _offset,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Odejście — offset (mm)', 'Offset (mm)'),
             hintText: 'np. 200',
@@ -1215,10 +1229,10 @@ class _ReducerTabState extends State<_ReducerTab> {
       _error = null;
       _cutFromLarge = null;
 
-      final d1 = double.tryParse(_d1.text.replaceAll(',', '.'));
-      final d2 = double.tryParse(_d2.text.replaceAll(',', '.'));
-      final l = double.tryParse(_len.text.replaceAll(',', '.'));
-      final t = double.tryParse(_target.text.replaceAll(',', '.'));
+      final d1 = parseDecimal(_d1.text);
+      final d2 = parseDecimal(_d2.text);
+      final l = parseDecimal(_len.text);
+      final t = parseDecimal(_target.text);
 
       if (d1 == null || d2 == null || l == null || t == null) return;
       if (l <= 0) {
@@ -1252,28 +1266,32 @@ class _ReducerTabState extends State<_ReducerTab> {
         const SizedBox(height: 12),
         TextField(
           controller: _d1,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Średnica wejścia [mm]', 'Inlet diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _d2,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Średnica wyjścia [mm]', 'Outlet diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _len,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Długość redukcji L [mm]', 'Reducer length L [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _target,
-          keyboardType: TextInputType.number,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(labelText: _tr('Wymagana średnica [mm]', 'Required diameter [mm]')),
           onChanged: (_) => _calc(),
         ),
@@ -1325,10 +1343,10 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   void _calc() {
     setState(() {
       _error = null; _kgm = null; _kgPiece = null; _kgTotal = null;
-      final od  = double.tryParse(_od.text.replaceAll(',', '.'));
-      final t   = double.tryParse(_t.text.replaceAll(',', '.'));
-      final l   = double.tryParse(_l.text.replaceAll(',', '.')) ?? 1000;
-      final qty = double.tryParse(_qty.text.replaceAll(',', '.')) ?? 1;
+      final od  = parseDecimal(_od.text);
+      final t   = parseDecimal(_t.text);
+      final l   = parseDecimal(_l.text) ?? 1000;
+      final qty = parseDecimal(_qty.text) ?? 1;
       if (od == null || od <= 0) { _error = _tr('Podaj OD rury (mm)', 'Enter pipe OD (mm)'); return; }
       if (t == null || t <= 0 || t >= od / 2) { _error = _tr('Podaj poprawną grubość ścianki', 'Enter valid wall thickness'); return; }
       final rho = _density[_mat] ?? 7930.0;
@@ -1362,15 +1380,15 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
       ),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _od, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'OD (mm)', hintText: '60.3'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _od, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: 'OD (mm)', hintText: '60.3'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Gr. ścianki t (mm)', 'Wall t (mm)'), hintText: '2.0'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _t, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Gr. ścianki t (mm)', 'Wall t (mm)'), hintText: '2.0'), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Długość (mm)', 'Length (mm)'), hintText: '1000', suffixText: 'mm'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _l, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Długość (mm)', 'Length (mm)'), hintText: '1000', suffixText: 'mm'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _qty, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Ilość szt.', 'Qty'), hintText: '1'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _qty, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Ilość szt.', 'Qty'), hintText: '1'), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 16),
       if (_kgm != null) _ResultCard(children: [
@@ -1419,9 +1437,9 @@ class _BevelTabState extends State<_BevelTab> {
   void _calc() {
     setState(() {
       _error = null; _depth = null; _width = null;
-      final t    = double.tryParse(_t.text.replaceAll(',', '.'));
-      final ang  = double.tryParse(_angCtrl.text.replaceAll(',', '.')) ?? 37.5;
-      final land = double.tryParse(_landCtrl.text.replaceAll(',', '.')) ?? 1.0;
+      final t    = parseDecimal(_t.text);
+      final ang  = parseDecimal(_angCtrl.text) ?? 37.5;
+      final land = parseDecimal(_landCtrl.text) ?? 1.0;
       if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki t (mm)', 'Enter wall thickness t (mm)'); return; }
       final depth = t - land;
       if (depth <= 0) { _error = _tr('Próg ≥ grubości ścianki', 'Root face ≥ wall thickness'); return; }
@@ -1446,18 +1464,18 @@ class _BevelTabState extends State<_BevelTab> {
         onChanged: (v) { setState(() => _type = v ?? 'V'); _calc(); },
       ),
       const SizedBox(height: 10),
-      TextField(controller: _t, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
+      TextField(controller: _t, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _angCtrl, keyboardType: TextInputType.number,
+        Expanded(child: TextField(controller: _angCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(labelText: _tr('Kąt α (°)', 'Angle α (°)'), hintText: '37.5', suffixText: '°', helperText: _tr('Typowo 30–37.5°', 'Typical 30–37.5°')),
             onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _landCtrl, keyboardType: TextInputType.number,
+        Expanded(child: TextField(controller: _landCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(labelText: _tr('Próg b (mm)', 'Root face b (mm)'), hintText: '1.0', suffixText: 'mm', helperText: _tr('Typowo 0.5–2 mm', 'Typ. 0.5–2 mm')),
             onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _gapCtrl, keyboardType: TextInputType.number,
+        Expanded(child: TextField(controller: _gapCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(labelText: _tr('Szczelina g (mm)', 'Root gap g (mm)'), hintText: '2', suffixText: 'mm'),
             onChanged: (_) => _calc())),
       ]),
@@ -1471,10 +1489,10 @@ class _BevelTabState extends State<_BevelTab> {
         const SizedBox(height: 10),
         Text(_tr(
           '• Fazuj pod kątem ${_angCtrl.text}° od progu (land) ${_landCtrl.text} mm\n'
-          '• Szerokość otworu złącza: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
+          '• Szerokość otworu złącza: ${((parseDecimal(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
           '${_type == "X" ? "• Złącze X: fazuj z obu stron po ${(_depth! / 2).toStringAsFixed(2)} mm" : ""}',
           '• Bevel at ${_angCtrl.text}° from root face ${_landCtrl.text} mm\n'
-          '• Joint opening width: ${((double.tryParse(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
+          '• Joint opening width: ${((parseDecimal(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
           '${_type == "X" ? "• X joint: bevel both sides by ${(_depth! / 2).toStringAsFixed(2)} mm each" : ""}',
         ), style: const TextStyle(fontSize: 12, color: _kSubtle, height: 1.6)),
       ]),
@@ -1520,15 +1538,15 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
     setState(() {
       _error = null; _dLmm = null; _dLm = null;
       double? dt;
-      final t1v = double.tryParse(_t1.text.replaceAll(',', '.'));
-      final t2v = double.tryParse(_t2.text.replaceAll(',', '.'));
+      final t1v = parseDecimal(_t1.text);
+      final t2v = parseDecimal(_t2.text);
       if (t1v != null && t2v != null) {
         dt = (t2v - t1v).abs();
         _dt.text = dt.toStringAsFixed(1);
       } else {
-        dt = double.tryParse(_dt.text.replaceAll(',', '.'));
+        dt = parseDecimal(_dt.text);
       }
-      final l = double.tryParse(_l.text.replaceAll(',', '.'));
+      final l = parseDecimal(_l.text);
       if (l == null || l <= 0) { _error = _tr('Podaj długość rurociągu (m)', 'Enter pipeline length (m)'); return; }
       if (dt == null || dt < 0) { _error = _tr('Podaj różnicę temperatur ΔT', 'Enter temperature difference ΔT'); return; }
       final a = _alpha[_mat] ?? 16e-6;
@@ -1561,14 +1579,15 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
         onChanged: (v) { setState(() => _mat = v ?? 'SS316L'); _calc(); },
       ),
       const SizedBox(height: 10),
-      TextField(controller: _l, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('Długość rurociągu L (m)', 'Pipeline length L (m)'), hintText: '50', suffixText: 'm'), onChanged: (_) => _calc()),
+      TextField(controller: _l, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Długość rurociągu L (m)', 'Pipeline length L (m)'), hintText: '50', suffixText: 'm'), onChanged: (_) => _calc()),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: TextField(controller: _t1, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T montażu (°C)', 'Install. T (°C)'), hintText: '20', suffixText: '°C'), onChanged: (_) => _calc())),
+        // Temperatures can be below zero (winter install, cold lines) — signed.
+        Expanded(child: TextField(controller: _t1, keyboardType: numberKeyboard(signed: true), inputFormatters: numberInputFormatters(signed: true), decoration: InputDecoration(labelText: _tr('T montażu (°C)', 'Install. T (°C)'), hintText: '20', suffixText: '°C'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _t2, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: _tr('T pracy (°C)', 'Oper. T (°C)'), hintText: '120', suffixText: '°C'), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _t2, keyboardType: numberKeyboard(signed: true), inputFormatters: numberInputFormatters(signed: true), decoration: InputDecoration(labelText: _tr('T pracy (°C)', 'Oper. T (°C)'), hintText: '120', suffixText: '°C'), onChanged: (_) => _calc())),
         const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _dt, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'ΔT (°C)', hintText: '100', suffixText: '°C', helperText: _tr('lub T1 i T2', 'or T1 and T2')), onChanged: (_) => _calc())),
+        Expanded(child: TextField(controller: _dt, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: 'ΔT (°C)', hintText: '100', suffixText: '°C', helperText: _tr('lub T1 i T2', 'or T1 and T2')), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 16),
       if (_dLmm != null) _ResultCard(children: [

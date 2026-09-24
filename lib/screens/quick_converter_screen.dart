@@ -3,6 +3,7 @@ import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/calculation_guide.dart';
+import '../widgets/number_field.dart';
 
 /// Offline conversions; all four original categories remain available.
 class QuickConverterScreen extends StatelessWidget {
@@ -63,7 +64,10 @@ final _decimal = RegExp(r'^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$');
 double? _parse(String text) {
   final value = text.trim();
   if (!_decimal.hasMatch(value)) return null;
-  return double.tryParse(value.replaceAll(',', '.'));
+  // The shape was validated above, so the shared parser can only refuse it
+  // as non-finite — a 300-digit paste. Keep that as infinity so the screen
+  // says "out of range" rather than "not a number".
+  return parseDecimal(value) ?? double.infinity;
 }
 
 String _fmt(double value) {
@@ -244,9 +248,14 @@ class _ConversionTabState extends State<_ConversionTab>
   Widget _input(String? error) {
     final valueField = TextField(
       controller: _ctrl,
-      // Never filter a pasted '-10' into a different, valid number '10'.
-      keyboardType: TextInputType.numberWithOptions(
-          decimal: true, signed: widget.kind == _Kind.temperature),
+      // Never filter a pasted '-10' into a different, valid number '10':
+      // the minus key is only on the temperature keyboard, but every tab
+      // ACCEPTS '-' so a pasted negative stays visible and gets its error.
+      // The shared formatter refuses (never trims) any other stray
+      // character, so '1e5' cannot turn into '15' either.
+      keyboardType:
+          numberKeyboard(signed: widget.kind == _Kind.temperature),
+      inputFormatters: numberInputFormatters(signed: true),
       textInputAction: TextInputAction.done,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(

@@ -6,6 +6,7 @@ import '../services/saddle_geometry.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 class SaddleCutScreen extends StatefulWidget {
   const SaddleCutScreen({super.key});
@@ -41,7 +42,7 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
   }
 
   double? _parse(String text) =>
-      double.tryParse(text.trim().replaceAll(',', '.'));
+      parseDecimal(text);
 
   String? _odError(String text) {
     if (text.trim().isEmpty) {
@@ -454,7 +455,8 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     final showError = _submitted || controller.text.trim().isNotEmpty;
     return TextField(
       controller: controller,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: numberKeyboard(),
+      inputFormatters: numberInputFormatters(),
       decoration: InputDecoration(
         labelText: label,
         suffixText: 'mm',

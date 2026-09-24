@@ -91,7 +91,7 @@ void main() {
         (tester) async {
       await tester.pumpWidget(_app(const FitterToolsScreen(initialTab: 3)));
       await tester.pumpAndSettle();
-      await _enter(tester, _odLabel, '60.3');
+      await _enter(tester, _odLabel, '60,3');
       await _enter(tester, _angleLabel, '45');
       await _enter(tester, _offsetLabel, '300');
       expect(find.text('354.3 mm'), findsOneWidget);
@@ -104,7 +104,7 @@ void main() {
     testWidgets('OD 114,3 / 500 / 45° LR → 579,1 mm (B = 64)', (tester) async {
       await tester.pumpWidget(_app(const FitterToolsScreen(initialTab: 3)));
       await tester.pumpAndSettle();
-      await _enter(tester, _odLabel, '114.3');
+      await _enter(tester, _odLabel, '114,3');
       await _enter(tester, _angleLabel, '45');
       await _enter(tester, _offsetLabel, '500');
       expect(find.text('579.1 mm'), findsOneWidget);
@@ -152,7 +152,7 @@ void main() {
       await tester.pumpWidget(_app(const FitterToolsScreen(initialTab: 3)));
       await tester.pumpAndSettle();
       await _pickMode(tester, 'Ręcznie — wpisz R');
-      await _enter(tester, 'Promień kolanka R — oś gięcia (mm)', '90.45');
+      await _enter(tester, 'Promień kolanka R — oś gięcia (mm)', '90,45');
       await _enter(tester, _angleLabel, '45');
       await _enter(tester, _offsetLabel, '300');
       expect(find.text('349.3 mm'), findsOneWidget);

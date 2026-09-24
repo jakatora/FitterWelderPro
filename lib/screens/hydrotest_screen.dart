@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/pipe_schedules.dart';
@@ -13,6 +12,7 @@ import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 import '../theme/app_theme.dart' show kTextMut;
+import '../widgets/number_field.dart';
 
 // P1-14: lokalna definicja pomocy dla ekranu hydrotest
 // (kHelpHydrotest nie istnieje w help_button.dart — dodajemy lokalnie,
@@ -257,7 +257,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   }
 
   double? _p(TextEditingController c) =>
-      c.text.trim().isEmpty ? null : double.tryParse(c.text.replaceAll(',', '.'));
+      c.text.trim().isEmpty ? null : parseDecimal(c.text);
 
   // P1-04: reset całego ekranu — wszystkie pola + preset do domyślnego B31.3.
   void _resetAll() {
@@ -1283,6 +1283,8 @@ class _NumField extends StatelessWidget {
   final VoidCallback? onSubmitted;
   // P1-30: per-field errorText — wstrzykiwany z _HydrotestScreenState.
   final String? errorText;
+  /// Temperatures may be below zero (outdoor test in winter) — minus key.
+  final bool signed;
   const _NumField({
     required this.ctrl,
     required this.label,
@@ -1292,16 +1294,15 @@ class _NumField extends StatelessWidget {
     this.textInputAction,
     this.onSubmitted,
     this.errorText,
+    this.signed = false,
   });
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: ctrl,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      keyboardType: numberKeyboard(signed: signed),
       textInputAction: textInputAction,
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
-      ],
+      inputFormatters: numberInputFormatters(signed: signed),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -1890,7 +1891,7 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
 
   double? _num(TextEditingController c) => c.text.trim().isEmpty
       ? null
-      : double.tryParse(c.text.replaceAll(',', '.'));
+      : parseDecimal(c.text);
 
   /// A gauge reading converted to bar, the unit the register stores.
   double? _bar(TextEditingController c) {
@@ -2256,6 +2257,7 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
                       'Fluid / ambient temp. (°C)'),
                   onChanged: () => setState(() {}),
                   textInputAction: TextInputAction.next,
+                  signed: true,
                 ),
               ),
               const SizedBox(width: 10),
@@ -2265,6 +2267,7 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
                   label: _tr('Temp. metalu (°C)', 'Metal temp. (°C)'),
                   onChanged: () => setState(() {}),
                   textInputAction: TextInputAction.next,
+                  signed: true,
                 ),
               ),
             ]),

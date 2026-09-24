@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
@@ -16,6 +15,7 @@ import 'project_components_screen.dart';
 import 'heat_photos_screen.dart';
 import 'new_project_screen.dart' show showProjectSettingsDialog, projectSettingsSavedMessage;
 import '../widgets/help_button.dart';
+import '../widgets/number_field.dart';
 
 /// Pipe size the route stands at after the saved segments — what the NEXT
 /// segment starts on.
@@ -523,7 +523,7 @@ class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
   }
 
   void _submit() {
-    final v = double.tryParse(_c.text.trim().replaceAll(',', '.'));
+    final v = parseDecimal(_c.text);
     if (v == null || !v.isFinite || v <= 0) return;
     Navigator.pop(context, v);
   }
@@ -539,10 +539,8 @@ class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
       content: TextField(
         controller: _c,
         autofocus: true,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-        ],
+        keyboardType: numberKeyboard(),
+        inputFormatters: numberInputFormatters(),
         onSubmitted: (_) => _submit(),
         decoration: InputDecoration(
           labelText:

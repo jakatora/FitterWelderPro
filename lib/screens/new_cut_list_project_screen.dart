@@ -4,6 +4,7 @@ import '../models/project.dart';
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import 'segment_builder_screen.dart';
+import '../widgets/number_field.dart';
 
 class NewCutListProjectScreen extends StatefulWidget {
   const NewCutListProjectScreen({super.key});
@@ -66,12 +67,12 @@ class _NewCutListProjectScreenState extends State<NewCutListProjectScreen> {
       return;
     }
 
-    final od = double.tryParse(_odController.text.replaceAll(',', '.')) ?? 0;
-    final t = double.tryParse(_tController.text.replaceAll(',', '.')) ?? 0;
+    final od = parseDecimal(_odController.text) ?? 0;
+    final t = parseDecimal(_tController.text) ?? 0;
     final stockLen =
-        double.tryParse(_stockLenController.text.replaceAll(',', '.')) ?? 6000;
+        parseDecimal(_stockLenController.text) ?? 6000;
     final kerf =
-        double.tryParse(_kerfController.text.replaceAll(',', '.')) ?? 1.5;
+        parseDecimal(_kerfController.text) ?? 1.5;
 
 
     // Final validation before save
@@ -212,11 +213,12 @@ class _NewCutListProjectScreenState extends State<NewCutListProjectScreen> {
                       labelText: context.tr(pl: 'Średnica OD (mm) *', en: 'OD diameter (mm) *'),
                       border: const OutlineInputBorder(),
                     ),
-                    keyboardType: TextInputType.number,
+                    keyboardType: numberKeyboard(),
+                    inputFormatters: numberInputFormatters(),
                     validator: (value) {
                       if (value == null ||
-                          double.tryParse(value.replaceAll(',', '.')) == null ||
-                          double.tryParse(value.replaceAll(',', '.'))! <= 0) {
+                          parseDecimal(value) == null ||
+                          parseDecimal(value)! <= 0) {
                         return context.tr(pl: 'Wpisz poprawną średnicę', en: 'Enter a valid diameter');
                       }
                       return null;
@@ -250,11 +252,12 @@ class _NewCutListProjectScreenState extends State<NewCutListProjectScreen> {
                 labelText: context.tr(pl: 'Grubość ścianki t (mm) *', en: 'Wall thickness t (mm) *'),
                 border: const OutlineInputBorder(),
               ),
-              keyboardType: TextInputType.number,
+              keyboardType: numberKeyboard(),
+              inputFormatters: numberInputFormatters(),
               validator: (value) {
                 if (value == null ||
-                    double.tryParse(value.replaceAll(',', '.')) == null ||
-                    double.tryParse(value.replaceAll(',', '.'))! <= 0) {
+                    parseDecimal(value) == null ||
+                    parseDecimal(value)! <= 0) {
                   return context.tr(pl: 'Wpisz poprawną grubość', en: 'Enter a valid thickness');
                 }
                 return null;
@@ -270,7 +273,8 @@ class _NewCutListProjectScreenState extends State<NewCutListProjectScreen> {
                 border: const OutlineInputBorder(),
                 helperText: context.tr(pl: 'Domyślnie: 6000 mm', en: 'Default: 6000 mm'),
               ),
-              keyboardType: TextInputType.number,
+              keyboardType: numberKeyboard(),
+              inputFormatters: numberInputFormatters(),
             ),
             const SizedBox(height: 16),
 
@@ -282,11 +286,12 @@ class _NewCutListProjectScreenState extends State<NewCutListProjectScreen> {
                 border: const OutlineInputBorder(),
                 helperText: context.tr(pl: 'Domyślnie: 1.5 mm (zakres: 1-2)', en: 'Default: 1.5 mm (range: 1–2)'),
               ),
-              keyboardType: TextInputType.number,
+              keyboardType: numberKeyboard(),
+              inputFormatters: numberInputFormatters(),
               validator: (value) {
                 if (value != null && value.isNotEmpty) {
                   final kerf =
-                      double.tryParse(value.replaceAll(',', '.'));
+                      parseDecimal(value);
                   if (kerf != null && (kerf < 1 || kerf > 2)) {
                     return context.tr(pl: 'Kerf musi być w zakresie 1-2 mm', en: 'Kerf must be in the 1–2 mm range');
                   }

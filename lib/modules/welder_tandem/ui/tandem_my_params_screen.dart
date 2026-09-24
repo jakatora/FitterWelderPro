@@ -4,6 +4,7 @@ import '../../../i18n/app_language.dart';
 import '../../../widgets/help_button.dart';
 import '../../../database/tandem_amp_param_dao.dart';
 import '../../../models/tandem_amp_param.dart';
+import '../../../widgets/number_field.dart';
 
 class TandemMyParamsScreen extends StatefulWidget {
   final String position;
@@ -111,7 +112,7 @@ class _TandemMyParamsScreenState extends State<TandemMyParamsScreen> {
     final noteCtrl = TextEditingController(text: existing?.note ?? '');
 
     String? vDouble(String? v) {
-      final x = double.tryParse((v ?? '').replaceAll(',', '.'));
+      final x = parseDecimal(v);
       if (x == null || x <= 0) return trL(pl: 'Wpisz > 0', en: 'Enter > 0');
       return null;
     }
@@ -133,17 +134,17 @@ class _TandemMyParamsScreenState extends State<TandemMyParamsScreen> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: TextFormField(controller: t1Ctrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: trL(pl: 't1 [mm]', en: 't1 [mm]')), validator: vDouble)),
+                    Expanded(child: TextFormField(controller: t1Ctrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: trL(pl: 't1 [mm]', en: 't1 [mm]')), validator: vDouble)),
                     const SizedBox(width: 12),
-                    Expanded(child: TextFormField(controller: t2Ctrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: trL(pl: 't2 [mm]', en: 't2 [mm]')), validator: vDouble)),
+                    Expanded(child: TextFormField(controller: t2Ctrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: trL(pl: 't2 [mm]', en: 't2 [mm]')), validator: vDouble)),
                   ],
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(child: TextFormField(controller: inCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: trL(pl: 'A wew', en: 'A in')), validator: vInt)),
+                    Expanded(child: TextFormField(controller: inCtrl, keyboardType: numberKeyboard(decimal: false), inputFormatters: numberInputFormatters(decimal: false), decoration: InputDecoration(labelText: trL(pl: 'A wew', en: 'A in')), validator: vInt)),
                     const SizedBox(width: 12),
-                    Expanded(child: TextFormField(controller: outCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: trL(pl: 'A zew', en: 'A out')), validator: vInt)),
+                    Expanded(child: TextFormField(controller: outCtrl, keyboardType: numberKeyboard(decimal: false), inputFormatters: numberInputFormatters(decimal: false), decoration: InputDecoration(labelText: trL(pl: 'A zew', en: 'A out')), validator: vInt)),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -179,8 +180,8 @@ class _TandemMyParamsScreenState extends State<TandemMyParamsScreen> {
     final p = TandemAmpParam(
       id: existing?.id ?? now.toString(),
       position: widget.position,
-      t1Mm: double.parse(t1Ctrl.text.replaceAll(',', '.')),
-      t2Mm: double.parse(t2Ctrl.text.replaceAll(',', '.')),
+      t1Mm: parseDecimal(t1Ctrl.text)!,
+      t2Mm: parseDecimal(t2Ctrl.text)!,
       insideAmps: int.parse(inCtrl.text.trim()),
       outsideAmps: int.parse(outCtrl.text.trim()),
       tempo: tempo,
