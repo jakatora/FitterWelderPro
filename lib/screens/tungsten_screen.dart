@@ -335,9 +335,11 @@ class _TungstenScreenState extends State<TungstenScreen> {
                   if (suggested != null)
                     Text(
                       context.tr(
-                        pl: 'AI sugeruje Ø ${suggested.diaMm.toStringAsFixed(1)} mm — '
+                        // Plain lookup in the DC- table (sizeForCurrent),
+                        // not a model — so no "AI" wording.
+                        pl: 'Z tabeli: Ø ${suggested.diaMm.toStringAsFixed(1)} mm — '
                             'wybierasz Ø ${tapped.diaMm.toStringAsFixed(1)} mm.',
-                        en: 'AI suggests Ø ${suggested.diaMm.toStringAsFixed(1)} mm — '
+                        en: 'From table: Ø ${suggested.diaMm.toStringAsFixed(1)} mm — '
                             'you are picking Ø ${tapped.diaMm.toStringAsFixed(1)} mm.',
                       ),
                       style: const TextStyle(
@@ -346,9 +348,9 @@ class _TungstenScreenState extends State<TungstenScreen> {
                   else
                     Text(
                       context.tr(
-                        pl: 'Brak sugestii (wpisz prąd, aby zobaczyć rekomendację). '
+                        pl: 'Brak odczytu z tabeli (wpisz prąd, aby zobaczyć średnicę). '
                             'Wybierasz Ø ${tapped.diaMm.toStringAsFixed(1)} mm.',
-                        en: 'No suggestion yet (enter current to see a recommendation). '
+                        en: 'No table pick yet (enter current to see the diameter). '
                             'You are picking Ø ${tapped.diaMm.toStringAsFixed(1)} mm.',
                       ),
                       style: const TextStyle(

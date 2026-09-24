@@ -43,6 +43,17 @@ void main() {
       expect(kTungstenTypes.any((t) => t.bestForSs), isTrue);
     });
 
+    // ISO 6848 colour code: WP = green, WZ8 = white, WL20 = blue,
+    // WL15 = gold, WC20 = grey, WT20 = red (EWM „Colour codes for tungsten
+    // electrodes”; ISO 6848:2015).
+    test('ISO 6848 tip colours: WP green, WZ8 white', () {
+      final wp = kTungstenTypes.firstWhere((t) => t.code == 'WP');
+      final wz8 = kTungstenTypes.firstWhere((t) => t.code == 'WZ8');
+      expect(wp.tipColor, 'zielony / green');
+      expect(wz8.tipColor, 'biały / white');
+      expect(wz8.bestForSs, isFalse);
+    });
+
     test('pure tungsten is not recommended for stainless DC', () {
       final wp = kTungstenTypes.firstWhere((t) => t.code == 'WP');
       expect(wp.bestForSs, isFalse);
