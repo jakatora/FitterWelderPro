@@ -147,8 +147,6 @@ class WelderQualificationService {
   final ValueNotifier<QualificationOverview?> overview =
       ValueNotifier<QualificationOverview?>(null);
 
-  Future<QualificationOverview>? _refreshing;
-
   /// Jednorazowe przeniesienie starych pól WPQR (patrz
   /// [migrateLegacyQualification]).
   Future<void> ensureLegacyMigrated() async {
@@ -182,12 +180,23 @@ class WelderQualificationService {
   }
 
   /// Ocena całego rejestru na dziś; aktualizuje [overview] i plan przypomnień.
-  /// Równoległe wywołania dostają ten sam wynik.
+  ///
+  /// Celowo BEZ współdzielenia trwającego wywołania: zapamiętana przyszłość
+  /// potrafi przeżyć właściciela (ekran zamknięty w trakcie, strefa
+  /// zakończonego testu) i wtedy każdy kolejny zapis czekałby na nią bez
+  /// końca. Dwa równoległe przeliczenia są nieszkodliwe — czytają to samo,
+  /// a identyfikatory przypomnień są deterministyczne, więc drugie
+  /// planowanie nadpisuje pierwsze zamiast je dublować.
   Future<QualificationOverview> refresh({DateTime? now}) =>
-      _refreshing ??= _refresh(now ?? DateTime.now())
-          .whenComplete(() => _refreshing = null);
+      _refresh(now ?? DateTime.now());
+
+  /// Numer ostatnio rozpoczętego przeliczenia — wynik starszego, które
+  /// skończyło się później (np. start ekranu kontra zapis), nie nadpisuje
+  /// nowszego stanu ani planu przypomnień.
+  int _generation = 0;
 
   Future<QualificationOverview> _refresh(DateTime now) async {
+    final generation = ++_generation;
     try {
       final certificates = await listCertificates();
       final identity = await WelderIdentityService.instance.get();
@@ -198,6 +207,7 @@ class WelderQualificationService {
           evaluateCertificate(c,
               asOf: now, journalWelds: journalWeldsFor(c, journal)),
       ]);
+      if (generation != _generation) return result;
       overview.value = result;
       await QualificationReminders.instance.reschedule(
         planQualificationReminders(result.evaluations,
@@ -240,6 +250,7 @@ class WelderQualificationService {
     } catch (e) {
       debugPrint('[qualification] reminders disable failed: $e');
     }
+    _generation++; // przeliczenie w toku nie przywróci skasowanych wpisów
     overview.value = QualificationOverview.empty;
   }
 

@@ -12,6 +12,7 @@ import 'package:cut_list_app/database/db.dart';
 class StartupFactory implements SqfliteDatabaseFactoryLogger {
   int opens = 0;
   bool failPreparation = false;
+  bool failPathSynchronously = false;
   Completer<void>? preparationEntered;
   Completer<void>? preparationRelease;
   Database? lastOpened;
@@ -25,7 +26,16 @@ class StartupFactory implements SqfliteDatabaseFactoryLogger {
   }
 
   @override
-  Future<String> getDatabasesPath() => databaseFactoryFfi.getDatabasesPath();
+  Future<String> getDatabasesPath() {
+    // Tak zachowuje się niezainicjowany `databaseFactory` (widżet-test bez
+    // SQLite, zła kolejność startu): getter rzuca SYNCHRONICZNIE, zanim
+    // cokolwiek zwróci Future.
+    if (failPathSynchronously) {
+      failPathSynchronously = false;
+      throw StateError('databaseFactory not initialized (injected)');
+    }
+    return databaseFactoryFfi.getDatabasesPath();
+  }
   @override
   Future<void> setDatabasesPath(String path) =>
       databaseFactoryFfi.setDatabasesPath(path);
@@ -98,6 +108,7 @@ void main() {
     directory = await root.createTemp('fwp-startup-');
     factory.opens = 0;
     factory.failPreparation = false;
+    factory.failPathSynchronously = false;
     factory.preparationEntered = null;
     factory.preparationRelease = null;
     await AppDatabase.configureForTesting(p.join(directory.path, 'startup.db'));
@@ -158,6 +169,21 @@ void main() {
     final seeds = await recovered
         .rawQuery('SELECT COUNT(*) AS n FROM approved_weld_params');
     expect(seeds.single['n'], greaterThan(0));
+  });
+
+  test(
+      'a failure thrown synchronously does not poison every later get()',
+      () async {
+    // _open() used to reset `_opening` in its finally BEFORE get() stored the
+    // future (a synchronous throw runs the whole try/catch/finally inside the
+    // call). get() then cached the failed future forever: every later caller
+    // got the same stale error and — in widget tests — awaited a future owned
+    // by an already finished test's zone, which never completes.
+    factory.failPathSynchronously = true;
+    await expectLater(AppDatabase.get(), throwsStateError);
+    final recovered = await AppDatabase.get();
+    expect(recovered.isOpen, isTrue);
+    expect(factory.opens, 1);
   });
 
   test('closed cached connection reopens without losing a saved project',

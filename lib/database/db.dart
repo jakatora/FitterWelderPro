@@ -48,7 +48,21 @@ class AppDatabase {
     final ready = _db;
     if (ready != null && ready.isOpen) return Future.value(ready);
     // Every caller waits for the same complete preparation, not just open().
-    return _opening ??= _open();
+    final pending = _opening;
+    if (pending != null) return pending;
+    final opening = _open();
+    _opening = opening;
+    // _open() clears `_opening` in its finally — but when it fails
+    // SYNCHRONOUSLY (e.g. `databaseFactory` not initialised: the getter
+    // throws before any await), that finally has already run by the time the
+    // line above stores the future. Without this the failed future stayed
+    // cached forever: every later get() replayed the stale error, and in
+    // widget tests awaited a future bound to a finished test's zone, which
+    // never completes. test/database/startup_test.dart pins it.
+    opening.then<void>((_) {}, onError: (Object _) {
+      if (identical(_opening, opening)) _opening = null;
+    });
+    return opening;
   }
 
   static Future<Database> _open() async {
