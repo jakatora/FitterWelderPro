@@ -38,11 +38,20 @@ dependencies:
   image: ^4.10.1
   crypto: ^3.0.6
   pdf: ^3.10.7
-  share_plus: ^9.0.0
+  # 10.x (nie 9.x): speech_to_text 7 wymaga `web` ^1.0, a share_plus 9 trzymał
+  # `web` 0.5. API Share.share / Share.shareXFiles bez zmian (zmienia je 11.x).
+  share_plus: ^10.1.4
   url_launcher: ^6.3.0
   shared_preferences: ^2.3.0
   sqflite_common_ffi_web: ^0.4.3+1
   sqflite_common: ^2.5.8
+  # Asystent głosowy (lib/assistant/speech_io.dart). 6.x NIE kompiluje się na
+  # Androidzie z Flutter 3.47 (usunięty v1 `Registrar`, sprawdzone buildem).
+  speech_to_text: ^7.5.0
+  flutter_tts: ^4.2.5
+  # Tylko po to, żeby podniesienie `web` do 1.x nie wciągnęło sqlite3 3.x
+  # (natywne build hooks zamiast sqlite3_flutter_libs) — to osobna migracja.
+  sqlite3: ">=2.7.0 <3.0.0"
 
 dev_dependencies:
   flutter_test:

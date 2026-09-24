@@ -1,15 +1,24 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
+import 'help_search.dart';
 import 'premium_service.dart';
 
-// AI chat service — Premium feature.
+// AI chat service — tryb „Odpowiedz" asystenta (lib/screens/ai_chat_screen.dart).
 //
+// 2026-09: asystent jest dostępny BEZ Premium. Backend pilnuje dziennego
+// limitu (429) i budżetu AI (503); gdy włączy flagę AI_CHAT_REQUIRES_PREMIUM,
+// odpowiada 402. Każdy z tych przypadków dostaje własny komunikat
+// ([AiReplyKind]); brak sieci, 404 i inne błędy → wpis z pomocy offline.
+// Co wychodzi z telefonu: treść pytania, historia bieżącej rozmowy, język
+// interfejsu, device_id i nagłówki tożsamości instalacji.
+//
+// Historia fazy 5a:
 // Phase 5a (this stub): client-side interface only. `sendMessage()` returns
 // a canned response so the chat UI can be developed and reviewed without
 // a live backend. The `aiBackendAvailable` constant is checked by the UI
@@ -34,10 +43,34 @@ bool get kAiBackendAvailable => BackendConfig.aiBackendLive;
 
 enum ChatRole { user, assistant, system }
 
+/// Skąd pochodzi odpowiedź asystenta — UI i testy odróżniają odpowiedź modelu
+/// od pomocy offline i od komunikatu o limicie (spec §11: błąd AI nie jest
+/// przedstawiany jako wiarygodna odpowiedź).
+enum AiReplyKind {
+  /// Odpowiedź modelu z serwera.
+  live,
+
+  /// Brak sieci / stary backend / błąd serwera → wpis z pomocy w aplikacji.
+  offlineHelp,
+
+  /// 402 PREMIUM_REQUIRED.
+  premiumRequired,
+
+  /// 429 — dzienny limit wyczerpany.
+  dailyLimit,
+
+  /// 503 (AI_BUDGET_EXCEEDED itp.) — chwilowo niedostępny.
+  unavailable,
+
+  /// Tryb demo (backend wyłączony flagą) albo wiadomość powitalna.
+  demo,
+}
+
 class ChatMessage {
   final ChatRole role;
   final String text;
   final DateTime timestamp;
+  final AiReplyKind kind;
 
   /// Optional citation list — populated in Phase 5b when retrieval is wired up.
   /// Each entry is the heading of the knowledge-base section the response
@@ -49,6 +82,7 @@ class ChatMessage {
     required this.text,
     DateTime? timestamp,
     this.citations = const [],
+    this.kind = AiReplyKind.demo,
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
@@ -110,14 +144,21 @@ class AiChatService {
           )
           .timeout(const Duration(seconds: 25));
       if (resp.statusCode != 200) {
-        // Backend is up but refused or failed: 401 (brak/zły sekret
-        // instalacji), 402 (brak Premium), 429 (limit dzienny), 503 (budżet
-        // AI), 5xx. Fall through to the demo library so the fitter still gets
-        // a useful answer for common questions instead of an error in-app.
         debugPrint('AiChatService: backend ${resp.statusCode}: '
             '${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}');
-        return _fallbackReply(trimmed,
-            reason: 'backend ${resp.statusCode}');
+        switch (resp.statusCode) {
+          // Limity i płatność to NIE awaria — mówimy wprost, co się stało i
+          // co dalej, zamiast udawać odpowiedź.
+          case 402:
+            return _notice(AiReplyKind.premiumRequired);
+          case 429:
+            return _notice(AiReplyKind.dailyLimit);
+          case 503:
+            return _notice(AiReplyKind.unavailable);
+        }
+        // 401 (brak/zły sekret instalacji), 404 (stary backend bez trasy),
+        // inne 4xx/5xx → pomoc offline z aplikacji.
+        return offlineReply(trimmed);
       }
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
@@ -130,29 +171,66 @@ class AiChatService {
         role: ChatRole.assistant,
         text: text,
         citations: cites,
+        kind: AiReplyKind.live,
       );
     } catch (e) {
-      // Network down, timeout, TLS failure, etc. — same fallback path so the
-      // user sees something useful instead of a red exception banner.
+      // Network down, timeout, TLS failure, etc. — pomoc offline, żeby monter
+      // dostał coś użytecznego zamiast czerwonego wyjątku.
       debugPrint('AiChatService offline: $e');
-      return _fallbackReply(trimmed, reason: 'offline: $e');
+      return offlineReply(trimmed);
     }
   }
 
-  /// Used both for the original "demo" mode (flag off) and as a graceful
-  /// fallback when the backend errors out. Prepends a single-line apology
-  /// so the user knows we couldn't reach the live model.
-  ChatMessage _fallbackReply(String userText, {String? reason}) {
-    final demo = _demoReply(userText);
-    if (reason == null) return demo;
+  ChatMessage _notice(AiReplyKind kind) {
+    final en = AppLanguageController.isEnglish;
+    final text = switch (kind) {
+      AiReplyKind.premiumRequired => en
+          ? 'AI answers are currently a Premium feature. The "Do it" mode, '
+              'calculators and in-app help stay free.'
+          : 'Odpowiedzi AI są teraz dostępne w Premium. Tryb „Wykonaj", '
+              'kalkulatory i pomoc w aplikacji działają bez opłat.',
+      AiReplyKind.dailyLimit => en
+          ? 'Daily question limit reached — try again tomorrow. The "Do it" '
+              'mode keeps working offline.'
+          : 'Dzienny limit pytań wyczerpany — jutro znowu. Tryb „Wykonaj" '
+              'działa dalej, także bez internetu.',
+      _ => en
+          ? 'The assistant is temporarily unavailable. Try again later.'
+          : 'Asystent chwilowo niedostępny. Spróbuj ponownie później.',
+    };
+    return ChatMessage(role: ChatRole.assistant, text: text, kind: kind);
+  }
+
+  /// Odpowiedź bez serwera: najlepiej pasujący wpis z pomocy w aplikacji
+  /// (help_entries.dart), wyraźnie opisany jako pomoc offline, nie AI.
+  ChatMessage offlineReply(String userText) {
+    final lang = AppLanguageController.current;
+    final en = lang == AppLanguage.en;
+    final prefix = en
+        ? '(Offline mode — in-app help, not an AI answer.)'
+        : '(Tryb offline — pomoc z aplikacji, nie odpowiedź AI.)';
+    final hits = searchHelp(userText, lang, limit: 1);
+    if (hits.isEmpty) {
+      return ChatMessage(
+        role: ChatRole.assistant,
+        kind: AiReplyKind.offlineHelp,
+        text: '$prefix\n\n${en ? 'I found nothing on this in the offline help. '
+            'Ask again when you are online, or open Help (?) on the home screen.' : 'Nie znalazłem tego w pomocy offline. '
+            'Zapytaj ponownie, gdy będzie internet, albo otwórz Pomoc (?) na ekranie głównym.'}',
+      );
+    }
+    final hit = hits.first;
     return ChatMessage(
-      role: demo.role,
-      text:
-          '(Tryb offline — odpowiedź z lokalnej bazy. Spróbuj ponownie za chwilę.)\n\n'
-          '${demo.text}',
-      citations: demo.citations,
+      role: ChatRole.assistant,
+      kind: AiReplyKind.offlineHelp,
+      text: '$prefix\n\n${hit.entry.question(lang)}\n\n${hit.entry.answer(lang)}',
+      citations: [hit.category.title(lang)],
     );
   }
+
+  /// Odpowiedzi trybu demo (backend wyłączony flagą) — do testów.
+  @visibleForTesting
+  ChatMessage demoReplyForTest(String userText) => _demoReply(userText);
 
   // ── Demo replies ────────────────────────────────────────────────────────
   ChatMessage _demoReply(String userText) {

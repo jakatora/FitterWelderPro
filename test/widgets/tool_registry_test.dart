@@ -104,6 +104,8 @@ void main() {
         'WeldJournalScreen', 'OrbitalTigScreen', 'HeatTintScreen',
         'PreWeldChecklistScreen', 'CouponLogScreen', 'TungstenScreen',
         'PassivationScreen', 'HydrotestScreen', 'HeatInputScreen',
+        // Asystent (spec §6) — nowe wejście, nie dawny kafel.
+        'AiChatScreen',
       };
       expect(targets, expected);
     });

@@ -46,3 +46,21 @@ Future<bool> ensureCommunityAccess(BuildContext context) async {
   ));
   return done == true && hasCommunityAccess;
 }
+
+/// Wariant bramki dla funkcji, które wysyłają treść na serwer, ale NIE pod
+/// nazwiskiem (asystent: pytania „Odpowiedz" i klasyfikacja poleceń na
+/// serwerze). Imię i nazwisko nie są tu do niczego potrzebne — serwer widzi
+/// tylko identyfikator instalacji — więc ich nie zbieramy (minimalizacja
+/// danych). Wymagamy wyłącznie akceptacji bieżącej wersji zasad i polityki
+/// prywatności, które opisują, co i dokąd wysyła asystent.
+Future<bool> ensureServerConsent(BuildContext context) async {
+  await LegalConsent.instance.load();
+  if (LegalConsent.instance.isAccepted) return true;
+  if (!context.mounted) return false;
+  final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+    builder: (routeContext) => ConsentScreen(
+      onAccepted: () => Navigator.of(routeContext).pop(true),
+    ),
+  ));
+  return done == true && LegalConsent.instance.isAccepted;
+}

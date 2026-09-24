@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../i18n/app_language.dart';
+import '../screens/ai_chat_screen.dart';
 import '../screens/bolt_torque_screen.dart';
 import '../screens/component_library_screen.dart';
 import '../screens/coupon_log_screen.dart';
@@ -845,6 +846,39 @@ final List<ToolSpec> kToolRegistry = [
       'wl15'
     ],
     keywordsEn: const ['tungsten', 'electrode', 'tig', 'grinding'],
+  ),
+  // Asystent: pytania (serwer, po zgodzie) i zapis parametrów głosem (offline).
+  // Bez `needsAccount` — tryb „Wykonaj" działa bez sieci i bez zgody; zgodę na
+  // wysyłanie pytań ekran zbiera sam przy pierwszym pytaniu.
+  ToolSpec(
+    id: 'assistant',
+    group: ToolGroup.weldParams,
+    titlePl: 'Asystent',
+    titleEn: 'Assistant',
+    subtitlePl: 'Zapis parametrów głosem, pytania',
+    subtitleEn: 'Save parameters by voice, questions',
+    icon: Icons.record_voice_over_outlined,
+    color: const Color(0xFF26A69A),
+    builder: (_) => const AiChatScreen(),
+    keywordsPl: const [
+      'asystent',
+      'ai',
+      'glos',
+      'glosowy',
+      'mikrofon',
+      'dyktowanie',
+      'pytanie',
+      'zapisz parametr'
+    ],
+    keywordsEn: const [
+      'assistant',
+      'ai',
+      'voice',
+      'microphone',
+      'dictation',
+      'question',
+      'save parameter'
+    ],
   ),
 
   // ── Spawacz · Kalkulatory ────────────────────────────────────────────────

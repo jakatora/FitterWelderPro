@@ -28,6 +28,12 @@
 -keep class androidx.lifecycle.** { *; }
 -keep class com.mr.flutter.plugin.filepicker.** { *; }
 
+# speech_to_text / flutter_tts (asystent glosowy) — MethodChannel + callbacki
+# RecognitionListener / UtteranceProgressListener wolane przez system. Keepy
+# Fluttera je obejmuja; jawnie, zeby R8 nie wycial klas pluginow.
+-keep class com.csdcorp.speech_to_text.** { *; }
+-keep class com.eyedeadevelopment.fluttertts.** { *; }
+
 # Kotlin metadata (bez tego niektore biblioteki gubia informacje o typach).
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**

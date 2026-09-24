@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../widgets/community_gate.dart';
 import '../widgets/tool_registry.dart';
 import '../widgets/tool_tiles.dart';
+import 'ai_chat_screen.dart';
 import 'chat_screen.dart';
 import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
@@ -31,7 +32,7 @@ import 'welder_menu_screen.dart';
 //   2. wyszukiwarka narzędzi,
 //   3. przypięte narzędzia (długie przytrzymanie dowolnego narzędzia),
 //   4. ostatnio używane (4 pozycje, zapisywane lokalnie),
-//   5. działy: Monter, Spawacz, Czat,
+//   5. działy: Monter, Spawacz, Asystent, Czat,
 //   6. ostatnie projekty.
 //
 // Pomoc jest jedna: ikona „?" w pasku otwiera bazę wiedzy. Dawny kafel POMOC
@@ -40,6 +41,7 @@ import 'welder_menu_screen.dart';
 const _kBlue = Color(0xFF4A9EFF);
 const _kPurple = Color(0xFFAB47BC);
 const _kRed = Color(0xFFE57373);
+const _kTeal = Color(0xFF26A69A);
 
 /// Ile ostatnio używanych narzędzi pokazuje ekran główny.
 const int kRecentShown = 4;
@@ -405,6 +407,22 @@ class _HomeScreenState extends State<HomeScreen> {
             context.tr(pl: 'Parametry i dziennik', en: 'Parameters, journal'),
         accent: _kBlue,
         onTap: () => _push(const WelderMenuScreen()),
+      ),
+      // ── Asystent — darmowy; „Wykonaj" działa offline i bez zgody ─────
+      _SectionTile(
+        icon: Icons.record_voice_over_outlined,
+        title: context.tr(pl: 'ASYSTENT', en: 'ASSISTANT'),
+        subtitle: context.tr(
+            pl: 'Zapis głosem, pytania', en: 'Voice notes, questions'),
+        accent: _kTeal,
+        onTap: () {
+          final assistant = toolById('assistant');
+          if (assistant != null) {
+            openTool(context, assistant);
+          } else {
+            _push(const AiChatScreen());
+          }
+        },
       ),
       // ── Społeczność — darmowa dla wszystkich ──────────────────────────
       if (kCommunityEnabled)
