@@ -243,7 +243,10 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         return;
       }
       final ext = path.toLowerCase().split('.').last;
-      const allowedExt = {'jpg', 'jpeg', 'png', 'webp', 'heic'};
+      // Same set iso_scanner_ai.dart recognises by magic bytes; HEIC/HEIF is
+      // converted to JPEG before upload (or refused there with a clear
+      // message if the platform cannot decode it).
+      const allowedExt = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif'};
       if (!allowedExt.contains(ext)) {
         await Haptic.error();
         if (!mounted) return;
@@ -255,7 +258,10 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       }
       final size = file.lengthSync();
       const minBytes = 1024; // 1 KB — anything smaller is a stub/placeholder.
-      const maxBytes = 8 * 1024 * 1024; // 8 MB — Railway / Claude Vision cap.
+      // The upload is downscaled to 2576 px on the long side before it leaves
+      // the phone (iso_scanner_ai.dart), so the raw file may be a full-size
+      // camera shot; this only stops absurd files from being decoded at all.
+      const maxBytes = 25 * 1024 * 1024;
       if (size < minBytes) {
         await Haptic.error();
         if (!mounted) return;
@@ -269,8 +275,8 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         await Haptic.error();
         if (!mounted) return;
         _toast(_tr(
-          'Zdjęcie przekracza 8 MB. Zmniejsz rozdzielczość i spróbuj ponownie.',
-          'Photo exceeds 8 MB. Reduce the resolution and try again.',
+          'Plik przekracza 25 MB. Zrób zwykłe zdjęcie (nie RAW) i spróbuj ponownie.',
+          'File exceeds 25 MB. Take a regular photo (not RAW) and try again.',
         ));
         return;
       }
