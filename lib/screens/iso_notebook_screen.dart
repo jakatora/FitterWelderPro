@@ -2858,10 +2858,15 @@ class _IsoState extends State<IsoNotebookScreen> {
                           const TextInputType.numberWithOptions(decimal: false),
                       decoration: InputDecoration(
                         labelText: _tr('CTE — oś do czoła', 'CTE — centre to end'),
-                        helperText: _tr(
-                          'Standard ASME: ${_stdCte(dn, subtype)} mm dla DN$dn ${subtype.label}',
-                          'ASME standard: ${_stdCte(dn, subtype)} mm for DN$dn ${subtype.label}',
-                        ),
+                        helperText: _stdCte(dn, subtype) <= 0
+                            ? _tr(
+                                'Brak wartości normowej B16.9 dla DN$dn ${subtype.label} — wpisz wymiar z karty kształtki',
+                                'No ASME B16.9 value for DN$dn ${subtype.label} — enter the fitting\'s own dimension',
+                              )
+                            : _tr(
+                                'Standard ASME: ${_stdCte(dn, subtype)} mm dla DN$dn ${subtype.label}',
+                                'ASME standard: ${_stdCte(dn, subtype)} mm for DN$dn ${subtype.label}',
+                              ),
                         suffixText: 'mm',
                       ),
                     ),
@@ -8194,12 +8199,17 @@ class _Painter extends CustomPainter {
       ],
     );
     final isLR = subtype == _ElbowSubtype.lr90 || subtype == _ElbowSubtype.lr45;
-    final dMult = isLR ? 1.5 : 1.0;
-    final radiusMm = (dn * dMult).round();
+    // Bend radius of a B16.9 elbow = the 90° centre-to-end A of its family
+    // (LR: 1.5 × NPS, SR: 1 × NPS) — NOT 1.5 × DN in millimetres, which put
+    // DN100 at 150 instead of 152 and DN20 at 30 instead of 38.
+    final radiusMm =
+        _stdCte(dn, isLR ? _ElbowSubtype.lr90 : _ElbowSubtype.sr90);
     final line3 = TextSpan(
-      text: isLR
-          ? 'R=1.5D · R=$radiusMm mm'
-          : 'R=1.0D · R=$radiusMm mm',
+      text: radiusMm <= 0
+          ? (isLR ? 'R=1.5D' : 'R=1.0D')
+          : isLR
+              ? 'R=1.5D · R=$radiusMm mm'
+              : 'R=1.0D · R=$radiusMm mm',
       style: TextStyle(
         color: cs.onSurfaceVariant,
         fontSize: 8.5,

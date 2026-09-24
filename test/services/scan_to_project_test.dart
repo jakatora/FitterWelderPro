@@ -235,6 +235,50 @@ void main() {
       expect(resolved.cutMm, closeTo(848, 0.001), reason: '1000 − 152');
       expect(resolved.isComplete, isTrue);
     });
+
+    // ASME B16.5 Class 150, NPS 4: weld-neck length through hub Y = 3.00 in.
+    // = 76 mm; disc thickness C = 0.94 in. = 24 mm. Until 2026-09 the scanner
+    // took C for every flange, so a run measured through a WN flange came out
+    // 52 mm long.
+    test('a weld-neck flange takes Y (76 mm), not the disc thickness C', () {
+      final seg = build().segments.single;
+      expect(seg.end.bodyLengthMm, 76, reason: 'B16.5 Cl.150 NPS 4, Y');
+
+      final through = seg.withDimRef(DimRef.centreToEnd);
+      expect(through.cutMm, closeTo(772, 0.001), reason: '1000 − 152 − 76');
+    });
+
+    test('"ISO" in a label is not read as a slip-on (word boundary)', () {
+      final seg = planFromScan(_scan(
+        components: [
+          _comp('e1', 'elbow90'),
+          _comp('f1', 'flange', label: 'ISO 4" 150# RF'),
+        ],
+        segments: [_seg('s1', from: 'e1', to: 'f1', mm: 1000)],
+      )).segments.single;
+      expect(seg.end.bodyLengthMm, 76);
+    });
+
+    test('slip-on / socket flanges get no invented body length', () {
+      for (final label in ['SO 4" 150#', 'SLIP-ON', 'SW flange', 'LJ']) {
+        final seg = planFromScan(_scan(
+          components: [
+            _comp('e1', 'elbow90'),
+            _comp('f1', 'flange', label: label),
+          ],
+          segments: [_seg('s1', from: 'e1', to: 'f1', mm: 1000)],
+        )).segments.single;
+        expect(seg.end.bodyLengthMm, isNull, reason: label);
+      }
+    });
+
+    test('a blind flange keeps the disc thickness C (24 mm)', () {
+      final seg = planFromScan(_scan(
+        components: [_comp('e1', 'elbow90'), _comp('b1', 'blindFlange')],
+        segments: [_seg('s1', from: 'e1', to: 'b1', mm: 1000)],
+      )).segments.single;
+      expect(seg.end.bodyLengthMm, 24);
+    });
   });
 
   group('elbow — pipe — elbow', () {
@@ -490,6 +534,19 @@ void main() {
       expect(seg.end.bodyLengthMm, 229, reason: 'DN100 gate, Class 150');
       expect(
           _codes(plan.warnings), isNot(contains(ScanIssueCode.valveTypeUnknown)));
+    });
+
+    test('a globe valve on a Class 150 line uses the globe column (292)', () {
+      final seg = planFromScan(_scan(
+        components: [
+          _comp('e1', 'elbow90'),
+          _comp('v1', 'valve', valveType: 'globe'),
+        ],
+        segments: [_seg('s1', from: 'e1', to: 'v1', mm: 1000)],
+      )).segments.single;
+
+      expect(seg.end.bodyLengthMm, 292,
+          reason: 'ASME B16.10 Class 150 globe, NPS 4 = 11.50 in.');
     });
 
     test('a reducer flags the diameter change downstream', () {

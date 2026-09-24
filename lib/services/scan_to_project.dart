@@ -1325,7 +1325,9 @@ ScanEndpoint _endpoint(
     // valve's, and borrowing one for the other is exactly the invented
     // number this layer exists to prevent.
     bodyLengthMm: behaviour.hasPhysicalBody
-        ? (subtypeKnown ? _bodyLengthMm(tool!, dn, pipeClass) : null)
+        ? (subtypeKnown
+            ? _bodyLengthMm(tool!, dn, pipeClass, component: component)
+            : null)
         : (kind == ScanEndKind.logical ? 0 : null),
     takeoutNote: takeoutNote,
   );
@@ -1357,7 +1359,7 @@ _Takeout? _axialTakeout(
         final sr = TakeoutCatalog.elbow90SR[dn];
         return sr == null
             ? null
-            : _Takeout(sr.toDouble(), 'ASME B16.28 · 90° SR · DN$dn');
+            : _Takeout(sr.toDouble(), 'ASME B16.9 tab. 6.1-4 · 90° SR · DN$dn');
       }
       final lr = TakeoutCatalog.elbow90LR[dn];
       if (lr == null) return null;
@@ -1386,7 +1388,8 @@ _Takeout? _axialTakeout(
 /// Flanges and valves are listed per pressure class, so they resolve only
 /// when the title block actually says Class 150 — guessing a class would
 /// change the cut by tens of millimetres.
-double? _bodyLengthMm(String tool, int? dn, String? pipeClass) {
+double? _bodyLengthMm(String tool, int? dn, String? pipeClass,
+    {AiComponent? component}) {
   if (dn == null) return null;
   final is150 = _isClass150(pipeClass);
   switch (tool) {
@@ -1395,8 +1398,24 @@ double? _bodyLengthMm(String tool, int? dn, String? pipeClass) {
     case 'cap':
       return TakeoutCatalog.cap[dn]?.toDouble();
     case 'flange':
+      if (!is150) return null;
+      // A weld-neck's body is Y (face to hub end, DN100: 76 mm) — NOT the
+      // disc thickness C (24 mm) this used to borrow, which left the pipe
+      // ~52 mm long whenever the dimension ran through the flange.
+      // Slip-on / socket / lap / threaded flanges swallow the pipe: the
+      // set-back is not a catalogue length, so no number is invented and the
+      // end stays an explicit gap for the fitter.
+      final marking =
+          '${component?.label ?? ''} ${component?.type ?? ''}'.toUpperCase();
+      if (RegExp(r'\b(SO|SW|LJ|THD|THRD)\b|SLIP|SOCKET|LAP|THREAD')
+          .hasMatch(marking)) {
+        return null;
+      }
+      return TakeoutCatalog.flangeWN150Y[dn]?.toDouble();
     case 'blindFlange':
-      return is150 ? TakeoutCatalog.flangeWN150[dn]?.toDouble() : null;
+      return is150 ? TakeoutCatalog.flangeThickness150C[dn]?.toDouble() : null;
+    case 'globeValve':
+      return is150 ? TakeoutCatalog.globeValve150[dn]?.toDouble() : null;
     case 'gateValve':
       return is150 ? TakeoutCatalog.gateValve150[dn]?.toDouble() : null;
     case 'ballValve':

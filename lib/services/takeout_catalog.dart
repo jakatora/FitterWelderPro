@@ -95,9 +95,10 @@ class TakeoutCatalog {
   };
 
   /// Historical name of [flangeThickness150C] — despite "WN" it is the DISC
-  /// thickness (column C), NOT a weld-neck take-out. Kept only because
-  /// `scan_to_project` still reads it; a weld-neck flange must use
-  /// [flangeWN150Y] (DN100: 76 mm, not 24).
+  /// thickness (column C), NOT a weld-neck take-out. Nothing in lib/ reads
+  /// it any more (the scanner uses [flangeWN150Y] for flanges and C only for
+  /// blinds); kept so old callers fail loudly in review rather than compile
+  /// into a wrong cut. A weld-neck flange must use [flangeWN150Y].
   static const flangeWN150 = flangeThickness150C;
 
   // ── Class 150 RF weld-neck flange — ASME B16.5 column Y ──────────────────
