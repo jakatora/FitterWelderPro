@@ -1,8 +1,8 @@
 import 'help_button.dart';
 
 // Pomoc do menu montera i spawacza po przebudowie na pogrupowaną listę.
-// Poprzednie treści (kHelpFitterMenu / kHelpWelderMenu w help_button.dart)
-// opisywały płaską siatkę kafli i nazwę „FITTER" — te są aktualne.
+// Zastąpiła dawne kHelpFitterMenu / kHelpWelderMenu / kHelpHome z
+// help_button.dart (płaska siatka kafli, nazwa „FITTER") — tamte usunięto.
 
 const kFitterMenuHelp = ScreenHelp(
   titlePl: 'Menu Monter',
