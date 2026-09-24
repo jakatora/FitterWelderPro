@@ -17,12 +17,18 @@ import '../i18n/app_language.dart';
 // Wersja 2 (2026-09-24): sekret instalacji i rejestracja urządzenia dopiero
 // przy czacie, skróty adresów IP na serwerze, pseudonim autora zamiast
 // identyfikatora, usuwanie danych z serwera przyciskiem w profilu.
+//
+// Wersja 3 (2026-09-25): skaner rysunków (darmowy, z dziennym limitem) i
+// asystent AI (tryby „Wykonaj" / „Odpowiedz", mowa rozpoznawana przez system
+// telefonu). Anthropic (Claude) jako podmiot przetwarzający. Treść zgodna z
+// `backend/src/routes/publicPages.js` z 2026-09-25.
 
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
-/// Blokuje to tylko czat (community_gate.dart) — kalkulatory działają dalej.
-const int kLegalVersion = 2;
+/// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
+/// kalkulatory działają dalej.
+const int kLegalVersion = 3;
 
-const String kLegalUpdated = '2026-09-24';
+const String kLegalUpdated = '2026-09-25';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -52,10 +58,15 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
       intro: c.tr(
         pl: 'Krótko: kalkulatory i projekty zostają na Twoim telefonie. Na '
             'serwer wysyłamy dane tylko wtedy, gdy sam napiszesz na publicznym '
-            'czacie. Nie ma reklam, analityki ani śledzenia.',
+            'czacie, zadasz pytanie asystentowi AI albo zeskanujesz rysunek — '
+            'pytania i zdjęcia rysunków przekazujemy do Anthropic (model '
+            'Claude) i ich nie zapisujemy. Nie ma reklam, analityki ani '
+            'śledzenia.',
         en: 'In short: calculators and projects stay on your phone. We send data '
-            'to a server only when you post in the public chat. No ads, no '
-            'analytics, no tracking.',
+            'to a server only when you post in the public chat, ask the AI '
+            'assistant or scan a drawing — questions and drawing photos are '
+            'passed to Anthropic (Claude model) and we do not store them. No '
+            'ads, no analytics, no tracking.',
       ),
       sections: [
         LegalSection(
@@ -96,15 +107,20 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
               en: 'When the app contacts the server'),
           c.tr(
             pl: 'Kalkulatory, projekty i dziennik spoin działają bez serwera. '
-                'Aplikacja przedstawia się serwerowi czatu (identyfikator i '
-                'sekret instalacji) dopiero wtedy, gdy zaakceptujesz te zasady '
-                'i wejdziesz na czat — a potem przy kolejnych uruchomieniach. '
-                'Wcześniej nic nie wysyła.',
+                'Aplikacja przedstawia się serwerowi (identyfikator i sekret '
+                'instalacji) dopiero wtedy, gdy sam użyjesz funkcji, która go '
+                'wymaga: wejdziesz na czat po zaakceptowaniu tych zasad, '
+                'zeskanujesz rysunek po zgodzie w oknie skanera albo zadasz '
+                'asystentowi pytanie, na które telefon sam nie odpowie — a przy '
+                'czacie także przy kolejnych uruchomieniach. Wcześniej nic nie '
+                'wysyła.',
             en: 'Calculators, projects and the weld journal work without the '
-                'server. The app introduces itself to the chat server '
-                '(installation identifier and secret) only after you accept '
-                'these rules and open the chat — and on later launches. Before '
-                'that it sends nothing.',
+                'server. The app introduces itself to the server (installation '
+                'identifier and secret) only when you use a feature that needs '
+                'it: you open the chat after accepting these rules, scan a '
+                'drawing after agreeing in the scanner, or ask the assistant '
+                'something the phone cannot answer by itself — and, for the '
+                'chat, on later launches. Before that it sends nothing.',
           ),
         ),
         LegalSection(
@@ -137,9 +153,10 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
               pl: 'Dane techniczne na serwerze',
               en: 'Technical data on the server'),
           c.tr(
-            pl: 'Żeby chronić czat przed spamem i nadużyciami, serwer przetwarza '
-                'adres IP połączenia. Nie zapisujemy go wprost — w bazie trafia '
-                'tylko jego jednokierunkowy skrót (HMAC): w licznikach limitów '
+            pl: 'Żeby chronić czat i funkcje AI przed spamem i nadużyciami, '
+                'serwer przetwarza adres IP połączenia. Nie zapisujemy go '
+                'wprost — w bazie trafia tylko jego jednokierunkowy skrót '
+                '(HMAC): w licznikach limitów '
                 '(usuwane po 2 dobach) oraz przy zgłoszeniu wiadomości (żeby '
                 'liczyć zgłoszenia z różnych sieci; usuwany razem ze '
                 'zgłoszeniem). Aplikacja wysyła też losowy sekret instalacji — '
@@ -148,9 +165,10 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'przez krótki czas przechowywać techniczne logi połączeń. '
                 'Podstawa: prawnie uzasadniony interes — bezpieczeństwo usługi '
                 '(art. 6 ust. 1 lit. f RODO).',
-            en: 'To protect the chat against spam and abuse, the server '
-                'processes the IP address of the connection. We never store it '
-                'in plain form — only a one-way hash (HMAC) in rate-limit '
+            en: 'To protect the chat and the AI features against spam and '
+                'abuse, the server processes the IP address of the connection. '
+                'We never store it in plain form — only a one-way hash (HMAC) '
+                'in rate-limit '
                 'counters (deleted after 2 days) and with a message report (to '
                 'count reports from different networks; deleted with the '
                 'report). The app also sends a random installation secret; we '
@@ -163,12 +181,29 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
         LegalSection(
           c.tr(pl: 'Kto przetwarza dane', en: 'Who processes the data'),
           c.tr(
-            pl: 'Serwer czatu działa na infrastrukturze Railway. Nie sprzedajemy '
+            pl: 'Serwer działa na infrastrukturze Railway. Treść pytań do '
+                'asystenta AI, polecenia wysłane na serwer (po rozpoznaniu mowy '
+                'na tekst) oraz zdjęcia skanowanych rysunków przetwarza w naszym '
+                'imieniu Anthropic PBC (USA) — dostawca modelu Claude — wyłącznie '
+                'po to, żeby przygotować odpowiedź. Przekazanie poza EOG odbywa '
+                'się na podstawie standardowych klauzul umownych z umowy '
+                'powierzenia Anthropic. Dane przesyłane przez API nie służą do '
+                'trenowania modeli; Anthropic przechowuje je przez ograniczony '
+                'czas na zasadach swojej polityki prywatności. Nie sprzedajemy '
                 'ani nie udostępniamy danych nikomu innemu. Nie używamy reklam, '
-                'analityki, pikseli śledzących ani zewnętrznych SDK marketingowych.',
-            en: 'The chat server runs on Railway infrastructure. We do not sell or '
-                'share your data with anyone else. We use no ads, no analytics, no '
-                'tracking pixels and no third-party marketing SDKs.',
+                'analityki, pikseli śledzących ani zewnętrznych SDK '
+                'marketingowych.',
+            en: 'The server runs on Railway infrastructure. Questions to the AI '
+                'assistant, commands sent to the server (after speech-to-text) '
+                'and photos of scanned drawings are processed on our behalf by '
+                'Anthropic PBC (USA) — the provider of the Claude model — only '
+                'to prepare the answer. Transfers outside the EEA rely on the '
+                'standard contractual clauses in Anthropic\'s data processing '
+                'agreement. Data sent through the API is not used to train '
+                'models; Anthropic keeps it for a limited time under its privacy '
+                'policy. We do not sell or share your data with anyone else. We '
+                'use no ads, no analytics, no tracking pixels and no third-party '
+                'marketing SDKs.',
           ),
         ),
         LegalSection(
@@ -231,16 +266,91 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
-          c.tr(pl: 'Płatności i funkcje AI', en: 'Payments and AI features'),
+          c.tr(pl: 'Asystent AI', en: 'AI assistant'),
           c.tr(
-            pl: 'Płatności (Stripe), asystent AI oraz skaner rysunków są w tej '
-                'wersji WYŁĄCZONE i nie wysyłają żadnych danych. Jeśli je '
-                'kiedyś włączymy, zaktualizujemy tę politykę i poprosimy Cię o '
-                'ponowną akceptację, zanim z nich skorzystasz.',
-            en: 'Payments (Stripe), the AI assistant and the drawing scanner are '
-                'DISABLED in this version and send no data. If we ever enable them '
-                'we will update this policy and ask you to accept it again before '
-                'you use them.',
+            pl: 'Asystent ma dwa tryby. „Wykonaj" rozpoznaje polecenia na '
+                'telefonie (np. „otwórz kalkulator", „zapisz parametry '
+                'spawania") — takie polecenie nie opuszcza urządzenia, a każdy '
+                'zapis danych pokazuje podsumowanie do potwierdzenia. '
+                '„Odpowiedz" oraz polecenia, których telefon sam nie rozpozna, '
+                'wysyłają na nasz serwer treść pytania, kilka ostatnich '
+                'wiadomości z bieżącej rozmowy (kontekst), wybrany język oraz '
+                'identyfikator i sekret instalacji; serwer przekazuje treść do '
+                'Anthropic (model Claude) i odsyła odpowiedź. Nie zapisujemy '
+                'treści pytań, poleceń ani odpowiedzi — zostają tylko liczniki '
+                'dziennych limitów (skróty HMAC, usuwane po 2 dobach) i zbiorczy '
+                'koszt wywołań (bez treści i bez identyfikatora). Nie wpisuj w '
+                'pytaniach danych osobowych.\n\n'
+                'Mowa: mikrofon włącza się tylko po naciśnięciu przycisku '
+                'mikrofonu. Mowę na tekst zamienia system telefonu (Google na '
+                'Androidzie, Apple na iPhonie), który może w tym celu przesyłać '
+                'dźwięk do swoich usług — na zasadach ich polityk prywatności. '
+                'Nagranie nie trafia na nasz serwer; do nas trafia wyłącznie '
+                'rozpoznany tekst i tylko w przypadkach opisanych wyżej.\n\n'
+                'Odpowiedzi asystenta mogą zawierać błędy — wiążące są WPS i '
+                'specyfikacja projektu. Podstawa: wykonanie usługi, o którą '
+                'prosisz (art. 6 ust. 1 lit. b RODO).',
+            en: 'The assistant has two modes. "Do" recognises commands on the '
+                'phone (e.g. "open the calculator", "save welding parameters") '
+                '— such a command never leaves the device, and every data '
+                'change shows a summary to confirm. "Answer", and commands the '
+                'phone cannot recognise by itself, send to our server the '
+                'question, a few recent messages of the current conversation '
+                '(context), the chosen language and the installation identifier '
+                'and secret; the server passes the text to Anthropic (Claude '
+                'model) and returns the answer. We do not store questions, '
+                'commands or answers — only daily-limit counters (HMAC hashes, '
+                'deleted after 2 days) and the total cost of calls (without '
+                'content or identifier) remain. Do not put personal data in '
+                'your questions.\n\n'
+                'Speech: the microphone turns on only when you press the '
+                'microphone button. Speech is turned into text by the phone\'s '
+                'system (Google on Android, Apple on iPhone), which may send the '
+                'audio to its own services for that — under their privacy '
+                'policies. The recording never reaches our server; we receive '
+                'only the recognised text, and only in the cases above.\n\n'
+                'The assistant\'s answers can be wrong — your WPS and the project '
+                'specification are binding. Legal basis: performing the service '
+                'you ask for (Art. 6(1)(b) GDPR).',
+          ),
+        ),
+        LegalSection(
+          c.tr(pl: 'Skaner rysunków', en: 'Drawing scanner'),
+          c.tr(
+            pl: 'Gdy skanujesz rysunek izometryczny (po zgodzie w oknie '
+                'skanera), aplikacja wysyła na nasz serwer zdjęcie rysunku '
+                'oraz identyfikator i sekret instalacji. Serwer przekazuje '
+                'zdjęcie do Anthropic (model Claude), który odczytuje wymiary i '
+                'elementy, a wynik wraca do aplikacji. Serwer nie zapisuje '
+                'zdjęcia ani wyniku — obraz jest przetwarzany tylko w pamięci '
+                'na czas analizy. Zostają wyłącznie liczniki limitów (skróty '
+                'HMAC identyfikatora i adresu IP, usuwane po 2 dobach) i koszt '
+                'wywołania. Skaner jest darmowy i ma dzienny limit skanów na '
+                'telefon i na sieć. Nie fotografuj twarzy ani dokumentów z '
+                'danymi osobowymi. Podstawa: art. 6 ust. 1 lit. b RODO.',
+            en: 'When you scan an isometric drawing (after agreeing in the '
+                'scanner), the app sends the photo of the drawing and the '
+                'installation identifier and secret to our server. The server '
+                'passes the photo to Anthropic (Claude model), which reads the '
+                'dimensions and components, and the result goes back to the '
+                'app. The server does not store the photo or the result — the '
+                'image is processed in memory only for the analysis. Only limit '
+                'counters (HMAC hashes of the identifier and the IP address, '
+                'deleted after 2 days) and the cost of the call remain. The '
+                'scanner is free with a daily limit of scans per phone and per '
+                'network. Do not photograph faces or documents with personal '
+                'data. Legal basis: Art. 6(1)(b) GDPR.',
+          ),
+        ),
+        LegalSection(
+          c.tr(pl: 'Płatności', en: 'Payments'),
+          c.tr(
+            pl: 'Płatności (Stripe) są w tej wersji WYŁĄCZONE i nie wysyłają '
+                'żadnych danych. Jeśli je włączymy, zaktualizujemy tę politykę '
+                'i poprosimy Cię o ponowną akceptację.',
+            en: 'Payments (Stripe) are DISABLED in this version and send no '
+                'data. If we enable them we will update this policy and ask you '
+                'to accept it again.',
           ),
         ),
         LegalSection(
@@ -278,6 +388,26 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
                 'or strike an arc, check the result against your welding procedure '
                 'specification (WPS) and the applicable standard. The author is not '
                 'liable for damage caused by using results without verification.',
+          ),
+        ),
+        LegalSection(
+          c.tr(pl: 'Skaner i asystent AI', en: 'Scanner and AI assistant'),
+          c.tr(
+            pl: 'Odczyt rysunku przez skaner i odpowiedzi asystenta przygotowuje '
+                'model AI — mogą zawierać błędy. Wynik skanu sprawdź z '
+                'rysunkiem: niepewne wartości są oznaczone i nie staną się '
+                'długością cięcia bez Twojego potwierdzenia. Skaner jest darmowy '
+                'z dziennym limitem; limit i dostępność funkcji AI mogą się '
+                'zmienić, a gdy wyczerpie się miesięczny budżet AI, skaner i '
+                'asystent mogą być chwilowo niedostępne.',
+            en: 'The scanner\'s reading of a drawing and the assistant\'s '
+                'answers are prepared by an AI model — they can be wrong. Check '
+                'a scan against the drawing: uncertain values are flagged and '
+                'never become a cut length without your confirmation. The '
+                'scanner is free with a daily limit; the limit and the '
+                'availability of AI features may change, and when the monthly '
+                'AI budget runs out the scanner and the assistant may be '
+                'temporarily unavailable.',
           ),
         ),
         LegalSection(
@@ -330,12 +460,14 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
         LegalSection(
           c.tr(pl: 'Dostępność usługi', en: 'Service availability'),
           c.tr(
-            pl: 'Kalkulatory i projekty działają bez Internetu. Czat wymaga '
-                'połączenia i może być niedostępny. Aplikacja jest dostarczana '
-                '„tak jak jest", bez gwarancji ciągłości działania czatu.',
-            en: 'Calculators and projects work without the Internet. Chat requires a '
-                'connection and may be unavailable. The app is provided "as is", '
-                'with no guarantee of uninterrupted chat availability.',
+            pl: 'Kalkulatory i projekty działają bez Internetu. Czat, skaner '
+                'rysunków i odpowiedzi asystenta wymagają połączenia i mogą być '
+                'niedostępne. Aplikacja jest dostarczana „tak jak jest", bez '
+                'gwarancji ciągłości działania tych funkcji.',
+            en: 'Calculators and projects work without the Internet. Chat, the '
+                'drawing scanner and assistant answers require a connection and '
+                'may be unavailable. The app is provided "as is", with no '
+                'guarantee of uninterrupted availability of these features.',
           ),
         ),
         LegalSection(
@@ -358,11 +490,11 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
           c.tr(pl: 'Zmiany regulaminu', en: 'Changes to these terms'),
           c.tr(
             pl: 'Gdy zmienimy zasady w sposób istotny, poprosimy Cię o ponowną '
-                'akceptację przy najbliższym wejściu na czat. Kalkulatory i '
-                'projekty działają bez niej.',
+                'akceptację przy najbliższym wejściu na czat albo skanie '
+                'rysunku. Kalkulatory i projekty działają bez niej.',
             en: 'When we change these rules materially, we will ask you to accept '
-                'them again the next time you open the chat. Calculators and '
-                'projects work without it.',
+                'them again the next time you open the chat or scan a drawing. '
+                'Calculators and projects work without it.',
           ),
         ),
       ],
