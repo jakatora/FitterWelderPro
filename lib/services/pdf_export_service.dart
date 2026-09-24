@@ -250,7 +250,10 @@ class PdfExportService {
 
   // ── Blok grupy rur ────────────────────────────────────────────────────────
   static pw.Widget _buildGroupBlock(CutListGroup g, Project project, _Tr t) {
-    final netMm = g.cutsMm.where((c) => c > 0).fold<double>(0, (s, v) => s + v);
+    // Same rule as the nesting: non-positive / non-finite cuts are not pipe.
+    final netMm = g.cutsMm
+        .where((c) => c.isFinite && c > 0)
+        .fold<double>(0, (s, v) => s + v);
     final wasteMm = g.plans.fold<double>(0, (s, b) => s + b.remainingMm);
     final pieceCount = g.cutsMm.length;
     final barCount = g.plans.length;

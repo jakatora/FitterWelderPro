@@ -913,6 +913,7 @@ class CutListPipeGroup extends StatelessWidget {
                   for (final piece in pieces)
                     _PieceChip(
                       label: piece.label,
+                      reference: piece.reference,
                       lengthMm: piece.lengthMm,
                       oversize: piece.lengthMm > stockLengthMm,
                     ),
@@ -948,17 +949,29 @@ class CutListPipeGroup extends StatelessWidget {
 /// a stock bar.
 class _PieceChip extends StatelessWidget {
   final String? label;
+
+  /// Segment's ISO expression — shown on long-press (tooltip), so the piece
+  /// can be matched to the drawing dimension without leaving the cut list.
+  final String? reference;
   final double lengthMm;
   final bool oversize;
 
   const _PieceChip({
     required this.label,
+    required this.reference,
     required this.lengthMm,
     required this.oversize,
   });
 
   @override
   Widget build(BuildContext context) {
+    final chip = _chip();
+    final ref = reference;
+    if (ref == null) return chip;
+    return Tooltip(message: 'ISO: $ref', child: chip);
+  }
+
+  Widget _chip() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(

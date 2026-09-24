@@ -146,6 +146,10 @@ void main() {
     for (final label in ['S01', 'S02', 'S03']) {
       expect(find.text(label), findsOneWidget, reason: 'chip $label');
     }
+    // Wyrażenie ISO segmentu pod przytrzymaniem chipa.
+    for (final iso in ['7000', '4000', '1200']) {
+      expect(find.byTooltip('ISO: $iso'), findsOneWidget);
+    }
     expect(find.textContaining('S01 (1/2) 6000', findRichText: true),
         findsOneWidget);
     expect(find.textContaining('S02 4000  +  S03 1200', findRichText: true),
