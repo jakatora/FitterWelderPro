@@ -554,20 +554,24 @@ final kHelpWeldJournal = ScreenHelp(
   titlePl: 'Dziennik spoin',
   titleEn: 'Weld journal',
   bodyPl:
-      'Rejestr spoin dla danego projektu. Każdy wpis zawiera numer spoiny, materiał, OD, grubość ścianki, metodę spawania, spawacza, datę i status (OK / NOK / Pending).',
+      'Rejestr spoin do odbioru: numer, ISO i rewizja, linia, spool, WPS, spawacz (grań i lico), materiał, spoiwo, parametry, badania NDT (VT/PT/MT/RT/UT), naprawy R1/R2, PWHT i odbiór inspektora. Każda zmiana trafia do historii spoiny.',
   bodyEn:
-      'A weld register for a project. Each entry contains the weld number, material, OD, wall thickness, welding method, welder, date and status (OK / NOK / Pending).',
+      'A weld register for acceptance: number, ISO and revision, line, spool, WPS, welder (root and cap), material, filler, parameters, NDT (VT/PT/MT/RT/UT), R1/R2 repairs, PWHT and inspector sign-off. Every change is kept in the weld history.',
   stepsPl: [
-    HelpStep('➕', 'Dodaj nową spoinę przyciskiem + (góra prawo).'),
-    HelpStep('✏️', 'Dotknij spoiny aby edytować jej dane.'),
-    HelpStep('🟢', 'Zmień status: OK (zielony), NOK (czerwony), Pending (pomarańczowy).'),
-    HelpStep('📤', 'Eksportuj dziennik do PDF lub CSV.'),
+    HelpStep('➕', 'Dodaj spoinę przyciskiem +. „Zapisz i następna” kopiuje dane i podbija numer.'),
+    HelpStep('✏️', 'Dotknij spoiny, aby ją edytować; historia zmian jest na dole karty.'),
+    HelpStep('🟢', 'Status zmieniasz z listy wyboru z potwierdzeniem — nie jednym dotknięciem.'),
+    HelpStep('🔧', 'Naprawa: menu ⋮ przy spoinie → Naprawa (spoina wraca do badania).'),
+    HelpStep('🗑️', 'Usunięcie jest odwracalne: filtr „Pokaż usunięte” → Przywróć.'),
+    HelpStep('📤', 'Eksport PDF/CSV obejmuje dokładnie to, co widać po filtrach; PDF ma blok podpisów.'),
   ],
   stepsEn: [
-    HelpStep('➕', 'Add a new weld with the + button (top right).'),
-    HelpStep('✏️', 'Tap a weld entry to edit its data.'),
-    HelpStep('🟢', 'Change status: OK (green), NOK (red), Pending (orange).'),
-    HelpStep('📤', 'Export the journal to PDF or CSV.'),
+    HelpStep('➕', 'Add a weld with +. "Save and next" copies the data and bumps the number.'),
+    HelpStep('✏️', 'Tap a weld to edit it; the change history is at the bottom of the card.'),
+    HelpStep('🟢', 'Status changes through a confirmed choice — never a single tap.'),
+    HelpStep('🔧', 'Repair: ⋮ menu on the weld → Repair (the weld goes back to testing).'),
+    HelpStep('🗑️', 'Deleting is reversible: "Show deleted" filter → Restore.'),
+    HelpStep('📤', 'PDF/CSV export covers exactly what the filters show; the PDF has a sign-off block.'),
   ],
 );
 
