@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../database/component_library_dao.dart';
 import '../i18n/app_language.dart';
+import '../models/library_component.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
 import 'segment_builder_screen.dart';
@@ -14,6 +16,77 @@ import 'project_components_screen.dart';
 import 'heat_photos_screen.dart';
 import 'new_project_screen.dart' show showProjectSettingsDialog, projectSettingsSavedMessage;
 import '../widgets/help_button.dart';
+
+/// Pipe size the route stands at after the saved segments — what the NEXT
+/// segment starts on.
+class RoutePosition {
+  const RoutePosition({required this.diameterMm, required this.wallThicknessMm});
+
+  final double diameterMm;
+
+  /// Null right behind a reducer: the database stores no outlet wall (a
+  /// component-library reducer has one wall, its inlet's), so it cannot be
+  /// derived and must be asked for.
+  final double? wallThicknessMm;
+}
+
+/// Where the route stands after [segments], derived from what is saved
+/// instead of a field that is overwritten on the way.
+///
+/// It used to be `projects.current_diameter_mm`, bumped when a segment ended
+/// on a reducer and never touched again: deleting that segment left the
+/// route on the reducer's outlet, and the wall was never changed at all, so
+/// the pipe behind a DN100 → DN50 reducer was built as Ø60.3 with the Ø114.3
+/// wall (and offered library fittings for that non-existent size).
+///
+/// Rules, on the segment with the highest seq_no:
+///   * none saved → the project's own diameter and wall;
+///   * its END is a library REDUCER whose inlet is that segment's diameter →
+///     the reducer's outlet, wall unknown (null);
+///   * its END is a library component that is gone from the library → the
+///     stored `current_diameter_mm` is the only witness left: if it differs
+///     from the segment, a reduction happened there (wall unknown);
+///   * otherwise → that segment's own diameter and wall.
+///
+/// [lastEndComponent] is the library record of that last segment's END, or
+/// null when it has none (or it was deleted).
+RoutePosition routeAfterSegments({
+  required Project project,
+  required List<Segment> segments,
+  required LibraryComponent? lastEndComponent,
+}) {
+  if (segments.isEmpty) {
+    return RoutePosition(
+      diameterMm: project.diameterMm,
+      wallThicknessMm: project.wallThicknessMm,
+    );
+  }
+  final last = segments.reduce((a, b) => a.seqNo >= b.seqNo ? a : b);
+  const eps = 1e-4;
+
+  if (last.endLibraryId != null) {
+    final comp = lastEndComponent;
+    if (comp == null) {
+      if ((project.currentDiameterMm - last.diameterMm).abs() > eps) {
+        return RoutePosition(
+          diameterMm: project.currentDiameterMm,
+          wallThicknessMm: null,
+        );
+      }
+    } else if (comp.type == 'REDUCER') {
+      final out = comp.diameterOutMm;
+      if (out != null &&
+          out > 0 &&
+          (comp.diameterMm - last.diameterMm).abs() < eps) {
+        return RoutePosition(diameterMm: out, wallThicknessMm: null);
+      }
+    }
+  }
+  return RoutePosition(
+    diameterMm: last.diameterMm,
+    wallThicknessMm: last.wallThicknessMm,
+  );
+}
 
 class FitterScreen extends StatefulWidget {
   final String projectId;
@@ -30,15 +103,38 @@ class _FitterScreenState extends State<FitterScreen> {
 
   Project? _project;
   List<Segment> _segments = [];
+  RoutePosition? _route;
   bool _loading = true;
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     final p = await _projectDao.getById(widget.projectId);
     final segs = await _segmentDao.listForProject(widget.projectId);
+
+    RoutePosition? route;
+    if (p != null) {
+      LibraryComponent? lastEnd;
+      if (segs.isNotEmpty) {
+        final last = segs.reduce((a, b) => a.seqNo >= b.seqNo ? a : b);
+        final endId = last.endLibraryId;
+        if (endId != null) lastEnd = await _libDao.getById(endId);
+      }
+      route = routeAfterSegments(
+          project: p, segments: segs, lastEndComponent: lastEnd);
+      // The stored field is kept in step for everything that still reads it
+      // (backups, exports) — but it is written FROM the segments now, never
+      // the other way round.
+      if ((route.diameterMm - p.currentDiameterMm).abs() > 1e-4) {
+        await _projectDao.updateCurrentDiameter(p.id, route.diameterMm);
+      }
+    }
+
+    if (!mounted) return;
     setState(() {
       _project = p;
       _segments = segs;
+      _route = route;
       _loading = false;
     });
   }
@@ -49,17 +145,38 @@ class _FitterScreenState extends State<FitterScreen> {
     _load();
   }
 
+  /// Wall of the pipe right behind a reducer — stored nowhere, so asked.
+  ///
+  /// No prefill on purpose: the only number to prefill with would be the
+  /// wall before the reducer, which is exactly the wrong value this prompt
+  /// exists to stop.
+  Future<double?> _askWallBehindReducer(double diameterMm) {
+    return showDialog<double>(
+      context: context,
+      builder: (_) => _WallBehindReducerDialog(diameterMm: diameterMm),
+    );
+  }
+
   Future<void> _addSegment() async {
     final p = _project;
-    if (p == null) return;
+    final route = _route;
+    if (p == null || route == null) return;
+
+    // The new segment starts where the saved ones end (routeAfterSegments):
+    // behind a reducer that is its outlet, and a wall nobody has told us yet.
+    var wall = route.wallThicknessMm;
+    if (wall == null) {
+      wall = await _askWallBehindReducer(route.diameterMm);
+      if (wall == null || !mounted) return;
+    }
 
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (_) => SegmentBuilderScreen(
           materialGroup: p.materialGroup,
-          currentDiameter: p.currentDiameterMm,
-          wallThickness: p.wallThicknessMm,
+          currentDiameter: route.diameterMm,
+          wallThickness: wall!,
           gapMm: p.gapMm,
         ),
       ),
@@ -71,41 +188,20 @@ class _FitterScreenState extends State<FitterScreen> {
     final seq = await _segmentDao.nextSeqNo(p.id);
     final segId = const Uuid().v4();
 
-    final measured = _measuredColumns(result);
-    final endLibraryId = measured['end_library_id'] as String?;
-    final endValue = measured['end_value_mm'] as double;
-
-    // Segment diameter is the current project diameter at time of creation.
-    // If START is a reducer (out matches current), diameter remains current.
-    final segDiameter = p.currentDiameterMm;
-
     await _segmentDao.insert({
       'id': segId,
       'project_id': p.id,
       'seq_no': seq,
-      'diameter_mm': segDiameter,
-      'wall_thickness_mm': p.wallThicknessMm,
-      ...measured,
+      'diameter_mm': route.diameterMm,
+      'wall_thickness_mm': wall,
+      ..._measuredColumns(result),
       'created_at': now,
       'updated_at': now,
     });
 
-    // Auto-update current diameter when END is REDUCER (inlet matches current)
-    // Outlet diameter can come either from the library record or from user input (endValue).
-    if (endLibraryId != null) {
-      final endComp = await _libDao.getById(endLibraryId);
-      if (endComp != null && endComp.type == 'REDUCER') {
-        final outFromLib = endComp.diameterOutMm;
-        final out = (outFromLib != null && outFromLib > 0) ? outFromLib : endValue;
-        if (out > 0) {
-          // Only apply if reducer inlet equals current diameter (normal case)
-          if ((endComp.diameterMm - p.currentDiameterMm).abs() < 0.0001) {
-            await _projectDao.updateCurrentDiameter(p.id, out);
-          }
-        }
-      }
-    }
-
+    // No separate "reducer moves the route" step any more: _load derives the
+    // route from the segments, so a reducer END moves it, and deleting that
+    // segment moves it back.
     await _load();
   }
 
@@ -171,10 +267,8 @@ class _FitterScreenState extends State<FitterScreen> {
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     });
 
-    // Deliberately NOT re-running the REDUCER auto-diameter step from
-    // _addSegment: the route diameter was already advanced when this segment
-    // was first saved, so applying it a second time would shift the rest of
-    // the route on every re-save of the same segment.
+    // No route bookkeeping here either: _load derives it from the segments,
+    // so re-saving a segment can never shift the route twice.
 
     if (!mounted) return;
     if (changed == 0) {
@@ -203,6 +297,24 @@ class _FitterScreenState extends State<FitterScreen> {
         content: Text(projectSettingsSavedMessage(context, result)),
         duration: const Duration(seconds: 6),
       ));
+  }
+
+  String _routeLabel(BuildContext context, RoutePosition? route) {
+    if (route == null) return '';
+    final d = route.diameterMm.toStringAsFixed(1);
+    final w = route.wallThicknessMm;
+    if (w == null) {
+      return context.tr(
+        pl: 'Aktualnie w trasie: Ø$d — za redukcją; ściankę podasz przy '
+            'następnym segmencie',
+        en: 'Current route: Ø$d — behind a reducer; you will be asked for '
+            'the wall with the next segment',
+      );
+    }
+    return context.tr(
+      pl: 'Aktualnie w trasie: Ø$d × t ${w.toStringAsFixed(2)}',
+      en: 'Current route: Ø$d × t ${w.toStringAsFixed(2)}',
+    );
   }
 
   Future<String> _compLabel(String? libraryId) async {
@@ -274,8 +386,8 @@ class _FitterScreenState extends State<FitterScreen> {
                     Card(
                       margin: const EdgeInsets.all(12),
                       child: ListTile(
-                        title: Text('Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)}'),
-                        subtitle: Text(context.tr(pl: 'Aktualna średnica w trasie: Ø${p.currentDiameterMm.toStringAsFixed(1)}', en: 'Current route diameter: Ø${p.currentDiameterMm.toStringAsFixed(1)}')),
+                        title: Text('Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | gap ${p.gapMm.toStringAsFixed(1)}'),
+                        subtitle: Text(_routeLabel(context, _route)),
                       ),
                     ),
                     Expanded(
@@ -385,6 +497,69 @@ class _FitterScreenState extends State<FitterScreen> {
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+/// Asks for the wall of the pipe behind a reducer. A widget of its own so
+/// the text controller lives exactly as long as the dialog, exit animation
+/// included.
+class _WallBehindReducerDialog extends StatefulWidget {
+  final double diameterMm;
+  const _WallBehindReducerDialog({required this.diameterMm});
+
+  @override
+  State<_WallBehindReducerDialog> createState() =>
+      _WallBehindReducerDialogState();
+}
+
+class _WallBehindReducerDialogState extends State<_WallBehindReducerDialog> {
+  final _c = TextEditingController();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final v = double.tryParse(_c.text.trim().replaceAll(',', '.'));
+    if (v == null || !v.isFinite || v <= 0) return;
+    Navigator.pop(context, v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.diameterMm.toStringAsFixed(1);
+    return AlertDialog(
+      title: Text(context.tr(
+        pl: 'Ścianka rury za redukcją (Ø$d)',
+        en: 'Wall of the pipe behind the reducer (Ø$d)',
+      )),
+      content: TextField(
+        controller: _c,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+        ],
+        onSubmitted: (_) => _submit(),
+        decoration: InputDecoration(
+          labelText:
+              context.tr(pl: 'Grubość ścianki (mm)', en: 'Wall thickness (mm)'),
+          helperText: context.tr(
+            pl: 'Po redukcji zmienia się rura — podaj jej ściankę.',
+            en: 'The pipe changes at the reducer — enter its wall.',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+        ),
+        ElevatedButton(onPressed: _submit, child: const Text('OK')),
+      ],
     );
   }
 }
