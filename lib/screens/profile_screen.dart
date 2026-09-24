@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +11,8 @@ import '../legal/legal_texts.dart';
 import '../services/blocked_users.dart';
 import '../services/data_backup.dart';
 import '../services/legal_consent.dart';
+import '../services/premium_service.dart';
+import '../services/server_data_deletion.dart';
 import '../services/user_profile.dart';
 import '../services/welder_identity.dart';
 import '../theme/app_theme.dart';
@@ -366,9 +369,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   /// Google Play wymaga ścieżki usunięcia danych, gdy aplikacja cokolwiek
-  /// wysyła. Kasujemy wszystko, co lokalne. Wiadomości już opublikowane na
-  /// czacie usuwa moderacja na wniosek — mówimy o tym wprost, zamiast udawać,
-  /// że jeden przycisk cofa to, co zobaczyli inni.
+  /// wysyła. Kolejność ma znaczenie:
+  ///   1. `DELETE /api/fitter/me` — serwer rozpoznaje nas po device_id i
+  ///      sekrecie instalacji, więc to musi pójść, ZANIM je skasujemy;
+  ///   2. dane na telefonie;
+  ///   3. podsumowanie: co zniknęło z serwera, a co z telefonu.
+  /// Stary backend (404) nie umie usuwać — wtedy mówimy wprost, że wiadomości
+  /// z czatu usuwamy mailowo, zamiast udawać, że przycisk cofnął to, co
+  /// zobaczyli inni. Bez sieci pytamy, czy usunąć tylko lokalnie.
   Future<void> _deleteMyData() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -385,22 +393,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // przemilczenie ich przy „usuń moje dane" było i błędem, i obietnicą
         // bez pokrycia.
         content: Text(context.tr(
-          pl: 'Skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na zasady, '
-              'listę zablokowanych oraz tożsamość spawacza: stempel, numer WPQR, '
-              'datę ważności uprawnienia, jednostkę certyfikującą i e-mail. '
-              'Nowe spoiny przestaną się podpisywać Twoim stemplem.\n\n'
+          pl: 'Najpierw usuniemy z serwera Twoje wiadomości z czatu, '
+              'zgłoszenia, ogłoszenia oraz identyfikator i sekret instalacji.\n\n'
+              'Potem skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na '
+              'zasady, listę zablokowanych oraz tożsamość spawacza: stempel, '
+              'numer WPQR, datę ważności uprawnienia, jednostkę certyfikującą '
+              'i e-mail. Nowe spoiny przestaną się podpisywać Twoim stemplem.\n\n'
               'Projekty, cut listy i zapisane spoiny zostają — razem ze '
               'stemplem, którym już je podpisałeś.\n\n'
-              'Wiadomości, które już wysłałeś na czat, widzą inni — o ich '
-              'usunięcie poproś na ${AppLinks.supportEmail}.',
-          en: 'We will erase your name, your consent, your block list and your '
-              'welder identity from this phone: stamp, WPQR number, expiry '
+              'Na koniec pokażemy, co dokładnie usunęliśmy na serwerze, a co na '
+              'telefonie.',
+          en: 'First we delete from the server your chat messages, reports, job '
+              'listings and your installation identifier and secret.\n\n'
+              'Then we erase from this phone your name, your consent, your '
+              'block list and your welder identity: stamp, WPQR number, expiry '
               'date, certification body and e-mail. New welds will no longer '
               'be signed with your stamp.\n\n'
               'Projects, cut lists and saved welds stay — including the stamp '
               'you already signed them with.\n\n'
-              'Messages you already posted are visible to others — ask us to '
-              'remove them at ${AppLinks.supportEmail}.',
+              'At the end we show exactly what was deleted on the server and '
+              'what on the phone.',
         )),
         actions: [
           TextButton(
@@ -418,6 +430,273 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (ok != true || !mounted) return;
 
+    // 1. Serwer — przed skasowaniem identyfikatora instalacji.
+    ServerDeletionResult? outcome;
+    final ran = await _runBlocking(
+      context.tr(
+          pl: 'Usuwam dane z serwera…',
+          en: 'Deleting your data from the server…'),
+      () async {
+        outcome = await ServerDataDeletion.deleteMyServerData();
+      },
+    );
+    final server = outcome;
+    if (!ran || server == null || !mounted) return;
+
+    switch (server.status) {
+      case ServerDeletionStatus.rateLimited:
+        // Nic nie kasujemy: identyfikator instalacji musi zostać, żeby
+        // ponowienie później mogło usunąć dane z serwera.
+        await _showDeletionInfo(
+          title: context.tr(pl: 'Spróbuj później', en: 'Try again later'),
+          body: context.tr(
+            pl: 'Serwer chwilowo nie przyjmuje kolejnych próśb o usunięcie '
+                'danych z tej sieci. Spróbuj później (najpóźniej jutro) albo '
+                'napisz na ${AppLinks.supportEmail}.\n\n'
+                'Na telefonie niczego nie usunęliśmy.',
+            en: 'The server is not accepting more deletion requests from this '
+                'network right now. Try again later (tomorrow at the latest) '
+                'or write to ${AppLinks.supportEmail}.\n\n'
+                'Nothing was deleted on the phone.',
+          ),
+        );
+        return;
+      case ServerDeletionStatus.offline:
+      case ServerDeletionStatus.rejected:
+      case ServerDeletionStatus.failed:
+        final localOnly = await _askDeleteLocalOnly(server.status);
+        if (localOnly != true || !mounted) return;
+      case ServerDeletionStatus.deleted:
+      case ServerDeletionStatus.nothingToDelete:
+      case ServerDeletionStatus.notSupported:
+        break;
+    }
+    if (!mounted) return;
+
+    // Identyfikator instalacji łączy telefon z aktywną subskrypcją (Stripe
+    // client_reference_id). Póki ona trwa, nie odcinamy od niej płacącego.
+    final keepIdentity =
+        server.premiumRetained || PremiumService.instance.isPremium;
+    final summaryTitle = server.serverDataDeleted ||
+            server.status == ServerDeletionStatus.nothingToDelete
+        ? context.tr(pl: 'Dane usunięte', en: 'Data deleted')
+        : context.tr(
+            pl: 'Usunięto tylko z telefonu', en: 'Deleted from the phone only');
+    final summaryBody =
+        '${_serverSummary(server)}\n\n${_localSummary(keepIdentity)}';
+    final gotIt = context.tr(pl: 'Rozumiem', en: 'Got it');
+
+    // 2. Telefon.
+    await _eraseLocalData(resetIdentity: !keepIdentity);
+    if (!mounted) return;
+    Haptic.saved();
+    // Wracamy na ekran główny od nowa. Kalkulatory działają dalej; czat przy
+    // następnym wejściu zapyta o imię, nazwisko i zasady (community_gate.dart).
+    final navigator = Navigator.of(context);
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const RootGate()),
+      (route) => false,
+    );
+    // 3. Podsumowanie nad świeżym ekranem głównym (ten ekran już nie żyje,
+    // więc teksty są policzone wyżej). Okno, nie snackbar — to informacja o
+    // danych, której nie wolno przegapić.
+    unawaited(showDialog<void>(
+      context: navigator.context,
+      builder: (dctx) => AlertDialog(
+        scrollable: true,
+        title: Text(summaryTitle),
+        content: Text(summaryBody,
+            style: const TextStyle(color: kText, fontSize: 14, height: 1.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx),
+            child: Text(gotIt),
+          ),
+        ],
+      ),
+    ));
+  }
+
+  /// Co stało się na serwerze — jednym akapitem, po ludzku.
+  String _serverSummary(ServerDeletionResult server) {
+    final byMail = context.tr(
+      pl: 'Żeby je usunąć, napisz na ${AppLinks.supportEmail} i podaj imię i '
+          'nazwisko, którym podpisywałeś wiadomości, oraz przybliżone daty. '
+          'Usuniemy je najpóźniej w ciągu 30 dni.',
+      en: 'To delete them, write to ${AppLinks.supportEmail} with the name you '
+          'signed your messages with and approximate dates. We delete them '
+          'within 30 days at the latest.',
+    );
+    switch (server.status) {
+      case ServerDeletionStatus.deleted:
+        // „Etykieta: N" zamiast odmiany — polska liczba mnoga po liczbie nie
+        // zmieści się w jednym stringu („1 wiadomości" wygląda jak błąd).
+        final premium = server.premiumRetained
+            ? context.tr(
+                pl: '\n\nDane aktywnej subskrypcji Premium zostają na serwerze '
+                    'do jej zakończenia — anuluj ją w „Zarządzaj subskrypcją", '
+                    'a potem ponów usunięcie.',
+                en: '\n\nThe data of your active Premium subscription stays on '
+                    'the server until it ends — cancel it in "Manage '
+                    'subscription", then delete again.',
+              )
+            : '';
+        return context.tr(
+              pl: 'Z serwera usunęliśmy Twoje dane. '
+                  'Wiadomości z czatu: ${server.count('chat_messages')}. '
+                  'Zgłoszenia: ${server.count('chat_reports')}. '
+                  'Ogłoszenia: ${server.count('job_listings')}. '
+                  'Do tego identyfikator i sekret instalacji oraz liczniki '
+                  'limitów.',
+              en: 'We deleted your data from the server. '
+                  'Chat messages: ${server.count('chat_messages')}. '
+                  'Reports: ${server.count('chat_reports')}. '
+                  'Job listings: ${server.count('job_listings')}. '
+                  'Plus your installation identifier and secret and the '
+                  'rate-limit counters.',
+            ) +
+            premium;
+      case ServerDeletionStatus.nothingToDelete:
+        return context.tr(
+          pl: 'Ta instalacja nie wysyłała danych na serwer — nie było tam '
+              'czego usuwać.',
+          en: 'This installation never sent data to the server — there was '
+              'nothing to delete there.',
+        );
+      case ServerDeletionStatus.notSupported:
+        return context.tr(
+              pl: 'Serwer nie obsługuje jeszcze usuwania danych z aplikacji, '
+                  'więc Twoje wiadomości z czatu są na nim nadal. ',
+              en: 'The server does not support deletion from the app yet, so '
+                  'your chat messages are still there. ',
+            ) +
+            byMail;
+      case ServerDeletionStatus.offline:
+      case ServerDeletionStatus.rejected:
+      case ServerDeletionStatus.failed:
+      case ServerDeletionStatus.rateLimited:
+        return context.tr(
+              pl: 'Danych na serwerze NIE usunęliśmy (wiadomości z czatu, '
+                  'zgłoszenia). ',
+              en: 'We did NOT delete your data on the server (chat messages, '
+                  'reports). ',
+            ) +
+            byMail;
+    }
+  }
+
+  String _localSummary(bool identityKept) => identityKept
+      ? context.tr(
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
+              'zablokowanych i tożsamość spawacza (stempel, WPQR, e-mail). '
+              'Identyfikator instalacji zostaje, bo łączy telefon z aktywną '
+              'subskrypcją Premium. Projekty, cut listy i dziennik spoin '
+              'zostają.',
+          en: 'Deleted from the phone: your name, your consent, your block '
+              'list and your welder identity (stamp, WPQR, e-mail). The '
+              'installation identifier stays because it links the phone to '
+              'your active Premium subscription. Projects, cut lists and the '
+              'weld journal stay.',
+        )
+      : context.tr(
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
+              'zablokowanych, tożsamość spawacza (stempel, WPQR, e-mail) oraz '
+              'identyfikator i sekret instalacji. Projekty, cut listy i '
+              'dziennik spoin zostają.',
+          en: 'Deleted from the phone: your name, your consent, your block '
+              'list, your welder identity (stamp, WPQR, e-mail) and the '
+              'installation identifier and secret. Projects, cut lists and the '
+              'weld journal stay.',
+        );
+
+  /// Serwer nie usunął danych (brak sieci, odrzucona instalacja, błąd).
+  /// Pytamy, czy mimo to usunąć dane z telefonu — i mówimy, jak potem
+  /// usunąć te z serwera.
+  Future<bool?> _askDeleteLocalOnly(ServerDeletionStatus status) {
+    final reason = switch (status) {
+      ServerDeletionStatus.offline => context.tr(
+          pl: 'Nie udało się połączyć z serwerem, więc Twoich danych z czatu '
+              'jeszcze nie usunęliśmy.',
+          en: 'We could not reach the server, so your chat data has not been '
+              'deleted yet.',
+        ),
+      ServerDeletionStatus.rejected => context.tr(
+          pl: 'Serwer nie rozpoznał tej instalacji aplikacji, więc nie usunął '
+              'Twoich danych z czatu.',
+          en: 'The server did not recognise this app installation, so it did '
+              'not delete your chat data.',
+        ),
+      _ => context.tr(
+          pl: 'Serwer odpowiedział błędem, więc nie usunął Twoich danych z '
+              'czatu.',
+          en: 'The server answered with an error, so it did not delete your '
+              'chat data.',
+        ),
+    };
+    return showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        scrollable: true,
+        title: Text(status == ServerDeletionStatus.offline
+            ? context.tr(pl: 'Brak połączenia', en: 'No connection')
+            : context.tr(
+                pl: 'Serwer nie usunął danych',
+                en: 'The server did not delete your data')),
+        content: Text(
+          reason +
+              context.tr(
+                pl: '\n\nAnuluj i spróbuj ponownie później (np. w zasięgu) — '
+                    'wtedy aplikacja usunie je sama.\n\n'
+                    'Możesz też usunąć dane tylko z tego telefonu. Dane z '
+                    'serwera usuniesz wtedy już tylko mailowo: napisz na '
+                    '${AppLinks.supportEmail}, podaj imię i nazwisko, którym '
+                    'podpisywałeś wiadomości, i przybliżone daty.',
+                en: '\n\nCancel and try again later (e.g. with signal) — the '
+                    'app will then delete it itself.\n\n'
+                    'You can also delete the data from this phone only. The '
+                    'server data can then be deleted only by e-mail: write to '
+                    '${AppLinks.supportEmail} with the name you signed your '
+                    'messages with and approximate dates.',
+              ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(
+                pl: 'Usuń tylko z telefonu', en: 'Delete from phone only')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDeletionInfo({required String title, required String body}) {
+    return showDialog<void>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        scrollable: true,
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx),
+            child: Text(context.tr(pl: 'Rozumiem', en: 'Got it')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Dane na telefonie: profil, zgoda, tożsamość spawacza, blokady i — gdy
+  /// [resetIdentity] — identyfikator i sekret instalacji (od razu powstaje
+  /// nowa, niezwiązana z niczym para; nic nie leci na serwer).
+  Future<void> _eraseLocalData({required bool resetIdentity}) async {
     await UserProfileService.instance.clear();
     await LegalConsent.instance.clear();
     // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
@@ -429,14 +708,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     for (final u in BlockedUsers.instance.all) {
       await BlockedUsers.instance.unblock(u.deviceId);
     }
-    if (!mounted) return;
-    Haptic.saved();
-    // Wracamy na ekran główny od nowa. Kalkulatory działają dalej; czat przy
-    // następnym wejściu zapyta o imię, nazwisko i zasady (community_gate.dart).
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const RootGate()),
-      (route) => false,
-    );
+    if (resetIdentity) await PremiumService.instance.resetIdentity();
   }
 
   Future<void> _unblock(BlockedUser u) async {

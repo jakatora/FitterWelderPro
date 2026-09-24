@@ -3,19 +3,26 @@ import 'package:flutter/widgets.dart';
 import '../config/app_links.dart';
 import '../i18n/app_language.dart';
 
-// Regulamin i polityka prywatności — jedno źródło prawdy dla ekranów w aplikacji
-// oraz dla wersji hostowanej (privacy-policy.html).
+// Regulamin i polityka prywatności — jedno źródło prawdy dla ekranów w aplikacji.
+// Wersję hostowaną (URL-e dla sklepów, AppLinks) serwuje backend:
+// `backend/src/routes/publicPages.js` (/privacy, /data-deletion). Oba teksty
+// muszą mówić to samo — zmieniasz jeden, zmień drugi.
 //
 // ZASADA: ten tekst musi opisywać to, co aplikacja NAPRAWDĘ robi. Poprzednia
 // polityka twierdziła, że apka „nie zbiera, nie przechowuje i nie przesyła
 // żadnych danych osobowych", podczas gdy czat wysyła imię i nazwisko oraz
 // identyfikator urządzenia na serwer. Jeśli zmieniasz zachowanie aplikacji —
 // zmień najpierw ten plik i podnieś [kLegalVersion].
+//
+// Wersja 2 (2026-09-24): sekret instalacji i rejestracja urządzenia dopiero
+// przy czacie, skróty adresów IP na serwerze, pseudonim autora zamiast
+// identyfikatora, usuwanie danych z serwera przyciskiem w profilu.
 
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
-const int kLegalVersion = 1;
+/// Blokuje to tylko czat (community_gate.dart) — kalkulatory działają dalej.
+const int kLegalVersion = 2;
 
-const String kLegalUpdated = '2026-07-09';
+const String kLegalUpdated = '2026-09-24';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -73,12 +80,31 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'ciąg wygenerowany na Twoim urządzeniu — nie jest to numer '
                 'telefonu, IMEI ani identyfikator reklamowy). Identyfikator służy '
                 'do rozpoznania Twoich własnych wiadomości oraz do egzekwowania '
-                'blokad i zgłoszeń.',
+                'blokad i zgłoszeń. Innym użytkownikom nie pokazujemy Twojego '
+                'identyfikatora — widzą tylko jego nieodwracalny skrót.',
             en: 'We send the message text, the first and last name from your '
                 'profile, a timestamp and an installation identifier (a random '
                 'string generated on your device — not a phone number, IMEI or '
                 'advertising ID). The identifier lets the app recognise your own '
-                'messages and lets us enforce blocks and reports.',
+                'messages and lets us enforce blocks and reports. Other users '
+                'never see your identifier — only an irreversible hash of it.',
+          ),
+        ),
+        LegalSection(
+          c.tr(
+              pl: 'Kiedy aplikacja łączy się z serwerem',
+              en: 'When the app contacts the server'),
+          c.tr(
+            pl: 'Kalkulatory, projekty i dziennik spoin działają bez serwera. '
+                'Aplikacja przedstawia się serwerowi czatu (identyfikator i '
+                'sekret instalacji) dopiero wtedy, gdy zaakceptujesz te zasady '
+                'i wejdziesz na czat — a potem przy kolejnych uruchomieniach. '
+                'Wcześniej nic nie wysyła.',
+            en: 'Calculators, projects and the weld journal work without the '
+                'server. The app introduces itself to the chat server '
+                '(installation identifier and secret) only after you accept '
+                'these rules and open the chat — and on later launches. Before '
+                'that it sends nothing.',
           ),
         ),
         LegalSection(
@@ -107,6 +133,34 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
+          c.tr(
+              pl: 'Dane techniczne na serwerze',
+              en: 'Technical data on the server'),
+          c.tr(
+            pl: 'Żeby chronić czat przed spamem i nadużyciami, serwer przetwarza '
+                'adres IP połączenia. Nie zapisujemy go wprost — w bazie trafia '
+                'tylko jego jednokierunkowy skrót (HMAC): w licznikach limitów '
+                '(usuwane po 2 dobach) oraz przy zgłoszeniu wiadomości (żeby '
+                'liczyć zgłoszenia z różnych sieci; usuwany razem ze '
+                'zgłoszeniem). Aplikacja wysyła też losowy sekret instalacji — '
+                'przechowujemy wyłącznie jego skrót, żeby nikt nie mógł podszyć '
+                'się pod Twój identyfikator. Dostawca hostingu (Railway) może '
+                'przez krótki czas przechowywać techniczne logi połączeń. '
+                'Podstawa: prawnie uzasadniony interes — bezpieczeństwo usługi '
+                '(art. 6 ust. 1 lit. f RODO).',
+            en: 'To protect the chat against spam and abuse, the server '
+                'processes the IP address of the connection. We never store it '
+                'in plain form — only a one-way hash (HMAC) in rate-limit '
+                'counters (deleted after 2 days) and with a message report (to '
+                'count reports from different networks; deleted with the '
+                'report). The app also sends a random installation secret; we '
+                'store only its hash, so nobody can impersonate your '
+                'identifier. Our hosting provider (Railway) may keep technical '
+                'connection logs for a short time. Legal basis: legitimate '
+                'interest in service security (Art. 6(1)(f) GDPR).',
+          ),
+        ),
+        LegalSection(
           c.tr(pl: 'Kto przetwarza dane', en: 'Who processes the data'),
           c.tr(
             pl: 'Serwer czatu działa na infrastrukturze Railway. Nie sprzedajemy '
@@ -121,13 +175,45 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           c.tr(pl: 'Jak długo przechowujemy wiadomości', en: 'How long we keep messages'),
           c.tr(
             pl: 'Wiadomości czatu przechowujemy tak długo, jak istnieje pokój, w '
-                'którym je napisano, chyba że wcześniej usunie je moderacja lub '
-                'poprosisz o ich usunięcie. Możesz w każdej chwili zażądać '
-                'usunięcia swoich wiadomości i identyfikatora instalacji.',
-            en: 'Chat messages are kept for as long as the room exists, unless they '
-                'are removed by moderation earlier or you ask us to delete them. '
-                'You may request deletion of your messages and your installation '
-                'identifier at any time.',
+                'którym je napisano, chyba że wcześniej usunie je moderacja albo '
+                'Ty je usuniesz (niżej).',
+            en: 'Chat messages are kept for as long as the room exists, unless '
+                'they are removed earlier by moderation or by you (below).',
+          ),
+        ),
+        LegalSection(
+          c.tr(pl: 'Jak usunąć swoje dane', en: 'How to delete your data'),
+          c.tr(
+            pl: 'W aplikacji: Profil → „Usuń moje dane". Najpierw usuwamy z '
+                'serwera wszystkie Twoje wiadomości z czatu (podpis i treść), '
+                'zgłoszenia, które złożyłeś, i zgłoszenia Twoich wiadomości, '
+                'ogłoszenia, identyfikator i sekret instalacji oraz liczniki '
+                'limitów. Potem z telefonu: imię i nazwisko, zgodę na zasady, '
+                'listę zablokowanych i tożsamość spawacza. Aplikacja pokazuje, '
+                'co usunęła na serwerze, a co na telefonie. Jeśli serwer jest '
+                'niedostępny albo jeszcze nie obsługuje tej funkcji, powie Ci o '
+                'tym.\n\n'
+                'Mailowo (bez aplikacji lub w starszej wersji): napisz na '
+                '${AppLinks.supportEmail}, podaj imię i nazwisko, którym '
+                'podpisywałeś wiadomości, oraz przybliżone daty. Usuniemy dane '
+                'z serwera najpóźniej w ciągu 30 dni i potwierdzimy to '
+                'odpowiedzią.\n\n'
+                'Projekty, cut listy i dziennik spoin są tylko na Twoim '
+                'telefonie — usuniesz je, odinstalowując aplikację.',
+            en: 'In the app: Profile → "Delete my data". First we delete from '
+                'the server all your chat messages (name and text), reports you '
+                'made and reports of your messages, your job listings, your '
+                'installation identifier and secret and rate-limit counters. '
+                'Then from the phone: your name, your consent, your block list '
+                'and your welder identity. The app shows what it deleted on the '
+                'server and what on the phone. If the server is unreachable or '
+                'does not support this yet, the app tells you.\n\n'
+                'By e-mail (without the app or with an older version): write to '
+                '${AppLinks.supportEmail} with the name you signed your messages '
+                'with and approximate dates. We delete your data from the '
+                'server within 30 days at the latest and confirm by reply.\n\n'
+                'Projects, cut lists and the weld journal exist only on your '
+                'phone — uninstalling the app removes them.',
           ),
         ),
         LegalSection(
@@ -255,21 +341,28 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
         LegalSection(
           c.tr(pl: 'Usunięcie danych', en: 'Deleting your data'),
           c.tr(
-            pl: 'Dane lokalne usuniesz w profilu („Usuń moje dane") albo '
-                'odinstalowując aplikację. Usunięcie wiadomości z czatu zgłoś na '
-                '${AppLinks.supportEmail}.',
-            en: 'You can erase local data in your profile ("Delete my data") or by '
-                'uninstalling the app. To have your chat messages removed, write to '
-                '${AppLinks.supportEmail}.',
+            pl: '„Usuń moje dane" w profilu usuwa Twoje dane z serwera (wiadomości '
+                'z czatu, zgłoszenia, ogłoszenia, identyfikator i sekret '
+                'instalacji), a potem z telefonu. Bez aplikacji albo w starszej '
+                'wersji napisz na ${AppLinks.supportEmail}. Pozostałe dane '
+                'lokalne usuniesz, odinstalowując aplikację.',
+            en: '"Delete my data" in your profile deletes your data from the '
+                'server (chat messages, reports, job listings, installation '
+                'identifier and secret) and then from the phone. Without the '
+                'app or with an older version, write to '
+                '${AppLinks.supportEmail}. Other local data is removed when you '
+                'uninstall the app.',
           ),
         ),
         LegalSection(
           c.tr(pl: 'Zmiany regulaminu', en: 'Changes to these terms'),
           c.tr(
             pl: 'Gdy zmienimy zasady w sposób istotny, poprosimy Cię o ponowną '
-                'akceptację przy najbliższym uruchomieniu aplikacji.',
+                'akceptację przy najbliższym wejściu na czat. Kalkulatory i '
+                'projekty działają bez niej.',
             en: 'When we change these rules materially, we will ask you to accept '
-                'them again the next time you open the app.',
+                'them again the next time you open the chat. Calculators and '
+                'projects work without it.',
           ),
         ),
       ],
