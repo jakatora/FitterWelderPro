@@ -26,12 +26,13 @@ class WelderMenuScreen extends StatelessWidget {
       body: ToolGroupedMenu(
         section: ToolSection.welder,
         header: [
-          // Above the "try this" tip on purpose: an expired WPQR outranks
-          // any suggestion on this menu. Every tool below leads to work
-          // that gets stamped with the welder's identity, so the state of
-          // that qualification belongs in the header, not three screens
-          // deep in the identity form. Draws nothing while the WPQR is
-          // valid or no expiry date was entered.
+          // Above the "try this" tip on purpose: a lapsed welder
+          // qualification (EN ISO 9606-1 / ASME WPQ — not a "WPQR", which is
+          // the procedure record) outranks any suggestion on this menu.
+          // Every tool below leads to work stamped with the welder's
+          // identity, so the state of the certificate register (expiry AND
+          // the 6-month confirmation) belongs in the header. Tapping it
+          // opens the register. Draws nothing while everything is valid.
           const WpqrChipLive(padding: EdgeInsets.only(bottom: 12)),
           if (checklist != null)
             Padding(

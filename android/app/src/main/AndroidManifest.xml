@@ -7,6 +7,16 @@
          bug only ever showed up in shipped release APK/AAB. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Przypomnienia o uprawnieniach spawacza (flutter_local_notifications).
+         POST_NOTIFICATIONS: Android 13+ (API 33) — o zgodę aplikacja pyta
+         dopiero, gdy spawacz sam włącza przypomnienia w rejestrze uprawnień.
+         RECEIVE_BOOT_COMPLETED: po restarcie telefonu wtyczka odtwarza
+         zaplanowane przypomnienia. Celowo BEZ SCHEDULE_EXACT_ALARM /
+         USE_EXACT_ALARM — przypomnienie 30 i 7 dni przed terminem nie
+         potrzebuje dokładnego alarmu (harmonogram inexactAllowWhileIdle),
+         a Play wymaga uzasadnienia tych uprawnień. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="Fitter Welder Pro"
         android:name="${applicationName}"
@@ -33,6 +43,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- flutter_local_notifications: pokazanie zaplanowanego przypomnienia
+             i ponowne zaplanowanie po restarcie / aktualizacji aplikacji. -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

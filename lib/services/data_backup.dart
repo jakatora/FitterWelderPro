@@ -32,9 +32,11 @@
 /// ## Layout of the archive
 /// ```
 /// manifest.json          — what this is, when it was made, what is inside
-/// db/cutlist.db          — main database (projects, cut lists, weld journal)
+/// db/cutlist.db          — main database (projects, cut lists, weld journal,
+///                          welder certificate register, WPS library)
 /// db/cut_list_app.db     — welder-pipe module database
-/// heat_photos/<uuid>.jpg — heat / MTR certificate photos
+/// heat_photos/<uuid>.jpg — heat / MTR certificate photos, scans of welder
+///                          certificates and WPS files (PDF / photo)
 /// ```
 ///
 /// ## All-or-nothing restore
@@ -79,8 +81,9 @@
 ///
 /// ## What is deliberately NOT in the backup
 /// Everything stored in `SharedPreferences`: the user profile, the welder
-/// identity (stamp / WPQR), the accepted rules version, and — decisively —
-/// the Premium entitlement. A backup file is user-editable and freely
+/// identity (stamp), the accepted rules version, and — decisively — the
+/// Premium entitlement. (Since v21 the welder's CERTIFICATES are rows in
+/// `cutlist.db` and DO travel with the backup; only the stamp stays behind.) A backup file is user-editable and freely
 /// shareable; restoring preferences would turn "send me your backup" into a
 /// way to copy someone's paid status and to bypass the consent gate. The
 /// restore dialog says this out loud instead of pretending otherwise.
@@ -140,6 +143,12 @@ const String kSqliteMagic = 'SQLite format 3\u0000';
 const Map<String, String> kPhotoPathColumns = {
   'heat_photos': 'image_path',
   'component_heats': 'image_path',
+  // v21: skan certyfikatu uprawnień spawacza i plik WPS (PDF / zdjęcie).
+  // Oba kopiowane do <documents>/heat_photos (persistPickedHeatPhoto), więc
+  // lecą w archiwum razem z katalogiem i muszą być przepięte przy restore
+  // tak samo jak zdjęcia wytopów.
+  'welder_certificates': 'photo_path',
+  'wps_library': 'attachment_path',
 };
 
 /// A problem with the *file the user picked*, phrased for the user.

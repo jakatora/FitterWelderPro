@@ -28,6 +28,17 @@
 -keep class androidx.lifecycle.** { *; }
 -keep class com.mr.flutter.plugin.filepicker.** { *; }
 
+# ── flutter_local_notifications (przypomnienia o uprawnieniach spawacza) ────
+# README wtyczki: od v19 reguly Gson dostarcza sam Gson (consumer rules w jar),
+# wiec osobne reguly Gson nie sa potrzebne. Trzymamy jednak modele wtyczki bez
+# obfuskacji: zaplanowane powiadomienia leza w SharedPreferences jako JSON
+# (Gson, refleksja po nazwach pol) i sa odczytywane po restarcie telefonu
+# i po AKTUALIZACJI aplikacji (ScheduledNotificationBootReceiver). Inna
+# obfuskacja nazw pol w nowym buildzie = przypomnienia zaplanowane przez
+# stary build nie odczytaja sie po update. Ikona powiadomien: res/raw/keep.xml.
+-keep class com.dexterous.flutterlocalnotifications.** { *; }
+-dontwarn com.dexterous.flutterlocalnotifications.**
+
 # Kotlin metadata (bez tego niektore biblioteki gubia informacje o typach).
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**

@@ -13,14 +13,25 @@
 // migration story for users who upgrade.
 //
 // All fields are nullable except `stamp` — only the stamp identifier is
-// strictly required by the standards. WPQR no, expiry, and cert body
-// are encouraged but optional so a welder can save partial state and
-// finish later.
+// strictly required by the standards.
+//
+// v21 (2026-09): the welder's QUALIFICATIONS moved out of this object into
+// the certificate register (`welder_certificates`, see
+// lib/services/welder_qualification_service.dart) — many certificates, each
+// with its standard (EN ISO 9606-1 / ASME IX WPQ), range and 6-month
+// continuity. The old `wpqrNo` / `wpqrExpiry` / `certBody` fields were both
+// too little (one number, one date) and mislabelled: a WPQR is the PROCEDURE
+// qualification record (EN ISO 15614-1), not the welder's certificate. They
+// stay here, read-only, so nothing a user typed is ever lost and the JSON
+// keys stay compatible; the register migrates them once. The STAMP stays
+// here — the weld journal reads `current?.stamp` as the default welder.
 
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'welder_qualification_service.dart';
 
 /// Body that issued the welder's qualification certificate.
 /// Codified set to keep the data clean; UI surfaces the human label and
@@ -61,13 +72,17 @@ class WelderIdentity {
   /// Regex `^[A-Z0-9-]{2,12}$` enforced at the setup screen. Required.
   final String stamp;
 
-  /// WPQR / WPS number. Optional (some welders are still in qualification).
+  /// LEGACY (before v21): the number typed into the old "WPQR / WPS no" field
+  /// — in practice the welder's certificate number, sometimes a WPS number.
+  /// Migrated once into the certificate register; no longer edited.
   final String? wpqrNo;
 
-  /// Date the WPQR expires. EN ISO 9606 valid for 3 years (typical).
+  /// LEGACY (before v21): the old single "WPQR expiry" date — really the
+  /// welder certificate's expiry. Migrated once into the register.
   final DateTime? wpqrExpiry;
 
-  /// Body that issued the qualification.
+  /// LEGACY (before v21): body that issued the certificate. Migrated into the
+  /// register as the examiner.
   final CertificationBody certBody;
 
   /// Display name (e.g. "Jan Kowalski"). Optional — stamp is enough.
@@ -220,6 +235,11 @@ class WelderIdentityService {
     }
   }
 
+  /// "Delete my data": the identity AND the welder's certificate register
+  /// (numbers, dates, scanned certificates, scheduled reminders). Since v21
+  /// the certificate data lives in the register, and the profile's delete
+  /// dialog promises to erase the qualification number and expiry — calling
+  /// only the preferences half would silently break that promise.
   Future<void> clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -231,5 +251,7 @@ class WelderIdentityService {
     _cache = null;
     _hydrated = true;
     _changeController.add(null);
+    // Never throws: a missing database must not block the rest of the wipe.
+    await WelderQualificationService.instance.clearAll();
   }
 }

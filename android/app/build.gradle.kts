@@ -36,6 +36,10 @@ android {
     }
 
     compileOptions {
+        // flutter_local_notifications (przypomnienia o uprawnieniach spawacza)
+        // wymaga desugaringu java.time — bez tego build release się nie
+        // składa (README wtyczki, sekcja „Gradle setup").
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -88,4 +92,6 @@ flutter {
 dependencies {
     // Latest AndroidX core APIs for Android 15 edge-to-edge handling.
     implementation("androidx.core:core-ktx:1.17.0")
+    // Desugaring dla flutter_local_notifications (patrz compileOptions).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

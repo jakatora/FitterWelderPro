@@ -1,5 +1,10 @@
 // Regression net for `lib/widgets/wpqr_chip.dart`.
 //
+// v21: the banner no longer says "WPQR" — a WPQR is the PROCEDURE record
+// (EN ISO 15614-1); the welder holds a qualification (EN ISO 9606-1
+// certificate / ASME WPQ). These legacy-chip tests pin the corrected wording;
+// the register-backed banner is covered in qualification_banner_test.dart.
+//
 // The bug this covers is an ABSENCE: `WelderIdentity.wpqrExpiringSoon` and
 // `.wpqrExpired` were implemented and unit-tested at P0-08, then never read
 // by any screen, so the app never warned anyone. A model getter nobody
@@ -60,7 +65,7 @@ void main() {
         _wrap(const WpqrChip(identity: null, padding: _padding)),
       );
 
-      expect(find.textContaining('WPQR'), findsNothing);
+      expect(find.textContaining('qualification'), findsNothing);
       expect(tester.getSize(find.byType(WpqrChip)), Size.zero);
     });
 
@@ -70,7 +75,7 @@ void main() {
         _wrap(WpqrChip(identity: _welder(), padding: _padding)),
       );
 
-      expect(find.textContaining('WPQR'), findsNothing);
+      expect(find.textContaining('qualification'), findsNothing);
       expect(tester.getSize(find.byType(WpqrChip)), Size.zero);
     });
 
@@ -83,7 +88,7 @@ void main() {
         ),
       ));
 
-      expect(find.textContaining('WPQR'), findsNothing);
+      expect(find.textContaining('qualification'), findsNothing);
       expect(tester.getSize(find.byType(WpqrChip)), Size.zero);
     });
   });
@@ -100,7 +105,7 @@ void main() {
         ),
       ));
 
-      expect(find.textContaining('WPQR expires in 12 days'), findsOneWidget);
+      expect(find.textContaining('Welder qualification expires in 12 days'), findsOneWidget);
       expect(find.textContaining('expired'), findsNothing);
       expect(_accent(tester), kWarn);
       expect(tester.getSize(find.byType(WpqrChip)).height, greaterThan(0));
@@ -115,7 +120,7 @@ void main() {
         ),
         lang: AppLanguage.pl,
       ));
-      expect(find.textContaining('WPQR wygasa za 1 dzień'), findsOneWidget);
+      expect(find.textContaining('Uprawnienie spawacza wygasa za 1 dzień'), findsOneWidget);
 
       await tester.pumpWidget(_wrap(
         WpqrChip(
@@ -125,7 +130,7 @@ void main() {
         ),
         lang: AppLanguage.pl,
       ));
-      expect(find.textContaining('WPQR wygasa za 5 dni'), findsOneWidget);
+      expect(find.textContaining('Uprawnienie spawacza wygasa za 5 dni'), findsOneWidget);
     });
   });
 
@@ -139,7 +144,7 @@ void main() {
       final stamped = '${expiry.year}-'
           '${expiry.month.toString().padLeft(2, "0")}-'
           '${expiry.day.toString().padLeft(2, "0")}';
-      expect(find.textContaining('WPQR expired $stamped'), findsOneWidget);
+      expect(find.textContaining('Welder qualification expired $stamped'), findsOneWidget);
       expect(_accent(tester), kFail);
     });
 
@@ -160,9 +165,24 @@ void main() {
       ));
 
       expect(_accent(tester), kFail);
-      expect(find.textContaining('WPQR expired'), findsOneWidget);
+      expect(find.textContaining('Welder qualification expired'), findsOneWidget);
       expect(find.textContaining('expires today'), findsNothing);
     });
+  });
+
+  testWidgets('the banner never calls the welder qualification "WPQR"',
+      (tester) async {
+    for (final lang in AppLanguage.values) {
+      for (final expiry in [
+        DateTime.now().add(const Duration(days: 5, hours: 1)),
+        DateTime.now().subtract(const Duration(days: 3)),
+      ]) {
+        await tester.pumpWidget(
+            _wrap(WpqrChip(identity: _welder(expiry: expiry)), lang: lang));
+        expect(find.textContaining('WPQR'), findsNothing,
+            reason: '$lang, $expiry');
+      }
+    }
   });
 
   group('wpqrWarningOf', () {

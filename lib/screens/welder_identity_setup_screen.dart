@@ -2,12 +2,22 @@
 // register_screen with a persistent welder identity setup flow that
 // satisfies ISO 3834, EN ISO 9606 and ASME IX QW-301 documentation
 // requirements (unique welder identifier on every joint).
+//
+// v21: the "WPQR / WPS no" and "WPQR expiry" fields are gone from this form.
+// They mixed the welder's own qualification (EN ISO 9606-1 certificate /
+// ASME WPQ) with the procedure record (WPQR, EN ISO 15614-1), and one number
+// with one date could not hold a welder's real set of certificates. The
+// qualifications now live in their own register (CertificateRegisterPage),
+// linked from here; the old values were migrated there and are kept,
+// untouched, in the stored identity.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../features/qualification/certificate_register_page.dart';
 import '../i18n/app_language.dart';
 import '../services/welder_identity.dart';
+import '../theme/app_theme.dart';
 
 class WelderIdentitySetupScreen extends StatefulWidget {
   const WelderIdentitySetupScreen({super.key});
@@ -24,10 +34,7 @@ class _WelderIdentitySetupScreenState
   final _stampCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
-  final _wpqrNoCtrl = TextEditingController();
 
-  DateTime? _wpqrExpiry;
-  CertificationBody _certBody = CertificationBody.udt;
   bool _gdprConsent = false;
   bool _qualDeclared = false;
   bool _saving = false;
@@ -47,9 +54,6 @@ class _WelderIdentitySetupScreenState
       _stampCtrl.text = existing.stamp;
       _nameCtrl.text = existing.displayName ?? '';
       _emailCtrl.text = existing.email ?? '';
-      _wpqrNoCtrl.text = existing.wpqrNo ?? '';
-      _wpqrExpiry = existing.wpqrExpiry;
-      _certBody = existing.certBody;
       // Consent + declaration timestamps already captured — pre-tick them
       // so the welder doesn't have to re-affirm a returning-user edit.
       _gdprConsent = true;
@@ -62,24 +66,13 @@ class _WelderIdentitySetupScreenState
     _stampCtrl.dispose();
     _nameCtrl.dispose();
     _emailCtrl.dispose();
-    _wpqrNoCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _pickWpqrExpiry() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _wpqrExpiry ?? DateTime(now.year + 3, now.month, now.day),
-      // EN ISO 9606 qualifications are typically valid for 3 years.
-      // Allow back-dating in case the welder is recording an already-
-      // expired cert; cap forward window at 6 y (TÜV/ASME extended).
-      firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 6),
-    );
-    if (picked != null) {
-      setState(() => _wpqrExpiry = picked);
-    }
+  Future<void> _openQualifications() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => const CertificateRegisterPage(),
+    ));
   }
 
   Future<void> _save() async {
@@ -108,11 +101,12 @@ class _WelderIdentitySetupScreenState
     final existing = WelderIdentityService.instance.current;
     final identity = WelderIdentity(
       stamp: _stampCtrl.text.trim().toUpperCase(),
-      wpqrNo: _wpqrNoCtrl.text.trim().isEmpty
-          ? null
-          : _wpqrNoCtrl.text.trim(),
-      wpqrExpiry: _wpqrExpiry,
-      certBody: _certBody,
+      // Legacy qualification fields: no longer edited here (see the header),
+      // but carried over unchanged so re-saving the identity never erases
+      // what the welder typed before v21.
+      wpqrNo: existing?.wpqrNo,
+      wpqrExpiry: existing?.wpqrExpiry,
+      certBody: existing?.certBody ?? CertificationBody.other,
       displayName: _nameCtrl.text.trim().isEmpty
           ? null
           : _nameCtrl.text.trim(),
@@ -239,55 +233,33 @@ class _WelderIdentitySetupScreenState
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<CertificationBody>(
-              initialValue: _certBody,
-              decoration: InputDecoration(
-                labelText: _tr('Jednostka certyfikująca',
-                    'Certification body'),
-                border: const OutlineInputBorder(),
-              ),
-              items: [
-                for (final c in CertificationBody.values)
-                  DropdownMenuItem(value: c, child: Text(c.label)),
-              ],
-              onChanged: (v) =>
-                  setState(() => _certBody = v ?? CertificationBody.other),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _wpqrNoCtrl,
-              maxLength: 40,
-              inputFormatters: [
-                FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
-              ],
-              decoration: InputDecoration(
-                labelText: _tr(
-                  'Nr WPQR / WPS (opcjonalnie)',
-                  'WPQR / WPS no (optional)',
+            // Kwalifikacje spawacza mają własny rejestr — wiele certyfikatów,
+            // zakres i terminy 6-miesięczne. Tu tylko wejście.
+            Material(
+              color: kCard,
+              borderRadius: BorderRadius.circular(10),
+              child: ListTile(
+                key: const ValueKey('identity-open-qualifications'),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: kBorder),
                 ),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: _pickWpqrExpiry,
-              borderRadius: BorderRadius.circular(4),
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: _tr(
-                    'Data ważności WPQR (opcjonalnie)',
-                    'WPQR expiry (optional)',
-                  ),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: const Icon(Icons.calendar_today),
-                ),
-                child: Text(
-                  _wpqrExpiry == null
-                      ? _tr('Nie ustawiono', 'Not set')
-                      : '${_wpqrExpiry!.year}-'
-                          '${_wpqrExpiry!.month.toString().padLeft(2, "0")}-'
-                          '${_wpqrExpiry!.day.toString().padLeft(2, "0")}',
-                ),
+                leading: const Icon(Icons.workspace_premium_outlined,
+                    color: kArc),
+                title: Text(_tr(
+                  'Uprawnienia spawacza (ISO 9606-1 / ASME WPQ)',
+                  'Welder qualifications (ISO 9606-1 / ASME WPQ)',
+                )),
+                subtitle: Text(_tr(
+                  'Certyfikaty, zakres, ważność i potwierdzenia co 6 '
+                      'miesięcy — osobny rejestr. Numer WPS wpisuje się '
+                      'w Bibliotece WPS.',
+                  'Certificates, range, validity and 6-month confirmations '
+                      '— a separate register. WPS numbers go into the WPS '
+                      'library.',
+                )),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openQualifications,
               ),
             ),
             const SizedBox(height: 24),
