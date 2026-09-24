@@ -28,7 +28,22 @@ const Color kGold = Color(0xFFE8C14B);
 // ── Tekst ───────────────────────────────────────────────────────────────────
 const Color kText = Color(0xFFE7ECF3);
 const Color kTextSec = Color(0xFF9BA3C7);
-const Color kTextMut = Color(0xFF5A6478);
+
+/// Tekst drugorzędny: etykiety, jednostki, podpowiedzi.
+///
+/// Był #5A6478 — 3,25:1 na [kBg] i 2,98:1 na [kCard], czyli poniżej progu
+/// WCAG AA (4,5:1) dla zwykłego tekstu. Na rusztowaniu w pełnym słońcu takie
+/// etykiety po prostu znikały. Obecna wartość (luminancja względna WCAG 2.x):
+///   • na kBg   (#0B0E13): 6,03:1
+///   • na kCard (#141821): 5,54:1
+///   • na kBorder (#2A3140): 4,07:1 — tylko ikony/linie, nie tekst.
+/// Nadal wyraźnie ciemniejszy od [kTextSec] (7,78:1 na kBg), więc hierarchia
+/// zostaje. Strażnik: test/theme/contrast_test.dart.
+const Color kTextMut = Color(0xFF8590A8);
+
+/// Tekst na bursztynowym tle ([kArc]): FAB, zaznaczony segment, przycisk
+/// główny. Biały na kArc to 2,30:1 — nieczytelny w słońcu; czarny to 9,14:1.
+const Color kOnArc = Colors.black;
 
 // ── Semantyka stanu ─────────────────────────────────────────────────────────
 const Color kPass = Color(0xFF35C88B);
@@ -36,7 +51,8 @@ const Color kWarn = Color(0xFFF5B23D);
 const Color kFail = Color(0xFFF0655A);
 
 /// Minimalny cel dotyku. Monter pracuje w rękawicy — nic mniejszego.
-const double kMinTapTarget = 44;
+/// 48 dp to minimum Material/Androida (iOS: 44 pt); rękawica nie trafia w mniej.
+const double kMinTapTarget = 48;
 
 ThemeData buildAppTheme() {
   return ThemeData(
@@ -87,7 +103,7 @@ ThemeData buildAppTheme() {
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: kArc,
-        foregroundColor: Colors.black,
+        foregroundColor: kOnArc,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
         minimumSize: const Size(0, kMinTapTarget),
@@ -122,7 +138,8 @@ ThemeData buildAppTheme() {
     ),
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
       backgroundColor: kArc,
-      foregroundColor: Colors.white,
+      // Ciemny tekst na bursztynie: 9,14:1 zamiast 2,30:1 dla białego.
+      foregroundColor: kOnArc,
       elevation: 2,
       shape: StadiumBorder(),
     ),
@@ -196,7 +213,8 @@ ThemeData buildAppTheme() {
           return kCard;
         }),
         foregroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return Colors.white;
+          // Ciemny tekst na bursztynie (9,14:1); biały dawał 2,30:1.
+          if (states.contains(WidgetState.selected)) return kOnArc;
           return kTextSec;
         }),
         side: WidgetStateProperty.all(const BorderSide(color: kBorder)),

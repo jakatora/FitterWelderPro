@@ -5,14 +5,19 @@ import 'support/test_database.dart';
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/models/project.dart';
+import 'package:cut_list_app/screens/chat_screen.dart';
+import 'package:cut_list_app/screens/consent_screen.dart';
+import 'package:cut_list_app/screens/home_screen.dart';
+import 'package:cut_list_app/screens/onboarding_name_screen.dart';
+import 'package:cut_list_app/services/legal_consent.dart';
 
 import 'test_prefs.dart';
 
 void main() {
   useTestDatabase();
 
-  /// Brama startowa robi teraz DWA odczyty asynchroniczne (profil + zgoda),
-  /// a po akceptacji jeszcze zapis. Kilka klatek to za mało.
+  /// Ekran główny czyta profil, zgodę, bazę i listę ostatnio używanych
+  /// narzędzi — kilka klatek to za mało.
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 8; i++) {
       await flushTestDatabase(tester);
@@ -20,24 +25,24 @@ void main() {
     }
   }
 
-  /// Domyślne płótno testu (800×600) jest niższe niż telefon. Po dodaniu zgody
-  /// przycisk w onboardingu wypadał poza ekran i nie dawał się kliknąć.
+  /// Domyślne płótno testu (800×600) jest niższe niż telefon.
   void useTallSurface(WidgetTester tester) {
     tester.view.physicalSize = const Size(1100, 2200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('shows the FITTER tile on home for an onboarded user',
+  testWidgets('shows the MONTER tile on home for an onboarded user',
       (tester) async {
     useTallSurface(tester);
     seedOnboardedUser();
     await tester.pumpWidget(const CutListApp());
     await settle(tester);
 
-    // FITTER is identical in both PL and EN locales so the test is robust to
-    // whichever language the device defaults to.
-    expect(find.text('FITTER'), findsOneWidget);
+    // PL: MONTER / SPAWACZ (dawniej nietłumaczone „FITTER" obok „SPAWACZ").
+    expect(find.text('MONTER'), findsOneWidget);
+    expect(find.text('SPAWACZ'), findsOneWidget);
+    expect(find.text('FITTER'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
@@ -71,53 +76,53 @@ void main() {
     }
   });
 
-  testWidgets('pierwsze uruchomienie wymaga imienia I akceptacji zasad',
+  testWidgets(
+      'pierwsze uruchomienie: od razu ekran główny, bez imienia i bez zgody',
       (tester) async {
     useTallSurface(tester);
     seedFreshInstall();
     await tester.pumpWidget(const CutListApp());
     await settle(tester);
 
-    expect(find.text('FITTER'), findsNothing);
-
-    final fields = find.byType(TextField);
-    expect(fields, findsNWidgets(2));
-    await tester.enterText(fields.at(0), 'Marek');
-    await tester.enterText(fields.at(1), 'Kowalczyk');
-    await settle(tester);
-
-    // Samo imię nie wystarczy — bez zgody przycisk jest wyłączony.
-    final cta = tester.widget<FilledButton>(find.byType(FilledButton));
-    expect(cta.onPressed, isNull,
-        reason: 'Nie wolno wpuścić nikogo, kto nie zaakceptował zasad');
-
-    await tester.tap(find.byType(Checkbox));
-    await settle(tester);
-    await tester.tap(find.byType(FilledButton));
-    await settle(tester);
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.text('FITTER'), findsOneWidget);
+    // Kalkulatory działają offline i bez konta — nic nie stoi przed nimi.
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byType(OnboardingNameScreen), findsNothing);
+    expect(find.byType(ConsentScreen), findsNothing);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(find.text('MONTER'), findsOneWidget);
+    // Bez imienia powitanie jest ogólne.
+    expect(find.text('Witaj'), findsOneWidget);
   });
 
-  testWidgets('użytkownik sprzed regulaminu musi go zaakceptować',
-      (tester) async {
+  testWidgets(
+      'użytkownik sprzed regulaminu wchodzi do narzędzi; zasady dopiero przy '
+      'czacie', (tester) async {
     useTallSurface(tester);
     seedProfileWithoutConsent();
     await tester.pumpWidget(const CutListApp());
     await settle(tester);
 
-    // Ma profil, więc onboardingu nie widzi — ale do narzędzi jeszcze nie wchodzi.
-    expect(find.byType(TextField), findsNothing);
-    expect(find.text('FITTER'), findsNothing);
-    expect(find.byType(Checkbox), findsOneWidget);
+    // Ma profil bez zgody — i nadal widzi narzędzia.
+    expect(find.text('MONTER'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.forum_outlined)); // CZAT
+    await settle(tester);
+
+    // Bramka czatu: sam ekran zasad (imię już jest).
+    expect(find.byType(ConsentScreen), findsOneWidget);
+    expect(find.byType(ChatScreen), findsNothing);
 
     await tester.tap(find.byType(Checkbox));
     await settle(tester);
     await tester.tap(find.byType(FilledButton));
     await settle(tester);
-    await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('FITTER'), findsOneWidget);
+    expect(LegalConsent.instance.isAccepted, isTrue);
+    expect(find.byType(ChatScreen), findsOneWidget);
+
+    // Domknij żądania czatu (odpowiedź 400 z atrapy HTTP, limit czasu 8 s).
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpWidget(const SizedBox());
   });
 }

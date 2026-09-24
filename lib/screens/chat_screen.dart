@@ -9,6 +9,7 @@ import '../services/chat_service.dart';
 import '../services/content_filter.dart';
 import '../services/premium_service.dart';
 import '../utils/haptic.dart';
+import '../widgets/community_gate.dart';
 import 'profile_screen.dart';
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
@@ -315,6 +316,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   final Set<String> _seenKeys = <String>{};
   bool _loading = true;
   bool _sending = false;
+
+  /// Bramka imienia i zasad jest właśnie na ekranie — drugie stuknięcie
+  /// „Wyślij" nie może otworzyć jej drugi raz.
+  bool _gating = false;
   // P3-13 — polling loading dot in AppBar. Goes true around each poll so the
   // user can see "the app is alive and watching the channel".
   bool _polling = false;
@@ -504,6 +509,17 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
         duration: const Duration(seconds: 4),
       ));
       return;
+    }
+    // Ostatnia linia obrony przed wysłaniem bez podpisu i bez zasad. Zwykle
+    // przepuszcza od razu — wejście na czat (ekran główny) już przeszło
+    // bramkę. Łapie wejścia z pominięciem bramki i zmianę zasad (podniesione
+    // kLegalVersion) w trakcie sesji.
+    if (!hasCommunityAccess) {
+      if (_gating) return;
+      _gating = true;
+      final ok = await ensureCommunityAccess(context);
+      _gating = false;
+      if (!ok || !mounted) return;
     }
     setState(() => _sending = true);
     try {

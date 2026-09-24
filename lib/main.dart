@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 
 import 'app.dart';
 import 'data/db_bootstrap.dart';
+import 'i18n/app_language.dart';
 import 'services/premium_service.dart';
 import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
@@ -39,12 +40,18 @@ void main() {
     return null;
   });
 
-  // Warm the first-run user profile (first + last name) so the RootGate can
-  // decide onboarding-vs-home from cache without a visible spinner flash.
+  // Warm the user profile (first + last name) so the home screen can greet
+  // the user by name on the first frame. The profile is no longer required to
+  // open the app — only the chat asks for it (see community_gate.dart).
   UserProfileService.instance.get().catchError((Object e) {
     debugPrint('UserProfileService startup hydrate failed: $e');
     return null;
   });
+
+  // Język MUSI być znany przed runApp: AppLanguageController.current jest
+  // czytany statycznie poza drzewem (formatowanie liczb, komunikaty po await).
+  // Zapisany wybór, a bez niego język telefonu. Nigdy nie rzuca.
+  await AppLanguageController.restore();
 
   runApp(const CutListApp());
 }
