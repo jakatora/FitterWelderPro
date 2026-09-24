@@ -12,6 +12,7 @@ import '../i18n/app_language.dart';
 import '../models/library_component.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
+import '../services/heat_photo_storage.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
 
@@ -147,19 +148,48 @@ class _ProjectComponentsScreenState extends State<ProjectComponentsScreen> {
     final heatNo = heatCtrl.text.trim();
     if (heatNo.isEmpty) return;
 
+    // The picker's path points into its own cache (or the gallery): cleared
+    // with the cache and never part of a backup. Store a copy the app owns
+    // in <documents>/heat_photos instead — copied only now, after "Zapisz",
+    // so a cancelled dialog leaves no stray file behind.
+    final pickedPath = imgPath;
+    String? storedPath = pickedPath;
+    var photoKeptAsLink = false;
+    if (pickedPath != null) {
+      try {
+        storedPath = await persistPickedHeatPhoto(pickedPath);
+      } catch (e) {
+        // The heat number is the record; do not throw it away over a photo.
+        // Keep the original path (the backup still picks that file up while
+        // it exists) and say so.
+        debugPrint('ProjectComponents photo copy failed: $e');
+        photoKeptAsLink = true;
+      }
+    }
+
     final now = DateTime.now().millisecondsSinceEpoch;
     await _heatDao.insert({
       'id': const Uuid().v4(),
       'project_id': p.id,
       'component_key': inst.componentKey,
       'heat_no': heatNo,
-      'image_path': imgPath,
+      'image_path': storedPath,
       'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
       'created_at': now,
     });
 
     if (!mounted) return;
     setState(() {});
+    if (photoKeptAsLink) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Zapisano heat, ale zdjęcia nie udało się skopiować do aplikacji '
+              '— zapamiętano tylko odnośnik do oryginału.',
+          en: 'Heat saved, but the photo could not be copied into the app '
+              '— only a link to the original was kept.',
+        )),
+      ));
+    }
   }
 
   @override

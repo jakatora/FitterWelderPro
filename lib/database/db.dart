@@ -13,7 +13,13 @@ class AppDatabase {
   // Bump this whenever you change schema.
   // v16: schema self-heal for users who installed earlier builds with version
   // already bumped but missing some columns (e.g. projects.gap_mm).
-  static const int _dbVersion = 17;
+  // v18: the weld journal, the test-coupon log and the pressure-test register
+  //   move from lazy screen-side CREATE TABLE into this schema (a phone that
+  //   had never opened those screens had no table, so a restored backup
+  //   silently dropped their rows), plus `iso_drawings` for the ISO notebook
+  //   autosave. The step also widens a weld_journal created by the oldest
+  //   screen code to the full weld-map shape.
+  static const int _dbVersion = 18;
 
   /// The schema version [get] opens the database at.
   ///
@@ -290,6 +296,23 @@ CREATE TABLE IF NOT EXISTS projects (
       await _seedApprovedData(db);
     }
 
+    // ---- v18: registers that used to be created by their screens.
+    //
+    // _createTables (top of this method) already created weld_journal,
+    // weld_coupons, hydrotest_records and iso_drawings where they were
+    // missing. Where the SCREEN had created them first, CREATE TABLE IF NOT
+    // EXISTS left the old table alone — and weld_journal_screen.dart shipped
+    // with 12 columns and grew the ASME BPE weld-map ones (and later wps_ref)
+    // through its own ALTER TABLE on screen open. A welder who had not opened
+    // the journal since then still carries the 12-column table, so widen it
+    // here. Rows are untouched; the new columns start NULL, which WeldEntry
+    // already reads as its defaults.
+    if (oldVersion < 18) {
+      for (final column in _kWeldJournalLateColumns) {
+        await _ensureColumn(db, 'weld_journal', column, 'TEXT');
+      }
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -321,13 +344,34 @@ CREATE TABLE IF NOT EXISTS projects (
     await _createIndexes(db);
   }
 
+  /// Creates every table of the current schema that [db] is missing, and
+  /// touches nothing that already exists.
+  ///
+  /// For callers outside the open/upgrade path that need "the tables this
+  /// app owns" to be present — the backup restore calls it inside its own
+  /// transaction before refilling, so a table known to this schema is never
+  /// skipped just because the live file happens to lack it.
+  static Future<void> ensureTables(DatabaseExecutor db) => _createTables(db);
+
+  /// Columns weld_journal_screen.dart added to its own table with ALTER TABLE
+  /// after the first release (ASME BPE weld map, then the WPS reference).
+  static const List<String> _kWeldJournalLateColumns = <String>[
+    'weld_type',
+    'fitter',
+    'heat_no1',
+    'heat_no2',
+    'coupon_ref',
+    'exam',
+    'wps_ref',
+  ];
+
   /// CREATE TABLE IF NOT EXISTS for every table, and nothing else.
   ///
   /// Safe to run against a database of ANY vintage, which is what makes it
   /// usable as the self-heal at the top of [migrate]: none of these
   /// statements names a column of a table it is not itself creating, so an
   /// old table simply survives untouched.
-  static Future<void> _createTables(Database db) async {
+  static Future<void> _createTables(DatabaseExecutor db) async {
     await db.execute('''
 CREATE TABLE IF NOT EXISTS component_library (
   id TEXT PRIMARY KEY,
@@ -460,6 +504,88 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   updated_at INTEGER NOT NULL
 );
 ''');
+
+    // ---- Registers (v18). Until v18 each of these was created lazily by
+    // its own screen/DAO; the column lists are exactly what that code built
+    // (see _kWeldJournalLateColumns for how weld_journal got its last seven),
+    // so a table the old code created and one created here are the same.
+    // Every column is nullable on purpose: these are field records, and a
+    // half-filled row is still evidence worth keeping.
+    //
+    // Weld journal — weld_journal_screen.dart (WeldJournalDao / WeldEntry).
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_journal (
+  id TEXT PRIMARY KEY,
+  weld_no TEXT,
+  project_name TEXT,
+  pipe_name TEXT,
+  material TEXT,
+  od TEXT,
+  t TEXT,
+  method TEXT,
+  welder TEXT,
+  date TEXT,
+  notes TEXT,
+  status TEXT,
+  weld_type TEXT,
+  fitter TEXT,
+  heat_no1 TEXT,
+  heat_no2 TEXT,
+  coupon_ref TEXT,
+  exam TEXT,
+  wps_ref TEXT
+);
+''');
+    // Daily test-coupon log — coupon_log_screen.dart (CouponDao).
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_coupons (
+  id TEXT PRIMARY KEY,
+  date TEXT,
+  welder TEXT,
+  machine TEXT,
+  size TEXT,
+  result TEXT,
+  notes TEXT
+);
+''');
+    // Pressure-test register — hydrotest_dao.dart. Units: bar, °C, minutes,
+    // litres, MILLIMETRES (line_length_mm too; see the DAO's library doc).
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS hydrotest_records (
+  id TEXT PRIMARY KEY,
+  system_name TEXT,
+  test_date TEXT,
+  gauge TEXT,
+  pressure_start_bar REAL,
+  pressure_end_bar REAL,
+  temperature_c REAL,
+  hold_minutes REAL,
+  result TEXT,
+  witness TEXT,
+  od_mm REAL,
+  wall_mm REAL,
+  line_length_mm REAL,
+  design_bar REAL,
+  factor REAL,
+  test_pressure_bar REAL,
+  volume_l REAL,
+  notes TEXT,
+  created_at INTEGER
+);
+''');
+    // ISO notebook sketches — iso_drawing_dao.dart. `json` is the whole
+    // drawing in the versioned format of iso_notebook_sketch_codec.dart; the
+    // name is duplicated into its own column so a list of sketches does not
+    // have to parse every drawing.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS iso_drawings (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
   }
 
   /// CREATE INDEX IF NOT EXISTS for every index.
@@ -471,7 +597,7 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   /// column ladder throws "no such column: material_group" and takes the
   /// whole migration - and the app launch - down with it. [migrate]
   /// therefore calls it last, once every column is in place.
-  static Future<void> _createIndexes(Database db) async {
+  static Future<void> _createIndexes(DatabaseExecutor db) async {
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
     await db.execute(
@@ -488,6 +614,12 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
         'CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
+    // Same name and definition HydrotestDao used to create, so a device that
+    // already has it keeps it.
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hydrotest_created ON hydrotest_records(created_at DESC);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_iso_drawings_updated ON iso_drawings(updated_at);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {

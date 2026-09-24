@@ -445,4 +445,114 @@ void main() {
       expect(rows.single['image_path'], '/old/heat_photos/uuid-1.jpg');
     });
   });
+
+  group('archiveNameForExternalPhoto', () {
+    test('keeps the file name readable and marks it as adopted', () {
+      final taken = <String>{};
+      final name =
+          archiveNameForExternalPhoto('/storage/DCIM/Camera/IMG_0001.jpg', taken);
+      expect(name, startsWith('ext-'));
+      expect(name, endsWith('-IMG_0001.jpg'));
+      expect(taken, contains(name));
+    });
+
+    test('is stable for the same source path across two backups', () {
+      expect(
+        archiveNameForExternalPhoto('/a/b/photo.jpg', <String>{}),
+        archiveNameForExternalPhoto('/a/b/photo.jpg', <String>{}),
+      );
+    });
+
+    test('two folders with the same file name never share an entry', () {
+      final taken = <String>{'photo.jpg'};
+      final a = archiveNameForExternalPhoto('/DCIM/photo.jpg', taken);
+      final b = archiveNameForExternalPhoto('/Download/photo.jpg', taken);
+      expect(a, isNot(b));
+      expect(a, isNot('photo.jpg'));
+      expect(b, isNot('photo.jpg'));
+    });
+
+    test('an exact name clash gets a counter before the extension', () {
+      final taken = <String>{};
+      final first = archiveNameForExternalPhoto('/x/photo.jpg', taken);
+      final second = archiveNameForExternalPhoto('/x/photo.jpg', taken);
+      expect(second, isNot(first));
+      expect(second, endsWith('-2.jpg'));
+    });
+
+    test('never produces a name that climbs out of the photo folder', () {
+      final name = archiveNameForExternalPhoto('/weird/..', <String>{});
+      expect(name, isNot(contains('/')));
+      expect(name, isNot(contains(r'\')));
+      expect(name, isNot('..'));
+    });
+  });
+
+  group('droppedColumnsWithData', () {
+    test('reports only columns that carried a value', () {
+      expect(
+        droppedColumnsWithData(
+          [
+            {'id': 'a', 'machine': 'M-3', 'extra': null},
+            {'id': 'b', 'zeta': 0},
+          ],
+          {'id'},
+        ),
+        ['machine', 'zeta'],
+      );
+    });
+
+    test('is empty when every column has a place', () {
+      expect(
+        droppedColumnsWithData([
+          {'id': 'a', 'date': '2026-09-20'}
+        ], {'id', 'date'}),
+        isEmpty,
+      );
+    });
+  });
+
+  group('RestoreReport', () {
+    RestoreReport report({
+      List<SkippedTable> skipped = const [],
+      Map<String, List<String>> dropped = const {},
+    }) =>
+        RestoreReport(
+          createdAt: _when,
+          databaseCount: 2,
+          rowCount: 10,
+          photoCount: 1,
+          skippedTables: skipped,
+          droppedColumns: dropped,
+        );
+
+    test('a complete restore carries no warning', () {
+      final r = report();
+      expect(r.isComplete, isTrue);
+      expect(r.warningPl, isNull);
+      expect(r.warningEn, isNull);
+    });
+
+    test('an empty unknown table is not worth a warning', () {
+      final r = report(skipped: const [
+        SkippedTable(database: 'cutlist.db', table: 'future', rowCount: 0),
+      ]);
+      expect(r.isComplete, isTrue);
+    });
+
+    test('names the skipped table and the lost columns in both languages', () {
+      final r = report(
+        skipped: const [
+          SkippedTable(database: 'cutlist.db', table: 'future', rowCount: 3),
+        ],
+        dropped: const {
+          'cutlist.db/weld_coupons': ['machine'],
+        },
+      );
+      expect(r.isComplete, isFalse);
+      expect(r.warningPl, contains('future (rekordy: 3)'));
+      expect(r.warningPl, contains('machine'));
+      expect(r.warningEn, contains('future (records: 3)'));
+    });
+  });
 }

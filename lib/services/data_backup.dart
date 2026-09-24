@@ -63,6 +63,20 @@
 /// whose file name is present in the archive is re-anchored to this device's
 /// `heat_photos` directory ([relinkPhotoPath]).
 ///
+/// Some rows point OUTSIDE `heat_photos` — component heats picked before the
+/// picker started copying into the app store the gallery path FilePicker
+/// returned. Backup pulls those files into the archive too, under a
+/// collision-free name ([archiveNameForExternalPhoto]), and points the
+/// database SNAPSHOT at that name; the live row is never touched. After a
+/// restore they sit in `heat_photos` like every other photo.
+///
+/// ## Nothing is skipped silently
+/// A backup table the device lacks is created first when it belongs to the
+/// app's schema ([cutlist_db.AppDatabase.ensureTables]); one this version
+/// does not know at all, or a column with data that has no place to go, is
+/// listed in the [RestoreReport] ([RestoreReport.warningPl]) instead of
+/// vanishing.
+///
 /// ## What is deliberately NOT in the backup
 /// Everything stored in `SharedPreferences`: the user profile, the welder
 /// identity (stamp / WPQR), the accepted rules version, and — decisively —
@@ -75,14 +89,16 @@
 /// As in `weld_journal_export.dart`, the top half is PURE Dart — file naming,
 /// the ZIP codec, manifest parsing, archive validation, row projection — with
 /// no I/O, no plugins and no globals, and is covered by
-/// `test/services/data_backup_test.dart`. The bottom half ([DataBackup]) does
-/// the platform work and is verified by reading.
+/// `test/services/data_backup_test.dart`. The bottom half ([DataBackup],
+/// [restoreTablesInto]) does the platform work and is driven end to end on
+/// real SQLite files by `test/services/data_backup_restore_test.dart`.
 library;
 
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -90,6 +106,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../data/app_database.dart' as module_db;
 import '../database/db.dart' as cutlist_db;
+import 'heat_photo_storage.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PURE HALF — naming, ZIP codec, manifest, validation, row projection.
@@ -224,6 +241,73 @@ bool isRestorableTable(String name) {
   if (name.toLowerCase().startsWith('sqlite_')) return false;
   if (name == 'android_metadata') return false;
   return true;
+}
+
+/// Name under which a photo that lives OUTSIDE `heat_photos` (a gallery or
+/// Downloads file an older build referenced in place) is stored in the
+/// archive, and therefore in `heat_photos` after a restore.
+///
+/// Why not the plain file name: restore re-anchors rows by file name
+/// ([relinkPhotoPath]), and `IMG_0001.jpg` from the camera, `photo.jpg` from
+/// Downloads and an app-owned `photo.jpg` would all collapse into one entry —
+/// the row would silently end up showing somebody else's certificate. The
+/// prefix is a CRC of the full source path (stable across two backups of the
+/// same data) plus a counter when even that collides. [taken] holds every
+/// name already used in this archive and is updated.
+String archiveNameForExternalPhoto(String sourcePath, Set<String> taken) {
+  var base = zipEntryBaseName(sourcePath).trim();
+  if (base.isEmpty || base == '.' || base == '..') base = 'photo.jpg';
+  final tag = crc32(utf8.encode(sourcePath)).toRadixString(16).padLeft(8, '0');
+  final dot = base.lastIndexOf('.');
+  final stem = dot > 0 ? base.substring(0, dot) : base;
+  final ext = dot > 0 ? base.substring(dot) : '';
+  var candidate = 'ext-$tag-$base';
+  var n = 2;
+  while (taken.contains(candidate)) {
+    candidate = 'ext-$tag-$stem-$n$ext';
+    n++;
+  }
+  taken.add(candidate);
+  return candidate;
+}
+
+/// Columns of one table's backup [rows] that the live table does not have
+/// ([liveColumns]) AND that actually held a value in at least one row,
+/// sorted.
+///
+/// [prepareRows] has to drop such columns (there is nowhere to put them),
+/// but it must not do so silently: a column that was only ever NULL loses
+/// nothing, one that carried data is reported to the user.
+List<String> droppedColumnsWithData(
+  List<Map<String, Object?>> rows,
+  Set<String> liveColumns,
+) {
+  final lost = <String>{};
+  for (final row in rows) {
+    for (final entry in row.entries) {
+      if (entry.value == null) continue;
+      if (liveColumns.contains(entry.key)) continue;
+      lost.add(entry.key);
+    }
+  }
+  return lost.toList()..sort();
+}
+
+/// A table the backup carried that this device had no place for.
+class SkippedTable {
+  /// Database file the table came from, e.g. `cutlist.db`.
+  final String database;
+  final String table;
+  final int rowCount;
+
+  const SkippedTable({
+    required this.database,
+    required this.table,
+    required this.rowCount,
+  });
+
+  @override
+  String toString() => '$database/$table ($rowCount)';
 }
 
 /// Keeps only columns the *live* schema still has, and re-anchors photo paths.
@@ -768,26 +852,190 @@ class RestoreReport {
   final int rowCount;
   final int photoCount;
 
+  /// Tables in the backup this app version has no table for (typically a
+  /// backup made by a NEWER version). Their rows were not restored. A table
+  /// that belongs to this app's own schema is never listed here: it is
+  /// created first and then refilled.
+  final List<SkippedTable> skippedTables;
+
+  /// `db/table` → columns that carried data in the backup but do not exist
+  /// on this device, so their values could not be restored.
+  final Map<String, List<String>> droppedColumns;
+
   const RestoreReport({
     required this.createdAt,
     required this.databaseCount,
     required this.rowCount,
     required this.photoCount,
+    this.skippedTables = const [],
+    this.droppedColumns = const {},
   });
+
+  /// Skipped tables that actually held rows — the ones worth telling the
+  /// user about. An empty table left behind loses nothing.
+  List<SkippedTable> get lostTables =>
+      skippedTables.where((t) => t.rowCount > 0).toList(growable: false);
+
+  /// True when everything the backup carried found a place on this device.
+  bool get isComplete => lostTables.isEmpty && droppedColumns.isEmpty;
+
+  /// One-line warning for the restore confirmation, or null when
+  /// [isComplete]. Both languages, because a service has no BuildContext —
+  /// the screen picks with `context.tr(pl: warningPl!, en: warningEn!)`.
+  String? get warningPl {
+    if (isComplete) return null;
+    final parts = <String>[
+      for (final t in lostTables) '${t.table} (rekordy: ${t.rowCount})',
+      for (final e in droppedColumns.entries) '${e.key}: ${e.value.join(', ')}',
+    ];
+    return 'Części danych z kopii ta wersja aplikacji nie umie zapisać — '
+        'zaktualizuj aplikację i przywróć kopię jeszcze raz. '
+        'Pominięto: ${parts.join('; ')}.';
+  }
+
+  String? get warningEn {
+    if (isComplete) return null;
+    final parts = <String>[
+      for (final t in lostTables) '${t.table} (records: ${t.rowCount})',
+      for (final e in droppedColumns.entries) '${e.key}: ${e.value.join(', ')}',
+    ];
+    return 'This app version cannot store part of the backup — update the '
+        'app and restore the backup again. Skipped: ${parts.join('; ')}.';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PLATFORM HALF — files, sqflite, share sheet. Verified by reading.
+// PLATFORM HALF — files, sqflite, share sheet. Covered end to end by
+// test/services/data_backup_restore_test.dart on real SQLite files.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// One live SQLite file the app owns, with the two things backup needs: where
-/// its file is, and how to reach the open handle the rest of the app uses.
+/// Outcome of refilling one database with [restoreTablesInto].
+class TableRestoreResult {
+  final int rowsWritten;
+
+  /// Table → number of backup rows that had no live table to go into.
+  final Map<String, int> skippedTables;
+
+  /// Table → columns whose values had no live column to go into.
+  final Map<String, List<String>> droppedColumns;
+
+  const TableRestoreResult({
+    required this.rowsWritten,
+    required this.skippedTables,
+    required this.droppedColumns,
+  });
+}
+
+/// Wipes and refills [db] from [tables] inside a single transaction.
+///
+/// Only tables the backup mentions are wiped — that is how a table added by
+/// a newer schema version (and its seeded reference data) survives restoring
+/// an older backup instead of ending up empty.
+///
+/// A backup table the live file does not have is NOT silently dropped any
+/// more. [ensureKnownTables], when given, runs first (inside the same
+/// transaction) and creates every table the app's own schema defines; only
+/// what is still missing after that — a table this app version does not
+/// know — is left out, and it is listed in the result so the user hears
+/// about it. The same goes for columns that carried data but have no live
+/// column ([droppedColumnsWithData]).
+Future<TableRestoreResult> restoreTablesInto(
+  Database db,
+  Map<String, List<Map<String, Object?>>> tables, {
+  required String heatPhotosDir,
+  required Set<String> restoredPhotoNames,
+  Future<void> Function(DatabaseExecutor txn)? ensureKnownTables,
+}) async {
+  var written = 0;
+  final skipped = <String, int>{};
+  final dropped = <String, List<String>>{};
+  await db.transaction((txn) async {
+    // `cut_list_app.db` switches `foreign_keys` ON, so deleting parents
+    // before children (or inserting children before parents) would trip a
+    // constraint mid-restore. Deferring the check to COMMIT lets the whole
+    // refill be judged once, as a unit — which is exactly the guarantee the
+    // user was promised.
+    try {
+      await txn.execute('PRAGMA defer_foreign_keys = ON');
+    } catch (_) {
+      // Older SQLite without the pragma: the transaction still rolls back
+      // as a whole, we just lose the ordering freedom.
+    }
+
+    Future<Set<String>> liveTableNames() async => (await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+        .map((row) => row['name'] as String)
+        .where(isRestorableTable)
+        .toSet();
+
+    var liveTables = await liveTableNames();
+    if (ensureKnownTables != null &&
+        tables.keys.any((table) => !liveTables.contains(table))) {
+      await ensureKnownTables(txn);
+      liveTables = await liveTableNames();
+    }
+
+    final batch = txn.batch();
+    for (final table in liveTables) {
+      if (tables.containsKey(table)) batch.delete(table);
+    }
+    for (final entry in tables.entries) {
+      if (!liveTables.contains(entry.key)) {
+        skipped[entry.key] = entry.value.length;
+        continue;
+      }
+      // Safe to interpolate: isRestorableTable() already proved the name is
+      // a plain identifier.
+      final columns = (await txn.rawQuery('PRAGMA table_info("${entry.key}")'))
+          .map((row) => row['name'] as String)
+          .toSet();
+      final lost = droppedColumnsWithData(entry.value, columns);
+      if (lost.isNotEmpty) dropped[entry.key] = lost;
+      final rows = prepareRows(
+        table: entry.key,
+        rows: entry.value,
+        liveColumns: columns,
+        heatPhotosDir: heatPhotosDir,
+        restoredPhotoNames: restoredPhotoNames,
+      );
+      for (final row in rows) {
+        batch.insert(entry.key, row,
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      written += rows.length;
+    }
+    await batch.commit(noResult: true);
+  });
+  return TableRestoreResult(
+    rowsWritten: written,
+    skippedTables: skipped,
+    droppedColumns: dropped,
+  );
+}
+
+/// One live SQLite file the app owns, with the things backup needs: where its
+/// file is, how to reach the open handle the rest of the app uses, and —
+/// where the owner exposes one — how to create the tables its schema knows.
 class _LiveDatabase {
   final String fileName;
   final Future<String> Function() resolvePath;
   final Future<Database> Function() open;
+  final Future<void> Function(DatabaseExecutor txn)? ensureKnownTables;
 
-  const _LiveDatabase(this.fileName, this.resolvePath, this.open);
+  const _LiveDatabase(
+    this.fileName,
+    this.resolvePath,
+    this.open, {
+    this.ensureKnownTables,
+  });
+}
+
+/// A photo going into the archive under `heat_photos/<name>`.
+class _ArchivedPhoto {
+  final String name;
+  final File source;
+
+  const _ArchivedPhoto(this.name, this.source);
 }
 
 class DataBackup {
@@ -804,7 +1052,13 @@ class DataBackup {
       'cutlist.db',
       _cutListDbPath,
       () => cutlist_db.AppDatabase.get(),
+      // Every register (weld journal, coupons, pressure tests, ISO sketches)
+      // lives in this file's schema, so a table of ours that the live file
+      // lacks is created and refilled instead of skipped.
+      ensureKnownTables: cutlist_db.AppDatabase.ensureTables,
     ),
+    // `lib/data/app_database.dart` creates its whole schema on open and
+    // exposes no table-level hook; a backup table it lacks is reported.
     _LiveDatabase(
       'cut_list_app.db',
       _moduleDbPath,
@@ -818,10 +1072,10 @@ class DataBackup {
   static Future<String> _moduleDbPath() async =>
       p.join((await getApplicationDocumentsDirectory()).path, 'cut_list_app.db');
 
-  /// Mirrors `heat_photos_screen.dart`, which copies picked certificate photos
-  /// into `<documents>/heat_photos` precisely so they survive a cache wipe.
-  static Future<Directory> _heatPhotosDir() async =>
-      Directory(p.join((await getApplicationDocumentsDirectory()).path, 'heat_photos'));
+  /// `<documents>/heat_photos`: where `heat_photos_screen.dart` and the
+  /// component-heat picker (via `heat_photo_storage.dart`) copy picked
+  /// certificate photos precisely so they survive a cache wipe.
+  static Future<Directory> _heatPhotosDir() => heatPhotosDirectory();
 
   /// Writes the archive into the temporary directory and returns it.
   ///
@@ -847,14 +1101,28 @@ class DataBackup {
       }
 
       final heatDir = await _heatPhotosDir();
-      final photos = <File>[];
+      final photos = <_ArchivedPhoto>[];
       if (await heatDir.exists()) {
-        for (final item in heatDir.listSync(followLinks: false)) {
-          if (item is File) photos.add(item);
-        }
+        final owned = <File>[
+          for (final item in heatDir.listSync(followLinks: false))
+            if (item is File) item,
+        ];
         // Stable order keeps two backups of unchanged data byte-comparable,
         // which is how a user can tell nothing was lost between them.
-        photos.sort((a, b) => a.path.compareTo(b.path));
+        owned.sort((a, b) => a.path.compareTo(b.path));
+        photos.addAll(owned.map((f) => _ArchivedPhoto(p.basename(f.path), f)));
+      }
+
+      // Rows that point OUTSIDE heat_photos — component heats picked before
+      // the picker started copying into the app, older heat photos — would
+      // otherwise reference a file the archive never carries. Pull those
+      // files in and point the SNAPSHOT (never the live row) at their
+      // archive name, which restore then re-anchors like any other photo.
+      final takenNames = photos.map((photo) => photo.name).toSet();
+      for (final snapshot in snapshots.values) {
+        photos.addAll(
+          await _adoptExternalPhotos(snapshot, heatDir.path, takenNames),
+        );
       }
 
       final manifest = BackupManifest(
@@ -879,8 +1147,8 @@ class DataBackup {
           await sink.flush();
         }
         for (final photo in photos) {
-          zip.addFile('$kPhotoEntryPrefix${p.basename(photo.path)}',
-              await photo.readAsBytes(),
+          zip.addFile('$kPhotoEntryPrefix${photo.name}',
+              await photo.source.readAsBytes(),
               modified: stamp);
           await sink.flush();
         }
@@ -933,6 +1201,96 @@ class DataBackup {
       // is already correct in that case.
     }
     return live.copy(target.path);
+  }
+
+  /// Finds photo paths in [snapshot] that live outside [heatDirPath], and
+  /// returns those files as archive entries under collision-free names
+  /// ([archiveNameForExternalPhoto]), rewriting the snapshot's rows to
+  /// `<heatDirPath>/<that name>` so restore re-anchors them by file name.
+  ///
+  /// Works on the staged SNAPSHOT only: the live database keeps pointing at
+  /// the original file, so making a backup never changes the user's data.
+  /// A path whose file is gone or unreadable is left exactly as stored —
+  /// that string is the only record of which photo the row once had.
+  static Future<List<_ArchivedPhoto>> _adoptExternalPhotos(
+    File snapshot,
+    String heatDirPath,
+    Set<String> takenNames,
+  ) async {
+    final root = p.normalize(heatDirPath);
+    final names = Set<String>.of(takenNames);
+    final adopted = <String, String>{}; // source path → archive name
+    Database? db;
+    try {
+      db = await databaseFactory.openDatabase(
+        snapshot.path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      final tables = (await db.rawQuery(
+              "SELECT name FROM sqlite_master WHERE type = 'table'"))
+          .map((row) => row['name'] as String)
+          .toSet();
+      final targets = <(String, String)>[]; // (table, column) to rewrite
+      for (final entry in kPhotoPathColumns.entries) {
+        final table = entry.key;
+        final column = entry.value;
+        if (!tables.contains(table)) continue;
+        targets.add((table, column));
+        // Identifiers come from the const map above, never from the file.
+        final rows = await db.rawQuery(
+          'SELECT DISTINCT "$column" AS path FROM "$table" '
+          'WHERE "$column" IS NOT NULL',
+        );
+        for (final row in rows) {
+          final stored = row['path'];
+          if (stored is! String || stored.trim().isEmpty) continue;
+          if (adopted.containsKey(stored)) continue;
+          if (p.isWithin(root, p.normalize(stored))) continue;
+          if (!await _isReadableFile(stored)) continue;
+          adopted[stored] = archiveNameForExternalPhoto(stored, names);
+        }
+      }
+      if (adopted.isEmpty) return const [];
+      // All rewrites or none: a half-rewritten snapshot would point rows at
+      // archive names whose files were never added.
+      await db.transaction((txn) async {
+        for (final (table, column) in targets) {
+          for (final e in adopted.entries) {
+            await txn.update(
+              table,
+              <String, Object?>{column: p.join(heatDirPath, e.value)},
+              where: '"$column" = ?',
+              whereArgs: <Object?>[e.key],
+            );
+          }
+        }
+      });
+    } catch (e) {
+      // Never let this extra step fail a backup that worked before it
+      // existed: the rows keep their original paths, as they always did.
+      debugPrint('Backup: adopting photos outside heat_photos failed: $e');
+      return const [];
+    } finally {
+      await db?.close();
+    }
+    takenNames.addAll(names);
+    return [
+      for (final e in adopted.entries) _ArchivedPhoto(e.value, File(e.key)),
+    ]..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  static Future<bool> _isReadableFile(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return false;
+      final handle = await file.open();
+      await handle.close();
+      return true;
+    } catch (_) {
+      // No permission (Android scoped storage) or a vanished mount: the row
+      // keeps its path, the backup still succeeds.
+      return false;
+    }
   }
 
   /// Hands an already-written archive to the system share sheet.
@@ -1018,7 +1376,9 @@ class DataBackup {
       final photoNames = <String>{};
       for (final name in contents.photoEntries) {
         final base = zipEntryBaseName(name);
-        if (base.isEmpty) continue;
+        // '.' / '..' would resolve outside the photo folder; this app never
+        // writes such an entry, so it can only come from a doctored file.
+        if (base.isEmpty || base == '.' || base == '..') continue;
         final bytes = readZipEntryBytes(source, entries[name]!);
         await File(p.join(stagedPhotos.path, base)).writeAsBytes(bytes, flush: true);
         photoNames.add(base);
@@ -1035,11 +1395,37 @@ class DataBackup {
 
       var rows = 0;
       var restoredDatabases = 0;
+      final skipped = <SkippedTable>[];
+      final dropped = <String, List<String>>{};
       for (final db in _databases) {
         final tables = tablesByDatabase[db.fileName];
         if (tables == null) continue;
-        rows += await _writeIntoLive(db, tables, heatDir.path, photoNames);
+        final result = await restoreTablesInto(
+          await db.open(),
+          tables,
+          heatPhotosDir: heatDir.path,
+          restoredPhotoNames: photoNames,
+          ensureKnownTables: db.ensureKnownTables,
+        );
+        rows += result.rowsWritten;
         restoredDatabases++;
+        for (final e in result.skippedTables.entries) {
+          skipped.add(SkippedTable(
+              database: db.fileName, table: e.key, rowCount: e.value));
+        }
+        for (final e in result.droppedColumns.entries) {
+          dropped['${db.fileName}/${e.key}'] = e.value;
+        }
+      }
+      // A database file this version does not own at all (a future module)
+      // is not restored either — and is not allowed to vanish silently.
+      final known = _databases.map((db) => db.fileName).toSet();
+      for (final db in tablesByDatabase.entries) {
+        if (known.contains(db.key)) continue;
+        for (final t in db.value.entries) {
+          skipped.add(SkippedTable(
+              database: db.key, table: t.key, rowCount: t.value.length));
+        }
       }
 
       return RestoreReport(
@@ -1047,6 +1433,8 @@ class DataBackup {
         databaseCount: restoredDatabases,
         rowCount: rows,
         photoCount: photoNames.length,
+        skippedTables: skipped,
+        droppedColumns: dropped,
       );
     } finally {
       source.close();
@@ -1082,66 +1470,5 @@ class DataBackup {
     } finally {
       await db.close();
     }
-  }
-
-  /// Wipes and refills one live database inside a single transaction.
-  ///
-  /// Tables the backup does not mention are left alone — that is how a table
-  /// added by a newer schema version (and its seeded reference data) survives
-  /// restoring an older backup instead of ending up empty.
-  static Future<int> _writeIntoLive(
-    _LiveDatabase target,
-    Map<String, List<Map<String, Object?>>> tables,
-    String heatPhotosDir,
-    Set<String> photoNames,
-  ) async {
-    final db = await target.open();
-    var written = 0;
-    await db.transaction((txn) async {
-      // `cut_list_app.db` switches `foreign_keys` ON, so deleting parents
-      // before children (or inserting children before parents) would trip a
-      // constraint mid-restore. Deferring the check to COMMIT lets the whole
-      // refill be judged once, as a unit — which is exactly the guarantee the
-      // user was promised.
-      try {
-        await txn.execute('PRAGMA defer_foreign_keys = ON');
-      } catch (_) {
-        // Older SQLite without the pragma: the transaction still rolls back
-        // as a whole, we just lose the ordering freedom.
-      }
-
-      final liveTables = (await txn.rawQuery(
-              "SELECT name FROM sqlite_master WHERE type = 'table'"))
-          .map((row) => row['name'] as String)
-          .where(isRestorableTable)
-          .toSet();
-
-      final batch = txn.batch();
-      for (final table in liveTables) {
-        if (tables.containsKey(table)) batch.delete(table);
-      }
-      for (final entry in tables.entries) {
-        if (!liveTables.contains(entry.key)) continue;
-        // Safe to interpolate: isRestorableTable() already proved the name is
-        // a plain identifier.
-        final columns = (await txn.rawQuery('PRAGMA table_info("${entry.key}")'))
-            .map((row) => row['name'] as String)
-            .toSet();
-        final rows = prepareRows(
-          table: entry.key,
-          rows: entry.value,
-          liveColumns: columns,
-          heatPhotosDir: heatPhotosDir,
-          restoredPhotoNames: photoNames,
-        );
-        for (final row in rows) {
-          batch.insert(entry.key, row,
-              conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-        written += rows.length;
-      }
-      await batch.commit(noResult: true);
-    });
-    return written;
   }
 }

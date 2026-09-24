@@ -126,6 +126,69 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'created_at',
     'updated_at',
   ],
+  // The three registers below used to be created lazily by their screens
+  // (`CREATE TABLE IF NOT EXISTS` on first open), so a phone whose owner had
+  // never opened the screen had no such table — and a restored backup
+  // silently dropped every row of it. They are part of the schema now.
+  'weld_journal': <String>[
+    'id',
+    'weld_no',
+    'project_name',
+    'pipe_name',
+    'material',
+    'od',
+    't',
+    'method',
+    'welder',
+    'date',
+    'notes',
+    'status',
+    'weld_type',
+    'fitter',
+    'heat_no1',
+    'heat_no2',
+    'coupon_ref',
+    'exam',
+    'wps_ref',
+  ],
+  'weld_coupons': <String>[
+    'id',
+    'date',
+    'welder',
+    'machine',
+    'size',
+    'result',
+    'notes',
+  ],
+  'hydrotest_records': <String>[
+    'id',
+    'system_name',
+    'test_date',
+    'gauge',
+    'pressure_start_bar',
+    'pressure_end_bar',
+    'temperature_c',
+    'hold_minutes',
+    'result',
+    'witness',
+    'od_mm',
+    'wall_mm',
+    'line_length_mm',
+    'design_bar',
+    'factor',
+    'test_pressure_bar',
+    'volume_l',
+    'notes',
+    'created_at',
+  ],
+  // ISO notebook autosave: the sketch used to live only in RAM.
+  'iso_drawings': <String>[
+    'id',
+    'name',
+    'json',
+    'created_at',
+    'updated_at',
+  ],
 };
 
 // ── Legacy schemas ────────────────────────────────────────────────────────
@@ -287,6 +350,71 @@ CREATE TABLE approved_weld_params (
 ''');
 }
 
+/// v17 as it exists on a real phone: v16, the diameter_out_mm repair, and
+/// the three registers exactly as their SCREENS used to create them on first
+/// open — including the OLDEST weld_journal shape (12 columns, before the
+/// ASME BPE weld-map columns and wps_ref were bolted on with ALTER TABLE).
+///
+/// The DDL is copied from the historical screen code on purpose, not from
+/// db.dart: the point is that the migration has to cope with whatever the
+/// old code left behind.
+Future<void> _buildV17WithScreenTables(Database db) async {
+  await _buildV16(db);
+  await db.execute('ALTER TABLE component_library ADD COLUMN diameter_out_mm REAL;');
+  // weld_journal_screen.dart, first release (e5c54d0).
+  await db.execute('''
+      CREATE TABLE IF NOT EXISTS weld_journal (
+        id TEXT PRIMARY KEY,
+        weld_no TEXT,
+        project_name TEXT,
+        pipe_name TEXT,
+        material TEXT,
+        od TEXT,
+        t TEXT,
+        method TEXT,
+        welder TEXT,
+        date TEXT,
+        notes TEXT,
+        status TEXT
+      )
+    ''');
+  // coupon_log_screen.dart CouponDao._ensure().
+  await db.execute('''
+      CREATE TABLE IF NOT EXISTS weld_coupons (
+        id TEXT PRIMARY KEY,
+        date TEXT, welder TEXT, machine TEXT,
+        size TEXT, result TEXT, notes TEXT
+      )
+    ''');
+  // hydrotest_dao.dart HydrotestDao.ensureTable().
+  await db.execute('''
+      CREATE TABLE IF NOT EXISTS hydrotest_records (
+        id TEXT PRIMARY KEY,
+        system_name TEXT,
+        test_date TEXT,
+        gauge TEXT,
+        pressure_start_bar REAL,
+        pressure_end_bar REAL,
+        temperature_c REAL,
+        hold_minutes REAL,
+        result TEXT,
+        witness TEXT,
+        od_mm REAL,
+        wall_mm REAL,
+        line_length_mm REAL,
+        design_bar REAL,
+        factor REAL,
+        test_pressure_bar REAL,
+        volume_l REAL,
+        notes TEXT,
+        created_at INTEGER
+      )
+    ''');
+  await db.execute(
+    'CREATE INDEX IF NOT EXISTS idx_hydrotest_created ON hydrotest_records(created_at DESC)',
+  );
+}
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -368,6 +496,7 @@ void main() {
     4: _buildV4,
     10: _buildV10,
     16: _buildV16,
+    17: _buildV17WithScreenTables,
   }.entries) {
     test('v${start.key} -> current: every table and column is present', () async {
       final db = await migrateFrom(start.key, start.value);
@@ -397,6 +526,7 @@ void main() {
       4: _buildV4,
       10: _buildV10,
       16: _buildV16,
+      17: _buildV17WithScreenTables,
     }.entries) {
       final migrated = await migrateFrom(start.key, start.value);
       addTearDown(migrated.close);
@@ -535,6 +665,77 @@ CREATE TABLE component_library (
     final segment = (await db.query('segments', where: 'id = ?', whereArgs: ['s1'])).single;
     expect((segment['cut_mm']! as num).toDouble(), 1162.0);
     expect(segment['iso_ref'], 'FACE');
+  });
+
+  test('rows the old screens wrote survive the move into the schema', () async {
+    // A welder with a year of journal entries, a coupon log and a pressure
+    // test register upgrades. Their tables were created by the screens, the
+    // journal one in its oldest 12-column shape. Nothing may be lost, and
+    // the journal must gain the weld-map columns so the screen can save.
+    final db = await migrateFrom(
+      17,
+      _buildV17WithScreenTables,
+      seedData: (legacy) async {
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w-legacy',
+          'weld_no': 'W-017',
+          'project_name': 'Blok 4',
+          'pipe_name': 'L-12',
+          'material': '316L',
+          'od': '60,3',
+          't': '2',
+          'method': 'TIG',
+          'welder': 'JK-12',
+          'date': '2026-03-02',
+          'notes': 'przetop OK',
+          'status': 'OK',
+        });
+        await legacy.insert('weld_coupons', <String, Object?>{
+          'id': 'c-legacy',
+          'date': '2026-03-02',
+          'welder': 'JK-12',
+          'machine': 'Orbitalna M-3',
+          'size': '2"x1.65',
+          'result': 'OK',
+          'notes': 'boroskop poz. 2',
+        });
+        await legacy.insert('hydrotest_records', <String, Object?>{
+          'id': 'h-legacy',
+          'system_name': 'WFI-101',
+          'test_date': '2026-03-05',
+          'pressure_start_bar': 15.0,
+          'pressure_end_bar': 14.9,
+          'hold_minutes': 30.0,
+          'result': 'PASS',
+          'line_length_mm': 120000.0,
+          'created_at': 1000,
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    final weld = (await db.query('weld_journal')).single;
+    expect(weld['weld_no'], 'W-017');
+    expect(weld['notes'], 'przetop OK');
+    expect(weld['wps_ref'], isNull);
+    // The screen writes every weld-map column; they have to be there now.
+    await db.update(
+      'weld_journal',
+      <String, Object?>{'wps_ref': 'WPS-01', 'weld_type': 'ORBITAL'},
+      where: 'id = ?',
+      whereArgs: <Object?>['w-legacy'],
+    );
+    expect((await db.query('weld_journal')).single['wps_ref'], 'WPS-01');
+
+    final coupon = (await db.query('weld_coupons')).single;
+    expect(coupon['machine'], 'Orbitalna M-3');
+
+    final hydro = (await db.query('hydrotest_records')).single;
+    expect(hydro['system_name'], 'WFI-101');
+    // Millimetres in, millimetres out.
+    expect((hydro['line_length_mm']! as num).toDouble(), 120000.0);
+
+    expect(await db.query('iso_drawings'), isEmpty);
   });
 
   test('the approved seed data lands on every upgrade path', () async {
