@@ -70,6 +70,10 @@ class BackendConfig {
   static const String stripePortal = '/api/fitter/billing/portal';
   static const String premiumStatus = '/api/fitter/billing/status';
   static const String aiChat = '/api/fitter/ai/chat';
+
+  /// POST — klasyfikacja polecenia asystenta (tryb „Wykonaj"), kontrakt w
+  /// lib/assistant/assistant_intent_client.dart. Stary backend: 404.
+  static const String aiIntent = '/api/fitter/ai/intent';
   static const String knowledgeSearch = '/api/fitter/ai/search';
   static const String scanIso = '/api/fitter/scan-iso';
   static const String jobsList = '/api/fitter/jobs';
