@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
@@ -12,6 +13,7 @@ import '../services/bar_nesting.dart';
 import '../services/cut_list_csv.dart';
 import '../services/cut_list_summary.dart';
 import '../services/pdf_export_service.dart';
+import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
@@ -61,6 +63,15 @@ const _kBlue   = Color(0xFF4A9EFF);
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kMuted  = Color(0xFF5A6478);
+// Split cuts (longer than a stock bar) — amber, distinct from the orange
+// brand accent so the extra-weld warning does not read as decoration.
+const _kWarn   = Color(0xFFFFC107);
+const _kText   = Color(0xFFE7ECF3);
+// Segment tag on a dark chip: light enough for sunlight, quieter than the mm.
+const _kTag    = Color(0xFFAAB4C8);
+
+/// What the share/copy menu in the AppBar can do.
+enum _ShareAction { csvFile, text, copyCsv, copyText }
 
 class CutListSummaryScreen extends StatefulWidget {
   final String projectId;
@@ -73,12 +84,14 @@ class CutListSummaryScreen extends StatefulWidget {
 class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   final _projectDao = ProjectDao();
   final _segmentDao = SegmentDao();
+  // Anchor for the iPad share popover (the share menu button).
+  final _shareButtonKey = GlobalKey();
   Project? _project;
   List<Segment> _segments = [];
-  Map<String, List<double>> _groups = {};
   // Single nesting result shared by the global summary box and the group
   // cards. Built with summarizeCutList — the same function the PDF export
-  // uses — so the screen and the PDF can never disagree on bars or waste.
+  // and the CSV use — so the screen, the PDF and the CSV can never disagree
+  // on bars, waste or which segment sits on which bar.
   // Recomputed only in _load() so rebuilds don't re-run the nesting.
   CutListSummary? _summary;
   bool _loading = true;
@@ -95,9 +108,9 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   // cancellation flag — we can't kill the awaited Future on platform side, but
   // we can stop poisoning a dead State.
   bool _disposed = false;
-  // P1-44: single re-entrancy guard reused by _share + _copyCsv so a frantic
-  // double-tap on the share IconButton doesn't push two clipboard writes /
-  // two snackbars on top of each other.
+  // P1-44: single re-entrancy guard for every share/copy action so a frantic
+  // double-tap (gloves + flaky touchscreen) doesn't push two share sheets,
+  // two clipboard writes or two snackbars on top of each other.
   bool _copyInFlight = false;
 
   Future<void> _load() async {
@@ -116,12 +129,6 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       final segs = await _segmentDao.listForProject(widget.projectId);
       if (gen != _loadGen || !mounted) return;
 
-      final groups = <String, List<double>>{};
-      for (final s in segs) {
-        final key = '${s.diameterMm}|${s.wallThicknessMm}';
-        groups.putIfAbsent(key, () => []).add(s.cutMm);
-      }
-
       final summary = p == null
           ? null
           : summarizeCutList(
@@ -134,7 +141,6 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       setState(() {
         _project    = p;
         _segments   = segs;
-        _groups     = groups;
         _summary    = summary;
         _loading    = false;
         _loadError  = null;
@@ -149,6 +155,23 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
     } finally {
       _loadInFlight = false;
     }
+  }
+
+  bool get _english => context.language == AppLanguage.en;
+
+  /// Project name for exports; short id when the project has no name.
+  static String _projectTitle(Project p) {
+    final name = p.name?.trim() ?? '';
+    if (name.isNotEmpty) return name;
+    return p.id.length > 8 ? p.id.substring(0, 8) : p.id;
+  }
+
+  /// Screen rect of the share button — iPad needs it to anchor the share
+  /// popover (without it the share sheet throws on iPad).
+  Rect? _shareOrigin() {
+    final box = _shareButtonKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   /// Maps a low-level filesystem failure into an actionable PL/EN message the
@@ -188,11 +211,17 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
     // race the PDF builder mid-write.
     final segsSnapshot = List<Segment>.unmodifiable(_segments);
     if (p == null || segsSnapshot.isEmpty) return;
+    final english = _english;
     await Haptic.tap();
     if (!mounted) return;
     setState(() => _exporting = true);
     try {
-      await PdfExportService.exportCutList(project: p, segments: segsSnapshot);
+      await PdfExportService.exportCutList(
+        project: p,
+        segments: segsSnapshot,
+        english: english,
+        sharePositionOrigin: _shareOrigin(),
+      );
     } catch (e, st) {
       debugPrint('[CutListSummary] _exportPdf failed: $e\n$st');
       // P1-44: cooperative cancellation — user may have popped back during
@@ -245,8 +274,8 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
 
   @override
   void dispose() {
-    // P1-44: signal in-flight _exportPdf / _share / _copyCsv to bail before
-    // they call setState on this dead State.
+    // P1-44: signal in-flight _exportPdf / share / copy actions to bail
+    // before they call setState on this dead State.
     _disposed = true;
     _loadGen++;
     super.dispose();
@@ -256,12 +285,12 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   Widget build(BuildContext context) {
     final p = _project;
     final summary = _summary;
+    final hasPlan = summary != null && summary.groups.isNotEmpty;
     // P1-28: gate every export action on having BOTH a non-empty cut plan and
     // not being mid-export. _exporting separately drives the spinner swap
     // below, but disabled state is shared so a queued-render second tap on
-    // the Share/CSV button can't slip through while PDF is writing.
-    final exportsEnabled =
-        !_exporting && _groups.isNotEmpty && _segments.isNotEmpty;
+    // the share menu can't slip through while PDF is writing.
+    final exportsEnabled = !_exporting && hasPlan && _segments.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('CUT LIST'),
@@ -283,15 +312,47 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                 // onPressed (theme handles the alpha).
                 onPressed: exportsEnabled ? _exportPdf : null,
               ),
-            IconButton(
+            // The share icon SHARES: CSV as a file or the plan as text via the
+            // OS share sheet; copying to the clipboard sits next to it in the
+            // same menu.
+            PopupMenuButton<_ShareAction>(
+              key: _shareButtonKey,
               icon: const Icon(Icons.share_outlined),
-              tooltip: context.tr(pl: 'Kopiuj tekst', en: 'Copy text'),
-              onPressed: exportsEnabled ? () => _share(context, p) : null,
-            ),
-            IconButton(
-              icon: const Icon(Icons.table_view_outlined),
-              tooltip: context.tr(pl: 'Kopiuj CSV', en: 'Copy CSV'),
-              onPressed: exportsEnabled ? () => _copyCsv(context, p) : null,
+              tooltip: context.tr(pl: 'Udostępnij / kopiuj', en: 'Share / copy'),
+              enabled: exportsEnabled,
+              onSelected: (a) => _onShareAction(a, p),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: _ShareAction.csvFile,
+                  child: ListTile(
+                    leading: const Icon(Icons.table_view_outlined),
+                    title: Text(context.tr(pl: 'Udostępnij plik CSV', en: 'Share CSV file')),
+                    subtitle: Text(context.tr(pl: 'Excel, e-mail, komunikator', en: 'Excel, e-mail, messenger')),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _ShareAction.text,
+                  child: ListTile(
+                    leading: const Icon(Icons.send_outlined),
+                    title: Text(context.tr(pl: 'Udostępnij jako tekst', en: 'Share as text')),
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: _ShareAction.copyCsv,
+                  child: ListTile(
+                    leading: const Icon(Icons.copy_all_outlined),
+                    title: Text(context.tr(pl: 'Kopiuj CSV', en: 'Copy CSV')),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _ShareAction.copyText,
+                  child: ListTile(
+                    leading: const Icon(Icons.content_copy_outlined),
+                    title: Text(context.tr(pl: 'Kopiuj tekst', en: 'Copy text')),
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -309,7 +370,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                     _ProjectHeader(project: p),
                     const SizedBox(height: 16),
 
-                    if (_groups.isEmpty || summary == null)
+                    if (!hasPlan)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 48),
                         child: Center(
@@ -320,7 +381,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                               const SizedBox(height: 12),
                               Text(
                                 context.tr(pl: 'Brak segmentów', en: 'No segments'),
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
                               ),
                               const SizedBox(height: 6),
                               Padding(
@@ -341,16 +402,23 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                     else ...[
                       // ── PODSUMOWANIE ZBIORCZE ─────────────────────────
                       CutListGlobalSummary(summary: summary),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
+
+                      // ── OSTRZEŻENIE: ODCINEK DŁUŻSZY NIŻ SZTANGA ──────
+                      if (summary.splitCuts.isNotEmpty) ...[
+                        CutListOversizeWarning(
+                          summary: summary,
+                          stockLengthMm: p.stockLengthMm,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      const SizedBox(height: 8),
 
                       // ── GRUPY RURY ────────────────────────────────────
                       ...summary.groups.map((g) {
-                        return _PipeGroup(
-                          diameterMm: g.diameterMm,
-                          wallMm: g.wallMm,
+                        return CutListPipeGroup(
+                          group: g,
                           materialGroup: p.materialGroup,
-                          cuts: g.cutsMm,
-                          plans: g.plans,
                           stockLengthMm: p.stockLengthMm,
                           sawKerfMm: p.sawKerfMm,
                         );
@@ -362,24 +430,19 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   }
 
   String _buildTextSummary(Project p) {
-    final buf = StringBuffer();
-    buf.writeln('CUT LIST — ${p.name ?? p.id.substring(0, 8)}');
-    buf.writeln('Material: ${p.materialGroup}  Stock: ${p.stockLengthMm.toStringAsFixed(0)} mm  Kerf: ${p.sawKerfMm.toStringAsFixed(1)} mm');
-    buf.writeln();
-    for (final e in _groups.entries) {
-      final parts = e.key.split('|');
-      final d = double.parse(parts[0]);
-      final w = double.parse(parts[1]);
-      final cuts = List<double>.from(e.value)..sort((a, b) => b.compareTo(a));
-      buf.writeln('Ø${d.toStringAsFixed(1)} x ${w.toStringAsFixed(1)}:');
-      final plans = nestCutsToBars(cutsMm: cuts, stockLengthMm: p.stockLengthMm, sawKerfMm: p.sawKerfMm);
-      for (var i = 0; i < plans.length; i++) {
-        final b = plans[i];
-        buf.writeln('  Bar ${i + 1}: ${b.piecesMm.map((x) => x.toStringAsFixed(0)).join(' + ')}  (rem: ${b.remainingMm.toStringAsFixed(0)} mm)');
-      }
-      buf.writeln();
-    }
-    return buf.toString();
+    return buildCutListText(
+      projectName: _projectTitle(p),
+      materialGroup: p.materialGroup,
+      stockLengthMm: p.stockLengthMm,
+      sawKerfMm: p.sawKerfMm,
+      summary: _summary ??
+          summarizeCutList(
+            segments: _segments,
+            stockLengthMm: p.stockLengthMm,
+            sawKerfMm: p.sawKerfMm,
+          ),
+      english: _english,
+    );
   }
 
   /// CSV with one row per cut piece — drops straight into an Excel column on
@@ -387,61 +450,77 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   ///
   /// P1-38: header localisation + RFC 4180 quoting. The row format lives in
   /// [buildCutListCsv] (services/cut_list_csv.dart) so it is testable without
-  /// a widget tree; this method only picks the localised header.
-  String _buildCsv(Project p, BuildContext context) {
+  /// a widget tree; this method only picks the language.
+  String _buildCsv(Project p) {
     return buildCutListCsv(
-      projectName: p.name ?? p.id.substring(0, 8),
+      projectName: _projectTitle(p),
       materialGroup: p.materialGroup,
       stockLengthMm: p.stockLengthMm,
       sawKerfMm: p.sawKerfMm,
       segments: _segments,
-      header: context.tr(pl: kCutListCsvHeaderPl, en: kCutListCsvHeaderEn),
+      english: _english,
     );
   }
 
-  Future<void> _share(BuildContext context, Project p) async {
-    // P1-44: shared re-entrancy guard with _copyCsv — a frantic double-tap on
-    // the share IconButton (gloves + flaky touchscreen) otherwise lands two
-    // SnackBars and writes the clipboard twice.
+  Future<void> _onShareAction(_ShareAction action, Project p) async {
+    // P1-44: shared re-entrancy guard — see _copyInFlight.
     if (_copyInFlight) return;
     _copyInFlight = true;
+    // Resolved before any await: the snackbars below run after async gaps.
+    final csvCopied = context.tr(
+      pl: 'CSV w schowku — wklej do Excela',
+      en: 'CSV in clipboard — paste into Excel',
+    );
+    final textCopied =
+        context.tr(pl: 'Skopiowano do schowka', en: 'Copied to clipboard');
     try {
-      final text = _buildTextSummary(p);
-      await Clipboard.setData(ClipboardData(text: text));
-      await Haptic.copied();
-      if (_disposed || !context.mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(context.tr(pl: 'Skopiowano do schowka', en: 'Copied to clipboard')),
-          backgroundColor: _kGreen,
-        ),
+      switch (action) {
+        case _ShareAction.csvFile:
+          final csv = _buildCsv(p);
+          await Haptic.tap();
+          await shareCutListCsvFile(
+            csv: csv,
+            projectName: _projectTitle(p),
+            sharePositionOrigin: _shareOrigin(),
+          );
+        case _ShareAction.text:
+          final text = _buildTextSummary(p);
+          await Haptic.tap();
+          await Share.share(
+            text,
+            subject: 'CUT LIST — ${_projectTitle(p)}',
+            sharePositionOrigin: _shareOrigin(),
+          );
+        case _ShareAction.copyCsv:
+          await Clipboard.setData(ClipboardData(text: _buildCsv(p)));
+          await Haptic.copied();
+          _snack(csvCopied, _kBlue);
+        case _ShareAction.copyText:
+          await Clipboard.setData(ClipboardData(text: _buildTextSummary(p)));
+          await Haptic.copied();
+          _snack(textCopied, _kGreen);
+      }
+    } catch (e, st) {
+      debugPrint('[CutListSummary] share/copy failed: $e\n$st');
+      if (_disposed || !mounted) return;
+      await Haptic.error();
+      if (_disposed || !mounted) return;
+      _snack(
+        context.tr(pl: 'Nie udało się udostępnić: $e', en: 'Sharing failed: $e'),
+        _kRed,
       );
     } finally {
       _copyInFlight = false;
     }
   }
 
-  Future<void> _copyCsv(BuildContext context, Project p) async {
-    if (_copyInFlight) return;
-    _copyInFlight = true;
-    try {
-      final csv = _buildCsv(p, context);
-      await Clipboard.setData(ClipboardData(text: csv));
-      await Haptic.copied();
-      if (_disposed || !context.mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(context.tr(pl: 'CSV w schowku — wklej do Excela', en: 'CSV in clipboard — paste into Excel')),
-          backgroundColor: _kBlue,
-        ),
-      );
-    } finally {
-      _copyInFlight = false;
-    }
+  void _snack(String text, Color color) {
+    if (_disposed || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(text), backgroundColor: color),
+    );
   }
 }
 
@@ -472,7 +551,7 @@ class _LoadErrorView extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE7ECF3),
+                color: _kText,
               ),
               textAlign: TextAlign.center,
             ),
@@ -534,7 +613,7 @@ class _ProjectHeader extends StatelessWidget {
               children: [
                 Text(
                   project.name?.isNotEmpty == true ? project.name! : 'CUT LIST',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -649,22 +728,82 @@ class _SummaryStatBox extends StatelessWidget {
   }
 }
 
+// ── Ostrzeżenie: odcinek dłuższy niż sztanga ───────────────────────────────
+/// Lists every cut that is longer than a stock bar. The nesting splits such a
+/// cut into full bars + remainder; the parts have to be joined by an extra
+/// weld, and that weld's gap has to come off the pieces — the fitter must see
+/// this before the saw, not discover it at fit-up.
+class CutListOversizeWarning extends StatelessWidget {
+  final CutListSummary summary;
+  final double stockLengthMm;
+
+  const CutListOversizeWarning({
+    super.key,
+    required this.summary,
+    required this.stockLengthMm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final english = context.language == AppLanguage.en;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kWarn.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _kWarn.withValues(alpha: 0.8), width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: _kWarn, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.tr(
+                    pl: 'Odcinek dłuższy niż sztanga',
+                    en: 'Piece longer than the stock bar',
+                  ),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: _kWarn),
+                ),
+                const SizedBox(height: 4),
+                for (final piece in summary.splitCuts)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      oversizeCutWarning(
+                        piece,
+                        stockLengthMm: stockLengthMm,
+                        english: english,
+                      ),
+                      style: const TextStyle(fontSize: 12, color: _kText, height: 1.3),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Grupa rury (jedna średnica/ścianka) ────────────────────────────────────
-class _PipeGroup extends StatelessWidget {
-  final double diameterMm;
-  final double wallMm;
+/// One diameter/wall group: list of pieces to cut (with segment tags) and a
+/// card per stock bar.
+class CutListPipeGroup extends StatelessWidget {
+  final CutListGroup group;
   final String materialGroup;
-  final List<double> cuts;
-  final List<BarPlan> plans;
   final double stockLengthMm;
   final double sawKerfMm;
 
-  const _PipeGroup({
-    required this.diameterMm,
-    required this.wallMm,
+  const CutListPipeGroup({
+    super.key,
+    required this.group,
     required this.materialGroup,
-    required this.cuts,
-    required this.plans,
     required this.stockLengthMm,
     required this.sawKerfMm,
   });
@@ -678,12 +817,18 @@ class _PipeGroup extends StatelessWidget {
   /// contain a space, comma or quote — keeps the tag stable when copied
   /// into a CSV cell or a foreman's spreadsheet.
   String _lineTag() {
-    final raw = '${diameterMm.toStringAsFixed(0)}-$materialGroup-${wallMm.toStringAsFixed(1)}';
+    final raw = '${group.diameterMm.toStringAsFixed(0)}-$materialGroup-${group.wallMm.toStringAsFixed(1)}';
     return csvQuote(raw);
   }
 
   @override
   Widget build(BuildContext context) {
+    final plans = group.plans;
+    final cuts = group.cutsMm;
+    // Older callers may hand a group without labelled pieces.
+    final pieces = group.pieces.length == cuts.length
+        ? group.pieces
+        : [for (final c in cuts) CutRequest(c)];
     final totalWaste = plans.fold<double>(0, (s, b) => s + b.remainingMm);
     final totalNet   = cuts.fold<double>(0, (s, v) => s + v);
 
@@ -705,10 +850,10 @@ class _PipeGroup extends StatelessWidget {
             Expanded(
               child: Text(
                 context.tr(
-                  pl: 'Rura  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
-                  en: 'Pipe  Ø${diameterMm.toStringAsFixed(1)} × ${wallMm.toStringAsFixed(1)} mm',
+                  pl: 'Rura  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
+                  en: 'Pipe  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
                 ),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
               ),
             ),
             // ASME line-tag chip: short pipe ID a fitter writes on the cut end.
@@ -725,7 +870,7 @@ class _PipeGroup extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 10,
                   fontFamily: 'monospace',
-                  color: Color(0xFFE7ECF3),
+                  color: _kText,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -741,7 +886,8 @@ class _PipeGroup extends StatelessWidget {
         ),
         const SizedBox(height: 10),
 
-        // Lista odcinków do cięcia
+        // Lista odcinków do cięcia — each chip names its segment, so the
+        // piece on the saw can be traced back to the drawing.
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -763,15 +909,14 @@ class _PipeGroup extends StatelessWidget {
               const SizedBox(height: 6),
               Wrap(
                 spacing: 6, runSpacing: 6,
-                children: cuts.map((c) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF22263A),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: _kBorder),
-                  ),
-                  child: Text('${c.toStringAsFixed(0)} mm', style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3))),
-                )).toList(),
+                children: [
+                  for (final piece in pieces)
+                    _PieceChip(
+                      label: piece.label,
+                      lengthMm: piece.lengthMm,
+                      oversize: piece.lengthMm > stockLengthMm,
+                    ),
+                ],
               ),
               const Divider(height: 20, color: _kBorder),
               Text(
@@ -799,6 +944,46 @@ class _PipeGroup extends StatelessWidget {
   }
 }
 
+/// `S03  3293 mm` chip; amber frame + split icon when the cut is longer than
+/// a stock bar.
+class _PieceChip extends StatelessWidget {
+  final String? label;
+  final double lengthMm;
+  final bool oversize;
+
+  const _PieceChip({
+    required this.label,
+    required this.lengthMm,
+    required this.oversize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF22263A),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: oversize ? _kWarn : _kBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (oversize) ...[
+            const Icon(Icons.call_split, size: 13, color: _kWarn),
+            const SizedBox(width: 4),
+          ],
+          if (label != null) ...[
+            Text(label!, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kTag)),
+            const SizedBox(width: 5),
+          ],
+          Text('${lengthMm.toStringAsFixed(0)} mm', style: const TextStyle(fontSize: 12, color: _kText)),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Karta sztangi z wizualizacją paskową ───────────────────────────────────
 class _BarCard extends StatelessWidget {
   final int index;
@@ -813,6 +998,14 @@ class _BarCard extends StatelessWidget {
     required this.sawKerfMm,
   });
 
+  String _copyText(BuildContext context) {
+    final rest = plan.remainingMm.toStringAsFixed(0);
+    return context.tr(
+      pl: 'Sztanga ${index + 1}: ${formatBarPieces(plan)} (zostaje $rest mm)',
+      en: 'Bar ${index + 1}: ${formatBarPieces(plan)} (remaining $rest mm)',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final usedMm = plan.piecesMm.fold<double>(0, (s, v) => s + v) + plan.cutsCount * sawKerfMm;
@@ -821,94 +1014,142 @@ class _BarCard extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF151821),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: plan.hasSplitPiece ? _kWarn.withValues(alpha: 0.7) : _kBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                context.tr(pl: 'Sztanga ${index + 1}', en: 'Bar ${index + 1}'),
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _kOrange),
-              ),
-              const Spacer(),
-              Text(
-                '${usedMm.toStringAsFixed(0)} / ${stockLengthMm.toStringAsFixed(0)} mm',
-                style: const TextStyle(fontSize: 11, color: _kMuted),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Pasek wizualny sztangi
-          _BarVisual(plan: plan, stockLengthMm: stockLengthMm, sawKerfMm: sawKerfMm),
-          const SizedBox(height: 8),
-
-          // Odcinki
-          Text(
-            plan.piecesMm.map((x) => x.toStringAsFixed(0)).join('  +  '),
-            style: const TextStyle(fontSize: 13, color: Color(0xFFE7ECF3), fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                context.tr(
-                  pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
-                  en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          // P1-28: the card has always said "long-press to copy" — this is
+          // what makes it true. Copies the bar with segment tags, ready to
+          // paste to the saw operator.
+          onLongPress: () => copyToClipboard(context, _copyText(context)),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      context.tr(pl: 'Sztanga ${index + 1}', en: 'Bar ${index + 1}'),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _kOrange),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${usedMm.toStringAsFixed(0)} / ${stockLengthMm.toStringAsFixed(0)} mm',
+                      style: const TextStyle(fontSize: 11, color: _kMuted),
+                    ),
+                  ],
                 ),
-                style: TextStyle(fontSize: 11, color: wasteColor),
-              ),
-              if (plan.remainingMm > 200) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _kGreen.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
+                const SizedBox(height: 8),
+
+                // Pasek wizualny sztangi
+                _BarVisual(plan: plan, stockLengthMm: stockLengthMm, sawKerfMm: sawKerfMm),
+                const SizedBox(height: 8),
+
+                // Odcinki: segment tag + mm for every piece on this bar.
+                Text.rich(
+                  TextSpan(children: [
+                    for (var i = 0; i < plan.pieces.length; i++) ...[
+                      if (i > 0)
+                        const TextSpan(text: '  +  ', style: TextStyle(color: _kMuted)),
+                      if (plan.pieces[i].tag != null)
+                        TextSpan(
+                          text: '${plan.pieces[i].tag} ',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: plan.pieces[i].isSplit ? _kWarn : _kTag,
+                          ),
+                        ),
+                      TextSpan(
+                        text: plan.pieces[i].lengthMm.toStringAsFixed(0),
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _kText),
+                      ),
+                    ],
+                  ]),
+                ),
+                if (plan.hasSplitPiece) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.call_split, size: 13, color: _kWarn),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          context.tr(
+                            pl: 'Część odcinka dłuższego niż sztanga — dodatkowa spoina łącząca, uwzględnij gap',
+                            en: 'Part of a piece longer than the bar — extra joining weld, allow for the gap',
+                          ),
+                          style: const TextStyle(fontSize: 11, color: _kWarn),
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    context.tr(pl: 'nadaje się na spady', en: 'usable offcut'),
-                    style: const TextStyle(fontSize: 10, color: _kGreen),
-                  ),
+                ],
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      context.tr(
+                        pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                        en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                      ),
+                      style: TextStyle(fontSize: 11, color: wasteColor),
+                    ),
+                    if (plan.remainingMm > 200)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _kGreen.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          context.tr(pl: 'nadaje się na spady', en: 'usable offcut'),
+                          style: const TextStyle(fontSize: 10, color: _kGreen),
+                        ),
+                      ),
+                  ],
+                ),
+                // P1-28: long-press-to-copy hint per result card. Surfaces the
+                // discoverable gesture so a foreman scanning the cut list knows the
+                // piece-mm row is copyable to the saw operator without scrolling
+                // back up to the AppBar share menu. Keeps the hint at 10pt
+                // muted to avoid competing with the actual numbers.
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.touch_app_outlined,
+                      size: 11,
+                      color: _kMuted.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      context.tr(
+                        pl: 'Przytrzymaj aby skopiować',
+                        en: 'Long-press to copy',
+                      ),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: _kMuted.withValues(alpha: 0.7),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ],
+            ),
           ),
-          // P1-28: long-press-to-copy hint per result card. Surfaces the
-          // discoverable gesture so a foreman scanning the cut list knows the
-          // piece-mm row is copyable to the saw operator without scrolling
-          // back up to the AppBar "share" IconButton. Keeps the hint at 10pt
-          // muted to avoid competing with the actual numbers.
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(
-                Icons.touch_app_outlined,
-                size: 11,
-                color: _kMuted.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                context.tr(
-                  pl: 'Przytrzymaj aby skopiować',
-                  en: 'Long-press to copy',
-                ),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: _kMuted.withValues(alpha: 0.7),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -940,14 +1181,31 @@ class _BarVisual extends StatelessWidget {
 
     return LayoutBuilder(builder: (context, constraints) {
       final totalWidth = constraints.maxWidth;
+      final n = plan.piecesMm.length;
+      final kerfPct = stockLengthMm > 0 ? sawKerfMm / stockLengthMm : 0.0;
+
+      // Minimum widths keep a short piece and every saw cut visible, but on a
+      // narrow phone with many short pieces those minimums used to add up
+      // past the bar and overflow the row. Scale the fixed widths down when
+      // they do not fit.
+      final pieceWidths = [
+        for (final mm in plan.piecesMm)
+          (totalWidth * (stockLengthMm > 0 ? mm / stockLengthMm : 0))
+              .clamp(4.0, totalWidth),
+      ];
+      final hasKerf = [
+        for (var i = 0; i < n; i++) i < n - 1 || plan.remainingMm > 0,
+      ];
+      final kerfWidth = (totalWidth * kerfPct).clamp(2.0, 6.0);
+      final fixed = pieceWidths.fold<double>(0, (s, w) => s + w) +
+          hasKerf.where((k) => k).length * kerfWidth;
+      final scale = fixed > totalWidth && fixed > 0 ? totalWidth / fixed : 1.0;
 
       return SizedBox(
         height: 24,
         child: Row(
           children: [
-            ...List.generate(plan.piecesMm.length, (i) {
-              final piecePct = plan.piecesMm[i] / stockLengthMm;
-              final kerfPct  = sawKerfMm / stockLengthMm;
+            ...List.generate(n, (i) {
               final color = pieceColors[i % pieceColors.length];
 
               return Row(
@@ -955,7 +1213,7 @@ class _BarVisual extends StatelessWidget {
                 children: [
                   // Odcinek
                   Container(
-                    width: (totalWidth * piecePct).clamp(4.0, totalWidth),
+                    width: pieceWidths[i] * scale,
                     height: 24,
                     decoration: BoxDecoration(
                       color: color,
@@ -963,9 +1221,9 @@ class _BarVisual extends StatelessWidget {
                     ),
                   ),
                   // Kerf (cięcie piłą)
-                  if (i < plan.piecesMm.length - 1 || plan.remainingMm > 0)
+                  if (hasKerf[i])
                     Container(
-                      width: (totalWidth * kerfPct).clamp(2.0, 6.0),
+                      width: kerfWidth * scale,
                       height: 24,
                       color: const Color(0xFF0B0E13),
                     ),

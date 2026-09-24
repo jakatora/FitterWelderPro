@@ -1,5 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
+
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/segment.dart';
 import 'cut_list_summary.dart';
@@ -141,4 +145,33 @@ Future<File> writeCutListCsvFile({
   final file = File('${directory.path}${Platform.pathSeparator}$fileName');
   await file.writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8.encode(csv)], flush: true);
   return file;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLATFORM HALF — temp file + OS share sheet.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Saves [csv] as `CutList_<projekt>_<czas>.csv` in the temp directory and
+/// opens the OS share sheet with the FILE (mail, Drive, WhatsApp…), so the
+/// cut list reaches the foreman's spreadsheet as an attachment rather than a
+/// pasted blob. [sharePositionOrigin] anchors the popover on iPad.
+Future<void> shareCutListCsvFile({
+  required String csv,
+  required String projectName,
+  String? subject,
+  Rect? sharePositionOrigin,
+  DateTime? now,
+}) async {
+  final name = cutListCsvFileName(projectName, now ?? DateTime.now());
+  final dir = await getTemporaryDirectory();
+  final file = await writeCutListCsvFile(
+    directory: dir,
+    fileName: name,
+    csv: csv,
+  );
+  await Share.shareXFiles(
+    [XFile(file.path, mimeType: 'text/csv', name: name)],
+    subject: subject ?? 'CUT LIST — $projectName',
+    sharePositionOrigin: sharePositionOrigin,
+  );
 }
