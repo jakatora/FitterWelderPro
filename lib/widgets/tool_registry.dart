@@ -108,7 +108,8 @@ class ToolSpec {
   /// przechodzi przez bramkę imienia i zasad (community_gate.dart).
   final bool needsAccount;
 
-  /// Widoczność zależna od flag (np. skaner tylko, gdy Premium da się kupić).
+  /// Widoczność zależna od flag (np. skaner tylko, gdy da się go użyć —
+  /// darmowy tryb albo Premium do kupienia).
   final bool available;
 
   const ToolSpec({
@@ -225,9 +226,11 @@ final List<ToolSpec> kToolRegistry = [
       'skanuj'
     ],
     keywordsEn: const ['scanner', 'scan', 'photo', 'camera', 'ai', 'drawing'],
-    // Zdjęcie rysunku idzie na serwer — ta sama bramka co czat.
-    needsAccount: true,
-    // Za bramką Premium, której nie da się przejść bez płatności.
+    // Zdjęcie rysunku idzie na serwer, ale nie pod nazwiskiem — zamiast
+    // bramki czatu (imię + zasady) ekran pyta o zgodę na wysyłkę tuż przed
+    // pierwszym skanem (scan_consent_gate.dart). Ręczne wpisywanie działa bez.
+    needsAccount: false,
+    // Darmowy tryb z dziennym limitem albo Premium, które da się kupić.
     available: kAiScannerReachable,
   ),
   ToolSpec(

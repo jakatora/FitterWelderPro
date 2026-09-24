@@ -18,10 +18,13 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/chat_screen.dart';
 import 'package:cut_list_app/screens/iso_scanner_screen.dart';
 import 'package:cut_list_app/screens/onboarding_name_screen.dart';
+import 'package:cut_list_app/screens/premium_screen.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/services/legal_consent.dart';
 import 'package:cut_list_app/services/premium_service.dart';
 import 'package:cut_list_app/services/user_profile.dart';
+import 'package:cut_list_app/widgets/premium_gate.dart';
+import 'package:cut_list_app/widgets/tool_registry.dart';
 
 import 'test_prefs.dart';
 
@@ -99,7 +102,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('ekran główny: czat jest, płatne i skaner bez zakupu ukryte',
+  testWidgets('ekran główny: czat i skaner są, płatne ukryte',
       (tester) async {
     await boot(tester, withProfile: true);
 
@@ -109,10 +112,9 @@ void main() {
     expect(find.byIcon(Icons.waves_outlined), findsOneWidget); // SPAWACZ
     expect(find.byIcon(Icons.forum_outlined), findsOneWidget); // CZAT
 
-    // Skaner stoi za bramką Premium; póki Premium nie da się kupić, kafel
-    // byłby ślepym zaułkiem, więc go nie ma.
-    expect(find.byIcon(Icons.document_scanner_outlined),
-        kAiScannerReachable ? findsOneWidget : findsNothing);
+    // Skaner działa w darmowym trybie z dziennym limitem — kafel jest.
+    expect(kAiScannerReachable, isTrue);
+    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
 
     // Ukryte całkowicie — nie "Wkrótce", ma ich nie być:
     expect(find.text('PREMIUM'), findsNothing);
@@ -121,6 +123,42 @@ void main() {
     // I żadnego napisu "WKRÓTCE" na kaflach.
     expect(find.text('WKRÓTCE'), findsNothing);
     expect(find.text('SOON'), findsNothing);
+  });
+
+  testWidgets('kafel skanera prowadzi do skanu, nie do bramki ani ceny',
+      (tester) async {
+    await boot(tester, withProfile: false);
+    await settle(tester);
+
+    await tester.tap(find.byIcon(Icons.document_scanner_outlined));
+    await settle(tester);
+
+    // Prosto na ekran skanera — bez imienia, bez bramki Premium.
+    expect(find.byType(IsoScannerScreen), findsOneWidget);
+    expect(find.byType(OnboardingNameScreen), findsNothing);
+    expect(find.byIcon(Icons.lock_open_outlined), findsNothing);
+    expect(find.byType(PremiumScreen), findsNothing);
+    // Żadnej ceny na ekranie, na który prowadzi kafel.
+    expect(find.textContaining('PLN'), findsNothing);
+    expect(find.textContaining('zł'), findsNothing);
+    // Monter od razu może wybrać zdjęcie i widzi, ile skanów zostało.
+    expect(find.byIcon(Icons.photo_camera_outlined), findsOneWidget);
+    expect(find.textContaining('Pozostało dziś'), findsOneWidget);
+  });
+
+  testWidgets('żadne dostępne narzędzie nie otwiera ekranu z ceną',
+      (tester) async {
+    seedOnboardedUser();
+    late BuildContext ctx;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (c) {
+      ctx = c;
+      return const SizedBox();
+    })));
+    for (final tool in availableTools) {
+      final screen = tool.builder(ctx);
+      expect(screen, isNot(isA<PremiumScreen>()), reason: tool.id);
+      expect(screen, isNot(isA<PremiumGate>()), reason: tool.id);
+    }
   });
 
   testWidgets(
@@ -169,16 +207,15 @@ void main() {
     expect(find.textContaining('NaN'), findsNothing);
   });
 
-  testWidgets('monter sprawdza wymiary kolan; skaner tylko gdy da się go kupić',
+  testWidgets('monter sprawdza wymiary kolan; skaner jest w menu MONTER',
       (tester) async {
     await boot(tester, withProfile: true);
 
     await tester.tap(find.byIcon(Icons.handyman_outlined)); // MONTER
     await settle(tester);
 
-    // Kafel skanera tylko wtedy, gdy bramkę Premium da się przejść.
-    expect(find.byIcon(Icons.document_scanner_outlined),
-        kAiScannerReachable ? findsOneWidget : findsNothing);
+    // Kafel skanera jest — darmowy tryb z dziennym limitem.
+    expect(find.byIcon(Icons.document_scanner_outlined), findsOneWidget);
 
     // "Wymiary kolan" — tabela takeoutów.
     final elbows = find.byIcon(Icons.table_rows_outlined);
@@ -207,25 +244,29 @@ void main() {
     expect(find.textContaining('NaN'), findsNothing);
   });
 
-  testWidgets('skaner ISO bez Premium: ekran pokazuje bramkę, nie skan',
-      (tester) async {
+  testWidgets(
+      'skaner ISO bez Premium (darmowy tryb): ekran prowadzi do skanu, mówi '
+      'co się stanie ze zdjęciem', (tester) async {
     tester.view.physicalSize = const Size(1100, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     seedOnboardedUser();
 
-    // Z menu skanera nie widać (kafel ukryty), ale ekran nadal musi się
-    // bronić sam — np. gdy wejście wróci razem z płatnościami.
     await tester.pumpWidget(AppLanguageScope(
       controller: AppLanguageController(AppLanguage.pl),
       child: const MaterialApp(home: IsoScannerScreen()),
     ));
     await settle(tester);
 
-    // Każdy skan to płatne wywołanie Claude Vision, więc ekran stoi za
-    // PremiumGate(alwaysEnforced). Ikony zamiast napisów — asercja ma być
-    // niezależna od języka interfejsu.
-    expect(find.byIcon(Icons.lock_open_outlined), findsOneWidget);
+    // Darmowy tryb: bez bramki Premium (kłódka to jej ikona).
+    expect(find.byIcon(Icons.lock_open_outlined), findsNothing);
+    expect(find.byIcon(Icons.photo_camera_outlined), findsOneWidget);
+    // Przed skanem: dokąd idzie zdjęcie i że wynik trzeba sprawdzić.
+    expect(find.textContaining('Anthropic'), findsWidgets);
+    expect(find.textContaining('niepewne wartości'), findsWidgets);
+    // Ile skanów zostało dziś (bezpiecznik po stronie telefonu).
+    expect(find.textContaining('Pozostało dziś: $kAiScanDailyLimitPerDevice'),
+        findsOneWidget);
   });
 
   testWidgets('z wyniku skanu monter przechodzi do ekranu przeglądu',
@@ -235,12 +276,8 @@ void main() {
     addTearDown(tester.view.reset);
     seedOnboardedUser();
 
-    // Skaner jest płatny; test odblokowuje Premium lokalnie i sprząta po sobie.
-    await PremiumService.instance.applyStatus(
-      const PremiumStatus(plan: PremiumPlan.lifetime),
-    );
-    addTearDown(
-        () => PremiumService.instance.applyStatus(PremiumStatus.free()));
+    // Darmowy tryb: bez Premium — droga do przeglądu działa bez zakupu.
+    expect(PremiumService.instance.status.isActive, isFalse);
 
     // Wynik skanu wstrzyknięty zamiast wywołania sieciowego — chodzi o drogę
     // z gotowego odczytu do przeglądu, nie o samo rozpoznawanie rysunku.

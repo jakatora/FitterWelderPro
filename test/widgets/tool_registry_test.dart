@@ -123,16 +123,19 @@ void main() {
       }
     });
 
-    test('skaner widoczny tylko, gdy Premium da się kupić', () {
+    test('skaner widoczny, gdy da się go użyć (darmowy tryb albo Premium)',
+        () {
       expect(toolById('iso_scanner') != null, kAiScannerReachable);
       expect(
         resolveTools(['iso_scanner', 'nie-istnieje', 'dn_mm'])
             .map((t) => t.id),
         [if (kAiScannerReachable) 'iso_scanner', 'dn_mm'],
       );
-      // Skaner wysyła zdjęcie na serwer — ta sama bramka co czat.
+      // Skaner nie publikuje niczego pod nazwiskiem — nie przechodzi przez
+      // bramkę imienia i zasad czatu. Zgodę na wysyłkę zdjęcia (serwer +
+      // Anthropic) pytamy przed pierwszym skanem (scan_consent_gate.dart).
       expect(kToolRegistry.firstWhere((t) => t.id == 'iso_scanner').needsAccount,
-          isTrue);
+          isFalse);
     });
   });
 

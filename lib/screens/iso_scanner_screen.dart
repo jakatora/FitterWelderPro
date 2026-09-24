@@ -15,6 +15,7 @@ import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/premium_gate.dart';
+import '../widgets/scan_consent_gate.dart';
 import 'scan_review_screen.dart';
 
 const _kCard   = Color(0xFF141821);
@@ -47,9 +48,11 @@ const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 /// Per-install daily scan budget.
 ///
-/// Every scan is a paid Vision call and the backend enforces no per-device
-/// limit of its own (see [kAiScannerEnabled]), so the count is kept here, in
-/// the fitter's own SharedPreferences, and shown to him before he spends it.
+/// Every scan is a paid Vision call. The backend (version of 2026-09-24)
+/// enforces its own per-device and per-IP daily limits and a monthly budget
+/// (see [kAiScannerEnabled]); this counter is the phone-side fuse on top of
+/// them, kept in the fitter's own SharedPreferences and shown to him
+/// ("Pozostało dziś: N") before he spends a scan.
 /// Kept deliberately dumb: a day string plus a counter. It rolls over on the
 /// local calendar day, which is the "resets at midnight" the UI promises.
 class _ScanBudget {
@@ -78,6 +81,16 @@ class _ScanBudget {
 
   static Future<int> remainingToday() async =>
       (kAiScanDailyLimitPerDevice - await usedToday()).clamp(0, 1 << 30);
+
+  /// Marks today's budget as spent — the server said its daily limit for this
+  /// install or network is used up, so the counter must not promise more.
+  static Future<void> exhaust() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kDayKey, _today());
+      await prefs.setInt(_kCountKey, kAiScanDailyLimitPerDevice);
+    } catch (_) {}
+  }
 
   /// Books one scan. Called when a request actually reached the model, i.e.
   /// when the money was (or may have been) spent — never for a request that
@@ -330,6 +343,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       return;
     }
 
+    // The photo leaves the phone for our server and Anthropic — ask once
+    // (and again after the rules change) before the first upload.
+    if (!await ensureScanConsent(context)) return;
+    if (!mounted) return;
+
     setState(() {
       _aiBusy = true;
       _aiStatus = _tr('Wysyłam zdjęcie do AI…', 'Sending photo to AI…');
@@ -458,11 +476,14 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       }
     } on IsoScannerAiException catch (e) {
       // The request reached the server. Whether it reached the model depends
-      // on the status: a 5xx or a timeout can mean the scan was billed and
-      // the answer got lost, so those count against the budget; a refusal
-      // (400 / 429) never got that far and must not.
-      final status = e.statusCode ?? 0;
-      if (status >= 500) await _ScanBudget.record();
+      // on the answer: a 5xx after the model call or a timeout can mean the
+      // scan was billed and the answer got lost, so those count against the
+      // budget; a refusal before the model (limits, budget gate, Premium,
+      // bad format, missing route) never got that far and must not.
+      if (e.reachedModel) await _ScanBudget.record();
+      // The server's own daily limit is spent — the counter on screen must
+      // say 0, not promise scans the server will refuse.
+      if (e.isDailyLimit) await _ScanBudget.exhaust();
       unawaited(_refreshBudget());
       await _failScan(_serverErrorMessage(e));
     } on TimeoutException {
@@ -518,28 +539,19 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   /// Turns an HTTP failure into something a fitter can act on.
   ///
-  /// The backend answers `{error: {code, message}}` for its own refusals, and
-  /// [scanIsoImage] already pulls that message out — but the shared rate
-  /// limiter in front of the route answers with a bare 429 and no JSON at
-  /// all, which used to surface as "Błąd serwera (429)". Each status now
-  /// says what it means and what to do next.
+  /// [scanIsoImage] already translates the refusals the fitter cannot fix by
+  /// retrying — daily limit (with the renewal time), per-minute limit,
+  /// monthly AI budget, Premium, old backend (404 / 500) — into
+  /// [IsoScannerAiException.message] (`friendlyScanError`). What is left here
+  /// are the statuses whose server text still needs framing.
   String _serverErrorMessage(IsoScannerAiException e) {
     switch (e.statusCode) {
       case 429:
-        // express-rate-limit: 120 requests / 60 s, shared by everyone on
-        // this IP. It is a per-minute window, not a daily quota — say so
-        // rather than inventing a renewal time we cannot know.
-        return _tr(
-          'Serwer chwilowo odrzuca żądania (limit zapytań). Odczekaj minutę '
-              'i spróbuj ponownie. Dziś zostało Ci '
-              '${_scansLeft ?? kAiScanDailyLimitPerDevice} '
-              'z $kAiScanDailyLimitPerDevice skanów.',
-          'The server is refusing requests for the moment (rate limit). Wait '
-              'a minute and try again. You have '
-              '${_scansLeft ?? kAiScanDailyLimitPerDevice} of '
-              '$kAiScanDailyLimitPerDevice scans left today.',
-        );
+      case 402:
+      case 404:
+        return e.message;
       case 503:
+        if (e.code != null) return e.message;
         return _tr(
           'Skaner AI jest chwilowo wyłączony po stronie serwera. '
               'Spróbuj później — wymiary możesz wpisać ręcznie.',
@@ -560,6 +572,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         );
       default:
         final status = e.statusCode ?? 0;
+        // 500 (old backend) and coded 5xx (AI_BUSY, AI_CONFIG…) already
+        // carry a message written for the fitter.
+        if (status == 500 || (status > 500 && e.code != null)) {
+          return e.message;
+        }
         if (status >= 500) {
           return _tr(
             'Błąd serwera skanera (${e.statusCode}). To nie Twoje zdjęcie — '
@@ -1078,8 +1095,12 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Scanner hits Claude Vision per scan → real $$ cost per call. Stays
-    // gated even while the rest of PRO is free during beta.
+    // Free tier (kAiScannerFreeTier): no Premium gate — the daily limits
+    // (server + this phone) and the monthly AI budget on the server cap the
+    // bill instead, and the first scan asks for consent to send the photo.
+    if (kAiScannerFreeTier) return _buildScannerScaffold(context);
+    // Scanner hits Claude Vision per scan → real $$ cost per call. Without
+    // the free tier it stays gated even while the rest of PRO is free.
     return PremiumGate(
       featureName: _tr('Skaner izometryku', 'Isometric scanner'),
       alwaysEnforced: true,
@@ -1130,8 +1151,8 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
           if (left != null) ...[
             const SizedBox(width: 8),
             Text(
-              _tr('Skany dziś: $left/$kAiScanDailyLimitPerDevice',
-                  'Scans today: $left/$kAiScanDailyLimitPerDevice'),
+              _tr('Pozostało dziś: $left z $kAiScanDailyLimitPerDevice',
+                  'Left today: $left of $kAiScanDailyLimitPerDevice'),
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
@@ -1139,6 +1160,57 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Two short lines shown before a scan: what happens to the photo, and
+  /// that the reading is a draft to be checked. The full wording (and the
+  /// consent) comes in the dialog before the first upload.
+  Widget _scanPrivacyNote() {
+    Widget line(IconData icon, String text) => Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 13, color: _kSec),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                      fontSize: 11, height: 1.3, color: _kSec),
+                ),
+              ),
+            ],
+          ),
+        );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+      color: _kCard,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          line(
+            Icons.cloud_upload_outlined,
+            _tr(
+              'Zdjęcie idzie na nasz serwer i do Anthropic (Claude) tylko do '
+                  'odczytu rysunku — serwer go nie zapisuje.',
+              'The photo goes to our server and to Anthropic (Claude) only to '
+                  'read the drawing — the server does not store it.',
+            ),
+          ),
+          line(
+            Icons.fact_check_outlined,
+            _tr(
+              'Wynik trzeba sprawdzić — niepewne wartości są oznaczone i nie '
+                  'staną się cięciem bez Twojego potwierdzenia.',
+              'Check the result — uncertain values are flagged and never '
+                  'become a cut without your confirmation.',
+            ),
+          ),
         ],
       ),
     );
@@ -1267,6 +1339,10 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
           // ── What the scan costs and what it needs ──────────────────────
           _scanBudgetStrip(),
+
+          // ── Before the first scan: where the photo goes, and that the
+          //    result has to be checked ────────────────────────────────────
+          if (_lastScan == null && !_aiBusy) _scanPrivacyNote(),
 
           // ── Title block strip from AI (line number, class, material…) ──
           if (_lastScan != null && _lastScan!.titleBlock.hasAnything)

@@ -12,6 +12,7 @@ import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cut_list_app/config/backend_config.dart';
 import 'package:cut_list_app/services/api_client.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/services/premium_service.dart';
@@ -211,6 +212,135 @@ void main() {
                 contains('nie rozpoznał tej instalacji'))
             .having((e) => e.message, 'message',
                 isNot(contains('INSTALL_SECRET')))),
+      );
+    });
+
+    test('skaner idzie na dedykowany backend (ten sam co reszta apki)',
+        () async {
+      final path = await writePng('host.png');
+      await scan(
+        path,
+        http.Response(jsonEncode({'result': {}, 'tookMs': 1}), 200),
+      );
+      expect(requests.single.url.host, Uri.parse(BackendConfig.baseUrl).host);
+      expect(BackendConfig.scannerBaseUrl, BackendConfig.baseUrl);
+    });
+
+    http.Response jsonError(int status, String code, String message,
+            {Map<String, String> headers = const {}}) =>
+        http.Response(
+          jsonEncode({
+            'error': {'code': code, 'message': message}
+          }),
+          status,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            ...headers,
+          },
+        );
+
+    test('429 dzienny limit → komunikat z godziną odnowienia', () async {
+      final path = await writePng('limit.png');
+      // Serwer liczy dobę UTC; Retry-After to sekundy do jej końca.
+      final now = DateTime(2026, 9, 25, 14, 0);
+      await expectLater(
+        http.runWithClient(
+          () => scanIsoImage(path, clock: () => now),
+          () => MockClient((_) async => jsonError(
+                429,
+                'RATE_LIMITED',
+                'Dzienny limit skanów na tym urządzeniu został wyczerpany.',
+                headers: {'retry-after': '43200'}, // 12 h
+              )),
+        ),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.statusCode, 'statusCode', 429)
+            .having((e) => e.code, 'code', 'RATE_LIMITED')
+            .having((e) => e.isDailyLimit, 'isDailyLimit', isTrue)
+            .having((e) => e.retryAfter, 'retryAfter',
+                const Duration(hours: 12))
+            .having((e) => e.message, 'message', contains('Dzienny limit'))
+            .having((e) => e.message, 'message', contains('02:00'))),
+      );
+    });
+
+    test('429 limit na minutę → „spróbuj za minutę", bez godziny', () async {
+      final path = await writePng('minute.png');
+      await expectLater(
+        scan(
+          path,
+          jsonError(429, 'RATE_LIMITED', 'Za dużo skanów — spróbuj za minutę.',
+              headers: {'retry-after': '40'}),
+        ),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.isDailyLimit, 'isDailyLimit', isFalse)
+            .having((e) => e.message, 'message', contains('minut'))),
+      );
+    });
+
+    test('429 bez JSON i bez Retry-After (stary limiter) → zrozumiały tekst',
+        () async {
+      final path = await writePng('bare429.png');
+      await expectLater(
+        scan(path, http.Response('Too many requests', 429)),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.isDailyLimit, 'isDailyLimit', isFalse)
+            .having((e) => e.message, 'message', isNot(contains('429')))),
+      );
+    });
+
+    test('503 AI_BUDGET_EXCEEDED → wyczerpany budżet miesięczny', () async {
+      final path = await writePng('budget.png');
+      await expectLater(
+        scan(
+          path,
+          jsonError(503, 'AI_BUDGET_EXCEEDED', 'Funkcje AI są chwilowo…',
+              headers: {'retry-after': '86400'}),
+        ),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.code, 'code', 'AI_BUDGET_EXCEEDED')
+            .having((e) => e.reachedModel, 'reachedModel', isFalse)
+            .having((e) => e.message, 'message', contains('budżet'))
+            .having((e) => e.message, 'message', contains('ręcznie'))),
+      );
+    });
+
+    test('402 PREMIUM_REQUIRED → bez odsyłania do zakupu, gdy płatności wyłączone',
+        () async {
+      final path = await writePng('premium.png');
+      await expectLater(
+        scan(path, jsonError(402, 'PREMIUM_REQUIRED', 'x')),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.reachedModel, 'reachedModel', isFalse)
+            .having((e) => e.message, 'message', contains('Premium'))
+            .having((e) => e.message, 'message', contains('ręcznie'))),
+      );
+    });
+
+    test('404 (stara wersja backendu, brak trasy) → zrozumiały komunikat',
+        () async {
+      final path = await writePng('old404.png');
+      await expectLater(
+        scan(path, jsonError(404, 'NOT_FOUND', 'Nie znaleziono zasobu')),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.statusCode, 'statusCode', 404)
+            .having((e) => e.reachedModel, 'reachedModel', isFalse)
+            .having((e) => e.message, 'message', contains('jeszcze'))
+            .having((e) => e.message, 'message',
+                isNot(contains('Nie znaleziono zasobu')))),
+      );
+    });
+
+    test('500 (stara wersja backendu) → zrozumiały komunikat, nie „Błąd 500"',
+        () async {
+      final path = await writePng('old500.png');
+      await expectLater(
+        scan(path,
+            jsonError(500, 'SERVER_ERROR', 'Wewnętrzny błąd serwera')),
+        throwsA(isA<IsoScannerAiException>()
+            .having((e) => e.statusCode, 'statusCode', 500)
+            .having((e) => e.message, 'message', contains('ręcznie'))
+            .having((e) => e.message, 'message', isNot(contains('(500)')))),
       );
     });
 
