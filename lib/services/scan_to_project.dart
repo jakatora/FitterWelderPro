@@ -243,18 +243,36 @@ class ScanEndpoint {
   /// was not recognised.
   final ComponentBehaviour? behaviour;
 
+  /// Tool name the type resolved to (`elbow90`, `flange`, `gateValve`…) — the
+  /// vocabulary of [ComponentClassification]. Null for an open end or an
+  /// unrecognised type.
+  final String? tool;
+
   /// Centre-to-end (take-out) in mm for an axial fitting; `0` for an end the
   /// dimension stops at (a face, an open end, a weld). Null means "not known
   /// yet" and blocks the cut.
   final double? takeoutMm;
 
-  /// Face-to-face body length in mm, when a dimensional standard gives one
-  /// unambiguously. Only needed if the user later re-references the
-  /// dimension to the far END of the component.
+  /// Body length in mm along the run, when a dimensional standard gives one
+  /// unambiguously: a weld-neck flange's Y, a valve's face-to-face, a
+  /// reducer's H. Taken off only at an [SideStop.end] stop.
   final double? bodyLengthMm;
 
   /// Where [takeoutMm] came from, e.g. `ASME B16.9 · 90° LR · DN100`.
   final String? takeoutNote;
+
+  /// Where [bodyLengthMm] came from, e.g. `ASME B16.5 Cl.150 · WN Y · DN100`.
+  final String? bodyNote;
+
+  /// Where an isometric dimension normally stops on this end — the stop the
+  /// plan PROPOSES for this side (it never cuts on a proposal alone):
+  ///   * axial fittings (elbow, tee): their centreline — [SideStop.centre];
+  ///   * a weld-neck flange: its sealing face, i.e. through the whole hub —
+  ///     [SideStop.end], so its Y comes off the pipe;
+  ///   * a valve and other bodies (reducer, cap, blind, slip-on flange): the
+  ///     face the pipe meets — [SideStop.face], nothing comes off;
+  ///   * an open end, a weld, a support: [SideStop.face] (nothing fitted).
+  final SideStop proposedStop;
 
   /// False when the scan named something the app cannot identify (unknown
   /// type, or an id that is not in the components list). An unresolved end
@@ -267,9 +285,12 @@ class ScanEndpoint {
     this.label,
     required this.kind,
     this.behaviour,
+    this.tool,
     this.takeoutMm,
     this.bodyLengthMm,
     this.takeoutNote,
+    this.bodyNote,
+    this.proposedStop = SideStop.face,
     this.isResolved = true,
   });
 
@@ -287,28 +308,101 @@ class ScanEndpoint {
   /// [PrefabEngine.needsDimRefPicker].
   bool get isPhysical => behaviour?.hasPhysicalBody ?? false;
 
-  /// Value for `segments.start_value_mm` / `segments.end_value_mm`, matching
-  /// [isoRefCode]. Null when the end is unresolved.
-  double? get offsetMm {
+  /// A flange whose body is its weld-neck hub (not a slip-on / socket / lap /
+  /// threaded one): its sealing face is where the drawing dimensions it.
+  bool get isWeldNeckFlange =>
+      tool == 'flange' && proposedStop == SideStop.end;
+
+  /// What this end takes off at [stop], or null when that length is not
+  /// known (an unresolved end, an axial fitting without a take-out, a body
+  /// without a catalogue length).
+  double? deductionAt(SideStop stop) {
     if (!isResolved) return null;
-    return isAxial ? takeoutMm : 0;
+    switch (stop) {
+      case SideStop.face:
+        return 0;
+      case SideStop.centre:
+        return isAxial ? takeoutMm : 0;
+      case SideStop.end:
+        return isPhysical ? bodyLengthMm : 0;
+    }
   }
+
+  /// Value for `segments.start_value_mm` / `segments.end_value_mm` at the
+  /// PROPOSED stop, matching [isoRefCode]. Null when the end is unresolved
+  /// or the length for that stop is not known.
+  double? get offsetMm => deductionAt(proposedStop);
 
   /// Reference point code the segment builder writes into `segments.iso_ref`,
   /// as proposed before the fitter confirmed how the dimension was measured:
   /// axial fittings to their axis, an end with nothing fitted (open end,
   /// weld, support) as `OPEN` — the code the builder gives its own open end —
-  /// and everything else to the near face. Once the reference is known the
-  /// stored code comes from [PlannedSegment.anchorColumns] instead.
-  String get isoRefCode {
-    if (isAxial) return 'AXIS';
-    if (kind == ScanEndKind.logical) return 'OPEN';
-    return 'FACE_NEAR';
-  }
+  /// a weld-neck flange through its body (`FACE_FAR`, the builder's default
+  /// for a flange) and everything else to the near face. Once the reference
+  /// is known the stored code comes from [PlannedSegment.anchorColumns].
+  String get isoRefCode => _storedRefCode(this, proposedStop);
 
   /// Whether nothing is welded here, so no root gap is taken off: the same
   /// end the segment builder calls OPEN_END and stores as kind `logical`.
   bool get isOpenEnd => kind == ScanEndKind.logical;
+}
+
+/// How the drawing's dimension meets each end of one scanned run — the stop
+/// on the START side and the stop on the END side.
+///
+/// A [DimRef] names a pair of stops but not which side each belongs to, and
+/// has no code at all for "through the body at both ends" (a spool between
+/// two weld-neck flanges). The scan plan therefore carries the stops per
+/// side and hands them to [PrefabEngine] as `leftStop` / `rightStop`; the
+/// DimRef is only a label for the pairs it can name.
+class ScanStops {
+  final SideStop start;
+  final SideStop end;
+
+  const ScanStops(this.start, this.end);
+
+  /// The DimRef naming this pair, or null when none does (end–end).
+  DimRef? get dimRef {
+    for (final ref in DimRef.values) {
+      final (a, b) = _stopPairFor(ref);
+      if ((a == start && b == end) || (a == end && b == start)) return ref;
+    }
+    return null;
+  }
+
+  /// Label in the picker's vocabulary (`oś-koniec`, `czoło-czoło`…).
+  String label({required bool polish}) {
+    final ref = dimRef;
+    if (ref != null) return polish ? ref.labelPl : ref.labelEn;
+    return polish ? 'koniec-koniec' : 'end-end';
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScanStops && other.start == start && other.end == end;
+
+  @override
+  int get hashCode => Object.hash(start, end);
+
+  @override
+  String toString() => 'ScanStops(${start.name}, ${end.name})';
+}
+
+/// The pair of stops a [DimRef] describes, in no side order — the same table
+/// as PrefabEngine's own.
+(SideStop, SideStop) _stopPairFor(DimRef ref) {
+  switch (ref) {
+    case DimRef.centreToCentre:
+      return (SideStop.centre, SideStop.centre);
+    case DimRef.centreToFace:
+      return (SideStop.centre, SideStop.face);
+    case DimRef.faceToFace:
+      return (SideStop.face, SideStop.face);
+    case DimRef.faceToEnd:
+      return (SideStop.face, SideStop.end);
+    case DimRef.centreToEnd:
+      return (SideStop.centre, SideStop.end);
+  }
 }
 
 /// One length of pipe between two ends, in route order.
@@ -328,13 +422,14 @@ class PlannedSegment {
   /// [isoExpr] converted to millimetres. Null when it could not be read.
   final double? isoMm;
 
-  /// How the dimension was measured, when it follows from the two ends
-  /// alone. Null means the user has to confirm it — see
-  /// [ScanIssueCode.dimensionReferenceUnknown].
-  final DimRef? dimRef;
+  /// Where the dimension stops on each side, when it follows from the two
+  /// ends alone or the fitter confirmed it. Null means the user has to
+  /// confirm it — see [ScanIssueCode.dimensionReferenceUnknown].
+  final ScanStops? stops;
 
-  /// Best guess to preselect in the picker, always set.
-  final DimRef proposedDimRef;
+  /// Best guess to preselect in the picker, always set: each end's
+  /// [ScanEndpoint.proposedStop] (centre–centre when neither end has a body).
+  final ScanStops proposedStops;
 
   /// Cut length in mm from [PrefabEngine]. Null whenever any input was
   /// missing — never a filler number.
@@ -359,10 +454,10 @@ class PlannedSegment {
     required this.seqNo,
     required this.start,
     required this.end,
-    required this.proposedDimRef,
+    required this.proposedStops,
     this.isoExpr,
     this.isoMm,
-    this.dimRef,
+    this.stops,
     this.cutMm,
     this.confidence = AiConfidence.unknown,
     this.startsNewRun = false,
@@ -377,10 +472,18 @@ class PlannedSegment {
         endIsOpenEnd: end.isOpenEnd,
       );
 
-  /// Copy with a resolved dimension reference and the cut that follows from
-  /// it. Used by the screen once the fitter answers a
+  /// The confirmed (or derived) reference as a [DimRef], when one names it.
+  /// Null both while unconfirmed and for an end–end run — use
+  /// [needsDimRefConfirmation] to tell those apart.
+  DimRef? get dimRef => stops?.dimRef;
+
+  /// The proposal as a [DimRef], or null when no DimRef names it (end–end).
+  DimRef? get proposedDimRef => proposedStops.dimRef;
+
+  /// Copy with the stops the fitter confirmed and the cut that follows from
+  /// them. Used by the screen once he answers a
   /// [ScanIssueCode.dimensionReferenceUnknown] gap.
-  PlannedSegment withDimRef(DimRef ref) {
+  PlannedSegment withStops(ScanStops confirmed) {
     return PlannedSegment(
       sourceId: sourceId,
       seqNo: seqNo,
@@ -388,9 +491,9 @@ class PlannedSegment {
       end: end,
       isoExpr: isoExpr,
       isoMm: isoMm,
-      dimRef: ref,
-      proposedDimRef: proposedDimRef,
-      cutMm: cutMmForSegment(this, ref),
+      stops: confirmed,
+      proposedStops: proposedStops,
+      cutMm: cutMmForStops(this, confirmed),
       confidence: confidence,
       startsNewRun: startsNewRun,
       isBranch: isBranch,
@@ -398,15 +501,20 @@ class PlannedSegment {
     );
   }
 
+  /// Copy with a reference given as a [DimRef]; which side gets which stop
+  /// follows [stopsForDimRef].
+  PlannedSegment withDimRef(DimRef ref) => withStops(stopsForDimRef(this, ref));
+
   /// Whether the user still has to say how the dimension was measured.
-  bool get needsDimRefConfirmation => dimRef == null;
+  bool get needsDimRefConfirmation => stops == null;
 
   /// Whether every column `segments` needs is known.
   bool get isComplete =>
       isoMm != null &&
       cutMm != null &&
-      start.offsetMm != null &&
-      end.offsetMm != null;
+      start.isResolved &&
+      end.isResolved &&
+      anchorColumns != null;
 
   /// Value for `segments.iso_ref`, in the `START|END` encoding the segment
   /// builder writes: the stops actually used once the reference is known,
@@ -431,9 +539,9 @@ class PlannedSegment {
   /// pipe.
   ({String startRef, double startValueMm, String endRef, double endValueMm})?
       get anchorColumns {
-    final ref = dimRef;
-    if (ref == null || cutMm == null) return null;
-    final a = _resolvedAnchors(this, ref);
+    final confirmed = stops;
+    if (confirmed == null || cutMm == null) return null;
+    final a = _resolvedAnchors(this, confirmed);
     if (a == null) return null;
     return (
       startRef: _storedRefCode(start, a.startStop),
@@ -799,21 +907,23 @@ ScanPlan planFromScan(
       leftIsPhysical: start.isPhysical,
       rightIsPhysical: end.isPhysical,
     );
-    final proposed = _proposeDimRef(start, end);
-    final dimRef = needsPicker ? null : proposed;
+    final proposed = _proposeStops(start, end);
+    final stops = needsPicker ? null : proposed;
 
     if (needsPicker) {
+      final notePl = _proposalNote(start, end, proposed, polish: true);
+      final noteEn = _proposalNote(start, end, proposed, polish: false);
       gaps.add(ScanIssue(
         code: ScanIssueCode.dimensionReferenceUnknown,
         blocking: true,
         segmentId: segmentId,
         dimensionLabel: dimensionLabel,
         pl: 'Potwierdź, jak zmierzono wymiar ${dimensionLabel ?? ""} '
-            '(propozycja: ${proposed.labelPl}) — na końcu segmentu jest '
-            'element o własnej długości.',
+            '(propozycja: ${proposed.label(polish: true)}$notePl) — na końcu '
+            'segmentu jest element o własnej długości.',
         en: 'Confirm how ${dimensionLabel ?? "this dimension"} was measured '
-            '(suggested: ${proposed.labelEn}) — the segment ends on a '
-            'component with a body of its own.',
+            '(suggested: ${proposed.label(polish: false)}$noteEn) — the '
+            'segment ends on a component with a body of its own.',
       ));
     }
 
@@ -857,16 +967,16 @@ ScanPlan planFromScan(
       end: end,
       isoExpr: rawDimension,
       isoMm: isoMm,
-      dimRef: dimRef,
-      proposedDimRef: proposed,
+      stops: stops,
+      proposedStops: proposed,
       confidence: seg.confidence,
       startsNewRun: position > 0 && route.runStarts.contains(position),
       isBranch: _touchesBranch(seg, route.branchNodes),
       gapMm: gap,
     );
 
-    if (dimRef != null) {
-      final cutMm = cutMmForSegment(segment, dimRef);
+    if (stops != null) {
+      final cutMm = cutMmForStops(segment, stops);
       if (cutMm == null &&
           isoMm != null &&
           start.isResolved &&
@@ -894,8 +1004,8 @@ ScanPlan planFromScan(
         end: segment.end,
         isoExpr: segment.isoExpr,
         isoMm: segment.isoMm,
-        dimRef: segment.dimRef,
-        proposedDimRef: segment.proposedDimRef,
+        stops: segment.stops,
+        proposedStops: segment.proposedStops,
         cutMm: cutMm,
         confidence: segment.confidence,
         startsNewRun: segment.startsNewRun,
@@ -929,19 +1039,25 @@ ScanPlan planFromScan(
 }
 
 /// Cut length for [segment] measured according to [ref], or null when an
-/// input [PrefabEngine] needs is not known.
+/// input [PrefabEngine] needs is not known. Which side gets which stop of
+/// the pair follows [stopsForDimRef].
+double? cutMmForSegment(PlannedSegment segment, DimRef ref) =>
+    cutMmForStops(segment, stopsForDimRef(segment, ref));
+
+/// Cut length for [segment] with the dimension stopping at [stops], or null
+/// when an input [PrefabEngine] needs is not known.
 ///
 /// Public because the screen calls it again after the fitter answers a
-/// [ScanIssueCode.dimensionReferenceUnknown] gap: the plan itself never
-/// picks a reference it cannot derive.
+/// [ScanIssueCode.dimensionReferenceUnknown] gap: the plan itself never cuts
+/// on a reference it cannot derive — a proposal is only preselected.
 ///
 /// The segment's root gap ([PlannedSegment.gapMm]) comes off once per weld
 /// ([PlannedSegment.weldCount]), through the same
-/// [PrefabEngine.anchoredCutMm] the segment builder uses. This screen used to
-/// save every project with gap 0 and cut without it, so a scanned run and the
-/// same run rebuilt by hand differed by the gap on every joint.
-double? cutMmForSegment(PlannedSegment segment, DimRef ref) {
-  final a = _resolvedAnchors(segment, ref);
+/// [PrefabEngine.anchoredCutMm] the segment builder uses, with the stop of
+/// each side given explicitly (`leftStop` / `rightStop`) so the engine never
+/// has to guess which anchor was measured which way.
+double? cutMmForStops(PlannedSegment segment, ScanStops stops) {
+  final a = _resolvedAnchors(segment, stops);
   if (a == null) return null;
   final cut = PrefabEngine.anchoredCutMm(
     isoMm: segment.isoMm!,
@@ -955,85 +1071,172 @@ double? cutMmForSegment(PlannedSegment segment, DimRef ref) {
   return cut.isFinite ? cut : null;
 }
 
-/// The stop [PrefabEngine] gives each side of [segment] under [ref], with the
-/// length that stop takes off; null when an input it needs is not known.
+/// Which side of [segment] gets which stop of [ref]'s pair.
 ///
-/// Shared by [cutMmForSegment] and [PlannedSegment.anchorColumns], so the
-/// saved row describes exactly the arithmetic its cut came from.
-({SideStop startStop, double startMm, SideStop endStop, double endMm})?
-    _resolvedAnchors(PlannedSegment segment, DimRef ref) {
-  final iso = segment.isoMm;
-  if (iso == null || !iso.isFinite || iso <= 0) return null;
-
+/// Each end has a stop the drawing normally uses for it
+/// ([ScanEndpoint.proposedStop]); the assignment that matches more of them
+/// wins. So FTE between a valve and a weld-neck flange puts the END on the
+/// flange (Y comes off) and the FACE on the valve — where the engine's
+/// generic tie-break for two bodied ends would pick the longer valve body
+/// and cut the pipe 153 mm short (DN100). Only a genuine tie falls back to
+/// [PrefabEngine.resolveSideStops].
+ScanStops stopsForDimRef(PlannedSegment segment, DimRef ref) {
+  final (a, b) = _stopPairFor(ref);
+  if (a == b) return ScanStops(a, b);
   final start = segment.start;
   final end = segment.end;
-  if (!start.isResolved || !end.isResolved) return null;
-
-  // A resolved non-axial end contributes a genuine zero (the dimension stops
-  // at its face); an unresolved one contributes null and stops the sum.
-  final leftCte = start.isAxial ? _roundOrNull(start.takeoutMm) : 0;
-  final rightCte = end.isAxial ? _roundOrNull(end.takeoutMm) : 0;
-  final leftBody = start.isPhysical ? _roundOrNull(start.bodyLengthMm) : 0;
-  final rightBody = end.isPhysical ? _roundOrNull(end.bodyLengthMm) : 0;
-
-  const centreRefs = {
-    DimRef.centreToCentre,
-    DimRef.centreToFace,
-    DimRef.centreToEnd,
-  };
-  const endRefs = {DimRef.faceToEnd, DimRef.centreToEnd};
-
-  if (centreRefs.contains(ref) && (leftCte == null || rightCte == null)) {
-    return null;
+  int score(SideStop s, SideStop e) =>
+      (s == start.proposedStop ? 1 : 0) + (e == end.proposedStop ? 1 : 0);
+  final direct = score(a, b);
+  final swapped = score(b, a);
+  if (direct != swapped) {
+    return direct > swapped ? ScanStops(a, b) : ScanStops(b, a);
   }
-  if (endRefs.contains(ref) && (leftBody == null || rightBody == null)) {
-    return null;
-  }
-
-  final stops = PrefabEngine.resolveSideStops(
+  final r = PrefabEngine.resolveSideStops(
     ref: ref,
-    leftCteMm: leftCte,
-    rightCteMm: rightCte,
-    leftPhysicalLenMm: leftBody,
-    rightPhysicalLenMm: rightBody,
+    leftCteMm: start.isAxial ? (start.takeoutMm ?? 0) : 0,
+    rightCteMm: end.isAxial ? (end.takeoutMm ?? 0) : 0,
+    leftPhysicalLenMm: start.isPhysical ? (start.bodyLengthMm ?? 0) : 0,
+    rightPhysicalLenMm: end.isPhysical ? (end.bodyLengthMm ?? 0) : 0,
     leftIsPhysical: start.isPhysical,
     rightIsPhysical: end.isPhysical,
   );
-  if (stops == null) return null;
+  return r == null ? ScanStops(a, b) : ScanStops(r.left, r.right);
+}
 
-  double takes(SideStop stop, int? cte, int? body) {
-    switch (stop) {
-      case SideStop.centre:
-        return (cte ?? 0).toDouble();
-      case SideStop.end:
-        return (body ?? 0).toDouble();
-      case SideStop.face:
-        return 0;
-    }
+/// The references the picker offers for [segment], proposal first: every
+/// [DimRef] placed per [stopsForDimRef], plus end–end when both ends have a
+/// body (a spool between two flanges). Duplicates dropped.
+List<ScanStops> referenceOptions(PlannedSegment segment) {
+  final out = <ScanStops>[segment.proposedStops];
+  void add(ScanStops s) {
+    if (!out.contains(s)) out.add(s);
   }
 
+  for (final ref in DimRef.values) {
+    add(stopsForDimRef(segment, ref));
+  }
+  if (segment.start.isPhysical && segment.end.isPhysical) {
+    add(const ScanStops(SideStop.end, SideStop.end));
+  }
+  return out;
+}
+
+/// The stop [PrefabEngine] gives each side of [segment] under [stops], with
+/// the length that stop takes off; null when an input it needs is not known.
+///
+/// Shared by [cutMmForStops] and [PlannedSegment.anchorColumns], so the
+/// saved row describes exactly the arithmetic its cut came from.
+({SideStop startStop, double startMm, SideStop endStop, double endMm})?
+    _resolvedAnchors(PlannedSegment segment, ScanStops stops) {
+  final iso = segment.isoMm;
+  if (iso == null || !iso.isFinite || iso <= 0) return null;
+
+  // A resolved end contributes a genuine number for the stop (0 at a face);
+  // an unresolved end, a missing take-out or a missing body contributes null
+  // and stops the sum.
+  final startMm = _roundOrNull(segment.start.deductionAt(stops.start));
+  final endMm = _roundOrNull(segment.end.deductionAt(stops.end));
+  if (startMm == null || endMm == null) return null;
+
   return (
-    startStop: stops.left,
-    startMm: takes(stops.left, leftCte, leftBody),
-    endStop: stops.right,
-    endMm: takes(stops.right, rightCte, rightBody),
+    startStop: stops.start,
+    startMm: startMm.toDouble(),
+    endStop: stops.end,
+    endMm: endMm.toDouble(),
   );
 }
 
 int? _roundOrNull(double? v) => v?.round();
 
 /// Reference the two ends suggest, following normal isometric practice:
-/// axial fittings are dimensioned to their centreline, bodied components to
-/// their face.
+/// each end at its own [ScanEndpoint.proposedStop] — axial fittings at their
+/// centreline, a weld-neck flange at its sealing face (through the body), a
+/// valve at its face.
 ///
 /// Ends with no body at all (an open pipe end, a weld, a support) contribute
 /// nothing either way, so a run between them is plain centre-to-centre — the
 /// case [PrefabEngine.needsDimRefPicker] says needs no question. Only a
-/// proposal for the rest — see [PlannedSegment.proposedDimRef].
-DimRef _proposeDimRef(ScanEndpoint start, ScanEndpoint end) {
-  if (!start.isPhysical && !end.isPhysical) return DimRef.centreToCentre;
-  if (start.isAxial || end.isAxial) return DimRef.centreToFace;
-  return DimRef.faceToFace;
+/// proposal for the rest — see [PlannedSegment.proposedStops].
+ScanStops _proposeStops(ScanEndpoint start, ScanEndpoint end) {
+  if (!start.isPhysical && !end.isPhysical) {
+    return const ScanStops(SideStop.centre, SideStop.centre);
+  }
+  return ScanStops(start.proposedStop, end.proposedStop);
+}
+
+/// ", kołnierz: −Y 76 mm" — what the proposal takes off a bodied end, so the
+/// question names the number and not just a code. Empty when nothing does.
+String _proposalNote(ScanEndpoint start, ScanEndpoint end, ScanStops stops,
+    {required bool polish}) {
+  final parts = <String>[];
+  for (final (e, stop) in [(start, stops.start), (end, stops.end)]) {
+    if (stop != SideStop.end || !e.isPhysical) continue;
+    final body = e.bodyLengthMm;
+    final what = e.isWeldNeckFlange
+        ? (polish ? 'kołnierz' : 'flange')
+        : (e.label ?? e.rawType ?? (polish ? 'element' : 'component'));
+    if (body == null) {
+      parts.add(polish
+          ? '$what: brak długości w tabeli — podaj ją albo wybierz inne '
+              'odniesienie'
+          : '$what: no length in the tables — enter it or pick another '
+              'reference');
+    } else if (e.isWeldNeckFlange) {
+      parts.add('$what: −Y ${body.toStringAsFixed(0)} mm');
+    } else {
+      parts.add('$what: −${body.toStringAsFixed(0)} mm');
+    }
+  }
+  return parts.isEmpty ? '' : ', ${parts.join(', ')}';
+}
+
+/// Second line of an end on the review screen: what this end takes off the
+/// dimension under the stops in effect (confirmed, else proposed), with the
+/// table it came from. Never a bare number without saying where it came
+/// from.
+String endpointDeductionText(
+  PlannedSegment segment, {
+  required bool start,
+  required bool polish,
+}) {
+  final e = start ? segment.start : segment.end;
+  final effective = segment.stops ?? segment.proposedStops;
+  final stop = start ? effective.start : effective.end;
+  String t(String pl, String en) => polish ? pl : en;
+
+  if (!e.isResolved) return t('nierozpoznane', 'unrecognised');
+  if (e.isAxial) {
+    final v = e.takeoutMm;
+    if (v == null) return t('brak take-outu', 'no take-out');
+    if (stop != SideStop.centre) {
+      return t('wymiar do końca kształtki — nic nie odejmowane',
+          'dimension to the fitting end — nothing deducted');
+    }
+    final value = t('oś–czoło ${v.toStringAsFixed(0)} mm',
+        'centre–face ${v.toStringAsFixed(0)} mm');
+    final note = e.takeoutNote;
+    return note == null ? value : '$value · $note';
+  }
+  if (e.isPhysical) {
+    if (stop == SideStop.end) {
+      final body = e.bodyLengthMm;
+      if (body == null) {
+        return t('przez korpus — brak długości w tabeli',
+            'through the body — no length in the tables');
+      }
+      final mm = body.toStringAsFixed(0);
+      final value = e.isWeldNeckFlange
+          ? t('do przylgi: −Y $mm mm', 'to the sealing face: −Y $mm mm')
+          : t('przez korpus: −$mm mm', 'through the body: −$mm mm');
+      final note = e.bodyNote;
+      return note == null ? value : '$value · $note';
+    }
+    return t('wymiar do czoła — nic nie odejmowane',
+        'dimension to the face — nothing deducted');
+  }
+  if (e.componentId == null) return t('otwarty koniec', 'open end');
+  return t('punkt odniesienia', 'reference point');
 }
 
 bool _touchesBranch(AiSegment seg, List<String> branchNodes) {
@@ -1313,23 +1516,40 @@ ScanEndpoint _endpoint(
     takeoutMm = 0;
   }
 
+  // A valve of unknown type gets NO face-to-face: the group's behaviour is
+  // the same for all of them, but a gate valve's body is not a check
+  // valve's, and borrowing one for the other is exactly the invented number
+  // this layer exists to prevent.
+  final body = behaviour.hasPhysicalBody && subtypeKnown
+      ? _bodyLength(tool!, dn, pipeClass, component: component)
+      : null;
+
+  final SideStop proposedStop;
+  if (kind == ScanEndKind.axial) {
+    proposedStop = SideStop.centre;
+  } else if (tool == 'flange' && !_isSlipOnLike(component)) {
+    // The isometric dimension to a flange runs to its sealing face — through
+    // the weld-neck hub, whose length Y the pipe does NOT get (the segment
+    // builder defaults a flange to FACE_FAR for the same reason).
+    proposedStop = SideStop.end;
+  } else {
+    proposedStop = SideStop.face;
+  }
+
   return ScanEndpoint(
     componentId: componentId,
     rawType: component.type,
     label: component.label,
     kind: kind,
     behaviour: behaviour,
+    tool: tool,
     takeoutMm: takeoutMm,
-    // A valve of unknown type gets NO face-to-face: the group's behaviour is
-    // the same for all of them, but a gate valve's body is not a check
-    // valve's, and borrowing one for the other is exactly the invented
-    // number this layer exists to prevent.
     bodyLengthMm: behaviour.hasPhysicalBody
-        ? (subtypeKnown
-            ? _bodyLengthMm(tool!, dn, pipeClass, component: component)
-            : null)
+        ? body?.mm
         : (kind == ScanEndKind.logical ? 0 : null),
     takeoutNote: takeoutNote,
+    bodyNote: behaviour.hasPhysicalBody ? body?.note : null,
+    proposedStop: proposedStop,
   );
 }
 
@@ -1383,20 +1603,34 @@ _Takeout? _axialTakeout(
   }
 }
 
-/// Face-to-face body length, only where a standard gives one unambiguously.
+/// Slip-on / socket / lap / threaded flanges swallow the pipe: their
+/// set-back is not a catalogue length and their sealing face is not where a
+/// weld-neck's Y would put it.
+bool _isSlipOnLike(AiComponent component) {
+  final marking = '${component.label ?? ''} ${component.type}'.toUpperCase();
+  return RegExp(r'\b(SO|SW|LJ|THD|THRD)\b|SLIP|SOCKET|LAP|THREAD')
+      .hasMatch(marking);
+}
+
+/// Body length along the run, only where a standard gives one unambiguously.
 ///
 /// Flanges and valves are listed per pressure class, so they resolve only
 /// when the title block actually says Class 150 — guessing a class would
 /// change the cut by tens of millimetres.
-double? _bodyLengthMm(String tool, int? dn, String? pipeClass,
+_Takeout? _bodyLength(String tool, int? dn, String? pipeClass,
     {AiComponent? component}) {
   if (dn == null) return null;
   final is150 = _isClass150(pipeClass);
+  _Takeout? pick(Map<int, int> table, String note) {
+    final v = table[dn];
+    return v == null ? null : _Takeout(v.toDouble(), '$note · DN$dn');
+  }
+
   switch (tool) {
     case 'reducer':
-      return TakeoutCatalog.reducer[dn]?.toDouble();
+      return pick(TakeoutCatalog.reducer, 'ASME B16.9 · H');
     case 'cap':
-      return TakeoutCatalog.cap[dn]?.toDouble();
+      return pick(TakeoutCatalog.cap, 'ASME B16.9 · E');
     case 'flange':
       if (!is150) return null;
       // A weld-neck's body is Y (face to hub end, DN100: 76 mm) — NOT the
@@ -1405,23 +1639,28 @@ double? _bodyLengthMm(String tool, int? dn, String? pipeClass,
       // Slip-on / socket / lap / threaded flanges swallow the pipe: the
       // set-back is not a catalogue length, so no number is invented and the
       // end stays an explicit gap for the fitter.
-      final marking =
-          '${component?.label ?? ''} ${component?.type ?? ''}'.toUpperCase();
-      if (RegExp(r'\b(SO|SW|LJ|THD|THRD)\b|SLIP|SOCKET|LAP|THREAD')
-          .hasMatch(marking)) {
-        return null;
-      }
-      return TakeoutCatalog.flangeWN150Y[dn]?.toDouble();
+      if (component != null && _isSlipOnLike(component)) return null;
+      return pick(TakeoutCatalog.flangeWN150Y, 'ASME B16.5 Cl.150 · WN Y');
     case 'blindFlange':
-      return is150 ? TakeoutCatalog.flangeThickness150C[dn]?.toDouble() : null;
+      return is150
+          ? pick(TakeoutCatalog.flangeThickness150C, 'ASME B16.5 Cl.150 · C')
+          : null;
     case 'globeValve':
-      return is150 ? TakeoutCatalog.globeValve150[dn]?.toDouble() : null;
+      return is150
+          ? pick(TakeoutCatalog.globeValve150, 'ASME B16.10 Cl.150 · globe')
+          : null;
     case 'gateValve':
-      return is150 ? TakeoutCatalog.gateValve150[dn]?.toDouble() : null;
+      return is150
+          ? pick(TakeoutCatalog.gateValve150, 'ASME B16.10 Cl.150 · gate')
+          : null;
     case 'ballValve':
-      return is150 ? TakeoutCatalog.ballValve150[dn]?.toDouble() : null;
+      return is150
+          ? pick(TakeoutCatalog.ballValve150, 'ASME B16.10 Cl.150 · ball')
+          : null;
     case 'checkValve':
-      return is150 ? TakeoutCatalog.checkValve150[dn]?.toDouble() : null;
+      return is150
+          ? pick(TakeoutCatalog.checkValve150, 'ASME B16.10 Cl.150 · check')
+          : null;
     default:
       return null;
   }

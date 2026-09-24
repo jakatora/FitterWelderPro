@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/models/prefab/dim_ref.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
+import 'package:cut_list_app/services/prefab_engine.dart';
 import 'package:cut_list_app/services/scan_to_project.dart';
 
 // ── Builders ──────────────────────────────────────────────────────────────
@@ -196,7 +197,9 @@ void main() {
       expect(seg.end.kind, ScanEndKind.nonAxial);
       expect(seg.end.kind.code, 'nonAxial');
       expect(seg.end.isPhysical, isTrue);
-      expect(seg.isoRefCode, 'AXIS|FACE_NEAR');
+      // Proposal before confirmation: elbow to its axis, weld-neck flange
+      // through its body to the sealing face (FACE_FAR in the builder).
+      expect(seg.isoRefCode, 'AXIS|FACE_FAR');
     });
 
     test('take-out for the elbow comes from the ASME table', () {
@@ -205,9 +208,12 @@ void main() {
       expect(seg.start.takeoutMm, 152, reason: '90° LR, DN100, ASME B16.9');
       expect(seg.start.takeoutNote, contains('B16.9'));
       expect(seg.start.offsetMm, 152);
-      // The dimension stops at the flange face, so the flange adds nothing.
+      // Not an axial take-out — the flange's share is its body Y, taken at
+      // the proposed `end` stop.
       expect(seg.end.takeoutMm, 0);
-      expect(seg.end.offsetMm, 0);
+      expect(seg.end.proposedStop, SideStop.end);
+      expect(seg.end.offsetMm, 76);
+      expect(seg.end.bodyNote, contains('B16.5'));
     });
 
     test('a bodied end forces the fitter to confirm the reference, so no CUT',
@@ -218,9 +224,11 @@ void main() {
       expect(seg.isoMm, 1000);
       expect(seg.dimRef, isNull);
       expect(seg.needsDimRefConfirmation, isTrue);
-      expect(seg.proposedDimRef, DimRef.centreToFace);
+      // The isometric dimension to a flange runs to its sealing face, i.e.
+      // through the weld-neck body: centre-to-END is the proposal now.
+      expect(seg.proposedDimRef, DimRef.centreToEnd);
       expect(seg.cutMm, isNull,
-          reason: 'centre-to-face vs centre-to-end cannot be read off a photo');
+          reason: 'a proposal is not a confirmation — nothing is cut silently');
       expect(
         _codes(plan.gaps),
         contains(ScanIssueCode.dimensionReferenceUnknown),
@@ -278,6 +286,150 @@ void main() {
         segments: [_seg('s1', from: 'e1', to: 'b1', mm: 1000)],
       )).segments.single;
       expect(seg.end.bodyLengthMm, 24);
+    });
+  });
+
+  // ── Reference point at flanges and valves (proposal per side) ───────────
+  //
+  // An isometric dimension to a flange runs to its sealing face (the raised
+  // face), i.e. through the weld-neck body: the pipe ends at the hub, Y
+  // short of the dimension. To a valve it runs to the valve face on the
+  // pipe side — the body is not in the span. Hand-computed, DN100 Class 150:
+  //   90° LR elbow A = 152 (ASME B16.9), WN flange Y = 76 (B16.5),
+  //   gate valve face-to-face = 229 (B16.10).
+
+  group('proposed reference at flanges and valves', () {
+    PlannedSegment one(List<AiComponent> comps, double mm,
+            {String from = 'a', String to = 'b'}) =>
+        planFromScan(_scan(
+          components: comps,
+          segments: [_seg('s1', from: from, to: to, mm: mm)],
+        )).segments.single;
+
+    test('elbow 152 → WN flange (Y 76), ISO 1000 → proposed CUT 772', () {
+      final seg =
+          one([_comp('a', 'elbow90'), _comp('b', 'flange')], 1000);
+
+      expect(seg.proposedStops, const ScanStops(SideStop.centre, SideStop.end));
+      expect(seg.proposedDimRef, DimRef.centreToEnd);
+      // Still a question for the fitter — never cut on a proposal.
+      expect(seg.needsDimRefConfirmation, isTrue);
+      expect(seg.cutMm, isNull);
+      expect(cutMmForStops(seg, seg.proposedStops), closeTo(772, 1e-9),
+          reason: '1000 − 152 − 76');
+      final confirmed = seg.withStops(seg.proposedStops);
+      expect(confirmed.cutMm, closeTo(772, 1e-9));
+      expect(confirmed.isComplete, isTrue);
+      expect(confirmed.isoRefCode, 'AXIS|FACE_FAR');
+      expect(confirmed.anchorColumns!.endValueMm, 76);
+      // The picker leads with the proposal.
+      expect(referenceOptions(seg).first, seg.proposedStops);
+    });
+
+    test('the same run, reversed (flange → elbow), gives the same 772', () {
+      final seg =
+          one([_comp('a', 'flange'), _comp('b', 'elbow90')], 1000);
+      expect(seg.proposedStops, const ScanStops(SideStop.end, SideStop.centre));
+      expect(seg.withStops(seg.proposedStops).cutMm, closeTo(772, 1e-9));
+    });
+
+    test('elbow → gate valve (229) → proposed CUT 848, body not deducted',
+        () {
+      final seg = one([
+        _comp('a', 'elbow90'),
+        _comp('b', 'valve', valveType: 'gate'),
+      ], 1000);
+
+      expect(seg.end.bodyLengthMm, 229);
+      expect(seg.proposedStops,
+          const ScanStops(SideStop.centre, SideStop.face));
+      expect(seg.proposedDimRef, DimRef.centreToFace);
+      expect(seg.needsDimRefConfirmation, isTrue);
+      expect(seg.withStops(seg.proposedStops).cutMm, closeTo(848, 1e-9),
+          reason: '1000 − 152 − 0');
+    });
+
+    test('gate valve → WN flange: FTE puts the END on the flange, not on the '
+        'longer valve body', () {
+      // ISO 500 from the valve face to the flange sealing face.
+      //   pipe = 500 − 0 (valve face) − 76 (flange Y) = 424.
+      // The engine's own tie-break for two bodied ends takes whichever
+      // subtracts more — here the valve (229) — and would give 271: scrap.
+      final seg = one([
+        _comp('a', 'valve', valveType: 'gate'),
+        _comp('b', 'flange'),
+      ], 500);
+      expect(seg.proposedStops, const ScanStops(SideStop.face, SideStop.end));
+      expect(seg.withStops(seg.proposedStops).cutMm, closeTo(424, 1e-9));
+      expect(seg.withDimRef(DimRef.faceToEnd).cutMm, closeTo(424, 1e-9));
+    });
+
+    test('WN flange → WN flange: both bodies (end–end), ISO 1000 → 848', () {
+      final seg = one([_comp('a', 'flange'), _comp('b', 'flange')], 1000);
+      expect(seg.proposedStops, const ScanStops(SideStop.end, SideStop.end));
+      // DimRef has no end–end code; the stops say it per side.
+      expect(seg.proposedDimRef, isNull);
+      expect(seg.proposedStops.label(polish: true), 'koniec-koniec');
+      final confirmed = seg.withStops(seg.proposedStops);
+      expect(confirmed.cutMm, closeTo(848, 1e-9), reason: '1000 − 76 − 76');
+      expect(confirmed.isoRefCode, 'FACE_FAR|FACE_FAR');
+      expect(referenceOptions(seg), contains(seg.proposedStops));
+    });
+
+    test('open end → WN flange: face–end, ISO 600 → 524', () {
+      final seg = planFromScan(_scan(
+        components: [_comp('b', 'flange')],
+        segments: [_seg('s1', to: 'b', mm: 600)],
+      )).segments.single;
+      expect(seg.proposedStops, const ScanStops(SideStop.face, SideStop.end));
+      expect(seg.withStops(seg.proposedStops).cutMm, closeTo(524, 1e-9));
+    });
+
+    test('a slip-on flange is not proposed through its body', () {
+      final seg = one([
+        _comp('a', 'elbow90'),
+        _comp('b', 'flange', label: 'SO 4" 150#'),
+      ], 1000);
+      expect(seg.end.proposedStop, SideStop.face);
+      expect(seg.proposedDimRef, DimRef.centreToFace);
+    });
+
+    test('an explicit answer still wins: CTF on a flange gives 848', () {
+      final seg =
+          one([_comp('a', 'elbow90'), _comp('b', 'flange')], 1000);
+      expect(seg.withDimRef(DimRef.centreToFace).cutMm, closeTo(848, 1e-9));
+      expect(seg.withDimRef(DimRef.centreToEnd).cutMm, closeTo(772, 1e-9));
+    });
+
+    test('the review line says the flange is deducted by Y', () {
+      final seg =
+          one([_comp('a', 'elbow90'), _comp('b', 'flange')], 1000);
+      final pl = endpointDeductionText(seg, start: false, polish: true);
+      final en = endpointDeductionText(seg, start: false, polish: false);
+      expect(pl, contains('Y 76 mm'));
+      expect(pl, contains('B16.5'));
+      expect(en, contains('Y 76 mm'));
+
+      final valve = one([
+        _comp('a', 'elbow90'),
+        _comp('b', 'valve', valveType: 'gate'),
+      ], 1000);
+      expect(endpointDeductionText(valve, start: false, polish: true),
+          contains('czoła'));
+      expect(endpointDeductionText(valve, start: true, polish: true),
+          contains('152'));
+    });
+
+    test('the gap message names the proposal and the Y deduction', () {
+      final plan = planFromScan(_scan(
+        components: [_comp('a', 'elbow90'), _comp('b', 'flange')],
+        segments: [_seg('s1', from: 'a', to: 'b', mm: 1000)],
+      ));
+      final gap = plan.gaps
+          .singleWhere((g) => g.code == ScanIssueCode.dimensionReferenceUnknown);
+      expect(gap.pl, contains('oś-koniec'));
+      expect(gap.pl, contains('Y 76'));
+      expect(gap.blocking, isTrue);
     });
   });
 

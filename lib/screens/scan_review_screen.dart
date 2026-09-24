@@ -17,7 +17,7 @@
 ///
 /// Nothing is invented here either. This screen never computes a cut length
 /// itself: it edits the scan, re-runs [planFromScan], and asks
-/// [cutMmForSegment] for the arithmetic, so the number saved comes from
+/// [cutMmForStops] for the arithmetic, so the number saved comes from
 /// [PrefabEngine] exactly like a hand-built segment does.
 library;
 
@@ -28,7 +28,6 @@ import 'package:uuid/uuid.dart';
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
-import '../models/prefab/dim_ref.dart';
 import '../models/project.dart';
 import '../services/iso_scanner_ai.dart';
 import '../services/scan_to_project.dart';
@@ -104,8 +103,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   /// filters the component library, but it is stored on the project.
   String? _materialGroup;
 
-  /// Dimension references the fitter confirmed, by segment id.
-  final Map<String, DimRef> _refChoice = {};
+  /// Dimension references the fitter confirmed (stop per side), by segment id.
+  final Map<String, ScanStops> _refChoice = {};
 
   /// Segment ids where the planner refused to derive a reference on its own.
   Set<String> _refNeeded = const {};
@@ -184,7 +183,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     );
 
     _refNeeded = base.segments
-        .where((s) => s.dimRef == null)
+        .where((s) => s.needsDimRefConfirmation)
         .map((s) => s.sourceId)
         .toSet();
 
@@ -192,9 +191,9 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     // derive. Where the two ends already decide it, a leftover answer must
     // not override the derived one.
     _segments = base.segments.map((s) {
-      if (s.dimRef != null) return s;
+      if (!s.needsDimRefConfirmation) return s;
       final choice = _refChoice[s.sourceId];
-      return choice == null ? s : s.withDimRef(choice);
+      return choice == null ? s : s.withStops(choice);
     }).toList(growable: false);
 
     _plan = base;
@@ -651,12 +650,14 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   }
 
   Future<void> _editDimRef(PlannedSegment seg) async {
-    final options = <DimRef, double?>{
-      for (final ref in DimRef.values) ref: cutMmForSegment(seg, ref),
+    // Proposal first (each end at its usual stop — a weld-neck flange to its
+    // sealing face, so its Y comes off), then every other placement.
+    final options = <ScanStops, double?>{
+      for (final ref in referenceOptions(seg)) ref: cutMmForStops(seg, ref),
     };
-    final current = _refChoice[seg.sourceId] ?? seg.proposedDimRef;
+    final current = _refChoice[seg.sourceId] ?? seg.proposedStops;
 
-    final picked = await showModalBottomSheet<DimRef>(
+    final picked = await showModalBottomSheet<ScanStops>(
       context: context,
       backgroundColor: _kCard,
       builder: (ctx) => SafeArea(
@@ -689,7 +690,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                 style: const TextStyle(fontSize: 12.5, color: _kSec),
               ),
             ),
-            for (final ref in DimRef.values)
+            for (final ref in options.keys)
               ListTile(
                 enabled: options[ref] != null,
                 leading: Icon(
@@ -699,7 +700,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                   color: options[ref] == null ? _kMuted : _kOrange,
                 ),
                 title: Text(
-                  context.language == AppLanguage.en ? ref.labelEn : ref.labelPl,
+                  ref.label(polish: context.language != AppLanguage.en),
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: options[ref] == null ? _kMuted : null,
@@ -1156,17 +1157,15 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                     size: 18,
                   ),
                   label: Text(
-                    seg.dimRef == null
+                    seg.stops == null
                         ? _tr('ODNIESIENIE?', 'REFERENCE?')
-                        : (_isEnglish
-                            ? seg.dimRef!.labelEn
-                            : seg.dimRef!.labelPl),
+                        : seg.stops!.label(polish: !_isEnglish),
                     overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: seg.dimRef == null ? _kRed : _kSec,
+                    foregroundColor: seg.stops == null ? _kRed : _kSec,
                     side: BorderSide(
-                        color: seg.dimRef == null ? _kRed : _kBorder),
+                        color: seg.stops == null ? _kRed : _kBorder),
                   ),
                 ),
               ),
@@ -1190,7 +1189,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     final e = isStart ? seg.start : seg.end;
     final bad = !e.isResolved || (e.isAxial && e.takeoutMm == null);
     final label = _endpointLabel(e);
-    final detail = _endpointDetail(e);
+    // What this end takes off (e.g. a weld-neck flange: −Y 76 mm) under the
+    // confirmed reference, or the proposed one before that.
+    final detail = endpointDeductionText(seg,
+        start: isStart, polish: !_isEnglish);
 
     return InkWell(
       onTap: () => _editEnd(seg, isStart: isStart),
@@ -1227,26 +1229,6 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         ),
       ),
     );
-  }
-
-  /// Second line of an end button: what this end contributes to the cut, in
-  /// the fitter's own words. Never a bare number without saying where it
-  /// came from.
-  String _endpointDetail(ScanEndpoint e) {
-    if (!e.isResolved) return _tr('nierozpoznane', 'unrecognised');
-    if (e.isAxial) {
-      final t = e.takeoutMm;
-      if (t == null) {
-        return _tr('brak take-outu', 'no take-out');
-      }
-      final note = e.takeoutNote;
-      final value = _tr('oś–czoło ${t.toStringAsFixed(0)} mm',
-          'centre–face ${t.toStringAsFixed(0)} mm');
-      return note == null ? value : '$value · $note';
-    }
-    if (e.isPhysical) return _tr('wymiar do czoła', 'dimension to the face');
-    if (e.componentId == null) return _tr('otwarty koniec', 'open end');
-    return _tr('punkt odniesienia', 'reference point');
   }
 
   String _endpointLabel(ScanEndpoint e) {
