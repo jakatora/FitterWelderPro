@@ -28,6 +28,7 @@ import '../qualification/certificate_status.dart';
 import '../qualification/qualification_dates.dart';
 import '../qualification/weld_process.dart';
 import '../qualification/welder_certificate.dart';
+import '../../utils/decimal_parse.dart';
 import '../welding/heat_input.dart';
 import 'wps_record.dart';
 
@@ -87,8 +88,7 @@ class WeldParameters {
     if (raw == null) return null;
     final m = RegExp(r'-?\d+(?:[.,]\d+)?').firstMatch(raw);
     if (m == null) return null;
-    final v = double.tryParse(m.group(0)!.replaceAll(',', '.'));
-    return (v != null && v.isFinite) ? v : null;
+    return parseDecimal(m.group(0));
   }
 }
 

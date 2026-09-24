@@ -16,8 +16,10 @@ String _upperTrim(Object? v) => v is String ? v.trim().toUpperCase() : '';
 
 /// Spoina z wiersza `weld_journal` albo `null`, gdy:
 ///  • [stamp] jest pusty (nie wiemy, czyje to spoiny — nie liczymy żadnych),
-///  • spoinę podpisał ktoś inny niż [stamp] (dziennik bywa prowadzony za
-///    całą brygadę),
+///  • [stamp] nie figuruje przy spoinie ani jako spawacz (`welder`), ani
+///    jako spawacz grani / lica (`root_welder` / `cap_welder`, dziennik v20)
+///    — dziennik bywa prowadzony za całą brygadę,
+///  • spoina jest usunięta (`deleted_at`, miękkie usuwanie dziennika v20),
 ///  • data nie daje się jednoznacznie odczytać albo jest późniejsza niż
 ///    [today],
 ///  • nie rozpoznano procesu.
@@ -31,7 +33,13 @@ JournalWeld? journalWeldFromRow(
 }) {
   final who = stamp?.trim().toUpperCase() ?? '';
   if (who.isEmpty) return null;
-  if (_upperTrim(row['welder']) != who) return null;
+  if (row['deleted_at'] != null) return null;
+  final signed = <String>{
+    _upperTrim(row['welder']),
+    _upperTrim(row['root_welder']),
+    _upperTrim(row['cap_welder']),
+  };
+  if (!signed.contains(who)) return null;
   final date = parseFlexibleDate(row['date'] as String?);
   if (date == null || date.isAfter(dateOnly(today))) return null;
   final families = <WeldProcessFamily>{

@@ -15,6 +15,7 @@
 // jest lepszy niż brak wpisu. Czego brakuje, tego kontrola zakresu po prostu
 // nie sprawdza (i mówi o tym), zamiast zgadywać.
 
+import '../../utils/decimal_parse.dart';
 import 'qualification_dates.dart';
 import 'weld_process.dart';
 
@@ -78,10 +79,7 @@ enum IsoProlongation {
 
 double? _num(Object? v) {
   if (v is num) return v.isFinite ? v.toDouble() : null;
-  if (v is String) {
-    final d = double.tryParse(v.trim().replaceAll(',', '.'));
-    return (d != null && d.isFinite) ? d : null;
-  }
+  if (v is String) return parseDecimal(v);
   return null;
 }
 

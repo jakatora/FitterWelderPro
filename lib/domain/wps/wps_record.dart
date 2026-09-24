@@ -14,6 +14,7 @@
 
 import 'dart:convert';
 
+import '../../utils/decimal_parse.dart';
 import '../qualification/weld_process.dart';
 import '../welding/heat_input.dart';
 
@@ -52,10 +53,7 @@ HeatInputStandard? heatInputMethodFromCode(String? raw) =>
 
 double? _num(Object? v) {
   if (v is num) return v.isFinite ? v.toDouble() : null;
-  if (v is String) {
-    final d = double.tryParse(v.trim().replaceAll(',', '.'));
-    return (d != null && d.isFinite) ? d : null;
-  }
+  if (v is String) return parseDecimal(v);
   return null;
 }
 

@@ -271,6 +271,30 @@ void main() {
       });
     }
 
+    test('dziennik v20: spoina usunięta (deleted_at) się nie liczy', () {
+      expect(
+        journalWeldFromRow({...row(), 'deleted_at': 1758700000000},
+            stamp: 'JK-014', today: now),
+        isNull,
+      );
+      expect(
+        journalWeldFromRow({...row(), 'deleted_at': null},
+            stamp: 'JK-014', today: now),
+        isNotNull,
+      );
+    });
+
+    test('dziennik v20: stempel graniowy albo licowy też jest „spawał"', () {
+      for (final column in ['root_welder', 'cap_welder']) {
+        final w = journalWeldFromRow(
+          {...row(welder: 'AB-1'), column: ' jk-014 '},
+          stamp: 'JK-014',
+          today: now,
+        );
+        expect(w, isNotNull, reason: column);
+      }
+    });
+
     test('kolumna `process` (jeśli dziennik ją doda) też jest czytana', () {
       final w = journalWeldFromRow(
         {'welder': 'JK-014', 'date': '10.09.2026', 'method': '', 'process': '135'},

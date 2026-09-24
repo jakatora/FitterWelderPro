@@ -1,21 +1,16 @@
 // Drobne pola formularzy rejestru uprawnień i biblioteki WPS.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../domain/qualification/qualification_dates.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/number_field.dart';
 
 /// Liczba wpisana w polu formularza („1,5" albo „1.5"); `null` dla pustego.
 /// Tekst, który nie jest liczbą, też daje `null` — walidator [decimalValidator]
-/// zgłasza go wcześniej.
-double? parseDecimalField(String raw) {
-  final t = raw.trim().replaceAll(',', '.');
-  if (t.isEmpty) return null;
-  final v = double.tryParse(t);
-  return (v != null && v.isFinite) ? v : null;
-}
+/// zgłasza go wcześniej. Wspólny parser aplikacji (`parseDecimal`).
+double? parseDecimalField(String raw) => parseDecimal(raw);
 
 /// Liczba nieujemna albo puste pole.
 String? Function(String?) decimalValidator(BuildContext context) => (raw) {
@@ -57,10 +52,11 @@ class DecimalField extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextFormField(
         controller: controller,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        inputFormatters: [
-          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,-]')),
-        ],
+        // Klawiatura z przecinkiem także na iOS + ten sam filtr co w całej
+        // aplikacji (widgets/number_field.dart). Bez minusa: zakresy,
+        // temperatury min/max i energia liniowa są tu nieujemne.
+        keyboardType: numberKeyboard(),
+        inputFormatters: numberInputFormatters(),
         decoration: InputDecoration(
           labelText: label,
           suffixText: unit,
