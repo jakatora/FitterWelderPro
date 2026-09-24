@@ -3,15 +3,19 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Lightweight per-device user profile: first + last name captured on the
-// very first launch. Used to sign the user's public chat messages so other
-// fitters can see who is writing ("to ja piszę").
+// Lightweight per-device user profile: first + last name. NOT asked for on
+// first launch — the app opens straight on the tools (calculators, projects
+// and the journal work offline without an account). The name is collected by
+// the gate in front of the chat (lib/widgets/community_gate.dart), the first
+// time the user opens it, and it signs the user's public chat messages so
+// other fitters can see who is writing ("to ja piszę"). It can be edited in
+// ProfileScreen.
 //
 // Deliberately SEPARATE from WelderIdentity (services/welder_identity.dart),
 // which carries the coded-work stamp + GDPR consent + qualification records
-// required by ISO 3834 / EN ISO 9606. Onboarding must stay a two-field,
-// 10-second step — we don't want a brand-new user forced through the full
-// welder-qualification form before they can open a calculator.
+// required by ISO 3834 / EN ISO 9606. The chat gate must stay a two-field,
+// 10-second step — nobody should be forced through the full
+// welder-qualification form just to post a message.
 //
 // Persisted to SharedPreferences (key `user_profile_v1`), mirroring the
 // WelderIdentityService pattern so there's no new sqflite migration story.
@@ -40,7 +44,7 @@ class UserProfile {
       };
 
   /// Returns null when the stored payload has no usable first name — the
-  /// gate treats that as "no profile yet" and re-shows onboarding.
+  /// chat gate treats that as "no profile yet" and asks for the name again.
   static UserProfile? fromJson(Map<String, Object?> json) {
     final f = (json['firstName'] as String?)?.trim() ?? '';
     final l = (json['lastName'] as String?)?.trim() ?? '';
@@ -120,7 +124,7 @@ class UserProfileService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_kPrefsKey);
     } catch (_) {
-      // Drop the in-memory cache regardless so the gate re-shows onboarding.
+      // Drop the in-memory cache regardless so the chat gate asks again.
     }
     _cache = null;
     _hydrated = true;
