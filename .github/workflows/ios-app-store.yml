@@ -1,15 +1,11 @@
 name: iOS App Store Upload
 
+# WYŁĄCZONY automatycznie (2026-09-24): iOS buduje i wysyła Codemagic
+# (codemagic.yaml, workflow ios-testflight). Ten stary tor fastlane odpalał się
+# na push do main i mógł wysłać drugi build równolegle. Zostaje tylko ręczne
+# uruchomienie — do usunięcia, gdy nikt go nie potrzebuje.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - pubspec.yaml
-      - lib/**
-      - ios/**
-      - .github/workflows/ios-app-store.yml
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

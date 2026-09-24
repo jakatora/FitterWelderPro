@@ -8,7 +8,9 @@ workflows:
       app_store_connect: codemagic
 
     environment:
-      flutter: stable
+      # Przypięte: pubspec.lock wymaga Flutter >= 3.44, a „stable” zmienia się
+      # pod nogami — build ma być powtarzalny. Podnosić świadomie.
+      flutter: 3.47.5
       xcode: latest
       cocoapods: default
       vars:
