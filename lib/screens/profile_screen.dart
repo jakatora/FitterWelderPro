@@ -335,7 +335,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final report = outcome;
     if (!restored || report == null || !mounted) return;
 
-    Haptic.saved();
+    // Kopia z nowszej wersji aplikacji mogła nieść tabele albo kolumny, których
+    // ta wersja nie ma — tych danych nie przywróciliśmy. Snackbar znika po
+    // kilku sekundach, a to jest informacja o brakujących danych, więc okno
+    // czeka na potwierdzenie, ZANIM przebudujemy aplikację.
+    if (!report.isComplete) {
+      await showRestoreWarning(context, report);
+      if (!mounted) return;
+    } else {
+      Haptic.saved();
+    }
     messenger.showSnackBar(SnackBar(
       // Liczby podane w formie „etykieta: N", bo polska odmiana rzeczownika
       // po liczbie (1 rekord / 2 rekordy / 5 rekordów) i tak nie zmieści się
@@ -686,6 +695,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
     );
   }
+}
+
+/// Ostrzeżenie po przywróceniu kopii, z której części danych nie dało się
+/// zapisać ([RestoreReport.isComplete] == false). Nic nie robi, gdy kopia
+/// weszła w całości.
+Future<void> showRestoreWarning(BuildContext context, RestoreReport report) {
+  if (report.isComplete) return Future.value();
+  Haptic.error();
+  return showDialog<void>(
+    context: context,
+    builder: (dctx) => AlertDialog(
+      // Lista pominiętych tabel bywa długa — przewijane okno jej nie utnie.
+      scrollable: true,
+      icon: const Icon(Icons.warning_amber_rounded, color: kWarn, size: 30),
+      title: Text(context.tr(
+          pl: 'Przywrócono, ale nie wszystko',
+          en: 'Restored, but not everything')),
+      content: Text(
+        context.tr(pl: report.warningPl!, en: report.warningEn!),
+        style: const TextStyle(color: kText, fontSize: 14, height: 1.5),
+      ),
+      actions: [
+        TextButton(
+          style: TextButton.styleFrom(
+            minimumSize: const Size(kMinTapTarget, kMinTapTarget),
+          ),
+          onPressed: () => Navigator.pop(dctx),
+          child: Text(context.tr(pl: 'Rozumiem', en: 'Got it')),
+        ),
+      ],
+    ),
+  );
 }
 
 class _LinkTile extends StatelessWidget {
