@@ -1011,12 +1011,14 @@ List<HelpCategory> kHelpCategories = [
           'What hydrotest pressure?',
         ),
         answer: _bi(
-          'ASME B31.3 §345.4: **P_test = 1.5 × P_design** w ambient T, ale skorygowane przy T compensation (P_test ≤ 1.5 × P_design × S_test/S_design). '
-          'Hold time: min 10 min (kod), praktycznie 1-4 h dla wiarygodnej leak detection. '
+          'ASME B31.3 §345.4.2: **P_test ≥ 1.5 × P_design × S_T/S** — S_T to naprężenie dopuszczalne w temp. próby, S w temp. obliczeniowej (S_T/S ≤ 6.5; w ambient T zwykle S_T/S = 1 → 1.5 × P_design). '
+          'Pneumatic (§345.5.4): P_test ≥ 1.1 × P_design. '
+          'Hold time: min 10 min (§345.2.2(a)), praktycznie 1-4 h dla wiarygodnej leak detection. '
           'Fluid: water default (incompressible, low stored energy). Avoid chloride water on SS (>50 ppm = pitting risk). '
           'Pneumatic test allowed only when hydro impractical (cryogenic, vacuum) — duże zagrożenie energii.',
-          'ASME B31.3 §345.4: **P_test = 1.5 × P_design** at ambient T, but T-compensated (P_test ≤ 1.5 × P_design × S_test/S_design). '
-          'Hold time: min 10 min (code), practical 1-4 h for reliable leak detection. '
+          'ASME B31.3 §345.4.2: **P_test ≥ 1.5 × P_design × S_T/S** — S_T is the allowable stress at test temperature, S at design temperature (S_T/S ≤ 6.5; at ambient design T usually S_T/S = 1 → 1.5 × P_design). '
+          'Pneumatic (§345.5.4): P_test ≥ 1.1 × P_design. '
+          'Hold time: min 10 min (§345.2.2(a)), practical 1-4 h for reliable leak detection. '
           'Fluid: water default (incompressible, low stored energy). Avoid chloride water on SS (>50 ppm = pitting risk). '
           'Pneumatic test allowed only when hydro impractical (cryogenic, vacuum) — huge energy hazard.',
         ),

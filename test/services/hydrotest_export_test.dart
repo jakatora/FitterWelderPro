@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/database/hydrotest_dao.dart';
+import 'package:cut_list_app/domain/pressure_test/hydrotest_protocol_meta.dart';
+import 'package:cut_list_app/domain/pressure_test/test_pressure.dart';
 import 'package:cut_list_app/services/hydrotest_export.dart';
 
 /// Builds a record with only the fields a test cares about. Defaults describe
@@ -24,6 +26,7 @@ HydrotestRecord _rec({
   double? testPressureBar = 15.0,
   double? volumeL = 259.4,
   String notes = '',
+  HydrotestProtocolMeta meta = const HydrotestProtocolMeta(),
 }) =>
     HydrotestRecord(
       id: 'r1',
@@ -44,6 +47,7 @@ HydrotestRecord _rec({
       testPressureBar: testPressureBar,
       volumeL: volumeL,
       notes: notes,
+      meta: meta,
       createdAt: 1756512000000,
     );
 
@@ -124,11 +128,15 @@ void main() {
   });
 
   group('audit notes printed on the protocol', () {
-    test('a short hold is called out against ASME B31.3 § 345.4.2', () {
+    test('a short hold is called out against ASME B31.3 § 345.2.2(a)', () {
+      // The 10-min minimum lives in § 345.2.2(a) ("Other Test
+      // Requirements"); § 345.4.2 is the hydrostatic test PRESSURE. The old
+      // note cited § 345.4.2.
       final note = hydrotestHoldNote(_rec(holdMinutes: 4));
       expect(note, isNotNull);
       expect(note, contains('4 min'));
-      expect(note, contains('345.4.2'));
+      expect(note, contains('§345.2.2(a)'));
+      expect(note, isNot(contains('345.4.2')));
       // Bilingual, like every other string that ends up on paper.
       expect(note, contains('WARNING'));
     });
@@ -219,6 +227,107 @@ void main() {
         systemName: 'A' * 80,
       );
       expect(name, 'Protokol_proby_${'A' * 32}_2026-08-30.pdf');
+    });
+  });
+
+  group('protocol metadata (schema v19 columns)', () {
+    const meta = HydrotestProtocolMeta(
+      company: 'Montaż Rur Sp. z o.o.',
+      testMedium: 'Woda',
+      presetId: 'en13480_ped_hydro',
+      stressRatio: 1.2,
+      metalTempC: 14.0,
+      gaugeCalibrationDue: '2026-12-31',
+      protocolNo: 'HT-017',
+      revision: 'A',
+    );
+
+    test('a record with metadata reports its preset', () {
+      final r = _rec(notes: 'Korki 2×.', meta: meta);
+      expect(r.notes, 'Korki 2×.');
+      expect(hydrotestMeta(r), meta);
+      expect(hydrotestPreset(r), PressureTestPreset.en13480Hydro);
+    });
+
+    test('a record without metadata is treated as the old B31.3 calculator',
+        () {
+      final r = _rec(notes: 'Przeciek na kołnierzu.');
+      expect(hydrotestMeta(r), isNull);
+      expect(hydrotestPreset(r), PressureTestPreset.b313Hydro);
+      expect(hydrotestMinHoldMinutes(r), 10);
+    });
+
+    test('EN 13480-5 preset holds the record to 30 min, not 10', () {
+      final r = _rec(holdMinutes: 15, meta: meta);
+      expect(hydrotestMeetsMinimumHold(r), isFalse);
+      final note = hydrotestHoldNote(r);
+      expect(note, contains('30 min'));
+      expect(note, contains('EN 13480-5'));
+      expect(
+          hydrotestMeetsMinimumHold(
+              _rec(holdMinutes: 30, meta: meta)),
+          isTrue);
+    });
+
+    test('ASME VIII-1 has no minimum in the app — no hold note', () {
+      final r = _rec(
+          holdMinutes: 1,
+          meta: const HydrotestProtocolMeta(presetId: 'asme_viii_1_hydro'));
+      expect(hydrotestHoldNote(r), isNull);
+      expect(hydrotestMeetsMinimumHold(r), isTrue);
+    });
+
+    test('an expired gauge calibration is flagged against the test date', () {
+      final expired = _rec(
+        date: '2026-08-30',
+        meta: const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-29'),
+      );
+      expect(hydrotestCalibrationNote(expired), contains('2026-08-29'));
+      final valid = _rec(
+        date: '2026-08-30',
+        meta: const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-30'),
+      );
+      expect(hydrotestCalibrationNote(valid), isNull);
+      // Not an ISO date → no judgement.
+      expect(
+          hydrotestCalibrationNote(_rec(
+              meta: const HydrotestProtocolMeta(
+                  gaugeCalibrationDue: '03/2026'))),
+          isNull);
+      expect(hydrotestCalibrationNote(_rec()), isNull);
+    });
+
+    test('new records must name the medium and the metal temperature', () {
+      final r =
+          _rec(meta: const HydrotestProtocolMeta(presetId: 'b31_3_hydro'));
+      final note = hydrotestMissingNote(r);
+      expect(note, contains('medium'));
+      expect(note, contains('temperatura metalu'));
+      expect(note, isNot(contains('zaworu')));
+    });
+
+    test('a pneumatic test without a relief valve set pressure is incomplete',
+        () {
+      final r = _rec(
+          meta: const HydrotestProtocolMeta(
+              presetId: 'b31_3_pneumatic', testMedium: 'Azot', metalTempC: 12));
+      expect(hydrotestMissingNote(r), contains('zaworu bezpieczeństwa'));
+    });
+
+    test('test type and stress ratio labels', () {
+      expect(hydrotestTestTypeLabel(PressureTestPreset.b313Pneumatic),
+          'Pneumatyczna / Pneumatic — ASME B31.3 §345.5.4');
+      expect(formatHydrotestStressRatio(PressureTestPreset.b313Hydro, 1.2),
+          'ST/S = 1.20');
+      expect(formatHydrotestStressRatio(PressureTestPreset.b313Hydro, 8),
+          'ST/S = 8.00 → 6.50 (limit)');
+      expect(formatHydrotestStressRatio(PressureTestPreset.b311Hydro, 1.2),
+          startsWith('—'));
+    });
+
+    test('mail subject carries the protocol number', () {
+      final r = _rec(meta: meta);
+      expect(hydrotestProtocolSubject(r), contains('HT-017'));
     });
   });
 

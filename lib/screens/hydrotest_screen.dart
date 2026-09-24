@@ -5,6 +5,8 @@ import 'package:uuid/uuid.dart';
 
 import '../data/pipe_schedules.dart';
 import '../database/hydrotest_dao.dart';
+import '../domain/pressure_test/hydrotest_protocol_meta.dart';
+import '../domain/pressure_test/test_pressure.dart';
 import '../i18n/app_language.dart';
 import '../services/hydrotest_export.dart';
 import '../utils/clipboard_helper.dart';
@@ -16,26 +18,36 @@ import '../widgets/help_button.dart';
 // żeby nie ruszać współdzielonego pliku z tej zmiany).
 final kHelpHydrotest = ScreenHelp(
   titlePl: 'Próba ciśnieniowa',
-  titleEn: 'Hydrostatic test',
+  titleEn: 'Pressure test',
   bodyPl:
-      'Kalkulator próby ciśnieniowej hydrostatycznej (hydrotest). Liczy ciśnienie '
-      'testowe = współczynnik × ciśnienie projektowe (1.5× wg ASME B31.3 § 345.4.2), '
-      'objętość wody do napełnienia linii oraz szacowany czas napełniania przy '
-      'zadanej wydajności pompy. Minimalny czas próby: 10 min.',
+      'Kalkulator próby ciśnieniowej. Liczy minimalne ciśnienie próby wg '
+      'wybranej normy: ASME B31.3 hydro (Pt = 1,5·P·ST/S, ST/S ≤ 6,5, '
+      '§345.4.2), B31.3 pneumatyczna (1,1·P, §345.5.4), B31.1 hydro (1,5·P, '
+      '§137.4.5), EN 13480-5 / PED (większa z 1,25·PS·f_test/f i 1,43·PS) '
+      'oraz ASME VIII-1 zbiorniki (1,3·MAWP·LSR, UG-99(b)). Do tego objętość '
+      'wody i czas napełniania. Minimalny czas pod ciśnieniem próby wg B31.3: '
+      '10 min (§345.2.2(a)).',
   bodyEn:
-      'Hydrostatic pressure-test calculator. Computes test pressure = factor × '
-      'design pressure (1.5× per ASME B31.3 § 345.4.2), the water volume needed '
-      'to fill the line and the estimated fill time at the given pump flow. '
-      'Minimum hold time: 10 min.',
+      'Pressure-test calculator. Computes the minimum test pressure for the '
+      'selected code: ASME B31.3 hydro (Pt = 1.5·P·ST/S, ST/S ≤ 6.5, '
+      '§345.4.2), B31.3 pneumatic (1.1·P, §345.5.4), B31.1 hydro (1.5·P, '
+      '§137.4.5), EN 13480-5 / PED (greater of 1.25·PS·f_test/f and 1.43·PS) '
+      'and ASME VIII-1 vessels (1.3·MAWP·LSR, UG-99(b)), plus the water volume '
+      'and fill time. Minimum hold at test pressure per B31.3: 10 min '
+      '(§345.2.2(a)).',
   stepsPl: [
     HelpStep('📏', 'Wpisz OD, ściankę i długość linii (mm / m).'),
-    HelpStep('🧮', 'Podaj ciśnienie projektowe i wybierz współczynnik (1.5 / 1.3 / 1.43).'),
+    HelpStep('📘', 'Wybierz normę i rodzaj próby.'),
+    HelpStep('🧮', 'Podaj ciśnienie obliczeniowe i — jeśli norma tego wymaga — '
+        'stosunek naprężeń (ST/S, f_test/f, LSR; domyślnie 1,0).'),
     HelpStep('💧', 'Wpisz wydajność pompy (L/min) — policzy czas napełniania.'),
     HelpStep('⚠️', 'Strefę testu oznakuj i wygrodź — procedurę pisze inżynier QC.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter OD, wall and line length (mm / m).'),
-    HelpStep('🧮', 'Enter design pressure and pick a factor (1.5 / 1.3 / 1.43).'),
+    HelpStep('📘', 'Pick the code and the test type.'),
+    HelpStep('🧮', 'Enter the design pressure and — where the code needs it — '
+        'the stress ratio (ST/S, f_test/f, LSR; 1.0 by default).'),
     HelpStep('💧', 'Enter pump flow (L/min) — fill time will be calculated.'),
     HelpStep('⚠️', 'Mark and cordon off the test area — QC engineer writes the procedure.'),
   ],
@@ -88,11 +100,15 @@ double pressureFromBar(double bar, String unit) {
   }
 }
 
-/// Hydrostatic-test calculator for a pipe run.
-/// Inputs the design pressure and pipe geometry, gives back:
-///   • test pressure   = factor × design (1.5 per ASME B31.3 § 345.4.2)
+/// Pressure-test calculator for a pipe run (or a vessel).
+/// Inputs the design pressure, the code preset and pipe geometry, gives back:
+///   • minimum test pressure per the selected code preset — arithmetic in
+///     `lib/domain/pressure_test/test_pressure.dart` (B31.3 §345.4.2:
+///     1.5·P·ST/S; B31.3 §345.5.4 pneumatic 1.1·P; B31.1 §137.4.5 1.5·P;
+///     EN 13480-5 / PED max(1.25·PS·f_test/f, 1.43·PS); VIII-1 UG-99(b)
+///     1.3·MAWP·LSR)
 ///   • water volume    needed to fill the run
-///   • allowable hold time / min test duration (10 min minimum per B31.3)
+///   • minimum hold time for the code (B31.3 §345.2.2(a): 10 min)
 ///   • estimated time to fill at a given pump flow
 class HydrotestScreen extends StatefulWidget {
   const HydrotestScreen({super.key});
@@ -108,8 +124,16 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   final _designCtrl = TextEditingController();
   final _flowCtrl   = TextEditingController(text: '40');
 
-  /// ASME B31.3 default test factor is 1.5 × design.
-  double _factor = 1.5;
+  /// Temperature correction for the preset: ST/S (B31.3), f_test/f
+  /// (EN 13480-5) or LSR (ASME VIII-1). Empty means 1.0.
+  final _ratioCtrl  = TextEditingController();
+
+  /// Optional yield strength at test temperature [MPa] — lets the screen
+  /// warn per B31.3 §345.2.1(a) when the test pressure would yield the pipe.
+  final _yieldCtrl  = TextEditingController();
+
+  /// Code preset. ASME B31.3 hydrostatic is the default, as before.
+  PressureTestPreset _preset = PressureTestPreset.b313Hydro;
 
   // P2-05: jednostka ciśnienia projektowego — wartość w polu jest interpretowana
   // jako ta jednostka i konwertowana do barów wewnętrznie (kalkulacje liczą w bar).
@@ -222,7 +246,10 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
 
   @override
   void dispose() {
-    for (final c in [_odCtrl, _wallCtrl, _lengthCtrl, _designCtrl, _flowCtrl]) {
+    for (final c in [
+      _odCtrl, _wallCtrl, _lengthCtrl, _designCtrl, _flowCtrl, _ratioCtrl,
+      _yieldCtrl,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -231,16 +258,18 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   double? _p(TextEditingController c) =>
       c.text.trim().isEmpty ? null : double.tryParse(c.text.replaceAll(',', '.'));
 
-  // P1-04: reset całego ekranu — wszystkie pola + współczynnik do domyślnego 1.5×.
+  // P1-04: reset całego ekranu — wszystkie pola + preset do domyślnego B31.3.
   void _resetAll() {
     Haptic.tap();
     _odCtrl.clear();
     _wallCtrl.clear();
     _lengthCtrl.clear();
     _designCtrl.clear();
+    _ratioCtrl.clear();
+    _yieldCtrl.clear();
     _flowCtrl.text = '40';
     setState(() {
-      _factor = 1.5;
+      _preset = PressureTestPreset.b313Hydro;
       // P2-05: reset jednostki ciśnienia projektowego do bar (domyślnie).
       _designUnit = 'bar';
     });
@@ -303,6 +332,117 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     return null;
   }
 
+  /// Sanity cap for a stress ratio. B31.3 itself caps ST/S at 6.5; anything
+  /// above ~10 is a typo (a stress typed where a ratio was expected).
+  static const double _kMaxRatio = 10;
+
+  /// Upper sanity cap for a yield strength [MPa].
+  static const double _kMaxYieldMpa = 2000;
+
+  String? _ratioError(double? v) {
+    if (_ratioCtrl.text.trim().isEmpty) return null;
+    if (v == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
+    if (v <= 0) return _tr('Musi być > 0', 'Must be > 0');
+    if (v > _kMaxRatio) return _tr('Sprawdź wartość', 'Check value');
+    return null;
+  }
+
+  String? _yieldError(double? v) {
+    if (_yieldCtrl.text.trim().isEmpty) return null;
+    if (v == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
+    if (v <= 0) return _tr('Musi być > 0', 'Must be > 0');
+    if (v > _kMaxYieldMpa) return _tr('Sprawdź wartość', 'Check value');
+    return null;
+  }
+
+  /// Short bilingual name of a preset for the picker and the report.
+  String _presetTitle(PressureTestPreset p) {
+    switch (p) {
+      case PressureTestPreset.b313Hydro:
+        return _tr('ASME B31.3 — hydrostatyczna', 'ASME B31.3 — hydrostatic');
+      case PressureTestPreset.b313Pneumatic:
+        return _tr('ASME B31.3 — pneumatyczna', 'ASME B31.3 — pneumatic');
+      case PressureTestPreset.b311Hydro:
+        return _tr('ASME B31.1 — hydrostatyczna', 'ASME B31.1 — hydrostatic');
+      case PressureTestPreset.en13480Hydro:
+        return _tr('EN 13480-5 / PED — hydrostatyczna',
+            'EN 13480-5 / PED — hydrostatic');
+      case PressureTestPreset.asmeVIII1Hydro:
+        return _tr('ASME VIII-1 — zbiornik, hydrostatyczna',
+            'ASME VIII-1 — vessel, hydrostatic');
+    }
+  }
+
+  /// Label of the stress-ratio field for presets that use one.
+  String _ratioLabel(PressureTestPreset p) {
+    final symbol = p.ratioSymbol ?? '';
+    if (p == PressureTestPreset.asmeVIII1Hydro) {
+      return _tr('$symbol (najmniejszy stosunek naprężeń)',
+          '$symbol (lowest stress ratio)');
+    }
+    return _tr('$symbol (korekta temperaturowa)',
+        '$symbol (temperature correction)');
+  }
+
+  /// What the stress ratio means, per preset.
+  String _ratioHelp(PressureTestPreset p) {
+    switch (p) {
+      case PressureTestPreset.b313Hydro:
+        return _tr(
+          'ST — naprężenie dopuszczalne materiału w temperaturze próby, S — w '
+          'temperaturze obliczeniowej (§345.4.2). Puste = 1,0 (S w temp. '
+          'obliczeniowej nie niższe niż w temp. próby). Maks. 6,5.',
+          'ST — allowable stress at test temperature, S — at design '
+          'temperature (§345.4.2). Empty = 1.0 (S at design temperature not '
+          'lower than at test temperature). Max 6.5.',
+        );
+      case PressureTestPreset.en13480Hydro:
+        return _tr(
+          'f_test — naprężenie nominalne w temperaturze próby, f — w '
+          'temperaturze obliczeniowej. Pt = większa z 1,25·PS·f_test/f i '
+          '1,43·PS. Puste = 1,0.',
+          'f_test — nominal design stress at test temperature, f — at design '
+          'temperature. Pt = greater of 1.25·PS·f_test/f and 1.43·PS. '
+          'Empty = 1.0.',
+        );
+      case PressureTestPreset.asmeVIII1Hydro:
+        return _tr(
+          'LSR — najmniejszy dla materiałów zbiornika stosunek S w temp. próby '
+          'do S w temp. obliczeniowej (UG-99(b)). Ciśnienie bazowe = MAWP. '
+          'Puste = 1,0.',
+          'LSR — lowest ratio, over the vessel materials, of S at test '
+          'temperature to S at design temperature (UG-99(b)). Base pressure = '
+          'MAWP. Empty = 1.0.',
+        );
+      case PressureTestPreset.b313Pneumatic:
+      case PressureTestPreset.b311Hydro:
+        return '';
+    }
+  }
+
+  /// The arithmetic with the numbers in, e.g.
+  /// `Pt = 1.5 · 10.00 · 1.20 = 18.00 bar`.
+  static String _calcLine(PressureTestResult r) {
+    final p = r.preset;
+    String n(double v) {
+      final s = v.toString();
+      return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+    }
+
+    final design = r.designBar.toStringAsFixed(2);
+    final pt = r.testPressureBar.toStringAsFixed(2);
+    final ratio = r.ratioApplied.toStringAsFixed(2);
+    final floor = p.floorFactor;
+    if (floor != null) {
+      final a = p.factor * r.designBar * r.ratioApplied;
+      final b = floor * r.designBar;
+      return 'Pt = max(${n(p.factor)} · $design · $ratio; ${n(floor)} · $design)'
+          ' = max(${a.toStringAsFixed(2)}; ${b.toStringAsFixed(2)}) = $pt bar';
+    }
+    final ratioPart = p.ratioSymbol == null ? '' : ' · $ratio';
+    return 'Pt = ${n(p.factor)} · $design$ratioPart = $pt bar';
+  }
+
   @override
   Widget build(BuildContext context) {
     final od = _p(_odCtrl);
@@ -341,13 +481,47 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             'Wall ≥ ½ OD — check the values.');
       }
     }
-    if (design != null && design > 0 && designErr == null) {
-      testPressure = design * _factor;
+    // Temperature correction (ST/S, f_test/f, LSR) — only for presets that
+    // use one. Empty field = 1.0.
+    final usesRatio = _preset.ratioSymbol != null;
+    final ratioInput = usesRatio ? _p(_ratioCtrl) : null;
+    final ratioErr = usesRatio ? _ratioError(ratioInput) : null;
+    // Optional yield check — B31.3 §345.2.1(a) — hydrostatic B31.3 only.
+    final yieldCheck = _preset == PressureTestPreset.b313Hydro;
+    final yieldInput = yieldCheck ? _p(_yieldCtrl) : null;
+    final yieldErr = yieldCheck ? _yieldError(yieldInput) : null;
+
+    PressureTestResult? calc;
+    if (design != null && design > 0 && designErr == null && ratioErr == null) {
+      calc = computeTestPressure(
+        preset: _preset,
+        designBar: design,
+        stressRatio: ratioInput ?? 1.0,
+      );
+      testPressure = calc.testPressureBar;
     }
+    double? hoopMpa, ptAtYieldBar;
+    if (calc != null &&
+        yieldInput != null &&
+        yieldInput > 0 &&
+        yieldErr == null &&
+        id != null &&
+        od != null &&
+        wall != null) {
+      hoopMpa = hoopStressMpa(
+          pressureBar: calc.testPressureBar, odMm: od, wallMm: wall);
+      ptAtYieldBar = pressureAtHoopStressBar(
+          stressMpa: yieldInput, odMm: od, wallMm: wall);
+    }
+    final minHold = _preset.minHoldMinutes;
+    final minHoldText = minHold == null
+        ? _tr('wg procedury', 'per procedure')
+        : '${minHold.toStringAsFixed(0)} min';
+    final holdRef = _preset.holdClause ?? _preset.reference;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tr('Próba ciśnieniowa', 'Hydrostatic test')),
+        title: Text(_tr('Próba ciśnieniowa', 'Pressure test')),
         actions: [
           // P1-04: globalny reset (Wyczyść) — ikona refresh, 48dp tap target.
           IconButton(
@@ -365,7 +539,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                 ? null
                 : () => _shareOneLineTrace(
                     od: od, wall: wall, id: id, lengthM: lengthM,
-                    design: design, factor: _factor,
+                    design: design, calc: calc,
                     testPressure: testPressure, volL: volL,
                     flowLpm: flowLpm, fillMin: fillMin),
           ),
@@ -378,7 +552,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                 ? null
                 : () => _copyReport(
                     od: od, wall: wall, id: id, lengthM: lengthM,
-                    design: design, factor: _factor,
+                    design: design, calc: calc,
                     testPressure: testPressure, volL: volL,
                     flowLpm: flowLpm, fillMin: fillMin),
           ),
@@ -393,16 +567,16 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           // ── P1-15: BHP / min. czas próby — przypięte ZAWSZE NAD wejściami ──
           _SafetyHoldBanner(
             text: _tr(
-              'BHP: woda pod ciśnieniem ma dużą energię. Strefę testu '
+              'BHP: medium pod ciśnieniem ma dużą energię. Strefę testu '
               'oznakuj i wygrodź, ludzie poza strefą, zawory '
               'odpowietrzające na najwyższych punktach, manometr '
               'kalibrowany. Procedurę pisze inżynier QC. Minimalny czas '
-              'próby: 10 min (ASME B31.3 § 345.4.2).',
-              'SAFETY: pressurised water carries significant energy. '
+              'pod ciśnieniem próby: $minHoldText ($holdRef).',
+              'SAFETY: the pressurised medium carries significant energy. '
               'Mark and cordon off the test area, keep people out, fit '
               'vents at high points, use a calibrated gauge. The QC '
-              'engineer writes the procedure. Minimum hold time: 10 min '
-              '(ASME B31.3 § 345.4.2).',
+              'engineer writes the procedure. Minimum hold at test '
+              'pressure: $minHoldText ($holdRef).',
             ),
           ),
           const SizedBox(height: 14),
@@ -469,6 +643,10 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                   label: _tr(
                       'Ciśnienie projektowe ($_designUnit)',
                       'Design pressure ($_designUnit)'),
+                  helper: _preset.pressureSymbol == 'P'
+                      ? null
+                      : _tr('= ${_preset.pressureSymbol} w normie',
+                          '= ${_preset.pressureSymbol} in the code'),
                   hint: _designUnit == 'psi'
                       ? '145'
                       : (_designUnit == 'MPa' ? '1.0' : '10'),
@@ -504,34 +682,150 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                 style: const TextStyle(color: _kMuted, fontSize: 11),
               ),
             ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _FactorChip(
-                    label: '1.5 ×',
-                    sub: _tr('ASME B31.3', 'ASME B31.3'),
-                    selected: _factor == 1.5,
-                    onTap: () => setState(() => _factor = 1.5)),
+          const SizedBox(height: 14),
+          _SectionHeader(_tr('NORMA I RODZAJ PRÓBY', 'CODE AND TEST TYPE')),
+          const SizedBox(height: 8),
+          // Each preset carries its own formula and clause — the old chips
+          // labelled 1.43× as "B31.1 steam" (it is PED/EN 13480-5) and 1.3× as
+          // "PED gas" (it is ASME VIII-1 UG-99 hydro).
+          for (final p in PressureTestPreset.values) ...[
+            _PresetTile(
+              title: _presetTitle(p),
+              formula: '${p.formula(decimalSeparator: '.')}  ·  ${p.reference}',
+              pneumatic: p.isPneumatic,
+              selected: _preset == p,
+              onTap: () {
+                if (_preset == p) return;
+                setState(() => _preset = p);
+                debugPrint('[hydrotest] preset → ${p.id}');
+              },
+            ),
+            const SizedBox(height: 6),
+          ],
+          if (_preset.isPneumatic) ...[
+            const SizedBox(height: 4),
+            _SafetyHoldBanner(
+              text: _tr(
+                'PRÓBA PNEUMATYCZNA: sprężony gaz magazynuje wielokrotnie więcej '
+                'energii niż woda przy tym samym ciśnieniu — rozszczelnienie '
+                'działa jak wybuch, z odłamkami. Tylko gdy próba wodna jest '
+                'niewykonalna, na podstawie procedury i zgody inżyniera: zawór '
+                'bezpieczeństwa, stopniowe podnoszenie ciśnienia, strefa '
+                'wykluczenia, sprawdzenie ryzyka kruchego pękania '
+                '(ASME B31.3 §345.5).',
+                'PNEUMATIC TEST: compressed gas stores many times more energy '
+                'than water at the same pressure — a rupture acts like an '
+                'explosion, with fragments. Only when a hydrostatic test is '
+                'impracticable, under an engineered procedure and approval: '
+                'relief valve, stepwise pressurisation, exclusion zone, '
+                'brittle-fracture check (ASME B31.3 §345.5).',
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _FactorChip(
-                    label: '1.3 ×',
-                    sub: _tr('PED gaz', 'PED gas'),
-                    selected: _factor == 1.3,
-                    onTap: () => setState(() => _factor = 1.3)),
+            ),
+          ],
+          if (usesRatio) ...[
+            const SizedBox(height: 4),
+            _NumField(
+              ctrl: _ratioCtrl,
+              label: _ratioLabel(_preset),
+              hint: '1.0',
+              onChanged: () => setState(() {}),
+              errorText: ratioErr,
+              textInputAction: TextInputAction.next,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
+              child: Text(
+                _ratioHelp(_preset),
+                style: const TextStyle(
+                    color: _kMuted, fontSize: 11, height: 1.35),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _FactorChip(
-                    label: '1.43 ×',
-                    sub: _tr('B31.1 para', 'B31.1 steam'),
-                    selected: _factor == 1.43,
-                    onTap: () => setState(() => _factor = 1.43)),
+            ),
+            if (calc != null && calc.ratioCapped)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: _SheetWarning(
+                  text: _tr(
+                    '${_preset.ratioSymbol} > ${_preset.ratioCap} — przyjęto '
+                    '${_preset.ratioCap} (${_preset.reference}).',
+                    '${_preset.ratioSymbol} > ${_preset.ratioCap} — '
+                    '${_preset.ratioCap} used (${_preset.reference}).',
+                  ),
+                ),
               ),
-            ],
-          ),
+            if (ratioInput != null && ratioErr == null && ratioInput < 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: _SheetWarning(
+                  text: _tr(
+                    '${_preset.ratioSymbol} < 1 — zwykle naprężenie w temp. '
+                    'próby nie jest niższe niż w temp. obliczeniowej. Sprawdź '
+                    'wartości.',
+                    '${_preset.ratioSymbol} < 1 — the stress at test '
+                    'temperature is normally not lower than at design '
+                    'temperature. Check the values.',
+                  ),
+                ),
+              ),
+          ],
+          if (yieldCheck) ...[
+            const SizedBox(height: 10),
+            _NumField(
+              ctrl: _yieldCtrl,
+              label: _tr('Re w temp. próby (MPa) — opcjonalnie',
+                  'Yield at test temp. (MPa) — optional'),
+              hint: '240',
+              onChanged: () => setState(() {}),
+              errorText: yieldErr,
+              textInputAction: TextInputAction.next,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
+              child: Text(
+                _tr(
+                  '§345.2.1(a): jeśli Pt dałoby naprężenie obwodowe lub '
+                  'wzdłużne powyżej Re w temp. próby albo ciśnienie > 1,5 × '
+                  'rating komponentu (np. kołnierza), Pt można obniżyć do tej '
+                  'granicy. Liczone na wpisanej ściance — norma wymaga ścianki '
+                  'minimalnej.',
+                  '§345.2.1(a): if Pt would produce a hoop or longitudinal '
+                  'stress above the yield strength at test temperature, or '
+                  'exceed 1.5 × a component rating (e.g. a flange), Pt may be '
+                  'reduced to that limit. Calculated on the entered wall — the '
+                  'code wants the minimum wall.',
+                ),
+                style: const TextStyle(
+                    color: _kMuted, fontSize: 11, height: 1.35),
+              ),
+            ),
+            if (hoopMpa != null && ptAtYieldBar != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: hoopMpa > yieldInput!
+                    ? _SheetWarning(
+                        text: _tr(
+                          'σ przy Pt = ${hoopMpa.toStringAsFixed(0)} MPa > Re '
+                          '${yieldInput.toStringAsFixed(0)} MPa. Wg §345.2.1(a) '
+                          'Pt można obniżyć do '
+                          '${ptAtYieldBar.toStringAsFixed(2)} bar — decyzja '
+                          'inżyniera.',
+                          'Hoop stress at Pt = ${hoopMpa.toStringAsFixed(0)} '
+                          'MPa > yield ${yieldInput.toStringAsFixed(0)} MPa. '
+                          'Per §345.2.1(a) Pt may be reduced to '
+                          '${ptAtYieldBar.toStringAsFixed(2)} bar — '
+                          "the engineer's decision.",
+                        ),
+                      )
+                    : Text(
+                        _tr(
+                          'σ przy Pt = ${hoopMpa.toStringAsFixed(0)} MPa '
+                          '(${(hoopMpa / yieldInput * 100).toStringAsFixed(0)} % Re)',
+                          'Hoop stress at Pt = ${hoopMpa.toStringAsFixed(0)} MPa '
+                          '(${(hoopMpa / yieldInput * 100).toStringAsFixed(0)} % of yield)',
+                        ),
+                        style: const TextStyle(color: _kGreen, fontSize: 11),
+                      ),
+              ),
+          ],
 
           const SizedBox(height: 14),
           _SectionHeader(_tr('NAPEŁNIANIE', 'FILLING')),
@@ -571,7 +865,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (testPressure != null)
+                  if (testPressure != null && calc != null) ...[
                     _ResRow(
                       label: _tr('Ciśnienie testowe', 'Test pressure'),
                       value: '${testPressure.toStringAsFixed(2)} bar',
@@ -580,6 +874,31 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                       color: _kOrange,
                       big: true,
                     ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '${_calcLine(calc)}  (${_preset.reference})',
+                        style: const TextStyle(color: _kMuted, fontSize: 11),
+                      ),
+                    ),
+                    if (calc.maxTestPressureBar != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          _tr(
+                            'Maks.: ${_preset.maxFactor} · P = '
+                            '${calc.maxTestPressureBar!.toStringAsFixed(2)} bar '
+                            'lub ciśnienie dające 90 % Re — mniejsza z wartości '
+                            '(${_preset.clause}).',
+                            'Max: ${_preset.maxFactor} · P = '
+                            '${calc.maxTestPressureBar!.toStringAsFixed(2)} bar '
+                            'or the pressure giving 90 % of yield — whichever '
+                            'is lower (${_preset.clause}).',
+                          ),
+                          style: const TextStyle(color: _kMuted, fontSize: 11),
+                        ),
+                      ),
+                  ],
                   if (testPressure != null && volL != null)
                     const Divider(height: 18, color: _kBorder),
                   if (volL != null) ...[
@@ -613,9 +932,8 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                   _ResRow(
                     label: _tr('Minimalny czas próby',
                         'Minimum hold time'),
-                    value: '10 min',
-                    sub: _tr('wg ASME B31.3 § 345.4.2',
-                        'per ASME B31.3 § 345.4.2'),
+                    value: minHoldText,
+                    sub: _tr('wg $holdRef', 'per $holdRef'),
                     color: _kSec,
                     big: false,
                   ),
@@ -641,12 +959,14 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           const SizedBox(height: 6),
           Text(
             _tr(
-              'Zapisana próba zostaje w telefonie: system/linia, data, manometr, '
-              'ciśnienie początkowe i końcowe, temperatura, czas wytrzymania, '
-              'wynik i świadek — z protokołem PDF do podpisu.',
-              'A saved test stays on the phone: system/line, date, gauge, start '
-              'and end pressure, temperature, hold time, result and witness — '
-              'with a PDF protocol to sign.',
+              'Zapisana próba zostaje w telefonie: projekt, pakiet, system/linia, '
+              'data, norma, medium, manometr i zawór bezpieczeństwa, zmierzone '
+              'ciśnienia, temperatury i czas, wynik i świadek — z protokołem '
+              'PDF do podpisu.',
+              'A saved test stays on the phone: project, package, system/line, '
+              'date, code, medium, gauge and relief valve, measured pressures, '
+              'temperatures and hold, result and witness — with a PDF protocol '
+              'to sign.',
             ),
             style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.35),
           ),
@@ -656,14 +976,14 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
               child: FilledButton.icon(
                 // Saving needs a test pressure: a protocol whose central
                 // number is blank is not a protocol.
-                onPressed: (testPressure == null || _busy)
+                onPressed: (calc == null || _busy)
                     ? null
                     : () => _openSaveSheet(
                           od: od,
                           wall: wall,
                           lengthM: lengthM,
-                          design: design,
-                          testPressure: testPressure,
+                          calc: calc,
+                          stressRatio: ratioInput,
                           volL: volL,
                         ),
                 icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
@@ -719,10 +1039,11 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     required double? od,
     required double? wall,
     required double? lengthM,
-    required double? design,
-    required double? testPressure,
+    required PressureTestResult? calc,
+    required double? stressRatio,
     required double? volL,
   }) async {
+    if (calc == null) return;
     Haptic.tap();
     final draft = await showModalBottomSheet<_HydrotestDraft>(
       context: context,
@@ -741,7 +1062,9 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
         padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
         child: _HydrotestSaveSheet(
           initialUnit: _designUnit,
-          testPressureBar: testPressure,
+          testPressureBar: calc.testPressureBar,
+          preset: calc.preset,
+          stressRatio: stressRatio,
         ),
       ),
     );
@@ -767,11 +1090,15 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
       // Metres on screen, MILLIMETRES in the database — every other length in
       // the app is stored in mm and this one is not going to be the exception.
       lineLengthMm: lengthM == null ? null : lengthM * 1000.0,
-      designBar: design,
-      factor: _factor,
-      testPressureBar: testPressure,
+      designBar: calc.designBar,
+      // Pt / P — the effective multiplier, so B31.3 with ST/S = 1.2 files
+      // 1.8, not the bare 1.5 that no longer produces the printed pressure.
+      factor: calc.effectiveFactor,
+      testPressureBar: calc.testPressureBar,
       volumeL: volL,
       notes: draft.notes,
+      // Protocol fields — schema v19 columns (hydrotest_protocol_meta.dart).
+      meta: draft.meta,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
 
@@ -836,7 +1163,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     required double? id,
     required double? lengthM,
     required double? design,
-    required double factor,
+    required PressureTestResult? calc,
     required double? testPressure,
     required double? volL,
     required double flowLpm,
@@ -844,7 +1171,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   }) async {
     final buf = StringBuffer();
     buf.writeln(_tr('Próba ciśnieniowa — raport',
-        'Hydrostatic test — report'));
+        'Pressure test — report'));
     buf.writeln('─' * 28);
     if (od != null) buf.writeln('OD: ${od.toStringAsFixed(2)} mm');
     if (wall != null) buf.writeln('Wall: ${wall.toStringAsFixed(2)} mm');
@@ -856,8 +1183,11 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     if (design != null) {
       buf.writeln('${_tr('Ciśnienie projektowe', 'Design pressure')}: '
           '${design.toStringAsFixed(2)} bar');
-      buf.writeln('${_tr('Współczynnik', 'Factor')}: '
-          '${factor.toStringAsFixed(2)} ×');
+    }
+    if (calc != null) {
+      buf.writeln('${_tr('Norma', 'Code')}: ${_presetTitle(calc.preset)} '
+          '(${calc.preset.reference})');
+      buf.writeln(_calcLine(calc));
     }
     if (testPressure != null) {
       buf.writeln('${_tr('Ciśnienie testowe', 'Test pressure')}: '
@@ -875,7 +1205,10 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           '≈ ${fillMin.toStringAsFixed(1)} min @ '
           '${flowLpm.toStringAsFixed(0)} L/min');
     }
-    buf.writeln('${_tr('Min. czas próby', 'Min. hold time')}: 10 min');
+    final minHold = _preset.minHoldMinutes;
+    buf.writeln('${_tr('Min. czas próby', 'Min. hold time')}: '
+        '${minHold == null ? _tr('wg procedury', 'per procedure') : '${minHold.toStringAsFixed(0)} min'}'
+        ' (${_preset.holdClause ?? _preset.reference})');
     if (!mounted) return;
     await copyToClipboard(context, buf.toString(),
         label: _tr('Raport hydrotest', 'Hydrotest report'));
@@ -888,7 +1221,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     required double? id,
     required double? lengthM,
     required double? design,
-    required double factor,
+    required PressureTestResult? calc,
     required double? testPressure,
     required double? volL,
     required double flowLpm,
@@ -900,7 +1233,13 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     if (id != null) parts.add('ID=${id.toStringAsFixed(1)}mm');
     if (lengthM != null) parts.add('L=${lengthM.toStringAsFixed(1)}m');
     if (design != null) {
-      parts.add('Pd=${design.toStringAsFixed(1)}bar×${factor.toStringAsFixed(2)}');
+      parts.add('Pd=${design.toStringAsFixed(1)}bar');
+    }
+    if (calc != null) {
+      final p = calc.preset;
+      parts.add(p.ratioSymbol == null
+          ? p.reference
+          : '${p.reference} ${p.ratioSymbol}=${calc.ratioApplied.toStringAsFixed(2)}');
     }
     if (testPressure != null) {
       parts.add('Pt=${testPressure.toStringAsFixed(1)}bar');
@@ -909,7 +1248,8 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     if (fillMin != null) {
       parts.add('fill≈${fillMin.toStringAsFixed(1)}min@${flowLpm.toStringAsFixed(0)}L/min');
     }
-    parts.add('hold≥10min');
+    final minHold = _preset.minHoldMinutes;
+    if (minHold != null) parts.add('hold≥${minHold.toStringAsFixed(0)}min');
     final trace = '${_tr('HYDRO', 'HYDRO')}: ${parts.join(' · ')}';
     debugPrint('[hydrotest] share one-line: $trace');
     if (!mounted) return;
@@ -936,6 +1276,7 @@ class _NumField extends StatelessWidget {
   final TextEditingController ctrl;
   final String label;
   final String? hint;
+  final String? helper;
   final VoidCallback onChanged;
   final TextInputAction? textInputAction;
   final VoidCallback? onSubmitted;
@@ -946,6 +1287,7 @@ class _NumField extends StatelessWidget {
     required this.label,
     required this.onChanged,
     this.hint,
+    this.helper,
     this.textInputAction,
     this.onSubmitted,
     this.errorText,
@@ -962,6 +1304,7 @@ class _NumField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
+        helperText: helper,
         errorText: errorText,
       ),
       onChanged: (_) => onChanged(),
@@ -1001,44 +1344,70 @@ class _SafetyHoldBanner extends StatelessWidget {
   }
 }
 
-class _FactorChip extends StatelessWidget {
-  final String label;
-  final String sub;
+/// One code preset in the picker: name on the first line, formula and clause
+/// on the second — so the multiplier can never again be shown under the wrong
+/// code's name.
+class _PresetTile extends StatelessWidget {
+  final String title;
+  final String formula;
+  final bool pneumatic;
   final bool selected;
   final VoidCallback onTap;
-  const _FactorChip({
-    required this.label,
-    required this.sub,
+  const _PresetTile({
+    required this.title,
+    required this.formula,
+    required this.pneumatic,
     required this.selected,
     required this.onTap,
   });
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        if (!selected) Haptic.tap();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? _kOrange.withValues(alpha: 0.14) : _kCard,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-              color: selected ? _kOrange : _kBorder,
-              width: selected ? 1.5 : 1),
-        ),
-        child: Column(
-          children: [
-            Text(label,
-                style: TextStyle(
-                    color: selected ? _kOrange : _kSec,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800)),
-            Text(sub,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: _kMuted, fontSize: 10)),
-          ],
+    final accent = pneumatic ? _kRed : _kOrange;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        onTap: () {
+          if (!selected) Haptic.tap();
+          onTap();
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? accent.withValues(alpha: 0.14) : _kCard,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+                color: selected ? accent : _kBorder,
+                width: selected ? 1.5 : 1),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 18,
+                color: selected ? accent : _kMuted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                            color: selected ? accent : _kSec,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 2),
+                    Text(formula,
+                        style: const TextStyle(color: _kMuted, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1395,11 +1764,17 @@ class _HydrotestDraft {
   final String witness;
   final String notes;
 
+  /// Protocol fields the record has no columns for (company, project, test
+  /// package, P&ID/ISO, medium, preset, ST/S, metal temperature, gauge range
+  /// and calibration, relief valve, protocol no./revision).
+  final HydrotestProtocolMeta meta;
+
   const _HydrotestDraft({
     required this.systemName,
     required this.date,
     required this.gauge,
     required this.result,
+    required this.meta,
     this.pressureStartBar,
     this.pressureEndBar,
     this.temperatureC,
@@ -1416,18 +1791,31 @@ class _HydrotestDraft {
 /// must still be able to file a record, and the printed protocol names what is
 /// missing (see `hydrotestMissingNote`) instead of hiding the gap behind a
 /// zero.
+///
+/// MEASURED fields (start/end pressure, temperatures, hold time) open EMPTY.
+/// The calculated test pressure and the code's minimum hold are shown as
+/// hints only: a pre-filled value that nobody overwrote would print on the
+/// protocol as if it had been read off the gauge.
 class _HydrotestSaveSheet extends StatefulWidget {
   /// Pressure unit the calculator screen was set to — the gauge fields open in
   /// the same unit so the welder does not switch context mid-test.
   final String initialUnit;
 
-  /// Calculated test pressure in bar; pre-fills the "start pressure" field,
-  /// which is what the pump is brought up to.
-  final double? testPressureBar;
+  /// Calculated test pressure in bar — shown as the hint of the "start
+  /// pressure" field, never as its value.
+  final double testPressureBar;
+
+  /// Code preset the test pressure was calculated to.
+  final PressureTestPreset preset;
+
+  /// Stress ratio typed into the calculator (null = 1.0 / not used).
+  final double? stressRatio;
 
   const _HydrotestSaveSheet({
     required this.initialUnit,
     required this.testPressureBar,
+    required this.preset,
+    required this.stressRatio,
   });
 
   @override
@@ -1435,17 +1823,31 @@ class _HydrotestSaveSheet extends StatefulWidget {
 }
 
 class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
+  // Project / document
+  final _companyCtrl = TextEditingController();
+  final _projectCtrl = TextEditingController();
+  final _packageCtrl = TextEditingController();
+  final _drawingsCtrl = TextEditingController();
+  final _protocolNoCtrl = TextEditingController();
+  final _revisionCtrl = TextEditingController();
+  // Identification
   final _systemCtrl = TextEditingController();
+  final _mediumCtrl = TextEditingController();
+  // Gauge and relief
   final _gaugeCtrl = TextEditingController();
+  final _gaugeRangeCtrl = TextEditingController();
+  final _calDueCtrl = TextEditingController();
+  final _reliefCtrl = TextEditingController();
+  // Measured — all start EMPTY (see the class doc).
+  final _startCtrl = TextEditingController();
   final _endCtrl = TextEditingController();
   final _tempCtrl = TextEditingController();
-  // Pre-filled with the code minimum: 10 min is what the crew is aiming for,
-  // and typing over it is quicker than typing it from scratch.
-  final _holdCtrl = TextEditingController(text: '10');
+  final _metalTempCtrl = TextEditingController();
+  final _holdCtrl = TextEditingController();
+  // Result
   final _witnessCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   late final TextEditingController _dateCtrl;
-  late final TextEditingController _startCtrl;
 
   late String _unit;
 
@@ -1461,29 +1863,29 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
     super.initState();
     _unit = widget.initialUnit;
     _dateCtrl = TextEditingController(text: _today());
-    final p = widget.testPressureBar;
-    _startCtrl = TextEditingController(
-      text: p == null ? '' : pressureFromBar(p, _unit).toStringAsFixed(2),
-    );
   }
 
   @override
   void dispose() {
     for (final c in [
-      _systemCtrl, _gaugeCtrl, _endCtrl, _tempCtrl, _holdCtrl,
-      _witnessCtrl, _notesCtrl, _dateCtrl, _startCtrl,
+      _companyCtrl, _projectCtrl, _packageCtrl, _drawingsCtrl,
+      _protocolNoCtrl, _revisionCtrl, _systemCtrl, _mediumCtrl, _gaugeCtrl,
+      _gaugeRangeCtrl, _calDueCtrl, _reliefCtrl, _startCtrl, _endCtrl,
+      _tempCtrl, _metalTempCtrl, _holdCtrl, _witnessCtrl, _notesCtrl,
+      _dateCtrl,
     ]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  static String _today() {
-    final n = DateTime.now();
-    return '${n.year.toString().padLeft(4, '0')}-'
-        '${n.month.toString().padLeft(2, '0')}-'
-        '${n.day.toString().padLeft(2, '0')}';
-  }
+  static String _iso(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  static String _today() => _iso(DateTime.now());
+
+  static final RegExp _isoDate = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
   double? _num(TextEditingController c) => c.text.trim().isEmpty
       ? null
@@ -1504,20 +1906,17 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
 
   bool get _canSave => _systemCtrl.text.trim().isNotEmpty && _result != null;
 
-  Future<void> _pickDate() async {
+  Future<void> _pickDate(TextEditingController ctrl,
+      {required int yearsBack, required int yearsAhead}) async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.tryParse(_dateCtrl.text.trim()) ?? now,
-      firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 1),
+      initialDate: DateTime.tryParse(ctrl.text.trim()) ?? now,
+      firstDate: DateTime(now.year - yearsBack),
+      lastDate: DateTime(now.year + yearsAhead),
     );
     if (picked == null) return;
-    setState(() {
-      _dateCtrl.text = '${picked.year.toString().padLeft(4, '0')}-'
-          '${picked.month.toString().padLeft(2, '0')}-'
-          '${picked.day.toString().padLeft(2, '0')}';
-    });
+    setState(() => ctrl.text = _iso(picked));
   }
 
   void _submit() {
@@ -1536,20 +1935,68 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
         result: _result!,
         witness: _witnessCtrl.text.trim(),
         notes: _notesCtrl.text.trim(),
+        meta: HydrotestProtocolMeta(
+          company: _companyCtrl.text.trim(),
+          project: _projectCtrl.text.trim(),
+          testPackage: _packageCtrl.text.trim(),
+          drawingRefs: _drawingsCtrl.text.trim(),
+          testMedium: _mediumCtrl.text.trim(),
+          presetId: widget.preset.id,
+          stressRatio:
+              widget.preset.ratioSymbol == null ? null : (widget.stressRatio ?? 1.0),
+          metalTempC: _num(_metalTempCtrl),
+          gaugeRange: _gaugeRangeCtrl.text.trim(),
+          gaugeCalibrationDue: _calDueCtrl.text.trim(),
+          reliefSetBar: _bar(_reliefCtrl),
+          protocolNo: _protocolNoCtrl.text.trim(),
+          revision: _revisionCtrl.text.trim(),
+        ),
       ),
     );
   }
 
+  Widget _text(
+    TextEditingController ctrl,
+    String label, {
+    String? hint,
+    Widget? suffix,
+    bool rebuild = false,
+  }) =>
+      TextField(
+        controller: ctrl,
+        textInputAction: TextInputAction.next,
+        onChanged: rebuild ? (_) => setState(() {}) : null,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          suffixIcon: suffix,
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final preset = widget.preset;
+    final minHold = preset.minHoldMinutes;
     final hold = _num(_holdCtrl);
-    final shortHold = hold != null && hold < kHydrotestMinHoldMinutes;
+    final shortHold = hold != null && minHold != null && hold < minHold;
+    final minHoldLabel = minHold == null ? '' : minHold.toStringAsFixed(0);
     final drop = _dropBar;
     final passWithDrop = _result == kHydrotestPass &&
         drop != null &&
         drop > kHydrotestDropEpsilonBar;
     final startBar = _bar(_startCtrl);
     final endBar = _bar(_endCtrl);
+    final calculatedHint =
+        pressureFromBar(widget.testPressureBar, _unit).toStringAsFixed(2);
+    final calDue = _calDueCtrl.text.trim();
+    final testDate = _dateCtrl.text.trim();
+    final calibrationExpired = _isoDate.hasMatch(calDue) &&
+        _isoDate.hasMatch(testDate) &&
+        calDue.compareTo(testDate) < 0;
+    final ratioText = preset.ratioSymbol == null
+        ? ''
+        : '  ·  ${preset.ratioSymbol} = '
+            '${(widget.stressRatio ?? 1.0).toStringAsFixed(2)}';
 
     return SafeArea(
       top: false,
@@ -1588,15 +2035,46 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               _tr(
                 'Wpis trafia do rejestru w telefonie i można z niego wydrukować '
                 'protokół. Wynik PASS/FAIL ustala inżynier QC — aplikacja tylko '
-                'go zapisuje.',
+                'go zapisuje. Pola pomiarowe wpisz z manometru i termometru — '
+                'puste pole drukuje się jako „—”, nie jako pomiar.',
                 'The entry goes into the register on this phone and can be '
                 'printed as a protocol. The PASS/FAIL verdict is the QC '
-                "engineer's — the app only records it.",
+                "engineer's — the app only records it. Type the measured "
+                'fields from the gauge and thermometer — an empty field prints '
+                'as "—", not as a reading.',
               ),
               style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.35),
             ),
             const SizedBox(height: 14),
 
+            _SectionHeader(_tr('PROJEKT / DOKUMENT', 'PROJECT / DOCUMENT')),
+            const SizedBox(height: 8),
+            _text(_companyCtrl, _tr('Firma', 'Company')),
+            const SizedBox(height: 10),
+            _text(_projectCtrl, _tr('Projekt / klient', 'Project / client')),
+            const SizedBox(height: 10),
+            _text(_packageCtrl,
+                _tr('Nr pakietu testowego', 'Test package no.'),
+                hint: _tr('np. TP-101-03', 'e.g. TP-101-03')),
+            const SizedBox(height: 10),
+            _text(_drawingsCtrl, _tr('P&ID / ISO', 'P&ID / ISO'),
+                hint: _tr('np. 101-PI-003 rev B; ISO 101-0042',
+                    'e.g. 101-PI-003 rev B; ISO 101-0042')),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                flex: 2,
+                child: _text(
+                    _protocolNoCtrl, _tr('Nr protokołu', 'Protocol no.')),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _text(_revisionCtrl, _tr('Rewizja', 'Revision'),
+                    hint: '0'),
+              ),
+            ]),
+
+            const SizedBox(height: 16),
             _SectionHeader(_tr('IDENTYFIKACJA', 'IDENTIFICATION')),
             const SizedBox(height: 8),
             TextField(
@@ -1611,35 +2089,100 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               ),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _dateCtrl,
-              decoration: InputDecoration(
-                labelText: _tr('Data próby', 'Test date'),
-                hintText: 'YYYY-MM-DD',
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_month_outlined, size: 20),
-                  tooltip: _tr('Wybierz datę', 'Pick date'),
-                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                  onPressed: _pickDate,
-                ),
+            _text(
+              _dateCtrl,
+              _tr('Data próby', 'Test date'),
+              hint: 'YYYY-MM-DD',
+              rebuild: true,
+              suffix: IconButton(
+                icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                tooltip: _tr('Wybierz datę', 'Pick date'),
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: () =>
+                    _pickDate(_dateCtrl, yearsBack: 5, yearsAhead: 1),
               ),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _gaugeCtrl,
-              textInputAction: TextInputAction.next,
-              decoration: InputDecoration(
-                // ASME B31.3 § 345.5.1 wants a calibrated gauge; the protocol
-                // has to be able to name which one.
-                labelText: _tr(
-                    'Manometr (nr / kalibracja)', 'Gauge (no. / calibration)'),
-                hintText: _tr(
-                    'np. M-12 / kal. 2026-03', 'e.g. M-12 / cal. 2026-03'),
+            // Read-only: the code and the ratio come from the calculator, so
+            // the protocol cannot claim a code the pressure was not worked to.
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF12141C),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _kBorder),
               ),
+              child: Text(
+                '${_tr('Rodzaj próby i norma', 'Test type and code')}: '
+                '${preset.isPneumatic ? _tr('pneumatyczna', 'pneumatic') : _tr('hydrostatyczna', 'hydrostatic')}'
+                ' — ${preset.reference}$ratioText',
+                style: const TextStyle(color: _kSec, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _text(_mediumCtrl, _tr('Medium próby', 'Test fluid'),
+                hint: preset.isPneumatic
+                    ? _tr('np. azot', 'e.g. nitrogen')
+                    : _tr('np. woda', 'e.g. water')),
+
+            const SizedBox(height: 16),
+            _SectionHeader(
+                _tr('MANOMETR I ZABEZPIECZENIE', 'GAUGE AND RELIEF')),
+            const SizedBox(height: 8),
+            // ASME B31.3 § 345.5.1 wants a calibrated gauge; the protocol has
+            // to be able to name which one.
+            _text(_gaugeCtrl,
+                _tr('Manometr (nr / świadectwo)', 'Gauge (no. / certificate)'),
+                hint: _tr('np. M-12 / św. 123/2026', 'e.g. M-12 / cert. 123/2026')),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                child: _text(
+                    _gaugeRangeCtrl, _tr('Zakres manometru', 'Gauge range'),
+                    hint: _tr('np. 0–25 bar', 'e.g. 0–25 bar')),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _text(
+                  _calDueCtrl,
+                  _tr('Kalibracja ważna do', 'Calibration due'),
+                  hint: 'YYYY-MM-DD',
+                  rebuild: true,
+                  suffix: IconButton(
+                    icon: const Icon(Icons.event_available_outlined, size: 20),
+                    tooltip: _tr('Wybierz datę', 'Pick date'),
+                    constraints:
+                        const BoxConstraints(minWidth: 48, minHeight: 48),
+                    onPressed: () =>
+                        _pickDate(_calDueCtrl, yearsBack: 3, yearsAhead: 5),
+                  ),
+                ),
+              ),
+            ]),
+            if (calibrationExpired)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Kalibracja manometru wygasła przed datą próby. '
+                    'Zostanie to odnotowane na protokole.',
+                    'The gauge calibration expired before the test date. '
+                    'It will be noted on the protocol.',
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            _NumField(
+              ctrl: _reliefCtrl,
+              label: _tr('Nastawa zaworu bezpieczeństwa ($_unit)',
+                  'Relief valve set pressure ($_unit)'),
+              onChanged: () => setState(() {}),
+              textInputAction: TextInputAction.next,
             ),
 
             const SizedBox(height: 16),
-            _SectionHeader(_tr('PRZEBIEG PRÓBY', 'TEST RECORD')),
+            _SectionHeader(
+                _tr('PRZEBIEG PRÓBY — POMIARY', 'TEST RECORD — MEASURED')),
             const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1649,6 +2192,9 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
                     ctrl: _startCtrl,
                     label: _tr('Ciśnienie pocz. ($_unit)',
                         'Start pressure ($_unit)'),
+                    // Hint, not value: the calculated pressure is the target,
+                    // the field is what the gauge actually showed.
+                    hint: _tr('obl. $calculatedHint', 'calc. $calculatedHint'),
                     onChanged: () => setState(() {}),
                     textInputAction: TextInputAction.next,
                   ),
@@ -1705,8 +2251,8 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               Expanded(
                 child: _NumField(
                   ctrl: _tempCtrl,
-                  label: _tr('Temperatura (°C)', 'Temperature (°C)'),
-                  hint: '12',
+                  label: _tr('Temp. wody / otoczenia (°C)',
+                      'Fluid / ambient temp. (°C)'),
                   onChanged: () => setState(() {}),
                   textInputAction: TextInputAction.next,
                 ),
@@ -1714,22 +2260,33 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               const SizedBox(width: 10),
               Expanded(
                 child: _NumField(
-                  ctrl: _holdCtrl,
-                  label: _tr('Czas wytrzymania (min)', 'Hold time (min)'),
-                  hint: '10',
+                  ctrl: _metalTempCtrl,
+                  label: _tr('Temp. metalu (°C)', 'Metal temp. (°C)'),
                   onChanged: () => setState(() {}),
                   textInputAction: TextInputAction.next,
                 ),
               ),
             ]),
+            const SizedBox(height: 10),
+            _NumField(
+              ctrl: _holdCtrl,
+              label: _tr('Czas wytrzymania (min)', 'Hold time (min)'),
+              hint: minHold == null
+                  ? null
+                  : 'min. ${minHold.toStringAsFixed(0)}',
+              onChanged: () => setState(() {}),
+              textInputAction: TextInputAction.next,
+            ),
             if (shortHold)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: _SheetWarning(
                   text: _tr(
-                    'Czas wytrzymania krótszy niż 10 min (ASME B31.3 § 345.4.2). '
+                    'Czas wytrzymania krótszy niż $minHoldLabel '
+                    'min (${preset.holdClause ?? preset.reference}). '
                     'Zostanie to odnotowane na protokole.',
-                    'Hold time shorter than 10 min (ASME B31.3 § 345.4.2). '
+                    'Hold time shorter than $minHoldLabel min '
+                    '(${preset.holdClause ?? preset.reference}). '
                     'It will be noted on the protocol.',
                   ),
                 ),
@@ -2128,6 +2685,7 @@ class _HydrotestRegisterTile extends StatelessWidget {
     final passed = record.passed;
     final ink = passed ? _kGreen : _kRed;
     final system = record.systemName.trim();
+    final minHold = formatHydrotestHold(hydrotestMinHoldMinutes(record));
     final details = <String>[
       if (record.date.trim().isNotEmpty) record.date.trim(),
       if (record.testPressureBar != null)
@@ -2182,11 +2740,12 @@ class _HydrotestRegisterTile extends StatelessWidget {
                 // A short hold is the most common reason a filed test does not
                 // survive review, so it is flagged in the list too — not only
                 // on the printed protocol.
-                if (!record.meetsMinimumHold)
+                if (!hydrotestMeetsMinimumHold(record))
                   Padding(
                     padding: const EdgeInsets.only(top: 3),
                     child: Text(
-                      tr('czas wytrzymania < 10 min', 'hold time < 10 min'),
+                      tr('czas wytrzymania < $minHold',
+                          'hold time < $minHold'),
                       style: const TextStyle(fontSize: 10, color: _kOrange),
                     ),
                   ),

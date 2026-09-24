@@ -13,11 +13,18 @@
 /// fail — and be fixed — the same way.
 ///
 /// Split in two halves, again matching the weld journal:
-///   * PURE half — file name, labels, formatting, the two audit notes. No I/O,
+///   * PURE half — file name, labels, formatting, the audit notes. No I/O,
 ///     no plugins, no locale globals; covered by
 ///     `test/services/hydrotest_export_test.dart`.
 ///   * PLATFORM half ([HydrotestExport]) — render, write, share. Verified by
 ///     reading, not by unit tests.
+///
+/// Protocol metadata (company, project, test package, P&ID/ISO, medium, code
+/// preset, ST/S, metal temperature, gauge range and calibration due date,
+/// relief-valve set pressure, protocol no. and revision) lives in
+/// `HydrotestRecord.meta` — schema v19 columns, see
+/// `lib/domain/pressure_test/hydrotest_protocol_meta.dart`. Tests filed
+/// before v19 have none of it; [hydrotestMeta] returns `null` for them.
 ///
 /// Nothing here converts units. Pressures are printed in bar (with MPa and psi
 /// shown alongside, because a foreign inspector reads one of those), lengths
@@ -26,6 +33,7 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -34,6 +42,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../database/hydrotest_dao.dart';
+import '../domain/pressure_test/hydrotest_protocol_meta.dart';
+import '../domain/pressure_test/test_pressure.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PURE HALF — naming, formatting, audit notes. Keep free of I/O.
@@ -45,6 +55,10 @@ const double kBarPerMpa = 10.0;
 /// bar → psi. Same constant the calculator screen uses, kept identical so the
 /// paper never disagrees with what was on the display.
 const double kPsiPerBar = 14.5038;
+
+/// Minimum hold assumed for records filed before the code preset was stored
+/// (the calculator was B31.3-only then): ASME B31.3 § 345.2.2(a), 10 min.
+const PressureTestPreset kHydrotestLegacyPreset = PressureTestPreset.b313Hydro;
 
 /// Formats one measured value for the protocol, or an em dash when it was
 /// never recorded.
@@ -92,19 +106,71 @@ String formatHydrotestLength(double? lengthMm) {
   return '${(lengthMm / 1000.0).toStringAsFixed(1)} m';
 }
 
+/// Protocol metadata stored with the record, or `null` for records filed
+/// before those fields existed (schema < v19, all columns NULL).
+HydrotestProtocolMeta? hydrotestMeta(HydrotestRecord r) =>
+    r.meta.isEmpty ? null : r.meta;
+
+/// Code preset the test was calculated to. Records without a stored preset
+/// predate the preset picker, when the calculator was ASME B31.3 only.
+PressureTestPreset hydrotestPreset(HydrotestRecord r) =>
+    hydrotestMeta(r)?.preset ?? kHydrotestLegacyPreset;
+
+/// Minimum hold in minutes for the record's code preset, or `null` when the
+/// app has no verified minimum for that code (the procedure governs).
+double? hydrotestMinHoldMinutes(HydrotestRecord r) =>
+    hydrotestPreset(r).minHoldMinutes;
+
+/// True when the hold reached the minimum of the record's code preset.
+/// `false` when the hold was not recorded — an unknown hold cannot be claimed
+/// to satisfy the code. `true` when the preset has no minimum in the app.
+bool hydrotestMeetsMinimumHold(HydrotestRecord r) {
+  final min = hydrotestMinHoldMinutes(r);
+  if (min == null) return true;
+  final h = r.holdMinutes;
+  return h != null && h >= min;
+}
+
+/// Bilingual test type + code, e.g.
+/// `Hydrostatyczna / Hydrostatic — ASME B31.3 §345.4.2`.
+String hydrotestTestTypeLabel(PressureTestPreset p) {
+  final type = p.isPneumatic
+      ? 'Pneumatyczna / Pneumatic'
+      : 'Hydrostatyczna / Hydrostatic';
+  return '$type — ${p.reference}';
+}
+
+/// Stress ratio as entered and as applied, e.g. `ST/S = 1.20` or
+/// `ST/S = 8.00 → 6.50 (limit)`; em dash when the preset uses none.
+String formatHydrotestStressRatio(PressureTestPreset p, double? ratio) {
+  final symbol = p.ratioSymbol;
+  if (symbol == null) return '— (nie dotyczy / n/a)';
+  final r = ratio ?? 1.0;
+  final cap = p.ratioCap;
+  if (cap != null && r > cap) {
+    return '$symbol = ${r.toStringAsFixed(2)} → ${cap.toStringAsFixed(2)} '
+        '(limit)';
+  }
+  return '$symbol = ${r.toStringAsFixed(2)}';
+}
+
 /// Bilingual warning when the hold was shorter than the code minimum, or
 /// `null` when it was long enough (or was not recorded — [hydrotestMissingNote]
-/// covers that case).
+/// covers that case, or the preset has no minimum in the app).
 ///
 /// This is printed on the paper, not just shown in the app: a protocol with a
-/// 4-minute hold that says nothing about § 345.4.2 invites the reader to
-/// assume the app checked. It did — and it disagreed.
+/// 4-minute hold that says nothing about the code minimum invites the reader
+/// to assume the app checked. It did — and it disagreed.
 String? hydrotestHoldNote(HydrotestRecord r) {
   final h = r.holdMinutes;
-  if (h == null || h >= kHydrotestMinHoldMinutes) return null;
+  final preset = hydrotestPreset(r);
+  final min = preset.minHoldMinutes;
+  if (h == null || min == null || h >= min) return null;
+  final minText = formatHydrotestHold(min);
+  final ref = preset.holdClause ?? preset.reference;
   return 'UWAGA: czas wytrzymania ${formatHydrotestHold(h)} jest krótszy niż '
-      'minimum 10 min (ASME B31.3 § 345.4.2). / WARNING: hold time is shorter '
-      'than the 10 min minimum (ASME B31.3 § 345.4.2).';
+      'minimum $minText ($ref). / WARNING: hold time is shorter '
+      'than the $minText minimum ($ref).';
 }
 
 /// Bilingual warning when a test was signed off as passed even though the
@@ -123,13 +189,31 @@ String? hydrotestDropNote(HydrotestRecord r) {
       'on a PASS result — justify it in the notes (e.g. temperature change).';
 }
 
+/// Bilingual warning when the gauge calibration had expired on the test date,
+/// or `null` when it had not (or either date is missing / not ISO).
+///
+/// ISO `YYYY-MM-DD` strings compare correctly as text, so no date parsing —
+/// and no time zone — is involved.
+String? hydrotestCalibrationNote(HydrotestRecord r) {
+  final due = hydrotestMeta(r)?.gaugeCalibrationDue.trim() ?? '';
+  final date = r.date.trim();
+  final iso = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+  if (!iso.hasMatch(due) || !iso.hasMatch(date)) return null;
+  if (due.compareTo(date) >= 0) return null;
+  return 'UWAGA: kalibracja manometru ważna do $due — przed datą próby $date. / '
+      'WARNING: gauge calibration expired on $due, before the test date $date.';
+}
+
 /// Bilingual note listing the witnessed fields nobody filled in, or `null`
 /// when the record is complete.
 ///
 /// The record is deliberately permissive — a crew without a thermometer can
 /// still file a test — but the resulting document must say what is missing
-/// instead of leaving the reader to notice the blanks.
+/// instead of leaving the reader to notice the blanks. Fields that only exist
+/// since the protocol metadata was added (medium, metal temperature, relief
+/// valve on a pneumatic test) are only demanded from records that carry it.
 String? hydrotestMissingNote(HydrotestRecord r) {
+  final meta = hydrotestMeta(r);
   final missing = <String>[];
   if (r.gauge.trim().isEmpty) missing.add('manometr / gauge');
   if (r.pressureStartBar == null) {
@@ -141,6 +225,15 @@ String? hydrotestMissingNote(HydrotestRecord r) {
   if (r.temperatureC == null) missing.add('temperatura / temperature');
   if (r.holdMinutes == null) missing.add('czas wytrzymania / hold time');
   if (r.witness.trim().isEmpty) missing.add('świadek / witness');
+  if (meta != null) {
+    if (meta.testMedium.trim().isEmpty) missing.add('medium / test fluid');
+    if (meta.metalTempC == null) {
+      missing.add('temperatura metalu / metal temperature');
+    }
+    if ((meta.preset?.isPneumatic ?? false) && meta.reliefSetBar == null) {
+      missing.add('nastawa zaworu bezpieczeństwa / relief valve set pressure');
+    }
+  }
   if (missing.isEmpty) return null;
   return 'Protokół niekompletny — brak: ${missing.join(', ')}. / '
       'Incomplete protocol — missing: ${missing.join(', ')}.';
@@ -175,7 +268,9 @@ String hydrotestProtocolSubject(HydrotestRecord r) {
   final system = r.systemName.trim();
   final where = system.isEmpty ? '' : ' — $system';
   final when = r.date.trim().isEmpty ? '' : ' — ${r.date.trim()}';
-  return 'Protokół próby ciśnieniowej / Hydrostatic test protocol'
+  final no = hydrotestMeta(r)?.protocolNo.trim() ?? '';
+  final number = no.isEmpty ? '' : ' $no';
+  return 'Protokół próby ciśnieniowej / Pressure test protocol$number'
       '$where$when — ${r.result}';
 }
 
@@ -201,113 +296,18 @@ class HydrotestExport {
   /// Renders one test as an A4 protocol and opens the share sheet.
   ///
   /// Portrait, unlike the weld journal's landscape table: this is a form with
-  /// a dozen labelled values and three signature lines, not a wide grid.
+  /// a few dozen labelled values and three signature lines, not a wide grid.
   static Future<void> sharePdf({
     required HydrotestRecord record,
     DateTime? generatedAt,
   }) async {
     final now = generatedAt ?? DateTime.now();
-
-    // Bundled Roboto covers Latin-2, so Polish text (ą/ć/ę/ł/ń/ó/ś/ź/ż) in a
-    // system tag, a witness name or the notes renders. The `pdf` package's
-    // built-in Helvetica is Latin-1 only and silently drops those glyphs —
-    // the same fix iso_pdf_export.dart and weld_journal_export.dart carry.
     final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-    final baseFont = pw.Font.ttf(fontBytes);
-    final doc = pw.Document(
-      theme: pw.ThemeData.withFont(
-        base: baseFont,
-        bold: baseFont,
-        italic: baseFont,
-        boldItalic: baseFont,
-      ),
+    final bytes = await buildPdf(
+      record: record,
+      font: pw.Font.ttf(fontBytes),
+      generatedAt: now,
     );
-
-    final stamp = '${_isoDate(now)} '
-        '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}';
-
-    doc.addPage(pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(28),
-      header: (ctx) => _pageHeader(
-        record: record,
-        stamp: stamp,
-        page: ctx.pageNumber,
-        pages: ctx.pagesCount,
-      ),
-      footer: (_) => pw.Padding(
-        padding: const pw.EdgeInsets.only(top: 6),
-        child: pw.Text(
-          'Fitter Welder Pro  ·  $stamp',
-          style: pw.TextStyle(fontSize: 7, color: _kInkMuted),
-        ),
-      ),
-      build: (_) => [
-        _resultBanner(record),
-        pw.SizedBox(height: 12),
-        _section('IDENTYFIKACJA / IDENTIFICATION', [
-          _row('System / linia — System / line', record.systemName),
-          _row('Data próby — Test date', record.date),
-          _row('Manometr (nr / kalibracja) — Gauge (no. / calibration)',
-              record.gauge),
-          _row('Świadek / inspektor — Witness / inspector', record.witness),
-        ]),
-        pw.SizedBox(height: 10),
-        _section('PRZEBIEG PRÓBY / TEST RECORD', [
-          _row('Ciśnienie początkowe — Start pressure',
-              formatHydrotestPressure(record.pressureStartBar)),
-          _row('Ciśnienie końcowe — End pressure',
-              formatHydrotestPressure(record.pressureEndBar)),
-          _row('Spadek ciśnienia — Pressure drop',
-              formatHydrotestValue(record.pressureDropBar, unit: 'bar')),
-          _row('Temperatura — Temperature',
-              formatHydrotestValue(record.temperatureC, decimals: 1, unit: '°C')),
-          _row('Czas wytrzymania — Hold time',
-              formatHydrotestHold(record.holdMinutes)),
-          _row('Minimum wg ASME B31.3 § 345.4.2 — Code minimum', '10 min'),
-        ]),
-        pw.SizedBox(height: 10),
-        // The calculator snapshot, kept verbatim from the moment of saving —
-        // see HydrotestRecord's doc for why it is copied and not recomputed.
-        _section('OBLICZENIA / CALCULATION', [
-          _row('Średnica zewnętrzna — Outside diameter',
-              formatHydrotestValue(record.odMm, unit: 'mm')),
-          _row('Ścianka — Wall thickness',
-              formatHydrotestValue(record.wallMm, unit: 'mm')),
-          _row('Długość linii — Line length',
-              formatHydrotestLength(record.lineLengthMm)),
-          _row('Objętość wody — Water volume',
-              formatHydrotestValue(record.volumeL, decimals: 1, unit: 'L')),
-          _row('Ciśnienie projektowe — Design pressure',
-              formatHydrotestPressure(record.designBar)),
-          _row('Współczynnik próby — Test factor',
-              record.factor == null
-                  ? '—'
-                  : '${record.factor!.toStringAsFixed(2)} ×'),
-          _row('Ciśnienie próbne (obliczone) — Test pressure (calculated)',
-              formatHydrotestPressure(record.testPressureBar)),
-        ]),
-        if (record.notes.trim().isNotEmpty) ...[
-          pw.SizedBox(height: 10),
-          _section('UWAGI / NOTES', [_freeText(record.notes.trim())]),
-        ],
-        ..._notes(record),
-        pw.SizedBox(height: 18),
-        _signatures(),
-        pw.SizedBox(height: 12),
-        // Same disclaimer the screen shows above the inputs: the app does the
-        // arithmetic, a person owns the procedure and the acceptance.
-        pw.Text(
-          'Procedurę próby i jej odbiór prowadzi inżynier QC. Aplikacja wykonuje '
-          'wyłącznie obliczenia i zapis. / The QC engineer owns the test '
-          'procedure and its acceptance. This app only calculates and records.',
-          style: pw.TextStyle(fontSize: 7.5, color: _kInkMuted),
-        ),
-      ],
-    ));
-
-    final bytes = await doc.save();
     final name = hydrotestProtocolFileName(
       extension: 'pdf',
       generatedAt: now,
@@ -330,19 +330,181 @@ class HydrotestExport {
     );
   }
 
+  /// Renders the protocol to PDF bytes. No platform calls — the font is
+  /// passed in — so a test can lay the page out and catch overflows.
+  static Future<Uint8List> buildPdf({
+    required HydrotestRecord record,
+    required pw.Font font,
+    required DateTime generatedAt,
+  }) async {
+    final now = generatedAt;
+
+    // Bundled Roboto covers Latin-2, so Polish text (ą/ć/ę/ł/ń/ó/ś/ź/ż) in a
+    // system tag, a witness name or the notes renders. The `pdf` package's
+    // built-in Helvetica is Latin-1 only and silently drops those glyphs —
+    // the same fix iso_pdf_export.dart and weld_journal_export.dart carry.
+    //
+    // KNOWN LIMITATION: only Roboto-Regular.ttf is bundled, so the "bold"
+    // face below is the same file and FontWeight.bold renders as regular.
+    // Emphasis on the page therefore comes from size, colour and boxes, not
+    // weight. Bundling Roboto-Bold.ttf would fix it (asset change, not done
+    // here).
+    final baseFont = font;
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: baseFont,
+        bold: baseFont,
+        italic: baseFont,
+        boldItalic: baseFont,
+      ),
+    );
+
+    final stamp = '${_isoDate(now)} '
+        '${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
+
+    final meta = hydrotestMeta(record);
+    final preset = hydrotestPreset(record);
+    final minHold = preset.minHoldMinutes;
+    final notesText = record.notes.trim();
+
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(28),
+      header: (ctx) => _pageHeader(
+        record: record,
+        meta: meta,
+        stamp: stamp,
+        page: ctx.pageNumber,
+        pages: ctx.pagesCount,
+      ),
+      footer: (_) => pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 6),
+        child: pw.Text(
+          'Fitter Welder Pro  ·  $stamp',
+          style: pw.TextStyle(fontSize: 7, color: _kInkMuted),
+        ),
+      ),
+      build: (_) => [
+        _resultBanner(record),
+        pw.SizedBox(height: 12),
+        _section('PROJEKT / PROJECT', [
+          _row('Firma — Company', meta?.company ?? ''),
+          _row('Projekt / klient — Project / client', meta?.project ?? ''),
+          _row('Nr pakietu testowego — Test package no.',
+              meta?.testPackage ?? ''),
+          _row('Rysunki P&ID / ISO — P&ID / ISO references',
+              meta?.drawingRefs ?? ''),
+          _row('Nr protokołu / rewizja — Protocol no. / revision',
+              _protocolNumber(meta)),
+        ]),
+        pw.SizedBox(height: 10),
+        _section('IDENTYFIKACJA / IDENTIFICATION', [
+          _row('System / linia — System / line', record.systemName),
+          _row('Data próby — Test date', record.date),
+          _row('Rodzaj próby i norma — Test type and code',
+              hydrotestTestTypeLabel(preset)),
+          _row('Medium próby — Test fluid', meta?.testMedium ?? ''),
+          _row('Manometr (nr / kalibracja) — Gauge (no. / calibration)',
+              record.gauge),
+          _row('Zakres manometru — Gauge range', meta?.gaugeRange ?? ''),
+          _row('Kalibracja ważna do — Calibration due',
+              meta?.gaugeCalibrationDue ?? ''),
+          _row('Nastawa zaworu bezpieczeństwa — Relief valve set pressure',
+              formatHydrotestPressure(meta?.reliefSetBar)),
+          _row('Świadek / inspektor — Witness / inspector', record.witness),
+        ]),
+        pw.SizedBox(height: 10),
+        _section('PRZEBIEG PRÓBY (POMIARY) / TEST RECORD (MEASURED)', [
+          _row('Ciśnienie początkowe — Start pressure',
+              formatHydrotestPressure(record.pressureStartBar)),
+          _row('Ciśnienie końcowe — End pressure',
+              formatHydrotestPressure(record.pressureEndBar)),
+          _row('Spadek ciśnienia — Pressure drop',
+              formatHydrotestValue(record.pressureDropBar, unit: 'bar')),
+          _row('Temperatura wody / otoczenia — Fluid / ambient temperature',
+              formatHydrotestValue(record.temperatureC, decimals: 1, unit: '°C')),
+          _row('Temperatura metalu — Metal temperature',
+              formatHydrotestValue(meta?.metalTempC, decimals: 1, unit: '°C')),
+          _row('Czas wytrzymania — Hold time',
+              formatHydrotestHold(record.holdMinutes)),
+          _row(
+              'Minimum wg ${preset.holdClause ?? preset.reference} — '
+                  'Code minimum',
+              minHold == null
+                  ? 'wg procedury / per procedure'
+                  : formatHydrotestHold(minHold)),
+        ]),
+        pw.SizedBox(height: 10),
+        // The calculator snapshot, kept verbatim from the moment of saving —
+        // see HydrotestRecord's doc for why it is copied and not recomputed.
+        _section('OBLICZENIA / CALCULATION', [
+          _row('Średnica zewnętrzna — Outside diameter',
+              formatHydrotestValue(record.odMm, unit: 'mm')),
+          _row('Ścianka — Wall thickness',
+              formatHydrotestValue(record.wallMm, unit: 'mm')),
+          _row('Długość linii — Line length',
+              formatHydrotestLength(record.lineLengthMm)),
+          _row('Objętość wody — Water volume',
+              formatHydrotestValue(record.volumeL, decimals: 1, unit: 'L')),
+          _row('Ciśnienie obliczeniowe (${preset.pressureSymbol}) — '
+              'Design pressure', formatHydrotestPressure(record.designBar)),
+          _row('Wzór — Formula', preset.formula(decimalSeparator: '.')),
+          _row('Korekta temperaturowa — Stress ratio',
+              formatHydrotestStressRatio(preset, meta?.stressRatio)),
+          _row('Współczynnik próby Pt/P — Test factor',
+              record.factor == null
+                  ? '—'
+                  : '${record.factor!.toStringAsFixed(3)} ×'),
+          _row('Ciśnienie próbne (obliczone) — Test pressure (calculated)',
+              formatHydrotestPressure(record.testPressureBar)),
+        ]),
+        if (notesText.isNotEmpty) ...[
+          pw.SizedBox(height: 10),
+          _section('UWAGI / NOTES', [_freeText(notesText)]),
+        ],
+        ..._notes(record),
+        pw.SizedBox(height: 18),
+        _signatures(),
+        pw.SizedBox(height: 12),
+        // Same disclaimer the screen shows above the inputs: the app does the
+        // arithmetic, a person owns the procedure and the acceptance.
+        pw.Text(
+          'Procedurę próby i jej odbiór prowadzi inżynier QC. Aplikacja wykonuje '
+          'wyłącznie obliczenia i zapis. Pola „—” nie zostały zmierzone ani '
+          'wpisane. / The QC engineer owns the test procedure and its '
+          'acceptance. This app only calculates and records. Fields shown as '
+          '"—" were not measured or entered.',
+          style: pw.TextStyle(fontSize: 7.5, color: _kInkMuted),
+        ),
+      ],
+    ));
+
+    return doc.save();
+  }
+
   static String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 
+  static String _protocolNumber(HydrotestProtocolMeta? meta) {
+    final no = meta?.protocolNo.trim() ?? '';
+    final rev = meta?.revision.trim() ?? '';
+    if (no.isEmpty && rev.isEmpty) return '';
+    return '${no.isEmpty ? '—' : no}  /  rev. ${rev.isEmpty ? '—' : rev}';
+  }
+
   // ── Running page header ───────────────────────────────────────────────────
   static pw.Widget _pageHeader({
     required HydrotestRecord record,
+    required HydrotestProtocolMeta? meta,
     required String stamp,
     required int page,
     required int pages,
   }) {
     final system = record.systemName.trim();
+    final number = _protocolNumber(meta);
     return pw.Container(
       padding: const pw.EdgeInsets.only(bottom: 8),
       margin: const pw.EdgeInsets.only(bottom: 12),
@@ -353,28 +515,37 @@ class HydrotestExport {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Text(
-              'PROTOKÓŁ PRÓBY CIŚNIENIOWEJ / HYDROSTATIC TEST PROTOCOL',
-              style: pw.TextStyle(
-                fontSize: 12,
-                fontWeight: pw.FontWeight.bold,
-                color: _kInk,
-              ),
-            ),
-            pw.SizedBox(height: 2),
-            pw.Text(
-              'System / line: ${system.isEmpty ? '—' : system}',
-              style: pw.TextStyle(fontSize: 9, color: _kInk),
-            ),
-            pw.Text(
-              'Data / Date: ${record.date.trim().isEmpty ? '—' : record.date.trim()}',
-              style: pw.TextStyle(fontSize: 9, color: _kInk),
-            ),
-          ]),
+          pw.Expanded(
+            child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'PROTOKÓŁ PRÓBY CIŚNIENIOWEJ / PRESSURE TEST PROTOCOL',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _kInk,
+                    ),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    'System / line: ${system.isEmpty ? '—' : system}',
+                    style: pw.TextStyle(fontSize: 9, color: _kInk),
+                  ),
+                  pw.Text(
+                    'Data / Date: ${record.date.trim().isEmpty ? '—' : record.date.trim()}',
+                    style: pw.TextStyle(fontSize: 9, color: _kInk),
+                  ),
+                ]),
+          ),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
             pw.Text('$page / $pages',
                 style: pw.TextStyle(fontSize: 9, color: _kInkMuted)),
+            if (number.isNotEmpty) ...[
+              pw.SizedBox(height: 2),
+              pw.Text('Nr / No.: $number',
+                  style: pw.TextStyle(fontSize: 9, color: _kInk)),
+            ],
             pw.SizedBox(height: 2),
             pw.Text('Wygenerowano / Generated: $stamp',
                 style: pw.TextStyle(fontSize: 8, color: _kInkMuted)),
@@ -488,6 +659,7 @@ class HydrotestExport {
       for (final n in [
         hydrotestHoldNote(r),
         hydrotestDropNote(r),
+        hydrotestCalibrationNote(r),
         hydrotestMissingNote(r),
       ])
         if (n != null) n,
