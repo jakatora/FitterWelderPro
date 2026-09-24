@@ -1,11 +1,10 @@
 // ignore_for_file: prefer_const_constructors
 
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../domain/bolting/bolt_torque.dart';
 import '../i18n/app_language.dart';
 import '../services/flange_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -20,7 +19,10 @@ import '../utils/clipboard_helper.dart';
 //
 // Bolt preload F = σ_target × A_s
 //   σ_target = preload fraction × yield strength (SMYS)
-//   A_s     = tensile stress area = π/4 × (d - 0.9382×p)²  (UNC thread)
+//   A_s     = tensile stress area per ASME B1.1 for inch UN threads:
+//             A_s = 0.7854 × (d − 0.9743/n)²  [in²], n = threads per inch
+//   Thread series per ASME B16.5 stud bolts: UNC up to 1", 8UN above 1".
+//   Arithmetic lives in lib/domain/bolting/bolt_torque.dart (tested there).
 //
 // Bolt grades supported (ASME A193):
 //   B7   — standard CS for most service, SMYS depends on diameter
@@ -114,41 +116,12 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
   double? _torqueNm;
   double? _torqueFtLb;
   double? _preloadKN;
+  double? _stressAreaMm2;
+  String? _threadDesignation;
 
   // ─── Reference data ──────────────────────────────────────────────────────
-  /// Nominal diameter (mm) for standard bolt sizes used in flanges.
-  static const Map<String, double> _boltDiamMm = {
-    '1/2': 12.70,
-    '5/8': 15.88,
-    '3/4': 19.05,
-    '7/8': 22.23,
-    '1': 25.40,
-    '1-1/8': 28.58,
-    '1-1/4': 31.75,
-    '1-3/8': 34.93,
-    '1-1/2': 38.10,
-    '1-5/8': 41.28,
-    '1-3/4': 44.45,
-    '1-7/8': 47.63,
-    '2': 50.80,
-  };
-
-  /// Threads per inch (UNC). Used to compute tensile stress area.
-  static const Map<String, int> _threadsPerInch = {
-    '1/2': 13,
-    '5/8': 11,
-    '3/4': 10,
-    '7/8': 9,
-    '1': 8,
-    '1-1/8': 7,
-    '1-1/4': 7,
-    '1-3/8': 6,
-    '1-1/2': 6,
-    '1-5/8': 5,
-    '1-3/4': 5,
-    '1-7/8': 5,
-    '2': 4,
-  };
+  // Bolt sizes, threads per inch (UNC ≤ 1", 8UN > 1" per ASME B16.5) and the
+  // tensile stress area come from lib/domain/bolting/bolt_torque.dart.
 
   /// SMYS [MPa] for ASTM A193 bolt grades. Note: B7 SMYS drops for >2.5" dia,
   /// but for the standard flange range here (≤2") it stays at 105 ksi = 724 MPa.
@@ -171,38 +144,34 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
 
   // ─── Calculation ─────────────────────────────────────────────────────────
   void _recalculate() {
-    final dMm = _boltDiamMm[_boltSize];
+    final size = flangeBoltSize(_boltSize);
     final smys = _smysMpa[_grade];
     final k = _kFactor[_lube];
-    final tpi = _threadsPerInch[_boltSize];
-    if (dMm == null || smys == null || k == null || tpi == null) {
+    if (size == null || smys == null || k == null) {
       setState(() {
         _torqueNm = null;
         _torqueFtLb = null;
         _preloadKN = null;
+        _stressAreaMm2 = null;
+        _threadDesignation = null;
       });
       return;
     }
 
-    // Tensile stress area A_s [mm²] for UNC thread:
-    //   p (pitch, mm) = 25.4 / tpi
-    //   d_basic (mm) = d
-    //   A_s = π/4 × (d − 0.9382 × p)²
-    final p = 25.4 / tpi;
-    final dEff = dMm - 0.9382 * p;
-    final asMm2 = math.pi / 4.0 * dEff * dEff;
-
-    // Preload force F [N] = σ × A
-    final sigmaMpa = smys * _preloadFraction; // MPa = N/mm²
-    final fN = sigmaMpa * asMm2;
-
-    // Torque T [N·m] = K × F × d  (d in metres)
-    final tNm = k * fN * (dMm / 1000.0);
+    // T = K × F × d, F = frac × SMYS × A_s, A_s per ASME B1.1 (UN thread).
+    final r = boltTorque(
+      size: size,
+      smysMpa: smys.toDouble(),
+      nutFactor: k,
+      preloadFraction: _preloadFraction,
+    );
 
     setState(() {
-      _torqueNm = tNm;
-      _torqueFtLb = tNm / 1.3558;
-      _preloadKN = fN / 1000.0;
+      _torqueNm = r.torqueNm;
+      _torqueFtLb = r.torqueFtLb;
+      _preloadKN = r.preloadKN;
+      _stressAreaMm2 = r.stressAreaMm2;
+      _threadDesignation = size.threadDesignation;
     });
     _savePrefs();
   }
@@ -226,7 +195,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
     final dn = prefs.getInt(_kPrefFlangeDn);
     final cls = prefs.getInt(_kPrefFlangeClass);
     setState(() {
-      if (boltSize != null && _boltDiamMm.containsKey(boltSize)) _boltSize = boltSize;
+      if (boltSize != null && flangeBoltSize(boltSize) != null) _boltSize = boltSize;
       if (grade != null && _smysMpa.containsKey(grade)) _grade = grade;
       if (lube != null && _kFactor.containsKey(lube)) _lube = lube;
       if (preload != null && preload >= 0.30 && preload <= 0.75) _preloadFraction = preload;
@@ -377,7 +346,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                 _DropdownRow(
                   label: context.tr(pl: 'Wielkość (cal)', en: 'Size (inch)'),
                   value: _boltSize,
-                  items: _boltDiamMm.keys.toList(),
+                  items: [for (final s in kFlangeBoltSizes) s.label],
                   onChanged: (v) {
                     setState(() => _boltSize = v);
                     _recalculate();
@@ -541,6 +510,18 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                     ),
                     style: const TextStyle(color: _kTextMut, fontSize: 12),
                   ),
+                  if (_stressAreaMm2 != null && _threadDesignation != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      context.tr(
+                        pl: 'Gwint $_threadDesignation · A_s = '
+                            '${_stressAreaMm2!.toStringAsFixed(0)} mm² (ASME B1.1)',
+                        en: 'Thread $_threadDesignation · A_s = '
+                            '${_stressAreaMm2!.toStringAsFixed(0)} mm² (ASME B1.1)',
+                      ),
+                      style: const TextStyle(color: _kTextMut, fontSize: 11),
+                    ),
+                  ],
                   if (_flangeBoltCount != null) ...[
                     const SizedBox(height: 4),
                     Text(
