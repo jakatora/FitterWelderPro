@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
@@ -6,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../data/elbow_takeouts.dart';
+import '../database/iso_drawing_dao.dart';
 import '../i18n/app_language.dart';
 import '../services/iso_parser.dart';
 import '../services/iso_pdf_export.dart';
@@ -18,6 +21,11 @@ import '../models/prefab/dim_ref.dart';
 import '../services/prefab_engine.dart' as prefab;
 import '../models/prefab/end_connection.dart';
 import '../services/component_classification.dart';
+
+// Autosave: the drawing <-> JSON codec and the "saved sketches" sheet live
+// next door because they need the private model classes below.
+part 'iso_notebook_saved_sketches.dart';
+part 'iso_notebook_sketch_codec.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ISO NOTEBOOK — full piping isometric sketch pad with a built-in cut
@@ -809,13 +817,29 @@ class _IsoState extends State<IsoNotebookScreen> {
   final List<List<_Item>> _undo = [];
   int _version = 0; // bumped on every mutation → forces a repaint
 
-  /// `true` once the drawing has been touched in this session.
-  ///
-  /// The whole route lives in `_items` in RAM — only the view toggles reach
-  /// SharedPreferences — so a back gesture used to throw away an afternoon of
-  /// dimensioning without a word. Guards the [PopScope] in [build]; the same
-  /// pattern as `iso_scanner_screen` and `segment_builder_screen`.
+  /// `true` while the drawing on screen has changes the database does not
+  /// have yet (the autosave debounce is pending, a write is in flight, or the
+  /// last write failed). Guards the [PopScope] in [build]: leaving first
+  /// flushes the save, and only a FAILED save asks the fitter anything.
   bool _dirty = false;
+
+  // ── autosave state (see "autosave" section below) ──────────────────────────
+  final IsoDrawingDao _drawingDao = IsoDrawingDao();
+
+  /// Row id of the sketch on screen. Fresh until a stored sketch is loaded.
+  String _drawingId = const Uuid().v4();
+  int _drawingCreatedAt = DateTime.now().millisecondsSinceEpoch;
+
+  /// True once this sketch has a row in `iso_drawings` (loaded from it or
+  /// written to it). An untouched empty sheet is never written.
+  bool _drawingStored = false;
+
+  /// Bumped on every change; [_savedSeq] is the value the database holds.
+  int _editSeq = 0;
+  int _savedSeq = 0;
+  Timer? _saveTimer;
+  Future<void> _saveChain = Future<void>.value();
+  AppLifecycleListener? _lifecycle;
 
   Offset? _dragA, _dragB;
   _Tool _tool = _Tool.pipe;
@@ -882,6 +906,29 @@ class _IsoState extends State<IsoNotebookScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
+    // Going to the background is the last reliable moment to write: the OS
+    // may kill a backgrounded app without another callback.
+    _lifecycle = AppLifecycleListener(onStateChange: (state) {
+      if (state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.hidden ||
+          state == AppLifecycleState.paused ||
+          state == AppLifecycleState.detached) {
+        unawaited(_flushSave());
+      }
+    });
+    unawaited(_loadLastSketch());
+  }
+
+  @override
+  void dispose() {
+    _disposing = true;
+    _lifecycle?.dispose();
+    // The route is gone, the drawing must not be: write whatever the pending
+    // debounce would have written. _flushSave snapshots synchronously and
+    // never touches widget state once unmounted.
+    if (_editSeq != _savedSeq) unawaited(_flushSave());
+    _saveTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPrefs() async {
@@ -1026,23 +1073,164 @@ class _IsoState extends State<IsoNotebookScreen> {
       f();
       _version++;
       // Every drawing change funnels through here, so this is the one place
-      // that has to remember there is unsaved work.
-      _dirty = true;
+      // that has to remember there is unsaved work — and schedule its save.
+      _markEdited();
+    });
+    _scheduleSave();
+  }
+
+  /// Records that the drawing (or its name) changed. Call inside setState.
+  void _markEdited() {
+    _dirty = true;
+    _editSeq++;
+  }
+
+  // ── autosave ────────────────────────────────────────────────────────────────
+  //
+  // The drawing used to live only in `_items`: a back gesture, a phone call
+  // that got the app killed or a flat battery threw away an afternoon of
+  // dimensioning, and the leave dialog could only say so. Now every change
+  // is written to `iso_drawings` (schema v18, so the backup carries it):
+  //   * each change bumps [_editSeq] and restarts a 500 ms debounce;
+  //   * going to the background, leaving the screen and disposing flush
+  //     immediately;
+  //   * writes are chained, so an older snapshot can never land after a
+  //     newer one;
+  //   * opening the notebook puts the most recently saved sketch back.
+  // What exactly is stored: see iso_notebook_sketch_codec.dart.
+
+  static const Duration _kAutosaveDelay = Duration(milliseconds: 500);
+
+  bool _disposing = false;
+  bool _leaving = false;
+  bool _saveFailureShown = false;
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(_kAutosaveDelay, () {
+      _saveTimer = null;
+      unawaited(_flushSave());
     });
   }
 
-  /// "Leave without saving?" — shown by the [PopScope] guard when the fitter
-  /// backs out of a drawing that only exists in memory.
-  Future<bool> _confirmDiscard() async {
+  /// The drawing as a row, snapshotted NOW (the model objects are immutable,
+  /// so later edits cannot leak into a write that is still queued).
+  IsoDrawingRecord _snapshotRecord() => IsoDrawingRecord(
+        id: _drawingId,
+        name: _projectName,
+        json: jsonEncode(_encodeIsoSketch(_IsoSketch(
+          name: _projectName,
+          items: _items,
+          takeoutByDn: _compDimCache,
+          lastDnByTool: _lastDnByTool,
+        ))),
+        createdAt: _drawingCreatedAt,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+
+  void _markClean() {
+    if (!_dirty) return;
+    if (mounted && !_disposing) {
+      setState(() => _dirty = false);
+    } else {
+      _dirty = false;
+    }
+  }
+
+  /// Writes the drawing if it changed since the last successful write.
+  ///
+  /// Returns true when the database holds exactly what is on screen. Never
+  /// throws: a failed write is logged, reported once, and retried by the
+  /// next change or the next flush.
+  Future<bool> _flushSave() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final seq = _editSeq;
+    if (seq == _savedSeq) return true;
+    if (!_drawingStored && _items.isEmpty && _projectName.isEmpty) {
+      // An empty sheet that was never stored (drawn and undone before its
+      // first save) is not worth a row.
+      _savedSeq = seq;
+      _markClean();
+      return true;
+    }
+    final IsoDrawingRecord record;
+    try {
+      record = _snapshotRecord();
+    } catch (e) {
+      debugPrint('ISO autosave: encoding failed: $e');
+      _reportSaveFailure();
+      return false;
+    }
+    _drawingStored = true;
+    final write = _saveChain.then((_) => _drawingDao.upsert(record));
+    _saveChain = write.then((_) {}, onError: (Object _) {});
+    try {
+      await write;
+    } catch (e) {
+      debugPrint('ISO autosave: write failed: $e');
+      _reportSaveFailure();
+      return false;
+    }
+    _saveFailureShown = false;
+    if (seq > _savedSeq) _savedSeq = seq;
+    final clean = _savedSeq == _editSeq;
+    if (clean) _markClean();
+    return clean;
+  }
+
+  void _reportSaveFailure() {
+    if (_saveFailureShown || !mounted || _disposing) return;
+    _saveFailureShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr(
+        'Nie udało się zapisać szkicu w telefonie. Spróbuję ponownie przy '
+            'następnej zmianie.',
+        'Could not save the sketch on the phone. Will retry on the next '
+            'change.',
+      )),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        label: _tr('Ponów', 'Retry'),
+        onPressed: () => unawaited(_flushSave()),
+      ),
+    ));
+  }
+
+  /// [PopScope] handler: leaving is safe once the save lands; only a write
+  /// that FAILED asks the fitter anything.
+  Future<void> _handleLeave() async {
+    if (_leaving) return;
+    _leaving = true;
+    try {
+      final nav = Navigator.of(context);
+      if (await _flushSave()) {
+        if (mounted) nav.pop();
+        return;
+      }
+      if (!mounted) return;
+      if (await _confirmLeaveUnsaved() && mounted) nav.pop();
+    } finally {
+      _leaving = false;
+    }
+  }
+
+  /// Shown only when the autosave could not write the latest changes.
+  Future<bool> _confirmLeaveUnsaved() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: Text(_tr('Wyjść bez zapisu?', 'Leave without saving?')),
+        title: Text(_tr('Nie udało się zapisać szkicu',
+            'The sketch could not be saved')),
         content: Text(_tr(
-          'Rysunek, wymiary i cut lista są tylko w pamięci — po wyjściu przepadną. '
-          'Możesz najpierw skopiować zestawienie albo wyeksportować PDF.',
-          'The sketch, its dimensions and the cut list live only in memory — '
-          'leaving discards them. You can copy the summary or export the PDF first.',
+          'Szkic zapisuje się sam, ale ostatnich zmian nie udało się zapisać '
+          'w telefonie (np. brak wolnego miejsca). Jeśli wyjdziesz teraz, te '
+          'zmiany przepadną. Możesz wrócić i spróbować jeszcze raz, skopiować '
+          'zestawienie albo wyeksportować PDF.',
+          'The sketch saves itself, but the latest changes could not be '
+          'written to the phone (e.g. storage is full). Leaving now discards '
+          'them. You can go back and try again, copy the summary or export '
+          'the PDF.',
         )),
         actions: [
           TextButton(
@@ -1051,12 +1239,218 @@ class _IsoState extends State<IsoNotebookScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dctx, true),
-            child: Text(_tr('Wyjdź', 'Leave')),
+            child: Text(_tr('Wyjdź bez zapisu', 'Leave without saving')),
           ),
         ],
       ),
     );
     return ok ?? false;
+  }
+
+  /// Opening the notebook: the most recently saved sketch comes back.
+  Future<void> _loadLastSketch() async {
+    IsoDrawingRecord? record;
+    try {
+      record = await _drawingDao.latest();
+    } catch (e) {
+      debugPrint('ISO notebook: reading the last sketch failed: $e');
+    }
+    if (!mounted || record == null) return;
+    // The fitter started drawing before the read came back: the fresh work
+    // wins; the stored sketch stays untouched under "Saved sketches".
+    if (_editSeq > 0) return;
+    _openRecord(record);
+  }
+
+  /// Puts [record] on screen. Returns false (and says why) when this build
+  /// cannot open it — the stored row is then left exactly as it is.
+  bool _openRecord(IsoDrawingRecord record) {
+    final label = record.name.isEmpty ? _tr('bez nazwy', 'untitled') : record.name;
+    _IsoSketch sketch;
+    try {
+      sketch = _decodeIsoSketch(jsonDecode(record.json));
+    } catch (e) {
+      debugPrint('ISO notebook: sketch ${record.id} unreadable: $e');
+      final tooNew = e is IsoSketchFormatException && e.tooNew;
+      _snack(tooNew
+          ? _tr('Szkic „$label” zapisała nowsza wersja aplikacji — zaktualizuj '
+                'ją, żeby go otworzyć. Zapis zostaje nietknięty.',
+              'Sketch “$label” was saved by a newer app version — update the '
+                'app to open it. The saved copy is left untouched.')
+          : _tr('Nie udało się odczytać szkicu „$label”. Zapis zostaje '
+                'nietknięty.',
+              'Could not read sketch “$label”. The saved copy is left '
+                'untouched.'));
+      return false;
+    }
+    // Elements from a newer build cannot be shown; saving over the original
+    // would delete them. Work on a copy instead.
+    final forked = sketch.skippedItems > 0;
+    setState(() {
+      _items
+        ..clear()
+        ..addAll(sketch.items);
+      _undo.clear();
+      _projectName = sketch.name;
+      _compDimCache
+        ..clear()
+        ..addAll(sketch.takeoutByDn);
+      _lastDnByTool
+        ..clear()
+        ..addAll(sketch.lastDnByTool);
+      if (forked) {
+        _drawingId = const Uuid().v4();
+        _drawingCreatedAt = DateTime.now().millisecondsSinceEpoch;
+        _drawingStored = false;
+      } else {
+        _drawingId = record.id;
+        _drawingCreatedAt = record.createdAt;
+        _drawingStored = true;
+      }
+      _version++;
+      _editSeq++;
+      _savedSeq = _editSeq;
+      _dirty = false;
+    });
+    if (forked) {
+      _snack(_tr(
+        'Części elementów (${sketch.skippedItems}) ta wersja aplikacji nie '
+            'umie pokazać. Pracujesz na kopii — oryginał zostaje zapisany.',
+        'This app version cannot show ${sketch.skippedItems} element(s). '
+            'You are working on a copy — the original stays saved.',
+      ));
+    }
+    return true;
+  }
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(text),
+        duration: const Duration(seconds: 6),
+      ));
+  }
+
+  bool get _sheetIsBlank => _items.isEmpty && _projectName.isEmpty;
+
+  /// A stored sketch the fitter emptied and never named is not worth
+  /// keeping once they move on to another one.
+  Future<void> _dropCurrentIfBlank() async {
+    if (!_drawingStored || !_sheetIsBlank) return;
+    try {
+      await _drawingDao.deleteById(_drawingId);
+    } catch (e) {
+      debugPrint('ISO notebook: dropping blank sketch failed: $e');
+    }
+  }
+
+  /// A fresh, empty sheet with a new id. With [persist] it is written right
+  /// away, so reopening the notebook shows it instead of the previous one.
+  void _startBlankSketch({required bool persist}) {
+    setState(() {
+      _items.clear();
+      _undo.clear();
+      _projectName = '';
+      _compDimCache.clear();
+      _lastDnByTool.clear();
+      _drawingId = const Uuid().v4();
+      _drawingCreatedAt = DateTime.now().millisecondsSinceEpoch;
+      _drawingStored = persist;
+      _version++;
+      _editSeq++;
+      _savedSeq = persist ? _savedSeq : _editSeq;
+      _dirty = persist;
+    });
+    if (persist) unawaited(_flushSave());
+  }
+
+  /// "Nowy szkic": the current sketch is saved (and stays reachable from
+  /// "Saved sketches"), the sheet is cleared — after a confirmation.
+  Future<void> _newSketch() async {
+    if (_sheetIsBlank) {
+      _snack(_tr('Arkusz jest już pusty.', 'The sheet is already empty.'));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(_tr('Zacząć nowy szkic?', 'Start a new sketch?')),
+        content: Text(_tr(
+          'Arkusz zostanie wyczyszczony. Bieżący szkic zostaje zapisany '
+          'w telefonie — otworzysz go z listy „Zapisane szkice”.',
+          'The sheet will be cleared. The current sketch stays saved on the '
+          'phone — open it again from “Saved sketches”.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(_tr('Anuluj', 'Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(_tr('Nowy szkic', 'New sketch')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (!await _flushSave()) {
+      _snack(_tr(
+        'Nie udało się zapisać bieżącego szkicu — nowy nie został rozpoczęty.',
+        'Could not save the current sketch — a new one was not started.',
+      ));
+      return;
+    }
+    if (!mounted) return;
+    _startBlankSketch(persist: true);
+  }
+
+  /// "Zapisane szkice": list, open or delete stored sketches.
+  Future<void> _openSavedSketches() async {
+    if (!await _flushSave()) {
+      _snack(_tr(
+        'Nie udało się zapisać bieżącego szkicu — spróbuj ponownie.',
+        'Could not save the current sketch — try again.',
+      ));
+      return;
+    }
+    List<IsoDrawingSummary> entries;
+    try {
+      entries = await _drawingDao.listAll();
+    } catch (e) {
+      debugPrint('ISO notebook: listing sketches failed: $e');
+      _snack(_tr('Nie udało się odczytać listy szkiców.',
+          'Could not read the list of sketches.'));
+      return;
+    }
+    if (!mounted) return;
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _SavedSketchesSheet(
+        entries: entries,
+        currentId: _drawingId,
+        tr: _tr,
+        onDelete: (id) async {
+          await _drawingDao.deleteById(id);
+          if (id == _drawingId && mounted) _startBlankSketch(persist: false);
+        },
+      ),
+    );
+    if (chosen == null || chosen == _drawingId || !mounted) return;
+    IsoDrawingRecord? record;
+    try {
+      record = await _drawingDao.getById(chosen);
+    } catch (e) {
+      debugPrint('ISO notebook: opening sketch $chosen failed: $e');
+    }
+    if (record == null || !mounted) return;
+    await _dropCurrentIfBlank();
+    if (!mounted) return;
+    _openRecord(record);
   }
 
   // ── isometric snap ──────────────────────────────────────────────────────────
@@ -3441,8 +3835,9 @@ class _IsoState extends State<IsoNotebookScreen> {
       if (name != null) {
         setState(() {
           _projectName = name;
-          _dirty = true;
+          _markEdited();
         });
+        _scheduleSave();
       }
     } finally {
       ctrl.dispose();
@@ -4730,11 +5125,9 @@ class _IsoState extends State<IsoNotebookScreen> {
     final mapping = _currentMapping;
     return PopScope(
       canPop: !_dirty,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        final nav = Navigator.of(context);
-        final discard = await _confirmDiscard();
-        if (discard && mounted) nav.pop();
+        unawaited(_handleLeave());
       },
       child: Scaffold(
       appBar: AppBar(
@@ -4762,6 +5155,40 @@ class _IsoState extends State<IsoNotebookScreen> {
           ),
         ),
         actions: [
+          // The sketch saves itself; this menu starts another one or goes
+          // back to an earlier one.
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.folder_open_outlined),
+            tooltip: _tr('Szkice', 'Sketches'),
+            onSelected: (key) {
+              switch (key) {
+                case 'new':
+                  unawaited(_newSketch());
+                  break;
+                case 'open':
+                  unawaited(_openSavedSketches());
+                  break;
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem<String>(
+                value: 'new',
+                child: Row(children: [
+                  const Icon(Icons.note_add_outlined, size: 20),
+                  const SizedBox(width: 8),
+                  Text(_tr('Nowy szkic', 'New sketch')),
+                ]),
+              ),
+              PopupMenuItem<String>(
+                value: 'open',
+                child: Row(children: [
+                  const Icon(Icons.folder_open, size: 20),
+                  const SizedBox(width: 8),
+                  Text(_tr('Zapisane szkice…', 'Saved sketches…')),
+                ]),
+              ),
+            ],
+          ),
           HelpButton(help: kHelpIsoNotebook),
           IconButton(
             icon: const Icon(Icons.label_outline),
@@ -5127,12 +5554,14 @@ class _IsoState extends State<IsoNotebookScreen> {
                                 '3. Kolanka wstawiają się automatycznie\n'
                                 '4. Dotknij linii, by wpisać wymiar\n'
                                 '5. Przytrzymaj element, by go usunąć (z Cofnij)\n'
+                                'Szkic zapisuje się sam. Ikona folderu: nowy szkic i zapisane szkice.\n'
                                 'Wskazówka: pasek KSZTAŁTKI przewija się w bok — przeciągnij, by zobaczyć resztę',
                                 '1. Pick "Pipe" from the toolbar\n'
                                 '2. Drag across the grid\n'
                                 '3. Elbows auto-insert at corners\n'
                                 '4. Tap a line to enter its dimension\n'
                                 '5. Long-press an element to delete it (with Undo)\n'
+                                'The sketch saves itself. Folder icon: new sketch and saved sketches.\n'
                                 'Tip: the FITTINGS row scrolls sideways — drag to see the rest',
                               ),
                               style: TextStyle(
