@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
 import 'package:cut_list_app/services/weld_journal_export.dart';
 
 /// Builds a record with only the fields a test cares about; everything else
@@ -93,8 +94,11 @@ void main() {
   });
 
   group('column order', () {
-    test('headers follow the WeldEntry field order', () {
-      expect(weldJournalCsvHeaders, [
+    test('the original 18 columns keep their place, v20 columns come after',
+        () {
+      // Spreadsheets built on an export from before v20 read columns by
+      // position — the first 18 must never move. New columns are appended.
+      expect(weldJournalCsvHeaders.take(18), [
         'Nr spoiny / Weld no.',
         'Projekt / Project',
         'Rura / Pipe',
@@ -114,6 +118,82 @@ void main() {
         'Wynik badania / Examination',
         'Nr WPS / WPS no.',
       ]);
+      expect(weldJournalCsvHeaders.skip(18), [
+        'Nr ISO / ISO no.',
+        'Rewizja / Rev.',
+        'Spool',
+        'Pakiet testowy / Test package',
+        'Typ złącza / Joint type',
+        'Warsztat/montaż / Shop/field',
+        'Pozycja / Position',
+        'Stempel graniówki / Root stamp',
+        'Stempel lica / Cap stamp',
+        'Spoiwo klasyfikacja / Filler class.',
+        'Spoiwo partia / Filler batch',
+        'Podgrzanie °C / Preheat °C',
+        'Międzyściegowa °C / Interpass °C',
+        'Energia liniowa kJ/mm / Heat input kJ/mm',
+        for (final m in ['VT', 'PT', 'MT', 'RT', 'UT']) ...[
+          '$m zakres / scope',
+          '$m wynik / result',
+          '$m raport / report',
+          '$m data / date',
+        ],
+        'Naprawy / Repairs',
+        'Historia napraw / Repair log',
+        'PWHT wymagane / required',
+        'PWHT wykres / chart',
+        'Twardość / Hardness',
+        'Odbiór — inspektor / Accepted by',
+        'Odbiór — data / Acceptance date',
+        'Usunięta / Deleted',
+      ]);
+    });
+
+    test('v20 values land under their headers', () {
+      final csv = buildWeldJournalCsv([
+        WeldJournalRecord(
+          weldNo: 'W-005',
+          isoDrawing: 'ISO-101-0042',
+          isoRev: 'B',
+          rootWelder: 'JK-12',
+          capWelder: 'MN-03',
+          fillerClass: 'ER316LSi',
+          preheatC: '20',
+          heatInput: '0.9',
+          ndt: const {
+            NdtMethod.rt: WeldNdt(
+                scope: NdtScope.selected,
+                result: NdtResult.nok,
+                reportNo: 'RT-7',
+                date: '2026-09-21'),
+          },
+          repairs: const ['R1 2026-09-22: porowatość (NOK, RT NOK)'],
+          pwhtRequired: false,
+          inspector: 'A. Nowak (TÜV)',
+          inspectedAt: '2026-09-25',
+          deleted: true,
+        ),
+      ]);
+      final cells = _rows(csv)[1].split(';');
+      String at(String header) => cells[weldJournalCsvHeaders.indexOf(header)];
+      expect(at('Nr ISO / ISO no.'), 'ISO-101-0042');
+      expect(at('Rewizja / Rev.'), 'B');
+      expect(at('Stempel graniówki / Root stamp'), 'JK-12');
+      expect(at('Stempel lica / Cap stamp'), 'MN-03');
+      expect(at('Spoiwo klasyfikacja / Filler class.'), 'ER316LSi');
+      expect(at('Energia liniowa kJ/mm / Heat input kJ/mm'), '0.9');
+      expect(at('RT zakres / scope'), 'wyb./sel.');
+      expect(at('RT wynik / result'), 'NOK');
+      expect(at('RT raport / report'), 'RT-7');
+      expect(at('RT data / date'), '2026-09-21');
+      expect(at('UT wynik / result'), '');
+      expect(at('Naprawy / Repairs'), '1');
+      expect(at('Historia napraw / Repair log'),
+          'R1 2026-09-22: porowatość (NOK, RT NOK)');
+      expect(at('PWHT wymagane / required'), 'NIE / NO');
+      expect(at('Odbiór — inspektor / Accepted by'), 'A. Nowak (TÜV)');
+      expect(at('Usunięta / Deleted'), 'TAK / YES');
     });
 
     test('values land in the same columns as their headers', () {
@@ -139,7 +219,9 @@ void main() {
           wpsRef: 'WPS-316L-TIG-01',
         ),
       ]);
-      expect(_rows(csv)[1].split(';'), [
+      final cells = _rows(csv)[1].split(';');
+      expect(cells.length, weldJournalCsvHeaders.length);
+      expect(cells.take(18), [
         'SP-001-W005',
         'Browar',
         'L-12',

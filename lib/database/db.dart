@@ -24,7 +24,13 @@ class AppDatabase {
   //   metal temperature, gauge range and calibration due date, relief-valve
   //   set pressure, protocol no. and revision) — see
   //   lib/domain/pressure_test/hydrotest_protocol_meta.dart.
-  static const int _dbVersion = 19;
+  // v20: the weld journal an inspector accepts — identification, root/cap
+  //   stamps, filler, actual preheat/interpass/heat input, PWHT, acceptance,
+  //   soft delete and NDT per method on weld_journal; change history
+  //   (weld_journal_history), repairs (weld_repairs), per-project header and
+  //   RT/UT target (weld_journal_projects); program, O₂ and heat tint on
+  //   weld_coupons. See lib/domain/weld_journal/.
+  static const int _dbVersion = 20;
 
   /// The schema version [get] opens the database at.
   ///
@@ -327,6 +333,19 @@ CREATE TABLE IF NOT EXISTS projects (
       }
     }
 
+    // ---- v20: weld journal for the inspector. Columns only — the three new
+    // tables came from _createTables at the top. All nullable, no defaults:
+    // a weld logged before v20 has no NDT, no repair and is not deleted, and
+    // must not be made to look otherwise.
+    if (oldVersion < 20) {
+      for (final column in _kWeldJournalV20Columns.entries) {
+        await _ensureColumn(db, 'weld_journal', column.key, column.value);
+      }
+      for (final column in _kWeldCouponsV20Columns.entries) {
+        await _ensureColumn(db, 'weld_coupons', column.key, column.value);
+      }
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -397,6 +416,51 @@ CREATE TABLE IF NOT EXISTS projects (
     'protocol_no': 'TEXT',
     'protocol_rev': 'TEXT',
   };
+
+  /// weld_journal columns added in v20 (name → SQLite type). Must match
+  /// `WeldEntry.toRow()`; the backup round-trip test compares the two.
+  static final Map<String, String> _kWeldJournalV20Columns =
+      Map.unmodifiable(<String, String>{
+    'project_id': 'TEXT',
+    'iso_drawing': 'TEXT',
+    'iso_rev': 'TEXT',
+    'spool': 'TEXT',
+    'test_package': 'TEXT',
+    'joint_type': 'TEXT',
+    'shop_field': 'TEXT',
+    'position': 'TEXT',
+    'root_welder': 'TEXT',
+    'cap_welder': 'TEXT',
+    'filler_class': 'TEXT',
+    'filler_batch': 'TEXT',
+    'preheat_c': 'TEXT',
+    'interpass_c': 'TEXT',
+    'heat_input': 'TEXT',
+    'coupon_id': 'TEXT',
+    'pwht_required': 'INTEGER',
+    'pwht_chart': 'TEXT',
+    'hardness': 'TEXT',
+    'inspector': 'TEXT',
+    'inspected_at': 'TEXT',
+    'deleted_at': 'INTEGER',
+    // NDT per method — see lib/domain/weld_journal/weld_ndt.dart.
+    for (final m in const ['vt', 'pt', 'mt', 'rt', 'ut'])
+      for (final f in const ['scope', 'result', 'report', 'date'])
+        'ndt_${m}_$f': 'TEXT',
+  });
+
+  /// weld_coupons columns added in v20 (name → SQLite type).
+  static const Map<String, String> _kWeldCouponsV20Columns = <String, String>{
+    'program_no': 'TEXT',
+    'program_params': 'TEXT',
+    'o2_ppm': 'REAL',
+    'heat_tint': 'INTEGER',
+  };
+
+  /// `  name TYPE,\n  name TYPE` for a CREATE TABLE body.
+  static String _columnsDdl(Map<String, String> columns) => columns.entries
+      .map((c) => '  ${c.key} ${c.value}')
+      .join(',\n');
 
   /// CREATE TABLE IF NOT EXISTS for every table, and nothing else.
   ///
@@ -566,7 +630,52 @@ CREATE TABLE IF NOT EXISTS weld_journal (
   heat_no2 TEXT,
   coupon_ref TEXT,
   exam TEXT,
-  wps_ref TEXT
+  wps_ref TEXT,
+${_columnsDdl(_kWeldJournalV20Columns)}
+);
+''');
+    // v20: change history of the journal — one row per changed field (or per
+    // create / delete / restore / repair), stamped with the welder identity.
+    // Never updated or deleted by the app.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_journal_history (
+  id TEXT PRIMARY KEY,
+  weld_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  by_stamp TEXT,
+  action TEXT NOT NULL,
+  field TEXT,
+  old_value TEXT,
+  new_value TEXT
+);
+''');
+    // v20: repairs R1, R2, … with the weld's status and NDT state before
+    // each repair (prev_ndt is the JSON of weld_ndt.dart encodeNdtSnapshot).
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_repairs (
+  id TEXT PRIMARY KEY,
+  weld_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  date TEXT,
+  reason TEXT,
+  prev_status TEXT,
+  prev_ndt TEXT,
+  by_stamp TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
+    // v20: per-project journal settings — PDF header and the RT/UT target
+    // from the project specification. Keyed by lower-case project name.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_journal_projects (
+  project_key TEXT PRIMARY KEY,
+  project_name TEXT,
+  company TEXT,
+  client TEXT,
+  project_title TEXT,
+  document_no TEXT,
+  revision TEXT,
+  rt_target_pct REAL
 );
 ''');
     // Daily test-coupon log — coupon_log_screen.dart (CouponDao).
@@ -578,7 +687,8 @@ CREATE TABLE IF NOT EXISTS weld_coupons (
   machine TEXT,
   size TEXT,
   result TEXT,
-  notes TEXT
+  notes TEXT,
+${_columnsDdl(_kWeldCouponsV20Columns)}
 );
 ''');
     // Pressure-test register — hydrotest_dao.dart. Units: bar, °C, minutes,
@@ -666,6 +776,10 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
         'CREATE INDEX IF NOT EXISTS idx_hydrotest_created ON hydrotest_records(created_at DESC);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_iso_drawings_updated ON iso_drawings(updated_at);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_weld_history_weld ON weld_journal_history(weld_id, at);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_weld_repairs_weld ON weld_repairs(weld_id, seq);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {
