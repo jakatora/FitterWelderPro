@@ -22,6 +22,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/hydrotest_dao.dart';
+import 'package:cut_list_app/database/welder_certificate_dao.dart';
+import 'package:cut_list_app/database/wps_dao.dart';
+import 'package:cut_list_app/domain/qualification/welder_certificate.dart';
+import 'package:cut_list_app/domain/wps/wps_record.dart';
 import 'package:cut_list_app/screens/coupon_log_screen.dart';
 import 'package:cut_list_app/screens/weld_journal_screen.dart';
 import 'package:cut_list_app/services/data_backup.dart';
@@ -369,5 +373,62 @@ void main() {
 
     // The only record of which file the heat once pointed at stays.
     expect(await _componentHeatPath('heat-gone'), gone);
+  });
+
+  test(
+      'rejestr uprawnień i biblioteka WPS jadą z kopią — skan certyfikatu '
+      'i plik WPS przepięte na nowy telefon', () async {
+    // v21: oba pliki leżą w <documents>/heat_photos (tak zapisują je
+    // formularze), więc archiwum je zabiera; wiersze muszą po odtworzeniu
+    // wskazywać katalog telefonu B, nie ścieżkę z telefonu A.
+    await phoneA.heatPhotos.create(recursive: true);
+    final scan = File(p.join(phoneA.heatPhotos.path, 'cert-scan.jpg'));
+    await scan.writeAsBytes(<int>[0xFF, 0xD8, 0xFF, 0x09]);
+    final pdf = File(p.join(phoneA.heatPhotos.path, 'wps-141.pdf'));
+    await pdf.writeAsBytes(<int>[0x25, 0x50, 0x44, 0x46]); // %PDF
+
+    await WelderCertificateDao().upsert(WelderCertificate(
+      id: 'cert-1',
+      standard: QualificationStandard.iso9606_1,
+      certNo: 'PL-UDT-0142/2026',
+      expiryDate: DateTime(2028, 6, 9),
+      lastConfirmedDate: DateTime(2026, 9, 1),
+      processes: '141',
+      thicknessMinMm: 1.5,
+      photoPath: scan.path,
+      createdAt: 1,
+      updatedAt: 1,
+    ));
+    await WpsDao().upsert(WpsRecord(
+      id: 'wps-1',
+      wpsNo: 'WPS-141-01',
+      heatInputMaxKjMm: 1.2,
+      attachmentPath: pdf.path,
+      createdAt: 1,
+      updatedAt: 1,
+    ));
+
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await AppDatabase.get();
+    final report = await DataBackup.restore(carried.path);
+    expect(report.skippedTables, isEmpty);
+
+    final cert = (await WelderCertificateDao().listAll()).single;
+    expect(cert.certNo, 'PL-UDT-0142/2026');
+    expect(cert.expiryDate, DateTime(2028, 6, 9));
+    expect(cert.lastConfirmedDate, DateTime(2026, 9, 1));
+    expect(cert.thicknessMinMm, 1.5);
+    expect(p.isWithin(phoneB.heatPhotos.path, cert.photoPath!), isTrue,
+        reason: 'skan certyfikatu wskazuje telefon A: ${cert.photoPath}');
+    expect(await File(cert.photoPath!).readAsBytes(),
+        <int>[0xFF, 0xD8, 0xFF, 0x09]);
+
+    final wps = (await WpsDao().listAll()).single;
+    expect(wps.heatInputMaxKjMm, 1.2);
+    expect(p.isWithin(phoneB.heatPhotos.path, wps.attachmentPath!), isTrue,
+        reason: 'plik WPS wskazuje telefon A: ${wps.attachmentPath}');
+    expect(await File(wps.attachmentPath!).readAsBytes(),
+        <int>[0x25, 0x50, 0x44, 0x46]);
   });
 }

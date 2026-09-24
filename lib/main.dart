@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 
 import 'app.dart';
 import 'data/db_bootstrap.dart';
+import 'domain/qualification/certificate_status.dart';
 import 'i18n/app_language.dart';
 import 'services/chat_service.dart';
 import 'services/premium_service.dart';
 import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
+import 'services/welder_qualification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -68,4 +70,14 @@ Future<void> main() async {
   await AppLanguageController.restore();
 
   runApp(const CutListApp());
+
+  // Rejestr uprawnień spawacza: jednorazowe przeniesienie starego „WPQR"
+  // z tożsamości, przeliczenie terminów (daty biegną, dziennik mógł dostać
+  // spoiny) i — tylko gdy spawacz sam je włączył — ponowne zaplanowanie
+  // przypomnień. Po runApp i bez await: start nie czeka na bazę. Nigdy nie
+  // pyta o zgodę na powiadomienia (to robi dopiero przełącznik w rejestrze).
+  WelderQualificationService.instance.refresh().catchError((Object e) {
+    debugPrint('WelderQualificationService startup refresh failed: $e');
+    return QualificationOverview.empty;
+  });
 }

@@ -1,49 +1,249 @@
-// WPQR expiry warning — the readout that was missing.
+// Ostrzeżenie o uprawnieniach spawacza — baner w menu SPAWACZ i w profilu.
 //
-// WHY THIS EXISTS: `WelderIdentity.wpqrExpiringSoon` and `.wpqrExpired`
-// (lib/services/welder_identity.dart:102 / :110) were written at P0-08,
-// unit-tested in test/services/welder_identity_test.dart, and then read by
-// NOBODY — a grep over lib/ returned zero call sites. The welder therefore
-// found out about a lapsed qualification from the inspector, not from the
-// app, and every joint stamped in the meantime is an invalid weld under
-// EN ISO 9606 / ASME IX QW-322: the welds get cut out and the welder gets
-// pulled off the job.
+// TERMINOLOGIA: plik nosi historyczną nazwę `wpqr_chip.dart`, bo importuje go
+// profil (`WpqrChipLive`), ale treść jest poprawiona. WPQR to protokół
+// kwalifikowania PROCEDURY (EN ISO 15614-1). Spawacz ma UPRAWNIENIE —
+// certyfikat wg EN ISO 9606-1 albo WPQ wg ASME IX — i o nim jest ten baner.
 //
-// The chip is deliberately dumb: its state comes from the model getters,
-// never from arithmetic repeated here, so the warning on screen can never
-// disagree with the thresholds the tests pin.
+// Źródło prawdy od v21: rejestr uprawnień (WelderQualificationService) —
+// wiele certyfikatów, data ważności ORAZ termin 6-miesięczny (ISO 9606-1 §9.2
+// potwierdzenie koordynatora / ASME IX QW-322.1 spawanie procesem). Baner
+// pokazuje najpilniejszy problem i liczbę pozostałych; stuknięcie otwiera
+// rejestr.
+//
+// Publiczne API zachowane dla profilu: `WpqrChipLive({padding})`. Klasa
+// `WpqrChip(identity:)` i funkcje `wpqrWarningOf` / `wpqrDaysLeft` zostają dla
+// zgodności (dawna tożsamość z jedną datą), z poprawioną terminologią.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../domain/qualification/certificate_status.dart';
+import '../domain/qualification/qualification_dates.dart';
+import '../features/qualification/certificate_register_page.dart';
 import '../i18n/app_language.dart';
 import '../services/welder_identity.dart';
+import '../services/welder_qualification_service.dart';
 import '../theme/app_theme.dart';
 
-/// Severity of the qualification warning to show for a welder identity.
-enum WpqrWarning {
-  /// No expiry recorded, or the certificate is still comfortably valid.
-  none,
+String _daysPl(int d) => d == 1 ? '1 dzień' : '$d dni';
+String _daysEn(int d) => d == 1 ? '1 day' : '$d days';
 
-  /// 30 days or fewer to go — time to book the re-qualification.
-  expiringSoon,
-
-  /// Past the expiry date; joints stamped now are not covered by it.
-  expired,
+/// Tekst ostrzeżenia dla jednego certyfikatu wymagającego uwagi. Czysta
+/// funkcja — testowana bez widżetów.
+String qualificationWarningText(
+  CertificateEvaluation e, {
+  required bool english,
+}) {
+  final title = e.certificate.shortTitle(english: english);
+  final asme = e.rule == ContinuityRule.processUse;
+  switch (e.state) {
+    case QualificationState.valid:
+      return '';
+    case QualificationState.expired:
+      final date = formatIsoDate(e.expiryDate!);
+      return english
+          ? 'Welder qualification expired $date ($title) — welds made now '
+              'are not covered by it. Renew the qualification before your '
+              'next shift.'
+          : 'Uprawnienie spawacza wygasło $date ($title) — spoiny wykonane '
+              'teraz nie są nim objęte. Odnów uprawnienie przed kolejną zmianą.';
+    case QualificationState.lapsed:
+      final date = formatIsoDate(e.continuityDeadline!);
+      if (asme) {
+        return english
+            ? 'WPQ lapsed: no weld with this process for 6 months (deadline '
+                '$date, ASME IX QW-322.1) — $title. Re-qualification needed.'
+            : 'WPQ wygasło: brak spoiny tym procesem przez 6 miesięcy (termin '
+                '$date, ASME IX QW-322.1) — $title. Potrzebna ponowna '
+                'kwalifikacja.';
+      }
+      return english
+          ? 'Welder qualification lapsed: no 6-month confirmation by $date '
+              '(EN ISO 9606-1 §9.2) — $title.'
+          : 'Uprawnienie spawacza przeterminowane: brak potwierdzenia '
+              '6-miesięcznego do $date (EN ISO 9606-1 §9.2) — $title.';
+    case QualificationState.expiringSoon:
+      final date = formatIsoDate(e.expiryDate!);
+      final days = e.daysToExpiry!;
+      if (days <= 0) {
+        return english
+            ? 'Welder qualification expires today ($date) — $title. Book the '
+                'renewal.'
+            : 'Uprawnienie spawacza wygasa dziś ($date) — $title. Umów '
+                'przedłużenie.';
+      }
+      return english
+          ? 'Welder qualification expires in ${_daysEn(days)} ($date) — '
+              '$title. Book the renewal.'
+          : 'Uprawnienie spawacza wygasa za ${_daysPl(days)} ($date) — '
+              '$title. Umów przedłużenie.';
+    case QualificationState.confirmationDue:
+      final date = formatIsoDate(e.continuityDeadline!);
+      final days = e.daysToContinuityDeadline!;
+      final whenPl = days <= 0 ? 'dziś' : 'za ${_daysPl(days)}';
+      final whenEn = days <= 0 ? 'today' : 'in ${_daysEn(days)}';
+      if (asme) {
+        return english
+            ? 'WPQ continuity ends $whenEn ($date) — $title. Weld with this '
+                'process and log it in the journal.'
+            : 'Ciągłość WPQ kończy się $whenPl ($date) — $title. Wykonaj '
+                'spoinę tym procesem i zapisz ją w dzienniku.';
+      }
+      return english
+          ? '6-month confirmation due $whenEn ($date) — $title. Ask the '
+              'welding coordinator to sign it.'
+          : 'Potwierdzenie 6-miesięczne $whenPl ($date) — $title. Poproś '
+              'koordynatora spawania o podpis.';
+  }
 }
 
-/// Maps [identity] onto the warning the UI must show.
+/// Baner o stanie rejestru uprawnień. Nic nie rysuje (i nie zajmuje
+/// miejsca), gdy wszystko jest ważne albo rejestr pusty.
+class QualificationBanner extends StatelessWidget {
+  final QualificationOverview? overview;
+
+  /// Margines stosowany TYLKO, gdy baner coś rysuje.
+  final EdgeInsetsGeometry padding;
+
+  /// Stuknięcie — zwykle otwiera rejestr uprawnień.
+  final VoidCallback? onTap;
+
+  const QualificationBanner({
+    super.key,
+    required this.overview,
+    this.padding = EdgeInsets.zero,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final urgent = overview?.needingAttention ?? const [];
+    if (urgent.isEmpty) return const SizedBox.shrink();
+    final first = urgent.first;
+    final red = first.state.severity >= 2;
+    final accent = red ? kFail : kWarn;
+    final english = context.language == AppLanguage.en;
+    var text = qualificationWarningText(first, english: english);
+    final more = urgent.length - 1;
+    if (more > 0) {
+      text += english
+          ? ' (+$more more — see register)'
+          : ' (+$more w rejestrze)';
+    }
+    return Padding(
+      padding: padding,
+      child: Semantics(
+        liveRegion: true,
+        button: onTap != null,
+        child: Material(
+          color: accent.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: kMinTapTarget),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: accent.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    red ? Icons.gpp_bad_outlined : Icons.warning_amber_rounded,
+                    size: 18,
+                    color: accent,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12.5,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (onTap != null)
+                    Icon(Icons.chevron_right, size: 18, color: accent),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Baner podpięty do rejestru uprawnień — do menu SPAWACZ i profilu.
 ///
-/// Reads the model getters instead of re-deriving the 30-day threshold, so
-/// this can never drift from `test/services/welder_identity_test.dart`.
-///
-/// [WpqrWarning.expired] is checked FIRST on purpose. On the expiry day both
-/// getters return true: `wpqrExpiringSoon` computes `difference(now).inDays`,
-/// and `Duration` truncates toward zero, so a certificate that lapsed five
-/// hours ago still reports `0` days left and passes the `daysLeft >= 0`
-/// guard. Amber "expires today" on an already-dead WPQR is exactly the
-/// message that lets someone strike an arc they must not strike.
+/// Przy wejściu przelicza rejestr (daty biegną, a dziennik mógł dostać nowe
+/// spoiny), słucha zmian rejestru i tożsamości (np. „Usuń moje dane" chowa
+/// baner od razu). Stuknięcie otwiera rejestr uprawnień.
+class WpqrChipLive extends StatefulWidget {
+  /// Margines stosowany tylko, gdy baner coś rysuje.
+  final EdgeInsetsGeometry padding;
+
+  const WpqrChipLive({super.key, this.padding = EdgeInsets.zero});
+
+  @override
+  State<WpqrChipLive> createState() => _WpqrChipLiveState();
+}
+
+class _WpqrChipLiveState extends State<WpqrChipLive> {
+  StreamSubscription<WelderIdentity?>? _identitySub;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(WelderQualificationService.instance.refresh());
+    _identitySub = WelderIdentityService.instance.changes.listen((_) {
+      unawaited(WelderQualificationService.instance.refresh());
+    });
+  }
+
+  @override
+  void dispose() {
+    _identitySub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _open() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const CertificateRegisterPage()),
+    );
+    unawaited(WelderQualificationService.instance.refresh());
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<QualificationOverview?>(
+        valueListenable: WelderQualificationService.instance.overview,
+        builder: (context, overview, _) => QualificationBanner(
+          overview: overview,
+          padding: widget.padding,
+          onTap: _open,
+        ),
+      );
+}
+
+// ─── Zgodność wstecz: dawna tożsamość z jedną datą ──────────────────────────
+
+/// Stan ostrzeżenia dla dawnej tożsamości (jedna data ważności).
+enum WpqrWarning { none, expiringSoon, expired }
+
+/// Ostrzeżenie dla dawnej tożsamości. „Wygasło" sprawdzane PIERWSZE: w dniu
+/// wygaśnięcia oba gettery modelu zwracają true (Duration obcina w stronę
+/// zera), a bursztynowe „wygasa dziś" na martwym uprawnieniu to komunikat,
+/// który pozwala zapalić łuk, którego zapalić nie wolno.
 WpqrWarning wpqrWarningOf(WelderIdentity? identity) {
   if (identity == null) return WpqrWarning.none;
   if (identity.wpqrExpired) return WpqrWarning.expired;
@@ -51,38 +251,19 @@ WpqrWarning wpqrWarningOf(WelderIdentity? identity) {
   return WpqrWarning.none;
 }
 
-/// Whole days left until the WPQR expires, floored — the same arithmetic
-/// `wpqrExpiringSoon` uses for its threshold, so the number shown to the
-/// welder agrees with the rule that made the chip appear. Returns 0 when no
-/// expiry is recorded; callers only reach it for a non-[WpqrWarning.none]
-/// identity, which always has a date.
+/// Pełne dni do daty ważności dawnej tożsamości (ta sama arytmetyka co
+/// getter modelu). 0 bez daty.
 int wpqrDaysLeft(WelderIdentity identity, {DateTime? now}) {
   final expiry = identity.wpqrExpiry;
   if (expiry == null) return 0;
   return expiry.difference(now ?? DateTime.now()).inDays;
 }
 
-/// `2026-09-10`. ISO-ordered on purpose: the same format the identity setup
-/// screen prints, and unambiguous for a crew mixing PL and EN conventions.
-String _fmtDate(DateTime d) =>
-    '${d.year}-${d.month.toString().padLeft(2, "0")}-'
-    '${d.day.toString().padLeft(2, "0")}';
-
-/// Amber/red banner warning that the welder's WPQR is about to lapse or has
-/// already lapsed. Renders nothing at all when there is no expiry date or the
-/// certificate is still valid, so it can be dropped into any layout
-/// unconditionally.
-///
-/// Pure by design — it takes the identity as a parameter so it is testable
-/// without SharedPreferences. Use [WpqrChipLive] when the caller has no
-/// identity at hand.
+/// Baner dla dawnej tożsamości z jedną datą ważności. Nieużywany przez
+/// aplikację od v21 (zastąpiony przez [WpqrChipLive] / [QualificationBanner])
+/// — zostaje, żeby istniejące wywołania dalej się kompilowały.
 class WpqrChip extends StatelessWidget {
-  /// Identity to warn about; `null` renders nothing.
   final WelderIdentity? identity;
-
-  /// Outer padding applied ONLY when the chip actually draws something.
-  /// Without this a caller adding a fixed gap around the chip would leave a
-  /// hole in the layout on the (common) happy path.
   final EdgeInsetsGeometry padding;
 
   const WpqrChip({
@@ -95,25 +276,33 @@ class WpqrChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final warning = wpqrWarningOf(identity);
     if (warning == WpqrWarning.none) return const SizedBox.shrink();
-
-    final id = identity!;
-    final expiry = id.wpqrExpiry;
-    // Unreachable: both getters return false without a date. Kept so a future
-    // change to the model degrades to "no chip" instead of a null crash on
-    // the profile screen.
+    final expiry = identity!.wpqrExpiry;
     if (expiry == null) return const SizedBox.shrink();
-
     final expired = warning == WpqrWarning.expired;
     final accent = expired ? kFail : kWarn;
-    final label = expired
-        ? context.tr(
-            pl: 'WPQR wygasł ${_fmtDate(expiry)} — spoiny wykonane teraz mogą '
-                'zostać unieważnione. Odnów uprawnienie przed kolejną zmianą.',
-            en: 'WPQR expired ${_fmtDate(expiry)} — welds made now may be '
-                'rejected. Renew the qualification before your next shift.',
-          )
-        : _expiringLabel(context, id, expiry);
-
+    final date = formatIsoDate(expiry);
+    final days = wpqrDaysLeft(identity!);
+    final String label;
+    if (expired) {
+      label = context.tr(
+        pl: 'Uprawnienie spawacza wygasło $date — spoiny wykonane teraz mogą '
+            'zostać unieważnione. Odnów uprawnienie przed kolejną zmianą.',
+        en: 'Welder qualification expired $date — welds made now may be '
+            'rejected. Renew the qualification before your next shift.',
+      );
+    } else if (days <= 0) {
+      label = context.tr(
+        pl: 'Uprawnienie spawacza wygasa dziś ($date). Umów przedłużenie.',
+        en: 'Welder qualification expires today ($date). Book the renewal.',
+      );
+    } else {
+      label = context.tr(
+        pl: 'Uprawnienie spawacza wygasa za ${_daysPl(days)} ($date). '
+            'Umów przedłużenie.',
+        en: 'Welder qualification expires in ${_daysEn(days)} ($date). '
+            'Book the renewal.',
+      );
+    }
     return Padding(
       padding: padding,
       child: Semantics(
@@ -151,76 +340,4 @@ class WpqrChip extends StatelessWidget {
       ),
     );
   }
-
-  String _expiringLabel(
-    BuildContext context,
-    WelderIdentity id,
-    DateTime expiry,
-  ) {
-    final days = wpqrDaysLeft(id);
-    if (days <= 0) {
-      return context.tr(
-        pl: 'WPQR wygasa dziś (${_fmtDate(expiry)}). Umów przedłużenie.',
-        en: 'WPQR expires today (${_fmtDate(expiry)}). Book the renewal.',
-      );
-    }
-    // Polish takes "dzień" only for 1; "dni" covers 2, 5 and 22 alike.
-    final plUnit = days == 1 ? 'dzień' : 'dni';
-    final enUnit = days == 1 ? 'day' : 'days';
-    return context.tr(
-      pl: 'WPQR wygasa za $days $plUnit (${_fmtDate(expiry)}). '
-          'Umów przedłużenie.',
-      en: 'WPQR expires in $days $enUnit (${_fmtDate(expiry)}). '
-          'Book the renewal.',
-    );
-  }
-}
-
-/// [WpqrChip] wired to [WelderIdentityService] — for callers that have no
-/// identity loaded (stateless menus, headers).
-///
-/// Listens to the service's `changes` stream, so saving a new expiry date or
-/// wiping the identity via "Delete my data" updates the warning without a
-/// route rebuild. Without the stream the profile screen would keep warning
-/// about a stamp the user had just erased.
-class WpqrChipLive extends StatefulWidget {
-  /// Forwarded to [WpqrChip.padding] — applied only when the chip draws.
-  final EdgeInsetsGeometry padding;
-
-  const WpqrChipLive({super.key, this.padding = EdgeInsets.zero});
-
-  @override
-  State<WpqrChipLive> createState() => _WpqrChipLiveState();
-}
-
-class _WpqrChipLiveState extends State<WpqrChipLive> {
-  // Sync cache first so a warm rebuild paints the warning on frame one.
-  WelderIdentity? _identity = WelderIdentityService.instance.current;
-  StreamSubscription<WelderIdentity?>? _sub;
-
-  @override
-  void initState() {
-    super.initState();
-    // `current` is null until the store has hydrated once, so on a cold start
-    // pull it explicitly rather than trusting the sync cache and silently
-    // showing no warning at all.
-    unawaited(WelderIdentityService.instance.get().then((id) {
-      if (!mounted) return;
-      setState(() => _identity = id);
-    }));
-    _sub = WelderIdentityService.instance.changes.listen((id) {
-      if (!mounted) return;
-      setState(() => _identity = id);
-    });
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      WpqrChip(identity: _identity, padding: widget.padding);
 }

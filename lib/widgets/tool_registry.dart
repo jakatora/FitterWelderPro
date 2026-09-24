@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../features/qualification/certificate_register_page.dart';
+import '../features/wps/wps_library_page.dart';
 import '../i18n/app_language.dart';
 import '../screens/bolt_torque_screen.dart';
 import '../screens/component_library_screen.dart';
@@ -964,6 +966,62 @@ final List<ToolSpec> kToolRegistry = [
       'weld map',
       'traceability',
       'stamp'
+    ],
+  ),
+  // Uprawnienia SPAWACZA (EN ISO 9606-1 / ASME WPQ) — nie „WPQR", który jest
+  // kwalifikacją procedury i należy do WPS (następny wpis).
+  ToolSpec(
+    id: 'welder_certificates',
+    group: ToolGroup.inspection,
+    titlePl: 'Uprawnienia spawacza',
+    titleEn: 'Welder qualifications',
+    subtitlePl: 'ISO 9606-1 / WPQ: ważność, potwierdzenia co 6 mies.',
+    subtitleEn: 'ISO 9606-1 / WPQ: validity, 6-month confirmations',
+    icon: Icons.workspace_premium_outlined,
+    color: const Color(0xFFFFB300),
+    builder: (_) => const CertificateRegisterPage(),
+    keywordsPl: const [
+      'uprawnienia',
+      'certyfikat',
+      'kwalifikacja',
+      'egzamin',
+      'waznosc',
+      'przedluzenie',
+      '9606'
+    ],
+    keywordsEn: const [
+      'qualification',
+      'certificate',
+      'wpq',
+      'welder cert',
+      'continuity',
+      'expiry'
+    ],
+  ),
+  ToolSpec(
+    id: 'wps_library',
+    group: ToolGroup.inspection,
+    titlePl: 'Biblioteka WPS',
+    titleEn: 'WPS library',
+    subtitlePl: 'Instrukcje spawania, zakresy, WPQR/PQR, eksport JSON',
+    subtitleEn: 'Welding procedures, ranges, WPQR/PQR, JSON export',
+    icon: Icons.menu_book_outlined,
+    color: const Color(0xFF26A69A),
+    builder: (_) => const WpsLibraryPage(),
+    keywordsPl: const [
+      'wps',
+      'instrukcja',
+      'technologia',
+      'wpqr',
+      'procedura',
+      'zakres'
+    ],
+    keywordsEn: const [
+      'wps',
+      'procedure',
+      'pqr',
+      'wpqr',
+      'range'
     ],
   ),
   ToolSpec(

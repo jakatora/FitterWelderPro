@@ -286,6 +286,63 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'created_at',
     'updated_at',
   ],
+  // v21: rejestr uprawnień spawacza (ISO 9606-1 / ASME IX WPQ). Dotąd jeden
+  // numer i jedna data w SharedPreferences, błędnie nazwane „WPQR".
+  'welder_certificates': <String>[
+    'id',
+    'welder_stamp',
+    'standard',
+    'standard_label',
+    'cert_no',
+    'examiner',
+    'test_date',
+    'expiry_date',
+    'last_confirmed_date',
+    'prolongation',
+    'processes',
+    'material_group',
+    'thickness_min_mm',
+    'thickness_max_mm',
+    'diameter_min_mm',
+    'diameter_max_mm',
+    'positions',
+    'filler',
+    'joint_kinds',
+    'notes',
+    'photo_path',
+    'created_at',
+    'updated_at',
+  ],
+  // v21: biblioteka WPS. Dotąd WPS istniała tylko jako wolny tekst w dzienniku
+  // i dwa niezapisywane pola w kalkulatorze heat input.
+  'wps_library': <String>[
+    'id',
+    'wps_no',
+    'revision',
+    'standard',
+    'pqr_ref',
+    'processes',
+    'material_group',
+    'thickness_min_mm',
+    'thickness_max_mm',
+    'diameter_min_mm',
+    'diameter_max_mm',
+    'positions',
+    'joint_kinds',
+    'filler',
+    'shielding_gas',
+    'backing_gas',
+    'preheat_min_c',
+    'interpass_max_c',
+    'heat_input_min_kj_mm',
+    'heat_input_max_kj_mm',
+    'heat_input_method',
+    'pwht',
+    'notes',
+    'attachment_path',
+    'created_at',
+    'updated_at',
+  ],
 };
 
 // ── Legacy schemas ────────────────────────────────────────────────────────
@@ -968,6 +1025,55 @@ CREATE TABLE component_library (
     );
     final w1 = (await db.query('weld_journal', where: "id = 'w1'")).single;
     expect(w1['ndt_rt_result'], 'OK');
+  });
+
+  test('v19 -> v21: rejestry uprawnień i WPS dochodzą puste, dziennik zostaje',
+      () async {
+    final db = await migrateFrom(
+      19,
+      _buildV19,
+      seedData: (legacy) async {
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w-19',
+          'weld_no': 'W-101',
+          'method': 'TIG',
+          'welder': 'JK-014',
+          'date': '2026-09-01',
+          'wps_ref': 'WPS-141-01',
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+    expect(AppDatabase.schemaVersion, greaterThanOrEqualTo(21));
+    final weld = (await db.query('weld_journal')).single;
+    expect(weld['wps_ref'], 'WPS-141-01');
+    expect(await db.query('welder_certificates'), isEmpty);
+    expect(await db.query('wps_library'), isEmpty);
+
+    // Tabele przyjmują pełny wiersz — to, co zapisuje DAO.
+    await db.insert('welder_certificates', <String, Object?>{
+      'id': 'c1',
+      'standard': 'ISO_9606_1',
+      'cert_no': 'PL-001',
+      'expiry_date': '2028-06-09',
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    await db.insert('wps_library', <String, Object?>{
+      'id': 'wps1',
+      'wps_no': 'WPS-141-01',
+      'heat_input_max_kj_mm': 1.2,
+      'created_at': 1,
+      'updated_at': 1,
+    });
+    expect((await db.query('welder_certificates')).single['cert_no'], 'PL-001');
+    expect(
+      ((await db.query('wps_library')).single['heat_input_max_kj_mm']! as num)
+          .toDouble(),
+      1.2,
+    );
   });
 
   test('the approved seed data lands on every upgrade path', () async {

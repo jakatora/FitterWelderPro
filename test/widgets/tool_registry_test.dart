@@ -104,6 +104,8 @@ void main() {
         'WeldJournalScreen', 'OrbitalTigScreen', 'HeatTintScreen',
         'PreWeldChecklistScreen', 'CouponLogScreen', 'TungstenScreen',
         'PassivationScreen', 'HydrotestScreen', 'HeatInputScreen',
+        // v21: rejestr uprawnień spawacza i biblioteka WPS.
+        'CertificateRegisterPage', 'WpsLibraryPage',
       };
       expect(targets, expected);
     });

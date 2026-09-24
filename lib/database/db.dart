@@ -30,7 +30,12 @@ class AppDatabase {
   //   (weld_journal_history), repairs (weld_repairs), per-project header and
   //   RT/UT target (weld_journal_projects); program, O₂ and heat tint on
   //   weld_coupons. See lib/domain/weld_journal/.
-  static const int _dbVersion = 20;
+  // v21: rejestr uprawnień spawacza `welder_certificates` (ISO 9606-1 /
+  //   ASME IX WPQ — wiele certyfikatów, zakres, ciągłość 6-miesięczna) i
+  //   biblioteka WPS `wps_library`. Obie tabele nowe i puste; dotychczasowy
+  //   numer i data „WPQR" z SharedPreferences przenosi do rejestru
+  //   WelderQualificationService (jednorazowo, przy pierwszym odczycie).
+  static const int _dbVersion = 21;
 
   /// The schema version [get] opens the database at.
   ///
@@ -43,7 +48,21 @@ class AppDatabase {
     final ready = _db;
     if (ready != null && ready.isOpen) return Future.value(ready);
     // Every caller waits for the same complete preparation, not just open().
-    return _opening ??= _open();
+    final pending = _opening;
+    if (pending != null) return pending;
+    final opening = _open();
+    _opening = opening;
+    // _open() clears `_opening` in its finally — but when it fails
+    // SYNCHRONOUSLY (e.g. `databaseFactory` not initialised: the getter
+    // throws before any await), that finally has already run by the time the
+    // line above stores the future. Without this the failed future stayed
+    // cached forever: every later get() replayed the stale error, and in
+    // widget tests awaited a future bound to a finished test's zone, which
+    // never completes. test/database/startup_test.dart pins it.
+    opening.then<void>((_) {}, onError: (Object _) {
+      if (identical(_opening, opening)) _opening = null;
+    });
+    return opening;
   }
 
   static Future<Database> _open() async {
@@ -344,6 +363,16 @@ CREATE TABLE IF NOT EXISTS projects (
       for (final column in _kWeldCouponsV20Columns.entries) {
         await _ensureColumn(db, 'weld_coupons', column.key, column.value);
       }
+    }
+
+    // ---- v21: rejestr uprawnień spawacza i biblioteka WPS. Obie tabele są
+    // nowe — _createTables na początku migracji już je utworzył; wołamy
+    // jeszcze raz jawnie (idempotentnie), żeby krok wersji był samodzielny,
+    // gdyby ktoś kiedyś przeniósł self-heal. Żaden istniejący wiersz nie jest
+    // ruszany. Przeniesienie starego numeru „WPQR" z SharedPreferences robi
+    // WelderQualificationService — migracja SQL nie ma dostępu do preferencji.
+    if (oldVersion < 21) {
+      await _createQualificationTables(db);
     }
 
     // Last, now that every column the indexes reference exists.
@@ -742,6 +771,76 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
   updated_at INTEGER NOT NULL
 );
 ''');
+    await _createQualificationTables(db);
+  }
+
+  /// v21: rejestr uprawnień spawacza i biblioteka WPS.
+  ///
+  /// Daty jako TEXT `yyyy-MM-dd` (dzień kalendarzowy, bez strefy czasowej —
+  /// „ważny do 2026-09-10" to cały 10 września w każdej strefie). Wymiary
+  /// w MILIMETRACH, temperatury w °C, energia liniowa w kJ/mm w konwencji
+  /// z `heat_input_method` ('EN' = EN 1011-1 z k, 'ASME' = QW-409.1 bez k).
+  /// `photo_path` / `attachment_path` wskazują kopię w
+  /// `<documents>/heat_photos` — katalogu objętym kopią zapasową
+  /// (`kPhotoPathColumns` w data_backup.dart).
+  static Future<void> _createQualificationTables(DatabaseExecutor db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS welder_certificates (
+  id TEXT PRIMARY KEY,
+  welder_stamp TEXT,
+  standard TEXT NOT NULL DEFAULT 'ISO_9606_1',
+  standard_label TEXT,
+  cert_no TEXT,
+  examiner TEXT,
+  test_date TEXT,
+  expiry_date TEXT,
+  last_confirmed_date TEXT,
+  prolongation TEXT,
+  processes TEXT,
+  material_group TEXT,
+  thickness_min_mm REAL,
+  thickness_max_mm REAL,
+  diameter_min_mm REAL,
+  diameter_max_mm REAL,
+  positions TEXT,
+  filler TEXT,
+  joint_kinds TEXT,
+  notes TEXT,
+  photo_path TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS wps_library (
+  id TEXT PRIMARY KEY,
+  wps_no TEXT NOT NULL,
+  revision TEXT,
+  standard TEXT,
+  pqr_ref TEXT,
+  processes TEXT,
+  material_group TEXT,
+  thickness_min_mm REAL,
+  thickness_max_mm REAL,
+  diameter_min_mm REAL,
+  diameter_max_mm REAL,
+  positions TEXT,
+  joint_kinds TEXT,
+  filler TEXT,
+  shielding_gas TEXT,
+  backing_gas TEXT,
+  preheat_min_c REAL,
+  interpass_max_c REAL,
+  heat_input_min_kj_mm REAL,
+  heat_input_max_kj_mm REAL,
+  heat_input_method TEXT,
+  pwht TEXT,
+  notes TEXT,
+  attachment_path TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
   }
 
   /// CREATE INDEX IF NOT EXISTS for every index.
@@ -780,6 +879,8 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
         'CREATE INDEX IF NOT EXISTS idx_weld_history_weld ON weld_journal_history(weld_id, at);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_weld_repairs_weld ON weld_repairs(weld_id, seq);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_wps_library_no ON wps_library(wps_no, revision);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {

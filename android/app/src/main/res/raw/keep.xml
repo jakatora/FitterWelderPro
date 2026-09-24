@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- isShrinkResources = true (build.gradle.kts) wycina zasoby, do których
+     kod nie odwołuje się przez R.*. Ikona powiadomień jest wskazywana tylko
+     NAZWĄ z Darta ("ic_stat_notify", qualification_reminders.dart), więc bez
+     tej listy R8 ją usuwa, a przypomnienie po cichu się nie pokazuje
+     (README flutter_local_notifications, „Release build configuration"). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_notify" />

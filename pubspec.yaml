@@ -43,6 +43,15 @@ dependencies:
   shared_preferences: ^2.3.0
   sqflite_common_ffi_web: ^0.4.3+1
   sqflite_common: ^2.5.8
+  # Lokalne przypomnienia o uprawnieniach spawacza (30 i 7 dni przed terminem).
+  # 21.x, nie 22.x: 22 ciągnie flutter_local_notifications_web → web ^1.1.1,
+  # co gryzie się z share_plus 9 (web ^0.5); podbicie share_plus pociąga
+  # sqlite3 3.x z natywnymi build hookami — osobna decyzja, nie przy okazji.
+  # Uwaga: 21.0.0 (przez flutter_local_notifications_windows 3.0.0 → xml ^6)
+  # cofa przechodnio pdf 3.13.1 → 3.12.0, xml 7 → 6.6.1, archive 4.3 → 4.0.9.
+  flutter_local_notifications: ^21.0.0
+  # TZDateTime dla zonedSchedule (planujemy w UTC — patrz qualification_reminders.dart).
+  timezone: ^0.11.0
 
 dev_dependencies:
   flutter_test:
