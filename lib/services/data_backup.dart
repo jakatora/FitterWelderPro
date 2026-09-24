@@ -98,6 +98,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -1217,20 +1218,24 @@ class DataBackup {
     Set<String> takenNames,
   ) async {
     final root = p.normalize(heatDirPath);
-    final db = await databaseFactory.openDatabase(
-      snapshot.path,
-      options: OpenDatabaseOptions(singleInstance: false),
-    );
+    final names = Set<String>.of(takenNames);
     final adopted = <String, String>{}; // source path → archive name
+    Database? db;
     try {
+      db = await databaseFactory.openDatabase(
+        snapshot.path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
       final tables = (await db.rawQuery(
               "SELECT name FROM sqlite_master WHERE type = 'table'"))
           .map((row) => row['name'] as String)
           .toSet();
+      final targets = <(String, String)>[]; // (table, column) to rewrite
       for (final entry in kPhotoPathColumns.entries) {
         final table = entry.key;
         final column = entry.value;
         if (!tables.contains(table)) continue;
+        targets.add((table, column));
         // Identifiers come from the const map above, never from the file.
         final rows = await db.rawQuery(
           'SELECT DISTINCT "$column" AS path FROM "$table" '
@@ -1239,28 +1244,39 @@ class DataBackup {
         for (final row in rows) {
           final stored = row['path'];
           if (stored is! String || stored.trim().isEmpty) continue;
+          if (adopted.containsKey(stored)) continue;
           if (p.isWithin(root, p.normalize(stored))) continue;
-          var name = adopted[stored];
-          if (name == null) {
-            if (!await _isReadableFile(stored)) continue;
-            name = archiveNameForExternalPhoto(stored, takenNames);
-            adopted[stored] = name;
-          }
-          await db.update(
-            table,
-            <String, Object?>{column: p.join(heatDirPath, name)},
-            where: '"$column" = ?',
-            whereArgs: <Object?>[stored],
-          );
+          if (!await _isReadableFile(stored)) continue;
+          adopted[stored] = archiveNameForExternalPhoto(stored, names);
         }
       }
+      if (adopted.isEmpty) return const [];
+      // All rewrites or none: a half-rewritten snapshot would point rows at
+      // archive names whose files were never added.
+      await db.transaction((txn) async {
+        for (final (table, column) in targets) {
+          for (final e in adopted.entries) {
+            await txn.update(
+              table,
+              <String, Object?>{column: p.join(heatDirPath, e.value)},
+              where: '"$column" = ?',
+              whereArgs: <Object?>[e.key],
+            );
+          }
+        }
+      });
+    } catch (e) {
+      // Never let this extra step fail a backup that worked before it
+      // existed: the rows keep their original paths, as they always did.
+      debugPrint('Backup: adopting photos outside heat_photos failed: $e');
+      return const [];
     } finally {
-      await db.close();
+      await db?.close();
     }
-    final out = [
+    takenNames.addAll(names);
+    return [
       for (final e in adopted.entries) _ArchivedPhoto(e.value, File(e.key)),
     ]..sort((a, b) => a.name.compareTo(b.name));
-    return out;
   }
 
   static Future<bool> _isReadableFile(String path) async {
