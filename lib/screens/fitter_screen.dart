@@ -12,6 +12,7 @@ import 'material_list_screen.dart';
 import 'cut_list_summary_screen.dart';
 import 'project_components_screen.dart';
 import 'heat_photos_screen.dart';
+import 'new_project_screen.dart' show showProjectSettingsDialog, projectSettingsSavedMessage;
 import '../widgets/help_button.dart';
 
 class FitterScreen extends StatefulWidget {
@@ -187,6 +188,23 @@ class _FitterScreenState extends State<FitterScreen> {
     await _load();
   }
 
+  /// Name, stock, kerf and gap — reachable from here because the gap is
+  /// what the fitter notices is wrong while building segments. A changed gap
+  /// recomputes every saved CUT of the project.
+  Future<void> _editSettings(Project p) async {
+    final result =
+        await showProjectSettingsDialog(context, p, dao: _projectDao);
+    if (result == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(projectSettingsSavedMessage(context, result)),
+        duration: const Duration(seconds: 6),
+      ));
+  }
+
   Future<String> _compLabel(String? libraryId) async {
     if (libraryId == null) return 'OPEN END/LOGICAL';
     final c = await _libDao.getById(libraryId);
@@ -204,6 +222,11 @@ class _FitterScreenState extends State<FitterScreen> {
             ? null
             : [
                 HelpButton(help: kHelpFitter),
+                IconButton(
+                  icon: const Icon(Icons.tune),
+                  tooltip: context.tr(pl: 'Ustawienia projektu', en: 'Project settings'),
+                  onPressed: () => _editSettings(p),
+                ),
                 IconButton(
                   icon: const Icon(Icons.list_alt),
                   tooltip: context.tr(pl: 'Lista materiałowa', en: 'Material list'),

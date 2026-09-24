@@ -6,6 +6,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/db.dart';
 import '../models/project.dart';
+import '../models/segment.dart';
+import '../services/prefab_engine.dart';
 
 /// Everything a cascade delete took out, kept as raw rows so it can be put
 /// back byte for byte.
@@ -43,6 +45,34 @@ class DeletedProject {
       .map((r) => r['image_path'] as String?)
       .whereType<String>()
       .toList(growable: false);
+}
+
+/// What [ProjectDao.updateSettings] did to the project's segments.
+class ProjectSettingsUpdate {
+  const ProjectSettingsUpdate({
+    required this.recomputed,
+    required this.changedBeyondGap,
+  });
+
+  /// Segments whose CUT was recomputed — 0 when the gap did not change.
+  final int recomputed;
+
+  /// Seq numbers of segments whose CUT moved by more than the gap difference
+  /// times their welds, i.e. whose stored cut did not follow their own
+  /// columns. Worth showing to the fitter before he cuts them.
+  final List<int> changedBeyondGap;
+}
+
+/// The new gap leaves segment [seqNo] with nothing to cut (CUT ≤ 0).
+class GapMakesCutImpossible implements Exception {
+  const GapMakesCutImpossible({required this.seqNo, required this.gapMm});
+
+  final int seqNo;
+  final double gapMm;
+
+  @override
+  String toString() =>
+      'GapMakesCutImpossible(segment $seqNo, gap $gapMm mm)';
 }
 
 class ProjectDao {
@@ -218,6 +248,103 @@ class ProjectDao {
       }
     }
     return removed;
+  }
+
+  /// Changes the settings a project can outlive its creation with — name,
+  /// stock length, saw kerf and root gap — and, when the gap changed,
+  /// recomputes the saved CUT of every segment of the project.
+  ///
+  /// Until this existed none of it could be changed: a gap typed as 0
+  /// instead of 3 meant rebuilding the whole project, or cutting every pipe
+  /// the gap too long.
+  ///
+  /// The recompute uses [PrefabEngine.storedSegmentCutMm] — the segment
+  /// builder's own rule ([PrefabEngine.anchoredCutMm], welds from
+  /// [PrefabEngine.weldCountForEnds]) applied to what each row stores — so a
+  /// segment reopened in the builder afterwards shows the same number.
+  ///
+  /// One transaction for the project row and every segment: a gap that makes
+  /// any cut impossible (≤ 0) throws [GapMakesCutImpossible] and NOTHING is
+  /// changed — not the gap, not the name, not a single cut. Half a project
+  /// on the new gap and half on the old is worse than either.
+  Future<ProjectSettingsUpdate> updateSettings(
+    String projectId, {
+    required String? name,
+    required double stockLengthMm,
+    required double sawKerfMm,
+    required double gapMm,
+  }) async {
+    final db = await AppDatabase.get();
+    return db.transaction<ProjectSettingsUpdate>((txn) async {
+      final current = await txn.query('projects',
+          where: 'id = ?', whereArgs: [projectId], limit: 1);
+      if (current.isEmpty) {
+        throw StateError('project $projectId does not exist');
+      }
+      final oldGap = ((current.first['gap_mm'] as num?) ?? 0).toDouble();
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await txn.update(
+        'projects',
+        {
+          'name': name,
+          'stock_length_mm': stockLengthMm,
+          'saw_kerf_mm': sawKerfMm,
+          'gap_mm': gapMm,
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [projectId],
+      );
+
+      if ((gapMm - oldGap).abs() < 1e-9) {
+        return const ProjectSettingsUpdate(recomputed: 0, changedBeyondGap: []);
+      }
+
+      final rows = await txn.query('segments',
+          where: 'project_id = ?',
+          whereArgs: [projectId],
+          orderBy: 'seq_no ASC');
+      final beyond = <int>[];
+      for (final row in rows) {
+        final seg = Segment.fromRow(row);
+        final cut = PrefabEngine.storedSegmentCutMm(
+          isoMm: seg.isoMm,
+          isoRef: seg.isoRef,
+          startKind: seg.startKind,
+          startValueMm: seg.startValueMm,
+          endKind: seg.endKind,
+          endValueMm: seg.endValueMm,
+          gapMm: gapMm,
+        );
+        if (!cut.isFinite || cut <= 0) {
+          // Throwing rolls the whole transaction back, project row included.
+          throw GapMakesCutImpossible(seqNo: seg.seqNo, gapMm: gapMm);
+        }
+        // A row saved consistently moves by exactly (old − new gap) × welds.
+        // Anything else means its stored cut did not follow its own columns
+        // (e.g. saved under the builder's old start-only weld count): the
+        // recompute is still the builder's number, but the fitter is told
+        // which segments to look at before he cuts them.
+        final welds = PrefabEngine.weldCountForEnds(
+          startIsOpenEnd: seg.startKind == 'logical',
+          endIsOpenEnd: seg.endKind == 'logical',
+        );
+        final expected = seg.cutMm + (oldGap - gapMm) * welds;
+        if ((cut - expected).abs() > 0.05) beyond.add(seg.seqNo);
+
+        await txn.update(
+          'segments',
+          {'cut_mm': cut, 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [seg.id],
+        );
+      }
+      return ProjectSettingsUpdate(
+        recomputed: rows.length,
+        changedBeyondGap: beyond,
+      );
+    });
   }
 
   Future<void> updateName(String projectId, String name) async {

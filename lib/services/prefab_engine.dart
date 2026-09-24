@@ -34,6 +34,23 @@ enum SideStop {
   centre,
 }
 
+/// Splits a stored `segments.iso_ref` back into its START and END codes.
+///
+/// The column holds both reference points joined with '|' (see the save
+/// payload of the segment builder), e.g. 'AXIS|FACE_NEAR'. Rows written
+/// before that encoding existed hold the plain default 'FACE', and rows can
+/// in principle hold anything, so this never throws: a missing half comes
+/// back as an empty string and the reader falls back to the point the stored
+/// value implies rather than silently measuring from the wrong point — which
+/// would change the cut length.
+({String start, String end}) splitIsoRef(String isoRef) {
+  final parts = isoRef.split('|');
+  return (
+    start: parts.isNotEmpty ? parts[0].trim() : '',
+    end: parts.length > 1 ? parts[1].trim() : '',
+  );
+}
+
 /// The stop a stored reference-point code stands for, or null for a code
 /// that names no stop (legacy `'FACE'`, an empty half, garbage).
 ///
@@ -92,6 +109,52 @@ class PrefabEngine {
       rightPhysicalLenMm: endStop == SideStop.end ? endOffsetMm : null,
       weldGapMm: gapMm,
       weldCount: welds,
+    );
+  }
+
+  /// CUT of a saved `segments` row at [gapMm], by the segment builder's rule:
+  /// [anchoredCutMm] with [weldCountForEnds] welds, an end being open exactly
+  /// when its stored kind is `logical` (the builder's OPEN_END).
+  ///
+  /// Used when a project's gap changes, so every saved cut is recomputed the
+  /// way the builder would compute it — not shifted by a delta, which would
+  /// carry forward whatever weld count the row was once saved with.
+  ///
+  /// It deliberately reads the take-off each side STORED (`*_value_mm`), not
+  /// the component library: changing the gap must change the gap and nothing
+  /// else, never quietly pull in a library value edited since.
+  ///
+  /// A side whose code names no stop (legacy `'FACE'`, an empty half) takes
+  /// off exactly its stored value — the only reading that reproduces the cut
+  /// the row was saved with.
+  static double storedSegmentCutMm({
+    required double isoMm,
+    required String isoRef,
+    required String startKind,
+    required double startValueMm,
+    required String endKind,
+    required double endValueMm,
+    required double gapMm,
+  }) {
+    final codes = splitIsoRef(isoRef);
+    SideStop stopFor(String code, String kind, double valueMm) {
+      final known = sideStopForRefCode(code);
+      if (known != null) return known;
+      if (kind == 'logical' || valueMm == 0) return SideStop.face;
+      return kind == 'axial' ? SideStop.centre : SideStop.end;
+    }
+
+    return anchoredCutMm(
+      isoMm: isoMm,
+      startStop: stopFor(codes.start, startKind, startValueMm),
+      startOffsetMm: startValueMm,
+      endStop: stopFor(codes.end, endKind, endValueMm),
+      endOffsetMm: endValueMm,
+      gapMm: gapMm,
+      welds: weldCountForEnds(
+        startIsOpenEnd: startKind == 'logical',
+        endIsOpenEnd: endKind == 'logical',
+      ),
     );
   }
 
@@ -173,7 +236,9 @@ class PrefabEngine {
   /// Who actually passes a gap — "one engine" does not mean more than this:
   ///   * the segment builder and the scan review do, with the project's
   ///     `gap_mm` and [weldCountForEnds] welds, both through
-  ///     [anchoredCutMm] (the scan review used to save gap 0 and pass none);
+  ///     [anchoredCutMm] (the scan review used to save gap 0 and pass none),
+  ///     and so does the recompute of saved segments when a project's gap is
+  ///     edited ([storedSegmentCutMm]);
   ///   * the ISO notebook does NOT: it has no gap setting and calls this with
   ///     the defaults. With a project gap above 0 the same run therefore comes
   ///     out `gap × welds` longer in the notebook than in the builder. The

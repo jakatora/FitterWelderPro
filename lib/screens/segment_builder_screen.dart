@@ -12,6 +12,10 @@ import '../utils/haptic.dart';
 import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
 
+// `splitIsoRef` lives next to the rule that decodes a saved row for the
+// gap recompute; re-exported so this screen stays its home for callers.
+export '../services/prefab_engine.dart' show splitIsoRef;
+
 // ─── Punkt referencyjny ISO ────────────────────────────────────────────────
 // Określa, od/do którego miejsca na komponencie mierzony jest wymiar ISO.
 //
@@ -219,23 +223,6 @@ int builderWeldCount(String startTag, String endTag) =>
 /// pumping a screen or touching the component-library database.
 bool isSegmentSequenceComplete(List<String> tags) =>
     tags.length >= 3 && tags[1] == kPipeTag;
-
-/// Splits a stored `segments.iso_ref` back into its START and END codes.
-///
-/// The column holds both reference points joined with '|' (see the save
-/// payload at the bottom of this screen), e.g. 'AXIS|FACE_NEAR'. Rows written
-/// before that encoding existed hold the plain default 'FACE', and rows can
-/// in principle hold anything, so this never throws: a missing half comes
-/// back as an empty string and [isoRefPointFromCode] falls back to the
-/// component's own default rather than silently measuring from the wrong
-/// point — which would change the cut length.
-({String start, String end}) splitIsoRef(String isoRef) {
-  final parts = isoRef.split('|');
-  return (
-    start: parts.isNotEmpty ? parts[0].trim() : '',
-    end: parts.length > 1 ? parts[1].trim() : '',
-  );
-}
 
 /// Decodes one half of a stored `iso_ref` into a reference point.
 ///
