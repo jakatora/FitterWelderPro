@@ -57,9 +57,13 @@ class HeatTintScreen extends StatelessWidget {
                 Expanded(
                   child: Text(
                     context.tr(
-                      pl: 'Wartości O₂ są orientacyjne (model AWS D18.1/D18.2). '
+                      pl: 'Wartości O₂ są orientacyjne — to tlen w gazie formującym, przy którym '
+                          'wykonano wzorce AWS D18.2. Na kolor wpływają też wilgoć, zanieczyszczenia '
+                          'i wykończenie powierzchni, więc oceniaj po numerze wzorca, nie po ppm. '
                           'Wiążący poziom akceptacji zawsze podaje specyfikacja projektu / WPS.',
-                      en: 'O₂ values are indicative (AWS D18.1/D18.2 model). '
+                      en: 'O₂ values are indicative — they are the backing-gas O₂ used for the '
+                          'AWS D18.2 samples. Moisture, surface contamination and finish also '
+                          'change the colour, so judge by sample number, not ppm. '
                           'The binding acceptance level is always set by the project spec / WPS.',
                     ),
                     style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
@@ -83,8 +87,8 @@ Color _verdictColor(HeatTintVerdict v) {
   }
 }
 
-// Some data rows ship the O₂ band as a "PL / EN" slash-pair (e.g. level 10
-// "brak osłony / no purge"). Split it so each locale sees only its half.
+// A data row may ship the O₂ band as a "PL / EN" slash-pair. Split it so each
+// locale sees only its half (plain "~ 100 ppm" rows pass through unchanged).
 String _localizedO2(BuildContext context, String raw) {
   final i = raw.indexOf(' / ');
   if (i < 0) return raw;

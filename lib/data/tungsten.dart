@@ -18,7 +18,9 @@ class TungstenSize {
   });
 }
 
-/// DC- current bands per electrode diameter.
+/// DC- current bands per electrode diameter. Single source for every screen
+/// that picks an electrode (Tungsten screen, Pipes → AMP) — use
+/// [sizeForCurrent], never private thresholds.
 const List<TungstenSize> kTungstenSizes = [
   TungstenSize(diaMm: 1.0, diaImp: '0.040"', minA: 15,  maxA: 80),
   TungstenSize(diaMm: 1.6, diaImp: '1/16"',  minA: 70,  maxA: 150),
@@ -26,9 +28,11 @@ const List<TungstenSize> kTungstenSizes = [
   TungstenSize(diaMm: 3.2, diaImp: '1/8"',   minA: 250, maxA: 400),
 ];
 
+// Tip colours follow ISO 6848: WL20 blue, WL15 gold, WC20 grey, WT20 red,
+// WP green, WZ8 white.
 class TungstenType {
   final String code;     // e.g. WL20
-  final String tipColor; // ground-tip colour code
+  final String tipColor; // ground-tip colour code, "PL / EN"
   final Color colorDot;
   final String namePl;
   final String nameEn;
@@ -83,7 +87,32 @@ const List<TungstenType> kTungstenTypes = [
     notePl: 'Do AC (aluminium) — nie stosować do stali nierdzewnej DC.',
     noteEn: 'For AC (aluminium) — not for stainless DC.',
     bestForSs: false),
+  TungstenType(
+    code: 'WZ8', tipColor: 'biały / white',
+    colorDot: Color(0xFFF2F2F2),
+    namePl: '0.8% cyrkonowa', nameEn: '0.8% zirconiated',
+    notePl: 'Do AC (aluminium, magnez) — trzyma kulistą końcówkę, odporna na zanieczyszczenie. Nie do DC.',
+    noteEn: 'For AC (aluminium, magnesium) — holds a balled tip, resists contamination. Not for DC.',
+    bestForSs: false),
 ];
+
+/// Tip colour of [type] in the current language ("zielony / green" → PL or EN
+/// half), so screens quoting a colour never drift from this table.
+String tungstenTipColor(TungstenType type, {required bool english}) {
+  final i = type.tipColor.indexOf(' / ');
+  if (i < 0) return type.tipColor;
+  return english
+      ? type.tipColor.substring(i + 3)
+      : type.tipColor.substring(0, i);
+}
+
+/// Electrode type by ISO 6848 code (e.g. 'WZ8'), or null if not listed.
+TungstenType? tungstenTypeByCode(String code) {
+  for (final t in kTungstenTypes) {
+    if (t.code == code) return t;
+  }
+  return null;
+}
 
 /// Returns the smallest electrode whose band covers [amps], or the largest
 /// size if the current is above every band.

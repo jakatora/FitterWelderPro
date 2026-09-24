@@ -4,8 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../data/heat_tint.dart';
+import '../data/tungsten.dart';
 import '../database/weld_param_dao.dart';
 import '../database/approved_weld_param_dao.dart';
+import '../domain/welder_pipes/purge_estimate.dart';
 import '../i18n/app_language.dart';
 import '../models/weld_param.dart';
 import '../models/approved_weld_param.dart';
@@ -942,21 +945,25 @@ class _AmpTabState extends State<_AmpTab> {
                         '(${_material == "AL" ? "Ar 100%" : "Ar 100%"})',
                   ),
                   _ParamLine(
-                    label: _tr('Gaz formujący (purge)', 'Backing gas (purge)'),
-                    value: '${calc.purgeLpm.toStringAsFixed(0)} L/min',
+                    label: _tr('Gaz formujący — przedmuch',
+                        'Backing gas — pre-purge'),
+                    value: '${_fmtLpm(kPrePurgeFlowLpmMin)}–'
+                        '${_fmtLpm(kPrePurgeFlowLpmMax)} L/min',
+                  ),
+                  _ParamLine(
+                    label: _tr('Gaz formujący — podczas spawania',
+                        'Backing gas — while welding'),
+                    value: '≤ ${_fmtLpm(kWeldingPurgeFlowLpmMax)} L/min',
                   ),
                   const SizedBox(height: 8),
                   Text(rec.note, style: const TextStyle(fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Text(_purgeFlowAdvice(context),
+                      style: const TextStyle(fontSize: 12)),
                   if (_material == 'AL') ...[
                     const SizedBox(height: 8),
                     Text(
-                      _tr(
-                          '⚠ Aluminium: TIG na prądzie zmiennym (AC), elektroda '
-                          'czysta lub WZ8 (zielona). Powyższe wartości to punkt '
-                          'wyjścia — kalkulator zoptymalizowany pod stal.',
-                          '⚠ Aluminium: TIG on AC, pure or WZ8 (green) electrode. '
-                          'The numbers above are a starting point — the calculator '
-                          'is tuned for steel.'),
+                      _aluminiumNote(),
                       style: const TextStyle(
                           fontSize: 12, fontStyle: FontStyle.italic),
                     ),
@@ -965,8 +972,37 @@ class _AmpTabState extends State<_AmpTab> {
               ),
             ),
           ),
+        const SizedBox(height: 10),
+        Text(
+          _tr('Wynik pomocniczy — wiąże WPS / specyfikacja projektu.',
+              'Guidance only — the WPS / project specification is binding.'),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
       ],
     );
+  }
+
+  /// Aluminium (AC) electrode note. Codes and tip colours come from
+  /// kTungstenTypes (ISO 6848: WP green, WZ8 white), so this text cannot
+  /// drift from the Tungsten screen.
+  String _aluminiumNote() {
+    final english = context.language == AppLanguage.en;
+    String colour(String code) {
+      final t = tungstenTypeByCode(code);
+      return t == null ? '' : tungstenTipColor(t, english: english);
+    }
+
+    return _tr(
+        '⚠ Aluminium: TIG na prądzie zmiennym (AC), elektroda WP — czysty '
+            'wolfram (kolor: ${colour('WP')}) lub WZ8 — cyrkonowa (kolor: '
+            '${colour('WZ8')}). Średnica elektrody powyżej pochodzi z tabeli '
+            'DC− — dla AC sprawdź tabelę producenta elektrod. Wartości to punkt '
+            'wyjścia — kalkulator zoptymalizowany pod stal.',
+        '⚠ Aluminium: TIG on AC, WP pure tungsten (${colour('WP')}) or WZ8 '
+            'zirconiated (${colour('WZ8')}) electrode. The electrode size above '
+            'comes from the DC− table — for AC check the electrode maker\'s '
+            'table. The numbers are a starting point — the calculator is tuned '
+            'for steel.');
   }
 
   String _methodLabel(WeldingMethod m) {
@@ -994,11 +1030,10 @@ class _AmpCalcResult {
   final double electrodeMm;
   final double fillerMm;     // 0 when no filler is used
   final double torchGasLpm;
-  final double purgeLpm;
   const _AmpCalcResult({
     required this.centerA, required this.minA, required this.maxA,
     required this.electrodeMm, required this.fillerMm,
-    required this.torchGasLpm, required this.purgeLpm,
+    required this.torchGasLpm,
   });
 
   factory _AmpCalcResult.from({
@@ -1018,11 +1053,10 @@ class _AmpCalcResult {
     final lo = rec.minA * matFactor;
     final hi = rec.maxA * matFactor;
 
-    // Tungsten electrode diameter from the dedicated table (DC- bands).
-    double electrode;
-    if (center < 80)       { electrode = 1.6; }
-    else if (center < 150) { electrode = 2.4; }
-    else                   { electrode = 3.2; }
+    // Tungsten electrode diameter from the shared DC- table in
+    // lib/data/tungsten.dart — the same lookup the Tungsten screen uses, so
+    // both screens always name the same electrode for the same current.
+    final electrode = (sizeForCurrent(center) ?? kTungstenSizes.first).diaMm;
 
     // Filler rod sized to wall thickness; only meaningful for TIG-with-wire.
     final filler = (method == WeldingMethod.tigWire)
@@ -1034,14 +1068,14 @@ class _AmpCalcResult {
     // with big cups).
     final torchGas = (8 + 3 * electrode).clamp(12.0, 30.0).toDouble();
 
-    // Backing gas (purge / formir): SS food & pharma practice runs higher
-    // than carbon-steel piping. Photos show 14–20 L/min for t = 1.6–2 mm.
-    final purge = (10 + rec.startA * 0.15).clamp(12.0, 25.0).toDouble();
+    // Backing gas (purge) is not derived from amps any more: the screen
+    // shows the two-phase guidance (high flow to pre-purge, low flow while
+    // welding) from purge_estimate.dart, the same text as the Gases tab.
 
     return _AmpCalcResult(
       centerA: center, minA: lo, maxA: hi,
       electrodeMm: electrode, fillerMm: filler,
-      torchGasLpm: torchGas, purgeLpm: purge,
+      torchGasLpm: torchGas,
     );
   }
 }
@@ -1175,6 +1209,38 @@ double _interpFromTable(List<MapEntry<double, double>> pts, double tMm) {
   return sorted.last.value;
 }
 
+String _fmtLpm(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
+/// ppm for display: one decimal below 100 ppm, whole numbers above.
+String _fmtPpm(double v) =>
+    v < 100 ? v.toStringAsFixed(1) : v.toStringAsFixed(0);
+
+/// 210000 → "210 000".
+String _groupThousands(double v) => v
+    .toStringAsFixed(0)
+    .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ' ');
+
+/// Backing-gas flow advice — one text for both the AMP and the Gases tab so
+/// they can never disagree. Figures: HFT WP-269 (see purge_estimate.dart).
+String _purgeFlowAdvice(BuildContext context) {
+  final pre = '${_fmtLpm(kPrePurgeFlowLpmMin)}–'
+      '${_fmtLpm(kPrePurgeFlowLpmMax)} L/min';
+  final weld = '${_fmtLpm(kWeldingPurgeFlowLpmMax)} L/min';
+  return context.tr(
+    pl: 'Gaz formujący (purge): przedmuch przed spawaniem większym przepływem '
+        '(typowo $pre, ok. 5 wymian objętości), aż analizator O₂ pokaże '
+        'wymagany poziom. Na czas spawania zmniejsz do ok. $weld lub mniej — '
+        'gaz ma być ledwo wyczuwalny na wylocie (lekkie nadciśnienie). Za duży '
+        'przepływ → wklęsła grań; za mały → utlenienie.',
+    en: 'Backing gas (purge): pre-purge with the higher flow (typically $pre, '
+        'about 5 volume changes) until the O₂ analyser shows the required '
+        'level. For welding reduce to about $weld or less — the gas should be '
+        'barely perceptible at the outlet (slight positive pressure). Too much '
+        'flow → concave root; too little → oxidation.',
+  );
+}
+
 class _GasTab extends StatefulWidget {
   final WeldingMethod Function() methodGetter;
   const _GasTab({required this.methodGetter});
@@ -1256,6 +1322,13 @@ class _GasTabState extends State<_GasTab> {
     final volumeLiters = _pipeVolumeLiters(idMm: id, lenMm: len);
     final purgeMinutes = (qIn > 0 && nChanges > 0) ? (nChanges * volumeLiters / qIn) : 0.0;
 
+    // O₂ left after N volume changes — same exponential model as the O₂ tab
+    // in Welder tools (C = C₀·e^(−N)), compared with the AWS D18.2 samples.
+    final estPpm = nChanges > 0
+        ? residualO2PpmAfterVolumeChanges(nChanges.toDouble())
+        : null;
+    final estLevel = estPpm == null ? null : heatTintLevelForO2Ppm(estPpm);
+
     // Vent hole model (indicator): user drills vent holes (default: Ø2.4 mm).
     final safeVentDiaMm = ventDiaMm > 0 ? ventDiaMm : 2.4;
     final areaOne = math.pi * math.pow(safeVentDiaMm / 2, 2); // mm^2
@@ -1306,7 +1379,10 @@ class _GasTabState extends State<_GasTab> {
         TextField(
           controller: _flowInCtrl,
           keyboardType: TextInputType.number,
-          decoration: InputDecoration(labelText: _tr('Przepływ gazu do środka Q [L/min]', 'Internal gas flow Q [L/min]')),
+          decoration: InputDecoration(
+            labelText: _tr('Przepływ gazu do środka Q [L/min]', 'Internal gas flow Q [L/min]'),
+            helperText: _tr('Czas przedmuchu liczony dla tego Q', 'Pre-purge time is calculated for this Q'),
+          ),
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
@@ -1395,8 +1471,30 @@ class _GasTabState extends State<_GasTab> {
                 Text('${_tr('Długość', 'Length')}: ${len.toStringAsFixed(0)} mm | ${_tr('Objętość', 'Volume')}: ${volumeLiters.isFinite ? volumeLiters.toStringAsFixed(3) : '-'} L'),
                 const SizedBox(height: 10),
                 Text('Pre-purge: N·V/Q = ${purgeMinutes.isFinite ? purgeMinutes.toStringAsFixed(2) : '-'} min'),
+                if (estPpm != null && estLevel != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _tr(
+                        'Szac. O₂ po N = $nChanges wymianach: ≈ ${_fmtPpm(estPpm)} ppm '
+                            '(model C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
+                            'najbliższy wzorzec AWS D18.2: poziom ${estLevel.level} '
+                            '(${estLevel.o2Ppm.toStringAsFixed(0)} ppm).',
+                        'Est. O₂ after N = $nChanges volume changes: ≈ ${_fmtPpm(estPpm)} ppm '
+                            '(model C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
+                            'nearest AWS D18.2 sample: level ${estLevel.level} '
+                            '(${estLevel.o2Ppm.toStringAsFixed(0)} ppm).'),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  _tr('Czas orientacyjny — zweryfikuj analizatorem O₂.',
+                      'Time is indicative — verify with an O₂ analyser.'),
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 8),
-                Text('${_tr('Wyloty', 'Outlets')}: $nVents×Ø1.2 mm | ${_tr('prędkość na wylotach (wskaźnik)', 'outlet velocity (indicator)')}: ${ventVelocityMmPerSec.isFinite ? (ventVelocityMmPerSec / 1000).toStringAsFixed(2) : '-'} m/s'),
+                Text('${_tr('Wyloty', 'Outlets')}: $nVents×Ø${safeVentDiaMm.toStringAsFixed(1)} mm | ${_tr('prędkość na wylotach (wskaźnik)', 'outlet velocity (indicator)')}: ${ventVelocityMmPerSec.isFinite ? (ventVelocityMmPerSec / 1000).toStringAsFixed(2) : '-'} m/s'),
                 const SizedBox(height: 8),
                 Text(ventHint, style: const TextStyle(fontSize: 12)),
                 if (pharmaHint != null) ...[
@@ -1425,7 +1523,7 @@ class _GasTabState extends State<_GasTab> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  _tr('Wskazówka: po pre-purge zwykle zmniejsza się Q do "lekkiego dodatniego ciśnienia". Zbyt duże Q przy zbyt małym wylocie może powodować zapadniętą/grubą grań, a za małe Q - utlenienie ("krzaki").', 'Tip: after pre-purge, Q is usually reduced to a slight positive pressure. Too much Q with too small an outlet can cause a sunken/heavy root, and too little Q can cause oxidation.'),
+                  _purgeFlowAdvice(context),
                   style: const TextStyle(fontSize: 12),
                 ),
               ],
