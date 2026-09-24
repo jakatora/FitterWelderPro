@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../data/nps_dn_od_r.dart';
 import '../i18n/app_language.dart';
+import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
@@ -14,6 +15,43 @@ const _kAccentWarm   = Color(0xFFFF8E1E);   // wyróżnienia wynikowe
 const _kResultBg     = Color(0xFF152530);
 const _kResultBorder = Color(0xFF1A3A4A);
 const _kSubtle       = Color(0xFF546E7A);   // tekst pomocniczy
+
+/// Axial height difference Δh across a pipe of outside diameter [odMm] for a
+/// single mitre cut that gives a [slopePct] % fall: Δh = D·tan α with
+/// α = atan(p/100), i.e. D·p/100. (D·sin α — used until 2026-09 — is the
+/// length along the slanted cut face, not what the fitter marks off.)
+/// Same convention as `pipe_slope_screen.dart` (rise = length·tan α).
+double slopeCutDeltaMm(double odMm, double slopePct) =>
+    odMm * math.tan(math.atan(slopePct / 100.0));
+
+/// Offset spool between two identical elbows of angle [angleDeg].
+class InsertCalc {
+  final double takeoutMm;
+  final double travelMm;
+
+  /// travel − 2 × take-out: pipe length between the two elbow ends
+  /// (weld gaps not deducted).
+  final double insertMm;
+  const InsertCalc({
+    required this.takeoutMm,
+    required this.travelMm,
+    required this.insertMm,
+  });
+}
+
+/// travel = offset / sin θ; insert = travel − 2 × [takeoutMm].
+InsertCalc insertBetweenElbows({
+  required double offsetMm,
+  required double angleDeg,
+  required double takeoutMm,
+}) {
+  final travel = offsetMm / math.sin(angleDeg * math.pi / 180.0);
+  return InsertCalc(
+    takeoutMm: takeoutMm,
+    travelMm: travel,
+    insertMm: travel - 2.0 * takeoutMm,
+  );
+}
 
 class FitterToolsScreen extends StatelessWidget {
   final int initialTab;
@@ -222,7 +260,8 @@ class _SlopeTabState extends State<_SlopeTab> {
       final alphaRad = math.atan(pct / 100.0);
       _alphaDeg = alphaRad * 180.0 / math.pi;
       _sawAngleDeg = 90.0 - _alphaDeg!;
-      _deltaH = d * math.sin(alphaRad);
+      // Δh = D·tan α (same convention as the Slope screen: rise = L·tan α).
+      _deltaH = slopeCutDeltaMm(d, pct);
 
       _hint = _tr('Zetnij ${_deltaH!.toStringAsFixed(2)} mm albo utnij na pile ${_sawAngleDeg!.toStringAsFixed(2)}°', 'Cut ${_deltaH!.toStringAsFixed(2)} mm or set the saw to ${_sawAngleDeg!.toStringAsFixed(2)}°');
     });
@@ -260,7 +299,7 @@ class _SlopeTabState extends State<_SlopeTab> {
               _ResultLabel(_tr('Kąt cięcia na pile (90° − α)', 'Saw cut angle (90° − α)')),
               _ResultValue('${_sawAngleDeg!.toStringAsFixed(3)}°'),
               const Divider(height: 24, color: Color(0xFF1A3A4A)),
-              _ResultLabel(_tr('Różnica góra–dół na przekroju Δh', 'Top–bottom height diff. across pipe Δh')),
+              _ResultLabel(_tr('Różnica góra–dół na przekroju Δh = D × tan α', 'Top–bottom height diff. across pipe Δh = D × tan α')),
               _ResultValue('${_deltaH!.toStringAsFixed(2)} mm', isPrimary: true),
               if (_hint != null) ...[
                 const SizedBox(height: 12),
@@ -789,13 +828,15 @@ class _InsertTabState extends State<_InsertTab> {
   final _angle = TextEditingController();
   final _offset = TextEditingController();
 
-  // Wybór standardu promienia: 1D, 1.5D (LR), 3D, ręczny
+  // Rodzina kolan: '1D' (SR), '1.5D' (LR), '3D' wg ASME B16.9 albo 'manual'.
   String _rMode = '1.5D';
-  double? _rComputed; // obliczony R z OD + trybu
+  double? _rComputed; // promień / A kolana 90° użyty w obliczeniu
+  String? _sizeInfo;  // "OD 60.3 → DN50 (NPS 2\")"
 
   double? _takeoff;
   double? _travel;
   double? _insert;
+  String? _source; // skąd take-out (tabela / segment / ręcznie)
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -809,34 +850,82 @@ class _InsertTabState extends State<_InsertTab> {
     super.dispose();
   }
 
-  /// Oblicza R na podstawie OD i wybranego standardu,
-  /// lub szuka w tabeli NPS (dla trybu 'table').
-  double? _resolveR() {
-    if (_rMode == 'manual') {
-      return double.tryParse(_radius.text.replaceAll(',', '.'));
-    }
-    final od = double.tryParse(_od.text.replaceAll(',', '.'));
-    if (od == null || od <= 0) return null;
+  static String _f(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 
-    switch (_rMode) {
-      case '1D':   return od * 1.0;
-      case '1.5D': return od * 1.5;
-      case '3D':   return od * 3.0;
-      case 'table':
-        // Szukaj najbliższego wpisu w tabeli NPS
-        NpsRow? best;
-        double bestDiff = double.infinity;
-        for (final row in kNpsTable) {
-          final diff = (row.odMm - od).abs();
-          if (diff < bestDiff) {
-            bestDiff = diff;
-            best = row;
-          }
-        }
-        return best?.rMm;
-      default:
-        return od * 1.5;
+  ElbowRadiusType get _type => switch (_rMode) {
+        '1D' => ElbowRadiusType.short1D,
+        '3D' => ElbowRadiusType.long3D,
+        _ => ElbowRadiusType.long15D,
+      };
+
+  /// Take-out from the ASME B16.9 tables for the OD entered; sets [_error]
+  /// and returns null when no standard elbow exists.
+  double? _tableTakeoff(double ang) {
+    final od = double.tryParse(_od.text.replaceAll(',', '.'));
+    if (od == null || od <= 0) {
+      _error = _tr('Podaj średnicę OD rury (mm)', 'Enter pipe OD (mm)');
+      return null;
     }
+    final row = b169RowForOd(od);
+    if (row == null) {
+      _error = _tr(
+        'OD ${_f(od)} mm nie jest średnicą rury ASME B36.10 ani EN 10220 seria 1 — '
+            'kolan ASME B16.9 dla niej nie ma. Wybierz „Ręcznie — wpisz R” i wpisz R z karty kolana.',
+        'OD ${_f(od)} mm is not an ASME B36.10 or EN 10220 series 1 pipe — '
+            'there are no ASME B16.9 elbows for it. Choose "Manual — enter R" and type R from the elbow datasheet.',
+      );
+      return null;
+    }
+    if (ang <= 0 || ang > 90) {
+      _error = _tr(
+        'Kolano ASME B16.9 ma kąt 1°–90°. Dla większego kąta użyj trybu „Ręcznie”.',
+        'An ASME B16.9 elbow is 1°–90°. For a larger angle use "Manual".',
+      );
+      return null;
+    }
+    _sizeInfo = 'OD ${_f(od)} → DN${row.dn} (NPS ${row.nps})';
+    final t = b169ElbowTakeout(dn: row.dn, type: _type, angleDeg: ang);
+    if (t == null) {
+      _error = switch (_type) {
+        ElbowRadiusType.short1D => _tr(
+            'Kolano SR (1D) wg ASME B16.9 istnieje dopiero od DN25 (NPS 1). Dla DN${row.dn} wybierz LR lub „Ręcznie”.',
+            'An SR (1D) elbow per ASME B16.9 starts at DN25 (NPS 1). For DN${row.dn} choose LR or "Manual".'),
+        ElbowRadiusType.long3D when row.dn < 20 => _tr(
+            'Kolano 3D wg ASME B16.9 istnieje od DN20 (NPS 3/4).',
+            'A 3D elbow per ASME B16.9 starts at DN20 (NPS 3/4).'),
+        _ => _tr(
+            'Brak DN${row.dn} w tabeli kolan ASME B16.9 w aplikacji (DN15–DN600). Użyj trybu „Ręcznie”.',
+            'DN${row.dn} is not in the app\'s ASME B16.9 elbow table (DN15–DN600). Use "Manual".'),
+      };
+      return null;
+    }
+    _rComputed = t.a90Mm.toDouble();
+    final family = switch (_type) {
+      ElbowRadiusType.short1D => 'SR',
+      ElbowRadiusType.long15D => 'LR',
+      ElbowRadiusType.long3D => '3D',
+    };
+    final table = switch (_type) {
+      ElbowRadiusType.short1D => '6.1-4',
+      ElbowRadiusType.long15D => '6.1-1',
+      ElbowRadiusType.long3D => '6.1-6',
+    };
+    final nps = row.nps.replaceAll('"', '');
+    _source = switch (t.basis) {
+      TakeoutBasis.tableA90 => _tr(
+          'ASME B16.9 tab. $table: kolano 90° $family NPS $nps — A = ${t.a90Mm} mm',
+          'ASME B16.9 Table $table: 90° $family elbow NPS $nps — A = ${t.a90Mm} mm'),
+      TakeoutBasis.tableB45 => _tr(
+          'ASME B16.9 tab. $table: kolano 45° $family NPS $nps — B = ${_f(t.mm)} mm',
+          'ASME B16.9 Table $table: 45° $family elbow NPS $nps — B = ${_f(t.mm)} mm'),
+      TakeoutBasis.segment => _tr(
+          'ASME B16.9 §6.2.4 (segment kolana 90° $family): A × tan(θ/2) = ${t.a90Mm} × tan(${_f(ang / 2)}°)'
+              '${_type == ElbowRadiusType.short1D && ang == 45 ? ' — norma nie ma kolana SR 45°' : ''}',
+          'ASME B16.9 §6.2.4 (segment of a 90° $family elbow): A × tan(θ/2) = ${t.a90Mm} × tan(${_f(ang / 2)}°)'
+              '${_type == ElbowRadiusType.short1D && ang == 45 ? ' — the standard has no SR 45° elbow' : ''}'),
+    };
+    return t.mm;
   }
 
   void _calc() {
@@ -846,49 +935,58 @@ class _InsertTabState extends State<_InsertTab> {
       _travel = null;
       _insert = null;
       _rComputed = null;
+      _sizeInfo = null;
+      _source = null;
 
-      final r = _resolveR();
       final ang = double.tryParse(_angle.text.replaceAll(',', '.'));
       final off = double.tryParse(_offset.text.replaceAll(',', '.'));
 
-      if (_rMode != 'manual') {
+      double? takeoff;
+      if (_rMode == 'manual') {
+        final r = double.tryParse(_radius.text.replaceAll(',', '.'));
+        if (r == null || r <= 0) {
+          _error = _tr('Podaj promień kolanka R (mm)', 'Enter elbow radius R (mm)');
+          return;
+        }
+        _rComputed = r;
+        if (ang == null || ang <= 0 || ang >= 180) {
+          _error = _tr('Podaj kąt kolanka θ (1°–179°)', 'Enter elbow angle θ (1°–179°)');
+          return;
+        }
+        takeoff = r * math.tan(ang * math.pi / 360.0);
+        _source = _tr(
+          'R × tan(θ/2) = ${_f(r)} × tan(${_f(ang / 2)}°) — R wpisany ręcznie',
+          'R × tan(θ/2) = ${_f(r)} × tan(${_f(ang / 2)}°) — R entered manually',
+        );
+      } else {
         final od = double.tryParse(_od.text.replaceAll(',', '.'));
         if (od == null || od <= 0) {
           _error = _tr('Podaj średnicę OD rury (mm)', 'Enter pipe OD (mm)');
           return;
         }
+        if (ang == null) {
+          _error = _tr('Podaj kąt kolanka θ (1°–90°)', 'Enter elbow angle θ (1°–90°)');
+          return;
+        }
+        takeoff = _tableTakeoff(ang);
+        if (takeoff == null) return;
       }
 
-      if (r == null || r <= 0) {
-        _error = _rMode == 'manual'
-            ? _tr('Podaj promień kolanka R (mm)', 'Enter elbow radius R (mm)')
-            : _tr('Nie znaleziono R dla podanej średnicy', 'R not found for given diameter');
-        return;
-      }
-      _rComputed = r;
-
-      if (ang == null || ang <= 0 || ang >= 180) {
-        _error = _tr('Podaj kąt kolanka θ (1°–179°)', 'Enter elbow angle θ (1°–179°)');
-        return;
-      }
       if (off == null || off <= 0) {
         _error = _tr('Podaj odejście (offset) > 0 (mm)', 'Enter offset > 0 (mm)');
         return;
       }
 
-      final angRad = ang * math.pi / 180.0;
-      final takeoff = r * math.tan(angRad / 2.0);
-      final travel  = off / math.sin(angRad);
-      final insert  = travel - 2.0 * takeoff;
-
-      if (insert.isNaN || insert.isInfinite) {
+      final calc = insertBetweenElbows(
+          offsetMm: off, angleDeg: ang, takeoutMm: takeoff);
+      if (!calc.insertMm.isFinite || !calc.travelMm.isFinite) {
         _error = _tr('Nieprawidłowe dane wejściowe', 'Invalid input data');
         return;
       }
 
-      _takeoff = takeoff;
-      _travel  = travel;
-      _insert  = insert;
+      _takeoff = calc.takeoutMm;
+      _travel  = calc.travelMm;
+      _insert  = calc.insertMm;
     });
   }
 
@@ -900,11 +998,15 @@ class _InsertTabState extends State<_InsertTab> {
         _SectionTitle(_tr('Wstawka (offset)', 'Insert (offset)')),
         _SectionDesc(_tr(
           'Model: dwa identyczne kolanka o kącie θ.\n'
-          'Wstawka = travel − 2 × take-off\n'
-          'travel = offset / sin(θ),  take-off = R × tan(θ/2)',
+          'Wstawka = travel − 2 × take-out,  travel = offset / sin(θ)\n'
+          'Take-out kolana ASME B16.9: 90° i 45° — wymiary A / B z tabel normy; '
+          'inny kąt — segment kolana 90°: A × tan(θ/2) (§6.2.4). '
+          'Tryb ręczny: R × tan(θ/2).',
           'Model: two identical elbows at angle θ.\n'
-          'Insert = travel − 2 × take-off\n'
-          'travel = offset / sin(θ),  take-off = R × tan(θ/2)',
+          'Insert = travel − 2 × take-out,  travel = offset / sin(θ)\n'
+          'ASME B16.9 elbow take-out: 90° and 45° — dimensions A / B from the '
+          'standard\'s tables; other angles — segment of a 90° elbow: '
+          'A × tan(θ/2) (§6.2.4). Manual mode: R × tan(θ/2).',
         )),
 
         // ── Standard promienia ──────────────────────────────
@@ -913,11 +1015,11 @@ class _InsertTabState extends State<_InsertTab> {
           decoration: InputDecoration(
             labelText: _tr('Standard promienia kolanka', 'Elbow radius standard'),
           ),
+          isExpanded: true,
           items: [
-            DropdownMenuItem(value: '1D',    child: Text(_tr('1D — krótki promień (SR)', '1D — short radius (SR)'))),
-            DropdownMenuItem(value: '1.5D',  child: Text(_tr('1.5D — długi promień (LR) ← typowy', '1.5D — long radius (LR) ← standard'))),
-            DropdownMenuItem(value: '3D',    child: Text(_tr('3D — bardzo długi promień', '3D — extra long radius'))),
-            DropdownMenuItem(value: 'table', child: Text(_tr('Z tabeli NPS (ASME B16.9)', 'From NPS table (ASME B16.9)'))),
+            DropdownMenuItem(value: '1D',    child: Text(_tr('1D — krótki promień SR (B16.9, od DN25)', '1D — short radius SR (B16.9, from DN25)'))),
+            DropdownMenuItem(value: '1.5D',  child: Text(_tr('1.5D — długi promień LR (B16.9) ← typowy', '1.5D — long radius LR (B16.9) ← standard'))),
+            DropdownMenuItem(value: '3D',    child: Text(_tr('3D — promień 3D (B16.9)', '3D — 3D radius (B16.9)'))),
             DropdownMenuItem(value: 'manual',child: Text(_tr('Ręcznie — wpisz R', 'Manual — enter R'))),
           ],
           onChanged: (v) {
@@ -945,9 +1047,12 @@ class _InsertTabState extends State<_InsertTab> {
                 children: [
                   Icon(Icons.info_outline, size: 14, color: _kAccent.withValues(alpha: 0.7)),
                   const SizedBox(width: 6),
-                  Text(
-                    _tr('R = ${_rComputed!.toStringAsFixed(2)} mm', 'R = ${_rComputed!.toStringAsFixed(2)} mm'),
-                    style: TextStyle(fontSize: 12, color: _kAccent.withValues(alpha: 0.85)),
+                  Expanded(
+                    child: Text(
+                      '${_sizeInfo == null ? '' : '$_sizeInfo · '}'
+                      '${_tr('R = A kolana 90°', 'R = A of the 90° elbow')} = ${_f(_rComputed!)} mm',
+                      style: TextStyle(fontSize: 12, color: _kAccent.withValues(alpha: 0.85)),
+                    ),
                   ),
                 ],
               ),
@@ -958,7 +1063,7 @@ class _InsertTabState extends State<_InsertTab> {
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
               labelText: _tr('Promień kolanka R — oś gięcia (mm)', 'Elbow bend radius R — centerline (mm)'),
-              hintText: 'np. 90.45',
+              hintText: _tr('np. 76 (DN50 LR)', 'e.g. 76 (DN50 LR)'),
             ),
             onChanged: (_) => _calc(),
           ),
@@ -994,8 +1099,16 @@ class _InsertTabState extends State<_InsertTab> {
         if (_takeoff != null && _travel != null && _insert != null)
           _ResultCard(
             children: [
-              _ResultLabel('Take-off  T = R × tan(θ/2)'),
+              _ResultLabel(_tr('Take-out kolana T', 'Elbow take-out T')),
               _ResultValue('${_takeoff!.toStringAsFixed(1)} mm'),
+              if (_source != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    _source!,
+                    style: const TextStyle(fontSize: 11, color: _kSubtle, height: 1.4),
+                  ),
+                ),
               const SizedBox(height: 8),
               _ResultLabel('Travel  = offset / sin(θ)'),
               _ResultValue('${_travel!.toStringAsFixed(1)} mm'),
@@ -1048,7 +1161,7 @@ class _InsertTabState extends State<_InsertTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_tr('Typowe promienie R dla kolan LR (1.5D):', 'Typical R values for LR elbows (1.5D):'),
+                  Text(_tr('Promień R kolan LR (= A kolana 90°), ASME B16.9 / EN 10253-2:', 'LR elbow radius R (= A of the 90° elbow), ASME B16.9 / EN 10253-2:'),
                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
                   const SizedBox(height: 8),
                   for (final row in kNpsTable.where((r) =>
@@ -1178,9 +1291,9 @@ class _ReducerTabState extends State<_ReducerTab> {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 // TAB 6: CIĘŻAR RURY
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 class _PipeWeightTab extends StatefulWidget {
   const _PipeWeightTab();
   @override State<_PipeWeightTab> createState() => _PipeWeightTabState();
@@ -1232,10 +1345,10 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
     children: [
       _SectionTitle(_tr('Ciężar rury', 'Pipe weight')),
       _SectionDesc(_tr(
-        'm = ρ × ρ€ × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
-        'm = ρ × ρ€ × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
+        'm = ρ × π × (OD − t) × t   [kg/m]\n'
+        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
+        'm = ρ × π × (OD − t) × t   [kg/m]\n'
+        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
       )),
       DropdownButtonFormField<String>(
         initialValue: _mat,
@@ -1275,9 +1388,9 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 // TAB 7: FAZOWANIE (BEVEL)
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 class _BevelTab extends StatefulWidget {
   const _BevelTab();
   @override State<_BevelTab> createState() => _BevelTabState();
@@ -1311,7 +1424,7 @@ class _BevelTabState extends State<_BevelTab> {
       final land = double.tryParse(_landCtrl.text.replaceAll(',', '.')) ?? 1.0;
       if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki t (mm)', 'Enter wall thickness t (mm)'); return; }
       final depth = t - land;
-      if (depth <= 0) { _error = _tr('Próg â‰¥ grubości ścianki', 'Root face â‰¥ wall thickness'); return; }
+      if (depth <= 0) { _error = _tr('Próg ≥ grubości ścianki', 'Root face ≥ wall thickness'); return; }
       _depth = depth;
       _width = depth * math.tan(ang * math.pi / 180.0);
     });
@@ -1370,9 +1483,9 @@ class _BevelTabState extends State<_BevelTab> {
   );
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 // TAB 8: DYLATACJA CIEPLNA
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════════════════
 class _ThermalExpansionTab extends StatefulWidget {
   const _ThermalExpansionTab();
   @override State<_ThermalExpansionTab> createState() => _ThermalExpansionTabState();
@@ -1474,3 +1587,4 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
     ],
   );
 }
+
