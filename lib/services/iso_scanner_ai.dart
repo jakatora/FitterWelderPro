@@ -12,16 +12,24 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 import '../config/backend_config.dart';
 import '../data/elbow_takeouts.dart';
+import '../i18n/app_language.dart';
 import 'premium_service.dart';
 
 // Skaner celuje w scannerBaseUrl, nie w baseUrl reszty apki: dedykowany backend
 // oddaje na /api/fitter/scan-iso HTTP 500, a wspoldzielony odpowiada poprawnie
 // (sprawdzone realnym zadaniem 2026-08-29 — patrz komentarz w BackendConfig).
+// Po wdrożeniu nowej wersji dedykowanego backendu i sprawdzeniu skanu (200)
+// można przełączyć skaner z powrotem na BackendConfig.baseUrl.
 // Nadpisanie przez --dart-define=ISO_AI_BASE=... dziala jak dotad.
 const String kIsoAiBase = String.fromEnvironment(
   'ISO_AI_BASE',
@@ -430,31 +438,304 @@ class IsoScannerAiException implements Exception {
   String toString() => 'IsoScannerAiException($statusCode): $message';
 }
 
+String _tr(String pl, String en) => AppLanguageController.isEnglish ? en : pl;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Przygotowanie zdjęcia
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Wcześniej wszystko poza *.png szło jako `image/jpeg` — także WebP i HEIC —
+// a 12-megapikselowe zdjęcie leciało w całości (4–8 MB, po base64 o 1/3 więcej)
+// przez 4G na budowie. Teraz:
+//   • typ rozpoznajemy po bajtach (jak serwer), nie po rozszerzeniu;
+//   • JPEG / PNG / WebP / GIF idą z prawdziwym `media_type`;
+//   • zdjęcie dłuższe niż [kScanMaxLongSidePx] zmniejszamy przed wysyłką —
+//     model i tak nie czyta więcej szczegółów z większego obrazu, a upload
+//     i limit serwera (10 MB base64) na tym zyskują;
+//   • HEIC/HEIF/AVIF (serwer odpowiada na nie 415) zamieniamy na JPEG
+//     dekoderem platformy (Android 9+, iOS), a gdy się nie da — prosimy o
+//     zdjęcie w JPEG.
+// Zmniejszanie robi pakiet `image` (czysty Dart, był już w projekcie jako
+// zależność `pdf`) w osobnym izolacie, żeby nie zamrozić ekranu.
+
+/// Dłuższy bok zdjęcia wysyłanego do skanera, w pikselach.
+const int kScanMaxLongSidePx = 2576;
+
+/// PNG po zmniejszeniu większy niż to idzie jako JPEG (rysunek kreskowy jako
+/// PNG zwykle mieści się z zapasem; zdjęcie zapisane jako PNG — nie).
+const int _kMaxPngBytes = 5 * 1024 * 1024;
+
+enum ScanImageFormat { jpeg, png, gif, webp, heif, unknown }
+
+/// Format obrazu rozpoznany po magicznych bajtach — tak samo jak robi to
+/// serwer (`backend/src/services/imageType.js`).
+ScanImageFormat sniffScanImageFormat(List<int> b) {
+  bool ascii(int from, String s) {
+    if (b.length < from + s.length) return false;
+    for (var i = 0; i < s.length; i++) {
+      if (b[from + i] != s.codeUnitAt(i)) return false;
+    }
+    return true;
+  }
+
+  if (b.length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) {
+    return ScanImageFormat.jpeg;
+  }
+  if (b.length >= 8 &&
+      b[0] == 0x89 &&
+      ascii(1, 'PNG') &&
+      b[4] == 0x0D &&
+      b[5] == 0x0A) {
+    return ScanImageFormat.png;
+  }
+  if (ascii(0, 'GIF87a') || ascii(0, 'GIF89a')) return ScanImageFormat.gif;
+  if (ascii(0, 'RIFF') && ascii(8, 'WEBP')) return ScanImageFormat.webp;
+  if (ascii(4, 'ftyp') && b.length >= 12) {
+    const heifBrands = {
+      'heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', //
+      'mif1', 'msf1', 'avif', 'avis',
+    };
+    final brand = String.fromCharCodes(b.sublist(8, 12));
+    if (heifBrands.contains(brand)) return ScanImageFormat.heif;
+  }
+  return ScanImageFormat.unknown;
+}
+
+/// `media_type` dla formatu, który serwer przyjmuje; `null` dla pozostałych.
+String? scanMediaType(ScanImageFormat format) => switch (format) {
+      ScanImageFormat.jpeg => 'image/jpeg',
+      ScanImageFormat.png => 'image/png',
+      ScanImageFormat.gif => 'image/gif',
+      ScanImageFormat.webp => 'image/webp',
+      ScanImageFormat.heif || ScanImageFormat.unknown => null,
+    };
+
+/// Zdjęcie gotowe do wysłania.
+class PreparedScanImage {
+  final Uint8List bytes;
+  final String mediaType;
+
+  /// Zmniejszone do [kScanMaxLongSidePx].
+  final bool resized;
+
+  /// Przekodowane do innego formatu (np. HEIC → JPEG).
+  final bool converted;
+
+  const PreparedScanImage(
+    this.bytes,
+    this.mediaType, {
+    this.resized = false,
+    this.converted = false,
+  });
+}
+
+/// Surowe piksele RGBA po dekodowaniu przez platformę.
+typedef RgbaImage = ({Uint8List rgba, int width, int height});
+
+/// Dekoder platformy dla formatów, których pakiet `image` nie zna (HEIC).
+/// Wstrzykiwany w testach.
+typedef PlatformImageDecoder = Future<RgbaImage> Function(
+    Uint8List bytes, int maxLongSide);
+
+/// Rozpoznaje format, w razie potrzeby zmniejsza i przekodowuje zdjęcie.
+/// Rzuca [IsoScannerAiException] z komunikatem dla montera, gdy formatu nie
+/// da się wysłać.
+Future<PreparedScanImage> prepareScanImage(
+  Uint8List bytes, {
+  PlatformImageDecoder? platformDecoder,
+}) async {
+  final format = sniffScanImageFormat(bytes);
+  switch (format) {
+    case ScanImageFormat.unknown:
+      throw IsoScannerAiException(_tr(
+        'Nieobsługiwany format zdjęcia. Wybierz zdjęcie JPG, PNG albo WEBP.',
+        'Unsupported photo format. Pick a JPG, PNG or WEBP photo.',
+      ));
+    case ScanImageFormat.heif:
+      try {
+        final raw =
+            await (platformDecoder ?? _decodeWithPlatform)(bytes, kScanMaxLongSidePx);
+        final jpeg = await compute(_encodeRgbaAsJpeg, raw);
+        return PreparedScanImage(jpeg, 'image/jpeg', converted: true);
+      } catch (e) {
+        debugPrint('prepareScanImage: HEIC/HEIF nie do przekonwertowania: $e');
+        throw IsoScannerAiException(_tr(
+          'Tego zdjęcia (HEIC/HEIF) nie da się przekonwertować na tym '
+              'telefonie. Zrób zdjęcie w JPEG — w iPhonie: Ustawienia → '
+              'Aparat → Formaty → „Najbardziej zgodne" — albo wybierz zrzut '
+              'ekranu rysunku.',
+          'This photo (HEIC/HEIF) cannot be converted on this phone. Take the '
+              'photo as JPEG — on iPhone: Settings → Camera → Formats → "Most '
+              'Compatible" — or pick a screenshot of the drawing.',
+        ));
+      }
+    case ScanImageFormat.jpeg:
+    case ScanImageFormat.png:
+    case ScanImageFormat.gif:
+    case ScanImageFormat.webp:
+      final original = PreparedScanImage(bytes, scanMediaType(format)!);
+      final longSide = _longSideOf(bytes);
+      if (longSide == null || longSide <= kScanMaxLongSidePx) return original;
+      try {
+        return await compute(_downscale, (bytes, format));
+      } catch (e) {
+        // Nie udało się zmniejszyć — wysyłamy oryginał; za duży obraz serwer
+        // odrzuci 413 z czytelnym komunikatem.
+        debugPrint('prepareScanImage: zmniejszanie nie wyszło: $e');
+        return original;
+      }
+  }
+}
+
+/// Dłuższy bok z nagłówka obrazu (bez dekodowania pikseli); `null`, gdy
+/// nagłówka nie da się odczytać.
+int? _longSideOf(Uint8List bytes) {
+  try {
+    final info = img.findDecoderForData(bytes)?.startDecode(bytes);
+    if (info == null || info.width <= 0 || info.height <= 0) return null;
+    return math.max(info.width, info.height);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// W izolacie: dekoduje pierwszą klatkę, obraca wg EXIF, zmniejsza dłuższy
+/// bok do [kScanMaxLongSidePx] i koduje — PNG/GIF jako PNG (ostre linie
+/// rysunku), chyba że wyjdzie za duży; resztę jako JPEG.
+PreparedScanImage _downscale((Uint8List, ScanImageFormat) job) {
+  final (bytes, format) = job;
+  final decoded = img.decodeImage(bytes, frame: 0);
+  if (decoded == null) throw StateError('nie udało się zdekodować obrazu');
+  final oriented = img.bakeOrientation(decoded);
+  final landscape = oriented.width >= oriented.height;
+  final resized = img.copyResize(
+    oriented,
+    width: landscape ? kScanMaxLongSidePx : null,
+    height: landscape ? null : kScanMaxLongSidePx,
+    interpolation: img.Interpolation.average,
+  );
+  if (format == ScanImageFormat.png || format == ScanImageFormat.gif) {
+    final png = img.encodePng(resized);
+    if (png.length <= _kMaxPngBytes) {
+      return PreparedScanImage(png, 'image/png',
+          resized: true, converted: format != ScanImageFormat.png);
+    }
+  }
+  return PreparedScanImage(
+    img.encodeJpg(resized, quality: 88),
+    'image/jpeg',
+    resized: true,
+    converted: format != ScanImageFormat.jpeg,
+  );
+}
+
+/// W izolacie: surowe RGBA z dekodera platformy → JPEG.
+Uint8List _encodeRgbaAsJpeg(RgbaImage raw) {
+  final image = img.Image.fromBytes(
+    width: raw.width,
+    height: raw.height,
+    bytes: raw.rgba.buffer,
+    bytesOffset: raw.rgba.offsetInBytes,
+    numChannels: 4,
+  );
+  return img.encodeJpg(image, quality: 88);
+}
+
+/// Dekoder platformy (Skia + systemowe kodeki; HEIF na Androidzie 9+ i iOS),
+/// od razu ze zmniejszeniem do [maxLongSide].
+Future<RgbaImage> _decodeWithPlatform(Uint8List bytes, int maxLongSide) async {
+  final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+  final codec = await ui.instantiateImageCodecWithSize(
+    buffer,
+    getTargetSize: (w, h) {
+      final longSide = math.max(w, h);
+      if (longSide <= maxLongSide) return ui.TargetImageSize();
+      final scale = maxLongSide / longSide;
+      return ui.TargetImageSize(
+        width: math.max(1, (w * scale).round()),
+        height: math.max(1, (h * scale).round()),
+      );
+    },
+  );
+  try {
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    try {
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) throw StateError('brak pikseli');
+      return (
+        rgba: data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        width: image.width,
+        height: image.height,
+      );
+    } finally {
+      image.dispose();
+    }
+  } finally {
+    codec.dispose();
+  }
+}
+
+/// Komunikat dla odmowy serwera, której monter sam nie naprawi ponowieniem.
+String? _friendlyScanError(int status, String? code) {
+  if (code != null && code.startsWith('INSTALL_SECRET_')) {
+    return _tr(
+      'Serwer skanera nie rozpoznał tej instalacji aplikacji. Uruchom '
+          'aplikację ponownie; jeśli to nie pomoże, napisz do nas z ekranu '
+          'profilu (Kontakt).',
+      'The scanner server did not recognise this app installation. Restart '
+          'the app; if that does not help, write to us from your profile '
+          '(Contact).',
+    );
+  }
+  if (status == 415 || code == 'UNSUPPORTED_IMAGE_TYPE') {
+    return _tr(
+      'Serwer nie przyjmuje tego formatu zdjęcia. Zrób zdjęcie w JPEG albo '
+          'wybierz zrzut ekranu rysunku.',
+      'The server does not accept this photo format. Take the photo as JPEG '
+          'or pick a screenshot of the drawing.',
+    );
+  }
+  if (status == 402 || code == 'PREMIUM_REQUIRED') {
+    return _tr(
+      'Skaner rysunków jest dostępny w planie Premium.',
+      'The drawing scanner is available with Premium.',
+    );
+  }
+  return null;
+}
+
 Future<AiScanResult> scanIsoImage(
   String imagePath, {
   // Sonnet vision over a 4-8 MB iso photo on a 4G connection routinely runs
   // 30-60 s before the first byte. Old 90 s window was tight; lift to 150 s
   // to absorb a slow uplink without falsely cancelling a successful scan.
   Duration timeout = const Duration(seconds: 150),
+  PlatformImageDecoder? platformDecoder,
 }) async {
   final file = File(imagePath);
   if (!await file.exists()) {
     throw IsoScannerAiException('Plik nie istnieje: $imagePath');
   }
   final bytes = await file.readAsBytes();
-  final lower = imagePath.toLowerCase();
-  final mediaType = (lower.endsWith('.png')) ? 'image/png' : 'image/jpeg';
+  final prepared =
+      await prepareScanImage(bytes, platformDecoder: platformDecoder);
 
-  await PremiumService.instance.init();
+  // X-Device-Id + X-Install-Secret: nowy backend (TOFU) wiąże sekret z
+  // device_id; backend PrzetargAI nieznane nagłówki ignoruje.
+  final identity = await PremiumService.instance.authHeaders();
   final deviceId = PremiumService.instance.deviceId;
   final uri = Uri.parse('$kIsoAiBase${BackendConfig.scanIso}');
   final resp = await http
       .post(
         uri,
-        headers: const {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          ...identity,
+        },
         body: jsonEncode({
-          'image_base64': base64Encode(bytes),
-          'media_type': mediaType,
+          'image_base64': base64Encode(prepared.bytes),
+          'media_type': prepared.mediaType,
           'device_id': deviceId,
         }),
       )
@@ -462,6 +743,7 @@ Future<AiScanResult> scanIsoImage(
 
   if (resp.statusCode != 200) {
     String message = 'Błąd serwera (${resp.statusCode})';
+    String? code;
     try {
       final j = jsonDecode(resp.body) as Map<String, dynamic>;
       final err = j['error'];
@@ -470,7 +752,14 @@ Future<AiScanResult> scanIsoImage(
       } else if (j['message'] is String) {
         message = j['message'] as String;
       }
+      if (err is Map && err['code'] is String) code = err['code'] as String;
     } catch (_) {}
+    final friendly = _friendlyScanError(resp.statusCode, code);
+    if (friendly != null) {
+      // Surowa odpowiedź tylko do logu.
+      debugPrint('scanIsoImage ${resp.statusCode} $code: $message');
+      message = friendly;
+    }
     throw IsoScannerAiException(message, statusCode: resp.statusCode);
   }
 

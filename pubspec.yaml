@@ -32,6 +32,10 @@ dependencies:
   file_picker: ^8.0.6
   image_picker: ^1.1.2
   http: ^1.2.2
+  # Zmniejszanie zdjęć przed wysłaniem do skanera (iso_scanner_ai.dart). Czysty
+  # Dart; był już w projekcie jako zależność `pdf` (ta sama wersja w lock) —
+  # tu tylko jawnie, żeby wolno go było importować.
+  image: ^4.10.1
   crypto: ^3.0.6
   pdf: ^3.10.7
   share_plus: ^9.0.0

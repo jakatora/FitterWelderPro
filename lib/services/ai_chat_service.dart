@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import '../config/backend_config.dart';
+import '../i18n/app_language.dart';
+import 'premium_service.dart';
 
 // AI chat service — Premium feature.
 //
@@ -25,11 +28,9 @@ import '../config/backend_config.dart';
 /// there to switch between demo and live mode.
 bool get kAiBackendAvailable => BackendConfig.aiBackendLive;
 
-/// P1-37: preferred unit system flag sent with every backend request so the
-/// model mirrors dual units (SI + imperial) in its answers. Kept here rather
-/// than in BackendConfig until that file grows a setting for it. Acceptable
-/// values: 'metric', 'imperial', 'both'.
-const String _kPreferredUnitSystem = 'both';
+// Pole `units` (P1-37) zniknęło z żądania: backend waliduje treść schematem
+// {message, history, lang, device_id} i nieznanych pól nie czyta. Podwójne
+// jednostki (SI + imperialne) to reguła promptu po stronie serwera.
 
 enum ChatRole { user, assistant, system }
 
@@ -84,10 +85,16 @@ class AiChatService {
     final url =
         Uri.parse('${BackendConfig.baseUrl}${BackendConfig.aiChat}');
     try {
+      // Asystent to płatna funkcja: nowy backend wymaga device_id + sekretu
+      // instalacji (tryb strict) i aktywnego Premium.
+      final identity = await PremiumService.instance.authHeaders();
       final resp = await http
           .post(
             url,
-            headers: const {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              ...identity,
+            },
             body: jsonEncode({
               'message': trimmed,
               'history': history
@@ -96,23 +103,19 @@ class AiChatService {
                         'text': m.text,
                       })
                   .toList(),
-              'lang': 'pl',
-              // P1-37: ask the backend model to quote dual units (SI + imperial)
-              // in every numeric answer. Default 'both' until BackendConfig
-              // grows a preferredUnitSystem setting; values: 'metric', 'imperial',
-              // 'both'. The system prompt on the server side reads this field
-              // and instructs Claude to mirror temps in °C/°F, lengths in
-              // mm/in, heat input in kJ/mm + kJ/in, torque in N·m + lbf·ft.
-              'units': _kPreferredUnitSystem,
+              // Bieżący język interfejsu — backend przyjmuje 'pl' albo 'en'.
+              'lang': AppLanguageController.current.name,
+              'device_id': PremiumService.instance.deviceId,
             }),
           )
           .timeout(const Duration(seconds: 25));
       if (resp.statusCode != 200) {
-        // Backend is up but the upstream model call failed (most common cause:
-        // Anthropic returned model_not_found for a short-alias model ID like
-        // 'claude-haiku-4-5' instead of the dated 'claude-haiku-4-5-20251001').
-        // Fall through to the demo library so the fitter still gets a useful
-        // answer for common questions instead of a 500 in-app.
+        // Backend is up but refused or failed: 401 (brak/zły sekret
+        // instalacji), 402 (brak Premium), 429 (limit dzienny), 503 (budżet
+        // AI), 5xx. Fall through to the demo library so the fitter still gets
+        // a useful answer for common questions instead of an error in-app.
+        debugPrint('AiChatService: backend ${resp.statusCode}: '
+            '${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}');
         return _fallbackReply(trimmed,
             reason: 'backend ${resp.statusCode}');
       }
@@ -131,6 +134,7 @@ class AiChatService {
     } catch (e) {
       // Network down, timeout, TLS failure, etc. — same fallback path so the
       // user sees something useful instead of a red exception banner.
+      debugPrint('AiChatService offline: $e');
       return _fallbackReply(trimmed, reason: 'offline: $e');
     }
   }
@@ -185,7 +189,7 @@ class AiChatService {
           '• d = nominalna średnica śruby (np. 1 in = 25.4 mm, 1.25 in = 31.75 mm)\n'
           '• Kolejność: 25/50/75/100% w gwiazdę + final circular pass + relaxation po 20min-4h.\n'
           'Konwersja szybka: 1 N·m ≈ 0.738 lbf·ft, 1 lbf·ft ≈ 1.356 N·m.\n'
-          'Użyj kalkulatora "Moment śrub" w menu FITTER dla dokładnych wartości.';
+          'Użyj kalkulatora "Moment śrub" w menu MONTER dla dokładnych wartości.';
       citations = ['Iteration 83 — Hot bolting + ASME PCC-1'];
     } else if (lower.contains('coping') ||
         lower.contains('saddle') ||
@@ -196,8 +200,8 @@ class AiChatService {
           '• d(φ) [mm | in] = R_h − √(R_h² − R_b²·sin²(φ))   (wszystko w tej samej jednostce — mm lub in)\n'
           '• R_h, R_b = promienie header/branch (np. NPS 4 Sch40: OD 114.3 mm / 4.500 in → R = 57.15 mm / 2.250 in)\n'
           '• Owijka = π × D_branch  (np. D=114.3 mm / 4.500 in → owijka ≈ 359.1 mm / 14.14 in)\n'
-          'Otwórz "Saddle / Coping" w menu FITTER — wygeneruje PDF 1:1 do druku (skala 1 mm = 1 mm, 1 in = 1 in).';
-      citations = ['Tool: Saddle / Coping (FITTER menu)'];
+          'Otwórz "Szablon siodła do druku" w menu MONTER — wygeneruje PDF 1:1 do druku (skala 1 mm = 1 mm, 1 in = 1 in).';
+      citations = ['Narzędzie: Szablon siodła do druku (menu MONTER)'];
     } else if (lower.contains('purge') || lower.contains('argon')) {
       // P1-37: standardise to slpm (bracketed scfh), dual temp on trailing shield.
       reply = 'Back purge SS: 3-5 wymian objętości rury między dams, target O₂ <0.1% '
@@ -212,8 +216,8 @@ class AiChatService {
           '• η = 0.80 (SMAW/GMAW/FCAW), 0.60 (GTAW), 0.90 (SAW)\n'
           '• P91 WPS range: 1.0-2.5 kJ/mm (≈ 25-64 kJ/in) — NIE przekraczaj górnej granicy\n'
           'Za wysokie HI = coarse-grain HAZ, niska udarność. Za niskie HI = szybkie chłodzenie, hydrogen cracking.\n'
-          'Pełny kalkulator: "Heat Input + CE" w menu SPAWACZ.';
-      citations = ['Tool: Heat Input + CE (WELDER menu)'];
+          'Pełny kalkulator: "Heat input i CE" w menu SPAWACZ.';
+      citations = ['Narzędzie: Heat input i CE (menu SPAWACZ)'];
     } else {
       // P1-37: catch-all reply also flags dual units so the welder knows
       // every answer below comes with mm/in + °C/°F + kJ/mm/kJ/in mirrored.
