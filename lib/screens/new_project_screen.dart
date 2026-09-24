@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
+import 'fitter_screen.dart';
 
 class NewProjectScreen extends StatefulWidget {
   const NewProjectScreen({super.key});
@@ -97,7 +98,16 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       await _dao.insert(p);
       if (!mounted) return;
       didPop = true;
-      Navigator.pop(context, true);
+      // Straight into the new project: the next thing a fitter does with a
+      // fresh project is add its first segment, and dropping him back on the
+      // list only made him find and open it again. The form is REPLACED, so
+      // "back" from the project lands on the list; `result: true` still
+      // tells the list a project was created, so it reloads underneath.
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => FitterScreen(projectId: p.id)),
+        result: true,
+      );
     } catch (e) {
       // Don't expose the raw exception to a user filling in a project form —
       // map to a category they can act on; keep $e in the debug log for
