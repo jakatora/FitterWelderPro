@@ -19,7 +19,10 @@ class _CutListAppState extends State<CutListApp> {
   @override
   void initState() {
     super.initState();
-    _languageController = AppLanguageController();
+    // Język ustalony w main() przed runApp (zapisany wybór albo język
+    // telefonu). Kontroler aplikacji zapisuje każdą zmianę.
+    _languageController =
+        AppLanguageController.persistent(AppLanguageController.current);
   }
 
   @override
