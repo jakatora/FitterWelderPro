@@ -16,6 +16,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart' show kTextMut;
+
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  DANE WEJŚCIOWE
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -446,7 +448,7 @@ class _Pipe3DPainter extends CustomPainter {
     final tp = TextPainter(
       text: const TextSpan(
         text: 'Dodaj komponenty → trasa pojawi się w 3D',
-        style: TextStyle(color: Color(0xFF5A6478), fontSize: 12),
+        style: TextStyle(color: kTextMut, fontSize: 12),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

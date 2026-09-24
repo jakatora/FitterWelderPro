@@ -128,31 +128,31 @@ void main() {
       (tester) async {
     await boot(tester, withProfile: true);
 
-    // SPAWACZ → Kalkulatory
+    // SPAWACZ → „Heat input i CE" — jedyne wejście do podgrzewania (dawna
+    // zakładka „Temperatura" w kalkulatorach spawacza dublowała ten ekran).
     await tester.tap(find.byIcon(Icons.waves_outlined));
     await settle(tester);
-    expect(find.byIcon(Icons.calculate_outlined), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.calculate_outlined));
+    final heatInput = find.byIcon(Icons.local_fire_department_outlined);
+    expect(heatInput, findsOneWidget);
+    await tester.ensureVisible(heatInput);
+    await settle(tester);
+    await tester.tap(heatInput);
     await settle(tester);
 
-    // Zakładka "Temperatura" (druga) — kalkulator CEV + podgrzewanie.
+    // Zakładka „Preheat / CE" (druga) — CE + metody podgrzewania.
     await tester.tap(find.byType(Tab).at(1));
     await settle(tester);
 
-    // Domyślny materiał to CS (stal węglowa) — właśnie ta ścieżka dawała NaN.
-    // Wpisujemy chemię niskowęglową: CEV = 0.12 + 0.60/6 = 0.220 (< 0.25).
-    final thickness = find.ancestor(
-      of: find.textContaining('t (mm)'),
-      matching: find.byType(TextField),
-    );
-    final carbon = find.ancestor(
-      of: find.text('C %'),
-      matching: find.byType(TextField),
-    );
-    final manganese = find.ancestor(
-      of: find.text('Mn %'),
-      matching: find.byType(TextField),
-    );
+    // Stal węglowa bez gatunku z listy — właśnie ta ścieżka dawała NaN.
+    // Wpisujemy chemię niskowęglową: CE = 0.12 + 0.60/6 = 0.220 (< 0.25),
+    // więc Seferian ma [C] ≤ 0.25 (dawniej √ z liczby ujemnej).
+    Finder field(Set<String> labels) => find.byWidgetPredicate(
+          (w) => w is TextField && labels.contains(w.decoration?.labelText),
+          description: 'TextField $labels',
+        );
+    final thickness = field({'Grubość', 'Thickness'});
+    final carbon = field({'C'});
+    final manganese = field({'Mn'});
 
     await tester.enterText(thickness.first, '10');
     await settle(tester);
@@ -161,8 +161,10 @@ void main() {
     await tester.enterText(manganese.first, '0.60');
     await settle(tester);
 
-    // CEV policzone i pokazane…
+    // CE policzone i pokazane…
     expect(find.text('0.220'), findsOneWidget);
+    // …Seferian daje 0 °C (niskowęglowa — bez podgrzewania)…
+    expect(find.text('0 °C'), findsWidgets);
     // …a temperatura podgrzewania NIE jest NaN (to był bug: sqrt z ujemnej).
     expect(find.textContaining('NaN'), findsNothing);
   });

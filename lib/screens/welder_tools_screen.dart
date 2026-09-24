@@ -3,16 +3,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../domain/welding/heat_input.dart';
-import '../domain/welding/preheat.dart';
 import '../domain/welding/purge.dart';
 import '../domain/welding/shielding_gas.dart';
 import '../i18n/app_language.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 // All arithmetic of these calculators lives in lib/domain/welding/ — this
 // screen only parses the fields and renders the results.
+//
+// Heat input i podgrzewanie (CE / Seferian) mają jeden ekran: HeatInputScreen
+// („Heat input i CE”). Zakładki tego ekranu kiedyś je dublowały — zostały tu
+// tylko gaz, formowanie, timer i ciśnienie.
 
 // ── Kolory ────────────────────────────────────────────────────────────────
 const _kOrange = Color(0xFFFF8E1E);
@@ -21,40 +24,45 @@ const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 const _kSec    = Color(0xFF9BA3C7);
 
 double? _num(TextEditingController c) =>
     double.tryParse(c.text.trim().replaceAll(',', '.'));
 
 class WelderToolsScreen extends StatelessWidget {
-  const WelderToolsScreen({super.key});
+  /// Zakładka otwierana na starcie (jak `FitterToolsScreen(initialTab:)`).
+  final int initialTab;
+  const WelderToolsScreen({super.key, this.initialTab = tabGas});
+
+  static const int tabGas = 0;
+  static const int tabPurge = 1;
+  static const int tabTimer = 2;
+  static const int tabPressure = 3;
+  static const int tabCount = 4;
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 6,
+      length: tabCount,
+      initialIndex: initialTab.clamp(0, tabCount - 1),
       child: Scaffold(
         appBar: AppBar(
-          title: Text(context.tr(pl: 'Kalkulatory - Spawacz', en: 'Calculators - Welder')),
+          title: Text(context.tr(pl: 'Gaz, formowanie i timer', en: 'Gas, purge and timer')),
           actions: [HelpButton(help: kHelpWelderTools)],
           bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: context.tr(pl: 'Heat Input', en: 'Heat Input')),
-              Tab(text: context.tr(pl: 'Temperatura', en: 'Preheat')),
-              Tab(text: 'O₂ Purge'),
               Tab(text: context.tr(pl: 'Gaz', en: 'Gas')),
+              Tab(text: 'O₂ Purge'),
               Tab(text: 'Timer'),
               Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
             ],
           ),
         ),
         body: TabBarView(children: [
-          _HeatInputTab(),
-          _PreheatTab(),
-          _O2PurgeTab(),
           _GasConsumptionTab(),
+          _O2PurgeTab(),
           _WeldTimerTab(),
           _PressureConverterTab(),
         ]),
@@ -102,15 +110,14 @@ class _RRow extends StatelessWidget {
   final String value;
   final bool primary;
   final Color? color;
-  final bool dimmed;
-  const _RRow(this.label, this.value, {this.primary = false, this.color, this.dimmed = false});
+  const _RRow(this.label, this.value, {this.primary = false, this.color});
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: dimmed ? _kMuted : _kSec))),
+        Expanded(child: Text(label, style: const TextStyle(fontSize: 12, color: _kSec))),
         // Long-press the numeric value to copy it (gloves + small keys → no retyping).
         CopyOnLongPress(
           value: value,
@@ -203,352 +210,7 @@ class _SecLabel extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TAB 1: HEAT INPUT (Energia liniowa)
-// ═══════════════════════════════════════════════════════════════════════════
-class _HeatInputTab extends StatefulWidget {
-  @override
-  State<_HeatInputTab> createState() => _HeatInputTabState();
-}
-
-class _HeatInputTabState extends State<_HeatInputTab> {
-  // Default process TIG (orbital / manual TIG of stainless tube) → k follows
-  // the process (EN 1011-1 Table 1), it is not a fixed 0.80.
-  static const _defaultProcess = WeldingProcess.gtaw;
-
-  final _uCtrl = TextEditingController();   // napięcie V
-  final _iCtrl = TextEditingController();   // prąd A
-  final _vCtrl = TextEditingController();   // prędkość mm/min
-  final _kCtrl = TextEditingController(
-      text: _defaultProcess.thermalEfficiency.toStringAsFixed(2));
-
-  WeldingProcess _process = _defaultProcess;
-  HeatInputStandard _standard = HeatInputStandard.en1011;
-
-  double? _hiKJmm;
-  String? _error;
-
-  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-
-  @override void dispose() { _uCtrl.dispose(); _iCtrl.dispose(); _vCtrl.dispose(); _kCtrl.dispose(); super.dispose(); }
-
-  void _selectProcess(WeldingProcess p) {
-    _process = p;
-    _kCtrl.text = p.thermalEfficiency.toStringAsFixed(2);
-    _calc();
-  }
-
-  void _selectStandard(HeatInputStandard s) {
-    _standard = s;
-    _calc();
-  }
-
-  void _calc() {
-    setState(() {
-      _error = null; _hiKJmm = null;
-      final u = _num(_uCtrl);
-      final i = _num(_iCtrl);
-      final v = _num(_vCtrl);
-      final k = _num(_kCtrl) ?? _process.thermalEfficiency;
-      if (_uCtrl.text.trim().isEmpty && _iCtrl.text.trim().isEmpty && _vCtrl.text.trim().isEmpty) return;
-      if (u == null || u <= 0) { _error = _tr('Podaj napięcie U [V]', 'Enter voltage U [V]'); return; }
-      if (i == null || i <= 0) { _error = _tr('Podaj prąd I [A]', 'Enter current I [A]'); return; }
-      if (v == null || v <= 0) { _error = _tr('Podaj prędkość spawania v [mm/min]', 'Enter welding speed v [mm/min]'); return; }
-      if (_standard == HeatInputStandard.en1011 && (k <= 0 || k > 1)) {
-        _error = _tr('Sprawność k musi być w zakresie 0–1', 'Efficiency k must be within 0–1');
-        return;
-      }
-      _hiKJmm = heatInputKJPerMm(
-        volts: u, amps: i, travelMmPerMin: v,
-        standard: _standard, efficiency: k,
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final asme = _standard == HeatInputStandard.asmeIx;
-    return ListView(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
-      children: [
-        _InfoBox(_tr(
-          'Energia liniowa:\n'
-          'EN 1011-1: Q = k × U × I × 60 / (v × 1000)  [kJ/mm]\n'
-          'ASME IX QW-409.1: HI = U × I × 60 / (v × 1000) — bez k\n'
-          'k (EN 1011-1): TIG 0.6 · MMA, MIG/MAG, FCAW 0.8 · SAW 1.0',
-          'Heat input:\n'
-          'EN 1011-1: Q = k × U × I × 60 / (v × 1000)  [kJ/mm]\n'
-          'ASME IX QW-409.1: HI = U × I × 60 / (v × 1000) — no k\n'
-          'k (EN 1011-1): TIG 0.6 · MMA, MIG/MAG, FCAW 0.8 · SAW 1.0',
-        )),
-        _SecLabel(_tr('Proces', 'Process')),
-        Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final p in WeldingProcess.values)
-            ChoiceChip(
-              label: Text(p.euLabel, style: const TextStyle(fontSize: 12)),
-              selected: _process == p,
-              onSelected: (_) => _selectProcess(p),
-              materialTapTargetSize: MaterialTapTargetSize.padded,
-            ),
-        ]),
-        _SecLabel(_tr('Norma', 'Standard')),
-        Wrap(spacing: 6, runSpacing: 6, children: [
-          ChoiceChip(
-            label: const Text('EN 1011-1'),
-            selected: !asme,
-            onSelected: (_) => _selectStandard(HeatInputStandard.en1011),
-            materialTapTargetSize: MaterialTapTargetSize.padded,
-          ),
-          ChoiceChip(
-            label: const Text('ASME IX'),
-            selected: asme,
-            onSelected: (_) => _selectStandard(HeatInputStandard.asmeIx),
-            materialTapTargetSize: MaterialTapTargetSize.padded,
-          ),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: _NumField(ctrl: _uCtrl, label: _tr('Napięcie U', 'Voltage U'), hint: '12', unit: 'V', onChanged: _calc)),
-          const SizedBox(width: 10),
-          Expanded(child: _NumField(ctrl: _iCtrl, label: _tr('Prąd I', 'Current I'), hint: '80', unit: 'A', onChanged: _calc)),
-        ]),
-        const SizedBox(height: 10),
-        _NumField(ctrl: _vCtrl, label: _tr('Prędkość spawania v', 'Welding speed v'), hint: '100', unit: 'mm/min', onChanged: _calc),
-        const SizedBox(height: 10),
-        _NumField(
-          ctrl: _kCtrl,
-          label: _tr('Sprawność cieplna k', 'Thermal efficiency k'),
-          hint: _process.thermalEfficiency.toStringAsFixed(2),
-          helper: asme
-              ? _tr('ASME IX nie używa k.', 'ASME IX does not use k.')
-              : _tr('Z procesu (EN 1011-1); zmień tylko, gdy WPS podaje inną wartość.',
-                    'From the process (EN 1011-1); change only if the WPS states another value.'),
-          onChanged: _calc,
-        ),
-        const SizedBox(height: 14),
-        if (_hiKJmm != null) _ResultCard(rows: [
-          _RRow(_tr('Energia liniowa HI', 'Heat input HI'), '${_hiKJmm!.toStringAsFixed(3)} kJ/mm', primary: true),
-          _RRow('', '${(_hiKJmm! * 1000).toStringAsFixed(0)} J/mm', dimmed: true),
-          _RRow(_tr('Konwencja', 'Convention'),
-              asme ? _tr('ASME IX (bez k)', 'ASME IX (no k)') : 'EN 1011-1 (k ${(_num(_kCtrl) ?? _process.thermalEfficiency).toStringAsFixed(2)})',
-              dimmed: true),
-          const Divider(height: 16, color: _kBorder),
-          _RRow(_tr('Typowy limit w WPS dla SS (orientacyjnie)', 'Typical SS WPS limit (indicative)'), '≤ 1.0 kJ/mm', dimmed: true),
-          _NoteText(_tr(
-            'Oceniaj względem zakresu z WPS liczonego w tej samej konwencji. '
-            'Za wysokie HI na stali austenitycznej sprzyja sensytyzacji. Bardzo niskie wartości '
-            '(np. 0.1–0.3 kJ/mm) są typowe dla orbitalnego TIG cienkościennych rur — same w sobie nie są błędem.',
-            'Judge against the WPS range written in the same convention. '
-            'Too high HI on austenitic steel promotes sensitisation. Very low values '
-            '(e.g. 0.1–0.3 kJ/mm) are normal for orbital TIG of thin-wall tube — not an error by themselves.',
-          )),
-        ]),
-        if (_error != null) _ErrBox(_error!),
-        const _Disclaimer(),
-      ],
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TAB 2: TEMPERATURA PODGRZEWANIA I MIĘDZYŚCIEGOWA
-// ═══════════════════════════════════════════════════════════════════════════
-class _PreheatTab extends StatefulWidget {
-  @override State<_PreheatTab> createState() => _PreheatTabState();
-}
-
-class _PreheatTabState extends State<_PreheatTab> {
-  final _tCtrl   = TextEditingController();  // grubość ścianki mm
-  final _cCtrl   = TextEditingController();  // %C
-  final _mnCtrl  = TextEditingController();  // %Mn
-  final _siCtrl  = TextEditingController();  // %Si
-  final _crCtrl  = TextEditingController();  // %Cr
-  final _moCtrl  = TextEditingController();  // %Mo
-  final _niCtrl  = TextEditingController();  // %Ni
-  final _cuCtrl  = TextEditingController();  // %Cu
-  final _vCtrl   = TextEditingController();  // %V
-  String _matType = 'CS'; // CS lub SS (pre-set)
-
-  double? _cev;
-  SeferianResult? _seferian;
-  CeRuleOfThumb? _rule;
-  bool _stainless = false;
-  String? _error;
-
-  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-
-  @override
-  void dispose() {
-    for (final c in [_tCtrl, _cCtrl, _mnCtrl, _siCtrl, _crCtrl, _moCtrl, _niCtrl, _cuCtrl, _vCtrl]) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  void _presetSS() {
-    _cCtrl.text = '0.03'; _mnCtrl.text = '2.0'; _siCtrl.text = '0.75';
-    _crCtrl.text = '17.0'; _moCtrl.text = '2.5'; _niCtrl.text = '12.0';
-    _cuCtrl.text = '0'; _vCtrl.text = '0';
-    setState(() => _matType = 'SS');
-    _calc();
-  }
-
-  void _presetCS() {
-    _cCtrl.text = '0.20'; _mnCtrl.text = '1.50'; _siCtrl.text = '0.35';
-    _crCtrl.text = '0'; _moCtrl.text = '0'; _niCtrl.text = '0';
-    _cuCtrl.text = '0'; _vCtrl.text = '0';
-    setState(() => _matType = 'CS');
-    _calc();
-  }
-
-  void _calc() {
-    setState(() {
-      _error = null; _cev = null; _seferian = null; _rule = null; _stainless = false;
-      final t  = _num(_tCtrl);
-      final c  = _num(_cCtrl);
-      final mn = _num(_mnCtrl) ?? 0;
-      final cr = _num(_crCtrl) ?? 0;
-      final mo = _num(_moCtrl) ?? 0;
-      final ni = _num(_niCtrl) ?? 0;
-      final cu = _num(_cuCtrl) ?? 0;
-      final v  = _num(_vCtrl) ?? 0;
-      if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki', 'Enter wall thickness'); return; }
-      if (c == null) { _error = _tr('Podaj % C', 'Enter % C'); return; }
-      // Stainless (EN 10088-1: Cr ≥ 10.5 %) — CEV / Seferian do not apply;
-      // show a message instead of a meaningless "CEV 5.06".
-      _stainless = _matType == 'SS' || isStainlessComposition(cr: cr);
-      if (_stainless) return;
-      _cev = carbonEquivalentIiw(c: c, mn: mn, cr: cr, mo: mo, v: v, ni: ni, cu: cu);
-      // Seferian — lib/domain/welding/preheat.dart (NaN guard for low C
-      // lives there: [C] ≤ 0.25 → 0 °C).
-      _seferian = seferianPreheat(c: c, mn: mn, cr: cr, ni: ni, mo: mo, thicknessMm: t);
-      _rule = ceRuleOfThumb(ce: _cev!, thicknessMm: t);
-      if (_seferian == null) _error = _tr('Sprawdź skład — wartości ujemne?', 'Check the chemistry — negative values?');
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
-    children: [
-      _InfoBox(_tr(
-        'CEV wg IIW: C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15\n'
-        'Seferian: [C] = (C + (Mn+Cr)/9 + Ni/18 + 7Mo/90) × (1 + 0.005·t)\n'
-        'Tp = 350 × √([C] − 0.25)\n'
-        'Metody normatywne: EN 1011-2 zał. C (CE / CET, z wodorem i energią liniową).',
-        'CEV per IIW: C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15\n'
-        'Seferian: [C] = (C + (Mn+Cr)/9 + Ni/18 + 7Mo/90) × (1 + 0.005·t)\n'
-        'Tp = 350 × √([C] − 0.25)\n'
-        'Normative methods: EN 1011-2 Annex C (CE / CET, with hydrogen and heat input).',
-      )),
-      // Preset buttons
-      Row(children: [
-        Expanded(child: OutlinedButton(
-          onPressed: _presetSS,
-          style: OutlinedButton.styleFrom(side: BorderSide(color: _matType == 'SS' ? _kOrange : _kBorder)),
-          child: Text('SS 316L', style: TextStyle(color: _matType == 'SS' ? _kOrange : _kSec)),
-        )),
-        const SizedBox(width: 10),
-        Expanded(child: OutlinedButton(
-          onPressed: _presetCS,
-          style: OutlinedButton.styleFrom(side: BorderSide(color: _matType == 'CS' ? _kOrange : _kBorder)),
-          child: Text(_tr('CS (przykład)', 'CS (example)'), style: TextStyle(color: _matType == 'CS' ? _kOrange : _kSec)),
-        )),
-      ]),
-      const SizedBox(height: 12),
-      _NumField(ctrl: _tCtrl, label: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hint: '3.0', unit: 'mm', onChanged: _calc),
-      const SizedBox(height: 10),
-      _SecLabel(_tr('Skład chemiczny (%)', 'Chemical composition (%)')),
-      Row(children: [
-        Expanded(child: _NumField(ctrl: _cCtrl,  label: 'C %',  hint: '0.03', onChanged: _calc)),
-        const SizedBox(width: 8),
-        Expanded(child: _NumField(ctrl: _mnCtrl, label: 'Mn %', hint: '2.0',  onChanged: _calc)),
-        const SizedBox(width: 8),
-        Expanded(child: _NumField(ctrl: _siCtrl, label: 'Si %', hint: '0.75', onChanged: _calc)),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: [
-        Expanded(child: _NumField(ctrl: _crCtrl, label: 'Cr %', hint: '0',    onChanged: _calc)),
-        const SizedBox(width: 8),
-        Expanded(child: _NumField(ctrl: _moCtrl, label: 'Mo %', hint: '0',    onChanged: _calc)),
-        const SizedBox(width: 8),
-        Expanded(child: _NumField(ctrl: _niCtrl, label: 'Ni %', hint: '0',    onChanged: _calc)),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: [
-        Expanded(child: _NumField(ctrl: _cuCtrl, label: 'Cu %', hint: '0',    onChanged: _calc)),
-        const SizedBox(width: 8),
-        Expanded(child: _NumField(ctrl: _vCtrl,  label: 'V %',  hint: '0',    onChanged: _calc)),
-        const SizedBox(width: 8),
-        const Expanded(child: SizedBox()),
-      ]),
-      const SizedBox(height: 14),
-      if (_stainless) _ResultCard(rows: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline, size: 16, color: _kOrange),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                _tr(
-                  'CEV i Seferian nie dotyczą stali nierdzewnej (Cr ≥ 10.5 %, EN 10088-1). '
-                  'Austenityczna (304/316L) — NIE podgrzewa się; kluczowa jest MAX temperatura '
-                  'międzyściegowa (~150–175 °C) i niska energia liniowa: przegrzanie → sensytyzacja → '
-                  'korozja międzykrystaliczna. Martenzytyczna — wg WPS.',
-                  'CEV / Seferian do not apply to stainless steel (Cr ≥ 10.5 %, EN 10088-1). '
-                  'Austenitic (304/316L) — do NOT preheat; what matters is the MAX interpass '
-                  'temperature (~150–175 °C) and low heat input: overheating → sensitisation → '
-                  'intergranular corrosion. Martensitic — per WPS.',
-                ),
-                style: const TextStyle(fontSize: 12, color: _kSec, height: 1.45),
-              ),
-            ),
-          ],
-        ),
-        if (_matType == 'SS') ...[
-          const Divider(height: 16, color: _kBorder),
-          _RRow(_tr('Temp. międzyściegowa max (typowo, austenityczna)', 'Max. interpass temp. (typical, austenitic)'),
-                '≤ 175 °C', color: _kBlue),
-        ],
-      ]),
-      if (_cev != null) _ResultCard(rows: [
-        _RRow('CEV (IIW)', _cev!.toStringAsFixed(3), primary: true),
-        const Divider(height: 16, color: _kBorder),
-        if (_seferian != null) ...[
-          _RRow(_tr('Seferian [C] (z grubością)', 'Seferian [C] (with thickness)'), _seferian!.totalCe.toStringAsFixed(3), dimmed: true),
-          _RRow(_tr('Podgrzewanie min. — Seferian', 'Min. preheat — Seferian'),
-                '${_seferian!.preheatC.toStringAsFixed(0)} °C',
-                color: _seferian!.preheatC > 0 ? _kOrange : _kGreen),
-        ],
-        if (_rule != null)
-          _RRow(_tr('Reguła orientacyjna CE (nienormatywna)', 'CE rule of thumb (non-normative)'),
-                '${_rule!.preheatC.toStringAsFixed(0)} °C', color: _kSec),
-        _RRow(_tr('Temp. międzyściegowa max (typowo — wg WPS)', 'Max. interpass temp. (typical — per WPS)'),
-              '250 °C', color: _kBlue),
-        _NoteText(_tr(
-          'Seferian i reguła CE to szacunki o innych założeniach, więc mogą się różnić. '
-          'Wiąże temperatura z WPS, nie niższa niż minimum kodu projektu (np. ASME B31.3 Tab. 330.1.1 — '
-          'dla gatunku pokazuje je ekran Heat input → Preheat / CE).',
-          'Seferian and the CE rule are estimates with different assumptions, so they can differ. '
-          'The WPS temperature is binding, never below the project code minimum (e.g. ASME B31.3 Tab. 330.1.1 — '
-          'shown per grade on Heat input → Preheat / CE).',
-        )),
-        if (_cev! > 0.45)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(_tr('⚠ CEV > 0.45 — wysoka skłonność do pęknięć na zimno. Podgrzewanie wg WPS konieczne!',
-                            '⚠ CEV > 0.45 — high risk of cold cracking. Preheat per WPS is a must!'),
-                 style: const TextStyle(fontSize: 11, color: _kRed, fontWeight: FontWeight.w600)),
-          ),
-      ]),
-      if (_error != null) _ErrBox(_error!),
-      const _Disclaimer(),
-    ],
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// TAB 3: O₂ PURGE (model wykładniczy, ppm)
+// ZAKŁADKA: O₂ PURGE (model wykładniczy, ppm)
 // ═══════════════════════════════════════════════════════════════════════════
 class _O2PurgeTab extends StatefulWidget {
   @override State<_O2PurgeTab> createState() => _O2PurgeTabState();
@@ -678,7 +340,7 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TAB 4: ZUŻYCIE GAZU
+// ZAKŁADKA: ZUŻYCIE GAZU
 // ═══════════════════════════════════════════════════════════════════════════
 class _GasConsumptionTab extends StatefulWidget {
   @override State<_GasConsumptionTab> createState() => _GasConsumptionTabState();
@@ -816,7 +478,7 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TAB 5: TIMER SPAWALNICZY
+// ZAKŁADKA: TIMER SPAWALNICZY
 // ═══════════════════════════════════════════════════════════════════════════
 class _WeldTimerTab extends StatefulWidget {
   @override State<_WeldTimerTab> createState() => _WeldTimerTabState();
@@ -962,7 +624,7 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TAB 6: PRZELICZNIK CIŚNIENIA
+// ZAKŁADKA: PRZELICZNIK CIŚNIENIA
 // ═══════════════════════════════════════════════════════════════════════════
 class _PressureConverterTab extends StatefulWidget {
   @override State<_PressureConverterTab> createState() => _PressureConverterTabState();

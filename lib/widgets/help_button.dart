@@ -212,67 +212,6 @@ class _StepRow extends StatelessWidget {
 
 // ─── Treści pomocy dla każdego ekranu ──────────────────────────────────────
 
-final kHelpHome = ScreenHelp(
-  titlePl: 'Ekran główny',
-  titleEn: 'Home screen',
-  bodyPl:
-      'Ekran startowy aplikacji FitterWelder Pro. Stąd przechodzisz do modułu FITTER (cut listy, kalkulatory) lub SPAWACZ (parametry spawania, dziennik). Na dole widać ostatnie projekty.',
-  bodyEn:
-      'The FitterWelder Pro start screen. From here you navigate to the FITTER module (cut lists, calculators) or the WELDER module (welding parameters, journal). Recent projects are shown at the bottom.',
-  stepsPl: [
-    HelpStep('🔧', 'FITTER — twórz listy cięć, używaj kalkulatorów i siatki ISO.'),
-    HelpStep('⚡', 'SPAWACZ — parametry, gazy, dziennik spoin i kalkulatory spawalnicze.'),
-    HelpStep('📁', 'Ostatnie projekty — szybki powrót do ostatnio otwartych projektów.'),
-  ],
-  stepsEn: [
-    HelpStep('🔧', 'FITTER — create cut lists, use calculators and the ISO notebook.'),
-    HelpStep('⚡', 'WELDER — parameters, gases, weld journal and welding calculators.'),
-    HelpStep('📁', 'Recent projects — quick return to recently opened projects.'),
-  ],
-);
-
-final kHelpFitterMenu = ScreenHelp(
-  titlePl: 'Menu Fitter',
-  titleEn: 'Fitter menu',
-  bodyPl:
-      'Centrum narzędzi montera rur. Znajdziesz tu Cut List do zarządzania projektami, tablicę DN-MM, kalkulatory geometrii rur, bibliotekę komponentów i zeszyt ISO.',
-  bodyEn:
-      'The pipe fitter tool hub. Here you find the Cut List for project management, the DN-MM table, pipe geometry calculators, the component library and the ISO notebook.',
-  stepsPl: [
-    HelpStep('📋', 'CUT LIST — projekty, segmenty i listy cięć z BOM.'),
-    HelpStep('📐', 'Kalkulatory — cięcie kolanka, rolling offset, saddle cut, trasa rur i więcej.'),
-    HelpStep('📚', 'Biblioteka komponentów — twój katalog kolan, redukcji, zaworów i kołnierzy.'),
-    HelpStep('🗒️', 'Zeszyt ISO — rysuj trasy na siatce izometrycznej.'),
-  ],
-  stepsEn: [
-    HelpStep('📋', 'CUT LIST — projects, segments and cut lists with BOM.'),
-    HelpStep('📐', 'Calculators — elbow cut, rolling offset, saddle cut, pipe route and more.'),
-    HelpStep('📚', 'Component library — your catalogue of elbows, reducers, valves and flanges.'),
-    HelpStep('🗒️', 'ISO Notebook — draw pipe routes on an isometric grid.'),
-  ],
-);
-
-final kHelpWelderMenu = ScreenHelp(
-  titlePl: 'Menu Spawacz',
-  titleEn: 'Welder menu',
-  bodyPl:
-      'Centrum narzędzi spawacza. Znajdziesz tu parametry spawania rur i zbiorników, kalkulatory (heat input, temperatura, gaz, O₂) oraz dziennik spoin.',
-  bodyEn:
-      'The welder tool hub. Here you find welding parameters for pipes and tanks, calculators (heat input, temperature, gas, O₂) and the weld journal.',
-  stepsPl: [
-    HelpStep('🔥', 'Rury — zestawy AMP, gazy osłonowe, zatwierdzone WPS, Twoje parametry.'),
-    HelpStep('🛢️', 'Zbiorniki — parametry TIG dla zbiorników i tandem TIG.'),
-    HelpStep('🗮', 'Kalkulatory — heat input, temperatura podgrzewania, przepływ gazu, timer.'),
-    HelpStep('📝', 'Dziennik spoin — rejestruj spoiny z datą, numerem i statusem.'),
-  ],
-  stepsEn: [
-    HelpStep('🔥', 'Pipes — AMP sets, shielding gases, approved WPS, your parameters.'),
-    HelpStep('🛢️', 'Tanks — TIG parameters for tanks and tandem TIG.'),
-    HelpStep('🗮', 'Calculators — heat input, preheat temperature, gas flow, timer.'),
-    HelpStep('📝', 'Weld journal — log welds with date, number and status.'),
-  ],
-);
-
 final kHelpProjects = ScreenHelp(
   titlePl: 'Lista projektów (Cut List)',
   titleEn: 'Projects list (Cut List)',
@@ -373,7 +312,7 @@ final kHelpCutListSummary = ScreenHelp(
 );
 
 final kHelpFitterTools = ScreenHelp(
-  titlePl: 'Kalkulatory — Fitter',
+  titlePl: 'Kalkulatory — Monter',
   titleEn: 'Calculators — Fitter',
   bodyPl:
       'Zestaw kalkulatorów geometrycznych dla monterów rur. Przełączaj się między zakładkami: Spadek, Cięcie kolanka, Obrót kolanka, Wstawka, Redukcja, Ciężar rury, Fazowanie i Dylatacja.',
@@ -415,23 +354,23 @@ final kHelpDnMm = ScreenHelp(
 );
 
 final kHelpPipeRoute = ScreenHelp(
-  titlePl: 'Kalkulator trasy rur',
-  titleEn: 'Pipe route calculator',
+  titlePl: 'Trasa rur – 2 kolana 90°',
+  titleEn: 'Pipe route – 2 × 90° elbows',
   bodyPl:
-      'Oblicza długości odcinków rur dla trasy z 3 kołnami 90°: poziomy X → pionowy ΔH → poziomy Y. Uwzględnia wymiar kolanka (takeout) R.',
+      'Oblicza długości odcinków rur dla trasy z 2 kolanami 90°: poziomy X → pionowy ΔH → poziomy Y (3 odcinki, 4 spoiny). Odejmuje wymiar kolanka (takeout) R; łuki kolan po osi to 2 × π·R/2.',
   bodyEn:
-      'Calculates pipe spool lengths for a route with 3 × 90° elbows: horizontal X → vertical ΔH → horizontal Y. Takes the elbow takeout R into account.',
+      'Calculates pipe spool lengths for a route with 2 × 90° elbows: horizontal X → vertical ΔH → horizontal Y (3 segments, 4 welds). Subtracts the elbow takeout R; the elbow arcs along the centreline are 2 × π·R/2.',
   stepsPl: [
     HelpStep('📏', 'Wpisz H1 i H2 — poziomy startowy i końcowy (różnica = ΔH).'),
     HelpStep('↔️', 'Wpisz X i Y — odległości poziome.'),
     HelpStep('🔄', 'Wpisz R — wymiar kolanka face-to-centre dla Twojego LR 90°.'),
-    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia.'),
+    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia: X−R, ΔH−2R, Y−R.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter H1 and H2 — start and end elevations (difference = ΔH).'),
     HelpStep('↔️', 'Enter X and Y — horizontal distances.'),
     HelpStep('🔄', 'Enter R — elbow takeout face-to-centre for your LR 90°.'),
-    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths.'),
+    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths: X−R, ΔH−2R, Y−R.'),
   ],
 );
 
@@ -439,20 +378,24 @@ final kHelpRollingOffset = ScreenHelp(
   titlePl: 'Rolling Offset',
   titleEn: 'Rolling Offset',
   bodyPl:
-      'Oblicza Travel — odległość między punktami przecięcia osi kolan — dla przesunięcia pionowego (Rise) i bocznego (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). To nie jest długość cięcia; uwzględnij zabudowy kształtek i szczeliny z dokumentacji projektu.',
+      'Oblicza Travel — odległość między punktami przecięcia osi kolan — dla przesunięcia pionowego (Rise) i bocznego (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). Travel to nie długość cięcia — tę policzy ekran, gdy podasz DN kolan (ASME B16.9 LR) i szczelinę.',
   bodyEn:
-      'Calculates Travel — the distance between elbow centreline intersection points — for vertical (Rise) and lateral (Spread) offsets. Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). This is not a cut length; account for fitting take-outs and gaps from the project documentation.',
+      'Calculates Travel — the distance between elbow centreline intersection points — for vertical (Rise) and lateral (Spread) offsets. Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). Travel is not a cut length — the screen gives one when you enter the elbow DN (ASME B16.9 LR) and the gap.',
   stepsPl: [
     HelpStep('↕️', 'Rise — odchylenie pionowe (w mm).'),
     HelpStep('↔️', 'Spread — odchylenie poziome (w mm).'),
     HelpStep('🔄', 'Kąt kolanka — wybierz 45°, 30°, 60° lub podaj własny.'),
     HelpStep('📐', 'Wynik: True Offset, Travel, Run i Multiplier.'),
+    HelpStep('🧭', 'Kąt obrotu kolana: od pionu = atan(Spread / Rise), od poziomu = atan(Rise / Spread).'),
+    HelpStep('✂️', 'Opcjonalnie: podaj DN kolan i szczelinę — długość cięcia = Travel − 2 × take-out − 2 × szczelina.'),
   ],
   stepsEn: [
     HelpStep('↕️', 'Rise — vertical deviation (in mm).'),
     HelpStep('↔️', 'Spread — horizontal deviation (in mm).'),
     HelpStep('🔄', 'Elbow angle — choose 45°, 30°, 60° or enter your own.'),
     HelpStep('📐', 'Results: True Offset, Travel, Run and Multiplier.'),
+    HelpStep('🧭', 'Elbow roll angle: from vertical = atan(Spread / Rise), from horizontal = atan(Rise / Spread).'),
+    HelpStep('✂️', 'Optional: enter the elbow DN and the gap — cut length = Travel − 2 × take-out − 2 × gap.'),
   ],
 );
 
@@ -476,8 +419,8 @@ final kHelpPipeSlope = ScreenHelp(
 );
 
 final kHelpSaddleCut = ScreenHelp(
-  titlePl: 'Saddle Cut (wycięcie siodłowe)',
-  titleEn: 'Saddle Cut (fish-mouth cut)',
+  titlePl: 'Siodło 90° — tabela (wycięcie siodłowe)',
+  titleEn: 'Saddle 90° — table (fish-mouth cut)',
   bodyPl:
       'Profil zewnętrznych powierzchni rur dla centralnego połączenia T pod kątem 90°. Szybka tabela obejmuje 0–90°, a pełny obwód i kopiowanie: 0–360° co 15° (25 punktów z zamknięciem). Bez grubości ścianki, ukosowania, szczeliny i naddatków — sprawdź dokumentację przed cięciem.',
   bodyEn:
@@ -486,30 +429,13 @@ final kHelpSaddleCut = ScreenHelp(
     HelpStep('📏', 'Wpisz OD rury głównej (header) i rury odgałęzieniowej (branch).'),
     HelpStep('📊', 'Na obwodzie mierz po łuku od 0°. Głębokość odmierzaj osiowo od płaszczyzny prostopadłej do osi, przechodzącej przez najdłuższe punkty, w stronę korpusu rury.'),
     HelpStep('💡', '0° i 180° leżą w płaszczyźnie obu osi — maksymalne wycięcie. 90° i 270° to najdłuższe końce rury (głębokość 0 mm). 360° zamyka obwód w 0°.'),
+    HelpStep('🖨️', 'Odgałęzienie pod innym kątem niż 90° albo szablon 1:1 do owinięcia rury — narzędzie „Szablon siodła do druku”.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter the OD of the header pipe and the branch pipe.'),
     HelpStep('📊', 'Measure circumference distance along the arc from 0°. Measure depth axially from the plane perpendicular to the axis through the longest points, towards the pipe body.'),
     HelpStep('💡', '0° and 180° lie in the plane of both axes — maximum cutback. 90° and 270° are the longest pipe-end points (depth 0 mm). 360° closes the circumference at 0°.'),
-  ],
-);
-
-final kHelpRouteMeasure = ScreenHelp(
-  titlePl: 'Pomiar trasy',
-  titleEn: 'Route measure',
-  bodyPl:
-      'Przelicza wymiary zmierzone taśmą na wymiary C-C (oś do osi). Podaj wymiar boku A i B, OD rury i wymiar kolanka do osi — aplikacja obliczy wymiary C-C i długości do cięcia.',
-  bodyEn:
-      'Converts tape-measured dimensions to C-C (centre-to-centre) dimensions. Enter side A and B dimensions, pipe OD and elbow centre-to-face — the app calculates C-C dimensions and cut lengths.',
-  stepsPl: [
-    HelpStep('📏', 'Wybierz typ pomiaru: inner (wewnątrz), center (C-C) lub outer (zewnątrz).'),
-    HelpStep('🔢', 'Wpisz wymiary A, B, OD rury i wymiar kolanka do osi (C-F).'),
-    HelpStep('📐', 'Wynik: długości C-C dla obu boków, kąt skos i długości do cięcia.'),
-  ],
-  stepsEn: [
-    HelpStep('📏', 'Choose measurement type: inner, center (C-C) or outer.'),
-    HelpStep('🔢', 'Enter dimensions A, B, pipe OD and elbow centre-to-face (C-F).'),
-    HelpStep('📐', 'Result: C-C lengths for both sides, diagonal angle and cut lengths.'),
+    HelpStep('🖨️', 'Branch at an angle other than 90°, or a 1:1 template to wrap the pipe — use the “Printable saddle template” tool.'),
   ],
 );
 
@@ -528,6 +454,8 @@ final kHelpIsoNotebook = ScreenHelp(
     HelpStep('🧭', 'OPISY — strzałka północy, kierunek przepływu, tekst (nr linii, rzędna).'),
     HelpStep('📋', 'Przycisk kopiowania w pasku górnym tworzy zestawienie: wymiary + BOM.'),
     HelpStep('🗑️', 'Przytrzymaj dowolny element aby go usunąć.'),
+    HelpStep('💾', 'Szkic zapisuje się sam po każdej zmianie — wyjście z ekranu, telefon czy rozładowana bateria go nie skasują. Po powrocie otwiera się ostatni szkic.'),
+    HelpStep('📂', 'Menu „Szkice” (ikona folderu w pasku górnym): „Nowy szkic” zaczyna czystą kartkę, a poprzedni zostaje w pamięci; „Zapisane szkice” otwiera lub usuwa wcześniejsze.'),
   ],
   stepsEn: [
     HelpStep('📏', 'PIPE tool — drag on the grid, then enter the segment dimension on release.'),
@@ -537,6 +465,8 @@ final kHelpIsoNotebook = ScreenHelp(
     HelpStep('🧭', 'ANNOTATIONS — north arrow, flow direction and free text (line no., elevation).'),
     HelpStep('📋', 'The copy button in the top bar builds a summary: dimensions + BOM.'),
     HelpStep('🗑️', 'Long-press any element to delete it.'),
+    HelpStep('💾', 'The sketch saves itself after every change — leaving the screen, a phone call or a flat battery won\'t lose it. The last sketch opens again when you come back.'),
+    HelpStep('📂', '“Sketches” menu (folder icon in the top bar): “New sketch” starts a clean sheet and keeps the previous one; “Saved sketches” opens or deletes earlier ones.'),
   ],
 );
 
@@ -579,23 +509,44 @@ final kHelpWelderTanks = ScreenHelp(
 );
 
 final kHelpWelderTools = ScreenHelp(
-  titlePl: 'Kalkulatory — Spawacz',
-  titleEn: 'Calculators — Welder',
+  titlePl: 'Gaz, formowanie i timer',
+  titleEn: 'Gas, purge and timer',
   bodyPl:
-      'Kalkulatory spawalnicze w zakładkach: Heat Input (kJ/mm), Temperatura podgrzewania, Purge O₂, Zużycie gazu, Timer spawania i Przelicznik ciśnienia.',
+      'Kalkulatory spawacza w zakładkach: Zużycie gazu, Formowanie O₂ (purge), Timer i Przelicznik ciśnienia. Heat input i podgrzewanie liczy osobny ekran „Heat input i CE”.',
   bodyEn:
-      'Welding calculators in tabs: Heat Input (kJ/mm), Preheat temperature, O₂ purge, Gas consumption, Weld timer and Pressure converter.',
+      'Welder calculators in tabs: Gas consumption, O₂ purge, Timer and Pressure converter. Heat input and preheat are on the separate “Heat input and CE” screen.',
   stepsPl: [
-    HelpStep('🌡️', 'Heat Input — oblicza kJ/mm ze: napięcia, prądu i prędkości spawania.'),
-    HelpStep('🔥', 'Temperatura — wymagana temperatura podgrzewania wg grubości i C.E.'),
-    HelpStep('💨', 'O₂ Purge — czas i ilość gazu do wypłukania rury przed spawaniem.'),
-    HelpStep('⏱️', 'Timer — stoper do mierzenia czasu łuku dla heat input.'),
+    HelpStep('🧪', 'Gaz — zużycie gazu osłonowego i formującego na projekt oraz liczba butli (pojemność wodna × ciśnienie, z rezerwą).'),
+    HelpStep('💨', 'O₂ Purge — szacunkowy czas i ilość gazu do wypłukania rury do zadanego ppm O₂; sprawdź analizatorem przed spawaniem.'),
+    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie.'),
+    HelpStep('🔁', 'Ciśnienie — przelicznik bar / MPa / kPa / PSI / atm / kgf/cm².'),
   ],
   stepsEn: [
-    HelpStep('🌡️', 'Heat Input — calculates kJ/mm from: voltage, current and travel speed.'),
-    HelpStep('🔥', 'Preheat — required preheat temperature based on thickness and C.E.'),
-    HelpStep('💨', 'O₂ Purge — time and gas volume to purge a pipe before welding.'),
-    HelpStep('⏱️', 'Timer — stopwatch to measure arc time for heat input.'),
+    HelpStep('🧪', 'Gas — shielding and purge gas for a project and the number of cylinders (water capacity × pressure, with reserve).'),
+    HelpStep('💨', 'O₂ Purge — estimated time and gas to purge a pipe down to a target ppm O₂; verify with an analyser before welding.'),
+    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge.'),
+    HelpStep('🔁', 'Pressure — converter bar / MPa / kPa / PSI / atm / kgf/cm².'),
+  ],
+);
+
+final kHelpHeatInput = ScreenHelp(
+  titlePl: 'Heat input i CE',
+  titleEn: 'Heat input and CE',
+  bodyPl:
+      'Energia liniowa (heat input) wg EN 1011-1 (z η) albo ASME IX (bez η) oraz szacunkowa temperatura podgrzewania ze składu chemicznego i grubości. Wynik jest pomocniczy: wiąże temperatura z WPS, nie niższa niż minimum kodowe; normatywne metody obliczeniowe to EN 1011-2 zał. C.',
+  bodyEn:
+      'Heat input per EN 1011-1 (with η) or ASME IX (no η), plus an estimated preheat temperature from chemistry and thickness. The result is an aid: the WPS temperature is binding, never below the code minimum; the normative calculation methods are EN 1011-2 Annex C.',
+  stepsPl: [
+    HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość.'),
+    HelpStep('📏', 'Zakres WPS — wpisz min i/lub max z Twojego WPS, żeby zobaczyć, czy wynik mieści się w zakresie.'),
+    HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku).'),
+    HelpStep('🧾', 'Gatunek z listy uzupełnia typową chemię — do obliczeń z atestu wpisz skład z atestu 3.1.'),
+  ],
+  stepsEn: [
+    HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value.'),
+    HelpStep('📏', 'WPS range — enter min and/or max from your WPS to see whether the result is within range.'),
+    HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked).'),
+    HelpStep('🧾', 'A grade from the list fills typical chemistry — for an MTR-based result type the chemistry from the 3.1 certificate.'),
   ],
 );
 
@@ -694,27 +645,6 @@ final kHelpWelderPipeParams = ScreenHelp(
   ],
 );
 
-final kHelpSpoolPlanner = ScreenHelp(
-  titlePl: 'Projektant trasy 3D',
-  titleEn: 'Route planner 3D',
-  bodyPl:
-      'Wizualny projektant 3D trasy rurowej. Definiujesz kolejne odcinki w osiach X, Y i Z, a aplikacja rysuje podgląd trasy i oblicza sumaryczne długości w każdym kierunku.',
-  bodyEn:
-      'A 3D visual pipe route planner. Define successive segments along X, Y and Z axes and the app draws a route preview and calculates total lengths in each direction.',
-  stepsPl: [
-    HelpStep('➕', 'Dodaj odcinek: wybierz oś (X/Y/Z) i wpisz długość.'),
-    HelpStep('🔄', 'Podgląd 3D obraca się automatycznie po każdym dodaniu.'),
-    HelpStep('🗑️', 'Usuń ostatni odcinek przyciskiem Cofnij.'),
-    HelpStep('📊', 'Zestawienie na dole pokazuje sumy w osi X, Y i Z.'),
-  ],
-  stepsEn: [
-    HelpStep('➕', 'Add a segment: choose axis (X/Y/Z) and enter the length.'),
-    HelpStep('🔄', 'The 3D preview rotates automatically after each addition.'),
-    HelpStep('🗑️', 'Remove the last segment with the Undo button.'),
-    HelpStep('📊', 'The summary at the bottom shows totals for X, Y and Z axes.'),
-  ],
-);
-
 final kHelpHeatPhotos = ScreenHelp(
   titlePl: 'Heat Numbers — zdjęcia',
   titleEn: 'Heat Numbers — photos',
@@ -750,25 +680,6 @@ final kHelpProjectComponents = ScreenHelp(
     HelpStep('🔢', 'Enter the heat number for each component.'),
     HelpStep('📷', 'Add a material certificate photo with the camera button.'),
     HelpStep('✅', 'Save the assignments with the button in the top right.'),
-  ],
-);
-
-final kHelpFieldAssembly = ScreenHelp(
-  titlePl: 'Montaż w terenie',
-  titleEn: 'Field assembly',
-  bodyPl:
-      'Narzędzie do planowania i dokumentowania montażu w terenie. Rejestruj status każdego spool\'a (prefabrykatu) — gotowy do spawania, spawany lub zamontowany.',
-  bodyEn:
-      'A tool for planning and documenting field assembly. Record the status of each spool (prefab) — ready to weld, welded or installed.',
-  stepsPl: [
-    HelpStep('📋', 'Lista spoolów pokazuje status każdego prefabrykatu.'),
-    HelpStep('✅', 'Dotknij spool\'a aby zmienić jego status montażu.'),
-    HelpStep('📤', 'Eksportuj raport statusu przyciskiem w górnym prawym rogu.'),
-  ],
-  stepsEn: [
-    HelpStep('📋', 'The spool list shows the status of each prefab.'),
-    HelpStep('✅', 'Tap a spool to change its assembly status.'),
-    HelpStep('📤', 'Export the status report with the button in the top right.'),
   ],
 );
 

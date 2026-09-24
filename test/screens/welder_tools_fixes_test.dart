@@ -1,10 +1,11 @@
-// Kalkulatory spawacza (6 zakładek) — poprawki z audytu 2026-09.
+// Kalkulatory spawacza (4 zakładki: gaz, formowanie, timer, ciśnienie) —
+// poprawki z audytu 2026-09.
+//
+// Zakładki „Heat Input" i „Temperatura" dublowały ekran „Heat input i CE"
+// i zostały usunięte; ich testy (Seferian 129/145/167 °C, 316L bez CEV,
+// k/η z procesu, EN vs ASME) są teraz w heat_input_fixes_test.dart.
 //
 // Każdy test pada na starej wersji ekranu:
-//  • Heat input: domyślne k=0,80 przy TIG; MMA k=1,00; brak ASME; werdykt
-//    „za mała — brak wtopienia” dla 0,19 kJ/mm (orbitalny TIG cienkich rur).
-//  • Temperatura: „Seferian” liczony innym wzorem (132 zamiast 129 °C dla
-//    C 0,20 / Mn 1,50 / t 10); CEV 5,063 dużą liczbą dla stali 316L.
 //  • Gaz: 1050 L / „50 L gazu” = 21 butli (prawda: ~0,1 butli 50 L/200 bar).
 //  • Purge: cel 0 ppm → wyjątek w build().
 //  • Timer: pole „Temp. max” niczego nie robiło.
@@ -17,19 +18,27 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/welder_tools_screen.dart';
+import 'package:cut_list_app/widgets/tool_registry.dart';
 
-Widget _app() => AppLanguageScope(
+Widget _app({Widget home = const WelderToolsScreen()}) => AppLanguageScope(
       controller: AppLanguageController(AppLanguage.en),
-      child: const MaterialApp(home: WelderToolsScreen()),
+      child: MaterialApp(home: home),
     );
 
-Future<void> _pump(WidgetTester tester) async {
+Future<void> _pump(WidgetTester tester,
+    {Widget home = const WelderToolsScreen()}) async {
   tester.view.physicalSize = const Size(1200, 3200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(_app());
+  // Nowa aplikacja za każdym razem — MaterialApp nie podmienia `home`
+  // w już zbudowanym Navigatorze.
+  await tester.pumpWidget(const SizedBox());
+  await tester.pumpWidget(_app(home: home));
   await tester.pumpAndSettle();
 }
+
+int _selectedTab(WidgetTester tester) =>
+    DefaultTabController.of(tester.element(find.byType(TabBar))).index;
 
 Future<void> _openTab(WidgetTester tester, String label) async {
   await tester.tap(find.widgetWithText(Tab, label));
@@ -52,80 +61,53 @@ Future<void> _enter(WidgetTester tester, String label, String value) async {
 const _disclaimer = 'the WPS / project specification is binding';
 
 void main() {
-  group('Heat input', () {
-    testWidgets('k wynika z procesu: TIG 0,60, MMA 0,80 (nie 1,00)',
+  group('bez duplikatów heat input / podgrzewania', () {
+    testWidgets('tylko 4 zakładki: gaz, formowanie, timer, ciśnienie',
         (tester) async {
       await _pump(tester);
-
-      expect(_text(tester, 'Thermal efficiency k'), '0.60',
-          reason: 'zakładka startuje na TIG 141 → k = 0,6 (EN 1011-1)');
-
-      await tester.tap(find.text('MMA 111'));
-      await tester.pump();
-      expect(_text(tester, 'Thermal efficiency k'), '0.80');
-
-      await tester.tap(find.text('SAW 121'));
-      await tester.pump();
-      expect(_text(tester, 'Thermal efficiency k'), '1.00');
-    });
-
-    testWidgets('EN 0,480 vs ASME IX 0,800 kJ/mm dla 12 V/100 A/90 mm/min',
-        (tester) async {
-      await _pump(tester);
-
-      await _enter(tester, 'Voltage U', '12');
-      await _enter(tester, 'Current I', '100');
-      await _enter(tester, 'Welding speed v', '90');
-      expect(find.text('0.480 kJ/mm'), findsOneWidget);
-
-      await tester.tap(find.text('ASME IX'));
-      await tester.pump();
-      expect(find.text('0.800 kJ/mm'), findsOneWidget);
-      expect(find.text('0.480 kJ/mm'), findsNothing);
-    });
-
-    testWidgets('0,16 kJ/mm (orbitalny TIG) nie jest oznaczane jako błąd',
-        (tester) async {
-      await _pump(tester);
-
-      await _enter(tester, 'Voltage U', '10');
-      await _enter(tester, 'Current I', '80');
-      await _enter(tester, 'Welding speed v', '180');
-      // 10·80·60/180 = 266,67 J/mm · 0,6 = 160 J/mm = 0,160 kJ/mm
-      expect(find.text('0.160 kJ/mm'), findsOneWidget);
-      expect(find.textContaining('lack of fusion'), findsNothing);
-      expect(find.textContaining(_disclaimer), findsOneWidget);
-    });
-  });
-
-  group('Temperatura podgrzewania', () {
-    testWidgets('Seferian: C 0,20 / Mn 1,50 → 129 / 145 / 167 °C',
-        (tester) async {
-      await _pump(tester);
-      await _openTab(tester, 'Preheat');
-      await tester.tap(find.text('CS (example)'));
-      await tester.pump();
-
-      for (final (t, tp) in [('10', '129 °C'), ('30', '145 °C'), ('60', '167 °C')]) {
-        await _enter(tester, 'Wall thickness t (mm)', t);
-        expect(find.text(tp), findsOneWidget, reason: 't = $t mm');
+      expect(find.byType(Tab), findsNWidgets(4));
+      for (final gone in ['Heat Input', 'Preheat', 'Temperatura']) {
+        expect(find.widgetWithText(Tab, gone), findsNothing, reason: gone);
       }
-      expect(find.text('0.450'), findsOneWidget, reason: 'CEV IIW');
-      expect(find.textContaining('13916'), findsNothing,
-          reason: 'EN ISO 13916 to pomiar temperatury, nie metoda obliczeń');
-      expect(find.textContaining('EN 1011-2'), findsWidgets);
-      expect(find.textContaining(_disclaimer), findsOneWidget);
+      // Pól heat input / CEV nie ma nigdzie na ekranie.
+      expect(find.textContaining('Thermal efficiency'), findsNothing);
+      expect(find.textContaining('CEV'), findsNothing);
     });
 
-    testWidgets('stal 316L: zamiast „CEV 5,063” komunikat', (tester) async {
-      await _pump(tester);
-      await _openTab(tester, 'Preheat');
-      await _enter(tester, 'Wall thickness t (mm)', '3');
-      await tester.tap(find.text('SS 316L'));
-      await tester.pump();
+    testWidgets('initialTab otwiera wskazaną zakładkę', (tester) async {
+      for (final (tab, visibleField) in [
+        (WelderToolsScreen.tabGas, 'Number of welds'),
+        (WelderToolsScreen.tabPurge, 'Section length to purge (mm)'),
+        (WelderToolsScreen.tabPressure, 'Value'),
+      ]) {
+        await _pump(tester, home: WelderToolsScreen(initialTab: tab));
+        expect(_selectedTab(tester), tab);
+        expect(_field(visibleField), findsOneWidget, reason: 'tab $tab');
+      }
+      // Timer nie ma pól w trybie „spawanie” — sprawdzamy przyciski trybu.
+      await _pump(tester,
+          home: const WelderToolsScreen(initialTab: WelderToolsScreen.tabTimer));
+      expect(_selectedTab(tester), WelderToolsScreen.tabTimer);
+      expect(find.text('Cooldown'), findsOneWidget);
+      // Indeks spoza zakresu nie wywraca ekranu.
+      await _pump(tester, home: const WelderToolsScreen(initialTab: 99));
+      expect(_selectedTab(tester), WelderToolsScreen.tabCount - 1);
+    });
 
-      expect(find.text('5.063'), findsNothing);
-      expect(find.textContaining('do not apply to stainless'), findsOneWidget);
+    testWidgets('kafel „Gaz, formowanie i timer” otwiera zakładkę Gaz',
+        (tester) async {
+      final spec = kToolRegistry.firstWhere((t) => t.id == 'welder_calculators');
+      late Widget built;
+      await tester.pumpWidget(Builder(builder: (context) {
+        built = spec.builder(context);
+        return const SizedBox();
+      }));
+      expect(built, isA<WelderToolsScreen>());
+      expect((built as WelderToolsScreen).initialTab, WelderToolsScreen.tabGas);
+
+      await _pump(tester, home: built);
+      expect(_selectedTab(tester), WelderToolsScreen.tabGas);
+      expect(_field('Number of welds'), findsOneWidget);
     });
   });
 
@@ -207,9 +189,9 @@ void main() {
     }
   });
 
-  testWidgets('każda z 6 zakładek ma zdanie „wiąże WPS”', (tester) async {
+  testWidgets('każda z 4 zakładek ma zdanie „wiąże WPS”', (tester) async {
     await _pump(tester);
-    for (final tab in ['Heat Input', 'Preheat', 'O₂ Purge', 'Gas', 'Timer', 'Pressure']) {
+    for (final tab in ['Gas', 'O₂ Purge', 'Timer', 'Pressure']) {
       await _openTab(tester, tab);
       expect(find.textContaining(_disclaimer), findsOneWidget, reason: tab);
     }

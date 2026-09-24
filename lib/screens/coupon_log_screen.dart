@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../database/db.dart';
 import '../i18n/app_language.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 
 const _kOrange = Color(0xFFFF8E1E);
@@ -10,8 +11,10 @@ const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
-const _kMuted  = Color(0xFF5A6478); // decorative icons / hairlines only
-const _kTextMut = Color(0xFF7A83A0); // secondary text that carries content
+// Oba z tokenu motywu: stary #5A6478 (ikony) był nieczytelny, a osobne
+// #7A83A0 (tekst) byłoby teraz ciemniejsze od ikon — odwrócona hierarchia.
+const _kMuted  = kTextMut; // decorative icons / hairlines only
+const _kTextMut = kTextMut; // secondary text that carries content
 const _kSec    = Color(0xFF9BA3C7);
 
 /// A test coupon ("kupon próbny") is a sacrificial weld a welder makes — on

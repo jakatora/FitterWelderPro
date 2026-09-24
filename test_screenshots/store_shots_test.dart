@@ -151,19 +151,28 @@ void main() {
     await boot(tester);
     await tester.tap(find.byIcon(Icons.waves_outlined));
     await settle(tester);
-    await tester.tap(find.byIcon(Icons.calculate_outlined));
+    // „Heat input i CE" → zakładka „Preheat / CE" (dawna zakładka
+    // „Temperatura" w kalkulatorach spawacza została usunięta jako duplikat).
+    final heatInput = find.byIcon(Icons.local_fire_department_outlined);
+    await tester.ensureVisible(heatInput);
+    await settle(tester);
+    await tester.tap(heatInput);
     await settle(tester);
     await tester.tap(find.byType(Tab).at(1));
     await settle(tester);
 
-    await tester.enterText(
-        find.ancestor(of: find.textContaining('t (mm)'), matching: find.byType(TextField)).first, '10');
+    Finder field(String label) => find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.labelText == label);
+    await tester.enterText(field('Grubość'), '10');
     await settle(tester);
-    await tester.enterText(
-        find.ancestor(of: find.text('C %'), matching: find.byType(TextField)).first, '0.18');
+    await tester.enterText(field('C'), '0.18');
     await settle(tester);
-    await tester.enterText(
-        find.ancestor(of: find.text('Mn %'), matching: find.byType(TextField)).first, '1.20');
+    await tester.enterText(field('Mn'), '1.20');
+    await settle(tester);
+    // Bez kursora i klawiatury; skład chemiczny na górze, wynik CE pod nim.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await settle(tester);
+    await tester.ensureVisible(find.text('SKŁAD CHEMICZNY (% WT)'));
     await settle(tester);
 
     await shoot(tester, '05_preheat_cev');

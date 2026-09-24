@@ -8,7 +8,7 @@
 
 class FlangeBolting {
   final int boltCount;
-  final String boltSize; // matches keys in BoltTorqueScreen._boltDiamMm
+  final String boltSize; // matches FlangeBoltSize.label in kFlangeBoltSizes (lib/domain/bolting/bolt_torque.dart)
   const FlangeBolting(this.boltCount, this.boltSize);
 }
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../i18n/app_language.dart';
 import '../services/saddle_template.dart';
 import '../services/saddle_print_layout.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Saddle / coping template screen — inputs header + branch OD + angle,
 // shows live preview of the cut profile, and exports a printable PDF
@@ -18,7 +19,7 @@ const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFF26A69A);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 const _kGold = Color(0xFFE8C14B);
 const _kAccentDim = Color(0x3326A69A);
 

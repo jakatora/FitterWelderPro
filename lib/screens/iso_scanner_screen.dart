@@ -11,6 +11,7 @@ import '../config/feature_flags.dart';
 import '../i18n/app_language.dart';
 import '../services/iso_parser.dart';
 import '../services/iso_scanner_ai.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import '../widgets/premium_gate.dart';
@@ -22,7 +23,7 @@ const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ISO SCANNER — read a piping isometric from a phone photo / scan and turn

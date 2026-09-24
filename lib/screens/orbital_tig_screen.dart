@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../i18n/app_language.dart';
 import '../services/orbital_tig.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
@@ -15,7 +16,7 @@ const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 // P1-14: in-screen Help content — wired into AppBar via HelpButton so the
 // welder can glance at what the calc actually estimates (Cunningham band per

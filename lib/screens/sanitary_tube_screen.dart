@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/sanitary_tube.dart';
 import '../i18n/app_language.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 
 const _kCard   = Color(0xFF141821);
@@ -9,7 +10,7 @@ const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 void _showSourceInfo(BuildContext context) {
   showDialog<void>(

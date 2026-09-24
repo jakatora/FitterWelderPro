@@ -848,8 +848,10 @@ final List<ToolSpec> kToolRegistry = [
   ),
 
   // ── Spawacz · Kalkulatory ────────────────────────────────────────────────
-  // Heat input ma jedno wejście: ekran „Heat input i CE". Kafel poniżej
-  // prowadzi do pozostałych kalkulatorów spawacza.
+  // Heat input i podgrzewanie mają jedno wejście: ekran „Heat input i CE".
+  // Kafel poniżej prowadzi do pozostałych kalkulatorów spawacza i otwiera je
+  // na zakładce z tytułu (gaz); zakładek heat input / temperatury już tam nie
+  // ma.
   ToolSpec(
     id: 'heat_input',
     group: ToolGroup.weldCalculators,
@@ -885,11 +887,12 @@ final List<ToolSpec> kToolRegistry = [
     group: ToolGroup.weldCalculators,
     titlePl: 'Gaz, formowanie i timer',
     titleEn: 'Gas, purge and timer',
-    subtitlePl: 'Formowanie O₂, zużycie gazu, timer, ciśnienie',
-    subtitleEn: 'O₂ purge, gas use, timer, pressure',
+    subtitlePl: 'Zużycie gazu, formowanie O₂, timer, ciśnienie',
+    subtitleEn: 'Gas use, O₂ purge, timer, pressure',
     icon: Icons.calculate_outlined,
     color: const Color(0xFF4A9EFF),
-    builder: (_) => const WelderToolsScreen(),
+    builder: (_) =>
+        const WelderToolsScreen(initialTab: WelderToolsScreen.tabGas),
     keywordsPl: const [
       'gaz',
       'formowanie',

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../i18n/app_language.dart';
 import '../models/job_listing.dart';
 import '../services/jobs_service.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
 import 'job_add_screen.dart';
@@ -22,7 +23,7 @@ const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE57373);
 const _kGold = Color(0xFFE8C14B);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 class JobsScreen extends StatefulWidget {
   final Future<List<JobListing>> Function({String? locationLike})?
