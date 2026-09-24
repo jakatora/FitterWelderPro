@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
 import 'data/db_bootstrap.dart';
 import 'i18n/app_language.dart';
+import 'services/chat_service.dart';
 import 'services/premium_service.dart';
 import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
@@ -25,12 +28,23 @@ Future<void> main() async {
   // (don't crash the splash) and silently swallowed; without the catch,
   // a transient DNS hiccup at startup would surface as an unhandled
   // future and (on debug) interrupt the user.
+  //
+  // Przy kPaidFeaturesEnabled == false refreshFromBackend wraca PRZED
+  // jakimkolwiek żądaniem (pinuje to test/services/device_identity_test.dart),
+  // a init() tylko czyta/zapisuje SharedPreferences — start niczego nie wysyła.
   PremiumService.instance.init().then((_) {
     return PremiumService.instance.refreshFromBackend();
   }).catchError((Object e) {
     debugPrint('PremiumService startup refresh failed: $e');
     return PremiumService.instance.status;
   });
+
+  // Sekret instalacji: powiązanie z device_id na serwerze (TOFU) — im
+  // wcześniej, tym krócej ktoś znający wyciekły device_id mógłby go „zająć".
+  // ALE tylko u montera, który już zaakceptował zasady czatu; bez zgody nic
+  // nie wychodzi z telefonu (reszta osób zarejestruje się przy wejściu na
+  // czat). Stary backend (404) i brak sieci: po cichu.
+  unawaited(ChatService.instance.registerDeviceIfConsented());
 
   // P0-08: hydrate persistent welder identity so the weld journal editor
   // can auto-fill welder + fitter fields on the very first new entry of
