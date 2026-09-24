@@ -2,10 +2,28 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
+import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
+
+/// Roll of the offset plane (= how far the elbow is turned) measured from
+/// the vertical, in degrees: atan(Spread / Rise). Rise is the vertical and
+/// Spread the lateral offset as entered on this screen; the roll from the
+/// horizontal is 90° minus this value.
+double rollFromVerticalDeg(double rise, double spread) =>
+    math.atan2(spread, rise) * 180.0 / math.pi;
+
+/// Pipe to cut between the two offset elbows:
+/// Travel − 2 × take-out − 2 × weld gap.
+double rollingCutLengthMm({
+  required double travelMm,
+  required double takeoutMm,
+  double gapMm = 0,
+}) =>
+    travelMm - 2.0 * takeoutMm - 2.0 * gapMm;
 
 class RollingOffsetScreen extends StatefulWidget {
   const RollingOffsetScreen({super.key});
@@ -22,6 +40,16 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   final _travelController     = TextEditingController();
   final _runController        = TextEditingController();
   final _multiplierController = TextEditingController();
+  final _rollVController      = TextEditingController();
+  final _rollHController      = TextEditingController();
+
+  // Optional cut length: B16.9 LR elbow size + weld gap.
+  int? _dn;
+  final _gapController        = TextEditingController();
+  final _takeoutController    = TextEditingController();
+  final _cutController        = TextEditingController();
+  String? _takeoutSource;
+  bool _cutNegative = false;
 
   String _selectedAngle = '45';
   final _customAngleController = TextEditingController();
@@ -36,6 +64,12 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     _multiplierController.clear();
     _travelController.clear();
     _runController.clear();
+    _rollVController.clear();
+    _rollHController.clear();
+    _takeoutController.clear();
+    _cutController.clear();
+    _takeoutSource = null;
+    _cutNegative = false;
     _showMultiplierWarning = false;
     _lastCalculation = null;
   }
@@ -71,13 +105,10 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       _riseController.clear();
       _spreadController.clear();
       _customAngleController.clear();
-      _trueOffsetController.clear();
-      _multiplierController.clear();
-      _travelController.clear();
-      _runController.clear();
+      _clearComputed();
+      _gapController.clear();
+      _dn = null;
       _selectedAngle = '45';
-      _showMultiplierWarning = false;
-      _lastCalculation = null;
     });
   }
 
@@ -166,6 +197,36 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     _multiplierController.text = multiplier.toStringAsFixed(4);
     _travelController.text     = travel.toStringAsFixed(1);
     _runController.text        = run.toStringAsFixed(1);
+    final rollV = rollFromVerticalDeg(rise, spread);
+    _rollVController.text      = rollV.toStringAsFixed(1);
+    _rollHController.text      = (90.0 - rollV).toStringAsFixed(1);
+
+    // Optional: cut length from the ASME B16.9 LR elbow take-out.
+    final dn = _dn;
+    if (dn != null) {
+      final t = b169ElbowTakeout(
+          dn: dn, type: ElbowRadiusType.long15D, angleDeg: angleDeg);
+      final gap = _parse(_gapController.text);
+      if (t != null && gap.isFinite && gap >= 0) {
+        final cut = rollingCutLengthMm(
+            travelMm: travel, takeoutMm: t.mm, gapMm: gap);
+        _takeoutController.text = t.mm.toStringAsFixed(1);
+        _cutController.text     = cut.toStringAsFixed(1);
+        _cutNegative = cut <= 0;
+        final half = (angleDeg / 2).toStringAsFixed(angleDeg % 2 == 0 ? 0 : 1);
+        _takeoutSource = switch (t.basis) {
+          TakeoutBasis.tableA90 => context.tr(
+              pl: 'ASME B16.9 tab. 6.1-1: kolano 90° LR DN$dn — A = ${t.a90Mm} mm',
+              en: 'ASME B16.9 Table 6.1-1: 90° LR elbow DN$dn — A = ${t.a90Mm} mm'),
+          TakeoutBasis.tableB45 => context.tr(
+              pl: 'ASME B16.9 tab. 6.1-1: kolano 45° LR DN$dn — B = ${t.mm.toStringAsFixed(0)} mm',
+              en: 'ASME B16.9 Table 6.1-1: 45° LR elbow DN$dn — B = ${t.mm.toStringAsFixed(0)} mm'),
+          TakeoutBasis.segment => context.tr(
+              pl: 'ASME B16.9 §6.2.4 (segment kolana 90° LR DN$dn): A × tan(θ/2) = ${t.a90Mm} × tan($half°)',
+              en: 'ASME B16.9 §6.2.4 (segment of a 90° LR elbow DN$dn): A × tan(θ/2) = ${t.a90Mm} × tan($half°)'),
+        };
+      }
+    }
 
     setState(() {
       _showMultiplierWarning = multiplier > 10;
@@ -209,6 +270,8 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     for (final c in [
       _riseController, _spreadController, _customAngleController,
       _trueOffsetController, _travelController, _runController, _multiplierController,
+      _rollVController, _rollHController, _gapController, _takeoutController,
+      _cutController,
     ]) {
       c.dispose();
     }
@@ -276,6 +339,47 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _calculate())),
             ]),
+            const SizedBox(height: 16),
+
+            _sectionLabel(context.tr(
+                pl: 'DŁUGOŚĆ CIĘCIA (OPCJONALNIE)',
+                en: 'CUT LENGTH (OPTIONAL)')),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              initialValue: _dn,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: context.tr(
+                    pl: 'Kolana ASME B16.9 LR — DN',
+                    en: 'ASME B16.9 LR elbows — DN'),
+                border: const OutlineInputBorder(),
+              ),
+              items: [
+                DropdownMenuItem<int>(
+                  value: null,
+                  child: Text(
+                    context.tr(pl: '— bez kolan (tylko Travel)', en: '— no elbows (Travel only)'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                for (final e in kElbowTakeouts)
+                  DropdownMenuItem<int>(
+                    value: e.dn,
+                    child: Text('DN${e.dn} (${e.nps}")',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (v) => setState(() {
+                _clearComputed();
+                _dn = v;
+              }),
+            ),
+            const SizedBox(height: 12),
+            _field(_gapController,
+              label: context.tr(pl: 'Szczelina spoiny (mm)', en: 'Weld root gap (mm)'),
+              suffix: 'mm',
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _calculate()),
             const SizedBox(height: 24),
 
             SizedBox(
@@ -339,6 +443,50 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
                 pl: 'Run = True Offset / tan(θ)',
                 en: 'Run = True Offset / tan(θ)',
               )),
+            const SizedBox(height: 12),
+            _result(_rollVController,
+              label: context.tr(
+                pl: 'Obrót kolana od pionu = atan(Spread / Rise)',
+                en: 'Elbow roll from vertical = atan(Spread / Rise)',
+              ),
+              suffix: '°'),
+            const SizedBox(height: 12),
+            _result(_rollHController,
+              label: context.tr(
+                pl: 'Obrót od poziomu = atan(Rise / Spread)',
+                en: 'Roll from horizontal = atan(Rise / Spread)',
+              ),
+              suffix: '°'),
+            if (_dn != null) ...[
+              const SizedBox(height: 12),
+              _result(_takeoutController,
+                label: context.tr(pl: 'Take-out kolana T', en: 'Elbow take-out T')),
+              if (_takeoutSource != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, left: 4),
+                  child: Text(
+                    _takeoutSource!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              const SizedBox(height: 12),
+              _result(_cutController,
+                label: context.tr(
+                  pl: 'Długość cięcia = Travel − 2×T − 2×szczelina',
+                  en: 'Cut length = Travel − 2×T − 2×gap',
+                )),
+              if (_cutNegative)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    context.tr(
+                      pl: 'Kolana nachodzą na siebie — odsadzka za mała dla tego DN i kąta.',
+                      en: 'The elbows overlap — the offset is too small for this DN and angle.',
+                    ),
+                    style: const TextStyle(color: Colors.orange, fontSize: 13),
+                  ),
+                ),
+            ],
             const SizedBox(height: 16),
 
             Text(
