@@ -176,6 +176,20 @@ const String kPipeTag = 'PIPE';
 /// Tag of a logical (library-less) end of a segment.
 const String kOpenEndTag = 'OPEN_END';
 
+/// Number of welds — and so of root gaps — on a builder segment whose anchors
+/// carry [startTag] and [endTag]: one per anchor that is not [kOpenEndTag].
+///
+/// The ONE place the builder decides this. The CUT in `_recalc`, the gap row
+/// of the breakdown and the gap label of the diagram all read it, so the
+/// number the saw is set to and the arithmetic shown under it cannot drift
+/// apart again (they were three inline copies of `START == OPEN_END ? 1 : 2`,
+/// which ignored the END — see [PrefabEngine.weldCountForEnds]).
+int builderWeldCount(String startTag, String endTag) =>
+    PrefabEngine.weldCountForEnds(
+      startIsOpenEnd: startTag == kOpenEndTag,
+      endIsOpenEnd: endTag == kOpenEndTag,
+    );
+
 /// Whether a picked sequence forms one complete, measurable segment.
 ///
 /// A segment is a single length of pipe between two anchors, so the only
@@ -293,6 +307,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   _Picked? get _endPicked   => hasEnd   ? _sequence[2] : null;
 
   bool get _isEditing => widget.existing != null;
+
+  /// Welds on the current START/END pair — valid only while [readyForIso].
+  int get _welds => builderWeldCount(_startPicked!.tag, _endPicked!.tag);
 
   final _isoController = TextEditingController();
   double? _isoMm;
@@ -468,7 +485,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           endRef: _endPicked!.refPoint,
           endOffsetMm: _endPicked!.offsetMm,
           gapMm: widget.gapMm,
-          welds: (_startPicked!.tag == 'OPEN_END') ? 1 : 2,
+          welds: _welds,
         );
         _isoMm = iso;
         _cutMm = cut;
@@ -823,6 +840,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                 startPicked: _startPicked!,
                 endPicked: _endPicked!,
                 gapMm: widget.gapMm,
+                welds: _welds,
               ),
               const SizedBox(height: 10),
               Card(
@@ -875,7 +893,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                           startRefLabel: _startPicked!.refLabel(context),
                           endRefLabel: _endPicked!.refLabel(context),
                           gapMm: widget.gapMm,
-                          welds: _startPicked!.tag == 'OPEN_END' ? 1 : 2,
+                          welds: _welds,
                           cutMm: _cutMm,
                         ),
                       ],
@@ -979,8 +997,15 @@ class _IsoVisualization extends StatelessWidget {
   final _Picked startPicked;
   final _Picked endPicked;
   final double gapMm;
+
+  /// From [builderWeldCount] — the same number the CUT was computed with.
+  final int welds;
   const _IsoVisualization({
-    required this.startPicked, required this.endPicked, required this.gapMm});
+    required this.startPicked,
+    required this.endPicked,
+    required this.gapMm,
+    required this.welds,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1072,12 +1097,14 @@ class _IsoVisualization extends StatelessWidget {
               ),
             ],
           ),
-          if (gapMm > 0) ...[
+          // No weld, no gap: an open → open run takes nothing off, and a
+          // "× 0" label would only suggest otherwise.
+          if (gapMm > 0 && welds > 0) ...[
             const SizedBox(height: 4),
             Text(
               context.tr(
-                pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm × ${startPicked.tag == 'OPEN_END' ? 1 : 2} sp.',
-                en: '+ gap: ${gapMm.toStringAsFixed(1)} mm × ${startPicked.tag == 'OPEN_END' ? 1 : 2} welds',
+                pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds sp.',
+                en: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds welds',
               ),
               style: const TextStyle(fontSize: 10, color: Color(0xFF4A9EFF)),
             ),

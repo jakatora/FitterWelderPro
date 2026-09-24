@@ -537,7 +537,10 @@ void main() {
         endRef: IsoRefPoint.open,
         endOffsetMm: 0,
         gapMm: 0,
-        welds: 1,
+        // open → open: nothing is welded, so no gap either (this used to pass
+        // 1, the builder's old start-only count; with gap 0 it made no
+        // difference to the number, but it pinned the wrong rule).
+        welds: builderWeldCount(kOpenEndTag, kOpenEndTag),
       );
       final viaNotebook = PrefabEngine.cutLengthMm(
         isoValueMm: 3450,
@@ -545,6 +548,40 @@ void main() {
       );
       expect(viaBuilder, viaNotebook);
       expect(viaBuilder, 3450);
+    });
+  });
+
+  group('weldCountForEnds', () {
+    test('one weld per anchor the pipe is welded to, none for a free end', () {
+      expect(
+          PrefabEngine.weldCountForEnds(
+              startIsOpenEnd: true, endIsOpenEnd: true),
+          0);
+      expect(
+          PrefabEngine.weldCountForEnds(
+              startIsOpenEnd: false, endIsOpenEnd: true),
+          1);
+      expect(
+          PrefabEngine.weldCountForEnds(
+              startIsOpenEnd: true, endIsOpenEnd: false),
+          1);
+      expect(
+          PrefabEngine.weldCountForEnds(
+              startIsOpenEnd: false, endIsOpenEnd: false),
+          2);
+    });
+
+    test('gap 3, elbow 152 → open end, ISO 1000: 1000 − 152 − 3 = 845', () {
+      final cut = builderCutMm(
+        isoMm: 1000,
+        startRef: IsoRefPoint.axis,
+        startOffsetMm: 152,
+        endRef: IsoRefPoint.open,
+        endOffsetMm: 0,
+        gapMm: 3,
+        welds: builderWeldCount('ELB90', kOpenEndTag),
+      );
+      expect(cut, 845);
     });
   });
 

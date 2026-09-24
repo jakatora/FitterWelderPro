@@ -239,6 +239,24 @@ class PrefabEngine {
     return direct >= swapped ? (left: a, right: b) : (left: b, right: a);
   }
 
+  /// How many welded joints — and therefore how many root gaps — a pipe run
+  /// between two anchors has: one for every anchor the pipe is welded to, none
+  /// for a free end (OPEN_END: the pipe simply stops there, nothing is welded
+  /// and no gap is left open).
+  ///
+  /// The single rule behind `weldCount` for every caller that has anchors
+  /// rather than a drawing: the segment builder (its CUT, its breakdown and
+  /// its diagram label), the scan review and the recompute of saved segments
+  /// after a project's gap changes. The builder used to decide this from the
+  /// START alone (`START == OPEN_END ? 1 : 2`), so an elbow → open end run lost
+  /// two gaps for its one weld and an open → open run lost one gap for none —
+  /// both times a pipe cut short by the gap, which cannot be welded back on.
+  static int weldCountForEnds({
+    required bool startIsOpenEnd,
+    required bool endIsOpenEnd,
+  }) =>
+      (startIsOpenEnd ? 0 : 1) + (endIsOpenEnd ? 0 : 1);
+
   /// Whether the notebook should prompt the user to pick a `DimRef`.
   ///
   /// Per user directive 2026-05-31: axial-on-both-sides defaults to CTC
