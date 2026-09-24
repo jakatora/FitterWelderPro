@@ -5,6 +5,7 @@ import '../i18n/app_language.dart';
 import '../services/ai_chat_service.dart';
 import '../services/premium_service.dart';
 import '../widgets/premium_gate.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // AI Chat screen — Premium feature wrapped in PremiumGate. Live against
 // Claude Haiku 4.5 via /api/fitter/ai/chat with keyword-retrieval RAG
@@ -18,7 +19,7 @@ const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE8C14B);
 const _kAccentBlue = Color(0xFF4A9EFF);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut;
 const _kTextPrimary = Color(0xFFE7ECF3);
 
 // P1-20: cache the alpha-modulated palette derivatives as top-level const so

@@ -21,6 +21,16 @@ do recenzji.
 Nic więcej: projekty, dziennik spoin, zdjęcia wytopów, parametry — tylko lokalnie.
 Brak analityki, reklam, śledzenia i raportów awarii.
 
+Od wersji z zabezpieczonym backendem (polityka `kLegalVersion = 2`) dochodzą
+dane techniczne, nadal tylko po zgodzie na czat:
+
+- **sekret instalacji** (losowy, generowany w aplikacji, wysyłany razem z
+  identyfikatorem instalacji) — potwierdza, że wiadomość pisze to samo
+  urządzenie; w deklaracjach mieści się w *User ID* / *Device or other IDs*;
+- **skróty adresów IP** (nie surowe IP) do limitów nadużyć — cel
+  *Fraud prevention / security*; nie łączone z profilem.
+Rejestracja urządzenia na serwerze następuje dopiero po zgodzie na czat.
+
 ## App Store Connect → App Privacy
 
 - **Do you or your third-party partners collect data from this app?** → **Yes**
@@ -55,8 +65,13 @@ przetwarzający na nasze zlecenie, nie „udostępnienie” w rozumieniu Google)
 
 - Polityka prywatności i strona usuwania danych — po wdrożeniu nowego backendu
   będą pod `https://fitter-welder-pro-backend-production.up.railway.app/privacy`
-  i `/data-deletion`. Po sprawdzeniu, że odpowiadają 200, wpisać je w
-  `lib/config/app_links.dart` (`privacyPolicyUrl`, `dataDeletionUrl`) oraz w obu konsolach.
+  i `/data-deletion` (już wpisane w `lib/config/app_links.dart`). Przed
+  wydaniem sprawdzić, że odpowiadają 200, i wpisać je w obu konsolach.
+  Źródłem tekstu jest teraz backend (`backend/src/routes/publicPages.js`) i
+  `lib/legal/legal_texts.dart`; `privacy-policy.html` w repo jest nieaktualny.
+- „Usuń moje dane” w aplikacji woła `DELETE /api/fitter/me` (czat, zgłoszenia,
+  ogłoszenia, sekret) i dopiero potem czyści telefon — to jest ścieżka
+  usunięcia danych wymagana przez Google Play.
 - Alternatywa: GitHub Pages z `privacy-policy.html` (wymaga działającego pusha).
 
 ## Kiedy deklaracje trzeba rozszerzyć

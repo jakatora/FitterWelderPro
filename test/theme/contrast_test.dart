@@ -157,6 +157,9 @@ void main() {
       'lib/screens/material_list_screen.dart',
       'lib/screens/scan_review_screen.dart',
       'lib/screens/segment_builder_screen.dart',
+      'lib/screens/ai_chat_screen.dart',
+      'lib/screens/chat_screen.dart',
+      'lib/screens/premium_screen.dart',
     ];
     for (final path in files) {
       final src = File(path).readAsStringSync().toUpperCase();

@@ -208,8 +208,9 @@ class ChatService {
     if (full.length >= 2) {
       return full.length > 32 ? full.substring(0, 32) : full;
     }
-    // Profil jest wymuszony przy pierwszym uruchomieniu, więc tutaj trafiamy
-    // tylko po awarii odczytu — wtedy nie blokujemy czatu.
+    // Bramka przed czatem (widgets/community_gate.dart) wymusza imię i
+    // nazwisko, więc tutaj trafiamy tylko po awarii odczytu profilu — wtedy
+    // nie blokujemy czatu.
     await PremiumService.instance.init();
     final id = PremiumService.instance.deviceId;
     final suffix =

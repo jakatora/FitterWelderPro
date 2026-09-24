@@ -10,6 +10,7 @@ import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
 import 'ai_chat_screen.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Persisted across cold starts so that if the user kills the app after being
 // bounced to Stripe Checkout (slow network, accidental swipe), the next launch
@@ -40,7 +41,7 @@ const _kBorder = Color(0xFF2A3140);
 const _kGold = Color(0xFFE8C14B);
 const _kOrange = Color(0xFFFF8E1E);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut;
 const _kGreen = Color(0xFF2ECC71);
 
 class PremiumScreen extends StatefulWidget {

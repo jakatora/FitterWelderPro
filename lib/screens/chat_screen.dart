@@ -12,6 +12,7 @@ import '../services/premium_service.dart';
 import '../utils/haptic.dart';
 import '../widgets/community_gate.dart';
 import 'profile_screen.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
 //   1. ChatScreen — list of rooms
@@ -24,7 +25,7 @@ const _kCard = Color(0xFF141821);
 const _kAccent = Color(0xFFAB47BC); // purple accent — distinct from premium gold
 const _kBorder = Color(0xFF2A3140);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut;
 // P3-13 — chevron polish (brighter than _kTextMut so the affordance reads
 // under workshop fluorescents) + brighter edit-nickname icon.
 const _kChevron = Color(0xFFB0B7D4);
