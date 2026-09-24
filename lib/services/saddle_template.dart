@@ -1,576 +1,390 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import 'saddle_geometry.dart';
+import 'saddle_print_layout.dart';
+export 'saddle_geometry.dart' show SaddleCutPoint;
 
-// Saddle cut (fish-mouth) template generator for branch-on-header pipe
-// connections. Produces:
-//   1. Numeric offset table (depth around branch circumference)
-//   2. Scaled visual preview of the unrolled cut profile
-//   3. 1:1 strip template that the fitter wraps onto the branch pipe to
-//      mark the cutting line with a marker before saddle-cutting.
-//
-// Geometry (90° branch on cylindrical header, no offset):
-//   φ = angle around branch circumference (0..2π)
-//   R_h = header outside radius
-//   R_b = branch outside radius (R_b ≤ R_h)
-//
-//   The branch axis is perpendicular to the header axis. A point on the
-//   branch surface at angular position φ has horizontal offset from the
-//   branch axis of R_b·sin(φ) in the plane normal to the header axis.
-//   That point first intersects the header surface (x² + y² = R_h²) when
-//   z = √(R_h² - R_b²·sin²(φ)).
-//
-//   Depth d(φ) from the deepest point of the cut to the bottom of the
-//   profile is therefore:
-//     d(φ) = R_h - √(R_h² - R_b²·sin²(φ))
-//
-//   When unrolled, the horizontal position around the branch is x(φ) = R_b·φ.
-//   So the cut profile is (x, d) parametric in φ.
-//
-// For angles ≠ 90° we apply a tilt correction: the effective z grows by
-//   z' = z / sin(angleRad)
-// This handles 45°, 60° branches with the same formula.
-//
-// The tilt term rb·cos(α)·cos(φ) makes the raw depth go negative over the part
-// of the circumference that sits "short" (roughly φ = 120°..240° for DN100 on
-// DN200 @45°). That is a baseline artefact, not an invalid value, so depth is
-// reported relative to the SHALLOWEST point of the whole profile: the raw
-// curve is computed first, then shifted by −min. d = 0 therefore marks the
-// crown and every other value is what the fitter measures down from it.
-// Clamping the points one by one would flatten the curve; shifting preserves
-// its shape.
-
-class SaddleCutPoint {
-  /// Position around branch circumference, in degrees (0..360).
-  final double phiDeg;
-
-  /// Horizontal distance from the start of the strip (mm). When the strip is
-  /// wrapped around the branch, this equals the chord traced along its OD.
-  final double xMm;
-
-  /// Depth of the cut measured from the long side ("crown") of the branch
-  /// down to the line where the saddle meets the header (mm). The crown is the
-  /// shallowest point of the profile, so this is 0 there and never negative.
-  final double depthMm;
-
-  const SaddleCutPoint(this.phiDeg, this.xMm, this.depthMm);
+/// A newer input snapshot or a closed screen invalidated this export.
+class SaddleExportCancelled implements Exception {
+  const SaddleExportCancelled();
 }
 
-class SaddleTemplate {
-  final double headerOdMm;
-  final double branchOdMm;
-  final double angleDeg;
-
-  /// Number of points around the branch circumference (incl. both endpoints).
-  /// 73 points = every 5° around 360°.
+/// Numeric preview and printable template share the exact cylinder geometry.
+class SaddleTemplate extends SaddleGeometry {
   final int pointsCount;
-
   late final List<SaddleCutPoint> points;
 
-  /// Maximum depth of the cut, i.e. the span from the crown down to the
-  /// deepest point of the profile. For a 90° branch the deepest point is at
-  /// φ = 90° / 270° (the branch sides that sit deepest into the header); for
-  /// oblique branches the tilt term moves it to the long side at φ = 0°/360°.
-  late final double maxDepthMm;
-
-  /// Total unrolled strip length = π × branch_OD.
-  late final double stripLengthMm;
-
-  SaddleTemplate({
-    required this.headerOdMm,
-    required this.branchOdMm,
-    required this.angleDeg,
-    this.pointsCount = 73,
-  }) {
-    final rh = headerOdMm / 2.0;
-    final rb = branchOdMm / 2.0;
-    final angleRad = angleDeg * math.pi / 180.0;
-    final sinA = math.sin(angleRad);
-
-    if (branchOdMm > headerOdMm) {
-      throw ArgumentError(
-          'Branch OD ($branchOdMm) must be ≤ header OD ($headerOdMm)');
-    }
-    if (angleDeg < 15 || angleDeg > 90) {
-      throw ArgumentError(
-          'Angle must be in [15°, 90°], got $angleDeg°');
-    }
-
-    final pts = <SaddleCutPoint>[];
-
-    // The profile is built in TWO passes on purpose.
-    //
-    // WHY: for oblique branches the tilt term rb·cos(α)·cos(φ) legitimately
-    // pushes the raw depth below zero on the "acute" side of the branch — for
-    // DN100 on DN200 @45° every point between 120° and 240° comes out
-    // negative. The old code clamped each point on its own
-    // (`if (dRaw < 0) dRaw = 0;`), which replaced a third of the cut line with
-    // a dead-straight segment: the fitter got a flat line instead of a curve
-    // and the template did not fit the pipe. A negative raw depth does not
-    // mean "out of range", it only means that this point of the branch sticks
-    // out past the level we happened to start measuring from — a baseline
-    // problem. So pass 1 keeps every raw depth and records the minimum, and
-    // pass 2 moves the WHOLE profile by −min. A shift leaves every Δdepth
-    // untouched (shape preserved) and parks the 0 mm reference on the
-    // shallowest point, i.e. the crown of the fish-mouth.
-    final rawDepths = List<double>.filled(pointsCount, 0.0);
-    final phis = List<double>.filled(pointsCount, 0.0);
-    double minD = double.infinity;
-
-    for (int i = 0; i < pointsCount; i++) {
-      final phi = (i / (pointsCount - 1)) * 2 * math.pi;
-      final sinPhi = math.sin(phi);
-
-      // depth at this angular position
-      final under = rh * rh - rb * rb * sinPhi * sinPhi;
-      // shouldn't go negative when rb ≤ rh; clamp for numerical safety
-      final z = under > 0 ? math.sqrt(under) : 0.0;
-      // tilt correction for off-90° angles
-      double dRaw = (rh - z);
-      if (angleDeg < 90) {
-        // The cut becomes longer on the "obtuse" side and shorter on the
-        // "acute" side. Simple linear model used by most field guides:
-        // d(φ, α) = (rh - z)/sin(α) + rb·cos(α)·cos(φ)
-        final tiltAdd = rb * math.cos(angleRad) * math.cos(phi);
-        dRaw = (rh - z) / sinA + tiltAdd;
-      }
-
-      phis[i] = phi;
-      rawDepths[i] = dRaw;
-      if (dRaw < minD) minD = dRaw;
-    }
-
-    // Baseline shift. At α = 90° the raw minimum is exactly 0 (z = rh at
-    // φ = 0/180/360), so this pass is a no-op there — the 90° template, the
-    // one fitters already print from, comes out identical to before.
-    double maxD = 0;
-    for (int i = 0; i < pointsCount; i++) {
-      final phi = phis[i];
-      final depth = rawDepths[i] - minD;
-      if (depth > maxD) maxD = depth;
-
-      final x = rb * phi; // unrolled circumference (mm)
-      pts.add(SaddleCutPoint(phi * 180 / math.pi, x, depth));
-    }
-
-    points = pts;
-    maxDepthMm = maxD;
-    stripLengthMm = 2 * math.pi * rb;
+  SaddleTemplate(
+      {required super.headerOdMm,
+      required super.branchOdMm,
+      required super.angleDeg,
+      this.pointsCount = 73}) {
+    points = sample(pointsCount);
   }
 
-  /// Generates a PDF document and shares it via the platform share sheet.
-  Future<File> exportPdf({String? projectName}) async {
-    final doc = pw.Document();
-    doc.addPage(_buildSummaryPage(projectName));
-    doc.addPage(_buildScaledPreviewPage());
-    final stripPages = _buildStripPages();
-    for (final page in stripPages) {
-      doc.addPage(page);
+  /// Separate rendering from the share sheet so previews/tests use the same PDF.
+  Future<Uint8List> buildPdf(
+      {String? projectName, bool isEnglish = false}) async {
+    final layout = SaddlePrintLayout(this);
+    final name = (projectName ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (name.length > 160) {
+      throw ArgumentError('Project name is limited to 160 characters');
     }
+    final font =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
+    final doc =
+        pw.Document(theme: pw.ThemeData.withFont(base: font, bold: font));
+    final renderer = _SaddlePdf(this, layout, isEnglish, name);
+    doc.addPage(renderer.summary());
+    doc.addPage(renderer.preview());
+    for (final tile in layout.tiles) {
+      doc.addPage(renderer.tilePage(tile));
+    }
+    return doc.save();
+  }
 
+  Future<File> exportPdf(
+      {String? projectName,
+      bool isEnglish = false,
+      bool Function()? canShare}) async {
+    final bytes =
+        await buildPdf(projectName: projectName, isEnglish: isEnglish);
+    if (canShare != null && !canShare()) throw const SaddleExportCancelled();
     final dir = await getTemporaryDirectory();
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    final f = File('${dir.path}/saddle_${branchOdMm.toInt()}x${headerOdMm.toInt()}_$stamp.pdf');
-    await f.writeAsBytes(await doc.save());
-
-    await Share.shareXFiles(
-      [XFile(f.path)],
-      subject: 'Saddle template ${branchOdMm.toStringAsFixed(0)}×${headerOdMm.toStringAsFixed(0)} mm @ ${angleDeg.toStringAsFixed(0)}°',
-    );
-    return f;
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final file = File(
+        '${dir.path}/saddle_${branchOdMm.toInt()}x${headerOdMm.toInt()}_$stamp.pdf');
+    await file.writeAsBytes(bytes);
+    // Recheck after the last file-system await, immediately before sharing.
+    if (canShare != null && !canShare()) throw const SaddleExportCancelled();
+    await Share.shareXFiles([XFile(file.path)],
+        subject: isEnglish ? 'Saddle template' : 'Szablon wycięcia siodłowego');
+    return file;
   }
+}
 
-  // ── PDF pages ───────────────────────────────────────────────────────────
+class _SaddlePdf {
+  final SaddleTemplate geometry;
+  final SaddlePrintLayout layout;
+  final bool isEnglish;
+  final String projectName;
+  _SaddlePdf(this.geometry, this.layout, this.isEnglish, this.projectName);
 
-  pw.Page _buildSummaryPage(String? projectName) {
-    final kAccent = PdfColor.fromHex('#26A69A');
-    final kCard = PdfColor.fromHex('#F5F7FA');
-    final kMuted = PdfColor.fromHex('#6B7280');
-    final kText = PdfColor.fromHex('#1A1D26');
+  static const mm = PdfPageFormat.mm;
+  final ink = PdfColor.fromHex('#17252A');
+  final accent = PdfColor.fromHex('#146C60');
+  final grid = PdfColor.fromHex('#C7CDD0');
+  String tr(String pl, String en) => isEnglish ? en : pl;
+  String number(double value) => value == value.truncateToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toString();
+  String get dimensions =>
+      '${tr('OD główna', 'Header OD')} ${number(geometry.headerOdMm)} mm'
+      ' | ${tr('OD boczna', 'Branch OD')} ${number(geometry.branchOdMm)} mm'
+      ' | ${tr('Kąt osi', 'Axis angle')} ${number(geometry.angleDeg)}°';
+  String get limits => tr(
+      'Centralne połączenie powierzchni zewnętrznych. Bez grubości ścianki, ukosowania, szczeliny i naddatków. '
+          'Sprawdź dopasowanie na materiale oraz wymagania dokumentacji złącza przed cięciem.',
+      'Centred outside-surface intersection. Wall thickness, bevel, gap and allowances are excluded. '
+          'Check fit on the material and joint documentation before cutting.');
 
-    return pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(32),
-      build: (ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('FITTER WELDER PRO  ·  Saddle template',
-                style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: kAccent)),
-            pw.SizedBox(height: 6),
-            if (projectName != null && projectName.isNotEmpty)
-              pw.Text(projectName, style: pw.TextStyle(fontSize: 12, color: kMuted)),
-            pw.Text(DateTime.now().toString().substring(0, 16),
-                style: pw.TextStyle(fontSize: 10, color: kMuted)),
-            pw.SizedBox(height: 22),
+  pw.Text text(String value, {double size = 9, PdfColor? color}) =>
+      pw.Text(value, style: pw.TextStyle(fontSize: size, color: color ?? ink));
 
-            // Specs block
-            pw.Container(
-              padding: const pw.EdgeInsets.all(16),
-              decoration: pw.BoxDecoration(
-                color: kCard,
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Row(
-                children: [
-                  _specBox('Header OD', '${headerOdMm.toStringAsFixed(1)} mm', kAccent),
-                  _specBox('Branch OD', '${branchOdMm.toStringAsFixed(1)} mm', kAccent),
-                  _specBox('Angle', '${angleDeg.toStringAsFixed(0)}°', kAccent),
-                  _specBox('Max depth', '${maxDepthMm.toStringAsFixed(1)} mm', kAccent),
-                ],
-              ),
-            ),
+  pw.Page summary() => pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(12 * mm),
+        build: (_) => pw
+            .Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          text('FITTER WELDER PRO', size: 12, color: accent),
+          text(tr('Szablon wycięcia siodłowego', 'Saddle cutting template'),
+              size: 19),
+          if (projectName.isNotEmpty) ...[
+            pw.SizedBox(height: 4),
+            text(projectName)
+          ],
+          text(DateTime.now().toString().substring(0, 16), size: 8),
+          pw.SizedBox(height: 12),
+          text(dimensions, size: 10),
+          text(
+              '${tr('Maks. głębokość', 'Maximum cutback')}: ${geometry.maxDepthMm.toStringAsFixed(2)} mm'
+              ' | ${tr('Obwód', 'Circumference')}: ${geometry.stripLengthMm.toStringAsFixed(2)} mm'),
+          pw.SizedBox(height: 10),
+          text(tr(
+              'Głębokość od płaszczyzny najdłuższych końców w stronę korpusu rury.',
+              'Cutback from the longest-tip plane towards the pipe body.')),
+          pw.SizedBox(height: 6),
+          pw.Table(
+            border: pw.TableBorder.all(color: grid, width: .4),
+            children: [
+              pw.TableRow(
+                  decoration:
+                      pw.BoxDecoration(color: PdfColor.fromHex('#E9F2F0')),
+                  children: [
+                    cell(tr('Pozycja', 'Position')),
+                    cell(tr('Łuk od 0° (mm)', 'Arc from 0° (mm)')),
+                    cell(tr('Głębokość (mm)', 'Cutback (mm)')),
+                  ]),
+              for (var i = 0; i <= 24; i++)
+                pw.TableRow(children: [
+                  cell('${i * 15}°'),
+                  cell(geometry.pointAt(i * 15.0).xMm.toStringAsFixed(2)),
+                  cell(geometry.pointAt(i * 15.0).depthMm.toStringAsFixed(2)),
+                ]),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          text(tr('Składanie i kontrola', 'Assembly and checking'),
+              size: 12, color: accent),
+          pw.SizedBox(height: 4),
+          text(tr(
+              '1. Drukuj strony 3+ w rozmiarze rzeczywistym (100%), bez dopasowania do strony.',
+              '1. Print pages 3+ at actual size (100%), with fit-to-page disabled.')),
+          text(tr(
+              '2. Sprawdź linijką obie podziałki 100 mm: poziomą i pionową, na każdej kartce.',
+              '2. Measure both 100 mm calibration bars: horizontal and vertical, on every sheet.')),
+          text(tr(
+              '3. Połącz pola według R (rząd) i C (kolumna). Nakładaj pola po 5 mm; wyrównaj siatkę i zakresy X/Y, nie brzegi papieru.',
+              '3. Assemble by R (row) and C (column). Overlap plots by 5 mm; match the grid and X/Y ranges, not paper edges.')),
+          text(tr(
+              '4. 0° leży w płaszczyźnie osi, po stronie największego wycięcia. Bazę Y=0 ustaw prostopadle do osi odgałęzienia; +Y kieruj w stronę korpusu.',
+              '4. 0° lies in the axes plane on the maximum-cutback side. Align base Y=0 perpendicular to the branch axis; +Y points towards the body.')),
+          text(tr(
+              '5. X odmierzaj po obwodzie, nie po cięciwie. Krawędź 360° zamyka się na 0°. Sprawdź orientację przed trasowaniem.',
+              '5. X is circumference arc length, not a chord. The 360° edge closes at 0°. Check orientation before marking.')),
+          pw.SizedBox(height: 8),
+          text(limits, size: 8),
+          pw.Spacer(),
+          text(
+              tr('Tabela co 15°. Kontur druku jest zagęszczany niezależnie od tabeli. Strona 2 nie ma skali 1:1.',
+                  'Table every 15°. The print contour is independently refined. Page 2 is not 1:1.'),
+              size: 8),
+        ]),
+      );
 
-            pw.SizedBox(height: 18),
-            pw.Text('Offsets table  ·  (depth from crown, per 15° around branch)',
-                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: kText)),
-            pw.SizedBox(height: 6),
-            _offsetsTable(),
+  pw.Widget cell(String value) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2.4, horizontal: 5),
+        child: pw.Text(value, style: pw.TextStyle(fontSize: 8.5, color: ink)),
+      );
 
-            pw.SizedBox(height: 18),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#FFF8E6'),
-                borderRadius: pw.BorderRadius.circular(6),
-              ),
+  pw.Page preview() => pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(10 * mm),
+        build: (_) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              text(
+                  tr('PODGLĄD - NIE DO TRASOWANIA 1:1',
+                      'PREVIEW - NOT A 1:1 CUTTING PATTERN'),
+                  size: 14,
+                  color: accent),
+              text(dimensions),
+              text(tr(
+                  'Odległość X po obwodzie; głębokość Y w stronę korpusu. Kontur właściwy: strony 3+.',
+                  'X follows the circumference; Y cutback points towards the body. Actual-size contour: pages 3+.')),
+              pw.SizedBox(height: 8 * mm),
+              pw.SizedBox(
+                  width: 260 * mm,
+                  height: 140 * mm,
+                  child: pw.CustomPaint(
+                    size: const PdfPoint(260 * mm, 140 * mm),
+                    painter: (canvas, size) {
+                      final scale = math.min(
+                          (size.x - 20) / geometry.stripLengthMm,
+                          (size.y - 20) / math.max(geometry.maxDepthMm, 1));
+                      canvas.saveContext();
+                      canvas.drawRect(0, 0, size.x, size.y);
+                      canvas.clipPath();
+                      canvas.setColor(grid);
+                      canvas.setLineWidth(.5);
+                      canvas.drawLine(
+                          10, 10, 10 + geometry.stripLengthMm * scale, 10);
+                      canvas.strokePath();
+                      canvas.setColor(accent);
+                      canvas.setLineWidth(1);
+                      final profile =
+                          geometry.profileBetween(0, geometry.stripLengthMm);
+                      drawLine(
+                          canvas,
+                          profile,
+                          (p) => PdfPoint(
+                              10 + p.xMm * scale, 10 + p.depthMm * scale));
+                      canvas.restoreContext();
+                    },
+                  )),
+              text(tr(
+                  'Widok zachowuje proporcje. Druk 1:1: ${layout.columns} kolumn x ${layout.rows} rzędów, zakładka 5 mm.',
+                  'Proportional preview. Actual-size print: ${layout.columns} columns x ${layout.rows} rows, 5 mm overlap.')),
+            ]),
+      );
+
+  pw.Page tilePage(SaddlePrintTile tile) => pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(10 * mm),
+        build: (_) => pw.Stack(children: [
+          pw.Positioned(
+              left: 0,
+              top: 0,
+              right: 0,
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text('How to use:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                  pw.SizedBox(height: 4),
-                  pw.Text('1. Mark a longitudinal reference line along the branch pipe (top of the saddle).', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text('2. Cut the strip pages out and tape them together end-to-end.', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text('3. Wrap the strip around the branch, aligning the 0° edge with your reference line.', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text('4. Trace the cut curve onto the pipe with a marker, then saw / grind / plasma-cut.', style: pw.TextStyle(fontSize: 9)),
-                  pw.Text('5. Final fit-up gap before weld: ≤3 mm; root opening 2-4 mm typical.', style: pw.TextStyle(fontSize: 9)),
+                  text(
+                      'FITTER WELDER PRO | R${tile.row + 1} C${tile.column + 1} | 1:1 / 100%',
+                      size: 12,
+                      color: accent),
+                  text(dimensions, size: 9),
+                  text(
+                      'X: ${tile.startX.toStringAsFixed(2)}-${tile.endX.toStringAsFixed(2)} mm'
+                      ' | Y: ${tile.startY.toStringAsFixed(2)}-${tile.endY.toStringAsFixed(2)} mm'
+                      ' | ${tr('zakładka', 'overlap')}: 5 mm'),
+                  text(
+                      tr('+Y: w stronę korpusu rury. 0°: strona największego wycięcia.',
+                          '+Y: towards the pipe body. 0°: maximum-cutback side.'),
+                      size: 8),
                 ],
-              ),
-            ),
+              )),
+          pw.Positioned(
+              left: 0,
+              top: 24 * mm,
+              child: pw.SizedBox(
+                  width: 260 * mm,
+                  height: 140 * mm,
+                  child: pw.CustomPaint(
+                      size: const PdfPoint(260 * mm, 140 * mm),
+                      painter: (canvas, size) => drawTile(canvas, tile)))),
+          pw.Positioned(
+              left: 265 * mm,
+              top: 30 * mm,
+              child: pw.SizedBox(
+                  width: 10 * mm,
+                  height: 105 * mm,
+                  child: pw.Stack(children: [
+                    pw.Positioned(
+                        left: 0,
+                        top: 0,
+                        child: pw.CustomPaint(
+                            size: const PdfPoint(8 * mm, 100 * mm),
+                            painter: (canvas, size) =>
+                                ruler(canvas, vertical: true))),
+                    pw.Positioned(
+                        left: 0, top: 101 * mm, child: text('100 mm', size: 7)),
+                  ]))),
+          pw.Positioned(
+              left: 0,
+              top: 170 * mm,
+              child: pw.SizedBox(
+                  width: 100 * mm,
+                  height: 12 * mm,
+                  child: pw.Column(children: [
+                    pw.CustomPaint(
+                        size: const PdfPoint(100 * mm, 5 * mm),
+                        painter: (canvas, size) =>
+                            ruler(canvas, vertical: false)),
+                    text('100 mm', size: 8),
+                  ]))),
+          pw.Positioned(
+              left: 106 * mm,
+              top: 170 * mm,
+              right: 0,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  text(
+                      tr('Sprawdź obie podziałki linijką. Nie skaluj wydruku.',
+                          'Measure both bars with a ruler. Do not scale this print.'),
+                      size: 8),
+                  text(
+                      tr('Rzędy od Y=0 w górę. Kolumny od X=0 w prawo.',
+                          'Rows go up from Y=0. Columns go right from X=0.'),
+                      size: 8),
+                  text(
+                      tr('Linie przerywane wyznaczają zakładkę 5 mm.',
+                          'Dashed lines mark the 5 mm overlap.'),
+                      size: 8),
+                ],
+              )),
+        ]),
+      );
 
-            pw.Spacer(),
-            pw.Divider(color: kMuted),
-            pw.Text('Generated by Fitter Welder Pro · Print at 100% scale. Verify dimensions with a ruler on page 3+.',
-                style: pw.TextStyle(fontSize: 8, color: kMuted)),
-          ],
-        );
-      },
-    );
-  }
-
-  pw.Widget _specBox(String label, String value, PdfColor accent) {
-    return pw.Expanded(
-      child: pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 6),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(label.toUpperCase(),
-                style: pw.TextStyle(fontSize: 8, color: PdfColor.fromHex('#6B7280'), letterSpacing: 1)),
-            pw.SizedBox(height: 4),
-            pw.Text(value,
-                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: accent)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  pw.Widget _offsetsTable() {
-    final headerBg = PdfColor.fromHex('#E5E7EB');
-    final rowAlt = PdfColor.fromHex('#F9FAFB');
-    final kText = PdfColor.fromHex('#1A1D26');
-    final kAccent = PdfColor.fromHex('#26A69A');
-
-    final picks = <SaddleCutPoint>[];
-    for (int i = 0; i < points.length; i++) {
-      // Every 15° → 25 rows (0-360 inclusive)
-      if ((i * 5) % 15 == 0) picks.add(points[i]);
+  void ruler(PdfGraphics canvas, {required bool vertical}) {
+    canvas.setColor(ink);
+    canvas.setLineWidth(.6);
+    if (vertical) {
+      canvas.drawLine(3 * mm, 0, 3 * mm, 100 * mm);
+    } else {
+      canvas.drawLine(0, 3 * mm, 100 * mm, 3 * mm);
     }
-
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColor.fromHex('#D1D5DB'), width: 0.5),
-      columnWidths: const {
-        0: pw.FlexColumnWidth(1),
-        1: pw.FlexColumnWidth(1.5),
-        2: pw.FlexColumnWidth(1.5),
-      },
-      children: [
-        pw.TableRow(
-          decoration: pw.BoxDecoration(color: headerBg),
-          children: [
-            _cell('Position', isHeader: true),
-            _cell('Wrap distance', isHeader: true),
-            _cell('Depth from crown', isHeader: true),
-          ],
-        ),
-        ...picks.asMap().entries.map((e) {
-          final p = e.value;
-          final alt = e.key % 2 == 1;
-          return pw.TableRow(
-            decoration: alt ? pw.BoxDecoration(color: rowAlt) : null,
-            children: [
-              _cell('${p.phiDeg.toStringAsFixed(0)}°'),
-              _cell('${p.xMm.toStringAsFixed(1)} mm'),
-              _cell('${p.depthMm.toStringAsFixed(2)} mm',
-                  color: p.depthMm > maxDepthMm * 0.9 ? kAccent : kText, bold: p.depthMm > maxDepthMm * 0.9),
-            ],
-          );
-        }),
-      ],
-    );
-  }
-
-  pw.Widget _cell(String text, {bool isHeader = false, PdfColor? color, bool bold = false}) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-      child: pw.Text(
-        text,
-        style: pw.TextStyle(
-          fontSize: 9,
-          fontWeight: (isHeader || bold) ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: color ?? PdfColor.fromHex('#1A1D26'),
-        ),
-        textAlign: pw.TextAlign.center,
-      ),
-    );
-  }
-
-  pw.Page _buildScaledPreviewPage() {
-    final kAccent = PdfColor.fromHex('#26A69A');
-    final kText = PdfColor.fromHex('#1A1D26');
-
-    return pw.Page(
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.all(28),
-      build: (ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text('Scaled preview · NOT 1:1', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: kAccent)),
-            pw.Text(
-                'Pages 3+ contain the actual 1:1 cutting strip. This page is for visual reference only.',
-                style: pw.TextStyle(fontSize: 9, color: PdfColor.fromHex('#6B7280'))),
-            pw.SizedBox(height: 12),
-            pw.Expanded(
-              child: pw.CustomPaint(
-                size: const PdfPoint(0, 0), // takes parent box size
-                painter: (canvas, size) => _drawCutProfile(canvas, size, kAccent, kText),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _drawCutProfile(PdfGraphics canvas, PdfPoint size, PdfColor accent, PdfColor text) {
-    // Drawing area: leave 30 px padding for labels
-    final pad = 40.0;
-    final dw = size.x - pad * 2;
-    final dh = size.y - pad * 2;
-    if (dw <= 0 || dh <= 0) return;
-
-    // Scale to fit strip + max depth
-    final sx = dw / stripLengthMm;
-    final maxDepthDraw = maxDepthMm.clamp(1, double.infinity);
-    final sy = (dh * 0.7) / maxDepthDraw;
-    final scale = math.min(sx, sy);
-
-    // Center origin vertically
-    final originX = pad;
-    final originY = size.y - pad - (size.y - 2 * pad) * 0.15;
-
-    // Axes
-    canvas.setColor(PdfColor.fromHex('#9CA3AF'));
-    canvas.setLineWidth(0.5);
-    canvas.drawLine(originX, originY, originX + dw, originY);
     canvas.strokePath();
-
-    // 0/90/180/270/360 vertical guides
-    for (final phi in [0, 90, 180, 270, 360]) {
-      final x = originX + (phi / 360.0) * stripLengthMm * scale;
-      canvas.setColor(PdfColor.fromHex('#D1D5DB'));
-      canvas.drawLine(x, originY - dh * 0.7, x, originY + 10);
+    for (var i = 0; i <= 100; i += 10) {
+      final tick = i % 50 == 0 ? 2.0 : 1.0;
+      if (vertical) {
+        canvas.drawLine((3 - tick) * mm, i * mm, (3 + tick) * mm, i * mm);
+      } else {
+        canvas.drawLine(i * mm, (3 - tick) * mm, i * mm, (3 + tick) * mm);
+      }
       canvas.strokePath();
     }
+  }
 
-    // Cut profile curve
-    canvas.setColor(accent);
-    canvas.setLineWidth(1.5);
-    bool first = true;
-    for (final p in points) {
-      final x = originX + p.xMm * scale;
-      final y = originY - p.depthMm * scale;
-      if (first) {
-        canvas.moveTo(x, y);
-        first = false;
-      } else {
-        canvas.lineTo(x, y);
-      }
+  void drawTile(PdfGraphics canvas, SaddlePrintTile tile) {
+    final width = (tile.endX - tile.startX) * mm;
+    final height = (tile.endY - tile.startY) * mm;
+    canvas.saveContext();
+    canvas.drawRect(0, 0, width, height);
+    canvas.clipPath();
+    canvas.setColor(grid);
+    canvas.setLineWidth(.3);
+    for (var x = (tile.startX / 50).ceil() * 50.0; x <= tile.endX; x += 50) {
+      canvas.drawLine(
+          (x - tile.startX) * mm, 0, (x - tile.startX) * mm, height);
+    }
+    for (var y = (tile.startY / 50).ceil() * 50.0; y <= tile.endY; y += 50) {
+      canvas.drawLine(0, (y - tile.startY) * mm, width, (y - tile.startY) * mm);
     }
     canvas.strokePath();
-
-    // Fill area under curve with light accent
-    canvas.setColor(PdfColor.fromHex('#B2DFDB'));
-    canvas.moveTo(originX, originY);
-    for (final p in points) {
-      final x = originX + p.xMm * scale;
-      final y = originY - p.depthMm * scale;
-      canvas.lineTo(x, y);
+    canvas.setColor(ink);
+    canvas.setLineWidth(.5);
+    canvas.setLineDashPattern([3, 2]);
+    if (tile.column > 0) canvas.drawLine(5 * mm, 0, 5 * mm, height);
+    if (tile.column < layout.columns - 1) {
+      canvas.drawLine(width - 5 * mm, 0, width - 5 * mm, height);
     }
-    canvas.lineTo(originX + stripLengthMm * scale, originY);
-    canvas.lineTo(originX, originY);
-    canvas.fillPath();
-
-    // Re-draw the curve on top of the fill (so it shows crisply).
+    if (tile.row > 0) canvas.drawLine(0, 5 * mm, width, 5 * mm);
+    if (tile.row < layout.rows - 1) {
+      canvas.drawLine(0, height - 5 * mm, width, height - 5 * mm);
+    }
+    canvas.strokePath();
+    canvas.setLineDashPattern();
     canvas.setColor(accent);
-    canvas.setLineWidth(1.5);
-    first = true;
-    for (final p in points) {
-      final x = originX + p.xMm * scale;
-      final y = originY - p.depthMm * scale;
-      if (first) {
-        canvas.moveTo(x, y);
-        first = false;
-      } else {
-        canvas.lineTo(x, y);
-      }
-    }
+    canvas.setLineWidth(.7);
+    drawLine(
+        canvas,
+        geometry.profileBetween(tile.startX, tile.endX),
+        (p) => PdfPoint(
+            (p.xMm - tile.startX) * mm, (p.depthMm - tile.startY) * mm));
+    canvas.restoreContext();
+    canvas.setColor(ink);
+    canvas.setLineWidth(.5);
+    canvas.drawRect(0, 0, width, height);
     canvas.strokePath();
   }
 
-  /// 1:1 cutting strip. May span multiple landscape A4 pages if the branch
-  /// circumference exceeds the printable width of one page.
-  List<pw.Page> _buildStripPages() {
-    // A4 landscape printable width = 297mm − 20mm side margins = 277mm.
-    const printableWmm = 277.0;
-    final pages = <pw.Page>[];
-
-    var startX = 0.0;
-    int pageIdx = 1;
-    while (startX < stripLengthMm) {
-      final endX = math.min(startX + printableWmm, stripLengthMm);
-      final isLast = endX >= stripLengthMm - 1e-3;
-      pages.add(_buildOneStripPage(startX, endX, pageIdx, isLast));
-      startX = endX;
-      pageIdx++;
-    }
-    return pages;
-  }
-
-  pw.Page _buildOneStripPage(double startX, double endX, int pageIdx, bool isLast) {
-    final kAccent = PdfColor.fromHex('#26A69A');
-    final kMuted = PdfColor.fromHex('#6B7280');
-
-    return pw.Page(
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.fromLTRB(10, 14, 10, 14),
-      build: (ctx) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Cutting strip · Page $pageIdx  ·  ${startX.toStringAsFixed(1)} mm  →  ${endX.toStringAsFixed(1)} mm  (1:1)',
-                  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: kAccent),
-                ),
-                pw.Text(
-                  'Verify: ruler from 0 to 10 mm at bottom → must measure 10 mm',
-                  style: pw.TextStyle(fontSize: 8, color: kMuted),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 4),
-            pw.Expanded(
-              child: pw.CustomPaint(
-                size: const PdfPoint(0, 0),
-                painter: (canvas, size) => _drawStrip11(canvas, size, startX, endX, kAccent, isLast),
-              ),
-            ),
-            pw.SizedBox(height: 2),
-            pw.Text(
-              isLast
-                  ? 'End of template. Align this edge with the next wrap layer if branch is split (multi-strip).'
-                  : 'Continued on next page — tape the right edge of this strip to the LEFT edge of page ${pageIdx + 1}.',
-              style: pw.TextStyle(fontSize: 8, color: kMuted),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  /// Draws the strip 1:1 — every PDF point (1/72 inch) maps to mm at the
-  /// printable scale set by the [PdfPoint] units. Since [PdfPageFormat] uses
-  /// points (not mm), we explicitly convert: 1 mm = 2.83465 PDF points.
-  ///
-  /// Text labels (mm marks, degree markers) are intentionally rendered via
-  /// pw.Positioned in the parent page Stack — not via canvas.drawString —
-  /// because PdfGraphics expects a [PdfFont] handle that requires a document
-  /// context we don't have inside this painter callback.
-  void _drawStrip11(PdfGraphics canvas, PdfPoint size, double startX, double endX, PdfColor accent, bool isLast) {
-    const ptsPerMm = 2.83465;
-    final widthMm = endX - startX;
-    final widthPts = widthMm * ptsPerMm;
-
-    final baselineY = 30.0; // small margin from bottom
-
-    // Filter points inside [startX, endX]
-    final inRange = points
-        .where((p) => p.xMm >= startX - 1e-6 && p.xMm <= endX + 1e-6)
-        .toList();
-
-    if (inRange.isEmpty) return;
-
-    // Baseline ruler (every 10 mm, longer tick every 50 mm, longest every 100 mm)
-    canvas.setColor(PdfColor.fromHex('#9CA3AF'));
-    canvas.setLineWidth(0.4);
-    for (var x = startX.ceilToDouble(); x <= endX; x += 10.0) {
-      final px = (x - startX) * ptsPerMm;
-      final isMajor = (x % 100).abs() < 1e-6;
-      final isMid = (x % 50).abs() < 1e-6;
-      final tickH = isMajor ? 8.0 : (isMid ? 5.0 : 3.0);
-      canvas.drawLine(px, baselineY - tickH, px, baselineY);
-      canvas.strokePath();
-    }
-
-    // Horizontal baseline (long axis = unrolled branch circumference)
-    canvas.setColor(PdfColor.fromHex('#374151'));
-    canvas.setLineWidth(0.6);
-    canvas.drawLine(0, baselineY, widthPts, baselineY);
-    canvas.strokePath();
-
-    // 10 mm verification scale at top-left (so user can confirm 1:1 print).
-    // No text label here either — the label is rendered as a pw.Text in the
-    // page Stack just above this point.
-    canvas.setColor(PdfColor.fromHex('#1F2937'));
-    canvas.setLineWidth(0.6);
-    canvas.drawLine(4, baselineY - 22, 4 + 10 * ptsPerMm, baselineY - 22);
-    canvas.strokePath();
-    // Small tick marks at the 0 and 10 mm ends of the verification scale.
-    canvas.drawLine(4, baselineY - 24, 4, baselineY - 20);
-    canvas.drawLine(4 + 10 * ptsPerMm, baselineY - 24, 4 + 10 * ptsPerMm, baselineY - 20);
-    canvas.strokePath();
-
-    // Cut profile (depth pointing UPWARDS from baseline, mimics branch lying flat)
-    canvas.setColor(accent);
-    canvas.setLineWidth(1.2);
-    bool first = true;
-    for (final p in inRange) {
-      final px = (p.xMm - startX) * ptsPerMm;
-      final py = baselineY + p.depthMm * ptsPerMm;
-      if (first) {
-        canvas.moveTo(px, py);
-        first = false;
+  void drawLine(PdfGraphics canvas, List<SaddleCutPoint> points,
+      PdfPoint Function(SaddleCutPoint) transform) {
+    for (var i = 0; i < points.length; i++) {
+      final p = transform(points[i]);
+      if (i == 0) {
+        canvas.moveTo(p.x, p.y);
       } else {
-        canvas.lineTo(px, py);
+        canvas.lineTo(p.x, p.y);
       }
     }
     canvas.strokePath();

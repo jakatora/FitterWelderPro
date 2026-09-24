@@ -9,7 +9,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_database.dart';
 
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -20,10 +20,7 @@ import 'package:cut_list_app/services/premium_service.dart';
 import 'test_prefs.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   /// Boot the real app on a phone-sized-but-tall surface so the tool grid and
   /// the calculator forms fit without overflowing.
@@ -50,23 +47,13 @@ void main() {
   /// even when the suite runs several test isolates in parallel.
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 8; i++) {
+      await flushTestDatabase(tester);
       await tester.pump(const Duration(milliseconds: 120));
     }
   }
 
-  /// When the whole suite runs, several test isolates hit the same sqflite
-  /// file at once; HomeScreen catches the failure and shows a 4 s SnackBar.
-  /// Its Timer would still be pending when the tree is torn down, which the
-  /// test binding treats as a failure. Let those timers expire.
-  Future<void> drainTimers(WidgetTester tester) async {
-    // The failing DB read can land late, so the SnackBar (and its 4 s timer)
-    // may only be created after the first pump. Drain in several long steps.
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(seconds: 3));
-    }
-  }
-
-  testWidgets('pierwsze uruchomienie: monter musi się przedstawić, zanim wejdzie',
+  testWidgets(
+      'pierwsze uruchomienie: monter musi się przedstawić, zanim wejdzie',
       (tester) async {
     await boot(tester, withProfile: false);
 
@@ -90,7 +77,6 @@ void main() {
 
     // Po przedstawieniu się i akceptacji zasad wchodzi do narzędzi.
     expect(find.text('FITTER'), findsOneWidget);
-    await drainTimers(tester);
   });
 
   testWidgets('ekran główny: czat i skaner ISO są, płatne wciąż ukryte',
@@ -113,7 +99,6 @@ void main() {
     // I żadnego napisu "WKRÓTCE" na kaflach.
     expect(find.text('WKRÓTCE'), findsNothing);
     expect(find.text('SOON'), findsNothing);
-    await drainTimers(tester);
   });
 
   testWidgets(
@@ -158,7 +143,6 @@ void main() {
     expect(find.text('0.220'), findsOneWidget);
     // …a temperatura podgrzewania NIE jest NaN (to był bug: sqrt z ujemnej).
     expect(find.textContaining('NaN'), findsNothing);
-    await drainTimers(tester);
   });
 
   testWidgets('monter sprawdza wymiary kolan; skaner ISO stoi w menu Fitter',
@@ -187,8 +171,8 @@ void main() {
     // Zostaje jeden wiersz: DN100. Nagłówek wiersza to RichText ("DN100 · 4\""),
     // którego find.textContaining nie przeszukuje — stąd predykat.
     expect(
-      find.byWidgetPredicate((w) =>
-          w is RichText && w.text.toPlainText().contains('DN100')),
+      find.byWidgetPredicate(
+          (w) => w is RichText && w.text.toPlainText().contains('DN100')),
       findsOneWidget,
     );
     expect(find.text('152'), findsOneWidget); // LR 90°
@@ -197,7 +181,6 @@ void main() {
     expect(find.text('64'), findsOneWidget);
     expect(find.text('76'), findsNothing);
     expect(find.textContaining('NaN'), findsNothing);
-    await drainTimers(tester);
   });
 
   testWidgets('skaner ISO bez Premium: monter trafia na bramkę, nie na skan',
@@ -217,7 +200,6 @@ void main() {
     // PremiumGate(alwaysEnforced). Ikony zamiast napisów — asercja ma być
     // niezależna od języka interfejsu.
     expect(find.byIcon(Icons.lock_open_outlined), findsOneWidget);
-    await drainTimers(tester);
   });
 
   testWidgets('z wyniku skanu monter przechodzi do ekranu przeglądu',
@@ -231,7 +213,8 @@ void main() {
     await PremiumService.instance.applyStatus(
       const PremiumStatus(plan: PremiumPlan.lifetime),
     );
-    addTearDown(() => PremiumService.instance.applyStatus(PremiumStatus.free()));
+    addTearDown(
+        () => PremiumService.instance.applyStatus(PremiumStatus.free()));
 
     // Wynik skanu wstrzyknięty zamiast wywołania sieciowego — chodzi o drogę
     // z gotowego odczytu do przeglądu, nie o samo rozpoznawanie rysunku.
@@ -268,10 +251,12 @@ void main() {
     final toProject = find.byIcon(Icons.playlist_add_check_circle_outlined);
     expect(toProject, findsOneWidget);
     expect(
-      tester.widget<IconButton>(find.ancestor(
-        of: toProject,
-        matching: find.byType(IconButton),
-      )).onPressed,
+      tester
+          .widget<IconButton>(find.ancestor(
+            of: toProject,
+            matching: find.byType(IconButton),
+          ))
+          .onPressed,
       isNotNull,
       reason: 'po udanej analizie przycisk ma być aktywny',
     );
@@ -284,6 +269,5 @@ void main() {
     expect(find.text('Sprawdź skan'), findsOneWidget);
     expect(find.text('114.3'), findsOneWidget);
     expect(find.textContaining('CUT 1348'), findsOneWidget);
-    await drainTimers(tester);
   });
 }

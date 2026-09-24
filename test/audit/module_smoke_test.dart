@@ -205,10 +205,11 @@ Widget _testApp(Widget child, {double textScale = 1.3}) {
 }
 
 Future<void> _settleStart(WidgetTester tester) async {
-  await tester.runAsync(
-    () => Future<void>.delayed(const Duration(milliseconds: 250)),
-  );
   for (var i = 0; i < 8; i++) {
+    await tester.runAsync(() async {
+      final db = await production_db.AppDatabase.get();
+      await db.rawQuery('SELECT 1');
+    });
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
@@ -288,7 +289,8 @@ void main() {
       expect(find.byType(Scaffold), findsWidgets);
 
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 11));
+      await _settleStart(tester);
+      await tester.pumpAndSettle();
     });
   }
 

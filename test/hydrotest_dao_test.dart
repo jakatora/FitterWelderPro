@@ -1,17 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_database.dart';
 
 import 'package:cut_list_app/database/hydrotest_dao.dart';
 
 void main() {
-  setUpAll(() {
-    // HydrotestDao talks to sqflite; use the FFI factory in unit tests.
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   /// Unique ids so each test is isolated from rows left by the others in the
-  /// shared test database.
+  /// suite-local test database.
   String freshId() => 'hydro_${DateTime.now().microsecondsSinceEpoch}';
 
   test('ensureTable is idempotent — the lazy DDL runs on every call', () async {

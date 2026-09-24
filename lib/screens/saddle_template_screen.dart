@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../services/saddle_template.dart';
+import '../services/saddle_print_layout.dart';
 
 // Saddle / coping template screen — inputs header + branch OD + angle,
 // shows live preview of the cut profile, and exports a printable PDF
@@ -26,15 +27,20 @@ const _kAccentDim = Color(0x3326A69A);
 // of allocating a fresh one on each build / paint call.
 const _kGoldBg = Color(0x26E8C14B); // _kGold @ 15% alpha — PRO badge background
 const _kGoldBorder = Color(0x4DE8C14B); // _kGold @ 30% alpha — PRO badge border
-const _kAccentCallout = Color(0x1426A69A); // _kAccent @ 8% — Try-this callout bg
-const _kAccentCalloutBorder = Color(0x5926A69A); // _kAccent @ 35% — callout border
-const _kAccentChipActive = Color(0x2E26A69A); // _kAccent @ 18% — angle chip active
-const _kAccentChipBorder = Color(0x8026A69A); // _kAccent @ 50% — try-chip border
+const _kAccentCallout =
+    Color(0x1426A69A); // _kAccent @ 8% — Try-this callout bg
+const _kAccentCalloutBorder =
+    Color(0x5926A69A); // _kAccent @ 35% — callout border
+const _kAccentChipActive =
+    Color(0x2E26A69A); // _kAccent @ 18% — angle chip active
+const _kAccentChipBorder =
+    Color(0x8026A69A); // _kAccent @ 50% — try-chip border
 const _kErrorBg = Color(0x1AE57373); // red @ 10% — error box bg
 const _kErrorBorder = Color(0x66E57373); // red @ 40% — error box border
 const _kError = Color(0xFFE57373);
 const _kGridLine = Color(0x662C3354); // _kBorder @ 40% — preview grid
-const _kGuideLine = Color(0x8055607A); // _kTextMut @ 50% — 0/90/180/270/360 guides
+const _kGuideLine =
+    Color(0x8055607A); // _kTextMut @ 50% — 0/90/180/270/360 guides
 const _kBaseline = Color(0xFFE7ECF3);
 
 // P1-39 — Typed failure cases for saddle template computation. The underlying
@@ -65,8 +71,8 @@ extension SaddleTemplateExceptionMessage on SaddleTemplateException {
     switch (this) {
       case SaddleTemplateException.invalidGeometry:
         return isEn
-            ? 'Enter pipe OD greater than 0 mm'
-            : 'Wpisz OD rury większe niż 0 mm';
+            ? 'Enter a finite pipe OD above 0 and up to 2000 mm'
+            : 'Wpisz skończone OD rury powyżej 0 do 2000 mm';
       case SaddleTemplateException.branchExceedsHeader:
         return isEn
             ? 'Branch OD (${branchInput ?? '?'}) must be ≤ header OD (${headerInput ?? '?'})'
@@ -116,6 +122,10 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   double _angleDeg = 90;
 
   SaddleTemplate? _template;
+  SaddlePrintLayout? _printLayout;
+  SaddlePrintTooLarge? _printError;
+  String _lastHeaderText = '';
+  String _lastBranchText = '';
   SaddleTemplateException? _errorKind;
   // P1-20: cache the painter so CustomPaint receives the same instance across
   // unrelated rebuilds. The painter is rebuilt only when `_template` changes
@@ -129,6 +139,22 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   // disallowed there anyway); deferring lets the first error message render
   // in the right language without a swap-after-first-frame flicker.
   bool _didInitialCompute = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _headerCtrl.addListener(_inputChanged);
+    _branchCtrl.addListener(_inputChanged);
+  }
+
+  void _inputChanged() {
+    if (!_didInitialCompute ||
+        (_lastHeaderText == _headerCtrl.text &&
+            _lastBranchText == _branchCtrl.text)) {
+      return;
+    }
+    _recompute();
+  }
 
   @override
   void didChangeDependencies() {
@@ -151,16 +177,25 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
       double.tryParse(c.text.replaceAll(',', '.')) ?? 0;
 
   void _recompute() {
+    _lastHeaderText = _headerCtrl.text;
+    _lastBranchText = _branchCtrl.text;
     final h = _parse(_headerCtrl);
     final b = _parse(_branchCtrl);
     // Guard zero/blank OD before the service: rb = 0 would yield
     // stripLengthMm = 0, which divides into Infinity inside the painter
     // (sx = dw / 0) and renders the marker-step hint as "co 0.0 mm" —
     // confusing nonsense for a fitter wrapping the paper template.
-    if (h <= 0 || b <= 0 || !h.isFinite || !b.isFinite) {
+    if (h <= 0 ||
+        b <= 0 ||
+        h > 2000 ||
+        b > 2000 ||
+        !h.isFinite ||
+        !b.isFinite) {
       setState(() {
         _template = null;
         _painter = null;
+        _printLayout = null;
+        _printError = null;
         _errorKind = SaddleTemplateException.invalidGeometry;
       });
       return;
@@ -171,9 +206,18 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         branchOdMm: b,
         angleDeg: _angleDeg,
       );
+      SaddlePrintLayout? printLayout;
+      SaddlePrintTooLarge? printError;
+      try {
+        printLayout = SaddlePrintLayout(tpl);
+      } on SaddlePrintTooLarge catch (e) {
+        printError = e;
+      }
       setState(() {
         _template = tpl;
         _painter = _CutProfilePainter(tpl);
+        _printLayout = printLayout;
+        _printError = printError;
         _errorKind = null;
       });
     } catch (e) {
@@ -181,6 +225,8 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         _template = null;
         _painter = null;
         _errorKind = _classifySaddleError(e);
+        _printLayout = null;
+        _printError = null;
       });
     }
   }
@@ -192,7 +238,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
     final kind = _errorKind;
     if (kind == null) return '';
     return kind.localized(
-      isEn: AppLanguageController.isEnglish,
+      isEn: context.language == AppLanguage.en,
       headerInput: _headerCtrl.text.trim(),
       branchInput: _branchCtrl.text.trim(),
       angleInput: _angleDeg.toStringAsFixed(0),
@@ -203,7 +249,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
   // a tap on (i) shows the actual math so they trust the output and can
   // sanity-check edge cases (e.g. equal OD, shallow angles).
   void _showFormulaHelp() {
-    final isEn = AppLanguageController.isEnglish;
+    final isEn = context.language == AppLanguage.en;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -213,10 +259,11 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
           children: [
             const Icon(Icons.functions, color: _kAccent, size: 20),
             const SizedBox(width: 8),
-            Text(
+            Expanded(
+                child: Text(
               isEn ? 'How is it calculated?' : 'Jak to się liczy?',
               style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 16),
-            ),
+            )),
           ],
         ),
         content: SingleChildScrollView(
@@ -228,7 +275,8 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                 isEn
                     ? 'Branch (R_b) crosses header (R_h). For a point at angle φ around the branch:'
                     : 'Rura boczna (R_b) przebija rurę główną (R_h). Dla punktu pod kątem φ wokół rury bocznej:',
-                style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.5),
+                style: const TextStyle(
+                    color: _kTextSec, fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
               Container(
@@ -240,9 +288,9 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                   border: Border.all(color: _kBorder),
                 ),
                 child: Text(
-                  'd(φ) = R_h − √(R_h² − R_b²·sin²φ)\n'
-                  'wrap = 2π·R_b\n'
-                  'tilt: d/sin(α) + R_b·cos(α)·cosφ',
+                  't(φ) = [√(R_h² − R_b²·sin²φ) + R_b·cosα·cosφ] / sinα\n'
+                  'd(φ) = t(φ) − min(t)\n'
+                  'wrap = 2π·R_b',
                   style: const TextStyle(
                     color: _kAccent,
                     fontSize: 12,
@@ -254,16 +302,18 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
               const SizedBox(height: 10),
               Text(
                 isEn
-                    ? 'd = cut depth, α = branch angle. Profile is sampled every 5° (72 points) — exported PDF table prints offsets every 15°.'
-                    : 'd = głębokość cięcia, α = kąt rury bocznej. Profil próbkowany co 5° (72 pkt) — tabela w PDF wypisuje offsety co 15°.',
-                style: const TextStyle(color: _kTextSec, fontSize: 11, height: 1.5),
+                    ? 'R_h and R_b are outside radii, α is the angle between the axes. min(t) is the continuous profile minimum, not the smallest table value. Depth d is measured from the longest-tip plane towards the body. Preview: 73 points including closure; PDF table: every 15°. The print contour is refined separately.'
+                    : 'R_h i R_b to promienie zewnętrzne, α to kąt między osiami. min(t) to minimum całego konturu, nie najmniejsza wartość tabeli. Głębokość d mierzymy od płaszczyzny najdłuższych końców w stronę korpusu. Podgląd: 73 punkty z zamknięciem; tabela PDF: co 15°. Kontur do druku jest zagęszczany osobno.',
+                style: const TextStyle(
+                    color: _kTextSec, fontSize: 11, height: 1.5),
               ),
               const SizedBox(height: 8),
               Text(
                 isEn
-                    ? 'Reference: standard saddle / fish-mouth geometry, e.g. Pipe Fitter\'s Blue Book (Hawkins).'
-                    : 'Źródło: standardowa geometria fish-mouth, np. Pipe Fitter\'s Blue Book (Hawkins).',
-                style: const TextStyle(color: _kTextMut, fontSize: 10, height: 1.4),
+                    ? 'Centred outside-surface cylinder intersection. No wall thickness, bevel, gap or allowances. Check the joint documentation and fit before cutting.'
+                    : 'Centralne przecięcie zewnętrznych powierzchni walców. Bez grubości ścianki, ukosowania, szczeliny i naddatków. Przed cięciem sprawdź dokumentację złącza i dopasowanie.',
+                style: const TextStyle(
+                    color: _kTextMut, fontSize: 10, height: 1.4),
               ),
             ],
           ),
@@ -283,14 +333,27 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
 
   Future<void> _exportPdf() async {
     final tpl = _template;
-    if (tpl == null) return;
+    if (tpl == null || _exporting || _printLayout == null) return;
+    final project = _projectCtrl.text.trim();
+    final language = context.language;
     setState(() => _exporting = true);
     try {
       await tpl.exportPdf(
-        projectName: _projectCtrl.text.trim().isEmpty
-            ? null
-            : _projectCtrl.text.trim(),
+        isEnglish: language == AppLanguage.en,
+        projectName: project.isEmpty ? null : project,
+        canShare: () =>
+            mounted &&
+            identical(_template, tpl) &&
+            project == _projectCtrl.text.trim() &&
+            language == context.language,
       );
+    } on SaddleExportCancelled {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(context.tr(
+        pl: 'Dane zmieniły się podczas eksportu. Wygeneruj PDF ponownie.',
+        en: 'Inputs changed during export. Generate the PDF again.',
+      ))));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -316,7 +379,11 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         backgroundColor: _kCard,
         title: Row(
           children: [
-            Text(context.tr(pl: 'Saddle / Coping', en: 'Saddle / Coping')),
+            Expanded(
+                child: Text(
+                    context.tr(pl: 'Saddle / Coping', en: 'Saddle / Coping'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -339,7 +406,8 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: context.tr(pl: 'Wzór i jak liczymy', en: 'Formula & how it works'),
+            tooltip: context.tr(
+                pl: 'Wzór i jak liczymy', en: 'Formula & how it works'),
             icon: const Icon(Icons.help_outline, color: _kTextSec),
             onPressed: _showFormulaHelp,
           ),
@@ -365,24 +433,25 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
             child: Column(
               children: [
                 _NumField(
-                  label: context.tr(pl: 'OD rury głównej (header)', en: 'Header pipe OD'),
+                  label: context.tr(
+                      pl: 'OD rury głównej (header)', en: 'Header pipe OD'),
                   ctrl: _headerCtrl,
                   suffix: 'mm',
-                  onChanged: _recompute,
                 ),
                 const SizedBox(height: 10),
                 _NumField(
-                  label: context.tr(pl: 'OD rury bocznej (branch)', en: 'Branch pipe OD'),
+                  label: context.tr(
+                      pl: 'OD rury bocznej (branch)', en: 'Branch pipe OD'),
                   ctrl: _branchCtrl,
                   suffix: 'mm',
-                  onChanged: _recompute,
                 ),
                 const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        context.tr(pl: 'Kąt przyłączenia', en: 'Connection angle'),
+                        context.tr(
+                            pl: 'Kąt przyłączenia', en: 'Connection angle'),
                         style: const TextStyle(color: _kTextSec, fontSize: 13),
                       ),
                     ),
@@ -408,8 +477,9 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                     _recompute();
                   },
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
                     for (final preset in [30.0, 45.0, 60.0, 75.0, 90.0])
                       _AngleChip(
@@ -427,9 +497,11 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
           ),
           const SizedBox(height: 12),
           _SectionCard(
-            title: context.tr(pl: 'Opis (opcjonalnie)', en: 'Description (optional)'),
+            title: context.tr(
+                pl: 'Opis (opcjonalnie)', en: 'Description (optional)'),
             child: TextField(
               controller: _projectCtrl,
+              maxLength: 160,
               style: const TextStyle(color: Color(0xFFE7ECF3)),
               decoration: InputDecoration(
                 hintText: context.tr(
@@ -515,10 +587,25 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
               ),
             ),
             const SizedBox(height: 14),
+            if (_printError != null) ...[
+              _ErrorBox(
+                  message: context.tr(
+                      pl: 'Ten szablon wymaga ${_printError!.pages} kartek 1:1. Limit wynosi 100 kartek. Podgląd pozostaje dostępny; eksport jest zablokowany.',
+                      en: 'This template needs ${_printError!.pages} actual-size sheets. The limit is 100 sheets. Preview remains available; export is blocked.')),
+              const SizedBox(height: 12),
+            ] else if (_printLayout != null) ...[
+              Text(
+                  context.tr(
+                      pl: 'Druk 1:1: ${_printLayout!.columns} kolumn × ${_printLayout!.rows} rzędów. Zakładka 5 mm; sprawdź obie podziałki 100 mm.',
+                      en: 'Actual-size print: ${_printLayout!.columns} columns × ${_printLayout!.rows} rows. 5 mm overlap; check both 100 mm bars.'),
+                  style: const TextStyle(color: _kTextSec, fontSize: 12)),
+              const SizedBox(height: 12),
+            ],
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _exporting ? null : _exportPdf,
+                onPressed:
+                    _exporting || _printLayout == null ? null : _exportPdf,
                 icon: _exporting
                     ? const SizedBox(
                         width: 16,
@@ -531,8 +618,11 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                     : const Icon(Icons.picture_as_pdf_outlined),
                 label: Text(
                   _exporting
-                      ? context.tr(pl: 'Generowanie PDF…', en: 'Generating PDF…')
-                      : context.tr(pl: 'Eksportuj szablon PDF', en: 'Export PDF template'),
+                      ? context.tr(
+                          pl: 'Generowanie PDF…', en: 'Generating PDF…')
+                      : context.tr(
+                          pl: 'Eksportuj szablon PDF',
+                          en: 'Export PDF template'),
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 style: FilledButton.styleFrom(
@@ -560,11 +650,12 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
                   child: Text(
                     context.tr(
                       pl: 'Szablon to "fish-mouth" — rozwinięty profil cięcia owijany na rurze bocznej. '
-                          'PDF zawiera tabelę offsetów co 15° + preview + strony 1:1 do druku.',
+                          'PDF zawiera tabelę co 15°, podgląd i strony 1:1. Połączenie centralne, bez naddatków na ściankę, ukosowanie i szczelinę. Sprawdź dokumentację przed cięciem.',
                       en: 'Template is a "fish-mouth" — unrolled cut profile wrapped around the branch pipe. '
-                          'PDF contains 15°-step offset table + scaled preview + 1:1 print pages.',
+                          'PDF contains a 15° table, preview and 1:1 sheets. Centred connection; wall, bevel and gap allowances are excluded. Check documentation before cutting.',
                     ),
-                    style: const TextStyle(fontSize: 11, color: _kTextSec, height: 1.5),
+                    style: const TextStyle(
+                        fontSize: 11, color: _kTextSec, height: 1.5),
                   ),
                 ),
               ],
@@ -618,12 +709,10 @@ class _NumField extends StatelessWidget {
   final String label;
   final TextEditingController ctrl;
   final String? suffix;
-  final VoidCallback onChanged;
   const _NumField({
     required this.label,
     required this.ctrl,
     this.suffix,
-    required this.onChanged,
   });
 
   @override
@@ -631,7 +720,6 @@ class _NumField extends StatelessWidget {
     return TextField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      onChanged: (_) => onChanged(),
       style: const TextStyle(color: Color(0xFFE7ECF3)),
       decoration: InputDecoration(
         labelText: label,
@@ -640,7 +728,8 @@ class _NumField extends StatelessWidget {
         suffixStyle: const TextStyle(color: _kTextMut, fontSize: 11),
         filled: true,
         fillColor: _kBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: _kBorder),
@@ -662,7 +751,8 @@ class _AngleChip extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
-  const _AngleChip({required this.label, required this.active, required this.onTap});
+  const _AngleChip(
+      {required this.label, required this.active, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -674,6 +764,7 @@ class _AngleChip extends StatelessWidget {
       child: SizedBox(
         height: 48,
         child: Center(
+          widthFactor: 1,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
@@ -964,7 +1055,8 @@ class _CutProfilePainter extends CustomPainter {
     }
   }
 
-  void _drawText(Canvas canvas, String text, Offset pos, double size, Color color) {
+  void _drawText(
+      Canvas canvas, String text, Offset pos, double size, Color color) {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
@@ -992,7 +1084,7 @@ class _TrySomethingCallout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isEn = AppLanguageController.isEnglish;
+    final isEn = context.language == AppLanguage.en;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       decoration: BoxDecoration(

@@ -2,7 +2,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../services/saddle_geometry.dart';
 import '../utils/clipboard_helper.dart';
+import '../widgets/calculation_guide.dart';
 import '../widgets/help_button.dart';
 
 class SaddleCutScreen extends StatefulWidget {
@@ -15,99 +17,161 @@ class SaddleCutScreen extends StatefulWidget {
 class _SaddleCutScreenState extends State<SaddleCutScreen> {
   final _headerOdController = TextEditingController();
   final _branchOdController = TextEditingController();
+  _SaddleResult? _result;
+  bool _submitted = false;
+  String _lastHeaderText = '';
+  String _lastBranchText = '';
 
-  double? _hMax;
-  List<_SaddlePoint>? _profile;
-
-  double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
-
-  // Saddle cut (fish-mouth cut) for a 90° branch-to-header intersection.
-  //
-  // The branch pipe is parameterised by angle α around its circumference,
-  // where α=0° is the side of the branch (max cut depth) and α=90° is
-  // the top/bottom of the branch (depth = 0, touches header apex).
-  //
-  // Depth at angle α:
-  //   d(α) = R_header − √(R_header² − (r_branch × sin(α))²)
-  //
-  // Maximum depth (at α = 0°, i.e., the sides):
-  //   h_max = R_header − √(R_header² − r_branch²)
-  //
-  // Verification (Header OD=219.1mm, Branch OD=114.3mm):
-  //   R=109.55, r=57.15
-  //   h_max = 109.55 − √(109.55²−57.15²)
-  //         = 109.55 − √(11001.3−3266.1)
-  //         = 109.55 − √7735.2
-  //         = 109.55 − 87.95
-  //         ≈ 21.6mm  ✓
-  void _calculate() {
-    final headerOd = _parse(_headerOdController.text);
-    final branchOd = _parse(_branchOdController.text);
-
-    if (headerOd <= 0 || branchOd <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Wpisz OD nagłówka i odgałęzienia > 0', en: 'Enter header and branch OD > 0')),
-      ));
-      return;
-    }
-    if (branchOd >= headerOd) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'OD odgałęzienia musi być mniejsze od OD nagłówka',
-          en: 'Branch OD must be smaller than header OD',
-        )),
-      ));
-      return;
-    }
-
-    final R = headerOd / 2.0;
-    final r = branchOd / 2.0;
-
-    final hMax = R - math.sqrt(R * R - r * r);
-
-    // Profile at every 15° (0°=side, 90°=top)
-    final profile = <_SaddlePoint>[];
-    for (int deg = 0; deg <= 90; deg += 15) {
-      final rad   = deg * math.pi / 180.0;
-      final sinA  = math.sin(rad);
-      final depth = R - math.sqrt(R * R - (r * sinA) * (r * sinA));
-      profile.add(_SaddlePoint(angle: deg, depth: depth));
-    }
-
-    setState(() {
-      _hMax    = hMax;
-      _profile = profile;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _headerOdController.addListener(_inputChanged);
+    _branchOdController.addListener(_inputChanged);
   }
 
-  /// Builds a tab-separated profile table the fitter can paste straight into
-  /// a worksheet or chat to the cutter.
-  Future<void> _copyProfile() async {
-    final h = _hMax;
-    final p = _profile;
-    if (h == null || p == null) return;
-    final headerOd =
-        double.tryParse(_headerOdController.text.replaceAll(',', '.')) ?? 0;
-    final branchOd =
-        double.tryParse(_branchOdController.text.replaceAll(',', '.')) ?? 0;
-    final buf = StringBuffer();
-    buf.writeln(context.tr(
-        pl: 'Saddle cut — profil wycięcia siodłowego',
-        en: 'Saddle cut — fish-mouth profile'));
-    final headerLabel = context.tr(pl: 'OD nagłówka', en: 'Header OD');
-    final branchLabel = context.tr(pl: 'OD odgałęzienia', en: 'Branch OD');
-    buf.writeln('$headerLabel: ${headerOd.toStringAsFixed(1)} mm');
-    buf.writeln('$branchLabel: ${branchOd.toStringAsFixed(1)} mm');
-    buf.writeln('h_max:     ${h.toStringAsFixed(1)} mm');
-    buf.writeln('─' * 28);
-    buf.writeln('${context.tr(pl: 'Kąt α', en: 'Angle α')}\t'
-        '${context.tr(pl: 'Głębokość', en: 'Depth')}');
-    for (final pt in p) {
-      buf.writeln('${pt.angle}°\t${pt.depth.toStringAsFixed(1)} mm');
+  void _inputChanged() {
+    // Moving the cursor does not invalidate an otherwise current calculation.
+    if (_lastHeaderText == _headerOdController.text &&
+        _lastBranchText == _branchOdController.text) {
+      return;
     }
-    if (!mounted) return;
-    await copyToClipboard(context, buf.toString(),
-        label: context.tr(pl: 'Profil saddle', en: 'Saddle profile'));
+    _lastHeaderText = _headerOdController.text;
+    _lastBranchText = _branchOdController.text;
+    setState(() => _result = null);
+  }
+
+  double? _parse(String text) =>
+      double.tryParse(text.trim().replaceAll(',', '.'));
+
+  String? _odError(String text) {
+    if (text.trim().isEmpty) {
+      return context.tr(
+          pl: 'Wpisz średnicę w mm', en: 'Enter a diameter in mm');
+    }
+    final value = _parse(text);
+    if (value == null || !value.isFinite) {
+      return context.tr(
+          pl: 'Wpisz poprawną, skończoną liczbę',
+          en: 'Enter a valid, finite number');
+    }
+    if (value <= 0 || value > 2000) {
+      return context.tr(
+          pl: 'Zakres: powyżej 0 do 2000 mm',
+          en: 'Range: above 0 up to 2000 mm');
+    }
+    return null;
+  }
+
+  String? get _branchError {
+    final error = _odError(_branchOdController.text);
+    if (error != null) return error;
+    if (_odError(_headerOdController.text) == null &&
+        _parse(_branchOdController.text)! > _parse(_headerOdController.text)!) {
+      return context.tr(
+        pl: 'OD odgałęzienia nie może być większe od OD rury głównej',
+        en: 'Branch OD cannot exceed header OD',
+      );
+    }
+    return null;
+  }
+
+  // Centred 90-degree intersection, outside surfaces only.
+  // Main axis x, branch axis z, branch body towards +z; y = r sin α.
+  // The header surface gives z(α) = sqrt(R² - (r sin α)²).
+  // Longest tips are at the smallest z: α=90/270, z_min=sqrt(R²-r²).
+  // Axial CUTBACK from that plane towards the body is z(α)-z_min.
+  // α=0/180 lies in the common plane of the pipe axes: maximum cutback.
+  // Independent reference: R=50, r=30 -> h_max = 50 - sqrt(1600) = 10 mm.
+  void _calculate() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _submitted = true;
+      _result = null;
+    });
+    if (_odError(_headerOdController.text) != null || _branchError != null) {
+      return;
+    }
+
+    final headerOd = _parse(_headerOdController.text)!;
+    final branchOd = _parse(_branchOdController.text)!;
+    final geometry = SaddleGeometry(
+        headerOdMm: headerOd, branchOdMm: branchOd, angleDeg: 90);
+    final hMax = geometry.maxDepthMm;
+    final profile = <_SaddlePoint>[];
+    for (var deg = 0; deg <= 360; deg += 15) {
+      final point = geometry.pointAt(deg.toDouble());
+      profile.add(_SaddlePoint(
+        angle: deg,
+        arc: point.xMm,
+        depth: point.depthMm,
+      ));
+    }
+    if (!hMax.isFinite ||
+        profile.any((p) => !p.depth.isFinite || !p.arc.isFinite)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+        context.tr(
+            pl: 'Nie można obliczyć profilu. Sprawdź średnice.',
+            en: 'Cannot calculate the profile. Check the diameters.'),
+      )));
+      return;
+    }
+    setState(() => _result = _SaddleResult(
+          headerOd: headerOd,
+          branchOd: branchOd,
+          hMax: hMax,
+          profile: profile,
+        ));
+  }
+
+  String get _limits => context.tr(
+        pl: 'Bez uwzględnienia grubości ścianki, ukosowania, szczeliny i naddatków. '
+            'Nie stosuj do odgałęzień ukośnych ani mimośrodowych. '
+            'Przed cięciem sprawdź profil na materiale i wymagania dokumentacji.',
+        en: 'Wall thickness, bevel, gap and allowances are not included. '
+            'Do not use for angled or offset branches. '
+            'Check the profile on the material and the project requirements before cutting.',
+      );
+
+  String get _orientation => context.tr(
+        pl: '0° i 180°: punkty w płaszczyźnie obu osi — najgłębsze wycięcie. '
+            '90° i 270°: najdłuższe końce rury — głębokość 0 mm.',
+        en: '0° and 180°: points in the plane of both axes — deepest cut. '
+            '90° and 270°: the longest pipe-end points — depth 0 mm.',
+      );
+
+  Future<void> _copyProfile() async {
+    final result = _result;
+    if (result == null) return;
+    // Export only the input snapshot that produced this exact profile.
+    final buffer = StringBuffer()
+      ..writeln(context.tr(
+          pl: 'Wycięcie siodłowe — centralne połączenie 90°',
+          en: 'Saddle cut — centred 90° junction'))
+      ..writeln(
+          '${context.tr(pl: 'OD rury głównej', en: 'Header OD')}: ${guideNumber(result.headerOd)} mm')
+      ..writeln(
+          '${context.tr(pl: 'OD odgałęzienia', en: 'Branch OD')}: ${guideNumber(result.branchOd)} mm')
+      ..writeln('h_max: ${result.hMax.toStringAsFixed(1)} mm')
+      ..writeln(_orientation)
+      ..writeln(context.tr(
+          pl: 'Obwód: odległość po łuku od 0°. Głębokość: wzdłuż osi, od płaszczyzny prostopadłej do osi przechodzącej przez najdłuższe punkty, w stronę korpusu rury.',
+          en: 'Circumference: arc distance from 0°. Depth: along the axis, from the plane perpendicular to the axis through the longest points, towards the pipe body.'))
+      ..writeln(context.tr(
+          pl: 'Kąt α\tNa obwodzie (mm)\tGłębokość (mm)',
+          en: 'Angle α\tAlong circumference (mm)\tDepth (mm)'));
+    for (final point in result.profile) {
+      buffer.writeln(
+          '${point.angle}°\t${point.arc.toStringAsFixed(1)}\t${point.depth.toStringAsFixed(1)}');
+    }
+    buffer
+      ..writeln(context.tr(
+          pl: '360° zamyka obwód w punkcie 0°. Wartości zaokrąglone do 0.1 mm.',
+          en: '360° closes the circumference at 0°. Values rounded to 0.1 mm.'))
+      ..writeln(_limits);
+    await copyToClipboard(context, buffer.toString(),
+        label: context.tr(
+            pl: 'Skopiowano profil siodła', en: 'Saddle profile copied'));
   }
 
   @override
@@ -119,209 +183,309 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final result = _result;
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(pl: 'Saddle Cut – wycięcie siodłowe', en: 'Saddle Cut – fish-mouth cut')),
+        title: Text(context.tr(pl: 'Wycięcie siodłowe', en: 'Saddle cut')),
         actions: [
           HelpButton(help: kHelpSaddleCut),
           IconButton(
             icon: const Icon(Icons.copy_all_outlined),
             tooltip: context.tr(pl: 'Kopiuj profil', en: 'Copy profile'),
-            onPressed: _profile == null ? null : _copyProfile,
+            onPressed: result == null ? null : _copyProfile,
           ),
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionLabel(context.tr(pl: 'DANE WEJŚCIOWE', en: 'INPUT DATA')),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: _field(
-                _headerOdController,
-                label: context.tr(pl: 'OD nagłówka (Header)', en: 'Header OD'),
-                suffix: 'mm',
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: _field(
-                _branchOdController,
-                label: context.tr(pl: 'OD odgałęzienia (Branch)', en: 'Branch OD'),
-                suffix: 'mm',
-              )),
-            ]),
-            const SizedBox(height: 8),
-            Text(
-              context.tr(
-                pl: 'Użyj zewnętrznej średnicy (OD). Np. DN200 = 219.1 mm, DN100 = 114.3 mm.',
-                en: 'Use outside diameter (OD). E.g. DN200 = 219.1 mm, DN100 = 114.3 mm.',
-              ),
-              style: Theme.of(context).textTheme.bodySmall,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                    context.tr(
+                        pl: 'Centralne połączenie T • 90°',
+                        en: 'Centred T-junction • 90°'),
+                    style: theme.textTheme.titleSmall),
+                const SizedBox(height: 16),
+                LayoutBuilder(builder: (context, constraints) {
+                  final fields = [
+                    _field(_headerOdController,
+                        label:
+                            context.tr(pl: 'OD rury głównej', en: 'Header OD')),
+                    _field(_branchOdController,
+                        label:
+                            context.tr(pl: 'OD odgałęzienia', en: 'Branch OD'),
+                        branch: true),
+                  ];
+                  if (constraints.maxWidth < 520 ||
+                      MediaQuery.textScalerOf(context).scale(16) > 22) {
+                    return Column(children: [
+                      fields[0],
+                      const SizedBox(height: 16),
+                      fields[1]
+                    ]);
+                  }
+                  return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: fields[0]),
+                        const SizedBox(width: 16),
+                        Expanded(child: fields[1]),
+                      ]);
+                }),
+                const SizedBox(height: 8),
+                Text(
+                    context.tr(
+                        pl: 'OD to średnica zewnętrzna, nie DN. Odczytaj ją z dokumentacji rury lub zmierz. Zakres: > 0 do 2000 mm.',
+                        en: 'OD means outside diameter, not DN. Read it from the pipe documentation or measure it. Range: > 0 up to 2000 mm.'),
+                    style: theme.textTheme.bodySmall),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _calculate,
+                  icon: const Icon(Icons.calculate_outlined),
+                  label: Text(
+                      context.tr(pl: 'Oblicz profil', en: 'Calculate profile')),
+                  style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 16)),
+                ),
+                if (result != null) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12)),
+                    child: DefaultTextStyle.merge(
+                      style: TextStyle(
+                          color: theme.colorScheme.onPrimaryContainer),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                context.tr(
+                                    pl: 'Maks. głębokość cięcia (h_max)',
+                                    en: 'Max. cut depth (h_max)'),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            CopyOnLongPress(
+                                value: result.hMax.toStringAsFixed(1),
+                                label: 'h_max',
+                                child: Text(
+                                    '${result.hMax.toStringAsFixed(1)} mm',
+                                    style: theme.textTheme.headlineMedium
+                                        ?.copyWith(
+                                            color: theme
+                                                .colorScheme.onPrimaryContainer,
+                                            fontWeight: FontWeight.bold))),
+                            const SizedBox(height: 8),
+                            Text(context.tr(
+                                pl: 'W punktach 0° i 180°',
+                                en: 'At 0° and 180°')),
+                          ]),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                      context.tr(
+                          pl: 'Profil 0–90° • co 15°',
+                          en: 'Profile 0–90° • every 15°'),
+                      style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(_orientation),
+                  const SizedBox(height: 12),
+                  _profileTable(result.profile.take(7)),
+                  const SizedBox(height: 12),
+                  Card.outlined(
+                    margin: EdgeInsets.zero,
+                    child: ExpansionTile(
+                      key: const ValueKey('saddle-full-profile'),
+                      title: Text(context.tr(
+                          pl: 'Pełny obwód 0–360°',
+                          en: 'Full circumference 0–360°')),
+                      subtitle: Text(context.tr(
+                          pl: '25 punktów z zamknięciem obwodu',
+                          en: '25 points including closure')),
+                      childrenPadding: const EdgeInsets.all(12),
+                      children: [_profileTable(result.profile)],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                      context.tr(
+                          pl: '„Na obwodzie” mierz taśmą po łuku od 0°, nie w linii prostej. '
+                              'Głębokość odmierzaj wzdłuż osi rury od płaszczyzny prostopadłej do osi, '
+                              'przechodzącej przez najdłuższe punkty, w stronę korpusu rury. '
+                              '360° wraca do 0°. Wartości zaokrąglone do 0.1 mm.',
+                          en: 'Measure “Along circumference” with a tape along the arc from 0°, not in a straight line. '
+                              'Measure depth along the pipe axis from the plane perpendicular to the axis '
+                              'through the longest points, towards the pipe body. '
+                              '360° returns to 0°. Values rounded to 0.1 mm.'),
+                      style: theme.textTheme.bodySmall),
+                ],
+                const SizedBox(height: 16),
+                _guide(),
+                const SizedBox(height: 16),
+                Text(_limits, style: theme.textTheme.bodySmall),
+              ],
             ),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _calculate,
-                icon: const Icon(Icons.calculate),
-                label: Text(context.tr(pl: 'OBLICZ', en: 'CALCULATE')),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-              ),
-            ),
-
-            if (_hMax != null) ...[
-              const SizedBox(height: 24),
-              _sectionLabel(context.tr(pl: 'WYNIKI', en: 'RESULTS')),
-              const SizedBox(height: 12),
-
-              Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.all(14),
-                child: Row(children: [
-                  Icon(Icons.content_cut, color: Theme.of(context).colorScheme.onPrimaryContainer),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.tr(pl: 'Maks. głębokość cięcia (h_max)', en: 'Max. cut depth (h_max)'),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 6),
-                      CopyOnLongPress(
-                        value: _hMax!.toStringAsFixed(1),
-                        label: 'h_max',
-                        child: Text(
-                          '${_hMax!.toStringAsFixed(1)} mm',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                                height: 1.1,
-                              ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        context.tr(pl: 'Wzór: R − √(R²−r²)', en: 'Formula: R − √(R²−r²)'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  )),
-                ]),
-              ),
-
-              const SizedBox(height: 20),
-              _sectionLabel(context.tr(pl: 'PROFIL CIĘCIA (α=0°: bok, α=90°: góra/dół)', en: 'CUT PROFILE (α=0°: side, α=90°: top/bottom)')),
-              const SizedBox(height: 8),
-              Text(
-                context.tr(
-                  pl: 'Głębokość na każdy kąt α wokół rury odgałęzienia:\nd(α) = R − √(R² − (r×sin α)²)',
-                  en: 'Depth at each angle α around the branch pipe:\nd(α) = R − √(R² − (r×sin α)²)',
-                ),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              _profileTable(),
-
-              const SizedBox(height: 16),
-              Text(
-                context.tr(
-                  pl: 'Jak użyć: zaznacz głębokość na każdym zaznaczonym kącie dookoła rury odgałęzienia, połącz punkty krzywą i tnij.',
-                  en: 'How to use: mark each depth at the corresponding angle around the branch pipe, connect the points with a smooth curve and cut.',
-                ),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _profileTable() {
-    final profile = _profile;
-    if (profile == null) return const SizedBox();
-
-    final cs = Theme.of(context).colorScheme;
-    return Table(
-      border: TableBorder.all(color: cs.outlineVariant, borderRadius: BorderRadius.circular(4)),
-      columnWidths: const {
-        0: FlexColumnWidth(1),
-        1: FlexColumnWidth(2),
-      },
-      children: [
-        TableRow(
-          decoration: BoxDecoration(color: cs.surfaceContainerHigh),
-          children: [
-            _cell(context.tr(pl: 'Kąt α (°)', en: 'Angle α (°)'), bold: true),
-            _cell(context.tr(pl: 'Głębokość (mm)', en: 'Depth (mm)'), bold: true),
-          ],
-        ),
-        ...profile.map((p) => TableRow(children: [
-          _cell('${p.angle}°'),
-          _cell(p.depth.toStringAsFixed(1)),
-        ])),
-      ],
-    );
-  }
-
-  Widget _cell(String text, {bool bold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-      child: Text(
-        text,
-        style: TextStyle(fontWeight: bold ? FontWeight.bold : FontWeight.normal),
-      ),
-    );
-  }
-
-  Widget _sectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-  );
-
-  Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix}) {
-    // Live range check so the fitter sees nonsense (negative, zero, or absurd
-    // OD like 99999mm) BEFORE pressing CALCULATE. Realistic pipe OD ceiling
-    // ~2000mm covers DN1800 and then some.
-    return AnimatedBuilder(
-      animation: ctrl,
-      builder: (context, _) {
-        final txt = ctrl.text.trim();
-        String? err;
-        if (txt.isNotEmpty) {
-          final v = double.tryParse(txt.replaceAll(',', '.'));
-          if (v == null) {
-            err = context.tr(pl: 'Nieprawidłowa liczba', en: 'Invalid number');
-          } else if (v <= 0) {
-            err = context.tr(pl: 'OD musi być > 0', en: 'OD must be > 0');
-          } else if (v > 2000) {
-            err = context.tr(pl: 'OD > 2000 mm — sprawdź', en: 'OD > 2000 mm — check');
-          }
-        }
-        return TextField(
-          controller: ctrl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: label,
-            suffixText: suffix,
-            border: const OutlineInputBorder(),
-            errorText: err,
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  Widget _guide() {
+    final result = _result;
+    final header = result?.headerOd ?? 100.0;
+    final branch = result?.branchOd ?? 60.0;
+    final radius = header / 2;
+    final branchRadius = branch / 2;
+    final hMax = result?.hMax ?? 10.0;
+    return CalculationGuide(
+      key: const ValueKey('saddle-guide'),
+      hasResult: result != null,
+      inputs: context.tr(
+          pl: 'Podaj OD rury głównej i odgałęzienia. Odgałęzienie może mieć mniejszą lub taką samą średnicę. '
+              'Ich osie muszą się przecinać pod kątem 90°. To profil zewnętrznych powierzchni rur.',
+          en: 'Enter the header and branch OD. The branch can have a smaller or equal diameter. '
+              'Their axes must intersect at 90°. This is the profile of the outside pipe surfaces.'),
+      steps: [
+        context.tr(
+            pl: 'Promienie to połowy średnic: R = ${guideNumber(header)} / 2 = ${guideNumber(radius)} mm; '
+                'r = ${guideNumber(branch)} / 2 = ${guideNumber(branchRadius)} mm.',
+            en: 'Radii are half the diameters: R = ${guideNumber(header)} / 2 = ${guideNumber(radius)} mm; '
+                'r = ${guideNumber(branch)} / 2 = ${guideNumber(branchRadius)} mm.'),
+        'h_max = R − √(R² − r²)\n'
+            '${guideNumber(radius)} − √(${guideNumber(radius)}² − ${guideNumber(branchRadius)}²) = ${hMax.toStringAsFixed(1)} mm',
+        context.tr(
+            pl: 'Dla każdego kąta: d(α) = √(R² − (r × sin α)²) − √(R² − r²). '
+                'Przy 0° głębokość wynosi ${hMax.toStringAsFixed(1)} mm, a przy 90° wynosi 0 mm.',
+            en: 'At each angle: d(α) = √(R² − (r × sin α)²) − √(R² − r²). '
+                'Depth is ${hMax.toStringAsFixed(1)} mm at 0° and 0 mm at 90°.'),
+        context.tr(
+            pl: 'Obwód = π × ${guideNumber(branch)} = ${(math.pi * branch).toStringAsFixed(1)} mm. '
+                'Odległość po łuku do punktu α = obwód × α / 360°. '
+                'Zaznacz punkty na obwodzie, odłóż ich głębokości osiowo i połącz płynną krzywą. '
+                'Przed cięciem sprawdź orientację i dopasowanie.',
+            en: 'Circumference = π × ${guideNumber(branch)} = ${(math.pi * branch).toStringAsFixed(1)} mm. '
+                'Arc distance to α = circumference × α / 360°. '
+                'Mark the points around the circumference, mark each depth axially and join with a smooth curve. '
+                'Check the orientation and fit before cutting.'),
+      ],
+      caution: context.tr(
+          pl: 'Nie wpisuj DN zamiast OD. Nie zamieniaj odległości po obwodzie z głębokością wzdłuż osi. '
+              'Wzór nie wyznacza ukosowania ani szczeliny spawalniczej.',
+          en: 'Do not enter DN instead of OD. Do not confuse circumference distance with axial depth. '
+              'The formula does not determine the weld bevel or gap.'),
+    );
+  }
+
+  Widget _profileTable(Iterable<_SaddlePoint> profile) {
+    final theme = Theme.of(context);
+    // Keep numbers and headings readable with large system text; allow panning.
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = math.max(
+          constraints.maxWidth, MediaQuery.textScalerOf(context).scale(300));
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (width > constraints.maxWidth)
+          Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                  context.tr(
+                      pl: 'Przesuń tabelę w bok, aby zobaczyć głębokość.',
+                      en: 'Scroll the table sideways to see the depth.'),
+                  style: theme.textTheme.bodySmall)),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            child: Table(
+              border: TableBorder.all(color: theme.colorScheme.outlineVariant),
+              columnWidths: const {
+                0: FlexColumnWidth(.7),
+                1: FlexColumnWidth(1.2),
+                2: FlexColumnWidth(1.1)
+              },
+              defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+              children: [
+                TableRow(
+                    decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHigh),
+                    children: [
+                      _cell(context.tr(pl: 'Kąt α', en: 'Angle α'), bold: true),
+                      _cell(
+                          context.tr(
+                              pl: 'Na obwodzie\nmm',
+                              en: 'Along circumference\nmm'),
+                          bold: true),
+                      _cell(context.tr(pl: 'Głębokość\nmm', en: 'Depth\nmm'),
+                          bold: true),
+                    ]),
+                for (final point in profile)
+                  TableRow(children: [
+                    _cell('${point.angle}°'),
+                    _cell(point.arc.toStringAsFixed(1)),
+                    _cell(point.depth.toStringAsFixed(1))
+                  ]),
+              ],
+            ),
+          ),
+        ),
+      ]);
+    });
+  }
+
+  Widget _cell(String text, {bool bold = false}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        child: Text(text,
+            style: TextStyle(
+                fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+      );
+
+  Widget _field(TextEditingController controller,
+      {required String label, bool branch = false}) {
+    final showError = _submitted || controller.text.trim().isNotEmpty;
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: 'mm',
+        border: const OutlineInputBorder(),
+        errorText: showError
+            ? (branch ? _branchError : _odError(controller.text))
+            : null,
+        errorMaxLines: 4,
+      ),
     );
   }
 }
 
+class _SaddleResult {
+  final double headerOd;
+  final double branchOd;
+  final double hMax;
+  final List<_SaddlePoint> profile;
+
+  _SaddleResult(
+      {required this.headerOd,
+      required this.branchOd,
+      required this.hMax,
+      required List<_SaddlePoint> profile})
+      : profile = List.unmodifiable(profile);
+}
+
 class _SaddlePoint {
-  final int    angle;
+  final int angle;
+  final double arc;
   final double depth;
-  const _SaddlePoint({required this.angle, required this.depth});
+  const _SaddlePoint(
+      {required this.angle, required this.arc, required this.depth});
 }

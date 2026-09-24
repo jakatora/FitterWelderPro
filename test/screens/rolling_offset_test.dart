@@ -105,9 +105,13 @@ void main() {
       // Mistype rise=0 — validation early-returns. Without the P0-05
       // setState-around-clear fix, the stale 707.1 would remain visible.
       await _typeRiseSpread(tester, rise: '0', spread: '500');
+      await tester.ensureVisible(_calculateButton());
+      await tester.pumpAndSettle();
       await tester.tap(_calculateButton());
       await tester.pump(); // process the early-return setState
       await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(SnackBar), findsOneWidget);
 
       expect(
         find.textContaining('707'),

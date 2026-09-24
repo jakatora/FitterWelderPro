@@ -439,9 +439,9 @@ final kHelpRollingOffset = ScreenHelp(
   titlePl: 'Rolling Offset',
   titleEn: 'Rolling Offset',
   bodyPl:
-      'Oblicza Travel (długość odcinka) dla offsetu biegnącego jednocześnie w pionie (Rise) i poziomie (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ).',
+      'Oblicza Travel — odległość między punktami przecięcia osi kolan — dla przesunięcia pionowego (Rise) i bocznego (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). To nie jest długość cięcia; uwzględnij zabudowy kształtek i szczeliny z dokumentacji projektu.',
   bodyEn:
-      'Calculates Travel (spool length) for an offset running simultaneously vertically (Rise) and horizontally (Spread). Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ).',
+      'Calculates Travel — the distance between elbow centreline intersection points — for vertical (Rise) and lateral (Spread) offsets. Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). This is not a cut length; account for fitting take-outs and gaps from the project documentation.',
   stepsPl: [
     HelpStep('↕️', 'Rise — odchylenie pionowe (w mm).'),
     HelpStep('↔️', 'Spread — odchylenie poziome (w mm).'),
@@ -479,18 +479,18 @@ final kHelpSaddleCut = ScreenHelp(
   titlePl: 'Saddle Cut (wycięcie siodłowe)',
   titleEn: 'Saddle Cut (fish-mouth cut)',
   bodyPl:
-      'Oblicza głębokość wycięcia siodłowego na rurze odgałęzieniowej dla prostopadłego połączenia T. Wynik to profil nacięcia w 8 punktach kątowych wokół obwodu rury.',
+      'Profil zewnętrznych powierzchni rur dla centralnego połączenia T pod kątem 90°. Szybka tabela obejmuje 0–90°, a pełny obwód i kopiowanie: 0–360° co 15° (25 punktów z zamknięciem). Bez grubości ścianki, ukosowania, szczeliny i naddatków — sprawdź dokumentację przed cięciem.',
   bodyEn:
-      'Calculates the saddle cut depth on the branch pipe for a perpendicular T-junction. The result is the cut profile at 8 angular positions around the pipe circumference.',
+      'Outside-surface profile for a centred 90° T-junction. The quick table covers 0–90°; the full circumference and copy cover 0–360° every 15° (25 points including closure). Wall thickness, bevel, gap and allowances are excluded — check project requirements before cutting.',
   stepsPl: [
     HelpStep('📏', 'Wpisz OD rury głównej (header) i rury odgałęzieniowej (branch).'),
-    HelpStep('📊', 'Profil pokazuje głębokość cięcia co 22.5° (0°, 22.5°, 45°... 90°).'),
-    HelpStep('💡', 'Głębokość 0 mm jest na wierzchołku (90°), max na boku (0°).'),
+    HelpStep('📊', 'Na obwodzie mierz po łuku od 0°. Głębokość odmierzaj osiowo od płaszczyzny prostopadłej do osi, przechodzącej przez najdłuższe punkty, w stronę korpusu rury.'),
+    HelpStep('💡', '0° i 180° leżą w płaszczyźnie obu osi — maksymalne wycięcie. 90° i 270° to najdłuższe końce rury (głębokość 0 mm). 360° zamyka obwód w 0°.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter the OD of the header pipe and the branch pipe.'),
-    HelpStep('📊', 'Profile shows cut depth every 22.5° (0°, 22.5°, 45°... 90°).'),
-    HelpStep('💡', 'Depth 0 mm is at the top (90°), maximum depth is at the side (0°).'),
+    HelpStep('📊', 'Measure circumference distance along the arc from 0°. Measure depth axially from the plane perpendicular to the axis through the longest points, towards the pipe body.'),
+    HelpStep('💡', '0° and 180° lie in the plane of both axes — maximum cutback. 90° and 270° are the longest pipe-end points (depth 0 mm). 360° closes the circumference at 0°.'),
   ],
 );
 

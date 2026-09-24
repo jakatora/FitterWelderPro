@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
+import '../widgets/calculation_guide.dart';
 
 class RollingOffsetScreen extends StatefulWidget {
   const RollingOffsetScreen({super.key});
@@ -28,6 +29,37 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   // P1-12: yellow banner when multiplier > 10 (extreme shallow angle → tiny
   // sin(θ) blows the Travel/Multiplier up; fitter should double-check kąt).
   bool _showMultiplierWarning = false;
+  (double, double, double)? _lastCalculation;
+
+  void _clearComputed() {
+    _trueOffsetController.clear();
+    _multiplierController.clear();
+    _travelController.clear();
+    _runController.clear();
+    _showMultiplierWarning = false;
+    _lastCalculation = null;
+  }
+
+  Widget _guide() {
+    final (rise, spread, angle) = _lastCalculation ?? (300.0, 400.0, 45.0);
+    final offset = _lastCalculation == null ? '500.0' : _trueOffsetController.text;
+    final travel = _lastCalculation == null ? '707.1' : _travelController.text;
+    return CalculationGuide(
+      hasResult: _lastCalculation != null,
+      inputs: context.tr(
+        pl: 'Rise to przesunięcie pionowe osi rur. Spread to przesunięcie boczne osi, mierzone prostopadle do Rise. Wpisz oba wymiary w mm i wybierz kąt kolan.',
+        en: 'Rise is the vertical offset of the pipe centrelines. Spread is the lateral offset, measured perpendicular to Rise. Enter both in mm and select the elbow angle.'),
+      steps: [
+        context.tr(pl: 'Rzeczywiste odsunięcie osi:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm',
+          en: 'True offset of the centrelines:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm'),
+        context.tr(pl: 'Odległość między punktami przecięcia osi kolan:\n$offset / sin(${guideNumber(angle)}°) = $travel mm',
+          en: 'Distance between the elbow centreline intersection points:\n$offset / sin(${guideNumber(angle)}°) = $travel mm'),
+      ],
+      caution: context.tr(
+        pl: 'Travel nie jest długością cięcia ani długością kolana. Przed cięciem uwzględnij zabudowy obu kształtek, sposób wymiarowania i szczeliny z dokumentacji projektu. Obliczenia używają pełnej precyzji; prezentowane liczby są zaokrąglone.',
+        en: 'Travel is not a cut length or an elbow length. Before cutting, account for both fitting take-outs, dimension references and gaps from the project documentation. Calculations use full precision; displayed numbers are rounded.'),
+    );
+  }
 
   double _parse(String v) => double.tryParse(v.replaceAll(',', '.')) ?? 0;
 
@@ -45,6 +77,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       _runController.clear();
       _selectedAngle = '45';
       _showMultiplierWarning = false;
+      _lastCalculation = null;
     });
   }
 
@@ -70,13 +103,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // stays "enabled" against now-empty controllers. setState here rebuilds
     // the enable-state and also exposes the cleared form factor when the
     // user fixes the validation error.
-    setState(() {
-      _trueOffsetController.clear();
-      _multiplierController.clear();
-      _travelController.clear();
-      _runController.clear();
-      _showMultiplierWarning = false;
-    });
+    setState(_clearComputed);
 
     final rise   = _parse(_riseController.text);
     final spread = _parse(_spreadController.text);
@@ -84,7 +111,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
         ? _parse(_customAngleController.text)
         : _parse(_selectedAngle);
 
-    if (rise <= 0 || spread <= 0) {
+    if (!rise.isFinite || !spread.isFinite || rise <= 0 || spread <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Row(
           children: [
@@ -106,7 +133,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // P1-12: Reject angle ≤ 5° or ≥ 89°; allow exactly 90° as edge case
     // (Run = 0, Multiplier = 1). Below 5° sin(θ) collapses → multiplier
     // explodes; above 89° (except 90°) tan(θ) blows up.
-    if (angleDeg <= 5 || (angleDeg >= 89 && angleDeg != 90)) {
+    if (!angleDeg.isFinite || angleDeg <= 5 || (angleDeg >= 89 && angleDeg != 90)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Kąt musi być > 5° i < 89° (lub dokładnie 90°)',
@@ -125,6 +152,16 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // gets a clean reading.
     final run        = angleDeg == 90 ? 0.0 : trueOffset / math.tan(angleRad);
 
+    if (![trueOffset, multiplier, travel, run].every((v) => v.isFinite)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Wynik poza zakresem. Sprawdź wartości i jednostki.',
+          en: 'Result out of range. Check the values and units.',
+        )),
+      ));
+      return;
+    }
+
     _trueOffsetController.text = trueOffset.toStringAsFixed(1);
     _multiplierController.text = multiplier.toStringAsFixed(4);
     _travelController.text     = travel.toStringAsFixed(1);
@@ -132,6 +169,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
     setState(() {
       _showMultiplierWarning = multiplier > 10;
+      _lastCalculation = (rise, spread, angleDeg);
     });
   }
 
@@ -305,11 +343,13 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
             Text(
               context.tr(
-                pl: 'Travel to długość każdego z 2 kolanek (oś do osi). Run to poziomy bieg między punktami odejścia.',
-                en: 'Travel is the centre-to-centre length of each of the 2 offset elbows. Run is the horizontal distance between take-off points.',
+                pl: 'Travel to wymiar osiowy między kolanami, nie długość cięcia. Run to rzut wzdłuż kierunku początkowej rury.',
+                en: 'Travel is the centreline dimension between elbows, not a cut length. Run is the projection along the original pipe direction.',
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            const SizedBox(height: 16),
+            _guide(),
           ],
         ),
       ),
@@ -332,11 +372,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
         // chip change AND clear the custom-angle field when switching away.
         onTap: () => setState(() {
           if (_selectedAngle != value) {
-            _trueOffsetController.clear();
-            _multiplierController.clear();
-            _travelController.clear();
-            _runController.clear();
-            _showMultiplierWarning = false;
+            _clearComputed();
             if (value != 'custom') {
               _customAngleController.clear();
             }
@@ -375,6 +411,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       ValueChanged<String>? onSubmitted}) {
     return TextField(
       controller: ctrl,
+      onChanged: (_) => setState(_clearComputed),
       keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
       inputFormatters: [_positiveDecimalFormatter],
       textInputAction: textInputAction,

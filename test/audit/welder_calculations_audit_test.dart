@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../support/test_database.dart';
 
 import 'package:cut_list_app/data/tungsten.dart';
 import 'package:cut_list_app/database/tandem_amp_param_dao.dart';
@@ -23,6 +24,10 @@ Future<void> _pumpTall(WidgetTester tester, Widget child) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(_app(child));
+  for (var i = 0; i < 3; i++) {
+    await flushTestDatabase(tester);
+    await tester.pump();
+  }
   await tester.pumpAndSettle();
 }
 
@@ -58,6 +63,7 @@ class _ExactTandemDao extends TandemAmpParamDao {
 }
 
 void main() {
+  useTestDatabase();
   group('referencyjne obliczenia spawalnicze', () {
     testWidgets('GTAW 12 V / 100 A / 100 mm/min pokazuje 0.43 kJ/mm',
         (tester) async {
@@ -135,8 +141,7 @@ void main() {
     });
 
     test('rod optimizer keeps n-1 cuts for fully consumed stock', () {
-      final onePiece = BarPlan(stockLengthMm: 6000, kerfMm: 3)
-        ..addPiece(6000);
+      final onePiece = BarPlan(stockLengthMm: 6000, kerfMm: 3)..addPiece(6000);
       final threePieces = BarPlan(stockLengthMm: 6000, kerfMm: 0)
         ..addPiece(2000)
         ..addPiece(2000)

@@ -12,7 +12,7 @@
 //      seq_no and created_at survive even when a caller passes new ones.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_database.dart';
 
 import 'package:cut_list_app/database/segment_dao.dart';
 
@@ -47,17 +47,13 @@ Map<String, Object?> _row({
     };
 
 void main() {
-  setUpAll(() {
-    // SegmentDao talks to sqflite; use the FFI factory in unit tests.
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   test('update rewrites a segment in place without moving it in the cut list',
       () async {
     final dao = SegmentDao();
     // Unique ids so the test is isolated from any pre-existing rows in the
-    // shared test DB.
+    // suite-local test DB.
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final projectId = 'test_project_$stamp';
     final first = 'seg_a_$stamp';

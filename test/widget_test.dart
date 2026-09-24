@@ -1,33 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_database.dart';
 
 import 'package:cut_list_app/app.dart';
+import 'package:cut_list_app/database/project_dao.dart';
+import 'package:cut_list_app/models/project.dart';
 
 import 'test_prefs.dart';
 
 void main() {
-  setUpAll(() {
-    // HomeScreen instantiates the project DAO which talks to sqflite; in a
-    // unit-test environment we need the FFI factory.
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   /// Brama startowa robi teraz DWA odczyty asynchroniczne (profil + zgoda),
   /// a po akceptacji jeszcze zapis. Kilka klatek to za mało.
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 8; i++) {
+      await flushTestDatabase(tester);
       await tester.pump(const Duration(milliseconds: 150));
-    }
-  }
-
-  /// sqflite ustawia 10-sekundowy Timer ostrzegający o zablokowanej bazie.
-  /// Przy równoległych izolatach potrafi wisieć po końcu testu, a binding
-  /// traktuje wiszący Timer jak błąd. Dajemy mu wygasnąć.
-  Future<void> drainTimers(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(seconds: 3));
     }
   }
 
@@ -49,7 +38,37 @@ void main() {
     // FITTER is identical in both PL and EN locales so the test is robust to
     // whichever language the device defaults to.
     expect(find.text('FITTER'), findsOneWidget);
-    await drainTimers(tester);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets(
+      'home finishes loading and shows a project saved in the real database',
+      (tester) async {
+    useTallSurface(tester);
+    seedOnboardedUser();
+    final dao = ProjectDao();
+    await tester.runAsync(() => dao.insert(Project(
+          id: 'home-persisted',
+          name: 'Projekt zapisany na budowie',
+          materialGroup: 'SS',
+          diameterMm: 60.3,
+          wallThicknessMm: 2,
+          currentDiameterMm: 60.3,
+          stockLengthMm: 6000,
+          sawKerfMm: 1,
+          gapMm: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        )));
+    try {
+      await tester.pumpWidget(const CutListApp());
+      await settle(tester);
+      expect(find.text('Projekt zapisany na budowie'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dao.deleteById('home-persisted'));
+    }
   });
 
   testWidgets('pierwsze uruchomienie wymaga imienia I akceptacji zasad',
@@ -79,7 +98,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('FITTER'), findsOneWidget);
-    await drainTimers(tester);
   });
 
   testWidgets('użytkownik sprzed regulaminu musi go zaakceptować',
@@ -101,6 +119,5 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('FITTER'), findsOneWidget);
-    await drainTimers(tester);
   });
 }

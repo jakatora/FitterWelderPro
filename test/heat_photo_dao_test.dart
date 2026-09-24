@@ -1,19 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_database.dart';
 
 import 'package:cut_list_app/database/heat_photo_dao.dart';
 
 void main() {
-  setUpAll(() {
-    // HeatPhotoDao talks to sqflite; use the FFI factory in unit tests.
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   test('HeatPhotoDao insert / list / deleteById round-trip', () async {
     final dao = HeatPhotoDao();
     // Unique ids so the test is isolated from any pre-existing rows in the
-    // shared test DB.
+    // suite-local test DB.
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final projectId = 'test_project_$stamp';
     final id = 'heat_$stamp';

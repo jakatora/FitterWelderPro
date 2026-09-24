@@ -11,7 +11,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/test_database.dart';
 
 import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/database/segment_dao.dart';
@@ -111,10 +111,7 @@ bool _saveEnabled(WidgetTester tester) =>
     tester.widget<ButtonStyleButton>(_saveButton()).onPressed != null;
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
+  useTestDatabase();
 
   testWidgets('nieczytelna tabelka blokuje zapis i mówi, czego brakuje',
       (tester) async {

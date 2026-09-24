@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 /// NOTE: Keep schema and DAO/models in sync.
 class AppDatabase {
   static Database? _db;
+  static Future<Database>? _opening;
   static String? _databasePathForTesting;
 
   // Bump this whenever you change schema.
@@ -21,33 +22,50 @@ class AppDatabase {
   /// matching the next time someone bumps [_dbVersion].
   static int get schemaVersion => _dbVersion;
 
-  static Future<Database> get() async {
-    if (_db != null) return _db!;
+  static Future<Database> get() {
+    final ready = _db;
+    if (ready != null && ready.isOpen) return Future.value(ready);
+    // Every caller waits for the same complete preparation, not just open().
+    return _opening ??= _open();
+  }
 
-    final dbPath = await getDatabasesPath();
-    final path = _databasePathForTesting ?? p.join(dbPath, 'cutlist.db');
+  static Future<Database> _open() async {
+    Database? connection;
+    try {
+      final dbPath = await getDatabasesPath();
+      final path = _databasePathForTesting ?? p.join(dbPath, 'cutlist.db');
+      connection = await openDatabase(
+        path,
+        version: _dbVersion,
+        onCreate: (db, _) async {
+          await createSchema(db);
+          await _seedApprovedData(db);
+        },
+        onUpgrade: migrate,
+      );
 
-    _db = await openDatabase(
-      path,
-      version: _dbVersion,
-      onCreate: (db, _) async {
-        await createSchema(db);
-        await _seedApprovedData(db);
-      },
-      onUpgrade: migrate,
-    );
-
-    // Neither onCreate nor onUpgrade runs when the stored version already
-    // equals [_dbVersion], so a database that is at 17 but missing a table
-    // (the exact state the v16 self-heal was written for) would reach
-    // _seedApprovedData below and throw "no such table" on every single
-    // launch, with no upgrade left to repair it. _createTables is all
-    // CREATE TABLE IF NOT EXISTS, so this costs a few no-op DDL statements.
-    // Tables only: _createIndexes names columns, and if this database is
-    // stamped 17 while holding a legacy layout, those columns may be absent.
-    await _createTables(_db!);
-    await _seedApprovedData(_db!);
-    return _db!;
+      // A current-version database can still lack tables. Keep the existing
+      // idempotent repair/seed step, but do not expose the connection until
+      // it finishes. Indexes may reference missing legacy columns, so only
+      // repair tables here, as before.
+      await _createTables(connection);
+      await _seedApprovedData(connection);
+      _db = connection;
+      return connection;
+    } catch (_) {
+      _db = null;
+      if (connection != null && connection.isOpen) {
+        try {
+          await connection.close();
+        } catch (_) {
+          // Preserve the initialization error if cleanup also fails.
+        }
+      }
+      rethrow;
+    } finally {
+      // A failed attempt must not poison the next retry.
+      _opening = null;
+    }
   }
 
   /// Applies every schema step needed to bring a database from [oldVersion]
@@ -57,7 +75,8 @@ class AppDatabase {
   /// drives. Seventeen schema versions shipped without a single migration test,
   /// and v16 exists only because one of those migrations had already failed on
   /// users' devices — an untestable closure inside [get] is how that happened.
-  static Future<void> migrate(Database db, int oldVersion, int newVersion) async {
+  static Future<void> migrate(
+      Database db, int oldVersion, int newVersion) async {
     // Self-heal FIRST, for every upgrade path — not just the v16 one.
     //
     // The steps below reach for tables with ALTER TABLE (via [_ensureColumn])
@@ -84,17 +103,22 @@ class AppDatabase {
 
     // ---- Projects
     if (oldVersion < 2) {
-      await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
-      await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
-      await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
+      await _ensureColumn(
+          db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(
+          db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
+      await _ensureColumn(
+          db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
 
-      await _ensureColumn(db, 'component_library', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(db, 'component_library', 'material_group',
+          "TEXT NOT NULL DEFAULT 'SS'");
       await _ensureColumn(db, 'component_library', 'measurement_mode', 'TEXT');
     }
 
     // ---- Segments
     if (oldVersion < 3) {
-      await _ensureColumn(db, 'segments', 'iso_ref', "TEXT NOT NULL DEFAULT 'FACE'");
+      await _ensureColumn(
+          db, 'segments', 'iso_ref', "TEXT NOT NULL DEFAULT 'FACE'");
     }
 
     // ---- Photos / heats
@@ -110,7 +134,8 @@ CREATE TABLE IF NOT EXISTS heat_photos (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
     }
     if (oldVersion < 5) {
       await db.execute('''
@@ -125,8 +150,10 @@ CREATE TABLE IF NOT EXISTS component_heats (
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
     }
 
     // ---- Welder pipes: user weld params
@@ -152,7 +179,8 @@ CREATE TABLE IF NOT EXISTS weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
     }
     if (oldVersion < 7) {
       await _ensureColumn(db, 'weld_params', 'welder_model', 'TEXT');
@@ -184,10 +212,12 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
     }
     if (oldVersion < 11) {
-      await _ensureColumn(db, 'tandem_tig_params', 'wall_thickness2_mm', 'REAL');
+      await _ensureColumn(
+          db, 'tandem_tig_params', 'wall_thickness2_mm', 'REAL');
     }
 
     // ---- Welder tanks: optional gap for GAP and BEVEL (e.g. faza + szczelina)
@@ -218,7 +248,8 @@ CREATE TABLE IF NOT EXISTS approved_weld_params (
   updated_at INTEGER NOT NULL
 );
 ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+      await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
     }
 
     // ---- Seed / patch approved data
@@ -246,9 +277,12 @@ CREATE TABLE IF NOT EXISTS projects (
 ''');
 
       // Ensure critical columns exist even if version was previously bumped.
-      await _ensureColumn(db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
-      await _ensureColumn(db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
-      await _ensureColumn(db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
+      await _ensureColumn(
+          db, 'projects', 'material_group', "TEXT NOT NULL DEFAULT 'SS'");
+      await _ensureColumn(
+          db, 'projects', 'stock_length_mm', 'REAL NOT NULL DEFAULT 6000');
+      await _ensureColumn(
+          db, 'projects', 'saw_kerf_mm', 'REAL NOT NULL DEFAULT 1');
       await _ensureColumn(db, 'projects', 'gap_mm', 'REAL NOT NULL DEFAULT 0');
     }
 
@@ -438,14 +472,22 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   /// whole migration - and the app launch - down with it. [migrate]
   /// therefore calls it last, once every column is in place.
   static Future<void> _createIndexes(Database db) async {
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_segments_project ON segments(project_id);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_segments_project ON segments(project_id);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_heat_project ON heat_photos(project_id);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_approved_weld_params_main ON approved_weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_tandem_tig_main ON tandem_tig_params(material_group, position, joint_type, land_mm, wall_thickness_mm);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {
@@ -455,7 +497,9 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
     // Insert only if not exists (by id).
     Future<void> upsertTandem(Map<String, Object?> row) async {
       final id = row['id'] as String;
-      final existing = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM tandem_tig_params WHERE id = ?', [id])) ?? 0;
+      final existing = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM tandem_tig_params WHERE id = ?', [id])) ??
+          0;
       if (existing > 0) return;
       await db.insert('tandem_tig_params', row);
     }
@@ -505,10 +549,9 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
     // ensure idempotency.
     Future<void> upsertApproved(Map<String, Object?> row) async {
       final id = row['id'] as String;
-      final existing = Sqflite.firstIntValue(
-              await db.rawQuery(
-                  'SELECT COUNT(*) FROM approved_weld_params WHERE id = ?',
-                  [id])) ??
+      final existing = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM approved_weld_params WHERE id = ?',
+              [id])) ??
           0;
       if (existing > 0) return;
       await db.insert('approved_weld_params', row);
@@ -545,151 +588,500 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
 
     final List<Map<String, Object?>> approvedList = [
       // Stainless steel (autogen) – thin wall
-      preset(id: 'APP_SS_AUTO_10_1_0', method: 'TIG_AUTOGEN', material: 'SS', d: 10.0, t: 1.0, amps: 30.0),
-      preset(id: 'APP_SS_AUTO_10_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 10.0, t: 1.5, amps: 35.0),
-      preset(id: 'APP_SS_AUTO_12_1_0', method: 'TIG_AUTOGEN', material: 'SS', d: 12.0, t: 1.0, amps: 32.0),
-      preset(id: 'APP_SS_AUTO_12_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 12.0, t: 1.5, amps: 35.0),
-      preset(id: 'APP_SS_AUTO_14_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 14.0, t: 1.5, amps: 37.0),
-      preset(id: 'APP_SS_AUTO_16_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 16.0, t: 1.5, amps: 38.0),
-      preset(id: 'APP_SS_AUTO_18_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 18.0, t: 1.5, amps: 40.0),
-      preset(id: 'APP_SS_AUTO_20_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 20.0, t: 1.5, amps: 43.0),
-      preset(id: 'APP_SS_AUTO_25_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 25.0, t: 1.5, amps: 48.0),
-      preset(id: 'APP_SS_AUTO_25_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 25.0, t: 2.0, amps: 60.0, electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_10_1_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 10.0,
+          t: 1.0,
+          amps: 30.0),
+      preset(
+          id: 'APP_SS_AUTO_10_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 10.0,
+          t: 1.5,
+          amps: 35.0),
+      preset(
+          id: 'APP_SS_AUTO_12_1_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 12.0,
+          t: 1.0,
+          amps: 32.0),
+      preset(
+          id: 'APP_SS_AUTO_12_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 12.0,
+          t: 1.5,
+          amps: 35.0),
+      preset(
+          id: 'APP_SS_AUTO_14_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 14.0,
+          t: 1.5,
+          amps: 37.0),
+      preset(
+          id: 'APP_SS_AUTO_16_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 16.0,
+          t: 1.5,
+          amps: 38.0),
+      preset(
+          id: 'APP_SS_AUTO_18_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 18.0,
+          t: 1.5,
+          amps: 40.0),
+      preset(
+          id: 'APP_SS_AUTO_20_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 20.0,
+          t: 1.5,
+          amps: 43.0),
+      preset(
+          id: 'APP_SS_AUTO_25_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 25.0,
+          t: 1.5,
+          amps: 48.0),
+      preset(
+          id: 'APP_SS_AUTO_25_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 25.0,
+          t: 2.0,
+          amps: 60.0,
+          electrode: 2.4),
       // Stainless mid sizes
-      preset(id: 'APP_SS_AUTO_32_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 32.0, t: 1.5, amps: 55.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_32_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 32.0, t: 2.0, amps: 65.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_38_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 38.0, t: 1.5, amps: 60.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_38_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 38.0, t: 2.0, amps: 70.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_40_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 40.0, t: 1.5, amps: 60.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_40_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 40.0, t: 2.0, amps: 70.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_50_1_5', method: 'TIG_AUTOGEN', material: 'SS', d: 50.0, t: 1.5, amps: 65.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_50_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 50.0, t: 2.0, amps: 75.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_60_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 60.0, t: 2.0, amps: 80.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_60_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 60.0, t: 3.0, amps: 90.0, electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_32_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 32.0,
+          t: 1.5,
+          amps: 55.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_32_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 32.0,
+          t: 2.0,
+          amps: 65.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_38_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 38.0,
+          t: 1.5,
+          amps: 60.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_38_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 38.0,
+          t: 2.0,
+          amps: 70.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_40_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 40.0,
+          t: 1.5,
+          amps: 60.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_40_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 40.0,
+          t: 2.0,
+          amps: 70.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_50_1_5',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 50.0,
+          t: 1.5,
+          amps: 65.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_50_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 50.0,
+          t: 2.0,
+          amps: 75.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_60_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 60.0,
+          t: 2.0,
+          amps: 80.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_60_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 60.0,
+          t: 3.0,
+          amps: 90.0,
+          electrode: 2.4),
       // Stainless large sizes
-      preset(id: 'APP_SS_AUTO_76_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 76.0, t: 2.0, amps: 85.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_76_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 76.0, t: 3.0, amps: 100.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_88_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 88.0, t: 2.0, amps: 90.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_88_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 88.0, t: 3.0, amps: 105.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_100_2_0', method: 'TIG_AUTOGEN', material: 'SS', d: 100.0, t: 2.0, amps: 100.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_100_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 100.0, t: 3.0, amps: 120.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_114_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 114.0, t: 3.0, amps: 130.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_114_4_0', method: 'TIG_AUTOGEN', material: 'SS', d: 114.0, t: 4.0, amps: 150.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_139_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 139.0, t: 3.0, amps: 140.0, electrode: 2.4),
-      preset(id: 'APP_SS_AUTO_139_4_0', method: 'TIG_AUTOGEN', material: 'SS', d: 139.0, t: 4.0, amps: 160.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_168_3_0', method: 'TIG_AUTOGEN', material: 'SS', d: 168.0, t: 3.0, amps: 150.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_168_4_0', method: 'TIG_AUTOGEN', material: 'SS', d: 168.0, t: 4.0, amps: 165.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_168_5_0', method: 'TIG_AUTOGEN', material: 'SS', d: 168.0, t: 5.0, amps: 190.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_219_4_0', method: 'TIG_AUTOGEN', material: 'SS', d: 219.0, t: 4.0, amps: 180.0, electrode: 3.2),
-      preset(id: 'APP_SS_AUTO_219_5_0', method: 'TIG_AUTOGEN', material: 'SS', d: 219.0, t: 5.0, amps: 200.0, electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_76_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 76.0,
+          t: 2.0,
+          amps: 85.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_76_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 76.0,
+          t: 3.0,
+          amps: 100.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_88_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 88.0,
+          t: 2.0,
+          amps: 90.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_88_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 88.0,
+          t: 3.0,
+          amps: 105.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_100_2_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 100.0,
+          t: 2.0,
+          amps: 100.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_100_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 100.0,
+          t: 3.0,
+          amps: 120.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_114_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 114.0,
+          t: 3.0,
+          amps: 130.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_114_4_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 114.0,
+          t: 4.0,
+          amps: 150.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_139_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 139.0,
+          t: 3.0,
+          amps: 140.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_SS_AUTO_139_4_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 139.0,
+          t: 4.0,
+          amps: 160.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_168_3_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 168.0,
+          t: 3.0,
+          amps: 150.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_168_4_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 168.0,
+          t: 4.0,
+          amps: 165.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_168_5_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 168.0,
+          t: 5.0,
+          amps: 190.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_219_4_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 219.0,
+          t: 4.0,
+          amps: 180.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_SS_AUTO_219_5_0',
+          method: 'TIG_AUTOGEN',
+          material: 'SS',
+          d: 219.0,
+          t: 5.0,
+          amps: 200.0,
+          electrode: 3.2),
       // Carbon steel (wire) – typical sets
-      preset(id: 'APP_CS_WIRE_60_3_0', method: 'TIG_WIRE', material: 'CS', d: 60.0, t: 3.0, amps: 120.0, electrode: 2.4),
-      preset(id: 'APP_CS_WIRE_76_3_0', method: 'TIG_WIRE', material: 'CS', d: 76.0, t: 3.0, amps: 130.0, electrode: 2.4),
-      preset(id: 'APP_CS_WIRE_88_4_0', method: 'TIG_WIRE', material: 'CS', d: 88.0, t: 4.0, amps: 150.0, electrode: 3.2),
-      preset(id: 'APP_CS_WIRE_114_4_0', method: 'TIG_WIRE', material: 'CS', d: 114.0, t: 4.0, amps: 160.0, electrode: 3.2),
-      preset(id: 'APP_CS_WIRE_168_5_0', method: 'TIG_WIRE', material: 'CS', d: 168.0, t: 5.0, amps: 200.0, electrode: 3.2),
+      preset(
+          id: 'APP_CS_WIRE_60_3_0',
+          method: 'TIG_WIRE',
+          material: 'CS',
+          d: 60.0,
+          t: 3.0,
+          amps: 120.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_CS_WIRE_76_3_0',
+          method: 'TIG_WIRE',
+          material: 'CS',
+          d: 76.0,
+          t: 3.0,
+          amps: 130.0,
+          electrode: 2.4),
+      preset(
+          id: 'APP_CS_WIRE_88_4_0',
+          method: 'TIG_WIRE',
+          material: 'CS',
+          d: 88.0,
+          t: 4.0,
+          amps: 150.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_CS_WIRE_114_4_0',
+          method: 'TIG_WIRE',
+          material: 'CS',
+          d: 114.0,
+          t: 4.0,
+          amps: 160.0,
+          electrode: 3.2),
+      preset(
+          id: 'APP_CS_WIRE_168_5_0',
+          method: 'TIG_WIRE',
+          material: 'CS',
+          d: 168.0,
+          t: 5.0,
+          amps: 200.0,
+          electrode: 3.2),
     ];
 
     // Expanded approved presets grouped by material so the app can filter by
     // welded material and avoid mixing amperage recommendations.
     final ssAutogen = <Map<String, double>>[
-      {'d': 6, 't': 1.0, 'a': 20, 'e': 1.0}, {'d': 8, 't': 1.0, 'a': 24, 'e': 1.0},
-      {'d': 12, 't': 1.65, 'a': 34, 'e': 1.6}, {'d': 22, 't': 1.5, 'a': 45, 'e': 1.6},
-      {'d': 28, 't': 2.0, 'a': 63, 'e': 2.4}, {'d': 35, 't': 2.0, 'a': 68, 'e': 2.4},
-      {'d': 45, 't': 2.0, 'a': 73, 'e': 2.4}, {'d': 50, 't': 3.0, 'a': 90, 'e': 2.4},
-      {'d': 63, 't': 2.0, 'a': 82, 'e': 2.4}, {'d': 63, 't': 3.0, 'a': 92, 'e': 2.4},
-      {'d': 70, 't': 2.0, 'a': 85, 'e': 2.4}, {'d': 70, 't': 3.0, 'a': 95, 'e': 2.4},
-      {'d': 80, 't': 3.0, 'a': 102, 'e': 2.4}, {'d': 159, 't': 3.0, 'a': 145, 'e': 3.2},
-      {'d': 159, 't': 4.0, 'a': 165, 'e': 3.2}, {'d': 273, 't': 5.0, 'a': 210, 'e': 4.0},
-      {'d': 273, 't': 6.0, 'a': 230, 'e': 4.0}, {'d': 323, 't': 6.0, 'a': 240, 'e': 4.0},
+      {'d': 6, 't': 1.0, 'a': 20, 'e': 1.0},
+      {'d': 8, 't': 1.0, 'a': 24, 'e': 1.0},
+      {'d': 12, 't': 1.65, 'a': 34, 'e': 1.6},
+      {'d': 22, 't': 1.5, 'a': 45, 'e': 1.6},
+      {'d': 28, 't': 2.0, 'a': 63, 'e': 2.4},
+      {'d': 35, 't': 2.0, 'a': 68, 'e': 2.4},
+      {'d': 45, 't': 2.0, 'a': 73, 'e': 2.4},
+      {'d': 50, 't': 3.0, 'a': 90, 'e': 2.4},
+      {'d': 63, 't': 2.0, 'a': 82, 'e': 2.4},
+      {'d': 63, 't': 3.0, 'a': 92, 'e': 2.4},
+      {'d': 70, 't': 2.0, 'a': 85, 'e': 2.4},
+      {'d': 70, 't': 3.0, 'a': 95, 'e': 2.4},
+      {'d': 80, 't': 3.0, 'a': 102, 'e': 2.4},
+      {'d': 159, 't': 3.0, 'a': 145, 'e': 3.2},
+      {'d': 159, 't': 4.0, 'a': 165, 'e': 3.2},
+      {'d': 273, 't': 5.0, 'a': 210, 'e': 4.0},
+      {'d': 273, 't': 6.0, 'a': 230, 'e': 4.0},
+      {'d': 323, 't': 6.0, 'a': 240, 'e': 4.0},
     ];
     for (final r in ssAutogen) {
       approvedList.add(preset(
         id: 'APP_SS_AUTO_${r['d']!.toInt()}_${(r['t']! * 100).round()}',
-        method: 'TIG_AUTOGEN', material: 'SS', d: r['d']!, t: r['t']!,
-        amps: r['a']!, electrode: r['e']!, torchGas: r['d']! <= 25 ? 7 : 8.0,
+        method: 'TIG_AUTOGEN',
+        material: 'SS',
+        d: r['d']!,
+        t: r['t']!,
+        amps: r['a']!,
+        electrode: r['e']!,
+        torchGas: r['d']! <= 25 ? 7 : 8.0,
         purge: r['d']! <= 50 ? 10 : 15,
       ));
     }
 
     final ssWire = <Map<String, double>>[
-      {'d': 20, 't': 2.0, 'a': 75, 'e': 2.4}, {'d': 25, 't': 2.0, 'a': 80, 'e': 2.4},
-      {'d': 32, 't': 2.0, 'a': 85, 'e': 2.4}, {'d': 32, 't': 3.0, 'a': 95, 'e': 2.4},
-      {'d': 38, 't': 2.0, 'a': 90, 'e': 2.4}, {'d': 38, 't': 3.0, 'a': 102, 'e': 2.4},
-      {'d': 40, 't': 2.0, 'a': 90, 'e': 2.4}, {'d': 40, 't': 3.0, 'a': 98, 'e': 2.4},
-      {'d': 50, 't': 3.0, 'a': 105, 'e': 2.4}, {'d': 60, 't': 3.0, 'a': 110, 'e': 2.4},
-      {'d': 63, 't': 3.0, 'a': 112, 'e': 2.4}, {'d': 70, 't': 3.0, 'a': 114, 'e': 2.4},
-      {'d': 76, 't': 3.0, 'a': 118, 'e': 2.4}, {'d': 80, 't': 3.0, 'a': 120, 'e': 2.4},
-      {'d': 88, 't': 4.0, 'a': 130, 'e': 3.2}, {'d': 100, 't': 4.0, 'a': 135, 'e': 3.2},
-      {'d': 114, 't': 4.0, 'a': 145, 'e': 3.2}, {'d': 139, 't': 4.0, 'a': 155, 'e': 3.2},
-      {'d': 159, 't': 5.0, 'a': 170, 'e': 3.2}, {'d': 168, 't': 5.0, 'a': 180, 'e': 3.2},
-      {'d': 219, 't': 3.0, 'a': 130, 'e': 2.4}, {'d': 273, 't': 3.0, 'a': 130, 'e': 2.4},
-      {'d': 323, 't': 3.0, 'a': 130, 'e': 2.4}, {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2},
-      {'d': 273, 't': 4.0, 'a': 180, 'e': 3.2}, {'d': 323, 't': 4.0, 'a': 180, 'e': 3.2},
-      {'d': 219, 't': 5.0, 'a': 220, 'e': 3.2}, {'d': 273, 't': 5.0, 'a': 220, 'e': 3.2},
-      {'d': 323, 't': 5.0, 'a': 220, 'e': 3.2}, {'d': 219, 't': 6.0, 'a': 310, 'e': 4.0},
-      {'d': 273, 't': 6.0, 'a': 310, 'e': 4.0}, {'d': 323, 't': 6.0, 'a': 310, 'e': 4.0},
+      {'d': 20, 't': 2.0, 'a': 75, 'e': 2.4},
+      {'d': 25, 't': 2.0, 'a': 80, 'e': 2.4},
+      {'d': 32, 't': 2.0, 'a': 85, 'e': 2.4},
+      {'d': 32, 't': 3.0, 'a': 95, 'e': 2.4},
+      {'d': 38, 't': 2.0, 'a': 90, 'e': 2.4},
+      {'d': 38, 't': 3.0, 'a': 102, 'e': 2.4},
+      {'d': 40, 't': 2.0, 'a': 90, 'e': 2.4},
+      {'d': 40, 't': 3.0, 'a': 98, 'e': 2.4},
+      {'d': 50, 't': 3.0, 'a': 105, 'e': 2.4},
+      {'d': 60, 't': 3.0, 'a': 110, 'e': 2.4},
+      {'d': 63, 't': 3.0, 'a': 112, 'e': 2.4},
+      {'d': 70, 't': 3.0, 'a': 114, 'e': 2.4},
+      {'d': 76, 't': 3.0, 'a': 118, 'e': 2.4},
+      {'d': 80, 't': 3.0, 'a': 120, 'e': 2.4},
+      {'d': 88, 't': 4.0, 'a': 130, 'e': 3.2},
+      {'d': 100, 't': 4.0, 'a': 135, 'e': 3.2},
+      {'d': 114, 't': 4.0, 'a': 145, 'e': 3.2},
+      {'d': 139, 't': 4.0, 'a': 155, 'e': 3.2},
+      {'d': 159, 't': 5.0, 'a': 170, 'e': 3.2},
+      {'d': 168, 't': 5.0, 'a': 180, 'e': 3.2},
+      {'d': 219, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 273, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 323, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 273, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 323, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 219, 't': 5.0, 'a': 220, 'e': 3.2},
+      {'d': 273, 't': 5.0, 'a': 220, 'e': 3.2},
+      {'d': 323, 't': 5.0, 'a': 220, 'e': 3.2},
+      {'d': 219, 't': 6.0, 'a': 310, 'e': 4.0},
+      {'d': 273, 't': 6.0, 'a': 310, 'e': 4.0},
+      {'d': 323, 't': 6.0, 'a': 310, 'e': 4.0},
     ];
     for (final r in ssWire) {
       approvedList.add(preset(
         id: 'APP_SS_WIRE_${r['d']!.toInt()}_${(r['t']! * 100).round()}',
-        method: 'TIG_WIRE', material: 'SS', d: r['d']!, t: r['t']!, amps: r['a']!,
-        electrode: r['e']!, torchGas: 9.0, purge: 18.0,
+        method: 'TIG_WIRE',
+        material: 'SS',
+        d: r['d']!,
+        t: r['t']!,
+        amps: r['a']!,
+        electrode: r['e']!,
+        torchGas: 9.0,
+        purge: 18.0,
       ));
     }
 
     final csWire = <Map<String, double>>[
-      {'d': 40, 't': 3.0, 'a': 110, 'e': 2.4}, {'d': 50, 't': 3.0, 'a': 115, 'e': 2.4},
-      {'d': 70, 't': 3.0, 'a': 125, 'e': 2.4}, {'d': 100, 't': 4.0, 'a': 155, 'e': 3.2},
-      {'d': 139, 't': 5.0, 'a': 180, 'e': 3.2}, {'d': 159, 't': 5.0, 'a': 190, 'e': 3.2},
-      {'d': 219, 't': 6.0, 'a': 220, 'e': 4.0}, {'d': 273, 't': 6.0, 'a': 240, 'e': 4.0},
-      {'d': 323, 't': 8.0, 'a': 260, 'e': 4.0}, {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2},
-      {'d': 273, 't': 4.0, 'a': 180, 'e': 3.2}, {'d': 323, 't': 4.0, 'a': 180, 'e': 3.2},
-      {'d': 219, 't': 3.0, 'a': 130, 'e': 2.4}, {'d': 273, 't': 3.0, 'a': 130, 'e': 2.4},
-      {'d': 323, 't': 3.0, 'a': 130, 'e': 2.4}, {'d': 168, 't': 6.0, 'a': 280, 'e': 4.0},
-      {'d': 219, 't': 8.0, 'a': 330, 'e': 4.8}, {'d': 273, 't': 8.0, 'a': 330, 'e': 4.8},
+      {'d': 40, 't': 3.0, 'a': 110, 'e': 2.4},
+      {'d': 50, 't': 3.0, 'a': 115, 'e': 2.4},
+      {'d': 70, 't': 3.0, 'a': 125, 'e': 2.4},
+      {'d': 100, 't': 4.0, 'a': 155, 'e': 3.2},
+      {'d': 139, 't': 5.0, 'a': 180, 'e': 3.2},
+      {'d': 159, 't': 5.0, 'a': 190, 'e': 3.2},
+      {'d': 219, 't': 6.0, 'a': 220, 'e': 4.0},
+      {'d': 273, 't': 6.0, 'a': 240, 'e': 4.0},
+      {'d': 323, 't': 8.0, 'a': 260, 'e': 4.0},
+      {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 273, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 323, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 219, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 273, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 323, 't': 3.0, 'a': 130, 'e': 2.4},
+      {'d': 168, 't': 6.0, 'a': 280, 'e': 4.0},
+      {'d': 219, 't': 8.0, 'a': 330, 'e': 4.8},
+      {'d': 273, 't': 8.0, 'a': 330, 'e': 4.8},
       {'d': 323, 't': 8.0, 'a': 330, 'e': 4.8},
     ];
     for (final r in csWire) {
       approvedList.add(preset(
         id: 'APP_CS_WIRE_${r['d']!.toInt()}_${(r['t']! * 100).round()}',
-        method: 'TIG_WIRE', material: 'CS', d: r['d']!, t: r['t']!, amps: r['a']!,
-        electrode: r['e']!, torchGas: 8.0, purge: 0.0,
+        method: 'TIG_WIRE',
+        material: 'CS',
+        d: r['d']!,
+        t: r['t']!,
+        amps: r['a']!,
+        electrode: r['e']!,
+        torchGas: 8.0,
+        purge: 0.0,
       ));
     }
 
     final duplexAuto = <Map<String, double>>[
-      {'d': 38, 't': 1.5, 'a': 55, 'e': 2.4}, {'d': 40, 't': 2.0, 'a': 65, 'e': 2.4},
-      {'d': 50, 't': 2.0, 'a': 70, 'e': 2.4}, {'d': 60, 't': 3.0, 'a': 95, 'e': 2.4},
-      {'d': 70, 't': 3.0, 'a': 100, 'e': 2.4}, {'d': 76, 't': 3.0, 'a': 105, 'e': 2.4},
-      {'d': 88, 't': 3.0, 'a': 110, 'e': 2.4}, {'d': 100, 't': 4.0, 'a': 120, 'e': 3.2},
-      {'d': 114, 't': 4.0, 'a': 145, 'e': 3.2}, {'d': 139, 't': 4.0, 'a': 150, 'e': 3.2},
-      {'d': 159, 't': 5.0, 'a': 160, 'e': 3.2}, {'d': 168, 't': 5.0, 'a': 170, 'e': 3.2},
+      {'d': 38, 't': 1.5, 'a': 55, 'e': 2.4},
+      {'d': 40, 't': 2.0, 'a': 65, 'e': 2.4},
+      {'d': 50, 't': 2.0, 'a': 70, 'e': 2.4},
+      {'d': 60, 't': 3.0, 'a': 95, 'e': 2.4},
+      {'d': 70, 't': 3.0, 'a': 100, 'e': 2.4},
+      {'d': 76, 't': 3.0, 'a': 105, 'e': 2.4},
+      {'d': 88, 't': 3.0, 'a': 110, 'e': 2.4},
+      {'d': 100, 't': 4.0, 'a': 120, 'e': 3.2},
+      {'d': 114, 't': 4.0, 'a': 145, 'e': 3.2},
+      {'d': 139, 't': 4.0, 'a': 150, 'e': 3.2},
+      {'d': 159, 't': 5.0, 'a': 160, 'e': 3.2},
+      {'d': 168, 't': 5.0, 'a': 170, 'e': 3.2},
     ];
     for (final r in duplexAuto) {
       approvedList.add(preset(
         id: 'APP_DUPLEX_AUTO_${r['d']!.toInt()}_${(r['t']! * 100).round()}',
-        method: 'TIG_AUTOGEN', material: 'DUPLEX', d: r['d']!, t: r['t']!, amps: r['a']!,
-        electrode: r['e']!, torchGas: 9.0, purge: 18.0,
+        method: 'TIG_AUTOGEN',
+        material: 'DUPLEX',
+        d: r['d']!,
+        t: r['t']!,
+        amps: r['a']!,
+        electrode: r['e']!,
+        torchGas: 9.0,
+        purge: 18.0,
       ));
     }
 
     final alWire = <Map<String, double>>[
-      {'d': 20, 't': 2.0, 'a': 70, 'e': 2.4}, {'d': 25, 't': 2.0, 'a': 75, 'e': 2.4},
-      {'d': 32, 't': 3.0, 'a': 90, 'e': 2.4}, {'d': 40, 't': 3.0, 'a': 100, 'e': 2.4},
-      {'d': 50, 't': 3.0, 'a': 110, 'e': 2.4}, {'d': 60, 't': 4.0, 'a': 130, 'e': 3.2},
-      {'d': 76, 't': 4.0, 'a': 140, 'e': 3.2}, {'d': 88, 't': 5.0, 'a': 160, 'e': 3.2},
-      {'d': 100, 't': 5.0, 'a': 170, 'e': 3.2}, {'d': 114, 't': 3.0, 'a': 150, 'e': 3.2},
-      {'d': 168, 't': 3.0, 'a': 150, 'e': 3.2}, {'d': 219, 't': 3.0, 'a': 150, 'e': 3.2},
-      {'d': 114, 't': 4.0, 'a': 180, 'e': 3.2}, {'d': 168, 't': 4.0, 'a': 180, 'e': 3.2},
-      {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2}, {'d': 114, 't': 6.0, 'a': 260, 'e': 4.0},
-      {'d': 168, 't': 6.0, 'a': 260, 'e': 4.0}, {'d': 219, 't': 6.0, 'a': 260, 'e': 4.0},
+      {'d': 20, 't': 2.0, 'a': 70, 'e': 2.4},
+      {'d': 25, 't': 2.0, 'a': 75, 'e': 2.4},
+      {'d': 32, 't': 3.0, 'a': 90, 'e': 2.4},
+      {'d': 40, 't': 3.0, 'a': 100, 'e': 2.4},
+      {'d': 50, 't': 3.0, 'a': 110, 'e': 2.4},
+      {'d': 60, 't': 4.0, 'a': 130, 'e': 3.2},
+      {'d': 76, 't': 4.0, 'a': 140, 'e': 3.2},
+      {'d': 88, 't': 5.0, 'a': 160, 'e': 3.2},
+      {'d': 100, 't': 5.0, 'a': 170, 'e': 3.2},
+      {'d': 114, 't': 3.0, 'a': 150, 'e': 3.2},
+      {'d': 168, 't': 3.0, 'a': 150, 'e': 3.2},
+      {'d': 219, 't': 3.0, 'a': 150, 'e': 3.2},
+      {'d': 114, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 168, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 219, 't': 4.0, 'a': 180, 'e': 3.2},
+      {'d': 114, 't': 6.0, 'a': 260, 'e': 4.0},
+      {'d': 168, 't': 6.0, 'a': 260, 'e': 4.0},
+      {'d': 219, 't': 6.0, 'a': 260, 'e': 4.0},
     ];
     for (final r in alWire) {
       approvedList.add(preset(
         id: 'APP_AL_WIRE_${r['d']!.toInt()}_${(r['t']! * 100).round()}',
-        method: 'TIG_WIRE', material: 'AL', d: r['d']!, t: r['t']!, amps: r['a']!,
-        electrode: r['e']!, torchGas: 11.0, purge: 0.0,
+        method: 'TIG_WIRE',
+        material: 'AL',
+        d: r['d']!,
+        t: r['t']!,
+        amps: r['a']!,
+        electrode: r['e']!,
+        torchGas: 11.0,
+        purge: 0.0,
       ));
     }
 
@@ -754,7 +1146,10 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
     // ---- Approved AMP (pipes) - placeholder seeds (safe to keep empty)
     Future<void> upsertApprovedAmp(Map<String, Object?> row) async {
       final id = row['id'] as String;
-      final existing = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM approved_weld_params WHERE id = ?', [id])) ?? 0;
+      final existing = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM approved_weld_params WHERE id = ?',
+              [id])) ??
+          0;
       if (existing > 0) return;
       await db.insert('approved_weld_params', row);
     }
@@ -785,7 +1180,8 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
   /// whole app, unable to start. [migrate] now runs [createSchema] first so
   /// this should not trigger, but a column added here for a table that
   /// [createSchema] does not define must degrade to a no-op, never to a brick.
-  static Future<bool> _ensureColumn(Database db, String table, String column, String sqlType) async {
+  static Future<bool> _ensureColumn(
+      Database db, String table, String column, String sqlType) async {
     final tables = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?;",
       [table],
