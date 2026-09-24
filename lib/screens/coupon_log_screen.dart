@@ -1,84 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
-import '../database/db.dart';
+import '../data/heat_tint.dart';
+import '../database/coupon_dao.dart';
+import '../domain/weld_journal/coupon_entry.dart';
+import '../domain/weld_journal/weld_dates.dart';
 import '../i18n/app_language.dart';
-import '../theme/app_theme.dart' show kTextMut;
+import '../services/coupon_log_export.dart';
+import '../services/welder_identity.dart';
+import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
+import '../widgets/weld_journal/coupon_editor_sheet.dart';
 
-const _kOrange = Color(0xFFFF8E1E);
-const _kGreen  = Color(0xFF2ECC71);
-const _kRed    = Color(0xFFE74C3C);
-const _kCard   = Color(0xFF141821);
-const _kBorder = Color(0xFF2A3140);
-// Oba z tokenu motywu: stary #5A6478 (ikony) był nieczytelny, a osobne
-// #7A83A0 (tekst) byłoby teraz ciemniejsze od ikon — odwrócona hierarchia.
-const _kMuted  = kTextMut; // decorative icons / hairlines only
-const _kTextMut = kTextMut; // secondary text that carries content
-const _kSec    = Color(0xFF9BA3C7);
+// The model and DAO moved to lib/domain/weld_journal/coupon_entry.dart and
+// lib/database/coupon_dao.dart; kept importable from here.
+export '../database/coupon_dao.dart' show CouponDao;
+export '../domain/weld_journal/coupon_entry.dart';
 
 /// A test coupon ("kupon próbny") is a sacrificial weld a welder makes — on
 /// food & pharma work, usually at the start of every shift and on every
 /// machine — and gets accepted before touching production. This screen is
-/// that daily log, which an auditor will ask for.
-class CouponEntry {
-  final String id;
-  String date;
-  String welder;
-  String machine;   // orbital machine / weld-head identifier
-  String size;      // tube OD × wall
-  String result;    // OK / NOK
-  String notes;
-
-  CouponEntry({
-    required this.id,
-    required this.date,
-    required this.welder,
-    required this.machine,
-    required this.size,
-    required this.result,
-    required this.notes,
-  });
-
-  Map<String, Object?> toRow() => {
-        'id': id, 'date': date, 'welder': welder, 'machine': machine,
-        'size': size, 'result': result, 'notes': notes,
-      };
-
-  static CouponEntry fromRow(Map<String, Object?> r) => CouponEntry(
-        id: r['id'] as String,
-        date: (r['date'] as String?) ?? '',
-        welder: (r['welder'] as String?) ?? '',
-        machine: (r['machine'] as String?) ?? '',
-        size: (r['size'] as String?) ?? '',
-        result: (r['result'] as String?) ?? 'OK',
-        notes: (r['notes'] as String?) ?? '',
-      );
-}
-
-/// `weld_coupons` belongs to the schema in `lib/database/db.dart` (v18); it
-/// is no longer created on first screen open, so a backup restored onto a
-/// phone that never showed this screen keeps its coupons.
-class CouponDao {
-  static const _table = 'weld_coupons';
-
-  Future<List<CouponEntry>> listAll() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(_table, orderBy: 'date DESC');
-    return rows.map(CouponEntry.fromRow).toList();
-  }
-
-  Future<void> insert(CouponEntry e) async {
-    final db = await AppDatabase.get();
-    await db.insert(_table, e.toRow());
-  }
-
-  Future<void> delete(String id) async {
-    final db = await AppDatabase.get();
-    await db.delete(_table, where: 'id = ?', whereArgs: [id]);
-  }
-}
-
+/// that daily log, which an auditor will ask for: now editable, exportable
+/// (CSV/PDF), and carrying the weld program, the O₂ reading and the heat
+/// tint level (AWS D18.2). The weld journal links welds to these coupons.
 class CouponLogScreen extends StatefulWidget {
   const CouponLogScreen({super.key});
 
@@ -87,9 +31,13 @@ class CouponLogScreen extends StatefulWidget {
 }
 
 class _CouponLogScreenState extends State<CouponLogScreen> {
+  static const _uuid = Uuid();
   final _dao = CouponDao();
   List<CouponEntry> _items = [];
   bool _loading = true;
+  bool _exporting = false;
+
+  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
   @override
   void initState() {
@@ -98,48 +46,80 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
-    final all = await _dao.listAll();
     if (!mounted) return;
-    setState(() {
-      _items = all;
-      _loading = false;
-    });
+    setState(() => _loading = true);
+    try {
+      final all = await _dao.listAll();
+      if (!mounted) return;
+      setState(() {
+        _items = all;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('CouponLog load error: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr('Nie udało się wczytać logu kuponów.',
+            'Failed to load the coupon log.')),
+        action: SnackBarAction(label: _tr('Ponów', 'Retry'), onPressed: _load),
+      ));
+    }
   }
 
   Future<void> _add() async {
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _CouponEditor(),
+    final identity = await WelderIdentityService.instance.get();
+    if (!mounted) return;
+    final saved = await showCouponEditor(
+      context,
+      isNew: true,
+      dao: _dao,
+      initial: CouponEntry(
+        id: _uuid.v4(),
+        date: isoDate(DateTime.now()),
+        welder: identity?.stamp ?? '',
+        machine: '',
+        size: '',
+        result: 'OK',
+        notes: '',
+      ),
     );
-    if (saved == true) {
+    if (saved != null) {
       await Haptic.saved();
-      _load();
+      await _load();
+    }
+  }
+
+  Future<void> _edit(CouponEntry e) async {
+    final saved =
+        await showCouponEditor(context, isNew: false, dao: _dao, initial: e);
+    if (saved != null) {
+      await Haptic.saved();
+      await _load();
     }
   }
 
   Future<void> _delete(CouponEntry e) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(context.tr(
-            pl: 'Usunąć kupon?', en: 'Delete coupon?')),
-        content: Text(context.tr(
-          pl: 'Kupon próbny zostanie usunięty z dziennika audytowego.',
-          en: 'This test coupon will be removed from the audit log.',
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.tr(pl: 'Usunąć kupon?', en: 'Delete coupon?')),
+        content: Text(ctx.tr(
+          pl: 'Kupon próbny zostanie usunięty z dziennika audytowego. '
+              'Spoiny powiązane z nim zachowają jego opis.',
+          en: 'This test coupon will be removed from the audit log. Welds '
+              'linked to it keep its reference text.',
         )),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(ctx.tr(pl: 'Anuluj', en: 'Cancel')),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: _kRed, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(ctx.tr(pl: 'Usuń', en: 'Delete')),
           ),
         ],
       ),
@@ -154,10 +134,8 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
       // BuildContext below would no longer be provably mounted.
       Haptic.error();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'Nie udało się usunąć kuponu.',
-          en: 'Failed to delete coupon.',
-        )),
+        content: Text(
+            _tr('Nie udało się usunąć kuponu.', 'Failed to delete coupon.')),
       ));
       return;
     }
@@ -166,9 +144,9 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
     await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(pl: 'Usunięto kupon.', en: 'Coupon deleted.')),
+      content: Text(_tr('Usunięto kupon.', 'Coupon deleted.')),
       action: SnackBarAction(
-        label: context.tr(pl: 'Cofnij', en: 'Undo'),
+        label: _tr('Cofnij', 'Undo'),
         onPressed: () async {
           try {
             await _dao.insert(e);
@@ -181,18 +159,55 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
     ));
   }
 
+  Future<void> _export(Future<void> Function() job) async {
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_tr('Brak kuponów do wyeksportowania.',
+            'No coupons to export.')),
+      ));
+      return;
+    }
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      await job();
+    } catch (e) {
+      debugPrint('CouponLog export error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(_tr('Nie udało się wyeksportować logu.',
+              'Failed to export the log.')),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Log kuponów próbnych', en: 'Test coupon log')),
+        title: Text(_tr('Log kuponów próbnych', 'Test coupon log')),
         actions: [
-          IconButton(icon: const Icon(Icons.add), onPressed: _add),
+          IconButton(
+            icon: const Icon(Icons.table_view_outlined),
+            tooltip: _tr('Eksport CSV (Excel)', 'Export CSV (Excel)'),
+            onPressed: _exporting
+                ? null
+                : () => _export(() => CouponLogExport.shareCsv(_items)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            tooltip: _tr('Eksport PDF', 'Export PDF'),
+            onPressed: _exporting
+                ? null
+                : () => _export(() => CouponLogExport.sharePdf(_items)),
+          ),
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: _kOrange))
+          ? const Center(child: CircularProgressIndicator(color: kArc))
           : _items.isEmpty
               ? Center(
                   child: Padding(
@@ -201,32 +216,37 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(Icons.science_outlined,
-                            size: 48, color: _kMuted),
+                            size: 48, color: kTextMut),
                         const SizedBox(height: 12),
                         Text(
-                          context.tr(
-                            pl: 'Brak kuponów. Dotknij + aby dodać pierwszy kupon dnia.',
-                            en: 'No coupons yet. Tap + to add the first coupon of the day.',
+                          _tr(
+                            'Brak kuponów. Dotknij „Kupon”, aby dodać pierwszy '
+                                'kupon dnia.',
+                            'No coupons yet. Tap "Coupon" to add the first '
+                                'coupon of the day.',
                           ),
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: _kTextMut, fontSize: 13),
+                          style: const TextStyle(color: kTextMut, fontSize: 13),
                         ),
                       ],
                     ),
                   ),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 96),
                   itemCount: _items.length,
                   itemBuilder: (_, i) => _CouponTile(
                     entry: _items[i],
+                    onTap: () => _edit(_items[i]),
                     onDelete: () => _delete(_items[i]),
                   ),
                 ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _add,
         icon: const Icon(Icons.add),
-        label: Text(context.tr(pl: 'Kupon', en: 'Coupon')),
+        label: Text(_tr('Kupon', 'Coupon')),
+        backgroundColor: kArc,
+        foregroundColor: kOnArc,
       ),
     );
   }
@@ -234,220 +254,100 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
 
 class _CouponTile extends StatelessWidget {
   final CouponEntry entry;
+  final VoidCallback onTap;
   final VoidCallback onDelete;
-  const _CouponTile({required this.entry, required this.onDelete});
+  const _CouponTile(
+      {required this.entry, required this.onTap, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
     final ok = entry.result == 'OK';
-    final c = ok ? _kGreen : _kRed;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _kCard,
+    final c = ok ? kPass : kFail;
+    final tint =
+        kHeatTintLevels.where((l) => l.level == entry.heatTint).firstOrNull;
+    final details = [
+      if (entry.programNo.isNotEmpty) 'P${entry.programNo}',
+      if (entry.o2Ppm != null) 'O₂ ${formatO2Ppm(entry.o2Ppm)} ppm',
+      if (tint != null)
+        '${context.tr(pl: 'przebarw.', en: 'tint')} ${tint.level}',
+    ].join('  ·  ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _kBorder),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(
-              color: c.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: c.withValues(alpha: 0.4)),
-            ),
-            child: Text(entry.result,
-                style: TextStyle(
-                    color: c, fontSize: 12, fontWeight: FontWeight.w800)),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
+          decoration: BoxDecoration(
+            color: kCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: kBorder),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  [
-                    if (entry.welder.isNotEmpty) entry.welder,
-                    if (entry.machine.isNotEmpty) entry.machine,
-                    if (entry.size.isNotEmpty) entry.size,
-                  ].join('  ·  '),
-                  style: const TextStyle(
-                      color: Color(0xFFE7ECF3),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700),
-                ),
-                if (entry.date.isNotEmpty)
-                  Text(entry.date,
-                      style: const TextStyle(color: _kTextMut, fontSize: 11)),
-                if (entry.notes.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 3),
-                    child: Text(entry.notes,
-                        style: const TextStyle(color: _kSec, fontSize: 11),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: onDelete,
-            behavior: HitTestBehavior.opaque,
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Center(
-                child: Icon(Icons.delete_outline, size: 20, color: _kMuted),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CouponEditor extends StatefulWidget {
-  const _CouponEditor();
-  @override
-  State<_CouponEditor> createState() => _CouponEditorState();
-}
-
-class _CouponEditorState extends State<_CouponEditor> {
-  static const _uuid = Uuid();
-  final _dao = CouponDao();
-  final _welder = TextEditingController();
-  final _machine = TextEditingController();
-  final _size = TextEditingController();
-  final _notes = TextEditingController();
-  late final TextEditingController _date;
-  String _result = 'OK';
-  bool _saving = false;
-
-  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-
-  @override
-  void initState() {
-    super.initState();
-    final n = DateTime.now();
-    _date = TextEditingController(
-        text: '${n.year}-${n.month.toString().padLeft(2, '0')}-'
-            '${n.day.toString().padLeft(2, '0')}');
-  }
-
-  @override
-  void dispose() {
-    for (final c in [_welder, _machine, _size, _notes, _date]) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      await _dao.insert(CouponEntry(
-        id: _uuid.v4(),
-        date: _date.text.trim(),
-        welder: _welder.text.trim(),
-        machine: _machine.text.trim(),
-        size: _size.text.trim(),
-        result: _result,
-        notes: _notes.text.trim(),
-      ));
-      if (!mounted) return;
-      Navigator.pop(context, true);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'Nie zapisano kuponu. Spróbuj ponownie.',
-          en: 'Coupon not saved. Try again.',
-        )),
-      ));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Container(
-        decoration: const BoxDecoration(
-          color: _kCard,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: EdgeInsets.fromLTRB(
-            16, 18, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
+          child: Row(
             children: [
-              Text(_tr('Nowy kupon próbny', 'New test coupon'),
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFFE7ECF3))),
-              const SizedBox(height: 16),
-              TextField(controller: _date, decoration: InputDecoration(labelText: _tr('Data', 'Date'))),
-              const SizedBox(height: 10),
-              TextField(controller: _welder, decoration: InputDecoration(labelText: _tr('Spawacz', 'Welder'))),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(child: TextField(controller: _machine, decoration: InputDecoration(labelText: _tr('Maszyna / głowica', 'Machine / head')))),
-                const SizedBox(width: 10),
-                Expanded(child: TextField(controller: _size, decoration: InputDecoration(labelText: _tr('Wymiar (OD×t)', 'Size (OD×t)'), hintText: '2"×1.65'))),
-              ]),
-              const SizedBox(height: 12),
-              Row(children: [
-                Text(_tr('Wynik:', 'Result:'),
-                    style: const TextStyle(fontSize: 13, color: _kSec)),
-                const SizedBox(width: 12),
-                for (final r in [('OK', _kGreen), ('NOK', _kRed)])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: GestureDetector(
-                      onTap: () => setState(() => _result = r.$1),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: _result == r.$1
-                              ? r.$2.withValues(alpha: 0.15)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: _result == r.$1 ? r.$2 : _kBorder,
-                              width: _result == r.$1 ? 1.5 : 1),
-                        ),
-                        child: Text(r.$1,
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: _result == r.$1 ? r.$2 : _kSec)),
-                      ),
-                    ),
-                  ),
-              ]),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _notes,
-                maxLines: 2,
-                decoration: InputDecoration(
-                    labelText: _tr('Uwagi', 'Notes'),
-                    hintText: _tr('np. boroskop poz. 2, przetop OK',
-                        'e.g. borescope lvl 2, full penetration OK')),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: c.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: c.withValues(alpha: 0.4)),
+                ),
+                child: Text(entry.result,
+                    style: TextStyle(
+                        color: c, fontSize: 12, fontWeight: FontWeight.w800)),
               ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: const Icon(Icons.save_outlined),
-                label: Text(_saving
-                    ? _tr('Zapisywanie...', 'Saving...')
-                    : _tr('Zapisz', 'Save')),
+              if (tint != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: tint.swatch,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: kBorder),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      [
+                        if (entry.welder.isNotEmpty) entry.welder,
+                        if (entry.machine.isNotEmpty) entry.machine,
+                        if (entry.size.isNotEmpty) entry.size,
+                      ].join('  ·  '),
+                      style: const TextStyle(
+                          color: kText,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700),
+                    ),
+                    if (entry.date.isNotEmpty)
+                      Text(entry.date,
+                          style:
+                              const TextStyle(color: kTextMut, fontSize: 12)),
+                    if (details.isNotEmpty)
+                      Text(details,
+                          style:
+                              const TextStyle(color: kTextSec, fontSize: 12)),
+                    if (entry.notes.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(entry.notes,
+                            style:
+                                const TextStyle(color: kTextSec, fontSize: 12),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: kTextMut),
+                tooltip: context.tr(pl: 'Usuń kupon', en: 'Delete coupon'),
+                onPressed: onDelete,
               ),
             ],
           ),

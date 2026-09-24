@@ -11,8 +11,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cut_list_app/database/coupon_dao.dart';
 import 'package:cut_list_app/database/db.dart';
-import 'package:cut_list_app/database/weld_journal_dao.dart';
+import 'package:cut_list_app/domain/weld_journal/coupon_entry.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_history.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/weld_journal_screen.dart';
@@ -216,6 +217,49 @@ void main() {
     expect(text('Projekt'), 'Blok 4');
     expect(text('Materiał'), '304L');
     expect(text('Nr WPS / pWPS'), 'WPS-141-01');
+  });
+
+  testWidgets('kupon wybrany z logu kuponów wiąże spoinę z kuponem',
+      (tester) async {
+    await clear(tester);
+    await tester.runAsync(() async {
+      final db = await AppDatabase.get();
+      await db.delete('weld_coupons');
+      await CouponDao().insert(const CouponEntry(
+        id: 'c-7',
+        date: '2026-09-20',
+        welder: 'JK-12',
+        machine: 'M-3',
+        size: '2"×1.65',
+        result: 'OK',
+        notes: '',
+        programNo: '12',
+      ));
+    });
+    await _pumpScreen(tester);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Badania NDT i kupon'));
+    await tester.tap(find.text('Badania NDT i kupon'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Wybierz z logu kuponów'));
+    await tester.tap(find.byTooltip('Wybierz z logu kuponów'));
+    await tester.pump();
+    await _settle(tester, rounds: 3);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('M-3'));
+    await tester.pumpAndSettle();
+    expect(find.text('Powiązany z logiem kuponów'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
+    await tester.pump();
+    await _settle(tester);
+    await tester.pumpAndSettle();
+
+    final w = (await tester.runAsync(() => WeldJournalDao().listAll()))!.single;
+    expect(w.couponId, 'c-7');
+    expect(w.couponRef, '2026-09-20 · M-3 · 2"×1.65 · P12 · OK');
   });
 
   testWidgets('duplikat numeru w projekcie wymaga potwierdzenia',
