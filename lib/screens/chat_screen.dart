@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../config/app_links.dart';
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/blocked_users.dart';
@@ -60,6 +61,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Wejście na czat = moment na powiązanie sekretu instalacji z device_id
+    // (POST /device/register). Tylko po zgodzie na zasady — sprawdza to
+    // registerDeviceIfConsented. Stary backend (404) i brak sieci: po cichu.
+    unawaited(ChatService.instance.registerDeviceIfConsented());
     _loadRooms();
   }
 
@@ -326,6 +331,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   String? _error;
   Timer? _poller;
   String _myDeviceId = '';
+  String? _myAuthorId;
   // P1-42 — lifecycle pause + 30s heartbeat throttle while backgrounded.
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
   DateTime? _lastBackgroundPoll;
@@ -338,11 +344,17 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   }
 
   /// Wiadomości bez tych od zablokowanych autorów. Filtrujemy po stronie
-  /// klienta i po `deviceId`, nie po nazwie — nazwę można zmienić, blokada
-  /// ma przetrwać.
+  /// klienta i po identyfikatorze autora (`author_id`, a na starym backendzie
+  /// device_id), nie po nazwie — nazwę można zmienić, blokada ma przetrwać.
   List<ChatMessage> get _visibleMessages => _messages
-      .where((m) => !BlockedUsers.instance.isBlocked(m.deviceId))
+      .where((m) =>
+          !BlockedUsers.instance.isBlockedAny([m.authorId, m.deviceId]))
       .toList();
+
+  /// Własna wiadomość: pole `mine` od serwera, a na starym backendzie
+  /// porównanie device_id (patrz [ChatMessage.isMine]).
+  bool _isMine(ChatMessage m) =>
+      m.isMine(myDeviceId: _myDeviceId, myAuthorId: _myAuthorId);
 
   Future<void> _bootstrap() async {
     await PremiumService.instance.init();
@@ -351,6 +363,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     // check is stable across nickname edits. Guarded against empty in the
     // bubble too.
     _myDeviceId = PremiumService.instance.deviceId;
+    _myAuthorId = PremiumService.instance.authorId;
     await _refresh(initial: true);
     _poller = Timer.periodic(const Duration(seconds: 8), (_) => _onTick());
   }
@@ -536,43 +549,47 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     } catch (e) {
+      // Surowy wyjątek tylko do logu — monter dostaje zrozumiały komunikat.
       debugPrint('ChatRoom.send error: $e');
       if (!mounted) return;
       setState(() => _sending = false);
-      // Map the most common reasons (rate limit, banned text) to actionable
-      // messages; everything else falls through to a generic retry hint.
-      final raw = e.toString().toLowerCase();
-      String message;
-      if (raw.contains('429') || raw.contains('zwolnij')) {
-        message = context.tr(
-          pl: 'Zwolnij — max 8 wiadomości na minutę.',
-          en: 'Slow down — max 8 messages per minute.',
-        );
-      } else if (raw.contains('niedozwol') || raw.contains('banned') || raw.contains('400')) {
-        message = context.tr(
-          pl: 'Wiadomość odrzucona (link lub niedozwolone słowo). Spróbuj inaczej.',
-          en: 'Message rejected (link or banned word). Try rewording.',
-        );
-      } else {
-        message = context.tr(
-          pl: 'Nie udało się wysłać. Sprawdź połączenie i spróbuj ponownie.',
-          en: 'Send failed. Check your connection and try again.',
-        );
+      // Map the most common reasons (rate limit, banned text, rejected
+      // install secret) to actionable messages; everything else falls
+      // through to a generic retry hint.
+      final failure = classifyChatError(e);
+      final String message;
+      switch (failure) {
+        case ChatFailure.rateLimited:
+          message = context.tr(
+            pl: 'Zwolnij — max 8 wiadomości na minutę.',
+            en: 'Slow down — max 8 messages per minute.',
+          );
+        case ChatFailure.rejected:
+          message = context.tr(
+            pl: 'Wiadomość odrzucona (link lub niedozwolone słowo). Spróbuj inaczej.',
+            en: 'Message rejected (link or banned word). Try rewording.',
+          );
+        case ChatFailure.installSecret:
+          message = _installSecretMessage(context);
+        case ChatFailure.offline:
+        case ChatFailure.server:
+          message = context.tr(
+            pl: 'Nie udało się wysłać. Sprawdź połączenie i spróbuj ponownie.',
+            en: 'Send failed. Check your connection and try again.',
+          );
       }
       // For retryable errors (network / generic) add a "Spróbuj ponownie"
       // SnackBarAction so the user can re-send without re-typing — the text
       // is still in the input field because we don't clear it until the
-      // post succeeds. Rate-limit (429) and banned-word errors don't get
-      // the action because they need the user to wait or rephrase, not
-      // mash retry.
-      final isRetryable = !(raw.contains('429') ||
-          raw.contains('zwolnij') ||
-          raw.contains('niedozwol') ||
-          raw.contains('banned') ||
-          raw.contains('400'));
+      // post succeeds. Rate-limit (429), rejected text and a rejected install
+      // secret don't get the action: they need the user to wait, rephrase or
+      // contact us, not mash retry.
+      final isRetryable =
+          failure == ChatFailure.offline || failure == ChatFailure.server;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(message),
-        duration: const Duration(seconds: 6),
+        duration: Duration(
+            seconds: failure == ChatFailure.installSecret ? 10 : 6),
         action: isRetryable
             ? SnackBarAction(
                 label: context.tr(pl: 'Ponów', en: 'Retry'),
@@ -588,8 +605,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   /// osób — apka miała tylko to pierwsze. Monter powiedziałby prościej:
   /// „chcę tego gościa po prostu nie widzieć".
   Future<void> _messageActions(ChatMessage m) async {
-    final isMine = _myDeviceId.isNotEmpty && m.deviceId == _myDeviceId;
-    if (isMine) return; // nie zgłasza się i nie blokuje samego siebie
+    if (_isMine(m)) return; // nie zgłasza się i nie blokuje samego siebie
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -678,7 +694,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       ),
     );
     if (ok != true || !mounted) return;
-    await BlockedUsers.instance.block(m.deviceId, m.nickname);
+    // Nowy backend: author_id (stabilny pseudonim). Stary: device_id.
+    await BlockedUsers.instance.block(m.blockKey, m.nickname);
     if (!mounted) return;
     Haptic.saved();
     setState(() {});
@@ -721,15 +738,37 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       } catch (e) {
         debugPrint('ChatRoom.report error: $e');
         if (!mounted) return;
+        final failure = classifyChatError(e);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(context.tr(
-            pl: 'Nie udało się zgłosić. Spróbuj ponownie.',
-            en: 'Report failed. Try again.',
-          )),
+          duration: Duration(
+              seconds: failure == ChatFailure.installSecret ? 10 : 4),
+          content: Text(switch (failure) {
+            ChatFailure.installSecret => _installSecretMessage(context),
+            ChatFailure.rateLimited => context.tr(
+                pl: 'Wyczerpano dzienny limit zgłoszeń. Spróbuj jutro.',
+                en: 'Daily report limit reached. Try tomorrow.',
+              ),
+            _ => context.tr(
+                pl: 'Nie udało się zgłosić. Spróbuj ponownie.',
+                en: 'Report failed. Try again.',
+              ),
+          }),
         ));
       }
     }
   }
+
+  /// Serwer odrzucił sekret instalacji (401 `INSTALL_SECRET_*`): ktoś inny
+  /// podał się za ten identyfikator albo telefon zgubił sekret. Ponowienie nic
+  /// nie da, więc mówimy wprost, co zrobić.
+  String _installSecretMessage(BuildContext context) => context.tr(
+        pl: 'Serwer czatu nie rozpoznał tej instalacji aplikacji i nie przyjął '
+            'wiadomości. Uruchom aplikację ponownie. Jeśli to nie pomoże, '
+            'napisz do nas: ${AppLinks.supportEmail}.',
+        en: 'The chat server did not recognise this app installation and '
+            'refused the message. Restart the app. If that does not help, '
+            'write to us: ${AppLinks.supportEmail}.',
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -799,8 +838,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                                   // empty deviceId on both sides would
                                   // otherwise falsely flag every message
                                   // as mine.
-                                  isMine: _myDeviceId.isNotEmpty &&
-                                      _visibleMessages[i].deviceId == _myDeviceId,
+                                  isMine: _isMine(_visibleMessages[i]),
                                   onLongPress: () =>
                                       _messageActions(_visibleMessages[i]),
                                 ),

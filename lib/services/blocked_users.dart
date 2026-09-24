@@ -8,14 +8,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Apple wymaga przy treściach od użytkowników (wytyczna 1.2) DWÓCH mechanizmów:
 // zgłaszania treści ORAZ blokowania osób. Aplikacja miała tylko to pierwsze.
 //
-// Blokujemy po `deviceId`, nie po nazwie — nazwa może się zmienić, a blokada
-// ma przetrwać. Lista jest lokalna: nie mówimy serwerowi, kogo nie lubisz,
-// więc blokada nie wycieka do zablokowanego ani do nikogo innego.
+// Blokujemy po identyfikatorze autora, nie po nazwie — nazwa może się zmienić,
+// a blokada ma przetrwać. Lista jest lokalna: nie mówimy serwerowi, kogo nie
+// lubisz, więc blokada nie wycieka do zablokowanego ani do nikogo innego.
+//
+// Klucz blokady (`ChatMessage.blockKey`):
+//   • nowy backend (2026-09-24) — `author_id`, nieodwracalny pseudonim autora
+//     (serwer przestał wydawać cudze surowe device_id);
+//   • stary backend — surowy device_id, jak dotąd.
+// Blokady zapisane wcześniej po surowym device_id ZOSTAJĄ na liście (nie
+// kasujemy cudzych decyzji), ale na nowym backendzie przestają pasować, bo
+// autorzy przychodzą już z author_id. Nowe blokady zapisujemy po author_id.
+// Pole nazywa się dalej `deviceId`, żeby nie migrować zapisanej mapy.
 //
 // Trzymamy też nazwę, jaką autor miał w chwili blokady, żeby ekran profilu
 // mógł pokazać czytelną listę zamiast surowych identyfikatorów.
 
 class BlockedUser {
+  /// Klucz blokady: `author_id` albo (stare wpisy, stary backend) device_id.
   final String deviceId;
   final String name;
   const BlockedUser({required this.deviceId, required this.name});
@@ -35,6 +45,11 @@ class BlockedUsers {
 
   /// Dostęp synchroniczny dla `build()` — pusty, dopóki [load] nie przejdzie.
   bool isBlocked(String deviceId) => _byId.containsKey(deviceId);
+
+  /// Czy którykolwiek z kluczy autora jest zablokowany — dla wiadomości z
+  /// `author_id` i `device_id` naraz (patrz `ChatMessage.blockKey`).
+  bool isBlockedAny(Iterable<String?> keys) =>
+      keys.any((k) => k != null && k.isNotEmpty && _byId.containsKey(k));
 
   int get count => _byId.length;
 

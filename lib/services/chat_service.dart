@@ -1,13 +1,19 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:http/http.dart' as http;
 
 import '../config/backend_config.dart';
+import '../config/feature_flags.dart';
 import 'api_client.dart';
+import 'legal_consent.dart';
 import 'premium_service.dart';
 import 'user_profile.dart';
 
 // Public chat for Fitter Welder Pro. Polls the Railway backend at
-// /api/fitter/chat — no auth, device_id + nickname identify the user.
+// /api/fitter/chat — no accounts; device_id + install secret identify the
+// install (nagłówki X-Device-Id / X-Install-Secret), nickname signs messages.
 // MVP keeps it simple: 4 hardcoded rooms (the same set the backend exposes),
 // HTTP polling for new messages (8s while a room is open), POST to send.
 //
@@ -15,6 +21,11 @@ import 'user_profile.dart';
 // [getNickname]. Nie ma osobnej ksywki i nie zapisujemy jej w
 // SharedPreferences: jedno źródło prawdy zamiast kopii, która rozjeżdża się
 // po pierwszej zmianie nazwy.
+//
+// Tożsamość autora (nowy backend, 2026-09-24): cudze wiadomości przychodzą z
+// `author_id` (nieodwracalny pseudonim) zamiast surowego device_id, a własne
+// rozpoznajemy po polu `mine`. Stary backend tych pól nie zna — wtedy
+// porównujemy device_id jak dotąd. Obie wersje działają z tym samym kodem.
 //
 // Blokowanie autorów jest lokalne — patrz services/blocked_users.dart.
 
@@ -44,7 +55,18 @@ class ChatRoom {
 class ChatMessage {
   final int id;
   final String room;
+
+  /// Stary backend: surowy device_id autora. Nowy backend: dla cudzych
+  /// wiadomości = [authorId], dla własnych = surowy device_id czytelnika.
   final String deviceId;
+
+  /// Stabilny pseudonim autora (`a_` + 32 hex) — `null` na starym backendzie.
+  final String? authorId;
+
+  /// `true` = wiadomość czytelnika. `null`, gdy serwer tego pola nie odsyła
+  /// (stary backend) — wtedy rozstrzyga porównanie device_id.
+  final bool? mine;
+
   final String nickname;
   final String text;
   final DateTime createdAt;
@@ -57,18 +79,79 @@ class ChatMessage {
     required this.text,
     required this.createdAt,
     required this.flags,
+    this.authorId,
+    this.mine,
   });
 
-  factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
-        id: j['id'] as int,
-        room: j['room'] as String,
-        deviceId: j['device_id'] as String,
-        nickname: j['nickname'] as String,
-        text: j['text'] as String,
-        createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
-            DateTime.now(),
-        flags: j['flags'] as int? ?? 0,
-      );
+  factory ChatMessage.fromJson(Map<String, dynamic> j) {
+    final author = j['author_id'];
+    final mine = j['mine'];
+    return ChatMessage(
+      id: j['id'] as int,
+      room: j['room'] as String,
+      deviceId: j['device_id'] as String,
+      authorId: author is String && author.isNotEmpty ? author : null,
+      mine: mine is bool ? mine : null,
+      nickname: j['nickname'] as String,
+      text: j['text'] as String,
+      createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
+          DateTime.now(),
+      flags: j['flags'] as int? ?? 0,
+    );
+  }
+
+  /// Klucz blokady: `author_id`, a na starym backendzie device_id.
+  String get blockKey => authorId ?? deviceId;
+
+  /// Czy to wiadomość czytelnika. Kolejność: pole `mine` od serwera,
+  /// potem `author_id` z rejestracji, na końcu porównanie device_id (stary
+  /// backend). Pusty [myDeviceId] nigdy nie pasuje — inaczej przed
+  /// wczytaniem tożsamości wszystko wyglądałoby na własne.
+  bool isMine({required String myDeviceId, String? myAuthorId}) {
+    final fromServer = mine;
+    if (fromServer != null) return fromServer;
+    if (myAuthorId != null && authorId != null && authorId == myAuthorId) {
+      return true;
+    }
+    return myDeviceId.isNotEmpty && deviceId == myDeviceId;
+  }
+}
+
+/// Dlaczego zapis na czacie (wiadomość, zgłoszenie) się nie udał.
+enum ChatFailure {
+  /// 429 — limit wiadomości/zgłoszeń. Czekać, nie ponawiać od razu.
+  rateLimited,
+
+  /// 400/422 — treść odrzucona (link, niedozwolone słowo, zły format).
+  rejected,
+
+  /// 401/400 `INSTALL_SECRET_*` — serwer nie uznał tej instalacji.
+  installSecret,
+
+  /// Brak sieci / timeout.
+  offline,
+
+  /// 5xx i wszystko inne — warto ponowić.
+  server,
+}
+
+/// Mapuje wyjątek z [ChatService] na [ChatFailure]. Surowy wyjątek zostaje
+/// dla `debugPrint` — użytkownik dostaje tylko zrozumiały komunikat.
+ChatFailure classifyChatError(Object error) {
+  if (error is ApiException) {
+    if (error.isInstallSecretError) return ChatFailure.installSecret;
+    if (error.statusCode == 429) return ChatFailure.rateLimited;
+    if (error.statusCode == 400 || error.statusCode == 422) {
+      return ChatFailure.rejected;
+    }
+    return ChatFailure.server;
+  }
+  if (error is SocketException ||
+      error is TimeoutException ||
+      error is http.ClientException) {
+    return ChatFailure.offline;
+  }
+  return ChatFailure.server;
 }
 
 class ChatService {
@@ -158,6 +241,10 @@ class ChatService {
   Future<List<ChatMessage>> listMessages(String room,
       {String? sinceIso, int limit = 100}) async {
     if (!BackendConfig.chatBackendLive) return const [];
+    // Nagłówki tożsamości: dzięki nim nowy backend odsyła `mine` i surowy
+    // device_id przy NASZYCH wiadomościach. Do pokoju wchodzi się tylko przez
+    // bramkę zgody (community_gate.dart), więc nic nie wychodzi przed zgodą.
+    final headers = await PremiumService.instance.authHeaders();
     final body = await ApiClient.instance.getJson(
       BackendConfig.chatMessages,
       query: {
@@ -165,6 +252,7 @@ class ChatService {
         'limit': '${math.min(limit, 200)}',
         if (sinceIso != null) 'since': sinceIso,
       },
+      headers: headers,
       timeout: const Duration(seconds: 8),
     );
     final raw = body['messages'] as List<dynamic>? ?? const [];
@@ -178,7 +266,7 @@ class ChatService {
     required String text,
   }) async {
     final nick = await getNickname();
-    await PremiumService.instance.init();
+    final headers = await PremiumService.instance.authHeaders();
     final deviceId = PremiumService.instance.deviceId;
     final body = await ApiClient.instance.postJson(
       BackendConfig.chatMessages,
@@ -188,23 +276,41 @@ class ChatService {
         'nickname': nick,
         'text': text,
       },
+      headers: headers,
       timeout: const Duration(seconds: 8),
     );
     return ChatMessage.fromJson(body['message'] as Map<String, dynamic>);
   }
 
+  /// Zgłasza wiadomość do moderacji. Rzuca przy niepowodzeniu — ekran mówi
+  /// wtedy, że zgłoszenie nie doszło (wcześniej błąd był połykany, a monter
+  /// widział „Zgłoszono." także wtedy, gdy nic nie dotarło na serwer).
   Future<void> report(int messageId) async {
     if (!BackendConfig.chatBackendLive) return;
-    await PremiumService.instance.init();
+    final headers = await PremiumService.instance.authHeaders();
     final deviceId = PremiumService.instance.deviceId;
-    // Fire-and-forget; report failure is non-actionable for the user. We
-    // swallow exceptions instead of bubbling them up.
+    await ApiClient.instance.postJson(
+      BackendConfig.chatReport,
+      body: {'id': messageId, 'device_id': deviceId},
+      headers: headers,
+      timeout: const Duration(seconds: 8),
+    );
+  }
+
+  /// Rejestruje sekret instalacji na serwerze — ale TYLKO wtedy, gdy monter
+  /// ma profil i zaakceptował bieżące zasady czatu. Bez zgody nic nie wychodzi
+  /// z telefonu. Wołane przy starcie aplikacji (main.dart) i przy wejściu na
+  /// czat (ChatScreen). Zwraca `null`, gdy nic nie wysłano. Nigdy nie rzuca.
+  Future<DeviceRegistration?> registerDeviceIfConsented() async {
+    if (!kCommunityEnabled || !BackendConfig.chatBackendLive) return null;
     try {
-      await ApiClient.instance.postJson(
-        BackendConfig.chatReport,
-        body: {'id': messageId, 'device_id': deviceId},
-        timeout: const Duration(seconds: 8),
-      );
-    } catch (_) {}
+      final profile = await UserProfileService.instance.get();
+      await LegalConsent.instance.load();
+      if (profile == null || !LegalConsent.instance.isAccepted) return null;
+      return await PremiumService.instance.registerDevice();
+    } catch (e) {
+      // registerDevice sam nie rzuca; to łapie awarię odczytu profilu/zgody.
+      return null;
+    }
   }
 }

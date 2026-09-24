@@ -3,10 +3,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../config/backend_config.dart';
+
+/// Nagłówek z identyfikatorem instalacji (`PremiumService.deviceId`).
+const String kDeviceIdHeader = 'X-Device-Id';
+
+/// Nagłówek z sekretem instalacji — losowe 32 bajty w base64url, generowane
+/// raz na urządzeniu (`PremiumService.installSecret`). Backend wiąże pierwszy
+/// przedstawiony sekret z `device_id` (TOFU); potem każdy zapis dla tego
+/// `device_id` bez sekretu albo z innym sekretem dostaje 401.
+const String kInstallSecretHeader = 'X-Install-Secret';
 
 /// Thin HTTP wrapper used by every service that talks to the Railway backend.
 ///
@@ -23,11 +32,20 @@ import '../config/backend_config.dart';
 /// service (`AiChatService`, `JobsService`, etc.) so the model shape lives
 /// next to where it's consumed.
 class ApiClient {
-  ApiClient._({http.Client? client}) : _client = client ?? http.Client();
+  ApiClient._();
 
   static final ApiClient instance = ApiClient._();
 
-  final http.Client _client;
+  http.Client? _defaultClient;
+  http.Client? _testClient;
+
+  http.Client get _client => _testClient ?? (_defaultClient ??= http.Client());
+
+  /// Podmienia transport HTTP (np. na `MockClient` z `package:http/testing`).
+  /// `null` przywraca prawdziwego klienta. Tylko do testów — żaden test nie
+  /// może łączyć się z prawdziwym serwerem.
+  @visibleForTesting
+  void debugSetClient(http.Client? client) => _testClient = client;
 
   /// GET → JSON map. Throws [ApiException] with the actual status code on
   /// non-2xx response after retries are exhausted.
@@ -69,6 +87,24 @@ class ApiClient {
             body: jsonEncode(body),
           )
           .timeout(timeout),
+    );
+    return _decode(resp, path);
+  }
+
+  /// DELETE → JSON map (np. `DELETE /api/fitter/me`). Idempotentne po stronie
+  /// serwera, więc ponowienie przy błędzie przejściowym jest bezpieczne.
+  Future<Map<String, dynamic>> deleteJson(
+    String path, {
+    Duration timeout = const Duration(seconds: 12),
+    Map<String, String>? headers,
+  }) async {
+    final uri = Uri.parse('${BackendConfig.baseUrl}$path');
+    final resp = await _withRetry(
+      'DELETE $path',
+      () => _client.delete(uri, headers: {
+        'Accept': 'application/json',
+        ...?headers,
+      }).timeout(timeout),
     );
     return _decode(resp, path);
   }
@@ -122,11 +158,15 @@ class ApiClient {
       // fall back to the status code. The raw body goes to debugPrint so
       // services don't have to.
       String? backendMessage;
+      String? backendCode;
       try {
         final body = jsonDecode(resp.body) as Map<String, dynamic>;
         final err = body['error'];
         if (err is Map && err['message'] is String) {
           backendMessage = err['message'] as String;
+        }
+        if (err is Map && err['code'] is String) {
+          backendCode = err['code'] as String;
         }
       } catch (_) {}
       debugPrint(
@@ -135,6 +175,7 @@ class ApiClient {
         statusCode: resp.statusCode,
         path: path,
         backendMessage: backendMessage,
+        backendCode: backendCode,
       );
     }
     return jsonDecode(resp.body) as Map<String, dynamic>;
@@ -147,11 +188,26 @@ class ApiException implements Exception {
   final int statusCode;
   final String path;
   final String? backendMessage;
+
+  /// `error.code` z odpowiedzi backendu, np. `INSTALL_SECRET_INVALID`,
+  /// `RATE_LIMITED`. `null`, gdy serwer nie odesłał JSON-a z kodem.
+  final String? backendCode;
+
   ApiException({
     required this.statusCode,
     required this.path,
     this.backendMessage,
+    this.backendCode,
   });
+
+  /// Serwer odrzucił sekret instalacji: `INSTALL_SECRET_REQUIRED` (brak
+  /// sekretu dla urządzenia, które go zarejestrowało), `INSTALL_SECRET_INVALID`
+  /// (inny sekret — ktoś „zajął" ten identyfikator) albo
+  /// `INSTALL_SECRET_MALFORMED` (zły format). Użytkownik nie naprawi tego
+  /// ponowieniem, więc UI mówi, co się stało, zamiast „sprawdź połączenie".
+  bool get isInstallSecretError =>
+      (statusCode == 401 || statusCode == 400) &&
+      (backendCode?.startsWith('INSTALL_SECRET_') ?? false);
 
   @override
   String toString() =>

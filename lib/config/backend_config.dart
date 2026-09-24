@@ -4,10 +4,11 @@
 // is deployed, and the rest of the app routes through it automatically.
 // Until then the relevant screens fall back to demo mode / local storage.
 //
-// Endpoints reuse the Railway backend from the PrzetargAI project.
-// Authentication: Bearer token from Firebase Auth UID + signed JWT issued
-// by the backend on /api/auth/exchange. The token is cached in memory by
-// PremiumService and refreshed when it expires.
+// Tożsamość urządzenia (kontrakt backendu z 2026-09-24, `backend/README.md`):
+// nagłówki `X-Device-Id` (PremiumService.deviceId) i `X-Install-Secret`
+// (losowy sekret instalacji, PremiumService.installSecret). Po zgodzie na
+// zasady czatu aplikacja woła [deviceRegister]; stary backend odpowiada na tę
+// trasę 404 i aplikacja działa dalej po staremu. Nie ma kont ani tokenów.
 
 class BackendConfig {
   // ── Base URLs ────────────────────────────────────────────────────────────
@@ -34,6 +35,12 @@ class BackendConfig {
   ///
   /// Po naprawie dedykowanego backendu wystarczy usunac te stala i wrocic do baseUrl.
   /// Nie ruszamy tu pozostalych tras (czat, platnosci) — one dzialaja na dedykowanym.
+  ///
+  /// 2026-09-24: nowa wersja dedykowanego backendu (sekret instalacji, limity
+  /// dzienne i bramka budżetu AI na /scan-iso) jest gotowa, ale jeszcze NIE
+  /// wdrożona. Po wdrożeniu i sprawdzeniu realnym skanem (HTTP 200) można
+  /// przełączyć skaner na [baseUrl]. Aplikacja wysyła już nagłówki
+  /// X-Device-Id / X-Install-Secret — backend PrzetargAI je ignoruje.
   static const String scannerBaseUrl =
       'https://backend-production-a43e3.up.railway.app';
 
@@ -71,6 +78,18 @@ class BackendConfig {
   static const String chatRooms = '/api/fitter/chat/rooms';
   static const String chatMessages = '/api/fitter/chat/messages';
   static const String chatReport = '/api/fitter/chat/report';
+
+  /// POST — powiązanie sekretu instalacji z device_id (201/200). Stary
+  /// backend: 404, które aplikacja po cichu ignoruje.
+  static const String deviceRegister = '/api/fitter/device/register';
+
+  /// DELETE — usunięcie danych urządzenia z serwera („Usuń moje dane").
+  /// Stary backend: 404 → aplikacja kieruje do usunięcia mailowego.
+  static const String me = '/api/fitter/me';
+
+  /// Publiczne strony dla sklepów (statyczny HTML z backendu).
+  static const String privacyPage = '/privacy';
+  static const String dataDeletionPage = '/data-deletion';
 
   // ── Stripe plans ────────────────────────────────────────────────────────
   /// Plan IDs the backend uses when creating a checkout session. The actual

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -92,28 +93,91 @@ class PremiumStatus {
   }
 }
 
+/// Wynik `POST /api/fitter/device/register`.
+enum DeviceRegistration {
+  /// 201 — serwer właśnie powiązał nasz sekret z device_id.
+  registered,
+
+  /// 200 — ten sam sekret był już powiązany (rejestracja jest idempotentna).
+  alreadyRegistered,
+
+  /// 404 — stary backend bez tej trasy. Aplikacja działa po staremu, bez
+  /// sekretu po stronie serwera; nic nie pokazujemy użytkownikowi.
+  legacyBackend,
+
+  /// 401/400 `INSTALL_SECRET_*` — serwer zna INNY sekret dla tego device_id
+  /// (ktoś „zajął" wyciekły identyfikator). Zapisy na czacie dostaną 401 i
+  /// wtedy UI powie, co się stało.
+  rejected,
+
+  /// Brak sieci, timeout, 5xx — spróbujemy przy następnym wejściu na czat.
+  failed,
+}
+
 class PremiumService {
   PremiumService._();
   static final PremiumService instance = PremiumService._();
 
   final _controller = StreamController<PremiumStatus>.broadcast();
   PremiumStatus _current = PremiumStatus.free();
-  bool _initialised = false;
+  Future<void>? _init;
   String? _deviceId;
+  String? _installSecret;
+  String? _authorId;
+  Future<DeviceRegistration>? _registration;
 
   static const _kDeviceIdKey = 'fitter_device_id';
 
+  /// Sekret instalacji leży OBOK device_id (ten sam magazyn, SharedPreferences):
+  /// utrata jednego bez drugiego oznacza nową tożsamość, a nie urządzenie,
+  /// które serwer odrzuca 401 do końca świata.
+  static const _kInstallSecretKey = 'fitter_install_secret';
+
+  /// `author_id` z `/device/register` — pseudonim, którym serwer podpisuje
+  /// nasze wiadomości innym czytelnikom. Tylko pomocniczo (rozpoznawanie
+  /// własnych wiadomości, gdy serwer nie odeśle `mine`).
+  static const _kAuthorIdKey = 'fitter_author_id';
+
+  /// Format sekretu akceptowany przez backend (`deviceAuth.js`).
+  static final RegExp _secretFormat = RegExp(r'^[A-Za-z0-9_\-+/=]{32,256}$');
+
   /// Call once at app startup from `main()`. Loads or generates the device
-  /// id (stable identifier used as Stripe `client_reference_id`) and
-  /// hydrates Premium status from the cached `SharedPreferences` entry.
-  Future<void> init() async {
-    if (_initialised) return;
-    _initialised = true;
-    final prefs = await SharedPreferences.getInstance();
-    _deviceId = prefs.getString(_kDeviceIdKey);
-    if (_deviceId == null || _deviceId!.length < 16) {
-      _deviceId = _generateDeviceId();
-      await prefs.setString(_kDeviceIdKey, _deviceId!);
+  /// id (stable identifier used as Stripe `client_reference_id`) and the
+  /// install secret, and hydrates Premium status from the cached
+  /// `SharedPreferences` entry. Nothing here touches the network.
+  ///
+  /// Współbieżne wywołania czekają na TO SAMO wczytanie — wcześniej drugie
+  /// wywołanie wracało od razu, zanim device_id był w pamięci, a getter
+  /// [deviceId] podsuwał wtedy losowy, nigdzie niezapisany identyfikator.
+  Future<void> init() => _init ??= _load();
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _deviceId = prefs.getString(_kDeviceIdKey);
+      _installSecret = prefs.getString(_kInstallSecretKey);
+      _authorId = prefs.getString(_kAuthorIdKey);
+      if (_deviceId == null || _deviceId!.length < 16) {
+        // Nowa tożsamość: device_id i sekret powstają razem.
+        _deviceId = _generateDeviceId();
+        _installSecret = generateInstallSecret();
+        _authorId = null;
+        await prefs.setString(_kDeviceIdKey, _deviceId!);
+        await prefs.setString(_kInstallSecretKey, _installSecret!);
+        await prefs.remove(_kAuthorIdKey);
+      } else if (!isValidInstallSecret(_installSecret)) {
+        // Aktualizacja z wersji bez sekretu (0.2.0): device_id zostaje — to
+        // pod nim są wiadomości na czacie i ewentualne Premium — a sekret
+        // dochodzi. Serwer powiąże go przy pierwszym przedstawieniu (TOFU).
+        _installSecret = generateInstallSecret();
+        await prefs.setString(_kInstallSecretKey, _installSecret!);
+      }
+    } catch (e) {
+      // Bez zapisu tożsamość działa do końca sesji; przy następnym starcie
+      // spróbujemy znowu.
+      debugPrint('PremiumService.init: nie udało się wczytać tożsamości: $e');
+      _deviceId ??= _generateDeviceId();
+      _installSecret ??= generateInstallSecret();
     }
     _controller.add(_current);
   }
@@ -125,12 +189,154 @@ class PremiumService {
     return _deviceId ?? _generateDeviceId();
   }
 
+  /// Sekret instalacji — `null` przed [init]. Wychodzi z telefonu wyłącznie w
+  /// nagłówku `X-Install-Secret`, nigdy w treści żądania ani w logach.
+  String? get installSecret => _installSecret;
+
+  /// Pseudonim autora nadany przez serwer (`a_` + 32 hex), jeśli nowy backend
+  /// już go podał.
+  String? get authorId => _authorId;
+
+  /// Nagłówki tożsamości dla KAŻDEGO żądania, które niesie device_id: zapisy
+  /// na czacie, zgłoszenia, odczyt pokoju (pole `mine`), skaner, asystent AI,
+  /// płatności, usuwanie danych. Stary backend nieznane nagłówki ignoruje.
+  Future<Map<String, String>> authHeaders() async {
+    await init();
+    final secret = _installSecret;
+    return {
+      kDeviceIdHeader: deviceId,
+      if (secret != null) kInstallSecretHeader: secret,
+    };
+  }
+
+  /// Czy na tym telefonie zapisano kiedykolwiek device_id — czyli czy jest
+  /// czego szukać na serwerze przy „Usuń moje dane". Czyta dysk, nie pamięć.
+  Future<bool> hasStoredDeviceId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final id = prefs.getString(_kDeviceIdKey);
+      return id != null && id.length >= 8;
+    } catch (_) {
+      return _deviceId != null;
+    }
+  }
+
   static String _generateDeviceId() {
     final r = math.Random.secure();
     final bytes = List<int>.generate(16, (_) => r.nextInt(256));
     return bytes
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
+  }
+
+  /// 32 bajty z `Random.secure()` w base64url bez dopełnienia = 43 znaki.
+  @visibleForTesting
+  static String generateInstallSecret([math.Random? random]) {
+    final r = random ?? math.Random.secure();
+    final bytes = List<int>.generate(32, (_) => r.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
+  @visibleForTesting
+  static bool isValidInstallSecret(String? secret) =>
+      secret != null && _secretFormat.hasMatch(secret);
+
+  // ── Rejestracja urządzenia (TOFU) ─────────────────────────────────────────
+
+  /// `POST /api/fitter/device/register` — wiąże sekret instalacji z device_id.
+  ///
+  /// Raz na sesję (wynik jest zapamiętany; po [DeviceRegistration.failed]
+  /// kolejne wywołanie próbuje ponownie). NIE woła jej nic przed zgodą na
+  /// zasady czatu — patrz `ChatService.registerDeviceIfConsented`. Nigdy nie
+  /// rzuca: 404 starego backendu i brak sieci kończą się po cichu.
+  Future<DeviceRegistration> registerDevice() {
+    final pending = _registration;
+    if (pending != null) return pending;
+    final attempt = _register();
+    _registration = attempt;
+    attempt.then((result) {
+      if (result == DeviceRegistration.failed &&
+          identical(_registration, attempt)) {
+        _registration = null;
+      }
+    });
+    return attempt;
+  }
+
+  Future<DeviceRegistration> _register() async {
+    try {
+      final headers = await authHeaders();
+      final body = await ApiClient.instance.postJson(
+        BackendConfig.deviceRegister,
+        body: {'device_id': deviceId},
+        headers: headers,
+        timeout: const Duration(seconds: 8),
+      );
+      final author = body['author_id'];
+      if (author is String && author.isNotEmpty && author != _authorId) {
+        _authorId = author;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_kAuthorIdKey, author);
+        } catch (_) {}
+      }
+      return body['registered'] == true
+          ? DeviceRegistration.registered
+          : DeviceRegistration.alreadyRegistered;
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) {
+        debugPrint('PremiumService.registerDevice: stary backend (404) — pomijam');
+        return DeviceRegistration.legacyBackend;
+      }
+      if (e.isInstallSecretError) {
+        debugPrint('PremiumService.registerDevice: serwer odrzucił sekret: $e');
+        return DeviceRegistration.rejected;
+      }
+      debugPrint('PremiumService.registerDevice: $e');
+      return DeviceRegistration.failed;
+    } catch (e) {
+      debugPrint('PremiumService.registerDevice: $e');
+      return DeviceRegistration.failed;
+    }
+  }
+
+  /// Kasuje device_id, sekret i author_id z telefonu i od razu tworzy nową
+  /// parę (lokalnie — nic nie leci na serwer). Wołane przez „Usuń moje dane"
+  /// PO `DELETE /api/fitter/me`, bo po skasowaniu identyfikatora serwer nie
+  /// ma już jak rozpoznać, czyje dane usunąć.
+  Future<void> resetIdentity() async {
+    await init();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kDeviceIdKey);
+      await prefs.remove(_kInstallSecretKey);
+      await prefs.remove(_kAuthorIdKey);
+    } catch (e) {
+      debugPrint('PremiumService.resetIdentity: $e');
+    }
+    _deviceId = null;
+    _installSecret = null;
+    _authorId = null;
+    _registration = null;
+    _init = null;
+    await init();
+  }
+
+  /// Tylko do testów: zapomina stan w pamięci, żeby kolejny [init] przeczytał
+  /// świeżo zasiane SharedPreferences.
+  @visibleForTesting
+  void resetForTest() {
+    _init = null;
+    _deviceId = null;
+    _installSecret = null;
+    _authorId = null;
+    _registration = null;
+    _current = PremiumStatus.free();
+    _history.clear();
+    _preDebugStatus = null;
+    _pendingCheckoutSessionId = null;
+    _pendingDowngradeAt = null;
+    _consecutiveFreeReads = 0;
   }
 
   PremiumStatus get status => _current;
@@ -257,12 +463,15 @@ class PremiumService {
     required String deviceId,
     String? customerEmail,
   }) async {
+    // Płatny plan wyłączony = żadnych żądań płatności z device_id.
+    if (!kPaidFeaturesEnabled) return null;
     if (!BackendConfig.stripeBackendLive) return null;
     final planStr = switch (plan) {
       PremiumPlan.monthly => 'monthly',
       PremiumPlan.yearly => 'yearly',
       _ => throw ArgumentError('Cannot checkout for plan $plan'),
     };
+    final headers = await authHeaders();
     final body = await ApiClient.instance.postJson(
       BackendConfig.stripeCheckout,
       body: {
@@ -270,6 +479,7 @@ class PremiumService {
         'device_id': deviceId,
         if (customerEmail != null) 'customer_email': customerEmail,
       },
+      headers: headers,
     );
     // Track the session id so [cancelCheckoutSession] can clear it if the
     // user backs out of the Stripe hosted page before completing payment.
@@ -300,11 +510,18 @@ class PremiumService {
   /// Same gate as [createCheckoutSession] — returns null when the backend
   /// flag is off.
   Future<String?> createPortalSession({String? userId}) async {
+    if (!kPaidFeaturesEnabled) return null;
     if (!BackendConfig.stripeBackendLive) return null;
     try {
+      // Nowy backend: portal wymaga device_id + sekretu instalacji.
+      final headers = await authHeaders();
       final body = await ApiClient.instance.postJson(
         BackendConfig.stripePortal,
-        body: {if (userId != null) 'user_id': userId},
+        body: {
+          'device_id': deviceId,
+          if (userId != null) 'user_id': userId,
+        },
+        headers: headers,
       );
       return body['portal_url'] as String?;
     } catch (_) {
@@ -324,15 +541,17 @@ class PremiumService {
   /// Never throws; "noop fallback" is the deliberate failure mode so UI
   /// doesn't have to wrap every call in try/catch.
   Future<bool> reactivateSubscription({String? userId}) async {
+    if (!kPaidFeaturesEnabled) return false;
     if (!BackendConfig.stripeBackendLive) return false;
     try {
-      await init();
+      final headers = await authHeaders();
       final body = await ApiClient.instance.postJson(
         '/api/fitter/billing/reactivate',
         body: {
           'device_id': deviceId,
           if (userId != null) 'user_id': userId,
         },
+        headers: headers,
       );
       return body['reactivated'] == true || body['is_active'] == true;
     } catch (e) {
@@ -384,6 +603,7 @@ class PremiumService {
       final body = await ApiClient.instance.getJson(
         BackendConfig.premiumStatus,
         query: {'device_id': id},
+        headers: await authHeaders(),
         timeout: const Duration(seconds: 8),
       );
       final isActive = body['is_active'] == true;
