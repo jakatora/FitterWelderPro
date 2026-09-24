@@ -85,6 +85,16 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
             ),
           ),
           const _LegendBar(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+            child: Text(
+              context.tr(
+                pl: 'ASME B16.9-2018 · SR 90° dopiero od DN25 (NPS 1) · norma nie ma kolan SR 45°',
+                en: 'ASME B16.9-2018 · SR 90° only from DN25 (NPS 1) · the standard has no SR 45° elbows',
+              ),
+              style: const TextStyle(color: _kMuted, fontSize: 11),
+            ),
+          ),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
@@ -191,7 +201,17 @@ class _Row extends StatelessWidget {
             ),
           ),
           _Cell(value: '${e.lr90}', unit: 'mm', color: _kOrange),
-          _Cell(value: '${e.sr90}', unit: 'mm', color: _kAccent),
+          // B16.9 has no short radius elbow below NPS 1 (DN25) — show a dash,
+          // never a made-up number.
+          if (e.sr90 == null)
+            _Cell(
+              value: '—',
+              unit: context.tr(pl: 'brak', en: 'n/a'),
+              color: _kMuted,
+              copyable: false,
+            )
+          else
+            _Cell(value: '${e.sr90}', unit: 'mm', color: _kAccent),
           _Cell(value: '${e.lr45}', unit: 'mm', color: _kSec),
         ],
       ),
@@ -203,29 +223,34 @@ class _Cell extends StatelessWidget {
   final String value;
   final String unit;
   final Color color;
-  const _Cell({required this.value, required this.unit, required this.color});
+  final bool copyable;
+  const _Cell({
+    required this.value,
+    required this.unit,
+    required this.color,
+    this.copyable = true,
+  });
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: CopyOnLongPress(
-        value: value,
-        label: 'centre–face',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            children: [
-              Text(value,
-                  style: TextStyle(
-                      color: color,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800)),
-              Text(unit,
-                  style: const TextStyle(
-                      color: _kMuted, fontSize: 10, height: 1)),
-            ],
-          ),
-        ),
+    final body = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        children: [
+          Text(value,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800)),
+          Text(unit,
+              style: const TextStyle(
+                  color: _kMuted, fontSize: 10, height: 1)),
+        ],
       ),
+    );
+    return Expanded(
+      child: copyable
+          ? CopyOnLongPress(value: value, label: 'centre–face', child: body)
+          : body,
     );
   }
 }

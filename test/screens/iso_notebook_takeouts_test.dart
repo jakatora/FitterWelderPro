@@ -43,14 +43,28 @@ void main() {
     });
 
     test('whole B16.5 column Y, DN15..DN300', () {
+      // B16.5 Class 150 WN, Y incl. 1.6 mm RF: NPS 8 = NPS 10 = 4.00 in.
+      // = 101.6 mm (sources without the RF list 3.94 in. / 100 mm for both).
+      // DN250 was pinned at 108 here — a value that is in no B16.5 table.
       const expected = <int, int>{
         15: 48, 20: 52, 25: 56, 32: 57, 40: 62, 50: 64, 65: 70, 80: 70,
-        100: 76, 150: 89, 200: 102, 250: 108, 300: 114,
+        100: 76, 150: 89, 200: 102, 250: 102, 300: 114,
       };
       for (final e in expected.entries) {
         expect(isoFlangeAxialLengthMm(dn: e.key, type: EndConnection.weldNeck),
             e.value,
             reason: 'DN${e.key}');
+      }
+    });
+
+    test('the notebook Y table and the catalog picker Y table agree', () {
+      for (final e in TakeoutCatalog.flangeWN150Y.entries) {
+        expect(isoFlangeAxialLengthMm(dn: e.key, type: EndConnection.weldNeck),
+            e.value,
+            reason: 'DN${e.key}');
+        expect(isoFlangeAxialLengthMm(dn: e.key, type: EndConnection.slipOn),
+            TakeoutCatalog.flangeWN150[e.key],
+            reason: 'DN${e.key} C');
       }
     });
 
@@ -116,6 +130,20 @@ void main() {
           isNot(isoValveFaceToFaceMm('gateValve', 100)));
     });
 
+    test('B16.10 Class 150: swing check NPS 6 = 356, globe NPS 6 = 406', () {
+      // Column "globe / lift check / swing check": NPS 6 = 16.00 in. = 406,
+      // footnote: swing check NPS 6 = 356. NPS 8/10/12 = 19.50 / 24.50 /
+      // 27.50 in. = 495 / 622 / 698 for both.
+      expect(isoValveFaceToFaceMm('checkValve', 150), 356);
+      expect(isoValveFaceToFaceMm('globeValve', 150), 406);
+      for (final e in const {200: 495, 250: 622, 300: 698}.entries) {
+        expect(isoValveFaceToFaceMm('checkValve', e.key), e.value,
+            reason: 'check DN${e.key}');
+        expect(isoValveFaceToFaceMm('globeValve', e.key), e.value,
+            reason: 'globe DN${e.key}');
+      }
+    });
+
     test('uncovered DN returns null instead of the DN50 gate length', () {
       for (final dn in const [15, 20, 25, 32, 40]) {
         expect(isoValveFaceToFaceMm('gateValve', dn), isNull, reason: 'DN$dn');
@@ -128,6 +156,27 @@ void main() {
       expect(isoValveFaceToFaceMm('elbow90', 100), isNull);
       expect(isoValveFaceToFaceMm('tee', 100), isNull);
       expect(isoValveFaceToFaceMm('', 100), isNull);
+    });
+  });
+
+  group('isoStandardElbowCteMm — only values ASME B16.9 actually lists', () {
+    test('LR 90° / LR 45° / SR 90° DN100 = 152 / 64 / 102', () {
+      expect(isoStandardElbowCteMm(100, 'lr90'), 152);
+      expect(isoStandardElbowCteMm(100, 'lr45'), 64);
+      expect(isoStandardElbowCteMm(100, 'sr90'), 102);
+    });
+
+    test('SR 45° has no B16.9 value — 0, not the LR 45° number', () {
+      // It used to return lr45 (DN100: 64) as if it were normative.
+      for (final dn in const [25, 50, 100, 300]) {
+        expect(isoStandardElbowCteMm(dn, 'sr45'), 0, reason: 'DN$dn');
+      }
+    });
+
+    test('SR 90° below NPS 1 does not exist in B16.9 — 0, not 25', () {
+      expect(isoStandardElbowCteMm(15, 'sr90'), 0);
+      expect(isoStandardElbowCteMm(20, 'sr90'), 0);
+      expect(isoStandardElbowCteMm(25, 'sr90'), 25);
     });
   });
 

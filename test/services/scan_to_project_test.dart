@@ -368,8 +368,10 @@ void main() {
       // still gets a real cut.
       final s2 = plan.segments.firstWhere((s) => s.sourceId == 's2');
       expect(s2.start.kind, ScanEndKind.axial);
-      expect(s2.start.takeoutMm, 102, reason: 'tee CTE, DN100');
-      expect(s2.cutMm, closeTo(546, 0.001), reason: '800 − 102 − 152');
+      // ASME B16.9-2018 Tab. 6.1-7: NPS 4 tee C = 4.12 in = 105 mm (the
+      // catalog used to say 102).
+      expect(s2.start.takeoutMm, 105, reason: 'tee CTE, DN100');
+      expect(s2.cutMm, closeTo(543, 0.001), reason: '800 − 105 − 152');
       expect(plan.segments.where((s) => s.isBranch).length, 3);
     });
 

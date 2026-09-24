@@ -152,22 +152,35 @@ extension _ElbowSubtypeX on _ElbowSubtype {
         _ElbowSubtype.lr90 => '90° LR',
         _ElbowSubtype.sr90 => '90° SR',
         _ElbowSubtype.lr45 => '45° LR',
-        _ElbowSubtype.sr45 => '45° SR',
+        // ASME B16.9 makes no 45° short radius elbow — the label says so, and
+        // [isoStandardElbowCteMm] gives it no standard CTE.
+        _ElbowSubtype.sr45 => '45° SR (≠ B16.9)',
       };
 }
 
-/// Standard CTE for the given DN + elbow subtype, pulled from
-/// [kElbowTakeouts]. Returns 0 only when the table doesn't cover the DN
-/// (defensive — the table covers 15..600 which is everything in practice).
-int _stdCte(int dn, _ElbowSubtype t) {
+/// Standard CTE (mm) of an elbow of nominal size [dn] and subtype [subtype]
+/// (`'lr90' | 'sr90' | 'lr45' | 'sr45'`), from [kElbowTakeouts]
+/// (ASME B16.9-2018 Tab. 6.1-1 / 6.1-4).
+///
+/// Returns 0 = "no standard value, type it in" when B16.9 has no such
+/// fitting: short radius below NPS 1 (DN15/DN20) and any 45° short radius
+/// elbow. It used to hand SR 45° the LR 45° number as if it were normative.
+/// A 0 CTE is never auto-deducted — the take-out pass reports it missing.
+///
+/// Public + string-keyed so it can be unit-tested without the private enum.
+int isoStandardElbowCteMm(int dn, String subtype) {
   final row = closestByDn(dn);
-  return switch (t) {
-    _ElbowSubtype.lr90 => row.lr90,
-    _ElbowSubtype.sr90 => row.sr90,
-    _ElbowSubtype.lr45 => row.lr45,
-    _ElbowSubtype.sr45 => row.lr45, // table doesn't distinguish; safe default
+  return switch (subtype) {
+    'lr90' => row.lr90,
+    'sr90' => row.sr90 ?? 0,
+    'lr45' => row.lr45,
+    _ => 0,
   };
 }
+
+/// Standard CTE for the given DN + elbow subtype — see
+/// [isoStandardElbowCteMm]; 0 means "no B16.9 value".
+int _stdCte(int dn, _ElbowSubtype t) => isoStandardElbowCteMm(dn, t.name);
 
 /// `true` when [t] is dimensioned to its CENTRELINE (elbow / tee / olet).
 ///
@@ -606,7 +619,7 @@ const Map<int, int> _flangeWnLengthThruHub = {
   100: 76,  // 76.2
   150: 89,  // 88.9
   200: 102, // 101.6
-  250: 108, // 108.0
+  250: 102, // 101.6 — NPS 10 = NPS 8 = 4.00 in. (was 108 until 2026-09)
   300: 114, // 114.3
 };
 
@@ -665,8 +678,9 @@ int? isoValveFaceToFaceMm(String toolName, int dn) {
       return TakeoutCatalog.checkValve150[dn];
     case 'globeValve':
       // B16.10 Class 150 tabulates globe, lift check and swing check in ONE
-      // column, so the catalog's check-valve row IS the globe row.
-      return TakeoutCatalog.checkValve150[dn];
+      // column, except that swing check NPS 6 is shorter (356 vs 406) — so
+      // globe has its own catalog row.
+      return TakeoutCatalog.globeValve150[dn];
     case 'butterflyValve':
       return _butterflyWafer150[dn];
     default:
