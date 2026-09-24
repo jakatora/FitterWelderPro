@@ -4,12 +4,12 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../database/weld_journal_dao.dart';
 import '../../domain/weld_journal/weld_journal_settings.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
+import '../number_field.dart';
 
 /// Opens the settings of [projectName]; returns true when saved.
 Future<bool?> showWeldProjectSettingsSheet(
@@ -207,11 +207,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     const SizedBox(height: 10),
                     TextField(
                       controller: _target,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,%]')),
-                      ],
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: numberInputFormatters(),
                       decoration: InputDecoration(
                         labelText: context.tr(
                             pl: 'Docelowy % badań RT/UT',

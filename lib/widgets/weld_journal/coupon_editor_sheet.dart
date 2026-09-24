@@ -4,7 +4,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../data/heat_tint.dart';
 import '../../database/coupon_dao.dart';
@@ -13,6 +12,7 @@ import '../../domain/weld_journal/weld_dates.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import 'wj_ui.dart';
+import '../number_field.dart';
 
 /// Opens the editor; returns the saved coupon or null.
 Future<CouponEntry?> showCouponEditor(
@@ -257,12 +257,8 @@ class _CouponEditorState extends State<_CouponEditor> {
                         ),
                         TextField(
                           controller: _o2,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                                RegExp(r'[0-9.,]')),
-                          ],
+                          keyboardType: numberKeyboard(),
+                          inputFormatters: numberInputFormatters(),
                           onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
                             labelText: context.tr(

@@ -14,7 +14,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../database/weld_journal_dao.dart';
 import '../../domain/weld_journal/weld_dates.dart';
@@ -30,6 +29,7 @@ import 'weld_history_view.dart';
 import 'weld_ndt_editor.dart';
 import 'weld_project_picker.dart';
 import 'wj_ui.dart';
+import '../number_field.dart';
 
 /// What the editor did.
 class WeldEditorResult {
@@ -575,12 +575,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       TextField(
         controller: c,
         textInputAction: TextInputAction.next,
-        keyboardType: numeric
-            ? const TextInputType.numberWithOptions(decimal: true)
-            : TextInputType.text,
-        inputFormatters: numeric
-            ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))]
-            : null,
+        keyboardType: numeric ? numberKeyboard() : TextInputType.text,
+        inputFormatters: numeric ? numberInputFormatters() : null,
         decoration: _dec(pl, en, hint: hint, suffix: suffix),
       );
 
