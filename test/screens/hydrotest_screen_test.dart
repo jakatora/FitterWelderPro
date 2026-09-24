@@ -198,7 +198,7 @@ void main() {
     expect(r.pressureStartBar, isNull);
     expect(r.holdMinutes, isNull);
     expect(hydrotestMissingNote(r), contains('ciśnienie początkowe'));
-    expect(hydrotestNotesText(r), 'Korki 2×.');
+    expect(r.notes, 'Korki 2×.'); // uwagi bez żadnych doklejek
     final meta = hydrotestMeta(r)!;
     expect(meta.presetId, 'b31_3_hydro');
     expect(meta.stressRatio, 1.2);

@@ -1,4 +1,4 @@
-/// Metadane protokołu próby ciśnieniowej, których nie ma w `HydrotestRecord`.
+/// Metadane protokołu próby ciśnieniowej (`HydrotestRecord.meta`).
 ///
 /// Protokół odbiorowy (ASME B31.3 §345.2.7 wymaga m.in. identyfikacji
 /// badanego systemu, medium, ciśnienia próby i daty) potrzebuje też pól, bez
@@ -7,25 +7,14 @@
 /// temperatura metalu, zakres i ważność kalibracji manometru, nastawa zaworu
 /// bezpieczeństwa, nr protokołu i rewizja.
 ///
-/// PRZECHOWYWANIE — tymczasowe:
-/// tabela `hydrotest_records` nie ma na te pola kolumn, a jej DDL
-/// (`hydrotest_dao.dart` / `db.dart`) należy do innej zmiany. Do czasu
-/// migracji metadane są doklejane jako JSON na końcu istniejącej kolumny TEXT
-/// `notes`, za znacznikiem [kHydrotestMetaMarker]. [splitHydrotestNotes]
-/// oddziela je z powrotem, więc ani ekran, ani PDF nie pokazują JSON-a
-/// użytkownikowi, a stare rekordy (bez znacznika) czytają się bez zmian.
-///
-/// Docelowe kolumny opisuje [HydrotestProtocolMeta.columns]; [toRow] /
-/// [fromRow] już ich używają, żeby po migracji wystarczyło je podpiąć.
+/// PRZECHOWYWANIE: kolumny tabeli `hydrotest_records` dodane w schemacie v19
+/// (`lib/database/db.dart`), opisane w [HydrotestProtocolMeta.columns].
+/// Test `test/database/hydrotest_protocol_columns_test.dart` pilnuje, żeby
+/// ta lista i schemat bazy się nie rozjechały. Próby zapisane przed v19 mają
+/// te kolumny puste (NULL) — protokół drukuje wtedy „—”.
 library;
 
-import 'dart:convert';
-
 import 'test_pressure.dart';
-
-/// Znacznik początku bloku metadanych w kolumnie `notes`. Nie zmieniać —
-/// zapisane rekordy go zawierają.
-const String kHydrotestMetaMarker = '[[fwp-protocol-meta:v1]]';
 
 class HydrotestProtocolMeta {
   /// Firma wykonująca próbę.
@@ -83,7 +72,7 @@ class HydrotestProtocolMeta {
     this.revision = '',
   });
 
-  /// Proponowane kolumny tabeli `hydrotest_records` (nazwa → typ SQLite).
+  /// Kolumny tabeli `hydrotest_records` (nazwa → typ SQLite), schemat v19.
   static const Map<String, String> columns = {
     'company': 'TEXT',
     'project': 'TEXT',
@@ -117,24 +106,27 @@ class HydrotestProtocolMeta {
       protocolNo.trim().isEmpty &&
       revision.trim().isEmpty;
 
-  /// Wiersz pod docelowe kolumny ([columns]).
+  /// Wartości kolumn [columns]. Niewpisany tekst zapisuje się jako NULL —
+  /// tak samo jak w próbach sprzed v19 — a nie jako pusty napis.
   Map<String, Object?> toRow() => {
-        'company': company,
-        'project': project,
-        'test_package': testPackage,
-        'drawing_refs': drawingRefs,
-        'test_medium': testMedium,
-        'test_preset': presetId,
+        'company': _n(company),
+        'project': _n(project),
+        'test_package': _n(testPackage),
+        'drawing_refs': _n(drawingRefs),
+        'test_medium': _n(testMedium),
+        'test_preset': _n(presetId),
         'stress_ratio': stressRatio,
         'metal_temp_c': metalTempC,
-        'gauge_range': gaugeRange,
-        'gauge_cal_due': gaugeCalibrationDue,
+        'gauge_range': _n(gaugeRange),
+        'gauge_cal_due': _n(gaugeCalibrationDue),
         'relief_set_bar': reliefSetBar,
-        'protocol_no': protocolNo,
-        'protocol_rev': revision,
+        'protocol_no': _n(protocolNo),
+        'protocol_rev': _n(revision),
       };
 
-  /// Odczyt z wiersza (docelowe kolumny) albo z JSON-a — te same klucze.
+  static String? _n(String v) => v.trim().isEmpty ? null : v;
+
+  /// Odczyt z wiersza bazy; brakujące kolumny / NULL → puste pola.
   static HydrotestProtocolMeta fromRow(Map<String, Object?> r) =>
       HydrotestProtocolMeta(
         company: _s(r['company']),
@@ -151,19 +143,6 @@ class HydrotestProtocolMeta {
         protocolNo: _s(r['protocol_no']),
         revision: _s(r['protocol_rev']),
       );
-
-  /// JSON bez pustych pól — krócej w kolumnie `notes`.
-  Map<String, Object?> toJson() {
-    final out = <String, Object?>{};
-    toRow().forEach((k, v) {
-      if (v == null) return;
-      if (v is String && v.trim().isEmpty) return;
-      out[k] = v;
-    });
-    return out;
-  }
-
-  static HydrotestProtocolMeta fromJson(Map<String, Object?> j) => fromRow(j);
 
   static String _s(Object? v) => v is String ? v : '';
   static double? _d(Object? v) => v is num ? v.toDouble() : null;
@@ -201,42 +180,4 @@ class HydrotestProtocolMeta {
         protocolNo,
         revision,
       );
-}
-
-/// Uwagi użytkownika i metadane rozdzielone z kolumny `notes`.
-class HydrotestNotesSplit {
-  final String notes;
-  final HydrotestProtocolMeta? meta;
-  const HydrotestNotesSplit(this.notes, this.meta);
-}
-
-/// Rozdziela zawartość kolumny `notes` na tekst użytkownika i metadane.
-///
-/// Brak znacznika albo uszkodzony JSON → cały tekst to uwagi, `meta == null`
-/// (nic z tego, co wpisał człowiek, nie może zniknąć).
-HydrotestNotesSplit splitHydrotestNotes(String raw) {
-  final i = raw.lastIndexOf(kHydrotestMetaMarker);
-  if (i < 0) return HydrotestNotesSplit(raw, null);
-  try {
-    final decoded = jsonDecode(raw.substring(i + kHydrotestMetaMarker.length));
-    if (decoded is Map<String, dynamic>) {
-      return HydrotestNotesSplit(
-        raw.substring(0, i).trimRight(),
-        HydrotestProtocolMeta.fromJson(decoded),
-      );
-    }
-  } on FormatException {
-    // Poniżej: traktuj całość jako uwagi.
-  }
-  return HydrotestNotesSplit(raw, null);
-}
-
-/// Dokleja [meta] jako JSON do [notes] (usuwając ewentualny stary blok).
-String embedHydrotestMeta(String notes, HydrotestProtocolMeta meta) {
-  final clean = splitHydrotestNotes(notes).notes.trimRight();
-  if (meta.isEmpty) return clean;
-  final json = jsonEncode(meta.toJson());
-  return clean.isEmpty
-      ? '$kHydrotestMetaMarker$json'
-      : '$clean\n\n$kHydrotestMetaMarker$json';
 }

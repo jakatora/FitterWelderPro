@@ -28,6 +28,7 @@
 ///   * temperature → °C
 library;
 
+import '../domain/pressure_test/hydrotest_protocol_meta.dart';
 import 'db.dart';
 
 /// Test passed — no leakage, pressure held.
@@ -36,7 +37,7 @@ const String kHydrotestPass = 'PASS';
 /// Test failed — leak, pressure drop, or the QC engineer rejected it.
 const String kHydrotestFail = 'FAIL';
 
-/// Minimum hold time in minutes per ASME B31.3 § 345.4.2. Recorded rather
+/// Minimum hold time in minutes per ASME B31.3 § 345.2.2(a). Recorded rather
 /// than enforced: the app must not decide whether a test is acceptable, but
 /// it must be able to point out a hold shorter than the code minimum.
 const double kHydrotestMinHoldMinutes = 10.0;
@@ -110,7 +111,8 @@ class HydrotestRecord {
   /// Design pressure in bar (calculator snapshot).
   final double? designBar;
 
-  /// Test factor applied to the design pressure (1.5 / 1.3 / 1.43).
+  /// Effective test factor Pt / P — e.g. 1.8 for ASME B31.3 with ST/S = 1.2
+  /// (records filed before the code presets hold the bare multiplier).
   final double? factor;
 
   /// Test pressure in bar = [designBar] × [factor] (calculator snapshot).
@@ -121,6 +123,12 @@ class HydrotestRecord {
 
   /// Free text: vents used, blinds fitted, why a FAIL was called.
   final String notes;
+
+  /// Protocol fields (company, project, test package, P&ID/ISO, medium, code
+  /// preset, stress ratio, metal temperature, gauge range and calibration,
+  /// relief valve, protocol no./revision) — schema v19 columns. Empty for
+  /// tests filed before v19.
+  final HydrotestProtocolMeta meta;
 
   /// `millisecondsSinceEpoch` of the save. Used for ordering — [date] is the
   /// day of the test and several tests share one day.
@@ -146,6 +154,7 @@ class HydrotestRecord {
     this.testPressureBar,
     this.volumeL,
     this.notes = '',
+    this.meta = const HydrotestProtocolMeta(),
   });
 
   /// Pressure lost during the hold, in bar; `null` when either reading is
@@ -200,6 +209,7 @@ class HydrotestRecord {
         'volume_l': volumeL,
         'notes': notes,
         'created_at': createdAt,
+        ...meta.toRow(),
       };
 
   /// Reads a row back. Numbers arrive as `num` (SQLite hands back `int` for a
@@ -226,6 +236,7 @@ class HydrotestRecord {
         volumeL: _d(r['volume_l']),
         notes: (r['notes'] as String?) ?? '',
         createdAt: (r['created_at'] as num?)?.toInt() ?? 0,
+        meta: HydrotestProtocolMeta.fromRow(r),
       );
 
   static double? _d(Object? v) => (v as num?)?.toDouble();

@@ -1,10 +1,7 @@
 // Metadane protokołu próby (firma, projekt, pakiet, P&ID/ISO, medium, preset,
-// ST/S, temp. metalu, manometr, zawór bezpieczeństwa, nr/rewizja protokołu).
-//
-// Tabela hydrotest_records nie ma na nie kolumn (DDL zmienia inny zespół), więc
-// do czasu migracji jadą jako JSON doklejony do istniejącej kolumny TEXT
-// `notes`. Test pilnuje, że uwagi użytkownika wracają nietknięte, a stare
-// rekordy (bez znacznika) czytają się jak dotąd.
+// ST/S, temp. metalu, manometr, zawór bezpieczeństwa, nr/rewizja protokołu) —
+// kolumny hydrotest_records w schemacie v19. Zgodność z bazą sprawdza
+// test/database/hydrotest_protocol_columns_test.dart.
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,75 +25,42 @@ const _full = HydrotestProtocolMeta(
 );
 
 void main() {
-  group('JSON w kolumnie notes', () {
-    test('uwagi + metadane: zapis i odczyt bez strat', () {
-      const notes = 'Odpowietrzenie na najwyższym punkcie, korki 2×.';
-      final raw = embedHydrotestMeta(notes, _full);
-      expect(raw, startsWith(notes));
-      final back = splitHydrotestNotes(raw);
-      expect(back.notes, notes);
-      expect(back.meta, _full);
-    });
-
-    test('same metadane, bez uwag', () {
-      final back = splitHydrotestNotes(embedHydrotestMeta('', _full));
-      expect(back.notes, '');
-      expect(back.meta, _full);
-    });
-
-    test('stary rekord bez znacznika czyta się jak dotąd', () {
-      const legacy = 'Przeciek na kołnierzu.';
-      final back = splitHydrotestNotes(legacy);
-      expect(back.notes, legacy);
-      expect(back.meta, isNull);
-    });
-
-    test('uszkodzony JSON nie gubi tekstu użytkownika', () {
-      final raw = 'Uwaga\n\n$kHydrotestMetaMarker{nie-json';
-      final back = splitHydrotestNotes(raw);
-      expect(back.notes, raw);
-      expect(back.meta, isNull);
-    });
-
-    test('ponowne osadzenie nie dubluje bloku metadanych', () {
-      final once = embedHydrotestMeta('Uwaga', _full);
-      final twice = embedHydrotestMeta(once, _full);
-      expect(twice, once);
-      expect(kHydrotestMetaMarker.allMatches(twice).length, 1);
-    });
-
-    test('puste metadane nie dopisują niczego do uwag', () {
-      expect(embedHydrotestMeta('Uwaga', const HydrotestProtocolMeta()),
-          'Uwaga');
-      expect(const HydrotestProtocolMeta().isEmpty, isTrue);
-      expect(_full.isEmpty, isFalse);
-    });
+  test('preset z id', () {
+    expect(_full.preset, PressureTestPreset.b313Hydro);
+    expect(const HydrotestProtocolMeta(presetId: 'x').preset, isNull);
   });
 
-  group('model', () {
-    test('preset z id', () {
-      expect(_full.preset, PressureTestPreset.b313Hydro);
-      expect(const HydrotestProtocolMeta(presetId: 'x').preset, isNull);
-    });
+  test('toRow / fromRow — dokładnie kolumny v19, bez strat', () {
+    final row = _full.toRow();
+    expect(row.keys.toSet(), HydrotestProtocolMeta.columns.keys.toSet());
+    expect(row['relief_set_bar'], 19.5);
+    expect(row['test_preset'], 'b31_3_hydro');
+    expect(row['protocol_rev'], 'B');
+    expect(HydrotestProtocolMeta.fromRow(row), _full);
+    // Pusty tekst → NULL, jak w próbach sprzed v19.
+    final empty = const HydrotestProtocolMeta().toRow();
+    expect(empty.values.every((v) => v == null), isTrue);
+  });
 
-    test('toRow / fromRow — kolumny docelowe po migracji', () {
-      final row = _full.toRow();
-      expect(row.keys.toSet(), HydrotestProtocolMeta.columns.keys.toSet());
-      expect(row['relief_set_bar'], 19.5);
-      expect(row['test_preset'], 'b31_3_hydro');
-      expect(HydrotestProtocolMeta.fromRow(row), _full);
-      // SQLite oddaje REAL z całą wartością jako int na niektórych platformach.
-      expect(HydrotestProtocolMeta.fromRow({'metal_temp_c': 15}).metalTempC,
-          15.0);
-    });
+  test('wiersz sprzed v19 (NULL / brak kolumn) daje puste metadane', () {
+    final fromNulls = HydrotestProtocolMeta.fromRow(
+        {for (final c in HydrotestProtocolMeta.columns.keys) c: null});
+    expect(fromNulls.isEmpty, isTrue);
+    expect(HydrotestProtocolMeta.fromRow(const {}).isEmpty, isTrue);
+    expect(_full.isEmpty, isFalse);
+  });
 
-    test('fromJson toleruje brakujące i obce pola', () {
-      final m = HydrotestProtocolMeta.fromJson(
-          {'company': 'X', 'stress_ratio': 1, 'nieznane': true});
-      expect(m.company, 'X');
-      expect(m.stressRatio, 1.0);
-      expect(m.project, '');
-      expect(m.reliefSetBar, isNull);
-    });
+  test('SQLite oddaje REAL z całą wartością jako int — czytamy przez num', () {
+    final m = HydrotestProtocolMeta.fromRow(
+        {'metal_temp_c': 15, 'stress_ratio': 1, 'relief_set_bar': 20});
+    expect(m.metalTempC, 15.0);
+    expect(m.stressRatio, 1.0);
+    expect(m.reliefSetBar, 20.0);
+  });
+
+  test('obce typy w kolumnach tekstowych nie wywracają odczytu', () {
+    final m = HydrotestProtocolMeta.fromRow({'company': 42, 'project': 'P'});
+    expect(m.company, '');
+    expect(m.project, 'P');
   });
 }

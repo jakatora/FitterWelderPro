@@ -1096,9 +1096,9 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
       factor: calc.effectiveFactor,
       testPressureBar: calc.testPressureBar,
       volumeL: volL,
-      // hydrotest_records has no columns for the protocol metadata yet — it
-      // rides as JSON at the end of `notes` (see hydrotest_protocol_meta.dart).
-      notes: embedHydrotestMeta(draft.notes, draft.meta),
+      notes: draft.notes,
+      // Protocol fields — schema v19 columns (hydrotest_protocol_meta.dart).
+      meta: draft.meta,
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
 

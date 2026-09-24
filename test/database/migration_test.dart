@@ -180,6 +180,20 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'volume_l',
     'notes',
     'created_at',
+    // v19: pressure-test protocol fields.
+    'company',
+    'project',
+    'test_package',
+    'drawing_refs',
+    'test_medium',
+    'test_preset',
+    'stress_ratio',
+    'metal_temp_c',
+    'gauge_range',
+    'gauge_cal_due',
+    'relief_set_bar',
+    'protocol_no',
+    'protocol_rev',
   ],
   // ISO notebook autosave: the sketch used to live only in RAM.
   'iso_drawings': <String>[
@@ -734,6 +748,9 @@ CREATE TABLE component_library (
     expect(hydro['system_name'], 'WFI-101');
     // Millimetres in, millimetres out.
     expect((hydro['line_length_mm']! as num).toDouble(), 120000.0);
+    // v19 protocol fields arrive empty on an old test — never invented.
+    expect(hydro['test_preset'], isNull);
+    expect(hydro['relief_set_bar'], isNull);
 
     expect(await db.query('iso_drawings'), isEmpty);
   });

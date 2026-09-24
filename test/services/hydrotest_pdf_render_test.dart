@@ -18,7 +18,11 @@ pw.Font _font() {
   return pw.Font.ttf(ByteData.sublistView(bytes));
 }
 
-HydrotestRecord _record({required String notes, double? start = 18.0}) =>
+HydrotestRecord _record({
+  required String notes,
+  double? start = 18.0,
+  HydrotestProtocolMeta meta = const HydrotestProtocolMeta(),
+}) =>
     HydrotestRecord(
       id: 'pdf-1',
       systemName: 'WFI-101 — pętla dystrybucji',
@@ -38,6 +42,7 @@ HydrotestRecord _record({required String notes, double? start = 18.0}) =>
       testPressureBar: 18,
       volumeL: 259.4,
       notes: notes,
+      meta: meta,
       createdAt: 1790000000000,
     );
 
@@ -59,8 +64,8 @@ void main() {
       revision: 'B',
     );
     final r = _record(
-        notes: embedHydrotestMeta(
-            'Odpowietrzenie na najwyższym punkcie, korki 2×. ' * 8, meta));
+        notes: 'Odpowietrzenie na najwyższym punkcie, korki 2×. ' * 8,
+        meta: meta);
     // Trzy notatki audytowe naraz: krótki czas, spadek przy PASS,
     // przeterminowana kalibracja.
     expect(hydrotestHoldNote(r), isNotNull);

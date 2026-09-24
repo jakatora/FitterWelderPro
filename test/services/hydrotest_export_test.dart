@@ -26,6 +26,7 @@ HydrotestRecord _rec({
   double? testPressureBar = 15.0,
   double? volumeL = 259.4,
   String notes = '',
+  HydrotestProtocolMeta meta = const HydrotestProtocolMeta(),
 }) =>
     HydrotestRecord(
       id: 'r1',
@@ -46,6 +47,7 @@ HydrotestRecord _rec({
       testPressureBar: testPressureBar,
       volumeL: volumeL,
       notes: notes,
+      meta: meta,
       createdAt: 1756512000000,
     );
 
@@ -228,7 +230,7 @@ void main() {
     });
   });
 
-  group('protocol metadata (JSON in the notes column)', () {
+  group('protocol metadata (schema v19 columns)', () {
     const meta = HydrotestProtocolMeta(
       company: 'Montaż Rur Sp. z o.o.',
       testMedium: 'Woda',
@@ -240,9 +242,9 @@ void main() {
       revision: 'A',
     );
 
-    test('the JSON never reaches the printed notes', () {
-      final r = _rec(notes: embedHydrotestMeta('Korki 2×.', meta));
-      expect(hydrotestNotesText(r), 'Korki 2×.');
+    test('a record with metadata reports its preset', () {
+      final r = _rec(notes: 'Korki 2×.', meta: meta);
+      expect(r.notes, 'Korki 2×.');
       expect(hydrotestMeta(r), meta);
       expect(hydrotestPreset(r), PressureTestPreset.en13480Hydro);
     });
@@ -256,22 +258,21 @@ void main() {
     });
 
     test('EN 13480-5 preset holds the record to 30 min, not 10', () {
-      final r = _rec(holdMinutes: 15, notes: embedHydrotestMeta('', meta));
+      final r = _rec(holdMinutes: 15, meta: meta);
       expect(hydrotestMeetsMinimumHold(r), isFalse);
       final note = hydrotestHoldNote(r);
       expect(note, contains('30 min'));
       expect(note, contains('EN 13480-5'));
       expect(
           hydrotestMeetsMinimumHold(
-              _rec(holdMinutes: 30, notes: embedHydrotestMeta('', meta))),
+              _rec(holdMinutes: 30, meta: meta)),
           isTrue);
     });
 
     test('ASME VIII-1 has no minimum in the app — no hold note', () {
       final r = _rec(
           holdMinutes: 1,
-          notes: embedHydrotestMeta(
-              '', const HydrotestProtocolMeta(presetId: 'asme_viii_1_hydro')));
+          meta: const HydrotestProtocolMeta(presetId: 'asme_viii_1_hydro'));
       expect(hydrotestHoldNote(r), isNull);
       expect(hydrotestMeetsMinimumHold(r), isTrue);
     });
@@ -279,29 +280,26 @@ void main() {
     test('an expired gauge calibration is flagged against the test date', () {
       final expired = _rec(
         date: '2026-08-30',
-        notes: embedHydrotestMeta('',
-            const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-29')),
+        meta: const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-29'),
       );
       expect(hydrotestCalibrationNote(expired), contains('2026-08-29'));
       final valid = _rec(
         date: '2026-08-30',
-        notes: embedHydrotestMeta('',
-            const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-30')),
+        meta: const HydrotestProtocolMeta(gaugeCalibrationDue: '2026-08-30'),
       );
       expect(hydrotestCalibrationNote(valid), isNull);
       // Not an ISO date → no judgement.
       expect(
           hydrotestCalibrationNote(_rec(
-              notes: embedHydrotestMeta('',
-                  const HydrotestProtocolMeta(gaugeCalibrationDue: '03/2026')))),
+              meta: const HydrotestProtocolMeta(
+                  gaugeCalibrationDue: '03/2026'))),
           isNull);
       expect(hydrotestCalibrationNote(_rec()), isNull);
     });
 
     test('new records must name the medium and the metal temperature', () {
-      final r = _rec(
-          notes: embedHydrotestMeta(
-              '', const HydrotestProtocolMeta(presetId: 'b31_3_hydro')));
+      final r =
+          _rec(meta: const HydrotestProtocolMeta(presetId: 'b31_3_hydro'));
       final note = hydrotestMissingNote(r);
       expect(note, contains('medium'));
       expect(note, contains('temperatura metalu'));
@@ -311,12 +309,8 @@ void main() {
     test('a pneumatic test without a relief valve set pressure is incomplete',
         () {
       final r = _rec(
-          notes: embedHydrotestMeta(
-              '',
-              const HydrotestProtocolMeta(
-                  presetId: 'b31_3_pneumatic',
-                  testMedium: 'Azot',
-                  metalTempC: 12)));
+          meta: const HydrotestProtocolMeta(
+              presetId: 'b31_3_pneumatic', testMedium: 'Azot', metalTempC: 12));
       expect(hydrotestMissingNote(r), contains('zaworu bezpieczeństwa'));
     });
 
@@ -332,7 +326,7 @@ void main() {
     });
 
     test('mail subject carries the protocol number', () {
-      final r = _rec(notes: embedHydrotestMeta('', meta));
+      final r = _rec(meta: meta);
       expect(hydrotestProtocolSubject(r), contains('HT-017'));
     });
   });

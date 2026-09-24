@@ -19,7 +19,12 @@ class AppDatabase {
   //   silently dropped their rows), plus `iso_drawings` for the ISO notebook
   //   autosave. The step also widens a weld_journal created by the oldest
   //   screen code to the full weld-map shape.
-  static const int _dbVersion = 18;
+  // v19: hydrotest_records gains the pressure-test protocol fields (company,
+  //   project, test package, P&ID/ISO, medium, code preset, stress ratio,
+  //   metal temperature, gauge range and calibration due date, relief-valve
+  //   set pressure, protocol no. and revision) — see
+  //   lib/domain/pressure_test/hydrotest_protocol_meta.dart.
+  static const int _dbVersion = 19;
 
   /// The schema version [get] opens the database at.
   ///
@@ -313,6 +318,15 @@ CREATE TABLE IF NOT EXISTS projects (
       }
     }
 
+    // ---- v19: pressure-test protocol fields. All nullable, no defaults: a
+    // test filed before v19 simply has none of them, and the protocol prints
+    // "—" for each.
+    if (oldVersion < 19) {
+      for (final column in _kHydrotestProtocolColumns.entries) {
+        await _ensureColumn(db, 'hydrotest_records', column.key, column.value);
+      }
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -364,6 +378,25 @@ CREATE TABLE IF NOT EXISTS projects (
     'exam',
     'wps_ref',
   ];
+
+  /// Pressure-test protocol columns added in v19 (name → SQLite type). Must
+  /// match `HydrotestProtocolMeta.columns`; a test checks that it does.
+  static const Map<String, String> _kHydrotestProtocolColumns =
+      <String, String>{
+    'company': 'TEXT',
+    'project': 'TEXT',
+    'test_package': 'TEXT',
+    'drawing_refs': 'TEXT',
+    'test_medium': 'TEXT',
+    'test_preset': 'TEXT',
+    'stress_ratio': 'REAL',
+    'metal_temp_c': 'REAL',
+    'gauge_range': 'TEXT',
+    'gauge_cal_due': 'TEXT',
+    'relief_set_bar': 'REAL',
+    'protocol_no': 'TEXT',
+    'protocol_rev': 'TEXT',
+  };
 
   /// CREATE TABLE IF NOT EXISTS for every table, and nothing else.
   ///
@@ -570,7 +603,20 @@ CREATE TABLE IF NOT EXISTS hydrotest_records (
   test_pressure_bar REAL,
   volume_l REAL,
   notes TEXT,
-  created_at INTEGER
+  created_at INTEGER,
+  company TEXT,
+  project TEXT,
+  test_package TEXT,
+  drawing_refs TEXT,
+  test_medium TEXT,
+  test_preset TEXT,
+  stress_ratio REAL,
+  metal_temp_c REAL,
+  gauge_range TEXT,
+  gauge_cal_due TEXT,
+  relief_set_bar REAL,
+  protocol_no TEXT,
+  protocol_rev TEXT
 );
 ''');
     // ISO notebook sketches — iso_drawing_dao.dart. `json` is the whole

@@ -19,13 +19,12 @@
 ///   * PLATFORM half ([HydrotestExport]) — render, write, share. Verified by
 ///     reading, not by unit tests.
 ///
-/// Protocol metadata that `HydrotestRecord` has no columns for yet (company,
-/// project, test package, P&ID/ISO, medium, code preset, ST/S, metal
-/// temperature, gauge range and calibration due date, relief-valve set
-/// pressure, protocol no. and revision) travels as JSON at the end of the
-/// `notes` column — see `lib/domain/pressure_test/hydrotest_protocol_meta.dart`.
-/// Everything here reads notes through [hydrotestNotesText] / [hydrotestMeta]
-/// so the JSON never reaches the paper.
+/// Protocol metadata (company, project, test package, P&ID/ISO, medium, code
+/// preset, ST/S, metal temperature, gauge range and calibration due date,
+/// relief-valve set pressure, protocol no. and revision) lives in
+/// `HydrotestRecord.meta` — schema v19 columns, see
+/// `lib/domain/pressure_test/hydrotest_protocol_meta.dart`. Tests filed
+/// before v19 have none of it; [hydrotestMeta] returns `null` for them.
 ///
 /// Nothing here converts units. Pressures are printed in bar (with MPa and psi
 /// shown alongside, because a foreign inspector reads one of those), lengths
@@ -107,14 +106,10 @@ String formatHydrotestLength(double? lengthMm) {
   return '${(lengthMm / 1000.0).toStringAsFixed(1)} m';
 }
 
-/// The user's notes without the embedded metadata block.
-String hydrotestNotesText(HydrotestRecord r) =>
-    splitHydrotestNotes(r.notes).notes;
-
 /// Protocol metadata stored with the record, or `null` for records filed
-/// before those fields existed.
+/// before those fields existed (schema < v19, all columns NULL).
 HydrotestProtocolMeta? hydrotestMeta(HydrotestRecord r) =>
-    splitHydrotestNotes(r.notes).meta;
+    r.meta.isEmpty ? null : r.meta;
 
 /// Code preset the test was calculated to. Records without a stored preset
 /// predate the preset picker, when the calculator was ASME B31.3 only.
@@ -371,7 +366,7 @@ class HydrotestExport {
     final meta = hydrotestMeta(record);
     final preset = hydrotestPreset(record);
     final minHold = preset.minHoldMinutes;
-    final notesText = hydrotestNotesText(record).trim();
+    final notesText = record.notes.trim();
 
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
