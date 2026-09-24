@@ -39,8 +39,10 @@ class SaddleTemplate extends SaddleGeometry {
     }
     final font =
         pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
+    final bold =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
     final doc =
-        pw.Document(theme: pw.ThemeData.withFont(base: font, bold: font));
+        pw.Document(theme: pw.ThemeData.withFont(base: font, bold: bold));
     final renderer = _SaddlePdf(this, layout, isEnglish, name);
     doc.addPage(renderer.summary());
     doc.addPage(renderer.preview());

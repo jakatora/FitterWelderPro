@@ -15,6 +15,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/models/segment.dart';
@@ -53,6 +54,17 @@ Segment _seg(int seqNo, double cutMm, {String isoExpr = ''}) => Segment(
       createdAt: 0,
       updatedAt: 0,
     );
+
+/// Regular Roboto for every weight. The text reader below decodes glyph ids
+/// through one ToUnicode map, and a second (bold) subset numbers its glyphs
+/// on its own — so content checks run on a one-font theme, while the test
+/// 'produkcyjny motyw ma osobny krój pogrubiony' pins the real theme.
+Future<pw.ThemeData> _oneFontTheme() async {
+  final font = pw.Font.ttf(ByteData.sublistView(
+      File('assets/fonts/Roboto-Regular.ttf').readAsBytesSync()));
+  return pw.ThemeData.withFont(
+      base: font, bold: font, italic: font, boldItalic: font);
+}
 
 /// Every stream of the PDF, inflated when it is FlateDecode-compressed.
 List<List<int>> _streams(Uint8List bytes) {
@@ -123,6 +135,7 @@ void main() {
   test('nazwa projektu „Łącznik żółć”: PDF powstaje z osadzoną czcionką',
       () async {
     final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
       project: _project('Łącznik żółć'),
       segments: [_seg(1, 3293), _seg(2, 2500), _seg(3, 1200)],
       generatedAt: DateTime(2026, 9, 24, 13, 5),
@@ -143,6 +156,7 @@ void main() {
     // 6000 mm, rzaz 3: sztanga 1 = S01 3293 + S02 2500 (zostaje 201 mm),
     // sztanga 2 = S03 1200 (zostaje 4797 mm).
     final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
       project: _project('Linia DN100'),
       segments: [
         _seg(1, 3293, isoExpr: '3000+525-80'),
@@ -163,6 +177,7 @@ void main() {
 
   test('cięcie dłuższe od sztangi: części (1/2), (2/2) i ostrzeżenie', () async {
     final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
       project: _project('Linia DN100'),
       segments: [_seg(1, 7000), _seg(2, 4000)],
       generatedAt: DateTime(2026, 9, 24, 13, 5),
@@ -180,6 +195,7 @@ void main() {
 
   test('wersja EN', () async {
     final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
       project: _project('Line 7'),
       segments: [_seg(1, 7000)],
       english: true,
@@ -194,6 +210,7 @@ void main() {
   test('wydruk czarno-biały: ciemny tekst, cienkie ramki, bez wypełnień',
       () async {
     final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
       project: _project('Łącznik żółć'),
       segments: [_seg(1, 7000), _seg(2, 4000), _seg(3, 1200)],
       generatedAt: DateTime(2026, 9, 24, 13, 5),
@@ -227,5 +244,14 @@ void main() {
       expect(RegExp(r'(^|\s)(f\*?|B\*?|b\*?)(?=\s|$)').hasMatch(ops), isFalse,
           reason: 'wypełnienie tła w treści strony');
     }
+  });
+
+  test('produkcyjny motyw ma osobny krój pogrubiony (Roboto-Bold)', () async {
+    final theme = await PdfExportService.loadTheme();
+    final style = theme.defaultTextStyle;
+    expect(style.fontBold, isNotNull);
+    expect(identical(style.fontBold, style.fontNormal), isFalse,
+        reason: 'pogrubienie nie może być tym samym plikiem co zwykły krój');
+    expect(style.fontBold!.fontName, contains('Bold'));
   });
 }

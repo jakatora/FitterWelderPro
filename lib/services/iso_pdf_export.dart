@@ -42,11 +42,13 @@ class IsoPdfExport {
     // exports rendered Polish text as blank boxes / missing glyphs.
     final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
     final baseFont = pw.Font.ttf(fontBytes);
+    final boldFont =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
     final theme = pw.ThemeData.withFont(
       base: baseFont,
-      bold: baseFont,
+      bold: boldFont,
       italic: baseFont,
-      boldItalic: baseFont,
+      boldItalic: boldFont,
     );
     final doc = pw.Document(theme: theme);
     final now = DateTime.now();

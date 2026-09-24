@@ -303,9 +303,11 @@ class HydrotestExport {
   }) async {
     final now = generatedAt ?? DateTime.now();
     final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final boldBytes = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
     final bytes = await buildPdf(
       record: record,
       font: pw.Font.ttf(fontBytes),
+      boldFont: pw.Font.ttf(boldBytes),
       generatedAt: now,
     );
     final name = hydrotestProtocolFileName(
@@ -335,6 +337,7 @@ class HydrotestExport {
   static Future<Uint8List> buildPdf({
     required HydrotestRecord record,
     required pw.Font font,
+    pw.Font? boldFont,
     required DateTime generatedAt,
   }) async {
     final now = generatedAt;
@@ -343,19 +346,16 @@ class HydrotestExport {
     // system tag, a witness name or the notes renders. The `pdf` package's
     // built-in Helvetica is Latin-1 only and silently drops those glyphs —
     // the same fix iso_pdf_export.dart and weld_journal_export.dart carry.
-    //
-    // KNOWN LIMITATION: only Roboto-Regular.ttf is bundled, so the "bold"
-    // face below is the same file and FontWeight.bold renders as regular.
-    // Emphasis on the page therefore comes from size, colour and boxes, not
-    // weight. Bundling Roboto-Bold.ttf would fix it (asset change, not done
-    // here).
+    // Roboto-Bold.ttf ships next to the regular face; without [boldFont]
+    // (tests) bold falls back to the regular file.
     final baseFont = font;
+    final bold = boldFont ?? font;
     final doc = pw.Document(
       theme: pw.ThemeData.withFont(
         base: baseFont,
-        bold: baseFont,
+        bold: bold,
         italic: baseFont,
-        boldItalic: baseFont,
+        boldItalic: bold,
       ),
     );
 

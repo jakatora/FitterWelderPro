@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -72,8 +73,9 @@ class PdfExportService {
     required List<Segment> segments,
     bool english = false,
     DateTime? generatedAt,
+    @visibleForTesting pw.ThemeData? theme,
   }) async {
-    final doc = pw.Document(theme: await _loadTheme());
+    final doc = pw.Document(theme: theme ?? await loadTheme());
     final t = _Tr(english);
     final stamp = _stamp(generatedAt ?? DateTime.now());
 
@@ -112,13 +114,14 @@ class PdfExportService {
     return doc.save();
   }
 
-  static Future<pw.ThemeData> _loadTheme() async {
+  /// Regular + bold Roboto from assets. Public for the test that checks the
+  /// bold face really is a separate font.
+  @visibleForTesting
+  static Future<pw.ThemeData> loadTheme() async {
     final regular =
         pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
-    // Only the regular face ships today; a bold file dropped into
-    // assets/fonts/ (and declared in pubspec) is picked up without a code
-    // change. Until then bold text uses the regular face and emphasis comes
-    // from size and rules.
+    // Roboto-Bold.ttf ships in assets/fonts/; the fallback keeps export
+    // working if the asset is ever missing from a build.
     pw.Font bold = regular;
     try {
       bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));

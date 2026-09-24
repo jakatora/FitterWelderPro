@@ -342,12 +342,14 @@ class WeldJournalExport {
     // iso_pdf_export.dart already carries.
     final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
     final baseFont = pw.Font.ttf(fontBytes);
+    final boldFont =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
     final doc = pw.Document(
       theme: pw.ThemeData.withFont(
         base: baseFont,
-        bold: baseFont,
+        bold: boldFont,
         italic: baseFont,
-        boldItalic: baseFont,
+        boldItalic: boldFont,
       ),
     );
 
