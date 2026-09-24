@@ -9,6 +9,7 @@ import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../services/weld_journal_export.dart';
 import '../services/welder_identity.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../widgets/help_button.dart';
 
 // ── Kolory ─────────────────────────────────────────────────────────────────
@@ -17,7 +18,7 @@ const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 const _kSec    = Color(0xFF9BA3C7);
 
 // Locale-aware decimal separator for stored numeric strings (OD, t).

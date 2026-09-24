@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../data/help_entries.dart';
 import '../i18n/app_language.dart';
 import '../services/help_search.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Help v2 — searchable knowledge base for fitters and welders.
 // Layout:
@@ -25,7 +26,7 @@ const _kBg = Color(0xFF0B0E13);
 const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 const _kAccent = Color(0xFF2ECC71);
 
 class HelpScreen extends StatefulWidget {

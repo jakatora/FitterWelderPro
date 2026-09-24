@@ -127,4 +127,35 @@ void main() {
       expect(src.contains('0XFF5A6478'), isFalse, reason: path);
     }
   });
+
+  // Ekrany przeniesione na token kTextMut (2026-09). Pozostałe pliki ze starą
+  // wartością zmieniają równolegle inne gałęzie — dopisz je tu po migracji.
+  test('ekrany narzędzi nie trzymają kopii starego #5A6478 / #55607A', () {
+    const files = [
+      'lib/screens/coupon_log_screen.dart',
+      'lib/screens/heat_input_screen.dart',
+      'lib/screens/heat_tint_screen.dart',
+      'lib/screens/help_screen.dart',
+      'lib/screens/iso_scanner_screen.dart',
+      'lib/screens/job_add_screen.dart',
+      'lib/screens/jobs_screen.dart',
+      'lib/screens/orbital_tig_screen.dart',
+      'lib/screens/passivation_screen.dart',
+      'lib/screens/pipe_schedule_screen.dart',
+      'lib/screens/pre_weld_checklist_screen.dart',
+      'lib/screens/saddle_template_screen.dart',
+      'lib/screens/sanitary_tube_screen.dart',
+      'lib/screens/support_config_screen.dart',
+      'lib/screens/tungsten_screen.dart',
+      'lib/screens/weld_journal_screen.dart',
+      'lib/screens/welder_tools_screen.dart',
+      'lib/widgets/pipe_3d_preview.dart',
+    ];
+    for (final path in files) {
+      final src = File(path).readAsStringSync().toUpperCase();
+      expect(src.contains('0XFF5A6478'), isFalse, reason: path);
+      expect(src.contains('0XFF55607A'), isFalse, reason: path);
+      expect(src.contains('KTEXTMUT'), isTrue, reason: '$path: brak tokenu');
+    }
+  });
 }

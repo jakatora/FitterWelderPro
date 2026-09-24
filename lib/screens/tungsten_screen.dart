@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/tungsten.dart';
 import '../i18n/app_language.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 
@@ -14,7 +15,7 @@ const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
 const _kGreen  = Color(0xFF2ECC71);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 // SharedPreferences keys (P2-14 persistence)
 const _kPrefOverrides = 'prefs_tungsten_overrides';

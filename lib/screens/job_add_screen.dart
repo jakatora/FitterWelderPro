@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../i18n/app_language.dart';
 import '../models/job_listing.dart';
 import '../services/jobs_service.dart';
+import '../theme/app_theme.dart' show kTextMut;
 
 // Form for adding a new job listing. Posting costs 49 PLN one-time via Stripe
 // — there is no free tier (even Premium subscribers pay per posting). Flow:
@@ -20,7 +21,7 @@ const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFFE57373); // matches the home "PRACA" tile colour
 const _kTextSec = Color(0xFF9BA3C7);
-const _kTextMut = Color(0xFF5A6478);
+const _kTextMut = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 class JobAddScreen extends StatefulWidget {
   /// Edit mode is signalled by passing an existing listing; null = create new.

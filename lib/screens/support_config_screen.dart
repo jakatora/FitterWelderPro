@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../data/support_spacing.dart';
 import '../i18n/app_language.dart';
+import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 
 const _kCard   = Color(0xFF141821);
@@ -12,7 +13,7 @@ const _kBlue   = Color(0xFF4A9EFF);
 const _kGreen  = Color(0xFF2ECC71);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = Color(0xFF5A6478);
+const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 /// Pipe support configuration — spacing calculator + reference + support
 /// types + placement rules. The "must-have" knowledge fitters carry between
