@@ -6,7 +6,8 @@
 ///
 ///   * the project header (diameter, wall, material) is editable, because a
 ///     vision model reads a title block far less reliably than the man
-///     standing in front of the pipe,
+///     standing in front of the pipe, and so is the root gap per weld, which
+///     no drawing carries but every cut on this screen takes off,
 ///   * everything the model was unsure about is shown in colour at full
 ///     size — never as small grey print,
 ///   * every blocking gap is listed at the top saying exactly what is
@@ -51,6 +52,10 @@ const double _kDefaultStockLengthMm = 6000;
 /// Default saw kerf (mm), matching the manual form's default.
 const double _kDefaultSawKerfMm = 1.5;
 
+/// Default root gap per weld (mm) — the manual "new project" form starts
+/// from 0 as well, so a scanned project and a typed one begin alike.
+const String _kDefaultGapText = '0';
+
 class ScanReviewScreen extends StatefulWidget {
   /// The finished AI reading of the drawing.
   final AiScanResult scan;
@@ -85,6 +90,14 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _diaCtrl;
   late final TextEditingController _wallCtrl;
+
+  /// Root gap per weld (mm) of the project this scan becomes. It is stored on
+  /// the project and taken off every cut here exactly as the segment builder
+  /// takes it off — this screen used to save every project with gap 0 and
+  /// cut without one, so the same run came out longer than if it had been
+  /// built by hand, by the gap on every weld.
+  final TextEditingController _gapCtrl =
+      TextEditingController(text: _kDefaultGapText);
 
   /// SS / CS. Starts from the title block, overridable — the group only
   /// filters the component library, but it is stored on the project.
@@ -141,6 +154,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     _nameCtrl.dispose();
     _diaCtrl.dispose();
     _wallCtrl.dispose();
+    _gapCtrl.dispose();
     super.dispose();
   }
 
@@ -149,6 +163,15 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   double? get _diameterMm => _positive(_diaCtrl.text);
   double? get _wallThicknessMm => _positive(_wallCtrl.text);
 
+  /// The gap as typed, or null when it is not a number ≥ 0. Empty is not
+  /// "no gap": the field starts at 0, so an empty one means the fitter
+  /// deleted it and has not said what it is.
+  double? get _gapMm {
+    final v = double.tryParse(_gapCtrl.text.trim().replaceAll(',', '.'));
+    if (v == null || !v.isFinite || v < 0) return null;
+    return v;
+  }
+
   /// Rebuilds the plan from the (possibly corrected) scan and re-applies the
   /// fitter's answers on top of it.
   void _recompute() {
@@ -156,6 +179,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       _scan,
       diameterMm: _diameterMm,
       wallThicknessMm: _wallThicknessMm,
+      gapMm: _gapMm ?? 0,
     );
 
     _refNeeded = base.segments
@@ -232,6 +256,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       _segments.isNotEmpty &&
       _diameterMm != null &&
       _wallThicknessMm != null &&
+      _gapMm != null &&
       _materialGroup != null &&
       _segments.every((s) => s.isComplete);
 
@@ -439,8 +464,14 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
 
     final diameterMm = _diameterMm;
     final wallMm = _wallThicknessMm;
+    final gapMm = _gapMm;
     final material = _materialGroup;
-    if (diameterMm == null || wallMm == null || material == null) return;
+    if (diameterMm == null ||
+        wallMm == null ||
+        gapMm == null ||
+        material == null) {
+      return;
+    }
 
     setState(() {
       _saving = true;
@@ -468,7 +499,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         currentDiameterMm: diameterMm,
         stockLengthMm: _kDefaultStockLengthMm,
         sawKerfMm: _kDefaultSawKerfMm,
-        gapMm: 0,
+        // The same gap every cut on this screen was computed with, so the
+        // segment builder — which reads the project's gap on "edit" — gets
+        // the same numbers back.
+        gapMm: gapMm,
         createdAt: now,
         updatedAt: now,
       ));
@@ -916,6 +950,30 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gapCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            onChanged: (_) => _apply(() {}),
+            decoration: InputDecoration(
+              isDense: true,
+              labelText: _tr('Gap (mm na spoinę)', 'Gap (mm per weld)'),
+              helperText: _tr(
+                'Szczelina pod spoinę — odejmowana od CUT na każdej spoinie, '
+                    'jak w kreatorze segmentu',
+                'Root gap — taken off the CUT at every weld, as in the '
+                    'segment builder',
+              ),
+              helperMaxLines: 2,
+              errorText: _gapMm == null
+                  ? _tr('wpisz gap (0, jeśli bez szczeliny)',
+                      'enter the gap (0 for none)')
+                  : null,
+            ),
           ),
           const SizedBox(height: 12),
           Text(

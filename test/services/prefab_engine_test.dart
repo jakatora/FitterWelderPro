@@ -470,11 +470,11 @@ void main() {
     });
   });
 
-  // Two screens, one run, one number. The builder used to subtract
-  // `welds * gap` in a formula PrefabEngine knew nothing about, so the ISO
-  // notebook and the builder disagreed by the gap total on the very same
-  // segment — and nothing on either screen said which one the saw should
-  // follow.
+  // One run, one number from the builder and from a DimRef-style engine call.
+  // The builder used to subtract `welds * gap` in a formula PrefabEngine knew
+  // nothing about. NB: the `viaNotebook` calls below pass a gap; the real ISO
+  // notebook has no gap setting and passes none, so with a gap above 0 the
+  // notebook screen itself still shows the run `welds * gap` longer.
   group('segment builder and PrefabEngine agree on the same run', () {
     test('elbow -> open end, 2 mm gap on one joint', () {
       const isoMm = 1000.0;

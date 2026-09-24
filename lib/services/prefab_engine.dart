@@ -168,11 +168,17 @@ class PrefabEngine {
   ///
   /// `weldGapMm` × `weldCount` is subtracted last: the root gap left open at
   /// each joint is length the saw must not take. Both default to 0 so that
-  /// callers which never modelled the gap keep their exact numbers. The
-  /// segment builder used to apply the gap itself, in a formula this engine
-  /// knew nothing about, so one run measured in the builder and in the ISO
-  /// notebook produced two different cut lengths with nothing on either
-  /// screen to explain the difference.
+  /// callers which never modelled the gap keep their exact numbers.
+  ///
+  /// Who actually passes a gap — "one engine" does not mean more than this:
+  ///   * the segment builder and the scan review do, with the project's
+  ///     `gap_mm` and [weldCountForEnds] welds, both through
+  ///     [anchoredCutMm] (the scan review used to save gap 0 and pass none);
+  ///   * the ISO notebook does NOT: it has no gap setting and calls this with
+  ///     the defaults. With a project gap above 0 the same run therefore comes
+  ///     out `gap × welds` longer in the notebook than in the builder. The
+  ///     engine agreeing with itself does not make those two screens agree —
+  ///     only the notebook passing a gap would.
   ///
   /// The four component-length parameters take `num` rather than `int` so a
   /// caller holding sub-millimetre take-outs (a 76.2 mm elbow) does not have
