@@ -78,7 +78,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _validate(String value) {
     final v = value.trim();
     if (v.isEmpty) {
-      return context.tr(pl: 'To pole jest wymagane.', en: 'This field is required.');
+      return context.tr(
+          pl: 'To pole jest wymagane.', en: 'This field is required.');
     }
     if (!_kNameAllowed.hasMatch(v)) {
       return context.tr(
@@ -163,7 +164,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// the error we are trying to report.
   String _describeBackupError(Object error) {
     if (error is BackupFormatException) {
-      return AppLanguageController.isEnglish ? error.messageEn : error.messagePl;
+      return AppLanguageController.isEnglish
+          ? error.messageEn
+          : error.messagePl;
     }
     return '$error';
   }
@@ -273,7 +276,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         // a small phone or at a large system font size.
         scrollable: true,
         title: Text(context.tr(
-            pl: 'Nadpisać dane z tego pliku?', en: 'Overwrite with this file?')),
+            pl: 'Nadpisać dane z tego pliku?',
+            en: 'Overwrite with this file?')),
         content: Text(context.tr(
           pl: 'Plik: $pickedName\n'
               'Zapisany: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
@@ -441,10 +445,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final blocked = BlockedUsers.instance.all;
-    final fullName = '${_firstCtrl.text.trim()} ${_lastCtrl.text.trim()}'.trim();
+    final fullName =
+        '${_firstCtrl.text.trim()} ${_lastCtrl.text.trim()}'.trim();
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.tr(pl: 'Twój profil', en: 'Your profile'))),
+      appBar: AppBar(
+          title: Text(context.tr(pl: 'Twój profil', en: 'Your profile'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: kArc))
           : ListView(
@@ -477,7 +483,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.phone_iphone,
                   accent: kTextSec,
                   title: context.tr(
-                      pl: 'Co zostaje na telefonie', en: 'What stays on your phone'),
+                      pl: 'Co zostaje na telefonie',
+                      en: 'What stays on your phone'),
                   body: context.tr(
                     pl: 'Projekty, cut listy, dziennik spoin, zdjęcia i wyniki '
                         'kalkulatorów. Nic z tego nie trafia na serwer.',
@@ -554,16 +561,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         en: 'You have not blocked anyone. In chat, long-press a '
                             'message to report it or block its author.',
                       ),
-                      style: const TextStyle(color: kTextSec, fontSize: 13, height: 1.5),
+                      style: const TextStyle(
+                          color: kTextSec, fontSize: 13, height: 1.5),
                     ),
                   )
                 else
-                  ...blocked.map((u) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: kCard,
+                  ...blocked.map((u) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      // Material (not a DecoratedBox) so the tile's ink
+                      // splash stays visible on the card background.
+                      child: Material(
+                        color: kCard,
+                        clipBehavior: Clip.antiAlias,
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: kBorder),
+                          side: const BorderSide(color: kBorder),
                         ),
                         child: ListTile(
                           leading: const Icon(Icons.block, color: kFail),
@@ -574,7 +586,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             context.tr(
                                 pl: 'Jego wiadomości są ukryte',
                                 en: 'Their messages are hidden'),
-                            style: const TextStyle(color: kTextMut, fontSize: 12),
+                            style:
+                                const TextStyle(color: kTextMut, fontSize: 12),
                           ),
                           trailing: TextButton(
                             onPressed: () => _unblock(u),
@@ -585,7 +598,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
-                      )),
+                      ))),
 
                 const SizedBox(height: 32),
                 _Label(context.tr(pl: 'Twoje dane', en: 'Your data')),
@@ -613,8 +626,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 10),
                 _LinkTile(
                   icon: Icons.save_alt,
-                  label: context.tr(
-                      pl: 'Kopia zapasowa', en: 'Back up my data'),
+                  label:
+                      context.tr(pl: 'Kopia zapasowa', en: 'Back up my data'),
                   subtitle: context.tr(
                       pl: 'Zapisz wszystko do jednego pliku',
                       en: 'Save everything to one file'),
@@ -631,7 +644,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
 
                 const SizedBox(height: 32),
-                _Label(context.tr(pl: 'Zasady i prywatność', en: 'Rules and privacy')),
+                _Label(context.tr(
+                    pl: 'Zasady i prywatność', en: 'Rules and privacy')),
                 const SizedBox(height: 8),
                 _LinkTile(
                   icon: Icons.description_outlined,
@@ -700,31 +714,37 @@ class _LinkTile extends StatelessWidget {
         : danger
             ? kFail
             : kText;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    // Material (not a DecoratedBox) so the tile's ink splash stays visible on
+    // the card background — a tap needs visible feedback in gloves.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: kCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorder),
-      ),
-      child: ListTile(
-        enabled: enabled,
-        minVerticalPadding: 12,
-        leading: Icon(icon,
-            color: !enabled
-                ? kTextMut
-                : danger
-                    ? kFail
-                    : kTextSec,
-            size: 20),
-        title: Text(label,
-            style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 14)),
-        subtitle: subtitle == null
-            ? null
-            : Text(subtitle!,
-                style: const TextStyle(color: kTextMut, fontSize: 12)),
-        trailing: const Icon(Icons.chevron_right, color: kTextMut, size: 20),
-        onTap: onTap,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: kBorder),
+        ),
+        child: ListTile(
+          enabled: enabled,
+          minVerticalPadding: 12,
+          leading: Icon(icon,
+              color: !enabled
+                  ? kTextMut
+                  : danger
+                      ? kFail
+                      : kTextSec,
+              size: 20),
+          title: Text(label,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.w600, fontSize: 14)),
+          subtitle: subtitle == null
+              ? null
+              : Text(subtitle!,
+                  style: const TextStyle(color: kTextMut, fontSize: 12)),
+          trailing: const Icon(Icons.chevron_right, color: kTextMut, size: 20),
+          onTap: onTap,
+        ),
       ),
     );
   }
@@ -735,10 +755,12 @@ class _Identity extends StatelessWidget {
   const _Identity({required this.name});
 
   String get _initials {
-    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts =
+        name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.characters.first.toUpperCase();
-    return (parts.first.characters.first + parts.last.characters.first).toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first)
+        .toUpperCase();
   }
 
   @override
@@ -828,7 +850,8 @@ class _Notice extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(body,
-              style: const TextStyle(color: kTextSec, fontSize: 13, height: 1.5)),
+              style:
+                  const TextStyle(color: kTextSec, fontSize: 13, height: 1.5)),
         ],
       ),
     );
