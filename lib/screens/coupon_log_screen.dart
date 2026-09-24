@@ -53,35 +53,24 @@ class CouponEntry {
       );
 }
 
+/// `weld_coupons` belongs to the schema in `lib/database/db.dart` (v18); it
+/// is no longer created on first screen open, so a backup restored onto a
+/// phone that never showed this screen keeps its coupons.
 class CouponDao {
   static const _table = 'weld_coupons';
 
-  Future<void> _ensure() async {
-    final db = await AppDatabase.get();
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS $_table (
-        id TEXT PRIMARY KEY,
-        date TEXT, welder TEXT, machine TEXT,
-        size TEXT, result TEXT, notes TEXT
-      )
-    ''');
-  }
-
   Future<List<CouponEntry>> listAll() async {
-    await _ensure();
     final db = await AppDatabase.get();
     final rows = await db.query(_table, orderBy: 'date DESC');
     return rows.map(CouponEntry.fromRow).toList();
   }
 
   Future<void> insert(CouponEntry e) async {
-    await _ensure();
     final db = await AppDatabase.get();
     await db.insert(_table, e.toRow());
   }
 
   Future<void> delete(String id) async {
-    await _ensure();
     final db = await AppDatabase.get();
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
   }

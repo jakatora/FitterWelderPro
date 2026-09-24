@@ -206,94 +206,33 @@ List<WeldJournalRecord> weldJournalExportRecords(
         .toList();
 
 // ── DAO ─────────────────────────────────────────────────────────────────────
+
+/// The `weld_journal` table is part of the schema in `lib/database/db.dart`
+/// (v18). It used to be created — and later widened with ALTER TABLE — right
+/// here on the first screen open, which meant a phone that had never shown
+/// the journal had no table, and restoring a backup onto it silently dropped
+/// every weld. Opening the database now guarantees the table and every
+/// column, so this DAO only reads and writes.
 class WeldJournalDao {
   static const _table = 'weld_journal';
 
-  Future<void> _ensureTable() async {
-    final db = await AppDatabase.get();
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS $_table (
-        id TEXT PRIMARY KEY,
-        weld_no TEXT,
-        project_name TEXT,
-        pipe_name TEXT,
-        material TEXT,
-        od TEXT,
-        t TEXT,
-        method TEXT,
-        welder TEXT,
-        date TEXT,
-        notes TEXT,
-        status TEXT,
-        weld_type TEXT,
-        fitter TEXT,
-        heat_no1 TEXT,
-        heat_no2 TEXT,
-        coupon_ref TEXT,
-        exam TEXT,
-        wps_ref TEXT
-      )
-    ''');
-    // Migrate older databases that predate the ASME BPE weld-map columns.
-    //
-    // P0r-08: query the actual schema via PRAGMA table_info instead of
-    // relying on SQLite's localized error messages. Substring-matching
-    // "duplicate column" / "already exists" breaks on Huawei/Xiaomi ROMs
-    // that translate SQLite error strings — a benign re-migration would
-    // rethrow as fatal and block the journal cold-start. The PRAGMA path
-    // is idempotent by construction and never raises the exception in the
-    // first place.
-    final existing = <String>{};
-    try {
-      final info = await db.rawQuery('PRAGMA table_info($_table)');
-      for (final row in info) {
-        final name = row['name'] as String?;
-        if (name != null) existing.add(name);
-      }
-    } catch (_) {
-      // PRAGMA failure is rare but recoverable — fall back to the original
-      // try/catch ALTER approach so legacy DBs still migrate.
-    }
-    for (final col in const [
-      'weld_type', 'fitter', 'heat_no1', 'heat_no2', 'coupon_ref', 'exam',
-      'wps_ref',
-    ]) {
-      if (existing.contains(col)) continue;
-      try {
-        await db.execute('ALTER TABLE $_table ADD COLUMN $col TEXT');
-      } catch (e) {
-        // Belt-and-braces: if PRAGMA missed the column (e.g. concurrent
-        // migration on another isolate) and ALTER fails as a duplicate,
-        // silently swallow only that case. Anything else bubbles up.
-        final msg = e.toString().toLowerCase();
-        final isDuplicate = msg.contains('duplicate column') ||
-            msg.contains('already exists');
-        if (!isDuplicate) rethrow;
-      }
-    }
-  }
-
   Future<List<WeldEntry>> listAll() async {
-    await _ensureTable();
     final db = await AppDatabase.get();
     final rows = await db.query(_table, orderBy: 'weld_no ASC');
     return rows.map(WeldEntry.fromRow).toList();
   }
 
   Future<void> insert(WeldEntry e) async {
-    await _ensureTable();
     final db = await AppDatabase.get();
     await db.insert(_table, e.toRow());
   }
 
   Future<void> update(WeldEntry e) async {
-    await _ensureTable();
     final db = await AppDatabase.get();
     await db.update(_table, e.toRow(), where: 'id = ?', whereArgs: [e.id]);
   }
 
   Future<void> delete(String id) async {
-    await _ensureTable();
     final db = await AppDatabase.get();
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
   }

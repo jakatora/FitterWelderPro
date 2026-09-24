@@ -10,18 +10,13 @@
 /// a table.
 ///
 /// SCHEMA OWNERSHIP — read before touching:
-/// The table is created lazily by [HydrotestDao.ensureTable] with
-/// `CREATE TABLE IF NOT EXISTS`, NOT by `lib/database/db.dart`. This is
-/// deliberate but TEMPORARY: `db.dart` is being reworked in parallel and a
-/// second hand in its `onUpgrade` ladder would collide. The `weld_journal`
-/// table (see `weld_journal_screen.dart`) already lives with the same
-/// arrangement, so the pattern is at least consistent inside the app.
-///
-/// TODO(schema): move this DDL into `AppDatabase._createSchema` plus an
-/// `onUpgrade` step (`if (oldVersion < N) { CREATE TABLE ... }`) and bump
-/// `_dbVersion`. [ensureTable] can then shrink to a no-op — keep the call
-/// sites, they cost one `CREATE TABLE IF NOT EXISTS` round-trip and they are
-/// what makes the lazy path safe for devices that upgrade mid-shift.
+/// `hydrotest_records` (and its `idx_hydrotest_created` index) is defined in
+/// `lib/database/db.dart` since schema v18, like every other table in
+/// `cutlist.db`. It used to be created lazily here, on the first save or
+/// read — which meant a phone that had never opened the register had no
+/// table, and a backup restored onto it silently dropped every test. A new
+/// column goes into `AppDatabase._createTables` plus a migration step
+/// (`_ensureColumn`) and a schema version bump, never into this file.
 ///
 /// UNITS — the app's base units, no exceptions:
 ///   * pressure  → bar     (the screen converts bar/MPa/psi input on the way in)
@@ -242,50 +237,15 @@ class HydrotestRecord {
 class HydrotestDao {
   static const String table = 'hydrotest_records';
 
-  /// Creates the table if it is not there yet.
-  ///
-  /// Called at the top of every public method rather than once per instance:
-  /// the cost is a single `CREATE TABLE IF NOT EXISTS` round-trip, and a
-  /// cached "already created" flag would go stale if the database were closed
-  /// and reopened underneath us (which is exactly what happens when a test
-  /// swaps the sqflite factory).
-  ///
-  /// See the library doc above: this belongs in `db.dart`'s `onUpgrade` once
-  /// that file is free.
+  /// Makes sure the table exists — by opening the database, whose schema
+  /// (v18+) defines it. Kept, and kept public, for callers that want to
+  /// warm the register up front; it no longer carries any DDL of its own, so
+  /// there is exactly one definition of the table in the app.
   Future<void> ensureTable() async {
-    final db = await AppDatabase.get();
-    await db.execute('''
-      CREATE TABLE IF NOT EXISTS $table (
-        id TEXT PRIMARY KEY,
-        system_name TEXT,
-        test_date TEXT,
-        gauge TEXT,
-        pressure_start_bar REAL,
-        pressure_end_bar REAL,
-        temperature_c REAL,
-        hold_minutes REAL,
-        result TEXT,
-        witness TEXT,
-        od_mm REAL,
-        wall_mm REAL,
-        line_length_mm REAL,
-        design_bar REAL,
-        factor REAL,
-        test_pressure_bar REAL,
-        volume_l REAL,
-        notes TEXT,
-        created_at INTEGER
-      )
-    ''');
-    // Ordering index: the register is always read newest-first and a crew on
-    // a long shutdown files dozens of tests.
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_hydrotest_created ON $table(created_at DESC)',
-    );
+    await AppDatabase.get();
   }
 
   Future<void> insert(HydrotestRecord r) async {
-    await ensureTable();
     final db = await AppDatabase.get();
     await db.insert(table, r.toRow());
   }
@@ -293,20 +253,17 @@ class HydrotestDao {
   /// Newest first — a welder opening the register wants the test just filed,
   /// not the one from three weeks ago.
   Future<List<HydrotestRecord>> listAll() async {
-    await ensureTable();
     final db = await AppDatabase.get();
     final rows = await db.query(table, orderBy: 'created_at DESC');
     return rows.map(HydrotestRecord.fromRow).toList();
   }
 
   Future<void> update(HydrotestRecord r) async {
-    await ensureTable();
     final db = await AppDatabase.get();
     await db.update(table, r.toRow(), where: 'id = ?', whereArgs: [r.id]);
   }
 
   Future<void> deleteById(String id) async {
-    await ensureTable();
     final db = await AppDatabase.get();
     await db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
@@ -315,7 +272,6 @@ class HydrotestDao {
   /// Counted in SQL rather than by reading every row — the badge is rebuilt
   /// on every save and does not need the payload.
   Future<int> count() async {
-    await ensureTable();
     final db = await AppDatabase.get();
     final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM $table');
     if (rows.isEmpty) return 0;

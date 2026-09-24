@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'support/test_database.dart';
 
+import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/hydrotest_dao.dart';
 
 void main() {
@@ -10,13 +11,21 @@ void main() {
   /// suite-local test database.
   String freshId() => 'hydro_${DateTime.now().microsecondsSinceEpoch}';
 
-  test('ensureTable is idempotent — the lazy DDL runs on every call', () async {
-    // The table is NOT created by db.dart (see the DAO's library doc), so this
-    // has to be safe to run again on every single query for the lifetime of
-    // the app. A second CREATE that threw would take the register down on the
-    // second save, not the first — the worst kind of bug to find in the field.
+  test('the register table comes with the schema, not with the first save',
+      () async {
+    // Until schema v18 the table was created lazily by the DAO, so a phone
+    // that had never opened the register had no table and a restored backup
+    // silently dropped every test. Opening the database alone must now be
+    // enough — before any DAO call.
+    final db = await AppDatabase.get();
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [HydrotestDao.table],
+    );
+    expect(tables, hasLength(1));
+
+    // ensureTable stays callable (and harmless) for existing call sites.
     final dao = HydrotestDao();
-    await dao.ensureTable();
     await dao.ensureTable();
     await dao.ensureTable();
   });
