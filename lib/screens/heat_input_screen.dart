@@ -5,33 +5,29 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/pipe_schedules.dart';
+import '../domain/welding/heat_input.dart';
+import '../domain/welding/preheat.dart';
 import '../i18n/app_language.dart';
 import '../services/material_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 
 // Heat input + preheat calculator for arc welding (SMAW / GMAW / FCAW / GTAW / SAW).
+// All arithmetic lives in lib/domain/welding/ (heat_input.dart, preheat.dart);
+// this screen only parses fields and renders results.
 //
-// Heat input:
-//   HI [kJ/mm] = (V × I × 60) / (travel_speed_mm_min × 1000) × η
-//   η = arc efficiency factor (ISO/IEC TR 17671-1 / ISO/IEC 1011-1):
-//     - SMAW (stick):  0.80
-//     - GMAW (MIG):    0.80
-//     - FCAW-G (gas):  0.80
-//     - FCAW-S (self): 0.75
-//     - GTAW (TIG):    0.60
-//     - SAW:           1.00
+// Heat input — two conventions, selectable on screen:
+//   EN 1011-1 / EN ISO 15614-1:  Q = k × U × I × 60 / (v × 1000)  [kJ/mm]
+//     k per EN 1011-1 Table 1: SAW 1.0; MMA, MIG/MAG, FCAW (incl. 114) 0.8;
+//     TIG 0.6.
+//   ASME IX QW-409.1(a):         HI = U × I × 60 / v  — NO efficiency factor.
 //
-// Carbon equivalent — IIW formula (most common):
-//   CE_IIW = C + Mn/6 + (Cr + Mo + V)/5 + (Ni + Cu)/15
+// WPS range: empty by default (no verdict until the welder types the range
+// from HIS WPS). The range is a hard boundary — no tolerance band.
 //
-// Pre-heat thresholds (rule of thumb, applies P1 carbon steel):
-//   CE <0.35     → no preheat (thin wall) or 50 °C (>25 mm)
-//   CE 0.35-0.45 → 100-150 °C
-//   CE 0.45-0.55 → 150-200 °C + low-H electrodes
-//   CE >0.55     → 200-300 °C + PWHT mandatory
-//
-// Specific alloys override the rule (P91 / P22 / 304L / Inconel etc.).
+// Preheat — three named sources shown side by side (see preheat.dart):
+//   code minimum (ASME B31.3 Tab. 330.1.1, by P-No + thickness), Seferian
+//   estimate, and the non-normative CE rule of thumb. Binding: the WPS.
 
 const _kBg = Color(0xFF0B0E13);
 const _kCard = Color(0xFF141821);
@@ -56,6 +52,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   final _ampsCtrl = TextEditingController(text: '110');
   final _travelCtrl = TextEditingController(text: '200');
   String _process = 'SMAW';
+  HeatInputStandard _standard = HeatInputStandard.en1011;
 
   // ─── Pre-heat / CE inputs ───────────────────────────────────────────────
   final _cCtrl = TextEditingController(text: '0.20');
@@ -67,13 +64,16 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   final _cuCtrl = TextEditingController(text: '0.00');
   final _thicknessCtrl = TextEditingController(text: '15');
 
-  // WPS range
-  final _wpsMinCtrl = TextEditingController(text: '1.0');
-  final _wpsMaxCtrl = TextEditingController(text: '2.5');
+  // WPS range — deliberately EMPTY until the welder types the range from his
+  // WPS (audit 2026-09: a default 1.0–2.5 kJ/mm made every process default
+  // glow red "OUT of WPS range").
+  final _wpsMinCtrl = TextEditingController();
+  final _wpsMaxCtrl = TextEditingController();
 
   /// Selected material preset (null = manual chemistry). When the welder
-  /// picks a grade we fill in every chemistry cell + the WPS heat input window
-  /// + surface the recommended preheat note next to the CE result.
+  /// picks a grade we fill in every chemistry cell and show the grade's
+  /// P-No, code minimum preheat and typical WPS practice. The WPS range is
+  /// NOT filled — a catalog "typical window" is not the welder's WPS.
   MaterialSpec? _material;
 
   // P2-05: DN/SCH picker — heat_input has no OD/wall fields, so we surface
@@ -98,8 +98,6 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         _vCtrl: _vCtrl.text,
         _niCtrl: _niCtrl.text,
         _cuCtrl: _cuCtrl.text,
-        _wpsMinCtrl: _wpsMinCtrl.text,
-        _wpsMaxCtrl: _wpsMaxCtrl.text,
       };
 
   void _applyMaterial(MaterialSpec m) {
@@ -114,8 +112,6 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _vCtrl.text = m.v.toStringAsFixed(2);
       _niCtrl.text = m.ni.toStringAsFixed(2);
       _cuCtrl.text = m.cu.toStringAsFixed(2);
-      _wpsMinCtrl.text = m.hiMin.toStringAsFixed(1);
-      _wpsMaxCtrl.text = m.hiMax.toStringAsFixed(1);
     });
     // P1-16: notify + offer Undo so a misclick doesn't silently wipe a custom
     // chemistry the welder spent 60 s entering off a 3.1 cert.
@@ -250,6 +246,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _ampsCtrl.text = '110';
       _travelCtrl.text = '200';
       _process = 'SMAW';
+      _standard = HeatInputStandard.en1011;
       _cCtrl.text = '0.20';
       _mnCtrl.text = '1.00';
       _crCtrl.text = '0.00';
@@ -258,8 +255,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _niCtrl.text = '0.00';
       _cuCtrl.text = '0.00';
       _thicknessCtrl.text = '15';
-      _wpsMinCtrl.text = '1.0';
-      _wpsMaxCtrl.text = '2.5';
+      _wpsMinCtrl.clear();
+      _wpsMaxCtrl.clear();
       _material = null;
       // P2-05: Wyczyść also drops the DN/SCH hint so the welder starts
       // from a clean slate.
@@ -270,20 +267,17 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     });
   }
 
-  // P1-16: per-process arc efficiency. FCAW split into FCAW-G (gas-shielded,
-  // 0.80) and FCAW-S (self-shielded, 0.75); SAW bumped to 1.00 per ISO/IEC 1011-1.
-  static const Map<String, double> _efficiency = {
-    'SMAW': 0.80,
-    'GMAW': 0.80,
-    'FCAW-G': 0.80,
-    'FCAW-S': 0.75,
-    'GTAW': 0.60,
-    'SAW': 1.00,
+  /// Per-process thermal efficiency k — single source of truth is the
+  /// [WeldingProcess] enum (EN 1011-1 Table 1), shared with the Welder
+  /// calculators screen.
+  static final Map<String, double> _efficiency = {
+    for (final p in WeldingProcess.values) p.code: p.thermalEfficiency,
   };
 
+  double get _eta => _efficiency[_process] ?? 0.80;
+
   // P1-16: sensible default (V, I, travel mm/min) per process. Swapped in when
-  // the welder changes process so HI lands inside a realistic WPS window even
-  // before any field is touched.
+  // the welder changes process so the fields hold realistic numbers.
   static const Map<String, List<double>> _defaultParams = {
     'SMAW': [22, 110, 200],
     'GMAW': [24, 180, 350],
@@ -306,6 +300,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   double _parse(TextEditingController c) =>
       double.tryParse(c.text.replaceAll(',', '.')) ?? 0.0;
 
+  /// Empty field → null (used for the optional WPS bounds).
+  double? _parseOptional(TextEditingController c) {
+    final t = c.text.trim();
+    if (t.isEmpty) return null;
+    return double.tryParse(t.replaceAll(',', '.'));
+  }
 
   @override
   void initState() {
@@ -334,54 +334,91 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   }
 
   // ─── Computed ────────────────────────────────────────────────────────────
-  double get _heatInputKjPerMm {
-    final v = _parse(_voltsCtrl);
-    final i = _parse(_ampsCtrl);
-    final s = _parse(_travelCtrl);
-    final eta = _efficiency[_process] ?? 0.80;
-    if (v <= 0 || i <= 0 || s <= 0) return 0;
-    return (v * i * 60.0) / (s * 1000.0) * eta;
+  double get _heatInputKjPerMm =>
+      heatInputKJPerMm(
+        volts: _parse(_voltsCtrl),
+        amps: _parse(_ampsCtrl),
+        travelMmPerMin: _parse(_travelCtrl),
+        standard: _standard,
+        efficiency: _eta,
+      ) ??
+      0;
+
+  double get _ce => carbonEquivalentIiw(
+        c: _parse(_cCtrl),
+        mn: _parse(_mnCtrl),
+        cr: _parse(_crCtrl),
+        mo: _parse(_moCtrl),
+        v: _parse(_vCtrl),
+        ni: _parse(_niCtrl),
+        cu: _parse(_cuCtrl),
+      );
+
+  _PreheatView _preheatView() {
+    final ce = _ce;
+    final t = _parse(_thicknessCtrl);
+    final stainless = isStainlessComposition(cr: _parse(_crCtrl));
+    final rule = ceRuleOfThumb(ce: ce, thicknessMm: t);
+    final seferian = seferianPreheat(
+      c: _parse(_cCtrl),
+      mn: _parse(_mnCtrl),
+      cr: _parse(_crCtrl),
+      ni: _parse(_niCtrl),
+      mo: _parse(_moCtrl),
+      thicknessMm: t,
+    );
+    final codeMin = _material == null
+        ? null
+        : b313MinPreheatC(pNo: _material!.pNo, thicknessMm: t);
+    return _PreheatView(
+      ce: ce,
+      thicknessMm: t,
+      stainless: stainless,
+      rule: rule,
+      seferianC: seferian?.preheatC,
+      codeMinC: codeMin,
+    );
   }
 
-  double get _ce {
-    final c = _parse(_cCtrl);
-    final mn = _parse(_mnCtrl);
-    final cr = _parse(_crCtrl);
-    final mo = _parse(_moCtrl);
-    final vv = _parse(_vCtrl);
-    final ni = _parse(_niCtrl);
-    final cu = _parse(_cuCtrl);
-    return c + mn / 6 + (cr + mo + vv) / 5 + (ni + cu) / 15;
-  }
-
-  _PreheatRec _preheatRecommendation(double ce, double thickness) {
-    if (ce < 0.35) {
-      if (thickness >= 25) {
-        return _PreheatRec(50, 'low', 'CE <0.35, gruba ścianka — preheat ostrożności');
-      }
-      return _PreheatRec(0, 'none', 'CE <0.35, brak preheat dla cienkich');
+  String _ruleNote(CeRuleOfThumb r) {
+    switch (r.band) {
+      case CeBand.low:
+        return r.thickWall
+            ? context.tr(
+                pl: 'CE < 0.35, ścianka ≥ 25 mm — podgrzewanie ostrożnościowe',
+                en: 'CE < 0.35, wall ≥ 25 mm — precautionary preheat')
+            : context.tr(
+                pl: 'CE < 0.35, cienka ścianka — zwykle bez podgrzewania',
+                en: 'CE < 0.35, thin wall — usually no preheat');
+      case CeBand.medium:
+        return context.tr(
+            pl: 'CE 0.35–0.45 — niskie podgrzewanie (pasmo 100–150 °C)',
+            en: 'CE 0.35–0.45 — low preheat (band 100–150 °C)');
+      case CeBand.high:
+        return context.tr(
+            pl: 'CE 0.45–0.55 — średnie podgrzewanie (150–200 °C) + elektrody niskowodorowe',
+            en: 'CE 0.45–0.55 — medium preheat (150–200 °C) + low-hydrogen electrodes');
+      case CeBand.critical:
+        return context.tr(
+            pl: 'CE > 0.55 — wysokie podgrzewanie (200–300 °C), rozważ PWHT',
+            en: 'CE > 0.55 — high preheat (200–300 °C), consider PWHT');
     }
-    if (ce < 0.45) return _PreheatRec(125, 'medium', 'CE 0.35-0.45, niski preheat');
-    if (ce < 0.55) return _PreheatRec(175, 'high', 'CE 0.45-0.55, średni preheat + low-H elektrody');
-    return _PreheatRec(250, 'critical', 'CE >0.55, wysoki preheat + PWHT mandatory');
   }
+
+  String get _disclaimer => context.tr(
+        pl: 'Wynik pomocniczy — wiąże WPS / specyfikacja projektu.',
+        en: 'Auxiliary result — the WPS / project specification is binding.',
+      );
 
   @override
   Widget build(BuildContext context) {
     final hi = _heatInputKjPerMm;
-    final wpsMin = _parse(_wpsMinCtrl);
-    final wpsMax = _parse(_wpsMaxCtrl);
-    // P1-16: ±10% tolerance band on the WPS range, matching the way a welding
-    // inspector reads "Heat input ±10%" on a qualified pWPS.
-    final wpsMinTol = wpsMin * 0.90;
-    final wpsMaxTol = wpsMax * 1.10;
-    final inRange = hi >= wpsMin && hi <= wpsMax;
-    final inToleranceBand =
-        !inRange && hi >= wpsMinTol && hi <= wpsMaxTol && hi > 0;
-
-    final ce = _ce;
-    final thickness = _parse(_thicknessCtrl);
-    final preheat = _preheatRecommendation(ce, thickness);
+    final wpsMin = _parseOptional(_wpsMinCtrl);
+    final wpsMax = _parseOptional(_wpsMaxCtrl);
+    final verdict = hi > 0
+        ? checkWpsRange(hi, min: wpsMin, max: wpsMax)
+        : WpsRangeVerdict.notSet;
+    final preheat = _preheatView();
 
     return DefaultTabController(
       length: 2,
@@ -419,7 +456,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               tooltip: context.tr(pl: 'Udostępnij wynik', en: 'Share result'),
               icon: const Icon(Icons.ios_share),
               constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              onPressed: () => _shareTrace(hi, ce, preheat),
+              onPressed: () => _shareTrace(hi, preheat),
             ),
             // P1-04: Wyczyść — resets all controllers + clears material chip.
             IconButton(
@@ -443,20 +480,61 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
         body: TabBarView(
           children: [
-            _heatInputTab(hi, wpsMin, wpsMax, inRange, inToleranceBand),
-            _preheatTab(ce, preheat),
+            _heatInputTab(hi, wpsMin, wpsMax, verdict),
+            _preheatTab(preheat),
           ],
         ),
       ),
     );
   }
 
+  String _fmtRange(double? min, double? max) {
+    final lo = min == null ? '—' : min.toStringAsFixed(2);
+    final hi = max == null ? '—' : max.toStringAsFixed(2);
+    return '$lo – $hi kJ/mm';
+  }
+
   // ─── Tab 1: Heat input ──────────────────────────────────────────────────
   Widget _heatInputTab(
-      double hi, double wpsMin, double wpsMax, bool inRange, bool inToleranceBand) {
-    // P1-16: "OK" colour reused both for strict in-range AND for the ±10%
-    // tolerance band (welder still inside qualified pWPS).
-    final okColour = inRange ? _kGreen : (inToleranceBand ? _kGold : _kAccent);
+      double hi, double? wpsMin, double? wpsMax, WpsRangeVerdict verdict) {
+    // The WPS range is a hard boundary: in range = green, outside = red.
+    // No verdict (neutral colour) until the welder enters the range.
+    final Color okColour;
+    final IconData icon;
+    final String verdictText;
+    final range = _fmtRange(wpsMin, wpsMax);
+    switch (verdict) {
+      case WpsRangeVerdict.notSet:
+        okColour = _kOrange;
+        icon = Icons.info_outline;
+        verdictText = context.tr(
+          pl: 'Wpisz zakres z WPS, aby porównać (min i/lub max).',
+          en: 'Enter the WPS range to compare (min and/or max).',
+        );
+      case WpsRangeVerdict.invalidRange:
+        okColour = _kGold;
+        icon = Icons.help_outline;
+        verdictText = context.tr(
+          pl: 'Sprawdź zakres WPS — min większe od max albo wartość ujemna.',
+          en: 'Check the WPS range — min above max or a negative value.',
+        );
+      case WpsRangeVerdict.inRange:
+        okColour = _kGreen;
+        icon = Icons.check_circle_outline;
+        verdictText = context.tr(
+          pl: '✓ W zakresie WPS ($range)',
+          en: '✓ Within WPS range ($range)',
+        );
+      case WpsRangeVerdict.belowMin:
+      case WpsRangeVerdict.aboveMax:
+        okColour = _kAccent;
+        icon = Icons.warning_amber_outlined;
+        verdictText = context.tr(
+          pl: '⚠ POZA zakresem WPS ($range) — koryguj parametry',
+          en: '⚠ OUT of WPS range ($range) — adjust parameters',
+        );
+    }
+    final asme = _standard == HeatInputStandard.asmeIx;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -469,8 +547,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 efficiency: _efficiency,
                 onChanged: (v) => setState(() {
                   _process = v;
-                  // P1-16: swap sensible defaults so HI lands inside the WPS
-                  // window before the welder touches a field.
+                  // P1-16: swap sensible defaults for the new process.
                   _applyDefaultParams(v);
                 }),
               ),
@@ -506,6 +583,49 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 rejectNegative: true,
                 rejectZero: true,
                 onChanged: () => setState(() {}),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        _SectionCard(
+          title: context.tr(pl: 'Norma liczenia', en: 'Calculation standard'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ChoiceChip(
+                    label: const Text('EN 1011-1'),
+                    selected: !asme,
+                    onSelected: (_) =>
+                        setState(() => _standard = HeatInputStandard.en1011),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                  ),
+                  ChoiceChip(
+                    label: const Text('ASME IX'),
+                    selected: asme,
+                    onSelected: (_) =>
+                        setState(() => _standard = HeatInputStandard.asmeIx),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                asme
+                    ? context.tr(
+                        pl: 'ASME IX QW-409.1: HI = U × I × 60 / v — bez współczynnika sprawności.',
+                        en: 'ASME IX QW-409.1: HI = U × I × 60 / v — no efficiency factor.',
+                      )
+                    : context.tr(
+                        pl: 'EN 1011-1 / EN ISO 15614-1: Q = η × U × I × 60 / v (η wg procesu).',
+                        en: 'EN 1011-1 / EN ISO 15614-1: Q = η × U × I × 60 / v (η by process).',
+                      ),
+                style: const TextStyle(fontSize: 11, color: _kTextSec, height: 1.4),
               ),
             ],
           ),
@@ -564,15 +684,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
             children: [
               Row(
                 children: [
-                  Icon(
-                    inRange
-                        ? Icons.check_circle_outline
-                        : (inToleranceBand
-                            ? Icons.info_outline
-                            : Icons.warning_amber_outlined),
-                    color: okColour,
-                    size: 22,
-                  ),
+                  Icon(icon, color: okColour, size: 22),
                   const SizedBox(width: 8),
                   Text(
                     context.tr(pl: 'Heat input', en: 'Heat input'),
@@ -628,40 +740,37 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                inRange
-                    ? context.tr(
-                        pl: '✓ W zakresie WPS (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
-                        en: '✓ Within WPS range (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
-                      )
-                    : inToleranceBand
-                        ? context.tr(
-                            pl: '~ W paśmie tolerancji ±10% (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
-                            en: '~ Within ±10% tolerance band (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm)',
-                          )
-                        : context.tr(
-                            pl: '⚠ POZA zakresem WPS (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm) — koryguj parametry',
-                            en: '⚠ OUT of WPS range (${wpsMin.toStringAsFixed(2)} - ${wpsMax.toStringAsFixed(2)} kJ/mm) — adjust parameters',
-                          ),
+                verdictText,
                 style: TextStyle(
-                  color: okColour,
+                  color: verdict == WpsRangeVerdict.notSet ? _kTextSec : okColour,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                context.tr(
-                  pl: 'Efektywność łuku $_process: ${((_efficiency[_process] ?? 0.80) * 100).toStringAsFixed(0)}%',
-                  en: 'Arc efficiency $_process: ${((_efficiency[_process] ?? 0.80) * 100).toStringAsFixed(0)}%',
-                ),
+                asme
+                    ? context.tr(
+                        pl: 'ASME IX QW-409.1: bez współczynnika sprawności (energia łuku).',
+                        en: 'ASME IX QW-409.1: no efficiency factor (arc energy).',
+                      )
+                    : context.tr(
+                        pl: 'Efektywność łuku $_process: ${(_eta * 100).toStringAsFixed(0)}% (EN 1011-1)',
+                        en: 'Arc efficiency $_process: ${(_eta * 100).toStringAsFixed(0)}% (EN 1011-1)',
+                      ),
                 style: const TextStyle(color: _kTextMut, fontSize: 11),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _disclaimer,
+                style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () {
                   copyToClipboard(
                     context,
-                    '${hi.toStringAsFixed(2)} kJ/mm ($_process)',
+                    '${hi.toStringAsFixed(2)} kJ/mm ($_process, ${asme ? 'ASME IX' : 'EN 1011-1'})',
                     label: 'HI',
                   );
                 },
@@ -682,10 +791,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         _InfoCard(
           icon: Icons.lightbulb_outline,
           text: context.tr(
-            pl: 'Heat input formula: HI = (V × I × 60) / (travel × 1000) × η. '
-                'Za wysokie HI = coarse grain HAZ, niska udarność. Za niskie HI = szybkie chłodzenie, hydrogen cracking.',
-            en: 'Heat input formula: HI = (V × I × 60) / (travel × 1000) × η. '
-                'Too high HI = coarse-grain HAZ, low toughness. Too low HI = fast cooling, hydrogen cracking.',
+            pl: 'Porównuj z WPS liczonym w tej samej konwencji: WPS wg EN ISO 15614-1 '
+                'podaje energię z η, WPS wg ASME IX — bez η. '
+                'Za wysokie HI = gruboziarnista HAZ, niska udarność. Za niskie HI = szybkie chłodzenie, ryzyko pęknięć wodorowych.',
+            en: 'Compare with a WPS written in the same convention: an EN ISO 15614-1 WPS '
+                'uses η, an ASME IX WPS does not. '
+                'Too high HI = coarse-grain HAZ, low toughness. Too low HI = fast cooling, hydrogen cracking risk.',
           ),
         ),
       ],
@@ -693,7 +804,10 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   }
 
   // ─── Tab 2: Preheat / CE ────────────────────────────────────────────────
-  Widget _preheatTab(double ce, _PreheatRec rec) {
+  Widget _preheatTab(_PreheatView p) {
+    final isPl = context.language == AppLanguage.pl;
+    final severity = p.stainless ? _kTextSec : _bandColor(p.rule.band);
+    final tLabel = p.thicknessMm > 0 ? p.thicknessMm.toStringAsFixed(0) : '—';
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -704,8 +818,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
             children: [
               Text(
                 context.tr(
-                  pl: 'Wybierz gatunek — chemia + zakres WPS uzupełnią się same.',
-                  en: 'Pick a grade — chemistry + WPS range auto-fill.',
+                  pl: 'Wybierz gatunek — chemia uzupełni się sama (typowa, nie z atestu).',
+                  en: 'Pick a grade — chemistry auto-fills (typical, not from the MTR).',
                 ),
                 style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
               ),
@@ -716,11 +830,11 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 children: [
                   for (final m in MaterialCatalog.all)
                     Tooltip(
-                      // P1-16: per-chip tooltip with the recommended preheat
+                      // P1-16: per-chip tooltip with the typical practice
                       // note so a welder can scan grade options without
                       // committing to an overwrite.
                       message:
-                          '${m.name} · P-No ${m.pNumber}\n${m.preheatNote}',
+                          '${m.name} · P-No ${m.pNo}\n${isPl ? m.practicePl : m.practiceEn}',
                       child: ChoiceChip(
                         label: Text(m.key, style: const TextStyle(fontSize: 11)),
                         selected: _material?.key == m.key,
@@ -840,7 +954,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${_material!.name} · P-No ${_material!.pNumber}',
+                        '${_material!.name} · P-No ${_material!.pNo}',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
@@ -850,8 +964,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       const SizedBox(height: 3),
                       Text(
                         context.tr(
-                          pl: 'Preheat zalecany: ${_material!.preheatNote}',
-                          en: 'Recommended preheat: ${_material!.preheatNote}',
+                          pl: 'Praktyka WPS (orientacyjnie): ${_material!.practicePl}',
+                          en: 'WPS practice (indicative): ${_material!.practiceEn}',
                         ),
                         style: const TextStyle(
                           fontSize: 11,
@@ -859,10 +973,22 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                           height: 1.4,
                         ),
                       ),
-                      if (_material!.notes.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        context.tr(
+                          pl: 'Typowe okno HI w WPS: ${_material!.hiMin.toStringAsFixed(1)}–${_material!.hiMax.toStringAsFixed(1)} kJ/mm (informacyjnie — porównuj z własnym WPS).',
+                          en: 'Typical WPS HI window: ${_material!.hiMin.toStringAsFixed(1)}–${_material!.hiMax.toStringAsFixed(1)} kJ/mm (for reference — compare with your own WPS).',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: _kTextMut,
+                          height: 1.4,
+                        ),
+                      ),
+                      if ((isPl ? _material!.notesPl : _material!.notesEn).isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Text(
-                          _material!.notes,
+                          isPl ? _material!.notesPl : _material!.notesEn,
                           style: const TextStyle(
                             fontSize: 10,
                             color: _kTextMut,
@@ -871,10 +997,10 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                           ),
                         ),
                       ],
-                      // P1-17: P-No ≥ 3 (Cr-Mo, low-alloy, creep-resistant)
-                      // → mandatory low-H electrodes irrespective of CE.
-                      // Surfaced here so it lands BEFORE the welder strikes.
-                      if (_material!.pNumber >= 3) ...[
+                      // P1-17: ferritic low-alloy / martensitic groups (C-Mo,
+                      // Cr-Mo, Grade 91, 410) → low-hydrogen consumables
+                      // irrespective of CE. Not for austenitic / duplex / Ni.
+                      if (_material!.lowHydrogenAdvised) ...[
                         const SizedBox(height: 6),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,8 +1011,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                             Expanded(
                               child: Text(
                                 context.tr(
-                                  pl: 'Stosuj elektrody niskowodorowe (E7018-1 H4R lub równoważne) — P-No ${_material!.pNumber}.',
-                                  en: 'Use low-hydrogen electrodes (E7018-1 H4R or equivalent) — P-No ${_material!.pNumber}.',
+                                  pl: 'Stosuj materiały dodatkowe niskowodorowe właściwe dla gatunku (wg WPS) — P-No ${_material!.pNo}.',
+                                  en: 'Use low-hydrogen consumables matching the grade (per WPS) — P-No ${_material!.pNo}.',
                                 ),
                                 style: const TextStyle(
                                   fontSize: 10,
@@ -949,10 +1075,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                context.tr(
-                  pl: 'CE_IIW = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15',
-                  en: 'CE_IIW = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15',
-                ),
+                'CE_IIW = C + Mn/6 + (Cr+Mo+V)/5 + (Ni+Cu)/15',
                 style: const TextStyle(color: _kTextMut, fontSize: 11),
               ),
             ],
@@ -961,25 +1084,25 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
 
         const SizedBox(height: 14),
 
-        // CE Result + Preheat
+        // CE Result + Preheat methods
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [_severityColor(rec.severity).withValues(alpha: 0.20),
-                _severityColor(rec.severity).withValues(alpha: 0.05)],
+              colors: [severity.withValues(alpha: 0.20),
+                severity.withValues(alpha: 0.05)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _severityColor(rec.severity).withValues(alpha: 0.4), width: 1.5),
+            border: Border.all(color: severity.withValues(alpha: 0.4), width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.local_fire_department_outlined, color: _severityColor(rec.severity), size: 22),
+                  Icon(Icons.local_fire_department_outlined, color: severity, size: 22),
                   const SizedBox(width: 8),
                   Text(
                     context.tr(pl: 'Carbon Equivalent (CE)', en: 'Carbon Equivalent (CE)'),
@@ -1016,20 +1139,38 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-                ce.toStringAsFixed(3),
-                style: TextStyle(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w900,
-                  color: _severityColor(rec.severity),
-                  height: 1,
+              if (p.stainless)
+                Text(
+                  context.tr(
+                    pl: 'Cr ≥ 10.5 % — stal nierdzewna (EN 10088-1). CE i metody '
+                        'podgrzewania ze składu nie mają tu zastosowania: '
+                        'austenityczne i duplex się nie podgrzewa (liczy się max '
+                        'interpass i niskie HI), martenzytyczne — wg WPS.',
+                    en: 'Cr ≥ 10.5 % — stainless steel (EN 10088-1). CE and '
+                        'chemistry-based preheat methods do not apply: austenitic '
+                        'and duplex are not preheated (max interpass and low HI '
+                        'matter), martensitic — per WPS.',
+                  ),
+                  style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
+                )
+              else
+                Text(
+                  p.ce.toStringAsFixed(3),
+                  style: TextStyle(
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    color: severity,
+                    height: 1,
+                  ),
                 ),
-              ),
               const SizedBox(height: 8),
               const Divider(color: _kBorder),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
-                context.tr(pl: 'Rekomendowany preheat', en: 'Recommended preheat'),
+                context.tr(
+                  pl: 'Podgrzewanie — metody (t = $tLabel mm)',
+                  en: 'Preheat — methods (t = $tLabel mm)',
+                ),
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1038,35 +1179,67 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    rec.tempC > 0 ? rec.tempC.toStringAsFixed(0) : '—',
-                    style: TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w900,
-                      color: _severityColor(rec.severity),
-                      height: 1,
-                    ),
+              if (_material != null)
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Minimum kodowe ASME B31.3-2012 Tab. 330.1.1 (P-No ${_material!.pNo})',
+                    en: 'Code minimum ASME B31.3-2012 Tab. 330.1.1 (P-No ${_material!.pNo})',
                   ),
-                  const SizedBox(width: 6),
-                  if (rec.tempC > 0)
-                    Text(
-                      '°C',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: _kTextSec,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                ],
+                  value: p.codeMinC == null ? '—' : '${p.codeMinC} °C',
+                  hint: p.codeMinC == null
+                      ? context.tr(
+                          pl: 'Brak danych w aplikacji — sprawdź kod projektu.',
+                          en: 'No data in the app — check the project code.',
+                        )
+                      : context.tr(
+                          pl: 'Dolna granica z kodu (dla Rm ≤ 490 MPa); nie zależy od składu z atestu.',
+                          en: 'Lower limit from the code (for SMTS ≤ 490 MPa); ignores the MTR chemistry.',
+                        ),
+                ),
+              if (!p.stainless) ...[
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Seferian (szacunek z chemii i grubości)',
+                    en: 'Seferian (estimate from chemistry and thickness)',
+                  ),
+                  value: p.seferianC == null
+                      ? '—'
+                      : '${p.seferianC!.toStringAsFixed(0)} °C',
+                  hint: context.tr(
+                    pl: 'Stale węglowe i niskostopowe; bez wodoru i energii liniowej.',
+                    en: 'Carbon and low-alloy steels; ignores hydrogen and heat input.',
+                  ),
+                ),
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Reguła orientacyjna CE (nienormatywna)',
+                    en: 'CE rule of thumb (non-normative)',
+                  ),
+                  value: '${p.rule.preheatC.toStringAsFixed(0)} °C',
+                  hint: _ruleNote(p.rule),
+                  valueColor: severity,
+                ),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                context.tr(
+                  pl: 'Te liczby odpowiadają na różne pytania, więc mogą się różnić: '
+                      'minimum kodowe to dolna granica kodu rurociągowego dla grupy P-No i grubości, '
+                      'Seferian i reguła CE szacują ryzyko pęknięć zimnych ze składu. '
+                      'Normatywne metody obliczeniowe: EN 1011-2 zał. C (metoda A — CE, metoda B — CET, '
+                      'z wodorem i energią liniową). Stosuj temperaturę z WPS; nie niższą niż minimum kodowe.',
+                  en: 'These numbers answer different questions, so they can differ: '
+                      'the code minimum is the piping-code lower limit for the P-No and thickness, '
+                      'Seferian and the CE rule estimate cold-cracking risk from chemistry. '
+                      'Normative calculation methods: EN 1011-2 Annex C (method A — CE, method B — CET, '
+                      'with hydrogen and heat input). Use the WPS temperature; never below the code minimum.',
+                ),
+                style: const TextStyle(color: _kTextSec, fontSize: 11, height: 1.45),
               ),
               const SizedBox(height: 6),
               Text(
-                rec.note,
-                style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
+                _disclaimer,
+                style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
               ),
             ],
           ),
@@ -1075,13 +1248,15 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         const SizedBox(height: 14),
 
         _SectionCard(
-          title: context.tr(pl: 'Tabela referencyjna', en: 'Reference table'),
+          title: context.tr(
+              pl: 'Reguła orientacyjna CE (nienormatywna)',
+              en: 'CE rule of thumb (non-normative)'),
           child: Column(
             children: [
-              _CeRow(range: 'CE <0.35', preheat: '0 / 50 °C', note: context.tr(pl: 'Cienka ścianka brak / >25 mm (~1") = 50 °C', en: 'Thin: none / >25 mm (~1"): 50 °C'), color: _kGreen),
-              _CeRow(range: '0.35-0.45', preheat: '100-150 °C', note: context.tr(pl: 'Niski preheat', en: 'Low preheat'), color: _kGold),
-              _CeRow(range: '0.45-0.55', preheat: '150-200 °C', note: context.tr(pl: '+ low-H elektrody', en: '+ low-H electrodes'), color: _kOrange),
-              _CeRow(range: 'CE >0.55', preheat: '200-300 °C', note: context.tr(pl: '+ PWHT mandatory', en: '+ PWHT mandatory'), color: _kAccent),
+              _CeRow(range: 'CE <0.35', preheat: '0 / 50 °C', note: context.tr(pl: 'Cienka ścianka brak / ≥25 mm (~1") = 50 °C', en: 'Thin: none / ≥25 mm (~1"): 50 °C'), color: _kGreen),
+              _CeRow(range: '0.35-0.45', preheat: '100-150 °C', note: context.tr(pl: 'Niskie podgrzewanie', en: 'Low preheat'), color: _kGold),
+              _CeRow(range: '0.45-0.55', preheat: '150-200 °C', note: context.tr(pl: '+ elektrody niskowodorowe', en: '+ low-H electrodes'), color: _kOrange),
+              _CeRow(range: 'CE >0.55', preheat: '200-300 °C', note: context.tr(pl: '+ rozważ PWHT', en: '+ consider PWHT'), color: _kAccent),
             ],
           ),
         ),
@@ -1091,10 +1266,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         _InfoCard(
           icon: Icons.info_outline,
           text: context.tr(
-            pl: 'Specjalne alloye nadpisują regułę CE: P91 = 200-300°C + PWHT 730-760°C, '
-                'P22 = ≥150°C dla ≥10 mm (~3/8"). Sprawdź WPS dla swojego materiału.',
-            en: 'Special alloys override CE rule: P91 = 200-300°C + PWHT 730-760°C, '
-                'P22 = ≥150°C for ≥10 mm (~3/8"). Check WPS for your material.',
+            pl: 'Stale Cr-Mo (P-No 4, 5A, 15E): metody z CE nie są do nich przeznaczone — '
+                'obowiązuje minimum kodowe i WPS. Katalog (praktyka WPS): P22 200–250 °C, '
+                'PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
+            en: 'Cr-Mo steels (P-No 4, 5A, 15E): CE-based methods are not meant for them — '
+                'the code minimum and the WPS govern. Catalog (WPS practice): P22 200–250 °C, '
+                'PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
           ),
         ),
       ],
@@ -1121,32 +1298,45 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
             children: [
               Text(
                 context.tr(
-                  pl: 'Wzór (ASME IX / EN ISO 15614):',
-                  en: 'Formula (ASME IX / EN ISO 15614):',
+                  pl: 'EN 1011-1 / EN ISO 15614-1 (z η):',
+                  en: 'EN 1011-1 / EN ISO 15614-1 (with η):',
                 ),
                 style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
               ),
               const SizedBox(height: 6),
               Text(
-                'HI [kJ/mm] = (V × I × 60) / (s × 1000) × η',
+                'Q [kJ/mm] = η × V × I × 60 / (s × 1000)',
                 style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
                 context.tr(
-                  pl: 'V — napięcie [V]\nI — prąd [A]\ns — prędkość spawania [mm/min]\nη — efektywność łuku (zależna od procesu)',
-                  en: 'V — voltage [V]\nI — current [A]\ns — travel speed [mm/min]\nη — arc efficiency (process-dependent)',
+                  pl: 'ASME IX QW-409.1 (bez η):',
+                  en: 'ASME IX QW-409.1 (no η):',
+                ),
+                style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'HI [kJ/mm] = V × I × 60 / (s × 1000)',
+                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                context.tr(
+                  pl: 'V — napięcie [V]\nI — prąd [A]\ns — prędkość spawania [mm/min]\nη — sprawność cieplna procesu (EN 1011-1 tab. 1)',
+                  en: 'V — voltage [V]\nI — current [A]\ns — travel speed [mm/min]\nη — process thermal efficiency (EN 1011-1 Table 1)',
                 ),
                 style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
-                context.tr(pl: 'Efektywność η:', en: 'Efficiency η:'),
+                context.tr(pl: 'Sprawność η (EN 1011-1):', en: 'Efficiency η (EN 1011-1):'),
                 style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
               ),
               const SizedBox(height: 4),
               Text(
-                'SMAW / GMAW / FCAW-G = 0.80\nFCAW-S = 0.75\nGTAW (TIG) = 0.60\nSAW = 1.00',
+                'SAW (121) = 1.0\nSMAW / MMA (111) = 0.8\nGMAW (131/135) = 0.8\nFCAW-G / FCAW-S (136/137, 114) = 0.8\nGTAW / TIG (141) = 0.6',
                 style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
@@ -1171,29 +1361,43 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     );
   }
 
-  // P1-26: build the one-line trace combining HI + CE + Preheat + material.
+  // P1-26: build the trace combining HI + CE + Preheat + material.
   // Welder pastes this into a WhatsApp message to the inspector — no need to
   // re-type any number.
-  String _buildTraceString(double hi, double ce, _PreheatRec rec) {
+  String _buildTraceString(double hi, _PreheatView p) {
     final mat = _material?.key ??
         context.tr(pl: 'własny skład', en: 'custom chem.');
-    final preheatLine = rec.tempC > 0
-        ? '${rec.tempC.toStringAsFixed(0)} °C'
-        : context.tr(pl: 'brak', en: 'none');
-    return context.tr(
-      pl: 'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · η ${(_efficiency[_process] ?? 0.80).toStringAsFixed(2)})\n'
-          'CE_IIW: ${ce.toStringAsFixed(3)} · Materiał: $mat\n'
-          'Preheat: $preheatLine — ${rec.note}',
-      en: 'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · η ${(_efficiency[_process] ?? 0.80).toStringAsFixed(2)})\n'
-          'CE_IIW: ${ce.toStringAsFixed(3)} · Material: $mat\n'
-          'Preheat: $preheatLine — ${rec.note}',
-    );
+    final std = _standard == HeatInputStandard.asmeIx
+        ? context.tr(pl: 'ASME IX, bez η', en: 'ASME IX, no η')
+        : 'EN 1011-1 · η ${_eta.toStringAsFixed(2)}';
+    final lines = <String>[
+      'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · $std)',
+      p.stainless
+          ? context.tr(pl: 'CE: nie dotyczy (stal nierdzewna) · Materiał: $mat',
+              en: 'CE: n/a (stainless) · Material: $mat')
+          : context.tr(pl: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Materiał: $mat',
+              en: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Material: $mat'),
+      if (_material != null)
+        context.tr(
+          pl: 'Min. kodowe B31.3: ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
+          en: 'Code min. B31.3: ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
+        ),
+      if (!p.stainless) ...[
+        'Seferian: ${p.seferianC == null ? '—' : '${p.seferianC!.toStringAsFixed(0)} °C'}',
+        context.tr(
+          pl: 'Reguła CE: ${p.rule.preheatC.toStringAsFixed(0)} °C — ${_ruleNote(p.rule)}',
+          en: 'CE rule: ${p.rule.preheatC.toStringAsFixed(0)} °C — ${_ruleNote(p.rule)}',
+        ),
+      ],
+      _disclaimer,
+    ];
+    return lines.join('\n');
   }
 
-  Future<void> _shareTrace(double hi, double ce, _PreheatRec rec) async {
+  Future<void> _shareTrace(double hi, _PreheatView p) async {
     try {
       await Share.share(
-        _buildTraceString(hi, ce, rec),
+        _buildTraceString(hi, p),
         subject: context.tr(
           pl: 'Heat input + Preheat — wynik',
           en: 'Heat input + Preheat — result',
@@ -1212,34 +1416,104 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
             )),
             action: SnackBarAction(
               label: context.tr(pl: 'Ponów', en: 'Retry'),
-              onPressed: () => _shareTrace(hi, ce, rec),
+              onPressed: () => _shareTrace(hi, p),
             ),
           ),
         );
     }
   }
 
-  Color _severityColor(String s) {
-    switch (s) {
-      case 'none':
-      case 'low':
+  Color _bandColor(CeBand b) {
+    switch (b) {
+      case CeBand.low:
         return _kGreen;
-      case 'medium':
+      case CeBand.medium:
         return _kGold;
-      case 'high':
+      case CeBand.high:
         return _kOrange;
-      case 'critical':
+      case CeBand.critical:
         return _kAccent;
     }
-    return _kTextMut;
   }
 }
 
-class _PreheatRec {
-  final double tempC;
-  final String severity;
-  final String note;
-  const _PreheatRec(this.tempC, this.severity, this.note);
+/// Everything the Preheat tab shows, computed once per build from the
+/// domain functions.
+class _PreheatView {
+  final double ce;
+  final double thicknessMm;
+  final bool stainless;
+  final CeRuleOfThumb rule;
+  final double? seferianC;
+  final int? codeMinC;
+  const _PreheatView({
+    required this.ce,
+    required this.thicknessMm,
+    required this.stainless,
+    required this.rule,
+    required this.seferianC,
+    required this.codeMinC,
+  });
+}
+
+/// One named preheat method: label + value + one-line "when it applies".
+class _MethodRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final String hint;
+  final Color? valueColor;
+  const _MethodRow({
+    required this.label,
+    required this.value,
+    required this.hint,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFFE7ECF3),
+                      fontWeight: FontWeight.w700,
+                      height: 1.3),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hint,
+                  style: const TextStyle(
+                      fontSize: 10.5, color: _kTextMut, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          CopyOnLongPress(
+            value: value,
+            label: label,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: valueColor ?? const Color(0xFFE7ECF3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -154,4 +154,82 @@ void main() {
     await tester.pump(const Duration(seconds: 7));
     await tester.pumpAndSettle();
   });
+
+  // Audyt 2026-09: jedno odhaczenie rano dawało „Gotowe” dla każdej kolejnej
+  // spoiny tego dnia (stan w SharedPreferences na cały dzień).
+  testWidgets(
+      'komplet zapisany wcześniej nie daje „All set” bez potwierdzenia',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'preweld_done_${_today()}': _universalIds,
+    });
+    await _pumpScreen(tester);
+
+    expect(find.text('11/11'), findsOneWidget);
+    expect(find.text(_allSet), findsNothing,
+        reason: 'zaznaczenia z poprzedniej spoiny nie mogą dać „Gotowe”');
+    expect(find.textContaining('saved earlier'), findsOneWidget);
+
+    await tester.tap(find.text('Same weld'));
+    await tester.pumpAndSettle();
+    expect(find.text(_allSet), findsOneWidget);
+    expect(find.textContaining('saved earlier'), findsNothing);
+  });
+
+  testWidgets('„New weld” przy zapisanych zaznaczeniach czyści listę',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'preweld_done_${_today()}': _universalIds,
+    });
+    await _pumpScreen(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'New weld'));
+    await tester.pumpAndSettle();
+    expect(find.text('0/11'), findsOneWidget);
+    expect(find.textContaining('saved earlier'), findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('preweld_done_${_today()}'), isEmpty);
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('po „Gotowe” jest przycisk czyszczący listę na następną spoinę',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await _pumpScreen(tester);
+    for (final item in _universalEn) {
+      await tester.tap(find.text(item));
+      await tester.pump();
+    }
+    expect(find.text(_allSet), findsOneWidget);
+
+    await tester.tap(find.text('Arc struck — clear for next weld'));
+    await tester.pumpAndSettle();
+    expect(find.text('0/11'), findsOneWidget);
+    expect(find.text(_allSet), findsNothing);
+
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('P22 i P91 mają osobne PWHT (690–720 vs 750–770 °C)',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await _pumpScreen(tester);
+
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'P22 / T22'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'P22 / T22'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('690–720'), findsOneWidget);
+    expect(find.textContaining('750–770'), findsNothing);
+    expect(find.textContaining('P15E'), findsNothing);
+
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'P91 / T91'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'P91 / T91'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('750–770'), findsOneWidget);
+    expect(find.textContaining('690–720'), findsNothing);
+    expect(find.textContaining('P15E'), findsWidgets);
+  });
 }

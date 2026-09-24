@@ -23,15 +23,21 @@ class _Check {
 }
 
 /// Pre-weld checklist for hygienic stainless tube — the run-through a welder
-/// does before every joint. State is in-memory only: it is a live check, not
-/// a record, and resets for the next weld.
+/// does before every joint. Ticks are saved for the current day so an app
+/// restart mid-inspection does not lose them, but ticks restored from an
+/// earlier session never count as "all set" until the welder confirms they
+/// belong to the weld in front of them (audit 2026-09: one morning run used
+/// to show "all set" for every later weld that day).
+///
 /// Material-specific extra checks. Pulled in when the welder picks a grade
 /// from the catalog. Keeps the universal list short and adds only the items
 /// that matter for the actual joint in front of them (P91 needs PWHT setup,
-/// Duplex needs ferrite check, etc.).
-const Map<int, List<_Check>> _pNumberExtras = {
+/// Duplex needs ferrite check, etc.). Keyed by ASME IX P-No string — P22
+/// (5A) and P91 (15E) have different preheat and PWHT and must not share
+/// one list.
+const Map<String, List<_Check>> _pNumberExtras = {
   // P-No 1 — C-Mn steel
-  1: [
+  '1': [
     _Check('p1-low-h-electrode',
            'Elektroda E7018 / drut ER70S-2 w zamkniętym piecu (low-H)',
            'E7018 / ER70S-2 from sealed oven (low-H)'),
@@ -40,7 +46,7 @@ const Map<int, List<_Check>> _pNumberExtras = {
            'Bevel 30° clean, no rust, radiograph if >25 mm'),
   ],
   // P-No 4 — 1¼Cr-½Mo
-  4: [
+  '4': [
     _Check('p4-preheat',
            'Preheat 150-200°C zmierzony pirometrem przed pierwszą ściegą',
            'Preheat 150-200°C verified with pyrometer before first pass'),
@@ -51,23 +57,38 @@ const Map<int, List<_Check>> _pNumberExtras = {
            'PWHT zaplanowany — termin i piec zarezerwowane',
            'PWHT scheduled — slot and furnace booked'),
   ],
-  // P-No 5 (P22 / P91 grouped)
-  5: [
-    _Check('p5-critical-preheat',
-           'PREHEAT KRYTYCZNY 200-250°C, interpass max 300°C',
-           'CRITICAL preheat 200-250°C, interpass max 300°C'),
-    _Check('p5-filler-cert',
-           'Elektroda E9015-B9 (P91) / E9018-B3 (P22) z certyfikatu HEAT',
-           'E9015-B9 (P91) / E9018-B3 (P22) with HEAT certificate'),
-    _Check('p5-pwht-mandatory',
-           'PWHT 750-770°C / 1 h-cal OBOWIĄZKOWE — slot zarezerwowany',
-           'PWHT 750-770°C / 1 h-per-inch MANDATORY — slot booked'),
-    _Check('p5-no-cs-cross',
-           'Brak kontaktu CS↔CrMo (uziemnienie, narzędzia)',
+  // P-No 5A — 2¼Cr-1Mo (P22). Values follow the catalog entry.
+  '5A': [
+    _Check('p5a-preheat',
+           'Preheat 200–250 °C wg WPS, interpass max 300 °C — pirometr przed pierwszą ściegą',
+           'Preheat 200–250 °C per WPS, interpass max 300 °C — pyrometer before first pass'),
+    _Check('p5a-filler-cert',
+           'Elektroda E9018-B3 (lub wg WPS) z certyfikatem HEAT',
+           'E9018-B3 electrode (or per WPS) with HEAT certificate'),
+    _Check('p5a-pwht',
+           'PWHT 690–720 °C / 1 h na cal wg WPS — slot zarezerwowany',
+           'PWHT 690–720 °C / 1 h per inch per WPS — slot booked'),
+    _Check('p5a-no-cs-cross',
+           'Brak kontaktu CS↔CrMo (uziemienie, narzędzia)',
+           'No CS↔CrMo cross-contact (ground clamp, tools)'),
+  ],
+  // P-No 15E — 9Cr-1Mo-V (P91). Values follow the catalog entry.
+  '15E': [
+    _Check('p15e-critical-preheat',
+           'PREHEAT KRYTYCZNY 200–250 °C, interpass 250–300 °C',
+           'CRITICAL preheat 200–250 °C, interpass 250–300 °C'),
+    _Check('p15e-filler-cert',
+           'Elektroda E9015-B9 z certyfikatem HEAT',
+           'E9015-B9 electrode with HEAT certificate'),
+    _Check('p15e-pwht-mandatory',
+           'PWHT 750–770 °C / 1 h na cal OBOWIĄZKOWE — slot zarezerwowany',
+           'PWHT 750–770 °C / 1 h per inch MANDATORY — slot booked'),
+    _Check('p15e-no-cs-cross',
+           'Brak kontaktu CS↔CrMo (uziemienie, narzędzia)',
            'No CS↔CrMo cross-contact (ground clamp, tools)'),
   ],
   // P-No 8 — Austenitic SS
-  8: [
+  '8': [
     _Check('p8-interpass-175',
            'Interpass <175°C — pirometr przed kolejną ściegą',
            'Interpass <175°C — pyrometer before next bead'),
@@ -81,8 +102,8 @@ const Map<int, List<_Check>> _pNumberExtras = {
            'Pasywacja po spawaniu zaplanowana (kwas azotowy)',
            'Post-weld passivation scheduled (nitric acid)'),
   ],
-  // P-No 10 — Duplex
-  10: [
+  // P-No 10H — Duplex
+  '10H': [
     _Check('p10-interpass-max',
            'Interpass MAX 150°C (2205) / 100°C (2507) — pirometr CO 2 ściegi',
            'Interpass MAX 150°C (2205) / 100°C (2507) — pyrometer every 2 passes'),
@@ -97,7 +118,7 @@ const Map<int, List<_Check>> _pNumberExtras = {
            'Ferrite check after cooldown (target 30-60 FN)'),
   ],
   // P-No 41-45 — Ni alloys
-  43: [
+  '43': [
     _Check('p43-low-hi',
            'Niski HI <1.5 kJ/mm — narrow string beads',
            'Low HI <1.5 kJ/mm — narrow string beads'),
@@ -178,6 +199,11 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   final Set<String> _done = <String>{};
   MaterialSpec? _material;
 
+  /// Ticks came back from SharedPreferences (an earlier session today) and
+  /// the welder has not yet confirmed they belong to THIS weld. While true,
+  /// a complete list never shows "all set".
+  bool _restoredNeedsConfirm = false;
+
   static const _kDoneKeyPrefix = 'preweld_done_';
   static const _kMaterialKeyPrefix = 'preweld_material_';
 
@@ -232,6 +258,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         final before = _done.length;
         _done.removeWhere((id) => !validIds.contains(id));
         droppedStale = _done.length != before;
+        _restoredNeedsConfirm = _done.isNotEmpty;
       });
       if (droppedStale) _persist();
     } catch (_) {
@@ -263,7 +290,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   List<_Check> get _all {
     final list = <_Check>[..._checks];
     if (_material != null) {
-      final extras = _pNumberExtras[_material!.pNumber];
+      final extras = _pNumberExtras[_material!.pNo];
       if (extras != null) list.addAll(extras);
     }
     return list;
@@ -285,7 +312,9 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       }
     });
     final list = _all;
-    if (_doneCountIn(list) == list.length) Haptic.saved();
+    if (!_restoredNeedsConfirm && _doneCountIn(list) == list.length) {
+      Haptic.saved();
+    }
     _persist();
   }
 
@@ -300,8 +329,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       context: context,
       builder: (dialogCtx) => AlertDialog(
         title: Text(context.tr(
-          pl: 'Wyzerować checklistę?',
-          en: 'Reset checklist?',
+          pl: 'Nowa spoina — wyzerować checklistę?',
+          en: 'New weld — reset checklist?',
         )),
         content: Text(context.tr(
           pl: '$tickedCount pozycji jest zaznaczonych. '
@@ -326,30 +355,53 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    final snapshot = Set<String>.from(_done);
-    setState(_done.clear);
-    _persist();
     Haptic.error();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(context.tr(
+    _clearForNewWeld(
+      message: context.tr(
         pl: 'Checklistę wyczyszczono ($tickedCount pozycji).',
         en: 'Checklist reset ($tickedCount items).',
-      )),
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(
-        label: context.tr(pl: 'Cofnij', en: 'Undo'),
-        onPressed: () {
-          if (!mounted) return;
-          setState(() {
-            _done
-              ..clear()
-              ..addAll(snapshot);
-          });
-          _persist();
-        },
       ),
-    ));
+    );
+  }
+
+  /// Clears every tick so the next joint starts from 0/N. Used by the
+  /// confirmed reset, by "New weld" on the restored-ticks banner and by the
+  /// "arc struck" button after "all set". Undo restores the previous state
+  /// (including whether the ticks still needed confirmation).
+  void _clearForNewWeld({required String message}) {
+    final snapshot = Set<String>.from(_done);
+    final wasUnconfirmed = _restoredNeedsConfirm;
+    setState(() {
+      _done.clear();
+      _restoredNeedsConfirm = false;
+    });
+    _persist();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Cofnij', en: 'Undo'),
+          onPressed: () {
+            if (!mounted) return;
+            setState(() {
+              _done
+                ..clear()
+                ..addAll(snapshot);
+              _restoredNeedsConfirm = wasUnconfirmed;
+            });
+            _persist();
+          },
+        ),
+      ));
+  }
+
+  void _confirmSameWeld() {
+    setState(() => _restoredNeedsConfirm = false);
+    final list = _all;
+    if (_doneCountIn(list) == list.length) Haptic.saved();
   }
 
   void _setMaterial(MaterialSpec? m) {
@@ -371,16 +423,20 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
     final isPl = context.language == AppLanguage.pl;
     final list = _all;
     final doneCount = _doneCountIn(list);
-    final all = list.isNotEmpty && doneCount == list.length;
+    final complete = list.isNotEmpty && doneCount == list.length;
+    // Ticks restored from an earlier session never count as "all set" until
+    // the welder confirms they belong to this weld.
+    final all = complete && !_restoredNeedsConfirm;
+    final awaitingConfirm = _restoredNeedsConfirm && _done.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
             pl: 'Checklista przed spawaniem',
             en: 'Pre-weld checklist')),
         actions: [
-          IconButton(
+          TextButton.icon(
             icon: const Icon(Icons.clear_all),
-            tooltip: context.tr(pl: 'Wyczyść', en: 'Reset'),
+            label: Text(context.tr(pl: 'Nowa spoina', en: 'New weld')),
             onPressed: _done.isEmpty ? null : _confirmReset,
           ),
         ],
@@ -410,11 +466,15 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                         ? context.tr(
                             pl: 'Gotowe — możesz zajarzać łuk.',
                             en: 'All set — you can strike the arc.')
-                        : context.tr(
-                            pl: 'Sprawdź wszystkie punkty przed spoiną.',
-                            en: 'Tick every item before welding.'),
+                        : complete
+                            ? context.tr(
+                                pl: 'Potwierdź, że zaznaczenia dotyczą tej spoiny.',
+                                en: 'Confirm the ticks apply to this weld.')
+                            : context.tr(
+                                pl: 'Sprawdź wszystkie punkty przed spoiną.',
+                                en: 'Tick every item before welding.'),
                     style: TextStyle(
-                        color: all ? _kGreen : _kSec,
+                        color: all ? _kGreen : (complete ? _kOrange : _kSec),
                         fontSize: 13,
                         fontWeight: FontWeight.w600),
                   ),
@@ -427,6 +487,48 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               ],
             ),
           ),
+          if (awaitingConfirm)
+            _RestoredTicksBanner(
+              text: context.tr(
+                pl: 'Zaznaczenia zapisane wcześniej dziś '
+                    '($doneCount/${list.length}). Dotyczą spoiny, którą '
+                    'zaraz zaczynasz?',
+                en: 'Ticks saved earlier today ($doneCount/${list.length}). '
+                    'Do they apply to the weld you are about to start?',
+              ),
+              sameLabel: context.tr(pl: 'Ta sama spoina', en: 'Same weld'),
+              newLabel: context.tr(pl: 'Nowa spoina', en: 'New weld'),
+              onSame: _confirmSameWeld,
+              onNew: () => _clearForNewWeld(
+                message: context.tr(
+                  pl: 'Nowa spoina — lista wyczyszczona.',
+                  en: 'New weld — checklist cleared.',
+                ),
+              ),
+            ),
+          if (all)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                  ),
+                  icon: const Icon(Icons.restart_alt),
+                  label: Text(context.tr(
+                    pl: 'Łuk zajarzony — wyczyść dla następnej spoiny',
+                    en: 'Arc struck — clear for next weld',
+                  )),
+                  onPressed: () => _clearForNewWeld(
+                    message: context.tr(
+                      pl: 'Lista wyczyszczona — gotowa na następną spoinę.',
+                      en: 'Checklist cleared — ready for the next weld.',
+                    ),
+                  ),
+                ),
+              ),
+            ),
           // Material picker — adds grade-specific checks (P91 needs PWHT slot,
           // Duplex needs ferrite check, etc.) on top of the universal list.
           Padding(
@@ -453,8 +555,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                     // for welders cross-reading EU WPS against US ASME spec sheets
                     // without retyping into a converter.
                     Tooltip(
-                      message: '${m.key}: ${m.preheatNote}'
-                          '${_preheatFahrenheit(m.preheatNote)}',
+                      message: '${m.key}: ${isPl ? m.practicePl : m.practiceEn}'
+                          '${_preheatFahrenheit(isPl ? m.practicePl : m.practiceEn)}',
                       child: ChoiceChip(
                         label: Text(m.key, style: const TextStyle(fontSize: 11)),
                         selected: _material?.key == m.key,
@@ -521,7 +623,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                                 Padding(
                                   padding: const EdgeInsets.only(bottom: 3),
                                   child: Text(
-                                    '${_material!.key} · P${_material!.pNumber}',
+                                    '${_material!.key} · P${_material!.pNo}',
                                     style: const TextStyle(
                                       // P3-08: bumped 9 → 11 pt min for
                                       // micro labels (outdoor readability +
@@ -558,6 +660,78 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                 );
               },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when ticks were restored from an earlier session today: the welder
+/// must say whether they belong to the weld in front of them before the
+/// list can read "all set".
+class _RestoredTicksBanner extends StatelessWidget {
+  final String text;
+  final String sameLabel;
+  final String newLabel;
+  final VoidCallback onSame;
+  final VoidCallback onNew;
+  const _RestoredTicksBanner({
+    required this.text,
+    required this.sameLabel,
+    required this.newLabel,
+    required this.onSame,
+    required this.onNew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: BoxDecoration(
+        color: _kOrange.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _kOrange.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.history, color: _kOrange, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                      color: Color(0xFFE7ECF3), fontSize: 13, height: 1.35),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48)),
+                  onPressed: onSame,
+                  child: Text(sameLabel),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 48)),
+                  onPressed: onNew,
+                  child: Text(newLabel),
+                ),
+              ),
+            ],
           ),
         ],
       ),
