@@ -354,23 +354,23 @@ final kHelpDnMm = ScreenHelp(
 );
 
 final kHelpPipeRoute = ScreenHelp(
-  titlePl: 'Kalkulator trasy rur',
-  titleEn: 'Pipe route calculator',
+  titlePl: 'Trasa rur – 2 kolana 90°',
+  titleEn: 'Pipe route – 2 × 90° elbows',
   bodyPl:
-      'Oblicza długości odcinków rur dla trasy z 3 kołnami 90°: poziomy X → pionowy ΔH → poziomy Y. Uwzględnia wymiar kolanka (takeout) R.',
+      'Oblicza długości odcinków rur dla trasy z 2 kolanami 90°: poziomy X → pionowy ΔH → poziomy Y (3 odcinki, 4 spoiny). Odejmuje wymiar kolanka (takeout) R; łuki kolan po osi to 2 × π·R/2.',
   bodyEn:
-      'Calculates pipe spool lengths for a route with 3 × 90° elbows: horizontal X → vertical ΔH → horizontal Y. Takes the elbow takeout R into account.',
+      'Calculates pipe spool lengths for a route with 2 × 90° elbows: horizontal X → vertical ΔH → horizontal Y (3 segments, 4 welds). Subtracts the elbow takeout R; the elbow arcs along the centreline are 2 × π·R/2.',
   stepsPl: [
     HelpStep('📏', 'Wpisz H1 i H2 — poziomy startowy i końcowy (różnica = ΔH).'),
     HelpStep('↔️', 'Wpisz X i Y — odległości poziome.'),
     HelpStep('🔄', 'Wpisz R — wymiar kolanka face-to-centre dla Twojego LR 90°.'),
-    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia.'),
+    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia: X−R, ΔH−2R, Y−R.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter H1 and H2 — start and end elevations (difference = ΔH).'),
     HelpStep('↔️', 'Enter X and Y — horizontal distances.'),
     HelpStep('🔄', 'Enter R — elbow takeout face-to-centre for your LR 90°.'),
-    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths.'),
+    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths: X−R, ΔH−2R, Y−R.'),
   ],
 );
 
@@ -378,20 +378,24 @@ final kHelpRollingOffset = ScreenHelp(
   titlePl: 'Rolling Offset',
   titleEn: 'Rolling Offset',
   bodyPl:
-      'Oblicza Travel — odległość między punktami przecięcia osi kolan — dla przesunięcia pionowego (Rise) i bocznego (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). To nie jest długość cięcia; uwzględnij zabudowy kształtek i szczeliny z dokumentacji projektu.',
+      'Oblicza Travel — odległość między punktami przecięcia osi kolan — dla przesunięcia pionowego (Rise) i bocznego (Spread). Wzory: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). Travel to nie długość cięcia — tę policzy ekran, gdy podasz DN kolan (ASME B16.9 LR) i szczelinę.',
   bodyEn:
-      'Calculates Travel — the distance between elbow centreline intersection points — for vertical (Rise) and lateral (Spread) offsets. Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). This is not a cut length; account for fitting take-outs and gaps from the project documentation.',
+      'Calculates Travel — the distance between elbow centreline intersection points — for vertical (Rise) and lateral (Spread) offsets. Formulas: True Offset = √(Rise² + Spread²), Travel = True Offset / sin(θ). Travel is not a cut length — the screen gives one when you enter the elbow DN (ASME B16.9 LR) and the gap.',
   stepsPl: [
     HelpStep('↕️', 'Rise — odchylenie pionowe (w mm).'),
     HelpStep('↔️', 'Spread — odchylenie poziome (w mm).'),
     HelpStep('🔄', 'Kąt kolanka — wybierz 45°, 30°, 60° lub podaj własny.'),
     HelpStep('📐', 'Wynik: True Offset, Travel, Run i Multiplier.'),
+    HelpStep('🧭', 'Kąt obrotu kolana: od pionu = atan(Spread / Rise), od poziomu = atan(Rise / Spread).'),
+    HelpStep('✂️', 'Opcjonalnie: podaj DN kolan i szczelinę — długość cięcia = Travel − 2 × take-out − 2 × szczelina.'),
   ],
   stepsEn: [
     HelpStep('↕️', 'Rise — vertical deviation (in mm).'),
     HelpStep('↔️', 'Spread — horizontal deviation (in mm).'),
     HelpStep('🔄', 'Elbow angle — choose 45°, 30°, 60° or enter your own.'),
     HelpStep('📐', 'Results: True Offset, Travel, Run and Multiplier.'),
+    HelpStep('🧭', 'Elbow roll angle: from vertical = atan(Spread / Rise), from horizontal = atan(Rise / Spread).'),
+    HelpStep('✂️', 'Optional: enter the elbow DN and the gap — cut length = Travel − 2 × take-out − 2 × gap.'),
   ],
 );
 
