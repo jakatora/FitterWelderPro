@@ -70,10 +70,34 @@ List<IsoRefPoint> _availableRefPoints(LibraryComponent comp) {
   return [IsoRefPoint.faceNear, IsoRefPoint.center, IsoRefPoint.faceFar];
 }
 
+/// Reference point the sheet marks as default for [comp] — and the fallback
+/// when a saved row's point cannot be recovered.
+///
+/// * Elbows and tees: the axis — isometrics dimension fittings centre to
+///   centre.
+/// * FLANGE: the FAR face. An isometric dimension to a flange ends at its
+///   sealing face (the raised face / gasket face), and in this sheet that is
+///   the face away from the pipe: the pipe is welded to the END of the hub
+///   (weld neck) or sits in the bore (slip-on), so the whole flange length L
+///   lies inside the dimension and comes off the cut. The ISO notebook counts
+///   a weld-neck flange the same way (B16.5 column Y, raised face to hub end,
+///   see `isoFlangeAxialLengthMm`). The near face used to be the default, so
+///   a DN100 WN flange (L 76 mm) left the pipe 76 mm long.
+/// * VALVE (and the rest): the NEAR face. A dimension to a valve ends at the
+///   valve's own end face — the one the pipe meets; taking the whole body
+///   off (229 mm for a DN100 gate valve) would leave the pipe short.
 IsoRefPoint _defaultRefPoint(LibraryComponent comp) {
   if (comp.isAxial) return IsoRefPoint.axis;
+  if (comp.type == 'FLANGE') return IsoRefPoint.faceFar;
   return IsoRefPoint.faceNear;
 }
+
+/// Public view of the default reference point, for tests and callers.
+IsoRefPoint defaultRefPointFor(LibraryComponent comp) => _defaultRefPoint(comp);
+
+/// Offset (mm) the builder takes off for [comp] measured to [ref].
+double refPointOffsetMm(LibraryComponent comp, IsoRefPoint ref) =>
+    _calcOffset(comp, ref);
 
 /// Reference point of a library anchor restored from a saved row.
 ///
@@ -1473,6 +1497,29 @@ class _RefOption extends StatelessWidget {
   });
 
   String _desc(BuildContext ctx) {
+    // A flange's two faces are not interchangeable the way a valve's are: the
+    // pipe side is the end of the hub, the far side is the sealing face the
+    // drawing is dimensioned to. Say which is which in the fitter's words.
+    if (component.type == 'FLANGE') {
+      switch (ref) {
+        case IsoRefPoint.faceNear:
+          return ctx.tr(
+            pl: 'Do końca szyjki (spoina z rurą) → offset = 0 mm. '
+                'Rzadko na izometrii.',
+            en: 'To the end of the hub (the weld to the pipe) → offset = 0 mm. '
+                'Rare on isometrics.',
+          );
+        case IsoRefPoint.faceFar:
+          return ctx.tr(
+            pl: 'Do czoła uszczelnienia (przylgi) — standard izometrii; '
+                'odejmuje całą długość kołnierza (${offset.toStringAsFixed(1)} mm)',
+            en: 'To the sealing (gasket) face — the isometric standard; '
+                'subtracts the whole flange length (${offset.toStringAsFixed(1)} mm)',
+          );
+        default:
+          break;
+      }
+    }
     switch (ref) {
       case IsoRefPoint.faceNear:
         return ctx.tr(
