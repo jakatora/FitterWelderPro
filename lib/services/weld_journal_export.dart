@@ -1,23 +1,18 @@
 /// Data export for the weld journal — CSV (spreadsheet) and PDF (paper).
 ///
-/// The weld journal is the only document a welder can put on the table at a
-/// quality audit: weld number, welder stamp, heat numbers, WPS reference and
-/// examination result. Until now `weld_journal_screen.dart` had no way of
-/// getting a single row out of the phone — no PDF, no CSV, not even a
-/// clipboard copy — even though `README.md` and the in-app help step
-/// (`kHelpWeldJournal`, "Eksportuj dziennik do PDF lub CSV") both promise it.
-/// A journal that cannot leave the device is worthless the moment the
-/// inspector asks for it, so this file is the missing half of the feature.
+/// The weld journal is the document a welder puts on the table at a quality
+/// audit (ISO 3834-2 §14–15, ASME B31.3 §341/§344, EN 13480-5): which joint,
+/// who welded root and cap, with what procedure and filler, how it was
+/// examined, repaired, heat treated and accepted.
 ///
 /// The file is deliberately split in two halves:
 ///   * the top half is PURE Dart — the [WeldJournalRecord] model, CSV
 ///     serialisation and the small summary helpers. No I/O, no plugins, no
 ///     locale globals, so it is fully covered by
-///     `test/services/weld_journal_export_test.dart`.
-///   * the bottom half ([WeldJournalExport]) does the platform work: render
-///     the PDF, write a temp file, hand it to the OS share sheet. That part
-///     needs the same plugins `iso_pdf_export.dart` uses and is verified by
-///     reading, not by unit tests.
+///     `test/services/weld_journal_export_test.dart`;
+///   * the bottom half ([WeldJournalExport]) renders the PDF — with the fonts
+///     passed in, so `test/services/weld_journal_pdf_render_test.dart` lays
+///     out real pages — and does the platform work: temp file, share sheet.
 ///
 /// Nothing here converts values. Lengths stay in millimetres exactly as the
 /// welder typed them (the app's internal base unit) — an export that quietly
@@ -34,19 +29,23 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
+import '../domain/weld_journal/weld_entry.dart';
+import '../domain/weld_journal/weld_filter.dart';
+import '../domain/weld_journal/weld_journal_settings.dart';
+import '../domain/weld_journal/weld_ndt.dart';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // PURE HALF — model, CSV, summaries. Keep free of I/O so tests stay honest.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// One immutable journal row, decoupled from the screen's mutable `WeldEntry`.
+/// One immutable journal row, decoupled from the domain `WeldEntry`.
 ///
-/// The screen maps `WeldEntry` into this via `toExportRecord()`. The mapping
-/// is an explicit constructor call (not a `Map<String, Object?>` round-trip)
-/// so the compiler — not a runtime string lookup — catches a field that is
-/// added to the journal and forgotten in the export.
+/// The mapping ([weldJournalRecordOf]) is an explicit constructor call, not
+/// a `Map` round-trip, so the compiler — not a runtime string lookup —
+/// catches a field that is added to the journal and forgotten in the export.
 ///
-/// The internal `id` (uuid) is intentionally NOT part of the export: it means
-/// nothing to an inspector and only widens the sheet.
+/// The internal ids (uuid, project id, coupon id) are intentionally NOT part
+/// of the export: they mean nothing to an inspector and only widen the sheet.
 class WeldJournalRecord {
   final String weldNo;
   final String projectName;
@@ -80,6 +79,34 @@ class WeldJournalRecord {
   final String exam;
   final String wpsRef;
 
+  // ---- v20
+  final String isoDrawing;
+  final String isoRev;
+  final String spool;
+  final String testPackage;
+  final String jointType;
+  final String shopField;
+  final String position;
+  final String rootWelder;
+  final String capWelder;
+  final String fillerClass;
+  final String fillerBatch;
+  final String preheatC;
+  final String interpassC;
+  final String heatInput;
+  final Map<NdtMethod, WeldNdt> ndt;
+
+  /// One summary line per repair, R1 first (`WeldRepair.summary()`).
+  final List<String> repairs;
+  final bool? pwhtRequired;
+  final String pwhtChart;
+  final String hardness;
+  final String inspector;
+  final String inspectedAt;
+
+  /// Soft-deleted entry (only exported from the "deleted" view).
+  final bool deleted;
+
   const WeldJournalRecord({
     required this.weldNo,
     this.projectName = '',
@@ -99,8 +126,86 @@ class WeldJournalRecord {
     this.couponRef = '',
     this.exam = '',
     this.wpsRef = '',
+    this.isoDrawing = '',
+    this.isoRev = '',
+    this.spool = '',
+    this.testPackage = '',
+    this.jointType = '',
+    this.shopField = '',
+    this.position = '',
+    this.rootWelder = '',
+    this.capWelder = '',
+    this.fillerClass = '',
+    this.fillerBatch = '',
+    this.preheatC = '',
+    this.interpassC = '',
+    this.heatInput = '',
+    this.ndt = const {},
+    this.repairs = const [],
+    this.pwhtRequired,
+    this.pwhtChart = '',
+    this.hardness = '',
+    this.inspector = '',
+    this.inspectedAt = '',
+    this.deleted = false,
   });
+
+  WeldNdt ndtOf(NdtMethod m) => ndt[m] ?? const WeldNdt();
 }
+
+/// Immutable export snapshot of [e], written out field by field.
+WeldJournalRecord weldJournalRecordOf(WeldEntry e) => WeldJournalRecord(
+      weldNo: e.weldNo,
+      projectName: e.projectName,
+      pipeName: e.pipeName,
+      material: e.material,
+      od: e.od,
+      t: e.t,
+      method: e.method,
+      welder: e.welder,
+      date: e.date,
+      notes: e.notes,
+      status: e.status,
+      weldType: e.weldType,
+      fitter: e.fitter,
+      heatNo1: e.heatNo1,
+      heatNo2: e.heatNo2,
+      couponRef: e.couponRef,
+      exam: e.exam,
+      wpsRef: e.wpsRef,
+      isoDrawing: e.isoDrawing,
+      isoRev: e.isoRev,
+      spool: e.spool,
+      testPackage: e.testPackage,
+      jointType: e.jointType,
+      shopField: e.shopField,
+      position: e.position,
+      rootWelder: e.rootWelder,
+      capWelder: e.capWelder,
+      fillerClass: e.fillerClass,
+      fillerBatch: e.fillerBatch,
+      preheatC: e.preheatC,
+      interpassC: e.interpassC,
+      heatInput: e.heatInput,
+      ndt: compactNdt(e.ndt),
+      repairs: [for (final r in e.repairs) r.summary()],
+      pwhtRequired: e.pwhtRequired,
+      pwhtChart: e.pwhtChart,
+      hardness: e.hardness,
+      inspector: e.inspector,
+      inspectedAt: e.inspectedAt,
+      deleted: e.isDeleted,
+    );
+
+extension WeldEntryExport on WeldEntry {
+  WeldJournalRecord toExportRecord() => weldJournalRecordOf(this);
+}
+
+/// Rows handed to the exporter for [filter] — exactly `filterWeldEntries`,
+/// mapped to export records, order preserved.
+List<WeldJournalRecord> weldJournalExportRecords(
+        List<WeldEntry> entries, WeldJournalFilter filter) =>
+    filterWeldEntries(entries, filter).map(weldJournalRecordOf).toList();
 
 /// Field separator. Semicolon, not comma: Polish Windows Excel opens a
 /// comma-separated file as one squashed column, and this file is printed and
@@ -124,9 +229,11 @@ class _CsvColumn {
   const _CsvColumn(this.header, this.read);
 }
 
-/// Column definition. Order follows the `WeldEntry` field order 1:1 —
-/// identification first, then the ASME BPE traceability block — so a diff
-/// between the model and this list is obvious at a glance.
+String _yesNo(bool? v) => v == null ? '' : (v ? 'TAK / YES' : 'NIE / NO');
+
+/// Column definition. The first 18 columns are the pre-v20 export in its
+/// original order — spreadsheets built on an older export read them by
+/// position, so they never move. Everything added in v20 is appended.
 final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Nr spoiny / Weld no.', (r) => r.weldNo),
   _CsvColumn('Projekt / Project', (r) => r.projectName),
@@ -146,6 +253,37 @@ final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Kupon próbny / Test coupon', (r) => r.couponRef),
   _CsvColumn('Wynik badania / Examination', (r) => r.exam),
   _CsvColumn('Nr WPS / WPS no.', (r) => r.wpsRef),
+  // ---- v20
+  _CsvColumn('Nr ISO / ISO no.', (r) => r.isoDrawing),
+  _CsvColumn('Rewizja / Rev.', (r) => r.isoRev),
+  _CsvColumn('Spool', (r) => r.spool),
+  _CsvColumn('Pakiet testowy / Test package', (r) => r.testPackage),
+  _CsvColumn('Typ złącza / Joint type', (r) => r.jointType),
+  _CsvColumn('Warsztat/montaż / Shop/field', (r) => r.shopField),
+  _CsvColumn('Pozycja / Position', (r) => r.position),
+  _CsvColumn('Stempel graniówki / Root stamp', (r) => r.rootWelder),
+  _CsvColumn('Stempel lica / Cap stamp', (r) => r.capWelder),
+  _CsvColumn('Spoiwo klasyfikacja / Filler class.', (r) => r.fillerClass),
+  _CsvColumn('Spoiwo partia / Filler batch', (r) => r.fillerBatch),
+  _CsvColumn('Podgrzanie °C / Preheat °C', (r) => r.preheatC),
+  _CsvColumn('Międzyściegowa °C / Interpass °C', (r) => r.interpassC),
+  _CsvColumn('Energia liniowa kJ/mm / Heat input kJ/mm', (r) => r.heatInput),
+  for (final m in NdtMethod.values) ...[
+    _CsvColumn('${m.code} zakres / scope',
+        (r) => NdtScope.tag(r.ndtOf(m).scope)),
+    _CsvColumn('${m.code} wynik / result', (r) => r.ndtOf(m).result),
+    _CsvColumn('${m.code} raport / report', (r) => r.ndtOf(m).reportNo),
+    _CsvColumn('${m.code} data / date', (r) => r.ndtOf(m).date),
+  ],
+  _CsvColumn('Naprawy / Repairs',
+      (r) => r.repairs.isEmpty ? '' : '${r.repairs.length}'),
+  _CsvColumn('Historia napraw / Repair log', (r) => r.repairs.join(' | ')),
+  _CsvColumn('PWHT wymagane / required', (r) => _yesNo(r.pwhtRequired)),
+  _CsvColumn('PWHT wykres / chart', (r) => r.pwhtChart),
+  _CsvColumn('Twardość / Hardness', (r) => r.hardness),
+  _CsvColumn('Odbiór — inspektor / Accepted by', (r) => r.inspector),
+  _CsvColumn('Odbiór — data / Acceptance date', (r) => r.inspectedAt),
+  _CsvColumn('Usunięta / Deleted', (r) => r.deleted ? 'TAK / YES' : ''),
 ];
 
 /// Header labels in export order. Exposed so a test can pin the order down —
@@ -179,10 +317,14 @@ String escapeCsvField(String raw) {
 /// like a failed export.
 String buildWeldJournalCsv(List<WeldJournalRecord> records) {
   final buf = StringBuffer()..write(kUtf8Bom);
-  buf.write(_csvColumns.map((c) => escapeCsvField(c.header)).join(kWeldJournalCsvSeparator));
+  buf.write(_csvColumns
+      .map((c) => escapeCsvField(c.header))
+      .join(kWeldJournalCsvSeparator));
   buf.write(kWeldJournalCsvEol);
   for (final r in records) {
-    buf.write(_csvColumns.map((c) => escapeCsvField(c.read(r))).join(kWeldJournalCsvSeparator));
+    buf.write(_csvColumns
+        .map((c) => escapeCsvField(c.read(r)))
+        .join(kWeldJournalCsvSeparator));
     buf.write(kWeldJournalCsvEol);
   }
   return buf.toString();
@@ -193,9 +335,9 @@ final RegExp _isoDatePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 /// Date span covered by [records], for the PDF header ("this document covers
 /// welds from … to …" is the first thing an inspector looks for).
 ///
-/// Only well-formed `YYYY-MM-DD` values count — the date field is free text
-/// and a half-typed "2026-0" must not become the reported range start.
-/// ISO dates sort lexicographically, so no DateTime parsing is needed.
+/// Only well-formed `YYYY-MM-DD` values count — rows written before the
+/// editor validated dates may hold a half-typed "2026-0", which must not
+/// become the reported range start. ISO dates sort lexicographically.
 /// Returns `''` when no entry carries a usable date, and a single date when
 /// every weld was made the same day.
 String weldJournalDateRange(List<WeldJournalRecord> records) {
@@ -209,7 +351,8 @@ String weldJournalDateRange(List<WeldJournalRecord> records) {
   return '${dates.first} - ${dates.last}';
 }
 
-/// Distinct welder stamps in the export, in first-seen order.
+/// Distinct welder stamps in the export (welder, root, cap), in first-seen
+/// order.
 ///
 /// A shift journal usually carries one stamp, but a foreman exporting a whole
 /// project gets several — the PDF header must name all of them rather than
@@ -218,9 +361,11 @@ String weldJournalWelders(List<WeldJournalRecord> records) {
   final seen = <String>{};
   final out = <String>[];
   for (final r in records) {
-    final w = r.welder.trim();
-    if (w.isEmpty || !seen.add(w)) continue;
-    out.add(w);
+    for (final raw in [r.welder, r.rootWelder, r.capWelder]) {
+      final w = raw.trim();
+      if (w.isEmpty || !seen.add(w)) continue;
+      out.add(w);
+    }
   }
   return out.join(', ');
 }
@@ -255,6 +400,20 @@ String weldJournalWelders(List<WeldJournalRecord> records) {
   );
 }
 
+/// NDT figures for the PDF summary block: welds with an RT or UT result,
+/// and welds with at least one repair.
+({int total, int volumetric, int repaired}) weldJournalNdtSummary(
+    List<WeldJournalRecord> records) {
+  var volumetric = 0, repaired = 0;
+  for (final r in records) {
+    if (r.ndtOf(NdtMethod.rt).hasResult || r.ndtOf(NdtMethod.ut).hasResult) {
+      volumetric++;
+    }
+    if (r.repairs.isNotEmpty) repaired++;
+  }
+  return (total: records.length, volumetric: volumetric, repaired: repaired);
+}
+
 /// Human-readable, collision-safe file name, e.g.
 /// `Dziennik_spoin_NOK_2026-08-29.csv`.
 ///
@@ -275,6 +434,44 @@ String weldJournalFileName({
       ? ''
       : '_${raw.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_')}';
   return 'Dziennik_spoin${filter}_$y-$m-$d.$extension';
+}
+
+/// Project block of the PDF header, from the journal settings of the one
+/// project the export covers.
+class WeldJournalPdfHeader {
+  final String company;
+  final String client;
+  final String projectTitle;
+  final String documentNo;
+  final String revision;
+
+  const WeldJournalPdfHeader({
+    this.company = '',
+    this.client = '',
+    this.projectTitle = '',
+    this.documentNo = '',
+    this.revision = '',
+  });
+
+  factory WeldJournalPdfHeader.fromSettings(WeldJournalProjectSettings? s) =>
+      s == null
+          ? const WeldJournalPdfHeader()
+          : WeldJournalPdfHeader(
+              company: s.company.trim(),
+              client: s.client.trim(),
+              projectTitle: s.projectTitle.trim().isEmpty
+                  ? s.projectName.trim()
+                  : s.projectTitle.trim(),
+              documentNo: s.documentNo.trim(),
+              revision: s.revision.trim(),
+            );
+
+  bool get isEmpty =>
+      company.isEmpty &&
+      client.isEmpty &&
+      projectTitle.isEmpty &&
+      documentNo.isEmpty &&
+      revision.isEmpty;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -323,14 +520,17 @@ class WeldJournalExport {
     );
   }
 
-  /// Renders the journal as a landscape A4 table and opens the share sheet.
+  /// Renders the journal and opens the share sheet.
   ///
-  /// [welderFallback] is the identity stamp of the phone owner; it is only
-  /// used when no entry carries a welder, so an otherwise unstamped export
-  /// still says who produced it.
+  /// [filterLabel] goes into the file name, [filterDescription] (the full
+  /// human-readable filter) into the page header. [welderFallback] is the
+  /// identity stamp of the phone owner, only used when no entry carries a
+  /// welder.
   static Future<void> sharePdf({
     required List<WeldJournalRecord> records,
     String? filterLabel,
+    String filterDescription = '',
+    WeldJournalPdfHeader header = const WeldJournalPdfHeader(),
     String welderFallback = '',
     DateTime? generatedAt,
   }) async {
@@ -340,53 +540,19 @@ class WeldJournalExport {
     // notes, welder names and project names renders. The `pdf` package's
     // built-in Helvetica is Latin-1 only and drops those glyphs — same fix
     // iso_pdf_export.dart already carries.
-    final fontBytes = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-    final baseFont = pw.Font.ttf(fontBytes);
+    final baseFont =
+        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
     final boldFont =
         pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
-    final doc = pw.Document(
-      theme: pw.ThemeData.withFont(
-        base: baseFont,
-        bold: boldFont,
-        italic: baseFont,
-        boldItalic: boldFont,
-      ),
+    final doc = await buildPdfDocument(
+      records: records,
+      font: baseFont,
+      boldFont: boldFont,
+      header: header,
+      filterDescription: filterDescription,
+      welderFallback: welderFallback,
+      generatedAt: now,
     );
-
-    final welders = weldJournalWelders(records);
-    final range = weldJournalDateRange(records);
-    final tally = weldJournalTally(records);
-    final stamp = '${_isoDate(now)} '
-        '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}';
-
-    doc.addPage(pw.MultiPage(
-      // Landscape: 18 traceability fields do not fit across a portrait page
-      // at a font size a welder can read in a workshop.
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.all(24),
-      header: (ctx) => _pageHeader(
-        welders: welders.isEmpty ? welderFallback : welders,
-        range: range,
-        filterLabel: filterLabel,
-        stamp: stamp,
-        page: ctx.pageNumber,
-        pages: ctx.pagesCount,
-      ),
-      footer: (_) => pw.Padding(
-        padding: const pw.EdgeInsets.only(top: 6),
-        child: pw.Text(
-          'Fitter Welder Pro  ·  $stamp',
-          style: pw.TextStyle(fontSize: 7, color: _kInkMuted),
-        ),
-      ),
-      build: (_) => [
-        _summaryBlock(tally),
-        pw.SizedBox(height: 10),
-        _table(records),
-      ],
-    ));
-
     final bytes = await doc.save();
     final name = weldJournalFileName(
       extension: 'pdf',
@@ -410,11 +576,108 @@ class WeldJournalExport {
     );
   }
 
+  /// Lays the journal out as landscape A4 pages. No platform calls — the
+  /// fonts are passed in — so a test can render real pages.
+  ///
+  /// Two tables instead of one 60-column monster: identification and
+  /// execution first, then — from a new page — NDT per method, repairs,
+  /// PWHT and acceptance, keyed by the same weld number. Then the legend and
+  /// the signature block (welder / QC / inspector / TPI, with dates).
+  static Future<pw.Document> buildPdfDocument({
+    required List<WeldJournalRecord> records,
+    required pw.Font font,
+    pw.Font? boldFont,
+    WeldJournalPdfHeader header = const WeldJournalPdfHeader(),
+    String filterDescription = '',
+    String welderFallback = '',
+    required DateTime generatedAt,
+  }) async {
+    final bold = boldFont ?? font;
+    final doc = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: font,
+        bold: bold,
+        italic: font,
+        boldItalic: bold,
+      ),
+    );
+
+    final now = generatedAt;
+    final welders = weldJournalWelders(records);
+    final range = weldJournalDateRange(records);
+    final tally = weldJournalTally(records);
+    final ndt = weldJournalNdtSummary(records);
+    final stamp = '${_isoDate(now)} '
+        '${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
+
+    doc.addPage(pw.MultiPage(
+      // Landscape: the traceability fields do not fit across a portrait page
+      // at a font size a welder can read in a workshop.
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.all(24),
+      // A project journal runs to hundreds of welds; the package default of
+      // 20 pages would throw TooManyPagesException half way through.
+      maxPages: 2000,
+      header: (ctx) => _pageHeader(
+        header: header,
+        welders: welders.isEmpty ? welderFallback : welders,
+        range: range,
+        filter: filterDescription,
+        stamp: stamp,
+        page: ctx.pageNumber,
+        pages: ctx.pagesCount,
+      ),
+      footer: (ctx) => pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 6),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              'Fitter Welder Pro  ·  $stamp'
+              '${header.documentNo.isEmpty ? '' : '  ·  ${header.documentNo}'}'
+              '${header.revision.isEmpty ? '' : ' rev. ${header.revision}'}',
+              style: pw.TextStyle(fontSize: 7, color: _kInkMuted),
+            ),
+            pw.Text(
+              'Strona / Page ${ctx.pageNumber} / ${ctx.pagesCount}',
+              style: pw.TextStyle(fontSize: 7, color: _kInkMuted),
+            ),
+          ],
+        ),
+      ),
+      build: (_) => [
+        _summaryBlock(tally, ndt),
+        pw.SizedBox(height: 8),
+        if (records.isEmpty)
+          pw.Text(
+            'Brak spoin w tym zakresie. / No welds in this selection.',
+            style: pw.TextStyle(fontSize: 9, color: _kInkMuted),
+          )
+        else ...[
+          _sectionTitle('1. Identyfikacja i wykonanie / '
+              'Identification and execution'),
+          _executionTable(records),
+          pw.NewPage(),
+          _sectionTitle('2. Badania NDT, naprawy, PWHT i odbiór / '
+              'NDT, repairs, PWHT and acceptance'),
+          _ndtTable(records),
+        ],
+        pw.SizedBox(height: 10),
+        _legend(),
+        pw.SizedBox(height: 10),
+        _signatures(),
+      ],
+    ));
+    return doc;
+  }
+
   static String _subject(List<WeldJournalRecord> records, String? filterLabel) {
     final range = weldJournalDateRange(records);
-    final filter = (filterLabel == null || filterLabel.isEmpty || filterLabel == 'ALL')
-        ? ''
-        : ' [$filterLabel]';
+    final filter =
+        (filterLabel == null || filterLabel.isEmpty || filterLabel == 'ALL')
+            ? ''
+            : ' [$filterLabel]';
     final span = range.isEmpty ? '' : ' — $range';
     return 'Dziennik spoin / Weld journal$filter$span';
   }
@@ -426,62 +689,75 @@ class WeldJournalExport {
 
   // ── Running page header ───────────────────────────────────────────────────
   static pw.Widget _pageHeader({
+    required WeldJournalPdfHeader header,
     required String welders,
     required String range,
-    required String? filterLabel,
+    required String filter,
     required String stamp,
     required int page,
     required int pages,
   }) {
-    final showFilter =
-        filterLabel != null && filterLabel.isNotEmpty && filterLabel != 'ALL';
+    pw.Widget line(String text, {bool strong = false, PdfColor? color}) =>
+        pw.Text(
+          text,
+          style: pw.TextStyle(
+            fontSize: 8.5,
+            color: color ?? _kInk,
+            fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
+          ),
+        );
+    final project = [
+      if (header.company.isNotEmpty) 'Firma / Company: ${header.company}',
+      if (header.client.isNotEmpty) 'Klient / Client: ${header.client}',
+      if (header.projectTitle.isNotEmpty)
+        'Projekt / Project: ${header.projectTitle}',
+    ].join('     ');
+    final doc = [
+      if (header.documentNo.isNotEmpty) 'Nr dok. / Doc. no.: ${header.documentNo}',
+      if (header.revision.isNotEmpty) 'Rew. / Rev.: ${header.revision}',
+    ].join('   ');
     return pw.Container(
-      padding: const pw.EdgeInsets.only(bottom: 8),
-      margin: const pw.EdgeInsets.only(bottom: 10),
+      padding: const pw.EdgeInsets.only(bottom: 6),
+      margin: const pw.EdgeInsets.only(bottom: 8),
       decoration: pw.BoxDecoration(
         border: pw.Border(bottom: pw.BorderSide(color: _kAccent, width: 1.5)),
       ),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-            pw.Text(
-              'DZIENNIK SPOIN / WELD JOURNAL',
-              style: pw.TextStyle(
-                fontSize: 14,
-                fontWeight: pw.FontWeight.bold,
-                color: _kInk,
-              ),
-            ),
-            pw.SizedBox(height: 2),
-            pw.Text(
-              'Spawacz / Welder: ${welders.isEmpty ? '—' : welders}',
-              style: pw.TextStyle(fontSize: 9, color: _kInk),
-            ),
-            pw.Text(
-              'Zakres dat / Date range: ${range.isEmpty ? '—' : range}',
-              style: pw.TextStyle(fontSize: 9, color: _kInk),
-            ),
-            if (showFilter)
-              // The screen exports what it shows. If the welder had a filter
-              // on, the paper must say so — otherwise a "NOK only" printout
-              // reads as a complete journal with a catastrophic reject rate.
-              pw.Text(
-                'Filtr / Filter: $filterLabel',
-                style: pw.TextStyle(
-                  fontSize: 9,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _kPendingInk,
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'DZIENNIK SPOIN / WELD JOURNAL',
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _kInk,
+                  ),
                 ),
-              ),
-          ]),
+                pw.SizedBox(height: 2),
+                if (project.isNotEmpty) line(project),
+                line('Spawacze / Welders: ${welders.isEmpty ? '—' : welders}'
+                    '     Zakres dat / Date range: '
+                    '${range.isEmpty ? '—' : range}'),
+                if (filter.isNotEmpty)
+                  // The screen exports what it shows. A filtered printout
+                  // must say so — otherwise "NOK only" reads as a complete
+                  // journal with a catastrophic reject rate.
+                  line('Filtr / Filter: $filter',
+                      strong: true, color: _kPendingInk),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 12),
           pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-            pw.Text('$page / $pages',
-                style: pw.TextStyle(fontSize: 9, color: _kInkMuted)),
-            pw.SizedBox(height: 2),
+            if (doc.isNotEmpty) line(doc, strong: true),
+            pw.Text('Strona / Page $page / $pages',
+                style: pw.TextStyle(fontSize: 8.5, color: _kInkMuted)),
             pw.Text('Wygenerowano / Generated: $stamp',
-                style: pw.TextStyle(fontSize: 8, color: _kInkMuted)),
+                style: pw.TextStyle(fontSize: 7.5, color: _kInkMuted)),
           ]),
         ],
       ),
@@ -490,9 +766,12 @@ class WeldJournalExport {
 
   // ── Tally block ───────────────────────────────────────────────────────────
   static pw.Widget _summaryBlock(
-      ({int total, int ok, int nok, int pending, int other}) t) {
+    ({int total, int ok, int nok, int pending, int other}) t,
+    ({int total, int volumetric, int repaired}) n,
+  ) {
+    final volPct = n.total == 0 ? 0 : (n.volumetric * 100 / n.total);
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: pw.BoxDecoration(
         color: _kHeadFill,
         border: pw.Border.all(color: _kRule, width: 0.5),
@@ -504,6 +783,9 @@ class WeldJournalExport {
         _summaryCell('NOK', '${t.nok}', _kNokInk),
         _summaryCell('Oczekuje / Pending', '${t.pending}', _kPendingInk),
         if (t.other > 0) _summaryCell('Inne / Other', '${t.other}', _kInkMuted),
+        _summaryCell('Zbadane RT/UT / RT/UT examined',
+            '${n.volumetric} (${volPct.toStringAsFixed(1)} %)', _kInk),
+        _summaryCell('Naprawiane / Repaired', '${n.repaired}', _kInk),
       ]),
     );
   }
@@ -513,88 +795,176 @@ class WeldJournalExport {
         child: pw.Column(children: [
           pw.Text(value,
               style: pw.TextStyle(
-                  fontSize: 12, fontWeight: pw.FontWeight.bold, color: color)),
-          pw.Text(label, style: pw.TextStyle(fontSize: 7, color: _kInkMuted)),
+                  fontSize: 11, fontWeight: pw.FontWeight.bold, color: color)),
+          pw.Text(label,
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(fontSize: 6.5, color: _kInkMuted)),
         ]),
       );
 
-  // ── Weld table ────────────────────────────────────────────────────────────
-  static pw.Widget _table(List<WeldJournalRecord> records) {
-    if (records.isEmpty) {
-      return pw.Text(
-        'Brak spoin w tym zakresie. / No welds in this selection.',
-        style: pw.TextStyle(fontSize: 9, color: _kInkMuted),
+  static pw.Widget _sectionTitle(String text) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 4),
+        child: pw.Text(text,
+            style: pw.TextStyle(
+                fontSize: 9, fontWeight: pw.FontWeight.bold, color: _kInk)),
       );
-    }
+
+  // ── Table 1: identification and execution ─────────────────────────────────
+  static pw.Widget _executionTable(List<WeldJournalRecord> records) {
     const headers = <String>[
       'Nr / No.',
       'Data / Date',
-      'Projekt / Rura',
-      'Mat.',
-      'OD x t',
-      'Metoda',
-      'Spawacz',
-      'Monter',
-      'WPS',
+      'ISO / rev.',
+      'Linia · spool / Line',
+      'Złącze / Joint',
+      'Materiał · OD×t',
       'Wytop / Heat',
-      'Kupon',
-      'Badanie / Exam',
+      'Proces · WPS',
+      'Spoiwo / Filler',
+      'Spawacz: grań / lico\nWelder: root / cap',
+      'Monter / Fitter',
+      'Podgrz. / Międzyśc. / HI',
+      'Kupon / Coupon',
       'Uwagi / Notes',
       'Status',
     ];
-    return pw.Table(
-      border: pw.TableBorder.all(color: _kRule, width: 0.5),
-      columnWidths: const {
-        0: pw.FixedColumnWidth(52),
-        1: pw.FixedColumnWidth(48),
-        2: pw.FlexColumnWidth(2.0),
-        3: pw.FixedColumnWidth(34),
-        4: pw.FixedColumnWidth(46),
-        5: pw.FixedColumnWidth(42),
-        6: pw.FixedColumnWidth(44),
-        7: pw.FixedColumnWidth(44),
-        8: pw.FlexColumnWidth(1.3),
-        9: pw.FlexColumnWidth(1.4),
-        10: pw.FlexColumnWidth(1.1),
-        11: pw.FlexColumnWidth(1.4),
-        12: pw.FlexColumnWidth(1.7),
-        13: pw.FixedColumnWidth(40),
+    return _table(
+      headers: headers,
+      widths: const {
+        0: pw.FixedColumnWidth(46),
+        1: pw.FixedColumnWidth(42),
+        2: pw.FlexColumnWidth(1.2),
+        3: pw.FlexColumnWidth(1.1),
+        4: pw.FixedColumnWidth(44),
+        5: pw.FlexColumnWidth(1.1),
+        6: pw.FlexColumnWidth(0.9),
+        7: pw.FlexColumnWidth(1.2),
+        8: pw.FlexColumnWidth(1.0),
+        9: pw.FlexColumnWidth(1.0),
+        10: pw.FixedColumnWidth(40),
+        11: pw.FixedColumnWidth(46),
+        12: pw.FlexColumnWidth(0.9),
+        13: pw.FlexColumnWidth(1.4),
+        14: pw.FixedColumnWidth(38),
       },
-      children: [
-        pw.TableRow(
-          decoration: pw.BoxDecoration(color: _kHeadFill),
-          repeat: true, // header repeats on every page of a long journal
-          children: headers
-              .map((h) => pw.Padding(
-                    padding:
-                        const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-                    child: pw.Text(h,
-                        style: pw.TextStyle(
-                            fontSize: 6.5,
-                            fontWeight: pw.FontWeight.bold,
-                            color: _kInk)),
-                  ))
-              .toList(),
-        ),
-        ...records.map((r) => pw.TableRow(children: [
-              _cell(r.weldNo, bold: true),
-              _cell(r.date),
-              _cell(_join(r.projectName, r.pipeName, ' / ')),
-              _cell(r.material),
-              _cell(_join(r.od, r.t, ' x ')),
-              _cell(_join(r.method, r.weldType, ' · ')),
-              _cell(r.welder),
-              _cell(r.fitter),
-              _cell(r.wpsRef),
-              _cell(_join(r.heatNo1, r.heatNo2, ' / ')),
-              _cell(r.couponRef),
-              _cell(r.exam),
-              _cell(r.notes),
-              _cell(r.status, color: _statusInk(r.status), bold: true),
-            ])),
-      ],
+      rows: records.map((r) => [
+            _cell(r.weldNo, bold: true),
+            _cell(r.date),
+            _cell(_join(r.isoDrawing, r.isoRev, ' rev. ')),
+            _cell(_join(r.pipeName, r.spool, ' · ')),
+            _cell([
+              r.jointType,
+              switch (r.shopField) {
+                'SHOP' => 'W/S',
+                'FIELD' => 'M/F',
+                _ => '',
+              },
+              r.position,
+            ].where((s) => s.isNotEmpty).join(' · ')),
+            _cell(_join(r.material, _join(r.od, r.t, ' x '), ' · ')),
+            _cell(_join(r.heatNo1, r.heatNo2, ' / ')),
+            _cell([
+              _join(r.method, r.weldType, ' · '),
+              r.wpsRef,
+            ].where((s) => s.isNotEmpty).join('\n')),
+            _cell(_join(r.fillerClass, r.fillerBatch, '\n')),
+            _cell(_welderCell(r)),
+            _cell(r.fitter),
+            _cell([r.preheatC, r.interpassC, r.heatInput]
+                    .every((s) => s.trim().isEmpty)
+                ? ''
+                : '${_dash(r.preheatC)} / ${_dash(r.interpassC)} / '
+                    '${_dash(r.heatInput)}'),
+            _cell(r.couponRef),
+            _cell(r.notes),
+            _statusCell(r),
+          ]),
     );
   }
+
+  // ── Table 2: NDT, repairs, PWHT, acceptance ───────────────────────────────
+  static pw.Widget _ndtTable(List<WeldJournalRecord> records) {
+    final headers = <String>[
+      'Nr / No.',
+      for (final m in NdtMethod.values) m.code,
+      'Naprawy / Repairs',
+      'PWHT · wykres · twardość\nPWHT · chart · hardness',
+      'Odbiór / Accepted',
+      'Pakiet / Package',
+      'Uwagi z badań / Exam remarks',
+      'Status',
+    ];
+    return _table(
+      headers: headers,
+      widths: const {
+        0: pw.FixedColumnWidth(46),
+        1: pw.FlexColumnWidth(1.0),
+        2: pw.FlexColumnWidth(1.0),
+        3: pw.FlexColumnWidth(1.0),
+        4: pw.FlexColumnWidth(1.0),
+        5: pw.FlexColumnWidth(1.0),
+        6: pw.FlexColumnWidth(1.5),
+        7: pw.FlexColumnWidth(0.9),
+        8: pw.FlexColumnWidth(0.9),
+        9: pw.FlexColumnWidth(0.7),
+        10: pw.FlexColumnWidth(1.1),
+        11: pw.FixedColumnWidth(38),
+      },
+      rows: records.map((r) => [
+            _cell(r.weldNo, bold: true),
+            for (final m in NdtMethod.values) _ndtCell(r.ndtOf(m)),
+            _cell(r.repairs.join('\n')),
+            _cell([
+              _yesNo(r.pwhtRequired),
+              r.pwhtChart,
+              r.hardness,
+            ].where((s) => s.isNotEmpty).join(' · ')),
+            _cell(_join(r.inspector, r.inspectedAt, '\n')),
+            _cell(r.testPackage),
+            _cell(r.exam),
+            _statusCell(r),
+          ]),
+    );
+  }
+
+  static pw.Widget _table({
+    required List<String> headers,
+    required Map<int, pw.TableColumnWidth> widths,
+    required Iterable<List<pw.Widget>> rows,
+  }) =>
+      pw.Table(
+        border: pw.TableBorder.all(color: _kRule, width: 0.5),
+        columnWidths: widths,
+        children: [
+          pw.TableRow(
+            decoration: pw.BoxDecoration(color: _kHeadFill),
+            repeat: true, // header repeats on every page of a long journal
+            children: headers
+                .map((h) => pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 2.5, vertical: 3),
+                      child: pw.Text(h,
+                          style: pw.TextStyle(
+                              fontSize: 6,
+                              fontWeight: pw.FontWeight.bold,
+                              color: _kInk)),
+                    ))
+                .toList(),
+          ),
+          ...rows.map((cells) => pw.TableRow(children: cells)),
+        ],
+      );
+
+  static String _welderCell(WeldJournalRecord r) {
+    final root = r.rootWelder.trim();
+    final cap = r.capWelder.trim();
+    final main = r.welder.trim();
+    if (root.isEmpty && cap.isEmpty) return main;
+    final pair = '${_dash(root)} / ${_dash(cap)}';
+    return main.isEmpty || main == root || main == cap ? pair : '$main\n$pair';
+  }
+
+  static String _dash(String s) => s.trim().isEmpty ? '—' : s.trim();
 
   /// Joins two optional fields, dropping the glue when either side is empty
   /// so the cell never reads " / " or "60.3 x ".
@@ -613,16 +983,139 @@ class WeldJournalExport {
         _ => _kInk,
       };
 
+  static pw.Widget _statusCell(WeldJournalRecord r) => _cell(
+        r.deleted ? '${r.status}\nUSUN./DEL.' : r.status,
+        color: _statusInk(r.status),
+        bold: true,
+      );
+
+  /// Two lines: why and what (`wyb./sel. NOK`), then report and date.
+  static pw.Widget _ndtCell(WeldNdt n) => _cell(
+        [
+          [NdtScope.tag(n.scope), n.result]
+              .where((s) => s.isNotEmpty)
+              .join(' '),
+          [n.reportNo.trim(), n.date.trim()]
+              .where((s) => s.isNotEmpty)
+              .join(' '),
+        ].where((s) => s.isNotEmpty).join('\n'),
+        color: n.isRejected ? _kNokInk : null,
+        bold: n.isRejected,
+      );
+
   static pw.Widget _cell(String text, {bool bold = false, PdfColor? color}) =>
       pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 2.5),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 2.5, vertical: 2),
         child: pw.Text(
           text,
           style: pw.TextStyle(
-            fontSize: 7,
+            fontSize: 6.5,
             fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
             color: color ?? _kInk,
           ),
         ),
+      );
+
+  // ── Legend ────────────────────────────────────────────────────────────────
+  static pw.Widget _legend() {
+    pw.Widget item(String code, String text, PdfColor color) => pw.Padding(
+          padding: const pw.EdgeInsets.only(right: 12, bottom: 2),
+          child: pw.RichText(
+            text: pw.TextSpan(children: [
+              pw.TextSpan(
+                  text: '$code ',
+                  style: pw.TextStyle(
+                      fontSize: 7,
+                      fontWeight: pw.FontWeight.bold,
+                      color: color)),
+              pw.TextSpan(
+                  text: text,
+                  style: pw.TextStyle(fontSize: 7, color: _kInk)),
+            ]),
+          ),
+        );
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(6),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: _kRule, width: 0.5),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text('Legenda / Legend',
+              style: pw.TextStyle(
+                  fontSize: 8, fontWeight: pw.FontWeight.bold, color: _kInk)),
+          pw.SizedBox(height: 3),
+          pw.Wrap(children: [
+            item('OK', 'spoina przyjęta / weld accepted', _kOkInk),
+            item('NOK', 'spoina odrzucona / weld rejected', _kNokInk),
+            item('PENDING', 'czeka na badanie lub odbiór / awaiting '
+                'examination or acceptance', _kPendingInk),
+            item('USUN./DEL.', 'wpis usunięty (zachowany w historii) / '
+                'deleted entry (kept in history)', _kInkMuted),
+          ]),
+          pw.Wrap(children: [
+            item('wym./req.', 'badanie wymagane (100 %) / required', _kInk),
+            item('wyb./sel.', 'wybrana do badania wyrywkowego / '
+                'selected for random examination', _kInk),
+            item('dod./add.', 'badanie dodatkowe ASME B31.3 §341.3.4 / '
+                'progressive examination', _kInk),
+            item('R1, R2', 'naprawa: data, przyczyna, stan przed naprawą / '
+                'repair: date, cause, state before repair', _kInk),
+            item('W/S · M/F', 'warsztat / montaż — shop / field', _kInk),
+            item('HI', 'energia liniowa kJ/mm / heat input kJ/mm', _kInk),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  // ── Signatures ────────────────────────────────────────────────────────────
+  static pw.Widget _signatures() {
+    pw.Widget box(String role) => pw.Expanded(
+          child: pw.Container(
+            margin: const pw.EdgeInsets.symmetric(horizontal: 3),
+            padding: const pw.EdgeInsets.all(6),
+            height: 70,
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: _kRule, width: 0.5),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(role,
+                    style: pw.TextStyle(
+                        fontSize: 7.5,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _kInk)),
+                pw.Spacer(),
+                _signLine('Imię i nazwisko / Name'),
+                pw.SizedBox(height: 8),
+                pw.Row(children: [
+                  pw.Expanded(child: _signLine('Data / Date')),
+                  pw.SizedBox(width: 6),
+                  pw.Expanded(child: _signLine('Podpis / Signature')),
+                ]),
+              ],
+            ),
+          ),
+        );
+    return pw.Row(children: [
+      box('Spawacz / Welder'),
+      box('Kontrola jakości / QC'),
+      box('Inspektor / Inspector'),
+      box('Strona trzecia / TPI'),
+    ]);
+  }
+
+  static pw.Widget _signLine(String label) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Container(
+            height: 0.6,
+            color: _kInkMuted,
+          ),
+          pw.Text(label, style: pw.TextStyle(fontSize: 6, color: _kInkMuted)),
+        ],
       );
 }

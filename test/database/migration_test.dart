@@ -150,6 +150,84 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'coupon_ref',
     'exam',
     'wps_ref',
+    // v20: identification, welders, filler, actual parameters, PWHT,
+    // acceptance, soft delete and NDT per method.
+    'project_id',
+    'iso_drawing',
+    'iso_rev',
+    'spool',
+    'test_package',
+    'joint_type',
+    'shop_field',
+    'position',
+    'root_welder',
+    'cap_welder',
+    'filler_class',
+    'filler_batch',
+    'preheat_c',
+    'interpass_c',
+    'heat_input',
+    'coupon_id',
+    'pwht_required',
+    'pwht_chart',
+    'hardness',
+    'inspector',
+    'inspected_at',
+    'deleted_at',
+    'ndt_vt_scope',
+    'ndt_vt_result',
+    'ndt_vt_report',
+    'ndt_vt_date',
+    'ndt_pt_scope',
+    'ndt_pt_result',
+    'ndt_pt_report',
+    'ndt_pt_date',
+    'ndt_mt_scope',
+    'ndt_mt_result',
+    'ndt_mt_report',
+    'ndt_mt_date',
+    'ndt_rt_scope',
+    'ndt_rt_result',
+    'ndt_rt_report',
+    'ndt_rt_date',
+    'ndt_ut_scope',
+    'ndt_ut_result',
+    'ndt_ut_report',
+    'ndt_ut_date',
+  ],
+  // v20: who changed what on a weld, when, from what to what.
+  'weld_journal_history': <String>[
+    'id',
+    'weld_id',
+    'at',
+    'by_stamp',
+    'action',
+    'field',
+    'old_value',
+    'new_value',
+  ],
+  // v20: repairs R1, R2, … with the state before each of them.
+  'weld_repairs': <String>[
+    'id',
+    'weld_id',
+    'seq',
+    'date',
+    'reason',
+    'prev_status',
+    'prev_ndt',
+    'by_stamp',
+    'created_at',
+  ],
+  // v20: PDF header and RT/UT target per project.
+  'weld_journal_projects': <String>[
+    'project_key',
+    'project_name',
+    'company',
+    'client',
+    'project_title',
+    'document_no',
+    'revision',
+    'rt_target_pct',
   ],
   'weld_coupons': <String>[
     'id',
@@ -159,6 +237,11 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'size',
     'result',
     'notes',
+    // v20
+    'program_no',
+    'program_params',
+    'o2_ppm',
+    'heat_tint',
   ],
   'hydrotest_records': <String>[
     'id',
@@ -429,6 +512,51 @@ Future<void> _buildV17WithScreenTables(Database db) async {
   );
 }
 
+/// v19 as shipped: v17 plus the v18 steps (weld-map columns on the journal,
+/// ISO notebook table) and the v19 pressure-test protocol columns. This is
+/// the last schema before the weld journal got its history, NDT and repairs.
+Future<void> _buildV19(Database db) async {
+  await _buildV17WithScreenTables(db);
+  for (final c in [
+    'weld_type',
+    'fitter',
+    'heat_no1',
+    'heat_no2',
+    'coupon_ref',
+    'exam',
+    'wps_ref',
+  ]) {
+    await db.execute('ALTER TABLE weld_journal ADD COLUMN $c TEXT;');
+  }
+  await db.execute('''
+CREATE TABLE iso_drawings (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  for (final c in <String, String>{
+    'company': 'TEXT',
+    'project': 'TEXT',
+    'test_package': 'TEXT',
+    'drawing_refs': 'TEXT',
+    'test_medium': 'TEXT',
+    'test_preset': 'TEXT',
+    'stress_ratio': 'REAL',
+    'metal_temp_c': 'REAL',
+    'gauge_range': 'TEXT',
+    'gauge_cal_due': 'TEXT',
+    'relief_set_bar': 'REAL',
+    'protocol_no': 'TEXT',
+    'protocol_rev': 'TEXT',
+  }.entries) {
+    await db.execute(
+        'ALTER TABLE hydrotest_records ADD COLUMN ${c.key} ${c.value};');
+  }
+}
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -511,6 +639,7 @@ void main() {
     10: _buildV10,
     16: _buildV16,
     17: _buildV17WithScreenTables,
+    19: _buildV19,
   }.entries) {
     test('v${start.key} -> current: every table and column is present', () async {
       final db = await migrateFrom(start.key, start.value);
@@ -541,6 +670,7 @@ void main() {
       10: _buildV10,
       16: _buildV16,
       17: _buildV17WithScreenTables,
+      19: _buildV19,
     }.entries) {
       final migrated = await migrateFrom(start.key, start.value);
       addTearDown(migrated.close);
@@ -753,6 +883,91 @@ CREATE TABLE component_library (
     expect(hydro['relief_set_bar'], isNull);
 
     expect(await db.query('iso_drawings'), isEmpty);
+  });
+
+  test('v19 -> v20: every journal and coupon row survives, new fields empty',
+      () async {
+    // A welder with journal rows written by the v19 app (weld-map columns
+    // filled, including DUPLICATE weld numbers, which older builds allowed)
+    // and coupons upgrades to the journal with history, NDT and repairs.
+    // Nothing may be lost or rewritten; the new columns arrive NULL —
+    // never an invented NDT result, never a "deleted" flag.
+    final db = await migrateFrom(
+      19,
+      _buildV19,
+      seedData: (legacy) async {
+        for (final (id, no, status) in [
+          ('w1', 'W-010', 'OK'),
+          ('w2', 'W-9', 'NOK'),
+          ('w3', 'W-9', 'PENDING'),
+        ]) {
+          await legacy.insert('weld_journal', <String, Object?>{
+            'id': id,
+            'weld_no': no,
+            'project_name': 'Blok 4',
+            'pipe_name': 'L-12',
+            'material': '316L',
+            'od': '60,3',
+            't': '2',
+            'method': 'TIG',
+            'welder': 'JK-12',
+            'date': '2026-09-01',
+            'notes': 'grań OK; lico do szlifowania',
+            'status': status,
+            'weld_type': 'ORBITAL',
+            'fitter': 'MN-03',
+            'heat_no1': 'H-1',
+            'heat_no2': 'H-2',
+            'coupon_ref': 'C-2026-09-01-A',
+            'exam': 'VT OK',
+            'wps_ref': 'WPS-141-01',
+          });
+        }
+        await legacy.insert('weld_coupons', <String, Object?>{
+          'id': 'c1',
+          'date': '2026-09-01',
+          'welder': 'JK-12',
+          'machine': 'M-3',
+          'size': '2"x1.65',
+          'result': 'OK',
+          'notes': 'boroskop poz. 2',
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    final welds = await db.query('weld_journal', orderBy: 'id');
+    expect(welds.map((w) => w['id']), ['w1', 'w2', 'w3']);
+    expect(welds.map((w) => w['weld_no']), ['W-010', 'W-9', 'W-9']);
+    expect(welds.map((w) => w['status']), ['OK', 'NOK', 'PENDING']);
+    for (final w in welds) {
+      expect(w['notes'], 'grań OK; lico do szlifowania');
+      expect(w['wps_ref'], 'WPS-141-01');
+      expect(w['coupon_ref'], 'C-2026-09-01-A');
+      expect(w['deleted_at'], isNull, reason: 'no row may arrive deleted');
+      expect(w['project_id'], isNull);
+      expect(w['ndt_rt_result'], isNull);
+      expect(w['pwht_required'], isNull);
+    }
+
+    final coupon = (await db.query('weld_coupons')).single;
+    expect(coupon['notes'], 'boroskop poz. 2');
+    expect(coupon['o2_ppm'], isNull);
+    expect(coupon['heat_tint'], isNull);
+
+    expect(await db.query('weld_journal_history'), isEmpty);
+    expect(await db.query('weld_repairs'), isEmpty);
+    expect(await db.query('weld_journal_projects'), isEmpty);
+
+    // The new columns are writable.
+    await db.update(
+      'weld_journal',
+      <String, Object?>{'ndt_rt_result': 'OK', 'deleted_at': 5},
+      where: 'id = ?',
+      whereArgs: <Object?>['w1'],
+    );
+    final w1 = (await db.query('weld_journal', where: "id = 'w1'")).single;
+    expect(w1['ndt_rt_result'], 'OK');
   });
 
   test('the approved seed data lands on every upgrade path', () async {
