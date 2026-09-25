@@ -65,7 +65,7 @@ void main() {
 
   test('an empty sheet round-trips to an empty sheet', () {
     final empty = <String, Object?>{
-      'format': kIsoSketchFormatVersion,
+      'format': 1,
       'name': '',
       'items': <Object?>[],
       'takeoutMemory': <String, Object?>{
@@ -74,5 +74,40 @@ void main() {
       },
     };
     expect(jsonDecode(isoSketchRoundTripForTesting(jsonEncode(empty))), empty);
+  });
+
+  group('weld gap (format 2)', () {
+    test('a sketch with a gap keeps it and is written as format 2', () {
+      final sketch = representativeIsoSketch()
+        ..['format'] = 2
+        ..['gapMm'] = 3.5;
+      final back =
+          jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))) as Map;
+      expect(back, sketch);
+      expect(back['format'], 2);
+      expect(back['gapMm'], 3.5);
+    });
+
+    test('no gap → format 1 without the field, readable by older builds', () {
+      final back = jsonDecode(
+              isoSketchRoundTripForTesting(jsonEncode(representativeIsoSketch())))
+          as Map;
+      expect(back['format'], 1);
+      expect(back.containsKey('gapMm'), isFalse);
+      expect(kIsoSketchFormatVersion, 2,
+          reason: 'this build must still READ format 2');
+    });
+
+    test('a nonsense gap is read as 0 — never a longer pipe', () {
+      for (final bad in <Object?>[-3, 'x', null, 0]) {
+        final sketch = representativeIsoSketch()
+          ..['format'] = 2
+          ..['gapMm'] = bad;
+        final back =
+            jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))) as Map;
+        expect(back.containsKey('gapMm'), isFalse, reason: '$bad');
+        expect(back['format'], 1, reason: '$bad');
+      }
+    });
   });
 }

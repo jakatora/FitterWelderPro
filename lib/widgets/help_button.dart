@@ -456,6 +456,8 @@ final kHelpIsoNotebook = ScreenHelp(
     HelpStep('🗑️', 'Przytrzymaj dowolny element aby go usunąć.'),
     HelpStep('💾', 'Szkic zapisuje się sam po każdej zmianie — wyjście z ekranu, telefon czy rozładowana bateria go nie skasują. Po powrocie otwiera się ostatni szkic.'),
     HelpStep('📂', 'Menu „Szkice” (ikona folderu w pasku górnym): „Nowy szkic” zaczyna czystą kartkę, a poprzedni zostaje w pamięci; „Zapisane szkice” otwiera lub usuwa wcześniejsze.'),
+    HelpStep('↔️', 'Menu „Szkice” → „Szczelina spoiny”: ustaw szczelinę (gap) dla tego szkicu — domyślnie 0. CUT każdej rury jest krótszy o szczelinę × liczbę spawanych końców (koniec z kształtką), tak samo jak w kreatorze segmentu; wolny koniec rury jest bez szczeliny.'),
+    HelpStep('✂️', 'Menu „Szkice” → „Utwórz projekt CUT”: rury z wymiarem stają się segmentami nowego projektu w kolejności trasy, z tym samym CUT co w zeszycie i z szczeliną szkicu. W oknie potwierdź nazwę, DN, OD, ściankę, sztangę i rzaz; rury bez wymiaru albo z niepewnym odliczeniem są wypisane jako „do uzupełnienia” i nie trafiają do projektu. Po utworzeniu otwiera się projekt.'),
   ],
   stepsEn: [
     HelpStep('📏', 'PIPE tool — drag on the grid, then enter the segment dimension on release.'),
@@ -467,6 +469,8 @@ final kHelpIsoNotebook = ScreenHelp(
     HelpStep('🗑️', 'Long-press any element to delete it.'),
     HelpStep('💾', 'The sketch saves itself after every change — leaving the screen, a phone call or a flat battery won\'t lose it. The last sketch opens again when you come back.'),
     HelpStep('📂', '“Sketches” menu (folder icon in the top bar): “New sketch” starts a clean sheet and keeps the previous one; “Saved sketches” opens or deletes earlier ones.'),
+    HelpStep('↔️', '“Sketches” menu → “Weld gap”: set the root gap for this sketch — 0 by default. Each pipe\'s CUT gets shorter by gap × number of welded ends (an end with a fitting), the same as in the segment builder; a free pipe end has no gap.'),
+    HelpStep('✂️', '“Sketches” menu → “Create CUT project”: dimensioned pipes become the segments of a new project in route order, with the same CUT as in the notebook and the sketch\'s gap. Confirm the name, DN, OD, wall, stock length and kerf in the window; pipes without a dimension or with an uncertain deduct are listed as “to complete” and left out. The project opens once created.'),
   ],
 );
 

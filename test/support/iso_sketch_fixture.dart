@@ -9,8 +9,6 @@
 // automatically, plus a 3 mm gasket row:
 //   2000 − 64 − 152 − 3 = 1781 mm.
 
-import 'package:cut_list_app/screens/iso_notebook_screen.dart';
-
 const double kRepresentativeIsoSketchCutMm = 1781;
 
 /// Grid row 4 of the notebook's triangular grid (step 32, row height 32·√3/2).
@@ -23,7 +21,9 @@ const double isoRow4 = 110.85125168440814;
 /// and field welds carrying their numbers, a note with Polish text and a
 /// North arrow — plus the per-drawing take-out memory.
 Map<String, Object?> representativeIsoSketch() => <String, Object?>{
-      'format': kIsoSketchFormatVersion,
+      // A sketch without a weld gap is written as format 1 (format 2 only
+      // carries a gap — see the codec).
+      'format': 1,
       'name': '6"-CWS-1234 — linia zażółcona',
       'items': <Object?>[
         <String, Object?>{
