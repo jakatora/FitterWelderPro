@@ -383,6 +383,11 @@ void main() {
         final pipe = _pipes[planned.pipeIndex];
         final notebook = _nb(pipe);
         expect(s.seqNo, i + 1);
+        // v22: the sketch's pipe number is the piece mark (S03 ← R1), so the
+        // cut piece can be found on the sketch. No spool — the notebook only
+        // has a split marker, not a spool number.
+        expect(s.label, planned.label);
+        expect(s.spoolId, isNull);
         expect(s.isoExpr, (pipe.dimension!).iso);
         expect(s.cutMm, closeTo(notebook, 1e-9), reason: planned.label);
         expect(_builderCut(s, project.gapMm), closeTo(notebook, 1e-9),
