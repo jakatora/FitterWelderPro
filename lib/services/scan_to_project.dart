@@ -2531,6 +2531,36 @@ const Map<String, String> _typeAliases = {
 
 String _normaliseType(String raw) => normaliseScanType(raw);
 
+/// Tool name ([ComponentClassification] vocabulary) of a scanned component,
+/// or null when the type is not one the planner knows. Public for the
+/// outputs (BOM comparison, weld map).
+String? scanToolName(AiComponent c) {
+  final n = _normaliseType(c.type);
+  final tool = _typeAliases[n];
+  if (tool == 'flange' && c.flangeType == 'BL') return 'blindFlange';
+  if (tool != null) return tool;
+  if (n == 'valve' || n.endsWith('valve')) {
+    return _valveToolName(c.valveType ?? c.type).tool;
+  }
+  return null;
+}
+
+/// A size callout read into a DN — the planner's own parser, public for the
+/// outputs. Null when ambiguous (a bare number on an unknown notation).
+int? scanSizeToDn(String? raw, String sizeNotation) =>
+    _parseSizeToDn(raw, sizeNotation);
+
+/// Sizes of a size-changing fitting, large first (printed, else from its
+/// label). Public for the outputs.
+(int?, int?) scanComponentSizes(AiComponent c, String sizeNotation) =>
+    _componentSizes(c, sizeNotation);
+
+/// End connection code (`BW` / `SW` / `THD` / `FL`) of a component.
+String scanEndType(AiComponent c) => _endTypeOf(c);
+
+/// Whether a flange is slip-on-like (SO / SW / LJ / threaded).
+bool scanIsSlipOnFlange(AiComponent c) => _isSlipOnLike(c);
+
 /// Tool name for a valve, from its subtype when the model gave one.
 ///
 /// Every valve body behaves the same way geometrically

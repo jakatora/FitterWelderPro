@@ -82,9 +82,9 @@
   "knownLimitations": [],
   "steps": [
     {
-      "note": "Propozycja: oś kolana – przylga kołnierza (Y odejmowane), ale bez potwierdzenia nie ma cięcia.",
+      "note": "Propozycja: oś kolana – przylga kołnierza (Y odejmowane), ale bez potwierdzenia nie ma cięcia. Blokada dotyczy tylko cięć s2 — pozostałe można zapisać od razu (zapis częściowy, spec §2 p.6).",
       "expect": {
-        "canSave": false,
+        "canSave": true,
         "gaps": [
           "dimensionReferenceUnknown"
         ],
@@ -92,13 +92,15 @@
           {
             "id": "s1",
             "cutMm": 1348,
-            "calc": "1500 − 152 = 1348"
+            "calc": "1500 − 152 = 1348",
+            "blocked": false
           },
           {
             "id": "s2",
             "cutMm": null,
             "proposed": "CTE",
-            "calc": "brak — propozycja 1000 − 152 − 76 = 772 czeka na potwierdzenie"
+            "calc": "brak — propozycja 1000 − 152 − 76 = 772 czeka na potwierdzenie",
+            "blocked": true
           }
         ]
       }

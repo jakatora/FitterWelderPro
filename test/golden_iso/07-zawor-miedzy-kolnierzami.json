@@ -132,7 +132,7 @@
   "steps": [
     {
       "expect": {
-        "canSave": false,
+        "canSave": true,
         "gaps": [
           "dimensionReferenceUnknown"
         ],
@@ -144,27 +144,32 @@
           {
             "id": "s0",
             "cutMm": 1048,
-            "calc": "1200 − 152 = 1048"
+            "calc": "1200 − 152 = 1048",
+            "blocked": false
           },
           {
             "id": "s1",
             "cutMm": null,
             "proposed": "CTE",
-            "calc": "czeka na potwierdzenie"
+            "calc": "czeka na potwierdzenie",
+            "blocked": true
           },
           {
             "id": "s2",
             "cutMm": null,
             "proposed": "CTE",
-            "calc": "czeka na potwierdzenie"
+            "calc": "czeka na potwierdzenie",
+            "blocked": true
           },
           {
             "id": "s3",
             "cutMm": 748,
-            "calc": "900 − 152 = 748"
+            "calc": "900 − 152 = 748",
+            "blocked": false
           }
         ]
-      }
+      },
+      "note": "Blokada dotyczy tylko cięć s1, s2 — pozostałe można zapisać od razu (zapis częściowy, spec §2 p.6)."
     },
     {
       "fitter": {

@@ -93,9 +93,9 @@
   "knownLimitations": [],
   "steps": [
     {
-      "note": "Cięcie jest policzone i widoczne, ale zapis zablokowany do czasu potwierdzenia wymiaru.",
+      "note": "Cięcie jest policzone i widoczne, ale zapis zablokowany do czasu potwierdzenia wymiaru. Blokada dotyczy tylko cięć s2 — pozostałe można zapisać od razu (zapis częściowy, spec §2 p.6).",
       "expect": {
-        "canSave": false,
+        "canSave": true,
         "gaps": [
           "lowConfidence"
         ],
@@ -103,17 +103,20 @@
           {
             "id": "s1",
             "cutMm": 1348,
-            "calc": "1500 − 152 = 1348"
+            "calc": "1500 − 152 = 1348",
+            "blocked": false
           },
           {
             "id": "s2",
             "cutMm": 896,
-            "calc": "1200 − 152 − 152 = 896 (niepewny wymiar — do potwierdzenia)"
+            "calc": "1200 − 152 − 152 = 896 (niepewny wymiar — do potwierdzenia)",
+            "blocked": true
           },
           {
             "id": "s3",
             "cutMm": 648,
-            "calc": "800 − 152 = 648"
+            "calc": "800 − 152 = 648",
+            "blocked": false
           }
         ]
       }
