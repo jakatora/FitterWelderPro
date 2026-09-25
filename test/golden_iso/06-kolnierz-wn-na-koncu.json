@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "06-kolnierz-wn-na-koncu",
   "title": "Kołnierz WN na końcu linii — wymiar do przylgi",
   "drawing": "Otwarty koniec → kolano E1 → kołnierz WN F1 (RF, Class 150). Wymiar E1–F1 od osi kolana do przylgi kołnierza. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",

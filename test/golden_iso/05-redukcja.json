@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "05-redukcja",
   "title": "Redukcja koncentryczna DN100×80 w trasie",
   "drawing": "Otwarty koniec → kolano E1 → redukcja R1 → otwarty koniec (strona DN80). Wymiary do czoła redukcji. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
@@ -89,45 +89,49 @@
     "model": "claude-sonnet-5"
   },
   "knownLimitations": [
-    "Projekt ma jedną średnicę: odcinek s3 (strona DN80) zapisuje się z DN100 — planista ostrzega (reducerChangesDiameter), ale nie wie, która strona redukcji jest mniejsza.",
-    "Kolano ZA redukcją dostałoby take-out DN100 zamiast DN80 — dlatego ten przypadek kończy się otwartym końcem; do naprawy przez DN per segment w schemacie AI."
+    "Odczyt w starym formacie (v1): bez DN przy odcinkach nie wiadomo, która strona redukcji DN100×80 jest którą — planista blokuje trzy cięcia (średnica odcinka, take-out kolana) do jednej odpowiedzi montera; odczyt v2 z polem dn odcinka rozstrzyga to sam."
   ],
   "steps": [
     {
-      "note": "Redukcja ma własną długość — oba odcinki przy niej czekają na potwierdzenie odniesienia.",
+      "note": "Rozmiar DN100×80 z etykiety redukcji, ale bez DN przy odcinkach nie wiadomo, po której stronie jest DN80 — wszystkie trzy odcinki czekają (kolano E1 nie ma take-outu bez DN).",
       "expect": {
         "canSave": false,
         "gaps": [
-          "dimensionReferenceUnknown"
+          "dimensionReferenceUnknown",
+          "missingSegmentDiameter",
+          "missingTakeout"
         ],
         "warnings": [
-          "reducerChangesDiameter",
-          "takeoutAssumedLongRadius"
+          "reducerChangesDiameter"
         ],
         "segments": [
           {
             "id": "s1",
-            "cutMm": 848,
-            "calc": "1000 − 152 = 848"
+            "cutMm": null,
+            "dn": null,
+            "calc": "brak DN odcinka → brak take-outu kolana"
           },
           {
             "id": "s2",
             "cutMm": null,
             "proposed": "CTF",
-            "calc": "brak — trzeba potwierdzić odniesienie"
+            "calc": "brak DN + odniesienie do potwierdzenia"
           },
           {
             "id": "s3",
             "cutMm": null,
             "proposed": "FTF",
-            "calc": "brak — trzeba potwierdzić odniesienie"
+            "calc": "brak DN + odniesienie do potwierdzenia"
           }
         ]
       }
     },
     {
-      "note": "Monter potwierdza propozycje: wymiar do czoła redukcji (korpus H=102 nie jest odejmowany).",
+      "note": "Monter wskazuje DN80 dla s3 (strona za redukcją) — DN100 przechodzi przez redukcję na s1 i s2; potwierdza propozycje odniesienia (wymiar do czoła redukcji, korpus H nie jest odejmowany).",
       "fitter": {
+        "segmentDn": {
+          "s3": 80
+        },
         "references": {
           "s2": "proposal",
           "s3": "proposal"
@@ -136,21 +140,31 @@
       "expect": {
         "canSave": true,
         "gaps": [],
+        "warnings": [
+          "reducerChangesDiameter",
+          "takeoutAssumedLongRadius"
+        ],
         "segments": [
           {
             "id": "s1",
             "cutMm": 848,
-            "calc": "1000 − 152 = 848"
+            "dn": 100,
+            "diameterMm": 114.3,
+            "calc": "1000 − 152 (kolano 90° LR DN100) = 848"
           },
           {
             "id": "s2",
             "cutMm": 648,
+            "dn": 100,
+            "diameterMm": 114.3,
             "calc": "800 − 152 − 0 (czoło redukcji) = 648"
           },
           {
             "id": "s3",
             "cutMm": 300,
-            "calc": "300 − 0 (czoło redukcji) − 0 (otwarty koniec) = 300"
+            "dn": 80,
+            "diameterMm": 88.9,
+            "calc": "300 − 0 (czoło redukcji) − 0 (otwarty koniec) = 300; DN80 OD 88,9"
           }
         ]
       }

@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "07-zawor-miedzy-kolnierzami",
   "title": "Zasuwa kołnierzowa między dwoma kołnierzami WN",
   "drawing": "Otwarty koniec → kolano E1 → kołnierz F1 | zasuwa V1 (FTF 229) | kołnierz F2 → kolano E2 → otwarty koniec. Wymiary do przylg kołnierzy; wymiar zaworu 229 to linia pomocnicza. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",

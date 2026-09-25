@@ -138,6 +138,54 @@ class TakeoutCatalog {
     250: 622, 300: 698,
   };
 
+  // ── Reducing outlet tee — ASME B16.9 Tab. 6.1-7, outlet M ────────────────
+  // run DN → {outlet DN → M (centre to end of the OUTLET), mm}. The run
+  // centre-to-end C is the equal tee's [tee] value of the run size.
+  // Verified 2026-09-25 against two independent reproductions of the table
+  // (wermac.org "Tees Reducing NPS 1/2-4" and piping-world.com "Reducing
+  // Outlet Tees"; NPS 2–3 also ferrobend.com): e.g. NPS 4×3 M = 3.88 in =
+  // 98 mm, NPS 12×8 M = 9.02 in = 229 mm. Only rows found in those sources
+  // are listed — a missing pair is an explicit gap, never interpolated.
+  // NPS 3½ and 5 are left out (no DN column in this app).
+  static const reducingTeeOutletM = <int, Map<int, int>>{
+    20: {15: 29},
+    25: {15: 38, 20: 38},
+    32: {15: 48, 20: 48, 25: 48},
+    40: {15: 57, 20: 57, 25: 57, 32: 57},
+    50: {20: 44, 25: 51, 32: 57, 40: 60},
+    65: {25: 57, 32: 64, 40: 67, 50: 70},
+    80: {32: 70, 40: 73, 50: 76, 65: 83},
+    100: {40: 86, 50: 89, 65: 95, 80: 98},
+    150: {65: 121, 80: 124, 100: 130},
+    200: {100: 156, 150: 168},
+    250: {100: 184, 150: 194, 200: 203},
+    300: {150: 219, 200: 229, 250: 241},
+  };
+
+  // ── Socket-weld fittings — ASME B16.11-2011 Table 1 (metric) ─────────────
+  // Centre to BOTTOM of socket: A for 90° elbows, tees and crosses, C for
+  // 45° elbows, per class. Read from the standard's own table (2026-09-25).
+  // The pipe does not sit on the socket bottom: B31.3 / B16.11 practice is
+  // an expansion gap of about 1.6 mm (1/16 in.) before welding, so the pipe
+  // end lies [socketWeldGapMm] further from the fitting centre than A.
+  static const socketWeld90A3000 = <int, double>{
+    15: 15.5, 20: 19.0, 25: 22.5, 32: 27.0, 40: 32.0, 50: 38.0,
+    65: 41.0, 80: 57.0, 100: 66.5,
+  };
+  static const socketWeld90A6000 = <int, double>{
+    15: 19.0, 20: 22.5, 25: 27.0, 32: 32.0, 40: 38.0, 50: 41.0,
+  };
+  static const socketWeld45C3000 = <int, double>{
+    15: 11.0, 20: 13.0, 25: 14.0, 32: 17.5, 40: 20.5, 50: 25.5,
+    65: 28.5, 80: 32.0, 100: 41.0,
+  };
+  static const socketWeld45C6000 = <int, double>{
+    15: 12.5, 20: 14.0, 25: 17.5, 32: 20.5, 40: 25.5, 50: 28.5,
+  };
+
+  /// Gap left between the pipe end and the socket bottom before welding.
+  static const double socketWeldGapMm = 1.6;
+
   /// All entries available for a given DN. Used by the dialog to build a
   /// picker list. Falls back gracefully if an entry is missing for some DN
   /// (e.g. SR elbow below DN25, valves below DN50).

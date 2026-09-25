@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "11-nie-izometria",
   "title": "Zdjęcie, które nie jest izometrią",
   "drawing": "Model rozpoznał, że to nie rysunek izometryczny (np. zdjęcie P&ID albo placu budowy).",

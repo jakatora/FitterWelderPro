@@ -9,8 +9,12 @@
 // (planista → zapis projektu → CUT z bazy), nie rozpoznawanie obrazu.
 // Walidacja na prawdziwych rysunkach wymaga zdjęć izometrii od właściciela.
 //
-// Format (`format: "fwp-golden-iso"`, `formatVersion: 1`) — rozszerzalny:
+// Format (`format: "fwp-golden-iso"`, `formatVersion: 2`) — rozszerzalny:
 // nieznane pola są ignorowane, nowa wersja formatu = nowy numer.
+// v2 (2026-09-25, schemat odczytu v2): koperta może mieć pola v2 (dn,
+// direction, projections, connectedTo, runIds, welds[], spools[]…); monter
+// może podać DN odcinka i take-out; oczekiwania mogą sprawdzać DN / OD /
+// etykietę odcinka.
 //   id, title, drawing          opis przypadku i rysunku
 //   gapMm                       szczelina na spoinę projektu (jak w przeglądzie)
 //   envelope                    odczyt AI: {result: AiScanResult, tookMs, model}
@@ -18,6 +22,9 @@
 //   steps[]                     kolejne kroki montera na ekranie przeglądu:
 //     fitter.diameterMm / wallThicknessMm / materialGroup
 //                               wartości wpisane w nagłówku przeglądu
+//     fitter.segmentDn {segId: DN}   średnica odcinka wybrana przez montera
+//     fitter.takeouts {"komponent@segId": mm}
+//                               take-out / długość korpusu wpisana ręcznie
 //     fitter.dimensions {segId: "tekst"}
 //                               wymiar przepisany/potwierdzony z rysunku
 //                               (jak _setDimension: pewność → high)
@@ -26,7 +33,8 @@
 //     expect.canSave            czy przycisk zapisu byłby aktywny
 //     expect.gaps[]             DOKŁADNY zbiór otwartych blokad (kody)
 //     expect.warnings[]         ostrzeżenia, które MUSZĄ się pojawić
-//     expect.segments[]         {id, cutMm|null, proposed?, calc}
+//     expect.segments[]         {id, cutMm|null, proposed?, calc,
+//                                dn?, diameterMm?, label?}
 // Ostatni krok z `canSave: true` jest zapisywany do bazy tak jak robi to
 // scan_review_screen (ProjectDao + SegmentDao z segmentRowFor), a CUT jest
 // czytany z powrotem z tabeli `segments` i przeliczany z zapisanego wiersza.
@@ -47,42 +55,24 @@ import 'package:cut_list_app/services/scan_to_project.dart';
 import '../support/test_database.dart';
 
 const _kFormat = 'fwp-golden-iso';
-const _kFormatVersion = 1;
+const _kFormatVersion = 2;
 
 /// Kopia odczytu z wymiarami przepisanymi przez montera — jak robi to ekran
 /// przeglądu (`_setDimension`): wymiar i tekst z rysunku, pewność „high".
 AiScanResult _withDimensions(AiScanResult scan, Map<String, String> dims) {
   if (dims.isEmpty) return scan;
-  return AiScanResult(
-    drawingStandard: scan.drawingStandard,
-    sizeNotation: scan.sizeNotation,
-    isHygienic: scan.isHygienic,
-    titleBlock: scan.titleBlock,
-    northArrow: scan.northArrow,
-    scale: scan.scale,
+  return scan.copyWith(
     segments: [
       for (final s in scan.segments)
         dims.containsKey(s.id)
-            ? AiSegment(
-                id: s.id,
+            ? s.copyWith(
                 dimensionMm: _mm(dims[s.id]!),
                 rawDimension: dims[s.id],
-                fromId: s.fromId,
-                toId: s.toId,
-                auxiliary: s.auxiliary,
                 confidence: AiConfidence.high,
+                userConfirmed: true,
               )
             : s,
     ],
-    components: scan.components,
-    elevations: scan.elevations,
-    billOfMaterials: scan.billOfMaterials,
-    needsUserInput: scan.needsUserInput,
-    uncertainty: scan.uncertainty,
-    warnings: scan.warnings,
-    error: scan.error,
-    tookMs: scan.tookMs,
-    model: scan.model,
   );
 }
 
@@ -121,6 +111,14 @@ _Step _runStep(AiScanResult scan, Map<String, dynamic> fitter, double gapMm) {
       .map((k, v) => MapEntry(k as String, v as String));
   final refs = ((fitter['references'] as Map?) ?? const {})
       .map((k, v) => MapEntry(k as String, v as String));
+  final input = ScanFitterInput(
+    segmentDn: ((fitter['segmentDn'] as Map?) ?? const {})
+        .map((k, v) => MapEntry(k as String, (v as num).toInt())),
+    segmentWallMm: ((fitter['segmentWallMm'] as Map?) ?? const {})
+        .map((k, v) => MapEntry(k as String, (v as num).toDouble())),
+    takeoutMm: ((fitter['takeouts'] as Map?) ?? const {})
+        .map((k, v) => MapEntry(k as String, (v as num).toDouble())),
+  );
 
   final corrected = _withDimensions(scan, dims);
   final plan = planFromScan(
@@ -128,6 +126,7 @@ _Step _runStep(AiScanResult scan, Map<String, dynamic> fitter, double gapMm) {
     diameterMm: dia,
     wallThicknessMm: wall,
     gapMm: gapMm,
+    fitter: input,
   );
 
   final segments = plan.segments.map((s) {
@@ -199,6 +198,7 @@ Future<List<Map<String, Object?>>> _saveAndReadBack(
       {
         'seq': s.seqNo,
         'cut': s.cutMm,
+        'od': s.diameterMm,
         'recomputed': PrefabEngine.storedSegmentCutMm(
           isoMm: s.isoMm,
           isoRef: s.isoRef,
@@ -291,6 +291,17 @@ void main() {
             expect(seg.cutMm!, closeTo(cut, 0.001),
                 reason: '$where ${e['id']}: $calc');
           }
+          if (e.containsKey('dn')) {
+            expect(seg.dn, e['dn'], reason: '$where ${e['id']}: DN odcinka');
+          }
+          if (e['diameterMm'] != null) {
+            expect(seg.diameterMm,
+                closeTo((e['diameterMm'] as num).toDouble(), 0.001),
+                reason: '$where ${e['id']}: OD odcinka');
+          }
+          if (e['label'] != null) {
+            expect(seg.label, e['label'], reason: '$where ${e['id']}: etykieta');
+          }
           if (e['proposed'] != null) {
             expect(_refCode(seg.proposedStops), e['proposed'],
                 reason: '$where ${e['id']}: proponowane odniesienie');
@@ -308,6 +319,12 @@ void main() {
         for (var k = 0; k < rows.length; k++) {
           final cut = (expSegs[k]['cutMm'] as num).toDouble();
           expect(rows[k]['seq'], k + 1);
+          final od = expSegs[k]['diameterMm'];
+          if (od != null) {
+            expect(rows[k]['od'] as double,
+                closeTo((od as num).toDouble(), 0.001),
+                reason: '$id: OD odcinka w bazie');
+          }
           expect(rows[k]['cut'] as double, closeTo(cut, 0.001),
               reason: '$id: CUT z bazy, ${expSegs[k]['calc']}');
           // Jedno źródło CUT: przeliczenie zapisanego wiersza daje to samo.
