@@ -23,6 +23,15 @@ import '../models/prefab/end_connection.dart';
 import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
+import '../domain/iso_notebook/sketch_cut.dart';
+import '../domain/iso_notebook/sketch_to_project.dart';
+import '../services/iso_sketch_project_writer.dart';
+import 'fitter_screen.dart';
+import 'iso_notebook_project_dialogs.dart';
+
+// The shared deduct-label table moved to the domain layer with the CUT rule;
+// re-exported so existing callers keep importing it from here.
+export '../domain/iso_notebook/sketch_cut.dart' show isoManualDeductAliases;
 
 // Autosave: the drawing <-> JSON codec and the "saved sketches" sheet live
 // next door because they need the private model classes below.
@@ -61,8 +70,10 @@ abstract class _Item {}
 
 /// One component whose take-out is subtracted from the ISO dimension to
 /// arrive at the cut length.
-class _Deduct {
+class _Deduct implements SketchDeduct {
+  @override
   final String name;   // human label, e.g. "Elbow 90°", "Flange"
+  @override
   final String value;  // expression in mm
   const _Deduct(this.name, this.value);
 }
@@ -70,12 +81,15 @@ class _Deduct {
 /// Full cut calculation for a pipe segment: ISO − Σ deducts.
 /// When [deducts] is empty the segment carries a plain dimension; when it is
 /// non-empty the on-drawing label shows the resolved CUT in an accent colour.
-class _CutCalc {
+class _CutCalc implements SketchDimension {
+  @override
   final String iso;
+  @override
   final List<_Deduct> deducts;
 
   /// How the on-drawing ISO dimension was measured. Consumed by
   /// [_IsoState._resolvedCut] via [prefab.PrefabEngine].
+  @override
   final DimRef ref;
   const _CutCalc(this.iso, {this.deducts = const [], this.ref = DimRef.centreToCentre});
 
@@ -84,6 +98,7 @@ class _CutCalc {
   /// Parenthesised ISO — "(1500)" — is a REFERENCE dimension: printed on the
   /// drawing, never sawn. Kept as a flag rather than a second cut formula so
   /// the exclusion happens in one place ([_IsoState._resolvedCut]).
+  @override
   bool get isReference {
     final t = iso.trim();
     return t.startsWith('(') && t.endsWith(')');
@@ -119,7 +134,8 @@ class _CalcResult {
         remove = true;
 }
 
-class _Seg implements _Item {
+class _Seg implements _Item, SketchPipe {
+  @override
   final Offset a, b;
   final _Tool t;
   final _CutCalc? calc;
@@ -141,6 +157,9 @@ class _Seg implements _Item {
       _Seg(a, b, t, calc: calc, slope: slope, insulated: v);
   bool get hasDim => calc != null;
   bool get hasSlope => slope.isNotEmpty;
+
+  @override
+  SketchDimension? get dimension => calc;
 }
 
 /// Pipe size + elbow type stored on an elbow component. Drives both the on-
@@ -184,215 +203,21 @@ int isoStandardElbowCteMm(int dn, String subtype) {
 /// [isoStandardElbowCteMm]; 0 means "no B16.9 value".
 int _stdCte(int dn, _ElbowSubtype t) => isoStandardElbowCteMm(dn, t.name);
 
-/// `true` when [t] is dimensioned to its CENTRELINE (elbow / tee / olet).
-///
-/// Wraps [ComponentClassification.isAxial], which throws on tool names it
-/// cannot classify (line tools, annotations). A throw here must not be read
-/// as "axial" — it would push an unpriced symbol into the take-out sum — so
-/// it is logged and treated as not-axial.
-bool _isAxialTool(_Tool t) {
-  try {
-    return ComponentClassification.isAxial(t.name);
-  } catch (e) {
-    debugPrint('isAxialTool threw for ${t.name}: $e');
-    return false;
-  }
-}
+/// `true` when [t] is dimensioned to its CENTRELINE (elbow / tee / olet) —
+/// [sketchIsAxialTool], which never throws on an unclassifiable tool.
+bool _isAxialTool(_Tool t) => sketchIsAxialTool(t.name);
 
-/// Centre-to-end take-out (mm) of an axial component, or `null` when the
-/// component carries no usable dimension.
-///
-/// Axial = the drawn dimension runs to the fitting's CENTRELINE, so the pipe
-/// stops one CTE short of it (elbow, tee, olet). Resolution order:
-///   1. the CTE the fitter entered on the component,
-///   2. for a tee, ASME B16.9 run/branch CTE for its DN,
-///   3. nothing — and the caller must SAY so rather than quietly using 0.
-///
-/// An olet deliberately has no table fallback: a weldolet is welded onto the
-/// OUTSIDE of the run, so its branch take-out is run-OD/2 + fitting height,
-/// not the B16.9 tee CTE. Substituting the tee value there would trade one
-/// silent wrong number for another.
-int? _axialTakeoutOf(_Comp c) {
-  if (!_isAxialTool(c.t)) return null;
-  final explicit = c.cteMm;
-  if (explicit != null && explicit > 0) return explicit;
-  if (c.isElbow) return null; // elbow CTE only ever comes from its spec sheet
-  if (c.t != _Tool.tee) return null;
-  final dn = c.dn;
-  if (dn == null) return null;
-  final v = TakeoutCatalog.tee[dn];
-  return (v != null && v > 0) ? v : null;
-}
+/// Centre-to-end take-out of an axial component, or null — see
+/// [sketchAxialTakeoutOf].
+int? _axialTakeoutOf(_Comp c) => sketchAxialTakeoutOf(c);
 
-/// Catalog deduct labels that already represent the take-out of the fitting
-/// named [toolName] (a `_Tool.name`), lower-cased.
-///
-/// The manual deduct picker (`_pickFromCatalog` → [TakeoutCatalog.entriesForDn])
-/// writes these exact strings into `_Deduct.name`. When such a row is present
-/// the fitter has ALREADY booked that fitting by hand, so the automatic pass
-/// must stand down for one component of that kind — otherwise the take-out is
-/// subtracted twice and the pipe comes out short.
-///
-/// Public + string-keyed so a test can assert these stay in step with the
-/// labels [TakeoutCatalog.entriesForDn] actually produces; renaming a catalog
-/// entry without updating this map would silently restore the double-count.
-Set<String> isoManualDeductAliases(String toolName) {
-  switch (toolName) {
-    case 'elbow90':
-      return const {'kolano 90° lr (cte)', 'kolano 90° sr (cte)'};
-    case 'elbow45':
-      return const {'kolano 45° lr (cte)'};
-    case 'tee':
-      return const {'trójnik (cte)'};
-    default:
-      return const {};
-  }
-}
+// The take-out, weld and CUT rules themselves live in
+// `lib/domain/iso_notebook/sketch_cut.dart` (tested there): the CUT project
+// created from a sketch must store exactly the number this screen shows, and
+// one shared formula is the only way to guarantee that.
 
-/// Automatic axial take-outs for one segment, split per end, plus the axial
-/// components on its ends that could NOT be resolved.
-class _AxialTakeouts {
-  final int leftMm;
-  final int rightMm;
-
-  /// Axial components sitting on an endpoint with no usable take-out. They
-  /// contribute 0 — the cut list and the canvas must flag them so the fitter
-  /// sees a gap instead of trusting a silently short subtraction.
-  final List<_Comp> missing;
-
-  const _AxialTakeouts({
-    required this.leftMm,
-    required this.rightMm,
-    required this.missing,
-  });
-
-  int get totalMm => leftMm + rightMm;
-}
-
-/// Resolve the axial take-outs on both ends of [seg].
-///
-/// WHY THIS REPLACED THE ELBOW-ONLY VERSION: the automatic pass used to test
-/// `it.isElbow` and skip everything else, so a tee or an olet on a segment end
-/// added nothing and said nothing. An elbow→tee run dimensioned centre-to-
-/// centre at DN100 came out 102 mm long with no warning anywhere.
-///
-/// [manual] is the segment's hand-entered deduct list; rows whose name matches
-/// a catalog label for a component found here suppress ONE automatic
-/// contribution of that kind, so the manual path (which already existed) and
-/// the automatic one can coexist without double-counting.
-_AxialTakeouts _axialTakeoutsFor(
-  _Seg seg,
-  List<_Item> items,
-  double tol, {
-  List<_Deduct> manual = const [],
-}) {
-  // Multiset of hand-entered deduct labels still available to suppress an
-  // automatic contribution.
-  final unclaimed = <String, int>{};
-  for (final d in manual) {
-    if (d.value.trim().isEmpty) continue;
-    final key = d.name.trim().toLowerCase();
-    if (key.isEmpty) continue;
-    unclaimed[key] = (unclaimed[key] ?? 0) + 1;
-  }
-  bool claimedByHand(_Tool t) {
-    for (final alias in isoManualDeductAliases(t.name)) {
-      final n = unclaimed[alias];
-      if (n != null && n > 0) {
-        unclaimed[alias] = n - 1;
-        return true;
-      }
-    }
-    return false;
-  }
-
-  int left = 0;
-  int right = 0;
-  final missing = <_Comp>[];
-  for (final it in items) {
-    if (it is! _Comp) continue;
-    final onA = (it.pos - seg.a).distance < tol;
-    final onB = (it.pos - seg.b).distance < tol;
-    if (!onA && !onB) continue;
-    if (!_isAxialTool(it.t)) continue;
-    final cte = _axialTakeoutOf(it);
-    if (cte == null) {
-      missing.add(it);
-      continue;
-    }
-    if (claimedByHand(it.t)) continue;
-    if (onA) {
-      left += cte;
-    } else {
-      right += cte;
-    }
-  }
-  return _AxialTakeouts(leftMm: left, rightMm: right, missing: missing);
-}
-
-/// Sum of `physicalLengthMm` for every physical component sitting near
-/// [endpoint]. Reducer / valve / flange / cap go through here; axial
-/// fittings (elbow / tee / olet) are ignored because they're handled by
-/// the CTE deduct path. Cap-style face-only components are bucketed under
-/// "physical" since the engine still needs them subtracted for FTE / FTF.
-int _autoPhysicalDeductFor(Offset endpoint, List<_Item> items, double tol) {
-  int sum = 0;
-  for (final it in items) {
-    if (it is! _Comp) continue;
-    try {
-      if (!ComponentClassification.isPhysical(it.t.name)) continue;
-    } catch (e) {
-      // P0r-07: isPhysical throwing means a physical component is being
-      // silently skipped — its body length is NEVER deducted from CUT,
-      // pipe runs that body-length LONGER than designed. Log the failure
-      // so it surfaces in CI / debug — used to be invisible.
-      debugPrint('autoPhysicalDeduct isPhysical threw for ${it.t.name}: $e');
-      continue;
-    }
-    final len = it.physicalLengthMm;
-    if (len == null || len <= 0) continue;
-    if ((it.pos - endpoint).distance < tol) sum += len;
-  }
-  return sum;
-}
-
-/// Sum of `physicalLengthMm` for physical components that sit BETWEEN
-/// seg.a and seg.b along the pipe (within [tol] of the segment line, but
-/// NOT within [tol] of either endpoint). Endpoint-physicals are billed to
-/// leftPhysicalLen / rightPhysicalLen — the mid bucket only gets components
-/// the user has planted along the run (e.g. a gate valve inside a
-/// CTC dimension between two elbows).
-int _midPhysicalDeductFor(_Seg seg, List<_Item> items, double tol) {
-  final ab = seg.b - seg.a;
-  final lenSq = ab.dx * ab.dx + ab.dy * ab.dy;
-  if (lenSq < 1) return 0;
-  int sum = 0;
-  for (final it in items) {
-    if (it is! _Comp) continue;
-    try {
-      if (!ComponentClassification.isPhysical(it.t.name)) continue;
-    } catch (e) {
-      // P0r-07: see _autoPhysicalDeductFor — data-integrity issue, not
-      // benign skip. Log so failures surface in CI/debug runs.
-      debugPrint('midPhysicalDeduct isPhysical threw for ${it.t.name}: $e');
-      continue;
-    }
-    final len = it.physicalLengthMm;
-    if (len == null || len <= 0) continue;
-    if ((it.pos - seg.a).distance < tol) continue;
-    if ((it.pos - seg.b).distance < tol) continue;
-    final t = ((it.pos.dx - seg.a.dx) * ab.dx +
-            (it.pos.dy - seg.a.dy) * ab.dy) /
-        lenSq;
-    if (t < 0 || t > 1) continue;
-    final foot = seg.a + ab * t;
-    if ((it.pos - foot).distance > tol) continue;
-    sum += len;
-  }
-  return sum;
-}
-
-class _Comp implements _Item {
+class _Comp implements _Item, SketchComponent {
+  @override
   final Offset pos;
   final _Tool t;
   final int dir;
@@ -411,22 +236,28 @@ class _Comp implements _Item {
   /// dimension subtracted from any pipe touching this elbow during CUT-list
   /// computation. When `dn` is null the elbow contributes 0 to the deduct
   /// (user hasn't told us the size yet).
+  @override
   final int? dn;
   final _ElbowSubtype? elbowSubtype;
+  @override
   final int? cteMm;
 
   /// Physical face-to-face / face-to-end length in mm for non-axial components.
   /// Null for axial components. For reducer = inlet-face to outlet-face length.
   /// For valve = ASME B16.10 face-to-face. For flange = face thickness from
   /// the welded face to the flange face. For cap = face length.
+  @override
   final int? physicalLengthMm;
 
   /// Outlet DN — only set for diameter-change components (reducer). When non-null,
   /// pipes downstream of this component carry this DN instead of the project default.
+  @override
   final int? dnOut;
 
   /// Joint type at each end. Drives the Phase 3 auto-weld pass. Null = default (buttWeld).
+  @override
   final EndConnection? endA;
+  @override
   final EndConnection? endB;
 
   const _Comp(
@@ -519,6 +350,9 @@ class _Comp implements _Item {
       );
 
   bool get isElbow => t == _Tool.elbow90 || t == _Tool.elbow45;
+
+  @override
+  String get toolName => t.name;
 }
 
 class _Note implements _Item {
@@ -861,6 +695,17 @@ class _IsoState extends State<IsoNotebookScreen> {
   _Tool _tool = _Tool.pipe;
   String _projectName = '';
 
+  /// Root gap per weld (mm) of this sketch — stored with it, 0 by default.
+  /// Taken off once per welded pipe end, the segment builder's rule, so the
+  /// sketch and a project with the same gap cut the same pipe.
+  double _gapMm = 0;
+
+  /// "3" / "1.5" — a millimetre value without a trailing ".0".
+  static String _fmtMm(double v) {
+    final r = v.roundToDouble();
+    return (v - r).abs() < 1e-9 ? r.toStringAsFixed(0) : v.toStringAsFixed(1);
+  }
+
   /// User-dismissable empty-state hint. Persisted across sessions via
   /// SharedPreferences so it doesn't reappear on every app start. The app
   /// bar has a Help button to bring it back when needed.
@@ -1137,6 +982,7 @@ class _IsoState extends State<IsoNotebookScreen> {
         json: jsonEncode(_encodeIsoSketch(_IsoSketch(
           name: _projectName,
           items: _items,
+          gapMm: _gapMm,
           takeoutByDn: _compDimCache,
           lastDnByTool: _lastDnByTool,
         ))),
@@ -1308,6 +1154,7 @@ class _IsoState extends State<IsoNotebookScreen> {
         ..addAll(sketch.items);
       _undo.clear();
       _projectName = sketch.name;
+      _gapMm = sketch.gapMm;
       _compDimCache
         ..clear()
         ..addAll(sketch.takeoutByDn);
@@ -1369,6 +1216,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       _items.clear();
       _undo.clear();
       _projectName = '';
+      _gapMm = 0;
       _compDimCache.clear();
       _lastDnByTool.clear();
       _drawingId = const Uuid().v4();
@@ -1766,24 +1614,8 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// derived `inferredDnAt(endpoint)` via a BFS that stops at any physical
   /// component carrying `dnOut`. We don't store inferred DN on the segment
   /// (segments are immutable) — `_cutListLines` queries this on demand.
-  int? _inferredDnFor(_Seg seg) {
-    // Pick whichever endpoint has a known-DN component closest to it via
-    // walking the segment graph. Reducer's dnOut wins downstream of its
-    // position; an elbow's dn wins as a fallback when reducer is absent.
-    final tol = _s * 0.45;
-    int? bestDn;
-    for (final endpoint in [seg.a, seg.b]) {
-      for (final it in _items) {
-        if (it is! _Comp) continue;
-        if ((it.pos - endpoint).distance >= tol) continue;
-        final candidate = it.dnOut ?? it.dn;
-        if (candidate != null) {
-          bestDn = candidate;
-        }
-      }
-    }
-    return bestDn;
-  }
+  int? _inferredDnFor(_Seg seg) =>
+      sketchInferredDn(seg, _comps, _s * 0.45);
 
   /// Return 0..5 — the index into [_isoHeadings] whose unit vector best
   /// aligns with [v]. Used to convert a free vector (the pipe's outgoing
@@ -2100,6 +1932,9 @@ class _IsoState extends State<IsoNotebookScreen> {
       ));
     }
     bool calcMode = current?.hasDeducts ?? false;
+    // Which expression field the operator keys (+ − × ( ) " ⌫) edit: -1 = the
+    // ISO field, i = deduct row i. One key bar, under the field in use.
+    int activeExpr = -1;
 
     // Wrap the whole dialog flow in try/finally so the controllers are
     // disposed deterministically when the user taps OK, Cancel or the back
@@ -2145,6 +1980,9 @@ class _IsoState extends State<IsoNotebookScreen> {
           // Take-outs the engine read off the drawing itself, i.e. the part
           // of the reduction the typed rows do NOT explain.
           double autoDeduct = 0;
+          // The sketch's weld gap, shown as its own row so the fittings row
+          // keeps meaning "fittings".
+          double gapDeduct = 0;
           if (isoMm != null) {
             final pa = segA;
             final pb = segB;
@@ -2169,13 +2007,19 @@ class _IsoState extends State<IsoNotebookScreen> {
               // the negative number and its "components longer than ISO"
               // warning instead of going blank.
               cutMm = v.isFinite ? v : isoMm - deductSum;
-              autoDeduct = isoMm - deductSum - cutMm;
+              if (v.isFinite && _gapMm > 0) {
+                gapDeduct =
+                    _gapMm * sketchWeldCount(preview, _comps, _s * 0.45);
+              }
+              autoDeduct = isoMm - deductSum - cutMm - gapDeduct;
             } else {
               cutMm = isoMm - deductSum;
             }
           }
 
           void rebuild() => setLocal(() {});
+          final isoKeysActive =
+              !calcMode || activeExpr < 0 || activeExpr >= rows.length;
 
           // P1-18: live-result card extracted so it can sit ABOVE the
           // ISO input as the new headline. Welder no longer has to scroll
@@ -2245,6 +2089,24 @@ class _IsoState extends State<IsoNotebookScreen> {
                           const Spacer(),
                           Text(
                             '− ${autoDeduct.toStringAsFixed(1)} mm',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: cs.tertiary),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (gapDeduct > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(_tr('Szczelina spoin', 'Weld gap'),
+                              style: TextStyle(
+                                  fontSize: 11, color: cs.onSurfaceVariant)),
+                          const Spacer(),
+                          Text(
+                            '− ${gapDeduct.toStringAsFixed(1)} mm',
                             style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
@@ -2359,14 +2221,26 @@ class _IsoState extends State<IsoNotebookScreen> {
                     TextField(
                       controller: isoCtrl,
                       autofocus: true,
-                      keyboardType: TextInputType.text,
+                      // Decimal pad (with the comma) for the numbers; the
+                      // operators come from the key bar right below — the
+                      // same pair as the segment builder's ISO field.
+                      keyboardType: numberKeyboard(),
+                      inputFormatters: isoExpressionInputFormatters(),
                       decoration: InputDecoration(
                         hintText: _tr('np. 1500 lub 3000+525-80',
                             'e.g. 1500 or 3000+525-80'),
                         suffixText: 'mm',
                       ),
+                      onTap: () => setLocal(() => activeExpr = -1),
                       onChanged: (_) => rebuild(),
                     ),
+                    if (isoKeysActive) ...[
+                      const SizedBox(height: 8),
+                      IsoExpressionKeyBar(
+                        controller: isoCtrl,
+                        onChanged: (_) => rebuild(),
+                      ),
+                    ],
 
                     if (calcMode) ...[
                       const SizedBox(height: 14),
@@ -2389,7 +2263,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      for (var i = 0; i < rows.length; i++)
+                      for (var i = 0; i < rows.length; i++) ...[
                         Padding(
                           padding: const EdgeInsets.only(bottom: 6),
                           child: Row(
@@ -2417,12 +2291,16 @@ class _IsoState extends State<IsoNotebookScreen> {
                                 flex: 4,
                                 child: TextField(
                                   controller: rows[i].$2,
-                                  keyboardType: TextInputType.text,
+                                  keyboardType: numberKeyboard(),
+                                  inputFormatters:
+                                      isoExpressionInputFormatters(),
                                   decoration: InputDecoration(
                                     isDense: true,
                                     hintText: '76',
                                     suffixText: 'mm',
                                   ),
+                                  onTap: () =>
+                                      setLocal(() => activeExpr = i),
                                   onChanged: (_) => rebuild(),
                                 ),
                               ),
@@ -2433,11 +2311,25 @@ class _IsoState extends State<IsoNotebookScreen> {
                                     minWidth: 48, minHeight: 48),
                                 onPressed: () => setLocal(() {
                                   rows.removeAt(i);
+                                  if (activeExpr == i) {
+                                    activeExpr = -1;
+                                  } else if (activeExpr > i) {
+                                    activeExpr--;
+                                  }
                                 }),
                               ),
                             ],
                           ),
                         ),
+                        if (activeExpr == i)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: IsoExpressionKeyBar(
+                              controller: rows[i].$2,
+                              onChanged: (_) => rebuild(),
+                            ),
+                          ),
+                      ],
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -3861,71 +3753,86 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
   }
 
+  /// "Szczelina spoiny": the sketch's root gap. Part of the drawing (it
+  /// changes every CUT), so it arms the autosave like any edit.
+  Future<void> _editGap() async {
+    final v = await showSketchGapDialog(context, current: _gapMm);
+    if (v == null || !mounted || (v - _gapMm).abs() < 1e-9) return;
+    setState(() {
+      _gapMm = v;
+      _version++;
+      _markEdited();
+    });
+    _scheduleSave();
+  }
+
+  /// "Utwórz projekt CUT": the dimensioned pipes of the sketch become the
+  /// segments of a new project (see sketch_to_project.dart), with exactly the
+  /// CUTs shown here; then the project opens.
+  Future<void> _createProjectFromSketch() async {
+    final pipes = _pipes;
+    if (pipes.isEmpty) {
+      _snack(_tr('Na szkicu nie ma rur.', 'There are no pipes on the sketch.'));
+      return;
+    }
+    final plan = planProjectFromSketch(
+      pipes: pipes,
+      components: _comps.toList(growable: false),
+      gapMm: _gapMm,
+      tol: _s * 0.45,
+    );
+    final settings = await showSketchProjectDialog(context,
+        plan: plan, sketchName: _projectName);
+    if (settings == null || !mounted) return;
+    final String projectId;
+    try {
+      projectId = await createProjectFromSketch(plan, settings);
+    } catch (e) {
+      debugPrint('ISO notebook: creating the project failed: $e');
+      final leftover = e is SketchProjectWriteFailed && !e.cleanedUp;
+      _snack(leftover
+          ? _tr('Nie udało się utworzyć projektu, a częściowy zapis nie dał '
+                'się cofnąć — usuń projekt „${settings.name}” z listy.',
+              'Could not create the project and the partial write could not '
+                'be undone — delete project “${settings.name}” from the list.')
+          : _tr('Nie udało się utworzyć projektu — nic nie zapisano. Spróbuj '
+                'ponownie.',
+              'Could not create the project — nothing was saved. Try again.'));
+      return;
+    }
+    if (!mounted) return;
+    final skipped = plan.skipped.length;
+    _snack(skipped == 0
+        ? _tr('Utworzono projekt: ${plan.segments.length} segm.',
+            'Project created: ${plan.segments.length} segments.')
+        : _tr('Utworzono projekt: ${plan.segments.length} segm. '
+              '$skipped rur(y) do uzupełnienia nie trafiło do projektu.',
+            'Project created: ${plan.segments.length} segments. $skipped '
+              'pipe(s) to complete were left out.'));
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => FitterScreen(projectId: projectId),
+    ));
+  }
+
   // ── summary / BOM ───────────────────────────────────────────────────────────
   List<_Seg> get _pipes =>
       _items.whereType<_Seg>().where((s) => s.t == _Tool.pipe).toList();
 
+  /// Components of the drawing, as the shared CUT formula reads them.
+  Iterable<_Comp> get _comps => _items.whereType<_Comp>();
+
   /// THE cut length of [seg], in millimetres — the single number the drawing,
-  /// the title block, the cut list, the BOM and the PDF all render.
+  /// the title block, the cut list, the BOM, the PDF and a CUT project created
+  /// from this sketch all use.
   ///
-  /// Everything routes through [prefab.PrefabEngine]; there is deliberately no
+  /// The formula is [sketchCutMm] (lib/domain/iso_notebook/sketch_cut.dart):
+  /// PrefabEngine with the drawing's take-outs, minus the typed rows, minus
+  /// the sketch's weld gap once per welded end. There is deliberately no
   /// second formula anywhere in this file. Returns NaN when the ISO itself is
-  /// unreadable or the engine rejects the result.
-  double _resolvedCut(_Seg seg) {
-    final c = seg.calc;
-    if (c == null) return double.nan;
-    // "(1500)" is a reference dimension, not a cut target. The legacy getter
-    // enforced this and `_resolvedCut` did not, so the summary bar counted
-    // REF runs into the total while the title block left them out.
-    if (c.isReference) return double.nan;
-    // Parse ISO expression — preserve the original try/catch contract: a
-    // garbled formula yields NaN so the BOM rendering can show "(unreadable)".
-    double isoMm;
-    try {
-      isoMm = parseIsoExpression(c.iso);
-    } catch (e) {
-      debugPrint('_resolvedCut ISO parse failed for "${c.iso}": $e');
-      return double.nan;
-    }
-    // Per-end axial take-out totals (elbow / tee / olet). PrefabEngine needs
-    // them split so refs like centreToFace can credit only the left side.
-    final tol = _s * 0.45;
-    final axial = _axialTakeoutsFor(seg, _items, tol, manual: c.deducts);
-    final leftCte = axial.leftMm;
-    final rightCte = axial.rightMm;
-    // Also subtract any manually typed deduct rows (Phase 1 keeps them as
-    // generic centre-to-end style debits so existing drawings keep producing
-    // the same CUT). Unreadable rows are skipped, mirroring legacy `cutMm`.
-    double manualDeducts = 0;
-    for (final d in c.deducts) {
-      if (d.value.trim().isEmpty) continue;
-      try {
-        manualDeducts += parseIsoExpression(d.value);
-      } catch (e) {
-        // P0r-07 + P0r-04 sister: log manual deduct parse failure so the
-        // total-shrink-mystery is debuggable. The engine still proceeds
-        // because dropping ONE bad deduct preserves the rest of the math.
-        debugPrint('_resolvedCut manual deduct parse failed: $e');
-      }
-    }
-    final leftPhys = _autoPhysicalDeductFor(seg.a, _items, tol);
-    final rightPhys = _autoPhysicalDeductFor(seg.b, _items, tol);
-    final midPhys = _midPhysicalDeductFor(seg, _items, tol);
-    final engineCut = prefab.PrefabEngine.cutLengthMm(
-      isoValueMm: isoMm,
-      ref: c.ref,
-      leftCteMm: leftCte,
-      rightCteMm: rightCte,
-      leftPhysicalLenMm: leftPhys > 0 ? leftPhys : null,
-      rightPhysicalLenMm: rightPhys > 0 ? rightPhys : null,
-      midPhysicalSumMm: midPhys,
-      // P0-09: tell the engine which side is physical so centreToFace
-      // credits ONLY the centre side's CTE (not both).
-      leftIsPhysical: leftPhys > 0,
-      rightIsPhysical: rightPhys > 0,
-    );
-    return engineCut - manualDeducts;
-  }
+  /// unreadable, the dimension is a "(reference)" one, or the engine rejects
+  /// the result.
+  double _resolvedCut(_Seg seg) =>
+      sketchCutMm(seg, _comps, tol: _s * 0.45, gapMm: _gapMm);
 
   double get _totalMm {
     double sum = 0;
@@ -3999,11 +3906,16 @@ class _IsoState extends State<IsoNotebookScreen> {
         continue;
       }
       final cut = _resolvedCut(s);
-      final axial = _axialTakeoutsFor(s, _items, tol, manual: c.deducts);
+      final comps = _comps.toList(growable: false);
+      final axial = sketchAxialTakeoutsFor(s, comps, tol, manual: c.deducts);
       final autoCte = axial.totalMm;
-      final leftPhys = _autoPhysicalDeductFor(s.a, _items, tol);
-      final rightPhys = _autoPhysicalDeductFor(s.b, _items, tol);
-      final midPhys = _midPhysicalDeductFor(s, _items, tol);
+      final leftPhys = sketchPhysicalDeductAt(s.a, comps, tol);
+      final rightPhys = sketchPhysicalDeductAt(s.b, comps, tol);
+      final midPhys = sketchMidPhysicalDeduct(s, comps, tol);
+      // The sketch's weld gap, once per welded end — part of the CUT above,
+      // so it is listed with the other deducts.
+      final welds = sketchWeldCount(s, comps, tol);
+      final gapSum = _gapMm > 0 ? _gapMm * welds : 0.0;
       // Mirror engine semantics: physicals on segment ends only contribute
       // when the dimension goes ALL THE WAY THROUGH the body (end-stop
       // refs: faceToEnd, centreToEnd). For face-stop refs (CTF, FTF) the
@@ -4012,7 +3924,7 @@ class _IsoState extends State<IsoNotebookScreen> {
           c.ref == DimRef.centreToEnd;
       final endPhysSum = endPhysicalsActive ? leftPhys + rightPhys : 0;
       final hasAnyDeduct = c.hasDeducts || autoCte > 0 ||
-          endPhysSum > 0 || midPhys > 0;
+          endPhysSum > 0 || midPhys > 0 || gapSum > 0;
       final refTag = isPl ? c.ref.labelPl : c.ref.labelEn;
       final cutStr = c.isReference
           ? (isPl ? '(wymiar odniesienia)' : '(reference dimension)')
@@ -4038,6 +3950,10 @@ class _IsoState extends State<IsoNotebookScreen> {
         if (midPhys > 0) {
           lines.add('       − ${isPl ? "komponenty w środku" : "mid components"}: $midPhys mm');
         }
+        if (gapSum > 0) {
+          lines.add('       − ${isPl ? "szczelina spoin" : "weld gap"}: '
+              '$welds × ${_fmtMm(_gapMm)} mm');
+        }
         lines.add('     CUT: $cutStr');
       } else {
         lines.add(
@@ -4047,7 +3963,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       // Silence there reads as "nothing to subtract"; say it out loud so the
       // fitter knows the number is short of a deduct rather than final.
       for (final m in axial.missing) {
-        lines.add('       ! ${compName(m.t, isPl)}: '
+        lines.add('       ! ${compName((m as _Comp).t, isPl)}: '
             '${isPl ? "brak wymiaru (CTE) — NIE odjęto" : "no dimension (CTE) — NOT deducted"}');
       }
       if (s.hasSlope) {
@@ -5185,9 +5101,39 @@ class _IsoState extends State<IsoNotebookScreen> {
                 case 'open':
                   unawaited(_openSavedSketches());
                   break;
+                case 'project':
+                  unawaited(_createProjectFromSketch());
+                  break;
+                case 'gap':
+                  unawaited(_editGap());
+                  break;
               }
             },
             itemBuilder: (ctx) => [
+              PopupMenuItem<String>(
+                value: 'project',
+                enabled: pipeCount > 0,
+                child: Row(children: [
+                  const Icon(Icons.content_cut, size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                        _tr('Utwórz projekt CUT…', 'Create CUT project…')),
+                  ),
+                ]),
+              ),
+              PopupMenuItem<String>(
+                value: 'gap',
+                child: Row(children: [
+                  const Icon(Icons.compare_arrows, size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(_tr('Szczelina spoiny: ${_fmtMm(_gapMm)} mm…',
+                        'Weld gap: ${_fmtMm(_gapMm)} mm…')),
+                  ),
+                ]),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem<String>(
                 value: 'new',
                 child: Row(children: [

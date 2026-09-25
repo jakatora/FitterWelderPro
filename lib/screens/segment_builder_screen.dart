@@ -162,8 +162,8 @@ SideStop stopForRefPoint(IsoRefPoint ref) => sideStopForRefCode(ref.code)!;
 /// subtract `welds × gap` in a formula the engine did not know existed. The
 /// gap now lives in the engine ([PrefabEngine.anchoredCutMm]), and the scan
 /// review reads the same rule with the same project gap. The ISO notebook
-/// does not — it has no gap setting — so with a project gap above 0 the same
-/// run is still `welds × gap` longer there (see [PrefabEngine.cutLengthMm]).
+/// applies the same rule with its sketch's own gap (default 0), which a CUT
+/// project created from the sketch inherits (see [PrefabEngine.cutLengthMm]).
 ///
 /// [startOffsetMm] / [endOffsetMm] are the offsets from `_calcOffset` — the
 /// distance from the anchor's reference point to the pipe face — handed to

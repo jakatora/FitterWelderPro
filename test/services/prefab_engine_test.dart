@@ -472,9 +472,8 @@ void main() {
 
   // One run, one number from the builder and from a DimRef-style engine call.
   // The builder used to subtract `welds * gap` in a formula PrefabEngine knew
-  // nothing about. NB: the `viaNotebook` calls below pass a gap; the real ISO
-  // notebook has no gap setting and passes none, so with a gap above 0 the
-  // notebook screen itself still shows the run `welds * gap` longer.
+  // nothing about. The ISO notebook passes its sketch gap the same way
+  // (test/domain/iso_notebook/sketch_to_project_test.dart).
   group('segment builder and PrefabEngine agree on the same run', () {
     test('elbow -> open end, 2 mm gap on one joint', () {
       const isoMm = 1000.0;

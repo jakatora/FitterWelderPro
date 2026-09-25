@@ -239,11 +239,11 @@ class PrefabEngine {
   ///     [anchoredCutMm] (the scan review used to save gap 0 and pass none),
   ///     and so does the recompute of saved segments when a project's gap is
   ///     edited ([storedSegmentCutMm]);
-  ///   * the ISO notebook does NOT: it has no gap setting and calls this with
-  ///     the defaults. With a project gap above 0 the same run therefore comes
-  ///     out `gap × welds` longer in the notebook than in the builder. The
-  ///     engine agreeing with itself does not make those two screens agree —
-  ///     only the notebook passing a gap would.
+  ///   * the ISO notebook does too (since 2026-09): each sketch carries its
+  ///     own gap (default 0) and passes it with the builder's weld rule —
+  ///     one gap per welded pipe end — through `sketchCutMm`
+  ///     (`lib/domain/iso_notebook/sketch_cut.dart`). A project created from
+  ///     the sketch takes that gap, so the two agree.
   ///
   /// The four component-length parameters take `num` rather than `int` so a
   /// caller holding sub-millimetre take-outs (a 76.2 mm elbow) does not have

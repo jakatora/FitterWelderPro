@@ -10,10 +10,11 @@ part of 'iso_notebook_screen.dart';
 // are private to it; nothing here touches widgets, the database or the
 // screen state.
 //
-// FORMAT (kIsoSketchFormatVersion = 1):
+// FORMAT (kIsoSketchFormatVersion = 2):
 //   {
-//     "format": 1,
+//     "format": 1 or 2,
 //     "name": "6\"-CWS-1234",
+//     "gapMm": 3,             (format 2 only — see below)
 //     "items": [
 //       {"kind": "seg",  "tool": "pipe", "a": [x, y], "b": [x, y],
 //        "slope": "", "insulated": false,
@@ -36,6 +37,13 @@ part of 'iso_notebook_screen.dart';
 // model. Enums are written by `.name` — `_Tool.name` is already a de-facto
 // stable identifier (ComponentClassification keys on it).
 //
+// FORMAT 2 adds "gapMm", the sketch's root gap per weld. A sketch with no
+// gap (0, the default) is still written as format 1 without the field — an
+// older build reads it completely, so there is nothing for it to lose. Only a
+// sketch that HAS a gap is written as format 2, which an older build refuses
+// instead of opening it and quietly saving it back without the gap (its CUTs
+// would grow by gap × welds).
+//
 // EVOLVING THE FORMAT: a new field that an older build would drop on its
 // next autosave MUST bump [kIsoSketchFormatVersion]. An older build refuses a
 // newer format (it starts a fresh sketch and leaves the stored one alone),
@@ -46,7 +54,7 @@ part of 'iso_notebook_screen.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Version of the JSON document written into `iso_drawings.json`.
-const int kIsoSketchFormatVersion = 1;
+const int kIsoSketchFormatVersion = 2;
 
 /// The stored sketch cannot be opened by this build.
 class IsoSketchFormatException implements Exception {
@@ -75,9 +83,13 @@ class _IsoSketch {
   /// Items present in the document that this build could not read.
   final int skippedItems;
 
+  /// Root gap per weld (mm); 0 = none.
+  final double gapMm;
+
   const _IsoSketch({
     required this.name,
     required this.items,
+    this.gapMm = 0,
     this.takeoutByDn = const {},
     this.lastDnByTool = const {},
     this.skippedItems = 0,
@@ -141,8 +153,9 @@ Map<String, Object?> _encodeItem(_Item it) {
 }
 
 Map<String, Object?> _encodeIsoSketch(_IsoSketch s) => {
-      'format': kIsoSketchFormatVersion,
+      'format': s.gapMm > 0 ? 2 : 1,
       'name': s.name,
+      if (s.gapMm > 0) 'gapMm': s.gapMm,
       'items': [for (final it in s.items) _encodeItem(it)],
       'takeoutMemory': {
         'values': [
@@ -322,8 +335,15 @@ _IsoSketch _decodeIsoSketch(Object? raw) {
   }
 
   final name = raw['name'];
+  // A gap that is not a finite, positive number is read as 0 — it must never
+  // LENGTHEN a pipe, and 0 is what every sketch had before gaps existed.
+  final gapRaw = raw['gapMm'];
+  final gap = (gapRaw is num && gapRaw.isFinite && gapRaw > 0)
+      ? gapRaw.toDouble()
+      : 0.0;
   return _IsoSketch(
     name: name is String ? name : '',
+    gapMm: gap,
     items: items,
     takeoutByDn: takeoutByDn,
     lastDnByTool: lastDn,
