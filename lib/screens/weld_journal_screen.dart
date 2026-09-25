@@ -17,6 +17,9 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/weld_journal_dao.dart';
+import '../database/wps_dao.dart';
+import '../domain/qualification/certificate_status.dart' show JournalWeld;
+import '../domain/weld_journal/weld_compliance.dart';
 import '../domain/weld_journal/weld_dates.dart';
 import '../domain/weld_journal/weld_defaults.dart';
 import '../domain/weld_journal/weld_entry.dart';
@@ -27,8 +30,10 @@ import '../domain/weld_journal/weld_stats.dart';
 import '../i18n/app_language.dart';
 import '../services/weld_journal_export.dart';
 import '../services/welder_identity.dart';
+import '../services/welder_qualification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/help_button.dart';
+import '../widgets/weld_journal/weld_compliance_view.dart';
 import '../widgets/weld_journal/weld_editor_sheet.dart';
 import '../widgets/weld_journal/weld_filter_sheet.dart';
 import '../widgets/weld_journal/weld_history_view.dart';
@@ -65,6 +70,11 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// Every entry, soft-deleted included, in natural weld-number order.
   List<WeldEntry> _entries = [];
   Map<String, WeldJournalProjectSettings> _settings = const {};
+
+  /// WPS / qualification check per weld id (live welds only). Empty when the
+  /// WPS library and the qualification register are both empty — nothing to
+  /// check, nothing to show.
+  Map<String, WeldCompliance> _compliance = const {};
   WeldJournalFilter _filter = const WeldJournalFilter();
   String _lastWeldId = '';
   bool _loading = true;
@@ -99,10 +109,12 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         debugPrint('[weld_journal] settings load failed: $e');
       }
       final defaults = await loadWeldDefaults();
+      final compliance = await _assess(all);
       if (!mounted) return;
       setState(() {
         _entries = all;
         _settings = settings;
+        _compliance = compliance;
         _lastWeldId = defaults.lastWeldId;
         _loading = false;
       });
@@ -117,6 +129,36 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
             'Failed to load journal. Try again.')),
         action: SnackBarAction(label: _tr('Ponów', 'Retry'), onPressed: _load),
       ));
+    }
+  }
+
+  /// One read of the WPS library and the qualification register for the
+  /// whole list. A failure only hides the badges.
+  Future<Map<String, WeldCompliance>> _assess(List<WeldEntry> all) async {
+    try {
+      final library = await WpsDao().listAll();
+      final certificates =
+          await WelderQualificationService.instance.listCertificates();
+      if (library.isEmpty && certificates.isEmpty) return const {};
+      final rows = [for (final e in all) e.toRow()];
+      final cache = <String, List<JournalWeld>>{};
+      final today = DateTime.now();
+      return {
+        for (final e in all)
+          if (!e.isDeleted)
+            e.id: assessWeldCompliance(
+              entry: e,
+              wpsLibrary: library,
+              certificates: certificates,
+              journalRows: rows,
+              defaultStamp: _stamp,
+              today: today,
+              journalCache: cache,
+            ),
+      };
+    } catch (e) {
+      debugPrint('[weld_journal] compliance badges failed: $e');
+      return const {};
     }
   }
 
@@ -332,6 +374,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
                             final e = visible[i];
                             return _WeldTile(
                               entry: e,
+                              compliance: _compliance[e.id],
                               onTap: () => _openEditor(e, isNew: false),
                               onStatusTap: e.isDeleted
                                   ? null
@@ -670,12 +713,14 @@ enum _TileAction { status, next, repair, history, delete, restore }
 
 class _WeldTile extends StatelessWidget {
   final WeldEntry entry;
+  final WeldCompliance? compliance;
   final VoidCallback onTap;
   final VoidCallback? onStatusTap;
   final ValueChanged<_TileAction> onAction;
 
   const _WeldTile({
     required this.entry,
+    this.compliance,
     required this.onTap,
     required this.onStatusTap,
     required this.onAction,
@@ -791,6 +836,12 @@ class _WeldTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 11, color: kTextMut),
                   ),
+                  if (compliance != null &&
+                      WeldComplianceBadges.hasAny(compliance!))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: WeldComplianceBadges(compliance: compliance!),
+                    ),
                   if (e.notes.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),

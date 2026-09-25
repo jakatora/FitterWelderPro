@@ -203,7 +203,7 @@ void main() {
     await tester.enterText(field('Nr WPS / pWPS'), 'WPS-141-01');
     await tester.tap(find.text('Zapisz i następna'));
     await tester.pump();
-    await _settle(tester, rounds: 10);
+    await _settle(tester, rounds: 20);
     await tester.pumpAndSettle();
 
     final saved = (await tester.runAsync(() => WeldJournalDao().listAll()))!;
@@ -254,7 +254,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
     await tester.pump();
-    await _settle(tester);
+    await _settle(tester, rounds: 20); // zapis sprawdza też WPS i uprawnienia
     await tester.pumpAndSettle();
 
     final w = (await tester.runAsync(() => WeldJournalDao().listAll()))!.single;

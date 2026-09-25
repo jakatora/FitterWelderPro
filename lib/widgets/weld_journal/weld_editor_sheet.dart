@@ -16,15 +16,20 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../database/weld_journal_dao.dart';
+import '../../domain/weld_journal/weld_compliance.dart';
 import '../../domain/weld_journal/weld_dates.dart';
 import '../../domain/weld_journal/weld_defaults.dart';
 import '../../domain/weld_journal/weld_entry.dart';
 import '../../domain/weld_journal/weld_history.dart';
 import '../../domain/weld_journal/weld_ndt.dart';
 import '../../domain/weld_journal/weld_numbering.dart';
+import '../../domain/welding/heat_input.dart';
+import '../../features/wps/wps_picker_sheet.dart';
 import '../../i18n/app_language.dart';
+import '../../services/weld_compliance_check.dart';
 import '../../theme/app_theme.dart';
 import 'coupon_picker_sheet.dart';
+import 'weld_compliance_view.dart';
 import 'weld_history_view.dart';
 import 'weld_ndt_editor.dart';
 import 'weld_project_picker.dart';
@@ -55,6 +60,7 @@ Future<WeldEditorResult?> showWeldEditor(
   required List<String> journalProjects,
   required String stamp,
   WeldJournalDao? dao,
+  WeldComplianceCheck? check,
 }) =>
     showModalBottomSheet<WeldEditorResult>(
       context: context,
@@ -75,6 +81,7 @@ Future<WeldEditorResult?> showWeldEditor(
         journalProjects: journalProjects,
         stamp: stamp,
         dao: dao ?? WeldJournalDao(),
+        check: check ?? checkWeldCompliance,
       ),
     );
 
@@ -86,6 +93,10 @@ class WeldEditorSheet extends StatefulWidget {
   final String stamp;
   final WeldJournalDao dao;
 
+  /// WPS + welder qualification — on save and on the card of an existing
+  /// weld.
+  final WeldComplianceCheck check;
+
   const WeldEditorSheet({
     super.key,
     required this.initial,
@@ -94,6 +105,7 @@ class WeldEditorSheet extends StatefulWidget {
     required this.journalProjects,
     required this.stamp,
     required this.dao,
+    this.check = checkWeldCompliance,
   });
 
   @override
@@ -120,7 +132,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   late final _fillerBatch = TextEditingController(text: _e.fillerBatch);
   late final _preheat = TextEditingController(text: _e.preheatC);
   late final _interpass = TextEditingController(text: _e.interpassC);
-  late final _heatInput = TextEditingController(text: _e.heatInput);
+  late final HeatInputText _hiInitial = splitHeatInput(_e.heatInput);
+  late final _heatInput = TextEditingController(text: _hiInitial.number);
   late final _welder = TextEditingController(text: _e.welder);
   late final _root = TextEditingController(text: _e.rootWelder);
   late final _cap = TextEditingController(text: _e.capWelder);
@@ -144,6 +157,18 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   late Map<NdtMethod, WeldNdt> _ndt = _e.ndt;
   late String? _projectId = _e.projectId;
   late String? _couponId = _e.couponId;
+
+  /// Convention of the heat input value — stored as a suffix of the text
+  /// ("1,25 EN"), see weld_compliance.dart.
+  late HeatInputStandard? _hiMethod = _hiInitial.method;
+
+  /// WPS picked from the library in this session; typing unlinks it. A weld
+  /// opened later is matched to the library by its `wps_ref` text.
+  String? _wpsId;
+
+  /// Last WPS / qualification check (on open of an existing weld, and after
+  /// "Popraw" in the save warning).
+  WeldCompliance? _check;
 
   /// The number is still the app's suggestion — picking a project may
   /// re-suggest it. Any keystroke in the number field hands it to the welder.
@@ -200,7 +225,26 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         [e.pwhtChart, e.hardness, e.inspector].any((s) => s.isNotEmpty)) {
       _open.add('acceptance');
     }
-    if (!widget.isNew) _loadHistory();
+    if (!widget.isNew) {
+      _loadHistory();
+      _runCardCheck();
+    }
+  }
+
+  Future<WeldCompliance?> _runCheck(WeldEntry entry) async {
+    try {
+      return await widget.check(entry, wpsId: _wpsId);
+    } catch (e) {
+      // No library, no register, no DB: the check is advice, never a reason
+      // to lose a weld.
+      debugPrint('[weld_journal] compliance check failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _runCardCheck() async {
+    final c = await _runCheck(_e);
+    if (mounted && c != null) setState(() => _check = c);
   }
 
   Future<void> _loadHistory() async {
@@ -247,7 +291,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         fillerBatch: _fillerBatch.text.trim(),
         preheatC: _preheat.text.trim(),
         interpassC: _interpass.text.trim(),
-        heatInput: _heatInput.text.trim(),
+        heatInput: joinHeatInput(_heatInput.text, _hiMethod),
         welder: _welder.text.trim(),
         rootWelder: _root.text.trim(),
         capWelder: _cap.text.trim(),
@@ -392,12 +436,31 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
     if (dups.isNotEmpty && !await _confirmDuplicate(dups)) return;
     if (!mounted) return;
 
+    // WPS and welder qualification: a warning, never a block. The welder
+    // decides; "Zapisz mimo to" goes to the weld's history.
     setState(() => _saving = true);
+    final compliance = await _runCheck(entry);
+    if (!mounted) return;
+    String? warning;
+    if (compliance != null && compliance.hasWarnings) {
+      setState(() => _saving = false);
+      final saveAnyway = await confirmWeldCompliance(context, compliance);
+      if (!mounted) return;
+      if (!saveAnyway) {
+        setState(() {
+          _check = compliance;
+          _open.addAll(['joint', 'process', 'welders']);
+        });
+        return;
+      }
+      warning = compliance.historyText(en: AppLanguageController.isEnglish);
+      setState(() => _saving = true);
+    }
     try {
       if (widget.isNew) {
-        await widget.dao.insert(entry, by: widget.stamp);
+        await widget.dao.insert(entry, by: widget.stamp, warning: warning);
       } else {
-        await widget.dao.update(entry, by: widget.stamp);
+        await widget.dao.update(entry, by: widget.stamp, warning: warning);
       }
       // Remember for the next joint — a name typed by hand too.
       await saveLastWeldProject(entry.projectName);
@@ -449,6 +512,21 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
     setState(() {
       _coupon.text = c.reference;
       _couponId = c.id;
+    });
+  }
+
+  Future<void> _pickWps() async {
+    FocusScope.of(context).unfocus();
+    final w = await showWpsPickerSheet(context, currentId: _wpsId);
+    if (w == null || !mounted) return;
+    setState(() {
+      _wps.text = wpsRefOf(w);
+      _wpsId = w.id;
+      // No value typed yet: offer the WPS convention (visible and
+      // changeable in the chips under the kJ/mm field).
+      if (_hiMethod == null && _heatInput.text.trim().isEmpty) {
+        _hiMethod = w.heatInputMethod;
+      }
     });
   }
 
@@ -652,6 +730,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
               style: const TextStyle(fontSize: 12, color: kFail),
             ),
           ),
+        if (_check != null) WeldCompliancePanel(compliance: _check!),
         // ── Identification ────────────────────────────────────────────────
         TextField(
           controller: _no,
@@ -790,8 +869,33 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
               _dropdown('Proces', 'Process', _method, _kMethods,
                   (v) => _method = v,
                   labels: const {'Tandem': 'Tandem TIG'}),
-              _text(_wps, 'Nr WPS / pWPS', 'WPS / pWPS no.'),
+              TextField(
+                controller: _wps,
+                textInputAction: TextInputAction.next,
+                // A hand-typed number is matched to the library by text.
+                onChanged: (_) {
+                  if (_wpsId != null) setState(() => _wpsId = null);
+                },
+                decoration: _dec('Nr WPS / pWPS', 'WPS / pWPS no.',
+                    suffix: IconButton(
+                      icon: const Icon(Icons.library_books_outlined, size: 20),
+                      tooltip: context.tr(
+                          pl: 'Wybierz z Biblioteki WPS',
+                          en: 'Pick from the WPS library'),
+                      onPressed: _saving ? null : _pickWps,
+                    )),
+              ),
             ]),
+            if (_wpsId != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  context.tr(
+                      pl: 'Z Biblioteki WPS — zakres sprawdzany przy zapisie',
+                      en: 'From the WPS library — range checked on save'),
+                  style: const TextStyle(fontSize: 11, color: kPass),
+                ),
+              ),
             WjRow([
               _text(_fillerClass, 'Spoiwo — klasyfikacja', 'Filler class.',
                   hint: 'ER316LSi'),
@@ -806,6 +910,15 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
                   numeric: true),
               _text(_heatInput, 'kJ/mm', 'kJ/mm', numeric: true),
             ]),
+            _label(context.tr(
+                pl: 'Energia liniowa liczona wg', en: 'Heat input per')),
+            _chips<HeatInputStandard?>([
+              (null, '—', kTextSec),
+              (HeatInputStandard.en1011, 'EN 1011-1 (k)', kArc),
+              (HeatInputStandard.asmeIx,
+                  context.tr(pl: 'ASME IX (bez k)', en: 'ASME IX (no k)'),
+                  kArc),
+            ], _hiMethod, (v) => _hiMethod = v),
           ],
         ),
 
