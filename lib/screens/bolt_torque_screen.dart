@@ -237,29 +237,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
       backgroundColor: _kBg,
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Row(
-          children: [
-            Text(context.tr(pl: 'Moment dokręcania', en: 'Bolt torque')),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: _kGold.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _kGold.withValues(alpha: 0.3)),
-              ),
-              child: const Text(
-                'PRO',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  color: _kGold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-          ],
-        ),
+        title: Text(context.tr(pl: 'Moment dokręcania', en: 'Bolt torque'),
+            maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
       body: ListView(
         padding: const EdgeInsets.all(12),

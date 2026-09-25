@@ -21,14 +21,11 @@ const _kBorder = Color(0xFF2A3140);
 const _kAccent = Color(0xFF26A69A);
 const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = kTextMut; // token motywu (kontrast ≥ 4,5:1)
-const _kGold = Color(0xFFE8C14B);
 const _kAccentDim = Color(0x3326A69A);
 
 // Pre-modulated colour constants (P1-20): hoisting these to top-level `const`
 // lets every paint and decoration share one immutable Color instance instead
 // of allocating a fresh one on each build / paint call.
-const _kGoldBg = Color(0x26E8C14B); // _kGold @ 15% alpha — PRO badge background
-const _kGoldBorder = Color(0x4DE8C14B); // _kGold @ 30% alpha — PRO badge border
 const _kAccentCallout =
     Color(0x1426A69A); // _kAccent @ 8% — Try-this callout bg
 const _kAccentCalloutBorder =
@@ -379,33 +376,8 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
       backgroundColor: _kBg,
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Row(
-          children: [
-            Expanded(
-                child: Text(
-                    context.tr(pl: 'Szablon siodła do druku', en: 'Printable saddle template'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: _kGoldBg,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: _kGoldBorder),
-              ),
-              child: const Text(
-                'PRO',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  color: _kGold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-          ],
-        ),
+        title: Text(context.tr(pl: 'Szablon siodła do druku', en: 'Printable saddle template'),
+            maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
             tooltip: context.tr(
