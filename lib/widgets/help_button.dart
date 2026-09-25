@@ -518,13 +518,13 @@ final kHelpWelderTools = ScreenHelp(
   stepsPl: [
     HelpStep('🧪', 'Gaz — zużycie gazu osłonowego i formującego na projekt oraz liczba butli (pojemność wodna × ciśnienie, z rezerwą).'),
     HelpStep('💨', 'O₂ Purge — szacunkowy czas i ilość gazu do wypłukania rury do zadanego ppm O₂; sprawdź analizatorem przed spawaniem.'),
-    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie.'),
+    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu).'),
     HelpStep('🔁', 'Ciśnienie — przelicznik bar / MPa / kPa / PSI / atm / kgf/cm².'),
   ],
   stepsEn: [
     HelpStep('🧪', 'Gas — shielding and purge gas for a project and the number of cylinders (water capacity × pressure, with reserve).'),
     HelpStep('💨', 'O₂ Purge — estimated time and gas to purge a pipe down to a target ppm O₂; verify with an analyser before welding.'),
-    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge.'),
+    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown).'),
     HelpStep('🔁', 'Pressure — converter bar / MPa / kPa / PSI / atm / kgf/cm².'),
   ],
 );
@@ -659,14 +659,14 @@ final kHelpHeatPhotos = ScreenHelp(
   bodyEn:
       'A photo gallery of material certificates (heat numbers) assigned to the project. You can add, view and delete label photos for material traceability.',
   stepsPl: [
-    HelpStep('📷', 'Dodaj zdjęcie aparatem lub z galerii przyciskiem +.'),
-    HelpStep('🔍', 'Dotknij miniatury aby zobaczyć pełny podgląd.'),
-    HelpStep('🗑️', 'Przytrzymaj miniaturę aby usunąć zdjęcie.'),
+    HelpStep('📷', '„Dodaj zdjęcie” → Aparat (zdjęcie etykiety od razu) albo Galeria. Na komputerze — wybór pliku.'),
+    HelpStep('💾', 'Zdjęcie jest zmniejszane i zapisywane w aplikacji — trafia do kopii zapasowej.'),
+    HelpStep('🗑️', 'Ikona kosza przy zdjęciu usuwa je (nie da się cofnąć).'),
   ],
   stepsEn: [
-    HelpStep('📷', 'Add a photo from the camera or gallery with the + button.'),
-    HelpStep('🔍', 'Tap a thumbnail to see the full preview.'),
-    HelpStep('🗑️', 'Long-press a thumbnail to delete the photo.'),
+    HelpStep('📷', '“Add photo” → Camera (shoot the label right away) or Gallery. On a computer — choose a file.'),
+    HelpStep('💾', 'The photo is downsized and stored in the app — it is included in the backup.'),
+    HelpStep('🗑️', 'The bin icon next to a photo deletes it (cannot be undone).'),
   ],
 );
 
@@ -679,13 +679,13 @@ final kHelpProjectComponents = ScreenHelp(
       'Project component view with heat number assignment. For each component you can assign a material certificate number and a label photo.',
   stepsPl: [
     HelpStep('🔢', 'Wpisz numer heatu (wytopienia) dla każdego komponentu.'),
-    HelpStep('📷', 'Dodaj zdjęcie certyfikatu materiałowego przyciskiem aparatu.'),
-    HelpStep('✅', 'Zapisz przypisania przyciskiem w górnym prawym rogu.'),
+    HelpStep('📷', 'W oknie „Dodaj HEAT” zrób zdjęcie etykiety lub atestu (Aparat) albo wybierz z Galerii.'),
+    HelpStep('✅', 'Zatwierdź przyciskiem „Zapisz” w oknie.'),
   ],
   stepsEn: [
     HelpStep('🔢', 'Enter the heat number for each component.'),
-    HelpStep('📷', 'Add a material certificate photo with the camera button.'),
-    HelpStep('✅', 'Save the assignments with the button in the top right.'),
+    HelpStep('📷', 'In the “Add HEAT” window take a photo of the label or certificate (Camera) or pick one from the Gallery.'),
+    HelpStep('✅', 'Confirm with “Save” in the window.'),
   ],
 );
 

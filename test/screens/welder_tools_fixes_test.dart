@@ -15,10 +15,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/welder_tools_screen.dart';
+import 'package:cut_list_app/services/weld_timer_service.dart';
 import 'package:cut_list_app/widgets/tool_registry.dart';
+
+import '../support/fake_weld_timer_effects.dart';
 
 Widget _app({Widget home = const WelderToolsScreen()}) => AppLanguageScope(
       controller: AppLanguageController(AppLanguage.en),
@@ -61,6 +65,15 @@ Future<void> _enter(WidgetTester tester, String label, String value) async {
 const _disclaimer = 'the WPS / project specification is binding';
 
 void main() {
+  // Timer to serwis-singleton: świeży na każdy test, bez platformy
+  // (wibracja, wakelock, powiadomienia) — patrz weld_timer_screen_test.dart.
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    WeldTimerService.instance =
+        WeldTimerService(effects: FakeEffects(), observeLifecycle: false);
+  });
+  tearDown(() => WeldTimerService.instance.dispose());
+
   group('bez duplikatów heat input / podgrzewania', () {
     testWidgets('tylko 4 zakładki: gaz, formowanie, timer, ciśnienie',
         (tester) async {
@@ -177,7 +190,7 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
 
       expect(find.textContaining('≤ 150 °C'), findsOneWidget);
-      await tester.tap(find.text('Pause'));
+      await tester.tap(find.text('Reset'));
       await tester.pump();
     });
   });

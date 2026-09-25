@@ -1,8 +1,6 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -10,6 +8,9 @@ import '../database/heat_photo_dao.dart';
 import '../database/project_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/heat_photo.dart';
+import '../services/heat_photo_capture.dart';
+import '../services/heat_photo_storage.dart';
+import '../widgets/heat_photo_source_buttons.dart';
 import '../widgets/help_button.dart';
 import '../models/library_component.dart';
 import '../models/project.dart';
@@ -56,25 +57,37 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) => _recoverLostPhoto());
+  }
+
+  /// Android potrafi zabić aplikację, gdy aparat jest otwarty (mało pamięci).
+  /// Zdjęcie wtedy nie wraca do `pickImage`, tylko czeka w `retrieveLostData`
+  /// — bez tego monter zrobiłby zdjęcie etykiety i nic by się nie zapisało.
+  Future<void> _recoverLostPhoto() async {
+    String? lost;
+    try {
+      lost = await HeatPhotoPicker.instance.retrieveLost();
+    } catch (e) {
+      debugPrint('HeatPhotos retrieveLost: $e');
+    }
+    if (lost == null || !mounted) return;
+    await _addFromPath(lost);
   }
 
   Future<void> _add() async {
+    if (_project == null) return;
+    // Aparat / Galeria na telefonie; na Windows / web od razu wybór pliku.
+    final path = await showHeatPhotoSourceSheet(context);
+    if (path == null || !mounted) return;
+    await _addFromPath(path);
+  }
+
+  Future<void> _addFromPath(String path) async {
     final p = _project;
     if (p == null) return;
 
     LibraryComponent? selected;
     final noteCtrl = TextEditingController();
-
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-    );
-    if (picked == null || picked.files.isEmpty) return;
-    final path = picked.files.single.path;
-    if (path == null) return;
-
-    if (!mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -123,24 +136,15 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
     // without writing a record.
     if (confirmed != true) return;
 
-    // The picker hands back a path inside its volatile cache; that copy is
-    // wiped on cache-clear, which would silently destroy the heat/MTR
-    // traceability evidence. Copy the file into an app-owned persistent
-    // directory and store THAT path instead.
+    // The picker hands back a path inside its volatile cache (camera shots
+    // included); that copy is wiped on cache-clear, which would silently
+    // destroy the heat/MTR traceability evidence. Copy the file into
+    // <documents>/heat_photos (covered by the backup) and store THAT path.
     String persistentPath;
     try {
-      final docsDir = await getApplicationDocumentsDirectory();
-      final heatDir = Directory('${docsDir.path}/heat_photos');
-      if (!await heatDir.exists()) {
-        await heatDir.create(recursive: true);
-      }
-      final ext = picked.files.single.extension;
-      final fileName =
-          '${const Uuid().v4()}${ext != null && ext.isNotEmpty ? '.$ext' : '.jpg'}';
-      final destPath = '${heatDir.path}${Platform.pathSeparator}$fileName';
-      await File(path).copy(destPath);
-      persistentPath = destPath;
-    } catch (_) {
+      persistentPath = await persistPickedHeatPhoto(path);
+    } catch (e) {
+      debugPrint('HeatPhotos copy failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

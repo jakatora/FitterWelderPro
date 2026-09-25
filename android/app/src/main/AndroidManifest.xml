@@ -22,6 +22,13 @@
          BLUETOOTH z README pakietu NIE dodajemy — potrzebne tylko do
          zestawów słuchawkowych BT, a te działają przez systemowy wybór wejścia. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Timer spawalniczy: VIBRATE dokłada wtyczka `vibration` (uprawnienie
+         „normal”, bez pytania użytkownika) — długa wibracja na koniec
+         chłodzenia/formowania. Zdjęcie numeru wytopu z aparatu: image_picker
+         używa intencji systemowej ACTION_IMAGE_CAPTURE, więc CELOWO BEZ
+         android.permission.CAMERA. Nie dopisuj CAMERA: przy zadeklarowanym
+         CAMERA intencja aparatu wymaga zgody i bez niej rzuca wyjątek. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <application
         android:label="Fitter Welder Pro"
         android:name="${applicationName}"

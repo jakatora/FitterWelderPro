@@ -1,11 +1,10 @@
 // ignore_for_file: prefer_const_constructors
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../domain/welding/purge.dart';
 import '../domain/welding/shielding_gas.dart';
 import '../i18n/app_language.dart';
+import '../services/weld_timer_service.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
@@ -484,147 +483,247 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
 // ═══════════════════════════════════════════════════════════════════════════
 // ZAKŁADKA: TIMER SPAWALNICZY
 // ═══════════════════════════════════════════════════════════════════════════
+// Stan i odliczanie żyją w WeldTimerService (lib/services/weld_timer_service.dart):
+// timer liczy dalej po zmianie zakładki i wyjściu z ekranu, a koniec
+// odliczania alarmuje wibracją, dźwiękiem i pełnoekranowym komunikatem
+// (WeldTimerAlarmOverlay w app.dart). Zakładka tylko wyświetla i steruje.
+// Przyciski ≥ 64 dp — obsługa w rękawicach.
+
+/// Minimalna wysokość przycisków timera (rękawice spawalnicze).
+const double kWeldTimerButtonHeight = 72;
+
+String _fmtClock(Duration d) {
+  final total = d.inSeconds;
+  final h = total ~/ 3600;
+  final m = (total % 3600) ~/ 60;
+  final s = total % 60;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return h > 0 ? '$h:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+}
+
+String _fmtPlain(double v) {
+  if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+  var s = v.toStringAsFixed(2);
+  while (s.endsWith('0')) {
+    s = s.substring(0, s.length - 1);
+  }
+  return s;
+}
+
 class _WeldTimerTab extends StatefulWidget {
   @override State<_WeldTimerTab> createState() => _WeldTimerTabState();
 }
 
 class _WeldTimerTabState extends State<_WeldTimerTab> {
-  // Max interpass temperature from the WPS — not calculated, used as the
-  // reminder shown when the cooldown time is up ("measure; weld on only at
-  // ≤ X °C").
-  final _maxTempCtrl = TextEditingController(text: '150');
-  final _coolTimeCtrl = TextEditingController(text: '2');
+  final WeldTimerService _timer = WeldTimerService.instance;
 
-  Timer? _timer;
-  int _elapsed = 0;          // sekundy
-  bool _running = false;
-  bool _alarm = false;
-  String _mode = 'WELD';     // WELD | COOL | PURGE
-  int _purgeSec = 0;
-  final _purgeInputCtrl = TextEditingController(text: '90');
+  // Pola startują z wartości serwisu — po powrocie na zakładkę widać to,
+  // co spawacz ustawił wcześniej.
+  late final _maxTempCtrl = TextEditingController(
+      text: _timer.maxInterpassC == null ? '' : _fmtPlain(_timer.maxInterpassC!));
+  late final _coolTimeCtrl = TextEditingController(
+      text: _fmtPlain(_timer.coolTime.inMilliseconds / 60000));
+  late final _purgeInputCtrl =
+      TextEditingController(text: _timer.purgeSeconds.toString());
 
-  @override void dispose() { _timer?.cancel(); _maxTempCtrl.dispose(); _coolTimeCtrl.dispose(); _purgeInputCtrl.dispose(); super.dispose(); }
+  @override
+  void dispose() {
+    // Timer NIE jest zatrzymywany — to serwis, liczy dalej.
+    _maxTempCtrl.dispose();
+    _coolTimeCtrl.dispose();
+    _purgeInputCtrl.dispose();
+    super.dispose();
+  }
 
-  int get _coolSec => (((_num(_coolTimeCtrl) ?? 2).clamp(0, 600)) * 60).toInt();
+  void _applyMaxTemp() => _timer.setMaxInterpass(_num(_maxTempCtrl));
 
-  void _start() { _timer?.cancel(); setState(() { _running = true; _alarm = false; }); _timer = Timer.periodic(const Duration(seconds: 1), (_) { setState(() { _elapsed++; if (_mode == 'COOL') { if (_elapsed >= _coolSec) _alarm = true; } if (_mode == 'PURGE') { if (_elapsed >= _purgeSec) _alarm = true; } }); }); }
-  void _pause() { _timer?.cancel(); setState(() => _running = false); }
-  void _reset() { _timer?.cancel(); setState(() { _elapsed = 0; _running = false; _alarm = false; }); }
-  void _setMode(String m) { _reset(); setState(() { _mode = m; if (m == 'PURGE') _purgeSec = int.tryParse(_purgeInputCtrl.text) ?? 90; }); }
+  void _applyCoolTime() {
+    final min = _num(_coolTimeCtrl);
+    if (min == null) return;
+    _timer.setCoolTime(Duration(milliseconds: (min.clamp(0, 600) * 60000).round()));
+  }
 
-  String _fmt(int s) { final m = s ~/ 60; final ss = s % 60; return '${m.toString().padLeft(2,'0')}:${ss.toString().padLeft(2,'0')}'; }
+  void _applyPurge() {
+    final s = int.tryParse(_purgeInputCtrl.text.trim());
+    if (s != null) _timer.setPurgeSeconds(s);
+  }
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
   @override
   Widget build(BuildContext context) {
-    final targetSec = _mode == 'COOL'
-        ? _coolSec
-        : (_mode == 'PURGE' ? _purgeSec : 0);
-    final progress = (targetSec > 0) ? (_elapsed / targetSec).clamp(0.0, 1.0) : 0.0;
-    final maxTemp = _num(_maxTempCtrl);
+    return ListenableBuilder(
+      listenable: _timer,
+      builder: (context, _) => _buildBody(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final mode = _timer.mode;
+    final running = _timer.running;
+    final finished = _timer.finished;
+    final target = _timer.target;
+    final elapsed = _timer.elapsed;
+    final remaining = _timer.remaining;
+    final progress = (target != null && target.inMilliseconds > 0)
+        ? (elapsed.inMilliseconds / target.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+    final alarmText = weldTimerAlarmText(_timer.currentAlarm,
+        english: context.language == AppLanguage.en);
 
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         // Wybór trybu
         Row(children: [
-          for (final m in [('WELD', _tr('Spawanie', 'Welding')), ('COOL', _tr('Chłodzenie', 'Cooldown')), ('PURGE', 'Purge')])
+          for (final m in [
+            (WeldTimerMode.weld, _tr('Spawanie', 'Welding')),
+            (WeldTimerMode.cool, _tr('Chłodzenie', 'Cooldown')),
+            (WeldTimerMode.purge, 'Purge'),
+          ])
             Expanded(child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: GestureDetector(
-                onTap: () => _setMode(m.$1),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: _mode == m.$1 ? _kOrange.withValues(alpha: 0.15) : _kCard,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: _mode == m.$1 ? _kOrange : _kBorder, width: _mode == m.$1 ? 1.5 : 1),
-                  ),
-                  child: Text(m.$2, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _mode == m.$1 ? _kOrange : _kSec)),
-                ),
+              child: _ModeButton(
+                label: m.$2,
+                selected: mode == m.$1,
+                onTap: () {
+                  if (m.$1 == WeldTimerMode.purge) _applyPurge();
+                  if (m.$1 == WeldTimerMode.cool) { _applyCoolTime(); _applyMaxTemp(); }
+                  _timer.setMode(m.$1);
+                },
               ),
             )),
         ]),
         const SizedBox(height: 16),
 
         // Parametry
-        if (_mode == 'COOL') ...[
+        if (mode == WeldTimerMode.cool) ...[
           Row(children: [
-            Expanded(child: _NumField(ctrl: _maxTempCtrl, label: _tr('Maks. temp. międzyściegowa z WPS (°C)', 'Max. interpass temp. from WPS (°C)'), hint: '150', unit: '°C', onChanged: () => setState(() {}))),
+            Expanded(child: _NumField(ctrl: _maxTempCtrl, label: _tr('Maks. temp. międzyściegowa z WPS (°C)', 'Max. interpass temp. from WPS (°C)'), hint: '150', unit: '°C', onChanged: _applyMaxTemp)),
             const SizedBox(width: 10),
-            Expanded(child: _NumField(ctrl: _coolTimeCtrl, label: _tr('Czas chłodz. (min)', 'Cool time (min)'), hint: '2', unit: 'min', onChanged: () => setState(() {}))),
+            Expanded(child: _NumField(ctrl: _coolTimeCtrl, label: _tr('Czas chłodz. (min)', 'Cool time (min)'), hint: '2', unit: 'min', onChanged: _applyCoolTime)),
           ]),
           const SizedBox(height: 12),
         ],
-        if (_mode == 'PURGE') ...[
-          Row(children: [
-            Expanded(child: _NumField(ctrl: _purgeInputCtrl, label: _tr('Czas purge (s)', 'Purge time (s)'), hint: '90', unit: 's', onChanged: null, decimal: false)),
-            const SizedBox(width: 10),
-            ElevatedButton(onPressed: () => setState(() => _purgeSec = int.tryParse(_purgeInputCtrl.text) ?? 90), child: Text(_tr('Ustaw', 'Set'))),
-          ]),
+        if (mode == WeldTimerMode.purge) ...[
+          _NumField(ctrl: _purgeInputCtrl, label: _tr('Czas purge (s)', 'Purge time (s)'), hint: '90', unit: 's', onChanged: _applyPurge, decimal: false),
           const SizedBox(height: 12),
         ],
 
-        // Wyświetlacz czasu
+        // Wyświetlacz czasu: odliczanie pokazuje, ile ZOSTAŁO; stoper — ile minęło.
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: _alarm ? _kGreen.withValues(alpha: 0.15) : _kCard,
+            color: finished ? _kGreen.withValues(alpha: 0.15) : _kCard,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: _alarm ? _kGreen : _kBorder, width: _alarm ? 2 : 1),
+            border: Border.all(color: finished ? _kGreen : _kBorder, width: finished ? 2 : 1),
           ),
           child: Column(children: [
-            Text(
-              _fmt(_elapsed),
-              style: TextStyle(fontSize: 52, fontWeight: FontWeight.w800, letterSpacing: 2,
-                  color: _alarm ? _kGreen : (_running ? _kOrange : _kSec)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                _fmtClock(remaining ?? elapsed),
+                key: const ValueKey('weld-timer-display'),
+                style: TextStyle(fontSize: 64, fontWeight: FontWeight.w800, letterSpacing: 2,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: finished ? _kGreen : (running ? _kOrange : _kSec)),
+              ),
             ),
-            if (targetSec > 0) ...[
+            if (target != null) ...[
               const SizedBox(height: 10),
               LinearProgressIndicator(
                 value: progress,
                 backgroundColor: _kBorder,
-                valueColor: AlwaysStoppedAnimation(_alarm ? _kGreen : _kOrange),
-                minHeight: 6,
+                valueColor: AlwaysStoppedAnimation(finished ? _kGreen : _kOrange),
+                minHeight: 8,
                 borderRadius: BorderRadius.circular(4),
               ),
               const SizedBox(height: 6),
-              Text('${(_elapsed / 60.0).toStringAsFixed(1)} / ${(targetSec / 60.0).toStringAsFixed(1)} min',
-                   style: const TextStyle(fontSize: 12, color: _kMuted)),
+              Text('${_tr('minęło', 'elapsed')} ${_fmtClock(elapsed)} / ${_fmtClock(target)}',
+                   style: const TextStyle(fontSize: 13, color: _kMuted)),
             ],
-            if (_alarm) ...[
+            if (finished) ...[
               const SizedBox(height: 10),
               Text(_tr('✓ CZAS MINĄŁ', '✓ TIME UP'),
-                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _kGreen)),
-              if (_mode == 'COOL' && maxTemp != null && maxTemp > 0) ...[
-                const SizedBox(height: 6),
-                Text(
-                  _tr('Zmierz temperaturę pirometrem — kolejny ścieg dopiero przy ≤ ${maxTemp.toStringAsFixed(0)} °C (WPS).',
-                      'Measure the temperature — next pass only at ≤ ${maxTemp.toStringAsFixed(0)} °C (WPS).'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: _kSec, fontWeight: FontWeight.w600),
-                ),
-              ],
+                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _kGreen)),
+              const SizedBox(height: 6),
+              Text(
+                alarmText.body,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: _kSec, fontWeight: FontWeight.w600),
+              ),
             ],
           ]),
         ),
         const SizedBox(height: 16),
 
-        // Przyciski
+        // Przyciski — duże, pod rękawice.
         Row(children: [
-          Expanded(child: ElevatedButton.icon(
-            onPressed: _running ? _pause : _start,
-            icon: Icon(_running ? Icons.pause : Icons.play_arrow),
-            label: Text(_running ? _tr('Pauza', 'Pause') : _tr('Start', 'Start')),
+          Expanded(child: SizedBox(
+            height: kWeldTimerButtonHeight,
+            child: ElevatedButton.icon(
+              onPressed: running ? _timer.pause : _timer.start,
+              icon: Icon(running ? Icons.pause : Icons.play_arrow, size: 32),
+              label: Text(
+                running
+                    ? _tr('Pauza', 'Pause')
+                    : (finished ? _tr('Jeszcze raz', 'Again') : _tr('Start', 'Start')),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+            ),
           )),
           const SizedBox(width: 10),
-          OutlinedButton.icon(onPressed: _reset, icon: const Icon(Icons.replay), label: Text(_tr('Reset', 'Reset'))),
+          SizedBox(
+            height: kWeldTimerButtonHeight,
+            child: OutlinedButton.icon(
+              onPressed: _timer.reset,
+              icon: const Icon(Icons.replay, size: 28),
+              label: Text(_tr('Reset', 'Reset'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+          ),
         ]),
+        if (target != null) ...[
+          const SizedBox(height: 8),
+          _NoteText(_tr(
+            'Timer liczy dalej po zmianie zakładki i wyjściu z ekranu. Na koniec: wibracja, dźwięk i komunikat na cały ekran; ekran nie gaśnie w trakcie odliczania. W tle — powiadomienie (jeśli na nie pozwolisz).',
+            'The timer keeps running when you switch tabs or leave the screen. At the end: vibration, sound and a full-screen message; the screen stays on while counting down. In the background — a notification (if you allow it).',
+          )),
+        ],
         const _Disclaimer(),
       ],
     );
   }
+}
+
+class _ModeButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ModeButton({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    selected: selected,
+    child: Material(
+      color: selected ? _kOrange.withValues(alpha: 0.15) : _kCard,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? _kOrange : _kBorder, width: selected ? 2 : 1),
+          ),
+          child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: selected ? _kOrange : _kSec)),
+        ),
+      ),
+    ),
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
