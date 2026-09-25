@@ -106,6 +106,8 @@ void main() {
         'PassivationScreen', 'HydrotestScreen', 'HeatInputScreen',
         // v21: rejestr uprawnień spawacza i biblioteka WPS.
         'CertificateRegisterPage', 'WpsLibraryPage',
+        // Asystent (spec §6) — nowe wejście, nie dawny kafel.
+        'AiChatScreen',
       };
       expect(targets, expected);
     });

@@ -53,6 +53,29 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 add_subdirectory("runner")
 
 
+# flutter_tts (czytanie odpowiedzi asystenta na glos) w swoim CMakeLists.txt
+# wymaga nuget.exe w PATH i bez niego przerywa konfiguracje ("nuget.exe not
+# found"). Zeby build Windows nie zalezal od recznej instalacji, gdy nuget
+# nie jest dostepny, pobieramy oficjalny nuget.exe raz do katalogu builda i
+# dopisujemy go do sciezki wyszukiwania programow (find_program w pluginie).
+find_program(FWP_NUGET_EXE NAMES nuget)
+if(NOT FWP_NUGET_EXE)
+  set(FWP_NUGET_DIR "${CMAKE_BINARY_DIR}/nuget")
+  set(FWP_NUGET_PATH "${FWP_NUGET_DIR}/nuget.exe")
+  if(NOT EXISTS "${FWP_NUGET_PATH}")
+    message(STATUS "nuget.exe nie znaleziony - pobieram do ${FWP_NUGET_DIR}")
+    file(DOWNLOAD "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe"
+      "${FWP_NUGET_PATH}" STATUS FWP_NUGET_STATUS TLS_VERIFY ON)
+    list(GET FWP_NUGET_STATUS 0 FWP_NUGET_CODE)
+    if(NOT FWP_NUGET_CODE EQUAL 0)
+      file(REMOVE "${FWP_NUGET_PATH}")
+      message(FATAL_ERROR "Nie udalo sie pobrac nuget.exe (${FWP_NUGET_STATUS}). "
+        "Zainstaluj nuget.exe i dodaj do PATH.")
+    endif()
+  endif()
+  list(APPEND CMAKE_PROGRAM_PATH "${FWP_NUGET_DIR}")
+endif()
+
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)

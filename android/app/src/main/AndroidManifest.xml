@@ -17,6 +17,11 @@
          a Play wymaga uzasadnienia tych uprawnień. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Asystent głosowy (lib/assistant/speech_io.dart, pakiet speech_to_text):
+         mikrofon włącza się wyłącznie po naciśnięciu przycisku. Uprawnień
+         BLUETOOTH z README pakietu NIE dodajemy — potrzebne tylko do
+         zestawów słuchawkowych BT, a te działają przez systemowy wybór wejścia. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="Fitter Welder Pro"
         android:name="${applicationName}"
@@ -69,6 +74,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+ (widoczność pakietów): bez tego speech_to_text nie
+             znajdzie systemowej usługi rozpoznawania mowy, a flutter_tts
+             silnika syntezy mowy. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
     </queries>
 </manifest>
