@@ -1,0 +1,132 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "19-sw-dn25",
+  "title": "Kolana SW kl. 3000 DN25 — do dna gniazda minus luz 1,6 mm",
+  "drawing": "Otwarty koniec → kolano SW E1 → kolano SW E2 → otwarty koniec, DN25 Sch 80, A106 Gr.B, kształtki ASME B16.11 kl. 3000. Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN25-P-3019-B1",
+        "pipeClass": "3000#",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A106 GR.B",
+        "schedule": "Sch 80",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 500,
+          "rawDimension": "500"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 400,
+          "rawDimension": "400"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 300,
+          "rawDimension": "300"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "confidence": "high",
+          "label": "90° SW 3000#",
+          "endType": "SW",
+          "rating": "3000"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "confidence": "high",
+          "label": "90° SW 3000#",
+          "endType": "SW",
+          "rating": "3000"
+        }
+      ],
+      "welds": [],
+      "spools": [],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 1.2,
+          "unit": "M",
+          "description": "PIPE SMLS PE",
+          "size": "DN25",
+          "schedule": "Sch 80"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 475.9,
+            "dn": 25,
+            "diameterMm": 33.4,
+            "calc": "500 − (22,5 + 1,6) = 475,9 (B16.11 A do dna gniazda + luz)"
+          },
+          {
+            "id": "s2",
+            "cutMm": 351.8,
+            "dn": 25,
+            "calc": "400 − 2 × 24,1 = 351,8"
+          },
+          {
+            "id": "s3",
+            "cutMm": 275.9,
+            "dn": 25,
+            "calc": "300 − 24,1 = 275,9"
+          }
+        ],
+        "welds": {
+          "count": 4,
+          "assigned": true
+        }
+      }
+    }
+  ]
+}

@@ -11,9 +11,15 @@
 ///   * everything the model was unsure about is shown in colour at full
 ///     size — never as small grey print,
 ///   * every blocking gap is listed at the top saying exactly what is
-///     missing, and the save button stays dead until the last one is gone,
-///   * every segment can be corrected (dimension, end component, how the
-///     dimension was measured) without leaving the screen.
+///     missing — a gap about the project blocks the save, a gap about one
+///     cut keeps only THAT cut out of the save (spec §2 rule 6, §9), and the
+///     cuts left out are named before anything is written,
+///   * every segment can be corrected (dimension, end component, its size,
+///     a take-out, how the dimension was measured) without leaving the
+///     screen,
+///   * the rest of what the drawing gives is on its own tabs: the weld map
+///     (with "create weld journal entries"), the bill of materials compared
+///     with the scan, and the spools.
 ///
 /// Nothing is invented here either. This screen never computes a cut length
 /// itself: it edits the scan, re-runs [planFromScan], and asks
@@ -27,11 +33,15 @@ import 'package:uuid/uuid.dart';
 
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
+import '../database/weld_journal_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/project.dart';
 import '../services/iso_scanner_ai.dart';
+import '../services/scan_outputs.dart';
 import '../services/scan_to_project.dart';
 import '../services/iso_parser.dart';
+import '../services/welder_identity.dart';
+import '../data/pipe_schedules.dart';
 import '../utils/haptic.dart';
 import 'cut_list_summary_screen.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -108,12 +118,20 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   /// Dimension references the fitter confirmed (stop per side), by segment id.
   final Map<String, ScanStops> _refChoice = {};
 
+  /// The fitter's answers the planner itself takes into account.
+  final Map<String, int> _segDn = {};
+  final Map<String, double> _segWall = {};
+  final Map<String, double> _takeouts = {};
+
   /// Segment ids where the planner refused to derive a reference on its own.
   Set<String> _refNeeded = const {};
 
   late ScanPlan _plan;
   late List<PlannedSegment> _segments;
-  late List<ScanIssue> _openGaps;
+  late ScanReviewGate _gate;
+  late List<PlannedWeld> _welds;
+  late List<BomLine> _bom;
+  late List<ScanSpoolSummary> _spools;
 
   bool _saving = false;
 
@@ -182,6 +200,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       diameterMm: _diameterMm,
       wallThicknessMm: _wallThicknessMm,
       gapMm: _gapMm ?? 0,
+      fitter: ScanFitterInput(
+        segmentDn: Map.of(_segDn),
+        segmentWallMm: Map.of(_segWall),
+        takeoutMm: Map.of(_takeouts),
+      ),
     );
 
     _refNeeded = base.segments
@@ -199,49 +222,17 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     }).toList(growable: false);
 
     _plan = base;
-    _openGaps = _computeOpenGaps(base);
-  }
-
-  /// Blocking gaps that are still open.
-  ///
-  /// A gap raised by the planner disappears only when the fitter's answer
-  /// actually produced the missing value — answering the reference question
-  /// with an option that still yields no cut length leaves the segment
-  /// blocked, on purpose.
-  ///
-  /// The last loop is the belt and braces: if a segment is somehow not
-  /// writable and no gap explains why, this screen invents its own blocker
-  /// rather than letting the save button go live over an incomplete row.
-  List<ScanIssue> _computeOpenGaps(ScanPlan base) {
-    final open = <ScanIssue>[];
-    for (final gap in base.gaps) {
-      switch (gap.code) {
-        case ScanIssueCode.missingMaterialGroup:
-          if (_materialGroup == null) open.add(gap);
-          break;
-        case ScanIssueCode.dimensionReferenceUnknown:
-          final seg = _segmentById(gap.segmentId);
-          if (seg == null || seg.cutMm == null) open.add(gap);
-          break;
-        default:
-          open.add(gap);
-      }
-    }
-
-    final explained = open.map((g) => g.segmentId).toSet();
-    for (final seg in _segments) {
-      if (seg.isComplete || explained.contains(seg.sourceId)) continue;
-      open.add(ScanIssue(
-        code: ScanIssueCode.cutImpossible,
-        blocking: true,
-        segmentId: seg.sourceId,
-        pl: 'Odcinek ${seg.seqNo}: brak kompletu danych do zapisu '
-            '(wymiar, take-outy albo odniesienie).',
-        en: 'Segment ${seg.seqNo}: not enough data to save it '
-            '(dimension, take-outs or reference).',
-      ));
-    }
-    return open;
+    _gate = evaluateReview(
+      plan: base,
+      segments: _segments,
+      materialGroup: _materialGroup,
+      headerComplete: _diameterMm != null &&
+          _wallThicknessMm != null &&
+          _materialGroup != null,
+    );
+    _welds = buildWeldMap(_scan, _segments);
+    _bom = compareBom(_scan, _segments);
+    _spools = buildSpools(_scan, _segments, _welds);
   }
 
   PlannedSegment? _segmentById(String? id) {
@@ -252,19 +243,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     return null;
   }
 
-  bool get _canSave =>
-      !_saving &&
-      _openGaps.isEmpty &&
-      _segments.isNotEmpty &&
-      _diameterMm != null &&
-      _wallThicknessMm != null &&
-      _gapMm != null &&
-      _materialGroup != null &&
-      _segments.every((s) => s.isComplete);
+  bool get _canSave => !_saving && _gapMm != null && _gate.canSaveProject;
 
   double get _totalCutMm {
     double sum = 0;
-    for (final s in _segments) {
+    for (final s in _gate.savable) {
       final c = s.cutMm;
       if (c != null && c.isFinite && c > 0) sum += c;
     }
@@ -280,30 +263,45 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
 
   // ── Corrections on the scan ─────────────────────────────────────────────
 
-  /// Replaces the dimension of one segment with what the fitter read off the
-  /// drawing himself.
+  /// Replaces the dimension of one drawing segment with what the fitter read
+  /// off the drawing himself.
   ///
-  /// Confidence is raised to [AiConfidence.high] because the number is no
-  /// longer the model's guess — leaving it low would keep nagging him about
-  /// his own reading.
+  /// Confidence is raised to [AiConfidence.high] and the reading is marked
+  /// as his own, because the number is no longer the model's guess —
+  /// leaving it low would keep nagging him about his own reading.
   void _setDimension(String segmentId, double mm, String expr) {
     _apply(() {
       _scan = _copyScan(
         segments: _scan.segments
             .map((s) => s.id != segmentId
                 ? s
-                : AiSegment(
-                    id: s.id,
+                : s.copyWith(
                     dimensionMm: mm,
                     rawDimension: expr,
-                    fromId: s.fromId,
-                    toId: s.toId,
-                    auxiliary: s.auxiliary,
                     confidence: AiConfidence.high,
+                    userConfirmed: true,
                   ))
             .toList(),
       );
     });
+  }
+
+  /// The drawing segment and the field (`fromId` / `toId`) behind one end of
+  /// a planned run — for a merged olet header, the far end of the half on
+  /// that side.
+  ({String segmentId, bool isFrom})? _endRef(
+      PlannedSegment segment, bool isStart) {
+    final parts = segment.sourceParts;
+    if (parts.length == 1) {
+      return (segmentId: parts.single, isFrom: isStart);
+    }
+    final a = _scan.segments.where((s) => s.id == parts.first).firstOrNull;
+    final b = _scan.segments.where((s) => s.id == parts.last).firstOrNull;
+    if (a == null || b == null) return null;
+    final shared = {a.fromId, a.toId}.intersection({b.fromId, b.toId});
+    final olet = shared.isEmpty ? null : shared.first;
+    final half = isStart ? a : b;
+    return (segmentId: half.id, isFrom: half.fromId != olet);
   }
 
   /// Points one end of a segment at a component of the given type, creating
@@ -312,9 +310,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   /// [type] `null` means "open end" — the reference is cleared and the
   /// segment simply stops there.
   ///
-  /// The fitter's earlier answer to "how was it measured" is dropped: it was
-  /// given for the component that sat on this end before, and a different
-  /// body (or none) makes it a different question.
+  /// The fitter's earlier answers for this end (how it was measured, a
+  /// typed take-out) are dropped: they were given for the component that sat
+  /// on this end before, and a different body (or none) makes it a
+  /// different question.
   void _setEndComponent(
     PlannedSegment segment, {
     required bool isStart,
@@ -322,12 +321,18 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     String? valveType,
   }) {
     _apply(() {
+      final ref = _endRef(segment, isStart);
+      if (ref == null) return;
       final source = _scan.segments
-          .where((s) => s.id == segment.sourceId)
+          .where((s) => s.id == ref.segmentId)
           .toList(growable: false);
       if (source.isEmpty) return;
       _refChoice.remove(segment.sourceId);
-      final existingId = isStart ? source.first.fromId : source.first.toId;
+      final existingId = ref.isFrom ? source.first.fromId : source.first.toId;
+      if (existingId != null) {
+        _takeouts.remove(
+            ScanFitterInput.takeoutKey(existingId, segment.sourceId));
+      }
 
       String? targetId;
       var components = _scan.components;
@@ -335,7 +340,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       if (type != null) {
         targetId = (existingId != null && existingId.isNotEmpty)
             ? existingId
-            : 'fix_${segment.sourceId}_${isStart ? 'a' : 'b'}';
+            : 'fix_${ref.segmentId}_${ref.isFrom ? 'a' : 'b'}';
         final previous = components.where((c) => c.id == targetId).toList();
         final keep = previous.isEmpty ? null : previous.first;
         components = [
@@ -355,6 +360,16 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             isField: keep?.isField,
             instrumentTag: keep?.instrumentTag,
             confidence: AiConfidence.high,
+            // What the drawing says about the place, not about the old
+            // fitting's own type, stays.
+            sizeLarge: keep?.sizeLarge,
+            sizeSmall: keep?.sizeSmall,
+            rating: keep?.rating,
+            connectedTo: keep?.connectedTo ?? const [],
+            runIds: keep?.runIds ?? const [],
+            branchId: keep?.branchId,
+            bomItem: keep?.bomItem,
+            spoolId: keep?.spoolId,
           ),
         ];
       }
@@ -362,16 +377,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       _scan = _copyScan(
         components: components,
         segments: _scan.segments
-            .map((s) => s.id != segment.sourceId
+            .map((s) => s.id != ref.segmentId
                 ? s
-                : AiSegment(
-                    id: s.id,
-                    dimensionMm: s.dimensionMm,
-                    rawDimension: s.rawDimension,
-                    fromId: isStart ? targetId : s.fromId,
-                    toId: isStart ? s.toId : targetId,
-                    auxiliary: s.auxiliary,
-                    confidence: s.confidence,
+                : s.copyWith(
+                    fromId: ref.isFrom ? targetId : s.fromId,
+                    toId: ref.isFrom ? s.toId : targetId,
                   ))
             .toList(),
       );
@@ -381,26 +391,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   AiScanResult _copyScan({
     List<AiSegment>? segments,
     List<AiComponent>? components,
-  }) {
-    return AiScanResult(
-      drawingStandard: _scan.drawingStandard,
-      sizeNotation: _scan.sizeNotation,
-      isHygienic: _scan.isHygienic,
-      titleBlock: _scan.titleBlock,
-      northArrow: _scan.northArrow,
-      scale: _scan.scale,
-      segments: segments ?? _scan.segments,
-      components: components ?? _scan.components,
-      elevations: _scan.elevations,
-      billOfMaterials: _scan.billOfMaterials,
-      needsUserInput: _scan.needsUserInput,
-      uncertainty: _scan.uncertainty,
-      warnings: _scan.warnings,
-      error: _scan.error,
-      tookMs: _scan.tookMs,
-      model: _scan.model,
-    );
-  }
+  }) =>
+      _scan.copyWith(segments: segments, components: components);
 
   /// Gives every segment an id.
   ///
@@ -421,47 +413,25 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         candidate = 'seg_$n';
       } while (used.contains(candidate));
       used.add(candidate);
-      return AiSegment(
-        id: candidate,
-        dimensionMm: s.dimensionMm,
-        rawDimension: s.rawDimension,
-        fromId: s.fromId,
-        toId: s.toId,
-        auxiliary: s.auxiliary,
-        confidence: s.confidence,
-      );
+      return s.copyWith(id: candidate);
     }).toList();
 
     if (!changed) return scan;
-    return AiScanResult(
-      drawingStandard: scan.drawingStandard,
-      sizeNotation: scan.sizeNotation,
-      isHygienic: scan.isHygienic,
-      titleBlock: scan.titleBlock,
-      northArrow: scan.northArrow,
-      scale: scan.scale,
-      segments: segments,
-      components: scan.components,
-      elevations: scan.elevations,
-      billOfMaterials: scan.billOfMaterials,
-      needsUserInput: scan.needsUserInput,
-      uncertainty: scan.uncertainty,
-      warnings: scan.warnings,
-      error: scan.error,
-      tookMs: scan.tookMs,
-      model: scan.model,
-    );
+    return scan.copyWith(segments: segments);
   }
 
   // ── Save ────────────────────────────────────────────────────────────────
 
-  /// Writes the project and every segment, or nothing at all.
+  /// Writes the project and every cut that can be saved, or nothing at all;
+  /// with [withJournal] also the weld journal entries of the saved runs.
   ///
   /// The two DAOs do not share a transaction, so atomicity is enforced here:
   /// the first failure undoes what was already written and the fitter is
   /// told. A project with half its segments is worse than no project — he
-  /// would cut from it.
-  Future<void> _save() async {
+  /// would cut from it. Cuts that are still blocked are NOT written; they
+  /// are named in a confirmation before the save, so nothing is left out
+  /// silently.
+  Future<void> _save({bool withJournal = false}) async {
     if (!_canSave) return;
 
     final diameterMm = _diameterMm;
@@ -475,6 +445,43 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       return;
     }
 
+    final projectId = const Uuid().v4();
+    final typedName = _nameCtrl.text.trim();
+    final name = typedName.isEmpty
+        ? _tr('Skan izometryku', 'Isometric scan')
+        : typedName;
+    final savable = _gate.savable;
+    final blocked = _gate.blocked;
+
+    WeldJournalImport? journal;
+    if (withJournal) {
+      try {
+        final existing = await WeldJournalDao().listAll();
+        journal = weldJournalEntries(
+          welds: _welds,
+          scan: _scan,
+          projectId: projectId,
+          projectName: name,
+          savedSegmentIds: savable.map((s) => s.sourceId).toSet(),
+          existing: existing,
+          newId: () => const Uuid().v4(),
+          spoolLabels: {for (final s in _scan.spools) s.id: s.display},
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _saveError = _tr(
+              'Nie udało się odczytać dziennika spoin — nic nie zapisano. ($e)',
+              'Could not read the weld journal — nothing was saved. ($e)',
+            ));
+        return;
+      }
+    }
+
+    if (blocked.isNotEmpty || journal != null) {
+      final ok = await _confirmSave(savable, blocked, journal);
+      if (ok != true || !mounted) return;
+    }
+
     setState(() {
       _saving = true;
       _saveError = null;
@@ -483,12 +490,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
 
     final projectDao = ProjectDao();
     final segmentDao = SegmentDao();
-    final projectId = const Uuid().v4();
     final now = DateTime.now().millisecondsSinceEpoch;
-    final typedName = _nameCtrl.text.trim();
-    final name = typedName.isEmpty
-        ? _tr('Skan izometryku', 'Isometric scan')
-        : typedName;
 
     var projectWritten = false;
     try {
@@ -510,12 +512,12 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       ));
       projectWritten = true;
 
-      for (final seg in _segments) {
+      for (var i = 0; i < savable.length; i++) {
         // One pure function builds the row, so what is saved here is exactly
         // what the segment builder reads back on "edit": each side's stop in
-        // iso_ref and the length it took off in *_value_mm. The row used to
-        // say AXIS / FACE_NEAR whatever reference the fitter confirmed, and
-        // an untouched re-save in the builder then changed the cut.
+        // iso_ref and the length it took off in *_value_mm. Saved runs are
+        // numbered 1..n without holes for the cuts left out.
+        final seg = savable[i].renumbered(i + 1, savable[i].label);
         final row = segmentRowFor(
           seg,
           id: const Uuid().v4(),
@@ -525,9 +527,9 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           nowMs: now,
         );
         if (row == null) {
-          // Unreachable while _canSave holds; kept so a future change to the
-          // gate can never silently write a segment with a missing column.
-          throw StateError('segment ${seg.seqNo} is incomplete');
+          // Unreachable while the gate holds; kept so a future change to it
+          // can never silently write a segment with a missing column.
+          throw StateError('segment ${seg.label} is incomplete');
         }
         await segmentDao.insert(row);
       }
@@ -543,13 +545,116 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       return;
     }
 
+    var journalError = '';
+    var created = 0;
+    if (journal != null && journal.toInsert.isNotEmpty) {
+      String stamp = '';
+      try {
+        stamp = (await WelderIdentityService.instance.get())?.stamp ?? '';
+      } catch (_) {}
+      final dao = WeldJournalDao();
+      for (final entry in journal.toInsert) {
+        try {
+          await dao.insert(entry, by: stamp);
+          created++;
+        } catch (e) {
+          journalError = '$e';
+          break;
+        }
+      }
+    }
+
     if (!mounted) return;
     // Haptyka to sygnal dla palca, nie warunek przejscia — czekanie na nia
     // opoznialo (a w srodowisku testowym calkiem blokowalo) wejscie na cut liste.
     Haptic.saved();
+    if (journal != null) {
+      final msg = journalError.isEmpty
+          ? _tr(
+              'Dziennik spoin: utworzono $created wpisów (Oczekuje)'
+                  '${journal.skipped.isEmpty ? '' : ', pominięto ${journal.skipped.length} już istniejących'}.',
+              'Weld journal: $created entries created (Pending)'
+                  '${journal.skipped.isEmpty ? '' : ', ${journal.skipped.length} already there skipped'}.',
+            )
+          : _tr(
+              'Projekt zapisany, ale dziennik spoin przerwał po $created '
+                  'wpisach: $journalError. Dopisz resztę w dzienniku.',
+              'Project saved, but the weld journal stopped after $created '
+                  'entries: $journalError. Add the rest in the journal.',
+            );
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          duration: const Duration(seconds: 7),
+          backgroundColor: journalError.isEmpty ? null : _kRed,
+        ));
+    }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => CutListSummaryScreen(projectId: projectId),
+      ),
+    );
+  }
+
+  /// Summary before a save that leaves cuts out or writes journal entries —
+  /// spec §2 rule 5: a change of data is summarised and confirmed.
+  Future<bool?> _confirmSave(List<PlannedSegment> savable,
+      List<PlannedSegment> blocked, WeldJournalImport? journal) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _kCard,
+        title: Text(_tr('Zapisać projekt?', 'Save the project?')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_tr(
+                'Zapiszę ${savable.length} z ${savable.length + blocked.length} '
+                    'odcinków.',
+                'Saving ${savable.length} of '
+                    '${savable.length + blocked.length} runs.',
+              )),
+              if (blocked.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _tr(
+                    'NIE zapiszę (czekają na Twoją decyzję): '
+                        '${blocked.map((s) => s.label).join(', ')}. Dopisz je '
+                        'później w projekcie albo wróć i uzupełnij.',
+                    'NOT saving (waiting for your decision): '
+                        '${blocked.map((s) => s.label).join(', ')}. Add them '
+                        'in the project later or go back and complete them.',
+                  ),
+                  style: const TextStyle(color: _kAmber),
+                ),
+              ],
+              if (journal != null) ...[
+                const SizedBox(height: 8),
+                Text(_tr(
+                  'Dziennik spoin: ${journal.toInsert.length} nowych wpisów '
+                      '(status Oczekuje)'
+                      '${journal.skipped.isEmpty ? '' : ', ${journal.skipped.length} już jest w dzienniku — pominę'}.',
+                  'Weld journal: ${journal.toInsert.length} new entries '
+                      '(status Pending)'
+                      '${journal.skipped.isEmpty ? '' : ', ${journal.skipped.length} already in the journal — skipped'}.',
+                )),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_tr('Wróć', 'Back')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(_tr('Zapisz', 'Save')),
+          ),
+        ],
       ),
     );
   }
@@ -613,41 +718,208 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   // ── Editing dialogs ─────────────────────────────────────────────────────
 
   Future<void> _editDimension(PlannedSegment seg) async {
+    var partId = seg.sourceId;
+    var initial = seg.isoExpr?.trim().isNotEmpty == true
+        ? seg.isoExpr!.trim()
+        : (seg.isoMm != null ? _fmt(seg.isoMm) : '');
+    if (seg.sourceParts.length > 1) {
+      // A merged olet header: its two dimensions are corrected one by one.
+      final parts = [
+        for (final id in seg.sourceParts)
+          _scan.segments.where((s) => s.id == id).firstOrNull,
+      ].whereType<AiSegment>().toList();
+      final picked = await showModalBottomSheet<AiSegment>(
+        context: context,
+        backgroundColor: _kCard,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_tr(
+                  'Rura główna przy olecie ma na rysunku dwa wymiary — '
+                      'który poprawiasz?',
+                  'The header at the olet has two dimensions on the drawing '
+                      '— which one?',
+                )),
+              ),
+              for (final p in parts)
+                ListTile(
+                  title: Text(
+                      '${p.id}: ${p.rawDimension ?? _fmt(p.dimensionMm)}'),
+                  onTap: () => Navigator.pop(ctx, p),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null) return;
+      partId = picked.id;
+      initial = picked.rawDimension ?? _fmt(picked.dimensionMm);
+    }
+    if (!mounted) return;
     final value = await showDialog<({double mm, String expr})>(
       context: context,
       builder: (ctx) => _DimensionDialog(
         seqNo: seg.seqNo,
-        initial: seg.isoExpr?.trim().isNotEmpty == true
-            ? seg.isoExpr!.trim()
-            : (seg.isoMm != null ? seg.isoMm!.toStringAsFixed(0) : ''),
+        label: seg.label,
+        initial: initial,
       ),
     );
 
     if (value == null) return;
-    _setDimension(seg.sourceId, value.mm, value.expr);
+    _setDimension(partId, value.mm, value.expr);
   }
 
   Future<void> _editEnd(PlannedSegment seg, {required bool isStart}) async {
     final endpoint = isStart ? seg.start : seg.end;
+    final canType = endpoint.componentId != null &&
+        endpoint.isResolved &&
+        (endpoint.isAxial || endpoint.isPhysical);
     final picked = await showModalBottomSheet<_TypeChoice>(
       context: context,
       backgroundColor: _kCard,
       isScrollControlled: true,
       builder: (ctx) => _TypePickerSheet(
         title: isStart
-            ? _tr('Początek odcinka ${seg.seqNo}',
-                'Start of segment ${seg.seqNo}')
-            : _tr('Koniec odcinka ${seg.seqNo}', 'End of segment ${seg.seqNo}'),
+            ? _tr('Początek odcinka ${seg.label}',
+                'Start of segment ${seg.label}')
+            : _tr('Koniec odcinka ${seg.label}', 'End of segment ${seg.label}'),
         currentType: endpoint.rawType,
+        offerTypedValue: canType,
+        typedValueLabel: endpoint.isAxial
+            ? _tr('Wpisz take-out (oś → koniec) ręcznie',
+                'Type the take-out (centre → end)')
+            : _tr('Wpisz długość korpusu ręcznie', 'Type the body length'),
         tr: _tr,
       ),
     );
     if (picked == null) return;
+    if (picked.typedValue) {
+      final id = endpoint.componentId!;
+      final key = ScanFitterInput.takeoutKey(id, seg.sourceId);
+      final mm = await _askNumber(
+        title: endpoint.isAxial
+            ? _tr('Take-out: ${endpoint.label ?? endpoint.rawType ?? id}',
+                'Take-out: ${endpoint.label ?? endpoint.rawType ?? id}')
+            : _tr('Długość korpusu: ${endpoint.label ?? endpoint.rawType ?? id}',
+                'Body length: ${endpoint.label ?? endpoint.rawType ?? id}'),
+        help: endpoint.missingPl != null && !_isEnglish
+            ? endpoint.missingPl!
+            : (endpoint.missingEn ??
+                _tr('Wartość z karty producenta albo z pomiaru.',
+                    'From the manufacturer\'s data sheet or measured.')),
+        initial: _takeouts[key],
+        unit: 'mm',
+      );
+      if (mm == null) return;
+      _apply(() => _takeouts[key] = mm);
+      return;
+    }
     _setEndComponent(
       seg,
       isStart: isStart,
       type: picked.type,
       valveType: picked.valveType,
+    );
+  }
+
+  /// DN (and, for a size other than the project's, the wall) of one run.
+  Future<void> _editSize(PlannedSegment seg) async {
+    final options = kPipeWalls.map((r) => r.dn).toList();
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: _kCard,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(ctx).height * 0.7),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                child: Text(
+                  _tr('Średnica odcinka ${seg.label}',
+                      'Size of run ${seg.label}'),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  _tr(
+                    'Odczytaj DN przy odcinku na rysunku. Wybór przenosi się '
+                        'przez redukcje na sąsiednie odcinki.',
+                    'Read the DN next to the run on the drawing. The choice '
+                        'carries through reducers to the next runs.',
+                  ),
+                  style: const TextStyle(fontSize: 12.5, color: _kSec),
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final dn in options)
+                      ListTile(
+                        dense: true,
+                        leading: Icon(
+                          dn == seg.dn
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          color: dn == seg.dn ? _kOrange : _kMuted,
+                        ),
+                        title: Text('DN$dn'),
+                        onTap: () => Navigator.pop(ctx, dn),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    _apply(() => _segDn[seg.sourceId] = picked);
+  }
+
+  Future<void> _editWall(PlannedSegment seg) async {
+    final mm = await _askNumber(
+      title: _tr('Ścianka odcinka ${seg.label}', 'Wall of run ${seg.label}'),
+      help: _tr(
+        'Rysunek nie podaje schedule dla DN${seg.dn ?? '?'} — wpisz ściankę '
+            'z tabelki rysunku albo z pomiaru.',
+        'The drawing gives no schedule for DN${seg.dn ?? '?'} — enter the '
+            'wall from the drawing or measured.',
+      ),
+      initial: _segWall[seg.sourceId] ?? seg.wallThicknessMm,
+      unit: 'mm',
+    );
+    if (mm == null) return;
+    _apply(() => _segWall[seg.sourceId] = mm);
+  }
+
+  Future<double?> _askNumber({
+    required String title,
+    required String help,
+    double? initial,
+    required String unit,
+  }) {
+    return showDialog<double>(
+      context: context,
+      builder: (ctx) => _NumberDialog(
+        title: title,
+        help: help,
+        initial: initial,
+        unit: unit,
+        tr: _tr,
+      ),
     );
   }
 
@@ -670,8 +942,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
               child: Text(
-                _tr('Jak zmierzono wymiar? — odcinek ${seg.seqNo}',
-                    'How was it measured? — segment ${seg.seqNo}'),
+                _tr('Jak zmierzono wymiar? — odcinek ${seg.label}',
+                    'How was it measured? — segment ${seg.label}'),
                 style: const TextStyle(
                     fontSize: 15, fontWeight: FontWeight.w800),
               ),
@@ -735,6 +1007,38 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_tr('Sprawdź skan', 'Review scan')),
+          bottom: TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: [
+              Tab(text: _tr('Cięcia (${_segments.length})',
+                  'Cuts (${_segments.length})')),
+              Tab(text: _tr('Spoiny (${_welds.length})',
+                  'Welds (${_welds.length})')),
+              Tab(text: _tr('Materiały', 'Materials')),
+              Tab(text: _tr('Spoole', 'Spools')),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _cutsTab(),
+            _weldsTab(),
+            _bomTab(),
+            _spoolsTab(),
+          ],
+        ),
+        bottomNavigationBar: _bottomBar(),
+      ),
+    );
+  }
+
+  Widget _cutsTab() {
     // Segment-scoped warnings live on their own card, in colour, next to the
     // number they are about — repeating them here would bury the ones that
     // belong to the drawing as a whole.
@@ -744,41 +1048,35 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           .map((w) => w.text(polish: !_isEnglish)),
       ..._scan.uncertainty,
     ];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_tr('Sprawdź skan', 'Review scan')),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-        children: [
-          if (_saveError != null) _errorBanner(_saveError!),
-          if (_openGaps.isNotEmpty) _gapsCard(),
-          if (warnings.isNotEmpty) _warningsCard(warnings),
-          _headerCard(),
-          const SizedBox(height: 10),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+      children: [
+        if (_saveError != null) _errorBanner(_saveError!),
+        if (_gate.projectGaps.isNotEmpty) _gapsCard(),
+        if (_gate.blocked.isNotEmpty) _blockedCutsCard(),
+        if (warnings.isNotEmpty) _warningsCard(warnings),
+        _headerCard(),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+          child: Text(
+            _tr('Odcinki (${_segments.length})',
+                'Segments (${_segments.length})'),
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w800, color: _kSec),
+          ),
+        ),
+        for (final seg in _segments) _segmentCard(seg),
+        if (_segments.isEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+            padding: const EdgeInsets.all(16),
             child: Text(
-              _tr('Odcinki (${_segments.length})',
-                  'Segments (${_segments.length})'),
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w800, color: _kSec),
+              _tr('Ze skanu nie wyszedł żaden odcinek rury.',
+                  'The scan produced no pipe runs.'),
+              style: const TextStyle(color: _kRed, fontSize: 14),
             ),
           ),
-          for (final seg in _segments) _segmentCard(seg),
-          if (_segments.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                _tr('Ze skanu nie wyszedł żaden odcinek rury.',
-                    'The scan produced no pipe runs.'),
-                style: const TextStyle(color: _kRed, fontSize: 14),
-              ),
-            ),
-        ],
-      ),
-      bottomNavigationBar: _bottomBar(),
+      ],
     );
   }
 
@@ -810,13 +1108,56 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     );
   }
 
+  /// What blocks the whole project (header, a failed scan).
   Widget _gapsCard() {
+    final gaps = _gate.projectGaps;
+    return _issueCard(
+      color: _kRed,
+      icon: Icons.block,
+      title: _tr('Bez tego nie zapiszę projektu (${gaps.length})',
+          'Blocking the save (${gaps.length})'),
+      lines: [for (final g in gaps) g.text(polish: !_isEnglish)],
+      textColor: const Color(0xFFFFD9D4),
+    );
+  }
+
+  /// Cuts that stay out of the save until answered — each named with why.
+  Widget _blockedCutsCard() {
+    final lines = <String>[];
+    for (final seg in _gate.blocked) {
+      final gaps = _gate.gapsFor(seg.sourceId);
+      for (final g in gaps) {
+        lines.add('${_tr('Odcinek', 'Segment')} ${seg.label}: '
+            '${g.text(polish: !_isEnglish)}');
+      }
+    }
+    return _issueCard(
+      color: _kRed,
+      icon: Icons.content_cut,
+      title: _tr(
+        'Te cięcia czekają na decyzję (${_gate.blocked.length}) — reszta '
+            'zapisze się bez nich',
+        'These cuts wait for a decision (${_gate.blocked.length}) — the rest '
+            'saves without them',
+      ),
+      lines: lines,
+      textColor: const Color(0xFFFFD9D4),
+    );
+  }
+
+  Widget _issueCard({
+    required Color color,
+    required IconData icon,
+    required String title,
+    required List<String> lines,
+    required Color textColor,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kRed.withValues(alpha: 0.14),
-        border: Border.all(color: _kRed, width: 1.4),
+        color: color.withValues(alpha: 0.14),
+        border: Border.all(color: color, width: 1.4),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -824,28 +1165,24 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.block, color: _kRed, size: 20),
+              Icon(icon, color: color, size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _tr('Bez tego nie zapiszę (${_openGaps.length})',
-                      'Blocking the save (${_openGaps.length})'),
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                      color: _kRed),
+                  title,
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w900, color: color),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          for (final gap in _openGaps)
+          for (final line in lines)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                '• ${_gapPrefix(gap)}${gap.text(polish: !_isEnglish)}',
-                style: const TextStyle(
-                    fontSize: 13.5, height: 1.35, color: Color(0xFFFFD9D4)),
+                '• $line',
+                style: TextStyle(fontSize: 13.5, height: 1.35, color: textColor),
               ),
             ),
         ],
@@ -853,53 +1190,14 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     );
   }
 
-  String _gapPrefix(ScanIssue gap) {
-    final seg = _segmentById(gap.segmentId);
-    if (seg == null) return '';
-    return _tr('Odcinek ${seg.seqNo}: ', 'Segment ${seg.seqNo}: ');
-  }
-
   Widget _warningsCard(List<String> warnings) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _kAmber.withValues(alpha: 0.13),
-        border: Border.all(color: _kAmber, width: 1.2),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.warning_amber_rounded, color: _kAmber, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _tr('AI nie jest pewna (${warnings.length}) — sprawdź na '
-                      'rysunku', 'AI is unsure (${warnings.length}) — check '
-                      'against the drawing'),
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                      color: _kAmber),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          for (final w in warnings)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                '• $w',
-                style: const TextStyle(
-                    fontSize: 13.5, height: 1.35, color: Color(0xFFFFE9B8)),
-              ),
-            ),
-        ],
-      ),
+    return _issueCard(
+      color: _kAmber,
+      icon: Icons.warning_amber_rounded,
+      title: _tr('AI nie jest pewna (${warnings.length}) — sprawdź na rysunku',
+          'AI is unsure (${warnings.length}) — check against the drawing'),
+      lines: warnings,
+      textColor: const Color(0xFFFFE9B8),
     );
   }
 
@@ -1066,12 +1364,15 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   }
 
   Widget _segmentCard(PlannedSegment seg) {
-    final segGaps =
-        _openGaps.where((g) => g.segmentId == seg.sourceId).toList();
+    final segGaps = _gate.gapsFor(seg.sourceId);
     final segWarnings = _plan.warningsFor(seg.sourceId);
     final blocked = segGaps.isNotEmpty;
     final unsure = segWarnings.isNotEmpty;
     final needsRef = _refNeeded.contains(seg.sourceId);
+    final sizeMissing = segGaps.any((g) =>
+        g.code == ScanIssueCode.missingSegmentDiameter);
+    final wallMissing =
+        segGaps.any((g) => g.code == ScanIssueCode.missingSegmentWall);
 
     final borderColor = blocked
         ? _kRed
@@ -1092,15 +1393,19 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         children: [
           Row(
             children: [
-              Text(
-                '#${seg.seqNo}',
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w900, color: _kSec),
+              Flexible(
+                child: Text(
+                  '#${seg.label}',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w900, color: _kSec),
+                ),
               ),
               const SizedBox(width: 8),
               if (seg.startsNewRun)
                 _tag(_tr('NOWY CIĄG', 'NEW RUN'), _kAmber),
               if (seg.isBranch) _tag(_tr('ROZGAŁĘZIENIE', 'BRANCH'), _kAmber),
+              if (blocked) _tag(_tr('NIE ZAPISZĘ', 'NOT SAVED'), _kRed),
               const Spacer(),
               Text(
                 seg.cutMm == null
@@ -1114,7 +1419,9 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
+          _sizeLine(seg, sizeMissing: sizeMissing, wallMissing: wallMissing),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -1139,7 +1446,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                   label: Text(
                     seg.isoMm == null
                         ? _tr('WPISZ WYMIAR', 'ENTER DIMENSION')
-                        : 'ISO ${seg.isoExpr?.trim().isNotEmpty == true ? seg.isoExpr!.trim() : seg.isoMm!.toStringAsFixed(0)}',
+                        : 'ISO ${seg.isoExpr?.trim().isNotEmpty == true ? seg.isoExpr!.trim() : _fmt(seg.isoMm)}',
                     overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
@@ -1172,6 +1479,18 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
               ),
             ],
           ),
+          if (seg.isoNote != null) ...[
+            const SizedBox(height: 8),
+            _noteLine(Icons.functions, _kSec,
+                _tr('Wymiar z rzutów: ${seg.isoNote} mm',
+                    'Dimension from projections: ${seg.isoNote} mm')),
+          ],
+          if (seg.refSource == ScanRefSource.drawing) ...[
+            const SizedBox(height: 8),
+            _noteLine(Icons.visibility, _kSec,
+                _tr('Odniesienie wymiaru odczytane z linii wymiarowej rysunku.',
+                    'Dimension reference read off the drawing\'s dimension line.')),
+          ],
           for (final w in segWarnings) ...[
             const SizedBox(height: 8),
             _noteLine(Icons.warning_amber_rounded, _kAmber,
@@ -1182,6 +1501,50 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             _noteLine(Icons.block, _kRed, g.text(polish: !_isEnglish)),
           ],
         ],
+      ),
+    );
+  }
+
+  /// "DN80 · OD 88.9 × 5.49 · za redukcją…" — the run's own size, tappable.
+  Widget _sizeLine(PlannedSegment seg,
+      {required bool sizeMissing, required bool wallMissing}) {
+    final bad = sizeMissing || wallMissing;
+    final text = seg.dn == null
+        ? (sizeMissing
+            ? _tr('DN? — wybierz średnicę odcinka', 'DN? — pick the run size')
+            : _tr('DN nieznane', 'DN unknown'))
+        : [
+            'DN${seg.dn}',
+            if (seg.diameterMm != null)
+              'OD ${_fmt(seg.diameterMm)}'
+                  '${seg.wallThicknessMm == null ? '' : ' × ${_fmt(seg.wallThicknessMm)}'}',
+            if (wallMissing) _tr('ścianka?', 'wall?'),
+            if (seg.dnNote != null) seg.dnNote!,
+          ].join(' · ');
+    return InkWell(
+      onTap: () => wallMissing ? _editWall(seg) : _editSize(seg),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Icon(Icons.circle_outlined,
+                size: 14, color: bad ? _kRed : _kMuted),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: bad ? _kRed : _kMuted,
+                  fontWeight: bad ? FontWeight.w800 : FontWeight.w400,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1221,7 +1584,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             const SizedBox(height: 2),
             Text(
               detail,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: 11.5, color: bad ? _kRed : _kMuted),
@@ -1235,8 +1598,13 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   String _endpointLabel(ScanEndpoint e) {
     if (e.componentId == null) return _tr('otwarty koniec', 'open end');
     final raw = e.label?.trim();
-    if (raw != null && raw.isNotEmpty) return raw;
-    return _typeLabel(e.rawType) ?? _tr('element', 'component');
+    final role = switch (e.role) {
+      PortRole.run => _tr(' (przelot)', ' (run)'),
+      PortRole.branch => _tr(' (odgałęzienie)', ' (branch)'),
+      null => '',
+    };
+    if (raw != null && raw.isNotEmpty) return '$raw$role';
+    return '${_typeLabel(e.rawType) ?? _tr('element', 'component')}$role';
   }
 
   String? _typeLabel(String? type) {
@@ -1282,8 +1650,297 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     );
   }
 
+  // ── Welds tab ───────────────────────────────────────────────────────────
+
+  Widget _weldsTab() {
+    final field = _welds.where((w) => w.isField).length;
+    final derived = _welds.isNotEmpty && _welds.first.source == WeldSource.derived;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+      children: [
+        Text(
+          _tr(
+            'Mapa spoin: ${_welds.length} (montażowych: $field). '
+                '${derived ? 'Rysunek nie oznacza spoin — po jednej na każdym '
+                    'połączeniu rury z kształtką, numery W-001… nadane przez '
+                    'aplikację.' : 'Numery i typ z rysunku.'}',
+            'Weld map: ${_welds.length} (field: $field). '
+                '${derived ? 'The drawing marks no welds — one per pipe-to-'
+                    'fitting joint, numbered W-001… by the app.' : 'Numbers and '
+                    'type from the drawing.'}',
+          ),
+          style: const TextStyle(fontSize: 13, color: _kSec),
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: _canSave && _welds.isNotEmpty
+              ? () => _save(withJournal: true)
+              : null,
+          icon: const Icon(Icons.menu_book),
+          label: Text(_tr('Utwórz wpisy w dzienniku spoin',
+              'Create weld journal entries')),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _tr(
+            'Zapisze projekt i doda spoiny zapisanych cięć do dziennika '
+                '(status Oczekuje, powiązane z projektem). Spoiny już '
+                'wpisane dla tego rysunku są pomijane.',
+            'Saves the project and adds the welds of the saved cuts to the '
+                'journal (status Pending, linked to the project). Welds '
+                'already there for this drawing are skipped.',
+          ),
+          style: const TextStyle(fontSize: 11.5, color: _kMuted),
+        ),
+        const SizedBox(height: 10),
+        for (final w in _welds) _weldCard(w),
+        if (_welds.isEmpty)
+          Text(_tr('Brak spoin do pokazania.', 'No welds to show.'),
+              style: const TextStyle(color: _kMuted)),
+      ],
+    );
+  }
+
+  Widget _weldCard(PlannedWeld w) {
+    final runs = w.segmentIds
+        .map((id) => _segmentById(id)?.label ?? id)
+        .join(', ');
+    final loc = switch (w.location) {
+      'field' => _tr('MONTAŻOWA', 'FIELD'),
+      'shop' => _tr('WARSZTATOWA', 'SHOP'),
+      _ => _tr('shop/field?', 'shop/field?'),
+    };
+    final unsure = w.source == WeldSource.drawing &&
+        (w.confidence == AiConfidence.low ||
+            w.confidence == AiConfidence.unknown);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _kCard,
+        border: Border.all(color: unsure ? _kAmber : _kBorder),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(w.number,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w900)),
+              const SizedBox(width: 8),
+              _tag(loc, w.isField ? _kOrange : _kSec),
+              if (w.jointType.isNotEmpty) _tag(w.jointType, _kSec),
+              if (w.numberAssigned) _tag(_tr('NR NADANY', 'AUTO NO.'), _kMuted),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            [
+              if (w.dn != null) 'DN${w.dn}',
+              if (w.odMm != null)
+                'OD ${_fmt(w.odMm)}${w.wallMm == null ? '' : ' × ${_fmt(w.wallMm)}'}',
+              if (_plan.project.materialText != null) _plan.project.materialText!,
+              if (runs.isNotEmpty) _tr('odcinek $runs', 'run $runs'),
+              if (w.spoolId != null) 'spool ${w.spoolId}',
+              if (w.nde != null) 'NDE ${w.nde}',
+              if (w.pwht == true) 'PWHT',
+            ].join(' · '),
+            style: const TextStyle(fontSize: 12, color: _kMuted),
+          ),
+          if (unsure)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _tr('Niepewny odczyt spoiny — sprawdź numer na rysunku.',
+                    'Low-confidence weld reading — check its number.'),
+                style: const TextStyle(fontSize: 12, color: _kAmber),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Materials tab ───────────────────────────────────────────────────────
+
+  Widget _bomTab() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+      children: [
+        Text(
+          _tr(
+            'Materiały ze skanu (kształtki policzone na trasie, rura jako '
+                'suma cięć) porównane z tabelą materiałową rysunku.',
+            'Materials from the scan (fittings counted on the route, pipe as '
+                'the sum of the cuts) against the drawing\'s bill of '
+                'materials.',
+          ),
+          style: const TextStyle(fontSize: 13, color: _kSec),
+        ),
+        const SizedBox(height: 10),
+        if (_scan.billOfMaterials.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              _tr('Rysunek nie ma tabeli materiałowej (albo AI jej nie '
+                  'odczytała) — pokazuję tylko to, co wynika ze skanu.',
+                  'The drawing has no bill of materials (or the AI did not '
+                  'read it) — showing only what the scan gives.'),
+              style: const TextStyle(fontSize: 12.5, color: _kAmber),
+            ),
+          ),
+        for (final l in _bom) _bomCard(l),
+      ],
+    );
+  }
+
+  Widget _bomCard(BomLine l) {
+    final color = switch (l.status) {
+      BomLineStatus.ok => _kGreen,
+      BomLineStatus.mismatch => _kRed,
+      BomLineStatus.notCompared => _kMuted,
+    };
+    final icon = switch (l.status) {
+      BomLineStatus.ok => Icons.check_circle,
+      BomLineStatus.mismatch => Icons.error_outline,
+      BomLineStatus.notCompared => Icons.remove_circle_outline,
+    };
+    String q(double? v) => v == null ? '—' : _fmt(v);
+    final unit = l.unit == 'szt' ? _tr('szt', 'pcs') : l.unit;
+    final note = _isEnglish ? l.noteEn : l.notePl;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _kCard,
+        border: Border.all(
+            color: l.status == BomLineStatus.mismatch ? _kRed : _kBorder),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_isEnglish ? l.labelEn : l.labelPl,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text(
+                  _tr('rysunek ${q(l.drawingQty)} $unit · skan '
+                      '${q(l.scanQty)} $unit',
+                      'drawing ${q(l.drawingQty)} $unit · scan '
+                      '${q(l.scanQty)} $unit'),
+                  style: const TextStyle(fontSize: 12, color: _kMuted),
+                ),
+                if (note.isNotEmpty)
+                  Text(note, style: TextStyle(fontSize: 12, color: color)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Spools tab ──────────────────────────────────────────────────────────
+
+  Widget _spoolsTab() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+      children: [
+        if (_scan.spools.isEmpty &&
+            _segments.every((s) => s.spoolId == null))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              _tr('Rysunek nie dzieli trasy na spoole — cała trasa poniżej.',
+                  'The drawing marks no spools — the whole route below.'),
+              style: const TextStyle(fontSize: 12.5, color: _kSec),
+            ),
+          ),
+        for (final s in _spools) _spoolCard(s),
+      ],
+    );
+  }
+
+  Widget _spoolCard(ScanSpoolSummary s) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kCard,
+        border: Border.all(color: _kBorder),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            s.id == null ? _tr('Poza spoolami', 'Outside spools') : s.label,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _tr(
+              '${s.segments.length} cięć · ${_fmt(s.knownCutMm)} mm'
+                  '${s.missingCuts == 0 ? '' : ' (+${s.missingCuts} bez CUT)'}'
+                  ' · spoin ${s.welds.length} (montażowych ${s.fieldWelds})',
+              '${s.segments.length} cuts · ${_fmt(s.knownCutMm)} mm'
+                  '${s.missingCuts == 0 ? '' : ' (+${s.missingCuts} no CUT)'}'
+                  ' · welds ${s.welds.length} (field ${s.fieldWelds})',
+            ),
+            style: const TextStyle(fontSize: 12, color: _kMuted),
+          ),
+          const SizedBox(height: 6),
+          for (final seg in s.segments)
+            Text(
+              '• ${seg.label}: ${seg.cutMm == null ? _tr('CUT — brak', 'CUT — none') : 'CUT ${seg.cutMm!.toStringAsFixed(1)} mm'}'
+              '${seg.dn == null ? '' : ' · DN${seg.dn}'}',
+              style: TextStyle(
+                  fontSize: 12.5, color: seg.cutMm == null ? _kRed : null),
+            ),
+          if (s.welds.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${_tr('Spoiny', 'Welds')}: ${s.welds.map((w) => w.isField ? '${w.number} (FW)' : w.number).join(', ')}',
+                style: const TextStyle(fontSize: 12, color: _kSec),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _bottomBar() {
-    final blocked = _openGaps.length;
+    final projectBlocked = _gate.projectGaps.length;
+    final blockedCuts = _gate.blocked.length;
+    final String status;
+    final Color statusColor;
+    if (projectBlocked > 0) {
+      status = _tr('Uzupełnij $projectBlocked ${_gapWord(projectBlocked)}',
+          'Fix $projectBlocked blocking item(s)');
+      statusColor = _kRed;
+    } else if (_gate.savable.isEmpty) {
+      status = _tr('Żadne cięcie nie jest gotowe',
+          'No cut is ready');
+      statusColor = _kRed;
+    } else if (blockedCuts > 0) {
+      status = _tr(
+          'Zapiszę ${_gate.savable.length} z ${_segments.length} cięć',
+          'Saving ${_gate.savable.length} of ${_segments.length} cuts');
+      statusColor = _kAmber;
+    } else {
+      status = _tr('Gotowe do zapisu', 'Ready to save');
+      statusColor = _kGreen;
+    }
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1308,13 +1965,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    blocked == 0
-                        ? _tr('Gotowe do zapisu', 'Ready to save')
-                        : _tr('Uzupełnij $blocked ${_gapWord(blocked)}',
-                            'Fix $blocked blocking item(s)'),
+                    status,
                     style: TextStyle(
                       fontSize: 12,
-                      color: blocked == 0 ? _kGreen : _kRed,
+                      color: statusColor,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -1323,7 +1977,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             ),
             const SizedBox(width: 10),
             FilledButton.icon(
-              onPressed: _canSave ? _save : null,
+              onPressed: _canSave ? () => _save() : null,
               icon: _saving
                   ? const SizedBox(
                       width: 16,
@@ -1375,7 +2029,11 @@ class _TypeChoice {
   final String? valveType;
   final String pl;
   final String en;
-  const _TypeChoice(this.type, this.pl, this.en, {this.valveType});
+
+  /// Not a type: "type the take-out / body length by hand".
+  final bool typedValue;
+  const _TypeChoice(this.type, this.pl, this.en,
+      {this.valveType, this.typedValue = false});
 }
 
 /// Types the fitter can pick from. Deliberately limited to what
@@ -1386,6 +2044,7 @@ const List<_TypeChoice> _kScanTypeChoices = [
   _TypeChoice('elbow90', 'Kolano 90°', 'Elbow 90°'),
   _TypeChoice('elbow45', 'Kolano 45°', 'Elbow 45°'),
   _TypeChoice('tee', 'Trójnik', 'Tee'),
+  _TypeChoice('olet', 'Olet (weldolet / sockolet)', 'Olet (weldolet / sockolet)'),
   _TypeChoice('reducer', 'Redukcja', 'Reducer'),
   _TypeChoice('flange', 'Kołnierz', 'Flange'),
   _TypeChoice('blindFlange', 'Kołnierz ślepy', 'Blind flange'),
@@ -1406,10 +2065,17 @@ class _TypePickerSheet extends StatelessWidget {
   final String? currentType;
   final String Function(String pl, String en) tr;
 
+  /// Offer "type the take-out / body length by hand" first — for an end
+  /// the tables cannot give (an olet, a thread, a class without a table).
+  final bool offerTypedValue;
+  final String typedValueLabel;
+
   const _TypePickerSheet({
     required this.title,
     required this.currentType,
     required this.tr,
+    this.offerTypedValue = false,
+    this.typedValueLabel = '',
   });
 
   @override
@@ -1450,6 +2116,16 @@ class _TypePickerSheet extends StatelessWidget {
               child: ListView(
                 shrinkWrap: true,
                 children: [
+                  if (offerTypedValue)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.edit, size: 20, color: _kOrange),
+                      title: Text(typedValueLabel,
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                      onTap: () => Navigator.pop(
+                          context,
+                          const _TypeChoice(null, '', '', typedValue: true)),
+                    ),
                   for (final choice in _kScanTypeChoices)
                     ListTile(
                       dense: true,
@@ -1484,10 +2160,14 @@ class _DimensionDialog extends StatefulWidget {
   /// Numer segmentu na liście — ten sam, który monter widzi na ekranie.
   final int seqNo;
 
+  /// Etykieta odcinka z rysunku (spool/nr), gdy jest.
+  final String? label;
+
   /// Wyrażenie do edycji; puste, gdy AI nie odczytało wymiaru.
   final String initial;
 
-  const _DimensionDialog({required this.seqNo, required this.initial});
+  const _DimensionDialog(
+      {required this.seqNo, this.label, required this.initial});
 
   @override
   State<_DimensionDialog> createState() => _DimensionDialogState();
@@ -1556,7 +2236,8 @@ class _DimensionDialogState extends State<_DimensionDialog> {
         side: const BorderSide(color: _kBorder),
       ),
       title: Text(
-        _tr('Wymiar odcinka ${widget.seqNo}', 'Segment ${widget.seqNo} dimension'),
+        _tr('Wymiar odcinka ${widget.label ?? widget.seqNo}',
+            'Segment ${widget.label ?? widget.seqNo} dimension'),
         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
       ),
       content: Column(
@@ -1628,6 +2309,90 @@ class _DimensionDialogState extends State<_DimensionDialog> {
                 }
               : null,
           child: Text(_tr('Zapisz', 'Save')),
+        ),
+      ],
+    );
+  }
+}
+
+
+/// Jedna liczba od montera (take-out, długość korpusu, ścianka) — pole
+/// liczbowe z przecinkiem albo kropką, tylko wartość dodatnia.
+class _NumberDialog extends StatefulWidget {
+  final String title;
+  final String help;
+  final double? initial;
+  final String unit;
+  final String Function(String pl, String en) tr;
+
+  const _NumberDialog({
+    required this.title,
+    required this.help,
+    required this.initial,
+    required this.unit,
+    required this.tr,
+  });
+
+  @override
+  State<_NumberDialog> createState() => _NumberDialogState();
+}
+
+class _NumberDialogState extends State<_NumberDialog> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: _fmt(widget.initial));
+
+  double? get _value {
+    final v = parseDecimal(_ctrl.text);
+    if (v == null || !v.isFinite || v <= 0) return null;
+    return v;
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = _value != null;
+    return AlertDialog(
+      backgroundColor: _kCard,
+      title: Text(widget.title,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(widget.help,
+              style: const TextStyle(fontSize: 12.5, color: _kSec)),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            keyboardType: numberKeyboard(),
+            inputFormatters: numberInputFormatters(),
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              suffixText: widget.unit,
+              errorText: _ctrl.text.trim().isEmpty || ok
+                  ? null
+                  : widget.tr('Wpisz liczbę większą od zera.',
+                      'Enter a number greater than zero.'),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(widget.tr('Anuluj', 'Cancel'),
+              style: const TextStyle(color: _kSec)),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: _kOrange),
+          onPressed: ok ? () => Navigator.pop(context, _value) : null,
+          child: Text(widget.tr('Zapisz', 'Save')),
         ),
       ],
     );

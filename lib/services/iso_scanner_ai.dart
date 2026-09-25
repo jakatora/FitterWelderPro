@@ -25,6 +25,7 @@ import '../config/backend_config.dart';
 import '../config/feature_flags.dart';
 import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
+import '../utils/decimal_parse.dart';
 import 'premium_service.dart';
 
 // Skaner celuje w BackendConfig.scannerBaseUrl — od 2026-09-25 ten sam
@@ -129,6 +130,74 @@ class AiTitleBlock {
   }
 }
 
+// ── Tolerant JSON readers (schema v2) ────────────────────────────────────
+//
+// The model does not always keep to the declared types: a DN comes back as
+// `100` or `"100"`, a weld number as `7` or `"W-07"`. Every v2 field is read
+// through these, so a wrong type becomes "not read" (null) instead of a
+// crash — and an unknown field is simply ignored.
+
+String? _jStr(dynamic v) {
+  if (v == null) return null;
+  if (v is String) {
+    final t = v.trim();
+    return t.isEmpty ? null : t;
+  }
+  if (v is num || v is bool) return v.toString();
+  return null;
+}
+
+double? _jNum(dynamic v) {
+  if (v is num) return v.isFinite ? v.toDouble() : null;
+  if (v is String) return parseDecimal(v);
+  return null;
+}
+
+int? _jInt(dynamic v) {
+  final d = _jNum(v);
+  if (d == null || d != d.roundToDouble()) return null;
+  return d.toInt();
+}
+
+bool? _jBool(dynamic v) => v is bool ? v : null;
+
+List<String> _jStrList(dynamic v) {
+  if (v is String) return [if (v.trim().isNotEmpty) v.trim()];
+  if (v is! List) return const [];
+  return [
+    for (final e in v)
+      if (_jStr(e) != null) _jStr(e)!,
+  ];
+}
+
+/// Direction of a pipe run as the model read it off the drawing: an axis
+/// word (`E`, `W`, `N`, `S`, `UP`, `DOWN`, `+X`…) or a vector `{x, y, z}`.
+/// Kept raw here; `scan_geometry.dart` turns it into a vector.
+Object? _jDirection(dynamic v) {
+  if (v is String) return v.trim().isEmpty ? null : v.trim();
+  if (v is Map) {
+    final m = <String, double>{};
+    for (final k in ['x', 'y', 'z']) {
+      final n = _jNum(v[k]);
+      if (n != null) m[k] = n;
+    }
+    return m.isEmpty ? null : m;
+  }
+  return null;
+}
+
+/// `{"E": 500, "N": 300, "UP": 400}` — projections of a skewed run, mm.
+Map<String, double> _jProjections(dynamic v) {
+  if (v is! Map) return const {};
+  final out = <String, double>{};
+  v.forEach((k, value) {
+    final key = _jStr(k);
+    final n = _jNum(value);
+    if (key != null && n != null && n.isFinite) out[key] = n;
+  });
+  return out;
+}
+
 class AiSegment {
   final String id;
   final double? dimensionMm;
@@ -138,6 +207,41 @@ class AiSegment {
   final bool auxiliary;
   final AiConfidence confidence;
 
+  // ── v2 ────────────────────────────────────────────────────────────────
+  /// Nominal size of THIS run as printed next to it (DN), when the drawing
+  /// gives one — a run past a reducer has a different size than the line.
+  final int? dn;
+
+  /// Size callout as printed (`4"`, `NPS 4`, `DN100`) when not a plain DN.
+  final String? nps;
+
+  /// Schedule printed for this run, when it differs from the title block.
+  final String? schedule;
+
+  /// Direction of the run on the isometric: `E`/`W`/`N`/`S`/`UP`/`DOWN`,
+  /// `+X`…, or a vector map `{x, y, z}` for a skewed run.
+  final Object? direction;
+
+  /// Projections of a skewed (offset) run, mm, keyed by direction word —
+  /// what an isometric prints on the hatched offset triangle.
+  final Map<String, double> projections;
+
+  /// Where the dimension line stops on the from / to side as drawn:
+  /// `CL` (centreline / work point), `FACE` (the component's face, a
+  /// flange's gasket face), `EOP` (end of pipe / weld line).
+  final String? refFrom;
+  final String? refTo;
+
+  /// Spool this run belongs to (id or label from the drawing).
+  final String? spoolId;
+
+  /// Slope callout as printed (`1:100`, `1%`), for display.
+  final String? slope;
+
+  /// Set by the review screen when the fitter re-entered / confirmed the
+  /// dimension himself. Never set from the model's JSON on purpose.
+  final bool userConfirmed;
+
   AiSegment({
     required this.id,
     this.dimensionMm,
@@ -146,16 +250,76 @@ class AiSegment {
     this.toId,
     this.auxiliary = false,
     this.confidence = AiConfidence.unknown,
+    this.dn,
+    this.nps,
+    this.schedule,
+    this.direction,
+    this.projections = const {},
+    this.refFrom,
+    this.refTo,
+    this.spoolId,
+    this.slope,
+    this.userConfirmed = false,
   });
 
   factory AiSegment.fromJson(Map<String, dynamic> j) => AiSegment(
-        id: j['id'] as String? ?? '',
-        dimensionMm: (j['dimensionMm'] as num?)?.toDouble(),
-        rawDimension: j['rawDimension'] as String?,
-        fromId: j['fromId'] as String?,
-        toId: j['toId'] as String?,
+        id: _jStr(j['id']) ?? '',
+        dimensionMm: _jNum(j['dimensionMm']),
+        rawDimension: _jStr(j['rawDimension']),
+        fromId: _jStr(j['fromId']),
+        toId: _jStr(j['toId']),
         auxiliary: j['auxiliary'] as bool? ?? false,
         confidence: _confFromJson(j['confidence']),
+        dn: _jInt(j['dn']),
+        nps: _jStr(j['nps']),
+        schedule: _jStr(j['schedule']),
+        direction: _jDirection(j['direction']),
+        projections: _jProjections(j['projections']),
+        refFrom: _jStr(j['refFrom'])?.toUpperCase(),
+        refTo: _jStr(j['refTo'])?.toUpperCase(),
+        spoolId: _jStr(j['spoolId']),
+        slope: _jStr(j['slope']),
+      );
+
+  static const Object _keep = Object();
+
+  /// Copy with some fields replaced. Every field not named is kept, so a
+  /// correction on the review screen never drops a v2 field on the way.
+  AiSegment copyWith({
+    String? id,
+    Object? dimensionMm = _keep,
+    Object? rawDimension = _keep,
+    Object? fromId = _keep,
+    Object? toId = _keep,
+    bool? auxiliary,
+    AiConfidence? confidence,
+    Object? dn = _keep,
+    Object? schedule = _keep,
+    bool? userConfirmed,
+  }) =>
+      AiSegment(
+        id: id ?? this.id,
+        dimensionMm: identical(dimensionMm, _keep)
+            ? this.dimensionMm
+            : dimensionMm as double?,
+        rawDimension: identical(rawDimension, _keep)
+            ? this.rawDimension
+            : rawDimension as String?,
+        fromId: identical(fromId, _keep) ? this.fromId : fromId as String?,
+        toId: identical(toId, _keep) ? this.toId : toId as String?,
+        auxiliary: auxiliary ?? this.auxiliary,
+        confidence: confidence ?? this.confidence,
+        dn: identical(dn, _keep) ? this.dn : dn as int?,
+        nps: identical(dn, _keep) ? nps : null,
+        schedule:
+            identical(schedule, _keep) ? this.schedule : schedule as String?,
+        direction: direction,
+        projections: projections,
+        refFrom: refFrom,
+        refTo: refTo,
+        spoolId: spoolId,
+        slope: slope,
+        userConfirmed: userConfirmed ?? this.userConfirmed,
       );
 }
 
@@ -175,6 +339,43 @@ class AiComponent {
   final String? instrumentTag;
   final AiConfidence confidence;
 
+  // ── v2 ────────────────────────────────────────────────────────────────
+  /// Sizes of a size-changing fitting as printed: a reducer `DN100×80`, a
+  /// reducing tee (run × branch), an olet (header × outlet). Raw text or DN.
+  final String? sizeLarge;
+  final String? sizeSmall;
+
+  /// End connection: `BW` (butt weld), `SW` (socket weld), `THD` (thread),
+  /// `FL` (flanged).
+  final String? endType;
+
+  /// Flange type: `WN`, `SO`, `SW`, `LJ`, `BL`, `THD`.
+  final String? flangeType;
+
+  /// Pressure class as printed: `150`, `300`, `3000`, `6000`…
+  final String? rating;
+
+  /// Flange facing: `RF`, `FF`, `RTJ`.
+  final String? facing;
+
+  /// Components bolted / screwed straight onto this one with no pipe in
+  /// between — a flanged valve between its two flanges.
+  final List<String> connectedTo;
+
+  /// Tee / olet: the segment ids of the straight-through run, and the
+  /// segment id of the branch.
+  final List<String> runIds;
+  final String? branchId;
+
+  /// Bill-of-materials position number (`item`) of this component.
+  final String? bomItem;
+
+  /// Bend angle of an elbow in degrees when printed (`60°`).
+  final double? angleDeg;
+
+  /// Spool this component belongs to.
+  final String? spoolId;
+
   AiComponent({
     required this.id,
     required this.type,
@@ -190,7 +391,59 @@ class AiComponent {
     this.isField,
     this.instrumentTag,
     this.confidence = AiConfidence.unknown,
+    this.sizeLarge,
+    this.sizeSmall,
+    this.endType,
+    this.flangeType,
+    this.rating,
+    this.facing,
+    this.connectedTo = const [],
+    this.runIds = const [],
+    this.branchId,
+    this.bomItem,
+    this.angleDeg,
+    this.spoolId,
   });
+
+  /// Copy with a new type / valve type / confidence; everything else kept.
+  AiComponent copyWith({
+    String? id,
+    String? type,
+    Object? valveType = _keepC,
+    AiConfidence? confidence,
+  }) =>
+      AiComponent(
+        id: id ?? this.id,
+        type: type ?? this.type,
+        valveType: identical(valveType, _keepC)
+            ? this.valveType
+            : valveType as String?,
+        supportType: supportType,
+        label: label,
+        weldNo: weldNo,
+        weldType: weldType,
+        weldNde: weldNde,
+        weldPwht: weldPwht,
+        weldPosition: weldPosition,
+        throatA: throatA,
+        isField: isField,
+        instrumentTag: instrumentTag,
+        confidence: confidence ?? this.confidence,
+        sizeLarge: sizeLarge,
+        sizeSmall: sizeSmall,
+        endType: endType,
+        flangeType: flangeType,
+        rating: rating,
+        facing: facing,
+        connectedTo: connectedTo,
+        runIds: runIds,
+        branchId: branchId,
+        bomItem: bomItem,
+        angleDeg: angleDeg,
+        spoolId: spoolId,
+      );
+
+  static const Object _keepC = Object();
 
   bool get isWeld => type == 'weld' || type == 'fieldWeld' || isField == true;
   bool get isTakeOutBearing =>
@@ -203,20 +456,32 @@ class AiComponent {
       type == 'valve';
 
   factory AiComponent.fromJson(Map<String, dynamic> j) => AiComponent(
-        id: j['id'] as String? ?? '',
-        type: j['type'] as String? ?? 'other',
-        valveType: j['valveType'] as String?,
-        supportType: j['supportType'] as String?,
-        label: j['label'] as String?,
-        weldNo: j['weldNo']?.toString(),
-        weldType: j['weldType'] as String?,
-        weldNde: j['weldNde'] as String?,
-        weldPwht: j['weldPwht'] as bool?,
-        weldPosition: j['weldPosition'] as String?,
-        throatA: j['throatA'] as String?,
-        isField: j['isField'] as bool?,
-        instrumentTag: j['instrumentTag'] as String?,
+        id: _jStr(j['id']) ?? '',
+        type: _jStr(j['type']) ?? 'other',
+        valveType: _jStr(j['valveType']),
+        supportType: _jStr(j['supportType']),
+        label: _jStr(j['label']),
+        weldNo: _jStr(j['weldNo']),
+        weldType: _jStr(j['weldType']),
+        weldNde: _jStr(j['weldNde']),
+        weldPwht: _jBool(j['weldPwht']),
+        weldPosition: _jStr(j['weldPosition']),
+        throatA: _jStr(j['throatA']),
+        isField: _jBool(j['isField']),
+        instrumentTag: _jStr(j['instrumentTag']),
         confidence: _confFromJson(j['confidence']),
+        sizeLarge: _jStr(j['sizeLarge']),
+        sizeSmall: _jStr(j['sizeSmall']),
+        endType: _jStr(j['endType'])?.toUpperCase(),
+        flangeType: _jStr(j['flangeType'])?.toUpperCase(),
+        rating: _jStr(j['rating']),
+        facing: _jStr(j['facing'])?.toUpperCase(),
+        connectedTo: _jStrList(j['connectedTo']),
+        runIds: _jStrList(j['runIds']),
+        branchId: _jStr(j['branchId']),
+        bomItem: _jStr(j['bomItem']),
+        angleDeg: _jNum(j['angleDeg']),
+        spoolId: _jStr(j['spoolId']),
       );
 }
 
@@ -229,6 +494,9 @@ class AiBomItem {
   final String? schedule;
   final String? standard;
 
+  /// v2: unit of [quantity] as printed — `M`, `MM`, `FT`, `PCS`, `EA`, `SET`.
+  final String? unit;
+
   AiBomItem({
     required this.item,
     required this.description,
@@ -237,17 +505,135 @@ class AiBomItem {
     this.size,
     this.schedule,
     this.standard,
+    this.unit,
   });
 
   factory AiBomItem.fromJson(Map<String, dynamic> j) => AiBomItem(
-        item: j['item']?.toString() ?? '',
-        description: j['description'] as String? ?? '',
-        quantity: (j['quantity'] as num?)?.toDouble(),
-        material: j['material'] as String?,
-        size: j['size'] as String?,
-        schedule: j['schedule'] as String?,
-        standard: j['standard'] as String?,
+        item: _jStr(j['item']) ?? '',
+        description: _jStr(j['description']) ?? '',
+        quantity: _jNum(j['quantity']),
+        material: _jStr(j['material']),
+        size: _jStr(j['size']),
+        schedule: _jStr(j['schedule']),
+        standard: _jStr(j['standard']),
+        unit: _jStr(j['unit'])?.toUpperCase(),
       );
+}
+
+/// v2: one weld as marked on the isometric — a shop weld (dot) or a field
+/// weld (FW), with its number from the drawing.
+class AiWeld {
+  final String id;
+
+  /// Weld number as printed (`7`, `W-07`, `FW3`).
+  final String? number;
+
+  /// `shop` or `field`; null when the drawing does not say.
+  final String? location;
+
+  /// `BW`, `SW`, `BR` (branch), `FW` (fillet).
+  final String? jointType;
+
+  /// Components / segments this weld joins (usually two ids).
+  final List<String> betweenIds;
+
+  final String? spoolId;
+  final String? nde;
+  final bool? pwht;
+  final String? position;
+  final AiConfidence confidence;
+
+  AiWeld({
+    required this.id,
+    this.number,
+    this.location,
+    this.jointType,
+    this.betweenIds = const [],
+    this.spoolId,
+    this.nde,
+    this.pwht,
+    this.position,
+    this.confidence = AiConfidence.unknown,
+  });
+
+  bool get isField => location == 'field';
+
+  factory AiWeld.fromJson(Map<String, dynamic> j) {
+    final loc = _jStr(j['type'] ?? j['location'])?.toLowerCase();
+    return AiWeld(
+      id: _jStr(j['id']) ?? '',
+      number: _jStr(j['number'] ?? j['weldNo']),
+      location: switch (loc) {
+        'shop' || 'sw' || 'warsztatowa' => 'shop',
+        'field' || 'fw' || 'site' || 'montazowa' || 'montażowa' => 'field',
+        _ => null,
+      },
+      jointType: _jStr(j['jointType'])?.toUpperCase(),
+      betweenIds: _jStrList(j['betweenIds']),
+      spoolId: _jStr(j['spoolId']),
+      nde: _jStr(j['nde']),
+      pwht: _jBool(j['pwht']),
+      position: _jStr(j['position']),
+      confidence: _confFromJson(j['confidence']),
+    );
+  }
+}
+
+/// v2: a spool (prefabricated piece) marked on the drawing.
+class AiSpool {
+  final String id;
+  final String? label;
+  AiSpool({required this.id, this.label});
+
+  factory AiSpool.fromJson(Map<String, dynamic> j) =>
+      AiSpool(id: _jStr(j['id']) ?? '', label: _jStr(j['label']));
+
+  String get display => label ?? id;
+}
+
+/// v2: an overall (sum) dimension between two points of the drawing, used
+/// to check that the chain of run dimensions closes.
+class AiOverallDimension {
+  final String fromId;
+  final String toId;
+
+  /// Axis word the dimension is measured along (`E`, `N`, `UP`, `X`…).
+  final String? axis;
+  final double? valueMm;
+  final String? raw;
+  final AiConfidence confidence;
+
+  AiOverallDimension({
+    required this.fromId,
+    required this.toId,
+    this.axis,
+    this.valueMm,
+    this.raw,
+    this.confidence = AiConfidence.unknown,
+  });
+
+  factory AiOverallDimension.fromJson(Map<String, dynamic> j) =>
+      AiOverallDimension(
+        fromId: _jStr(j['fromId']) ?? '',
+        toId: _jStr(j['toId']) ?? '',
+        axis: _jStr(j['axis'])?.toUpperCase(),
+        valueMm: _jNum(j['valueMm']),
+        raw: _jStr(j['raw'] ?? j['rawDimension']),
+        confidence: _confFromJson(j['confidence']),
+      );
+}
+
+/// v2: an elevation mark (`EL +3.250`) at a component or point.
+class AiElevation {
+  final String atId;
+
+  /// As printed.
+  final String value;
+
+  /// Normalised by the model to millimetres, when it did.
+  final double? elevationMm;
+
+  AiElevation({required this.atId, required this.value, this.elevationMm});
 }
 
 /// A standalone "45" in a question / hint: not part of a longer number, so
@@ -355,6 +741,18 @@ class AiScanResult {
   final int? tookMs;
   final String? model;
 
+  // ── v2 ────────────────────────────────────────────────────────────────
+  /// Version of the reading schema the model answered in. 1 when absent —
+  /// a reading from before the v2 prompt, which still parses and plans.
+  final int schemaVersion;
+
+  /// Welds marked on the drawing (`welds[]` in the JSON). The legacy weld
+  /// markers in [components] stay where they were — see [welds].
+  final List<AiWeld> weldMarks;
+
+  final List<AiSpool> spools;
+  final List<AiOverallDimension> overallDimensions;
+
   AiScanResult({
     this.drawingStandard = 'unknown',
     this.sizeNotation = 'unknown',
@@ -372,6 +770,10 @@ class AiScanResult {
     this.error,
     this.tookMs,
     this.model,
+    this.schemaVersion = 1,
+    this.weldMarks = const [],
+    this.spools = const [],
+    this.overallDimensions = const [],
   }) : titleBlock = titleBlock ?? AiTitleBlock();
 
   bool get isError =>
@@ -381,9 +783,65 @@ class AiScanResult {
   List<AiComponent> get welds =>
       components.where((c) => c.isWeld).toList(growable: false);
 
+  /// Elevation marks with the model's millimetre value when it gave one.
+  List<AiElevation> get elevationPoints => [
+        for (final e in elevations)
+          if ((e['atId'] ?? '').isNotEmpty)
+            AiElevation(
+              atId: e['atId']!,
+              value: e['value'] ?? '',
+              elevationMm: double.tryParse(e['elevationMm'] ?? ''),
+            ),
+      ];
+
+  /// Copy with some lists replaced; everything else — v2 fields included —
+  /// kept. The review screen corrects a scan only through this.
+  AiScanResult copyWith({
+    List<AiSegment>? segments,
+    List<AiComponent>? components,
+  }) =>
+      AiScanResult(
+        drawingStandard: drawingStandard,
+        sizeNotation: sizeNotation,
+        isHygienic: isHygienic,
+        titleBlock: titleBlock,
+        northArrow: northArrow,
+        scale: scale,
+        segments: segments ?? this.segments,
+        components: components ?? this.components,
+        elevations: elevations,
+        billOfMaterials: billOfMaterials,
+        needsUserInput: needsUserInput,
+        uncertainty: uncertainty,
+        warnings: warnings,
+        error: error,
+        tookMs: tookMs,
+        model: model,
+        schemaVersion: schemaVersion,
+        weldMarks: weldMarks,
+        spools: spools,
+        overallDimensions: overallDimensions,
+      );
+
   factory AiScanResult.fromEnvelope(Map<String, dynamic> envelope) {
     final result = (envelope['result'] as Map?)?.cast<String, dynamic>() ?? {};
+    final version = _jInt(result['schemaVersion'] ?? envelope['schemaVersion']);
     return AiScanResult(
+      schemaVersion: (version == null || version < 1) ? 1 : version,
+      weldMarks: ((result['welds'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => AiWeld.fromJson(e.cast<String, dynamic>()))
+          .toList(),
+      spools: ((result['spools'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => AiSpool.fromJson(e.cast<String, dynamic>()))
+          .where((s) => s.id.isNotEmpty)
+          .toList(),
+      overallDimensions: ((result['overallDimensions'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => AiOverallDimension.fromJson(e.cast<String, dynamic>()))
+          .where((d) => d.fromId.isNotEmpty && d.toId.isNotEmpty)
+          .toList(),
       drawingStandard: result['drawingStandard'] as String? ?? 'unknown',
       sizeNotation: result['sizeNotation'] as String? ?? 'unknown',
       isHygienic: result['isHygienic'] as bool? ?? false,
@@ -404,6 +862,8 @@ class AiScanResult {
           .map((e) => {
                 'atId': (e['atId'] ?? '').toString(),
                 'value': (e['value'] ?? '').toString(),
+                if (_jNum(e['elevationMm']) != null)
+                  'elevationMm': _jNum(e['elevationMm'])!.toString(),
               })
           .toList(),
       billOfMaterials: ((result['billOfMaterials'] as List?) ?? const [])

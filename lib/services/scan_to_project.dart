@@ -37,8 +37,12 @@ import 'component_classification.dart';
 import 'iso_parser.dart';
 import 'iso_scanner_ai.dart';
 import 'prefab_engine.dart';
+import 'scan_geometry.dart';
+import 'scan_graph.dart';
 import 'takeout_catalog.dart';
 import 'unit_parser.dart';
+
+export 'scan_graph.dart' show PortRole;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Vocabulary
@@ -57,6 +61,22 @@ enum ScanValueSource {
   /// Derived from the scan: title block, bill of materials or line number,
   /// possibly via a dimensional standard table.
   scan,
+}
+
+/// Where a run's dimension reference (the stop on each side) came from.
+enum ScanRefSource {
+  /// Not settled — the fitter has to answer.
+  none,
+
+  /// Follows from the two ends alone (no bodied component on either).
+  derived,
+
+  /// Read off the drawing's dimension line (`CL` / `FACE` / `EOP`) with
+  /// high confidence, where the code maps to exactly one stop.
+  drawing,
+
+  /// Confirmed by the fitter on the review screen.
+  fitter,
 }
 
 /// How a segment end behaves, in the vocabulary the segments table already
@@ -137,6 +157,54 @@ enum ScanIssueCode {
 
   /// A reducer sits in the route, so the diameter changes downstream.
   reducerChangesDiameter,
+
+  // ── v2 (graph, per-run sizes, geometry) ─────────────────────────────
+
+  /// A tee / olet whose run cannot be told from its branch where it matters
+  /// (a reducing tee: C vs M), or a node that is not a tee with more than
+  /// two runs. Blocks only the runs meeting there.
+  branchAmbiguous,
+
+  /// The nominal size of this run is not known (past a reducer whose sides
+  /// the drawing does not tell apart). Blocks only this run.
+  missingSegmentDiameter,
+
+  /// The wall of this run is not known (a size other than the project's and
+  /// no schedule to look it up). Blocks only this run.
+  missingSegmentWall,
+
+  /// Two readings of the same run's size disagree.
+  diameterConflict,
+
+  /// A tee without printed sizes was taken as an equal tee (M = C).
+  teeAssumedEqual,
+
+  /// A socket-weld end in a project with a root gap: the gap comes off
+  /// again on top of the 1.6 mm socket clearance already in the take-out.
+  socketWeldWithGap,
+
+  /// The printed skew length of an offset disagrees with its projections.
+  /// Blocks the run until the fitter confirms the dimension.
+  offsetDimensionMismatch,
+
+  /// The length of an offset was derived from its projections (√ of the
+  /// squares) — informational, the formula is shown.
+  dimensionFromProjections,
+
+  /// The bend at an elbow, from the directions of its two runs, is not the
+  /// elbow's angle. Blocks the two runs (their take-out would be wrong).
+  elbowAngleMismatch,
+
+  /// A run that is not along an axis — an offset / rolling offset.
+  offsetInRoute,
+
+  /// The chain of run dimensions does not close against an overall
+  /// dimension, an elevation mark or itself (a loop).
+  closureMismatch,
+
+  /// An elbow cut to an angle other than 45° / 90°: its take-out is the
+  /// segment formula of B16.9 §6.2.4.
+  cutElbow,
 }
 
 /// One gap or warning, with both UI languages baked in.
@@ -280,6 +348,19 @@ class ScanEndpoint {
   /// never contributes a silent zero to a cut.
   final bool isResolved;
 
+  /// At a tee / olet: whether this run is the straight-through run or the
+  /// branch. Null elsewhere or when not known.
+  final PortRole? role;
+
+  /// Why [takeoutMm] (axial) or [bodyLengthMm] (a body) is missing, in both
+  /// languages — e.g. "olet: height is the manufacturer's". Null when the
+  /// value is known or there is nothing to say beyond the generic gap.
+  final String? missingPl;
+  final String? missingEn;
+
+  /// True when the take-out / body length was typed in by the fitter.
+  final bool fromFitter;
+
   const ScanEndpoint({
     this.componentId,
     this.rawType,
@@ -293,6 +374,10 @@ class ScanEndpoint {
     this.bodyNote,
     this.proposedStop = SideStop.face,
     this.isResolved = true,
+    this.role,
+    this.missingPl,
+    this.missingEn,
+    this.fromFitter = false,
   });
 
   /// An open end of the spool — nothing is fitted here.
@@ -450,6 +535,43 @@ class PlannedSegment {
   /// the same `projects.gap_mm` the segment builder subtracts. 0 = none.
   final double gapMm;
 
+  // ── v2 ────────────────────────────────────────────────────────────────
+
+  /// Nominal size of THIS run — read next to it, carried through the route
+  /// (a reducer's other side, a reducing tee's branch) or the project's.
+  /// Null when it cannot be known without the fitter.
+  final int? dn;
+
+  /// Outside diameter / wall of this run, mm — what `segments.diameter_mm`
+  /// / `wall_thickness_mm` get. Null when not known.
+  final double? diameterMm;
+  final double? wallThicknessMm;
+
+  /// Where [dn] came from, for the review screen.
+  final String? dnNote;
+
+  /// Spool this run belongs to, as printed.
+  final String? spoolId;
+
+  /// Label as the drawing numbers it: `SP-1/2` (spool / position in the
+  /// spool) or the plain position when the drawing has no spools.
+  final String label;
+
+  /// The drawing segments this run is made of: itself, or the two header
+  /// halves of an olet merged into the one pipe that is cut.
+  final List<String> partIds;
+
+  /// How [isoMm] was obtained when it was not printed as such — e.g. the
+  /// true length of an offset from its projections.
+  final String? isoNote;
+
+  /// Where [stops] came from: derived from the two ends, read from the
+  /// drawing's dimension line, or confirmed by the fitter.
+  final ScanRefSource refSource;
+
+  /// Index of the connected run (0-based) this segment belongs to.
+  final int runIndex;
+
   const PlannedSegment({
     required this.sourceId,
     required this.seqNo,
@@ -464,7 +586,61 @@ class PlannedSegment {
     this.startsNewRun = false,
     this.isBranch = false,
     this.gapMm = 0,
-  });
+    this.dn,
+    this.diameterMm,
+    this.wallThicknessMm,
+    this.dnNote,
+    this.spoolId,
+    String? label,
+    List<String>? partIds,
+    this.isoNote,
+    this.refSource = ScanRefSource.none,
+    this.runIndex = 0,
+  })  : label = label ?? '$seqNo',
+        partIds = partIds ?? const [];
+
+  /// The drawing segment ids behind this run (never empty).
+  List<String> get sourceParts => partIds.isEmpty ? [sourceId] : partIds;
+
+  PlannedSegment _copy({
+    int? seqNo,
+    String? label,
+    ScanStops? stops,
+    bool clearStops = false,
+    double? cutMm,
+    bool clearCut = false,
+    ScanRefSource? refSource,
+    bool? startsNewRun,
+  }) =>
+      PlannedSegment(
+        sourceId: sourceId,
+        seqNo: seqNo ?? this.seqNo,
+        start: start,
+        end: end,
+        isoExpr: isoExpr,
+        isoMm: isoMm,
+        stops: clearStops ? null : (stops ?? this.stops),
+        proposedStops: proposedStops,
+        cutMm: clearCut ? null : (cutMm ?? this.cutMm),
+        confidence: confidence,
+        startsNewRun: startsNewRun ?? this.startsNewRun,
+        isBranch: isBranch,
+        gapMm: gapMm,
+        dn: dn,
+        diameterMm: diameterMm,
+        wallThicknessMm: wallThicknessMm,
+        dnNote: dnNote,
+        spoolId: spoolId,
+        label: label ?? this.label,
+        partIds: partIds,
+        isoNote: isoNote,
+        refSource: refSource ?? this.refSource,
+        runIndex: runIndex,
+      );
+
+  /// Copy renumbered to [seqNo] with a new [label].
+  PlannedSegment renumbered(int seqNo, String label, {bool? startsNewRun}) =>
+      _copy(seqNo: seqNo, label: label, startsNewRun: startsNewRun);
 
   /// Welds on this run — one per end something is welded to, none for an
   /// open end ([PrefabEngine.weldCountForEnds], the builder's rule).
@@ -485,20 +661,12 @@ class PlannedSegment {
   /// them. Used by the screen once he answers a
   /// [ScanIssueCode.dimensionReferenceUnknown] gap.
   PlannedSegment withStops(ScanStops confirmed) {
-    return PlannedSegment(
-      sourceId: sourceId,
-      seqNo: seqNo,
-      start: start,
-      end: end,
-      isoExpr: isoExpr,
-      isoMm: isoMm,
+    final cut = cutMmForStops(this, confirmed);
+    return _copy(
       stops: confirmed,
-      proposedStops: proposedStops,
-      cutMm: cutMmForStops(this, confirmed),
-      confidence: confidence,
-      startsNewRun: startsNewRun,
-      isBranch: isBranch,
-      gapMm: gapMm,
+      cutMm: cut,
+      clearCut: cut == null,
+      refSource: ScanRefSource.fitter,
     );
   }
 
@@ -515,6 +683,8 @@ class PlannedSegment {
       cutMm != null &&
       start.isResolved &&
       end.isResolved &&
+      diameterMm != null &&
+      wallThicknessMm != null &&
       anchorColumns != null;
 
   /// Value for `segments.iso_ref`, in the `START|END` encoding the segment
@@ -593,8 +763,9 @@ Map<String, Object?>? segmentRowFor(
     'id': id,
     'project_id': projectId,
     'seq_no': seg.seqNo,
-    'diameter_mm': diameterMm,
-    'wall_thickness_mm': wallThicknessMm,
+    // The run's own size (a run past a reducer is not the project's).
+    'diameter_mm': seg.diameterMm ?? diameterMm,
+    'wall_thickness_mm': seg.wallThicknessMm ?? wallThicknessMm,
     'start_kind': seg.start.kind.code,
     // No component-library row exists for a scanned fitting — its take-off
     // is in start_value_mm / end_value_mm and the point it was measured to
@@ -683,17 +854,50 @@ class ScanPlan {
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────
 
+/// What the fitter answered on the review screen that the planner itself
+/// has to take into account (everything else — the dimension reference —
+/// is applied on top of the plan with [PlannedSegment.withStops]).
+class ScanFitterInput {
+  /// Nominal size of a run, by segment id (a merged olet header by its
+  /// merged id `a+b`). Feeds the size propagation like a printed size.
+  final Map<String, int> segmentDn;
+
+  /// Wall of a run, mm, by segment id.
+  final Map<String, double> segmentWallMm;
+
+  /// Take-out (axial end) or body length (bodied end) typed in for one end
+  /// of one run, mm, keyed by [takeoutKey].
+  final Map<String, double> takeoutMm;
+
+  const ScanFitterInput({
+    this.segmentDn = const {},
+    this.segmentWallMm = const {},
+    this.takeoutMm = const {},
+  });
+
+  static String takeoutKey(String componentId, String segmentId) =>
+      '$componentId@$segmentId';
+}
+
 /// Builds a saveable plan out of a finished AI scan.
 ///
 /// [diameterMm] and [wallThicknessMm] are what the fitter already set up (a
 /// project he is scanning into). They always win over anything read off the
 /// drawing, because he is standing in front of the pipe and the drawing may
-/// be a revision behind.
+/// be a revision behind. [fitter] carries his answers from the review
+/// screen that change the plan itself (a run's size, a typed take-out).
+///
+/// The route is a graph (see `scan_graph.dart`): tees and olets branch it,
+/// bolted joints keep it continuous, every run gets its own size — read,
+/// carried through reducers and reducing tees, or the project's — and every
+/// take-out is looked up for THAT size and THAT end (a tee's run or its
+/// branch).
 ScanPlan planFromScan(
   AiScanResult scan, {
   double? diameterMm,
   double? wallThicknessMm,
   double gapMm = 0,
+  ScanFitterInput fitter = const ScanFitterInput(),
 }) {
   // The project's root gap per weld, exactly as the segment builder takes it
   // off. A nonsense value (negative, NaN) is not a reason to LENGTHEN a pipe.
@@ -757,7 +961,7 @@ ScanPlan planFromScan(
   // Auxiliary lines are dimension helpers, north arrows, match lines. They
   // are drawn like a pipe run and must not become one.
   final auxiliary = scan.segments.where((s) => s.auxiliary).toList();
-  final pipeSegments = scan.segments.where((s) => !s.auxiliary).toList();
+  final rawPipe = scan.segments.where((s) => !s.auxiliary).toList();
 
   if (auxiliary.isNotEmpty) {
     warnings.add(ScanIssue(
@@ -770,7 +974,7 @@ ScanPlan planFromScan(
     ));
   }
 
-  if (pipeSegments.isEmpty) {
+  if (rawPipe.isEmpty) {
     gaps.add(const ScanIssue(
       code: ScanIssueCode.noUsableSegments,
       blocking: true,
@@ -788,25 +992,109 @@ ScanPlan planFromScan(
     );
   }
 
+  // Every run needs an id to be addressed by (a correction, a fitter
+  // answer, a gap). An unnamed one gets its position in the drawing's list.
+  final usedIds = rawPipe.map((s) => s.id).where((id) => id.isNotEmpty).toSet();
+  var pipeSegments = <AiSegment>[];
+  for (var i = 0; i < rawPipe.length; i++) {
+    final s = rawPipe[i];
+    if (s.id.isNotEmpty) {
+      pipeSegments.add(s);
+      continue;
+    }
+    var n = i + 1;
+    while (usedIds.contains('seg$n')) {
+      n++;
+    }
+    usedIds.add('seg$n');
+    pipeSegments.add(s.copyWith(id: 'seg$n'));
+  }
+
   final components = <String, AiComponent>{};
   for (final c in scan.components) {
     if (c.id.isEmpty) continue;
     components.putIfAbsent(c.id, () => c);
   }
 
-  final route = _orderRoute(pipeSegments);
+  // ── Graph ────────────────────────────────────────────────────────────
+  final merge = mergeOletHeaders(pipeSegments, components);
+  pipeSegments = merge.segments;
+  final assembly = assemblyLinks(components.values);
 
+  final incidentSegs = <String, List<AiSegment>>{};
+  for (final s in pipeSegments) {
+    for (final id in {s.fromId, s.toId}) {
+      if (id == null || id.isEmpty) continue;
+      (incidentSegs[id] ??= <AiSegment>[]).add(s);
+    }
+  }
+  final roles = <String, Map<String, PortRole>>{};
+  for (final e in incidentSegs.entries) {
+    final c = components[e.key];
+    if (!isTeeComponent(c) && !isOletComponent(c)) continue;
+    if (isOletComponent(c) && e.value.length == 1) {
+      roles[e.key] = {e.value.single.id: PortRole.branch};
+      continue;
+    }
+    final r = portRoles(c!, e.value);
+    if (r != null) roles[e.key] = r;
+  }
+
+  final route = orderRouteGraph(pipeSegments, assembly: assembly, roles: roles);
+
+  // Segment ids whose cut is blocked by the shape of the graph, with why.
+  final graphBlocks = <String, ScanIssue>{};
   for (final node in route.branchNodes) {
     final c = components[node];
     final what = c?.label ?? c?.type ?? node;
-    warnings.add(ScanIssue(
-      code: ScanIssueCode.branchInRoute,
-      blocking: false,
-      componentId: node,
-      pl: 'Rozgałęzienie na "$what" — sprawdź, którą odnogą biegnie trasa.',
-      en: 'Branch at "$what" — check which leg the route follows.',
-    ));
+    if (isTeeComponent(c) || isOletComponent(c)) {
+      warnings.add(ScanIssue(
+        code: ScanIssueCode.branchInRoute,
+        blocking: false,
+        componentId: node,
+        pl: roles.containsKey(node)
+            ? 'Rozgałęzienie na "$what" — przelot i odgałęzienie rozpoznane.'
+            : 'Rozgałęzienie na "$what" — sprawdź, którą odnogą biegnie trasa.',
+        en: roles.containsKey(node)
+            ? 'Branch at "$what" — run and branch identified.'
+            : 'Branch at "$what" — check which leg the route follows.',
+      ));
+    } else {
+      for (final s in incidentSegs[node] ?? const <AiSegment>[]) {
+        graphBlocks.putIfAbsent(
+            s.id,
+            () => ScanIssue(
+                  code: ScanIssueCode.branchAmbiguous,
+                  blocking: true,
+                  segmentId: s.id,
+                  componentId: node,
+                  pl: '"$what" łączy ${incidentSegs[node]!.length} odcinki, '
+                      'a to nie trójnik — sprawdź na rysunku, co tam jest.',
+                  en: '"$what" joins ${incidentSegs[node]!.length} runs and '
+                      'is not a tee — check the drawing.',
+                ));
+      }
+    }
   }
+  merge.ambiguous.forEach((olet, ids) {
+    final c = components[olet];
+    final what = c?.label ?? c?.type ?? olet;
+    for (final id in ids) {
+      graphBlocks.putIfAbsent(
+          id,
+          () => ScanIssue(
+                code: ScanIssueCode.branchAmbiguous,
+                blocking: true,
+                segmentId: id,
+                componentId: olet,
+                pl: 'Olet "$what": nie wiadomo, który odcinek to rura główna, '
+                    'a który odgałęzienie — rura główna nie jest cięta na '
+                    'olecie. Sprawdź rysunek.',
+                en: 'Olet "$what": the header cannot be told from the branch '
+                    '— the header is not cut at an olet. Check the drawing.',
+              ));
+    }
+  });
   if (route.runCount > 1) {
     warnings.add(ScanIssue(
       code: ScanIssueCode.routeNotContinuous,
@@ -818,18 +1106,66 @@ ScanPlan planFromScan(
     ));
   }
 
+  // ── Sizes ────────────────────────────────────────────────────────────
+  final sizes = _resolveSizes(
+    segments: pipeSegments,
+    components: components,
+    incident: route.incident,
+    roles: roles,
+    assembly: assembly,
+    notation: scan.sizeNotation,
+    draft: draft,
+    callerGiven: diameterMm != null && diameterMm > 0,
+    fitter: fitter,
+    warnings: warnings,
+  );
+  for (final node in sizes.ambiguousTees) {
+    final c = components[node];
+    final what = c?.label ?? c?.type ?? node;
+    for (final s in incidentSegs[node] ?? const <AiSegment>[]) {
+      graphBlocks.putIfAbsent(
+          s.id,
+          () => ScanIssue(
+                code: ScanIssueCode.branchAmbiguous,
+                blocking: true,
+                segmentId: s.id,
+                componentId: node,
+                pl: 'Trójnik redukcyjny "$what": nie wiadomo, która odnoga '
+                    'to odgałęzienie (take-out C przelotu ≠ M odgałęzienia). '
+                    'Podaj średnicę odcinka albo sprawdź rysunek.',
+                en: 'Reducing tee "$what": the branch leg is not known (run '
+                    'C ≠ branch M). Set the run size or check the drawing.',
+              ));
+    }
+  }
+
   final planned = <PlannedSegment>[];
   final assumedLongRadius = <String>{};
   final reducersSeen = <String>{};
+  var socketWeldSeen = false;
 
   for (var position = 0; position < route.order.length; position++) {
-    final seg = pipeSegments[route.order[position]];
-    final segmentId = seg.id.isEmpty ? 'seg${position + 1}' : seg.id;
+    final index = route.order[position];
+    final seg = pipeSegments[index];
+    final segmentId = seg.id;
+    final dn = sizes.dn[segmentId];
+
+    _EndCtx ctxFor(String? node) {
+      if (node == null || node.isEmpty) return _EndCtx(dn: dn);
+      final tee = sizes.tee[node];
+      return _EndCtx(
+        dn: dn,
+        role: roles[node]?[segmentId],
+        runDn: tee?.run ?? sizes.reducerLarge[node],
+        branchDn: tee?.branch,
+        fitterMm: fitter.takeoutMm[ScanFitterInput.takeoutKey(node, segmentId)],
+      );
+    }
 
     final start = _endpoint(
       seg.fromId,
       components: components,
-      dn: draft.dn,
+      ctx: ctxFor(seg.fromId),
       pipeClass: scan.titleBlock.pipeClass,
       segmentId: segmentId,
       warnings: warnings,
@@ -839,13 +1175,17 @@ ScanPlan planFromScan(
     final end = _endpoint(
       seg.toId,
       components: components,
-      dn: draft.dn,
+      ctx: ctxFor(seg.toId),
       pipeClass: scan.titleBlock.pipeClass,
       segmentId: segmentId,
       warnings: warnings,
       assumedLongRadius: assumedLongRadius,
       reducersSeen: reducersSeen,
     );
+    if ((start.takeoutNote ?? '').contains('B16.11') ||
+        (end.takeoutNote ?? '').contains('B16.11')) {
+      socketWeldSeen = true;
+    }
 
     // ── Dimension ────────────────────────────────────────────────────
     final rawDimension = seg.rawDimension?.trim();
@@ -855,12 +1195,54 @@ ScanPlan planFromScan(
       // inches on an ASME drawing). Converting text we can actually parse is
       // a conversion, not a guess.
       isoMm = UnitParser.parseToMm(rawDimension);
+      if (isoMm == null) {
+        try {
+          isoMm = parseIsoExpression(rawDimension);
+        } on FormatException {
+          isoMm = null;
+        }
+      }
     }
     if (isoMm != null && (!isoMm.isFinite || isoMm <= 0)) isoMm = null;
 
+    // An offset dimensioned only by its projections: its true length is
+    // arithmetic on printed numbers (√ of the squares), shown with the
+    // formula. A printed skew length that disagrees with the projections is
+    // a contradiction on the drawing — the fitter decides which is right.
+    String? isoNote;
+    var isoExpr = rawDimension;
+    final skew = skewLengthMm(seg.projections);
+    if (skew != null) {
+      final formula = skewFormula(seg.projections);
+      if (isoMm == null) {
+        isoMm = skew;
+        isoExpr = null;
+        isoNote = formula;
+        warnings.add(ScanIssue(
+          code: ScanIssueCode.dimensionFromProjections,
+          blocking: false,
+          segmentId: segmentId,
+          pl: 'Długość offsetu z rzutów: $formula mm.',
+          en: 'Offset length from its projections: $formula mm.',
+        ));
+      } else if ((isoMm - skew).abs() > kClosureToleranceMm) {
+        final issue = ScanIssue(
+          code: ScanIssueCode.offsetDimensionMismatch,
+          blocking: !seg.userConfirmed,
+          segmentId: segmentId,
+          dimensionLabel: rawDimension,
+          pl: 'Wymiar skośny ${_mmText(isoMm)} nie zgadza się z rzutami '
+              '($formula mm) — sprawdź na rysunku i potwierdź wymiar.',
+          en: 'The skew dimension ${_mmText(isoMm)} disagrees with its '
+              'projections ($formula mm) — check the drawing and confirm it.',
+        );
+        (issue.blocking ? gaps : warnings).add(issue);
+      }
+    }
+
     final dimensionLabel = (rawDimension != null && rawDimension.isNotEmpty)
         ? rawDimension
-        : (isoMm != null ? '${isoMm.toStringAsFixed(0)} mm' : null);
+        : (isoMm != null ? '${_mmText(isoMm)} mm' : null);
 
     if (isoMm == null) {
       gaps.add(ScanIssue(
@@ -891,8 +1273,9 @@ ScanPlan planFromScan(
     // he sees what he is confirming. A dimension that was not read at all is
     // already blocked by [ScanIssueCode.missingDimension]; the doubt about it
     // stays a warning so it is not reported twice.
-    if (seg.confidence == AiConfidence.low ||
-        seg.confidence == AiConfidence.unknown) {
+    if (!seg.userConfirmed &&
+        (seg.confidence == AiConfidence.low ||
+            seg.confidence == AiConfidence.unknown)) {
       final issue = ScanIssue(
         code: ScanIssueCode.lowConfidence,
         blocking: isoMm != null,
@@ -913,21 +1296,67 @@ ScanPlan planFromScan(
       (issue.blocking ? gaps : warnings).add(issue);
     }
 
+    // ── Size of this run ─────────────────────────────────────────────
+    final geo = _sizeColumns(
+      seg: seg,
+      dn: dn,
+      singleZone: sizes.singleZone,
+      draft: draft,
+      fitter: fitter,
+    );
+    if (!sizes.singleZone && dn == null) {
+      gaps.add(ScanIssue(
+        code: ScanIssueCode.missingSegmentDiameter,
+        blocking: true,
+        segmentId: segmentId,
+        pl: 'Nie wiadomo, jaka średnica ma odcinek $segmentId (za zmianą '
+            'średnicy) — wybierz DN odcinka.',
+        en: 'The size of run $segmentId is not known (past a size change) — '
+            'pick its DN.',
+      ));
+    } else if (dn != null &&
+        dn != draft.dn &&
+        geo.wall == null &&
+        draft.wallThicknessMm != null) {
+      gaps.add(ScanIssue(
+        code: ScanIssueCode.missingSegmentWall,
+        blocking: true,
+        segmentId: segmentId,
+        pl: 'Odcinek $segmentId ma DN$dn — brak schedule do odczytu ścianki. '
+            'Podaj ściankę odcinka.',
+        en: 'Run $segmentId is DN$dn — no schedule to look its wall up. '
+            'Enter its wall.',
+      ));
+    }
+
     // ── Dimension reference ──────────────────────────────────────────
     //
     // PrefabEngine's own rule: two axial ends are always dimensioned
     // centre-to-centre, but the moment a bodied component (flange, valve,
     // reducer, cap) sits on an end, the drawing could have been measured to
     // its face or to its far end and a photo cannot tell which. That is a
-    // question for the fitter, not a guess for us.
+    // question for the fitter — unless the model read the dimension line's
+    // end marks (CL / FACE / EOP) with high confidence and they map to one
+    // stop each.
     final needsPicker = PrefabEngine.needsDimRefPicker(
       leftIsPhysical: start.isPhysical,
       rightIsPhysical: end.isPhysical,
     );
     final proposed = _proposeStops(start, end);
-    final stops = needsPicker ? null : proposed;
+    ScanStops? stops = needsPicker ? null : proposed;
+    var refSource = needsPicker ? ScanRefSource.none : ScanRefSource.derived;
+    if (seg.confidence == AiConfidence.high || seg.userConfirmed) {
+      final a = _drawingStop(start, seg.refFrom);
+      final b = _drawingStop(end, seg.refTo);
+      final aOk = a ?? (start.isPhysical ? null : proposed.start);
+      final bOk = b ?? (end.isPhysical ? null : proposed.end);
+      if ((a != null || b != null) && aOk != null && bOk != null) {
+        stops = ScanStops(aOk, bOk);
+        refSource = ScanRefSource.drawing;
+      }
+    }
 
-    if (needsPicker) {
+    if (stops == null) {
       final notePl = _proposalNote(start, end, proposed, polish: true);
       final noteEn = _proposalNote(start, end, proposed, polish: false);
       gaps.add(ScanIssue(
@@ -945,12 +1374,9 @@ ScanPlan planFromScan(
     }
 
     // ── Take-outs ────────────────────────────────────────────────────
-    for (final side in <List<Object?>>[
-      ['START', start],
-      ['END', end],
-    ]) {
-      final label = side[0] as String;
-      final e = side[1] as ScanEndpoint;
+    final graphBlock = graphBlocks[segmentId];
+    if (graphBlock != null) gaps.add(graphBlock);
+    for (final (label, e) in [('START', start), ('END', end)]) {
       if (!e.isResolved) {
         gaps.add(ScanIssue(
           code: ScanIssueCode.missingTakeout,
@@ -962,16 +1388,22 @@ ScanPlan planFromScan(
           en: 'Unidentified component on the $label of segment $segmentId — '
               'pick it so the cut length can be computed.',
         ));
-      } else if (e.isAxial && e.takeoutMm == null) {
+      } else if (e.isAxial && e.takeoutMm == null && graphBlock == null) {
+        final why = e.missingPl;
         gaps.add(ScanIssue(
           code: ScanIssueCode.missingTakeout,
           blocking: true,
           segmentId: segmentId,
           componentId: e.componentId,
-          pl: 'Brak take-outu dla "${e.rawType ?? "kształtka"}" na końcu '
-              '$label — podaj wymiar oś–czoło.',
-          en: 'No take-out for the "${e.rawType ?? "fitting"}" on the $label '
-              '— enter its centre-to-end dimension.',
+          pl: why != null
+              ? '${e.label ?? e.rawType ?? "Kształtka"} (koniec $label): $why'
+              : 'Brak take-outu dla "${e.rawType ?? "kształtka"}" na końcu '
+                  '$label — podaj wymiar oś–czoło.',
+          en: e.missingEn != null
+              ? '${e.label ?? e.rawType ?? "Fitting"} ($label end): '
+                  '${e.missingEn}'
+              : 'No take-out for the "${e.rawType ?? "fitting"}" on the '
+                  '$label — enter its centre-to-end dimension.',
         ));
       }
     }
@@ -982,14 +1414,25 @@ ScanPlan planFromScan(
       seqNo: position + 1,
       start: start,
       end: end,
-      isoExpr: rawDimension,
+      isoExpr: isoExpr,
       isoMm: isoMm,
       stops: stops,
       proposedStops: proposed,
       confidence: seg.confidence,
-      startsNewRun: position > 0 && route.runStarts.contains(position),
-      isBranch: _touchesBranch(seg, route.branchNodes),
+      startsNewRun: position > 0 &&
+          route.runOf[index] != route.runOf[route.order[position - 1]],
+      isBranch: route.branchNodes.contains(seg.fromId) ||
+          route.branchNodes.contains(seg.toId),
       gapMm: gap,
+      dn: dn,
+      diameterMm: geo.od,
+      wallThicknessMm: geo.wall,
+      dnNote: sizes.note[segmentId],
+      spoolId: _spoolOf(seg, components),
+      partIds: merge.parts[segmentId],
+      isoNote: isoNote,
+      refSource: refSource,
+      runIndex: route.runOf[index] ?? 0,
     );
 
     if (stops != null) {
@@ -999,7 +1442,9 @@ ScanPlan planFromScan(
           start.isResolved &&
           end.isResolved &&
           !(start.isAxial && start.takeoutMm == null) &&
-          !(end.isAxial && end.takeoutMm == null)) {
+          !(end.isAxial && end.takeoutMm == null) &&
+          start.deductionAt(stops.start) != null &&
+          end.deductionAt(stops.end) != null) {
         // Every input was known and the arithmetic still refuses: the
         // dimension is shorter than the fittings it spans. That is a real
         // finding — surfacing it beats writing a negative cut.
@@ -1014,21 +1459,7 @@ ScanPlan planFromScan(
               'cut length — check the dimension and the take-outs.',
         ));
       }
-      segment = PlannedSegment(
-        sourceId: segment.sourceId,
-        seqNo: segment.seqNo,
-        start: segment.start,
-        end: segment.end,
-        isoExpr: segment.isoExpr,
-        isoMm: segment.isoMm,
-        stops: segment.stops,
-        proposedStops: segment.proposedStops,
-        cutMm: cutMm,
-        confidence: segment.confidence,
-        startsNewRun: segment.startsNewRun,
-        isBranch: segment.isBranch,
-        gapMm: segment.gapMm,
-      );
+      if (cutMm != null) segment = segment._copy(cutMm: cutMm);
     }
 
     planned.add(segment);
@@ -1044,14 +1475,584 @@ ScanPlan planFromScan(
           'elbows — correct the take-out if the job uses SR.',
     ));
   }
+  if (socketWeldSeen && gap > 0) {
+    warnings.add(ScanIssue(
+      code: ScanIssueCode.socketWeldWithGap,
+      blocking: false,
+      pl: 'Końce SW mają już w take-oucie luz 1,6 mm do dna gniazda, a '
+          'projekt odejmuje jeszcze szczelinę ${_mmText(gap)} mm na spoinę — '
+          'dla samych połączeń SW ustaw szczelinę 0.',
+      en: 'Socket-weld ends already include the 1.6 mm socket clearance, and '
+          'the project also takes off a ${_mmText(gap)} mm root gap per weld '
+          '— set the gap to 0 for socket-weld work.',
+    ));
+  }
+
+  final geometryIssues = _checkGeometry(
+    scan: scan,
+    segments: pipeSegments,
+    components: components,
+    planned: planned,
+  );
+  for (final issue in geometryIssues) {
+    (issue.blocking ? gaps : warnings).add(issue);
+  }
 
   return ScanPlan(
     project: draft,
-    segments: planned,
+    segments: _numberBySpool(planned, scan),
     gaps: gaps,
     warnings: warnings,
     auxiliarySegmentCount: auxiliary.length,
     runCount: route.runCount,
+  );
+}
+
+String _mmText(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
+/// Stop a dimension line's end mark (`CL` / `FACE` / `EOP`) means at [e],
+/// or null when the mark says nothing unambiguous for that kind of end.
+SideStop? _drawingStop(ScanEndpoint e, String? ref) {
+  if (ref == null || !e.isResolved || e.isOpenEnd) return null;
+  final r = ref.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+  if (e.isAxial) {
+    if (r == 'CL' || r == 'WP' || r == 'C') return SideStop.centre;
+    if (r == 'EOP' || r == 'FACE' || r == 'END') return SideStop.face;
+    return null;
+  }
+  if (e.isWeldNeckFlange) {
+    // A flange's face is its gasket face — through the hub.
+    if (r == 'FACE' || r == 'GF') return SideStop.end;
+    if (r == 'EOP') return SideStop.face;
+    return null;
+  }
+  if (e.isPhysical && e.tool != 'flange' && e.tool != 'blindFlange') {
+    // A butt-weld body (reducer, cap, BW valve): its face is where the pipe
+    // is welded on.
+    if (r == 'EOP' || r == 'FACE') return SideStop.face;
+  }
+  return null;
+}
+
+String? _spoolOf(AiSegment seg, Map<String, AiComponent> components) {
+  if (seg.spoolId != null) return seg.spoolId;
+  final a = seg.fromId == null ? null : components[seg.fromId]?.spoolId;
+  final b = seg.toId == null ? null : components[seg.toId]?.spoolId;
+  if (a != null && (b == null || a == b)) return a;
+  if (b != null && a == null) return b;
+  return null;
+}
+
+/// Orders runs spool by spool (the drawing's spool list first, then first
+/// appearance), keeping the walking order inside each spool, and labels
+/// them `SPOOL/n` — the numbering a fitter finds on the drawing. Without
+/// spools the walking order and plain numbers stay.
+List<PlannedSegment> _numberBySpool(
+    List<PlannedSegment> planned, AiScanResult scan) {
+  final hasSpools = planned.any((s) => s.spoolId != null);
+  final display = <String, String>{
+    for (final s in scan.spools) s.id: s.display,
+  };
+  var ordered = planned;
+  if (hasSpools) {
+    final rank = <String, int>{};
+    for (final s in scan.spools) {
+      rank.putIfAbsent(s.id, () => rank.length);
+    }
+    for (final s in planned) {
+      final id = s.spoolId;
+      if (id != null) rank.putIfAbsent(id, () => rank.length);
+    }
+    final indexed = [for (var i = 0; i < planned.length; i++) (i, planned[i])];
+    indexed.sort((a, b) {
+      final ra = a.$2.spoolId == null ? 1 << 30 : rank[a.$2.spoolId]!;
+      final rb = b.$2.spoolId == null ? 1 << 30 : rank[b.$2.spoolId]!;
+      return ra != rb ? ra.compareTo(rb) : a.$1.compareTo(b.$1);
+    });
+    ordered = [for (final e in indexed) e.$2];
+  }
+  final inSpool = <String, int>{};
+  final out = <PlannedSegment>[];
+  for (var i = 0; i < ordered.length; i++) {
+    final s = ordered[i];
+    final spool = s.spoolId;
+    String label;
+    if (spool != null) {
+      final k = (inSpool[spool] ?? 0) + 1;
+      inSpool[spool] = k;
+      label = '${display[spool] ?? spool}/$k';
+    } else {
+      label = '${i + 1}';
+    }
+    out.add(s.renumbered(
+      i + 1,
+      label,
+      startsNewRun: i > 0 && ordered[i - 1].runIndex != s.runIndex,
+    ));
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sizes along the route
+// ─────────────────────────────────────────────────────────────────────────
+
+class _Sizes {
+  /// DN per segment id; null = not known.
+  final Map<String, int?> dn = {};
+
+  /// Where each DN came from, for the review screen.
+  final Map<String, String> note = {};
+
+  /// Tee / olet node → DN of its run and of its branch.
+  final Map<String, ({int? run, int? branch})> tee = {};
+
+  /// Reducer node → its large-end DN (H is tabulated by the large end).
+  final Map<String, int?> reducerLarge = {};
+
+  /// Reducing tees whose branch leg is not known.
+  final Set<String> ambiguousTees = {};
+
+  /// True when no reducer / reducing tee / olet splits the route into
+  /// runs of different sizes — then the project's size is every run's.
+  bool singleZone = true;
+}
+
+class _SizeLink {
+  final int a;
+  final int b;
+  final int large;
+  final int small;
+  final String node;
+  const _SizeLink(this.a, this.b, this.large, this.small, this.node);
+}
+
+/// Sizes of a size-changing fitting, large first: printed `sizeLarge` /
+/// `sizeSmall`, else parsed from its label (`DN100x80`, `4"x3"`).
+(int?, int?) _componentSizes(AiComponent c, String notation) {
+  int? parse(String? raw) => raw == null ? null : _parseSizeToDn(raw, notation);
+
+  var a = parse(c.sizeLarge);
+  var b = parse(c.sizeSmall);
+  if (a == null && b == null) {
+    final t = (c.label ?? '').toUpperCase().replaceAll(',', '.');
+    final dn = RegExp(r'DN\s*(\d{1,4})\s*[X×*]\s*(?:DN\s*)?(\d{1,4})')
+        .firstMatch(t);
+    if (dn != null) {
+      a = _knownDn(int.parse(dn.group(1)!));
+      b = _knownDn(int.parse(dn.group(2)!));
+    } else {
+      const num = r'(\d+(?:\.\d+)?(?:\s+\d+/\d+|/\d+)?)';
+      final inch = RegExp('$num\\s*(?:"|”|″)\\s*[X×*]\\s*$num\\s*(?:"|”|″)')
+          .firstMatch(t);
+      if (inch != null) {
+        a = _dnForInches(_parseInches(inch.group(1)!));
+        b = _dnForInches(_parseInches(inch.group(2)!));
+      }
+    }
+  }
+  if (a != null && b != null && b > a) return (b, a);
+  return (a, b);
+}
+
+_Sizes _resolveSizes({
+  required List<AiSegment> segments,
+  required Map<String, AiComponent> components,
+  required Map<String, List<int>> incident,
+  required Map<String, Map<String, PortRole>> roles,
+  required Map<String, Set<String>> assembly,
+  required String notation,
+  required ScanProjectDraft draft,
+  required bool callerGiven,
+  required ScanFitterInput fitter,
+  required List<ScanIssue> warnings,
+}) {
+  final out = _Sizes();
+  final n = segments.length;
+  final parent = List<int>.generate(n, (i) => i);
+  int find(int i) {
+    while (parent[i] != i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  }
+
+  void union(int a, int b) {
+    final ra = find(a);
+    final rb = find(b);
+    if (ra != rb) parent[rb] = ra;
+  }
+
+  // What each run says about its own size.
+  int? explicitOf(AiSegment s) {
+    final f = fitter.segmentDn[s.id];
+    if (f != null && _knownDn(f) != null) return f;
+    if (s.dn != null && _knownDn(s.dn) != null) return s.dn;
+    final nps = s.nps;
+    if (nps != null) {
+      return _parseSizeToDn(nps, notation) ?? _parseSizeToDn(nps, 'NPS');
+    }
+    return null;
+  }
+
+  final explicit = [for (final s in segments) explicitOf(s)];
+  final fromFitter = [
+    for (final s in segments)
+      fitter.segmentDn[s.id] != null && _knownDn(fitter.segmentDn[s.id]) != null
+  ];
+  // Sizes fixed by a fitting on the run (a reducing tee's run / branch, an
+  // olet's outlet), with where they come from.
+  final fixed = <int, List<(int, String)>>{};
+  void fix(int i, int dn, String note) => (fixed[i] ??= []).add((dn, note));
+  final links = <_SizeLink>[];
+  // Size changes: reducers and reducing tees (either side may be the line's
+  // size) and olets (the header is the line, the outlet is not).
+  var separators = 0;
+  var oletSeparators = 0;
+  final oletBranches = <int>{};
+  final assumedEqual = <String>[];
+
+  incident.forEach((node, idxs) {
+    final c = components[node];
+    if (c == null) {
+      for (final i in idxs.skip(1)) {
+        union(idxs.first, i);
+      }
+      return;
+    }
+    final type = normaliseScanType(c.type);
+    final what = c.label ?? c.type;
+    if (type.contains('reducer')) {
+      separators++;
+      final (large, small) = _componentSizes(c, notation);
+      out.reducerLarge[node] = large;
+      if (idxs.length == 2 && large != null && small != null) {
+        links.add(_SizeLink(idxs[0], idxs[1], large, small, node));
+      }
+      return;
+    }
+    if (isTeeComponent(c)) {
+      var (large, small) = _componentSizes(c, notation);
+      final r = roles[node];
+      final runs = [
+        for (final i in idxs)
+          if (r?[segments[i].id] == PortRole.run) i
+      ];
+      final branches = [
+        for (final i in idxs)
+          if (r?[segments[i].id] == PortRole.branch) i
+      ];
+      if (r != null) {
+        for (final i in runs.skip(1)) {
+          union(runs.first, i);
+        }
+        if (large == null && small == null) {
+          // No printed tee size: the runs' own sizes tell a reducing tee.
+          final runDn = runs.map((i) => explicit[i]).whereType<int>().toSet();
+          final brDn =
+              branches.map((i) => explicit[i]).whereType<int>().toSet();
+          if (runDn.length == 1 && brDn.length == 1 && runDn != brDn) {
+            large = runDn.single;
+            small = brDn.single;
+          }
+        }
+        final reducing = large != null && small != null && large != small;
+        if (reducing) {
+          separators++;
+          for (final i in runs) {
+            fix(i, large, 'przelot trójnika "$what"');
+          }
+          for (final i in branches) {
+            fix(i, small, 'odgałęzienie trójnika "$what"');
+          }
+        } else {
+          for (final i in branches) {
+            if (runs.isNotEmpty) union(runs.first, i);
+          }
+          if (large != null) {
+            for (final i in idxs) {
+              fix(i, large, 'trójnik "$what"');
+            }
+          } else if (branches.isNotEmpty) {
+            assumedEqual.add(what);
+          }
+        }
+      } else {
+        final reducing = large != null && small != null && large != small;
+        if (reducing && idxs.length >= 3) {
+          separators++;
+          out.ambiguousTees.add(node);
+        } else {
+          for (final i in idxs.skip(1)) {
+            union(idxs.first, i);
+          }
+          if (large != null) {
+            for (final i in idxs) {
+              fix(i, large, 'trójnik "$what"');
+            }
+          } else if (idxs.length >= 3) {
+            assumedEqual.add(what);
+          }
+        }
+      }
+      return;
+    }
+    if (isOletComponent(c)) {
+      oletSeparators++;
+      oletBranches.addAll(idxs);
+      final (_, small) = _componentSizes(c, notation);
+      if (small != null) {
+        for (final i in idxs) {
+          fix(i, small, 'wylot oletu "$what"');
+        }
+      }
+      return;
+    }
+    for (final i in idxs.skip(1)) {
+      union(idxs.first, i);
+    }
+  });
+
+  // Bolted joints carry the size across (a valve between two flanges).
+  final seen = <String>{};
+  for (final node in assembly.keys) {
+    if (seen.contains(node)) continue;
+    final group = <String>{node};
+    final todo = [node];
+    while (todo.isNotEmpty) {
+      for (final m in assembly[todo.removeLast()] ?? const <String>{}) {
+        if (group.add(m)) todo.add(m);
+      }
+    }
+    seen.addAll(group);
+    final idxs = [for (final g in group) ...?incident[g]];
+    for (final i in idxs.skip(1)) {
+      union(idxs.first, i);
+    }
+  }
+
+  if (assumedEqual.isNotEmpty) {
+    warnings.add(ScanIssue(
+      code: ScanIssueCode.teeAssumedEqual,
+      blocking: false,
+      pl: 'Trójnik bez rozmiaru na rysunku (${assumedEqual.join(', ')}) — '
+          'przyjęto równoprzelotowy: odgałęzienie M = C. Jeśli jest '
+          'redukcyjny, ustaw DN odgałęzienia.',
+      en: 'Tee with no printed size (${assumedEqual.join(', ')}) — taken as '
+          'an equal tee: branch M = C. If it is reducing, set the branch DN.',
+    ));
+  }
+
+  // ── Zones ────────────────────────────────────────────────────────────
+  final zoneDn = <int, int?>{};
+  final zoneNote = <int, String>{};
+  final conflicted = <int>{};
+  final roots = {for (var i = 0; i < n; i++) find(i)};
+  out.singleZone =
+      roots.length <= 1 || (separators == 0 && oletSeparators == 0);
+
+  for (final root in roots) {
+    final members = [for (var i = 0; i < n; i++) if (find(i) == root) i];
+    final fitterVals = {
+      for (final i in members)
+        if (fromFitter[i]) explicit[i]!
+    };
+    if (fitterVals.isNotEmpty) {
+      zoneDn[root] = fitterVals.first;
+      zoneNote[root] = 'podane przez montera';
+      continue;
+    }
+    final values = <int, String>{};
+    for (final i in members) {
+      final e = explicit[i];
+      if (e != null) values.putIfAbsent(e, () => 'z rysunku (odcinek)');
+      for (final (dn, note) in fixed[i] ?? const <(int, String)>[]) {
+        values.putIfAbsent(dn, () => note);
+      }
+    }
+    if (values.length == 1) {
+      zoneDn[root] = values.keys.single;
+      zoneNote[root] = values.values.single;
+    } else if (values.length > 1) {
+      conflicted.add(root);
+      final ids = members.map((i) => segments[i].id).join(', ');
+      final list = values.keys.map((d) => 'DN$d').join(' / ');
+      warnings.add(ScanIssue(
+        code: ScanIssueCode.diameterConflict,
+        blocking: false,
+        pl: 'Sprzeczne średnice na jednym ciągu ($ids): $list — każdy odcinek '
+            'dostaje swój odczyt, sprawdź na rysunku.',
+        en: 'Conflicting sizes on one run ($ids): $list — each segment keeps '
+            'its own reading; check the drawing.',
+      ));
+    }
+  }
+
+  if (out.singleZone) {
+    // One size everywhere: the project's — the fitter's own value wins over
+    // the drawing, as for the header.
+    final root = roots.isEmpty ? null : roots.first;
+    final read = root == null ? null : zoneDn[root];
+    final fitterSet = root != null && zoneNote[root] == 'podane przez montera';
+    int? dn;
+    String? note;
+    if (fitterSet) {
+      dn = read;
+      note = zoneNote[root];
+    } else if (callerGiven || read == null) {
+      dn = draft.dn;
+      note = draft.dn == null ? null : 'średnica projektu';
+      if (read != null && draft.dn != null && read != draft.dn) {
+        warnings.add(ScanIssue(
+          code: ScanIssueCode.diameterConflict,
+          blocking: false,
+          pl: 'Rysunek przy odcinkach podaje DN$read, a projekt ma '
+              'DN${draft.dn} — liczę dla DN${draft.dn}.',
+          en: 'The drawing marks the runs DN$read while the project is '
+              'DN${draft.dn} — computing for DN${draft.dn}.',
+        ));
+      }
+    } else {
+      dn = read;
+      note = root == null ? null : zoneNote[root];
+    }
+    for (var i = 0; i < n; i++) {
+      out.dn[segments[i].id] =
+          conflicted.contains(find(i)) ? explicit[i] : dn;
+      if (note != null) out.note[segments[i].id] = note;
+    }
+  } else {
+    if (separators == 0) {
+      // Only olets split the route: every zone that is not an olet's outlet
+      // is the header the olets sit on — the line, the project's size.
+      for (final root in roots) {
+        if (zoneDn[root] != null || conflicted.contains(root)) continue;
+        final header = [
+          for (var i = 0; i < n; i++)
+            if (find(i) == root && !oletBranches.contains(i)) i
+        ];
+        if (header.isNotEmpty && draft.dn != null) {
+          zoneDn[root] = draft.dn;
+          zoneNote[root] = 'średnica projektu (rura główna)';
+        }
+      }
+    }
+    // Carry sizes through reducers until nothing changes.
+    var changed = true;
+    final mismatched = <String>{};
+    while (changed) {
+      changed = false;
+      for (final l in links) {
+        final ra = find(l.a);
+        final rb = find(l.b);
+        if (ra == rb) continue;
+        for (final (from, to) in [(ra, rb), (rb, ra)]) {
+          final known = zoneDn[from];
+          if (known == null || zoneDn[to] != null) continue;
+          final c = components[l.node];
+          final what = c?.label ?? c?.type ?? l.node;
+          if (known == l.large) {
+            zoneDn[to] = l.small;
+          } else if (known == l.small) {
+            zoneDn[to] = l.large;
+          } else {
+            if (mismatched.add(l.node)) {
+              warnings.add(ScanIssue(
+                code: ScanIssueCode.diameterConflict,
+                blocking: false,
+                componentId: l.node,
+                pl: 'Redukcja "$what" (DN${l.large}×${l.small}) nie pasuje do '
+                    'DN$known odcinka przy niej — sprawdź rysunek.',
+                en: 'Reducer "$what" (DN${l.large}×${l.small}) does not fit '
+                    'the DN$known run at it — check the drawing.',
+              ));
+            }
+            continue;
+          }
+          zoneNote[to] = 'za redukcją "$what" DN${l.large}×${l.small}';
+          changed = true;
+        }
+      }
+    }
+    for (var i = 0; i < n; i++) {
+      final root = find(i);
+      final id = segments[i].id;
+      out.dn[id] = conflicted.contains(root) ? explicit[i] : zoneDn[root];
+      final note = conflicted.contains(root)
+          ? (explicit[i] != null ? 'z rysunku (odcinek)' : null)
+          : zoneNote[root];
+      if (note != null) out.note[id] = note;
+    }
+  }
+
+  // Tee run / branch sizes and reducer large ends, from the runs' sizes.
+  incident.forEach((node, idxs) {
+    final c = components[node];
+    if (c == null) return;
+    if (isTeeComponent(c) || isOletComponent(c)) {
+      final r = roles[node];
+      final (large, small) = _componentSizes(c, notation);
+      int? runDn;
+      int? branchDn;
+      for (final i in idxs) {
+        final role = r?[segments[i].id];
+        final d = out.dn[segments[i].id];
+        if (role == PortRole.run) runDn ??= d;
+        if (role == PortRole.branch) branchDn ??= d;
+      }
+      if (r == null && !out.ambiguousTees.contains(node)) {
+        // Equal (or assumed equal) tee with unknown roles: one size.
+        for (final i in idxs) {
+          runDn ??= out.dn[segments[i].id];
+        }
+      }
+      out.tee[node] = (run: runDn ?? large, branch: branchDn ?? small);
+    } else if (normaliseScanType(c.type).contains('reducer')) {
+      if (out.reducerLarge[node] == null && idxs.length == 2) {
+        final a = out.dn[segments[idxs[0]].id];
+        final b = out.dn[segments[idxs[1]].id];
+        if (a != null && b != null && a != b) {
+          out.reducerLarge[node] = a > b ? a : b;
+        }
+      }
+    }
+  });
+
+  return out;
+}
+
+/// OD and wall of one run.
+({double? od, double? wall}) _sizeColumns({
+  required AiSegment seg,
+  required int? dn,
+  required bool singleZone,
+  required ScanProjectDraft draft,
+  required ScanFitterInput fitter,
+}) {
+  final fitterWall = fitter.segmentWallMm[seg.id];
+  final ownSchedule = _normaliseSchedule(seg.schedule);
+  double? tableWall(int? d, String? schedule) {
+    if (d == null || schedule == null) return null;
+    return _rowForDn(d)?.walls[schedule];
+  }
+
+  if (singleZone || (dn != null && dn == draft.dn)) {
+    // The project's own size: its OD (the fitter's value when he gave one)
+    // and wall, unless this run prints its own schedule.
+    final od = draft.diameterMm ??
+        (dn == null ? null : _rowForDn(dn)?.od);
+    final wall = fitterWall ??
+        tableWall(dn ?? draft.dn, ownSchedule) ??
+        draft.wallThicknessMm;
+    return (od: od, wall: wall);
+  }
+  if (dn == null) return (od: null, wall: fitterWall);
+  final row = _rowForDn(dn);
+  return (
+    od: row?.od,
+    wall: fitterWall ?? tableWall(dn, ownSchedule ?? draft.schedule),
   );
 }
 
@@ -1158,13 +2159,17 @@ List<ScanStops> referenceOptions(PlannedSegment segment) {
 
   return (
     startStop: stops.start,
-    startMm: startMm.toDouble(),
+    startMm: startMm,
     endStop: stops.end,
-    endMm: endMm.toDouble(),
+    endMm: endMm,
   );
 }
 
-int? _roundOrNull(double? v) => v?.round();
+/// Deductions go into the row at 0.1 mm — the B16.11 socket take-outs are
+/// tabulated to half a millimetre (A 22.5 + 1.6 clearance = 24.1), and the
+/// B16.9 / B16.5 / B16.10 values are whole numbers, which this leaves alone.
+double? _roundOrNull(double? v) =>
+    v == null ? null : (v * 10).roundToDouble() / 10;
 
 /// Reference the two ends suggest, following normal isometric practice:
 /// each end at its own [ScanEndpoint.proposedStop] — axial fittings at their
@@ -1256,92 +2261,226 @@ String endpointDeductionText(
   return t('punkt odniesienia', 'reference point');
 }
 
-bool _touchesBranch(AiSegment seg, List<String> branchNodes) {
-  if (branchNodes.isEmpty) return false;
-  return branchNodes.contains(seg.fromId) || branchNodes.contains(seg.toId);
-}
-
 // ─────────────────────────────────────────────────────────────────────────
-// Route ordering
+// Geometry checks (offsets, elbow angles, closure)
 // ─────────────────────────────────────────────────────────────────────────
 
-class _RouteOrder {
-  /// Indices into the non-auxiliary segment list, in walking order.
-  final List<int> order;
-
-  /// Positions in [order] where a new, disconnected run begins.
-  final Set<int> runStarts;
-
-  final int runCount;
-
-  /// Component ids touched by more than two pipe segments.
-  final List<String> branchNodes;
-
-  const _RouteOrder(
-      this.order, this.runStarts, this.runCount, this.branchNodes);
-}
-
-/// Threads the segments into a walking order using `fromId` / `toId`.
+/// Checks the drawing against itself in 3D:
 ///
-/// Treats segments as edges and components as nodes, then walks depth-first
-/// from a free end so a plain run comes out in drawing order. Branches and
-/// breaks are recorded, never fatal: a spool with a tee is normal work, and
-/// a scan that lost one link should still hand the fitter everything else.
+///   * a run not along an axis is an offset — said out loud, with its
+///     projections, so the fitter knows the length is a skew length;
+///   * the bend at every elbow, from the directions of its two runs, must be
+///     the elbow's angle — a "45°" elbow in a 38° offset would take the
+///     wrong take-out, so both runs are blocked until the fitter types the
+///     take-out himself;
+///   * the chain of runs placed end to end must close: against itself (a
+///     loop), against the overall dimensions and against the elevation
+///     marks — a mismatch is a warning with both numbers.
 ///
-/// Ids that do not resolve to a component still take part in the threading —
-/// the drawing says the two segments meet there even if we cannot say what
-/// sits at the joint.
-_RouteOrder _orderRoute(List<AiSegment> segments) {
-  final incident = <String, List<int>>{};
-  for (var i = 0; i < segments.length; i++) {
-    for (final id in [segments[i].fromId, segments[i].toId]) {
-      if (id == null || id.isEmpty) continue;
-      (incident[id] ??= <int>[]).add(i);
-    }
+/// Positions are taken at the points the dimensions run between (work
+/// points for centreline dimensions), so a chain dimensioned to faces can
+/// be off by a body length: the closure checks warn, never block.
+List<ScanIssue> _checkGeometry({
+  required AiScanResult scan,
+  required List<AiSegment> segments,
+  required Map<String, AiComponent> components,
+  required List<PlannedSegment> planned,
+}) {
+  final out = <ScanIssue>[];
+  final plannedById = {for (final p in planned) p.sourceId: p};
+
+  // ── Offsets ──────────────────────────────────────────────────────────
+  for (final s in segments) {
+    final v = segmentVector(s);
+    if (v == null || v.isAxial) continue;
+    final p = plannedById[s.id];
+    final rolling = [v.x, v.y, v.z].where((c) => c.abs() > 1e-6).length == 3;
+    final kindPl = rolling ? 'rolling offset (skos w dwóch płaszczyznach)' : 'offset';
+    final kindEn = rolling ? 'rolling offset' : 'offset';
+    final len = p?.isoMm;
+    out.add(ScanIssue(
+      code: ScanIssueCode.offsetInRoute,
+      blocking: false,
+      segmentId: s.id,
+      pl: 'Odcinek ${p?.label ?? s.id} to $kindPl'
+          '${len == null ? '' : ' — długość skośna ${_mmText(len)} mm'}'
+          '${s.projections.isEmpty ? '' : ' (rzuty: ${_projText(s.projections)})'}.',
+      en: 'Run ${p?.label ?? s.id} is a $kindEn'
+          '${len == null ? '' : ' — travel ${_mmText(len)} mm'}'
+          '${s.projections.isEmpty ? '' : ' (projections: ${_projText(s.projections)})'}.',
+    ));
   }
 
-  final branchNodes = incident.entries
-      .where((e) => e.value.length > 2)
-      .map((e) => e.key)
-      .toList()
-    ..sort();
+  // ── Elbow angles ─────────────────────────────────────────────────────
+  final incident = <String, List<AiSegment>>{};
+  for (final s in segments) {
+    for (final id in {s.fromId, s.toId}) {
+      if (id == null || id.isEmpty) continue;
+      (incident[id] ??= []).add(s);
+    }
+  }
+  incident.forEach((node, segs) {
+    final c = components[node];
+    if (c == null || segs.length != 2) return;
+    final type = normaliseScanType(c.type);
+    final double expected;
+    if (c.angleDeg != null && c.angleDeg! > 0 && c.angleDeg! <= 90) {
+      expected = c.angleDeg!;
+    } else if (type == 'elbow90' || type == 'elbow') {
+      expected = 90;
+    } else if (type == 'elbow45') {
+      expected = 45;
+    } else {
+      return;
+    }
+    final a = outwardAt(segs[0], node);
+    final b = outwardAt(segs[1], node);
+    if (a == null || b == null) return;
+    // Outward vectors 180° apart = straight through; bend = 180 − angle.
+    final bend = 180 - bendAngleDeg(a, b);
+    if (!bend.isFinite || (bend - expected).abs() <= kAngleToleranceDeg) return;
+    for (final s in segs) {
+      final p = plannedById[s.id];
+      final end = p == null
+          ? null
+          : (p.start.componentId == node ? p.start : p.end);
+      if (end?.fromFitter == true) continue;
+      out.add(ScanIssue(
+        code: ScanIssueCode.elbowAngleMismatch,
+        blocking: true,
+        segmentId: s.id,
+        componentId: node,
+        pl: 'Kolano ${c.label ?? node}: kierunki odcinków dają łuk '
+            '${bend.toStringAsFixed(1)}°, a kolano ma ${_mmText(expected)}° — '
+            'take-out byłby zły. Sprawdź rysunek albo wpisz take-out kolana.',
+        en: 'Elbow ${c.label ?? node}: the run directions bend '
+            '${bend.toStringAsFixed(1)}° but the elbow is '
+            '${_mmText(expected)}° — its take-out would be wrong. Check the '
+            'drawing or enter the elbow take-out.',
+      ));
+    }
+  });
 
-  final visited = List<bool>.filled(segments.length, false);
-  final order = <int>[];
-  final runStarts = <int>{};
-  var runs = 0;
-
-  bool isFreeEnd(String? id) =>
-      id == null || id.isEmpty || (incident[id]?.length ?? 0) <= 1;
-  bool hasFreeEnd(int i) =>
-      isFreeEnd(segments[i].fromId) || isFreeEnd(segments[i].toId);
-
-  void visit(int index, String? entry) {
-    if (visited[index]) return;
-    visited[index] = true;
-    order.add(index);
-    for (final id in [segments[index].fromId, segments[index].toId]) {
-      if (id == null || id.isEmpty || id == entry) continue;
-      for (final next in incident[id] ?? const <int>[]) {
-        if (!visited[next]) visit(next, id);
+  // ── Closure ──────────────────────────────────────────────────────────
+  // Place the points the runs join, run by run, from the first one.
+  final pos = <String, Vec3>{};
+  final cluster = <String, int>{};
+  final placed = <AiSegment>[];
+  for (final s in segments) {
+    final v = _displacement(s, plannedById[s.id]);
+    if (v != null && s.fromId != null && s.toId != null) placed.add(s);
+  }
+  var clusters = 0;
+  final loopReported = <String>{};
+  for (final seed in placed) {
+    if (pos.containsKey(seed.fromId)) continue;
+    pos[seed.fromId!] = Vec3.zero;
+    cluster[seed.fromId!] = clusters;
+    final todo = [seed.fromId!];
+    while (todo.isNotEmpty) {
+      final node = todo.removeLast();
+      for (final s in placed) {
+        final v = _displacement(s, plannedById[s.id])!;
+        String? other;
+        Vec3? at;
+        if (s.fromId == node) {
+          other = s.toId;
+          at = pos[node]! + v;
+        } else if (s.toId == node) {
+          other = s.fromId;
+          at = pos[node]! - v;
+        }
+        if (other == null || at == null) continue;
+        final known = pos[other];
+        if (known == null) {
+          pos[other] = at;
+          cluster[other] = clusters;
+          todo.add(other);
+        } else if ((known - at).length > kClosureToleranceMm &&
+            loopReported.add(s.id)) {
+          out.add(ScanIssue(
+            code: ScanIssueCode.closureMismatch,
+            blocking: false,
+            segmentId: s.id,
+            pl: 'Pętla wymiarów nie zamyka się przy odcinku '
+                '${plannedById[s.id]?.label ?? s.id}: rozbieżność '
+                '${_mmText((known - at).length)} mm — sprawdź wymiary pętli.',
+            en: 'The dimension loop does not close at run '
+                '${plannedById[s.id]?.label ?? s.id}: off by '
+                '${_mmText((known - at).length)} mm — check the loop.',
+          ));
+        }
       }
     }
+    clusters++;
   }
 
-  // Two passes: seed at open ends first so a straight run threads in drawing
-  // order, then mop up anything left (closed loops, orphans).
-  for (var pass = 0; pass < 2; pass++) {
-    for (var i = 0; i < segments.length; i++) {
-      if (visited[i]) continue;
-      if (pass == 0 && !hasFreeEnd(i)) continue;
-      runStarts.add(order.length);
-      runs++;
-      visit(i, null);
-    }
+  for (final d in scan.overallDimensions) {
+    final a = pos[d.fromId];
+    final b = pos[d.toId];
+    final value = d.valueMm;
+    if (a == null || b == null || value == null) continue;
+    if (cluster[d.fromId] != cluster[d.toId]) continue;
+    final diff = b - a;
+    final measured = d.axis == null ? diff.length : diff.along(d.axis!)?.abs();
+    if (measured == null) continue;
+    if ((measured - value).abs() <= kClosureToleranceMm) continue;
+    out.add(ScanIssue(
+      code: ScanIssueCode.closureMismatch,
+      blocking: false,
+      pl: 'Wymiar całkowity ${d.raw ?? _mmText(value)} (${d.fromId} → '
+          '${d.toId}${d.axis == null ? '' : ', oś ${d.axis}'}) ≠ suma '
+          'wymiarów odcinków ${_mmText(measured)} mm — różnica '
+          '${_mmText((measured - value).abs())} mm. Sprawdź łańcuch wymiarów.',
+      en: 'Overall dimension ${d.raw ?? _mmText(value)} (${d.fromId} → '
+          '${d.toId}${d.axis == null ? '' : ', axis ${d.axis}'}) ≠ sum of the '
+          'runs ${_mmText(measured)} mm — off by '
+          '${_mmText((measured - value).abs())} mm. Check the chain.',
+    ));
   }
 
-  return _RouteOrder(order, runStarts, runs, branchNodes);
+  final elevations = <(String, double)>[
+    for (final e in scan.elevationPoints)
+      if (pos.containsKey(e.atId) &&
+          (e.elevationMm ?? parseElevationMm(e.value)) != null)
+        (e.atId, e.elevationMm ?? parseElevationMm(e.value)!),
+  ];
+  for (var i = 1; i < elevations.length; i++) {
+    final (a, elA) = elevations[0];
+    final (b, elB) = elevations[i];
+    if (cluster[a] != cluster[b]) continue;
+    final dz = pos[b]!.z - pos[a]!.z;
+    final dEl = elB - elA;
+    if ((dz - dEl).abs() <= kClosureToleranceMm) continue;
+    out.add(ScanIssue(
+      code: ScanIssueCode.closureMismatch,
+      blocking: false,
+      componentId: b,
+      pl: 'Rzędne: $a → $b różnią się o ${_mmText(dEl)} mm, a wymiary '
+          'pionowe odcinków dają ${_mmText(dz)} mm. Sprawdź wymiary pionowe '
+          'i rzędne EL.',
+      en: 'Elevations: $a → $b differ by ${_mmText(dEl)} mm, the vertical '
+          'runs add up to ${_mmText(dz)} mm. Check the vertical dimensions '
+          'and the EL marks.',
+    ));
+  }
+  return out;
 }
+
+/// The run as a displacement between the points it joins: its projections
+/// when printed, else its direction × its dimension.
+Vec3? _displacement(AiSegment s, PlannedSegment? p) {
+  final proj = projectionVector(s.projections);
+  if (proj != null) return proj;
+  final dir = directionVector(s.direction);
+  final len = p?.isoMm ?? s.dimensionMm;
+  if (dir == null || len == null) return null;
+  return dir * len;
+}
+
+String _projText(Map<String, double> projections) => projections.entries
+    .map((e) => '${e.key} ${_mmText(e.value)}')
+    .join(', ');
 
 // ─────────────────────────────────────────────────────────────────────────
 // Endpoints
@@ -1356,11 +2495,18 @@ _RouteOrder _orderRoute(List<AiSegment> segments) {
 const Map<String, String> _typeAliases = {
   'elbow90': 'elbow90',
   'elbow45': 'elbow45',
+  'elbow': 'elbow90',
   'tee': 'tee',
+  'reducingtee': 'tee',
+  'redtee': 'tee',
   'olet': 'olet',
   'weldolet': 'olet',
   'sockolet': 'olet',
   'thredolet': 'olet',
+  'threadolet': 'olet',
+  'elbolet': 'olet',
+  'latrolet': 'olet',
+  'nipolet': 'olet',
   'reducer': 'reducer',
   'concentricreducer': 'reducer',
   'eccentricreducer': 'reducer',
@@ -1383,8 +2529,37 @@ const Map<String, String> _typeAliases = {
   'butterflyvalve': 'butterflyValve',
 };
 
-String _normaliseType(String raw) =>
-    raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+String _normaliseType(String raw) => normaliseScanType(raw);
+
+/// Tool name ([ComponentClassification] vocabulary) of a scanned component,
+/// or null when the type is not one the planner knows. Public for the
+/// outputs (BOM comparison, weld map).
+String? scanToolName(AiComponent c) {
+  final n = _normaliseType(c.type);
+  final tool = _typeAliases[n];
+  if (tool == 'flange' && c.flangeType == 'BL') return 'blindFlange';
+  if (tool != null) return tool;
+  if (n == 'valve' || n.endsWith('valve')) {
+    return _valveToolName(c.valveType ?? c.type).tool;
+  }
+  return null;
+}
+
+/// A size callout read into a DN — the planner's own parser, public for the
+/// outputs. Null when ambiguous (a bare number on an unknown notation).
+int? scanSizeToDn(String? raw, String sizeNotation) =>
+    _parseSizeToDn(raw, sizeNotation);
+
+/// Sizes of a size-changing fitting, large first (printed, else from its
+/// label). Public for the outputs.
+(int?, int?) scanComponentSizes(AiComponent c, String sizeNotation) =>
+    _componentSizes(c, sizeNotation);
+
+/// End connection code (`BW` / `SW` / `THD` / `FL`) of a component.
+String scanEndType(AiComponent c) => _endTypeOf(c);
+
+/// Whether a flange is slip-on-like (SO / SW / LJ / threaded).
+bool scanIsSlipOnFlange(AiComponent c) => _isSlipOnLike(c);
 
 /// Tool name for a valve, from its subtype when the model gave one.
 ///
@@ -1411,10 +2586,36 @@ class _ValveTool {
   const _ValveTool(this.tool, this.subtypeKnown);
 }
 
+/// What one end of one run knows about its surroundings.
+class _EndCtx {
+  /// DN of the run this end belongs to.
+  final int? dn;
+
+  /// Role of the run at a tee / olet.
+  final PortRole? role;
+
+  /// Tee / olet: the run (header) size; reducer: its large end.
+  final int? runDn;
+
+  /// Tee / olet: the branch (outlet) size.
+  final int? branchDn;
+
+  /// Take-out / body length the fitter typed in for this end.
+  final double? fitterMm;
+
+  const _EndCtx({
+    this.dn,
+    this.role,
+    this.runDn,
+    this.branchDn,
+    this.fitterMm,
+  });
+}
+
 ScanEndpoint _endpoint(
   String? componentId, {
   required Map<String, AiComponent> components,
-  required int? dn,
+  required _EndCtx ctx,
   required String? pipeClass,
   required String segmentId,
   required List<ScanIssue> warnings,
@@ -1452,6 +2653,8 @@ ScanEndpoint _endpoint(
     tool = v.tool;
     subtypeKnown = v.subtypeKnown;
   }
+  // A flange read as "blind" by its type letters is a blind flange.
+  if (tool == 'flange' && component.flangeType == 'BL') tool = 'blindFlange';
 
   ComponentBehaviour? behaviour;
   if (tool != null) {
@@ -1484,7 +2687,7 @@ ScanEndpoint _endpoint(
     );
   }
 
-  if (!subtypeKnown) {
+  if (!subtypeKnown && ctx.fitterMm == null) {
     warnings.add(ScanIssue(
       code: ScanIssueCode.valveTypeUnknown,
       blocking: false,
@@ -1497,15 +2700,35 @@ ScanEndpoint _endpoint(
   }
 
   if (tool == 'reducer' && reducersSeen.add(componentId)) {
+    final large = ctx.runDn;
     warnings.add(ScanIssue(
       code: ScanIssueCode.reducerChangesDiameter,
       blocking: false,
       componentId: componentId,
-      pl: 'Redukcja w trasie — za nią zmienia się średnica, ustaw ją przy '
-          'kolejnych segmentach.',
-      en: 'Reducer in the route — the diameter changes past it; set it on '
-          'the following segments.',
+      pl: 'Redukcja w trasie${large == null ? '' : ' (duży koniec DN$large)'} '
+          '— za nią zmienia się średnica; każdy odcinek ma swoją DN.',
+      en: 'Reducer in the route${large == null ? '' : ' (large end DN$large)'} '
+          '— the size changes past it; every run carries its own DN.',
     ));
+  }
+
+  if (tool == 'elbow90' || tool == 'elbow45') {
+    final a = component.angleDeg;
+    final nominal = tool == 'elbow90' ? 90.0 : 45.0;
+    if (a != null && (a - nominal).abs() > kAngleToleranceDeg && a > 0 && a < 90) {
+      warnings.add(ScanIssue(
+        code: ScanIssueCode.cutElbow,
+        blocking: false,
+        segmentId: segmentId,
+        componentId: componentId,
+        pl: 'Kolano ${component.label ?? componentId} pod kątem '
+            '${a.toStringAsFixed(0)}° — take-out z segmentu kolana 90° '
+            '(ASME B16.9 §6.2.4: A × tan(θ/2)); sprawdź, czy to kolano cięte.',
+        en: 'Elbow ${component.label ?? componentId} at '
+            '${a.toStringAsFixed(0)}° — take-out from a segment of a 90° '
+            'elbow (ASME B16.9 §6.2.4: A × tan(θ/2)); check it is a cut elbow.',
+      ));
+    }
   }
 
   final ScanEndKind kind;
@@ -1519,15 +2742,26 @@ ScanEndpoint _endpoint(
 
   double? takeoutMm;
   String? takeoutNote;
+  String? missingPl;
+  String? missingEn;
+  var fromFitter = false;
   if (kind == ScanEndKind.axial) {
-    final t = _axialTakeout(
-      tool!,
-      dn,
-      component,
-      assumedLongRadius: assumedLongRadius,
-    );
-    takeoutMm = t?.mm;
-    takeoutNote = t?.note;
+    if (ctx.fitterMm != null) {
+      takeoutMm = ctx.fitterMm;
+      takeoutNote = 'wpisane przez montera';
+      fromFitter = true;
+    } else {
+      final t = _axialTakeout(
+        tool!,
+        ctx,
+        component,
+        assumedLongRadius: assumedLongRadius,
+      );
+      takeoutMm = t.mm;
+      takeoutNote = t.note;
+      missingPl = t.missingPl;
+      missingEn = t.missingEn;
+    }
   } else {
     // A face or a zero-length marker adds nothing to the dimensioned span.
     takeoutMm = 0;
@@ -1537,9 +2771,20 @@ ScanEndpoint _endpoint(
   // the same for all of them, but a gate valve's body is not a check
   // valve's, and borrowing one for the other is exactly the invented number
   // this layer exists to prevent.
-  final body = behaviour.hasPhysicalBody && subtypeKnown
-      ? _bodyLength(tool!, dn, pipeClass, component: component)
-      : null;
+  _Takeout? body;
+  if (behaviour.hasPhysicalBody) {
+    if (ctx.fitterMm != null) {
+      body = _Takeout(ctx.fitterMm!, 'wpisane przez montera');
+      fromFitter = true;
+    } else if (subtypeKnown) {
+      body = _bodyLength(
+        tool!,
+        tool == 'reducer' ? ctx.runDn : ctx.dn,
+        component.rating ?? pipeClass,
+        component: component,
+      );
+    }
+  }
 
   final SideStop proposedStop;
   if (kind == ScanEndKind.axial) {
@@ -1567,6 +2812,10 @@ ScanEndpoint _endpoint(
     takeoutNote: takeoutNote,
     bodyNote: behaviour.hasPhysicalBody ? body?.note : null,
     proposedStop: proposedStop,
+    role: ctx.role,
+    missingPl: missingPl,
+    missingEn: missingEn,
+    fromFitter: fromFitter,
   );
 }
 
@@ -1576,47 +2825,189 @@ class _Takeout {
   const _Takeout(this.mm, this.note);
 }
 
-/// Centre-to-end for an axial fitting, from the ASME tables the app already
-/// ships. Null when the DN is unknown or the standard has no entry — that
-/// blocks the cut instead of producing a filler number.
-_Takeout? _axialTakeout(
+/// A take-out, or why there is none.
+class _AxialTakeout {
+  final double? mm;
+  final String? note;
+  final String? missingPl;
+  final String? missingEn;
+  const _AxialTakeout.value(double this.mm, String this.note)
+      : missingPl = null,
+        missingEn = null;
+  const _AxialTakeout.missing([this.missingPl, this.missingEn])
+      : mm = null,
+        note = null;
+}
+
+/// End connection of a fitting: `BW`, `SW`, `THD` or `FL` — printed, else
+/// from its marking.
+String _endTypeOf(AiComponent c) {
+  final e = c.endType?.toUpperCase();
+  if (e != null) {
+    if (e.startsWith('SW') || e.contains('SOCKET')) return 'SW';
+    if (e.startsWith('TH') || e == 'NPT' || e.startsWith('SCR')) return 'THD';
+    if (e.startsWith('FL')) return 'FL';
+    return 'BW';
+  }
+  final m = '${c.label ?? ''} ${c.type}'.toUpperCase();
+  if (RegExp(r'\bSW\b|SOCKET|\bS\.W\.').hasMatch(m)) return 'SW';
+  if (RegExp(r'\b(THD|THRD|NPT|SCRD|SCREWED|THREADED)\b').hasMatch(m)) {
+    return 'THD';
+  }
+  return 'BW';
+}
+
+/// Pressure class of a forged (SW / threaded) fitting: 3000 / 6000 / 9000,
+/// printed or in its marking; null when not stated.
+int? _forgedClassOf(AiComponent c) {
+  final text = '${c.rating ?? ''} ${c.label ?? ''}';
+  final m = RegExp(r'(?<!\d)(3000|6000|9000)(?!\d)').firstMatch(text);
+  return m == null ? null : int.parse(m.group(1)!);
+}
+
+String _n1(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
+/// Centre-to-end for an axial fitting, from the ASME tables the app ships.
+/// Never a filler number: when the size, the class or the table entry is
+/// not known, the result says why and the cut stays blocked.
+_AxialTakeout _axialTakeout(
   String tool,
-  int? dn,
+  _EndCtx ctx,
   AiComponent component, {
   required Set<String> assumedLongRadius,
 }) {
-  if (dn == null) return null;
+  final dn = ctx.dn;
+  final endType = _endTypeOf(component);
+
+  if (tool == 'olet') {
+    return const _AxialTakeout.missing(
+      'wysokość oletu zależy od producenta (MSS SP-97 jej nie normuje) — '
+          'wpisz take-out: oś rury głównej → koniec oletu.',
+      'the height of an olet is the manufacturer\'s (MSS SP-97 does not '
+          'standardise it) — enter the take-out: header centreline → olet end.',
+    );
+  }
+  if (endType == 'THD') {
+    return const _AxialTakeout.missing(
+      'połączenie gwintowane — wkręcenie rury zależy od gwintu i momentu, '
+          'tabela tego nie poda. Wpisz take-out (oś → koniec rury).',
+      'threaded joint — thread engagement depends on the thread and the '
+          'make-up, no table gives it. Enter the take-out (centre → pipe end).',
+    );
+  }
+
+  if (endType == 'SW' && (tool == 'elbow90' || tool == 'elbow45' || tool == 'tee')) {
+    final size = tool == 'tee' ? (ctx.runDn ?? dn) : dn;
+    if (size == null) return const _AxialTakeout.missing();
+    final is45 = tool == 'elbow45';
+    final t3000 = is45
+        ? TakeoutCatalog.socketWeld45C3000[size]
+        : TakeoutCatalog.socketWeld90A3000[size];
+    final t6000 = is45
+        ? TakeoutCatalog.socketWeld45C6000[size]
+        : TakeoutCatalog.socketWeld90A6000[size];
+    final cls = _forgedClassOf(component);
+    final a = cls == 3000 ? t3000 : (cls == 6000 ? t6000 : null);
+    const gapMm = TakeoutCatalog.socketWeldGapMm;
+    if (a == null) {
+      final known = [
+        if (t3000 != null) 'kl. 3000: ${_n1(t3000 + gapMm)} mm',
+        if (t6000 != null) 'kl. 6000: ${_n1(t6000 + gapMm)} mm',
+      ].join(', ');
+      final knownEn = known.replaceAll('kl.', 'Cl.');
+      return _AxialTakeout.missing(
+        cls == null
+            ? 'kształtka SW bez klasy na rysunku — ASME B16.11 (A + luz '
+                '1,6 mm): $known. Wpisz take-out dla swojej klasy.'
+            : 'kształtka SW kl. $cls DN$size — brak w tabeli B16.11 tej '
+                'aplikacji. Wpisz take-out.',
+        cls == null
+            ? 'socket-weld fitting with no class on the drawing — ASME B16.11 '
+                '(A + 1.6 mm clearance): $knownEn. Enter the take-out for '
+                'your class.'
+            : 'socket-weld fitting Cl.$cls DN$size — not in this app\'s '
+                'B16.11 table. Enter the take-out.',
+      );
+    }
+    final letter = is45 ? 'C' : 'A';
+    return _AxialTakeout.value(
+      a + gapMm,
+      'ASME B16.11 kl.$cls · SW · $letter ${_n1(a)} + luz ${_n1(gapMm)} · '
+          'DN$size',
+    );
+  }
+
+  if (dn == null) return const _AxialTakeout.missing();
   switch (tool) {
     case 'elbow90':
+    case 'elbow45':
       final marking =
           '${component.label ?? ''} ${component.type}'.toUpperCase();
       final isShort =
           RegExp(r'\bSR\b').hasMatch(marking) || marking.contains('SHORT');
+      final angle = component.angleDeg;
+      final nominal = tool == 'elbow90' ? 90.0 : 45.0;
+      if (angle != null &&
+          angle > 0 &&
+          angle < 90 &&
+          (angle - nominal).abs() > kAngleToleranceDeg) {
+        final r = b169ElbowTakeout(
+          dn: dn,
+          type: isShort ? ElbowRadiusType.short1D : ElbowRadiusType.long15D,
+          angleDeg: angle,
+        );
+        if (r == null) return const _AxialTakeout.missing();
+        return _AxialTakeout.value(
+          (r.mm * 10).roundToDouble() / 10,
+          'ASME B16.9 §6.2.4 · ${isShort ? 'SR' : 'LR'} A ${r.a90Mm} × '
+              'tan(${_n1(angle)}°/2) · DN$dn',
+        );
+      }
+      if (tool == 'elbow45') {
+        final v = TakeoutCatalog.elbow45LR[dn];
+        return v == null
+            ? const _AxialTakeout.missing()
+            : _AxialTakeout.value(
+                v.toDouble(), 'ASME B16.9 · 45° LR · DN$dn');
+      }
       if (isShort) {
         final sr = TakeoutCatalog.elbow90SR[dn];
         return sr == null
-            ? null
-            : _Takeout(sr.toDouble(), 'ASME B16.9 tab. 6.1-4 · 90° SR · DN$dn');
+            ? const _AxialTakeout.missing()
+            : _AxialTakeout.value(
+                sr.toDouble(), 'ASME B16.9 tab. 6.1-4 · 90° SR · DN$dn');
       }
       final lr = TakeoutCatalog.elbow90LR[dn];
-      if (lr == null) return null;
+      if (lr == null) return const _AxialTakeout.missing();
       // Long radius is the process-piping default, but it IS a default — the
       // plan says so out loud instead of hiding it.
       assumedLongRadius.add(component.id);
-      return _Takeout(lr.toDouble(), 'ASME B16.9 · 90° LR · DN$dn');
-    case 'elbow45':
-      final v = TakeoutCatalog.elbow45LR[dn];
-      return v == null
-          ? null
-          : _Takeout(v.toDouble(), 'ASME B16.9 · 45° LR · DN$dn');
+      return _AxialTakeout.value(lr.toDouble(), 'ASME B16.9 · 90° LR · DN$dn');
     case 'tee':
-      final v = TakeoutCatalog.tee[dn];
+      final run = ctx.runDn ?? dn;
+      final branch = ctx.branchDn;
+      if (ctx.role == PortRole.branch && branch != null && branch != run) {
+        final m = TakeoutCatalog.reducingTeeOutletM[run]?[branch];
+        if (m == null) {
+          return _AxialTakeout.missing(
+            'trójnik redukcyjny DN$run×$branch — brak wymiaru M w tabeli '
+                'ASME B16.9 tej aplikacji. Wpisz take-out odgałęzienia '
+                '(oś przelotu → koniec odgałęzienia).',
+            'reducing tee DN$run×$branch — no M in this app\'s ASME B16.9 '
+                'table. Enter the branch take-out (run centreline → branch '
+                'end).',
+          );
+        }
+        return _AxialTakeout.value(m.toDouble(),
+            'ASME B16.9 tab. 6.1-7 · trójnik red. M · DN$run×$branch');
+      }
+      final v = TakeoutCatalog.tee[run];
       return v == null
-          ? null
-          : _Takeout(v.toDouble(), 'ASME B16.9 · tee · DN$dn');
+          ? const _AxialTakeout.missing()
+          : _AxialTakeout.value(v.toDouble(), 'ASME B16.9 · tee · DN$run');
     default:
-      // Olets and anything else axial have no take-out table here.
-      return null;
+      return const _AxialTakeout.missing();
   }
 }
 
@@ -1624,6 +3015,10 @@ _Takeout? _axialTakeout(
 /// set-back is not a catalogue length and their sealing face is not where a
 /// weld-neck's Y would put it.
 bool _isSlipOnLike(AiComponent component) {
+  final t = component.flangeType;
+  if (t != null) {
+    return t == 'SO' || t == 'SW' || t == 'LJ' || t == 'THD' || t == 'TH';
+  }
   final marking = '${component.label ?? ''} ${component.type}'.toUpperCase();
   return RegExp(r'\b(SO|SW|LJ|THD|THRD)\b|SLIP|SOCKET|LAP|THREAD')
       .hasMatch(marking);
@@ -1632,8 +3027,8 @@ bool _isSlipOnLike(AiComponent component) {
 /// Body length along the run, only where a standard gives one unambiguously.
 ///
 /// Flanges and valves are listed per pressure class, so they resolve only
-/// when the title block actually says Class 150 — guessing a class would
-/// change the cut by tens of millimetres.
+/// when the component or the title block actually says Class 150 — guessing
+/// a class would change the cut by tens of millimetres.
 _Takeout? _bodyLength(String tool, int? dn, String? pipeClass,
     {AiComponent? component}) {
   if (dn == null) return null;
@@ -1721,6 +3116,18 @@ ScanProjectDraft _inferProject(
     dn = _parseSizeToDn(pipeBom?.size, scan.sizeNotation) ??
         _parseSizeToDn(tb.lineNumber, scan.sizeNotation) ??
         _firstBomDn(scan.billOfMaterials, scan.sizeNotation);
+    // A v2 reading prints the size next to the runs; with nothing in the
+    // title block or the BOM, the first sized run is the line's size.
+    if (dn == null) {
+      for (final s in scan.segments) {
+        if (s.auxiliary) continue;
+        final d = _knownDn(s.dn);
+        if (d != null) {
+          dn = d;
+          break;
+        }
+      }
+    }
     if (dn != null && callerDiameterMm == null) {
       diameterSource = ScanValueSource.scan;
     }

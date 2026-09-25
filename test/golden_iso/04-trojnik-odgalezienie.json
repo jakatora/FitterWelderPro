@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "04-trojnik-odgalezienie",
   "title": "Trójnik równoprzelotowy z odgałęzieniem",
   "drawing": "Otwarty koniec → trójnik T1 → otwarty koniec (przelot) + odgałęzienie T1 → otwarty koniec. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
@@ -83,17 +83,17 @@
     "model": "claude-sonnet-5"
   },
   "knownLimitations": [
-    "Spec §9: rozgałęzienie powinno blokować automatyczny zapis — dziś planista zgłasza tylko ostrzeżenie branchInRoute.",
-    "Trójnik redukcyjny (M ≠ C) i średnica odgałęzienia nie są odczytywane — schemat AI nie ma DN per segment ani rozmiaru wylotu."
+    "Odczyt v1 bez rozmiaru trójnika i bez ról odnóg: trójnik przyjęty jako równoprzelotowy (M = C) z jawnym ostrzeżeniem teeAssumedEqual. Trójnik redukcyjny z rozpoznanym odgałęzieniem — przypadek 12."
   ],
   "steps": [
     {
-      "note": "Dziś rozgałęzienie jest tylko ostrzeżeniem (branchInRoute) — patrz knownLimitations.",
+      "note": "Równoprzelotowy trójnik: C = M, więc odgałęzienie liczy się tak samo jak przelot — rozgałęzienie jest tylko informacją.",
       "expect": {
         "canSave": true,
         "gaps": [],
         "warnings": [
-          "branchInRoute"
+          "branchInRoute",
+          "teeAssumedEqual"
         ],
         "segments": [
           {

@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "07-zawor-miedzy-kolnierzami",
   "title": "Zasuwa kołnierzowa między dwoma kołnierzami WN",
   "drawing": "Otwarty koniec → kolano E1 → kołnierz F1 | zasuwa V1 (FTF 229) | kołnierz F2 → kolano E2 → otwarty koniec. Wymiary do przylg kołnierzy; wymiar zaworu 229 to linia pomocnicza. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
@@ -126,13 +126,13 @@
     "model": "claude-sonnet-5"
   },
   "knownLimitations": [
-    "Zawór nie jest końcem żadnego odcinka rury — trasa rozpada się na dwa ciągi (ostrzeżenie routeNotContinuous). Schemat AI nie ma relacji „element skręcany z elementem”.",
-    "Długość zabudowy zaworu nie jest sprawdzana z wymiarem 229 z rysunku (linia pomocnicza jest pomijana)."
+    "Odczyt v1 bez connectedTo: zawór nie jest końcem odcinka, więc trasa rozpada się na dwa ciągi (routeNotContinuous) i odniesienie przy kołnierzach trzeba potwierdzić. Ten sam rysunek w schemacie v2 (zespół skręcany + odniesienia FACE z rysunku) — przypadek 15.",
+    "Długość zabudowy zaworu nie jest porównywana z wymiarem 229 z rysunku (linia pomocnicza jest pomijana)."
   ],
   "steps": [
     {
       "expect": {
-        "canSave": false,
+        "canSave": true,
         "gaps": [
           "dimensionReferenceUnknown"
         ],
@@ -144,27 +144,32 @@
           {
             "id": "s0",
             "cutMm": 1048,
-            "calc": "1200 − 152 = 1048"
+            "calc": "1200 − 152 = 1048",
+            "blocked": false
           },
           {
             "id": "s1",
             "cutMm": null,
             "proposed": "CTE",
-            "calc": "czeka na potwierdzenie"
+            "calc": "czeka na potwierdzenie",
+            "blocked": true
           },
           {
             "id": "s2",
             "cutMm": null,
             "proposed": "CTE",
-            "calc": "czeka na potwierdzenie"
+            "calc": "czeka na potwierdzenie",
+            "blocked": true
           },
           {
             "id": "s3",
             "cutMm": 748,
-            "calc": "900 − 152 = 748"
+            "calc": "900 − 152 = 748",
+            "blocked": false
           }
         ]
-      }
+      },
+      "note": "Blokada dotyczy tylko cięć s1, s2 — pozostałe można zapisać od razu (zapis częściowy, spec §2 p.6)."
     },
     {
       "fitter": {

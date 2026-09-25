@@ -1,0 +1,162 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "12-trojnik-redukcyjny",
+  "title": "Trójnik redukcyjny DN100×80 — przelot C, odgałęzienie M",
+  "drawing": "Otwarty koniec → trójnik T1 (DN100×80) → otwarty koniec (przelot s1, s2) + odgałęzienie s3 DN80 w górę. Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-3001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "T1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 800,
+          "rawDimension": "800",
+          "dn": 100,
+          "direction": "E"
+        },
+        {
+          "id": "s2",
+          "fromId": "T1",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 600,
+          "rawDimension": "600",
+          "dn": 100,
+          "direction": "E"
+        },
+        {
+          "id": "s3",
+          "fromId": "T1",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 500,
+          "rawDimension": "500",
+          "dn": 80,
+          "direction": "UP"
+        }
+      ],
+      "components": [
+        {
+          "id": "T1",
+          "type": "tee",
+          "confidence": "high",
+          "label": "RED TEE DN100x80",
+          "sizeLarge": "DN100",
+          "sizeSmall": "DN80",
+          "runIds": [
+            "s1",
+            "s2"
+          ],
+          "branchId": "s3",
+          "bomItem": "2"
+        }
+      ],
+      "welds": [],
+      "spools": [],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "unit": "M",
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        },
+        {
+          "item": "2",
+          "quantity": 1,
+          "description": "TEE RED BW",
+          "size": "DN100x80",
+          "material": "A403 WP316L"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [
+    "Rura w BOM (6 m) nie jest porównywana w oczekiwaniach — suma cięć 1,592 m to inny przypadek (18)."
+  ],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "branchInRoute"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 695,
+            "dn": 100,
+            "diameterMm": 114.3,
+            "calc": "800 − 105 (C przelotu, B16.9) = 695"
+          },
+          {
+            "id": "s2",
+            "cutMm": 495,
+            "dn": 100,
+            "diameterMm": 114.3,
+            "calc": "600 − 105 = 495"
+          },
+          {
+            "id": "s3",
+            "cutMm": 402,
+            "dn": 80,
+            "diameterMm": 88.9,
+            "calc": "500 − 98 (M odgałęzienia NPS 4×3, B16.9 tab. 6.1-7) = 402; DN80 OD 88,9"
+          }
+        ],
+        "welds": {
+          "count": 3,
+          "assigned": true
+        },
+        "bom": [
+          {
+            "label": "Trójnik",
+            "status": "ok"
+          }
+        ],
+        "journal": {
+          "create": 3,
+          "skippedOnReimport": 3
+        }
+      }
+    }
+  ]
+}

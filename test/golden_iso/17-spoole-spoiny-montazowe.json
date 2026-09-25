@@ -1,0 +1,268 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "17-spoole-spoiny-montazowe",
+  "title": "Trzy spoole, dwie spoiny montażowe FW",
+  "drawing": "Otwarty koniec → E1 → E2 → E3 → otwarty koniec. SP-1: s1, s2 (spoiny 1, 2); SP-2: s3 (spoiny 3, 4); SP-3: s4; spoiny montażowe FW1 (s2|E2) i FW2 (E3|s4). Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-3001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "spoolId": "SP1"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 800,
+          "rawDimension": "800",
+          "spoolId": "SP1"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": "E3",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 700,
+          "rawDimension": "700",
+          "spoolId": "SP2"
+        },
+        {
+          "id": "s4",
+          "fromId": "E3",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 500,
+          "rawDimension": "500",
+          "spoolId": "SP3"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "confidence": "high",
+          "spoolId": "SP1"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "confidence": "high",
+          "spoolId": "SP2"
+        },
+        {
+          "id": "E3",
+          "type": "elbow90",
+          "confidence": "high",
+          "spoolId": "SP2"
+        }
+      ],
+      "welds": [
+        {
+          "id": "w1",
+          "number": "1",
+          "type": "shop",
+          "betweenIds": [
+            "s1",
+            "E1"
+          ],
+          "spoolId": "SP1",
+          "confidence": "high"
+        },
+        {
+          "id": "w2",
+          "number": "2",
+          "type": "shop",
+          "betweenIds": [
+            "E1",
+            "s2"
+          ],
+          "spoolId": "SP1",
+          "confidence": "high"
+        },
+        {
+          "id": "w3",
+          "number": "FW1",
+          "type": "field",
+          "betweenIds": [
+            "s2",
+            "E2"
+          ],
+          "confidence": "high"
+        },
+        {
+          "id": "w4",
+          "number": "3",
+          "type": "shop",
+          "betweenIds": [
+            "E2",
+            "s3"
+          ],
+          "spoolId": "SP2",
+          "confidence": "high"
+        },
+        {
+          "id": "w5",
+          "number": "4",
+          "type": "shop",
+          "betweenIds": [
+            "s3",
+            "E3"
+          ],
+          "spoolId": "SP2",
+          "confidence": "high"
+        },
+        {
+          "id": "w6",
+          "number": "FW2",
+          "type": "field",
+          "betweenIds": [
+            "E3",
+            "s4"
+          ],
+          "confidence": "high"
+        }
+      ],
+      "spools": [
+        {
+          "id": "SP1",
+          "label": "SP-1"
+        },
+        {
+          "id": "SP2",
+          "label": "SP-2"
+        },
+        {
+          "id": "SP3",
+          "label": "SP-3"
+        }
+      ],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "unit": "M",
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "takeoutAssumedLongRadius"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 848,
+            "label": "SP-1/1",
+            "calc": "1000 − 152 = 848"
+          },
+          {
+            "id": "s2",
+            "cutMm": 496,
+            "label": "SP-1/2",
+            "calc": "800 − 152 − 152 = 496"
+          },
+          {
+            "id": "s3",
+            "cutMm": 396,
+            "label": "SP-2/1",
+            "calc": "700 − 152 − 152 = 396"
+          },
+          {
+            "id": "s4",
+            "cutMm": 348,
+            "label": "SP-3/1",
+            "calc": "500 − 152 = 348"
+          }
+        ],
+        "welds": {
+          "count": 6,
+          "field": 2,
+          "numbers": [
+            "1",
+            "2",
+            "FW1",
+            "3",
+            "4",
+            "FW2"
+          ]
+        },
+        "spools": [
+          {
+            "label": "SP-1",
+            "segments": [
+              "s1",
+              "s2"
+            ]
+          },
+          {
+            "label": "SP-2",
+            "segments": [
+              "s3"
+            ]
+          },
+          {
+            "label": "SP-3",
+            "segments": [
+              "s4"
+            ]
+          }
+        ],
+        "journal": {
+          "create": 6,
+          "skippedOnReimport": 6
+        }
+      }
+    }
+  ]
+}

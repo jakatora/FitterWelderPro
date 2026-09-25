@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "08-wymiary-stopy-cale",
   "title": "Rysunek ASME: wymiary w stopach i calach, NPS 4",
   "drawing": "Otwarty koniec → kolano E1 → kolano E2 → otwarty koniec; wymiary 4'-6\", 3'-0\", 2'-1 1/2\" — AI nie przeliczyło ich na mm. NPS 4 STD A106 Gr.B (CS), 150#. Kolano 90° LR NPS 4: A = 152 mm.",

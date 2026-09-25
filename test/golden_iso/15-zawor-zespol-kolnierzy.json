@@ -1,0 +1,206 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "15-zawor-zespol-kolnierzy",
+  "title": "Zasuwa między kołnierzami WN jako zespół skręcany",
+  "drawing": "Otwarty koniec → E1 → kołnierz F1 | zasuwa V1 | kołnierz F2 → E2 → otwarty koniec. connectedTo spina zespół; wymiary do przylg (FACE) odczytane z linii wymiarowych. Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-3001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s0",
+          "fromId": null,
+          "toId": "E1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 1200,
+          "rawDimension": "1200",
+          "direction": "E"
+        },
+        {
+          "id": "s1",
+          "fromId": "E1",
+          "toId": "F1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "direction": "N",
+          "refFrom": "CL",
+          "refTo": "FACE"
+        },
+        {
+          "id": "sv",
+          "fromId": "F1",
+          "toId": "F2",
+          "auxiliary": true,
+          "confidence": "high",
+          "dimensionMm": 229,
+          "rawDimension": "229"
+        },
+        {
+          "id": "s2",
+          "fromId": "F2",
+          "toId": "E2",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 700,
+          "rawDimension": "700",
+          "direction": "N",
+          "refFrom": "FACE",
+          "refTo": "CL"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 900,
+          "rawDimension": "900",
+          "direction": "E"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "confidence": "high",
+          "label": "90° LR"
+        },
+        {
+          "id": "F1",
+          "type": "flange",
+          "confidence": "high",
+          "label": "WN RF 150#",
+          "flangeType": "WN",
+          "rating": "150",
+          "connectedTo": [
+            "V1"
+          ]
+        },
+        {
+          "id": "V1",
+          "type": "valve",
+          "confidence": "high",
+          "label": "GATE VALVE 4\" 150#",
+          "valveType": "gate",
+          "connectedTo": [
+            "F1",
+            "F2"
+          ],
+          "bomItem": "3"
+        },
+        {
+          "id": "F2",
+          "type": "flange",
+          "confidence": "high",
+          "label": "WN RF 150#",
+          "flangeType": "WN",
+          "rating": "150",
+          "connectedTo": [
+            "V1"
+          ]
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "confidence": "high",
+          "label": "90° LR"
+        }
+      ],
+      "welds": [],
+      "spools": [],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "unit": "M",
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        },
+        {
+          "item": "3",
+          "quantity": 1,
+          "description": "GATE VALVE FLGD",
+          "size": "DN100"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "auxiliarySegmentsSkipped"
+        ],
+        "segments": [
+          {
+            "id": "s0",
+            "cutMm": 1048,
+            "calc": "1200 − 152 = 1048"
+          },
+          {
+            "id": "s1",
+            "cutMm": 772,
+            "calc": "1000 − 152 − 76 (Y F1, do przylgi) = 772"
+          },
+          {
+            "id": "s2",
+            "cutMm": 472,
+            "calc": "700 − 76 (Y F2) − 152 = 472"
+          },
+          {
+            "id": "s3",
+            "cutMm": 748,
+            "calc": "900 − 152 = 748"
+          }
+        ],
+        "welds": {
+          "count": 6,
+          "assigned": true
+        },
+        "bom": [
+          {
+            "label": "Zawór",
+            "status": "ok"
+          }
+        ]
+      }
+    }
+  ]
+}

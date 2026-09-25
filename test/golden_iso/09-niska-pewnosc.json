@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "09-niska-pewnosc",
   "title": "Wymiar odczytany z niską pewnością — blokada do potwierdzenia",
   "drawing": "Otwarty koniec → E1 → E2 → otwarty koniec; wymiar E1–E2 częściowo zasłonięty. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
@@ -93,9 +93,9 @@
   "knownLimitations": [],
   "steps": [
     {
-      "note": "Cięcie jest policzone i widoczne, ale zapis zablokowany do czasu potwierdzenia wymiaru.",
+      "note": "Cięcie jest policzone i widoczne, ale zapis zablokowany do czasu potwierdzenia wymiaru. Blokada dotyczy tylko cięć s2 — pozostałe można zapisać od razu (zapis częściowy, spec §2 p.6).",
       "expect": {
-        "canSave": false,
+        "canSave": true,
         "gaps": [
           "lowConfidence"
         ],
@@ -103,17 +103,20 @@
           {
             "id": "s1",
             "cutMm": 1348,
-            "calc": "1500 − 152 = 1348"
+            "calc": "1500 − 152 = 1348",
+            "blocked": false
           },
           {
             "id": "s2",
             "cutMm": 896,
-            "calc": "1200 − 152 − 152 = 896 (niepewny wymiar — do potwierdzenia)"
+            "calc": "1200 − 152 − 152 = 896 (niepewny wymiar — do potwierdzenia)",
+            "blocked": true
           },
           {
             "id": "s3",
             "cutMm": 648,
-            "calc": "800 − 152 = 648"
+            "calc": "800 − 152 = 648",
+            "blocked": false
           }
         ]
       }

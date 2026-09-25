@@ -1,6 +1,6 @@
 {
   "format": "fwp-golden-iso",
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "01-kolano-kolano-90lr",
   "title": "Prosty odcinek kolano–kolano 90° LR, szczelina 2 mm",
   "drawing": "Otwarty koniec → kolano E1 → kolano E2 → otwarty koniec. Wymiary oś–oś / oś–koniec rury. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9), 90° SR A=102, 45° LR B=64, trójnik C=105, redukcja H=102; kołnierz WN Y=76 (ASME B16.5); zasuwa FTF=229 (ASME B16.10).",
