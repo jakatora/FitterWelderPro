@@ -3,16 +3,17 @@
 Data: 2026-08-30. Pełny audyt pozostaje nieukończony.
 Raport rozdziela dowody testowe, naprawione usterki i brakującą weryfikację.
 Nie usunięto żadnego modułu. Zakres inwentaryzacji: publiczne klasy Screen
-w lib/screens oraz lib/modules/*/ui, nie każdy wewnętrzny serwis aplikacji.
+w lib/screens oraz lib/modules/*/ui i klasy Page w lib/features (rejestr
+uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 60
+Moduły: 64
 
 | Status | Liczba |
 |---|---:|
 | unverified | 46 |
-| passed | 13 |
+| passed | 17 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -28,7 +29,7 @@ ich nieobecności w niesprawdzonych funkcjach.
 
 Tabela zachowuje statusy, scenariusze i dowody źródłowego manifestu bez
 podnoszenia statusu na podstawie renderowania. Wspólny smoke test to
-`test/audit/module_smoke_test.dart`: 60 ekranów renderowanych offline przy
+`test/audit/module_smoke_test.dart`: 64 ekrany renderowane offline przy
 skali tekstu 1,3 oraz 7 kontroli przekrojowych. Nie zastępuje scenariuszy
 biznesowych. Puste pole dowodu niżej oznacza brak dowodu scenariusza, mimo
 przejścia renderowania. W Task 6 doprecyzowano wyłącznie opisy, bez zmian
@@ -41,6 +42,8 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 |---|---|---|---|---|---|---|---|
 | `ai-chat` | AiChatScreen | lib/screens/ai_chat_screen.dart | ai | high | unverified | Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji. | Brak dowodu scenariusza |
 | `bolt-torque` | BoltTorqueScreen | lib/screens/bolt_torque_screen.dart | fitter | safetyCritical | unverified | Śruba M16 klasy 8.8 zwraca moment dokręcania w Nm. | Brak dowodu scenariusza |
+| `certificate-edit` | CertificateEditPage | lib/features/qualification/certificate_edit_page.dart | welder | high | passed | Nowy certyfikat (nr PL-99, procesy 141, 135, t 1,5–6 mm, BW) trafia do bazy; zakres grubości 8–2 mm (min > max) nie jest zapisywany. | test/features/qualification_pages_test.dart: formularz: nowy certyfikat trafia do bazy<br>test/features/qualification_pages_test.dart: formularz: min > max — nie zapisuje<br>test/audit/module_smoke_test.dart: CertificateEditPage renderuje przy skali tekstu 1,3 |
+| `certificate-register` | CertificateRegisterPage | lib/features/qualification/certificate_register_page.dart | welder | high | passed | Certyfikat ISO 9606-1 z egzaminem sprzed 7 miesięcy ma status „przeterminowane”; wpis potwierdzenia 6-miesięcznego zapisuje dzisiejszą datę i zdejmuje ten status. | test/features/qualification_pages_test.dart: certyfikat po terminie: status i wpis potwierdzenia<br>test/audit/module_smoke_test.dart: CertificateRegisterPage renderuje przy skali tekstu 1,3 |
 | `chat` | ChatScreen | lib/screens/chat_screen.dart | social | medium | unverified | Zalogowany użytkownik otwiera rozmowę i widzi historię wiadomości. | test/audit/module_smoke_test.dart: Ponów wykonuje drugie wywołanie Chat i pokazuje zwrócony pokój |
 | `component-library` | ComponentLibraryScreen | lib/screens/component_library_screen.dart | project | medium | unverified | Użytkownik filtruje bibliotekę komponentów po średnicy 100 mm. | Brak dowodu scenariusza |
 | `consent` | ConsentScreen | lib/screens/consent_screen.dart | account | high | unverified | Użytkownik akceptuje wymagane zgody przed użyciem aplikacji. | Brak dowodu scenariusza |
@@ -93,6 +96,8 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `welder-pipes` | WelderPipesScreen | lib/screens/welder_pipes_screen.dart | welder | medium | unverified | Użytkownik otwiera narzędzia spawalnicze dla rur. | test/audit/module_smoke_test.dart: WelderPipesScreen renderuje przy skali tekstu 1,3 |
 | `welder-tanks` | WelderTanksScreen | lib/screens/welder_tanks_screen.dart | welder | medium | unverified | Użytkownik otwiera narzędzia spawalnicze dla zbiorników. | test/audit/module_smoke_test.dart: WelderTanksScreen renderuje przy skali tekstu 1,3 |
 | `welder-tools` | WelderToolsScreen | lib/screens/welder_tools_screen.dart | welder | low | unverified | Użytkownik wybiera kalkulator z zestawu narzędzi spawacza. | Brak dowodu scenariusza |
+| `wps-edit` | WpsEditPage | lib/features/wps/wps_edit_page.dart | welder | high | passed | WPS bez numeru nie jest zapisywana; WPS-7 z energią liniową 0,4–1,1 kJ/mm zapisuje się z konwencją EN. | test/features/qualification_pages_test.dart: formularz WPS: bez numeru nie zapisze<br>test/features/qualification_pages_test.dart: formularz WPS: zakres energii liniowej zapisany z konwencją<br>test/audit/module_smoke_test.dart: WpsEditPage renderuje przy skali tekstu 1,3 |
+| `wps-library` | WpsLibraryPage | lib/features/wps/wps_library_page.dart | welder | high | passed | Import JSON ze schowka dodaje WPS-141-01 rev. B (z nowym identyfikatorem) do listy; tekst, który nie jest WPS, daje komunikat i nic nie dodaje. | test/features/qualification_pages_test.dart: import JSON ze schowka dodaje WPS do listy<br>test/features/qualification_pages_test.dart: import czegoś, co nie jest WPS — komunikat, nic nie dodaje<br>test/audit/module_smoke_test.dart: WpsLibraryPage renderuje przy skali tekstu 1,3 |
 | `welder-pipe-param-edit` | WelderPipeParamEditScreen | lib/modules/welder_pipe/ui/welder_pipe_param_edit_screen.dart | welder | high | unverified | Spawacz zapisuje parametry rury z prądem, napięciem i procesem. | Brak dowodu scenariusza |
 | `welder-pipe-params-list` | WelderPipeParamsListScreen | lib/modules/welder_pipe/ui/welder_pipe_params_list_screen.dart | welder | high | passed | Migracja v3-v5 zachowuje lokalny rekord parametrów rury, a restart produkcyjnej bazy nie duplikuje danych startowych. | test/audit/data_integrity_audit_test.dart: migracja v3-v5 zachowuje rekord po restarcie produkcyjnej bazy |
 | `tandem-calculator` | TandemCalculatorScreen | lib/modules/welder_tandem/ui/tandem_calculator_screen.dart | welder | safetyCritical | domainReview | Asymetryczny zestaw zachowuje inside/outside; mapowanie tych pól na lead/trail wymaga potwierdzenia domenowego. | test/audit/welder_calculations_audit_test.dart: asymetryczne 83/137 A nie jest zamieniane |

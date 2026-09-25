@@ -70,6 +70,10 @@ import 'package:cut_list_app/screens/welder_tools_screen.dart';
 import 'package:cut_list_app/services/chat_service.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
+import 'package:cut_list_app/features/qualification/certificate_edit_page.dart';
+import 'package:cut_list_app/features/qualification/certificate_register_page.dart';
+import 'package:cut_list_app/features/wps/wps_edit_page.dart';
+import 'package:cut_list_app/features/wps/wps_library_page.dart';
 import 'package:cut_list_app/modules/welder_pipe/ui/welder_pipe_param_edit_screen.dart';
 import 'package:cut_list_app/modules/welder_pipe/ui/welder_pipe_params_list_screen.dart';
 import 'package:cut_list_app/modules/welder_tandem/ui/tandem_calculator_screen.dart';
@@ -177,6 +181,10 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'TandemMenuScreen' => const TandemMenuScreen(position: 'HORIZONTAL'),
       'TandemMyParamsScreen' =>
         const TandemMyParamsScreen(position: 'HORIZONTAL'),
+      'CertificateRegisterPage' => const CertificateRegisterPage(),
+      'CertificateEditPage' => const CertificateEditPage(),
+      'WpsLibraryPage' => const WpsLibraryPage(),
+      'WpsEditPage' => const WpsEditPage(),
       _ => throw ArgumentError.value(entryPoint, 'entryPoint'),
     };
 

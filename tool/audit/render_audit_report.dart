@@ -14,7 +14,8 @@ String renderAuditReport(List<ModuleAuditEntry> entries) {
 Data: 2026-08-30. Pełny audyt pozostaje nieukończony.
 Raport rozdziela dowody testowe, naprawione usterki i brakującą weryfikację.
 Nie usunięto żadnego modułu. Zakres inwentaryzacji: publiczne klasy Screen
-w lib/screens oraz lib/modules/*/ui, nie każdy wewnętrzny serwis aplikacji.
+w lib/screens oraz lib/modules/*/ui i klasy Page w lib/features (rejestr
+uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
@@ -38,7 +39,7 @@ ich nieobecności w niesprawdzonych funkcjach.
 
 Tabela zachowuje statusy, scenariusze i dowody źródłowego manifestu bez
 podnoszenia statusu na podstawie renderowania. Wspólny smoke test to
-`test/audit/module_smoke_test.dart`: 60 ekranów renderowanych offline przy
+`test/audit/module_smoke_test.dart`: 64 ekrany renderowane offline przy
 skali tekstu 1,3 oraz 7 kontroli przekrojowych. Nie zastępuje scenariuszy
 biznesowych. Puste pole dowodu niżej oznacza brak dowodu scenariusza, mimo
 przejścia renderowania. W Task 6 doprecyzowano wyłącznie opisy, bez zmian

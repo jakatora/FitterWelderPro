@@ -54,6 +54,33 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Śruba M16 klasy 8.8 zwraca moment dokręcania w Nm.'),
   ModuleAuditEntry(
+      id: 'certificate-edit',
+      entryPoint: 'CertificateEditPage',
+      sourcePath: 'lib/features/qualification/certificate_edit_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Nowy certyfikat (nr PL-99, procesy 141, 135, t 1,5–6 mm, BW) trafia do bazy; zakres grubości 8–2 mm (min > max) nie jest zapisywany.',
+      evidence: [
+        'test/features/qualification_pages_test.dart: formularz: nowy certyfikat trafia do bazy',
+        'test/features/qualification_pages_test.dart: formularz: min > max — nie zapisuje',
+        'test/audit/module_smoke_test.dart: CertificateEditPage renderuje przy skali tekstu 1,3',
+      ]),
+  ModuleAuditEntry(
+      id: 'certificate-register',
+      entryPoint: 'CertificateRegisterPage',
+      sourcePath: 'lib/features/qualification/certificate_register_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Certyfikat ISO 9606-1 z egzaminem sprzed 7 miesięcy ma status „przeterminowane”; wpis potwierdzenia 6-miesięcznego zapisuje dzisiejszą datę i zdejmuje ten status.',
+      evidence: [
+        'test/features/qualification_pages_test.dart: certyfikat po terminie: status i wpis potwierdzenia',
+        'test/audit/module_smoke_test.dart: CertificateRegisterPage renderuje przy skali tekstu 1,3',
+      ]),
+  ModuleAuditEntry(
       id: 'chat',
       entryPoint: 'ChatScreen',
       sourcePath: 'lib/screens/chat_screen.dart',
@@ -556,6 +583,34 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.low,
       status: AuditStatus.unverified,
       scenario: 'Użytkownik wybiera kalkulator z zestawu narzędzi spawacza.'),
+  ModuleAuditEntry(
+      id: 'wps-edit',
+      entryPoint: 'WpsEditPage',
+      sourcePath: 'lib/features/wps/wps_edit_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'WPS bez numeru nie jest zapisywana; WPS-7 z energią liniową 0,4–1,1 kJ/mm zapisuje się z konwencją EN.',
+      evidence: [
+        'test/features/qualification_pages_test.dart: formularz WPS: bez numeru nie zapisze',
+        'test/features/qualification_pages_test.dart: formularz WPS: zakres energii liniowej zapisany z konwencją',
+        'test/audit/module_smoke_test.dart: WpsEditPage renderuje przy skali tekstu 1,3',
+      ]),
+  ModuleAuditEntry(
+      id: 'wps-library',
+      entryPoint: 'WpsLibraryPage',
+      sourcePath: 'lib/features/wps/wps_library_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Import JSON ze schowka dodaje WPS-141-01 rev. B (z nowym identyfikatorem) do listy; tekst, który nie jest WPS, daje komunikat i nic nie dodaje.',
+      evidence: [
+        'test/features/qualification_pages_test.dart: import JSON ze schowka dodaje WPS do listy',
+        'test/features/qualification_pages_test.dart: import czegoś, co nie jest WPS — komunikat, nic nie dodaje',
+        'test/audit/module_smoke_test.dart: WpsLibraryPage renderuje przy skali tekstu 1,3',
+      ]),
   ModuleAuditEntry(
       id: 'welder-pipe-param-edit',
       entryPoint: 'WelderPipeParamEditScreen',
