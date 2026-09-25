@@ -19,6 +19,7 @@ import '../../i18n/app_language.dart';
 import '../../services/qualification_reminders.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/help_button.dart';
 import '../../widgets/wpqr_chip.dart';
 import 'certificate_edit_page.dart';
 import 'form_bits.dart';
@@ -238,6 +239,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       appBar: AppBar(
         title: Text(context.tr(
             pl: 'Uprawnienia spawacza', en: 'Welder qualifications')),
+        actions: [HelpButton(help: kHelpCertificateRegister)],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _loading || _loadFailed ? null : () => _openEditor(),

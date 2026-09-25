@@ -60,19 +60,26 @@ class WeldJournalDao {
     return _read(db, id);
   }
 
-  Future<void> insert(WeldEntry e, {String by = ''}) async {
+  /// [warning] — the WPS / qualification warning the welder saved over
+  /// (`WeldCompliance.historyText`); logged as `CHECK` in the same
+  /// transaction.
+  Future<void> insert(WeldEntry e, {String by = '', String? warning}) async {
     final db = await AppDatabase.get();
     await db.transaction((txn) async {
       await txn.insert(table, e.toRow());
       await _log(txn, e.id, by, WeldHistoryAction.create,
           newValue: e.weldNo);
+      await _logWarning(txn, e.id, by, warning);
     });
   }
 
   /// Saves [e] over the stored row and logs every changed field. Returns the
   /// changes (empty when nothing changed — then nothing is written at all).
   /// A status change made here (in the editor) is logged as `STATUS`.
-  Future<List<WeldChange>> update(WeldEntry e, {String by = ''}) async {
+  ///
+  /// [warning] as in [insert]; logged only when something was saved.
+  Future<List<WeldChange>> update(WeldEntry e,
+      {String by = '', String? warning}) async {
     final db = await AppDatabase.get();
     return db.transaction((txn) async {
       final before = await _read(txn, e.id);
@@ -98,6 +105,7 @@ class WeldJournalDao {
           newValue: c.newValue,
         );
       }
+      await _logWarning(txn, e.id, by, warning);
       return changes;
     });
   }
@@ -205,6 +213,13 @@ class WeldJournalDao {
       (out[repair.weldId] ??= []).add(repair);
     }
     return out;
+  }
+
+  Future<void> _logWarning(
+      DatabaseExecutor txn, String weldId, String by, String? warning) async {
+    final text = warning?.trim() ?? '';
+    if (text.isEmpty) return;
+    await _log(txn, weldId, by, WeldHistoryAction.check, newValue: text);
   }
 
   Future<void> _log(

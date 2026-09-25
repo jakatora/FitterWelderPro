@@ -24,6 +24,10 @@ abstract final class WeldHistoryAction {
   static const String delete = 'DELETE';
   static const String restore = 'RESTORE';
   static const String repair = 'REPAIR';
+
+  /// Saved despite a WPS / welder-qualification warning — the warning text
+  /// is [WeldHistoryEntry.newValue] (see `weld_compliance.dart`).
+  static const String check = 'CHECK';
 }
 
 /// One field that differs between two versions of a weld.
@@ -204,5 +208,7 @@ String weldHistoryActionLabel(String action, {required bool en}) =>
       WeldHistoryAction.delete => en ? 'Deleted' : 'Usunięto',
       WeldHistoryAction.restore => en ? 'Restored' : 'Przywrócono',
       WeldHistoryAction.repair => en ? 'Repair' : 'Naprawa',
+      WeldHistoryAction.check =>
+        en ? 'Warning: WPS / qualification' : 'Ostrzeżenie: WPS / uprawnienia',
       _ => action,
     };

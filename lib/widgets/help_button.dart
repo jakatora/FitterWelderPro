@@ -474,19 +474,19 @@ final kHelpWelderPipes = ScreenHelp(
   titlePl: 'Parametry spawania — Rury',
   titleEn: 'Welding parameters — Pipes',
   bodyPl:
-      'Zestawy parametrów spawania TIG dla rur: prąd (AMP), gazy osłonowe, zatwierdzone WPS i Twoje własne zestawy. Przeglądaj i edytuj zestawy dopasowane do średnicy i grubości ścianki.',
+      'Zestawy parametrów spawania TIG dla rur: prąd (AMP), gazy osłonowe, dane startowe z aplikacji i Twoje własne zestawy. To wartości orientacyjne — wiąże WPS; swoje WPS prowadź w Bibliotece WPS (menu SPAWACZ).',
   bodyEn:
-      'TIG welding parameter sets for pipes: current (AMP), shielding gases, approved WPS and your own sets. Browse and edit sets matched to pipe OD and wall thickness.',
+      'TIG welding parameter sets for pipes: current (AMP), shielding gases, starter data shipped with the app and your own sets. These are guide values — the WPS is binding; keep your WPS in the WPS library (WELDER menu).',
   stepsPl: [
     HelpStep('📋', 'AMP — referencyjne prądy dla typowych średnic rur SS/CS.'),
     HelpStep('💨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
-    HelpStep('✅', 'Zatwierdzone — zestawy WPS zatwierdzone w Twoim zakładzie.'),
+    HelpStep('✅', 'Startowe — dane dostarczone z aplikacją, orientacyjne (to nie są WPS Twojego zakładu). Swoje WPS wpisz albo zaimportuj w Bibliotece WPS.'),
     HelpStep('👤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
   ],
   stepsEn: [
     HelpStep('📋', 'AMP — reference currents for typical pipe diameters SS/CS.'),
     HelpStep('💨', 'Gases — recommended mixes and flow rates for different materials.'),
-    HelpStep('✅', 'Approved — WPS sets approved in your workshop.'),
+    HelpStep('✅', 'Starter — data shipped with the app, for guidance (not your workshop\'s WPS). Enter or import your WPS in the WPS library.'),
     HelpStep('👤', 'Mine — your own parameter sets saved locally.'),
   ],
 );
@@ -538,13 +538,13 @@ final kHelpHeatInput = ScreenHelp(
       'Heat input per EN 1011-1 (with η) or ASME IX (no η), plus an estimated preheat temperature from chemistry and thickness. The result is an aid: the WPS temperature is binding, never below the code minimum; the normative calculation methods are EN 1011-2 Annex C.',
   stepsPl: [
     HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość.'),
-    HelpStep('📏', 'Zakres WPS — wpisz min i/lub max z Twojego WPS, żeby zobaczyć, czy wynik mieści się w zakresie.'),
+    HelpStep('📏', 'Zakres WPS — wpisz min i/lub max z Twojego WPS albo „Wybierz WPS” z Biblioteki WPS (ustawia zakres i normę liczenia), żeby zobaczyć, czy wynik mieści się w zakresie.'),
     HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku).'),
     HelpStep('🧾', 'Gatunek z listy uzupełnia typową chemię — do obliczeń z atestu wpisz skład z atestu 3.1.'),
   ],
   stepsEn: [
     HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value.'),
-    HelpStep('📏', 'WPS range — enter min and/or max from your WPS to see whether the result is within range.'),
+    HelpStep('📏', 'WPS range — enter min and/or max from your WPS or “Pick WPS” from the WPS library (sets the range and the calculation standard) to see whether the result is within range.'),
     HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked).'),
     HelpStep('🧾', 'A grade from the list fills typical chemistry — for an MTR-based result type the chemistry from the 3.1 certificate.'),
   ],
@@ -560,6 +560,7 @@ final kHelpWeldJournal = ScreenHelp(
   stepsPl: [
     HelpStep('➕', 'Dodaj spoinę przyciskiem +. „Zapisz i następna” kopiuje dane i podbija numer.'),
     HelpStep('✏️', 'Dotknij spoiny, aby ją edytować; historia zmian jest na dole karty.'),
+    HelpStep('📐', 'WPS wybierz z Biblioteki WPS (ikona przy polu). Przy zapisie spoina jest porównywana z WPS i z uprawnieniami spawacza w dniu spawania — niezgodność to ostrzeżenie („Zapisz mimo to” trafia do historii), nie blokada. Znaczki „poza WPS” / „spawacz bez ważnych uprawnień” widać na liście i na karcie.'),
     HelpStep('🟢', 'Status zmieniasz z listy wyboru z potwierdzeniem — nie jednym dotknięciem.'),
     HelpStep('🔧', 'Naprawa: menu ⋮ przy spoinie → Naprawa (spoina wraca do badania).'),
     HelpStep('🗑️', 'Usunięcie jest odwracalne: filtr „Pokaż usunięte” → Przywróć.'),
@@ -568,6 +569,7 @@ final kHelpWeldJournal = ScreenHelp(
   stepsEn: [
     HelpStep('➕', 'Add a weld with +. "Save and next" copies the data and bumps the number.'),
     HelpStep('✏️', 'Tap a weld to edit it; the change history is at the bottom of the card.'),
+    HelpStep('📐', 'Pick the WPS from the WPS library (icon next to the field). On save the weld is checked against the WPS and the welder\'s qualifications on the weld date — a mismatch is a warning ("Save anyway" goes to the history), not a block. "Outside WPS" / "welder not qualified" badges show on the list and the card.'),
     HelpStep('🟢', 'Status changes through a confirmed choice — never a single tap.'),
     HelpStep('🔧', 'Repair: ⋮ menu on the weld → Repair (the weld goes back to testing).'),
     HelpStep('🗑️', 'Deleting is reversible: "Show deleted" filter → Restore.'),
@@ -720,5 +722,49 @@ final kHelpTandemMyParams = ScreenHelp(
     HelpStep('➕', 'Add a new set with the + button.'),
     HelpStep('✏️', 'Tap a set to edit its parameters.'),
     HelpStep('🗑️', 'Swipe left to delete a set.'),
+  ],
+);
+
+final kHelpCertificateRegister = ScreenHelp(
+  titlePl: 'Uprawnienia spawacza',
+  titleEn: 'Welder qualifications',
+  bodyPl:
+      'Rejestr Twoich certyfikatów EN ISO 9606-1 i ASME IX (WPQ): numer, egzaminator, data egzaminu, ważność, zakres (proces, grupa materiałowa, grubość, średnica, pozycje, BW/FW) i zdjęcie certyfikatu. Status na dziś liczy datę ważności i termin ciągłości 6-miesięcznej.',
+  bodyEn:
+      'A register of your EN ISO 9606-1 and ASME IX (WPQ) certificates: number, examiner, test date, validity, range (process, material group, thickness, diameter, positions, BW/FW) and a photo of the certificate. Today\'s status counts the expiry date and the 6-month continuity deadline.',
+  stepsPl: [
+    HelpStep('➕', 'Dodaj certyfikat — wpisz zakres KWALIFIKACJI z certyfikatu (co jest dopuszczone), nie parametry próbki.'),
+    HelpStep('✅', 'Potwierdzenie 6-miesięczne (podpis koordynatora / egzaminatora) wpisz przy certyfikacie; dla ASME ciągłość liczy się też ze spoin w dzienniku.'),
+    HelpStep('🔔', 'Przypomnienia przychodzą 30 i 7 dni przed datą ważności i terminem ciągłości.'),
+    HelpStep('📋', 'Dziennik spoin sprawdza przy zapisie, czy spawacz miał w dniu spawania ważne uprawnienie obejmujące spoinę.'),
+    HelpStep('💾', 'Rejestr i zdjęcia są w kopii zapasowej; „Usuń moje dane” kasuje rejestr, zdjęcia i przypomnienia.'),
+  ],
+  stepsEn: [
+    HelpStep('➕', 'Add a certificate — enter the QUALIFIED range from the certificate (what is allowed), not the test piece parameters.'),
+    HelpStep('✅', 'Enter the 6-month confirmation (coordinator / examiner signature) on the certificate; for ASME, continuity also counts welds from the journal.'),
+    HelpStep('🔔', 'Reminders arrive 30 and 7 days before the expiry date and the continuity deadline.'),
+    HelpStep('📋', 'On save, the weld journal checks whether the welder held a valid qualification covering the weld on the weld date.'),
+    HelpStep('💾', 'The register and photos are in the backup; "Delete my data" erases the register, the photos and the reminders.'),
+  ],
+);
+
+final kHelpWpsLibrary = ScreenHelp(
+  titlePl: 'Biblioteka WPS',
+  titleEn: 'WPS library',
+  bodyPl:
+      'Twoje WPS (instrukcje technologiczne spawania) przepisane z dokumentów zakładu: procesy, grupa materiałowa, zakresy grubości i średnicy, pozycje, BW/FW, spoiwo, gazy, podgrzewanie, temperatura międzyściegowa i zakres energii liniowej w konwencji EN 1011-1 albo ASME IX. WPS ≠ WPQR: numer WPQR / PQR to tylko odnośnik.',
+  bodyEn:
+      'Your WPS (welding procedure specifications) copied from your workshop\'s documents: processes, material group, thickness and diameter ranges, positions, BW/FW, filler, gases, preheat, interpass temperature and the heat input range in the EN 1011-1 or ASME IX convention. WPS ≠ WPQR: the WPQR / PQR number is only a reference.',
+  stepsPl: [
+    HelpStep('➕', 'Dodaj WPS ręcznie albo zaimportuj plik JSON od koordynatora; udostępnij WPS brygadzie jednym plikiem.'),
+    HelpStep('📋', 'W dzienniku spoin wybierzesz WPS z listy — spoina jest porównywana z jej zakresem przy zapisie.'),
+    HelpStep('🌡️', 'Na ekranie „Heat input i CE” przycisk „Wybierz WPS” ustawia zakres energii i normę liczenia z WPS.'),
+    HelpStep('⚠️', 'Wiąże dokument WPS zakładu. Dane startowe w parametrach rur to nie są WPS.'),
+  ],
+  stepsEn: [
+    HelpStep('➕', 'Add a WPS by hand or import a JSON file from your coordinator; share a WPS with the crew as one file.'),
+    HelpStep('📋', 'In the weld journal you pick the WPS from the list — the weld is checked against its range on save.'),
+    HelpStep('🌡️', 'On the “Heat input and CE” screen, “Pick WPS” sets the heat input range and the calculation standard from the WPS.'),
+    HelpStep('⚠️', 'Your workshop\'s WPS document is binding. The starter data in pipe parameters is not a WPS.'),
   ],
 );

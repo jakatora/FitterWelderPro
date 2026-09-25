@@ -8,10 +8,13 @@ import '../../tool/audit/render_audit_report.dart';
 final _screenClass =
     RegExp(r'^class ([A-Z][A-Za-z0-9]+Screen)\b', multiLine: true);
 
+/// Strony modułów w lib/features (rejestr uprawnień, Biblioteka WPS).
+final _pageClass =
+    RegExp(r'^class ([A-Z][A-Za-z0-9]+Page)\b', multiLine: true);
+
 Set<String> discoverPublicScreens(Directory root) {
-  return root
-      .listSync(recursive: true)
-      .whereType<File>()
+  final files = root.listSync(recursive: true).whereType<File>();
+  final screens = files
       .where((file) {
         final path = file.path.replaceAll('\\', '/');
         return (path.startsWith('lib/screens/') &&
@@ -22,8 +25,16 @@ Set<String> discoverPublicScreens(Directory root) {
       })
       .expand((file) => _screenClass
           .allMatches(file.readAsStringSync())
-          .map((match) => match.group(1)!))
-      .toSet();
+          .map((match) => match.group(1)!));
+  final pages = files
+      .where((file) {
+        final path = file.path.replaceAll('\\', '/');
+        return path.startsWith('lib/features/') && path.endsWith('_page.dart');
+      })
+      .expand((file) => _pageClass
+          .allMatches(file.readAsStringSync())
+          .map((match) => match.group(1)!));
+  return {...screens, ...pages};
 }
 
 void main() {
@@ -84,7 +95,7 @@ void main() {
     test('nie pomija ani nie powiela wpisów i zachowuje wszystkie pola', () {
       final markdown = renderAuditReport(moduleManifest);
       final rows = markdown.split('\n').where((line) => line.startsWith('| `'));
-      expect(rows.length, 60);
+      expect(rows.length, 64);
       for (final entry in moduleManifest) {
         final row =
             rows.singleWhere((line) => line.startsWith('| `${entry.id}` |'));
@@ -108,8 +119,8 @@ void main() {
         'podaje dokładne liczby i jawnie wymienia niezweryfikowane scenariusze',
         () {
       final markdown = renderAuditReport(moduleManifest);
-      expect(markdown, contains('Moduły: 60'));
-      expect(markdown, contains('| passed | 13 |'));
+      expect(markdown, contains('Moduły: 64'));
+      expect(markdown, contains('| passed | 17 |'));
       expect(markdown, contains('| unverified | 46 |'));
       expect(markdown, contains('| domainReview | 1 |'));
       expect(markdown, contains('| broken | 0 |'));

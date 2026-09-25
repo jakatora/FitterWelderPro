@@ -46,6 +46,8 @@ final _allHelps = <String, ScreenHelp>{
   'kHelpProjectComponents': kHelpProjectComponents,
   'kHelpTandemLibrary': kHelpTandemLibrary,
   'kHelpTandemMyParams': kHelpTandemMyParams,
+  'kHelpCertificateRegister': kHelpCertificateRegister,
+  'kHelpWpsLibrary': kHelpWpsLibrary,
 };
 
 void main() {
@@ -128,5 +130,31 @@ void main() {
     ]) {
       expect(src, isNot(contains('final $gone ')), reason: gone);
     }
+  });
+
+  test('rury: „Startowe” to dane z aplikacji, nie WPS zakładu; odsyła do '
+      'Biblioteki WPS', () {
+    final t = _all(kHelpWelderPipes);
+    expect(t, isNot(contains('zatwierdzone w Twoim zakładzie')));
+    expect(t, isNot(contains('approved in your workshop')));
+    expect(_pl(kHelpWelderPipes), contains('Startowe'));
+    expect(_pl(kHelpWelderPipes), contains('orientacyjne'));
+    expect(_pl(kHelpWelderPipes), contains('Bibliotece WPS'));
+    final screen =
+        File('lib/screens/welder_pipes_screen.dart').readAsStringSync();
+    expect(screen, isNot(contains("Tab(text: _tr('Zatwierdzone'")));
+  });
+
+  test('rejestr uprawnień i Biblioteka WPS mają pomoc', () {
+    final register = File(
+            'lib/features/qualification/certificate_register_page.dart')
+        .readAsStringSync();
+    expect(register, contains('HelpButton(help: kHelpCertificateRegister)'));
+    final library =
+        File('lib/features/wps/wps_library_page.dart').readAsStringSync();
+    expect(library, contains('HelpButton(help: kHelpWpsLibrary)'));
+    expect(_pl(kHelpCertificateRegister), contains('6-miesięcznej'));
+    expect(_pl(kHelpWpsLibrary), contains('Wybierz WPS'));
+    expect(_pl(kHelpWeldJournal), contains('Zapisz mimo to'));
   });
 }

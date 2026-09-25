@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/pipe_schedules.dart';
 import '../domain/welding/heat_input.dart';
 import '../domain/welding/preheat.dart';
+import '../domain/wps/wps_record.dart';
+import '../features/wps/wps_picker_sheet.dart';
 import '../i18n/app_language.dart';
 import '../services/material_catalog.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -48,7 +50,11 @@ const _kGreen = Color(0xFF2ECC71);
 const _kOrange = Color(0xFFFF8E1E);
 
 class HeatInputScreen extends StatefulWidget {
-  const HeatInputScreen({super.key});
+  /// Source of the "Wybierz WPS" list; `null` = the WPS library
+  /// (`WpsDao().listAll()`). Tests pass a list in memory.
+  final WpsLoader? wpsLoader;
+
+  const HeatInputScreen({super.key, this.wpsLoader});
 
   @override
   State<HeatInputScreen> createState() => _HeatInputScreenState();
@@ -82,6 +88,10 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   // glow red "OUT of WPS range").
   final _wpsMinCtrl = TextEditingController();
   final _wpsMaxCtrl = TextEditingController();
+
+  /// WPS the range was taken from ("Wybierz WPS"); cleared when the welder
+  /// edits the range by hand or picks another calculation standard.
+  WpsRecord? _wpsSource;
 
   /// Selected material preset (null = manual chemistry). When the welder
   /// picks a grade we fill in every chemistry cell and show the grade's
@@ -271,6 +281,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _thicknessCtrl.text = '15';
       _wpsMinCtrl.clear();
       _wpsMaxCtrl.clear();
+      _wpsSource = null;
       _material = null;
       // P2-05: Wyczyść also drops the DN/SCH hint so the welder starts
       // from a clean slate.
@@ -278,6 +289,37 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       _selectedSch = null;
       _hintOdMm = null;
       _hintWallMm = null;
+    });
+  }
+
+  static String _fmtWps(double v) =>
+      v.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+
+  /// "Wybierz WPS": the range min–max and the calculation standard come from
+  /// the WPS library — the range means something only in the WPS's own
+  /// convention (EN 1011-1 with η vs ASME IX without).
+  Future<void> _pickWps() async {
+    final w = await showWpsPickerSheet(context,
+        currentId: _wpsSource?.id, load: widget.wpsLoader);
+    if (w == null || !mounted) return;
+    if (w.heatInputMinKjMm == null && w.heatInputMaxKjMm == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: '${w.displayName} nie ma zakresu energii liniowej — uzupełnij '
+              'go w Bibliotece WPS albo wpisz ręcznie.',
+          en: '${w.displayName} has no heat input range — add it in the WPS '
+              'library or type it by hand.',
+        )),
+      ));
+      return;
+    }
+    setState(() {
+      final min = w.heatInputMinKjMm;
+      final max = w.heatInputMaxKjMm;
+      _wpsMinCtrl.text = min == null ? '' : _fmtWps(min);
+      _wpsMaxCtrl.text = max == null ? '' : _fmtWps(max);
+      _standard = w.heatInputMethod;
+      _wpsSource = w;
     });
   }
 
@@ -460,34 +502,12 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         backgroundColor: _kBg,
         appBar: AppBar(
           backgroundColor: _kCard,
-          title: Row(
-            children: [
-              // Ta sama nazwa co kafel w menu SPAWACZ.
-              Flexible(
-                child: Text(
-                  context.tr(pl: 'Heat input i CE', en: 'Heat input and CE'),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: _kGold.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: _kGold.withValues(alpha: 0.3)),
-                ),
-                child: Text(
-                  'PRO',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    color: _kGold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ],
+          // Ta sama nazwa co kafel w menu SPAWACZ. Bez znaczka „PRO" —
+          // narzędzie jest darmowe, a płatne rzeczy są ukryte całkowicie.
+          title: Text(
+            context.tr(pl: 'Heat input i CE', en: 'Heat input and CE'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           actions: [
             // P1-26: one-tap share of the full trace (HI + CE + Preheat) so a
@@ -673,15 +693,23 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   ChoiceChip(
                     label: const Text('EN 1011-1'),
                     selected: !asme,
-                    onSelected: (_) =>
-                        setState(() => _standard = HeatInputStandard.en1011),
+                    onSelected: (_) => setState(() {
+                      if (_standard != HeatInputStandard.en1011) {
+                        _wpsSource = null;
+                      }
+                      _standard = HeatInputStandard.en1011;
+                    }),
                     materialTapTargetSize: MaterialTapTargetSize.padded,
                   ),
                   ChoiceChip(
                     label: const Text('ASME IX'),
                     selected: asme,
-                    onSelected: (_) =>
-                        setState(() => _standard = HeatInputStandard.asmeIx),
+                    onSelected: (_) => setState(() {
+                      if (_standard != HeatInputStandard.asmeIx) {
+                        _wpsSource = null;
+                      }
+                      _standard = HeatInputStandard.asmeIx;
+                    }),
                     materialTapTargetSize: MaterialTapTargetSize.padded,
                   ),
                 ],
@@ -727,27 +755,55 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
 
         _SectionCard(
           title: context.tr(pl: 'Zakres WPS (kJ/mm)', en: 'WPS range (kJ/mm)'),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: _NumField(
-                  label: context.tr(pl: 'Min', en: 'Min'),
-                  ctrl: _wpsMinCtrl,
-                  suffix: 'kJ/mm',
-                  rejectNegative: true,
-                  onChanged: () => setState(() {}),
+              Row(
+                children: [
+                  Expanded(
+                    child: _NumField(
+                      label: context.tr(pl: 'Min', en: 'Min'),
+                      ctrl: _wpsMinCtrl,
+                      suffix: 'kJ/mm',
+                      rejectNegative: true,
+                      onChanged: () => setState(() => _wpsSource = null),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _NumField(
+                      label: context.tr(pl: 'Max', en: 'Max'),
+                      ctrl: _wpsMaxCtrl,
+                      suffix: 'kJ/mm',
+                      rejectNegative: true,
+                      onChanged: () => setState(() => _wpsSource = null),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(48, 48)),
+                  onPressed: _pickWps,
+                  icon: const Icon(Icons.library_books_outlined, size: 20),
+                  label: Text(context.tr(pl: 'Wybierz WPS', en: 'Pick WPS')),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _NumField(
-                  label: context.tr(pl: 'Max', en: 'Max'),
-                  ctrl: _wpsMaxCtrl,
-                  suffix: 'kJ/mm',
-                  rejectNegative: true,
-                  onChanged: () => setState(() {}),
+              if (_wpsSource != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    context.tr(
+                      pl: 'Zakres i norma liczenia z ${_wpsSource!.displayName}.',
+                      en: 'Range and standard from ${_wpsSource!.displayName}.',
+                    ),
+                    style: const TextStyle(
+                        fontSize: 11, color: _kTextSec, height: 1.4),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
