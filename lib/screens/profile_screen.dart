@@ -286,29 +286,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               'Zapisany: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
               'Zdjęcia wytopów w pliku: ${contents.photoCount}.\n\n'
               'Przywracanie SKASUJE wszystko, co masz teraz w tym telefonie — '
-              'projekty, cut listy, dziennik spoin i zdjęcia — i wstawi w to '
-              'miejsce zawartość pliku. Tego nie da się cofnąć, więc jeśli '
+              'projekty, cut listy, dziennik spoin, zdjęcia, rejestr uprawnień '
+              'spawacza i Bibliotekę WPS — i wstawi w to miejsce zawartość '
+              'pliku. Tego nie da się cofnąć, więc jeśli '
               'masz tu coś, czego w pliku nie ma, najpierw zrób kopię.\n\n'
               'Nic nie ruszymy, dopóki nie przeczytamy całego pliku do końca. '
               'Jeśli jest uszkodzony albo obcy — powiemy o tym i zostawimy '
               'Twoje dane w spokoju.\n\n'
-              'Kopia nie zawiera Twojego imienia, tożsamości spawacza '
-              '(stempel, WPQR) ani zgody na zasady — te zostają takie, jakie '
-              'są na tym telefonie.',
+              'Kopia nie zawiera Twojego imienia, stempla spawacza ani zgody '
+              'na zasady — te zostają takie, jakie są na tym telefonie.',
           en: 'File: $pickedName\n'
               'Created: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
               'Heat photos in the file: ${contents.photoCount}.\n\n'
               'Restoring will ERASE everything currently on this phone — '
-              'projects, cut lists, weld journal and photos — and replace it '
+              'projects, cut lists, weld journal, photos, the welder '
+              'qualification register and the WPS library — and replace it '
               'with the contents of the file. This cannot be undone, so if '
               'you have anything here that is not in the file, back it up '
               'first.\n\n'
               'Nothing is touched until the whole file has been read. If it '
               'is damaged or foreign we will say so and leave your data '
               'alone.\n\n'
-              'The backup does not carry your name, your welder identity '
-              '(stamp, WPQR) or your consent — those stay exactly as they '
-              'are on this phone.',
+              'The backup does not carry your name, your welder stamp or your '
+              'consent — those stay exactly as they are on this phone.',
         )),
         actions: [
           TextButton(
@@ -396,21 +396,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
           pl: 'Najpierw usuniemy z serwera Twoje wiadomości z czatu, '
               'zgłoszenia, ogłoszenia oraz identyfikator i sekret instalacji.\n\n'
               'Potem skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na '
-              'zasady, listę zablokowanych oraz tożsamość spawacza: stempel, '
-              'numer WPQR, datę ważności uprawnienia, jednostkę certyfikującą '
-              'i e-mail. Nowe spoiny przestaną się podpisywać Twoim stemplem.\n\n'
-              'Projekty, cut listy i zapisane spoiny zostają — razem ze '
-              'stemplem, którym już je podpisałeś.\n\n'
+              'zasady, listę zablokowanych, tożsamość spawacza (stempel '
+              'i e-mail) oraz rejestr uprawnień spawacza (certyfikaty, '
+              'zdjęcia, przypomnienia). Nowe spoiny przestaną się podpisywać '
+              'Twoim stemplem.\n\n'
+              'Projekty, cut listy, Biblioteka WPS i zapisane spoiny zostają '
+              '— razem ze stemplem, którym już je podpisałeś.\n\n'
               'Na koniec pokażemy, co dokładnie usunęliśmy na serwerze, a co na '
               'telefonie.',
           en: 'First we delete from the server your chat messages, reports, job '
               'listings and your installation identifier and secret.\n\n'
               'Then we erase from this phone your name, your consent, your '
-              'block list and your welder identity: stamp, WPQR number, expiry '
-              'date, certification body and e-mail. New welds will no longer '
-              'be signed with your stamp.\n\n'
-              'Projects, cut lists and saved welds stay — including the stamp '
-              'you already signed them with.\n\n'
+              'block list, your welder identity (stamp and e-mail) and the '
+              'welder qualification register (certificates, photos, '
+              'reminders). New welds will no longer be signed with your '
+              'stamp.\n\n'
+              'Projects, cut lists, the WPS library and saved welds stay — '
+              'including the stamp you already signed them with.\n\n'
               'At the end we show exactly what was deleted on the server and '
               'what on the phone.',
         )),
@@ -588,23 +590,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _localSummary(bool identityKept) => identityKept
       ? context.tr(
           pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych i tożsamość spawacza (stempel, WPQR, e-mail). '
+              'zablokowanych, tożsamość spawacza (stempel, e-mail) i rejestr '
+              'uprawnień (certyfikaty, zdjęcia, przypomnienia). '
               'Identyfikator instalacji zostaje, bo łączy telefon z aktywną '
               'subskrypcją Premium. Projekty, cut listy i dziennik spoin '
               'zostają.',
           en: 'Deleted from the phone: your name, your consent, your block '
-              'list and your welder identity (stamp, WPQR, e-mail). The '
+              'list, your welder identity (stamp, e-mail) and the '
+              'qualification register (certificates, photos, reminders). The '
               'installation identifier stays because it links the phone to '
               'your active Premium subscription. Projects, cut lists and the '
               'weld journal stay.',
         )
       : context.tr(
           pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych, tożsamość spawacza (stempel, WPQR, e-mail) oraz '
+              'zablokowanych, tożsamość spawacza (stempel, e-mail), rejestr '
+              'uprawnień (certyfikaty, zdjęcia, przypomnienia) oraz '
               'identyfikator i sekret instalacji. Projekty, cut listy i '
               'dziennik spoin zostają.',
           en: 'Deleted from the phone: your name, your consent, your block '
-              'list, your welder identity (stamp, WPQR, e-mail) and the '
+              'list, your welder identity (stamp, e-mail), the qualification '
+              'register (certificates, photos, reminders) and the '
               'installation identifier and secret. Projects, cut lists and the '
               'weld journal stay.',
         );
@@ -891,18 +897,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: context.tr(
                       pl: 'Co jest w kopii', en: "What's in the backup"),
                   body: context.tr(
-                    pl: 'Jeden plik ZIP: projekty, cut listy, dziennik spoin i '
-                        'zdjęcia wytopów. Otworzysz go na komputerze bez tej '
+                    pl: 'Jeden plik ZIP: projekty, cut listy, dziennik spoin, '
+                        'zdjęcia wytopów, rejestr uprawnień spawacza '
+                        '(certyfikaty ze zdjęciami) i Biblioteka WPS (z '
+                        'plikami). Otworzysz go na komputerze bez tej '
                         'aplikacji. Powstaje w telefonie i idzie prosto do '
                         'arkusza udostępniania — sami nie wysyłamy go nigdzie. '
-                        'Nie ma w nim Twojej tożsamości spawacza ani zgody na '
-                        'zasady; te zostają na telefonie.',
-                    en: 'One ZIP file: projects, cut lists, weld journal and '
-                        'heat photos. It opens on a computer without this app. '
+                        'Nie ma w nim Twojego imienia, stempla spawacza ani '
+                        'zgody na zasady; te zostają na telefonie.',
+                    en: 'One ZIP file: projects, cut lists, weld journal, heat '
+                        'photos, the welder qualification register '
+                        '(certificates with photos) and the WPS library (with '
+                        'files). It opens on a computer without this app. '
                         'It is built on the phone and handed straight to the '
                         'share sheet — we never send it anywhere ourselves. It '
-                        'does not carry your welder identity or your consent; '
-                        'those stay on the phone.',
+                        'does not carry your name, your welder stamp or your '
+                        'consent; those stay on the phone.',
                   ),
                 ),
                 const SizedBox(height: 10),

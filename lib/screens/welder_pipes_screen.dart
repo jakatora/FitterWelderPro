@@ -17,6 +17,28 @@ import '../widgets/number_field.dart';
 
 enum WeldingMethod { tigWire, tigNoWire }
 
+/// Etykieta metody z kolumny `weld_params.method`. Ekran zapisuje TIG
+/// (`TIG_WIRE` / `TIG_AUTOGEN`), asystent także `MAG`, `MMA` i `OTHER`;
+/// nieznana wartość jest pokazywana tak, jak leży w bazie.
+String weldParamMethodLabel(String method, {required bool en}) =>
+    switch (method) {
+      'TIG_WIRE' => en ? 'TIG with filler' : 'TIG z drutem',
+      'TIG_AUTOGEN' => en ? 'TIG without filler' : 'TIG bez drutu',
+      'MAG' => 'MIG/MAG',
+      'MMA' => en ? 'Stick / MMA' : 'MMA (elektroda otulona)',
+      'OTHER' => en ? 'Other process' : 'Inny proces',
+      _ => method,
+    };
+
+/// Liczba z „Moich parametrów" albo „—", gdy jej nie podano. Kolumny są
+/// NOT NULL, więc brak (np. średnica niepodyktowana asystentowi, gaz przy
+/// MMA) leży w bazie jako 0 — „Ø0.0" wyglądało jak zmierzona wartość.
+String weldParamValue(double v, int digits, {String unit = ''}) =>
+    v > 0 ? '${v.toStringAsFixed(digits)}$unit' : '—';
+
+/// Tekst pola edycji: pusty dla „nie podano" (0).
+String _editText(double v, int digits) => v > 0 ? v.toStringAsFixed(digits) : '';
+
 class WelderPipesScreen extends StatefulWidget {
   const WelderPipesScreen({super.key});
 
@@ -55,7 +77,9 @@ class _WelderPipesScreenState extends State<WelderPipesScreen> with SingleTicker
             tabs: [
               const Tab(text: 'AMP'),
               Tab(text: _tr('Gazy', 'Gases')),
-              Tab(text: _tr('Zatwierdzone', 'Approved')),
+              // Dane startowe dostarczone z aplikacją — nie zestawy WPS
+              // zakładu (te są w Bibliotece WPS).
+              Tab(text: _tr('Startowe', 'Starter')),
               Tab(text: _tr('Moje parametry', 'My parameters')),
             ],
           ),
@@ -197,12 +221,12 @@ class _MyParamsTabState extends State<_MyParamsTab> {
               return Card(
                 child: ListTile(
                   title: Text(
-                    '${_methodLabelDb(p.method)} | ${p.baseMaterial} | Ø${p.diameterMm.toStringAsFixed(1)} × t${p.wallThicknessMm.toStringAsFixed(2)}',
+                    '${_methodLabelDb(p.method)} | ${p.baseMaterial} | Ø${weldParamValue(p.diameterMm, 1)} × t${weldParamValue(p.wallThicknessMm, 2)}',
                   ),
                   subtitle: Text(
-                    '${(p.welderModel != null && p.welderModel!.trim().isNotEmpty) ? "${_tr('Spawarka', 'Welder')}: ${p.welderModel}\\n" : ""}'
-                    '${_tr('Elektroda', 'Electrode')}: ${p.electrodeMm.toStringAsFixed(1)}  |  ${_tr('Palnik', 'Torch')}: ${p.torchGasLpm.toStringAsFixed(1)} L/min  |  Purge: ${p.purgeLpm.toStringAsFixed(1)} L/min\n'
-                    '${_tr('Dysza', 'Nozzle')}: ${_nozzleText(p)}  |  ${_tr('Ampery', 'Amps')}: ${p.amps.toStringAsFixed(0)} A'
+                    '${(p.welderModel != null && p.welderModel!.trim().isNotEmpty) ? "${_tr('Spawarka', 'Welder')}: ${p.welderModel}\n" : ""}'
+                    '${_tr('Elektroda', 'Electrode')}: ${weldParamValue(p.electrodeMm, 1)}  |  ${_tr('Palnik', 'Torch')}: ${weldParamValue(p.torchGasLpm, 1, unit: ' L/min')}  |  Purge: ${weldParamValue(p.purgeLpm, 1, unit: ' L/min')}\n'
+                    '${_tr('Dysza', 'Nozzle')}: ${_nozzleText(p)}  |  ${_tr('Ampery', 'Amps')}: ${weldParamValue(p.amps, 0, unit: ' A')}'
                     '${(p.note != null && p.note!.trim().isNotEmpty) ? "\n${_tr('Notatka', 'Note')}: ${p.note}" : ""}',
                   ),
                   isThreeLine: true,
@@ -255,16 +279,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
     return '$t $s';
   }
 
-  String _methodLabelDb(String method) {
-    switch (method) {
-      case 'TIG_WIRE':
-        return AppLanguageController.isEnglish ? 'TIG with filler' : 'TIG z drutem';
-      case 'TIG_AUTOGEN':
-        return AppLanguageController.isEnglish ? 'TIG without filler' : 'TIG bez drutu';
-      default:
-        return method;
-    }
-  }
+  String _methodLabelDb(String method) =>
+      weldParamMethodLabel(method, en: AppLanguageController.isEnglish);
 
   String _methodToDb(WeldingMethod m) {
     switch (m) {
@@ -560,17 +576,22 @@ class _MyParamsTabState extends State<_MyParamsTab> {
     final formKey = GlobalKey<FormState>();
 
     String baseMaterial = existing.baseMaterial;
-    WeldingMethod method = _dbToMethod(existing.method);
+    // The stored method, kept as it is: a MAG / MMA / OTHER entry (from the
+    // assistant) must not turn into TIG just because it was opened here.
+    String methodDb = existing.method;
     double electrode = existing.electrodeMm;
+    const tigMethods = ['TIG_WIRE', 'TIG_AUTOGEN'];
+    const materials = ['SS', 'CS'];
+    const electrodes = [1.0, 1.6, 2.4, 3.2, 4.0];
 
-    final diameterCtrl = TextEditingController(text: existing.diameterMm.toStringAsFixed(1));
-    final wallCtrl = TextEditingController(text: existing.wallThicknessMm.toStringAsFixed(2));
+    final diameterCtrl = TextEditingController(text: _editText(existing.diameterMm, 1));
+    final wallCtrl = TextEditingController(text: _editText(existing.wallThicknessMm, 2));
     final welderModelCtrl = TextEditingController(text: existing.welderModel ?? '');
-    final torchGasCtrl = TextEditingController(text: existing.torchGasLpm.toStringAsFixed(1));
+    final torchGasCtrl = TextEditingController(text: _editText(existing.torchGasLpm, 1));
     final nozzleTypeCtrl = TextEditingController(text: existing.nozzleType ?? '');
     final nozzleSizeCtrl = TextEditingController(text: existing.nozzleSize ?? '');
-    final purgeCtrl = TextEditingController(text: existing.purgeLpm.toStringAsFixed(1));
-    final ampsCtrl = TextEditingController(text: existing.amps.toStringAsFixed(0));
+    final purgeCtrl = TextEditingController(text: _editText(existing.purgeLpm, 1));
+    final ampsCtrl = TextEditingController(text: _editText(existing.amps, 0));
     final outletHolesCtrl = TextEditingController(text: (existing.outletHoles ?? 0).toString());
     String tempo = existing.tempo ?? 'NORMAL';
     final noteCtrl = TextEditingController(text: existing.note ?? '');
@@ -586,6 +607,11 @@ class _MyParamsTabState extends State<_MyParamsTab> {
       if (x == null || x <= 0) return _tr('Wpisz liczbę > 0', 'Enter a number > 0');
       return null;
     }
+
+    // Gas flows may be "not given" (e.g. MMA has none): empty = 0 = „—".
+    String? optNum(String? v) => (v ?? '').trim().isEmpty ? null : reqNum(v);
+    double optValue(String text) =>
+        text.trim().isEmpty ? 0 : (parseDecimal(text) ?? 0);
 
     return showDialog<bool>(
       context: context,
@@ -609,20 +635,30 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                             items: [
                               DropdownMenuItem(value: 'SS', child: Text(_tr('SS (nierdzewna)', 'SS (stainless)'))),
                               DropdownMenuItem(value: 'CS', child: Text(_tr('CS (czarna)', 'CS (carbon steel)'))),
+                              // DUPLEX / AL / OTHER from the assistant.
+                              if (!materials.contains(existing.baseMaterial))
+                                DropdownMenuItem(value: existing.baseMaterial, child: Text(existing.baseMaterial)),
                             ],
                             onChanged: (v) => baseMaterial = v ?? existing.baseMaterial,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: DropdownButtonFormField<WeldingMethod>(
-                            initialValue: method,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: methodDb,
+                            isExpanded: true,
                             decoration: InputDecoration(labelText: _tr('Metoda', 'Method')),
                             items: [
-                              DropdownMenuItem(value: WeldingMethod.tigWire, child: Text(_tr('TIG z drutem', 'TIG with filler'))),
-                              DropdownMenuItem(value: WeldingMethod.tigNoWire, child: Text(_tr('TIG bez drutu', 'TIG without filler'))),
+                              for (final m in [
+                                ...tigMethods,
+                                if (!tigMethods.contains(existing.method)) existing.method,
+                              ])
+                                DropdownMenuItem(
+                                  value: m,
+                                  child: Text(_methodLabelDb(m), overflow: TextOverflow.ellipsis),
+                                ),
                             ],
-                            onChanged: (v) => method = v ?? _dbToMethod(existing.method),
+                            onChanged: (v) => methodDb = v ?? existing.method,
                           ),
                         ),
                       ],
@@ -654,12 +690,16 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     DropdownButtonFormField<double>(
                       initialValue: electrode,
                       decoration: InputDecoration(labelText: _tr('Rozmiar elektrody [mm]', 'Electrode size [mm]')),
-                      items: const [
-                        DropdownMenuItem(value: 1.0, child: Text('1.0')),
-                        DropdownMenuItem(value: 1.6, child: Text('1.6')),
-                        DropdownMenuItem(value: 2.4, child: Text('2.4')),
-                        DropdownMenuItem(value: 3.2, child: Text('3.2')),
-                        DropdownMenuItem(value: 4.0, child: Text('4.0')),
+                      items: [
+                        // A value outside the list (0 = not given) stays
+                        // selectable instead of failing the dropdown.
+                        if (!electrodes.contains(existing.electrodeMm))
+                          DropdownMenuItem(
+                            value: existing.electrodeMm,
+                            child: Text(weldParamValue(existing.electrodeMm, 1)),
+                          ),
+                        for (final e in electrodes)
+                          DropdownMenuItem(value: e, child: Text(e.toStringAsFixed(1))),
                       ],
                       onChanged: (v) => electrode = v ?? existing.electrodeMm,
                     ),
@@ -669,7 +709,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         Expanded(
                           child: TextFormField(
                             controller: torchGasCtrl,
-                            validator: reqNum,
+                            validator: optNum,
                             keyboardType: numberKeyboard(),
                             inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz na palnik [L/min]', 'Torch gas [L/min]')),
@@ -679,7 +719,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         Expanded(
                           child: TextFormField(
                             controller: purgeCtrl,
-                            validator: reqNum,
+                            validator: optNum,
                             keyboardType: numberKeyboard(),
                             inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz do środka (purge) [L/min]', 'Internal gas (purge) [L/min]')),
@@ -760,16 +800,16 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                 final now = DateTime.now().millisecondsSinceEpoch;
                 final updated = WeldParam(
                   id: existing.id,
-                  method: _methodToDb(method),
+                  method: methodDb,
                   baseMaterial: baseMaterial,
                   welderModel: welderModelCtrl.text.trim().isEmpty ? null : welderModelCtrl.text.trim(),
                   diameterMm: parseDecimal(diameterCtrl.text)!,
                   wallThicknessMm: parseDecimal(wallCtrl.text)!,
                   electrodeMm: electrode,
-                  torchGasLpm: parseDecimal(torchGasCtrl.text)!,
+                  torchGasLpm: optValue(torchGasCtrl.text),
                   nozzleType: nozzleTypeCtrl.text.trim().isEmpty ? null : nozzleTypeCtrl.text.trim(),
                   nozzleSize: nozzleSizeCtrl.text.trim().isEmpty ? null : nozzleSizeCtrl.text.trim(),
-                  purgeLpm: parseDecimal(purgeCtrl.text)!,
+                  purgeLpm: optValue(purgeCtrl.text),
                   amps: parseDecimal(ampsCtrl.text)!,
                   outletHoles: int.parse(outletHolesCtrl.text.trim()),
                   tempo: tempo,
@@ -787,20 +827,6 @@ class _MyParamsTabState extends State<_MyParamsTab> {
         );
       },
     );
-  }
-
-  WeldingMethod _dbToMethod(String method) {
-    switch (method) {
-      case 'MAG':
-        // MAG nie jest dostępny w UI – mapujemy stare wpisy do TIG z drutem.
-        return WeldingMethod.tigWire;
-      case 'TIG_WIRE':
-        return WeldingMethod.tigWire;
-      case 'TIG_AUTOGEN':
-        return WeldingMethod.tigNoWire;
-      default:
-        return widget.methodGetter();
-    }
   }
 }
 
@@ -1672,16 +1698,8 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
     }
   }
 
-  String _methodLabelDb(String method) {
-    switch (method) {
-      case 'TIG_WIRE':
-        return AppLanguageController.isEnglish ? 'TIG with filler' : 'TIG z drutem';
-      case 'TIG_AUTOGEN':
-        return AppLanguageController.isEnglish ? 'TIG without filler' : 'TIG bez drutu';
-      default:
-        return method;
-    }
-  }
+  String _methodLabelDb(String method) =>
+      weldParamMethodLabel(method, en: AppLanguageController.isEnglish);
 
   @override
   Widget build(BuildContext context) {
@@ -1715,14 +1733,14 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
             const SizedBox(height: 12),
             TextField(
               controller: _q,
-              decoration: InputDecoration(prefixIcon: const Icon(Icons.search), labelText: _tr('Szukaj w zatwierdzonych AMP', 'Search approved AMP')),
+              decoration: InputDecoration(prefixIcon: const Icon(Icons.search), labelText: _tr('Szukaj w startowych AMP', 'Search starter AMP')),
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
             if (snap.connectionState != ConnectionState.done)
               const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
             if (snap.connectionState == ConnectionState.done && filtered.isEmpty)
-              Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_tr('Brak zatwierdzonych parametrów dla tej metody.', 'No approved parameters for this method.')))),
+              Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_tr('Brak parametrów startowych dla tej metody.', 'No starter parameters for this method.')))),
             for (final p in filtered)
               Card(
                 child: ListTile(

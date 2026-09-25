@@ -101,6 +101,11 @@ void main() {
     await _pumpFor(tester, 6);
     expect(_inDialog('from the server your chat messages'), findsOneWidget);
     expect(_inDialog('welder identity'), findsOneWidget);
+    // Od v21 numer i ważność uprawnienia są w rejestrze, nie w tożsamości.
+    expect(_inDialog('welder qualification register (certificates, photos, '
+            'reminders)'),
+        findsOneWidget);
+    expect(_inDialog('WPQR number'), findsNothing);
     await tester.tap(find.text('Cancel'));
     await _pumpFor(tester, 4);
     expect(requests, isEmpty, reason: 'anulowanie nie może niczego wysłać');

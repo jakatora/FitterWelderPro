@@ -2,8 +2,8 @@
 // WPS (wymiana w brygadzie przez komunikator albo plik).
 //
 // To są WPS spawacza — wpisane z dokumentów jego zakładu. Nie mylić
-// z zakładką „Zatwierdzone" w parametrach rur (dane startowe dostarczone
-// z aplikacją, nie WPS zakładu).
+// z zakładką „Startowe" w parametrach rur (dane dostarczone z aplikacją,
+// nie WPS zakładu).
 
 import 'dart:async';
 import 'dart:convert';
@@ -25,6 +25,7 @@ import '../../domain/wps/wps_record.dart';
 import '../../i18n/app_language.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/help_button.dart';
 import '../qualification/form_bits.dart';
 import 'wps_edit_page.dart';
 
@@ -285,6 +286,7 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
       appBar: AppBar(
         title: Text(context.tr(pl: 'Biblioteka WPS', en: 'WPS library')),
         actions: [
+          HelpButton(help: kHelpWpsLibrary),
           PopupMenuButton<String>(
             tooltip: context.tr(pl: 'Import', en: 'Import'),
             icon: const Icon(Icons.download_outlined),
