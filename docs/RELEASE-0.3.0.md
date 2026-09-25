@@ -33,7 +33,15 @@ czacie. Dlatego backend idzie **przed** aplikacją.
    - `TRUST_PROXY_HOPS=1`;
    - `AI_BUDGET_SOFT_USD` / `AI_BUDGET_HARD_USD` — domyślne 200/500 USD to dużo;
      proponowane np. 20/50;
-   - opcjonalnie `AI_SCAN_MODEL` (domyślnie `claude-sonnet-5`).
+   - opcjonalnie `AI_SCAN_MODEL` (domyślnie `claude-sonnet-5`);
+   - asystent: `AI_CHAT_REQUIRES_PREMIUM=false`, `AI_CHAT_DAILY_PER_DEVICE=20`,
+     `AI_INTENT_MODEL=claude-haiku-4-5`, `AI_INTENT_DAILY_PER_DEVICE=50`;
+   - skaner: `AI_SCAN_DAILY_PER_DEVICE=10` (aplikacja ma ten sam limit
+     w `kAiScanDailyLimitPerDevice` — zmieniać razem);
+   - **klucz Anthropic osobny dla Fittera** (albo limit wydatków w konsoli
+     Anthropic) — budżet w backendzie liczy tylko ten serwer.
+   Po deployu: jeden próbny skan prawdziwego rysunku i jedno pytanie do
+   asystenta (schemat JSON intencji nie był sprawdzony na żywym API).
 4. **Jedna replika** (limity i rezerwacje budżetu są w pamięci procesu).
 5. **Deploy**, potem sprawdzić:
    - `GET /health` → 200
@@ -72,8 +80,18 @@ czacie. Dlatego backend idzie **przed** aplikacją.
    - zdjęcie wytopu (aparat/galeria), kopia zapasowa → przywrócenie;
    - próba ciśnieniowa → PDF protokołu; dziennik spoin → PDF;
    - czat: zgoda → wiadomość → blokada; Profil → „Usuń moje dane”;
-   - przypomnienia o uprawnieniach (jeśli scalone) — prośba o zgodę na
-     powiadomienia na Androidzie 13+.
+   - rejestr uprawnień: włączenie przypomnień → prośba o zgodę na
+     powiadomienia (Android 13+), powiadomienie ma ikonę (R8!);
+   - asystent: mikrofon (prośba o zgodę), „Zapisz, że spawam stal nierdzewną,
+     ściankę 2 mm, TIG bez drutu na 60 amperach” → podsumowanie → Zapisz →
+     Cofnij; tryb „Odpowiedz” (po wdrożeniu backendu);
+   - skaner ISO: zdjęcie prawdziwej izometrii → przegląd (zakładki Cięcia /
+     Spoiny / Materiały / Spoole) → zapis projektu → „Utwórz wpisy w dzienniku”;
+     11. skan tego dnia → komunikat o limicie;
+   - timer chłodzenia: start, wyjście z aplikacji → powiadomienie; wibracja
+     i komunikat głosowy na koniec; ekran nie gaśnie w trakcie;
+   - zdjęcie heat z aparatu (Komponenty i Heat numbers);
+   - zeszyt ISO → „Utwórz projekt CUT” → CUT zgodny z zeszytem.
 4. Dopiero potem produkcja.
 
 ## 5. iOS
