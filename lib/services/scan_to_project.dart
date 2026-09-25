@@ -2265,13 +2265,222 @@ String endpointDeductionText(
 // Geometry checks (offsets, elbow angles, closure)
 // ─────────────────────────────────────────────────────────────────────────
 
+/// Checks the drawing against itself in 3D:
+///
+///   * a run not along an axis is an offset — said out loud, with its
+///     projections, so the fitter knows the length is a skew length;
+///   * the bend at every elbow, from the directions of its two runs, must be
+///     the elbow's angle — a "45°" elbow in a 38° offset would take the
+///     wrong take-out, so both runs are blocked until the fitter types the
+///     take-out himself;
+///   * the chain of runs placed end to end must close: against itself (a
+///     loop), against the overall dimensions and against the elevation
+///     marks — a mismatch is a warning with both numbers.
+///
+/// Positions are taken at the points the dimensions run between (work
+/// points for centreline dimensions), so a chain dimensioned to faces can
+/// be off by a body length: the closure checks warn, never block.
 List<ScanIssue> _checkGeometry({
   required AiScanResult scan,
   required List<AiSegment> segments,
   required Map<String, AiComponent> components,
   required List<PlannedSegment> planned,
-}) =>
-    const [];
+}) {
+  final out = <ScanIssue>[];
+  final plannedById = {for (final p in planned) p.sourceId: p};
+
+  // ── Offsets ──────────────────────────────────────────────────────────
+  for (final s in segments) {
+    final v = segmentVector(s);
+    if (v == null || v.isAxial) continue;
+    final p = plannedById[s.id];
+    final rolling = [v.x, v.y, v.z].where((c) => c.abs() > 1e-6).length == 3;
+    final kindPl = rolling ? 'rolling offset (skos w dwóch płaszczyznach)' : 'offset';
+    final kindEn = rolling ? 'rolling offset' : 'offset';
+    final len = p?.isoMm;
+    out.add(ScanIssue(
+      code: ScanIssueCode.offsetInRoute,
+      blocking: false,
+      segmentId: s.id,
+      pl: 'Odcinek ${p?.label ?? s.id} to $kindPl'
+          '${len == null ? '' : ' — długość skośna ${_mmText(len)} mm'}'
+          '${s.projections.isEmpty ? '' : ' (rzuty: ${_projText(s.projections)})'}.',
+      en: 'Run ${p?.label ?? s.id} is a $kindEn'
+          '${len == null ? '' : ' — travel ${_mmText(len)} mm'}'
+          '${s.projections.isEmpty ? '' : ' (projections: ${_projText(s.projections)})'}.',
+    ));
+  }
+
+  // ── Elbow angles ─────────────────────────────────────────────────────
+  final incident = <String, List<AiSegment>>{};
+  for (final s in segments) {
+    for (final id in {s.fromId, s.toId}) {
+      if (id == null || id.isEmpty) continue;
+      (incident[id] ??= []).add(s);
+    }
+  }
+  incident.forEach((node, segs) {
+    final c = components[node];
+    if (c == null || segs.length != 2) return;
+    final type = normaliseScanType(c.type);
+    final double expected;
+    if (c.angleDeg != null && c.angleDeg! > 0 && c.angleDeg! <= 90) {
+      expected = c.angleDeg!;
+    } else if (type == 'elbow90' || type == 'elbow') {
+      expected = 90;
+    } else if (type == 'elbow45') {
+      expected = 45;
+    } else {
+      return;
+    }
+    final a = outwardAt(segs[0], node);
+    final b = outwardAt(segs[1], node);
+    if (a == null || b == null) return;
+    // Outward vectors 180° apart = straight through; bend = 180 − angle.
+    final bend = 180 - bendAngleDeg(a, b);
+    if (!bend.isFinite || (bend - expected).abs() <= kAngleToleranceDeg) return;
+    for (final s in segs) {
+      final p = plannedById[s.id];
+      final end = p == null
+          ? null
+          : (p.start.componentId == node ? p.start : p.end);
+      if (end?.fromFitter == true) continue;
+      out.add(ScanIssue(
+        code: ScanIssueCode.elbowAngleMismatch,
+        blocking: true,
+        segmentId: s.id,
+        componentId: node,
+        pl: 'Kolano ${c.label ?? node}: kierunki odcinków dają łuk '
+            '${bend.toStringAsFixed(1)}°, a kolano ma ${_mmText(expected)}° — '
+            'take-out byłby zły. Sprawdź rysunek albo wpisz take-out kolana.',
+        en: 'Elbow ${c.label ?? node}: the run directions bend '
+            '${bend.toStringAsFixed(1)}° but the elbow is '
+            '${_mmText(expected)}° — its take-out would be wrong. Check the '
+            'drawing or enter the elbow take-out.',
+      ));
+    }
+  });
+
+  // ── Closure ──────────────────────────────────────────────────────────
+  // Place the points the runs join, run by run, from the first one.
+  final pos = <String, Vec3>{};
+  final cluster = <String, int>{};
+  final placed = <AiSegment>[];
+  for (final s in segments) {
+    final v = _displacement(s, plannedById[s.id]);
+    if (v != null && s.fromId != null && s.toId != null) placed.add(s);
+  }
+  var clusters = 0;
+  final loopReported = <String>{};
+  for (final seed in placed) {
+    if (pos.containsKey(seed.fromId)) continue;
+    pos[seed.fromId!] = Vec3.zero;
+    cluster[seed.fromId!] = clusters;
+    final todo = [seed.fromId!];
+    while (todo.isNotEmpty) {
+      final node = todo.removeLast();
+      for (final s in placed) {
+        final v = _displacement(s, plannedById[s.id])!;
+        String? other;
+        Vec3? at;
+        if (s.fromId == node) {
+          other = s.toId;
+          at = pos[node]! + v;
+        } else if (s.toId == node) {
+          other = s.fromId;
+          at = pos[node]! - v;
+        }
+        if (other == null || at == null) continue;
+        final known = pos[other];
+        if (known == null) {
+          pos[other] = at;
+          cluster[other] = clusters;
+          todo.add(other);
+        } else if ((known - at).length > kClosureToleranceMm &&
+            loopReported.add(s.id)) {
+          out.add(ScanIssue(
+            code: ScanIssueCode.closureMismatch,
+            blocking: false,
+            segmentId: s.id,
+            pl: 'Pętla wymiarów nie zamyka się przy odcinku '
+                '${plannedById[s.id]?.label ?? s.id}: rozbieżność '
+                '${_mmText((known - at).length)} mm — sprawdź wymiary pętli.',
+            en: 'The dimension loop does not close at run '
+                '${plannedById[s.id]?.label ?? s.id}: off by '
+                '${_mmText((known - at).length)} mm — check the loop.',
+          ));
+        }
+      }
+    }
+    clusters++;
+  }
+
+  for (final d in scan.overallDimensions) {
+    final a = pos[d.fromId];
+    final b = pos[d.toId];
+    final value = d.valueMm;
+    if (a == null || b == null || value == null) continue;
+    if (cluster[d.fromId] != cluster[d.toId]) continue;
+    final diff = b - a;
+    final measured = d.axis == null ? diff.length : diff.along(d.axis!)?.abs();
+    if (measured == null) continue;
+    if ((measured - value).abs() <= kClosureToleranceMm) continue;
+    out.add(ScanIssue(
+      code: ScanIssueCode.closureMismatch,
+      blocking: false,
+      pl: 'Wymiar całkowity ${d.raw ?? _mmText(value)} (${d.fromId} → '
+          '${d.toId}${d.axis == null ? '' : ', oś ${d.axis}'}) ≠ suma '
+          'wymiarów odcinków ${_mmText(measured)} mm — różnica '
+          '${_mmText((measured - value).abs())} mm. Sprawdź łańcuch wymiarów.',
+      en: 'Overall dimension ${d.raw ?? _mmText(value)} (${d.fromId} → '
+          '${d.toId}${d.axis == null ? '' : ', axis ${d.axis}'}) ≠ sum of the '
+          'runs ${_mmText(measured)} mm — off by '
+          '${_mmText((measured - value).abs())} mm. Check the chain.',
+    ));
+  }
+
+  final elevations = <(String, double)>[
+    for (final e in scan.elevationPoints)
+      if (pos.containsKey(e.atId) &&
+          (e.elevationMm ?? parseElevationMm(e.value)) != null)
+        (e.atId, e.elevationMm ?? parseElevationMm(e.value)!),
+  ];
+  for (var i = 1; i < elevations.length; i++) {
+    final (a, elA) = elevations[0];
+    final (b, elB) = elevations[i];
+    if (cluster[a] != cluster[b]) continue;
+    final dz = pos[b]!.z - pos[a]!.z;
+    final dEl = elB - elA;
+    if ((dz - dEl).abs() <= kClosureToleranceMm) continue;
+    out.add(ScanIssue(
+      code: ScanIssueCode.closureMismatch,
+      blocking: false,
+      componentId: b,
+      pl: 'Rzędne: $a → $b różnią się o ${_mmText(dEl)} mm, a wymiary '
+          'pionowe odcinków dają ${_mmText(dz)} mm. Sprawdź wymiary pionowe '
+          'i rzędne EL.',
+      en: 'Elevations: $a → $b differ by ${_mmText(dEl)} mm, the vertical '
+          'runs add up to ${_mmText(dz)} mm. Check the vertical dimensions '
+          'and the EL marks.',
+    ));
+  }
+  return out;
+}
+
+/// The run as a displacement between the points it joins: its projections
+/// when printed, else its direction × its dimension.
+Vec3? _displacement(AiSegment s, PlannedSegment? p) {
+  final proj = projectionVector(s.projections);
+  if (proj != null) return proj;
+  final dir = directionVector(s.direction);
+  final len = p?.isoMm ?? s.dimensionMm;
+  if (dir == null || len == null) return null;
+  return dir * len;
+}
+
+String _projText(Map<String, double> projections) => projections.entries
+    .map((e) => '${e.key} ${_mmText(e.value)}')
+    .join(', ');
 
 // ─────────────────────────────────────────────────────────────────────────
 // Endpoints
