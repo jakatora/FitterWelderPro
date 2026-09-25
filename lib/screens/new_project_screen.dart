@@ -6,6 +6,7 @@ import '../i18n/app_language.dart';
 import '../models/project.dart';
 import 'fitter_screen.dart';
 import '../widgets/number_field.dart';
+import '../widgets/project_identity_fields.dart';
 
 class NewProjectScreen extends StatefulWidget {
   const NewProjectScreen({super.key});
@@ -22,9 +23,23 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   final _stock = TextEditingController(text: '6000');
   final _kerf = TextEditingController(text: '1');
   final _gap = TextEditingController(text: '0');
+  // Line / ISO + revision / client / class (schema v22), all optional.
+  final _identity = ProjectIdentityControllers();
   String _materialGroup = 'SS';
   String? _error;
   bool _saving = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _diameter.dispose();
+    _wall.dispose();
+    _stock.dispose();
+    _kerf.dispose();
+    _gap.dispose();
+    _identity.dispose();
+    super.dispose();
+  }
 
   Future<void> _create() async {
     setState(() {
@@ -80,6 +95,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
+    final identity = _identity.value;
     final p = Project(
       id: const Uuid().v4(),
       name: _name.text.trim().isEmpty ? null : _name.text.trim(),
@@ -92,6 +108,11 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       gapMm: gap,
       createdAt: now,
       updatedAt: now,
+      lineNo: identity.lineNo,
+      isoNo: identity.isoNo,
+      isoRev: identity.isoRev,
+      client: identity.client,
+      spec: identity.spec,
     );
 
     try {
@@ -208,6 +229,24 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                 decoration: InputDecoration(labelText: context.tr(pl: 'Nazwa (opcjonalnie)', en: 'Name (optional)')),
               ),
               const SizedBox(height: 12),
+              // Identification from the drawing — what QC and the foreman
+              // find the job by; printed on the cut list and the BOM.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  context.tr(
+                    pl: 'Identyfikacja z rysunku (opcjonalnie)',
+                    en: 'Drawing identification (optional)',
+                  ),
+                  style: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+              ProjectIdentityFields(
+                controllers: _identity,
+                enabled: !_saving,
+              ),
+              const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: _materialGroup,
                 decoration: InputDecoration(labelText: context.tr(pl: 'Materiał', en: 'Material')),
@@ -310,8 +349,9 @@ String _fmtNumber(double v) {
   return t;
 }
 
-/// Opens the settings of an existing [project] — name, stock length, kerf
-/// and gap — and saves them through [ProjectDao.updateSettings].
+/// Opens the settings of an existing [project] — name, line / ISO +
+/// revision / client / class, stock length, kerf and gap — and saves them
+/// through [ProjectDao.updateSettings].
 ///
 /// Returns what the save did, or null when the fitter backed out. A gap that
 /// leaves some segment with nothing to cut is refused inside the dialog and
@@ -375,6 +415,8 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
       TextEditingController(text: _fmtNumber(widget.project.sawKerfMm));
   late final TextEditingController _gap =
       TextEditingController(text: _fmtNumber(widget.project.gapMm));
+  late final ProjectIdentityControllers _identity =
+      ProjectIdentityControllers(widget.project.identity);
   String? _error;
   bool _saving = false;
 
@@ -384,6 +426,7 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
     _stock.dispose();
     _kerf.dispose();
     _gap.dispose();
+    _identity.dispose();
     super.dispose();
   }
 
@@ -425,6 +468,7 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
         stockLengthMm: stock!,
         sawKerfMm: kerf!,
         gapMm: gap!,
+        identity: _identity.value,
       );
       if (!mounted) return;
       Navigator.pop(context, result);
@@ -479,6 +523,12 @@ class _ProjectSettingsDialogState extends State<_ProjectSettingsDialog> {
                 labelText:
                     context.tr(pl: 'Nazwa (opcjonalnie)', en: 'Name (optional)'),
               ),
+            ),
+            const SizedBox(height: 8),
+            ProjectIdentityFields(
+              controllers: _identity,
+              enabled: !_saving,
+              dense: true,
             ),
             const SizedBox(height: 8),
             _mmField(_stock,

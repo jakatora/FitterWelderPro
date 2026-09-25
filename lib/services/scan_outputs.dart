@@ -10,6 +10,7 @@ library;
 
 import '../domain/weld_journal/weld_entry.dart';
 import '../domain/weld_journal/weld_ndt.dart';
+import '../models/project.dart';
 import 'iso_scanner_ai.dart';
 import 'scan_graph.dart';
 import 'scan_to_project.dart';
@@ -871,6 +872,12 @@ String _fmtMm(double? v) {
 
 /// Journal entries for [welds] of a saved project — only for welds whose
 /// run was saved, so no entry points at a cut that does not exist.
+///
+/// [identity] is the project's line / ISO / revision as saved (schema v22,
+/// possibly corrected by the fitter on the review screen): each of its
+/// fields that is filled in wins over the title block, so the journal and
+/// the cut list name the same line and drawing. The spool comes from the
+/// weld itself ([spoolLabels] maps its id to the printed form).
 WeldJournalImport weldJournalEntries({
   required List<PlannedWeld> welds,
   required AiScanResult scan,
@@ -880,9 +887,12 @@ WeldJournalImport weldJournalEntries({
   required Iterable<WeldEntry> existing,
   required String Function() newId,
   Map<String, String> spoolLabels = const {},
+  ProjectIdentity? identity,
 }) {
   final tb = scan.titleBlock;
-  final drawing = tb.drawingNumber?.trim() ?? '';
+  final drawing = identity?.isoNo ?? tb.drawingNumber?.trim() ?? '';
+  final line = identity?.lineNo ?? tb.lineNumber?.trim() ?? '';
+  final rev = identity?.isoRev ?? tb.revision?.trim() ?? '';
   final keyBase = drawing.isNotEmpty ? drawing : projectName;
   final taken = <String>{
     for (final e in existing)
@@ -915,9 +925,9 @@ WeldJournalImport weldJournalEntries({
       weldNo: w.number,
       projectName: projectName,
       projectId: projectId,
-      pipeName: tb.lineNumber?.trim() ?? '',
+      pipeName: line,
       isoDrawing: drawing,
-      isoRev: tb.revision?.trim() ?? '',
+      isoRev: rev,
       spool: w.spoolId == null ? '' : (spoolLabels[w.spoolId] ?? w.spoolId!),
       jointType: WeldJointType.values.contains(w.jointType) ? w.jointType : '',
       shopField: w.location == 'field'

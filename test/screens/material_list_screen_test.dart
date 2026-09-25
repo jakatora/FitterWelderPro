@@ -85,6 +85,28 @@ Segment _seg(int seq, String start, String end) => Segment(
       updatedAt: 0,
     );
 
+class _IdentifiedProjectDao extends ProjectDao {
+  @override
+  Future<Project?> getById(String id) async => Project(
+        id: id,
+        name: 'Łącznik żółć',
+        materialGroup: 'SS',
+        diameterMm: 114.3,
+        wallThicknessMm: 3.6,
+        currentDiameterMm: 114.3,
+        stockLengthMm: 6000,
+        sawKerfMm: 3,
+        gapMm: 0,
+        createdAt: 0,
+        updatedAt: 0,
+        lineNo: 'DN100-CWS-1234',
+        isoNo: 'ISO-7',
+        isoRev: 'B',
+        client: 'Orlen',
+        spec: 'A1B',
+      );
+}
+
 MaterialListBuilder _builder() => MaterialListBuilder(
       _FakeSegmentDao([
         _seg(1, 'FLANGE', 'TEE'),
@@ -189,6 +211,46 @@ void main() {
       matching: find.byType(IconButton),
     ));
     expect(share.onPressed, isNull);
+  });
+
+  testWidgets(
+      'v22: nagłówek z linią / ISO / rewizją / klientem na ekranie i w kopii',
+      (tester) async {
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: MaterialListScreen(
+          projectId: _pid,
+          builder: MaterialListBuilder(
+            _FakeSegmentDao([_seg(1, 'FLANGE', 'TEE')]),
+            _FakeLibraryDao(),
+            _IdentifiedProjectDao(),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    const line =
+        'Linia: DN100-CWS-1234 · ISO: ISO-7 rew. B · Klient: Orlen · Klasa: A1B';
+    expect(find.text(line), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Kopiuj całość'));
+    await tester.pumpAndSettle();
+    expect(clipboard.single.split('\n').take(2).toList(),
+        ['Lista materiałowa (BOM) — Łącznik żółć', line]);
+  });
+
+  test('buildBomText: pusta identyfikacja nie dodaje linii', () {
+    expect(
+      buildBomText(
+        items: const [],
+        projectName: 'X',
+        english: false,
+        identity: ProjectIdentity.empty,
+      ),
+      'Lista materiałowa (BOM) — X\n',
+    );
   });
 
   group('opis kształtek bez wpisu biblioteki', () {

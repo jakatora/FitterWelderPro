@@ -35,7 +35,11 @@ class AppDatabase {
   //   biblioteka WPS `wps_library`. Obie tabele nowe i puste; dotychczasowy
   //   numer i data „WPQR" z SharedPreferences przenosi do rejestru
   //   WelderQualificationService (jednorazowo, przy pierwszym odczycie).
-  static const int _dbVersion = 21;
+  // v22: identyfikacja sztuk — `projects` dostaje nr linii, nr ISO, rewizję,
+  //   klienta i klasę rurociągu (line_no, iso_no, iso_rev, client, spec),
+  //   `segments` oznaczenie sztuki i spool (label, spool_id). Wszystko TEXT,
+  //   NULL, bez domyślnych — stary projekt po prostu ich nie ma.
+  static const int _dbVersion = 22;
 
   /// The schema version [get] opens the database at.
   ///
@@ -375,6 +379,18 @@ CREATE TABLE IF NOT EXISTS projects (
       await _createQualificationTables(db);
     }
 
+    // ---- v22: identyfikacja sztuk (monter → QC → brygadzista). Same
+    // kolumny, wszystkie NULL: projekt i segment sprzed v22 nie mają numeru
+    // linii ani oznaczenia i nie wolno ich wymyślać.
+    if (oldVersion < 22) {
+      for (final column in kProjectIdentityColumns.entries) {
+        await _ensureColumn(db, 'projects', column.key, column.value);
+      }
+      for (final column in kSegmentIdentityColumns.entries) {
+        await _ensureColumn(db, 'segments', column.key, column.value);
+      }
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -478,6 +494,24 @@ CREATE TABLE IF NOT EXISTS projects (
         'ndt_${m}_$f': 'TEXT',
   });
 
+  /// projects columns added in v22 (name → SQLite type): the line, the
+  /// isometric and its revision, the client and the piping class the QC
+  /// inspector and the foreman identify a job by.
+  static const Map<String, String> kProjectIdentityColumns = <String, String>{
+    'line_no': 'TEXT',
+    'iso_no': 'TEXT',
+    'iso_rev': 'TEXT',
+    'client': 'TEXT',
+    'spec': 'TEXT',
+  };
+
+  /// segments columns added in v22: the piece mark as the drawing numbers it
+  /// (`SP02-03`) and the spool it belongs to.
+  static const Map<String, String> kSegmentIdentityColumns = <String, String>{
+    'label': 'TEXT',
+    'spool_id': 'TEXT',
+  };
+
   /// weld_coupons columns added in v20 (name → SQLite type).
   static const Map<String, String> _kWeldCouponsV20Columns = <String, String>{
     'program_no': 'TEXT',
@@ -526,7 +560,8 @@ CREATE TABLE IF NOT EXISTS projects (
   saw_kerf_mm REAL NOT NULL DEFAULT 1,
   gap_mm REAL NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+${_columnsDdl(kProjectIdentityColumns)}
 );
 ''');
     await db.execute('''
@@ -548,6 +583,7 @@ CREATE TABLE IF NOT EXISTS segments (
   cut_mm REAL NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+${_columnsDdl(kSegmentIdentityColumns)},
   UNIQUE (project_id, seq_no),
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );

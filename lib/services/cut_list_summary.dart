@@ -1,3 +1,4 @@
+import '../models/project.dart';
 import '../models/segment.dart';
 import 'bar_nesting.dart';
 
@@ -5,7 +6,16 @@ import 'bar_nesting.dart';
 /// segment 3 (the number the fitter sees as "Segment 3" in the project).
 /// Two digits minimum so a printed list sorts and aligns; longer numbers are
 /// kept whole (`S123`).
-String segmentLabel(Segment s) => 'S${s.seqNo.toString().padLeft(2, '0')}';
+///
+/// A segment with a piece mark from the drawing (schema v22, `SP02-03`)
+/// carries it next to the number — `S03 SP02-03` — so the piece off the saw
+/// can be found on the isometric by QC and by the foreman. The `S03` stays
+/// in front: it is unique in the project, a typed mark need not be.
+String segmentLabel(Segment s) {
+  final tag = 'S${s.seqNo.toString().padLeft(2, '0')}';
+  final mark = s.label;
+  return mark == null ? tag : '$tag $mark';
+}
 
 /// One diameter + wall group of the cut list, already nested into bars.
 class CutListGroup {
@@ -217,11 +227,17 @@ String buildCutListText({
   required double sawKerfMm,
   required CutListSummary summary,
   required bool english,
+  ProjectIdentity? identity,
 }) {
   final buf = StringBuffer();
   final stock = stockLengthMm.toStringAsFixed(0);
   final kerf = sawKerfMm.toStringAsFixed(1);
   buf.writeln('CUT LIST — $projectName');
+  // Line / ISO / revision / client / class under the title, so the list
+  // sent to the storeroom or the foreman names the job it belongs to.
+  if (identity != null && identity.isNotEmpty) {
+    buf.writeln(identity.summary(english: english));
+  }
   buf.writeln(english
       ? 'Material: $materialGroup  Stock: $stock mm  Kerf: $kerf mm'
       : 'Materiał: $materialGroup  Sztanga: $stock mm  Rzaz: $kerf mm');

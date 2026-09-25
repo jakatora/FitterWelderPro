@@ -334,6 +334,63 @@ void main() {
     expect(await live.query('projects'), hasLength(1));
   });
 
+  test(
+      'v22: linia / ISO / rewizja / klient / klasa projektu i oznaczenie '
+      'sztuki ze spoolem wracają z kopii', () async {
+    // The backup dumps every column of every table, so the new columns ride
+    // along without a line of backup code — this pins that down.
+    final db = await AppDatabase.get();
+    await db.insert('projects', <String, Object?>{
+      'id': 'project-v22',
+      'name': 'Rack 12',
+      'diameter_mm': 114.3,
+      'wall_thickness_mm': 6.02,
+      'current_diameter_mm': 114.3,
+      'created_at': 1000,
+      'updated_at': 1000,
+      'line_no': 'DN100-CWS-1234',
+      'iso_no': 'ISO-7',
+      'iso_rev': 'B',
+      'client': 'Orlen',
+      'spec': 'A1B',
+    });
+    await db.insert('segments', <String, Object?>{
+      'id': 'seg-v22',
+      'project_id': 'project-v22',
+      'seq_no': 1,
+      'diameter_mm': 114.3,
+      'wall_thickness_mm': 6.02,
+      'start_kind': 'logical',
+      'start_value_mm': 0.0,
+      'end_kind': 'logical',
+      'end_value_mm': 0.0,
+      'iso_ref': 'OPEN|OPEN',
+      'iso_expr': '1000',
+      'iso_mm': 1000.0,
+      'cut_mm': 1000.0,
+      'created_at': 1000,
+      'updated_at': 1000,
+      'label': 'SP02-03',
+      'spool_id': 'SP02',
+    });
+
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await AppDatabase.get();
+    await DataBackup.restore(carried.path);
+
+    final restored = await AppDatabase.get();
+    final project = (await restored.query('projects')).single;
+    expect(project['line_no'], 'DN100-CWS-1234');
+    expect(project['iso_no'], 'ISO-7');
+    expect(project['iso_rev'], 'B');
+    expect(project['client'], 'Orlen');
+    expect(project['spec'], 'A1B');
+    final segment = (await restored.query('segments')).single;
+    expect(segment['label'], 'SP02-03');
+    expect(segment['spool_id'], 'SP02');
+  });
+
   test('kolumna z danymi, której ta wersja nie zna, jest zgłaszana', () async {
     final live = await databaseFactory.openDatabase(
       p.join(sandbox.path, 'narrow-live.db'),

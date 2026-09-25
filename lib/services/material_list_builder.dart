@@ -3,6 +3,7 @@ import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../models/library_component.dart';
 import '../models/material_item.dart';
+import '../models/project.dart';
 import '../models/segment.dart';
 
 /// Identity of the fitting at one end of a segment — what decides whether
@@ -57,6 +58,16 @@ class MaterialListBuilder {
     final p = await dao.getById(projectId);
     final name = p?.name?.trim();
     return (name == null || name.isEmpty) ? null : name;
+  }
+
+  /// Line / ISO / revision / client / class for the BOM header (schema v22);
+  /// null when unknown, when none of them is filled in, or when the builder
+  /// was created without a [ProjectDao].
+  Future<ProjectIdentity?> projectIdentity(String projectId) async {
+    final dao = _projects;
+    if (dao == null) return null;
+    final identity = (await dao.getById(projectId))?.identity;
+    return (identity == null || identity.isEmpty) ? null : identity;
   }
 
   Future<List<MaterialItem>> buildForProject(String projectId) async {

@@ -277,6 +277,17 @@ class ScanProjectDraft {
   final ScanValueSource wallThicknessSource;
   final ScanValueSource materialGroupSource;
 
+  // ── Identification from the title block (schema v22) ─────────────────
+  /// Line number as printed.
+  final String? lineNo;
+
+  /// Drawing (isometric) number and its revision.
+  final String? isoNo;
+  final String? isoRev;
+
+  /// Piping class (spec).
+  final String? spec;
+
   const ScanProjectDraft({
     this.name,
     this.dn,
@@ -288,6 +299,10 @@ class ScanProjectDraft {
     this.diameterSource = ScanValueSource.none,
     this.wallThicknessSource = ScanValueSource.none,
     this.materialGroupSource = ScanValueSource.none,
+    this.lineNo,
+    this.isoNo,
+    this.isoRev,
+    this.spec,
   });
 
   /// Whether every column `projects` requires is filled in.
@@ -745,6 +760,12 @@ String _storedRefCode(ScanEndpoint e, SideStop stop) {
 /// without a screen: the anchors go in as [PlannedSegment.anchorColumns]
 /// describe them and the ISO text is one the builder's parser reads back to
 /// the same millimetres.
+///
+/// A run that belongs to a spool is saved with its piece mark ([PlannedSegment.
+/// label], `SP-1/2`) in `segments.label` and the spool as printed in
+/// `spool_id` — [spoolLabels] maps the spool's id to that printed form (the
+/// id itself when missing). A run outside any spool gets neither: its plain
+/// position is not a number from the drawing and is already `seq_no`.
 Map<String, Object?>? segmentRowFor(
   PlannedSegment seg, {
   required String id,
@@ -752,6 +773,7 @@ Map<String, Object?>? segmentRowFor(
   required double diameterMm,
   required double wallThicknessMm,
   required int nowMs,
+  Map<String, String> spoolLabels = const {},
 }) {
   final isoMm = seg.isoMm;
   final cutMm = seg.cutMm;
@@ -759,6 +781,7 @@ Map<String, Object?>? segmentRowFor(
   if (isoMm == null || cutMm == null || cols == null || !seg.isComplete) {
     return null;
   }
+  final spool = seg.spoolId;
   return {
     'id': id,
     'project_id': projectId,
@@ -781,6 +804,8 @@ Map<String, Object?>? segmentRowFor(
     'cut_mm': cutMm,
     'created_at': nowMs,
     'updated_at': nowMs,
+    'label': spool == null ? null : seg.label,
+    'spool_id': spool == null ? null : (spoolLabels[spool] ?? spool),
   };
 }
 
@@ -3177,6 +3202,10 @@ ScanProjectDraft _inferProject(
     wallThicknessSource: wallSource,
     materialGroupSource:
         materialGroup == null ? ScanValueSource.none : ScanValueSource.scan,
+    lineNo: _clean(tb.lineNumber),
+    isoNo: _clean(tb.drawingNumber),
+    isoRev: _clean(tb.revision),
+    spec: _clean(tb.pipeClass),
   );
 }
 

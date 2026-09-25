@@ -22,6 +22,18 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   List<Project> _projects = [];
   bool _loading = true;
 
+  /// Search over name, line, ISO, client and class (see
+  /// [projectMatchesQuery]) — a foreman with forty jobs finds one by the
+  /// line number written on the pipe, not by scrolling.
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     if (!mounted) return;
     setState(() => _loading = true);
@@ -145,14 +157,68 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   if (created == true) await _load();
                 },
               )
+              : _buildList(context),
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    final visible =
+        _projects.where((p) => projectMatchesQuery(p, _query)).toList();
+    final english = context.language == AppLanguage.en;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: TextField(
+            key: const ValueKey('projects-search'),
+            controller: _search,
+            onChanged: (v) => setState(() => _query = v),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              isDense: true,
+              prefixIcon: const Icon(Icons.search),
+              hintText: context.tr(
+                pl: 'Szukaj: nazwa, linia, ISO, klient',
+                en: 'Search: name, line, ISO, client',
+              ),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear),
+                      tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+                      onPressed: () => setState(() {
+                        _search.clear();
+                        _query = '';
+                      }),
+                    ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      context.tr(
+                        pl: 'Brak projektów pasujących do „$_query”.',
+                        en: 'No projects match "$_query".',
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
               : ListView.separated(
-                  itemCount: _projects.length,
+                  itemCount: visible.length,
                   separatorBuilder: (_, __) => const Divider(height: 0),
                   itemBuilder: (context, i) {
-                    final p = _projects[i];
+                    final p = visible[i];
                     final name = p.name?.isNotEmpty == true
                         ? p.name!
                         : context.tr(pl: 'Projekt ${p.id.substring(0, 6)}', en: 'Project ${p.id.substring(0, 6)}');
+                    // Line / ISO under the name (schema v22): what the pipe
+                    // and the drawing are marked with.
+                    final ident = p.identity.shortSummary(english: english);
                     return Dismissible(
                       key: ValueKey(p.id),
                       direction: DismissDirection.endToStart,
@@ -264,11 +330,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         ),
                         title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(
-                          context.tr(
-                            pl: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup} | gap ${p.gapMm.toStringAsFixed(1)}',
-                            en: 'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup} | gap ${p.gapMm.toStringAsFixed(1)}',
-                          ),
+                          [
+                            if (ident.isNotEmpty) ident,
+                            'Ø${p.diameterMm.toStringAsFixed(1)} | t=${p.wallThicknessMm.toStringAsFixed(1)} | ${p.materialGroup} | gap ${p.gapMm.toStringAsFixed(1)}',
+                          ].join('\n'),
                         ),
+                        isThreeLine: ident.isNotEmpty,
                         // Name, stock, kerf and gap used to be frozen at
                         // creation. A visible button (not only the long
                         // press) because a long press is undiscoverable in
@@ -291,6 +358,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     );
                   },
                 ),
+        ),
+      ],
     );
   }
 }

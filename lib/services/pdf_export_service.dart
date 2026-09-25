@@ -90,7 +90,8 @@ class PdfExportService {
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(32),
-      header: (ctx) => _buildHeader(project, ctx.pageNumber, ctx.pagesCount),
+      header: (ctx) =>
+          _buildHeader(project, ctx.pageNumber, ctx.pagesCount, t),
       footer: (_) => pw.Padding(
         padding: const pw.EdgeInsets.only(top: 6),
         child: pw.Text(
@@ -143,7 +144,10 @@ class PdfExportService {
   }
 
   // ── Nagłówek strony ──────────────────────────────────────────────────────
-  static pw.Widget _buildHeader(Project p, int page, int pages) {
+  static pw.Widget _buildHeader(Project p, int page, int pages, _Tr t) {
+    // Line / ISO + revision / client / class on every page (schema v22): a
+    // sheet that has come loose from the stack still says which job it is.
+    final identity = p.identity.summary(english: t.english);
     return pw.Container(
       margin: const pw.EdgeInsets.only(bottom: 12),
       padding: const pw.EdgeInsets.only(bottom: 6),
@@ -172,6 +176,9 @@ class PdfExportService {
                         fontSize: 12,
                         fontWeight: pw.FontWeight.bold,
                         color: _kInk)),
+                if (identity.isNotEmpty)
+                  pw.Text(identity,
+                      style: pw.TextStyle(fontSize: 9, color: _kInk)),
               ],
             ),
           ),
@@ -354,6 +361,9 @@ class PdfExportService {
         barsFor['${g.diameterMm}|${g.wallMm}|$label'] = bars.join(', ');
       });
     }
+    // A piece mark (`S03 SP02-03`) needs room; plain `S03` keeps the old
+    // narrow column so an unlabelled list prints exactly as before.
+    final labelled = segments.any((s) => s.label != null);
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
@@ -363,8 +373,8 @@ class PdfExportService {
         pw.SizedBox(height: 6),
         pw.Table(
           border: pw.TableBorder.all(color: _kRule, width: _kHairline),
-          columnWidths: const {
-            0: pw.FixedColumnWidth(48),
+          columnWidths: {
+            0: pw.FixedColumnWidth(labelled ? 96 : 48),
             1: pw.FixedColumnWidth(58),
             2: pw.FlexColumnWidth(2),
             3: pw.FixedColumnWidth(54),

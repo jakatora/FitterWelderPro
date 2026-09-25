@@ -8,6 +8,7 @@ import '../i18n/app_language.dart';
 import '../models/library_component.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
+import '../services/piece_marks.dart';
 import 'segment_builder_screen.dart';
 import 'material_list_screen.dart';
 import 'cut_list_summary_screen.dart';
@@ -178,6 +179,8 @@ class _FitterScreenState extends State<FitterScreen> {
           currentDiameter: route.diameterMm,
           wallThickness: wall!,
           gapMm: p.gapMm,
+          // SP02-03 → SP02-04: the next mark of the spool being numbered.
+          suggestedLabel: suggestNextSegmentLabel(_segments),
         ),
       ),
     );
@@ -223,6 +226,9 @@ class _FitterScreenState extends State<FitterScreen> {
         'iso_expr': (result['isoExpr'] as String).trim(),
         'iso_mm': (result['isoMm'] as num).toDouble(),
         'cut_mm': (result['cutMm'] as num).toDouble(),
+        // v22 piece mark; spool_id is left alone (the builder does not edit
+        // it — a scanned segment keeps the spool it came with).
+        'label': result['label'] as String?,
       };
 
   /// Reopens a saved segment for correction.
@@ -454,7 +460,7 @@ class _FitterScreenState extends State<FitterScreen> {
                                           child: Text('${s.seqNo}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFFF8E1E))),
                                         ),
                                         title: Text(
-                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}  •  Ø${s.diameterMm.toStringAsFixed(1)} × t${s.wallThicknessMm.toStringAsFixed(1)}',
+                                          '${context.tr(pl: 'Segment', en: 'Seg.')} ${s.seqNo}${s.label == null ? '' : ' · ${s.label}'}  •  Ø${s.diameterMm.toStringAsFixed(1)} × t${s.wallThicknessMm.toStringAsFixed(1)}',
                                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                                         ),
                                         subtitle: Text(

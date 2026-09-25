@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
@@ -367,6 +368,12 @@ class SegmentBuilderScreen extends StatefulWidget {
   /// writes the result back with UPDATE instead of INSERT.
   final Segment? existing;
 
+  /// Piece mark offered for a NEW segment — the one after the project's last
+  /// (`SP02-03` → `SP02-04`, see `suggestNextSegmentLabel`). Prefilled, so a
+  /// fitter numbering a spool just keeps saving; he can clear or retype it.
+  /// Ignored when [existing] is set: a correction keeps the segment's own.
+  final String? suggestedLabel;
+
   const SegmentBuilderScreen({
     super.key,
     required this.materialGroup,
@@ -374,6 +381,7 @@ class SegmentBuilderScreen extends StatefulWidget {
     required this.wallThickness,
     required this.gapMm,
     this.existing,
+    this.suggestedLabel,
   });
 
   @override
@@ -401,6 +409,12 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   int get _welds => builderWeldCount(_startPicked!.tag, _endPicked!.tag);
 
   final _isoController = TextEditingController();
+
+  /// Piece mark (schema v22 `segments.label`), e.g. `SP02-03`; '' = none.
+  /// Edited in a dialog ([_editLabel]) so the ISO dimension stays the only
+  /// text field on the screen — the one the keyboard opens for.
+  late String _label = widget.existing?.label ??
+      (widget.existing == null ? (widget.suggestedLabel ?? '') : '');
   double? _isoMm;
   double? _cutMm;
   String? _error;
@@ -420,7 +434,22 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           '${p.tag}/${p.component?.id ?? ''}/${p.refPoint.code}'
               '/${p.storedKind ?? ''}/${p.storedOffsetMm ?? ''}',
         _isoController.text.trim(),
+        _label,
       ].join('|');
+
+  /// Piece mark dialog. The suggestion (the number after the previous
+  /// segment's) is one tap away even after the fitter cleared the field.
+  Future<void> _editLabel() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _PieceMarkDialog(
+        initial: _label,
+        suggestion: _isEditing ? null : widget.suggestedLabel,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _label = result.trim());
+  }
 
   // Dirty when the fitter changed something since the screen opened — an
   // accidental swipe-back on a shop-floor phone would silently wipe it.
@@ -465,6 +494,9 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
   @override
   void initState() {
     super.initState();
+    // The prefilled piece mark is part of the signature, so the untouched
+    // screen is the baseline — not an empty string.
+    _baseline = _signature();
     // Post-frame rather than straight from initState: the restore reports
     // problems through ScaffoldMessenger and localises them with `context.tr`
     // (an InheritedWidget lookup), and neither is legal until the element is
@@ -1045,6 +1077,34 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
             ],
 
             const SizedBox(height: 16),
+            // Piece mark from the drawing — what QC and the foreman find the
+            // piece by. Optional; printed next to S01 on the cut list.
+            Card(
+              child: ListTile(
+                key: const ValueKey('segment-label'),
+                leading: const Icon(Icons.sell_outlined),
+                title: Text(
+                  _tr('Oznaczenie (spool/nr)', 'Piece mark (spool/no.)'),
+                  style: const TextStyle(fontSize: 13),
+                ),
+                subtitle: Text(
+                  _label.isEmpty
+                      ? _tr('brak — dotknij, aby dodać (np. SP02-03)',
+                          'none — tap to add (e.g. SP02-03)')
+                      : !_isEditing && _label == widget.suggestedLabel
+                          ? '$_label  (${_tr('kolejny numer', 'next number')})'
+                          : _label,
+                  style: TextStyle(
+                    fontSize: _label.isEmpty ? 12 : 15,
+                    fontWeight:
+                        _label.isEmpty ? FontWeight.normal : FontWeight.w700,
+                  ),
+                ),
+                trailing: const Icon(Icons.edit_outlined, size: 18),
+                onTap: _editLabel,
+              ),
+            ),
+            const SizedBox(height: 12),
             ElevatedButton.icon(
               onPressed: canSave
                   ? () {
@@ -1061,6 +1121,8 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                         'cutMm':         _cutMm,
                         'startLibraryId': _startPicked!.component?.id,
                         'endLibraryId':   _endPicked!.component?.id,
+                        // Blank → null: no mark rather than an empty one.
+                        'label': _label.isEmpty ? null : _label,
                       });
                     }
                   : null,
@@ -1807,6 +1869,86 @@ class _ComponentPickerSheet extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─── Oznaczenie sztuki (spool/nr) ──────────────────────────────────────────
+/// Edits the piece mark of a segment. Pops the typed text (possibly empty =
+/// no mark), or null on cancel. A widget of its own so the controller lives
+/// exactly as long as the dialog, exit animation included.
+class _PieceMarkDialog extends StatefulWidget {
+  final String initial;
+
+  /// Next number after the previous segment's mark, offered as a chip.
+  final String? suggestion;
+
+  const _PieceMarkDialog({required this.initial, required this.suggestion});
+
+  @override
+  State<_PieceMarkDialog> createState() => _PieceMarkDialogState();
+}
+
+class _PieceMarkDialogState extends State<_PieceMarkDialog> {
+  late final TextEditingController _c =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestion = widget.suggestion;
+    return AlertDialog(
+      title: Text(context.tr(
+          pl: 'Oznaczenie (spool/nr)', en: 'Piece mark (spool/no.)')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            key: const ValueKey('segment-label-field'),
+            controller: _c,
+            autofocus: true,
+            maxLength: 40,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [
+              FilteringTextInputFormatter.deny(RegExp(r'[\r\n]')),
+            ],
+            onSubmitted: (_) => Navigator.pop(context, _c.text),
+            decoration: InputDecoration(
+              counterText: '',
+              hintText: context.tr(pl: 'np. SP02-03', en: 'e.g. SP02-03'),
+              helperText: context.tr(
+                pl: 'Numer z rysunku — trafi na listę cięć obok S01.',
+                en: 'Number from the drawing — printed next to S01.',
+              ),
+            ),
+          ),
+          if (suggestion != null) ...[
+            const SizedBox(height: 8),
+            ActionChip(
+              avatar: const Icon(Icons.skip_next, size: 18),
+              label: Text(context.tr(
+                  pl: 'Kolejny: $suggestion', en: 'Next: $suggestion')),
+              onPressed: () => setState(() => _c.text = suggestion),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, _c.text),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
 }

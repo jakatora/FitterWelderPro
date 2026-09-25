@@ -175,6 +175,70 @@ void main() {
     expect(text, isNot(contains('UWAGA')));
   });
 
+  test('v22: nagłówek z linią / ISO / rewizją / klientem, oznaczenia obok S01',
+      () async {
+    final project = Project(
+      id: 'p1',
+      name: 'Linia DN100',
+      materialGroup: 'SS',
+      diameterMm: 114.3,
+      wallThicknessMm: 6.02,
+      currentDiameterMm: 114.3,
+      stockLengthMm: 6000,
+      sawKerfMm: 3,
+      gapMm: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      lineNo: 'DN100-CWS-1234',
+      isoNo: 'ISO-7',
+      isoRev: 'B',
+      client: 'Orlen',
+      spec: 'A1B',
+    );
+    Segment marked(int seq, double cut, String? label) {
+      final s = _seg(seq, cut);
+      return Segment(
+        id: s.id,
+        projectId: s.projectId,
+        seqNo: s.seqNo,
+        diameterMm: s.diameterMm,
+        wallThicknessMm: s.wallThicknessMm,
+        startKind: s.startKind,
+        startLibraryId: s.startLibraryId,
+        startValueMm: s.startValueMm,
+        endKind: s.endKind,
+        endLibraryId: s.endLibraryId,
+        endValueMm: s.endValueMm,
+        isoRef: s.isoRef,
+        isoExpr: s.isoExpr,
+        isoMm: s.isoMm,
+        cutMm: s.cutMm,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        label: label,
+      );
+    }
+
+    final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
+      project: project,
+      segments: [
+        marked(1, 3293, 'SP02-03'),
+        marked(2, 2500, null),
+        marked(3, 1200, 'SP02-05'),
+      ],
+      generatedAt: DateTime(2026, 9, 24, 13, 5),
+    );
+    final text = _pdfText(bytes);
+    expect(text,
+        contains('Linia: DN100-CWS-1234 · ISO: ISO-7 rew. B · Klient: Orlen · '
+            'Klasa: A1B'));
+    expect(text, contains('S01 SP02-03: 3293 + S02: 2500'));
+    expect(text, contains('S03 SP02-05: 1200'));
+    // Segment table: mark next to S01, then the size.
+    expect(text, contains('S01 SP02-03 114×6.0'));
+  });
+
   test('cięcie dłuższe od sztangi: części (1/2), (2/2) i ostrzeżenie', () async {
     final bytes = await PdfExportService.buildCutListPdf(
       theme: await _oneFontTheme(),
