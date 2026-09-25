@@ -5,6 +5,7 @@ import 'i18n/app_language.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/root_gate.dart';
 import 'theme/app_theme.dart';
+import 'widgets/weld_timer_alarm_overlay.dart';
 
 class CutListApp extends StatefulWidget {
   const CutListApp({super.key});
@@ -67,7 +68,11 @@ class _CutListAppState extends State<CutListApp> {
                     right: true,
                     bottom: true,
                     minimum: const EdgeInsets.only(bottom: 4),
-                    child: child ?? const SizedBox.shrink(),
+                    // Koniec odliczania timera spawalniczego — pełny ekran
+                    // nad każdym ekranem aplikacji.
+                    child: WeldTimerAlarmOverlay(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               );

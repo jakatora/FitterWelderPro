@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
@@ -14,6 +13,7 @@ import '../models/project.dart';
 import '../models/segment.dart';
 import '../services/heat_photo_storage.dart';
 import '../widgets/component_icon.dart';
+import '../widgets/heat_photo_source_buttons.dart';
 import '../widgets/help_button.dart';
 
 class ProjectComponentsScreen extends StatefulWidget {
@@ -116,19 +116,15 @@ class _ProjectComponentsScreenState extends State<ProjectComponentsScreen> {
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.photo_library_outlined),
-                label: Text(imgPath == null ? context.tr(pl: 'Wybierz zdjęcie (opcjonalnie)', en: 'Choose photo (optional)') : context.tr(pl: 'Zmień zdjęcie', en: 'Change photo')),
-                onPressed: () async {
-                  final picked = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
-                  final path = picked?.files.single.path;
-                  if (path != null) {
-                    setStateDialog(() {
-                      imgPath = path;
-                    });
-                  }
-                },
-              ),
+              child: Text(imgPath == null
+                  ? context.tr(pl: 'Zdjęcie etykiety / atestu (opcjonalnie)', en: 'Label / certificate photo (optional)')
+                  : context.tr(pl: 'Zmień zdjęcie', en: 'Change photo')),
+            ),
+            const SizedBox(height: 8),
+            // Aparat / Galeria na telefonie, wybór pliku na desktopie.
+            // Zdjęcie z aparatu jest już zmniejszone (heat_photo_capture.dart).
+            HeatPhotoSourceButtons(
+              onPicked: (path) => setStateDialog(() => imgPath = path),
             ),
             if (imgPath != null) Padding(
               padding: const EdgeInsets.only(top: 8),

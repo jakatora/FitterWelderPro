@@ -44,6 +44,16 @@
 -keep class com.csdcorp.speech_to_text.** { *; }
 -keep class com.eyedeadevelopment.fluttertts.** { *; }
 
+# Timer spawalniczy: vibration (dluga wibracja na koniec odliczania),
+# wakelock_plus (ekran nie gasnie w trakcie; klasy Pigeon), device_info_plus
+# (zaleznosc vibration). MethodChannel/Pigeon — jawnie, jak pozostale wtyczki.
+-keep class com.benjaminabel.vibration.** { *; }
+-keep class dev.fluttercommunity.plus.wakelock.** { *; }
+-keep class dev.fluttercommunity.plus.device_info.** { *; }
+# image_picker (zdjecie numeru wytopu z aparatu) — FileProvider wskazywany
+# z manifestu wtyczki po nazwie klasy.
+-keep class io.flutter.plugins.imagepicker.** { *; }
+
 # Kotlin metadata (bez tego niektore biblioteki gubia informacje o typach).
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**

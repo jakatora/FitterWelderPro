@@ -51,7 +51,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FitterWelder Pro uses your photo library to attach images to welding projects and pipe spool documentation.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>FitterWelder Pro uses the camera to capture photos for welding project documentation.</string>
+	<string>Aparat służy do zrobienia zdjęcia numeru wytopu (heat) lub atestu materiału, które dołączasz do projektu. / The camera is used to photograph a heat number or material certificate that you attach to the project.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Mikrofon służy do dyktowania poleceń asystentowi (np. zapis parametru spawania) i włącza się tylko po naciśnięciu przycisku. / The microphone is used to dictate commands to the assistant (e.g. saving a welding parameter) and turns on only when you tap the button.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

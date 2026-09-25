@@ -11,12 +11,20 @@ library;
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
+/// Tests only: a folder used instead of `<documents>/heat_photos`, so screen
+/// tests can save a photo without the path_provider plugin.
+@visibleForTesting
+Directory? debugHeatPhotosDirectoryOverride;
+
 /// `<documents>/heat_photos` — the one folder the backup archives.
-Future<Directory> heatPhotosDirectory() async => Directory(
+Future<Directory> heatPhotosDirectory() async =>
+    debugHeatPhotosDirectoryOverride ??
+    Directory(
       p.join((await getApplicationDocumentsDirectory()).path, 'heat_photos'),
     );
 

@@ -61,6 +61,18 @@ dependencies:
   # Tylko po to, żeby podniesienie `web` do 1.x nie wciągnęło sqlite3 3.x
   # (natywne build hooks zamiast sqlite3_flutter_libs) — to osobna migracja.
   sqlite3: ">=2.7.0 <3.0.0"
+  # Timer spawalniczy (lib/services/weld_timer_service.dart):
+  # ekran nie gaśnie, TYLKO gdy timer biegnie. Bez uprawnień.
+  wakelock_plus: ^1.5.2
+  # Długa wibracja na koniec chłodzenia/formowania. HapticFeedback to krótkie
+  # „tyknięcia”, niewyczuwalne w rękawicach i pod kurtką, a na Androidzie
+  # znikają przy wyłączonych wibracjach dotyku. Dokłada VIBRATE (uprawnienie
+  # „normal”: bez pytania użytkownika, nic nie wysyła) i device_info_plus
+  # (przechodnio, bez uprawnień).
+  vibration: ^3.2.1
+  # Czas timera z `clock.now()` — w testach widgetów podąża za czasem testu.
+  # Czysty Dart, już był w lock (przechodnio).
+  clock: ^1.1.1
 
 dev_dependencies:
   flutter_test:
