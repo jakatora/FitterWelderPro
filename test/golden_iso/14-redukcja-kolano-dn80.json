@@ -1,0 +1,142 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "14-redukcja-kolano-dn80",
+  "title": "Redukcja DN100×80, za nią kolano DN80",
+  "drawing": "Otwarty koniec → redukcja R1 (duży koniec DN100) → kolano E1 DN80 → otwarty koniec. Wymiary do końca redukcji (EOP). Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-3001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "R1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "dn": 100,
+          "direction": "E",
+          "refTo": "EOP"
+        },
+        {
+          "id": "s2",
+          "fromId": "R1",
+          "toId": "E1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 700,
+          "rawDimension": "700",
+          "dn": 80,
+          "direction": "E",
+          "refFrom": "EOP"
+        },
+        {
+          "id": "s3",
+          "fromId": "E1",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 400,
+          "rawDimension": "400",
+          "dn": 80,
+          "direction": "UP"
+        }
+      ],
+      "components": [
+        {
+          "id": "R1",
+          "type": "reducer",
+          "confidence": "high",
+          "label": "CONC RED DN100x80",
+          "sizeLarge": "DN100",
+          "sizeSmall": "DN80"
+        },
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "confidence": "high",
+          "label": "90° LR DN80"
+        }
+      ],
+      "welds": [],
+      "spools": [],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 6,
+          "unit": "M",
+          "description": "PIPE SMLS BE",
+          "material": "A312 TP316L",
+          "size": "DN100",
+          "schedule": "Sch 40",
+          "standard": "ASME B36.19M"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": [
+          "reducerChangesDiameter",
+          "takeoutAssumedLongRadius"
+        ],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 1000,
+            "dn": 100,
+            "diameterMm": 114.3,
+            "calc": "1000 − 0 (koniec redukcji) = 1000"
+          },
+          {
+            "id": "s2",
+            "cutMm": 586,
+            "dn": 80,
+            "diameterMm": 88.9,
+            "calc": "700 − 0 (koniec redukcji) − 114 (kolano 90° LR DN80, nie 152 z DN100) = 586"
+          },
+          {
+            "id": "s3",
+            "cutMm": 286,
+            "dn": 80,
+            "diameterMm": 88.9,
+            "calc": "400 − 114 = 286"
+          }
+        ]
+      }
+    }
+  ]
+}

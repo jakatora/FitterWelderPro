@@ -1,0 +1,145 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "18-bom-rozbieznosc",
+  "title": "Tabela materiałowa niezgodna ze skanem",
+  "drawing": "Otwarty koniec → E1 → E2 → otwarty koniec (2 kolana). Tabela: 3 kolana 90° DN100 i 1,5 m rury; cięcia dają 2,044 m. Take-outy DN100: kolano 90° LR A=152, 45° LR B=64, trójnik C=105, trójnik red. 4×3 M=98 (ASME B16.9 tab. 6.1-7), DN80 kolano 90° LR A=114; kołnierz WN Cl.150 Y=76 (B16.5); zasuwa Cl.150 FTF=229 (B16.10); SW kl.3000 DN25 A=22,5 + luz 1,6 (B16.11-2011 tab. 1).",
+  "source": "Ręcznie zapisany odczyt AI w schemacie v2 (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "schemaVersion": 2,
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-3001",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-3001-A1A",
+        "pipeClass": "CL150",
+        "designPressure": "10 bar",
+        "designTemperature": "80 C",
+        "fluidService": "CWS",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "northArrow": "N up-right",
+      "scale": "NTS",
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 1000,
+          "rawDimension": "1000"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "E2",
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 900,
+          "rawDimension": "900"
+        },
+        {
+          "id": "s3",
+          "fromId": "E2",
+          "toId": null,
+          "auxiliary": false,
+          "confidence": "high",
+          "dimensionMm": 700,
+          "rawDimension": "700"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "confidence": "high"
+        },
+        {
+          "id": "E2",
+          "type": "elbow90",
+          "confidence": "high"
+        }
+      ],
+      "welds": [],
+      "spools": [],
+      "overallDimensions": [],
+      "elevations": [],
+      "billOfMaterials": [
+        {
+          "item": "1",
+          "quantity": 1.5,
+          "unit": "M",
+          "description": "PIPE SMLS",
+          "size": "DN100"
+        },
+        {
+          "item": "2",
+          "quantity": 3,
+          "description": "ELBOW 90 LR BW",
+          "size": "DN100"
+        },
+        {
+          "item": "3",
+          "quantity": 4,
+          "description": "GASKET SPW",
+          "size": "DN100"
+        }
+      ],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 42000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [
+    "Porównanie rury: suma cięć 2,044 m > 1,5 m w tabeli → rozbieżność (w tabeli za mało rury)."
+  ],
+  "steps": [
+    {
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {
+            "id": "s1",
+            "cutMm": 848,
+            "calc": "1000 − 152 = 848"
+          },
+          {
+            "id": "s2",
+            "cutMm": 596,
+            "calc": "900 − 304 = 596"
+          },
+          {
+            "id": "s3",
+            "cutMm": 548,
+            "calc": "700 − 152 = 548"
+          }
+        ],
+        "bom": [
+          {
+            "label": "Kolano 90° DN100",
+            "status": "mismatch"
+          },
+          {
+            "label": "Rura DN100",
+            "status": "mismatch"
+          },
+          {
+            "label": "poz. 3",
+            "status": "notCompared"
+          }
+        ]
+      }
+    }
+  ]
+}

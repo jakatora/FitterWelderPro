@@ -280,8 +280,8 @@ void main() {
 
   final files = _goldenFiles();
 
-  test('zestaw ma co najmniej 11 przypadków w obsługiwanym formacie', () {
-    expect(files.length, greaterThanOrEqualTo(11));
+  test('zestaw ma co najmniej 19 przypadków w obsługiwanym formacie', () {
+    expect(files.length, greaterThanOrEqualTo(19));
     final ids = <String>{};
     for (final f in files) {
       final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;

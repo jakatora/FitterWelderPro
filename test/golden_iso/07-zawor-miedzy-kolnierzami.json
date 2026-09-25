@@ -126,8 +126,8 @@
     "model": "claude-sonnet-5"
   },
   "knownLimitations": [
-    "Zawór nie jest końcem żadnego odcinka rury — trasa rozpada się na dwa ciągi (ostrzeżenie routeNotContinuous). Schemat AI nie ma relacji „element skręcany z elementem”.",
-    "Długość zabudowy zaworu nie jest sprawdzana z wymiarem 229 z rysunku (linia pomocnicza jest pomijana)."
+    "Odczyt v1 bez connectedTo: zawór nie jest końcem odcinka, więc trasa rozpada się na dwa ciągi (routeNotContinuous) i odniesienie przy kołnierzach trzeba potwierdzić. Ten sam rysunek w schemacie v2 (zespół skręcany + odniesienia FACE z rysunku) — przypadek 15.",
+    "Długość zabudowy zaworu nie jest porównywana z wymiarem 229 z rysunku (linia pomocnicza jest pomijana)."
   ],
   "steps": [
     {

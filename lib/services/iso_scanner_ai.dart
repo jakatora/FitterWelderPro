@@ -25,6 +25,7 @@ import '../config/backend_config.dart';
 import '../config/feature_flags.dart';
 import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
+import '../utils/decimal_parse.dart';
 import 'premium_service.dart';
 
 // Skaner celuje w BackendConfig.scannerBaseUrl — od 2026-09-25 ten sam
@@ -148,7 +149,7 @@ String? _jStr(dynamic v) {
 
 double? _jNum(dynamic v) {
   if (v is num) return v.isFinite ? v.toDouble() : null;
-  if (v is String) return double.tryParse(v.trim().replaceAll(',', '.'));
+  if (v is String) return parseDecimal(v);
   return null;
 }
 

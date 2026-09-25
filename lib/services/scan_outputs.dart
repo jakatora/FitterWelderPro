@@ -309,7 +309,11 @@ List<PlannedWeld> buildWeldMap(AiScanResult scan, List<PlannedSegment> segments)
       if (c == null || tool == null || _notJoined.contains(tool)) continue;
       final end = scanEndType(c);
       if (end == 'THD') continue; // screwed, not welded
-      if (tool.endsWith('Valve') && end != 'BW' && end != 'SW') continue;
+      // A valve is welded only when the drawing says so (BW / SW ends);
+      // otherwise it is flanged — bolted, not a weld.
+      if (tool.endsWith('Valve') && c.endType != 'BW' && c.endType != 'SW') {
+        continue;
+      }
       if (tool == 'blindFlange') continue;
       final key = '$id@${s.sourceId}';
       if (!seen.add(key)) continue;
