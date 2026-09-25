@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
+import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/services/iso_scanner_ai.dart';
 import 'package:cut_list_app/services/scan_outputs.dart';
 import 'package:cut_list_app/services/scan_to_project.dart';
@@ -279,6 +280,101 @@ void main() {
         newId: () => 'id',
       );
       expect(r.toInsert, isEmpty);
+    });
+  });
+
+  group('identyfikacja sztuk (v22)', () {
+    test('tabliczka rysunku → linia, ISO, rewizja, klasa w projekcie', () {
+      final draft = planFromScan(_route()).project;
+      expect(draft.lineNo, 'DN100-P-2001-A1A');
+      expect(draft.isoNo, 'ISO-P-2001');
+      expect(draft.isoRev, 'C');
+      expect(draft.spec, 'CL150');
+    });
+
+    test('pusta tabliczka nie wymyśla identyfikacji', () {
+      final scan = AiScanResult(
+        schemaVersion: 2,
+        sizeNotation: 'DN',
+        titleBlock: AiTitleBlock(),
+        segments: [_seg('s1', null, null, 1000)],
+      );
+      final draft = planFromScan(scan, diameterMm: 60.3, wallThicknessMm: 2)
+          .project;
+      expect(draft.lineNo, isNull);
+      expect(draft.isoNo, isNull);
+      expect(draft.isoRev, isNull);
+      expect(draft.spec, isNull);
+    });
+
+    test('wiersz segmentu niesie oznaczenie SP-1/1 i spool jak na rysunku',
+        () {
+      final plan = planFromScan(_route());
+      final rows = [
+        for (final s in plan.segments)
+          segmentRowFor(s,
+              id: s.sourceId,
+              projectId: 'p',
+              diameterMm: 114.3,
+              wallThicknessMm: 6.02,
+              nowMs: 1,
+              spoolLabels: const {'SP1': 'SP-1', 'SP2': 'SP-2'})!,
+      ];
+      expect(rows.map((r) => r['label']),
+          ['SP-1/1', 'SP-1/2', 'SP-2/1', 'SP-2/2']);
+      expect(rows.map((r) => r['spool_id']), ['SP-1', 'SP-1', 'SP-2', 'SP-2']);
+    });
+
+    test('bez spooli: numer pozycji to seq_no, nie oznaczenie z rysunku', () {
+      final scan = AiScanResult(
+        schemaVersion: 2,
+        sizeNotation: 'DN',
+        titleBlock: _tb(),
+        segments: [
+          _seg('s1', null, 'E1', 1000),
+          _seg('s2', 'E1', null, 800),
+        ],
+        components: [_c('E1', 'elbow90')],
+      );
+      final plan = planFromScan(scan);
+      for (final s in plan.segments) {
+        final row = segmentRowFor(s,
+            id: s.sourceId,
+            projectId: 'p',
+            diameterMm: 114.3,
+            wallThicknessMm: 6.02,
+            nowMs: 1)!;
+        expect(row['label'], isNull);
+        expect(row['spool_id'], isNull);
+      }
+    });
+
+    test('dziennik: poprawiona w przeglądzie linia/ISO/rewizja wygrywa z '
+        'tabliczką, spool ze spoiny', () {
+      final scan = _route(welds: [
+        AiWeld(id: 'b', number: 'FW2', betweenIds: ['E2', 's3']),
+      ]);
+      final plan = planFromScan(scan);
+      final r = weldJournalEntries(
+        welds: buildWeldMap(scan, plan.segments),
+        scan: scan,
+        projectId: 'p1',
+        projectName: 'Linia 2001',
+        savedSegmentIds: plan.segments.map((s) => s.sourceId).toSet(),
+        existing: const <WeldEntry>[],
+        newId: () => 'w1',
+        spoolLabels: const {'SP2': 'SP-2'},
+        identity: const ProjectIdentity(
+          lineNo: 'DN100-P-2001-A1B',
+          isoRev: 'D',
+        ),
+      );
+      final e = r.toInsert.single;
+      expect(e.pipeName, 'DN100-P-2001-A1B');
+      expect(e.isoRev, 'D');
+      // Not given in the identity → the title block's.
+      expect(e.isoDrawing, 'ISO-P-2001');
+      expect(e.spool, 'SP-2');
     });
   });
 }

@@ -443,6 +443,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
             sawKerfMm: p.sawKerfMm,
           ),
       english: _english,
+      identity: p.identity,
     );
   }
 
@@ -460,6 +461,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       sawKerfMm: p.sawKerfMm,
       segments: _segments,
       english: _english,
+      identity: p.identity,
     );
   }
 
@@ -590,6 +592,8 @@ class _ProjectHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final identity = project.identity
+        .summary(english: context.language == AppLanguage.en);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -624,6 +628,15 @@ class _ProjectHeader extends StatelessWidget {
                   ),
                   style: const TextStyle(fontSize: 12, color: _kMuted),
                 ),
+                // Line / ISO + revision / client / class (schema v22) — what
+                // QC and the foreman identify the job by.
+                if (identity.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    identity,
+                    style: const TextStyle(fontSize: 12, color: _kText),
+                  ),
+                ],
               ],
             ),
           ),

@@ -17,6 +17,13 @@ class Segment {
   final int createdAt;
   final int updatedAt;
 
+  /// v22: piece mark as the drawing numbers it (`SP02-03`); null when the
+  /// fitter gave none. Blank is stored as null.
+  final String? label;
+
+  /// v22: spool this piece belongs to, as printed (`SP02`).
+  final String? spoolId;
+
   Segment({
     required this.id,
     required this.projectId,
@@ -35,7 +42,15 @@ class Segment {
     required this.cutMm,
     required this.createdAt,
     required this.updatedAt,
-  });
+    String? label,
+    String? spoolId,
+  })  : label = _clean(label),
+        spoolId = _clean(spoolId);
+
+  static String? _clean(String? v) {
+    final t = v?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
 
   static Segment fromRow(Map<String, Object?> r) {
     return Segment(
@@ -56,6 +71,8 @@ class Segment {
       cutMm: (r['cut_mm'] as num).toDouble(),
       createdAt: (r['created_at'] as num).toInt(),
       updatedAt: (r['updated_at'] as num).toInt(),
+      label: r['label'] as String?,
+      spoolId: r['spool_id'] as String?,
     );
   }
 }

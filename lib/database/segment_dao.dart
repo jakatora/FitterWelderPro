@@ -14,7 +14,22 @@ class SegmentDao {
 
   Future<void> insert(Map<String, Object?> row) async {
     final db = await AppDatabase.get();
-    await db.insert('segments', row);
+    await db.insert('segments', normalizeIdentity(row));
+  }
+
+  /// `label` / `spool_id` (schema v22) trimmed, blank stored as NULL — a
+  /// piece mark of "  " must not show up as a label on the saw list. Other
+  /// columns pass through untouched; a row without those keys is unchanged.
+  static Map<String, Object?> normalizeIdentity(Map<String, Object?> row) {
+    if (!row.containsKey('label') && !row.containsKey('spool_id')) return row;
+    final out = Map<String, Object?>.from(row);
+    for (final key in const ['label', 'spool_id']) {
+      if (!out.containsKey(key)) continue;
+      final v = out[key];
+      final t = v is String ? v.trim() : null;
+      out[key] = (t == null || t.isEmpty) ? null : t;
+    }
+    return out;
   }
 
   /// Overwrites an existing segment in place, matched on `row['id']`.
@@ -38,7 +53,7 @@ class SegmentDao {
   Future<int> update(Map<String, Object?> row) async {
     final db = await AppDatabase.get();
     final id = row['id'] as String;
-    final values = Map<String, Object?>.from(row)
+    final values = Map<String, Object?>.from(normalizeIdentity(row))
       ..remove('id')
       ..remove('project_id')
       ..remove('seq_no')

@@ -90,6 +90,7 @@ class ProjectDao {
       'gap_mm': p.gapMm,
       'created_at': p.createdAt,
       'updated_at': p.updatedAt,
+      ...p.identity.toRow(),
     });
   }
 
@@ -267,12 +268,17 @@ class ProjectDao {
   /// any cut impossible (≤ 0) throws [GapMakesCutImpossible] and NOTHING is
   /// changed — not the gap, not the name, not a single cut. Half a project
   /// on the new gap and half on the old is worse than either.
+  ///
+  /// [identity] (line, ISO, revision, client, class — schema v22) is written
+  /// in the same transaction when given; null leaves those columns as they
+  /// are, so a caller that does not edit them cannot wipe them.
   Future<ProjectSettingsUpdate> updateSettings(
     String projectId, {
     required String? name,
     required double stockLengthMm,
     required double sawKerfMm,
     required double gapMm,
+    ProjectIdentity? identity,
   }) async {
     final db = await AppDatabase.get();
     return db.transaction<ProjectSettingsUpdate>((txn) async {
@@ -292,6 +298,7 @@ class ProjectDao {
           'saw_kerf_mm': sawKerfMm,
           'gap_mm': gapMm,
           'updated_at': now,
+          if (identity != null) ...identity.toRow(),
         },
         where: 'id = ?',
         whereArgs: [projectId],
@@ -345,6 +352,21 @@ class ProjectDao {
         changedBeyondGap: beyond,
       );
     });
+  }
+
+  /// Writes line / ISO / revision / client / class (schema v22) of a project.
+  /// Returns the number of rows changed — 0 when the project is gone.
+  Future<int> updateIdentity(String projectId, ProjectIdentity identity) async {
+    final db = await AppDatabase.get();
+    return db.update(
+      'projects',
+      {
+        ...identity.toRow(),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [projectId],
+    );
   }
 
   Future<void> updateName(String projectId, String name) async {

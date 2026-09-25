@@ -10,6 +10,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/models/segment.dart';
 import 'package:cut_list_app/services/cut_list_summary.dart';
 
@@ -182,6 +183,49 @@ void main() {
         'Ø114.3 × 6.0:\n'
         '  Bar 1: S01 (1/2): 6000  (remaining 0 mm)\n'
         '  Bar 2: S02: 4000 + S01 (2/2): 1000  (remaining 994 mm)\n',
+      );
+    });
+
+    test('v22: linia / ISO pod tytułem, oznaczenie sztuki obok S01', () {
+      final marked = Segment(
+        id: 'seg-1',
+        projectId: 'p',
+        seqNo: 1,
+        diameterMm: 114.3,
+        wallThicknessMm: 6.02,
+        startKind: 'logical',
+        startLibraryId: null,
+        startValueMm: 0,
+        endKind: 'logical',
+        endLibraryId: null,
+        endValueMm: 0,
+        isoRef: 'FACE',
+        isoExpr: '',
+        isoMm: 3293,
+        cutMm: 3293,
+        createdAt: 0,
+        updatedAt: 0,
+        label: 'SP02-03',
+      );
+      final s = _summary([marked, _seg(2, 2500)]);
+      expect(s.groups.single.barsByLabel.keys, ['S01 SP02-03', 'S02']);
+      expect(
+        buildCutListText(
+          projectName: 'Linia DN100',
+          materialGroup: 'CS',
+          stockLengthMm: 6000,
+          sawKerfMm: 3,
+          summary: s,
+          english: false,
+          identity: const ProjectIdentity(
+              lineNo: 'DN100-CWS-1234', isoNo: 'ISO-7', isoRev: 'B'),
+        ),
+        'CUT LIST — Linia DN100\n'
+        'Linia: DN100-CWS-1234 · ISO: ISO-7 rew. B\n'
+        'Materiał: CS  Sztanga: 6000 mm  Rzaz: 3.0 mm\n'
+        '\n'
+        'Ø114.3 × 6.0:\n'
+        '  Sztanga 1: S01 SP02-03: 3293 + S02: 2500  (zostaje 201 mm)\n',
       );
     });
   });

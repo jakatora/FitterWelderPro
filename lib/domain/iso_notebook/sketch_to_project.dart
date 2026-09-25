@@ -355,6 +355,11 @@ Map<String, Object?> sketchSegmentRow(
       'cut_mm': seg.cutMm,
       'created_at': nowMs,
       'updated_at': nowMs,
+      // v22: the pipe's number on the sketch (`R3`) is its piece mark — the
+      // cut list shows it next to `S01` so the piece off the saw can be found
+      // on the sketch. No spool_id: the notebook only marks a split, it does
+      // not number spools.
+      'label': seg.label,
     };
 
 // ─────────────────────────────────────────────────────────────────────────

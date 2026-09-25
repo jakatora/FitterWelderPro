@@ -219,4 +219,90 @@ void main() {
     expect(entries.map((e) => e.weldNo).toSet(), {'W-001', 'W-002'});
     await _drainCutList(tester);
   });
+
+  testWidgets(
+      'v22: skan → zapis → linia / ISO / rewizja / klasa w projekcie, '
+      'oznaczenia i spoole w segmentach', (tester) async {
+    final name = 'SKAN-ID-${DateTime.now().microsecondsSinceEpoch}';
+    final scan = AiScanResult(
+      schemaVersion: 2,
+      sizeNotation: 'DN',
+      titleBlock: AiTitleBlock(
+        drawingNumber: 'ISO-$name',
+        revision: 'B',
+        lineNumber: 'DN100-CWS-1234',
+        pipeClass: 'A1B',
+        material: 'A312 TP304L',
+        schedule: '10S',
+      ),
+      segments: [
+        AiSegment(
+          id: 's1',
+          dimensionMm: 1500,
+          rawDimension: '1500',
+          toId: 'c1',
+          spoolId: 'SP2',
+          confidence: AiConfidence.high,
+        ),
+        AiSegment(
+          id: 's2',
+          dimensionMm: 900,
+          rawDimension: '900',
+          fromId: 'c1',
+          spoolId: 'SP2',
+          confidence: AiConfidence.high,
+        ),
+      ],
+      components: [
+        AiComponent(
+          id: 'c1',
+          type: 'elbow90',
+          label: 'ELBOW 90 LR',
+          confidence: AiConfidence.high,
+        ),
+      ],
+      spools: [AiSpool(id: 'SP2', label: 'SP02')],
+    );
+    await _pump(tester, ScanReviewScreen(scan: scan, suggestedName: name));
+
+    // Folded to one line, prefilled from the title block.
+    expect(
+        find.text('Linia: DN100-CWS-1234 · ISO: ISO-$name rew. B · '
+            'Klasa: A1B'),
+        findsOneWidget);
+    // The fitter adds the client, which no title block carries.
+    await tester.tap(find.text('Identyfikacja z rysunku'));
+    await _settle(tester);
+    await tester.enterText(
+        find.byWidgetPredicate((w) =>
+            w is TextField && w.decoration?.labelText == 'Klient'),
+        'Orlen');
+    await _settle(tester);
+
+    await _tapAsync(tester, _button('Zapisz projekt'));
+
+    final saved = await tester.runAsync(() async {
+      for (var i = 0; i < 60; i++) {
+        final mine = (await ProjectDao().listAll())
+            .where((p) => p.name == name)
+            .toList();
+        if (mine.isNotEmpty) {
+          final segs = await SegmentDao().listForProject(mine.first.id);
+          if (segs.length == 2) return (project: mine.first, segments: segs);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      return null;
+    });
+    expect(saved, isNotNull, reason: 'projekt nie został zapisany');
+    final p = saved!.project;
+    expect(p.lineNo, 'DN100-CWS-1234');
+    expect(p.isoNo, 'ISO-$name');
+    expect(p.isoRev, 'B');
+    expect(p.spec, 'A1B');
+    expect(p.client, 'Orlen');
+    expect(saved.segments.map((s) => s.label), ['SP02/1', 'SP02/2']);
+    expect(saved.segments.map((s) => s.spoolId), ['SP02', 'SP02']);
+    await _drainCutList(tester);
+  });
 }

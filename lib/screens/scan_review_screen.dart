@@ -47,6 +47,7 @@ import 'cut_list_summary_screen.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
+import '../widgets/project_identity_fields.dart';
 
 const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -102,6 +103,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _diaCtrl;
   late final TextEditingController _wallCtrl;
+
+  /// Line / ISO + revision / client / class (schema v22), prefilled from the
+  /// title block; saved on the project and carried into the weld journal.
+  late final ProjectIdentityControllers _identityCtrl;
 
   /// Root gap per weld (mm) of the project this scan becomes. It is stored on
   /// the project and taken off every cut here exactly as the segment builder
@@ -165,6 +170,12 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
       text: _fmt(widget.initialWallThicknessMm ?? first.project.wallThicknessMm),
     );
     _materialGroup = first.project.materialGroup;
+    _identityCtrl = ProjectIdentityControllers(ProjectIdentity.clean(
+      lineNo: first.project.lineNo,
+      isoNo: first.project.isoNo,
+      isoRev: first.project.isoRev,
+      spec: first.project.spec,
+    ));
 
     _recompute();
   }
@@ -175,6 +186,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     _diaCtrl.dispose();
     _wallCtrl.dispose();
     _gapCtrl.dispose();
+    _identityCtrl.dispose();
     super.dispose();
   }
 
@@ -452,6 +464,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         : typedName;
     final savable = _gate.savable;
     final blocked = _gate.blocked;
+    final identity = _identityCtrl.value;
+    final spoolLabels = {for (final s in _scan.spools) s.id: s.display};
 
     WeldJournalImport? journal;
     if (withJournal) {
@@ -465,7 +479,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           savedSegmentIds: savable.map((s) => s.sourceId).toSet(),
           existing: existing,
           newId: () => const Uuid().v4(),
-          spoolLabels: {for (final s in _scan.spools) s.id: s.display},
+          spoolLabels: spoolLabels,
+          identity: identity,
         );
       } catch (e) {
         if (!mounted) return;
@@ -509,6 +524,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         gapMm: gapMm,
         createdAt: now,
         updatedAt: now,
+        lineNo: identity.lineNo,
+        isoNo: identity.isoNo,
+        isoRev: identity.isoRev,
+        client: identity.client,
+        spec: identity.spec,
       ));
       projectWritten = true;
 
@@ -525,6 +545,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           diameterMm: diameterMm,
           wallThicknessMm: wallMm,
           nowMs: now,
+          spoolLabels: spoolLabels,
         );
         if (row == null) {
           // Unreachable while the gate holds; kept so a future change to it
@@ -1201,6 +1222,45 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     );
   }
 
+  /// Line / ISO + revision / client / class read off the title block — folded
+  /// to one line (they are prefilled, usually right) and editable on tap.
+  Widget _identityTile() {
+    final summary = _identityCtrl.value
+        .summary(english: context.language == AppLanguage.en);
+    // Own transparent Material: the header card paints its colour in a
+    // DecoratedBox, which would hide the tile's ink.
+    return Material(
+      type: MaterialType.transparency,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: const ValueKey('scan-identity'),
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 8),
+          title: Text(
+            _tr('Identyfikacja z rysunku', 'Drawing identification'),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            summary.isEmpty
+                ? _tr('Linia, ISO, rewizja, klient, klasa — brak na tabliczce',
+                    'Line, ISO, revision, client, class — not on the title block')
+                : summary,
+            style: const TextStyle(fontSize: 12, color: _kSec),
+          ),
+          onExpansionChanged: (_) => setState(() {}),
+          children: [
+            ProjectIdentityFields(
+              controllers: _identityCtrl,
+              enabled: !_saving,
+              dense: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _headerCard() {
     final draft = _plan.project;
     return Container(
@@ -1231,6 +1291,7 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
               labelText: _tr('Nazwa / nr linii', 'Name / line number'),
             ),
           ),
+          _identityTile(),
           const SizedBox(height: 12),
           Row(
             children: [

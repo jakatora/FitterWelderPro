@@ -8,6 +8,7 @@ import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/material_item.dart';
+import '../models/project.dart';
 import '../services/material_list_builder.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
@@ -83,15 +84,22 @@ String bomLine(MaterialItem item, {required bool english}) =>
     '${bomQuantityText(item, english: english)}';
 
 /// The whole BOM as plain text for the clipboard / share sheet.
+///
+/// A non-empty [identity] (line / ISO / revision / client / class) goes on
+/// the line under the title, so the storeroom knows which drawing to pull.
 String buildBomText({
   required List<MaterialItem> items,
   required String? projectName,
   required bool english,
+  ProjectIdentity? identity,
 }) {
   final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
   final buf = StringBuffer(
       projectName == null || projectName.isEmpty ? title : '$title — $projectName');
   buf.writeln();
+  if (identity != null && identity.isNotEmpty) {
+    buf.writeln(identity.summary(english: english));
+  }
   for (final item in items) {
     buf.writeln(bomLine(item, english: english));
   }
@@ -168,6 +176,9 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   // Title line of the copied / shared BOM, so the storeroom knows which job
   // the list belongs to. Null when the project has no name.
   String? _projectName;
+  // Line / ISO / revision / client / class of the project (schema v22) — shown
+  // above the list and under the title of the copied / shared BOM.
+  ProjectIdentity? _identity;
   // Anchor for the iPad share popover.
   final _shareButtonKey = GlobalKey();
   bool _shareInFlight = false;
@@ -191,6 +202,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       items: _items,
       projectName: _projectName,
       english: _english,
+      identity: _identity,
     );
     final done = context.tr(
       pl: 'Skopiowano listę materiałową (${_items.length} poz.)',
@@ -218,6 +230,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       items: _items,
       projectName: _projectName,
       english: english,
+      identity: _identity,
     );
     final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
     final failed = context.tr(
@@ -277,9 +290,11 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       if (!mounted) return;
       // Best effort: the BOM is still useful without a title.
       String? projectName;
+      ProjectIdentity? identity;
       if (pid.isNotEmpty) {
         try {
           projectName = await _builder.projectName(pid);
+          identity = await _builder.projectIdentity(pid);
         } catch (e) {
           debugPrint('material_list projectName failed: $e');
         }
@@ -296,6 +311,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       setState(() {
         _items = items;
         _projectName = projectName;
+        _identity = identity;
         _loading = false;
         _staleCache = false;
       });
@@ -389,6 +405,10 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
     // TEE are shop-floor standard and stay as-is across PL/EN).
     final english = _english;
     final hasItems = !_loading && _items.isNotEmpty;
+    final identity = _identity;
+    final identityLine = identity == null || identity.isEmpty
+        ? null
+        : identity.summary(english: english);
 
     return Scaffold(
       appBar: AppBar(
@@ -510,9 +530,24 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                     // Always-scrollable so the RefreshIndicator works even when
                     // the list is short enough to not overflow the viewport.
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: _items.length,
+                    itemCount: _items.length + (identityLine == null ? 0 : 1),
                     separatorBuilder: (_, __) => const Divider(height: 0),
-                    itemBuilder: (context, i) {
+                    itemBuilder: (context, index) {
+                      // Line / ISO / revision / client / class above the
+                      // rows (schema v22): the storeroom pulls the drawing
+                      // by them.
+                      if (identityLine != null && index == 0) {
+                        return Padding(
+                          key: const ValueKey('bom-identity'),
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                          child: Text(
+                            identityLine,
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                        );
+                      }
+                      final i = identityLine == null ? index : index - 1;
                       final it = _items[i];
                       final isPipe = it.category == 'PIPE';
                       // Dual-unit trailing (P1-35): metric + imperial side-by-

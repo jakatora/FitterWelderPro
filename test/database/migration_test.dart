@@ -40,6 +40,12 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'gap_mm',
     'created_at',
     'updated_at',
+    // v22: identyfikacja sztuk.
+    'line_no',
+    'iso_no',
+    'iso_rev',
+    'client',
+    'spec',
   ],
   'segments': <String>[
     'id',
@@ -59,6 +65,9 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'cut_mm',
     'created_at',
     'updated_at',
+    // v22: oznaczenie sztuki i spool.
+    'label',
+    'spool_id',
   ],
   'heat_photos': <String>[
     'id',
@@ -614,6 +623,53 @@ CREATE TABLE iso_drawings (
   }
 }
 
+/// v21 as shipped: v19 plus the v20 journal/coupon columns. The v20/v21
+/// tables (history, repairs, journal projects, certificates, WPS) are left
+/// to the self-heal at the top of the migration, exactly like on a device
+/// that never opened those screens. `projects` and `segments` are still in
+/// their pre-v22 shape — no line, ISO, client, class, label or spool.
+Future<void> _buildV21(Database db) async {
+  await _buildV19(db);
+  for (final c in <String, String>{
+    'project_id': 'TEXT',
+    'iso_drawing': 'TEXT',
+    'iso_rev': 'TEXT',
+    'spool': 'TEXT',
+    'test_package': 'TEXT',
+    'joint_type': 'TEXT',
+    'shop_field': 'TEXT',
+    'position': 'TEXT',
+    'root_welder': 'TEXT',
+    'cap_welder': 'TEXT',
+    'filler_class': 'TEXT',
+    'filler_batch': 'TEXT',
+    'preheat_c': 'TEXT',
+    'interpass_c': 'TEXT',
+    'heat_input': 'TEXT',
+    'coupon_id': 'TEXT',
+    'pwht_required': 'INTEGER',
+    'pwht_chart': 'TEXT',
+    'hardness': 'TEXT',
+    'inspector': 'TEXT',
+    'inspected_at': 'TEXT',
+    'deleted_at': 'INTEGER',
+    for (final m in const ['vt', 'pt', 'mt', 'rt', 'ut'])
+      for (final f in const ['scope', 'result', 'report', 'date'])
+        'ndt_${m}_$f': 'TEXT',
+  }.entries) {
+    await db.execute(
+        'ALTER TABLE weld_journal ADD COLUMN ${c.key} ${c.value};');
+  }
+  for (final c in <String, String>{
+    'program_no': 'TEXT',
+    'program_params': 'TEXT',
+    'o2_ppm': 'REAL',
+    'heat_tint': 'INTEGER',
+  }.entries) {
+    await db.execute('ALTER TABLE weld_coupons ADD COLUMN ${c.key} ${c.value};');
+  }
+}
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -697,6 +753,7 @@ void main() {
     16: _buildV16,
     17: _buildV17WithScreenTables,
     19: _buildV19,
+    21: _buildV21,
   }.entries) {
     test('v${start.key} -> current: every table and column is present', () async {
       final db = await migrateFrom(start.key, start.value);
@@ -728,6 +785,7 @@ void main() {
       16: _buildV16,
       17: _buildV17WithScreenTables,
       19: _buildV19,
+      21: _buildV21,
     }.entries) {
       final migrated = await migrateFrom(start.key, start.value);
       addTearDown(migrated.close);
@@ -1074,6 +1132,104 @@ CREATE TABLE component_library (
           .toDouble(),
       1.2,
     );
+  });
+
+  test('v21 -> v22: projekty i segmenty zostają, identyfikacja dochodzi pusta',
+      () async {
+    // Monter z projektami i pociętymi segmentami aktualizuje aplikację. Nic
+    // nie może zniknąć ani się zmienić; nowe kolumny przychodzą NULL — nigdy
+    // wymyślony numer linii czy oznaczenie sztuki.
+    final db = await migrateFrom(
+      21,
+      _buildV21,
+      seedData: (legacy) async {
+        await legacy.insert('projects', <String, Object?>{
+          'id': 'p21',
+          'name': 'Rack 12',
+          'material_group': 'CS',
+          'diameter_mm': 114.3,
+          'wall_thickness_mm': 6.02,
+          'current_diameter_mm': 88.9,
+          'stock_length_mm': 12000.0,
+          'saw_kerf_mm': 3.0,
+          'gap_mm': 2.5,
+          'created_at': 1000,
+          'updated_at': 2000,
+        });
+        for (final (id, seq, cut) in [('s1', 1, 1162.0), ('s2', 2, 845.5)]) {
+          await legacy.insert('segments', <String, Object?>{
+            'id': id,
+            'project_id': 'p21',
+            'seq_no': seq,
+            'diameter_mm': 114.3,
+            'wall_thickness_mm': 6.02,
+            'start_kind': 'axial',
+            'start_library_id': null,
+            'start_value_mm': 152.0,
+            'end_kind': 'logical',
+            'end_library_id': null,
+            'end_value_mm': 0.0,
+            'iso_ref': 'AXIS|OPEN',
+            'iso_expr': '1000+200',
+            'iso_mm': 1200.0,
+            'cut_mm': cut,
+            'created_at': 1000,
+            'updated_at': 1000,
+          });
+        }
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w21',
+          'weld_no': 'W-001',
+          'iso_drawing': 'ISO-7',
+          'spool': 'SP01',
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+    expect(AppDatabase.schemaVersion, greaterThanOrEqualTo(22));
+
+    final project = (await db.query('projects')).single;
+    expect(project['name'], 'Rack 12');
+    expect(project['material_group'], 'CS');
+    expect((project['current_diameter_mm']! as num).toDouble(), 88.9);
+    expect((project['stock_length_mm']! as num).toDouble(), 12000.0);
+    expect((project['gap_mm']! as num).toDouble(), 2.5);
+    expect(project['updated_at'], 2000);
+    for (final c in ['line_no', 'iso_no', 'iso_rev', 'client', 'spec']) {
+      expect(project.containsKey(c), isTrue, reason: 'projects.$c missing');
+      expect(project[c], isNull, reason: 'projects.$c must arrive empty');
+    }
+
+    final segments = await db.query('segments', orderBy: 'seq_no');
+    expect(segments.map((s) => s['id']), ['s1', 's2']);
+    expect(segments.map((s) => (s['cut_mm']! as num).toDouble()),
+        [1162.0, 845.5]);
+    for (final s in segments) {
+      expect(s['iso_expr'], '1000+200');
+      expect(s['iso_ref'], 'AXIS|OPEN');
+      expect(s['label'], isNull);
+      expect(s['spool_id'], isNull);
+    }
+
+    expect((await db.query('weld_journal')).single['spool'], 'SP01');
+
+    // Nowe kolumny przyjmują to, co zapisuje DAO.
+    await db.update(
+      'projects',
+      <String, Object?>{'line_no': 'L-100', 'iso_no': 'ISO-7', 'iso_rev': 'B'},
+      where: "id = 'p21'",
+    );
+    await db.update(
+      'segments',
+      <String, Object?>{'label': 'SP02-03', 'spool_id': 'SP02'},
+      where: "id = 's1'",
+    );
+    expect((await db.query('projects')).single['iso_rev'], 'B');
+    expect(
+        (await db.query('segments', where: "id = 's1'")).single['label'],
+        'SP02-03');
   });
 
   test('the approved seed data lands on every upgrade path', () async {
