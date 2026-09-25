@@ -292,14 +292,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         segments: _scan.segments
             .map((s) => s.id != segmentId
                 ? s
-                : AiSegment(
-                    id: s.id,
+                : s.copyWith(
                     dimensionMm: mm,
                     rawDimension: expr,
-                    fromId: s.fromId,
-                    toId: s.toId,
-                    auxiliary: s.auxiliary,
                     confidence: AiConfidence.high,
+                    userConfirmed: true,
                   ))
             .toList(),
       );
@@ -364,14 +361,9 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         segments: _scan.segments
             .map((s) => s.id != segment.sourceId
                 ? s
-                : AiSegment(
-                    id: s.id,
-                    dimensionMm: s.dimensionMm,
-                    rawDimension: s.rawDimension,
+                : s.copyWith(
                     fromId: isStart ? targetId : s.fromId,
                     toId: isStart ? s.toId : targetId,
-                    auxiliary: s.auxiliary,
-                    confidence: s.confidence,
                   ))
             .toList(),
       );
@@ -381,26 +373,8 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   AiScanResult _copyScan({
     List<AiSegment>? segments,
     List<AiComponent>? components,
-  }) {
-    return AiScanResult(
-      drawingStandard: _scan.drawingStandard,
-      sizeNotation: _scan.sizeNotation,
-      isHygienic: _scan.isHygienic,
-      titleBlock: _scan.titleBlock,
-      northArrow: _scan.northArrow,
-      scale: _scan.scale,
-      segments: segments ?? _scan.segments,
-      components: components ?? _scan.components,
-      elevations: _scan.elevations,
-      billOfMaterials: _scan.billOfMaterials,
-      needsUserInput: _scan.needsUserInput,
-      uncertainty: _scan.uncertainty,
-      warnings: _scan.warnings,
-      error: _scan.error,
-      tookMs: _scan.tookMs,
-      model: _scan.model,
-    );
-  }
+  }) =>
+      _scan.copyWith(segments: segments, components: components);
 
   /// Gives every segment an id.
   ///
@@ -421,36 +395,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
         candidate = 'seg_$n';
       } while (used.contains(candidate));
       used.add(candidate);
-      return AiSegment(
-        id: candidate,
-        dimensionMm: s.dimensionMm,
-        rawDimension: s.rawDimension,
-        fromId: s.fromId,
-        toId: s.toId,
-        auxiliary: s.auxiliary,
-        confidence: s.confidence,
-      );
+      return s.copyWith(id: candidate);
     }).toList();
 
     if (!changed) return scan;
-    return AiScanResult(
-      drawingStandard: scan.drawingStandard,
-      sizeNotation: scan.sizeNotation,
-      isHygienic: scan.isHygienic,
-      titleBlock: scan.titleBlock,
-      northArrow: scan.northArrow,
-      scale: scan.scale,
-      segments: segments,
-      components: scan.components,
-      elevations: scan.elevations,
-      billOfMaterials: scan.billOfMaterials,
-      needsUserInput: scan.needsUserInput,
-      uncertainty: scan.uncertainty,
-      warnings: scan.warnings,
-      error: scan.error,
-      tookMs: scan.tookMs,
-      model: scan.model,
-    );
+    return scan.copyWith(segments: segments);
   }
 
   // ── Save ────────────────────────────────────────────────────────────────
