@@ -76,6 +76,50 @@ void main() {
     expect(jsonDecode(isoSketchRoundTripForTesting(jsonEncode(empty))), empty);
   });
 
+  group('per-end stops (format 3)', () {
+    Map<String, Object?> withStops(String a, String b) {
+      final sketch = representativeIsoSketch()..['format'] = 3;
+      final items = sketch['items']! as List<Object?>;
+      final seg = items.firstWhere((it) =>
+          it is Map && it['kind'] == 'seg' && it['calc'] != null) as Map;
+      (seg['calc'] as Map)
+        ..['stopA'] = a
+        ..['stopB'] = b;
+      return sketch;
+    }
+
+    test('stops survive the round trip and make the document format 3', () {
+      final sketch = withStops('centre', 'end');
+      final back =
+          jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))) as Map;
+      expect(back, sketch);
+      expect(back['format'], 3);
+      expect(kIsoSketchFormatVersion, 3);
+    });
+
+    test('through the body at both ends — a pair no DimRef names', () {
+      final sketch = withStops('end', 'end');
+      expect(jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))),
+          sketch);
+    });
+
+    test('half a pair is unreadable, not half-applied', () {
+      final sketch = withStops('centre', 'end');
+      final items = sketch['items']! as List<Object?>;
+      final seg = items.firstWhere((it) =>
+          it is Map && it['kind'] == 'seg' && it['calc'] != null) as Map;
+      (seg['calc'] as Map).remove('stopB');
+      expect(isoSketchSkippedItemsForTesting(jsonEncode(sketch)), 1);
+    });
+
+    test('a sketch without stops stays readable by older builds', () {
+      final back = jsonDecode(
+              isoSketchRoundTripForTesting(jsonEncode(representativeIsoSketch())))
+          as Map;
+      expect(back['format'], 1);
+    });
+  });
+
   group('weld gap (format 2)', () {
     test('a sketch with a gap keeps it and is written as format 2', () {
       final sketch = representativeIsoSketch()
@@ -94,7 +138,7 @@ void main() {
           as Map;
       expect(back['format'], 1);
       expect(back.containsKey('gapMm'), isFalse);
-      expect(kIsoSketchFormatVersion, 2,
+      expect(kIsoSketchFormatVersion, greaterThanOrEqualTo(2),
           reason: 'this build must still READ format 2');
     });
 

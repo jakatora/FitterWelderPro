@@ -10,9 +10,9 @@ part of 'iso_notebook_screen.dart';
 // are private to it; nothing here touches widgets, the database or the
 // screen state.
 //
-// FORMAT (kIsoSketchFormatVersion = 2):
+// FORMAT (kIsoSketchFormatVersion = 3):
 //   {
-//     "format": 1 or 2,
+//     "format": 1, 2 or 3,
 //     "name": "6\"-CWS-1234",
 //     "gapMm": 3,             (format 2 only — see below)
 //     "items": [
@@ -44,6 +44,13 @@ part of 'iso_notebook_screen.dart';
 // instead of opening it and quietly saving it back without the gap (its CUTs
 // would grow by gap × welds).
 //
+// FORMAT 3 adds "stopA" / "stopB" to a calc: where the dimension stops at
+// the pipe's end `a` / `b` (`centre` | `face` | `end`), picked per end in the
+// dimension window. A DimRef cannot say which end is which and has no code
+// for "through the body at both ends"; an older build would drop the stops
+// and cut from the DimRef instead, so a sketch that has them is written as
+// format 3 (refused by older builds); one without them keeps format 1 / 2.
+//
 // EVOLVING THE FORMAT: a new field that an older build would drop on its
 // next autosave MUST bump [kIsoSketchFormatVersion]. An older build refuses a
 // newer format (it starts a fresh sketch and leaves the stored one alone),
@@ -54,7 +61,7 @@ part of 'iso_notebook_screen.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Version of the JSON document written into `iso_drawings.json`.
-const int kIsoSketchFormatVersion = 2;
+const int kIsoSketchFormatVersion = 3;
 
 /// The stored sketch cannot be opened by this build.
 class IsoSketchFormatException implements Exception {
@@ -106,10 +113,15 @@ List<double> _encodeOffset(Offset o) => [
 Map<String, Object?> _encodeCalc(_CutCalc c) => {
       'iso': c.iso,
       'ref': c.ref.name,
+      if (c.hasStops) 'stopA': c.stopA!.name,
+      if (c.hasStops) 'stopB': c.stopB!.name,
       'deducts': [
         for (final d in c.deducts) {'name': d.name, 'value': d.value},
       ],
     };
+
+bool _sketchHasStops(_IsoSketch s) =>
+    s.items.any((it) => it is _Seg && (it.calc?.hasStops ?? false));
 
 Map<String, Object?> _encodeItem(_Item it) {
   if (it is _Seg) {
@@ -153,7 +165,7 @@ Map<String, Object?> _encodeItem(_Item it) {
 }
 
 Map<String, Object?> _encodeIsoSketch(_IsoSketch s) => {
-      'format': s.gapMm > 0 ? 2 : 1,
+      'format': _sketchHasStops(s) ? 3 : (s.gapMm > 0 ? 2 : 1),
       'name': s.name,
       if (s.gapMm > 0) 'gapMm': s.gapMm,
       'items': [for (final it in s.items) _encodeItem(it)],
@@ -177,7 +189,9 @@ class _UnreadableItem implements Exception {
 
 final Map<String, _Tool> _toolByName = _Tool.values.asNameMap();
 final Map<String, DimRef> _dimRefByName = DimRef.values.asNameMap();
-final Map<String, _ElbowSubtype> _elbowByName = _ElbowSubtype.values.asNameMap();
+final Map<String, SideStop> _stopByName = SideStop.values.asNameMap();
+final Map<String, _ElbowSubtype> _elbowByName =
+    _ElbowSubtype.values.asNameMap();
 final Map<String, EndConnection> _endByName = EndConnection.values.asNameMap();
 
 T _enumOrThrow<T>(Map<String, T> byName, Object? raw) {
@@ -222,12 +236,18 @@ _CutCalc _decodeCalc(Object? raw) {
       else
         throw const _UnreadableItem(),
   ];
+  final stopA = _optionalEnum(_stopByName, raw['stopA']);
+  final stopB = _optionalEnum(_stopByName, raw['stopB']);
+  // Both or neither: a half pair cannot be cut from.
+  if ((stopA == null) != (stopB == null)) throw const _UnreadableItem();
   return _CutCalc(
     _string(raw['iso']),
     deducts: deducts,
     ref: raw['ref'] == null
         ? DimRef.centreToCentre
         : _enumOrThrow(_dimRefByName, raw['ref']),
+    stopA: stopA,
+    stopB: stopB,
   );
 }
 
