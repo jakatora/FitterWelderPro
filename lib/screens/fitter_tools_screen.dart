@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../data/nps_dn_od_r.dart';
+import '../domain/fitter/fitter_calcs.dart';
 import '../i18n/app_language.dart';
 import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -30,27 +31,41 @@ class InsertCalc {
   final double takeoutMm;
   final double travelMm;
 
-  /// travel − 2 × take-out: pipe length between the two elbow ends
-  /// (weld gaps not deducted).
+  /// travel − 2 × take-out: distance between the two elbow ends.
   final double insertMm;
+
+  /// insert − 2 × weld gap: the pipe length to cut (two butt welds), same
+  /// convention as Rolling Offset (`rollingCutLengthMm`).
+  final double cutMm;
+
+  /// run = offset / tan θ: how far along the line the second elbow sits.
+  final double runMm;
   const InsertCalc({
     required this.takeoutMm,
     required this.travelMm,
     required this.insertMm,
+    required this.cutMm,
+    required this.runMm,
   });
 }
 
-/// travel = offset / sin θ; insert = travel − 2 × [takeoutMm].
+/// travel = offset / sin θ; insert = travel − 2 × [takeoutMm];
+/// cut = insert − 2 × [weldGapMm].
 InsertCalc insertBetweenElbows({
   required double offsetMm,
   required double angleDeg,
   required double takeoutMm,
+  double weldGapMm = 0,
 }) {
-  final travel = offsetMm / math.sin(angleDeg * math.pi / 180.0);
+  final rad = angleDeg * math.pi / 180.0;
+  final travel = offsetMm / math.sin(rad);
+  final insert = travel - 2.0 * takeoutMm;
   return InsertCalc(
     takeoutMm: takeoutMm,
     travelMm: travel,
-    insertMm: travel - 2.0 * takeoutMm,
+    insertMm: insert,
+    cutMm: insert - 2.0 * weldGapMm,
+    runMm: offsetMm / math.tan(rad),
   );
 }
 
@@ -70,7 +85,7 @@ class FitterToolsScreen extends StatelessWidget {
           bottom: TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: context.tr(pl: 'Spadek', en: 'Slope')),
+              Tab(text: context.tr(pl: 'Cięcie pod spadek', en: 'Slope cut')),
               Tab(text: context.tr(pl: 'Cięcie kolanka', en: 'Elbow cut')),
               Tab(text: context.tr(pl: 'Obrót kolanka', en: 'Elbow rotation')),
               Tab(text: context.tr(pl: 'Wstawka', en: 'Insert')),
@@ -258,13 +273,23 @@ class _SlopeTabState extends State<_SlopeTab> {
         return;
       }
 
-      final alphaRad = math.atan(pct / 100.0);
-      _alphaDeg = alphaRad * 180.0 / math.pi;
-      _sawAngleDeg = 90.0 - _alphaDeg!;
+      final saw = slopeSawAngles(pct);
+      _alphaDeg = saw.fromSquareDeg;
+      _sawAngleDeg = saw.scale90Deg;
       // Δh = D·tan α (same convention as the Slope screen: rise = L·tan α).
       _deltaH = slopeCutDeltaMm(d, pct);
 
-      _hint = _tr('Zetnij ${_deltaH!.toStringAsFixed(2)} mm albo utnij na pile ${_sawAngleDeg!.toStringAsFixed(2)}°', 'Cut ${_deltaH!.toStringAsFixed(2)} mm or set the saw to ${_sawAngleDeg!.toStringAsFixed(2)}°');
+      // Most band / mitre saws read 0° for a square cut — the setting is α,
+      // not 90° − α (which on such a scale would cut almost along the pipe).
+      _hint = _tr(
+          'Zetnij ${_deltaH!.toStringAsFixed(2)} mm albo odchyl piłę o '
+              '${_alphaDeg!.toStringAsFixed(2)}° od cięcia prostopadłego '
+              '(piła ze skalą 0° = prosto). Na skali, gdzie 90° = prosto: '
+              '${_sawAngleDeg!.toStringAsFixed(2)}°.',
+          'Cut ${_deltaH!.toStringAsFixed(2)} mm or tilt the saw '
+              '${_alphaDeg!.toStringAsFixed(2)}° off square (saw scale '
+              '0° = square). On a scale where 90° = square: '
+              '${_sawAngleDeg!.toStringAsFixed(2)}°.');
     });
   }
 
@@ -273,7 +298,7 @@ class _SlopeTabState extends State<_SlopeTab> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        _SectionTitle(_tr('Spadek rury', 'Pipe slope')),
+        _SectionTitle(_tr('Cięcie pod spadek', 'Slope cut')),
         _SectionDesc(
           _tr('Cięcie na skos (jedno cięcie) - policz różnicę wysokości na przekroju rury, żeby uzyskać spadek w %.', 'Single angled cut: calculate the height difference across the pipe section to achieve the required slope in %.'),
         ),
@@ -299,8 +324,15 @@ class _SlopeTabState extends State<_SlopeTab> {
               _ResultLabel(_tr('Kąt spadku α', 'Slope angle α')),
               _ResultValue('${_alphaDeg!.toStringAsFixed(3)}°'),
               const SizedBox(height: 10),
-              _ResultLabel(_tr('Kąt cięcia na pile (90° − α)', 'Saw cut angle (90° − α)')),
-              _ResultValue('${_sawAngleDeg!.toStringAsFixed(3)}°'),
+              _ResultLabel(_tr('Piła — odchylenie od cięcia prostopadłego (skala 0° = prosto)',
+                  'Saw — tilt off square (scale 0° = square)')),
+              _ResultValue('${_alphaDeg!.toStringAsFixed(3)}°'),
+              const SizedBox(height: 4),
+              Text(
+                _tr('Na skali, gdzie 90° = cięcie prostopadłe: ${_sawAngleDeg!.toStringAsFixed(3)}° (90° − α)',
+                    'On a scale where 90° = square cut: ${_sawAngleDeg!.toStringAsFixed(3)}° (90° − α)'),
+                style: const TextStyle(fontSize: 12, color: _kSubtle),
+              ),
               const Divider(height: 24, color: Color(0xFF1A3A4A)),
               _ResultLabel(_tr('Różnica góra–dół na przekroju Δh = D × tan α', 'Top–bottom height diff. across pipe Δh = D × tan α')),
               _ResultValue('${_deltaH!.toStringAsFixed(2)} mm', isPrimary: true),
@@ -383,21 +415,20 @@ class _ElbowTabState extends State<_ElbowTab> {
         return;
       }
 
-      // ── OBLICZENIA ───────────────────────────────────────────────────────
-      // Proporcja łuków = proporcja kątów (łuk kołowy liniowo zależy od kąta)
-      // L_cut = L_total × (θ_target / θ_base)
-      // S_cut = S_total × (θ_target / θ_base)
-      final ratio = T / baseAngle;
-
-      _lCut     = L * ratio;
-      _sCut     = S * ratio;
-      _lRemain  = L - _lCut!;
-      _sRemain  = S - _sCut!;
-      _remainAngle = baseAngle - T;
-
-      // OD wyliczone z pomiarów (do weryfikacji): OD = (L-S) / θ_base_rad
-      final baseRad = baseAngle * math.pi / 180.0;
-      _odDerived = (L - S) / baseRad;
+      // Proporcja łuków = proporcja kątów — lib/domain/fitter/fitter_calcs.dart.
+      final r = elbowCut(
+        baseAngleDeg: baseAngle,
+        extradosMm: L,
+        intradosMm: S,
+        targetAngleDeg: T,
+      );
+      if (r == null) return;
+      _lCut = r.longCutMm;
+      _sCut = r.shortCutMm;
+      _lRemain = r.longRemainMm;
+      _sRemain = r.shortRemainMm;
+      _remainAngle = r.remainAngleDeg;
+      _odDerived = r.odDerivedMm;
     });
   }
 
@@ -489,7 +520,7 @@ class _ElbowTabState extends State<_ElbowTab> {
               'Długi bok kolanka — extrados (mm)',
               'Long side of elbow — extrados (mm)',
             ),
-            hintText: _tr('np. 141.4', 'e.g. 141.4'),
+            hintText: _tr('np. 166.7 (DN50 LR)', 'e.g. 166.7 (DN50 LR)'),
             suffixText: 'mm',
           ),
           onChanged: (_) => _calc(),
@@ -504,7 +535,7 @@ class _ElbowTabState extends State<_ElbowTab> {
               'Krótki bok kolanka — intrados (mm)',
               'Short side of elbow — intrados (mm)',
             ),
-            hintText: _tr('np. 70.7', 'e.g. 70.7'),
+            hintText: _tr('np. 72.0 (DN50 LR)', 'e.g. 72.0 (DN50 LR)'),
             suffixText: 'mm',
           ),
           onChanged: (_) => _calc(),
@@ -707,6 +738,7 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
 
   double? _resultMm;
   double? _resultDeg;
+  bool _overTurn = false;
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -725,30 +757,32 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
       _error = null;
       _resultMm = null;
       _resultDeg = null;
+      _overTurn = false;
 
-      final od = parseDecimal(_od.text);
-      double? circ = parseDecimal(_circ.text);
-      final pct = parseDecimal(_percent.text);
-      final deg = parseDecimal(_deg.text);
-
-      if ((circ == null || circ <= 0) && (od == null || od <= 0)) {
-        _error = _tr('Podaj OD albo obwód (mm)', 'Enter OD or circumference (mm)');
-        return;
+      // A typed circumference of 0 counts as empty (computed from OD) —
+      // lib/domain/fitter/fitter_calcs.dart rotationArc.
+      final r = rotationArc(
+        odMm: parseDecimal(_od.text),
+        circumferenceMm: parseDecimal(_circ.text),
+        percent: parseDecimal(_percent.text),
+        degrees: parseDecimal(_deg.text),
+      );
+      switch (r.error) {
+        case RotationError.noSize:
+          _error = _tr('Podaj OD albo obwód (mm)', 'Enter OD or circumference (mm)');
+          return;
+        case RotationError.noRotation:
+          // Nothing typed yet — no red error while the fitter is still typing.
+          if (_percent.text.trim().isEmpty && _deg.text.trim().isEmpty) return;
+          _error = _tr('Podaj % obrotu albo stopnie > 0', 'Enter rotation % or degrees > 0');
+          return;
+        case null:
+          break;
       }
-      circ ??= math.pi * od!;
-
-      if (deg != null && deg > 0) {
-        _resultDeg = deg;
-        _resultMm = circ * (deg / 360.0);
-        return;
-      }
-      if (pct != null) {
-        _resultDeg = 360.0 * (pct / 100.0);
-        _resultMm = circ * (pct / 100.0);
-        return;
-      }
-
-      _error = _tr('Podaj % obrotu albo stopnie', 'Enter rotation % or degrees');
+      final arc = r.arc!;
+      _resultDeg = arc.degrees;
+      _resultMm = arc.arcMm;
+      _overTurn = arc.overFullTurn;
     });
   }
 
@@ -817,6 +851,20 @@ class _ElbowRotateTabState extends State<_ElbowRotateTab> {
                 _ResultLabel(_tr('To odpowiada', 'Corresponds to')),
                 _ResultValue('${_resultDeg!.toStringAsFixed(1)}°'),
               ],
+              if (_overTurn) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _tr('Uwaga: więcej niż pełny obrót (> 360° / > 100 %) — sprawdź wpis.',
+                      'Note: more than one full turn (> 360° / > 100 %) — check the input.'),
+                  style: const TextStyle(fontSize: 12, color: _kAccentWarm),
+                ),
+              ],
+              const SizedBox(height: 6),
+              Text(
+                _tr('Gdy wpisane są oba pola, liczą się stopnie.',
+                    'When both fields are filled, degrees are used.'),
+                style: const TextStyle(fontSize: 11, color: _kSubtle),
+              ),
             ],
           ),
         if (_error != null) _ErrorText(_error!),
@@ -837,6 +885,7 @@ class _InsertTabState extends State<_InsertTab> {
   final _radius = TextEditingController();
   final _angle = TextEditingController();
   final _offset = TextEditingController();
+  final _gap = TextEditingController();
 
   // Rodzina kolan: '1D' (SR), '1.5D' (LR), '3D' wg ASME B16.9 albo 'manual'.
   String _rMode = '1.5D';
@@ -846,6 +895,9 @@ class _InsertTabState extends State<_InsertTab> {
   double? _takeoff;
   double? _travel;
   double? _insert;
+  double? _cut;
+  double? _run;
+  double _gapMm = 0;
   String? _source; // skąd take-out (tabela / segment / ręcznie)
   String? _error;
 
@@ -857,6 +909,7 @@ class _InsertTabState extends State<_InsertTab> {
     _radius.dispose();
     _angle.dispose();
     _offset.dispose();
+    _gap.dispose();
     super.dispose();
   }
 
@@ -944,6 +997,8 @@ class _InsertTabState extends State<_InsertTab> {
       _takeoff = null;
       _travel = null;
       _insert = null;
+      _cut = null;
+      _run = null;
       _rComputed = null;
       _sizeInfo = null;
       _source = null;
@@ -986,9 +1041,16 @@ class _InsertTabState extends State<_InsertTab> {
         _error = _tr('Podaj odejście (offset) > 0 (mm)', 'Enter offset > 0 (mm)');
         return;
       }
+      // Weld gap: empty = 0 (as in Rolling Offset), negative = error.
+      final gapText = _gap.text.trim();
+      final gap = gapText.isEmpty ? 0.0 : parseDecimal(gapText);
+      if (gap == null || gap < 0) {
+        _error = _tr('Szczelina spoiny: wpisz ≥ 0 mm', 'Weld gap: enter ≥ 0 mm');
+        return;
+      }
 
       final calc = insertBetweenElbows(
-          offsetMm: off, angleDeg: ang, takeoutMm: takeoff);
+          offsetMm: off, angleDeg: ang, takeoutMm: takeoff, weldGapMm: gap);
       if (!calc.insertMm.isFinite || !calc.travelMm.isFinite) {
         _error = _tr('Nieprawidłowe dane wejściowe', 'Invalid input data');
         return;
@@ -997,6 +1059,9 @@ class _InsertTabState extends State<_InsertTab> {
       _takeoff = calc.takeoutMm;
       _travel  = calc.travelMm;
       _insert  = calc.insertMm;
+      _cut     = calc.cutMm;
+      _run     = calc.runMm;
+      _gapMm   = gap;
     });
   }
 
@@ -1008,12 +1073,12 @@ class _InsertTabState extends State<_InsertTab> {
         _SectionTitle(_tr('Wstawka (offset)', 'Insert (offset)')),
         _SectionDesc(_tr(
           'Model: dwa identyczne kolanka o kącie θ.\n'
-          'Wstawka = travel − 2 × take-out,  travel = offset / sin(θ)\n'
+          'Do cięcia = travel − 2 × take-out − 2 × szczelina,  travel = offset / sin(θ)\n'
           'Take-out kolana ASME B16.9: 90° i 45° — wymiary A / B z tabel normy; '
           'inny kąt — segment kolana 90°: A × tan(θ/2) (§6.2.4). '
           'Tryb ręczny: R × tan(θ/2).',
           'Model: two identical elbows at angle θ.\n'
-          'Insert = travel − 2 × take-out,  travel = offset / sin(θ)\n'
+          'Cut = travel − 2 × take-out − 2 × gap,  travel = offset / sin(θ)\n'
           'ASME B16.9 elbow take-out: 90° and 45° — dimensions A / B from the '
           'standard\'s tables; other angles — segment of a 90° elbow: '
           'A × tan(θ/2) (§6.2.4). Manual mode: R × tan(θ/2).',
@@ -1047,7 +1112,7 @@ class _InsertTabState extends State<_InsertTab> {
             inputFormatters: numberInputFormatters(),
             decoration: InputDecoration(
               labelText: _tr('Średnica zewnętrzna rury OD (mm)', 'Pipe outside diameter OD (mm)'),
-              hintText: 'np. 60.3',
+              hintText: _tr('np. 60.3', 'e.g. 60.3'),
             ),
             onChanged: (_) => _calc(),
           ),
@@ -1103,14 +1168,30 @@ class _InsertTabState extends State<_InsertTab> {
           inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
             labelText: _tr('Odejście — offset (mm)', 'Offset (mm)'),
-            hintText: 'np. 200',
+            hintText: _tr('np. 200', 'e.g. 200'),
             helperText: _tr('Prostopadła odległość między osiami dwóch równoległych rur', 'Perpendicular distance between two parallel pipe centrelines'),
+          ),
+          onChanged: (_) => _calc(),
+        ),
+        const SizedBox(height: 10),
+
+        // ── Szczelina spoiny ───────────────────────────────
+        TextField(
+          controller: _gap,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
+          decoration: InputDecoration(
+            labelText: _tr('Szczelina spoiny g (mm)', 'Weld gap g (mm)'),
+            hintText: '0',
+            suffixText: 'mm',
+            helperText: _tr('Wstawka ma 2 spoiny doczołowe — odejmuję 2 × g. Puste = 0.',
+                'The insert has 2 butt welds — 2 × g is deducted. Empty = 0.'),
           ),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 16),
 
-        if (_takeoff != null && _travel != null && _insert != null)
+        if (_takeoff != null && _travel != null && _insert != null && _cut != null)
           _ResultCard(
             children: [
               _ResultLabel(_tr('Take-out kolana T', 'Elbow take-out T')),
@@ -1126,13 +1207,26 @@ class _InsertTabState extends State<_InsertTab> {
               const SizedBox(height: 8),
               _ResultLabel('Travel  = offset / sin(θ)'),
               _ResultValue('${_travel!.toStringAsFixed(1)} mm'),
+              if (_run != null) ...[
+                const SizedBox(height: 8),
+                _ResultLabel(_tr('Run (przesunięcie wzdłuż linii) = offset / tan(θ)',
+                    'Run (along the line) = offset / tan(θ)')),
+                _ResultValue('${_run!.toStringAsFixed(1)} mm'),
+              ],
+              if (_gapMm > 0) ...[
+                const SizedBox(height: 8),
+                _ResultLabel(_tr('Wstawka między końcami kolan = travel − 2×T',
+                    'Insert between elbow ends = travel − 2×T')),
+                _ResultValue('${_insert!.toStringAsFixed(1)} mm'),
+              ],
               const SizedBox(height: 12),
-              _ResultLabel(_tr('Wstawka  = travel − 2×T', 'Insert  = travel − 2×T')),
+              _ResultLabel(_tr('Wstawka do cięcia = travel − 2×T − 2×g',
+                  'Insert to cut = travel − 2×T − 2×g')),
               _ResultValue(
-                '${_insert!.toStringAsFixed(1)} mm',
-                isPrimary: _insert! > 0,
+                '${_cut!.toStringAsFixed(1)} mm',
+                isPrimary: _cut! > 0,
               ),
-              if (_insert! < 0) ...[
+              if (_cut! < 0) ...[
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1151,7 +1245,7 @@ class _InsertTabState extends State<_InsertTab> {
                     style: TextStyle(color: Colors.orange.shade300, fontSize: 13),
                   ),
                 ),
-              ] else if (_insert! < 50) ...[
+              ] else if (_cut! < 50) ...[
                 const SizedBox(height: 10),
                 Text(
                   _tr(
@@ -1250,10 +1344,8 @@ class _ReducerTabState extends State<_ReducerTab> {
         return;
       }
 
-      final dLarge = maxD;
-      final dSmall = minD;
-      final x = l * (dLarge - t) / (dLarge - dSmall);
-      _cutFromLarge = x;
+      _cutFromLarge = reducerCutFromLargeMm(
+          d1Mm: d1, d2Mm: d2, lengthMm: l, targetMm: t);
     });
   }
 
@@ -1263,12 +1355,21 @@ class _ReducerTabState extends State<_ReducerTab> {
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
         _SectionTitle(_tr('Skrócenie redukcji do wymaganej średnicy', 'Trim reducer to the required diameter')),
-        const SizedBox(height: 12),
+        _SectionDesc(_tr(
+          'x = L × (OD duże − OD cel) / (OD duże − OD małe), liczone od dużego końca. '
+          'Model zakłada stożek na całej długości L. Redukcje ASME B16.9 / EN 10253 mają '
+          'na końcach krótkie odcinki walcowe (pod fazę) — zmierz długość samej części '
+          'stożkowej, wpisz ją jako L i odmierzaj od początku stożka. Średnice = OD.',
+          'x = L × (OD large − OD target) / (OD large − OD small), from the large end. '
+          'The model assumes a cone over the whole length L. ASME B16.9 / EN 10253 reducers '
+          'have short cylindrical ends (for the bevel) — measure the conical part only, '
+          'enter it as L and measure from the start of the cone. Diameters are OD.',
+        )),
         TextField(
           controller: _d1,
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
-          decoration: InputDecoration(labelText: _tr('Średnica wejścia [mm]', 'Inlet diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('OD wejścia [mm]', 'Inlet OD [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
@@ -1276,7 +1377,7 @@ class _ReducerTabState extends State<_ReducerTab> {
           controller: _d2,
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
-          decoration: InputDecoration(labelText: _tr('Średnica wyjścia [mm]', 'Outlet diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('OD wyjścia [mm]', 'Outlet OD [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
@@ -1284,7 +1385,7 @@ class _ReducerTabState extends State<_ReducerTab> {
           controller: _len,
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
-          decoration: InputDecoration(labelText: _tr('Długość redukcji L [mm]', 'Reducer length L [mm]')),
+          decoration: InputDecoration(labelText: _tr('Długość części stożkowej L [mm]', 'Conical length L [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 10),
@@ -1292,7 +1393,7 @@ class _ReducerTabState extends State<_ReducerTab> {
           controller: _target,
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
-          decoration: InputDecoration(labelText: _tr('Wymagana średnica [mm]', 'Required diameter [mm]')),
+          decoration: InputDecoration(labelText: _tr('Wymagane OD [mm]', 'Required OD [mm]')),
           onChanged: (_) => _calc(),
         ),
         const SizedBox(height: 16),
@@ -1322,14 +1423,14 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
   final _t   = TextEditingController();
   final _l   = TextEditingController(text: '1000');
   final _qty = TextEditingController(text: '1');
-  String _mat = 'SS';
+  PipeMaterial _mat = PipeMaterial.ss316;
 
   double? _kgm;
+  double? _lengthMm;
   double? _kgPiece;
+  int? _qtyPcs;
   double? _kgTotal;
   String? _error;
-
-  static const Map<String, double> _density = {'SS': 7930.0, 'CS': 7850.0, 'AL': 2700.0};
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
   @override
@@ -1340,20 +1441,37 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
     super.dispose();
   }
 
+  static String _fmt(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
   void _calc() {
     setState(() {
       _error = null; _kgm = null; _kgPiece = null; _kgTotal = null;
+      _lengthMm = null; _qtyPcs = null;
       final od  = parseDecimal(_od.text);
       final t   = parseDecimal(_t.text);
-      final l   = parseDecimal(_l.text) ?? 1000;
-      final qty = parseDecimal(_qty.text) ?? 1;
       if (od == null || od <= 0) { _error = _tr('Podaj OD rury (mm)', 'Enter pipe OD (mm)'); return; }
       if (t == null || t <= 0 || t >= od / 2) { _error = _tr('Podaj poprawną grubość ścianki', 'Enter valid wall thickness'); return; }
-      final rho = _density[_mat] ?? 7930.0;
-      final kgm = rho * math.pi * (od - t) * t / 1e6;
-      _kgm     = kgm;
-      _kgPiece = kgm * l / 1000.0;
-      _kgTotal = _kgPiece! * qty;
+      _kgm = pipeMassKgPerM(od, t, kPipeDensityKgM3[_mat]!);
+
+      // No silent defaults: an empty length / quantity just hides that line.
+      final lText = _l.text.trim();
+      if (lText.isNotEmpty) {
+        final l = parseDecimal(lText);
+        if (l == null || l <= 0) { _error = _tr('Długość: wpisz > 0 mm', 'Length: enter > 0 mm'); return; }
+        _lengthMm = l;
+        _kgPiece = _kgm! * l / 1000.0;
+      }
+      final qText = _qty.text.trim();
+      if (qText.isNotEmpty && _kgPiece != null) {
+        final q = parseDecimal(qText);
+        if (q == null || q <= 0 || q != q.roundToDouble()) {
+          _error = _tr('Ilość: wpisz całkowitą liczbę sztuk ≥ 1', 'Qty: enter a whole number ≥ 1');
+          return;
+        }
+        _qtyPcs = q.round();
+        _kgTotal = _kgPiece! * _qtyPcs!;
+      }
     });
   }
 
@@ -1364,19 +1482,21 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
       _SectionTitle(_tr('Ciężar rury', 'Pipe weight')),
       _SectionDesc(_tr(
         'm = ρ × π × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
+        'ρ: SS 316/316L 8 000 · SS 304/304L 7 900 kg/m³ (EN 10088-1) · CS 7 850 · Al 2 700',
         'm = ρ × π × (OD − t) × t   [kg/m]\n'
-        'SS 316L: ρ = 7 930 kg/m³  ·  CS: 7 850  ·  Al: 2 700',
+        'ρ: SS 316/316L 8,000 · SS 304/304L 7,900 kg/m³ (EN 10088-1) · CS 7,850 · Al 2,700',
       )),
-      DropdownButtonFormField<String>(
+      DropdownButtonFormField<PipeMaterial>(
         initialValue: _mat,
+        isExpanded: true,
         decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
         items: [
-          DropdownMenuItem(value: 'SS', child: Text(_tr('SS (nierdzewna) 7 930 kg/m³', 'SS (stainless)  7 930 kg/m³'))),
-          DropdownMenuItem(value: 'CS', child: Text(_tr('CS (węglowa)   7 850 kg/m³', 'CS (carbon)     7 850 kg/m³'))),
-          DropdownMenuItem(value: 'AL', child: Text(_tr('Al (aluminium) 2 700 kg/m³', 'Al (aluminium)  2 700 kg/m³'))),
+          DropdownMenuItem(value: PipeMaterial.ss316, child: Text(_tr('SS 316/316L (nierdzewna) 8 000 kg/m³', 'SS 316/316L (stainless) 8,000 kg/m³'))),
+          DropdownMenuItem(value: PipeMaterial.ss304, child: Text(_tr('SS 304/304L (nierdzewna) 7 900 kg/m³', 'SS 304/304L (stainless) 7,900 kg/m³'))),
+          DropdownMenuItem(value: PipeMaterial.cs, child: Text(_tr('CS (węglowa) 7 850 kg/m³', 'CS (carbon) 7,850 kg/m³'))),
+          DropdownMenuItem(value: PipeMaterial.al, child: Text(_tr('Al (aluminium) 2 700 kg/m³', 'Al (aluminium) 2,700 kg/m³'))),
         ],
-        onChanged: (v) { setState(() => _mat = v ?? 'SS'); _calc(); },
+        onChanged: (v) { setState(() => _mat = v ?? PipeMaterial.ss316); _calc(); },
       ),
       const SizedBox(height: 10),
       Row(children: [
@@ -1391,15 +1511,19 @@ class _PipeWeightTabState extends State<_PipeWeightTab> {
         Expanded(child: TextField(controller: _qty, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Ilość szt.', 'Qty'), hintText: '1'), onChanged: (_) => _calc())),
       ]),
       const SizedBox(height: 16),
-      if (_kgm != null) _ResultCard(children: [
+      if (_kgm != null && _error == null) _ResultCard(children: [
         _ResultLabel(_tr('Ciężar liniowy', 'Linear weight')),
-        _ResultValue('${_kgm!.toStringAsFixed(3)} kg/m'),
-        const SizedBox(height: 8),
-        _ResultLabel(_tr('Odcinek ${_l.text} mm', 'Section ${_l.text} mm')),
-        _ResultValue('${_kgPiece!.toStringAsFixed(3)} kg'),
-        const SizedBox(height: 8),
-        _ResultLabel(_tr('Razem (${_qty.text} szt.)', 'Total (${_qty.text} pcs)')),
-        _ResultValue('${_kgTotal!.toStringAsFixed(2)} kg', isPrimary: true),
+        _ResultValue('${_kgm!.toStringAsFixed(3)} kg/m', isPrimary: _kgPiece == null),
+        if (_kgPiece != null) ...[
+          const SizedBox(height: 8),
+          _ResultLabel(_tr('Odcinek ${_fmt(_lengthMm!)} mm', 'Section ${_fmt(_lengthMm!)} mm')),
+          _ResultValue('${_kgPiece!.toStringAsFixed(3)} kg', isPrimary: _kgTotal == null),
+        ],
+        if (_kgTotal != null) ...[
+          const SizedBox(height: 8),
+          _ResultLabel(_tr('Razem ($_qtyPcs szt.)', 'Total ($_qtyPcs pcs)')),
+          _ResultValue('${_kgTotal!.toStringAsFixed(2)} kg', isPrimary: true),
+        ],
       ]),
       if (_error != null) _ErrorText(_error!),
     ],
@@ -1419,10 +1543,11 @@ class _BevelTabState extends State<_BevelTab> {
   final _angCtrl = TextEditingController(text: '37.5');
   final _landCtrl= TextEditingController(text: '1.0');
   final _gapCtrl = TextEditingController(text: '0');
-  String _type   = 'V';
+  BevelJoint _joint = BevelJoint.v;
+  BevelAngleConvention _conv = BevelAngleConvention.perSide;
 
-  double? _depth;
-  double? _width;
+  BevelGeometry? _geo;
+  double? _wall;
   String? _error;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -1434,71 +1559,145 @@ class _BevelTabState extends State<_BevelTab> {
     super.dispose();
   }
 
+  static String _f(double v) {
+    final s = v.toStringAsFixed(2);
+    return s.endsWith('.00') ? v.toStringAsFixed(0) : (s.endsWith('0') ? v.toStringAsFixed(1) : s);
+  }
+
+  /// Switching the convention converts the value already typed
+  /// (37.5 per side ↔ 75 included), so the geometry does not change.
+  void _setConvention(BevelAngleConvention c) {
+    if (c == _conv) return;
+    final a = parseDecimal(_angCtrl.text);
+    if (a != null) {
+      _angCtrl.text = _f(convertBevelAngle(a, from: _conv, to: c));
+    }
+    setState(() => _conv = c);
+    _calc();
+  }
+
   void _calc() {
     setState(() {
-      _error = null; _depth = null; _width = null;
+      _error = null; _geo = null; _wall = null;
       final t    = parseDecimal(_t.text);
-      final ang  = parseDecimal(_angCtrl.text) ?? 37.5;
-      final land = parseDecimal(_landCtrl.text) ?? 1.0;
-      if (t == null || t <= 0) { _error = _tr('Podaj grubość ścianki t (mm)', 'Enter wall thickness t (mm)'); return; }
-      final depth = t - land;
-      if (depth <= 0) { _error = _tr('Próg ≥ grubości ścianki', 'Root face ≥ wall thickness'); return; }
-      _depth = depth;
-      _width = depth * math.tan(ang * math.pi / 180.0);
+      final ang  = parseDecimal(_angCtrl.text);
+      final land = parseDecimal(_landCtrl.text);
+      final gap  = parseDecimal(_gapCtrl.text);
+      final err = validateBevel(
+          wallMm: t, angleDeg: ang, convention: _conv, rootFaceMm: land, gapMm: gap);
+      if (err != null) {
+        // Nothing typed yet — no red error on an untouched tab.
+        if (_t.text.trim().isEmpty) return;
+        _error = switch (err) {
+          BevelInputError.thickness => _tr('Podaj grubość ścianki t (mm)', 'Enter wall thickness t (mm)'),
+          BevelInputError.angle => _conv == BevelAngleConvention.perSide
+              ? _tr('Kąt fazy β na stronę: wpisz 0–60° (np. 37,5)', 'Bevel angle β per side: enter 0–60° (e.g. 37.5)')
+              : _tr('Kąt rowka α: wpisz 0–120° (np. 60)', 'Groove angle α: enter 0–120° (e.g. 60)'),
+          BevelInputError.rootFace => _tr('Próg b: wpisz ≥ 0 i mniej niż grubość ścianki', 'Root face b: enter ≥ 0 and less than the wall'),
+          BevelInputError.gap => _tr('Szczelina g: wpisz ≥ 0 mm (0 = bez szczeliny)', 'Root gap g: enter ≥ 0 mm (0 = no gap)'),
+        };
+        return;
+      }
+      _wall = t;
+      _geo = bevelGeometry(
+          joint: _joint, wallMm: t!, angleDeg: ang!, convention: _conv,
+          rootFaceMm: land!, gapMm: gap!);
     });
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
-    children: [
-      _SectionTitle(_tr('Kalkulator fazowania', 'Bevel calculator')),
-      _SectionDesc(_tr('Geometria fazy wg EN ISO 9692.', 'Bevel geometry per EN ISO 9692.')),
-      DropdownButtonFormField<String>(
-        initialValue: _type,
-        decoration: InputDecoration(labelText: _tr('Typ złącza', 'Joint type')),
-        items: const [
-          DropdownMenuItem(value: 'V', child: Text('V — jednofazowe (typowe TIG)')),
-          DropdownMenuItem(value: 'X', child: Text('X — dwustronne (grube ściany)')),
-        ],
-        onChanged: (v) { setState(() => _type = v ?? 'V'); _calc(); },
-      ),
-      const SizedBox(height: 10),
-      TextField(controller: _t, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
-      const SizedBox(height: 10),
-      Row(children: [
-        Expanded(child: TextField(controller: _angCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
-            decoration: InputDecoration(labelText: _tr('Kąt α (°)', 'Angle α (°)'), hintText: '37.5', suffixText: '°', helperText: _tr('Typowo 30–37.5°', 'Typical 30–37.5°')),
-            onChanged: (_) => _calc())),
-        const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _landCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
-            decoration: InputDecoration(labelText: _tr('Próg b (mm)', 'Root face b (mm)'), hintText: '1.0', suffixText: 'mm', helperText: _tr('Typowo 0.5–2 mm', 'Typ. 0.5–2 mm')),
-            onChanged: (_) => _calc())),
-        const SizedBox(width: 10),
-        Expanded(child: TextField(controller: _gapCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
-            decoration: InputDecoration(labelText: _tr('Szczelina g (mm)', 'Root gap g (mm)'), hintText: '2', suffixText: 'mm'),
-            onChanged: (_) => _calc())),
-      ]),
-      const SizedBox(height: 16),
-      if (_depth != null) _ResultCard(children: [
-        _ResultLabel(_tr('Głębokość fazy h', 'Bevel depth h')),
-        _ResultValue('${_depth!.toStringAsFixed(2)} mm'),
-        const SizedBox(height: 8),
-        _ResultLabel(_tr('Szerokość fazy na powierzchni', 'Bevel width at surface')),
-        _ResultValue('${_width!.toStringAsFixed(2)} mm', isPrimary: true),
+  Widget build(BuildContext context) {
+    final perSide = _conv == BevelAngleConvention.perSide;
+    final g = _geo;
+    return ListView(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
+      children: [
+        _SectionTitle(_tr('Kalkulator fazowania', 'Bevel calculator')),
+        _SectionDesc(_tr(
+          'Najpierw wybierz, jak podany jest kąt: EN ISO 9692-1 podaje kąt ROWKA α '
+          '(całkowity, np. 60°), ASME B16.25 kąt fazy NA STRONĘ β (37,5°; rowek 75°). '
+          'Szerokość fazy na stronę w = h × tan β.',
+          'First choose how the angle is given: EN ISO 9692-1 gives the GROOVE angle α '
+          '(included, e.g. 60°), ASME B16.25 the bevel angle PER SIDE β (37.5°; groove 75°). '
+          'Bevel width per side w = h × tan β.',
+        )),
+        DropdownButtonFormField<BevelJoint>(
+          initialValue: _joint,
+          isExpanded: true,
+          decoration: InputDecoration(labelText: _tr('Typ złącza', 'Joint type')),
+          items: [
+            DropdownMenuItem(value: BevelJoint.v, child: Text(_tr('V — jednostronne (typowe TIG)', 'V — single-sided (typical TIG)'))),
+            DropdownMenuItem(value: BevelJoint.x, child: Text(_tr('X — dwustronne (grube ścianki)', 'X — double-sided (thick walls)'))),
+          ],
+          onChanged: (v) { setState(() => _joint = v ?? BevelJoint.v); _calc(); },
+        ),
         const SizedBox(height: 10),
-        Text(_tr(
-          '• Fazuj pod kątem ${_angCtrl.text}° od progu (land) ${_landCtrl.text} mm\n'
-          '• Szerokość otworu złącza: ${((parseDecimal(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
-          '${_type == "X" ? "• Złącze X: fazuj z obu stron po ${(_depth! / 2).toStringAsFixed(2)} mm" : ""}',
-          '• Bevel at ${_angCtrl.text}° from root face ${_landCtrl.text} mm\n'
-          '• Joint opening width: ${((parseDecimal(_gapCtrl.text) ?? 2) + 2 * _width!).toStringAsFixed(1)} mm\n'
-          '${_type == "X" ? "• X joint: bevel both sides by ${(_depth! / 2).toStringAsFixed(2)} mm each" : ""}',
-        ), style: const TextStyle(fontSize: 12, color: _kSubtle, height: 1.6)),
-      ]),
-      if (_error != null) _ErrorText(_error!),
-    ],
-  );
+        DropdownButtonFormField<BevelAngleConvention>(
+          initialValue: _conv,
+          isExpanded: true,
+          decoration: InputDecoration(labelText: _tr('Jak podany jest kąt', 'How the angle is given')),
+          items: [
+            DropdownMenuItem(value: BevelAngleConvention.perSide, child: Text(_tr('Kąt fazy na stronę β (ASME B16.25, 37,5°)', 'Bevel angle per side β (ASME B16.25, 37.5°)'))),
+            DropdownMenuItem(value: BevelAngleConvention.grooveIncluded, child: Text(_tr('Kąt rowka α całkowity (EN ISO 9692-1, np. 60°)', 'Included groove angle α (EN ISO 9692-1, e.g. 60°)'))),
+          ],
+          onChanged: (v) => _setConvention(v ?? BevelAngleConvention.perSide),
+        ),
+        const SizedBox(height: 10),
+        TextField(controller: _t, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Grubość ścianki t (mm)', 'Wall thickness t (mm)'), hintText: '8'), onChanged: (_) => _calc()),
+        const SizedBox(height: 10),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: TextField(controller: _angCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
+              decoration: InputDecoration(
+                labelText: perSide ? _tr('Kąt fazy β (°)', 'Bevel angle β (°)') : _tr('Kąt rowka α (°)', 'Groove angle α (°)'),
+                hintText: perSide ? '37.5' : '60', suffixText: '°',
+                helperText: perSide ? _tr('na stronę', 'per side') : _tr('całkowity', 'included')),
+              onChanged: (_) => _calc())),
+          const SizedBox(width: 10),
+          Expanded(child: TextField(controller: _landCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
+              decoration: InputDecoration(labelText: _tr('Próg b (mm)', 'Root face b (mm)'), hintText: '1.0', suffixText: 'mm', helperText: _tr('Typowo 0.5–2 mm', 'Typ. 0.5–2 mm')),
+              onChanged: (_) => _calc())),
+          const SizedBox(width: 10),
+          Expanded(child: TextField(controller: _gapCtrl, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(),
+              decoration: InputDecoration(labelText: _tr('Szczelina g (mm)', 'Root gap g (mm)'), hintText: '0', suffixText: 'mm'),
+              onChanged: (_) => _calc())),
+        ]),
+        const SizedBox(height: 16),
+        if (g != null) _ResultCard(children: [
+          _ResultLabel(_tr('Kąt fazy na stronę β / kąt rowka α', 'Bevel angle per side β / groove angle α')),
+          _ResultValue('β ${_f(g.perSideDeg)}° · α ${_f(g.grooveDeg)}°'),
+          const SizedBox(height: 8),
+          _ResultLabel(g.joint == BevelJoint.x
+              ? _tr('Głębokość fazy h z każdej strony = (t − b) / 2', 'Bevel depth h from each face = (t − b) / 2')
+              : _tr('Głębokość fazy h = t − b', 'Bevel depth h = t − b')),
+          _ResultValue('${g.depthPerFaceMm.toStringAsFixed(2)} mm'),
+          const SizedBox(height: 8),
+          _ResultLabel(_tr('Szerokość fazy na stronę w = h × tan β', 'Bevel width per side w = h × tan β')),
+          _ResultValue('${g.widthPerSideMm.toStringAsFixed(2)} mm', isPrimary: true),
+          const SizedBox(height: 8),
+          _ResultLabel(_tr('Szerokość rowka na powierzchni = g + 2w', 'Groove width at the surface = g + 2w')),
+          _ResultValue('${g.grooveOpeningMm.toStringAsFixed(2)} mm'),
+          const SizedBox(height: 10),
+          Text(
+            g.joint == BevelJoint.x
+                ? _tr('• Złącze X: fazuj każdy koniec z OBU stron — po ${g.depthPerFaceMm.toStringAsFixed(2)} mm głębokości i ${g.widthPerSideMm.toStringAsFixed(2)} mm szerokości; próg w środku ścianki.',
+                    '• X joint: bevel each end from BOTH faces — ${g.depthPerFaceMm.toStringAsFixed(2)} mm deep and ${g.widthPerSideMm.toStringAsFixed(2)} mm wide each; root face in the middle of the wall.')
+                : _tr('• Fazuj każdy koniec pod β = ${_f(g.perSideDeg)}° do progu ${_landCtrl.text.trim()} mm.',
+                    '• Bevel each end at β = ${_f(g.perSideDeg)}° down to a ${_landCtrl.text.trim()} mm root face.'),
+            style: const TextStyle(fontSize: 12, color: _kSubtle, height: 1.6),
+          ),
+          if (_wall != null && _wall! > 22 && perSide) ...[
+            const SizedBox(height: 6),
+            Text(
+              _tr('Ścianka > 22 mm: ASME B16.25 przewiduje fazę złożoną (37,5° + 10°) — ten kalkulator liczy fazę prostą.',
+                  'Wall > 22 mm: ASME B16.25 uses a compound bevel (37.5° + 10°) — this calculator covers a plain bevel.'),
+              style: const TextStyle(fontSize: 12, color: _kAccentWarm, height: 1.4),
+            ),
+          ],
+        ]),
+        if (_error != null) _ErrorText(_error!),
+      ],
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1514,16 +1713,11 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
   final _dt = TextEditingController();
   final _t1 = TextEditingController();
   final _t2 = TextEditingController();
-  String _mat = 'SS316L';
+  ExpansionMaterial _mat = ExpansionMaterial.ss316L;
 
   double? _dLmm;
   double? _dLm;
   String? _error;
-
-  static const Map<String, double> _alpha = {
-    'SS316L': 16.0e-6, 'SS304L': 17.2e-6,
-    'CS':     12.0e-6, 'CuNi':  17.0e-6, 'Al': 23.6e-6,
-  };
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
   @override
@@ -1549,9 +1743,8 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
       final l = parseDecimal(_l.text);
       if (l == null || l <= 0) { _error = _tr('Podaj długość rurociągu (m)', 'Enter pipeline length (m)'); return; }
       if (dt == null || dt < 0) { _error = _tr('Podaj różnicę temperatur ΔT', 'Enter temperature difference ΔT'); return; }
-      final a = _alpha[_mat] ?? 16e-6;
-      _dLm  = a * l * dt;
-      _dLmm = _dLm! * 1000.0;
+      _dLmm = thermalExpansionMm(kExpansionAlpha[_mat]!, l, dt);
+      _dLm  = _dLmm! / 1000.0;
     });
   }
 
@@ -1561,22 +1754,23 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
     children: [
       _SectionTitle(_tr('Dylatacja cieplna', 'Thermal expansion')),
       _SectionDesc(_tr(
-        'ΔL = α × L × ΔT\n'
-        'Ważne przy rurociągach instalowanych na zimno, pracujących w podwyższonej temperaturze.',
-        'ΔL = α × L × ΔT\n'
-        'Important for pipelines installed cold and operating at elevated temperature.',
+        'ΔL = α × L × ΔT  (L w METRACH)\n'
+        'α średnie 20–100 °C; przy wyższej temperaturze pracy α rośnie (np. stal węglowa ok. 13 ×10⁻⁶ przy 300 °C) — wynik jest wtedy zaniżony.',
+        'ΔL = α × L × ΔT  (L in METRES)\n'
+        'Mean α 20–100 °C; at higher operating temperatures α grows (e.g. carbon steel ≈ 13 ×10⁻⁶ at 300 °C) — the result is then low.',
       )),
-      DropdownButtonFormField<String>(
+      DropdownButtonFormField<ExpansionMaterial>(
         initialValue: _mat,
+        isExpanded: true,
         decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
-        items: const [
-          DropdownMenuItem(value: 'SS316L', child: Text('SS 316L   α = 16.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'SS304L', child: Text('SS 304L   α = 17.2 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'CS',     child: Text('CS (węgl.) α = 12.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'CuNi',   child: Text('CuNi 90/10 α = 17.0 ×10⁻⁶ /°C')),
-          DropdownMenuItem(value: 'Al',     child: Text('Aluminium  α = 23.6 ×10⁻⁶ /°C')),
+        items: [
+          DropdownMenuItem(value: ExpansionMaterial.ss316L, child: Text('SS 316L   α = 16.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: ExpansionMaterial.ss304L, child: Text('SS 304L   α = 16.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: ExpansionMaterial.cs,     child: Text(_tr('CS (węglowa) α = 12.0 ×10⁻⁶ /°C', 'CS (carbon) α = 12.0 ×10⁻⁶ /°C'))),
+          DropdownMenuItem(value: ExpansionMaterial.cuNi,   child: Text('CuNi 90/10 α = 17.0 ×10⁻⁶ /°C')),
+          DropdownMenuItem(value: ExpansionMaterial.al,     child: Text('Aluminium  α = 23.6 ×10⁻⁶ /°C')),
         ],
-        onChanged: (v) { setState(() => _mat = v ?? 'SS316L'); _calc(); },
+        onChanged: (v) { setState(() => _mat = v ?? ExpansionMaterial.ss316L); _calc(); },
       ),
       const SizedBox(height: 10),
       TextField(controller: _l, keyboardType: numberKeyboard(), inputFormatters: numberInputFormatters(), decoration: InputDecoration(labelText: _tr('Długość rurociągu L (m)', 'Pipeline length L (m)'), hintText: '50', suffixText: 'm'), onChanged: (_) => _calc()),
@@ -1597,7 +1791,7 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
         const SizedBox(height: 10),
         Text(
           _dLmm! > 30
-            ? _tr('⚠ Dylatacja > 30 mm — wymagana kompensacja (lira, przegub, dylatator).', '⚠ Expansion > 30 mm — compensation required (expansion loop, joint or bellows).')
+            ? _tr('⚠ Dylatacja > 30 mm — sprawdź z projektem / stress engineerem, czy trasa ma kompensację (lira, ramię L/Z, kompensator). Próg 30 mm to reguła praktyczna, nie norma.', '⚠ Expansion > 30 mm — check with the design / stress engineer that the route is compensated (loop, L/Z leg, bellows). The 30 mm threshold is a rule of thumb, not a code value.')
             : _tr('✓ Dylatacja mała — sprawdź czy trasa ma wystarczający odcinek elastyczny.', '✓ Small expansion — verify the route has sufficient flexible section.'),
           style: TextStyle(fontSize: 12, color: _dLmm! > 30 ? _kAccentWarm : _kSubtle, fontWeight: _dLmm! > 30 ? FontWeight.w600 : FontWeight.normal),
         ),
@@ -1606,4 +1800,3 @@ class _ThermalExpansionTabState extends State<_ThermalExpansionTab> {
     ],
   );
 }
-
