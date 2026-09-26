@@ -55,12 +55,17 @@ Future<bool> ensureCommunityAccess(BuildContext context) async {
 /// tylko identyfikator instalacji — więc ich nie zbieramy (minimalizacja
 /// danych). Wymagamy wyłącznie akceptacji bieżącej wersji zasad i polityki
 /// prywatności, które opisują, co i dokąd wysyła asystent.
+///
+/// Ekran zgody mówi o ASYSTENCIE (treść pytań → serwer → Anthropic, bez
+/// nazwiska), a nie o czacie pod nazwiskiem — monter ma wiedzieć, na co się
+/// zgadza w tym miejscu.
 Future<bool> ensureServerConsent(BuildContext context) async {
   await LegalConsent.instance.load();
   if (LegalConsent.instance.isAccepted) return true;
   if (!context.mounted) return false;
   final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
     builder: (routeContext) => ConsentScreen(
+      purpose: ConsentPurpose.assistant,
       onAccepted: () => Navigator.of(routeContext).pop(true),
     ),
   ));

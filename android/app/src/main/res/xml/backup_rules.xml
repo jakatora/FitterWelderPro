@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Auto Backup (Android 6-11, android:fullBackupContent). Android 12+ czyta
+    data_extraction_rules.xml - obie listy musza mowic to samo.
+
+    Z kopii wypada caly plik SharedPreferences aplikacji. Sa w nim:
+      - identyfikator i SEKRET instalacji (fitter_device_id,
+        fitter_install_secret, fitter_author_id) - odtworzone na drugim
+        telefonie sklonowalyby tozsamosc na czacie (dwa urzadzenia z tym samym
+        sekretem);
+      - imie i nazwisko, zgody (zasady, skaner), tozsamosc spawacza, historia
+        asystenta, lista zablokowanych - dane osobowe i zgody dotycza tej
+        instalacji; na nowym telefonie aplikacja zapyta o nie od nowa.
+    Pojedynczych kluczy nie da sie wykluczyc (to jeden plik XML), a ustawienia
+    typu jezyk czy przypiete narzedzia nie sa warte ryzyka.
+
+    Baza projektow, dziennik spoin, zdjecia i Biblioteka WPS ZOSTAJA w kopii
+    systemowej - to kopia uzytkownika na jego koncie Google (opisana w
+    polityce prywatnosci). Niezaleznie od niej jest kopia ZIP w Profilu.
+
+    Wtyczka flutter_local_notifications trzyma zaplanowane przypomnienia we
+    wlasnym pliku - bez rejestru uprawnien z SharedPreferences odtworzone
+    przypomnienia bylyby osierocone, wiec tez wypadaja.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml" />
+    <exclude domain="sharedpref" path="scheduled_notifications.xml" />
+    <exclude domain="file" path="datastore/" />
+</full-backup-content>

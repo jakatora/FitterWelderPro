@@ -790,10 +790,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       pl: 'Co zostaje na telefonie',
                       en: 'What stays on your phone'),
                   body: context.tr(
-                    pl: 'Projekty, cut listy, dziennik spoin, zdjęcia i wyniki '
-                        'kalkulatorów. Nic z tego nie trafia na serwer.',
-                    en: 'Projects, cut lists, weld journal, photos and calculator '
-                        'results. None of it goes to a server.',
+                    pl: 'Projekty, cut listy, dziennik spoin, zdjęcia wytopów i '
+                        'wyniki kalkulatorów. Nic z tego nie trafia na nasz '
+                        'serwer. Na serwer idzie tylko to, co sam wyślesz: '
+                        'wiadomość na czacie, zdjęcie rysunku do skanera albo '
+                        'pytanie do asystenta.',
+                    en: 'Projects, cut lists, weld journal, heat photos and '
+                        'calculator results. None of it goes to our server. '
+                        'Only what you send goes there: a chat message, a '
+                        'drawing photo for the scanner or a question for the '
+                        'assistant.',
                   ),
                 ),
                 const SizedBox(height: 26),
@@ -1144,9 +1150,11 @@ class _Identity extends StatelessWidget {
                     ? context.tr(
                         pl: 'Potrzebne tylko do pisania na czacie',
                         en: 'Only needed to post in chat')
+                    // Serwer trzyma podpis przy każdej wysłanej wiadomości —
+                    // zmiana imienia dotyczy tylko nowych.
                     : context.tr(
-                        pl: 'Tak podpisane są Twoje wiadomości',
-                        en: 'This signs your messages'),
+                        pl: 'Tak podpisujesz nowe wiadomości',
+                        en: 'This signs your new messages'),
                 style: const TextStyle(color: kTextMut, fontSize: 12),
               ),
             ],
