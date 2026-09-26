@@ -41,7 +41,11 @@ void main() {
     });
 
     test('radzi sobie z polskimi znakami i leetspeakiem', () {
-      expect(ContentFilter.isObjectionable('pedał'), isTrue);
+      // Polskie znaki sprowadzone do ASCII: „kurwą" → „kurwa". („Pedał" nie
+      // jest już przykładem — to pedał nożny od TIG-a, patrz
+      // test/services/content_filter_jargon_test.dart.)
+      expect(ContentFilter.isObjectionable('kurwą'), isTrue);
+      expect(ContentFilter.isObjectionable('pedał od TIG-a'), isFalse);
       expect(ContentFilter.isObjectionable('ch0j'), isFalse); // 0->o daje "choj"
       expect(ContentFilter.isObjectionable('deb1l'), isTrue); // 1->i
       expect(ContentFilter.isObjectionable('f4ck'), isFalse); // 4->a daje "fack"

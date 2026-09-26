@@ -24,12 +24,34 @@ class ContentFilter {
   static const List<String> _blockedRoots = [
     // PL — wyzwiska i wulgaryzmy
     'kurwa', 'kurwi', 'chuj', 'pizda', 'pierdol', 'jebac', 'jeban', 'jebie',
-    'skurwysyn', 'zjeb', 'debil', 'kretyn', 'idiot', 'cwel', 'ciota', 'pedal',
-    'dziwka', 'gowno', 'sutki', 'dupa',
-    // Świadomie NIE ma tu „szmata" — na budowie to szmata do przecierania.
+    'skurwysyn', 'zjeb', 'debil', 'kretyn', 'idiot', 'cwel', 'ciota',
+    'pedzio', 'pedziu', 'pedryl', 'dziwka', 'gowno',
+    // Świadomie NIE ma tu słów, które na budowie znaczą coś zwykłego:
+    //   • „szmata" — szmata do przecierania rowka;
+    //   • „pedał" / „pedal" — pedał nożny od TIG-a (foot pedal). Wyzwisko
+    //     łapiemy tylko w zwrocie do kogoś („ty pedale") — [_blockedPhrases];
+    //   • „sutki" — złączki nyplowe („trzy sutki 1/2 cala");
+    //   • „dupa" — brzydkie słowo, ale nie wyzwisko; sito celuje w wyzwiska.
     // EN — wyzwiska i mowa nienawiści
     'fuck', 'cunt', 'bitch', 'nigger', 'faggot', 'retard', 'whore',
   ];
+
+  /// Zwroty, które są wyzwiskiem tylko w całości — pojedyncze słowo jest
+  /// żargonem. Dopasowanie po normalizacji, od granicy słowa.
+  static final List<(String, RegExp)> _blockedPhrases = [
+    ('ty pedal', RegExp(r'(^|[^a-z])ty\s+pedal[a-z]*')),
+  ];
+
+  /// Słowa branżowe, które zaczynają się jak rdzeń z listy blokad, a nie są
+  /// wyzwiskiem. Porównanie z POCZĄTKIEM słowa po normalizacji.
+  static const List<String> _safePrefixes = [
+    'idiotood', // „idiotoodporny" — złącze, którego nie da się źle wkręcić
+    'retardan', // „fire retardant" — powłoka ogniochronna
+    'retarder', // „retarder" — opóźniacz (farby, beton)
+    'retardat', // „retardation" — opóźnienie (zapłonu, wiązania)
+  ];
+
+  static final RegExp _word = RegExp('[a-z]+');
 
   static const Map<String, String> _leet = {
     '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', r'$': 's',
@@ -53,10 +75,18 @@ class ContentFilter {
   /// Zwracamy je, żeby dało się je pokazać w logu moderacji — nie użytkownikowi.
   static String? firstOffense(String text) {
     final normalized = _normalize(text);
+    // Całe słowa (ciągi liter po normalizacji). Rdzeń musi stać na początku
+    // słowa; z tyłu dopuszczamy końcówkę fleksyjną („chujowy", „debilu").
+    final words = _word
+        .allMatches(normalized)
+        .map((m) => m.group(0)!)
+        .where((w) => !_safePrefixes.any(w.startsWith))
+        .toList(growable: false);
     for (final root in _blockedRoots) {
-      // Granica słowa z przodu; z tyłu dopuszczamy końcówkę fleksyjną.
-      final re = RegExp('(^|[^a-z])$root[a-z]*', caseSensitive: false);
-      if (re.hasMatch(normalized)) return root;
+      if (words.any((w) => w.startsWith(root))) return root;
+    }
+    for (final (label, re) in _blockedPhrases) {
+      if (re.hasMatch(normalized)) return label;
     }
     return null;
   }
