@@ -145,6 +145,16 @@ void main() {
     expect(screen, isNot(contains("Tab(text: _tr('Zatwierdzone'")));
   });
 
+  test('zbiorniki: brak zakładki AMP i „lead + trail”; brak danych poza '
+      'zakresem; wiąże WPS', () {
+    final t = _all(kHelpWelderTanks);
+    expect(t, isNot(contains('lead + trail')));
+    expect(t, isNot(contains('AMP —')));
+    expect(_pl(kHelpWelderTanks), contains('brak danych dla tej grubości'));
+    expect(_pl(kHelpWelderTanks), contains('wiąże WPS'));
+    expect(_pl(kHelpWelderTanks), contains('Startowe'));
+  });
+
   test('rejestr uprawnień i Biblioteka WPS mają pomoc', () {
     final register = File(
             'lib/features/qualification/certificate_register_page.dart')

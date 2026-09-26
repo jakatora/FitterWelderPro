@@ -511,16 +511,18 @@ final kHelpWelderTanks = ScreenHelp(
   titlePl: 'Parametry spawania — Zbiorniki',
   titleEn: 'Welding parameters — Tanks',
   bodyPl:
-      'Zestawy parametrów spawania TIG dla zbiorników i większych przekrojów, w tym tandem TIG (dwa palniki). Zawiera zakładki AMP i Tandem TIG.',
+      'Tandem TIG na zbiornikach SS: dwóch spawaczy po obu stronach ścianki — palnik zewnętrzny z drutem i wewnętrzny bez drutu. Prądy to wartości startowe z danych użytkownika, nie kwalifikacja — wiąże WPS.',
   bodyEn:
-      'TIG welding parameter sets for tanks and larger sections, including tandem TIG (two torches). Contains AMP and Tandem TIG tabs.',
+      'Tandem TIG on SS tanks: two welders on both sides of the wall — the outer torch with wire and the inner torch without. The currents are starting values from user data, not a qualification — the WPS is binding.',
   stepsPl: [
-    HelpStep('⚡', 'AMP — referencyjne prądy dla zgrzewów obwodowych i podłużnych zbiorników.'),
-    HelpStep('🔀', 'Tandem TIG — parametry dla procesu z dwoma elektrodami (lead + trail).'),
+    HelpStep('🔀', 'Tandem — prądy zewn./wewn. z grubości t1/t2, pozycji i złącza. Liczba pojawia się tylko w zakresie punktów startowych (interpolacja); poza nim ekran pisze „brak danych dla tej grubości” — ustal prąd na próbce.'),
+    HelpStep('⚠️', 'Gdy w danych prąd maleje przy rosnącej grubości, wynik dostaje ostrzeżenie.'),
+    HelpStep('📋', 'Startowe — lista punktów startowych (tylko odczyt).'),
   ],
   stepsEn: [
-    HelpStep('⚡', 'AMP — reference currents for circumferential and longitudinal tank welds.'),
-    HelpStep('🔀', 'Tandem TIG — parameters for the dual-electrode process (lead + trail).'),
+    HelpStep('🔀', 'Tandem — OUT/IN currents from wall t1/t2, position and joint. A number appears only within the range of the starting points (interpolation); outside it the screen says “no data for this thickness” — set the current on a test piece.'),
+    HelpStep('⚠️', 'When the data show the current dropping as thickness grows, the result gets a warning.'),
+    HelpStep('📋', 'Starting points — list of starting points (read only).'),
   ],
 );
 
