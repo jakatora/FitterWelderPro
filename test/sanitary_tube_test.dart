@@ -21,6 +21,14 @@ void main() {
         expect(t.massPerMeter > 0, isTrue, reason: t.size);
       }
     });
+
+    // ρ 316L (1.4404) = 8,0 kg/dm³ — EN 10088-1 / TEAM EDELSTAHL 1.4404.
+    // 1 1/2" BPE 38,10 × 1,65: π · 36,45 · 1,65 · 8,0 / 1000 = 1,5115 kg/m
+    // (przy 7,93: 1,4983).
+    test('masa liczona dla 316L ρ 8,0', () {
+      const t = SanitaryTube(size: '1 1/2"', od: 38.10, wall: 1.65);
+      expect(t.massPerMeter, closeTo(1.5115, 0.0001));
+    });
   });
 
   group('BPE table', () {

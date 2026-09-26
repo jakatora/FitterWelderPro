@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/pipe_schedules.dart';
+import '../domain/fitter/size_query.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
@@ -12,9 +13,13 @@ const _kOrange = Color(0xFFFF8E1E);
 const _kBlue   = Color(0xFF4A9EFF);
 const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
-/// Wall thickness lookup per ASME B36.10M / B36.19M.
-/// Long-press a wall to copy. Switch between wall-mm and kg/m view via the
-/// chip row at the top — same table, two readings a fitter actually asks for.
+/// What the table cells show.
+enum ScheduleView { wall, inside, mass }
+
+/// Wall thickness lookup per ASME B36.10M (CS: STD, 40, 80, 160, XS, XXS) and
+/// ASME B36.19M (SS: 5S, 10S, 40S, 80S). Long-press a cell to copy.
+/// The view chips switch the cells between wall, inside diameter (OD − 2t)
+/// and kg/m — same table, the three readings a fitter actually asks for.
 class PipeScheduleScreen extends StatefulWidget {
   const PipeScheduleScreen({super.key});
 
@@ -24,13 +29,14 @@ class PipeScheduleScreen extends StatefulWidget {
 
 class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
   String _q = '';
-  bool _showMass = false;
+  ScheduleView _view = ScheduleView.wall;
   bool _stainless = false;
   final _filter = TextEditingController();
 
   // Autosave view mode so a fitter checking kg/m for SS pipe doesn't have to
   // re-toggle every time they switch tabs to glance at an iso or torque calc.
   static const _kPrefShowMass = 'pipe_schedule.show_mass';
+  static const _kPrefView = 'pipe_schedule.view';
   static const _kPrefStainless = 'pipe_schedule.stainless';
 
   @override
@@ -42,18 +48,25 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
-    final showMass = prefs.getBool(_kPrefShowMass);
+    final view = prefs.getString(_kPrefView);
+    final showMass = prefs.getBool(_kPrefShowMass); // pre-ID versions
     final stainless = prefs.getBool(_kPrefStainless);
-    if (showMass == null && stainless == null) return;
+    if (view == null && showMass == null && stainless == null) return;
     setState(() {
-      if (showMass != null) _showMass = showMass;
+      final byName = ScheduleView.values.where((v) => v.name == view);
+      if (byName.isNotEmpty) {
+        _view = byName.first;
+      } else if (showMass == true) {
+        _view = ScheduleView.mass;
+      }
       if (stainless != null) _stainless = stainless;
     });
   }
 
   Future<void> _savePrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPrefShowMass, _showMass);
+    await prefs.setString(_kPrefView, _view.name);
+    await prefs.setBool(_kPrefShowMass, _view == ScheduleView.mass);
     await prefs.setBool(_kPrefStainless, _stainless);
   }
 
@@ -63,17 +76,14 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
     super.dispose();
   }
 
-  List<PipeRow> get _rows {
-    if (_q.trim().isEmpty) return kPipeWalls;
-    final q = _q.trim().toLowerCase();
-    return kPipeWalls.where((r) =>
-        '${r.dn}'.contains(q) ||
-        r.nps.toLowerCase().contains(q) ||
-        'dn${r.dn}'.contains(q)).toList();
-  }
+  List<PipeRow> get _rows => kPipeWalls
+      .where((r) => sizeQueryMatches(_q, dn: r.dn, nps: r.nps))
+      .toList();
 
   @override
   Widget build(BuildContext context) {
+    final schedules = schedulesFor(stainless: _stainless);
+    final rows = _rows;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
@@ -91,8 +101,8 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: context.tr(
-                    pl: 'Szukaj: DN50, 2", 100…',
-                    en: 'Search: DN50, 2", 100…'),
+                    pl: 'Szukaj: DN50, 2", 2 cale, 100…',
+                    en: 'Search: DN50, 2", 2 in, 100…'),
                 isDense: true,
               ),
               onChanged: (v) => setState(() => _q = v),
@@ -100,42 +110,67 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 ChoiceChip(
-                  label: Text(context.tr(pl: 'Ścianka mm', en: 'Wall mm')),
-                  selected: !_showMass,
+                  label: Text(context.tr(pl: 'CS — B36.10M', en: 'CS — B36.10M')),
+                  selected: !_stainless,
                   onSelected: (_) {
-                    setState(() => _showMass = false);
+                    setState(() => _stainless = false);
                     _savePrefs();
                   },
                 ),
-                const SizedBox(width: 8),
                 ChoiceChip(
-                  label: const Text('kg/m'),
-                  selected: _showMass,
+                  label: Text(context.tr(pl: 'SS — B36.19M', en: 'SS — B36.19M')),
+                  selected: _stainless,
                   onSelected: (_) {
-                    setState(() => _showMass = true);
+                    setState(() => _stainless = true);
                     _savePrefs();
                   },
                 ),
-                const Spacer(),
-                if (_showMass)
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final v in ScheduleView.values)
                   ChoiceChip(
-                    label: Text(_stainless ? 'SS' : 'CS'),
-                    selected: _stainless,
+                    label: Text(switch (v) {
+                      ScheduleView.wall =>
+                        context.tr(pl: 'Ścianka mm', en: 'Wall mm'),
+                      ScheduleView.inside =>
+                        context.tr(pl: 'ID mm', en: 'ID mm'),
+                      ScheduleView.mass => 'kg/m',
+                    }),
+                    selected: _view == v,
                     onSelected: (_) {
-                      setState(() => _stainless = !_stainless);
+                      setState(() => _view = v);
                       _savePrefs();
                     },
                   ),
               ],
             ),
           ),
-          const SizedBox(height: 6),
-          const _Header(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _caption(context),
+                style: const TextStyle(color: _kMuted, fontSize: 11),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          _Header(schedules: schedules),
           Expanded(
-            child: _rows.isEmpty
+            child: rows.isEmpty
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -170,10 +205,11 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-                    itemCount: _rows.length,
+                    itemCount: rows.length,
                     itemBuilder: (_, i) => _Row(
-                      row: _rows[i],
-                      showMass: _showMass,
+                      row: rows[i],
+                      schedules: schedules,
+                      view: _view,
                       stainless: _stainless,
                     ),
                   ),
@@ -182,21 +218,50 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
       ),
     );
   }
+
+  String _caption(BuildContext context) {
+    final norm = _stainless
+        ? context.tr(
+            pl: 'ASME B36.19M (nierdzewna) — 40S/80S ≠ 40/80 od NPS 10–12',
+            en: 'ASME B36.19M (stainless) — 40S/80S ≠ 40/80 from NPS 10–12')
+        : context.tr(pl: 'ASME B36.10M (węglowa / stopowa)', en: 'ASME B36.10M (carbon / alloy)');
+    return switch (_view) {
+      ScheduleView.wall => norm,
+      ScheduleView.inside => '$norm · ID = OD − 2t',
+      ScheduleView.mass => _stainless
+          ? '$norm · ρ 8,0 kg/dm³ (316/316L)'
+          : '$norm · ρ 7,85 kg/dm³',
+    };
+  }
 }
 
-/// One-line "DN50 Ø60.3 | STD:3.91 40:3.91 …" summary the fitter pastes into
-/// a chat to convey the full pipe spec without screenshotting the table.
+String? _cellText(PipeRow row, String s, ScheduleView view, bool stainless) {
+  switch (view) {
+    case ScheduleView.wall:
+      return row.walls[s]?.toStringAsFixed(2);
+    case ScheduleView.inside:
+      return insideDiameterMm(row, s)?.toStringAsFixed(2);
+    case ScheduleView.mass:
+      return massPerMeter(row, s, stainless: stainless)?.toStringAsFixed(1);
+  }
+}
+
+/// One-line "DN50 Ø60.3 (mm CS) | STD:3.91 40:3.91 …" summary the fitter
+/// pastes into a chat to convey the full pipe spec without screenshotting.
 String _rowSummary(PipeRow row,
-    {required bool showMass, required bool stainless}) {
-  final unit = showMass ? 'kg/m' : 'mm';
-  final tag = showMass ? (stainless ? ' SS' : ' CS') : '';
+    {required List<String> schedules,
+    required ScheduleView view,
+    required bool stainless}) {
+  final unit = switch (view) {
+    ScheduleView.wall => 'mm',
+    ScheduleView.inside => 'ID mm',
+    ScheduleView.mass => 'kg/m',
+  };
+  final tag = stainless ? ' SS B36.19M' : ' CS B36.10M';
   final parts = <String>[];
-  for (final s in kSchedules) {
-    final w = row.walls[s];
-    if (w == null) continue;
-    final v = showMass
-        ? massPerMeter(row, s, stainless: stainless)!.toStringAsFixed(1)
-        : w.toStringAsFixed(2);
+  for (final s in schedules) {
+    final v = _cellText(row, s, view, stainless);
+    if (v == null) continue;
     parts.add('$s:$v');
   }
   return 'DN${row.dn} Ø${row.od.toStringAsFixed(1)} ($unit$tag) | '
@@ -204,7 +269,8 @@ String _rowSummary(PipeRow row,
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  final List<String> schedules;
+  const _Header({required this.schedules});
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +290,7 @@ class _Header extends StatelessWidget {
                 style: TextStyle(
                     color: _kMuted, fontSize: 10, fontWeight: FontWeight.w700)),
           ),
-          ...kSchedules.map((s) => Expanded(
+          ...schedules.map((s) => Expanded(
                 child: Text(s,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -241,11 +307,13 @@ class _Header extends StatelessWidget {
 
 class _Row extends StatelessWidget {
   final PipeRow row;
-  final bool showMass;
+  final List<String> schedules;
+  final ScheduleView view;
   final bool stainless;
   const _Row({
     required this.row,
-    required this.showMass,
+    required this.schedules,
+    required this.view,
     required this.stainless,
   });
 
@@ -263,12 +331,10 @@ class _Row extends StatelessWidget {
         children: [
           SizedBox(
             width: 70,
-            // Long-press the DN/OD cell to copy the whole row as one line
-            // ("DN50 Ø60.3 | STD:3.91 40:3.91 80:5.54 …") — fitter pastes the
-            // whole pipe spec to a foreman/welder in one tap instead of
-            // long-pressing each Sch cell separately.
+            // Long-press the DN/OD cell to copy the whole row as one line.
             child: CopyOnLongPress(
-              value: _rowSummary(row, showMass: showMass, stainless: stainless),
+              value: _rowSummary(row,
+                  schedules: schedules, view: view, stainless: stainless),
               label: 'DN${row.dn}',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,18 +350,15 @@ class _Row extends StatelessWidget {
               ),
             ),
           ),
-          ...kSchedules.map((s) {
-            final w = row.walls[s];
-            if (w == null) {
+          ...schedules.map((s) {
+            final txt = _cellText(row, s, view, stainless);
+            if (txt == null) {
               return const Expanded(
                 child: Text('—',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: _kMuted, fontSize: 12)),
               );
             }
-            final txt = showMass
-                ? massPerMeter(row, s, stainless: stainless)!.toStringAsFixed(1)
-                : w.toStringAsFixed(2);
             return Expanded(
               child: CopyOnLongPress(
                 value: txt,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/elbow_takeouts.dart';
+import '../domain/fitter/size_query.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -38,15 +39,10 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
   List<ElbowTakeout> get _rows {
     if (_cachedQ == _q) return _cachedRows;
     _cachedQ = _q;
-    final q = _q.trim().toLowerCase();
-    if (q.isEmpty) {
-      _cachedRows = kElbowTakeouts;
-    } else {
-      _cachedRows = kElbowTakeouts.where((e) =>
-          '${e.dn}'.contains(q) ||
-          e.nps.toLowerCase().contains(q) ||
-          'dn${e.dn}'.contains(q)).toList();
-    }
+    // `2"`, `2 cale`, `1 1/2"`, `DN 50` — lib/domain/fitter/size_query.dart.
+    _cachedRows = kElbowTakeouts
+        .where((e) => sizeQueryMatches(_q, dn: e.dn, nps: e.nps))
+        .toList();
     return _cachedRows;
   }
 
@@ -97,11 +93,42 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-              itemCount: _rows.length,
-              itemBuilder: (_, i) => _Row(e: _rows[i]),
-            ),
+            child: _rows.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.search_off, size: 48, color: _kMuted),
+                          const SizedBox(height: 12),
+                          Text(
+                            context.tr(
+                                pl: 'Brak wyników dla "$_q"',
+                                en: 'No results for "$_q"'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Color(0xFFE7ECF3),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            context.tr(
+                                pl: 'Spróbuj: DN50, 2", 1 1/2", 100',
+                                en: 'Try: DN50, 2", 1 1/2", 100'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: _kMuted, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                    itemCount: _rows.length,
+                    itemBuilder: (_, i) => _Row(e: _rows[i]),
+                  ),
           ),
         ],
       ),

@@ -27,9 +27,10 @@ class SanitaryTube {
 
   double get id => od - 2 * wall;
 
-  /// Mass per metre, kg/m, austenitic stainless (ρ ≈ 7.93 kg/dm³).
+  /// Mass per metre, kg/m, stainless 316L (1.4404): ρ = 8.0 kg/dm³ per
+  /// EN 10088-1 (was 7.93 — the 304 value, 0.9 % low for 316L).
   double get massPerMeter =>
-      3.141592653589793 * (od - wall) * wall * 7.93 * 1e-3;
+      3.141592653589793 * (od - wall) * wall * 8.0 * 1e-3;
 
   /// Internal volume, litres per metre — drives the purge-gas calculation.
   double get litresPerMeter => 3.141592653589793 * id * id / 4.0 * 1e-3;
