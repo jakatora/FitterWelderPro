@@ -13,6 +13,7 @@ import '../widgets/component_icon.dart';
 import '../widgets/help_button.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
+import '../widgets/reducer_spec_dialog.dart';
 import '../theme/app_theme.dart' show kTextMut;
 
 // `splitIsoRef` lives next to the rule that decodes a saved row for the
@@ -749,6 +750,14 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     }
     if (!mounted || comp == null) return;
 
+    // A reducer saved by an older version with H = 0: "to the far face"
+    // would subtract nothing. Ask for H now and correct the library entry,
+    // rather than let a zero pass silently into the cut.
+    if (comp.type == 'REDUCER' && !((comp.lengthMm ?? 0) > 0)) {
+      comp = await _fixReducerLength(comp);
+      if (!mounted || comp == null) return;
+    }
+
     // Wybierz punkt referencyjny ISO
     final isStart = _sequence.isEmpty;
     final refPoint = await showModalBottomSheet<IsoRefPoint>(
@@ -770,20 +779,52 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
     _recalc();
   }
 
+  /// Asks for the missing H of library reducer [comp] and writes it back to
+  /// the library. Null when the fitter cancels (nothing is added then).
+  Future<LibraryComponent?> _fixReducerLength(LibraryComponent comp) async {
+    final other = comp.diameterOutMm == null
+        ? null
+        : ((comp.diameterMm - widget.currentDiameter).abs() <=
+                kLibraryMatchToleranceMm + 1e-9
+            ? comp.diameterOutMm
+            : comp.diameterMm);
+    final spec = await showReducerSpecDialog(
+      context,
+      currentDiameterMm: widget.currentDiameter,
+      atStart: _sequence.isEmpty,
+      knownOtherDiameterMm: other,
+      lengthOnly: true,
+    );
+    if (spec == null || !mounted) return null;
+    final fixed = comp.copyWith(
+      lengthMm: spec.lengthMm,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _dao.update(fixed);
+    return fixed;
+  }
+
   Future<LibraryComponent?> _createMissingComponent(String type) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     if (type == 'REDUCER') {
-      final out = await _askValue(
-        _tr('Redukcja – średnica WYJŚCIA (mm)', 'Reducer – OUTLET diameter (mm)'),
-        'np. 48.3',
+      // Direction, the other end and the length H. It used to ask for the
+      // outlet only and save H = 0: "ISO to the end of the reducer" then
+      // subtracted nothing and the pipe came out a whole reducer too long
+      // (DN100×DN50: 102 mm). A reducer picked as the START was also saved
+      // back to front (inlet = the pipe it sits on, i.e. its small end).
+      final spec = await showReducerSpecDialog(
+        context,
+        currentDiameterMm: widget.currentDiameter,
+        atStart: _sequence.isEmpty,
       );
-      if (out == null) return null;
+      if (spec == null || !mounted) return null;
+      final (large, small) = spec.libraryEnds(widget.currentDiameter);
       final c = LibraryComponent(
         id: _uuid.v4(), materialGroup: widget.materialGroup, type: 'REDUCER',
-        diameterMm: widget.currentDiameter, wallThicknessMm: widget.wallThickness,
-        axisMm: null, lengthMm: 0, measurementMode: 'FACE',
-        diameterOutMm: out, createdAt: now, updatedAt: now,
+        diameterMm: large, wallThicknessMm: widget.wallThickness,
+        axisMm: null, lengthMm: spec.lengthMm, measurementMode: 'FACE',
+        diameterOutMm: small, createdAt: now, updatedAt: now,
       );
       await _dao.insert(c);
       return c;
@@ -823,9 +864,11 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
 
   Future<double?> _askValue(String title, String hint) async {
     final c = TextEditingController();
+    String? error;
     return showDialog<double?>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
         title: Text(title),
         content: TextField(
           controller: c,
@@ -838,7 +881,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
           autofocus: true,
-          decoration: InputDecoration(hintText: hint),
+          decoration: InputDecoration(hintText: hint, errorText: error),
         ),
         actions: [
           TextButton(
@@ -848,11 +891,19 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           ElevatedButton(
             onPressed: () {
               final v = parseDecimal(c.text);
-              Navigator.pop(context, (v != null && v > 0) ? v : null);
+              if (v == null || !v.isFinite || v <= 0) {
+                // It used to close as if cancelled: nothing added and no
+                // word why.
+                setDialogState(() => error =
+                    _tr('Podaj liczbę większą od 0', 'Enter a number above 0'));
+                return;
+              }
+              Navigator.pop(context, v);
             },
             child: Text(_tr('OK', 'OK')),
           ),
         ],
+      ),
       ),
     );
   }

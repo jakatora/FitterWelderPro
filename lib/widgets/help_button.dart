@@ -239,14 +239,16 @@ final kHelpFitter = ScreenHelp(
   bodyEn:
       'The cut list project view. Each segment is one section of the pipe route with its own component list. You can add segments, generate a BOM and export a summary.',
   stepsPl: [
-    HelpStep('➕', 'Dodaj nowy segment przyciskiem + lub FAB na dole.'),
-    HelpStep('👆', 'Dotknij segmentu aby edytować komponenty i długości cięć.'),
-    HelpStep('📊', 'Użyj przycisku BOM / Podsumowanie aby zobaczyć zestawienie materiałów.'),
+    HelpStep('➕', 'Dodaj nowy segment przyciskiem „Dodaj segment” na dole.'),
+    HelpStep('👆', 'Dotknij segmentu aby poprawić komponenty i wymiar ISO.'),
+    HelpStep('🗑️', 'Przesuń segment w lewo, aby go usunąć — przez kilka sekund możesz to cofnąć.'),
+    HelpStep('📊', 'Ikony u góry: lista materiałowa (BOM), numery wytopów, zdjęcia atestów. „Zakończ CUT LIST” otwiera plan cięcia sztang.'),
   ],
   stepsEn: [
-    HelpStep('➕', 'Add a new segment with the + button or FAB at the bottom.'),
-    HelpStep('👆', 'Tap a segment to edit its components and cut lengths.'),
-    HelpStep('📊', 'Use the BOM / Summary button to view the bill of materials.'),
+    HelpStep('➕', 'Add a new segment with the "Add segment" button at the bottom.'),
+    HelpStep('👆', 'Tap a segment to correct its components and ISO dimension.'),
+    HelpStep('🗑️', 'Swipe a segment left to delete it — you can undo it for a few seconds.'),
+    HelpStep('📊', 'Top icons: material list (BOM), heat numbers, certificate photos. "Finish CUT LIST" opens the bar cutting plan.'),
   ],
 );
 
@@ -258,16 +260,18 @@ final kHelpSegmentBuilder = ScreenHelp(
   bodyEn:
       'Here you build a pipe segment from components. Add an elbow, reducer, tee or valve — the app automatically calculates cut lengths and the fit-up gap between elements.',
   stepsPl: [
-    HelpStep('➕', 'Dodaj komponent z listy lub biblioteki przyciskiem +.'),
-    HelpStep('↕️', 'Przeciągaj komponenty aby zmienić ich kolejność w segmencie.'),
-    HelpStep('📏', 'Wpisz wymiary ISO — aplikacja przeliczy długość odcinka rury.'),
-    HelpStep('✅', 'Zatwierdź segment aby zapisać go do projektu.'),
+    HelpStep('➕', 'Dotykaj przycisków palety w kolejności: KOMPONENT → Rura → KOMPONENT (albo Open end na początku lub końcu). Brakujący komponent zapiszesz od razu w bibliotece.'),
+    HelpStep('🎯', 'Po wyborze komponentu wskaż, do którego miejsca (oś, czoło bliskie, czoło dalekie) sięga wymiar ISO.'),
+    HelpStep('✖️', 'X na elemencie sekwencji usuwa go (z opcją Cofnij).'),
+    HelpStep('📏', 'Wpisz wymiar ISO — aplikacja przeliczy CUT rury.'),
+    HelpStep('✅', 'Zapisz segment, aby dodać go do projektu.'),
   ],
   stepsEn: [
-    HelpStep('➕', 'Add a component from the list or library with the + button.'),
-    HelpStep('↕️', 'Drag components to reorder them in the segment.'),
-    HelpStep('📏', 'Enter ISO dimensions — the app calculates the pipe spool length.'),
-    HelpStep('✅', 'Confirm the segment to save it to the project.'),
+    HelpStep('➕', 'Tap the palette buttons in order: COMPONENT → Pipe → COMPONENT (or Open end at the start or end). A missing component is saved to the library right away.'),
+    HelpStep('🎯', 'After picking a component, choose where the ISO dimension ends on it (axis, near face, far face).'),
+    HelpStep('✖️', 'The X on a sequence item removes it (with Undo).'),
+    HelpStep('📏', 'Enter the ISO dimension — the app calculates the pipe CUT.'),
+    HelpStep('✅', 'Save the segment to add it to the project.'),
   ],
 );
 
@@ -279,16 +283,16 @@ final kHelpComponentLibrary = ScreenHelp(
   bodyEn:
       'Your catalogue of prefabricated pipe components: elbows, reducers, tees, valves, flanges. Each component has dimensions (OD, length, radius, ISO reference point) used for calculations.',
   stepsPl: [
-    HelpStep('➕', 'Dodaj nowy komponent przyciskiem + (góra prawo).'),
-    HelpStep('✏️', 'Dotknij komponentu aby edytować jego wymiary.'),
-    HelpStep('🗑️', 'Przesuń w lewo aby usunąć komponent.'),
-    HelpStep('🔍', 'Filtruj listę wpisując typ lub średnicę w polu wyszukiwania.'),
+    HelpStep('➕', 'Dodaj nowy komponent przyciskiem + (góra prawo). Dla redukcji podaj oba końce i długość H — przycisk podpowie H z ASME B16.9.'),
+    HelpStep('✏️', 'Dotknij komponentu aby poprawić jego wymiary. Zapisane segmenty nie przeliczają się same — aplikacja pokaże, które otworzyć i zapisać ponownie.'),
+    HelpStep('🗑️', 'Ikona kosza usuwa wpis. Wpisu użytego w segmencie nie da się usunąć — można go tylko poprawić.'),
+    HelpStep('🔍', 'Filtruj listę wpisując typ, materiał lub średnicę w polu wyszukiwania.'),
   ],
   stepsEn: [
-    HelpStep('➕', 'Add a new component with the + button (top right).'),
-    HelpStep('✏️', 'Tap a component to edit its dimensions.'),
-    HelpStep('🗑️', 'Swipe left to delete a component.'),
-    HelpStep('🔍', 'Filter the list by typing a type or diameter in the search field.'),
+    HelpStep('➕', 'Add a new component with the + button (top right). For a reducer enter both ends and the length H — a button suggests H from ASME B16.9.'),
+    HelpStep('✏️', 'Tap a component to correct its dimensions. Saved segments are not recomputed by themselves — the app lists which ones to open and save again.'),
+    HelpStep('🗑️', 'The bin icon deletes an entry. An entry used by a segment cannot be deleted — only corrected.'),
+    HelpStep('🔍', 'Filter the list by typing a type, material or diameter in the search field.'),
   ],
 );
 

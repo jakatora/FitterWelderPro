@@ -42,8 +42,11 @@ class RoutePosition {
 ///
 /// Rules, on the segment with the highest seq_no:
 ///   * none saved → the project's own diameter and wall;
-///   * its END is a library REDUCER whose inlet is that segment's diameter →
-///     the reducer's outlet, wall unknown (null);
+///   * its END is a library REDUCER with one end on that segment's diameter →
+///     the reducer's OTHER end, wall unknown (null). Both ways round: inlet
+///     on the pipe is a reduction (route goes down to the outlet), outlet on
+///     the pipe is an expander (route goes up to the inlet) — see
+///     [reducerOtherEndMm];
 ///   * its END is a library component that is gone from the library → the
 ///     stored `current_diameter_mm` is the only witness left: if it differs
 ///     from the segment, a reduction happened there (wall unknown);
@@ -51,6 +54,25 @@ class RoutePosition {
 ///
 /// [lastEndComponent] is the library record of that last segment's END, or
 /// null when it has none (or it was deleted).
+/// Diameter on the far side of reducer [comp] when one of its ends sits on
+/// a pipe of [pipeDiameterMm], or null when neither end does (a damaged or
+/// mismatched row — then nothing may be inferred from it).
+///
+/// The library stores a reducer as `diameter_mm` → `diameter_out_mm`, but the
+/// fitting has no direction of its own: welded on by its small end it is an
+/// expander. The builder offers a reducer whenever EITHER end matches the
+/// pipe (`ComponentLibraryDao.listFor`), so both readings must be handled.
+double? reducerOtherEndMm(LibraryComponent comp, double pipeDiameterMm) {
+  // Same tolerance the library offered the reducer with — a pipe the picker
+  // matched must also be recognised here.
+  const eps = kLibraryMatchToleranceMm + 1e-9;
+  final out = comp.diameterOutMm;
+  if (out == null || out <= 0) return null;
+  if ((comp.diameterMm - pipeDiameterMm).abs() <= eps) return out;
+  if ((out - pipeDiameterMm).abs() <= eps) return comp.diameterMm;
+  return null;
+}
+
 RoutePosition routeAfterSegments({
   required Project project,
   required List<Segment> segments,
@@ -75,11 +97,9 @@ RoutePosition routeAfterSegments({
         );
       }
     } else if (comp.type == 'REDUCER') {
-      final out = comp.diameterOutMm;
-      if (out != null &&
-          out > 0 &&
-          (comp.diameterMm - last.diameterMm).abs() < eps) {
-        return RoutePosition(diameterMm: out, wallThicknessMm: null);
+      final other = reducerOtherEndMm(comp, last.diameterMm);
+      if (other != null) {
+        return RoutePosition(diameterMm: other, wallThicknessMm: null);
       }
     }
   }

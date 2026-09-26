@@ -27,6 +27,32 @@ class LibraryComponent {
 
   bool get isAxial => type == 'ELB90' || type == 'ELB45' || type == 'TEE';
 
+  /// Same entry (same id) with the given values replaced.
+  LibraryComponent copyWith({
+    String? materialGroup,
+    String? type,
+    double? diameterMm,
+    double? wallThicknessMm,
+    double? axisMm,
+    double? lengthMm,
+    String? measurementMode,
+    double? diameterOutMm,
+    int? updatedAt,
+  }) =>
+      LibraryComponent(
+        id: id,
+        materialGroup: materialGroup ?? this.materialGroup,
+        type: type ?? this.type,
+        diameterMm: diameterMm ?? this.diameterMm,
+        wallThicknessMm: wallThicknessMm ?? this.wallThicknessMm,
+        axisMm: axisMm ?? this.axisMm,
+        lengthMm: lengthMm ?? this.lengthMm,
+        measurementMode: measurementMode ?? this.measurementMode,
+        diameterOutMm: diameterOutMm ?? this.diameterOutMm,
+        createdAt: createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+
   /// Value used in CUT formulas.
   /// Rules:
   /// - Axial: axis_mm

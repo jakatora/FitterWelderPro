@@ -151,10 +151,27 @@ void main() {
       expect(r.diameterMm, 60.3);
     });
 
-    test('a reducer whose inlet is not the pipe it ends does not move it', () {
-      // 168.3 → 114.3 on the end of a Ø114.3 segment is not a reduction of
-      // this pipe; the route stays where the segment was.
-      final red = _reducer(inlet: 168.3, out: 114.3);
+    test('an expander (reducer turned round) moves the route UP to its big end',
+        () {
+      // 114.3 → 60.3 picked on the end of a Ø60.3 pipe: the library offers it
+      // because its small end matches, and physically it widens the line to
+      // Ø114.3. This test used to assert the route stayed on Ø60.3 — the next
+      // segment was then built on the wrong pipe with the wrong fittings.
+      final red = _reducer(inlet: 114.3, out: 60.3);
+      final r = routeAfterSegments(
+        project: _project(),
+        segments: [_seg(1, 60.3, 2.77, endLib: red.id)],
+        lastEndComponent: red,
+      );
+      expect(r.diameterMm, 114.3);
+      expect(r.wallThicknessMm, isNull,
+          reason: 'the wall of the wider pipe is stored nowhere — asked for');
+    });
+
+    test('a reducer that matches neither end of the pipe does not move it', () {
+      // 168.3 → 88.9 on a Ø114.3 pipe cannot sit on this pipe at all (a
+      // damaged row); the route must not jump to a size nobody fitted.
+      final red = _reducer(inlet: 168.3, out: 88.9);
       final r = routeAfterSegments(
         project: _project(),
         segments: [_seg(1, 114.3, 3.05, endLib: red.id)],
