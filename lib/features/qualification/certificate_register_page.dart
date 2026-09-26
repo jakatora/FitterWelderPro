@@ -110,84 +110,15 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
   Future<void> _recordConfirmation(CertificateEvaluation e) async {
     final c = e.certificate;
     final asme = c.standard == QualificationStandard.asmeIx;
-    DateTime picked = dateOnly(DateTime.now());
-    final ok = await showDialog<bool>(
+    final input = await showDialog<_ConfirmationInput>(
       context: context,
-      builder: (dctx) => StatefulBuilder(
-        builder: (dctx, setDialog) => AlertDialog(
-          scrollable: true,
-          title: Text(asme
-              ? context.tr(
-                  pl: 'Wpis ciągłości WPQ', en: 'WPQ continuity record')
-              : context.tr(
-                  pl: 'Potwierdzenie 6-miesięczne',
-                  en: '6-month confirmation')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                asme
-                    ? context.tr(
-                        pl: 'Wpisz datę potwierdzenia ciągłości przez '
-                            'pracodawcę (np. z rejestru WPQ). Spoiny tym '
-                            'procesem zapisane w dzienniku liczą się same '
-                            '(ASME IX QW-322.1).',
-                        en: 'Enter the date the employer confirmed '
-                            'continuity (e.g. from the WPQ log). Welds with '
-                            'this process in the journal count automatically '
-                            '(ASME IX QW-322.1).',
-                      )
-                    : context.tr(
-                        pl: 'Wpisz datę podpisu koordynatora spawania albo '
-                            'egzaminatora na certyfikacie (EN ISO 9606-1 '
-                            '§9.2). Aplikacja nie zastępuje tego podpisu — '
-                            'tylko pilnuje terminu.',
-                        en: 'Enter the date the welding coordinator or '
-                            'examiner signed the certificate (EN ISO 9606-1 '
-                            '§9.2). The app does not replace that signature '
-                            '— it only tracks the deadline.',
-                      ),
-                style: const TextStyle(fontSize: 13, height: 1.35),
-              ),
-              if (e.lastJournalWeld != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  context.tr(
-                    pl: 'Ostatnia spoina tym procesem w dzienniku: '
-                        '${formatIsoDate(e.lastJournalWeld!)}.',
-                    en: 'Last weld with this process in the journal: '
-                        '${formatIsoDate(e.lastJournalWeld!)}.',
-                  ),
-                  style: const TextStyle(fontSize: 12.5, color: kTextSec),
-                ),
-              ],
-              const SizedBox(height: 14),
-              DateField(
-                label: context.tr(pl: 'Data', en: 'Date'),
-                value: picked,
-                onChanged: (d) {
-                  if (d != null) setDialog(() => picked = d);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dctx, false),
-              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dctx, true),
-              child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _ConfirmationDialog(evaluation: e),
     );
-    if (ok != true) return;
+    if (input == null || !mounted) return;
+    final picked = input.date;
+    final byText = input.by;
+    final notesText = input.notes;
     if (picked.isAfter(dateOnly(DateTime.now()))) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Data potwierdzenia nie może być z przyszłości.',
@@ -196,10 +127,96 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       ));
       return;
     }
-    await _service.save(c.copyWith(
-      lastConfirmedDate: picked,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    ));
+    final test = c.testDate;
+    if (test != null && picked.isBefore(dateOnly(test))) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Potwierdzenie nie może być wcześniejsze niż egzamin '
+              '(${formatIsoDate(test)}).',
+          en: 'The confirmation cannot be earlier than the test '
+              '(${formatIsoDate(test)}).',
+        )),
+      ));
+      return;
+    }
+    // Termin łańcucha w dniu podpisu. Podpis po terminie nie przywraca
+    // wygasłego uprawnienia (ISO 9606-1 §9.2; ASME — odnowienie QW-322.2).
+    final onDay = evaluateCertificate(c, asOf: picked);
+    final deadline = onDay.continuityDeadline;
+    if (deadline != null && picked.isAfter(deadline)) {
+      final keep = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: Text(context.tr(
+              pl: 'Potwierdzenie po terminie',
+              en: 'Confirmation after the deadline')),
+          content: Text(asme
+              ? context.tr(
+                  pl: 'Ciągłość WPQ skończyła się ${formatIsoDate(deadline)}. '
+                      'Wpis z ${formatIsoDate(picked)} jej nie przywraca — '
+                      'potrzebne odnowienie (ASME IX QW-322.2). Zapisać wpis '
+                      'w historii mimo to?',
+                  en: 'WPQ continuity ended on ${formatIsoDate(deadline)}. '
+                      'A record dated ${formatIsoDate(picked)} does not '
+                      'restore it — renewal is needed (ASME IX QW-322.2). '
+                      'Save the record to the history anyway?')
+              : context.tr(
+                  pl: 'Termin potwierdzenia minął ${formatIsoDate(deadline)} — '
+                      'uprawnienie wygasło (EN ISO 9606-1 §9.2). Podpis z '
+                      '${formatIsoDate(picked)} go nie przywraca: potrzebny '
+                      'nowy egzamin. Zapisać wpis w historii mimo to?',
+                  en: 'The confirmation deadline passed on '
+                      '${formatIsoDate(deadline)} — the qualification lapsed '
+                      '(EN ISO 9606-1 §9.2). A signature dated '
+                      '${formatIsoDate(picked)} does not restore it: a new '
+                      'test is needed. Save the entry to the history anyway?')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx, false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dctx, true),
+              child: Text(
+                  context.tr(pl: 'Zapisz do historii', en: 'Save to history')),
+            ),
+          ],
+        ),
+      );
+      if (keep != true) return;
+    }
+    await _service.addConfirmation(c,
+        date: picked, confirmedBy: byText, notes: notesText);
+    await _load();
+  }
+
+  Future<void> _deleteConfirmation(CertificateConfirmation k) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Usunąć wpis z historii?', en: 'Delete the history entry?')),
+        content: Text(context.tr(
+          pl: 'Potwierdzenie z ${formatIsoDate(k.date)} zniknie z łańcucha '
+              'ciągłości. Usuwaj tylko błędne wpisy (literówka w dacie).',
+          en: 'The confirmation dated ${formatIsoDate(k.date)} leaves the '
+              'continuity chain. Delete only wrong entries (a typo).',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kFail),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _service.deleteConfirmation(k);
     await _load();
   }
 
@@ -207,7 +224,8 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: Text(context.tr(pl: 'Usunąć certyfikat?', en: 'Delete the certificate?')),
+        title: Text(context.tr(
+            pl: 'Usunąć certyfikat?', en: 'Delete the certificate?')),
         content: Text(context.tr(
           pl: 'Usuniemy wpis ${c.shortTitle(english: false)} i jego zdjęcie '
               'z telefonu. Spoiny w dzienniku zostają.',
@@ -303,6 +321,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
                     onEdit: () => _openEditor(e.certificate),
                     onConfirm: () => _recordConfirmation(e),
                     onDelete: () => _delete(e.certificate),
+                    onDeleteConfirmation: _deleteConfirmation,
                   ),
                 const SizedBox(height: 8),
                 const _RulesCard(),
@@ -387,6 +406,7 @@ class _CertificateCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onConfirm;
   final VoidCallback onDelete;
+  final ValueChanged<CertificateConfirmation> onDeleteConfirmation;
 
   const _CertificateCard({
     super.key,
@@ -394,6 +414,7 @@ class _CertificateCard extends StatelessWidget {
     required this.onEdit,
     required this.onConfirm,
     required this.onDelete,
+    required this.onDeleteConfirmation,
   });
 
   Color get _accent => switch (evaluation.state.severity) {
@@ -432,7 +453,9 @@ class _CertificateCard extends StatelessWidget {
     final asme = c.standard == QualificationStandard.asmeIx;
     final scope = <String>[
       if (c.processes.trim().isNotEmpty)
-        context.tr(pl: 'Proces ${c.processes.trim()}', en: 'Process ${c.processes.trim()}'),
+        context.tr(
+            pl: 'Proces ${c.processes.trim()}',
+            en: 'Process ${c.processes.trim()}'),
       if (c.materialGroup.trim().isNotEmpty)
         context.tr(
             pl: 'Grupa ${c.materialGroup.trim()}',
@@ -450,13 +473,19 @@ class _CertificateCard extends StatelessWidget {
         context.tr(
             pl: 'Egzamin: ${formatIsoDate(c.testDate!)}',
             en: 'Test: ${formatIsoDate(c.testDate!)}'),
+      if (c.welderStamp != null)
+        context.tr(
+            pl: 'Stempel: ${c.welderStamp}', en: 'Stamp: ${c.welderStamp}'),
       if (c.examiner != null)
-        context.tr(pl: 'Egzaminator: ${c.examiner}', en: 'Examiner: ${c.examiner}'),
+        context.tr(
+            pl: 'Egzaminator: ${c.examiner}', en: 'Examiner: ${c.examiner}'),
       if (c.lastConfirmedDate != null)
         asme
             ? context.tr(
-                pl: 'Ciągłość potwierdzona: ${formatIsoDate(c.lastConfirmedDate!)}',
-                en: 'Continuity confirmed: ${formatIsoDate(c.lastConfirmedDate!)}')
+                pl:
+                    'Ciągłość potwierdzona: ${formatIsoDate(c.lastConfirmedDate!)}',
+                en:
+                    'Continuity confirmed: ${formatIsoDate(c.lastConfirmedDate!)}')
             : context.tr(
                 pl: 'Ostatnie potwierdzenie: ${formatIsoDate(c.lastConfirmedDate!)}',
                 en: 'Last confirmation: ${formatIsoDate(c.lastConfirmedDate!)}'),
@@ -469,7 +498,8 @@ class _CertificateCard extends StatelessWidget {
           : context.tr(
               pl: 'Brak spoin tym procesem w dzienniku',
               en: 'No welds with this process in the journal'),
-      if (c.prolongation != null && c.standard == QualificationStandard.iso9606_1)
+      if (c.prolongation != null &&
+          c.standard == QualificationStandard.iso9606_1)
         context.tr(
           pl: 'Przedłużanie: EN ISO 9606-1 §9.3 ${c.prolongation!.code.toLowerCase()})',
           en: 'Prolongation: EN ISO 9606-1 §9.3 ${c.prolongation!.code.toLowerCase()})',
@@ -530,13 +560,14 @@ class _CertificateCard extends StatelessWidget {
           if (scope.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8, right: 8),
-              child: Text(scope.join(' · '),
-                  style: const TextStyle(fontSize: 13)),
+              child:
+                  Text(scope.join(' · '), style: const TextStyle(fontSize: 13)),
             ),
           Padding(
             padding: const EdgeInsets.only(top: 6, right: 8),
             child: Text(details.join('\n'),
-                style: const TextStyle(fontSize: 12, color: kTextSec, height: 1.4)),
+                style: const TextStyle(
+                    fontSize: 12, color: kTextSec, height: 1.4)),
           ),
           if (e.continuityUnknown)
             Padding(
@@ -549,6 +580,64 @@ class _CertificateCard extends StatelessWidget {
                       'the 6-month deadline cannot be computed.',
                 ),
                 style: const TextStyle(fontSize: 12, color: kWarn),
+              ),
+            ),
+          if (e.lateConfirmation != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, right: 8),
+              child: Text(
+                context.tr(
+                  pl: 'Potwierdzenie z ${formatIsoDate(e.lateConfirmation!)} '
+                      'podpisano po terminie '
+                      '${formatIsoDate(e.continuityDeadline!)} — nie '
+                      'przywróciło uprawnienia. Potrzebny nowy egzamin.',
+                  en: 'The confirmation dated '
+                      '${formatIsoDate(e.lateConfirmation!)} was signed after '
+                      'the ${formatIsoDate(e.continuityDeadline!)} deadline — '
+                      'it did not restore the qualification. A new test is '
+                      'needed.',
+                ),
+                style: const TextStyle(fontSize: 12, color: kFail),
+              ),
+            ),
+          if (c.confirmations.isNotEmpty)
+            Material(
+              // ListTile rysuje tło i „atrament" na najbliższym Material —
+              // kolorowy Container karty by je zasłonił.
+              type: MaterialType.transparency,
+              child: Theme(
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  key: ValueKey('cert-history-${c.id}'),
+                  tilePadding: const EdgeInsets.only(right: 8),
+                  title: Text(
+                    context.tr(
+                        pl: 'Historia potwierdzeń (${c.confirmations.length})',
+                        en: 'Confirmation history (${c.confirmations.length})'),
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  children: [
+                    for (final k in c.confirmations.reversed)
+                      ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.only(right: 0),
+                        title: Text(formatIsoDate(k.date)),
+                        subtitle: Text(
+                          [
+                            if (k.confirmedBy.trim().isNotEmpty) k.confirmedBy,
+                            if (k.notes.trim().isNotEmpty) k.notes,
+                          ].join(' · '),
+                        ),
+                        trailing: IconButton(
+                          tooltip: context.tr(
+                              pl: 'Usuń błędny wpis', en: 'Delete wrong entry'),
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () => onDeleteConfirmation(k),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           if (showPhoto)
@@ -574,7 +663,8 @@ class _CertificateCard extends StatelessWidget {
                   onPressed: onConfirm,
                   icon: const Icon(Icons.event_available_outlined, size: 18),
                   label: Text(asme
-                      ? context.tr(pl: 'Wpis ciągłości', en: 'Continuity record')
+                      ? context.tr(
+                          pl: 'Wpis ciągłości', en: 'Continuity record')
                       : context.tr(
                           pl: 'Potwierdzenie 6 mies.',
                           en: '6-month confirmation')),
@@ -605,9 +695,12 @@ class _RulesCard extends StatelessWidget {
             context.tr(
               pl: '• EN ISO 9606-1 §9.2: co 6 miesięcy koordynator spawania '
                   '(albo egzaminator) potwierdza, że pracowałeś w zakresie '
-                  'uprawnienia. Termin = ostatnie potwierdzenie (albo data '
-                  'egzaminu) + 6 miesięcy. Spoiny w dzienniku są dowodem, ale '
-                  'nie zastępują podpisu.\n'
+                  'uprawnienia. Termin liczymy z historii potwierdzeń: '
+                  'egzamin → kolejne podpisy, każdy w terminie przesuwa go '
+                  'o 6 miesięcy. Podpis po terminie nie przywraca wygasłego '
+                  'certyfikatu (potrzebny nowy egzamin), a nowe potwierdzenie '
+                  'nie zmienia oceny dawnych spoin. Spoiny w dzienniku są '
+                  'dowodem, ale nie zastępują podpisu.\n'
                   '• EN ISO 9606-1 §9.3 — przedłużenie ważności: a) ponowny '
                   'egzamin co 3 lata; b) co 2 lata: dwie spoiny z ostatnich '
                   '6 miesięcy zbadane RT/UT lub niszcząco; c) ważność ciągła '
@@ -625,9 +718,13 @@ class _RulesCard extends StatelessWidget {
                   'i podpisy na nim.',
               en: '• EN ISO 9606-1 §9.2: every 6 months the welding '
                   'coordinator (or examiner) confirms you worked within the '
-                  'qualification range. Deadline = last confirmation (or test '
-                  'date) + 6 months. Journal welds are evidence but do not '
-                  'replace the signature.\n'
+                  'qualification range. The deadline comes from the '
+                  'confirmation history: test → each signature in time moves '
+                  'it by 6 months. A signature after the deadline does not '
+                  'restore a lapsed certificate (a new test is needed), and a '
+                  'new confirmation does not change how older welds are '
+                  'judged. Journal welds are evidence but do not replace the '
+                  'signature.\n'
                   '• EN ISO 9606-1 §9.3 — prolongation: a) re-test every '
                   '3 years; b) every 2 years: two welds from the last 6 months '
                   'tested by RT/UT or destructively; c) continuous validity '
@@ -644,9 +741,137 @@ class _RulesCard extends StatelessWidget {
                   'This is an aid, not a document — the certificate and its '
                   'signatures are what counts.',
             ),
-            style: const TextStyle(fontSize: 12.5, color: kTextSec, height: 1.45),
+            style:
+                const TextStyle(fontSize: 12.5, color: kTextSec, height: 1.45),
           ),
           const SizedBox(height: 8),
         ],
       );
+}
+
+/// Wynik dialogu potwierdzenia: data podpisu, kto, uwagi.
+class _ConfirmationInput {
+  final DateTime date;
+  final String by;
+  final String notes;
+  const _ConfirmationInput(this.date, this.by, this.notes);
+}
+
+/// Dialog wpisu potwierdzenia — własny stan, żeby pola tekstowe żyły tak
+/// długo jak dialog (także w animacji zamykania).
+class _ConfirmationDialog extends StatefulWidget {
+  final CertificateEvaluation evaluation;
+  const _ConfirmationDialog({required this.evaluation});
+
+  @override
+  State<_ConfirmationDialog> createState() => _ConfirmationDialogState();
+}
+
+class _ConfirmationDialogState extends State<_ConfirmationDialog> {
+  DateTime _picked = dateOnly(DateTime.now());
+  final _by = TextEditingController();
+  final _notes = TextEditingController();
+
+  @override
+  void dispose() {
+    _by.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.evaluation;
+    final asme = e.certificate.standard == QualificationStandard.asmeIx;
+    return AlertDialog(
+      scrollable: true,
+      title: Text(asme
+          ? context.tr(pl: 'Wpis ciągłości WPQ', en: 'WPQ continuity record')
+          : context.tr(
+              pl: 'Potwierdzenie 6-miesięczne', en: '6-month confirmation')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            asme
+                ? context.tr(
+                    pl: 'Wpisz datę potwierdzenia ciągłości przez '
+                        'pracodawcę (np. z rejestru WPQ). Spoiny tym '
+                        'procesem zapisane w dzienniku liczą się same '
+                        '(ASME IX QW-322.1).',
+                    en: 'Enter the date the employer confirmed '
+                        'continuity (e.g. from the WPQ log). Welds with '
+                        'this process in the journal count automatically '
+                        '(ASME IX QW-322.1).',
+                  )
+                : context.tr(
+                    pl: 'Wpisz datę podpisu koordynatora spawania albo '
+                        'egzaminatora na certyfikacie (EN ISO 9606-1 '
+                        '§9.2). Aplikacja nie zastępuje tego podpisu — '
+                        'tylko pilnuje terminu. Wpis trafia do historii; '
+                        'wcześniejsze potwierdzenia zostają.',
+                    en: 'Enter the date the welding coordinator or '
+                        'examiner signed the certificate (EN ISO 9606-1 '
+                        '§9.2). The app does not replace that signature '
+                        '— it only tracks the deadline. The entry goes '
+                        'to the history; earlier confirmations stay.',
+                  ),
+            style: const TextStyle(fontSize: 13, height: 1.35),
+          ),
+          if (e.lastJournalWeld != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              context.tr(
+                pl: 'Ostatnia spoina tym procesem w dzienniku: '
+                    '${formatIsoDate(e.lastJournalWeld!)}.',
+                en: 'Last weld with this process in the journal: '
+                    '${formatIsoDate(e.lastJournalWeld!)}.',
+              ),
+              style: const TextStyle(fontSize: 12.5, color: kTextSec),
+            ),
+          ],
+          const SizedBox(height: 14),
+          DateField(
+            label: context.tr(pl: 'Data', en: 'Date'),
+            value: _picked,
+            onChanged: (d) {
+              if (d != null) setState(() => _picked = d);
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('confirmation-by'),
+            controller: _by,
+            decoration: InputDecoration(
+              labelText: context.tr(pl: 'Kto potwierdził', en: 'Confirmed by'),
+              hintText: context.tr(
+                  pl: 'koordynator spawania / egzaminator',
+                  en: 'welding coordinator / examiner'),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notes,
+            decoration: InputDecoration(
+              labelText: context.tr(pl: 'Uwagi', en: 'Notes'),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+              context, _ConfirmationInput(_picked, _by.text, _notes.text)),
+          child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
+        ),
+      ],
+    );
+  }
 }

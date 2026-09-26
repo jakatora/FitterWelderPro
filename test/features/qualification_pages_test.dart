@@ -157,13 +157,56 @@ void main() {
       await tester.tap(find.text('Potwierdzenie 6 mies.'));
       await tester.pumpAndSettle();
       expect(find.textContaining('koordynatora spawania'), findsWidgets);
+      await tester.enterText(
+          find.byKey(const ValueKey('confirmation-by')), 'J. Koordynator');
       await tester.tap(find.text('Zapisz'));
+      await tester.pumpAndSettle();
+
+      // ISO 9606-1 §9.2: podpis po terminie NIE przywraca uprawnienia —
+      // aplikacja ostrzega i pyta, czy zapisać wpis do historii.
+      expect(find.text('Potwierdzenie po terminie'), findsOneWidget);
+      expect(find.textContaining('potrzebny nowy egzamin'), findsOneWidget);
+      await tester.tap(find.text('Zapisz do historii'));
+      await _settle(tester);
       await _settle(tester);
 
       final saved = await tester
           .runAsync(() => WelderCertificateDao().getById('late'));
       expect(saved!.lastConfirmedDate, today);
-      expect(find.textContaining('przeterminowane'), findsNothing);
+      expect(saved.confirmations.single.confirmedBy, 'J. Koordynator');
+      // Nadal przeterminowane — potrzebny nowy egzamin.
+      expect(find.textContaining('przeterminowane'), findsWidgets);
+      expect(find.textContaining('nie przywróciło uprawnienia'), findsOneWidget);
+    });
+
+    testWidgets('potwierdzenie w terminie trafia do historii i przesuwa termin',
+        (tester) async {
+      await clearTables(tester);
+      final today = dateOnly(DateTime.now());
+      await tester.runAsync(() => WelderCertificateDao().upsert(
+            WelderCertificate(
+              id: 'ok',
+              standard: QualificationStandard.iso9606_1,
+              certNo: 'PL-UDT-8',
+              testDate: addMonthsClamped(today, -5),
+              processes: '141',
+              createdAt: 1,
+              updatedAt: 1,
+            ),
+          ));
+      await _pump(tester, const CertificateRegisterPage());
+      await tester.tap(find.text('Potwierdzenie 6 mies.'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Zapisz'));
+      await tester.pumpAndSettle();
+      await _settle(tester);
+      await _settle(tester);
+
+      expect(find.text('Potwierdzenie po terminie'), findsNothing);
+      final saved =
+          await tester.runAsync(() => WelderCertificateDao().getById('ok'));
+      expect(saved!.confirmations.map((k) => k.date), [today]);
+      expect(find.textContaining('Historia potwierdzeń (1)'), findsOneWidget);
     });
 
     testWidgets('formularz: nowy certyfikat trafia do bazy', (tester) async {

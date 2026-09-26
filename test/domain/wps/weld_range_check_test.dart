@@ -352,6 +352,68 @@ void main() {
     });
   });
 
+  group('pozycje ISO 6947 ↔ ASME — bez fałszywych alarmów', () {
+    RangeIssue? positionIssue(String weld, String allowed) {
+      final wps = WpsRecord(
+          id: 'p', wpsNo: 'P', positions: allowed, createdAt: 0, updatedAt: 0);
+      return checkWeldAgainstWps(WeldParameters(position: weld), wps)
+          .where((i) => i.field == WeldCheckField.position)
+          .firstOrNull;
+    }
+
+    test('5G przy WPS „PA, PC, PF" → nie da się porównać (nie „poza WPS")',
+        () {
+      final i = positionIssue('5G', 'PA, PC, PF');
+      expect(i, isNotNull);
+      expect(i!.severity, RangeIssueSeverity.cannotCompare);
+      expect(i.messagePl, contains('nie da się porównać'));
+    });
+
+    test('5G przy „PH, PJ, PF, PG" — wszyscy kandydaci w zakresie → OK', () {
+      expect(positionIssue('5G', 'PH, PJ, PF, PG'), isNull);
+    });
+
+    test('jednoznaczne odpowiedniki: 1G ↔ PA, 2G ↔ PC, PC ↔ 2G', () {
+      expect(positionIssue('1G', 'PA, PC'), isNull);
+      expect(positionIssue('2G', 'PC'), isNull);
+      expect(positionIssue('PC', '2G, 5G'), isNull);
+    });
+
+    test('żaden odpowiednik w zakresie → poza zakresem', () {
+      expect(positionIssue('6G', 'PA, PC, PF')!.severity,
+          RangeIssueSeverity.outOfRange);
+      expect(positionIssue('4G', '1G, 2G')!.severity,
+          RangeIssueSeverity.outOfRange);
+    });
+
+    test('ten sam system — porównanie dosłowne jak dotąd', () {
+      expect(positionIssue('PE', 'PA, PC, PF')!.severity,
+          RangeIssueSeverity.outOfRange);
+      expect(positionIssue('PF', 'PA, PC, PF'), isNull);
+    });
+
+    test('nieznane oznaczenie → nie da się porównać', () {
+      expect(positionIssue('X9', 'PA')!.severity,
+          RangeIssueSeverity.cannotCompare);
+    });
+
+    test('uprawnienie spawacza: 5G przy „PA, PF" nie odbiera uprawnienia', () {
+      final c = WelderCertificate(
+          id: 'c',
+          standard: QualificationStandard.iso9606_1,
+          testDate: DateTime(2026, 6, 1),
+          processes: '141',
+          positions: 'PA, PF',
+          createdAt: 0,
+          updatedAt: 0);
+      final r = checkWelderCoverage(
+          weld: const WeldParameters(position: '5G', process: '141'),
+          weldDate: DateTime(2026, 9, 1),
+          certificates: [c]);
+      expect(r.covered, isTrue);
+    });
+  });
+
   test('parseNumber czyta liczby z tekstu dziennika', () {
     expect(WeldParameters.parseNumber('60,3'), 60.3);
     expect(WeldParameters.parseNumber('2.0 mm'), 2.0);

@@ -93,6 +93,63 @@ String? _nullableText(Object? v) {
 
 DateTime? _date(Object? v) => v is String ? parseFlexibleDate(v) : null;
 
+/// Jedno potwierdzenie 6-miesięczne EN ISO 9606-1 §9.2 (podpis koordynatora
+/// spawania / egzaminatora) albo wpis ciągłości WPQ prowadzony przez
+/// pracodawcę (ASME) — wiersz tabeli `welder_cert_confirmations` (v25).
+///
+/// Do v25 rejestr trzymał tylko OSTATNIE potwierdzenie (nadpisywane), więc
+/// nowe potwierdzenie „unieważniało" wstecz stare okresy, a spóźnione
+/// wskrzeszało wygasły certyfikat. Historia pozwala liczyć status na dowolny
+/// dzień z łańcucha potwierdzeń — patrz `evaluateCertificate`.
+class CertificateConfirmation {
+  final String id;
+  final String certificateId;
+
+  /// Dzień podpisu (bez godziny).
+  final DateTime date;
+
+  /// Kto potwierdził (koordynator / egzaminator); pusty, gdy nie podano.
+  final String confirmedBy;
+  final String notes;
+
+  /// Epoch ms wpisu do aplikacji.
+  final int createdAt;
+
+  const CertificateConfirmation({
+    required this.id,
+    required this.certificateId,
+    required this.date,
+    this.confirmedBy = '',
+    this.notes = '',
+    required this.createdAt,
+  });
+
+  Map<String, Object?> toRow() => <String, Object?>{
+        'id': id,
+        'certificate_id': certificateId,
+        'date': formatIsoDate(date),
+        'confirmed_by': confirmedBy.trim().isEmpty ? null : confirmedBy.trim(),
+        'notes': notes.trim().isEmpty ? null : notes.trim(),
+        'created_at': createdAt,
+      };
+
+  /// `null`, gdy data jest nieczytelna — jeden zepsuty wiersz nie może
+  /// ukryć całej historii.
+  static CertificateConfirmation? fromRow(Map<String, Object?> r) {
+    final date = _date(r['date']);
+    final id = r['id'];
+    if (date == null || id is! String) return null;
+    return CertificateConfirmation(
+      id: id,
+      certificateId: _text(r['certificate_id']),
+      date: date,
+      confirmedBy: _text(r['confirmed_by']),
+      notes: _text(r['notes']),
+      createdAt: (r['created_at'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// Jeden certyfikat uprawnień spawacza.
 class WelderCertificate {
   final String id;
@@ -122,8 +179,14 @@ class WelderCertificate {
 
   /// Ostatnie potwierdzenie 6-miesięczne (ISO 9606-1 §9.2 — podpis
   /// koordynatora spawania / egzaminatora) albo ostatni wpis ciągłości WPQ
-  /// prowadzony przez pracodawcę (ASME).
+  /// prowadzony przez pracodawcę (ASME). Od v25 to tylko skrót (najnowsza
+  /// data z [confirmations]) — status liczy się z całej historii.
   final DateTime? lastConfirmedDate;
+
+  /// Historia potwierdzeń (tabela `welder_cert_confirmations`, v25),
+  /// dołączana przez DAO; NIE jest kolumną `welder_certificates`, więc nie
+  /// wchodzi do [toRow].
+  final List<CertificateConfirmation> confirmations;
 
   /// Sposób przedłużania wg ISO 9606-1 §9.3 (informacyjnie).
   final IsoProlongation? prolongation;
@@ -183,9 +246,28 @@ class WelderCertificate {
     this.jointKinds = const <WeldJointKind>{},
     this.notes = '',
     this.photoPath,
+    this.confirmations = const <CertificateConfirmation>[],
     required this.createdAt,
     required this.updatedAt,
   });
+
+  /// Daty potwierdzeń do łańcucha ciągłości: cała historia plus
+  /// [lastConfirmedDate] (wiersz odtworzony ze starszej kopii zapasowej ma
+  /// tylko ją). Bez powtórzeń, rosnąco.
+  List<DateTime> get confirmationDates {
+    final seen = <DateTime>{
+      for (final c in confirmations) dateOnly(c.date),
+      if (lastConfirmedDate != null) dateOnly(lastConfirmedDate!),
+    };
+    return seen.toList()..sort();
+  }
+
+  /// Stempel właściciela certyfikatu po normalizacji (wielkie litery, bez
+  /// spacji na brzegach); `null` dla certyfikatu bez stempla.
+  String? get stampKey {
+    final s = welderStamp?.trim().toUpperCase() ?? '';
+    return s.isEmpty ? null : s;
+  }
 
   /// Etykieta normy do wyświetlenia.
   String standardName({required bool english}) {
@@ -278,6 +360,7 @@ class WelderCertificate {
     Set<WeldJointKind>? jointKinds,
     String? notes,
     String? photoPath,
+    List<CertificateConfirmation>? confirmations,
     int? updatedAt,
   }) =>
       WelderCertificate(
@@ -302,6 +385,7 @@ class WelderCertificate {
         jointKinds: jointKinds ?? this.jointKinds,
         notes: notes ?? this.notes,
         photoPath: photoPath ?? this.photoPath,
+        confirmations: confirmations ?? this.confirmations,
         createdAt: createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );

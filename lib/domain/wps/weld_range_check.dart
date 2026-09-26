@@ -16,8 +16,11 @@
 //  • zakresy w WPS / certyfikacie wpisuje się jako ZAKRES KWALIFIKACJI
 //    (co jest dopuszczone), nie jako parametry próbki — tabel przeliczeń
 //    ISO 15614-1 / ISO 9606-1 / ASME QW-451/452 nie odtwarzamy;
-//  • pozycje porównujemy dosłownie w jednym systemie (ISO 6947 „PF" albo
-//    ASME „5G") — bez tłumaczenia między systemami;
+//  • pozycje w jednym systemie (ISO 6947 „PF" albo ASME „5G") porównujemy
+//    dosłownie; między systemami przez tabelę odpowiedników
+//    ([kPositionEquivalents]) — gdy odpowiednik jest niejednoznaczny (5G to
+//    PH/PJ wg ISO 6947:2011, a PF/PG w starszym zapisie EN 287), wynik to
+//    „nie da się porównać", nigdy fałszywe „poza zakresem";
 //  • grubość spoiny porównujemy z zakresem grubości; ISO 9606-1 dla BW mówi
 //    o grubości stopiwa s, co przy spoinie jednym procesem jest tym samym.
 //
@@ -249,6 +252,58 @@ Set<String> positionTokens(String? raw) {
 
 bool _allPositions(Set<String> tokens) => tokens.any(_kAllPositions.contains);
 
+/// Odpowiedniki pozycji w drugim systemie: ASME IX QW-461 (1G–6G, 1F–5F,
+/// 2FR) ↔ EN ISO 6947 (PA–PJ, H-L045, J-L045).
+///
+/// Rura nieobracana poziomo (5G / 5F) to wg ISO 6947:2011 PH (w górę) albo PJ
+/// (w dół), ale w dokumentach wg EN 287 / ISO 6947:1993 zapisywana jako PF /
+/// PG — stąd kilka kandydatów. Pozycja pokrywa się z zakresem po drugiej
+/// stronie tylko wtedy, gdy WSZYSCY kandydaci są w zakresie; gdy tylko
+/// część — nie da się porównać.
+const Map<String, Set<String>> kPositionEquivalents = <String, Set<String>>{
+  // ASME → ISO 6947
+  '1G': {'PA'},
+  '2G': {'PC'},
+  '3G': {'PF', 'PG'},
+  '4G': {'PE'},
+  '5G': {'PH', 'PJ', 'PF', 'PG'},
+  '6G': {'H-L045', 'J-L045'},
+  '1F': {'PA'},
+  '2F': {'PB'},
+  '2FR': {'PB'},
+  '3F': {'PF', 'PG'},
+  '4F': {'PD'},
+  '5F': {'PH', 'PJ', 'PF', 'PG'},
+  // ISO 6947 → ASME
+  'PA': {'1G', '1F'},
+  'PB': {'2F', '2FR'},
+  'PC': {'2G'},
+  'PD': {'4F'},
+  'PE': {'4G'},
+  'PF': {'3G', '3F', '5G', '5F'},
+  'PG': {'3G', '3F', '5G', '5F'},
+  'PH': {'5G', '5F'},
+  'PJ': {'5G', '5F'},
+  'H-L045': {'6G'},
+  'J-L045': {'6G'},
+};
+
+/// Wynik porównania jednej pozycji spoiny z zakresem.
+enum PositionMatch { covered, outOfRange, cannotCompare }
+
+/// Czy pozycja [weldToken] mieści się w zakresie [allowed] (tokeny po
+/// [positionTokens], bez „wszystkie").
+PositionMatch matchPosition(String weldToken, Set<String> allowed) {
+  if (allowed.contains(weldToken)) return PositionMatch.covered;
+  final candidates = kPositionEquivalents[weldToken];
+  // Nieznane oznaczenie — nie zgadujemy.
+  if (candidates == null) return PositionMatch.cannotCompare;
+  final hits = candidates.where(allowed.contains).length;
+  if (hits == 0) return PositionMatch.outOfRange;
+  if (hits == candidates.length) return PositionMatch.covered;
+  return PositionMatch.cannotCompare;
+}
+
 bool _outside(double value, double? min, double? max) {
   const eps = 1e-9;
   if (min != null && value < min - eps) return true;
@@ -336,13 +391,29 @@ void _checkScope({
   final allowedPositions = positionTokens(positions);
   if (weldPositions.isNotEmpty &&
       allowedPositions.isNotEmpty &&
-      !_allPositions(allowedPositions) &&
-      !weldPositions.every(allowedPositions.contains)) {
-    out.add(RangeIssue(
-      field: WeldCheckField.position,
-      allowed: positions.trim(),
-      actual: weld.position!.trim(),
-    ));
+      !_allPositions(allowedPositions)) {
+    final results = [
+      for (final p in weldPositions) matchPosition(p, allowedPositions),
+    ];
+    if (results.contains(PositionMatch.outOfRange)) {
+      out.add(RangeIssue(
+        field: WeldCheckField.position,
+        allowed: positions.trim(),
+        actual: weld.position!.trim(),
+      ));
+    } else if (results.contains(PositionMatch.cannotCompare)) {
+      final hints = <String>{
+        for (final p in weldPositions) ...?kPositionEquivalents[p],
+      };
+      out.add(RangeIssue(
+        field: WeldCheckField.position,
+        severity: RangeIssueSeverity.cannotCompare,
+        allowed: '${positions.trim()}; ISO 6947 ↔ ASME',
+        actual: hints.isEmpty
+            ? weld.position!.trim()
+            : '${weld.position!.trim()} ≈ ${hints.join('/')}',
+      ));
+    }
   }
 
   final kind = weld.jointKind;

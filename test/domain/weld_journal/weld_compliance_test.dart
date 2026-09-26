@@ -46,7 +46,8 @@ WelderCertificate _cert({
       certNo: 'UDT/123/2026',
       testDate: DateTime(2026, 1, 10),
       expiryDate: expiry ?? DateTime(2028, 1, 10),
-      lastConfirmedDate: DateTime(2026, 8, 1),
+      // Potwierdzenie w terminie (egzamin 2026-01-10 + 6 mies. = 2026-07-10).
+      lastConfirmedDate: DateTime(2026, 7, 1),
       processes: '141',
       materialGroup: '8.1',
       thicknessMinMm: 1,
@@ -299,6 +300,89 @@ void main() {
       final c = _assess(e);
       expect(c.wpsIssues.map((i) => i.field), direct.map((i) => i.field));
       expect(c.wpsIssues.single.field, WeldCheckField.thickness);
+    });
+  });
+
+  group('certyfikat bez stempla i historia potwierdzeń', () {
+    test('certyfikat bez stempla NIE obejmuje spoiny kolegi z brygady', () {
+      final c = assessWeldCompliance(
+        entry: _weld(welder: 'XY-1'),
+        wpsLibrary: const [],
+        certificates: [_cert(stamp: null)],
+        defaultStamp: 'JK-12',
+        today: DateTime(2026, 9, 25),
+      );
+      expect(c.welderNotQualified, isFalse);
+      expect(c.welders.single.coverage.noCertificates, isTrue);
+      expect(c.infoLines(en: false).join(),
+          contains('Brak certyfikatów spawacza XY-1'));
+    });
+
+    test('certyfikat bez stempla liczy się dla właściciela telefonu', () {
+      for (final welder in ['JK-12', '']) {
+        final c = assessWeldCompliance(
+          entry: _weld(welder: welder),
+          wpsLibrary: const [],
+          certificates: [_cert(stamp: null)],
+          defaultStamp: 'JK-12',
+          today: DateTime(2026, 9, 25),
+        );
+        expect(c.welders.single.coverage.noCertificates, isFalse,
+            reason: 'spawacz "$welder"');
+        expect(c.welderNotQualified, isFalse);
+      }
+    });
+
+    test('certificatesForStamp: stempel obcy, właściciel, bez stempla', () {
+      final mine = _cert(id: 'a', stamp: null);
+      final his = _cert(id: 'b', stamp: 'xy-1');
+      expect(
+          certificatesForStamp([mine, his], 'XY-1', ownerStamp: 'JK-12')
+              .map((c) => c.id),
+          ['b']);
+      expect(
+          certificatesForStamp([mine, his], 'jk-12', ownerStamp: 'JK-12')
+              .map((c) => c.id),
+          ['a']);
+      expect(certificatesForStamp([mine, his], '', ownerStamp: null)
+          .map((c) => c.id), ['a']);
+    });
+
+    test(
+        'nowe potwierdzenie nie robi z dawnej spoiny „spawacza bez '
+        'uprawnień"', () {
+      // Egzamin 2025-01-10, potwierdzenia 2025-07-05 i 2026-01-05 w
+      // historii; spoina 2025-10-01 z okresu pierwszego potwierdzenia.
+      final cert = WelderCertificate(
+        id: 'c1',
+        standard: QualificationStandard.iso9606_1,
+        welderStamp: 'JK-12',
+        testDate: DateTime(2025, 1, 10),
+        lastConfirmedDate: DateTime(2026, 1, 5),
+        confirmations: [
+          CertificateConfirmation(
+              id: 'k1',
+              certificateId: 'c1',
+              date: DateTime(2025, 7, 5),
+              createdAt: 0),
+          CertificateConfirmation(
+              id: 'k2',
+              certificateId: 'c1',
+              date: DateTime(2026, 1, 5),
+              createdAt: 0),
+        ],
+        processes: '141',
+        createdAt: 0,
+        updatedAt: 0,
+      );
+      final c = assessWeldCompliance(
+        entry: _weld(date: '2025-10-01'),
+        wpsLibrary: const [],
+        certificates: [cert],
+        defaultStamp: 'JK-12',
+        today: DateTime(2026, 3, 1),
+      );
+      expect(c.welderNotQualified, isFalse);
     });
   });
 }

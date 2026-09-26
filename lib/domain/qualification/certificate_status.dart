@@ -6,7 +6,14 @@
 //     • EN ISO 9606-1 §9.2 — co 6 miesięcy koordynator spawania (albo
 //       egzaminator / jednostka egzaminująca) potwierdza, że spawacz pracował
 //       w zakresie uprawnienia; bez potwierdzenia certyfikat traci ważność.
-//       Termin = (ostatnie potwierdzenie albo data egzaminu) + 6 miesięcy.
+//       Od v25 termin liczymy z ŁAŃCUCHA potwierdzeń (historia w tabeli
+//       `welder_cert_confirmations`): egzamin → kolejne potwierdzenia, każde
+//       w terminie przesuwa go o 6 miesięcy od swojej daty. Potwierdzenie
+//       podpisane PO terminie nie przywraca wygasłego certyfikatu (§9.2:
+//       bez potwierdzenia w terminie certyfikat traci ważność — potrzebny
+//       nowy egzamin). Ocena na dzień D używa tylko potwierdzeń do D, więc
+//       dawna spoina jest oceniana wg stanu w dniu spawania i nie zmienia się
+//       po nowym potwierdzeniu.
 //       Spoiny w dzienniku są tu tylko DOWODEM dla koordynatora — samo
 //       spawanie nie przedłuża ISO 9606-1, potrzebny jest podpis.
 //     • ASME IX QW-322.1(a) — uprawnienie do PROCESU wygasa, gdy spawacz nie
@@ -138,6 +145,10 @@ class CertificateEvaluation {
   /// Ciągłość powinna być liczona, ale brakuje daty egzaminu i potwierdzenia.
   final bool continuityUnknown;
 
+  /// Pierwsze potwierdzenie (do [asOf]) podpisane PO terminie łańcucha — nie
+  /// przedłużyło uprawnienia; `null`, gdy łańcuch jest ciągły.
+  final DateTime? lateConfirmation;
+
   const CertificateEvaluation({
     required this.certificate,
     required this.asOf,
@@ -150,6 +161,7 @@ class CertificateEvaluation {
     required this.continuitySource,
     required this.lastJournalWeld,
     required this.continuityUnknown,
+    this.lateConfirmation,
   });
 
   DateTime? get expiryDate => certificate.expiryDate;
@@ -168,9 +180,6 @@ CertificateEvaluation evaluateCertificate(
 }) {
   final today = dateOnly(asOf);
   final test = certificate.testDate == null ? null : dateOnly(certificate.testDate!);
-  final confirmed = certificate.lastConfirmedDate == null
-      ? null
-      : dateOnly(certificate.lastConfirmedDate!);
 
   bool inWindow(DateTime d) =>
       !d.isAfter(today) && (test == null || !d.isBefore(test));
@@ -180,6 +189,13 @@ CertificateEvaluation evaluateCertificate(
       if (inWindow(dateOnly(d))) dateOnly(d),
   ]..sort();
   final lastWeld = welds.isEmpty ? null : welds.last;
+
+  // Potwierdzenia do dnia oceny (późniejsze — i „z przyszłości" przez
+  // literówkę — nie istniały jeszcze w dniu [asOf]).
+  final confirmations = <DateTime>[
+    for (final d in certificate.confirmationDates)
+      if (inWindow(d)) d,
+  ];
 
   // ---- Data ważności
   final expiry = certificate.expiryDate;
@@ -191,59 +207,53 @@ CertificateEvaluation evaluateCertificate(
   DateTime? deadline;
   DateTime? anchor;
   ContinuitySource? source;
+  DateTime? late;
   var unknown = false;
+
+  // Łańcuch: posortowane zdarzenia; każde w terminie przesuwa termin o
+  // 6 miesięcy od swojej daty, pierwsze po terminie przerywa łańcuch.
+  void chain(List<(DateTime, ContinuitySource)> events) {
+    events.sort((a, b) => a.$1.compareTo(b.$1));
+    if (events.isEmpty) {
+      unknown = true;
+      return;
+    }
+    anchor = events.first.$1;
+    source = events.first.$2;
+    deadline = addMonthsClamped(anchor!, kContinuityMonths);
+    for (final (date, src) in events.skip(1)) {
+      if (date.isAfter(deadline!)) {
+        // Przerwa: zdarzenie po terminie nie przedłuża już wygasłego
+        // uprawnienia (ISO 9606-1 §9.2 / ASME QW-322.1(a)).
+        if (src == ContinuitySource.confirmation) late = date;
+        break;
+      }
+      anchor = date;
+      source = src;
+      deadline = addMonthsClamped(date, kContinuityMonths);
+    }
+  }
 
   switch (certificate.standard) {
     case QualificationStandard.iso9606_1:
       rule = ContinuityRule.confirmation;
-      // Znamy tylko OSTATNIE potwierdzenie (historii podpisów nie
-      // przechowujemy), więc termin to ono + 6 miesięcy. Potwierdzenie z datą
-      // w przyszłości (literówka) nie liczy się.
-      final usableConfirmation =
-          confirmed != null && !confirmed.isAfter(today) ? confirmed : null;
-      if (usableConfirmation != null &&
-          (test == null || !usableConfirmation.isBefore(test))) {
-        anchor = usableConfirmation;
-        source = ContinuitySource.confirmation;
-      } else if (test != null) {
-        anchor = test;
-        source = ContinuitySource.test;
-      }
-      if (anchor != null) {
-        deadline = addMonthsClamped(anchor, kContinuityMonths);
-      } else {
-        unknown = true;
-      }
+      chain(<(DateTime, ContinuitySource)>[
+        if (test != null && !test.isAfter(today)) (test, ContinuitySource.test),
+        for (final c in confirmations) (c, ContinuitySource.confirmation),
+      ]);
     case QualificationStandard.asmeIx:
       rule = ContinuityRule.processUse;
-      final events = <(DateTime, ContinuitySource)>[
+      chain(<(DateTime, ContinuitySource)>[
         if (test != null && !test.isAfter(today)) (test, ContinuitySource.test),
-        if (confirmed != null && inWindow(confirmed))
-          (confirmed, ContinuitySource.confirmation),
+        for (final c in confirmations) (c, ContinuitySource.confirmation),
         for (final w in welds) (w, ContinuitySource.journal),
-      ]..sort((a, b) => a.$1.compareTo(b.$1));
-      if (events.isEmpty) {
-        unknown = true;
-        break;
-      }
-      anchor = events.first.$1;
-      source = events.first.$2;
-      deadline = addMonthsClamped(anchor, kContinuityMonths);
-      // Zdarzenia są posortowane, więc każde kolejne w terminie przesuwa
-      // termin dalej.
-      for (final (date, src) in events.skip(1)) {
-        // Przerwa: zdarzenie po terminie nie przedłuża już wygasłego WPQ.
-        if (date.isAfter(deadline!)) break;
-        anchor = date;
-        source = src;
-        deadline = addMonthsClamped(date, kContinuityMonths);
-      }
+      ]);
     case QualificationStandard.other:
       rule = ContinuityRule.none;
   }
 
-  final daysToDeadline =
-      deadline == null ? null : calendarDaysBetween(today, deadline);
+  final dl = deadline;
+  final daysToDeadline = dl == null ? null : calendarDaysBetween(today, dl);
 
   // ---- Status: najgorszy z obu terminów. Data ważności oceniana pierwsza,
   // więc przy remisie wagi („wygasł" i „brak potwierdzenia" — oba czerwone)
@@ -279,6 +289,7 @@ CertificateEvaluation evaluateCertificate(
     continuitySource: source,
     lastJournalWeld: lastWeld,
     continuityUnknown: unknown,
+    lateConfirmation: late,
   );
 }
 

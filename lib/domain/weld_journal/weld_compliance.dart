@@ -283,20 +283,26 @@ List<String> stampsToCheck(WeldEntry e) =>
     e.stamps.isEmpty ? const <String>[''] : e.stamps;
 
 /// Certyfikaty stempla [stamp] — ta sama reguła co
-/// `WelderQualificationService.checkWeld`: certyfikat bez stempla należy do
-/// spawacza telefonu i liczy się dla każdego stempla.
+/// `WelderQualificationService.checkWeld`.
+///
+/// Certyfikat BEZ stempla należy do właściciela telefonu ([ownerStamp]) —
+/// liczy się dla jego stempla i dla spoiny bez stempla (domyślnie spawał
+/// właściciel), ale NIE dla stempla kolegi z brygady. Dawniej obejmował
+/// każdego spawacza, co dawało brygadzie cichy, fałszywy wynik „w porządku".
+/// Nieznany właściciel (tożsamość nieustawiona) → certyfikat bez stempla
+/// liczy się tylko dla spoiny bez stempla.
 List<WelderCertificate> certificatesForStamp(
   Iterable<WelderCertificate> certificates,
-  String? stamp,
-) {
-  final key = stamp?.trim().toUpperCase();
-  return certificates
-      .where((c) =>
-          c.welderStamp == null ||
-          key == null ||
-          key.isEmpty ||
-          c.welderStamp!.trim().toUpperCase() == key)
-      .toList();
+  String? stamp, {
+  String? ownerStamp,
+}) {
+  final key = stamp?.trim().toUpperCase() ?? '';
+  final owner = ownerStamp?.trim().toUpperCase() ?? '';
+  return certificates.where((c) {
+    final own = c.stampKey;
+    if (own == null) return key.isEmpty || (owner.isNotEmpty && key == owner);
+    return key.isNotEmpty && own == key;
+  }).toList();
 }
 
 /// Kontrola spoiny na danych w pamięci — dla listy dziennika (jedno
@@ -334,7 +340,8 @@ WeldCompliance assessWeldCompliance({
       checkWelderCoverage(
         weld: weld,
         weldDate: date,
-        certificates: certificatesForStamp(certList, stamp),
+        certificates:
+            certificatesForStamp(certList, stamp, ownerStamp: defaultStamp),
         journal: journal,
       ),
     ));

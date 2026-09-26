@@ -66,7 +66,7 @@ void main() {
       ),
       (
         'potwierdzenie przesuwa termin od swojej daty',
-        _cert(test: DateTime(2025, 1, 10), confirmed: DateTime(2026, 7, 1)),
+        _cert(test: DateTime(2026, 1, 10), confirmed: DateTime(2026, 7, 1)),
         QualificationState.valid,
         DateTime(2027, 1, 1),
       ),
@@ -84,10 +84,7 @@ void main() {
       ),
       (
         'data ważności za 10 dni — wygasa wkrótce',
-        _cert(
-            test: DateTime(2023, 10, 4),
-            confirmed: DateTime(2026, 9, 1),
-            expiry: DateTime(2026, 10, 4)),
+        _cert(confirmed: DateTime(2026, 9, 1), expiry: DateTime(2026, 10, 4)),
         QualificationState.expiringSoon,
         DateTime(2027, 3, 1),
       ),
@@ -122,6 +119,68 @@ void main() {
       final e = evaluateCertificate(_cert(), asOf: today);
       expect(e.continuityUnknown, isTrue);
       expect(e.state, QualificationState.valid);
+    });
+  });
+
+  group('ISO 9606-1 — łańcuch potwierdzeń z historii (v25)', () {
+    WelderCertificate withHistory(List<DateTime> dates, {DateTime? test}) =>
+        _cert(test: test ?? DateTime(2025, 1, 10)).copyWith(confirmations: [
+          for (final (i, d) in dates.indexed)
+            CertificateConfirmation(
+                id: 'k$i', certificateId: 'c1', date: d, createdAt: 0),
+        ]);
+
+    test(
+        'nowe potwierdzenie nie unieważnia wstecz: spoina z okresu '
+        'poprzedniego potwierdzenia jest objęta', () {
+      final cert =
+          withHistory([DateTime(2025, 7, 5), DateTime(2026, 1, 5)]);
+      final atWeld = evaluateCertificate(cert, asOf: DateTime(2025, 10, 1));
+      expect(atWeld.state, QualificationState.valid);
+      expect(atWeld.continuityDeadline, DateTime(2026, 1, 5));
+      expect(atWeld.continuitySource, ContinuitySource.confirmation);
+      // Dziś: oba potwierdzenia w łańcuchu, termin od ostatniego.
+      final now = evaluateCertificate(cert, asOf: DateTime(2026, 3, 1));
+      expect(now.continuityDeadline, DateTime(2026, 7, 5));
+    });
+
+    test('ocena dawnej spoiny nie zmienia się po nowym potwierdzeniu', () {
+      final before = evaluateCertificate(withHistory([DateTime(2025, 7, 5)]),
+          asOf: DateTime(2025, 10, 1));
+      final after = evaluateCertificate(
+          withHistory([DateTime(2025, 7, 5), DateTime(2026, 1, 5)]),
+          asOf: DateTime(2025, 10, 1));
+      expect(after.state, before.state);
+      expect(after.continuityDeadline, before.continuityDeadline);
+    });
+
+    test('potwierdzenie po terminie NIE przywraca wygasłego certyfikatu',
+        () {
+      final cert = withHistory([DateTime(2025, 9, 1)]);
+      final e = evaluateCertificate(cert, asOf: DateTime(2025, 10, 1));
+      expect(e.state, QualificationState.lapsed);
+      expect(e.continuityDeadline, DateTime(2025, 7, 10));
+      expect(e.lateConfirmation, DateTime(2025, 9, 1));
+      // Przed terminem był ważny.
+      expect(
+          evaluateCertificate(cert, asOf: DateTime(2025, 7, 10)).state.severity,
+          lessThan(2));
+    });
+
+    test('stare pole „ostatnie potwierdzenie" też jest ogniwem łańcucha', () {
+      // Wiersz odtworzony ze starszej kopii zapasowej — bez historii.
+      final e = evaluateCertificate(
+          _cert(test: DateTime(2026, 1, 10), confirmed: DateTime(2026, 7, 1)),
+          asOf: DateTime(2026, 9, 24));
+      expect(e.continuityDeadline, DateTime(2027, 1, 1));
+    });
+
+    test('potwierdzenie sprzed egzaminu się nie liczy', () {
+      final e = evaluateCertificate(
+          withHistory([DateTime(2024, 12, 1)], test: DateTime(2026, 6, 1)),
+          asOf: DateTime(2026, 9, 24));
+      expect(e.continuityDeadline, DateTime(2026, 12, 1));
+      expect(e.continuitySource, ContinuitySource.test);
     });
   });
 
