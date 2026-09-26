@@ -555,15 +555,17 @@ final kHelpHeatInput = ScreenHelp(
   bodyEn:
       'Heat input per EN 1011-1 (with η) or ASME IX (no η), plus an estimated preheat temperature from chemistry and thickness. The result is an aid: the WPS temperature is binding, never below the code minimum; the normative calculation methods are EN 1011-2 Annex C.',
   stepsPl: [
-    HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość.'),
+    HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość. Prędkość można wziąć z pomiaru: długość ściegu + czas jarzenia. Wynik i zakres WPS także w kJ/in i J/in. Gdy danych nie da się policzyć, wynik to „—”.'),
     HelpStep('📏', 'Zakres WPS — wpisz min i/lub max z Twojego WPS albo „Wybierz WPS” z Biblioteki WPS (ustawia zakres i normę liczenia), żeby zobaczyć, czy wynik mieści się w zakresie.'),
-    HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku).'),
+    HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku: wydanie ≥ 2014, równe B31.1, oraz dla porównania wydanie 2012). Dla stali Cr-Mo i P91 (P-No 4, 5A, 5B, 5C, 15E) metody z CE są ukryte — tylko minimum kodowe i WPS.'),
+    HelpStep('📋', 'DN / SCH — wybór rury wpisuje ściankę z tabeli ASME B36.10/19 do pola „Grubość” (z Cofnij).'),
     HelpStep('🧾', 'Gatunek z listy uzupełnia typową chemię — do obliczeń z atestu wpisz skład z atestu 3.1.'),
   ],
   stepsEn: [
-    HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value.'),
+    HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value. Travel speed can come from a measurement: bead length + arc time. Result and WPS range also in kJ/in and J/in. When the inputs cannot be calculated, the result is “—”.'),
     HelpStep('📏', 'WPS range — enter min and/or max from your WPS or “Pick WPS” from the WPS library (sets the range and the calculation standard) to see whether the result is within range.'),
-    HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked).'),
+    HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked: edition ≥ 2014, equal to B31.1, plus the 2012 edition for comparison). For Cr-Mo and P91 steels (P-No 4, 5A, 5B, 5C, 15E) the CE methods are hidden — only the code minimum and the WPS.'),
+    HelpStep('📋', 'DN / SCH — picking a pipe puts the ASME B36.10/19 wall into the “Thickness” field (with Undo).'),
     HelpStep('🧾', 'A grade from the list fills typical chemistry — for an MTR-based result type the chemistry from the 3.1 certificate.'),
   ],
 );

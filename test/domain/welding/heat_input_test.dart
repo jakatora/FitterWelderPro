@@ -179,4 +179,34 @@ void main() {
       });
     }
   });
+
+  // 1 in = 25,4 mm (definicja cala): 0,80 kJ/mm × 25,4 = 20,32 kJ/in
+  // = 20 320 J/in; 0,5808 kJ/mm → 14,75 kJ/in → 14 752 J/in.
+  group('jednostki kJ/mm ↔ kJ/in ↔ J/in', () {
+    test('0,80 kJ/mm', () {
+      expect(HeatInputUnit.kjPerIn.fromKjPerMm(0.80), closeTo(20.32, 1e-9));
+      expect(HeatInputUnit.jPerIn.fromKjPerMm(0.80), closeTo(20320, 1e-6));
+      expect(HeatInputUnit.jPerIn.format(0.80), '20320');
+      expect(HeatInputUnit.kjPerIn.format(0.5808), '14.8');
+      expect(HeatInputUnit.kjPerMm.format(0.5808), '0.58');
+    });
+    test('powrót do kJ/mm', () {
+      expect(HeatInputUnit.jPerIn.toKjPerMm(25400), closeTo(1.0, 1e-12));
+      expect(HeatInputUnit.kjPerIn.toKjPerMm(50.8), closeTo(2.0, 1e-12));
+    });
+  });
+
+  // v = L / t · 60: 300 mm w 90 s → 200 mm/min; 150 mm w 100 s → 90 mm/min.
+  group('travelSpeedMmPerMin (długość ściegu + czas jarzenia)', () {
+    test('liczby', () {
+      expect(travelSpeedMmPerMin(lengthMm: 300, seconds: 90), closeTo(200, 1e-9));
+      expect(travelSpeedMmPerMin(lengthMm: 150, seconds: 100), closeTo(90, 1e-9));
+    });
+    test('zero / ujemne / NaN → null', () {
+      expect(travelSpeedMmPerMin(lengthMm: 0, seconds: 10), isNull);
+      expect(travelSpeedMmPerMin(lengthMm: 100, seconds: 0), isNull);
+      expect(travelSpeedMmPerMin(lengthMm: -1, seconds: 10), isNull);
+      expect(travelSpeedMmPerMin(lengthMm: double.nan, seconds: 10), isNull);
+    });
+  });
 }

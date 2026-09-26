@@ -5,8 +5,8 @@
 // różnych liczb za sprzeczność:
 //
 //  1. Minimum kodowe — dolna granica z kodu rurociągowego dla grupy P-No
-//     i grubości (tu: ASME B31.3 Tab. 330.1.1). Nie zależy od rzeczywistego
-//     składu z atestu.
+//     i grubości (tu: ASME B31.3 Tab. 330.1.1 — wydanie ≥ 2014, ujednolicone
+//     z B31.1, oraz dla porównania zastąpione wydanie 2012).
 //  2. Seferian — szacunek z chemii i grubości (stale węglowe i niskostopowe).
 //  3. Reguła orientacyjna CE (IIW) — pasma CE z praktyki warsztatowej,
 //     nienormatywne.
@@ -141,6 +141,9 @@ CeRuleOfThumb ceRuleOfThumb({required double ce, required double thicknessMm}) {
       band: CeBand.critical, preheatC: 250, thickWall: false);
 }
 
+/// WYDANIE ZASTĄPIONE — pokazywane obok [b313CurrentMinPreheatC] dla
+/// projektów, których specyfikacja wciąż wskazuje B31.3-2012.
+///
 /// Minimalna temperatura podgrzewania wg ASME B31.3-2012 Tab. 330.1.1
 /// („Required Minimum Temperature”) dla grupy P-No, grubości nominalnej
 /// grubszego elementu w złączu i minimalnej wytrzymałości na rozciąganie.
@@ -183,4 +186,85 @@ int? b313MinPreheatC({
       return 200;
   }
   return null;
+}
+
+/// Grupy Cr-Mo i CSEF (P-No 4, 5A, 5B, 5C, 15E): metody szacowania z CE
+/// (Seferian, pasma CE) nie są dla nich przeznaczone — o podgrzewaniu
+/// decyduje minimum kodowe i WPS.
+bool isCrMoPNo(String pNo) =>
+    const {'4', '5A', '5B', '5C', '15E'}.contains(pNo.trim().toUpperCase());
+
+/// Skład ręczny wyglądający na stal Cr-Mo (P-No 4 i wyżej: Cr > 0,5 %,
+/// Mo ≥ 0,4 %), ale nie nierdzewną (Cr < 10,5 %). Heurystyka ekranu, gdy
+/// spawacz nie wybrał gatunku z katalogu.
+bool isCrMoComposition({required double cr, required double mo}) =>
+    cr > 0.5 && cr < 10.5 && mo >= 0.4;
+
+/// SMTS w pełnych ksi. ASTM podaje wartości SI jako zaokrąglone przeliczenie
+/// ksi (60 ksi → 415 MPa), więc porównanie „> 60 ksi” w MPa (> 414)
+/// fałszywie łapałoby P22. Stąd zaokrąglenie do całych ksi.
+int _smtsKsi(double mpa) => (mpa / 6.894757).round();
+
+/// Minimalna temperatura podgrzewania wg ASME B31.3 wydań ≥ 2014
+/// (Tab. 330.1.1), ujednoliconych z ASME B31.1 — wartości przepisane
+/// z ASME B31.1-2022 Table 131.4.1-1 „Preheat Temperatures”:
+///
+///   P-No 1:  t ≤ 25 mm → 10 °C; t > 25 mm i C ≤ 0,30 % → 10 °C;
+///            t > 25 mm i C > 0,30 % → 95 °C
+///   P-No 3:  t ≤ 13 mm i SMTS ≤ 65 ksi (450 MPa) → 10 °C;
+///            t > 13 mm → 95 °C; SMTS > 65 ksi → 95 °C
+///   P-No 4:  120 °C
+///   P-No 5A: SMTS ≤ 60 ksi (414 MPa) → 150 °C; > 60 ksi → 200 °C
+///   P-No 5B: SMTS ≤ 60 ksi → 150 °C; > 60 ksi → 200 °C;
+///            t > 13 mm i Cr > 6,0 % → 200 °C
+///   P-No 6: 200 · 9A: 120 · 9B: 150 · 10I: 150 · 15E: 200 °C
+///   pozostałe materiały: 10 °C
+///
+/// t — grubość nominalna grubszego elementu w złączu. C i Cr — z analizy
+/// wytopowej/wyrobu albo limitów specyfikacji (uwaga (3) tabeli).
+///
+/// Brak danych (null) dla SMTS / C / Cr → przyjmowana jest WYŻSZA wartość
+/// (strona bezpieczna). P-No 5C nie ma w tabeli B31.1-2022 → `null`
+/// (do potwierdzenia w normie projektu). Zwraca `null` także dla t ≤ 0.
+int? b313CurrentMinPreheatC({
+  required String pNo,
+  required double thicknessMm,
+  double? smtsMpa,
+  double? carbonPct,
+  double? chromiumPct,
+}) {
+  if (!thicknessMm.isFinite || thicknessMm <= 0) return null;
+  final t = thicknessMm;
+  final ksi = smtsMpa == null || !smtsMpa.isFinite ? null : _smtsKsi(smtsMpa);
+  switch (pNo.trim().toUpperCase()) {
+    case '1':
+      if (t <= 25) return 10;
+      return (carbonPct == null || carbonPct > 0.30) ? 95 : 10;
+    case '3':
+      if (t > 13) return 95;
+      return (ksi == null || ksi > 65) ? 95 : 10;
+    case '4':
+      return 120;
+    case '5A':
+      return (ksi == null || ksi > 60) ? 200 : 150;
+    case '5B':
+      if (ksi == null || ksi > 60) return 200;
+      if (t > 13 && (chromiumPct == null || chromiumPct > 6.0)) return 200;
+      return 150;
+    case '5C':
+      return null;
+    case '6':
+      return 200;
+    case '9A':
+      return 120;
+    case '9B':
+      return 150;
+    case '10I':
+      return 150;
+    case '15E':
+      return 200;
+    case '':
+      return null;
+  }
+  return 10;
 }
