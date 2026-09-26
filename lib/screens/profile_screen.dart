@@ -860,10 +860,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     child: Text(
                       context.tr(
-                        pl: 'Nikogo nie zablokowałeś. Na czacie przytrzymaj '
-                            'wiadomość, żeby zgłosić ją lub zablokować autora.',
-                        en: 'You have not blocked anyone. In chat, long-press a '
-                            'message to report it or block its author.',
+                        pl: 'Nikogo nie zablokowałeś. Na czacie stuknij ⋮ przy '
+                            'wiadomości (albo ją przytrzymaj), żeby zgłosić ją '
+                            'lub zablokować autora.',
+                        en: 'You have not blocked anyone. In chat, tap ⋮ next '
+                            'to a message (or long-press it) to report it or '
+                            'block its author.',
                       ),
                       style: const TextStyle(
                           color: kTextSec, fontSize: 13, height: 1.5),
