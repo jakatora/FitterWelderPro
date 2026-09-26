@@ -19,6 +19,7 @@ class _Case {
 const _save = kIntentSaveWeldParameter;
 const _open = kIntentOpenTool;
 const _unknown = kIntentUnknown;
+const _answer = kIntentAnswerQuestion;
 
 const _plCases = <_Case>[
   // Przykład ze specyfikacji §6 — dosłownie.
@@ -157,9 +158,11 @@ const _plCases = <_Case>[
   _Case('Otwórz dziennik spoin', _open, {'query': 'dziennik spoin'}),
   _Case('Proszę, włącz mi konwerter jednostek', _open,
       {'query': 'konwerter jednostek'}),
-  // Pytanie wiedzowe — nie operacja.
-  _Case('Jaki preheat dla P91?', _unknown),
-  _Case('Co to jest NACE?', _unknown),
+  // Pytanie wiedzowe — nie zapis: tryb „Odpowiedz".
+  _Case('Jaki preheat dla P91?', _answer, {'text': 'Jaki preheat dla P91?'}),
+  _Case('Co to jest NACE?', _answer),
+  // Nic z listy.
+  _Case('zrób mi kawę', _unknown),
 ];
 
 const _enCases = <_Case>[
@@ -195,7 +198,7 @@ const _enCases = <_Case>[
   _Case('Open heat input', _open, {'query': 'heat input'}),
   _Case('Show me the bolt torque calculator', _open,
       {'query': 'bolt torque calculator'}),
-  _Case('What preheat for P91?', _unknown),
+  _Case('What preheat for P91?', _answer),
 ];
 
 void _runTable(List<_Case> cases) {
@@ -212,7 +215,7 @@ void _runTable(List<_Case> cases) {
       }
       // Parser zwraca tylko pola z dozwolonej listy intencji.
       if (c.intent != _unknown) {
-        final spec = kAssistantIntentsV1[c.intent]!;
+        final spec = kAssistantIntents[c.intent]!;
         expect(spec.allFields.containsAll(p.fields.keys), isTrue,
             reason: 'pole spoza listy: ${p.fields.keys}');
       }
