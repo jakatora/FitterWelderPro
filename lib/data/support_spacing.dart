@@ -1,7 +1,13 @@
 import '../utils/decimal_parse.dart';
-// Maximum pipe support spacing per MSS SP-69 / ASME B31 reference tables.
-// Spacing is the longest distance allowed between two supports for a straight
-// run carrying water (full of liquid) or vapor (empty / gas / steam).
+// Maximum pipe support spacing for standard-weight (and heavier) steel pipe:
+//  • ANSI/MSS SP-58-2018 Table 4 (formerly MSS SP-69 Table 3), metric column,
+//    "water service" and "vapor service";
+//  • ASME B31.1 Table 121.5 — same numbers where it lists the size
+//    (NPS 1, 2, 3, 4, 6, 8, 12, 16, 20, 24). B31.1 bases the table on
+//    INSULATED pipe filled with water (or the equivalent weight of steel pipe
+//    for steam / gas / air), a sag of 2.5 mm and ≤ 400 °C; it does not apply
+//    to concentrated loads (valves, flanges) between supports.
+// Pinned value by value in test/data/support_spacing_norm_test.dart.
 //
 // Real spacing on a project is set by the stress engineer for that line —
 // these are the standard reference numbers a fitter checks against on site.
@@ -23,24 +29,27 @@ class SupportSpan {
 }
 
 const List<SupportSpan> kSupportSpans = [
-  SupportSpan(dn: 15,  nps: '1/2',   vaporMm: 2100,  waterMm: 2100),
-  SupportSpan(dn: 20,  nps: '3/4',   vaporMm: 2400,  waterMm: 2400),
-  SupportSpan(dn: 25,  nps: '1',     vaporMm: 2700,  waterMm: 2100),
-  SupportSpan(dn: 32,  nps: '1 1/4', vaporMm: 3000,  waterMm: 2400),
-  SupportSpan(dn: 40,  nps: '1 1/2', vaporMm: 3400,  waterMm: 2700),
-  SupportSpan(dn: 50,  nps: '2',     vaporMm: 4000,  waterMm: 3000),
-  SupportSpan(dn: 65,  nps: '2 1/2', vaporMm: 4300,  waterMm: 3400),
-  SupportSpan(dn: 80,  nps: '3',     vaporMm: 4600,  waterMm: 3700),
-  SupportSpan(dn: 100, nps: '4',     vaporMm: 5200,  waterMm: 4300),
-  SupportSpan(dn: 150, nps: '6',     vaporMm: 5800,  waterMm: 5200),
-  SupportSpan(dn: 200, nps: '8',     vaporMm: 6400,  waterMm: 5800),
-  SupportSpan(dn: 250, nps: '10',    vaporMm: 6700,  waterMm: 6400),
-  SupportSpan(dn: 300, nps: '12',    vaporMm: 7000,  waterMm: 7000),
-  SupportSpan(dn: 350, nps: '14',    vaporMm: 7300,  waterMm: 7000),
-  SupportSpan(dn: 400, nps: '16',    vaporMm: 7600,  waterMm: 7600),
-  SupportSpan(dn: 450, nps: '18',    vaporMm: 8200,  waterMm: 7900),
-  SupportSpan(dn: 500, nps: '20',    vaporMm: 8800,  waterMm: 8200),
-  SupportSpan(dn: 600, nps: '24',    vaporMm: 10000, waterMm: 9100),
+  // MSS SP-58 Tab. 4 — water ft / vapor ft → metric column.
+  SupportSpan(dn: 15,  nps: '1/2',   vaporMm: 2400,  waterMm: 2100), //  7 /  8 ft
+  SupportSpan(dn: 20,  nps: '3/4',   vaporMm: 2700,  waterMm: 2100), //  7 /  9 ft
+  SupportSpan(dn: 25,  nps: '1',     vaporMm: 2700,  waterMm: 2100), //  7 /  9 ft
+  SupportSpan(dn: 32,  nps: '1 1/4', vaporMm: 2700,  waterMm: 2100), //  7 /  9 ft
+  SupportSpan(dn: 40,  nps: '1 1/2', vaporMm: 3700,  waterMm: 2700), //  9 / 12 ft
+  SupportSpan(dn: 50,  nps: '2',     vaporMm: 4000,  waterMm: 3000), // 10 / 13 ft
+  SupportSpan(dn: 65,  nps: '2 1/2', vaporMm: 4300,  waterMm: 3400), // 11 / 14 ft
+  SupportSpan(dn: 80,  nps: '3',     vaporMm: 4600,  waterMm: 3700), // 12 / 15 ft
+  SupportSpan(dn: 90,  nps: '3 1/2', vaporMm: 4900,  waterMm: 4000), // 13 / 16 ft
+  SupportSpan(dn: 100, nps: '4',     vaporMm: 5200,  waterMm: 4300), // 14 / 17 ft
+  SupportSpan(dn: 125, nps: '5',     vaporMm: 5800,  waterMm: 4900), // 16 / 19 ft
+  SupportSpan(dn: 150, nps: '6',     vaporMm: 6400,  waterMm: 5200), // 17 / 21 ft
+  SupportSpan(dn: 200, nps: '8',     vaporMm: 7300,  waterMm: 5800), // 19 / 24 ft
+  SupportSpan(dn: 250, nps: '10',    vaporMm: 7900,  waterMm: 6700), // 22 / 26 ft
+  SupportSpan(dn: 300, nps: '12',    vaporMm: 9100,  waterMm: 7000), // 23 / 30 ft
+  SupportSpan(dn: 350, nps: '14',    vaporMm: 9800,  waterMm: 7600), // 25 / 32 ft
+  SupportSpan(dn: 400, nps: '16',    vaporMm: 10700, waterMm: 8200), // 27 / 35 ft
+  SupportSpan(dn: 450, nps: '18',    vaporMm: 11300, waterMm: 8500), // 28 / 37 ft
+  SupportSpan(dn: 500, nps: '20',    vaporMm: 11900, waterMm: 9100), // 30 / 39 ft
+  SupportSpan(dn: 600, nps: '24',    vaporMm: 12800, waterMm: 9800), // 32 / 42 ft
 ];
 
 SupportSpan? supportSpanForDn(int dn) {
@@ -66,19 +75,21 @@ SupportSpan closestSpanByDn(int dn) {
 
 // ── Spacing calculator ───────────────────────────────────────────────────────
 
-/// Insulation ≥ 50 mm reduces allowable spacing by 12 % (mid of the
-/// 10–15 % rule listed in [kPlacementRules]).
-const double kInsulationSpacingFactor = 0.88;
-
 /// Max support spacing in whole millimetres for the closest tabulated DN.
+///
+/// No reduction for insulation: B31.1 Table 121.5 is already based on
+/// insulated pipe. [ownMarginPct] is the user's OWN, non-normative safety
+/// margin (e.g. 10 → spacing × 0.90); 0 by default, clamped to 0…50 %.
 int maxSupportSpacingMm(
   int dn, {
   required bool liquidFilled,
-  required bool insulated,
+  double ownMarginPct = 0,
 }) {
   final span = closestSpanByDn(dn);
   final base = liquidFilled ? span.waterMm : span.vaporMm;
-  return insulated ? (base * kInsulationSpacingFactor).round() : base;
+  final pct = ownMarginPct.isFinite ? ownMarginPct.clamp(0.0, 50.0) : 0.0;
+  if (pct == 0) return base;
+  return (base * (1 - pct / 100)).round();
 }
 
 /// Number of supports on a straight run: ⌈run ÷ spacing⌉ + 1 (the first one).
@@ -224,10 +235,11 @@ const List<PlacementRule> kPlacementRules = [
     '(pump, exchanger) to protect the nozzle.',
   ),
   PlacementRule(
-    'Pionowe odcinki: podpora na górze (utrzymanie ciężaru) plus '
-    'prowadnice co 2× rozstaw poziomego rozstawu w dół.',
-    'Vertical runs: a support at the top to carry the weight, then guides every '
-    '2× the horizontal spacing going down.',
+    'Pionowe odcinki: podpora nośna na górze (utrzymanie ciężaru), prowadnice '
+    'wg rysunku podpór — tabela rozstawu MSS / B31.1 dotyczy tylko odcinków '
+    'poziomych.',
+    'Vertical runs: a load-carrying support at the top, guides per the support '
+    'drawing — the MSS / B31.1 spacing table covers horizontal runs only.',
   ),
   PlacementRule(
     'Trójnik / odgałęzienie ≥ DN 80: osobna podpora na odgałęzieniu '
@@ -236,10 +248,22 @@ const List<PlacementRule> kPlacementRules = [
     'independent of the main line.',
   ),
   PlacementRule(
-    'Izolacja zwiększa ciężar — zmniejsz rozstaw o 10–15 % dla rur '
-    'izolowanych grubością ≥ 50 mm.',
-    'Insulation adds weight — reduce spacing by 10–15 % for lines with ≥ 50 mm '
-    'insulation.',
+    'Tabela ASME B31.1 121.5 zakłada już rurę izolowaną wypełnioną wodą — '
+    'zwykła izolacja nie wymaga obniżki rozstawu. Obciążenia skupione między '
+    'podporami (zawory, kołnierze, armatura) wymagają podpory bliżej — tabela '
+    'ich nie obejmuje.',
+    'ASME B31.1 Table 121.5 already assumes insulated pipe filled with water — '
+    'normal insulation needs no spacing reduction. Concentrated loads between '
+    'supports (valves, flanges, specialties) need a closer support — the table '
+    'does not cover them.',
+  ),
+  PlacementRule(
+    'Tabela dotyczy rury stalowej o ściance standard i grubszej. Rury '
+    'cienkościenne (5S/10S, sanitarne), miedź i tworzywa mają znacznie '
+    'mniejszy rozstaw — wg ich norm / producenta.',
+    'The table is for standard-wall (and heavier) steel pipe. Thin-wall pipe '
+    '(5S/10S, sanitary tube), copper and plastics need much closer spacing — '
+    'per their own standard / manufacturer.',
   ),
   PlacementRule(
     'Rurociąg na stali nierdzewnej sanitarnej (food / pharma): unikać '

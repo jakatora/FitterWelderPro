@@ -24,8 +24,8 @@ void main() {
 
     test('every spacing is positive and within real-world bounds', () {
       for (final s in kSupportSpans) {
-        expect(s.vaporMm > 1000 && s.vaporMm < 12000, isTrue);
-        expect(s.waterMm > 1000 && s.waterMm < 12000, isTrue);
+        expect(s.vaporMm > 1000 && s.vaporMm <= 12800, isTrue);
+        expect(s.waterMm > 1000 && s.waterMm <= 12800, isTrue);
       }
     });
   });
@@ -38,7 +38,9 @@ void main() {
 
     test('rounds to the nearest tabulated DN', () {
       expect(closestSpanByDn(70).dn, 65);
-      expect(closestSpanByDn(120).dn, 100);
+      expect(closestSpanByDn(110).dn, 100);
+      // DN125 jest w tabeli MSS SP-58 (NPS 5).
+      expect(closestSpanByDn(120).dn, 125);
     });
 
     test('clamps to bounds', () {

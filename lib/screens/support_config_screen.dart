@@ -63,7 +63,10 @@ class _CalcTab extends StatefulWidget {
 class _CalcTabState extends State<_CalcTab> {
   int _dn = 50;
   bool _waterFilled = true;
-  bool _insulated = false;
+  /// User's own, non-normative margin (off by default — the table already
+  /// assumes insulated pipe per ASME B31.1 Table 121.5).
+  bool _ownMargin = false;
+  static const double _kOwnMarginPct = 10;
   final _length = TextEditingController();
 
   @override
@@ -76,11 +79,10 @@ class _CalcTabState extends State<_CalcTab> {
 
   @override
   Widget build(BuildContext context) {
-    // Insulation reduces allowable spacing by 12 % (mid of 10–15 % rule).
     final spacingMm = maxSupportSpacingMm(
       _dn,
       liquidFilled: _waterFilled,
-      insulated: _insulated,
+      ownMarginPct: _ownMargin ? _kOwnMarginPct : 0,
     );
     final lengthText = _length.text;
     final lengthMm = runLengthMm(lengthText);
@@ -158,14 +160,20 @@ class _CalcTabState extends State<_CalcTab> {
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           dense: true,
-          value: _insulated,
-          onChanged: (v) => setState(() => _insulated = v),
+          value: _ownMargin,
+          onChanged: (v) => setState(() => _ownMargin = v),
           title: Text(
-            _tr('Izolacja ≥ 50 mm', 'Insulation ≥ 50 mm'),
+            _tr('Własny zapas −10 % (nie z normy)',
+                'Own margin −10 % (not from the standard)'),
             style: const TextStyle(fontSize: 13),
           ),
           subtitle: Text(
-            _tr('Zmniejsza rozstaw o 12 %', 'Reduces spacing by 12 %'),
+            _tr(
+                'Tabela B31.1 121.5 zakłada już rurę izolowaną — izolacja nie '
+                    'wymaga obniżki. Zapas to Twoja decyzja, nie wymóg normy.',
+                'B31.1 Table 121.5 already assumes insulated pipe — insulation '
+                    'needs no reduction. The margin is your call, not a code '
+                    'requirement.'),
             style: const TextStyle(fontSize: 11, color: _kMuted),
           ),
         ),
@@ -265,10 +273,16 @@ class _CalcTabState extends State<_CalcTab> {
               Expanded(
                 child: Text(
                   _tr(
-                    'Wartości referencyjne MSS SP-69 dla rury stalowej. '
-                    'Wiążący rozstaw projektowy podaje stress engineer.',
-                    'Reference values per MSS SP-69 for steel pipe. The binding '
-                    'spacing is set by the project stress engineer.',
+                    'MSS SP-58 Tab. 4 (dawniej SP-69) / ASME B31.1 Tab. 121.5: '
+                    'rura stalowa ścianka standard i grubsza, odcinek poziomy, '
+                    '≤ 400 °C. Nie dotyczy obciążeń skupionych (zawory, '
+                    'kołnierze) ani rur cienkościennych (5S/10S, sanitarne), '
+                    'miedzi i tworzyw. Wiążący rozstaw podaje stress engineer.',
+                    'MSS SP-58 Table 4 (formerly SP-69) / ASME B31.1 Table '
+                    '121.5: standard-wall and heavier steel pipe, horizontal '
+                    'run, ≤ 400 °C. Not for concentrated loads (valves, '
+                    'flanges) or thin-wall pipe (5S/10S, sanitary), copper or '
+                    'plastics. The binding spacing is set by the stress engineer.',
                   ),
                   style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
                 ),
@@ -383,16 +397,16 @@ class _TableTab extends StatelessWidget {
                           fontSize: 11,
                           fontWeight: FontWeight.w800))),
               Expanded(
-                child: Text('GAZ / PARA',
+                child: Text(context.tr(pl: 'GAZ / PARA', en: 'GAS / VAPOR'),
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                         color: _kOrange,
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.5)),
               ),
               Expanded(
-                child: Text('CIECZ',
+                child: Text(context.tr(pl: 'CIECZ', en: 'LIQUID'),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: _kBlue,

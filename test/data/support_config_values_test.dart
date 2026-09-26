@@ -1,7 +1,8 @@
-// support-config (P1): wartości policzone ręcznie z tabeli MSS SP-69,
-// niezależnie od kodu aplikacji.
-//   DN50: ciecz 3000, gaz 4000; izolacja: 3000 × 0,88 = 2640.
-//   DN100: ciecz 4300 × 0,88 = 3784, gaz 5200 × 0,88 = 4576.
+// support-config (P1): wartości z tabeli MSS SP-58 Tab. 4 / ASME B31.1
+// Tab. 121.5 (przypięte wiersz po wierszu w support_spacing_norm_test.dart).
+//   DN50: ciecz 3000, gaz 4000. Izolacja NIE obniża rozstawu (B31.1 121.5
+//   zakłada rurę izolowaną); własny zapas 10 %: 3000 × 0,90 = 2700,
+//   DN100: 4300 × 0,90 = 3870, gaz 5200 × 0,90 = 4680.
 //   Podpory = ⌈L ÷ rozstaw⌉ + 1.
 
 import 'package:flutter_test/flutter_test.dart';
@@ -10,25 +11,22 @@ import 'package:cut_list_app/data/support_spacing.dart';
 
 void main() {
   group('maxSupportSpacingMm', () {
-    test('DN50 bez izolacji', () {
-      expect(maxSupportSpacingMm(50, liquidFilled: true, insulated: false),
-          3000);
-      expect(maxSupportSpacingMm(50, liquidFilled: false, insulated: false),
-          4000);
+    test('DN50 wg tabeli', () {
+      expect(maxSupportSpacingMm(50, liquidFilled: true), 3000);
+      expect(maxSupportSpacingMm(50, liquidFilled: false), 4000);
     });
 
-    test('izolacja zmniejsza rozstaw o 12 %', () {
-      expect(maxSupportSpacingMm(50, liquidFilled: true, insulated: true),
-          2640);
-      expect(maxSupportSpacingMm(100, liquidFilled: true, insulated: true),
-          3784);
-      expect(maxSupportSpacingMm(100, liquidFilled: false, insulated: true),
-          4576);
+    test('własny zapas 10 % tylko na życzenie', () {
+      expect(maxSupportSpacingMm(50, liquidFilled: true, ownMarginPct: 10),
+          2700);
+      expect(maxSupportSpacingMm(100, liquidFilled: true, ownMarginPct: 10),
+          3870);
+      expect(maxSupportSpacingMm(100, liquidFilled: false, ownMarginPct: 10),
+          4680);
     });
 
     test('DN spoza tabeli bierze najbliższy wiersz', () {
-      expect(maxSupportSpacingMm(70, liquidFilled: true, insulated: false),
-          3400);
+      expect(maxSupportSpacingMm(70, liquidFilled: true), 3400);
     });
   });
 
@@ -42,8 +40,8 @@ void main() {
       expect(supportsOnRun(6001, 3000), 4);
     });
 
-    test('izolowany DN50, 5,25 m', () {
-      expect(supportsOnRun(5250, 2640), 3);
+    test('DN50 z zapasem 10 % (2700), 5,25 m', () {
+      expect(supportsOnRun(5250, 2700), 3);
     });
 
     test('DN100 ciecz, 50 m', () {
