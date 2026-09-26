@@ -323,6 +323,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   bool _loading = true;
   bool _sending = false;
 
+  /// Treść i klucz idempotencji ostatniej NIEUDANEJ wysyłki — patrz [_send].
+  String? _pendingText;
+  String? _pendingKey;
+
   /// Bramka imienia i zasad jest właśnie na ekranie — drugie stuknięcie
   /// „Wyślij" nie może otworzyć jej drugi raz.
   bool _gating = false;
@@ -536,16 +540,24 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       if (!ok || !mounted) return;
     }
     setState(() => _sending = true);
+    // Klucz idempotencji: ta sama treść po nieudanej próbie („Ponów" albo
+    // ponowne „Wyślij") idzie z TYM SAMYM kluczem. Jeśli pierwsza próba
+    // jednak doszła, serwer zwróci ją zamiast zapisać drugi raz.
+    final key = (_pendingText == text ? _pendingKey : null) ??
+        ChatService.newIdempotencyKey();
+    _pendingText = text;
+    _pendingKey = key;
     try {
       final msg = await ChatService.instance
-          .postMessage(room: widget.room.id, text: text);
+          .postMessage(room: widget.room.id, text: text, idempotencyKey: key);
       _ctrl.clear();
+      _pendingText = null;
+      _pendingKey = null;
       if (!mounted) return;
       setState(() {
-        _messages.add(msg);
-        // P1-42 — record the composite key so the next _pollDelta dedupes
-        // this optimistically-appended message against the backend echo.
-        _seenKeys.add(_keyOf(msg));
+        // Po ponowieniu serwer może odesłać wiadomość, którą odpytywanie
+        // zdążyło już pokazać — drugi raz jej nie dokładamy.
+        if (_seenKeys.add(_keyOf(msg))) _messages.add(msg);
         _sending = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
