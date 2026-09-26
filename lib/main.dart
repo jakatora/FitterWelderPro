@@ -33,7 +33,10 @@ Future<void> main() async {
   //
   // Przy kPaidFeaturesEnabled == false refreshFromBackend wraca PRZED
   // jakimkolwiek żądaniem (pinuje to test/services/device_identity_test.dart),
-  // a init() tylko czyta/zapisuje SharedPreferences — start niczego nie wysyła.
+  // a init() tylko CZYTA SharedPreferences — start niczego nie wysyła i nie
+  // tworzy identyfikatora instalacji. Ten powstaje dopiero przy pierwszym
+  // żądaniu z nim (czat, skaner, asystent), więc „Usuń moje dane" u montera,
+  // który nigdy nie rozmawiał z serwerem, wie, że tam nic nie ma.
   PremiumService.instance.init().then((_) {
     return PremiumService.instance.refreshFromBackend();
   }).catchError((Object e) {

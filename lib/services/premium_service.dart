@@ -141,52 +141,100 @@ class PremiumService {
   /// Format sekretu akceptowany przez backend (`deviceAuth.js`).
   static final RegExp _secretFormat = RegExp(r'^[A-Za-z0-9_\-+/=]{32,256}$');
 
-  /// Call once at app startup from `main()`. Loads or generates the device
-  /// id (stable identifier used as Stripe `client_reference_id`) and the
-  /// install secret, and hydrates Premium status from the cached
-  /// `SharedPreferences` entry. Nothing here touches the network.
+  /// Call once at app startup from `main()`. WCZYTUJE istniejącą tożsamość
+  /// instalacji (device_id, sekret, author_id) i nic nie tworzy — nowa para
+  /// powstaje dopiero przy pierwszej potrzebie ([ensureIdentity], np. wejście
+  /// na czat, skan, pytanie do asystenta). Dzięki temu instalacja, która
+  /// nigdy nie rozmawiała z serwerem, nie ma identyfikatora, a „Usuń moje
+  /// dane" wie, że na serwerze nie ma czego szukać. Nothing here touches the
+  /// network.
   ///
   /// Współbieżne wywołania czekają na TO SAMO wczytanie — wcześniej drugie
-  /// wywołanie wracało od razu, zanim device_id był w pamięci, a getter
-  /// [deviceId] podsuwał wtedy losowy, nigdzie niezapisany identyfikator.
+  /// wywołanie wracało od razu, zanim device_id był w pamięci.
   Future<void> init() => _init ??= _load();
+
+  /// `true`, gdy [_load] skończył czytać dysk — dopiero wtedy wolno tworzyć
+  /// nową tożsamość bez ryzyka nadpisania zapisanej.
+  bool _loaded = false;
+
+  /// Zapis nowo utworzonej tożsamości (współdzielony przez równoległe
+  /// wywołania [ensureIdentity] i getter [deviceId]).
+  Future<void>? _persisting;
 
   Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _deviceId = prefs.getString(_kDeviceIdKey);
-      _installSecret = prefs.getString(_kInstallSecretKey);
-      _authorId = prefs.getString(_kAuthorIdKey);
-      if (_deviceId == null || _deviceId!.length < 16) {
-        // Nowa tożsamość: device_id i sekret powstają razem.
-        _deviceId = _generateDeviceId();
-        _installSecret = generateInstallSecret();
+      final storedId = prefs.getString(_kDeviceIdKey);
+      if (storedId != null && storedId.length >= 16) {
+        _deviceId = storedId;
+        _installSecret = prefs.getString(_kInstallSecretKey);
+        _authorId = prefs.getString(_kAuthorIdKey);
+        if (!isValidInstallSecret(_installSecret)) {
+          // Aktualizacja z wersji bez sekretu (0.2.0): device_id zostaje — to
+          // pod nim są wiadomości na czacie i ewentualne Premium — a sekret
+          // dochodzi. Serwer powiąże go przy pierwszym przedstawieniu (TOFU).
+          _installSecret = generateInstallSecret();
+          await prefs.setString(_kInstallSecretKey, _installSecret!);
+        }
+      } else if (_deviceId == null) {
+        // Brak tożsamości (albo sam osierocony sekret bez device_id — ten nic
+        // nie znaczy): nic nie tworzymy. Powstanie przy pierwszej potrzebie.
+        _installSecret = null;
         _authorId = null;
-        await prefs.setString(_kDeviceIdKey, _deviceId!);
-        await prefs.setString(_kInstallSecretKey, _installSecret!);
-        await prefs.remove(_kAuthorIdKey);
-      } else if (!isValidInstallSecret(_installSecret)) {
-        // Aktualizacja z wersji bez sekretu (0.2.0): device_id zostaje — to
-        // pod nim są wiadomości na czacie i ewentualne Premium — a sekret
-        // dochodzi. Serwer powiąże go przy pierwszym przedstawieniu (TOFU).
-        _installSecret = generateInstallSecret();
-        await prefs.setString(_kInstallSecretKey, _installSecret!);
       }
     } catch (e) {
-      // Bez zapisu tożsamość działa do końca sesji; przy następnym starcie
-      // spróbujemy znowu.
+      // Bez odczytu zachowujemy się jak świeża instalacja; tożsamość utworzy
+      // ensureIdentity (a przy kolejnym starcie spróbujemy przeczytać znowu).
       debugPrint('PremiumService.init: nie udało się wczytać tożsamości: $e');
-      _deviceId ??= _generateDeviceId();
-      _installSecret ??= generateInstallSecret();
     }
+    _loaded = true;
     _controller.add(_current);
+  }
+
+  /// Wczytuje tożsamość instalacji, a jeśli jej nie ma — tworzy i zapisuje
+  /// nową parę device_id + sekret. Woła to wszystko, co wysyła identyfikator
+  /// na serwer ([authHeaders]). Nigdy nie rzuca.
+  Future<void> ensureIdentity() async {
+    await init();
+    if (_deviceId == null) _createIdentity();
+    await _persisting;
+  }
+
+  /// Tworzy nową parę w pamięci i zaczyna jej zapis ([_persisting]).
+  void _createIdentity() {
+    _deviceId = _generateDeviceId();
+    _installSecret = generateInstallSecret();
+    _authorId = null;
+    final id = _deviceId!;
+    final secret = _installSecret!;
+    _persisting = () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kDeviceIdKey, id);
+        await prefs.setString(_kInstallSecretKey, secret);
+        await prefs.remove(_kAuthorIdKey);
+      } catch (e) {
+        // Bez zapisu tożsamość działa do końca sesji.
+        debugPrint('PremiumService: nie udało się zapisać tożsamości: $e');
+      }
+    }();
   }
 
   /// Stable identifier for this install. Used as Stripe `client_reference_id`
   /// so the webhook can map the subscription back to the device. Survives
   /// app restarts (SharedPreferences), wiped on app uninstall.
+  ///
+  /// Kto potrzebuje identyfikatora na pewno zapisanego, woła wcześniej
+  /// [ensureIdentity] albo [authHeaders]. Getter po wczytaniu dysku sam
+  /// tworzy brakującą tożsamość (zapis w tle); przed wczytaniem zwraca
+  /// tymczasowy, niezapisany identyfikator — nie wolno wtedy nadpisać
+  /// tożsamości, której jeszcze nie przeczytaliśmy.
   String get deviceId {
-    return _deviceId ?? _generateDeviceId();
+    final id = _deviceId;
+    if (id != null) return id;
+    if (!_loaded) return _generateDeviceId();
+    _createIdentity();
+    return _deviceId!;
   }
 
   /// Sekret instalacji — `null` przed [init]. Wychodzi z telefonu wyłącznie w
@@ -201,7 +249,7 @@ class PremiumService {
   /// na czacie, zgłoszenia, odczyt pokoju (pole `mine`), skaner, asystent AI,
   /// płatności, usuwanie danych. Stary backend nieznane nagłówki ignoruje.
   Future<Map<String, String>> authHeaders() async {
-    await init();
+    await ensureIdentity();
     final secret = _installSecret;
     return {
       kDeviceIdHeader: deviceId,
@@ -209,8 +257,13 @@ class PremiumService {
     };
   }
 
-  /// Czy na tym telefonie zapisano kiedykolwiek device_id — czyli czy jest
-  /// czego szukać na serwerze przy „Usuń moje dane". Czyta dysk, nie pamięć.
+  /// Czy na tym telefonie zapisano device_id — czyli czy jest czego szukać na
+  /// serwerze przy „Usuń moje dane". Czyta dysk, nie pamięć. Identyfikator
+  /// powstaje dopiero przy pierwszym żądaniu z nim ([ensureIdentity]), więc
+  /// `false` znaczy: ta instalacja (od ostatniego usunięcia danych) niczego
+  /// pod identyfikatorem nie wysłała. Instalacje sprzed tej zmiany mają
+  /// identyfikator z każdego startu — dla nich wynik jest `true`, czyli
+  /// ostrożnie: serwer i tak zostanie zapytany.
   Future<bool> hasStoredDeviceId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -300,12 +353,14 @@ class PremiumService {
     }
   }
 
-  /// Kasuje device_id, sekret i author_id z telefonu i od razu tworzy nową
-  /// parę (lokalnie — nic nie leci na serwer). Wołane przez „Usuń moje dane"
-  /// PO `DELETE /api/fitter/me`, bo po skasowaniu identyfikatora serwer nie
-  /// ma już jak rozpoznać, czyje dane usunąć.
+  /// Kasuje device_id, sekret i author_id z telefonu (lokalnie — nic nie leci
+  /// na serwer). Nowa para powstanie dopiero przy następnej potrzebie
+  /// ([ensureIdentity]). Wołane przez „Usuń moje dane" PO
+  /// `DELETE /api/fitter/me`, bo po skasowaniu identyfikatora serwer nie ma
+  /// już jak rozpoznać, czyje dane usunąć.
   Future<void> resetIdentity() async {
     await init();
+    await _persisting;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_kDeviceIdKey);
@@ -318,8 +373,7 @@ class PremiumService {
     _installSecret = null;
     _authorId = null;
     _registration = null;
-    _init = null;
-    await init();
+    _persisting = null;
   }
 
   /// Tylko do testów: zapomina stan w pamięci, żeby kolejny [init] przeczytał
@@ -327,6 +381,8 @@ class PremiumService {
   @visibleForTesting
   void resetForTest() {
     _init = null;
+    _loaded = false;
+    _persisting = null;
     _deviceId = null;
     _installSecret = null;
     _authorId = null;

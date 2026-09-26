@@ -105,3 +105,73 @@ class BlockedUsers {
     _hydrated = false;
   }
 }
+
+/// Wiadomości zgłoszone z TEGO telefonu — ukrywane u zgłaszającego od razu,
+/// a nie dopiero po 3 zgłoszeniach od różnych osób (wtedy ukrywa je serwer
+/// wszystkim). Kto zgłosił wyzwisko, nie powinien go dalej oglądać.
+///
+/// Lokalnie, jak blokady: serwer wie tylko, że zgłoszenie przyszło. Lista ma
+/// limit [maxEntries] (najstarsze wypadają) — to identyfikatory wiadomości,
+/// nie treść.
+class ReportedMessages {
+  ReportedMessages._();
+  static final ReportedMessages instance = ReportedMessages._();
+
+  static const String prefsKey = 'chat_reported_ids_v1';
+  static const int maxEntries = 500;
+
+  final List<int> _ids = <int>[];
+  bool _hydrated = false;
+
+  bool isReported(int messageId) => _ids.contains(messageId);
+
+  Future<void> load() async {
+    if (_hydrated) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(prefsKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          _ids
+            ..clear()
+            ..addAll(decoded.whereType<num>().map((n) => n.toInt()));
+        }
+      }
+    } catch (_) {
+      _ids.clear();
+    } finally {
+      _hydrated = true;
+    }
+  }
+
+  Future<void> add(int messageId) async {
+    if (_ids.contains(messageId)) return;
+    _ids.add(messageId);
+    if (_ids.length > maxEntries) {
+      _ids.removeRange(0, _ids.length - maxEntries);
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefsKey, jsonEncode(_ids));
+    } catch (_) {
+      // Ukrycie działa w tej sesji nawet gdy zapis padnie.
+    }
+  }
+
+  /// „Usuń moje dane".
+  Future<void> clear() async {
+    _ids.clear();
+    _hydrated = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(prefsKey);
+    } catch (_) {}
+  }
+
+  /// Tylko do testów.
+  void resetForTest() {
+    _ids.clear();
+    _hydrated = false;
+  }
+}

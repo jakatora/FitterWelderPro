@@ -362,8 +362,12 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       m.isMine(myDeviceId: _myDeviceId, myAuthorId: _myAuthorId);
 
   Future<void> _bootstrap() async {
-    await PremiumService.instance.init();
+    // Pokój otwiera się po bramce zgody, a odpytywanie i tak wysyła
+    // identyfikator — tworzymy go (jeśli trzeba) i zapisujemy od razu, żeby
+    // porównanie „moje / cudze" nie trafiło na tymczasowy.
+    await PremiumService.instance.ensureIdentity();
     await BlockedUsers.instance.load();
+    await ReportedMessages.instance.load();
     // P1-43 — read PremiumService.deviceId (NOT nickname) so the isMine
     // check is stable across nickname edits. Guarded against empty in the
     // bubble too.

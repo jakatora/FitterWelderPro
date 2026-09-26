@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../assistant/assistant_history.dart';
 import '../config/app_links.dart';
 import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
@@ -17,6 +18,7 @@ import '../services/user_profile.dart';
 import '../services/welder_identity.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
+import '../widgets/scan_consent_gate.dart';
 import '../widgets/wpqr_chip.dart';
 import 'legal_screen.dart';
 import 'root_gate.dart';
@@ -396,18 +398,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           pl: 'Najpierw usuniemy z serwera Twoje wiadomości z czatu, '
               'zgłoszenia, ogłoszenia oraz identyfikator i sekret instalacji.\n\n'
               'Potem skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na '
-              'zasady, listę zablokowanych, tożsamość spawacza (stempel '
-              'i e-mail) oraz rejestr uprawnień spawacza (certyfikaty, '
-              'zdjęcia, przypomnienia). Nowe spoiny przestaną się podpisywać '
-              'Twoim stemplem.\n\n'
+              'zasady, zgodę na wysyłkę zdjęć do skanera, historię asystenta, '
+              'listę zablokowanych i zgłoszonych wiadomości, tożsamość '
+              'spawacza (stempel i e-mail) oraz rejestr uprawnień spawacza '
+              '(certyfikaty, zdjęcia, przypomnienia). Nowe spoiny przestaną '
+              'się podpisywać Twoim stemplem.\n\n'
               'Projekty, cut listy, Biblioteka WPS i zapisane spoiny zostają '
               '— razem ze stemplem, którym już je podpisałeś.\n\n'
               'Na koniec pokażemy, co dokładnie usunęliśmy na serwerze, a co na '
               'telefonie.',
           en: 'First we delete from the server your chat messages, reports, job '
               'listings and your installation identifier and secret.\n\n'
-              'Then we erase from this phone your name, your consent, your '
-              'block list, your welder identity (stamp and e-mail) and the '
+              'Then we erase from this phone your name, your consent to the '
+              'rules, your consent to send photos to the scanner, the '
+              'assistant history, your block list and reported messages, '
+              'your welder identity (stamp and e-mail) and the '
               'welder qualification register (certificates, photos, '
               'reminders). New welds will no longer be signed with your '
               'stamp.\n\n'
@@ -589,30 +594,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _localSummary(bool identityKept) => identityKept
       ? context.tr(
-          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych, tożsamość spawacza (stempel, e-mail) i rejestr '
-              'uprawnień (certyfikaty, zdjęcia, przypomnienia). '
-              'Identyfikator instalacji zostaje, bo łączy telefon z aktywną '
-              'subskrypcją Premium. Projekty, cut listy i dziennik spoin '
-              'zostają.',
-          en: 'Deleted from the phone: your name, your consent, your block '
-              'list, your welder identity (stamp, e-mail) and the '
-              'qualification register (certificates, photos, reminders). The '
-              'installation identifier stays because it links the phone to '
-              'your active Premium subscription. Projects, cut lists and the '
-              'weld journal stay.',
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
+              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
+              'e-mail) i rejestr uprawnień (certyfikaty, zdjęcia, '
+              'przypomnienia). Identyfikator instalacji zostaje, bo łączy '
+              'telefon z aktywną subskrypcją Premium. Projekty, cut listy i '
+              'dziennik spoin zostają.',
+          en: 'Deleted from the phone: your name, your consent to the rules, '
+              'your scanner consent (photo upload), the assistant history, '
+              'your block and report lists, your welder identity (stamp, '
+              'e-mail) and the qualification register (certificates, photos, '
+              'reminders). The installation identifier stays because it '
+              'links the phone to your active Premium subscription. Projects, '
+              'cut lists and the weld journal stay.',
         )
       : context.tr(
-          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych, tożsamość spawacza (stempel, e-mail), rejestr '
-              'uprawnień (certyfikaty, zdjęcia, przypomnienia) oraz '
-              'identyfikator i sekret instalacji. Projekty, cut listy i '
-              'dziennik spoin zostają.',
-          en: 'Deleted from the phone: your name, your consent, your block '
-              'list, your welder identity (stamp, e-mail), the qualification '
-              'register (certificates, photos, reminders) and the '
-              'installation identifier and secret. Projects, cut lists and the '
-              'weld journal stay.',
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
+              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
+              'e-mail), rejestr uprawnień (certyfikaty, zdjęcia, '
+              'przypomnienia) oraz identyfikator i sekret instalacji. '
+              'Projekty, cut listy i dziennik spoin zostają.',
+          en: 'Deleted from the phone: your name, your consent to the rules, '
+              'your scanner consent (photo upload), the assistant history, '
+              'your block and report lists, your welder identity (stamp, '
+              'e-mail), the qualification register (certificates, photos, '
+              'reminders) and the installation identifier and secret. '
+              'Projects, cut lists and the weld journal stay.',
         );
 
   /// Serwer nie usunął danych (brak sieci, odrzucona instalacja, błąd).
@@ -699,12 +708,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Dane na telefonie: profil, zgoda, tożsamość spawacza, blokady i — gdy
-  /// [resetIdentity] — identyfikator i sekret instalacji (od razu powstaje
-  /// nowa, niezwiązana z niczym para; nic nie leci na serwer).
+  /// Dane na telefonie: profil, zgody (zasady i skaner), historia asystenta,
+  /// tożsamość spawacza, blokady, zgłoszone wiadomości i — gdy
+  /// [resetIdentity] — identyfikator i sekret instalacji (nowa para powstanie
+  /// dopiero przy następnym kontakcie z serwerem; nic nie leci na serwer).
   Future<void> _eraseLocalData({required bool resetIdentity}) async {
     await UserProfileService.instance.clear();
     await LegalConsent.instance.clear();
+    // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
+    // „usuń moje dane" dalej wysyłał zdjęcia bez pytania.
+    await ScanConsent.clear();
+    // Historia asystenta trzyma opisy zapisanych operacji (parametry, notatki).
+    await AssistantHistoryStore.instance.clear();
+    await ReportedMessages.instance.clear();
     // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
     // telefonie komplet danych spawacza (stempel, nr WPQR, e-mail), a
     // weld_journal_screen dalej pre-wypełniał nimi pole „spawacz" — nowe

@@ -157,6 +157,20 @@ class AssistantHistoryStore extends ChangeNotifier {
     }
   }
 
+  /// Kasuje historię operacji (pamięć i dysk) — „Usuń moje dane" w profilu.
+  /// Ustawienie czytania na głos zostaje: to preferencja, nie dane.
+  Future<void> clear() async {
+    _entries = const [];
+    _loaded = true;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kKey);
+    } catch (e) {
+      debugPrint('AssistantHistoryStore.clear: $e');
+    }
+  }
+
   @visibleForTesting
   void resetForTest() {
     _entries = const [];
