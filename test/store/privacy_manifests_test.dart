@@ -18,7 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-/// Wartości <key>…</key><…> w obrębie jednego słownika typu danych.
+/// Typy danych z kluczy `NSPrivacyCollectedDataType` w manifeście.
 List<String> _collectedTypes(String plist) => RegExp(
       r'<key>NSPrivacyCollectedDataType</key>\s*<string>(\w+)</string>',
     ).allMatches(plist).map((m) => m.group(1)!).toList();

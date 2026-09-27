@@ -37,7 +37,11 @@ import 'root_gate.dart';
 final RegExp _kNameAllowed = RegExp(r"^[\p{L} '\-]{2,}$", unicode: true);
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  /// Otwiera od razu okno „Usunąć moje dane?" (wejście z wyszukiwarki na
+  /// ekranie głównym). Nic nie znika bez potwierdzenia w tym oknie.
+  final bool openDeleteOnStart;
+
+  const ProfileScreen({super.key, this.openDeleteOnStart = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -71,6 +75,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _lastCtrl.text = profile?.lastName ?? '';
       _loading = false;
     });
+    if (widget.openDeleteOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _deleteMyData();
+      });
+    }
   }
 
   @override

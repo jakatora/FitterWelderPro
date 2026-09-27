@@ -6,24 +6,29 @@ import '../config/feature_flags.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../features/wps/wps_library_page.dart';
 import '../i18n/app_language.dart';
+import '../legal/legal_texts.dart';
 import '../screens/ai_chat_screen.dart';
 import '../screens/bolt_torque_screen.dart';
+import '../screens/chat_screen.dart';
 import '../screens/component_library_screen.dart';
 import '../screens/coupon_log_screen.dart';
 import '../screens/dn_mm_screen.dart';
 import '../screens/elbow_takeout_screen.dart';
 import '../screens/fitter_tools_screen.dart';
 import '../screens/heat_input_screen.dart';
+import '../screens/help_screen.dart';
 import '../screens/heat_tint_screen.dart';
 import '../screens/hydrotest_screen.dart';
 import '../screens/iso_notebook_screen.dart';
 import '../screens/iso_scanner_screen.dart';
+import '../screens/legal_screen.dart';
 import '../screens/orbital_tig_screen.dart';
 import '../screens/passivation_screen.dart';
 import '../screens/pipe_route_calculator_screen.dart';
 import '../screens/pipe_schedule_screen.dart';
 import '../screens/pipe_slope_screen.dart';
 import '../screens/pre_weld_checklist_screen.dart';
+import '../screens/profile_screen.dart';
 import '../screens/projects_screen.dart';
 import '../screens/quick_converter_screen.dart';
 import '../screens/rolling_offset_screen.dart';
@@ -33,6 +38,7 @@ import '../screens/sanitary_tube_screen.dart';
 import '../screens/support_config_screen.dart';
 import '../screens/tungsten_screen.dart';
 import '../screens/weld_journal_screen.dart';
+import '../screens/welder_identity_setup_screen.dart';
 import '../screens/welder_pipes_screen.dart';
 import '../screens/welder_tanks_screen.dart';
 import '../screens/welder_tools_screen.dart';
@@ -1220,51 +1226,15 @@ List<ToolSearchHit> searchTools(String rawQuery, AppLanguage lang) {
 
   final hits = <ToolSearchHit>[];
   for (final tool in availableTools) {
-    final titleMain = normalizeForSearch(
-        lang == AppLanguage.en ? tool.titleEn : tool.titlePl);
-    final titleOther = normalizeForSearch(
-        lang == AppLanguage.en ? tool.titlePl : tool.titleEn);
-    final keywords = [...tool.keywordsPl, ...tool.keywordsEn]
-        .map(normalizeForSearch)
-        .toList();
-    final subtitles =
-        normalizeForSearch('${tool.subtitlePl} ${tool.subtitleEn}');
-    final titleWords = titleMain.split(' ');
-
-    var score = 0;
-    var allMatched = true;
-    for (final term in terms) {
-      var best = 0;
-      for (final (i, stem) in _stems(term).indexed) {
-        // Dokładne słowo wygrywa z rdzeniem.
-        final penalty = i * 2;
-        if (titleWords.any((w) => w.startsWith(stem))) {
-          best = _max(best, 12 - penalty);
-        } else if (titleMain.contains(stem)) {
-          best = _max(best, 9 - penalty);
-        }
-        if (keywords.any((k) => k == stem)) {
-          best = _max(best, 10 - penalty);
-        } else if (keywords.any((k) => k.startsWith(stem))) {
-          best = _max(best, 8 - penalty);
-        } else if (stem.length >= 3 && keywords.any((k) => k.contains(stem))) {
-          best = _max(best, 5 - penalty);
-        }
-        if (titleOther.contains(stem)) best = _max(best, 6 - penalty);
-        if (stem.length >= 3 && subtitles.contains(stem)) {
-          best = _max(best, 3 - penalty);
-        }
-      }
-      if (best <= 0) {
-        allMatched = false;
-        break;
-      }
-      score += best;
-    }
-    if (!allMatched) continue;
-    // Całe zapytanie w tytule — najmocniejszy sygnał.
-    if (titleMain.contains(query)) score += 10;
-    hits.add(ToolSearchHit(tool, score));
+    final score = _score(
+      query: query,
+      terms: terms,
+      titleMain: lang == AppLanguage.en ? tool.titleEn : tool.titlePl,
+      titleOther: lang == AppLanguage.en ? tool.titlePl : tool.titleEn,
+      keywords: [...tool.keywordsPl, ...tool.keywordsEn],
+      subtitles: '${tool.subtitlePl} ${tool.subtitleEn}',
+    );
+    if (score != null) hits.add(ToolSearchHit(tool, score));
   }
   hits.sort((a, b) {
     final byScore = b.score.compareTo(a.score);
@@ -1277,4 +1247,279 @@ List<ToolSearchHit> searchTools(String rawQuery, AppLanguage lang) {
   return hits;
 }
 
+/// Wynik dopasowania jednego wpisu (narzędzia albo ekranu) do zapytania, albo
+/// `null`, gdy któreś słowo zapytania nigdzie nie pasuje.
+int? _score({
+  required String query,
+  required List<String> terms,
+  required String titleMain,
+  required String titleOther,
+  required List<String> keywords,
+  required String subtitles,
+}) {
+  final main = normalizeForSearch(titleMain);
+  final other = normalizeForSearch(titleOther);
+  final keys = keywords.map(normalizeForSearch).toList();
+  final subs = normalizeForSearch(subtitles);
+  final titleWords = main.split(' ');
+
+  var score = 0;
+  for (final term in terms) {
+    var best = 0;
+    for (final (i, stem) in _stems(term).indexed) {
+      // Dokładne słowo wygrywa z rdzeniem.
+      final penalty = i * 2;
+      if (titleWords.any((w) => w.startsWith(stem))) {
+        best = _max(best, 12 - penalty);
+      } else if (main.contains(stem)) {
+        best = _max(best, 9 - penalty);
+      }
+      if (keys.any((k) => k == stem)) {
+        best = _max(best, 10 - penalty);
+      } else if (keys.any((k) => k.startsWith(stem))) {
+        best = _max(best, 8 - penalty);
+      } else if (stem.length >= 3 && keys.any((k) => k.contains(stem))) {
+        best = _max(best, 5 - penalty);
+      }
+      if (other.contains(stem)) best = _max(best, 6 - penalty);
+      if (stem.length >= 3 && subs.contains(stem)) {
+        best = _max(best, 3 - penalty);
+      }
+    }
+    if (best <= 0) return null;
+    score += best;
+  }
+  // Całe zapytanie w tytule — najmocniejszy sygnał.
+  if (main.contains(query)) score += 10;
+  return score;
+}
+
 int _max(int a, int b) => a > b ? a : b;
+
+// ─── Wpisy nawigacyjne (konto, zasady, pomoc) ───────────────────────────────
+//
+// Ekrany, które nie są narzędziami (nie mają grupy w menu montera ani
+// spawacza), ale monter ich szuka: „czat", „profil", „usuń dane", „zasady".
+// Wcześniej wyszukiwarka odpowiadała na nie „Brak narzędzia". Osobny typ, bo
+// nie trafiają do menu, „ostatnio używanych" ani przypiętych.
+
+class NavEntry {
+  /// Trwały identyfikator (klucz w UI: `nav-<id>`). Nie może kolidować z
+  /// identyfikatorami narzędzi.
+  final String id;
+  final String titlePl;
+  final String titleEn;
+  final String subtitlePl;
+  final String subtitleEn;
+  final IconData icon;
+  final Color color;
+  final List<String> keywordsPl;
+  final List<String> keywordsEn;
+  final bool available;
+
+  /// Otwiera ekran (z bramką, jeśli ekran jej wymaga).
+  final Future<void> Function(BuildContext context) open;
+
+  const NavEntry({
+    required this.id,
+    required this.titlePl,
+    required this.titleEn,
+    required this.subtitlePl,
+    required this.subtitleEn,
+    required this.icon,
+    required this.color,
+    required this.open,
+    this.keywordsPl = const [],
+    this.keywordsEn = const [],
+    this.available = true,
+  });
+
+  String title(BuildContext context) => context.tr(pl: titlePl, en: titleEn);
+  String subtitle(BuildContext context) =>
+      context.tr(pl: subtitlePl, en: subtitleEn);
+}
+
+Future<void> _pushScreen(BuildContext context, Widget screen) =>
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+
+final List<NavEntry> kNavEntries = [
+  NavEntry(
+    id: 'chat',
+    titlePl: 'Czat',
+    titleEn: 'Chat',
+    subtitlePl: 'Rozmowy z fachowcami — pokoje branżowe',
+    subtitleEn: 'Talk to pros — trade rooms',
+    icon: Icons.forum_outlined,
+    color: const Color(0xFFCE93D8),
+    available: kCommunityEnabled,
+    keywordsPl: const [
+      'czat',
+      'rozmowa',
+      'rozmowy',
+      'pokoj',
+      'wiadomosc',
+      'forum',
+      'spolecznosc',
+      'brygada',
+      'praca',
+      'zglos',
+      'zablokuj',
+    ],
+    keywordsEn: const [
+      'chat',
+      'messages',
+      'room',
+      'forum',
+      'community',
+      'report',
+      'block',
+    ],
+    // Czat wysyła dane pod nazwiskiem — ta sama bramka co kafel CZAT.
+    open: (context) async {
+      if (!await ensureCommunityAccess(context)) return;
+      if (!context.mounted) return;
+      await _pushScreen(context, const ChatScreen());
+    },
+  ),
+  NavEntry(
+    id: 'profile',
+    titlePl: 'Twój profil',
+    titleEn: 'Your profile',
+    subtitlePl: 'Imię, zablokowani, kopia zapasowa, zgody',
+    subtitleEn: 'Name, blocked people, backup, consents',
+    icon: Icons.person_outline,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const [
+      'profil',
+      'konto',
+      'imie',
+      'nazwisko',
+      'podpis',
+      'zablokowani',
+      'odblokuj',
+      'kopia',
+      'backup',
+      'przywroc',
+      'zgoda',
+      'zgody',
+      'kontakt',
+    ],
+    keywordsEn: const [
+      'profile',
+      'account',
+      'name',
+      'blocked',
+      'unblock',
+      'backup',
+      'restore',
+      'consent',
+      'contact',
+    ],
+    open: (context) => _pushScreen(context, const ProfileScreen()),
+  ),
+  NavEntry(
+    id: 'delete_data',
+    titlePl: 'Usuń moje dane',
+    titleEn: 'Delete my data',
+    subtitlePl: 'Z serwera i z telefonu (RODO)',
+    subtitleEn: 'From the server and the phone (GDPR)',
+    icon: Icons.delete_outline,
+    color: const Color(0xFFF0655A),
+    keywordsPl: const [
+      'usun',
+      'usuniecie',
+      'dane',
+      'rodo',
+      'prywatnosc',
+      'wymaz',
+      'skasuj',
+    ],
+    keywordsEn: const ['delete', 'erase', 'data', 'gdpr', 'remove'],
+    // Otwiera profil od razu z oknem potwierdzenia — nic nie znika bez „Usuń".
+    open: (context) =>
+        _pushScreen(context, const ProfileScreen(openDeleteOnStart: true)),
+  ),
+  NavEntry(
+    id: 'terms',
+    titlePl: 'Regulamin',
+    titleEn: 'Terms of Use',
+    subtitlePl: 'Zasady czatu, skanera i asystenta',
+    subtitleEn: 'Rules for chat, scanner and assistant',
+    icon: Icons.description_outlined,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const ['zasady', 'regulamin', 'warunki', 'moderacja'],
+    keywordsEn: const ['rules', 'terms', 'conditions', 'moderation'],
+    open: (context) => Navigator.of(context).push(LegalScreen.route(termsOfUse)),
+  ),
+  NavEntry(
+    id: 'privacy',
+    titlePl: 'Polityka prywatności',
+    titleEn: 'Privacy Policy',
+    subtitlePl: 'Co wysyłamy, dokąd i jak to usunąć',
+    subtitleEn: 'What we send, where, and how to delete it',
+    icon: Icons.privacy_tip_outlined,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const ['zasady', 'prywatnosc', 'polityka', 'rodo', 'dane'],
+    keywordsEn: const ['privacy', 'policy', 'gdpr', 'data', 'rules'],
+    open: (context) =>
+        Navigator.of(context).push(LegalScreen.route(privacyPolicy)),
+  ),
+  NavEntry(
+    id: 'help',
+    titlePl: 'Pomoc',
+    titleEn: 'Help',
+    subtitlePl: 'Baza wiedzy: TIG, materiały, NDT, aplikacja',
+    subtitleEn: 'Knowledge base: TIG, materials, NDT, the app',
+    icon: Icons.help_outline_rounded,
+    color: const Color(0xFF2ECC71),
+    keywordsPl: const ['pomoc', 'baza wiedzy', 'faq', 'jak', 'instrukcja'],
+    keywordsEn: const ['help', 'knowledge base', 'faq', 'how to', 'guide'],
+    open: (context) => _pushScreen(context, const HelpScreen()),
+  ),
+  NavEntry(
+    id: 'welder_identity',
+    titlePl: 'Tożsamość spawacza',
+    titleEn: 'Welder identity',
+    subtitlePl: 'Stempel i dane do dziennika spoin',
+    subtitleEn: 'Stamp and details for the weld journal',
+    icon: Icons.badge_outlined,
+    color: const Color(0xFF4A9EFF),
+    keywordsPl: const ['stempel', 'tozsamosc', 'spawacz', 'podpis spoiny'],
+    keywordsEn: const ['stamp', 'identity', 'welder id'],
+    open: (context) => _pushScreen(context, const WelderIdentitySetupScreen()),
+  ),
+];
+
+class NavSearchHit {
+  final NavEntry entry;
+  final int score;
+  const NavSearchHit(this.entry, this.score);
+}
+
+/// Wpisy nawigacyjne pasujące do zapytania — te same zasady co
+/// [searchTools] (oba języki, bez polskich znaków, odmiana).
+List<NavEntry> searchNavEntries(String rawQuery, AppLanguage lang) {
+  final query = normalizeForSearch(rawQuery);
+  if (query.isEmpty) return const [];
+  final terms = query.split(' ').where((t) => t.isNotEmpty).toList();
+  if (terms.isEmpty) return const [];
+  final hits = <NavSearchHit>[];
+  for (final entry in kNavEntries) {
+    if (!entry.available) continue;
+    final score = _score(
+      query: query,
+      terms: terms,
+      titleMain: lang == AppLanguage.en ? entry.titleEn : entry.titlePl,
+      titleOther: lang == AppLanguage.en ? entry.titlePl : entry.titleEn,
+      keywords: [...entry.keywordsPl, ...entry.keywordsEn],
+      subtitles: '${entry.subtitlePl} ${entry.subtitleEn}',
+    );
+    if (score != null) hits.add(NavSearchHit(entry, score));
+  }
+  hits.sort((a, b) {
+    final byScore = b.score.compareTo(a.score);
+    if (byScore != 0) return byScore;
+    return kNavEntries.indexOf(a.entry).compareTo(kNavEntries.indexOf(b.entry));
+  });
+  return [for (final h in hits) h.entry];
+}
