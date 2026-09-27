@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import '../../data/app_database.dart';
 import 'welder_pipe_param.dart';
 import 'param_signature.dart';
@@ -61,57 +59,5 @@ class WelderPipeLocalRepo {
     );
 
     return rows.map(WelderPipeParam.fromMap).toList();
-  }
-
-  Future<int> enqueueCommunitySubmission({
-    required String signature,
-    required Map<String, dynamic> payload,
-  }) async {
-    final db = await AppDatabase.instance.db;
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    return db.insert('community_outbox', {
-      'module': 'welder_pipe',
-      'signature': signature,
-      'payload_json': jsonEncode(payload),
-      'status': 'pending',
-      'last_error': null,
-      'attempts': 0,
-      'created_at': now,
-      'updated_at': now,
-    });
-  }
-
-  Future<List<Map<String, Object?>>> listPendingOutbox({int limit = 20}) async {
-    final db = await AppDatabase.instance.db;
-    return db.query(
-      'community_outbox',
-      where: 'status = ? AND module = ?',
-      whereArgs: ['pending', 'welder_pipe'],
-      orderBy: 'created_at ASC',
-      limit: limit,
-    );
-  }
-
-  Future<void> markOutboxSent(int id) async {
-    final db = await AppDatabase.instance.db;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await db.update('community_outbox', {'status': 'sent', 'updated_at': now, 'last_error': null},
-        where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<void> markOutboxError(int id, String error) async {
-    final db = await AppDatabase.instance.db;
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    final row = await db.query('community_outbox', where: 'id = ?', whereArgs: [id], limit: 1);
-    final attempts = (row.isNotEmpty ? (row.first['attempts'] as int? ?? 0) : 0) + 1;
-
-    await db.update(
-      'community_outbox',
-      {'status': 'pending', 'attempts': attempts, 'last_error': error, 'updated_at': now},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
   }
 }
