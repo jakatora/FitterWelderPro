@@ -46,16 +46,21 @@
 ///      into memory, and every photo extracted to staging. Nothing the app
 ///      currently owns is touched. A foreign file, a truncated download or a
 ///      corrupt entry fails here, and the user's live data never moved.
-///   2. **Commit phase** — photos are copied into place first (a stray photo
-///      file nothing references is harmless), then each database is refilled
-///      inside a single `transaction`, so a failure mid-way rolls that
-///      database back to exactly what it was.
+///   1b. **Validation** — BOTH live databases get a full dry-run refill
+///      (schema self-heal, wipe, every insert, foreign-key check where the
+///      database enforces keys) that is rolled back on purpose. A backup one
+///      of the databases cannot take fails here, before anything is written.
+///   2. **Commit phase** — each live database is first snapshotted
+///      (`VACUUM INTO`) as a rollback point. Photos are copied into place (a
+///      same-name file is saved first), then each database is refilled inside
+///      a single `transaction`.
 ///
-/// The one honest caveat: the app owns two SQLite files, and SQLite has no
-/// two-phase commit across databases. Each database is atomic on its own; a
-/// disk-full error between them could in theory leave the first restored and
-/// the second not. Every failure that depends on the *file* (the realistic
-/// one) is already ruled out by the read phase.
+/// The app owns two SQLite files and SQLite has no two-phase commit across
+/// them. So if the second database fails after the first was written (disk
+/// full), the first is refilled from its snapshot and the photos are put
+/// back: the phone ends up exactly as before the attempt, and the user is
+/// told so. Only if that undo itself fails does the message say the data may
+/// be mixed and ask to restore again.
 ///
 /// ## Why absolute photo paths are rewritten
 /// `heat_photos.image_path` and `component_heats.image_path` store absolute
@@ -101,7 +106,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -951,16 +956,70 @@ class TableRestoreResult {
 /// know — is left out, and it is listed in the result so the user hears
 /// about it. The same goes for columns that carried data but have no live
 /// column ([droppedColumnsWithData]).
+///
+/// [dryRun] does the whole refill — schema self-heal, wipe, every insert —
+/// and then rolls it back on purpose. It is how [DataBackup.restore]
+/// validates BOTH databases before writing either: a NOT NULL column the
+/// backup cannot fill, a type clash or (where `foreign_keys` is ON) an
+/// orphaned child row fails here, while nothing has changed yet. Foreign
+/// keys are checked explicitly with `PRAGMA foreign_key_check`, because a
+/// deferred violation would otherwise only surface at the COMMIT a dry run
+/// never reaches.
+///
+/// [wipeTablesNotInBackup] also empties live tables the map does not
+/// mention. Only the rollback of a failed restore uses it: there the map is
+/// the full pre-restore content of the database, so a table that was
+/// created (and filled) by the aborted restore must go back to empty.
 Future<TableRestoreResult> restoreTablesInto(
   Database db,
   Map<String, List<Map<String, Object?>>> tables, {
   required String heatPhotosDir,
   required Set<String> restoredPhotoNames,
   Future<void> Function(DatabaseExecutor txn)? ensureKnownTables,
+  bool dryRun = false,
+  bool wipeTablesNotInBackup = false,
 }) async {
   var written = 0;
   final skipped = <String, int>{};
   final dropped = <String, List<String>>{};
+  try {
+    await _refill(db, tables,
+        heatPhotosDir: heatPhotosDir,
+        restoredPhotoNames: restoredPhotoNames,
+        ensureKnownTables: ensureKnownTables,
+        dryRun: dryRun,
+        wipeTablesNotInBackup: wipeTablesNotInBackup,
+        onWritten: (n) => written += n,
+        skipped: skipped,
+        dropped: dropped);
+  } on _DryRunRollback {
+    // Expected: the dry run succeeded and was rolled back on purpose.
+  }
+  return TableRestoreResult(
+    rowsWritten: written,
+    skippedTables: skipped,
+    droppedColumns: dropped,
+  );
+}
+
+/// Thrown at the end of a successful dry run to roll its transaction back.
+class _DryRunRollback implements Exception {
+  const _DryRunRollback();
+}
+
+Future<void> _refill(
+  Database db,
+  Map<String, List<Map<String, Object?>>> tables, {
+  required String heatPhotosDir,
+  required Set<String> restoredPhotoNames,
+  required Future<void> Function(DatabaseExecutor txn)? ensureKnownTables,
+  required bool dryRun,
+  required bool wipeTablesNotInBackup,
+  required void Function(int rows) onWritten,
+  required Map<String, int> skipped,
+  required Map<String, List<String>> dropped,
+}) async {
+  var written = 0;
   await db.transaction((txn) async {
     // `cut_list_app.db` switches `foreign_keys` ON, so deleting parents
     // before children (or inserting children before parents) would trip a
@@ -989,7 +1048,9 @@ Future<TableRestoreResult> restoreTablesInto(
 
     final batch = txn.batch();
     for (final table in liveTables) {
-      if (tables.containsKey(table)) batch.delete(table);
+      if (wipeTablesNotInBackup || tables.containsKey(table)) {
+        batch.delete(table);
+      }
     }
     for (final entry in tables.entries) {
       if (!liveTables.contains(entry.key)) {
@@ -1017,12 +1078,30 @@ Future<TableRestoreResult> restoreTablesInto(
       written += rows.length;
     }
     await batch.commit(noResult: true);
+
+    if (dryRun) {
+      final enforced =
+          (await txn.rawQuery('PRAGMA foreign_keys')).firstOrNull?.values.first;
+      if (enforced == 1) {
+        final violations = await txn.rawQuery('PRAGMA foreign_key_check');
+        if (violations.isNotEmpty) {
+          final where = violations
+              .map((v) => '${v['table']} → ${v['parent']}')
+              .toSet()
+              .join(', ');
+          throw BackupFormatException(
+            messagePl: 'Kopii nie da się przywrócić: część wierszy wskazuje na '
+                'nieistniejące rekordy ($where). Nic nie zostało zmienione.',
+            messageEn: 'The backup cannot be restored: some rows point at '
+                'records that do not exist ($where). Nothing was changed.',
+          );
+        }
+      }
+      onWritten(written);
+      throw const _DryRunRollback();
+    }
   });
-  return TableRestoreResult(
-    rowsWritten: written,
-    skippedTables: skipped,
-    droppedColumns: dropped,
-  );
+  onWritten(written);
 }
 
 /// One live SQLite file the app owns, with the things backup needs: where its
@@ -1042,6 +1121,40 @@ class _LiveDatabase {
   });
 }
 
+/// Copies restored photos into `heat_photos` and remembers how to undo it:
+/// a file that already existed under the same name is saved to [saveDir]
+/// before being overwritten, a new one is deleted again by [undo].
+class _PhotoRollback {
+  _PhotoRollback(this.heatDir, this.saveDir);
+
+  final Directory heatDir;
+  final Directory saveDir;
+  final List<String> _added = [];
+  final List<String> _replaced = [];
+
+  Future<void> put(File source, String base) async {
+    final target = File(p.join(heatDir.path, base));
+    if (await target.exists()) {
+      if (!await saveDir.exists()) await saveDir.create(recursive: true);
+      await target.copy(p.join(saveDir.path, base));
+      _replaced.add(base);
+    } else {
+      _added.add(base);
+    }
+    await source.copy(target.path);
+  }
+
+  Future<void> undo() async {
+    for (final base in _added) {
+      final f = File(p.join(heatDir.path, base));
+      if (await f.exists()) await f.delete();
+    }
+    for (final base in _replaced) {
+      await File(p.join(saveDir.path, base)).copy(p.join(heatDir.path, base));
+    }
+  }
+}
+
 /// A photo going into the archive under `heat_photos/<name>`.
 class _ArchivedPhoto {
   final String name;
@@ -1052,6 +1165,12 @@ class _ArchivedPhoto {
 
 class DataBackup {
   DataBackup._();
+
+  /// Test hook: called right before each database is written during a
+  /// restore (after both passed validation). A test throws from here to
+  /// simulate a disk-full error between the two databases.
+  @visibleForTesting
+  static Future<void> Function(String fileName)? debugBeforeDatabaseCommit;
 
   /// The app writes TWO databases and a fitter's data is split across both, so
   /// backing up only `cutlist.db` would quietly lose the welder-pipe module.
@@ -1396,38 +1515,111 @@ class DataBackup {
         photoNames.add(base);
       }
 
-      // ---- Phase 2: commit. Photos first: a file nothing references is
-      // harmless, a row pointing at a missing file is not.
       final heatDir = await _heatPhotosDir();
-      if (!await heatDir.exists()) await heatDir.create(recursive: true);
-      for (final base in photoNames) {
-        await File(p.join(stagedPhotos.path, base))
-            .copy(p.join(heatDir.path, base));
+      final targets = [
+        for (final db in _databases)
+          if (tablesByDatabase[db.fileName] != null) db,
+      ];
+
+      // ---- Phase 1b: validate BOTH databases against the live schema — a
+      // full refill of each, rolled back on purpose. Still nothing written.
+      for (final db in targets) {
+        await restoreTablesInto(
+          await db.open(),
+          tablesByDatabase[db.fileName]!,
+          heatPhotosDir: heatDir.path,
+          restoredPhotoNames: photoNames,
+          ensureKnownTables: db.ensureKnownTables,
+          dryRun: true,
+        );
       }
 
+      // ---- Phase 2: commit, with a way back. SQLite has no two-phase
+      // commit across two files, so each live database is snapshotted first;
+      // if anything fails after the first write, every database already
+      // written is refilled from its snapshot and the photos are put back.
+      final rollbackDir = Directory(p.join(staging.path, 'rollback'));
+      await rollbackDir.create(recursive: true);
+      final rollbackDbs = <_LiveDatabase, File>{};
+      for (final db in targets) {
+        final live = File(await db.resolvePath());
+        await db.open(); // creates the file on a fresh install
+        rollbackDbs[db] = await _snapshot(db, live, rollbackDir);
+      }
+
+      final photoRollback = _PhotoRollback(
+          heatDir, Directory(p.join(rollbackDir.path, 'heat_photos')));
+      final committed = <_LiveDatabase>[];
       var rows = 0;
       var restoredDatabases = 0;
       final skipped = <SkippedTable>[];
       final dropped = <String, List<String>>{};
-      for (final db in _databases) {
-        final tables = tablesByDatabase[db.fileName];
-        if (tables == null) continue;
-        final result = await restoreTablesInto(
-          await db.open(),
-          tables,
-          heatPhotosDir: heatDir.path,
-          restoredPhotoNames: photoNames,
-          ensureKnownTables: db.ensureKnownTables,
+      try {
+        // Photos first: a file nothing references is harmless, a row
+        // pointing at a missing file is not.
+        if (!await heatDir.exists()) await heatDir.create(recursive: true);
+        for (final base in photoNames) {
+          await photoRollback.put(File(p.join(stagedPhotos.path, base)), base);
+        }
+
+        for (final db in targets) {
+          await debugBeforeDatabaseCommit?.call(db.fileName);
+          final result = await restoreTablesInto(
+            await db.open(),
+            tablesByDatabase[db.fileName]!,
+            heatPhotosDir: heatDir.path,
+            restoredPhotoNames: photoNames,
+            ensureKnownTables: db.ensureKnownTables,
+          );
+          committed.add(db);
+          rows += result.rowsWritten;
+          restoredDatabases++;
+          for (final e in result.skippedTables.entries) {
+            skipped.add(SkippedTable(
+                database: db.fileName, table: e.key, rowCount: e.value));
+          }
+          for (final e in result.droppedColumns.entries) {
+            dropped['${db.fileName}/${e.key}'] = e.value;
+          }
+        }
+      } catch (error) {
+        final rollbackErrors = <Object>[];
+        for (final db in committed.reversed) {
+          try {
+            await restoreTablesInto(
+              await db.open(),
+              await _readAllTables(rollbackDbs[db]!.path),
+              heatPhotosDir: heatDir.path,
+              restoredPhotoNames: const <String>{},
+              wipeTablesNotInBackup: true,
+            );
+          } catch (e) {
+            rollbackErrors.add(e);
+          }
+        }
+        try {
+          await photoRollback.undo();
+        } catch (e) {
+          rollbackErrors.add(e);
+        }
+        if (rollbackErrors.isNotEmpty) {
+          debugPrint('Restore rollback failed: $rollbackErrors (after $error)');
+          throw BackupFormatException(
+            messagePl: 'Przywracanie przerwane ($error) i nie udało się w pełni '
+                'cofnąć zmian. Nie usuwaj kopii — przywróć ją ponownie, gdy '
+                'zwolnisz miejsce w telefonie.',
+            messageEn: 'The restore was interrupted ($error) and could not be '
+                'fully undone. Keep the backup file and restore it again once '
+                'the phone has free storage.',
+          );
+        }
+        if (error is BackupFormatException) rethrow;
+        throw BackupFormatException(
+          messagePl: 'Przywracanie przerwane: $error. Nic nie zostało '
+              'zmienione — dane w telefonie są takie jak przed próbą.',
+          messageEn: 'The restore was interrupted: $error. Nothing was '
+              'changed — the data on the phone is as it was before.',
         );
-        rows += result.rowsWritten;
-        restoredDatabases++;
-        for (final e in result.skippedTables.entries) {
-          skipped.add(SkippedTable(
-              database: db.fileName, table: e.key, rowCount: e.value));
-        }
-        for (final e in result.droppedColumns.entries) {
-          dropped['${db.fileName}/${e.key}'] = e.value;
-        }
       }
       // A database file this version does not own at all (a future module)
       // is not restored either — and is not allowed to vanish silently.
