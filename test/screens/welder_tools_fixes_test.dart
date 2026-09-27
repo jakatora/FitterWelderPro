@@ -147,6 +147,40 @@ void main() {
       expect(find.text('9500 L'), findsOneWidget);
       expect(find.textContaining(_disclaimer), findsOneWidget);
     });
+
+    // Q purge bez czasu dawało po cichu 0 L; czipy typowych butli.
+    // 20 L × 150 bar = 3000 L; 1050/3000 = 0,35 butli.
+    testWidgets('purge bez pary Q/czas → podpowiedź; czip butli 20 L / 150 bar',
+        (tester) async {
+      await _pump(tester);
+      await _openTab(tester, 'Gas');
+      await _enter(tester, 'Number of welds', '20');
+      await _enter(tester, 'Time per weld (min)', '5');
+      await _enter(tester, 'Purge Q (L/min)', '10');
+      expect(find.textContaining('enter both the flow Q and the time'),
+          findsOneWidget);
+      await _enter(tester, 'Purge time (min)', '2');
+      expect(find.textContaining('enter both the flow Q and the time'),
+          findsNothing);
+      await _enter(tester, 'Purge Q (L/min)', '');
+      await tester.tap(find.text('20 L / 150 bar'));
+      await tester.pump();
+      expect(_text(tester, 'Cylinder water capacity'), '20');
+      expect(_text(tester, 'Fill pressure'), '150');
+      expect(find.text('3000 L'), findsOneWidget);
+    });
+  });
+
+  // 1 bar = 1000 mbar = 401,46 inH₂O (1/0,002490889) = 10 197,16 mmH₂O.
+  group('Ciśnienie', () {
+    testWidgets('mbar, inH₂O i mmH₂O', (tester) async {
+      await _pump(tester);
+      await _openTab(tester, 'Pressure');
+      await _enter(tester, 'Value', '1');
+      expect(find.text('1000.0000'), findsOneWidget);
+      expect(find.textContaining('401.46'), findsOneWidget);
+      expect(find.textContaining('10197.16'), findsOneWidget);
+    });
   });
 
   group('O₂ purge', () {

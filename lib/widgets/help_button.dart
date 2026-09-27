@@ -537,13 +537,13 @@ final kHelpWelderTools = ScreenHelp(
     HelpStep('🧪', 'Gaz — zużycie gazu osłonowego i formującego na projekt oraz liczba butli (pojemność wodna × ciśnienie, z rezerwą).'),
     HelpStep('💨', 'O₂ Purge — szacunkowy czas i ilość gazu do wypłukania rury do zadanego ppm O₂; sprawdź analizatorem przed spawaniem.'),
     HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu). Zmiana trybu w trakcie odliczania pyta „Przerwać odliczanie?”. Z zakładki O₂ Purge można od razu uruchomić odliczanie purge.'),
-    HelpStep('🔁', 'Ciśnienie — przelicznik bar / MPa / kPa / PSI / atm / kgf/cm².'),
+    HelpStep('🔁', 'Ciśnienie — przelicznik bar / mbar / MPa / kPa / PSI / atm / kgf/cm² / inH₂O / mmH₂O (formowanie i korki purge).'),
   ],
   stepsEn: [
     HelpStep('🧪', 'Gas — shielding and purge gas for a project and the number of cylinders (water capacity × pressure, with reserve).'),
     HelpStep('💨', 'O₂ Purge — estimated time and gas to purge a pipe down to a target ppm O₂; verify with an analyser before welding.'),
     HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown). Changing the mode during a countdown asks “Stop the countdown?”. The O₂ Purge tab can start the purge countdown directly.'),
-    HelpStep('🔁', 'Pressure — converter bar / MPa / kPa / PSI / atm / kgf/cm².'),
+    HelpStep('🔁', 'Pressure — converter bar / mbar / MPa / kPa / PSI / atm / kgf/cm² / inH₂O / mmH₂O (purge and purge dams).'),
   ],
 );
 

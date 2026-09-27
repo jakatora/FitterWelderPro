@@ -382,6 +382,10 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
   double? _gasPerCylinderL;
   double? _bottles;
   String? _error;
+  String? _purgeNote;
+
+  /// Typowe butle (pojemność wodna × ciśnienie napełnienia) — skróty.
+  static const _cylinders = <(double, double)>[(20, 150), (50, 200), (50, 300)];
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
   @override
@@ -394,7 +398,7 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
 
   void _calc() {
     setState(() {
-      _error = null; _totalL = null; _bottles = null; _gasPerCylinderL = null;
+      _error = null; _totalL = null; _bottles = null; _gasPerCylinderL = null; _purgeNote = null;
       final n  = _num(_nCtrl);
       final t  = _num(_tCtrl);
       if (n == null || n <= 0) { _error = _tr('Podaj liczbę spoin', 'Enter number of welds'); return; }
@@ -409,6 +413,14 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
         purgeMinutes: _num(_purgeTCtrl) ?? 0,
       );
       if (g == null) { _error = _tr('Sprawdź przepływy i czasy (> 0)', 'Check flows and times (> 0)'); return; }
+      // Purge liczy się tylko z parą Q + czas — jedno bez drugiego dawało
+      // po cichu 0 L.
+      final pq = _num(_purgeCtrl) ?? 0;
+      final pt = _num(_purgeTCtrl) ?? 0;
+      _purgeNote = (pq > 0) != (pt > 0)
+          ? _tr('Purge: podaj i przepływ Q, i czas — bez pary gaz formujący liczy się jako 0 L.',
+                'Purge: enter both the flow Q and the time — without the pair the purge gas counts as 0 L.')
+          : null;
       _totalL = g.totalL;
       final perCylinder = usableCylinderGasL(
         waterCapacityL: _num(_waterCtrl) ?? 50,
@@ -457,7 +469,21 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
           const SizedBox(width: 10),
           Expanded(child: _NumField(ctrl: _purgeTCtrl, label: _tr('Czas purge (min)', 'Purge time (min)'), hint: '2', unit: 'min', onChanged: _calc)),
         ]),
+        if (_purgeNote != null) _NoteText(_purgeNote!),
         _SecLabel(_tr('Butla', 'Cylinder')),
+        Wrap(spacing: 8, children: [
+          for (final (v, p) in _cylinders)
+            ActionChip(
+              label: Text('${v.toStringAsFixed(0)} L / ${p.toStringAsFixed(0)} bar'),
+              materialTapTargetSize: MaterialTapTargetSize.padded,
+              onPressed: () {
+                _waterCtrl.text = v.toStringAsFixed(0);
+                _pressureCtrl.text = p.toStringAsFixed(0);
+                _calc();
+              },
+            ),
+        ]),
+        const SizedBox(height: 8),
         Row(children: [
           Expanded(child: _NumField(ctrl: _waterCtrl, label: _tr('Pojemność wodna butli', 'Cylinder water capacity'), hint: '50', unit: 'L', onChanged: _calc)),
           const SizedBox(width: 10),
@@ -817,9 +843,13 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
   final _valCtrl = TextEditingController();
   String _fromUnit = 'bar';
 
+  // mbar i słupy wody — tak podaje się ciśnienie formowania i korków purge.
+  // Wartości umowne: 1 mmH₂O = 9,80665 Pa; 1 inH₂O = 25,4 mmH₂O = 249,0889 Pa
+  // (ρ = 1000 kg/m³, g = 9,80665 m/s²).
   final Map<String, double> _toBar = {
-    'bar': 1.0, 'MPa': 10.0, 'kPa': 0.01, 'Pa': 0.00001,
+    'bar': 1.0, 'mbar': 0.001, 'MPa': 10.0, 'kPa': 0.01, 'Pa': 0.00001,
     'PSI': 0.0689476, 'atm': 1.01325, 'kgf/cm²': 0.980665,
+    'inH₂O': 0.002490889, 'mmH₂O': 0.0000980665,
   };
 
   Map<String, String>? _results;
@@ -843,7 +873,14 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
   Widget build(BuildContext context) => ListView(
     padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
     children: [
-      _InfoBox(_tr('Przelicznik jednostek ciśnienia — próby hydrostatyczne, regulatory gazu.', 'Pressure unit converter — hydrostatic tests, gas regulators.')),
+      _InfoBox(_tr(
+        'Przelicznik jednostek ciśnienia — próby hydrostatyczne, reduktory, formowanie (mbar, słup wody). '
+        'Manometry pokazują nadciśnienie (barg); ciśnienie absolutne (bara) = barg + ok. 1,013 bar. '
+        'atm = atmosfera fizyczna (1,01325 bar), kgf/cm² = atmosfera techniczna (0,980665 bar).',
+        'Pressure unit converter — hydrostatic tests, regulators, purge (mbar, water column). '
+        'Gauges show gauge pressure (barg); absolute (bara) = barg + about 1.013 bar. '
+        'atm = standard atmosphere (1.01325 bar), kgf/cm² = technical atmosphere (0.980665 bar).',
+      )),
       Row(children: [
         Expanded(child: TextField(
           controller: _valCtrl,

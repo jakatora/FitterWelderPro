@@ -187,7 +187,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
                     const SizedBox(height: 12),
                     Text(
-                      _tr('Nie udalo sie wczytac zapisanych parametrow.', 'Could not load saved parameters.'),
+                      _tr('Nie udało się wczytać zapisanych parametrów.', 'Could not load saved parameters.'),
                       textAlign: TextAlign.center,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
@@ -201,7 +201,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     FilledButton.icon(
                       onPressed: () => setState(() => _refresh()),
                       icon: const Icon(Icons.refresh),
-                      label: Text(_tr('Sprobuj ponownie', 'Retry')),
+                      label: Text(_tr('Spróbuj ponownie', 'Retry')),
                     ),
                   ],
                 ),
@@ -324,6 +324,9 @@ class _MyParamsTabState extends State<_MyParamsTab> {
       if (x == null || x <= 0) return _tr('Wpisz liczbę > 0', 'Enter a number > 0');
       return null;
     }
+
+    // Gazy opcjonalne — te same reguły co w edycji wpisu.
+    String? optNum(String? v) => (v ?? '').trim().isEmpty ? null : reqNum(v);
 
     // Snapshot of the defaults so an accidental back-gesture only prompts when
     // the welder has actually typed something — gloves on a phone make
@@ -453,7 +456,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         Expanded(
                           child: TextFormField(
                             controller: torchGasCtrl,
-                            validator: reqNum,
+                            validator: optNum,
                             keyboardType: numberKeyboard(),
                             inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz na palnik [L/min]', 'Torch gas [L/min]')),
@@ -463,7 +466,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         Expanded(
                           child: TextFormField(
                             controller: purgeCtrl,
-                            validator: reqNum,
+                            validator: optNum,
                             keyboardType: numberKeyboard(),
                             inputFormatters: numberInputFormatters(),
                             decoration: InputDecoration(labelText: _tr('Gaz do środka (purge) [L/min]', 'Internal gas (purge) [L/min]')),
@@ -550,10 +553,12 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                   diameterMm: parseDecimal(diameterCtrl.text)!,
                   wallThicknessMm: parseDecimal(wallCtrl.text)!,
                   electrodeMm: electrode,
-                  torchGasLpm: parseDecimal(torchGasCtrl.text)!,
+                  // Puste = nie podano (0), jak w edycji — CS bez formowania
+                  // nie wymaga wpisywania „0”.
+                  torchGasLpm: parseDecimal(torchGasCtrl.text) ?? 0,
                   nozzleType: nozzleTypeCtrl.text.trim().isEmpty ? null : nozzleTypeCtrl.text.trim(),
                   nozzleSize: nozzleSizeCtrl.text.trim().isEmpty ? null : nozzleSizeCtrl.text.trim(),
-                  purgeLpm: parseDecimal(purgeCtrl.text)!,
+                  purgeLpm: parseDecimal(purgeCtrl.text) ?? 0,
                   amps: parseDecimal(ampsCtrl.text)!,
                   outletHoles: int.parse(outletHolesCtrl.text.trim()),
                   tempo: tempo,
