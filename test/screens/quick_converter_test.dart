@@ -210,6 +210,21 @@ void main() {
     expect(_value(tester, 'MPa'), '0.200');
   });
 
+  // NIST SP 811 App. B: 1 kgf/cm² = 98 066,5 Pa (dokładnie) = 0,980665 bar;
+  // 1 bar = 1000 mbar. 10 kgf/cm² → 9,807 bar; 50 mbar → 0,050 bar.
+  testWidgets('kgf/cm² (at) i mbar dla starych manometrów i prób gazowych',
+      (tester) async {
+    await tester.pumpWidget(_app());
+    await _tab(tester, 'Ciśnienie');
+    await _unit(tester, 'kgf/cm²');
+    await _enter(tester, '10');
+    expect(_value(tester, 'bar'), '9.807');
+    await _unit(tester, 'mbar');
+    await _enter(tester, '50');
+    expect(_value(tester, 'bar'), '0.050');
+    expect(_value(tester, 'kPa'), '5.000');
+  });
+
   testWidgets('conversion overflow is not exposed as a copyable pressure',
       (tester) async {
     await tester.pumpWidget(_app());

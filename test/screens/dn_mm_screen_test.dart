@@ -45,4 +45,24 @@ void main() {
     expect(find.text('3 1/2"'), findsOneWidget);
     expect(find.text('90'), findsOneWidget);
   });
+
+  // Pole „Szukaj” porównywało `odMm.toString()`, więc „60,3” (przecinek)
+  // nie znajdowało rury 60,3; `2"` też nie (G2, P3).
+  testWidgets('Szukaj: „60,3” z przecinkiem i 2" znajdują NPS 2', (tester) async {
+    tester.view.physicalSize = const Size(900, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: DnMmScreen()),
+    ));
+    await tester.enterText(find.byType(TextField).at(2), '60,3');
+    await tester.pumpAndSettle();
+    expect(find.text('60.30'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).at(2), '2"');
+    await tester.pumpAndSettle();
+    expect(find.text('60.30'), findsOneWidget);
+    expect(find.text('21.30'), findsNothing);
+  });
 }

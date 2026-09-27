@@ -50,7 +50,11 @@ const _pressureFactors = {
   'MPa': 10.0,
   'kPa': 0.01,
   'psi': 0.0689476,
-  'atm': 1.01325
+  'atm': 1.01325,
+  // Old gauges / gas tests. NIST SP 811 App. B: kgf/cm² = 9.80665 × 10⁴ Pa
+  // (exact, standard gravity) = 0.980665 bar; mbar = 10⁻³ bar.
+  'kgf/cm²': 0.980665,
+  'mbar': 0.001,
 };
 const _flowFactors = {
   'l/min': 1.0,
