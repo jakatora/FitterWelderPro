@@ -172,4 +172,116 @@ void main() {
           throwsArgumentError);
     });
   });
+
+  // Słup wody: ρ·g·h = 1000 · 9,80665 · h / 10⁵ = 0,0980665 bar/m.
+  //  Pt = 15 bar, najwyższy punkt 12 m nad manometrem, najniższy 3 m pod:
+  //  odczyt = 15 + 1,17680 = 16,1768 bar; najniższy = 16,1768 + 0,2942 = 16,4710.
+  // B31.1-2022 §137.4.5: „The hydrostatic test pressure at any point in the
+  // piping system shall not be less than 1.5 times the design pressure”.
+  group('słup wody', () {
+    test('0,0981 bar na metr wody', () {
+      expect(liquidHeadBar(1), closeTo(0.0980665, 1e-12));
+      expect(liquidHeadBar(10), closeTo(0.980665, 1e-12));
+    });
+    test('odczyt manometru i najniższy punkt', () {
+      final r = hydrostaticHead(
+          ptBar: 15, highestAboveGaugeM: 12, lowestBelowGaugeM: 3);
+      expect(r.gaugeReadingBar, closeTo(15 + 12 * 0.0980665, 1e-9));
+      expect(r.lowestPointBar, closeTo(15 + 15 * 0.0980665, 1e-9));
+    });
+    test('manometr w najwyższym punkcie → odczyt = Pt', () {
+      final r = hydrostaticHead(ptBar: 15, highestAboveGaugeM: 0);
+      expect(r.gaugeReadingBar, 15);
+      expect(r.lowestPointBar, 15);
+    });
+  });
+
+  // Pt = 15 bar: 12 bar na manometrze to próba poniżej wymagania.
+  // Pneumatyczna P = 10 bar: maks. 1,33·P = 13,3 bar; 14 bar → za dużo.
+  group('checkRecordedStartPressure', () {
+    test('start < Pt → niezgodność', () {
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Hydro,
+              startBar: 12,
+              requiredBar: 15,
+              designBar: 10),
+          [RecordedPressureIssue.startBelowRequired]);
+    });
+    test('start = Pt (zaokrąglenie) → OK', () {
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Hydro,
+              startBar: 14.996,
+              requiredBar: 15,
+              designBar: 10),
+          isEmpty);
+    });
+    test('pneumatyczna powyżej 1,33·P', () {
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Pneumatic,
+              startBar: 14,
+              requiredBar: 11,
+              designBar: 10),
+          [RecordedPressureIssue.startAboveMax]);
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Pneumatic,
+              startBar: 13.3,
+              requiredBar: 11,
+              designBar: 10),
+          isEmpty);
+    });
+    test('hydro bez górnej granicy; brak pomiaru → brak niezgodności', () {
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Hydro,
+              startBar: 40,
+              requiredBar: 15,
+              designBar: 10),
+          isEmpty);
+      expect(
+          checkRecordedStartPressure(
+              preset: PressureTestPreset.b313Hydro,
+              startBar: null,
+              requiredBar: 15,
+              designBar: 10),
+          isEmpty);
+    });
+  });
+
+  // B31.3 §345.5.1: zawór ≤ Pt + mniejsza z 345 kPa (3,45 bar) i 10 % Pt.
+  //  Pt 11 bar → 11 + 1,1 = 12,1; Pt 50 bar → 50 + 3,45 = 53,45.
+  // UG-102(b): zakres manometru 1,5–4 × Pt; Pt 13 bar → 19,5–52 bar.
+  group('zawór bezpieczeństwa i zakres manometru', () {
+    test('B31.3 §345.5.1', () {
+      expect(pneumaticReliefMaxBar(11), closeTo(12.1, 1e-9));
+      expect(pneumaticReliefMaxBar(50), closeTo(53.45, 1e-9));
+    });
+    test('UG-102(b) 1,5–4 × Pt', () {
+      expect(gaugeRangeWithinUg102(25, 13), isTrue);
+      expect(gaugeRangeWithinUg102(16, 13), isFalse);
+      expect(gaugeRangeWithinUg102(60, 13), isFalse);
+    });
+    test('odczyt zakresu z tekstu', () {
+      expect(gaugeFullScaleBar('0–25 bar'), 25);
+      expect(gaugeFullScaleBar('0-4 MPa'), 40);
+      expect(gaugeFullScaleBar('0…600 psi'), closeTo(600 / 14.5038, 1e-9));
+      expect(gaugeFullScaleBar('0-16'), 16);
+      expect(gaugeFullScaleBar('brak'), isNull);
+    });
+  });
+
+  group('granice Re', () {
+    test('B31.3 hydro 100 % Re, pneumatyczna 90 % Re, EN — do potwierdzenia',
+        () {
+      expect(yieldFractionLimit(PressureTestPreset.b313Hydro), 1.0);
+      expect(yieldFractionLimit(PressureTestPreset.b313Pneumatic), 0.9);
+      expect(yieldFractionLimit(PressureTestPreset.en13480Hydro), isNull);
+      expect(presetHasYieldCheck(PressureTestPreset.en13480Hydro), isTrue);
+      expect(presetHasYieldCheck(PressureTestPreset.b313Pneumatic), isTrue);
+      expect(presetHasYieldCheck(PressureTestPreset.b311Hydro), isFalse);
+    });
+  });
 }

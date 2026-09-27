@@ -18,6 +18,8 @@
 ///  * ASME VIII-1 UG-99(b) — hydro zbiorników: Pt = 1,3·MAWP·LSR.
 library;
 
+import 'dart:math' as math;
+
 /// Rodzaj medium próby.
 enum PressureTestMethod { hydrostatic, pneumatic }
 
@@ -281,4 +283,160 @@ double pressureAtHoopStressBar({
 }) {
   _checkGeometry(odMm, wallMm);
   return 2.0 * wallMm * stressMpa / odMm * 10.0;
+}
+
+// ── Słup wody ────────────────────────────────────────────────────────────
+//
+// ASME B31.1 §137.4.5 (B31.1-2022): „The hydrostatic test pressure at any
+// point in the piping system shall not be less than 1.5 times the design
+// pressure”; B31.3 §345.4.2 tak samo („at any point”). Manometr poniżej
+// najwyższego punktu musi więc pokazać Pt + ρ·g·h, a najniższy punkt widzi
+// jeszcze więcej (to ciśnienie idzie do sprawdzenia Re).
+
+/// Przyspieszenie normalne [m/s²].
+const double kStandardGravity = 9.80665;
+
+/// Ciśnienie słupa cieczy [bar]: ρ·g·h / 10⁵. Woda: ρ = 1000 kg/m³ →
+/// 0,0981 bar na metr. [heightM] może być ujemne (punkt wyżej niż manometr
+/// w drugą stronę).
+double liquidHeadBar(double heightM, {double densityKgM3 = 1000}) =>
+    densityKgM3 * kStandardGravity * heightM / 1e5;
+
+/// Ciśnienia próby hydrostatycznej po uwzględnieniu położenia manometru.
+class HydrostaticHeadResult {
+  /// Minimalny odczyt manometru [bar], żeby najwyższy punkt miał Pt.
+  final double gaugeReadingBar;
+
+  /// Ciśnienie w najniższym punkcie przy tym odczycie [bar].
+  final double lowestPointBar;
+
+  const HydrostaticHeadResult({
+    required this.gaugeReadingBar,
+    required this.lowestPointBar,
+  });
+}
+
+/// [ptBar] — ciśnienie próby wymagane w każdym punkcie (także najwyższym).
+/// [highestAboveGaugeM] — o ile najwyższy punkt jest nad manometrem [m].
+/// [lowestBelowGaugeM] — o ile najniższy punkt jest pod manometrem [m].
+HydrostaticHeadResult hydrostaticHead({
+  required double ptBar,
+  required double highestAboveGaugeM,
+  double lowestBelowGaugeM = 0,
+  double densityKgM3 = 1000,
+}) {
+  final reading =
+      ptBar + liquidHeadBar(highestAboveGaugeM, densityKgM3: densityKgM3);
+  return HydrostaticHeadResult(
+    gaugeReadingBar: reading,
+    lowestPointBar:
+        reading + liquidHeadBar(lowestBelowGaugeM, densityKgM3: densityKgM3),
+  );
+}
+
+// ── Kontrola zmierzonego ciśnienia ───────────────────────────────────────
+
+/// Niezgodność zapisanego ciśnienia początkowego z obliczonym.
+enum RecordedPressureIssue {
+  /// Ciśnienie początkowe < wymagane (Pt albo odczyt manometru ze słupem).
+  startBelowRequired,
+
+  /// Próba pneumatyczna: ciśnienie początkowe > maxFactor·P (B31.3: 1,33·P).
+  startAboveMax,
+}
+
+/// Tolerancja zaokrąglenia do 2 miejsc po przecinku [bar].
+const double kRecordedPressureToleranceBar = 0.005;
+
+/// Porównuje zmierzone ciśnienie początkowe z wymaganym. Brak danych → brak
+/// niezgodności (brak pomiaru odnotowuje osobna uwaga o kompletności).
+List<RecordedPressureIssue> checkRecordedStartPressure({
+  required PressureTestPreset preset,
+  required double? startBar,
+  required double? requiredBar,
+  required double? designBar,
+}) {
+  final out = <RecordedPressureIssue>[];
+  if (startBar == null || !startBar.isFinite) return out;
+  if (requiredBar != null &&
+      requiredBar > 0 &&
+      startBar < requiredBar - kRecordedPressureToleranceBar) {
+    out.add(RecordedPressureIssue.startBelowRequired);
+  }
+  final maxF = preset.maxFactor;
+  if (preset.isPneumatic &&
+      maxF != null &&
+      designBar != null &&
+      designBar > 0 &&
+      startBar > maxF * designBar + kRecordedPressureToleranceBar) {
+    out.add(RecordedPressureIssue.startAboveMax);
+  }
+  return out;
+}
+
+// ── Granice naprężeniowe ─────────────────────────────────────────────────
+
+/// Udział Re, przy którym norma ogranicza ciśnienie próby, albo `null`, gdy
+/// aplikacja nie ma zweryfikowanej granicy.
+///  * B31.3 hydro §345.2.1(a): naprężenie nie powyżej Re → 1,0.
+///  * B31.3 pneumatyczna §345.5.4: ciśnienie dające 90 % Re → 0,9.
+///  * EN 13480-5: ograniczenie naprężeniem w warunkach próby wg EN 13480-3
+///    (f_test) — dokładnej granicy nie potwierdzono w tekście normy → `null`
+///    (ekran pokazuje σ/Re i „do potwierdzenia w normie”).
+double? yieldFractionLimit(PressureTestPreset p) {
+  switch (p) {
+    case PressureTestPreset.b313Hydro:
+      return 1.0;
+    case PressureTestPreset.b313Pneumatic:
+      return 0.9;
+    case PressureTestPreset.en13480Hydro:
+    case PressureTestPreset.b311Hydro:
+    case PressureTestPreset.asmeVIII1Hydro:
+      return null;
+  }
+}
+
+/// Czy preset ma na ekranie sprawdzenie Re (także informacyjne).
+bool presetHasYieldCheck(PressureTestPreset p) =>
+    p == PressureTestPreset.b313Hydro ||
+    p == PressureTestPreset.b313Pneumatic ||
+    p == PressureTestPreset.en13480Hydro;
+
+// ── Zawór bezpieczeństwa i zakres manometru ─────────────────────────────
+
+/// B31.3 §345.5.1 (próba pneumatyczna): nastawa zaworu bezpieczeństwa nie
+/// wyższa niż Pt + mniejsza z 345 kPa (3,45 bar) i 10 % Pt.
+double pneumaticReliefMaxBar(double ptBar) => ptBar + math.min(3.45, 0.1 * ptBar);
+
+/// ASME VIII-1 UG-102(b): zakres manometru „about double” ciśnienia próby,
+/// nie mniej niż 1,5× i nie więcej niż 4×. `true`, gdy [fullScaleBar] mieści
+/// się w 1,5–4 × [ptBar].
+bool gaugeRangeWithinUg102(double fullScaleBar, double ptBar) =>
+    ptBar > 0 && fullScaleBar >= 1.5 * ptBar && fullScaleBar <= 4 * ptBar;
+
+/// Górna granica zakresu manometru z tekstu typu „0–25 bar”, „0-4 MPa”,
+/// „0…600 psi” [bar]; `null`, gdy nie da się odczytać. Bez jednostki —
+/// [defaultUnit] ('bar' | 'MPa' | 'psi').
+double? gaugeFullScaleBar(String text, {String defaultUnit = 'bar'}) {
+  final t = text.trim().replaceAll(',', '.');
+  final nums = RegExp(r'\d+(?:\.\d+)?').allMatches(t).toList();
+  if (nums.isEmpty) return null;
+  final v = double.tryParse(nums.last.group(0)!);
+  if (v == null || v <= 0) return null;
+  final lower = t.toLowerCase();
+  final unit = lower.contains('mpa')
+      ? 'MPa'
+      : lower.contains('psi')
+          ? 'psi'
+          : lower.contains('bar')
+              ? 'bar'
+              : defaultUnit;
+  switch (unit) {
+    case 'MPa':
+      return v * 10;
+    case 'psi':
+      return v / 14.5038;
+    default:
+      return v;
+  }
 }

@@ -189,6 +189,47 @@ String? hydrotestDropNote(HydrotestRecord r) {
       'on a PASS result — justify it in the notes (e.g. temperature change).';
 }
 
+/// Start pressure vs the calculated test pressure (and, for a pneumatic
+/// test, vs its upper limit 1.33·P).
+List<RecordedPressureIssue> hydrotestPressureIssues(HydrotestRecord r) =>
+    checkRecordedStartPressure(
+      preset: hydrotestPreset(r),
+      startBar: r.pressureStartBar,
+      requiredBar: r.testPressureBar,
+      designBar: r.designBar,
+    );
+
+/// True when the record says PASS although the gauge never reached Pt (or a
+/// pneumatic test went above its limit) — the protocol marks the verdict as
+/// not meeting the code.
+bool hydrotestPassNotCompliant(HydrotestRecord r) =>
+    r.passed && hydrotestPressureIssues(r).isNotEmpty;
+
+/// Bilingual warning for [hydrotestPressureIssues], or `null` when none.
+String? hydrotestStartPressureNote(HydrotestRecord r) {
+  final issues = hydrotestPressureIssues(r);
+  if (issues.isEmpty) return null;
+  final start = r.pressureStartBar!.toStringAsFixed(2);
+  final parts = <String>[];
+  if (issues.contains(RecordedPressureIssue.startBelowRequired)) {
+    final pt = r.testPressureBar!.toStringAsFixed(2);
+    parts.add('UWAGA: ciśnienie początkowe $start bar < ciśnienie próby Pt '
+        '$pt bar — próba wykonana poniżej wymaganego ciśnienia'
+        '${r.passed ? '; wynik PASS NIE SPEŁNIA wymagania normy' : ''}. / '
+        'WARNING: start pressure $start bar < test pressure Pt $pt bar — the '
+        'test was run below the required pressure'
+        '${r.passed ? '; the PASS result DOES NOT MEET the code' : ''}.');
+  }
+  if (issues.contains(RecordedPressureIssue.startAboveMax)) {
+    final p = hydrotestPreset(r);
+    final max = (p.maxFactor! * r.designBar!).toStringAsFixed(2);
+    parts.add('UWAGA: ciśnienie początkowe $start bar > maks. ${p.maxFactor}·P '
+        '= $max bar (${p.reference}). / WARNING: start pressure $start bar > '
+        'max ${p.maxFactor}·P = $max bar (${p.reference}).');
+  }
+  return parts.join('\n');
+}
+
 /// Bilingual warning when the gauge calibration had expired on the test date,
 /// or `null` when it had not (or either date is missing / not ISO).
 ///
@@ -561,7 +602,12 @@ class HydrotestExport {
   // looks for, and a protocol whose verdict has to be hunted for gets read
   // wrong.
   static pw.Widget _resultBanner(HydrotestRecord r) {
-    final ink = r.passed ? _kPassInk : _kFailInk;
+    // PASS at a pressure below Pt (or a pneumatic test above 1.33·P) is not a
+    // pass of the code test: the banner says so in the verdict colour of a
+    // FAIL, next to the recorded verdict — the recorded PASS stays visible,
+    // it is the engineer's, but nobody can read it as compliant.
+    final notCompliant = hydrotestPassNotCompliant(r);
+    final ink = r.passed && !notCompliant ? _kPassInk : _kFailInk;
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -569,18 +615,36 @@ class HydrotestExport {
         border: pw.Border.all(color: ink, width: 1.5),
         borderRadius: pw.BorderRadius.circular(6),
       ),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          pw.Text('WYNIK PRÓBY / TEST RESULT',
-              style: pw.TextStyle(
-                  fontSize: 10, fontWeight: pw.FontWeight.bold, color: _kInk)),
-          pw.Text(
-            r.passed ? 'PASS — POZYTYWNY' : 'FAIL — NEGATYWNY',
-            style: pw.TextStyle(
-                fontSize: 16, fontWeight: pw.FontWeight.bold, color: ink),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              pw.Text('WYNIK PRÓBY / TEST RESULT',
+                  style: pw.TextStyle(
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _kInk)),
+              pw.Text(
+                r.passed ? 'PASS — POZYTYWNY' : 'FAIL — NEGATYWNY',
+                style: pw.TextStyle(
+                    fontSize: 16, fontWeight: pw.FontWeight.bold, color: ink),
+              ),
+            ],
           ),
+          if (notCompliant)
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(top: 4),
+              child: pw.Text(
+                'NIEZGODNY Z NORMĄ: ciśnienie próby nie spełnia wymagania — '
+                'patrz uwagi. / NOT CODE-COMPLIANT: the test pressure does '
+                'not meet the requirement — see notes.',
+                style: pw.TextStyle(
+                    fontSize: 9, fontWeight: pw.FontWeight.bold, color: ink),
+              ),
+            ),
         ],
       ),
     );
@@ -657,6 +721,7 @@ class HydrotestExport {
   static List<pw.Widget> _notes(HydrotestRecord r) {
     final notes = <String>[
       for (final n in [
+        hydrotestStartPressureNote(r),
         hydrotestHoldNote(r),
         hydrotestDropNote(r),
         hydrotestCalibrationNote(r),

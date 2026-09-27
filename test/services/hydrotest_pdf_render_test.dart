@@ -81,6 +81,18 @@ void main() {
     expect(bytes.length, greaterThan(5000));
   });
 
+  test('PASS przy ciśnieniu < Pt: baner „niezgodny z normą” renderuje się',
+      () async {
+    final r = _record(notes: '', start: 12);
+    expect(hydrotestPassNotCompliant(r), isTrue);
+    final bytes = await HydrotestExport.buildPdf(
+      record: r,
+      font: _font(),
+      generatedAt: DateTime(2026, 9, 27),
+    );
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
+
   test('stary rekord bez metadanych i bez pomiarów też się renderuje',
       () async {
     final bytes = await HydrotestExport.buildPdf(

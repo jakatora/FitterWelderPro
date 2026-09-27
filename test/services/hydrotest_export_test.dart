@@ -337,4 +337,36 @@ void main() {
     expect(subject, contains('2026-08-30'));
     expect(subject, contains('PASS'));
   });
+
+  // Przegląd G4: PASS przy ciśnieniu początkowym < Pt przechodził bez słowa.
+  group('ciśnienie początkowe vs Pt', () {
+    test('start 12 < Pt 15 przy PASS → uwaga i oznaczenie niezgodności', () {
+      final r = _rec(pressureStartBar: 12, pressureEndBar: 12);
+      expect(hydrotestPassNotCompliant(r), isTrue);
+      final n = hydrotestStartPressureNote(r)!;
+      expect(n, contains('12.00 bar < ciśnienie próby Pt 15.00 bar'));
+      expect(n, contains('NIE SPEŁNIA'));
+      expect(n, contains('DOES NOT MEET'));
+    });
+    test('FAIL z niskim ciśnieniem: uwaga bez „PASS nie spełnia”', () {
+      final r = _rec(pressureStartBar: 12, result: kHydrotestFail);
+      expect(hydrotestPassNotCompliant(r), isFalse);
+      expect(hydrotestStartPressureNote(r), isNot(contains('NIE SPEŁNIA')));
+    });
+    test('start = Pt → brak uwagi', () {
+      expect(hydrotestStartPressureNote(_rec()), isNull);
+      expect(hydrotestPassNotCompliant(_rec()), isFalse);
+    });
+    test('pneumatyczna: start 14 > 1,33·P = 13,30', () {
+      final r = _rec(
+        pressureStartBar: 14,
+        pressureEndBar: 14,
+        testPressureBar: 11,
+        factor: 1.1,
+        meta: const HydrotestProtocolMeta(presetId: 'b31_3_pneumatic'),
+      );
+      expect(hydrotestPassNotCompliant(r), isTrue);
+      expect(hydrotestStartPressureNote(r), contains('13.30 bar'));
+    });
+  });
 }

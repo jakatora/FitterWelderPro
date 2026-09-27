@@ -133,6 +133,13 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   /// warn per B31.3 §345.2.1(a) when the test pressure would yield the pipe.
   final _yieldCtrl  = TextEditingController();
 
+  /// Water column (hydrostatic tests): how far the highest point is above the
+  /// gauge and the lowest point below it [m]. Pt applies „at any point”
+  /// (B31.1 §137.4.5, B31.3 §345.4.2), so a gauge below the high point must
+  /// read more, and the low point sees more (used for the yield check).
+  final _highCtrl = TextEditingController();
+  final _lowCtrl  = TextEditingController();
+
   /// Code preset. ASME B31.3 hydrostatic is the default, as before.
   PressureTestPreset _preset = PressureTestPreset.b313Hydro;
 
@@ -249,7 +256,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   void dispose() {
     for (final c in [
       _odCtrl, _wallCtrl, _lengthCtrl, _designCtrl, _flowCtrl, _ratioCtrl,
-      _yieldCtrl,
+      _yieldCtrl, _highCtrl, _lowCtrl,
     ]) {
       c.dispose();
     }
@@ -268,6 +275,8 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     _designCtrl.clear();
     _ratioCtrl.clear();
     _yieldCtrl.clear();
+    _highCtrl.clear();
+    _lowCtrl.clear();
     _flowCtrl.text = '40';
     setState(() {
       _preset = PressureTestPreset.b313Hydro;
@@ -348,6 +357,15 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     return null;
   }
 
+  /// Heights of the water column [m]: 0–1000.
+  String? _heightError(TextEditingController c, double? v) {
+    if (c.text.trim().isEmpty) return null;
+    if (v == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
+    if (v < 0) return _tr('Musi być ≥ 0', 'Must be ≥ 0');
+    if (v > 1000) return _tr('Sprawdź wartość', 'Check value');
+    return null;
+  }
+
   String? _yieldError(double? v) {
     if (_yieldCtrl.text.trim().isEmpty) return null;
     if (v == null) return _tr('Nieprawidłowa liczba', 'Invalid number');
@@ -421,6 +439,71 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     }
   }
 
+  /// Yield check line: σ at the highest-pressure point vs the preset's limit
+  /// (100 % Re B31.3 hydro, 90 % Re B31.3 pneumatic) or, for EN 13480-5,
+  /// σ / Re with the limit „to be confirmed in the standard”.
+  Widget _yieldResult({
+    required double hoopMpa,
+    required double yieldMpa,
+    required double? fraction,
+    required double? limitBar,
+    required double ptBar,
+    required bool atLowPoint,
+  }) {
+    final pct = (hoopMpa / yieldMpa * 100).toStringAsFixed(0);
+    final sigma = atLowPoint
+        ? _tr('σ w najniższym punkcie = ${hoopMpa.toStringAsFixed(0)} MPa',
+            'Hoop stress at the lowest point = ${hoopMpa.toStringAsFixed(0)} MPa')
+        : _tr('σ przy Pt = ${hoopMpa.toStringAsFixed(0)} MPa',
+            'Hoop stress at Pt = ${hoopMpa.toStringAsFixed(0)} MPa');
+    if (fraction == null) {
+      // EN 13480-5 — limit not verified in the standard text.
+      final over = hoopMpa > yieldMpa;
+      final text = _tr(
+        '$sigma ($pct % Re). Granica wg EN 13480-3 (f_test) — do potwierdzenia '
+            'w normie.${over ? ' Naprężenie powyżej Re — Pt za wysokie.' : ''}',
+        '$sigma ($pct % of yield). Limit per EN 13480-3 (f_test) — to be '
+            'confirmed in the standard.${over ? ' Stress above yield — Pt too high.' : ''}',
+      );
+      return over
+          ? _SheetWarning(text: text)
+          : Text(text, style: const TextStyle(color: _kSec, fontSize: 11));
+    }
+    final limitPct = (fraction * 100).toStringAsFixed(0);
+    final over = hoopMpa > yieldMpa * fraction;
+    final limitText = limitBar == null ? '—' : limitBar.toStringAsFixed(2);
+    if (_preset.isPneumatic) {
+      final text = _tr(
+        '$sigma ($pct % Re). Maks. Pt = mniejsza z 1,33 · P i ciśnienia przy '
+            '$limitPct % Re = $limitText bar.'
+            '${ptBar > (limitBar ?? double.infinity) ? ' Pt ${ptBar.toStringAsFixed(2)} bar przekracza maksimum.' : ''}',
+        '$sigma ($pct % of yield). Max Pt = lesser of 1.33 · P and the pressure '
+            'at $limitPct % of yield = $limitText bar.'
+            '${ptBar > (limitBar ?? double.infinity) ? ' Pt ${ptBar.toStringAsFixed(2)} bar exceeds the maximum.' : ''}',
+      );
+      return over || ptBar > (limitBar ?? double.infinity)
+          ? _SheetWarning(text: text)
+          : Text(text, style: const TextStyle(color: _kGreen, fontSize: 11));
+    }
+    if (over) {
+      return _SheetWarning(
+        text: _tr(
+          '$sigma > Re ${yieldMpa.toStringAsFixed(0)} MPa. Wg §345.2.1(a) '
+              'Pt można obniżyć do $limitText bar'
+              '${atLowPoint ? ' (w najniższym punkcie)' : ''} — decyzja inżyniera.',
+          '$sigma > yield ${yieldMpa.toStringAsFixed(0)} MPa. Per §345.2.1(a) '
+              'Pt may be reduced to $limitText bar'
+              '${atLowPoint ? ' (at the lowest point)' : ''} — '
+              "the engineer's decision.",
+        ),
+      );
+    }
+    return Text(
+      _tr('$sigma ($pct % Re)', '$sigma ($pct % of yield)'),
+      style: const TextStyle(color: _kGreen, fontSize: 11),
+    );
+  }
+
   /// The arithmetic with the numbers in, e.g.
   /// `Pt = 1.5 · 10.00 · 1.20 = 18.00 bar`.
   static String _calcLine(PressureTestResult r) {
@@ -487,10 +570,19 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     final usesRatio = _preset.ratioSymbol != null;
     final ratioInput = usesRatio ? _p(_ratioCtrl) : null;
     final ratioErr = usesRatio ? _ratioError(ratioInput) : null;
-    // Optional yield check — B31.3 §345.2.1(a) — hydrostatic B31.3 only.
-    final yieldCheck = _preset == PressureTestPreset.b313Hydro;
+    // Optional yield check — B31.3 hydro §345.2.1(a) (σ ≤ Re), B31.3
+    // pneumatic §345.5.4 (≤ 90 % Re), EN 13480-5 (f_test — to be confirmed
+    // in the standard, shown as σ/Re only).
+    final yieldCheck = presetHasYieldCheck(_preset);
     final yieldInput = yieldCheck ? _p(_yieldCtrl) : null;
     final yieldErr = yieldCheck ? _yieldError(yieldInput) : null;
+    final yieldFraction = yieldFractionLimit(_preset);
+    // Water column — hydrostatic presets only (gas head is negligible).
+    final hydro = !_preset.isPneumatic;
+    final highM = hydro ? _p(_highCtrl) : null;
+    final lowM = hydro ? _p(_lowCtrl) : null;
+    final highErr = hydro ? _heightError(_highCtrl, highM) : null;
+    final lowErr = hydro ? _heightError(_lowCtrl, lowM) : null;
 
     PressureTestResult? calc;
     if (design != null && design > 0 && designErr == null && ratioErr == null) {
@@ -501,19 +593,43 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
       );
       testPressure = calc.testPressureBar;
     }
+    HydrostaticHeadResult? head;
+    if (calc != null &&
+        hydro &&
+        highErr == null &&
+        lowErr == null &&
+        ((highM ?? 0) > 0 || (lowM ?? 0) > 0)) {
+      head = hydrostaticHead(
+        ptBar: calc.testPressureBar,
+        highestAboveGaugeM: highM ?? 0,
+        lowestBelowGaugeM: lowM ?? 0,
+      );
+    }
+    // The highest pressure in the system: Pt, or the low point with the
+    // water column on top.
+    final maxPointBar = head?.lowestPointBar ?? calc?.testPressureBar;
     double? hoopMpa, ptAtYieldBar;
     if (calc != null &&
+        maxPointBar != null &&
         yieldInput != null &&
         yieldInput > 0 &&
         yieldErr == null &&
         id != null &&
         od != null &&
         wall != null) {
-      hoopMpa = hoopStressMpa(
-          pressureBar: calc.testPressureBar, odMm: od, wallMm: wall);
+      hoopMpa = hoopStressMpa(pressureBar: maxPointBar, odMm: od, wallMm: wall);
       ptAtYieldBar = pressureAtHoopStressBar(
-          stressMpa: yieldInput, odMm: od, wallMm: wall);
+          stressMpa: yieldInput * (yieldFraction ?? 1.0),
+          odMm: od,
+          wallMm: wall);
     }
+    // Pneumatic: max Pt = lesser of 1.33·P and the pressure at 90 % Re.
+    final pneuMaxBar = (calc != null &&
+            _preset.isPneumatic &&
+            calc.maxTestPressureBar != null &&
+            ptAtYieldBar != null)
+        ? math.min(calc.maxTestPressureBar!, ptAtYieldBar)
+        : null;
     final minHold = _preset.minHoldMinutes;
     final minHoldText = minHold == null
         ? _tr('wg procedury', 'per procedure')
@@ -768,6 +884,53 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                 ),
               ),
           ],
+          if (hydro) ...[
+            const SizedBox(height: 14),
+            _SectionHeader(_tr('SŁUP WODY', 'WATER COLUMN')),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: _NumField(
+                  ctrl: _highCtrl,
+                  label: _tr('Najwyższy punkt nad manometrem (m)',
+                      'Highest point above gauge (m)'),
+                  hint: '0',
+                  onChanged: () => setState(() {}),
+                  errorText: highErr,
+                  textInputAction: TextInputAction.next,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _NumField(
+                  ctrl: _lowCtrl,
+                  label: _tr('Najniższy punkt pod manometrem (m)',
+                      'Lowest point below gauge (m)'),
+                  hint: '0',
+                  onChanged: () => setState(() {}),
+                  errorText: lowErr,
+                  textInputAction: TextInputAction.next,
+                ),
+              ),
+            ]),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
+              child: Text(
+                _tr(
+                  'Pt obowiązuje w każdym punkcie układu (B31.1 §137.4.5, '
+                  'B31.3 §345.4.2). Woda: 0,0981 bar na metr — manometr poniżej '
+                  'najwyższego punktu musi pokazać więcej, a najniższy punkt '
+                  'ma jeszcze więcej (to ciśnienie idzie do sprawdzenia Re).',
+                  'Pt applies at any point of the system (B31.1 §137.4.5, '
+                  'B31.3 §345.4.2). Water: 0.0981 bar per metre — a gauge below '
+                  'the highest point must read more, and the lowest point sees '
+                  'even more (that pressure goes into the yield check).',
+                ),
+                style: const TextStyle(
+                    color: _kMuted, fontSize: 11, height: 1.35),
+              ),
+            ),
+          ],
           if (yieldCheck) ...[
             const SizedBox(height: 10),
             _NumField(
@@ -782,18 +945,37 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 4),
               child: Text(
-                _tr(
-                  '§345.2.1(a): jeśli Pt dałoby naprężenie obwodowe lub '
-                  'wzdłużne powyżej Re w temp. próby albo ciśnienie > 1,5 × '
-                  'rating komponentu (np. kołnierza), Pt można obniżyć do tej '
-                  'granicy. Liczone na wpisanej ściance — norma wymaga ścianki '
-                  'minimalnej.',
-                  '§345.2.1(a): if Pt would produce a hoop or longitudinal '
-                  'stress above the yield strength at test temperature, or '
-                  'exceed 1.5 × a component rating (e.g. a flange), Pt may be '
-                  'reduced to that limit. Calculated on the entered wall — the '
-                  'code wants the minimum wall.',
-                ),
+                switch (_preset) {
+                  PressureTestPreset.b313Pneumatic => _tr(
+                      '§345.5.4: Pt nie większe niż mniejsza z wartości: 1,33 · P '
+                      'albo ciśnienie dające naprężenie 90 % Re w temp. próby. '
+                      'Liczone na wpisanej ściance — norma wymaga ścianki '
+                      'minimalnej.',
+                      '§345.5.4: Pt not above the lesser of 1.33 · P and the '
+                      'pressure giving a stress of 90 % of yield at test '
+                      'temperature. Calculated on the entered wall — the code '
+                      'wants the minimum wall.'),
+                  PressureTestPreset.en13480Hydro => _tr(
+                      'EN 13480-5: ciśnienie próby ograniczone naprężeniem '
+                      'w warunkach próby wg EN 13480-3 (f_test). Dokładna granica '
+                      '— do potwierdzenia w normie; aplikacja pokazuje σ / Re. '
+                      'Liczone na wpisanej ściance.',
+                      'EN 13480-5: the test pressure is limited by the stress in '
+                      'test conditions per EN 13480-3 (f_test). The exact limit '
+                      '— to be confirmed in the standard; the app shows σ / Re. '
+                      'Calculated on the entered wall.'),
+                  _ => _tr(
+                      '§345.2.1(a): jeśli Pt dałoby naprężenie obwodowe lub '
+                      'wzdłużne powyżej Re w temp. próby albo ciśnienie > 1,5 × '
+                      'rating komponentu (np. kołnierza), Pt można obniżyć do tej '
+                      'granicy. Liczone na wpisanej ściance — norma wymaga ścianki '
+                      'minimalnej.',
+                      '§345.2.1(a): if Pt would produce a hoop or longitudinal '
+                      'stress above the yield strength at test temperature, or '
+                      'exceed 1.5 × a component rating (e.g. a flange), Pt may be '
+                      'reduced to that limit. Calculated on the entered wall — the '
+                      'code wants the minimum wall.'),
+                },
                 style: const TextStyle(
                     color: _kMuted, fontSize: 11, height: 1.35),
               ),
@@ -801,30 +983,14 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
             if (hoopMpa != null && ptAtYieldBar != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: hoopMpa > yieldInput!
-                    ? _SheetWarning(
-                        text: _tr(
-                          'σ przy Pt = ${hoopMpa.toStringAsFixed(0)} MPa > Re '
-                          '${yieldInput.toStringAsFixed(0)} MPa. Wg §345.2.1(a) '
-                          'Pt można obniżyć do '
-                          '${ptAtYieldBar.toStringAsFixed(2)} bar — decyzja '
-                          'inżyniera.',
-                          'Hoop stress at Pt = ${hoopMpa.toStringAsFixed(0)} '
-                          'MPa > yield ${yieldInput.toStringAsFixed(0)} MPa. '
-                          'Per §345.2.1(a) Pt may be reduced to '
-                          '${ptAtYieldBar.toStringAsFixed(2)} bar — '
-                          "the engineer's decision.",
-                        ),
-                      )
-                    : Text(
-                        _tr(
-                          'σ przy Pt = ${hoopMpa.toStringAsFixed(0)} MPa '
-                          '(${(hoopMpa / yieldInput * 100).toStringAsFixed(0)} % Re)',
-                          'Hoop stress at Pt = ${hoopMpa.toStringAsFixed(0)} MPa '
-                          '(${(hoopMpa / yieldInput * 100).toStringAsFixed(0)} % of yield)',
-                        ),
-                        style: const TextStyle(color: _kGreen, fontSize: 11),
-                      ),
+                child: _yieldResult(
+                  hoopMpa: hoopMpa,
+                  yieldMpa: yieldInput!,
+                  fraction: yieldFraction,
+                  limitBar: _preset.isPneumatic ? pneuMaxBar : ptAtYieldBar,
+                  ptBar: calc!.testPressureBar,
+                  atLowPoint: head != null && (lowM ?? 0) > 0,
+                ),
               ),
           ],
 
@@ -899,6 +1065,21 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                           style: const TextStyle(color: _kMuted, fontSize: 11),
                         ),
                       ),
+                  ],
+                  if (head != null) ...[
+                    const Divider(height: 18, color: _kBorder),
+                    _ResRow(
+                      label: _tr('Odczyt manometru — min.',
+                          'Gauge reading — min.'),
+                      value: '${head.gaugeReadingBar.toStringAsFixed(2)} bar',
+                      sub: _tr(
+                          'Pt + słup wody ${(highM ?? 0).toStringAsFixed(1)} m'
+                              ' · najniższy punkt: ${head.lowestPointBar.toStringAsFixed(2)} bar',
+                          'Pt + water column ${(highM ?? 0).toStringAsFixed(1)} m'
+                              ' · lowest point: ${head.lowestPointBar.toStringAsFixed(2)} bar'),
+                      color: _kOrange,
+                      big: false,
+                    ),
                   ],
                   if (testPressure != null && volL != null)
                     const Divider(height: 18, color: _kBorder),
@@ -986,6 +1167,8 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
                           calc: calc,
                           stressRatio: ratioInput,
                           volL: volL,
+                          head: head,
+                          highM: highM,
                         ),
                 icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
                 label: Text(_tr('Zapisz próbę', 'Save test')),
@@ -1043,6 +1226,8 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
     required PressureTestResult? calc,
     required double? stressRatio,
     required double? volL,
+    required HydrostaticHeadResult? head,
+    required double? highM,
   }) async {
     if (calc == null) return;
     Haptic.tap();
@@ -1066,6 +1251,16 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
           testPressureBar: calc.testPressureBar,
           preset: calc.preset,
           stressRatio: stressRatio,
+          gaugeTargetBar: head?.gaugeReadingBar ?? calc.testPressureBar,
+          designBar: calc.designBar,
+          headNote: head == null
+              ? null
+              : 'Słup wody / water column: najwyższy punkt '
+                  '${highM!.toStringAsFixed(1)} m nad manometrem — wymagany '
+                  'odczyt ≥ ${head.gaugeReadingBar.toStringAsFixed(2)} bar; '
+                  'najniższy punkt ${head.lowestPointBar.toStringAsFixed(2)} bar. / '
+                  'highest point ${highM.toStringAsFixed(1)} m above the gauge — '
+                  'required reading ≥ ${head.gaugeReadingBar.toStringAsFixed(2)} bar.',
         ),
       ),
     );
@@ -1813,11 +2008,25 @@ class _HydrotestSaveSheet extends StatefulWidget {
   /// Stress ratio typed into the calculator (null = 1.0 / not used).
   final double? stressRatio;
 
+  /// Minimum gauge reading [bar]: Pt, or Pt + the water column when the
+  /// gauge sits below the highest point (B31.1 §137.4.5 „at any point”).
+  final double gaugeTargetBar;
+
+  /// Design pressure P [bar] — the pneumatic upper limit is maxFactor·P.
+  final double designBar;
+
+  /// Line appended to the notes when the water column was used, so the
+  /// protocol states the required gauge reading.
+  final String? headNote;
+
   const _HydrotestSaveSheet({
     required this.initialUnit,
     required this.testPressureBar,
     required this.preset,
     required this.stressRatio,
+    required this.gaugeTargetBar,
+    required this.designBar,
+    this.headNote,
   });
 
   @override
@@ -1936,7 +2145,10 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
         holdMinutes: _num(_holdCtrl),
         result: _result!,
         witness: _witnessCtrl.text.trim(),
-        notes: _notesCtrl.text.trim(),
+        notes: [
+          if (widget.headNote != null) widget.headNote!,
+          if (_notesCtrl.text.trim().isNotEmpty) _notesCtrl.text.trim(),
+        ].join('\n'),
         meta: HydrotestProtocolMeta(
           company: _companyCtrl.text.trim(),
           project: _projectCtrl.text.trim(),
@@ -1989,7 +2201,36 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
     final startBar = _bar(_startCtrl);
     final endBar = _bar(_endCtrl);
     final calculatedHint =
-        pressureFromBar(widget.testPressureBar, _unit).toStringAsFixed(2);
+        pressureFromBar(widget.gaugeTargetBar, _unit).toStringAsFixed(2);
+    final pressureIssues = checkRecordedStartPressure(
+      preset: preset,
+      startBar: startBar,
+      requiredBar: widget.gaugeTargetBar,
+      designBar: widget.designBar,
+    );
+    final startLow =
+        pressureIssues.contains(RecordedPressureIssue.startBelowRequired);
+    final startHigh =
+        pressureIssues.contains(RecordedPressureIssue.startAboveMax);
+    final targetText =
+        '${pressureFromBar(widget.gaugeTargetBar, _unit).toStringAsFixed(2)} $_unit';
+    final maxText = preset.maxFactor == null
+        ? ''
+        : '${pressureFromBar(preset.maxFactor! * widget.designBar, _unit).toStringAsFixed(2)} $_unit';
+    // B31.3 §345.5.1 — relief valve on a pneumatic test.
+    final reliefBar = _bar(_reliefCtrl);
+    final reliefMax = pneumaticReliefMaxBar(widget.testPressureBar);
+    final reliefTooHigh = preset == PressureTestPreset.b313Pneumatic &&
+        reliefBar != null &&
+        reliefBar > reliefMax + kRecordedPressureToleranceBar;
+    final reliefMaxText =
+        '${pressureFromBar(reliefMax, _unit).toStringAsFixed(2)} $_unit';
+    // ASME VIII-1 UG-102(b) — gauge range 1.5–4 × test pressure.
+    final fullScale =
+        gaugeFullScaleBar(_gaugeRangeCtrl.text, defaultUnit: _unit);
+    final gaugeOutOfRange = preset == PressureTestPreset.asmeVIII1Hydro &&
+        fullScale != null &&
+        !gaugeRangeWithinUg102(fullScale, widget.testPressureBar);
     final calDue = _calDueCtrl.text.trim();
     final testDate = _dateCtrl.text.trim();
     final calibrationExpired = _isoDate.hasMatch(calDue) &&
@@ -2141,7 +2382,8 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               Expanded(
                 child: _text(
                     _gaugeRangeCtrl, _tr('Zakres manometru', 'Gauge range'),
-                    hint: _tr('np. 0–25 bar', 'e.g. 0–25 bar')),
+                    hint: _tr('np. 0–25 bar', 'e.g. 0–25 bar'),
+                    rebuild: true),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -2181,6 +2423,30 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
               onChanged: () => setState(() {}),
               textInputAction: TextInputAction.next,
             ),
+            if (reliefTooHigh)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Nastawa zaworu powyżej Pt + mniejsza z 345 kPa i 10 % Pt '
+                    '= $reliefMaxText (ASME B31.3 §345.5.1).',
+                    'Relief set pressure above Pt + the lesser of 345 kPa and '
+                    '10 % of Pt = $reliefMaxText (ASME B31.3 §345.5.1).',
+                  ),
+                ),
+              ),
+            if (gaugeOutOfRange)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Zakres manometru poza 1,5–4 × ciśnienie próby '
+                    '(ASME VIII-1 UG-102(b): ok. 2 × Pt).',
+                    'Gauge range outside 1.5–4 × the test pressure '
+                    '(ASME VIII-1 UG-102(b): about 2 × Pt).',
+                  ),
+                ),
+              ),
 
             const SizedBox(height: 16),
             _SectionHeader(
@@ -2233,6 +2499,34 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
                   '${startBar.toStringAsFixed(2)} bar'
                   '${endBar == null ? '' : ' → ${endBar.toStringAsFixed(2)} bar'}',
                   style: const TextStyle(color: _kMuted, fontSize: 11),
+                ),
+              ),
+            if (startLow)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Ciśnienie początkowe poniżej wymaganego ($targetText) — '
+                    'próba nie osiągnęła ciśnienia próby. Wynik PASS zostanie '
+                    'na protokole oznaczony jako NIEZGODNY Z NORMĄ.',
+                    'Start pressure below the required $targetText — the test '
+                    'did not reach the test pressure. A PASS result will be '
+                    'marked NOT CODE-COMPLIANT on the protocol.',
+                  ),
+                ),
+              ),
+            if (startHigh)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: _SheetWarning(
+                  text: _tr(
+                    'Ciśnienie początkowe powyżej maks. ${preset.maxFactor}·P '
+                    '= $maxText (${preset.reference}). Zostanie to oznaczone '
+                    'na protokole.',
+                    'Start pressure above the max ${preset.maxFactor}·P = '
+                    '$maxText (${preset.reference}). It will be marked on the '
+                    'protocol.',
+                  ),
                 ),
               ),
             if (drop != null)
