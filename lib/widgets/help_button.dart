@@ -494,13 +494,13 @@ final kHelpWelderPipes = ScreenHelp(
   bodyEn:
       'TIG welding parameter sets for pipes: current (AMP), shielding gases, starter data shipped with the app and your own sets. These are guide values — the WPS is binding; keep your WPS in the WPS library (WELDER menu).',
   stepsPl: [
-    HelpStep('📋', 'AMP — referencyjne prądy dla typowych średnic rur SS/CS.'),
+    HelpStep('📋', 'AMP — prąd z listy „Startowe” (ta sama rura = ta sama liczba, między punktami interpolacja, poza danymi brak wyniku); elektroda i gaz palnika z tych samych tabel co ekran Wolfram. Stal węglowa bez własnych punktów = nierdzewna / 0,9.'),
     HelpStep('💨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
     HelpStep('✅', 'Startowe — dane dostarczone z aplikacją, orientacyjne (to nie są WPS Twojego zakładu). Swoje WPS wpisz albo zaimportuj w Bibliotece WPS.'),
     HelpStep('👤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
   ],
   stepsEn: [
-    HelpStep('📋', 'AMP — reference currents for typical pipe diameters SS/CS.'),
+    HelpStep('📋', 'AMP — current from the “Starter” list (same pipe = same number, interpolated between points, no result outside the data); electrode and torch gas from the same tables as the Tungsten screen. Carbon steel without its own points = stainless / 0.9.'),
     HelpStep('💨', 'Gases — recommended mixes and flow rates for different materials.'),
     HelpStep('✅', 'Starter — data shipped with the app, for guidance (not your workshop\'s WPS). Enter or import your WPS in the WPS library.'),
     HelpStep('👤', 'Mine — your own parameter sets saved locally.'),

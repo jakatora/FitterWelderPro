@@ -9,6 +9,7 @@ import '../data/tungsten.dart';
 import '../database/weld_param_dao.dart';
 import '../database/approved_weld_param_dao.dart';
 import '../domain/welder_pipes/purge_estimate.dart';
+import '../domain/welder_pipes/tig_start_params.dart';
 import '../i18n/app_language.dart';
 import '../models/weld_param.dart';
 import '../models/approved_weld_param.dart';
@@ -843,7 +844,21 @@ class _AmpTabState extends State<_AmpTab> {
   final _tCtrl = TextEditingController(text: '2.0');
   String _material = 'SS';
 
+  /// Punkty startowe (lista „Startowe”) — jedyne źródło prądu kalkulatora.
+  List<PipeStartPoint>? _points;
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
+
+  @override
+  void initState() {
+    super.initState();
+    loadPipeStartPoints().then((p) {
+      if (mounted) setState(() => _points = p);
+    }).catchError((Object e) {
+      debugPrint('[welder_pipes] start points load failed: $e');
+      if (mounted) setState(() => _points = const []);
+    });
+  }
 
   @override
   void dispose() {
@@ -861,8 +876,18 @@ class _AmpTabState extends State<_AmpTab> {
     // The calculator is for single-pass manual TIG. Above t = 3 mm the joint
     // needs a bevel and multi-pass technique, which lives in its own tools.
     final overThick = t > 3.0;
-    final rec = _recommendAmps(method: method, tMm: t, odMm: d);
-    final calc = _AmpCalcResult.from(method: method, mat: _material, rec: rec, t: t);
+    final current = _points == null
+        ? null
+        : pipeStartCurrent(
+            points: _points!,
+            material: _material,
+            method: _methodToDb(method),
+            odMm: d,
+            wallMm: t,
+          );
+    final calc = current == null || !current.hasResult
+        ? null
+        : _AmpCalcResult.from(method: method, startA: current.amps!, t: t);
 
     return ListView(
       padding: EdgeInsets.fromLTRB(
@@ -945,6 +970,28 @@ class _AmpTabState extends State<_AmpTab> {
               ),
             ),
           )
+        else if (_points == null)
+          const Center(
+              child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator()))
+        else if (calc == null)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                _tr(
+                    'Brak danych startowych dla $_material, ${_methodLabel(method)}, '
+                        'Ø${d.toStringAsFixed(1)} × ${t.toStringAsFixed(2)} mm. Aplikacja '
+                        'nie zgaduje prądu poza danymi — ustal go na próbce; wiąże WPS.',
+                    'No starting data for $_material, ${_methodLabel(method)}, '
+                        'Ø${d.toStringAsFixed(1)} × ${t.toStringAsFixed(2)} mm. The app '
+                        'does not guess the current outside the data — set it on a test '
+                        'piece; the WPS is binding.'),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          )
         else
           Card(
             child: Padding(
@@ -969,6 +1016,8 @@ class _AmpTabState extends State<_AmpTab> {
                     label: _tr('Punkt startowy', 'Starting point'),
                     value: '${calc.centerA.toStringAsFixed(0)} A',
                   ),
+                  Text(_currentSourceNote(current!),
+                      style: const TextStyle(fontSize: 11)),
                   _ParamLine(
                     label: _tr('Elektroda wolframowa', 'Tungsten electrode'),
                     value: 'Ø ${calc.electrodeMm.toStringAsFixed(1)} mm  '
@@ -982,8 +1031,7 @@ class _AmpTabState extends State<_AmpTab> {
                     ),
                   _ParamLine(
                     label: _tr('Gaz osłonowy (palnik)', 'Shielding gas (torch)'),
-                    value: '${calc.torchGasLpm.toStringAsFixed(0)} L/min  '
-                        '(${_material == "AL" ? "Ar 100%" : "Ar 100%"})',
+                    value: '${calc.torchGas.min}–${calc.torchGas.max} L/min  (Ar)',
                   ),
                   _ParamLine(
                     label: _tr('Gaz formujący — przedmuch',
@@ -997,7 +1045,7 @@ class _AmpTabState extends State<_AmpTab> {
                     value: '≤ ${_fmtLpm(kWeldingPurgeFlowLpmMax)} L/min',
                   ),
                   const SizedBox(height: 8),
-                  Text(rec.note, style: const TextStyle(fontSize: 12)),
+                  Text(_ampNote(method), style: const TextStyle(fontSize: 12)),
                   const SizedBox(height: 8),
                   Text(_purgeFlowAdvice(context),
                       style: const TextStyle(fontSize: 12)),
@@ -1054,69 +1102,96 @@ class _AmpTabState extends State<_AmpTab> {
         return AppLanguageController.isEnglish ? 'TIG without filler' : 'TIG bez drutu';
     }
   }
+
+  String _methodToDb(WeldingMethod m) => pipeMethodDb(m);
+
+  /// Skąd prąd — ta sama liczba co na liście „Startowe” dla tej rury.
+  String _currentSourceNote(PipeCurrent c) {
+    switch (c.source) {
+      case PipeCurrentSource.exact:
+        final p = c.point!;
+        return _tr(
+            'Z listy „Startowe”: Ø${p.odMm.toStringAsFixed(1)} × ${p.wallMm.toStringAsFixed(2)} mm → ${p.amps.toStringAsFixed(0)} A.',
+            'From “Starter”: Ø${p.odMm.toStringAsFixed(1)} × ${p.wallMm.toStringAsFixed(2)} mm → ${p.amps.toStringAsFixed(0)} A.');
+      case PipeCurrentSource.interpolated:
+        return _tr('Interpolacja między punktami z listy „Startowe”.',
+            'Interpolated between points of the “Starter” list.');
+      case PipeCurrentSource.scaledByWall:
+        return _tr(
+            'Z najbliższej ścianki na liście „Startowe”, proporcjonalnie do grubości — sprawdź na próbce.',
+            'From the nearest wall on the “Starter” list, scaled by thickness — check on a test piece.');
+      case PipeCurrentSource.fromStainless:
+        return _tr(
+            'Brak punktów dla stali węglowej — prąd nierdzewnej tej rury / 0,9 (nierdzewna ≈ 10 % mniej prądu).',
+            'No carbon-steel points — the stainless current of this pipe / 0.9 (stainless ≈ 10 % less current).');
+      case PipeCurrentSource.none:
+        return '';
+    }
+  }
+
+  String _ampNote(WeldingMethod method) => method == WeldingMethod.tigNoWire
+      ? _tr(
+          'TIG bez drutu: pilnuj prędkości i dopasowania (fit-up). Jeśli robi „zapadniętą” grań – sprawdź purge i ujście (went). Niższa wartość zakresu = grań, wyższa = lico.',
+          'TIG without filler: watch travel speed and fit-up. If the root sinks, check purge and venting. Lower end of the range = root, upper = cap.')
+      : _tr(
+          'TIG z drutem: niższa wartość zakresu = grań, wyższa = wypełnienie / lico. Jeśli „zimno” – podnieś A lub zwolnij; jeśli przegrzewasz – zmniejsz A lub przyspiesz.',
+          'TIG with filler: lower end of the range = root pass, upper end = fill / cap. If it feels cold raise A or slow down; if you overheat reduce A or speed up.');
 }
 
-class _AmpRecommendation {
-  final double startA;
-  final double minA;
-  final double maxA;
-  final String note;
-  const _AmpRecommendation({required this.startA, required this.minA, required this.maxA, required this.note});
-}
+/// `weld_params` / `approved_weld_params` method code.
+String pipeMethodDb(WeldingMethod m) =>
+    m == WeldingMethod.tigWire ? 'TIG_WIRE' : 'TIG_AUTOGEN';
 
-/// Single-row "calculator output" — everything the welder needs to set up
-/// the machine, derived from a few formulas (no DB lookup).
+/// Punkty startowe z bazy (lista „Startowe”) jako dane domeny.
+Future<List<PipeStartPoint>> loadPipeStartPoints() async => [
+      for (final p in await ApprovedWeldParamDao().listAll())
+        PipeStartPoint(
+          material: p.baseMaterial,
+          method: p.method,
+          odMm: p.diameterMm,
+          wallMm: p.wallThicknessMm,
+          amps: p.amps,
+        ),
+    ];
+
+/// Single-row "calculator output". The start current comes from the
+/// starting points (lib/domain/welder_pipes/tig_start_params.dart); the
+/// electrode and torch gas come from the same tables as the Tungsten screen.
 class _AmpCalcResult {
   final double centerA, minA, maxA;
   final double electrodeMm;
-  final double fillerMm;     // 0 when no filler is used
-  final double torchGasLpm;
+  final double fillerMm; // 0 when no filler is used
+  final ({int min, int max}) torchGas;
   const _AmpCalcResult({
-    required this.centerA, required this.minA, required this.maxA,
-    required this.electrodeMm, required this.fillerMm,
-    required this.torchGasLpm,
+    required this.centerA,
+    required this.minA,
+    required this.maxA,
+    required this.electrodeMm,
+    required this.fillerMm,
+    required this.torchGas,
   });
 
   factory _AmpCalcResult.from({
     required WeldingMethod method,
-    required String mat,
-    required _AmpRecommendation rec,
+    required double startA,
     required double t,
   }) {
-    // Material correction on top of the SS-baseline curve.
-    final matFactor = switch (mat) {
-      'CS' => 0.95,
-      'DUPLEX' => 1.08,
-      'AL' => 1.20,
-      _ => 1.0, // SS
-    };
-    final center = rec.startA * matFactor;
-    final lo = rec.minA * matFactor;
-    final hi = rec.maxA * matFactor;
-
-    // Tungsten electrode diameter from the shared DC- table in
-    // lib/data/tungsten.dart — the same lookup the Tungsten screen uses, so
-    // both screens always name the same electrode for the same current.
-    final electrode = (sizeForCurrent(center) ?? kTungstenSizes.first).diaMm;
+    // Range a welder slides between for root vs cap.
+    final spread = (method == WeldingMethod.tigNoWire) ? 0.18 : 0.15;
+    final electrode = pipeElectrodeMm(startA);
 
     // Filler rod sized to wall thickness; only meaningful for TIG-with-wire.
     final filler = (method == WeldingMethod.tigWire)
         ? (t <= 2.0 ? 1.6 : t <= 3.0 ? 2.0 : 2.4)
         : 0.0;
 
-    // Shielding gas (torch): scales with electrode / nozzle size. Calibrated
-    // against on-site values for SS sanitary (12–30 L/min seen at flanges
-    // with big cups).
-    final torchGas = (8 + 3 * electrode).clamp(12.0, 30.0).toDouble();
-
-    // Backing gas (purge) is not derived from amps any more: the screen
-    // shows the two-phase guidance (high flow to pre-purge, low flow while
-    // welding) from purge_estimate.dart, the same text as the Gases tab.
-
     return _AmpCalcResult(
-      centerA: center, minA: lo, maxA: hi,
-      electrodeMm: electrode, fillerMm: filler,
-      torchGasLpm: torchGas,
+      centerA: startA,
+      minA: startA * (1 - spread),
+      maxA: startA * (1 + spread),
+      electrodeMm: electrode,
+      fillerMm: filler,
+      torchGas: pipeTorchGasLpm(electrode),
     );
   }
 }
@@ -1153,101 +1228,6 @@ class _ParamLine extends StatelessWidget {
       ),
     );
   }
-}
-
-_AmpRecommendation _recommendAmps({
-  required WeldingMethod method,
-  required double tMm,
-  required double odMm,
-}) {
-  // Starting-point AMP for manual TIG on austenitic stainless pipe.
-  // Values are aligned to the bands published by major welding suppliers
-  // (Lincoln, Miller, ESAB) for SS 316L manual GTAW — they were under-set
-  // before (e.g. Ø60.3 × 2 returned 55 A, real practice is ~70–90 A).
-  //
-  // Wall is the primary driver; OD adds a small mass correction because a
-  // bigger pipe sinks more heat — calibrated against the in-app library
-  // example "Ø60.3 t=2.0 → 80–110 A".
-  if (tMm <= 0) {
-    return _AmpRecommendation(
-      startA: 0, minA: 0, maxA: 0,
-      note: AppLanguageController.isEnglish ? 'Enter t > 0.' : 'Wpisz t > 0.',
-    );
-  }
-
-  final table = _startTablePoints(method);
-  final base = _interpFromTable(table, tMm);
-
-  // OD mass factor: 1.0 at Ø60 (DN50 baseline). Thin-wall sanitary tube cares
-  // much less about diameter than carbon-steel pipe (heat sink is small), so
-  // the slope is gentle: ±0.25 % per mm, clamped to 0.85–1.15.
-  final odFactor =
-      (1.0 + (odMm - 60.0) * 0.0025).clamp(0.85, 1.15).toDouble();
-  final start = (base * odFactor).clamp(15.0, 200.0).toDouble();
-
-  // Range covers the working window a welder slides between for root vs cap.
-  // ±15 % matches the spread seen in the photos (e.g. 30–50 A at t = 2 mm).
-  final spread = (method == WeldingMethod.tigNoWire) ? 0.18 : 0.15;
-  return _AmpRecommendation(
-    startA: start,
-    minA: start * (1 - spread),
-    maxA: start * (1 + spread),
-    note: method == WeldingMethod.tigNoWire
-        ? (AppLanguageController.isEnglish
-            ? 'TIG without filler: watch travel speed and fit-up. If the root sinks, check purge and venting. Lower end of the range = root, upper = cap.'
-            : 'TIG bez drutu: pilnuj prędkości i dopasowania (fit-up). Jeśli robi „zapadniętą" grań – sprawdź purge i ujście (went). Niższa wartość zakresu = grań, wyższa = lico.')
-        : (AppLanguageController.isEnglish
-            ? 'TIG with filler: lower end of the range = root pass, upper end = fill / cap. If it feels cold raise A or slow down; if you overheat reduce A or speed up.'
-            : 'TIG z drutem: niższa wartość zakresu = grań, wyższa = wypełnienie / lico. Jeśli „zimno" – podnieś A lub zwolnij; jeśli przegrzewasz – zmniejsz A lub przyspiesz.'),
-  );
-}
-
-List<MapEntry<double, double>> _startTablePoints(WeldingMethod method) {
-  // Wall (mm) -> centre AMP at OD ≈ 50–60 mm (sanitary-tube baseline).
-  // Calibrated from on-site photos sent by the welder doing food/pharma
-  // 316/304L work: 1.6 mm → ~35 A, 2.0 mm → ~43 A. Single-pass manual TIG
-  // only — above t = 3 mm bevel + multi-pass technique applies instead.
-  switch (method) {
-    case WeldingMethod.tigWire:
-      return const [
-        MapEntry(1.0,  25.0),
-        MapEntry(1.5,  35.0),
-        MapEntry(1.6,  37.0),
-        MapEntry(2.0,  45.0),
-        MapEntry(2.5,  58.0),
-        MapEntry(3.0,  70.0),
-      ];
-    case WeldingMethod.tigNoWire:
-      // Autogenous welding — a touch hotter; same shape, no filler dilution.
-      return const [
-        MapEntry(1.0,  30.0),
-        MapEntry(1.5,  40.0),
-        MapEntry(1.6,  42.0),
-        MapEntry(2.0,  50.0),
-        MapEntry(2.5,  63.0),
-        MapEntry(3.0,  75.0),
-      ];
-  }
-}
-
-double _interpFromTable(List<MapEntry<double, double>> pts, double tMm) {
-  final sorted = [...pts]..sort((a, b) => a.key.compareTo(b.key));
-  if (tMm <= sorted.first.key) return sorted.first.value;
-  if (tMm >= sorted.last.key) return sorted.last.value;
-
-  for (var i = 0; i < sorted.length - 1; i++) {
-    final a = sorted[i];
-    final b = sorted[i + 1];
-    if (tMm >= a.key && tMm <= b.key) {
-      final x0 = a.key;
-      final y0 = a.value;
-      final x1 = b.key;
-      final y1 = b.value;
-      final t = (tMm - x0) / (x1 - x0);
-      return y0 + (y1 - y0) * t;
-    }
-  }
-  return sorted.last.value;
 }
 
 String _fmtLpm(double v) =>
@@ -1680,6 +1660,8 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
   final _dao = ApprovedWeldParamDao();
   final _q = TextEditingController();
   String _material = 'SS';
+  String? _futureKey;
+  Future<List<ApprovedWeldParam>>? _future;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
@@ -1689,24 +1671,40 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
     super.dispose();
   }
 
-  String _methodToDb(WeldingMethod m) {
-    switch (m) {
-      case WeldingMethod.tigWire:
-        return 'TIG_WIRE';
-      case WeldingMethod.tigNoWire:
-        return 'TIG_AUTOGEN';
-    }
-  }
+  String _methodToDb(WeldingMethod m) => pipeMethodDb(m);
 
   String _methodLabelDb(String method) =>
       weldParamMethodLabel(method, en: AppLanguageController.isEnglish);
 
+  /// Elektroda i gaz palnika z prądu wpisu — te same funkcje co kalkulator
+  /// AMP i ekran Wolfram (kolumny elektrody/gazu z seedu bywały sprzeczne
+  /// z tabelą wolframu, np. Ø2,4 przy 55 A). Formowanie — ta sama porada
+  /// dwufazowa co w AMP i Gazach (HFT WP-269), nie 10–18 L/min z seedu.
+  String _rowDetails(ApprovedWeldParam p) {
+    final e = pipeElectrodeMm(p.amps);
+    final g = pipeTorchGasLpm(e);
+    final pre = '${_fmtLpm(kPrePurgeFlowLpmMin)}–${_fmtLpm(kPrePurgeFlowLpmMax)}';
+    final weld = _fmtLpm(kWeldingPurgeFlowLpmMax);
+    return '${_tr('Ampery', 'Amps')}: ${p.amps.toStringAsFixed(0)} A\n'
+        '${_tr('Elektroda', 'Electrode')}: Ø${e.toStringAsFixed(1)} | '
+        '${_tr('Palnik', 'Torch')}: ${g.min}–${g.max} L/min\n'
+        '${_tr('Formowanie: przedmuch $pre, w trakcie ≤ $weld L/min', 'Backing gas: pre-purge $pre, while welding ≤ $weld L/min')}'
+        '${p.wallThicknessMm > 3.0 ? '\n${_tr('Ścianka > 3 mm: złącze wieloprzejściowe — prąd ściegu wg WPS.', 'Wall > 3 mm: multi-pass joint — the pass current per WPS.')}' : ''}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final dbMethod = _methodToDb(widget.methodGetter());
+    // Jedno zapytanie na (metoda, materiał) — nie przy każdym znaku
+    // w wyszukiwarce (future tworzony w build kręcił się bez końca).
+    final key = '$dbMethod|$_material';
+    if (key != _futureKey) {
+      _futureKey = key;
+      _future = _dao.listAll(method: dbMethod, material: _material);
+    }
 
     return FutureBuilder<List<ApprovedWeldParam>>(
-      future: _dao.listAll(method: dbMethod, material: _material),
+      future: _future,
       builder: (context, snap) {
         final items = snap.data ?? const <ApprovedWeldParam>[];
         final query = _q.text.trim().toLowerCase();
@@ -1736,6 +1734,12 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
               decoration: InputDecoration(prefixIcon: const Icon(Icons.search), labelText: _tr('Szukaj w startowych AMP', 'Search starter AMP')),
               onChanged: (_) => setState(() {}),
             ),
+            const SizedBox(height: 8),
+            Text(
+              _tr('Wartości startowe dostarczone z aplikacją, nie WPS — wiąże WPS / specyfikacja projektu.',
+                  'Starting values shipped with the app, not a WPS — the WPS / project specification is binding.'),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 12),
             if (snap.connectionState != ConnectionState.done)
               const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
@@ -1744,11 +1748,10 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
             for (final p in filtered)
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.verified),
+                  leading: const Icon(Icons.tune),
                   title: Text('${_methodLabelDb(p.method)} | ${p.baseMaterial} | Ø${p.diameterMm.toStringAsFixed(1)} × t${p.wallThicknessMm.toStringAsFixed(2)}'),
                   subtitle: Text(
-                    '${_tr('Elektroda', 'Electrode')}: ${p.electrodeMm.toStringAsFixed(1)} | ${_tr('Palnik', 'Torch')}: ${p.torchGasLpm.toStringAsFixed(1)} L/min | Purge: ${p.purgeLpm.toStringAsFixed(1)} L/min\n'
-                    '${_tr('Ampery', 'Amps')}: ${p.amps.toStringAsFixed(0)} A'
+                    '${_rowDetails(p)}'
                     '${(p.note ?? '').trim().isNotEmpty ? "\n${_tr('Notatka', 'Note')}: ${p.note}" : ""}',
                   ),
                   isThreeLine: true,
@@ -1806,73 +1809,5 @@ class _TimerPanel extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-class _ParamsLibraryTab extends StatefulWidget {
-  final WeldingMethod Function() methodGetter;
-  const _ParamsLibraryTab({required this.methodGetter});
-
-  @override
-  State<_ParamsLibraryTab> createState() => _ParamsLibraryTabState();
-}
-
-class _ParamsLibraryTabState extends State<_ParamsLibraryTab> {
-  final _searchCtrl = TextEditingController();
-
-  String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final method = widget.methodGetter();
-    final q = _searchCtrl.text.trim().toLowerCase();
-
-    // Placeholder list: you will add real records later.
-    final all = <Map<String, String>>[
-      {'title': _tr('Przykład - Ø60.3 t=2.0', 'Example - Ø60.3 t=2.0'), 'sub': _tr('A: 80-110 | gaz: 8-10 L/min | drut: 1.6', 'A: 80-110 | gas: 8-10 L/min | filler: 1.6')},
-      {'title': _tr('Przykład - Ø114.3 t=3.0', 'Example - Ø114.3 t=3.0'), 'sub': _tr('A: 120-160 | gaz: 10-12 L/min | drut: 2.0', 'A: 120-160 | gas: 10-12 L/min | filler: 2.0')},
-    ];
-
-    final filtered = all.where((e) => q.isEmpty || e['title']!.toLowerCase().contains(q) || e['sub']!.toLowerCase().contains(q)).toList();
-
-    return ListView(
-      padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
-      children: [
-        TextField(
-          controller: _searchCtrl,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            labelText: '${_tr('Szukaj parametrów', 'Search parameters')} (${_methodLabel(method)})',
-          ),
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 12),
-        if (filtered.isEmpty)
-          Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_tr('Brak wyników (na razie to placeholder).', 'No results yet (placeholder for now).')))),
-        for (final e in filtered)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.tune),
-              title: Text(e['title'] ?? ''),
-              subtitle: Text(e['sub'] ?? ''),
-            ),
-          ),
-      ],
-    );
-  }
-
-  String _methodLabel(WeldingMethod m) {
-    switch (m) {
-      case WeldingMethod.tigWire:
-        return AppLanguageController.isEnglish ? 'TIG with filler' : 'TIG z drutem';
-      case WeldingMethod.tigNoWire:
-        return AppLanguageController.isEnglish ? 'TIG without filler' : 'TIG bez drutu';
-    }
   }
 }

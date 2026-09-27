@@ -23,10 +23,40 @@ void main() {
     test('above the highest band clamps to the largest electrode', () {
       expect(sizeForCurrent(900)!.diaMm, 3.2);
     });
+
+    // Pasma 1,0 (15–80 A) i 1,6 (70–150 A) zachodzą na siebie: w zakładce
+    // wybierana jest większa elektroda (1,0 mm przy 75 A jest na górze pasma).
+    test('overlap 70–80 A picks the larger electrode', () {
+      expect(sizeForCurrent(69)!.diaMm, 1.0);
+      expect(sizeForCurrent(75)!.diaMm, 1.6);
+      expect(sizeForCurrent(80)!.diaMm, 1.6);
+      expect(sizeForCurrent(150)!.diaMm, 2.4);
+    });
   });
 
   group('tungsten reference data', () {
-    test('current bands are ordered and non-overlapping going up', () {
+    // ISO 6848:2015: WLa20, WLa15, WCe20, WTh20, WZr8, WP.
+    test('ISO 6848:2015 designations', () {
+      final byCode = {for (final t in kTungstenTypes) t.code: t.isoCode};
+      expect(byCode, {
+        'WL20': 'WLa20',
+        'WL15': 'WLa15',
+        'WC20': 'WCe20',
+        'WT20': 'WTh20',
+        'WP': 'WP',
+        'WZ8': 'WZr8',
+      });
+    });
+
+    test('torch gas table covers every electrode size', () {
+      for (final s in kTungstenSizes) {
+        final e = tungstenExtrasFor(s.diaMm);
+        expect(e, isNotNull, reason: '${s.diaMm}');
+        expect(e!.argonMinLpm < e.argonMaxLpm, isTrue);
+      }
+    });
+
+    test('current bands are ordered going up (neighbours may overlap)', () {
       for (var i = 1; i < kTungstenSizes.length; i++) {
         expect(kTungstenSizes[i].diaMm > kTungstenSizes[i - 1].diaMm, isTrue);
         expect(kTungstenSizes[i].minA >= kTungstenSizes[i - 1].minA, isTrue);
