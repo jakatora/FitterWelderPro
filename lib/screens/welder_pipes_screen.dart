@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 import '../data/heat_tint.dart';
 import '../data/tungsten.dart';
 import '../database/weld_param_dao.dart';
+import '../services/weld_timer_service.dart';
+import 'welder_tools_screen.dart' show startPurgeCountdown;
 import '../database/approved_weld_param_dao.dart';
 import '../domain/welder_pipes/purge_estimate.dart';
 import '../domain/welder_pipes/tig_start_params.dart';
@@ -1275,7 +1277,7 @@ class _GasTabState extends State<_GasTab> {
   final _odCtrl = TextEditingController(text: '60.3');
   final _tCtrl = TextEditingController(text: '2.0');
   final _lenCtrl = TextEditingController(text: '300'); // mm
-  final _flowInCtrl = TextEditingController(text: '2'); // L/min (start – złoty środek)
+  final _flowInCtrl = TextEditingController(text: '2'); // L/min
   final _ventsCtrl = TextEditingController(text: '2'); // holes count
   final _ventDiaCtrl = TextEditingController(text: '2.4'); // mm (domyślnie: elektroda 2.4)
 
@@ -1283,37 +1285,12 @@ class _GasTabState extends State<_GasTab> {
   final _nChangesCtrl = TextEditingController(text: '6');
   bool _pharmaMode = false;
 
-  // Timer
-  Timer? _timer;
-  int _remainingSeconds = 0;
-  bool _timerRunning = false;
-  double _lastTimerMinutes = 0;
+  /// Odliczanie purge żyje w WeldTimerService (alarm: wibracja, dźwięk,
+  /// pełny ekran, powiadomienie w tle) — nie ginie przy zmianie zakładki
+  /// ani wyjściu z ekranu (dawniej lokalny Timer + SnackBar).
+  final WeldTimerService _weldTimer = WeldTimerService.instance;
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
-
-  void _showPrePurgeDoneSnack() {
-    if (!mounted) return;
-    final msg = _tr('Pre-purge: czas minął.', 'Pre-purge: time is up.');
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
-      content: Row(children: [
-        const Icon(Icons.check_circle, color: Colors.white, size: 20),
-        const SizedBox(width: 8),
-        Expanded(child: Text(msg)),
-      ]),
-      backgroundColor: Colors.green.shade700,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 6),
-      action: (_lastTimerMinutes > 0)
-          ? SnackBarAction(
-              label: _tr('Powtórz', 'Restart'),
-              textColor: Colors.white,
-              onPressed: () => _startTimerFromMinutes(_lastTimerMinutes),
-            )
-          : null,
-    ));
-  }
 
   @override
   void dispose() {
@@ -1324,7 +1301,6 @@ class _GasTabState extends State<_GasTab> {
     _ventsCtrl.dispose();
     _ventDiaCtrl.dispose();
     _nChangesCtrl.dispose();
-    _timer?.cancel();
     super.dispose();
   }
 
@@ -1352,21 +1328,20 @@ class _GasTabState extends State<_GasTab> {
 
     // Vent hole model (indicator): user drills vent holes (default: Ø2.4 mm).
     final safeVentDiaMm = ventDiaMm > 0 ? ventDiaMm : 2.4;
-    final areaOne = math.pi * math.pow(safeVentDiaMm / 2, 2); // mm^2
-    final totalArea = nVents * areaOne; // mm^2
-    final qMm3PerSec = qIn * 1000000 / 60; // 1 L = 1e6 mm^3
-    final ventVelocityMmPerSec = (totalArea > 0) ? (qMm3PerSec / totalArea) : double.infinity;
+    final ventVelocity =
+        ventVelocityMs(flowLpm: qIn, holes: nVents, holeDiaMm: safeVentDiaMm);
 
-    // Złoty środek: rekomendacja Q na otwór skaluje się z polem otworu (utrzymujemy podobną "prędkość" na wylotach).
-    // Bazą jest Ø1.2 mm: standard ~0.75 L/min / otwór, pharma ~1.00 L/min / otwór.
-    const baseDiaMm = 1.2;
-    final scale = math.pow(safeVentDiaMm / baseDiaMm, 2).toDouble();
-    final qPerHoleRec = (_pharmaMode ? 1.0 : 0.75) * scale; // L/min na 1 otwór o średnicy safeVentDiaMm
-    final qRec = (nVents > 0) ? (nVents * qPerHoleRec) : 0.0;
-    final qRecMin = (nVents > 0) ? (nVents * ((_pharmaMode ? 0.8 : 0.5) * scale)) : 0.0;
-    final qRecMax = (nVents > 0) ? (nVents * ((_pharmaMode ? 1.2 : 1.0) * scale)) : 0.0;
+    // Złoty środek: Q dające docelową prędkość na wylotach w środku pasma
+    // „rozsądnego” — te same progi co ostrzeżenie niżej, więc przycisk nigdy
+    // nie ustawia Q, przed którym ten sam ekran ostrzega.
+    final qRec = flowForVentVelocityLpm(
+        velocityMs: kVentVelocityTargetMs, holes: nVents, holeDiaMm: safeVentDiaMm);
+    final qRecMin = flowForVentVelocityLpm(
+        velocityMs: 1.0, holes: nVents, holeDiaMm: safeVentDiaMm);
+    final qRecMax = flowForVentVelocityLpm(
+        velocityMs: kVentVelocityComfortMs, holes: nVents, holeDiaMm: safeVentDiaMm);
 
-    final ventHint = _ventHint(qIn: qIn, nVents: nVents, ventVelocityMmPerSec: ventVelocityMmPerSec);
+    final ventHint = _ventHint(qIn: qIn, nVents: nVents, vMs: ventVelocity);
     final pharmaHint = _pharmaMode
       ? _tr('Tryb Pharma: celuje w brak przebarwień od środka - zwykle wymaga bardziej rygorystycznego purge (więcej "wymian objętości") i dobrej szczelności.', 'Pharma mode: aims for no discoloration on the inside and usually requires stricter purge conditions (more volume changes) and good sealing.')
         : null;
@@ -1441,7 +1416,6 @@ class _GasTabState extends State<_GasTab> {
               child: OutlinedButton.icon(
                 onPressed: (nVents > 0)
                     ? () {
-                        // Ustawiamy złoty środek Q zależny od liczby wylotów.
                         _flowInCtrl.text = qRec.toStringAsFixed(1);
                         setState(() {});
                       }
@@ -1455,8 +1429,9 @@ class _GasTabState extends State<_GasTab> {
         const SizedBox(height: 6),
         Text(
           nVents > 0
-              ? _tr('Start: ~${qPerHoleRec.toStringAsFixed(2)} L/min na 1 otwór Ø${safeVentDiaMm.toStringAsFixed(1)} -> Q ≈ ${qRec.toStringAsFixed(1)} L/min (zakres ${qRecMin.toStringAsFixed(1)}-${qRecMax.toStringAsFixed(1)}).', 'Start: ~${qPerHoleRec.toStringAsFixed(2)} L/min for 1 hole Ø${safeVentDiaMm.toStringAsFixed(1)} -> Q ≈ ${qRec.toStringAsFixed(1)} L/min (range ${qRecMin.toStringAsFixed(1)}-${qRecMax.toStringAsFixed(1)}).')
-              : _tr('Podaj liczbę otworów wylotowych, aby wyliczyć złoty środek Q na otwór.', 'Enter the number of outlet holes to calculate the golden-middle Q per hole.'),
+              ? _tr('Złoty środek: ~${kVentVelocityTargetMs.toStringAsFixed(0)} m/s na $nVents×Ø${safeVentDiaMm.toStringAsFixed(1)} → Q ≈ ${qRec.toStringAsFixed(1)} L/min (1–${kVentVelocityComfortMs.toStringAsFixed(0)} m/s: ${qRecMin.toStringAsFixed(1)}–${qRecMax.toStringAsFixed(1)} L/min). Heurystyka, nie norma. Większy przepływ przedmuchu wymaga więcej lub większych otworów.',
+                  'Golden middle: ~${kVentVelocityTargetMs.toStringAsFixed(0)} m/s through $nVents×Ø${safeVentDiaMm.toStringAsFixed(1)} → Q ≈ ${qRec.toStringAsFixed(1)} L/min (1–${kVentVelocityComfortMs.toStringAsFixed(0)} m/s: ${qRecMin.toStringAsFixed(1)}–${qRecMax.toStringAsFixed(1)} L/min). A heuristic, not a code. A higher pre-purge flow needs more or larger holes.')
+              : _tr('Podaj liczbę otworów wylotowych, aby wyliczyć złoty środek Q.', 'Enter the number of outlet holes to calculate the golden-middle Q.'),
           style: const TextStyle(fontSize: 12),
         ),
         const SizedBox(height: 10),
@@ -1504,11 +1479,11 @@ class _GasTabState extends State<_GasTab> {
                   Text(
                     _tr(
                         'Szac. O₂ po N = $nChanges wymianach: ≈ ${_fmtPpm(estPpm)} ppm '
-                            '(model C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
+                            '(model pesymistyczny — pełne wymieszanie, C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
                             'najbliższy wzorzec AWS D18.2: poziom ${estLevel.level} '
                             '(${estLevel.o2Ppm.toStringAsFixed(0)} ppm).',
                         'Est. O₂ after N = $nChanges volume changes: ≈ ${_fmtPpm(estPpm)} ppm '
-                            '(model C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
+                            '(pessimistic model — perfect mixing, C₀·e^(−N), C₀ = ${_groupThousands(kPurgeAirO2Ppm)} ppm) — '
                             'nearest AWS D18.2 sample: level ${estLevel.level} '
                             '(${estLevel.o2Ppm.toStringAsFixed(0)} ppm).'),
                     style: const TextStyle(fontSize: 12),
@@ -1522,7 +1497,7 @@ class _GasTabState extends State<_GasTab> {
                       fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
-                Text('${_tr('Wyloty', 'Outlets')}: $nVents×Ø${safeVentDiaMm.toStringAsFixed(1)} mm | ${_tr('prędkość na wylotach (wskaźnik)', 'outlet velocity (indicator)')}: ${ventVelocityMmPerSec.isFinite ? (ventVelocityMmPerSec / 1000).toStringAsFixed(2) : '-'} m/s'),
+                Text('${_tr('Wyloty', 'Outlets')}: $nVents×Ø${safeVentDiaMm.toStringAsFixed(1)} mm | ${_tr('prędkość na wylotach (wskaźnik)', 'outlet velocity (indicator)')}: ${ventVelocity.isFinite ? ventVelocity.toStringAsFixed(2) : '-'} m/s'),
                 const SizedBox(height: 8),
                 Text(ventHint, style: const TextStyle(fontSize: 12)),
                 if (pharmaHint != null) ...[
@@ -1530,24 +1505,40 @@ class _GasTabState extends State<_GasTab> {
                   Text(pharmaHint, style: const TextStyle(fontSize: 12)),
                 ],
                 const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: purgeMinutes.isFinite && purgeMinutes > 0 ? () => _startTimerFromMinutes(purgeMinutes) : null,
-                        icon: const Icon(Icons.timer),
-                        label: Text(_tr('Start minutnika (pre-purge)', 'Start timer (pre-purge)')),
-                      ),
-                    ),
-                  ],
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: purgeMinutes.isFinite && purgeMinutes > 0
+                        ? () => startPurgeCountdown(
+                              context,
+                              Duration(milliseconds: (purgeMinutes * 60000).round()),
+                              service: _weldTimer,
+                            )
+                        : null,
+                    icon: const Icon(Icons.timer),
+                    label: Text(_tr('Start minutnika (pre-purge)', 'Start timer (pre-purge)')),
+                  ),
                 ),
                 const SizedBox(height: 8),
-                _TimerPanel(
-                  isRunning: _timerRunning,
-                  remainingSeconds: _remainingSeconds,
-                  onPause: _timerRunning ? _pauseTimer : null,
-                  onResume: (!_timerRunning && _remainingSeconds > 0) ? _resumeTimer : null,
-                  onStop: (_timerRunning || _remainingSeconds > 0) ? _stopTimer : null,
+                ListenableBuilder(
+                  listenable: _weldTimer,
+                  builder: (context, _) {
+                    if (_weldTimer.mode != WeldTimerMode.purge ||
+                        !(_weldTimer.running || _weldTimer.hasProgress || _weldTimer.finished)) {
+                      return const SizedBox.shrink();
+                    }
+                    final left = _weldTimer.remaining ?? Duration.zero;
+                    final mm = left.inMinutes.toString().padLeft(2, '0');
+                    final ss = (left.inSeconds % 60).toString().padLeft(2, '0');
+                    return Text(
+                      _weldTimer.finished
+                          ? _tr('Purge: czas minął.', 'Purge: time is up.')
+                          : '${_tr('Minutnik purge', 'Purge timer')}: $mm:$ss'
+                              '${_weldTimer.running ? '' : _tr(' (pauza — zakładka Timer)', ' (paused — Timer tab)')}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -1557,6 +1548,12 @@ class _GasTabState extends State<_GasTab> {
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          _tr('Wynik pomocniczy — wiąże WPS / specyfikacja projektu.',
+              'Guidance only — the WPS / project specification is binding.'),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -1569,79 +1566,24 @@ class _GasTabState extends State<_GasTab> {
     return vMm3 / 1000000.0;
   }
 
-  String _ventHint({required double qIn, required int nVents, required double ventVelocityMmPerSec}) {
+  String _ventHint({required double qIn, required int nVents, required double vMs}) {
     if (qIn <= 0) return _tr('Wpisz przepływ Q > 0.', 'Enter flow Q > 0.');
     if (nVents <= 0) return _tr('Brak wylotu -> rośnie ciśnienie. Dodaj otwór(y) wylotowe.', 'No outlet -> pressure rises. Add outlet hole(s).');
 
-    // Heurystyka (nie norma): bardzo duża prędkość na małych otworach zwykle oznacza dławienie wylotu.
-    final vMs = ventVelocityMmPerSec / 1000.0;
+    // Heurystyka (nie norma): bardzo duża prędkość na małych otworach zwykle
+    // oznacza dławienie wylotu. Progi wspólne ze „złotym środkiem”.
     if (!vMs.isFinite) return _tr('Sprawdź dane (otwory/flow).', 'Check the data (holes/flow).');
 
-    if (vMs > 6.0) {
+    if (vMs > kVentVelocityBackPressureMs) {
       return _tr('Uwaga: duże obciążenie wylotu (wysoka prędkość na otworach). Ryzyko back-pressure -> dodaj więcej otworów lub zmniejsz Q.', 'Warning: high outlet load (high hole velocity). Risk of back-pressure -> add more holes or reduce Q.');
     }
-    if (vMs > 3.0) {
+    if (vMs > kVentVelocityComfortMs) {
       return _tr('OK, ale blisko granicy komfortu. Jeśli widzisz zapadniętą grań / "dmuchanie", dodaj otwory albo zmniejsz Q.', 'OK, but close to the comfort limit. If you see a sunken root or blowing, add holes or reduce Q.');
     }
-    if (vMs < 0.5) {
+    if (vMs < kVentVelocityLowMs) {
       return _tr('Wylot bardzo "luźny" (dużo otworów lub mały Q). Ciśnienie będzie małe; jeśli pojawiają się "krzaki", zwiększ Q lub liczbę wymian N.', 'The outlet is very open (many holes or low Q). Pressure will be low; if oxidation appears, increase Q or the number of volume changes N.');
     }
     return _tr('Wylot wygląda rozsądnie (lekkie nadciśnienie powinno się dać utrzymać).', 'The outlet looks reasonable (slight positive pressure should be maintainable).');
-  }
-
-  void _startTimerFromMinutes(double minutes) {
-    final seconds = (minutes * 60).ceil();
-    _lastTimerMinutes = minutes;
-    setState(() {
-      _remainingSeconds = seconds;
-      _timerRunning = true;
-    });
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      setState(() {
-        if (_remainingSeconds <= 1) {
-          _remainingSeconds = 0;
-          _timerRunning = false;
-          t.cancel();
-          _showPrePurgeDoneSnack();
-        } else {
-          _remainingSeconds -= 1;
-        }
-      });
-    });
-  }
-
-  void _pauseTimer() {
-    _timer?.cancel();
-    setState(() => _timerRunning = false);
-  }
-
-  void _resumeTimer() {
-    if (_remainingSeconds <= 0) return;
-    setState(() => _timerRunning = true);
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      setState(() {
-        if (_remainingSeconds <= 1) {
-          _remainingSeconds = 0;
-          _timerRunning = false;
-          t.cancel();
-          _showPrePurgeDoneSnack();
-        } else {
-          _remainingSeconds -= 1;
-        }
-      });
-    });
-  }
-
-  void _stopTimer() {
-    _timer?.cancel();
-    setState(() {
-      _remainingSeconds = 0;
-      _timerRunning = false;
-    });
   }
 }
 
@@ -1760,54 +1702,6 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
           ],
         );
       },
-    );
-  }
-}
-
-class _TimerPanel extends StatelessWidget {
-  final bool isRunning;
-  final int remainingSeconds;
-  final VoidCallback? onPause;
-  final VoidCallback? onResume;
-  final VoidCallback? onStop;
-
-  const _TimerPanel({
-    required this.isRunning,
-    required this.remainingSeconds,
-    required this.onPause,
-    required this.onResume,
-    required this.onStop,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final mm = (remainingSeconds ~/ 60).toString().padLeft(2, '0');
-    final ss = (remainingSeconds % 60).toString().padLeft(2, '0');
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            '${context.tr(pl: 'Minutnik', en: 'Timer')}: $mm:$ss',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-        ),
-        IconButton(
-          tooltip: context.tr(pl: 'Pauza', en: 'Pause'),
-          onPressed: onPause,
-          icon: const Icon(Icons.pause),
-        ),
-        IconButton(
-          tooltip: context.tr(pl: 'Wznów', en: 'Resume'),
-          onPressed: onResume,
-          icon: const Icon(Icons.play_arrow),
-        ),
-        IconButton(
-          tooltip: context.tr(pl: 'Stop', en: 'Stop'),
-          onPressed: onStop,
-          icon: const Icon(Icons.stop),
-        ),
-      ],
     );
   }
 }

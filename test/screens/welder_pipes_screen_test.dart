@@ -8,7 +8,9 @@ import 'package:cut_list_app/data/tungsten.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/tungsten_screen.dart';
 import 'package:cut_list_app/screens/welder_pipes_screen.dart';
+import 'package:cut_list_app/services/weld_timer_service.dart';
 
+import '../support/fake_weld_timer_effects.dart';
 import '../support/test_database.dart';
 
 Widget _app(Widget child, {AppLanguage lang = AppLanguage.en}) =>
@@ -54,7 +56,14 @@ String _purgeAdviceText(WidgetTester tester) {
 void main() {
   useTestDatabase();
 
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // Minutnik purge w zakładce Gazy żyje w serwisie — atrapa skutków
+    // ubocznych, bez platformy.
+    WeldTimerService.instance =
+        WeldTimerService(effects: FakeEffects(), observeLifecycle: false);
+  });
+  tearDown(() => WeldTimerService.instance.dispose());
 
   group('Rury spawacza — AMP', () {
     testWidgets(
@@ -219,6 +228,43 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Czas orientacyjny — zweryfikuj analizatorem O₂.'),
           findsOneWidget);
+    });
+
+    // Przegląd G4: „złoty środek” dawał 11 m/s przy progu ostrzeżenia 6 m/s.
+    // 2 × Ø2,4 → Q = 1,1 L/min (2 m/s).
+    testWidgets('złoty środek nie wywołuje ostrzeżenia o back-pressure',
+        (tester) async {
+      await _pumpTall(tester, const WelderPipesScreen());
+      await _openGasTab(tester);
+      await tester.tap(find.text('Set Q (golden middle)'));
+      await tester.pumpAndSettle();
+      expect(
+          tester.widget<TextField>(_field('Internal gas flow Q [L/min]'))
+              .controller!
+              .text,
+          '1.1');
+      expect(find.textContaining('Risk of back-pressure'), findsNothing);
+      expect(find.textContaining('close to the comfort limit'), findsNothing);
+      expect(find.textContaining('outlet velocity (indicator): 2.03 m/s'),
+          findsOneWidget);
+      expect(find.text('Guidance only — the WPS / project specification is binding.'),
+          findsOneWidget);
+    });
+
+    testWidgets('minutnik pre-purge → WeldTimerService (alarm), nie lokalny '
+        'Timer', (tester) async {
+      await _pumpTall(tester, const WelderPipesScreen());
+      await _openGasTab(tester);
+      await tester.ensureVisible(find.text('Start timer (pre-purge)'));
+      await tester.tap(find.text('Start timer (pre-purge)'));
+      await tester.pump();
+      final t = WeldTimerService.instance;
+      expect(t.mode, WeldTimerMode.purge);
+      expect(t.running, isTrue);
+      // V = π·28,15²·300 mm³ = 0,7469 L; N = 6, Q = 2 → 2,2407 min = 134,4 s.
+      expect(t.purgeSeconds, 135);
+      t.reset();
+      await tester.pump();
     });
 
     testWidgets('etykieta wylotów pokazuje wpisaną średnicę otworu',

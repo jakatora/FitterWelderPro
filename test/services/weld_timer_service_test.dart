@@ -83,6 +83,36 @@ void main() {
     });
   });
 
+  group('postęp i start purge z innego ekranu', () {
+    test('hasProgress: biegnie lub pauza w połowie; nie po końcu/resecie', () {
+      expect(timer.hasProgress, isFalse);
+      timer.setMode(WeldTimerMode.cool);
+      timer.setCoolTime(const Duration(minutes: 8));
+      timer.start();
+      expect(timer.hasProgress, isTrue);
+      advance(const Duration(minutes: 1));
+      timer.pause();
+      expect(timer.hasProgress, isTrue);
+      timer.reset();
+      expect(timer.hasProgress, isFalse);
+    });
+
+    test('startPurge: 138,4 s → 139 s odliczania, alarm na końcu', () {
+      timer.startPurge(const Duration(milliseconds: 138400));
+      expect(timer.mode, WeldTimerMode.purge);
+      expect(timer.purgeSeconds, 139);
+      expect(timer.running, isTrue);
+      advance(const Duration(seconds: 139));
+      expect(timer.alarmActive, isTrue);
+      expect(fx.alarms, hasLength(1));
+    });
+
+    test('startPurge 0 s nic nie robi', () {
+      timer.startPurge(Duration.zero);
+      expect(timer.running, isFalse);
+    });
+  });
+
   group('koniec odliczania', () {
     test('chłodzenie: alarm raz, z przypomnieniem o temp. z WPS', () {
       timer.setMode(WeldTimerMode.cool);

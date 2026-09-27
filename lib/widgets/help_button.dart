@@ -495,13 +495,13 @@ final kHelpWelderPipes = ScreenHelp(
       'TIG welding parameter sets for pipes: current (AMP), shielding gases, starter data shipped with the app and your own sets. These are guide values — the WPS is binding; keep your WPS in the WPS library (WELDER menu).',
   stepsPl: [
     HelpStep('📋', 'AMP — prąd z listy „Startowe” (ta sama rura = ta sama liczba, między punktami interpolacja, poza danymi brak wyniku); elektroda i gaz palnika z tych samych tabel co ekran Wolfram. Stal węglowa bez własnych punktów = nierdzewna / 0,9.'),
-    HelpStep('💨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
+    HelpStep('💨', 'Gazy — czas przedmuchu, szacunkowy O₂ i wyloty. „Złoty środek” Q celuje w ok. 2 m/s na wylotach (heurystyka), więc nie wywołuje ostrzeżenia o back-pressure. Minutnik pre-purge działa jak Timer spawacza: alarm, praca w tle, komunikat na cały ekran.'),
     HelpStep('✅', 'Startowe — dane dostarczone z aplikacją, orientacyjne (to nie są WPS Twojego zakładu). Swoje WPS wpisz albo zaimportuj w Bibliotece WPS.'),
     HelpStep('👤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
   ],
   stepsEn: [
     HelpStep('📋', 'AMP — current from the “Starter” list (same pipe = same number, interpolated between points, no result outside the data); electrode and torch gas from the same tables as the Tungsten screen. Carbon steel without its own points = stainless / 0.9.'),
-    HelpStep('💨', 'Gases — recommended mixes and flow rates for different materials.'),
+    HelpStep('💨', 'Gases — pre-purge time, estimated O₂ and outlets. The “golden middle” Q aims at about 2 m/s through the outlets (a heuristic), so it never triggers the back-pressure warning. The pre-purge timer works like the welder Timer: alarm, runs in the background, full-screen message.'),
     HelpStep('✅', 'Starter — data shipped with the app, for guidance (not your workshop\'s WPS). Enter or import your WPS in the WPS library.'),
     HelpStep('👤', 'Mine — your own parameter sets saved locally.'),
   ],
@@ -536,13 +536,13 @@ final kHelpWelderTools = ScreenHelp(
   stepsPl: [
     HelpStep('🧪', 'Gaz — zużycie gazu osłonowego i formującego na projekt oraz liczba butli (pojemność wodna × ciśnienie, z rezerwą).'),
     HelpStep('💨', 'O₂ Purge — szacunkowy czas i ilość gazu do wypłukania rury do zadanego ppm O₂; sprawdź analizatorem przed spawaniem.'),
-    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu).'),
+    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu). Zmiana trybu w trakcie odliczania pyta „Przerwać odliczanie?”. Z zakładki O₂ Purge można od razu uruchomić odliczanie purge.'),
     HelpStep('🔁', 'Ciśnienie — przelicznik bar / MPa / kPa / PSI / atm / kgf/cm².'),
   ],
   stepsEn: [
     HelpStep('🧪', 'Gas — shielding and purge gas for a project and the number of cylinders (water capacity × pressure, with reserve).'),
     HelpStep('💨', 'O₂ Purge — estimated time and gas to purge a pipe down to a target ppm O₂; verify with an analyser before welding.'),
-    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown).'),
+    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown). Changing the mode during a countdown asks “Stop the countdown?”. The O₂ Purge tab can start the purge countdown directly.'),
     HelpStep('🔁', 'Pressure — converter bar / MPa / kPa / PSI / atm / kgf/cm².'),
   ],
 );

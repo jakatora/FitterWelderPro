@@ -276,9 +276,11 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
       }
       _estimate = r.estimate;
       _target = target;
-      if (target <= 20)  { _assessment = _tr('Cel < 20 ppm (standard pharma)', 'Target < 20 ppm (pharma grade)'); _assessColor = _kGreen; }
-      else if (target <= 100) { _assessment = _tr('Cel < 100 ppm (standard przemysłowy)', 'Target < 100 ppm (industrial grade)'); _assessColor = _kOrange; }
-      else { _assessment = _tr('Cel > 100 ppm — ryzyko przebarwień', 'Target > 100 ppm — risk of discolouration'); _assessColor = _kRed; }
+      // Progi to przykłady z praktyki, nie normy — akceptację barwy / O₂
+      // ustala specyfikacja projektu albo WPS.
+      if (target <= 20)  { _assessment = _tr('Cel ≤ 20 ppm — przykładowo instalacje farmaceutyczne; wiąże specyfikacja / WPS', 'Target ≤ 20 ppm — e.g. pharma systems; the specification / WPS is binding'); _assessColor = _kGreen; }
+      else if (target <= 100) { _assessment = _tr('Cel ≤ 100 ppm — przykładowo instalacje przemysłowe; wiąże specyfikacja / WPS', 'Target ≤ 100 ppm — e.g. industrial systems; the specification / WPS is binding'); _assessColor = _kOrange; }
+      else { _assessment = _tr('Cel > 100 ppm — ryzyko przebarwień; sprawdź wymaganie specyfikacji', 'Target > 100 ppm — risk of discolouration; check the specification'); _assessColor = _kRed; }
     });
   }
 
@@ -294,11 +296,11 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
     children: [
       _InfoBox(_tr(
         'Model wykładniczy: C(t) = C₀ × e^(−Q×t/V)\n'
-        'Standard pharma: cel < 20 ppm O₂\n'
-        'Standard przemysłowy: < 100 ppm O₂',
+        'Przykładowe cele: pharma < 20 ppm O₂, przemysł < 100 ppm O₂ — '
+        'to nie progi normy; wiąże specyfikacja projektu / WPS.',
         'Exponential model: C(t) = C₀ × e^(−Q×t/V)\n'
-        'Pharma standard: target < 20 ppm O₂\n'
-        'Industrial standard: < 100 ppm O₂',
+        'Example targets: pharma < 20 ppm O₂, industry < 100 ppm O₂ — '
+        'not code limits; the project specification / WPS is binding.',
       )),
       Row(children: [
         Expanded(child: _NumField(ctrl: _odCtrl, label: 'OD (mm)', hint: '60.3', unit: 'mm', onChanged: _calc)),
@@ -335,6 +337,18 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
           'Czas orientacyjny (model pełnego wymieszania) — zweryfikuj analizatorem O₂ przed spawaniem.',
           'Estimated time (perfect-mixing model) — verify with an O₂ analyser before welding.',
         )),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: OutlinedButton.icon(
+            onPressed: () => startPurgeCountdown(context,
+                Duration(milliseconds: (_estimate!.timeSec * 1000).round())),
+            icon: const Icon(Icons.timer_outlined),
+            label: Text(_tr('Start timera purge (${_fmtTime(_estimate!.timeSec)})',
+                'Start purge timer (${_fmtTime(_estimate!.timeSec)})')),
+          ),
+        ),
       ]),
       if (_error != null) _ErrBox(_error!),
       const _Disclaimer(),
@@ -492,6 +506,65 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
 /// Minimalna wysokość przycisków timera (rękawice spawalnicze).
 const double kWeldTimerButtonHeight = 72;
 
+/// „Przerwać odliczanie?” — przed każdą akcją, która skasowałaby biegnący
+/// albo zapauzowany timer (zmiana trybu, start purge z innego ekranu).
+/// `true` = przerwać.
+Future<bool> confirmWeldTimerInterrupt(
+    BuildContext context, WeldTimerService timer) async {
+  final modeName = switch (timer.mode) {
+    WeldTimerMode.weld => context.tr(pl: 'stoper spawania', en: 'the welding stopwatch'),
+    WeldTimerMode.cool => context.tr(pl: 'odliczanie chłodzenia', en: 'the cooldown countdown'),
+    WeldTimerMode.purge => context.tr(pl: 'odliczanie purge', en: 'the purge countdown'),
+  };
+  final left = timer.remaining ?? timer.elapsed;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(ctx.tr(pl: 'Przerwać odliczanie?', en: 'Stop the countdown?')),
+      content: Text(ctx.tr(
+        pl: 'Biegnie $modeName (${_fmtClock(left)}). Zmiana skasuje ten czas.',
+        en: '$modeName is running (${_fmtClock(left)}). Changing it clears that time.',
+      )),
+      actions: [
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(64, 56)),
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Text(ctx.tr(pl: 'Nie, zostaw', en: 'No, keep it')),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size(64, 56)),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(ctx.tr(pl: 'Przerwij', en: 'Stop it')),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// Start odliczania purge przez [WeldTimerService] (alarm, tło, pełny
+/// ekran) — z potwierdzeniem, gdy biegnie inne odliczanie.
+Future<bool> startPurgeCountdown(BuildContext context, Duration duration,
+    {WeldTimerService? service}) async {
+  final timer = service ?? WeldTimerService.instance;
+  if (timer.hasProgress && !await confirmWeldTimerInterrupt(context, timer)) {
+    return false;
+  }
+  timer.startPurge(duration);
+  if (!context.mounted) return true;
+  ScaffoldMessenger.maybeOf(context)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(context.tr(
+        pl: 'Odliczanie purge ${_fmtClock(Duration(seconds: timer.purgeSeconds))} — '
+            'alarm jak w zakładce Timer (Spawacz → Gaz, formowanie i timer).',
+        en: 'Purge countdown ${_fmtClock(Duration(seconds: timer.purgeSeconds))} — '
+            'alarm as in the Timer tab (Welder → Gas, purge and timer).',
+      )),
+    ));
+  return true;
+}
+
 String _fmtClock(Duration d) {
   final total = d.inSeconds;
   final h = total ~/ 3600;
@@ -586,7 +659,14 @@ class _WeldTimerTabState extends State<_WeldTimerTab> {
               child: _ModeButton(
                 label: m.$2,
                 selected: mode == m.$1,
-                onTap: () {
+                onTap: () async {
+                  if (m.$1 == _timer.mode) return;
+                  // Zmiana trybu kasuje biegnące / zapauzowane odliczanie —
+                  // najpierw pytamy (przycisk trybu jest tuż nad zegarem).
+                  if (_timer.hasProgress &&
+                      !await confirmWeldTimerInterrupt(context, _timer)) {
+                    return;
+                  }
                   if (m.$1 == WeldTimerMode.purge) _applyPurge();
                   if (m.$1 == WeldTimerMode.cool) { _applyCoolTime(); _applyMaxTemp(); }
                   _timer.setMode(m.$1);
