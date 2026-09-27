@@ -369,14 +369,16 @@ final kHelpPipeRoute = ScreenHelp(
   stepsPl: [
     HelpStep('📏', 'Wpisz H1 i H2 — poziomy startowy i końcowy (różnica = ΔH).'),
     HelpStep('↔️', 'Wpisz X i Y — odległości poziome.'),
-    HelpStep('🔄', 'Wpisz R — wymiar kolanka face-to-centre dla Twojego LR 90°.'),
-    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia: X−R, ΔH−2R, Y−R.'),
+    HelpStep('🔄', 'Wybierz DN kolan — R = wymiar A kolana LR 90° wg ASME B16.9 — albo wpisz take-out z karty kolana. R nie startuje od 0: R = 0 to wymiary osiowe, nie długości cięcia.'),
+    HelpStep('🔥', 'Wpisz szczelinę spoiny g — odejmowana przy każdej spoinie kolana (opcjonalnie też na końcach trasy).'),
+    HelpStep('✅', 'Kliknij Oblicz — otrzymasz 3 długości do cięcia: X−R−g, ΔH−2R−2g, Y−R−g.'),
   ],
   stepsEn: [
     HelpStep('📏', 'Enter H1 and H2 — start and end elevations (difference = ΔH).'),
     HelpStep('↔️', 'Enter X and Y — horizontal distances.'),
-    HelpStep('🔄', 'Enter R — elbow takeout face-to-centre for your LR 90°.'),
-    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths: X−R, ΔH−2R, Y−R.'),
+    HelpStep('🔄', 'Pick the elbow DN — R = dimension A of the LR 90° elbow per ASME B16.9 — or type the take-out from the datasheet. R does not start at 0: R = 0 means centreline dimensions, not cut lengths.'),
+    HelpStep('🔥', 'Enter the weld gap g — deducted at every elbow weld (optionally at the route ends too).'),
+    HelpStep('✅', 'Tap Calculate — you get 3 cut lengths: X−R−g, ΔH−2R−2g, Y−R−g.'),
   ],
 );
 

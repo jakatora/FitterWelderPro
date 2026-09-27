@@ -2,21 +2,24 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/elbow_takeouts.dart';
 import '../i18n/app_language.dart';
+import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
 /// Straight-pipe lengths of the route X (horizontal) → |H1−H2| (vertical) →
-/// Y (horizontal): TWO 90° elbows, three pipe segments, four butt welds.
+/// Y (horizontal): TWO 90° elbows, three pipe segments, four butt welds at
+/// the elbows (+ two at the route ends when X / Y are measured to a face).
 class PipeRouteResult {
-  /// X − R: from the reference to the face of elbow 1.
+  /// X − R − g (− g at the start weld): reference → face of elbow 1.
   final double seg1;
 
-  /// |H1−H2| − 2R: between the faces of elbow 1 and elbow 2.
+  /// |H1−H2| − 2R − 2g: between the faces of elbow 1 and elbow 2.
   final double seg2;
 
-  /// Y − R: from the face of elbow 2 to the reference.
+  /// Y − R − g (− g at the end weld): face of elbow 2 → reference.
   final double seg3;
 
   /// Σ of the (non-negative) straight segments — what goes on the saw.
@@ -25,11 +28,14 @@ class PipeRouteResult {
   /// Number of 90° elbows in this route.
   final int elbowCount;
 
+  /// Number of butt welds whose root gap was deducted.
+  final int weldCount;
+
   /// Centreline arc length of the elbows: 2 × (π·R/2) = π·R.
   final double arcsMm;
 
-  /// Developed centreline length, straights + arcs = total + π·R
-  /// (= X + |H1−H2| + Y − (4 − π)·R).
+  /// Developed centreline length: straights + weld gaps + arcs
+  /// (= X + |H1−H2| + Y − (4 − π)·R for positive segments).
   final double developedMm;
 
   const PipeRouteResult({
@@ -38,25 +44,33 @@ class PipeRouteResult {
     required this.seg3,
     required this.total,
     required this.elbowCount,
+    required this.weldCount,
     required this.arcsMm,
     required this.developedMm,
   });
 }
 
 /// Pure calculation behind [PipeRouteCalculatorScreen]; [r] is the take-out
-/// (centre-to-face) of one 90° elbow — for an LR elbow its CLR radius.
+/// (centre-to-face) of one 90° elbow — for an LR elbow its CLR radius, ASME
+/// B16.9 dimension A. [gapMm] is the weld root gap deducted at every butt
+/// weld: the 4 elbow welds always, the 2 route-end welds when [endWelds]
+/// (X and Y measured to the face of a flange / pipe that gets welded on).
 PipeRouteResult computePipeRoute({
   required double h1,
   required double h2,
   required double x,
   required double y,
   required double r,
+  double gapMm = 0,
+  bool endWelds = false,
 }) {
   const elbows = 2;
-  final seg1 = x - r;
-  final seg2 = (h1 - h2).abs() - 2 * r;
-  final seg3 = y - r;
+  final endGap = endWelds ? gapMm : 0.0;
+  final seg1 = x - r - gapMm - endGap;
+  final seg2 = (h1 - h2).abs() - 2 * r - 2 * gapMm;
+  final seg3 = y - r - gapMm - endGap;
   final total = math.max(0.0, seg1) + math.max(0.0, seg2) + math.max(0.0, seg3);
+  final welds = 2 * elbows + (endWelds ? 2 : 0);
   final arcs = elbows * (math.pi * r / 2);
   return PipeRouteResult(
     seg1: seg1,
@@ -64,8 +78,9 @@ PipeRouteResult computePipeRoute({
     seg3: seg3,
     total: total,
     elbowCount: elbows,
+    weldCount: welds,
     arcsMm: arcs,
-    developedMm: total + arcs,
+    developedMm: total + welds * gapMm + arcs,
   );
 }
 
@@ -82,7 +97,14 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   final _h2Controller = TextEditingController();
   final _xController  = TextEditingController();
   final _yController  = TextEditingController();
-  final _rController  = TextEditingController(text: '0');
+  // No default R: an empty R forces a choice (DN from ASME B16.9 or a typed
+  // take-out). The old default 0 meant C-C dimensions = pipes cut too long.
+  final _rController  = TextEditingController();
+  final _gapController = TextEditingController();
+  bool _endWelds = false;
+
+  /// DN whose B16.9 LR 90° take-out (A) is in the R field; null = typed R.
+  int? _dn;
 
   final _seg1Controller  = TextEditingController();
   final _seg2Controller  = TextEditingController();
@@ -97,6 +119,9 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   static const _kPrefX  = 'pipe_route.x';
   static const _kPrefY  = 'pipe_route.y';
   static const _kPrefR  = 'pipe_route.r';
+  static const _kPrefDn  = 'pipe_route.dn';
+  static const _kPrefGap = 'pipe_route.gap';
+  static const _kPrefEndWelds = 'pipe_route.end_welds';
   // P1-22: decimal-separator preference (auto follows app language, dot/comma
   // force one regardless of locale — auditors copying into mixed-locale
   // spreadsheets need this control).
@@ -119,11 +144,33 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   final FocusNode _yFocus  = FocusNode();
   final FocusNode _rFocus  = FocusNode();
 
-  double _parse(String v) => parseDecimal(v) ?? 0;
+  double? _parseOrNull(String v) =>
+      v.trim().isEmpty ? null : parseDecimal(v);
 
   /// Last successful result — feeds the developed-length line in the
   /// formula dialog.
   PipeRouteResult? _last;
+
+  /// R used for the last result (0 → C-C warning under the results).
+  double? _lastR;
+
+  void _error(String pl, String en) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(pl: pl, en: en)),
+      duration: const Duration(seconds: 5),
+    ));
+  }
+
+  void _pickDn(int? dn) {
+    setState(() {
+      _dn = dn;
+      if (dn != null) {
+        final t = b169ElbowTakeout(
+            dn: dn, type: ElbowRadiusType.long15D, angleDeg: 90);
+        if (t != null) _rController.text = '${t.a90Mm}';
+      }
+    });
+  }
 
   // Route: horizontal X → vertical |H1−H2| → horizontal Y
   // 2 × 90° elbows (4 butt welds). Pipe segments between elbows
@@ -133,56 +180,55 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   //   Segment3 = Y − R          (from face of elbow 2 to wall/reference)
   // where R = elbow takeout (centre-to-face). For LR 90° elbow: takeout = R_CLR.
   void _calculate() {
-    final h1 = _parse(_h1Controller.text);
-    final h2 = _parse(_h2Controller.text);
-    final x  = _parse(_xController.text);
-    final y  = _parse(_yController.text);
-    final r  = _parse(_rController.text);
+    final h1 = _parseOrNull(_h1Controller.text);
+    final h2 = _parseOrNull(_h2Controller.text);
+    final x  = _parseOrNull(_xController.text);
+    final y  = _parseOrNull(_yController.text);
+    final r  = _parseOrNull(_rController.text);
+    final gapText = _gapController.text.trim();
+    final gap = gapText.isEmpty ? 0.0 : parseDecimal(gapText);
 
-    if (x <= 0 || y <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Wpisz X i Y > 0', en: 'Enter X and Y > 0')),
-      ));
+    if (h1 == null || h2 == null) {
+      _error('Wpisz H1 i H2 (puste pole to nie 0)',
+          'Enter H1 and H2 (an empty field is not 0)');
+      return;
+    }
+    if ((h1 - h2).abs() < 1e-9) {
+      _error('H1 = H2: brak odcinka pionowego — to nie jest trasa na 2 kolanach 90°',
+          'H1 = H2: no vertical leg — this is not a 2 × 90° elbow route');
+      return;
+    }
+    if (x == null || y == null || x <= 0 || y <= 0) {
+      _error('Wpisz X i Y > 0', 'Enter X and Y > 0');
+      return;
+    }
+    if (r == null) {
+      _error('Wybierz DN kolan (R z ASME B16.9) albo wpisz R',
+          'Pick the elbow DN (R from ASME B16.9) or enter R');
       return;
     }
     if (r < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'R (takeout) nie może być ujemne',
-          en: 'R (takeout) cannot be negative',
-        )),
-      ));
+      _error('R (takeout) nie może być ujemne', 'R (takeout) cannot be negative');
       return;
     }
-    if (r > x || r > y || 2 * r > (h1 - h2).abs()) {
-      final messenger = ScaffoldMessenger.of(context);
-      final prevR = _rController.text;
-      messenger.showSnackBar(SnackBar(
-        content: Text(context.tr(
-          pl: 'R za duże dla podanych wymiarów (odcinek wyszedłby ujemny)',
-          en: 'R too large for given dimensions (segment would be negative)',
-        )),
-        duration: const Duration(seconds: 6),
-        action: SnackBarAction(
-          label: context.tr(pl: 'Wyzeruj R', en: 'Reset R'),
-          onPressed: () {
-            _rController.text = '0';
-            messenger.hideCurrentSnackBar();
-            messenger.showSnackBar(SnackBar(
-              content: Text(context.tr(pl: 'R = 0. Policz ponownie.', en: 'R = 0. Recalculate.')),
-              duration: const Duration(seconds: 3),
-              action: SnackBarAction(
-                label: context.tr(pl: 'Cofnij', en: 'Undo'),
-                onPressed: () => _rController.text = prevR,
-              ),
-            ));
-          },
-        ),
-      ));
+    if (gap == null || gap < 0) {
+      _error('Szczelina spoiny: wpisz ≥ 0 mm', 'Weld gap: enter ≥ 0 mm');
       return;
     }
 
-    final res   = computePipeRoute(h1: h1, h2: h2, x: x, y: y, r: r);
+    final res = computePipeRoute(
+        h1: h1, h2: h2, x: x, y: y, r: r, gapMm: gap, endWelds: _endWelds);
+    if (res.seg1 < 0 || res.seg2 < 0 || res.seg3 < 0) {
+      // No "reset R" shortcut: R = 0 is a C-C route, not a fix — it gives
+      // pipes too long by the take-out. The dimensions or the DN are wrong.
+      _error(
+          'R (take-out) + szczeliny za duże dla tych wymiarów — odcinek wyszedłby '
+              'ujemny. Sprawdź X, Y, H1, H2 i DN kolan.',
+          'R (take-out) + gaps too large for these dimensions — a segment would be '
+              'negative. Check X, Y, H1, H2 and the elbow DN.');
+      return;
+    }
+    _lastR = r;
     final seg1  = res.seg1;
     final seg2  = res.seg2;
     final seg3  = res.seg3;
@@ -228,21 +274,25 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   }
 
   // P1-04: Wyczyść — reset all input + result controllers in one tap.
-  // 5 inputs (H1, H2, X, Y) + R get cleared (R restored to its default '0'),
-  // and the 4 result controllers (seg1, seg2, seg3, total) wipe so the
-  // empty-state placeholder reappears. Multi-job shift = 3-4 calcs back-to-back;
+  // Inputs (H1, H2, X, Y, R, gap, DN) get cleared — R is left EMPTY (no C-C
+  // default) — and the 4 result controllers wipe so the empty-state
+  // placeholder reappears. Multi-job shift = 3-4 calcs back-to-back;
   // manual field clearing in gloves is painful and inconsistent.
   void _clearAll() {
     _h1Controller.clear();
     _h2Controller.clear();
     _xController.clear();
     _yController.clear();
-    _rController.text = '0';
+    _rController.clear();
+    _gapController.clear();
+    _dn = null;
+    _endWelds = false;
     _seg1Controller.clear();
     _seg2Controller.clear();
     _seg3Controller.clear();
     _totalController.clear();
     _last = null;
+    _lastR = null;
     setState(() {});
     // P1-22: also wipe persisted inputs so a fresh launch starts clean.
     _saveSettings();
@@ -297,6 +347,13 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
       await prefs.setString(_kPrefX,  _xController.text);
       await prefs.setString(_kPrefY,  _yController.text);
       await prefs.setString(_kPrefR,  _rController.text);
+      await prefs.setString(_kPrefGap, _gapController.text);
+      await prefs.setBool(_kPrefEndWelds, _endWelds);
+      if (_dn == null) {
+        await prefs.remove(_kPrefDn);
+      } else {
+        await prefs.setInt(_kPrefDn, _dn!);
+      }
       await prefs.setString(_kPrefDecimalSeparator, _decimalSeparatorPref);
       await prefs.setInt(_kPrefRouteDecimals, _routeDecimals);
     } catch (_) {
@@ -314,6 +371,9 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
       final x  = prefs.getString(_kPrefX);
       final y  = prefs.getString(_kPrefY);
       final r  = prefs.getString(_kPrefR);
+      final gap = prefs.getString(_kPrefGap);
+      final endWelds = prefs.getBool(_kPrefEndWelds);
+      final dn = prefs.getInt(_kPrefDn);
       final dsep = prefs.getString(_kPrefDecimalSeparator);
       final dec  = prefs.getInt(_kPrefRouteDecimals);
       setState(() {
@@ -321,7 +381,13 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
         if (h2 != null) _h2Controller.text = h2;
         if (x  != null) _xController.text  = x;
         if (y  != null) _yController.text  = y;
-        if (r  != null && r.isNotEmpty) _rController.text = r;
+        // A stored "0" is the old default (C-C), not a choice — start empty.
+        if (r != null && r.isNotEmpty && parseDecimal(r) != 0) {
+          _rController.text = r;
+        }
+        if (gap != null) _gapController.text = gap;
+        if (endWelds != null) _endWelds = endWelds;
+        if (dn != null && elbowTakeoutForDn(dn) != null) _dn = dn;
         if (dsep == 'auto' || dsep == 'dot' || dsep == 'comma') {
           _decimalSeparatorPref = dsep!;
         }
@@ -350,7 +416,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     }
     for (final c in [
       _h1Controller, _h2Controller, _xController, _yController, _rController,
-      _seg1Controller, _seg2Controller, _seg3Controller, _totalController,
+      _gapController, _seg1Controller, _seg2Controller, _seg3Controller, _totalController,
     ]) {
       c.dispose();
     }
@@ -428,6 +494,33 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
               ],
               const SizedBox(height: 12),
 
+              DropdownButtonFormField<int?>(
+                initialValue: _dn,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: context.tr(
+                      pl: 'Kolana ASME B16.9 LR 90° — DN',
+                      en: 'ASME B16.9 LR 90° elbows — DN'),
+                  border: const OutlineInputBorder(),
+                ),
+                items: [
+                  DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text(
+                      context.tr(pl: '— wpiszę R ręcznie', en: '— I will type R'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  for (final e in kElbowTakeouts)
+                    DropdownMenuItem<int?>(
+                      value: e.dn,
+                      child: Text('DN${e.dn} (${e.nps}") — R = ${e.lr90} mm',
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: _pickDn,
+              ),
+              const SizedBox(height: 12),
               _field(_rController,
                 focusNode: _rFocus,
                 label: context.tr(
@@ -436,9 +529,34 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                 ),
                 suffix: 'mm',
                 helper: context.tr(
-                  pl: 'Dla kolanka LR: takeout = promień CLR. Wpisz 0 jeśli liczysz C-C.',
-                  en: 'For LR elbow: takeout = CLR radius. Enter 0 if calculating C-C.',
+                  pl: 'Wybierz DN (R = wymiar A wg ASME B16.9) albo wpisz take-out z karty kolana.',
+                  en: 'Pick the DN (R = dimension A per ASME B16.9) or type the take-out from the elbow datasheet.',
                 ),
+                onChanged: (v) {
+                  if (_dn == null) return;
+                  final a = elbowTakeoutForDn(_dn!)?.lr90;
+                  if (a == null || parseDecimal(v) != a) setState(() => _dn = null);
+                },
+              ),
+              const SizedBox(height: 12),
+              _field(_gapController,
+                label: context.tr(pl: 'Szczelina spoiny g', en: 'Weld gap g'),
+                suffix: 'mm',
+                helper: context.tr(
+                  pl: 'Odejmowana przy każdej spoinie kolana (odc. 1 i 3: −g, odc. 2: −2g). Puste = 0.',
+                  en: 'Deducted at every elbow weld (seg. 1 and 3: −g, seg. 2: −2g). Empty = 0.',
+                ),
+              ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _endWelds,
+                onChanged: (v) => setState(() => _endWelds = v),
+                title: Text(context.tr(
+                    pl: 'Spoiny także na obu końcach trasy',
+                    en: 'Welds at both route ends too')),
+                subtitle: Text(context.tr(
+                    pl: 'X i Y mierzone do czoła rury / kołnierza, który się przyspawa — dodatkowe −g na odc. 1 i 3.',
+                    en: 'X and Y measured to the face of a pipe / flange that gets welded on — extra −g on seg. 1 and 3.')),
               ),
               const SizedBox(height: 12),
               _buildDisplayPrefs(),
@@ -475,8 +593,8 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                         const SizedBox(height: 12),
                         Text(
                           context.tr(
-                            pl: 'Wpisz H1, H2, X, Y (i opcjonalnie R), potem OBLICZ.',
-                            en: 'Enter H1, H2, X, Y (and optionally R), then CALCULATE.',
+                            pl: 'Wpisz H1, H2, X, Y, wybierz DN kolan (lub wpisz R), potem OBLICZ.',
+                            en: 'Enter H1, H2, X, Y, pick the elbow DN (or type R), then CALCULATE.',
                           ),
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodyMedium?.copyWith(
@@ -488,14 +606,31 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                   ),
                 )
               else ...[
+                if (_lastR == 0)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+                    ),
+                    child: Text(
+                      context.tr(
+                        pl: 'R = 0 → wymiary osiowe (C-C), NIE długości cięcia. Każda rura wyjdzie za długa o take-out kolana.',
+                        en: 'R = 0 → centreline (C-C) dimensions, NOT cut lengths. Every pipe comes out too long by the elbow take-out.',
+                      ),
+                      style: TextStyle(color: Colors.orange.shade300, fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 _result(_seg1Controller,
-                  label: context.tr(pl: 'Odcinek 1 (poziomy, X−R)', en: 'Segment 1 (horizontal, X−R)')),
+                  label: context.tr(pl: 'Odcinek 1 (poziomy, X−R−g)', en: 'Segment 1 (horizontal, X−R−g)')),
                 const SizedBox(height: 12),
                 _result(_seg2Controller,
-                  label: context.tr(pl: 'Odcinek 2 (pionowy, |H1−H2|−2R)', en: 'Segment 2 (vertical, |H1−H2|−2R)')),
+                  label: context.tr(pl: 'Odcinek 2 (pionowy, |H1−H2|−2R−2g)', en: 'Segment 2 (vertical, |H1−H2|−2R−2g)')),
                 const SizedBox(height: 12),
                 _result(_seg3Controller,
-                  label: context.tr(pl: 'Odcinek 3 (poziomy, Y−R)', en: 'Segment 3 (horizontal, Y−R)')),
+                  label: context.tr(pl: 'Odcinek 3 (poziomy, Y−R−g)', en: 'Segment 3 (horizontal, Y−R−g)')),
                 const SizedBox(height: 16),
 
                 Container(
@@ -547,8 +682,8 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
               // welder knows what to weld on site. 2 elbows = 4 joints in this route.
               Text(
                 context.tr(
-                  pl: 'Spoiny: 4 złącza (zw. spoin obwodowych). Oznacz na izometryku FW – spoina montażowa (flaga), SW – spoina warsztatowa (kropka).',
-                  en: 'Welds: 4 joints (circumferential butts). Mark on iso as FW – field weld (open flag), SW – shop weld (filled dot).',
+                  pl: 'Spoiny: ${_endWelds ? 6 : 4} złącza (spoiny obwodowe doczołowe, szczelina g odjęta przy każdej). Oznacz na izometryku FW – spoina montażowa (flaga), SW – spoina warsztatowa (kropka).',
+                  en: 'Welds: ${_endWelds ? 6 : 4} joints (circumferential butts, gap g deducted at each). Mark on iso as FW – field weld (open flag), SW – shop weld (filled dot).',
                 ),
                 style: theme.textTheme.bodySmall,
               ),
@@ -641,13 +776,20 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
 
   void _showTotalFormulaDialog(BuildContext ctx) {
     final last = _last;
+    final gapsMm = last == null ? 0.0 : last.developedMm - last.total - last.arcsMm;
+    final gapsPl = gapsMm > 1e-9
+        ? ' + szczeliny ${last!.weldCount} × g (${_fmt(gapsMm)})'
+        : '';
+    final gapsEn = gapsMm > 1e-9
+        ? ' + gaps ${last!.weldCount} × g (${_fmt(gapsMm)})'
+        : '';
     final currentPl = last == null
         ? ''
-        : '\n\nDla bieżących danych: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)}) '
+        : '\n\nDla bieżących danych: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)})$gapsPl '
             '= ${_fmt(last.developedMm)} mm długości rozwiniętej.';
     final currentEn = last == null
         ? ''
-        : '\n\nFor the current inputs: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)}) '
+        : '\n\nFor the current inputs: ${_fmt(last.total)} + π·R (${_fmt(last.arcsMm)})$gapsEn '
             '= ${_fmt(last.developedMm)} mm developed length.';
     showDialog<void>(
       context: ctx,
@@ -657,9 +799,10 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
           child: Text(
             ctx.tr(
               pl: 'Suma = Odc.1 + Odc.2 + Odc.3 [mm]\n\n'
-                  'Odc.1 = X − R\n'
-                  'Odc.2 = |H1 − H2| − 2·R\n'
-                  'Odc.3 = Y − R\n\n'
+                  'Odc.1 = X − R − g\n'
+                  'Odc.2 = |H1 − H2| − 2·R − 2·g\n'
+                  'Odc.3 = Y − R − g\n'
+                  '(g = szczelina spoiny; ze spoinami na końcach trasy odc. 1 i 3 dodatkowo − g)\n\n'
                   'R = takeout kolanka 90° (centre-to-face). Dla LR 90°: R = CLR = wymiar A wg ASME B16.9 '
                   '(≈ 1,5 × NPS × 25,4; DN100 → 152 mm).\n\n'
                   'UWAGA: suma to długość prostych odcinków rury (bez łuków kolanek). '
@@ -667,9 +810,10 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                   '$currentPl\n\n'
                   'Jednostki: wszystkie wymiary i wynik w mm.',
               en: 'Total = Seg.1 + Seg.2 + Seg.3 [mm]\n\n'
-                  'Seg.1 = X − R\n'
-                  'Seg.2 = |H1 − H2| − 2·R\n'
-                  'Seg.3 = Y − R\n\n'
+                  'Seg.1 = X − R − g\n'
+                  'Seg.2 = |H1 − H2| − 2·R − 2·g\n'
+                  'Seg.3 = Y − R − g\n'
+                  '(g = weld gap; with welds at the route ends seg. 1 and 3 get another − g)\n\n'
                   'R = 90° elbow takeout (centre-to-face). For LR 90°: R = CLR = dimension A per ASME B16.9 '
                   '(≈ 1.5 × NPS × 25.4; DN100 → 152 mm).\n\n'
                   'NOTE: total is straight pipe length only (excludes elbow arcs). '
@@ -698,10 +842,15 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   );
 
   Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix, String? helper, FocusNode? focusNode}) {
+      {required String label,
+      String? suffix,
+      String? helper,
+      FocusNode? focusNode,
+      ValueChanged<String>? onChanged}) {
     return TextField(
       controller: ctrl,
       focusNode: focusNode,
+      onChanged: onChanged,
       keyboardType: numberKeyboard(),
       inputFormatters: numberInputFormatters(),
       decoration: InputDecoration(
