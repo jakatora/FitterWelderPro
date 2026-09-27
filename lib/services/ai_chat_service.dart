@@ -15,8 +15,10 @@ import 'premium_service.dart';
 // limitu (429) i budżetu AI (503); gdy włączy flagę AI_CHAT_REQUIRES_PREMIUM,
 // odpowiada 402. Każdy z tych przypadków dostaje własny komunikat
 // ([AiReplyKind]); brak sieci, 404 i inne błędy → wpis z pomocy offline.
-// Co wychodzi z telefonu: treść pytania, historia bieżącej rozmowy, język
-// interfejsu, device_id i nagłówki tożsamości instalacji.
+// Co wychodzi z telefonu: treść pytania, najwyżej [kChatHistoryMax] ostatnich
+// wpisów rozmowy (pary pytanie → odpowiedź modelu, bez bieżącego pytania —
+// [chatHistoryForRequest]), język interfejsu, device_id i nagłówki
+// tożsamości instalacji.
 //
 // Historia fazy 5a:
 // Phase 5a (this stub): client-side interface only. `sendMessage()` returns
@@ -86,6 +88,33 @@ class ChatMessage {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
+/// Ile ostatnich wpisów rozmowy (bez bieżącego pytania) idzie do `/ai/chat`.
+/// Ten sam limit ma backend (CHAT_HISTORY_MAX) — dłuższą historię przycina.
+const int kChatHistoryMax = 6;
+
+/// Historia do wysłania: same pary „pytanie → odpowiedź modelu" (bez
+/// powitania, pomocy offline, komunikatów o limitach i bez pytania, które
+/// jeszcze nie ma odpowiedzi — czyli bez bieżącego), najwyżej
+/// [kChatHistoryMax] ostatnich wpisów, zawsze od pytania użytkownika.
+List<ChatMessage> chatHistoryForRequest(List<ChatMessage> all,
+    {int max = kChatHistoryMax}) {
+  final pairs = <ChatMessage>[];
+  for (var i = 0; i + 1 < all.length; i++) {
+    final q = all[i];
+    final a = all[i + 1];
+    if (q.role == ChatRole.user &&
+        a.role == ChatRole.assistant &&
+        a.kind == AiReplyKind.live) {
+      pairs
+        ..add(q)
+        ..add(a);
+      i++;
+    }
+  }
+  final keep = max - max % 2; // pełne pary
+  return pairs.length <= keep ? pairs : pairs.sublist(pairs.length - keep);
+}
+
 class AiChatService {
   AiChatService._();
   static final AiChatService instance = AiChatService._();
@@ -131,7 +160,7 @@ class AiChatService {
             },
             body: jsonEncode({
               'message': trimmed,
-              'history': history
+              'history': chatHistoryForRequest(history)
                   .map((m) => {
                         'role': m.role.name,
                         'text': m.text,

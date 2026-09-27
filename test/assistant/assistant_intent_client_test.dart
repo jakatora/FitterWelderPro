@@ -141,6 +141,37 @@ void main() {
       expect(requests, isEmpty);
     });
 
+    test('intencje tylko lokalne nigdy nie idą na serwer (nawet ze zgodą)',
+        () async {
+      final engine = AssistantEngine(remoteAllowed: () async => true);
+      for (final text in [
+        'dopisz spoinę numer 12 do dziennika', // brak projektu → pytanie
+        'jaki prąd mam zapisany na nierdzewkę 2 mm',
+        'jaki prąd na TIG nierdzewka 2 mm',
+      ]) {
+        final out = await withServer(
+          () => engine.interpret(text, lang: AppLanguage.pl),
+          (_) async => fail('intencja lokalna nie może pytać serwera: $text'),
+        );
+        expect(out.usedRemote, isFalse, reason: text);
+        expect(out.check, isNotNull, reason: text);
+      }
+      expect(requests, isEmpty);
+    });
+
+    test('serwer nie może zwrócić intencji tylko lokalnej', () async {
+      final engine = AssistantEngine(remoteAllowed: () async => true);
+      final out = await withServer(
+        () => engine.interpret('coś niejasnego', lang: AppLanguage.pl),
+        (_) async => _json({
+          'intent': 'add_weld_journal_entry',
+          'fields': {'weld_no': '1', 'project': 'X'},
+        }),
+      );
+      expect((out.check as AssistantRejected).reason,
+          AssistantRejectReason.unknownIntent);
+    });
+
     test('nierozpoznane, bez zgody → nie pyta serwera', () async {
       final engine = AssistantEngine(remoteAllowed: () async => false);
       final out = await withServer(

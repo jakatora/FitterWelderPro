@@ -8,13 +8,19 @@ import '../assistant/assistant_engine.dart';
 import '../assistant/assistant_history.dart';
 import '../assistant/assistant_intent_client.dart';
 import '../assistant/assistant_intents.dart';
+import '../assistant/assistant_local_ops.dart';
 import '../assistant/assistant_tools.dart';
 import '../assistant/assistant_validator.dart';
 import '../assistant/speech_io.dart';
+import '../database/weld_journal_dao.dart';
 import '../database/weld_param_dao.dart';
+import '../domain/weld_journal/weld_defaults.dart';
+import '../domain/weld_journal/weld_entry.dart';
 import '../i18n/app_language.dart';
+import '../models/weld_param.dart';
 import '../services/ai_chat_service.dart';
 import '../services/legal_consent.dart';
+import '../services/welder_identity.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/community_gate.dart';
@@ -22,8 +28,10 @@ import '../widgets/tool_registry.dart';
 
 // Asystent tekstowy i głosowy (spec 2026-08-30 §6). Dwa tryby:
 //
-//   • „Wykonaj" — przygotowanie DOZWOLONEJ operacji (kAssistantIntentsV1):
-//     zapis parametru spawania do „Moje parametry" albo otwarcie narzędzia.
+//   • „Wykonaj" — przygotowanie DOZWOLONEJ operacji (kAssistantIntents):
+//     zapis parametru spawania do „Moje parametry", wpis do dziennika spoin,
+//     odczyt „Moich parametrów" (offline) albo otwarcie narzędzia. Pytanie
+//     („jaki prąd na…") przechodzi do trybu „Odpowiedz" — nigdy do zapisu.
 //     mowa → tekst (widoczny, edytowalny) → parser lokalny (offline) →
 //     [serwer /ai/intent tylko po zgodzie, gdy parser nie dał rady] →
 //     walidator → jedno pytanie przy braku pola → podsumowanie → „Zapisz" →
@@ -31,7 +39,9 @@ import '../widgets/tool_registry.dart';
 //     zapisuje.
 //   • „Odpowiedz" — pytania do modelu (/ai/chat). Treść wychodzi na serwer,
 //     więc przed pierwszym pytaniem bramka zgody (ensureServerConsent). Bez
-//     sieci — wpis z pomocy offline.
+//     zgody albo bez sieci — wpis z pomocy offline (lokalnie, nic nie
+//     wychodzi). Do serwera idzie najwyżej 6 ostatnich wpisów rozmowy, bez
+//     bieżącego pytania (chatHistoryForRequest).
 //
 // Asystent jest dostępny BEZ Premium (dawny PremiumGate zdjęty; limity pilnuje
 // backend: 402 / 429 / 503 mają własne komunikaty).
@@ -89,6 +99,7 @@ class AiChatScreen extends StatefulWidget {
     this.engine,
     this.chatSender,
     this.now,
+    this.welderStamp,
   });
 
   final AssistantMode initialMode;
@@ -107,6 +118,10 @@ class AiChatScreen extends StatefulWidget {
   /// Zegar do notatki źródłowej (testy).
   final DateTime Function()? now;
 
+  /// Stempel spawacza do wpisu w dzienniku (domyślnie tożsamość spawacza
+  /// zapisana w telefonie).
+  final Future<String> Function()? welderStamp;
+
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
 }
@@ -117,6 +132,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
   late final AssistantEngine _engine = widget.engine ?? AssistantEngine();
   final _dao = WeldParamDao();
+  final _journalDao = WeldJournalDao();
   final _history = AssistantHistoryStore.instance;
   static const _uuid = Uuid();
 
@@ -134,6 +150,16 @@ class _AiChatScreenState extends State<AiChatScreen>
   /// Całe polecenie razem z odpowiedziami na pytania — wraca do pola po
   /// „Popraw", żeby nie trzeba było dyktować wszystkiego od nowa.
   String _commandSoFar = '';
+
+  /// [_commandSoFar] sprzed ostatniej odpowiedzi — wraca po odmowie.
+  String _commandBeforeAnswer = '';
+
+  /// Ostatni projekt dziennika (podpowiedź „ten sam" przy pytaniu o projekt).
+  String _lastProject = '';
+
+  /// Wynik „Moich parametrów" (query_my_params); null = nie pokazujemy.
+  List<WeldParam>? _queryResults;
+  String _queryTitle = '';
   String? _question;
   String? _notice;
   bool _noticeIsError = false;
@@ -288,6 +314,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _question = null;
     _offerServer = false;
     _offerAsk = false;
+    _queryResults = null;
     if (clearText) {
       _cmdCtrl.clear();
       _voiceUsed = false;
@@ -295,8 +322,16 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _submitCommand() async {
-    final text = _cmdCtrl.text.trim();
+    var text = _cmdCtrl.text.trim();
     if (text.isEmpty || _busy) return;
+    // „Ten sam" na pytanie o projekt = ostatni projekt dziennika.
+    if (_pendingField == 'project' &&
+        _lastProject.isNotEmpty &&
+        RegExp(r'^(?:ten sam(?: projekt)?|tak|ostatni|the same|same|yes)[.!]?$',
+                caseSensitive: false)
+            .hasMatch(text)) {
+      text = _lastProject;
+    }
     if (_listening) {
       await _speech.stop();
       if (!mounted) return;
@@ -308,6 +343,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       _notice = null;
       _offerServer = false;
       _offerAsk = false;
+      _queryResults = null;
+      _commandBeforeAnswer = _commandSoFar;
       _commandSoFar =
           _pendingField == null ? text : '$_commandSoFar, $text';
     });
@@ -367,6 +404,23 @@ class _AiChatScreenState extends State<AiChatScreen>
             _noticeIsError = false;
           });
         }
+      case AssistantReadyToAnswer(:final text):
+        // Pytanie → tryb „Odpowiedz" (zgoda / pomoc offline jak zawsze).
+        setState(() {
+          _resetAct();
+          _notice = null;
+          _mode = AssistantMode.answer;
+          _inputCtrl.text = text;
+        });
+        await _send();
+      case AssistantReadyToQuery(:final criteria):
+        await _showMyParams(criteria);
+      case AssistantReadyToJournal(:final draft):
+        setState(() {
+          _question = null;
+          _pendingField = null;
+        });
+        await _prepareJournal(draft);
       case AssistantReadyToOpen(:final query):
         final tool = resolveToolQuery(query, lang);
         if (tool == null) {
@@ -381,7 +435,15 @@ class _AiChatScreenState extends State<AiChatScreen>
         setState(() => _resetAct());
         await openTool(context, tool);
       case AssistantNeedsField(:final intent, :final field):
-        final q = assistantQuestionFor(field, lang);
+        var q = assistantQuestionFor(field, lang);
+        if (field == 'project') {
+          _lastProject = await loadLastWeldProject();
+          if (!mounted) return;
+          if (_lastProject.isNotEmpty) {
+            q = _tr('$q Powiedz „ten sam", żeby wybrać: $_lastProject.',
+                '$q Say "the same" to use: $_lastProject.');
+          }
+        }
         setState(() {
           _pendingIntent = intent;
           _pendingField = field;
@@ -392,6 +454,21 @@ class _AiChatScreenState extends State<AiChatScreen>
           _noticeIsError = out.remoteRejected != null;
         });
         await _speak(q);
+      case AssistantRejected(:final reason, :final field)
+          when _pendingField != null && _pendingIntent != null:
+        // Odmowa ODPOWIEDZI na pytanie: polecenie zostaje, pytamy jeszcze raz.
+        setState(() {
+          _commandSoFar = _commandBeforeAnswer;
+          _cmdCtrl.clear();
+          _notice = [
+            _rejectText(reason, field, lang),
+            _tr('Polecenie zostaje — odpowiedz jeszcze raz.',
+                'The command stays — answer again.'),
+          ].join('\n');
+          _noticeIsError = true;
+        });
+        Haptic.error();
+        if (_question != null) await _speak(_question!);
       case AssistantRejected(:final reason, :final field):
         setState(() {
           _resetAct(clearText: false);
@@ -451,6 +528,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
     final undoLabel = _tr('Cofnij', 'Undo');
     final undoneText = _tr('Cofnięto — rekord usunięty.', 'Undone — record removed.');
+    final undoFailedText = _tr('Nie udało się cofnąć — rekord zostaje.',
+        'Could not undo — the record stays.');
     setState(() {
       _resetAct();
       _notice = null;
@@ -462,8 +541,187 @@ class _AiChatScreenState extends State<AiChatScreen>
       action: SnackBarAction(
         label: undoLabel,
         onPressed: () async {
-          await _dao.deleteById(entry.recordId);
+          try {
+            await _dao.deleteById(entry.recordId);
+          } catch (e) {
+            debugPrint('Assistant undo failed: $e');
+            messenger.showSnackBar(SnackBar(content: Text(undoFailedText)));
+            return;
+          }
           await _history.markUndone(entry.id);
+          messenger.showSnackBar(SnackBar(content: Text(undoneText)));
+        },
+      ),
+    ));
+  }
+
+  Future<String> _stamp() async {
+    final custom = widget.welderStamp;
+    if (custom != null) return custom();
+    try {
+      return (await WelderIdentityService.instance.get())?.stamp ?? '';
+    } catch (e) {
+      debugPrint('Assistant: welder identity failed: $e');
+      return '';
+    }
+  }
+
+  /// „Jaki prąd mam zapisany na…" — odczyt „Moich parametrów", offline.
+  Future<void> _showMyParams(Map<String, Object> criteria) async {
+    final lang = context.language;
+    List<WeldParam> all;
+    try {
+      all = await _dao.listAll();
+    } catch (e) {
+      debugPrint('Assistant query failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _resetAct(clearText: false);
+        _notice = _tr('Nie udało się odczytać zapisanych parametrów.',
+            'Could not read the saved parameters.');
+        _noticeIsError = true;
+      });
+      return;
+    }
+    if (!mounted) return;
+    final hits = findMyWeldParams(all, criteria);
+    setState(() {
+      _resetAct();
+      _notice = null;
+      _queryTitle = describeMyParamsQuery(criteria, lang);
+      _queryResults = hits;
+    });
+    await _speak(hits.isEmpty
+        ? _tr('Nie masz zapisanych parametrów dla: $_queryTitle.',
+            'No saved parameters for: $_queryTitle.')
+        : myWeldParamLine(hits.first, lang));
+  }
+
+  /// Wpis do dziennika: sprawdzenie numeru, podsumowanie, zapis po „Zapisz".
+  Future<void> _prepareJournal(WeldJournalDraft draft) async {
+    final lang = context.language;
+    List<WeldEntry> journal;
+    String stamp;
+    try {
+      journal = await _journalDao.listAll();
+      stamp = await _stamp();
+    } catch (e) {
+      debugPrint('Assistant journal read failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _resetAct(clearText: false);
+        _notice = _tr('Nie udało się odczytać dziennika spoin. Nic nie zapisano.',
+            'Could not read the weld journal. Nothing saved.');
+        _noticeIsError = true;
+      });
+      return;
+    }
+    if (!mounted) return;
+    final project = canonicalJournalProject(journal, draft.project);
+    if (isWeldNoTaken(journal, project: project, weldNo: draft.weldNo)) {
+      // Numer zajęty: projekt i WPS zostają, pytamy tylko o inny numer.
+      final q = assistantQuestionFor('weld_no', lang);
+      setState(() {
+        _pendingIntent = kIntentAddWeldJournalEntry;
+        _pendingField = 'weld_no';
+        _carried = {'project': project, if (draft.wps != null) 'wps': draft.wps};
+        _question = q;
+        _cmdCtrl.clear();
+        _notice = _tr(
+            'Spoina ${draft.weldNo} jest już w projekcie „$project". Nic nie zapisano — podaj inny numer.',
+            'Weld ${draft.weldNo} already exists in project "$project". Nothing saved — give another number.');
+        _noticeIsError = true;
+      });
+      Haptic.error();
+      await _speak(q);
+      return;
+    }
+    final at = _now();
+    final entry = buildAssistantWeldEntry(
+      WeldJournalDraft(weldNo: draft.weldNo, project: project, wps: draft.wps),
+      id: _uuid.v4(),
+      stamp: stamp,
+      at: at,
+      byVoice: _voiceUsed,
+      lang: lang,
+    );
+    final confirmed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => _JournalSummaryPage(entry: entry)),
+    );
+    if (!mounted) return;
+    if (confirmed != true) {
+      setState(() {
+        _resetAct(clearText: false);
+        _cmdCtrl.text = _commandSoFar;
+        _notice = _tr('Nic nie zapisano. Popraw polecenie i stuknij „Dalej".',
+            'Nothing saved. Edit the command and tap "Next".');
+        _noticeIsError = false;
+      });
+      return;
+    }
+    await _saveJournal(entry, stamp: stamp, at: at);
+  }
+
+  Future<void> _saveJournal(WeldEntry entry,
+      {required String stamp, required DateTime at}) async {
+    final lang = context.language;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _journalDao.insert(entry, by: stamp);
+    } catch (e) {
+      debugPrint('Assistant journal save failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _notice = _tr('Nie udało się zapisać — nic nie zostało zmienione.',
+            'Could not save — nothing was changed.');
+        _noticeIsError = true;
+      });
+      return;
+    }
+    await saveLastWeldProject(entry.projectName);
+    final history = AssistantHistoryEntry(
+      id: _uuid.v4(),
+      kind: kIntentAddWeldJournalEntry,
+      summary: [
+        '${lang == AppLanguage.en ? 'Weld' : 'Spoina'} ${entry.weldNo}',
+        entry.projectName,
+        if (entry.wpsRef.isNotEmpty) 'WPS ${entry.wpsRef}',
+        if (entry.welder.isNotEmpty) entry.welder,
+      ].join(' · '),
+      recordId: entry.id,
+      at: at,
+      byVoice: _voiceUsed,
+    );
+    await _history.add(history);
+    Haptic.saved();
+    if (!mounted) return;
+    final savedText = _tr('Dopisano do dziennika spoin — status „do badania"',
+        'Added to the weld journal — status "pending"');
+    final undoLabel = _tr('Cofnij', 'Undo');
+    final undoneText = _tr('Cofnięto — wpis oznaczony jako usunięty.',
+        'Undone — the entry is marked deleted.');
+    final undoFailedText = _tr('Nie udało się cofnąć — wpis zostaje.',
+        'Could not undo — the entry stays.');
+    setState(() {
+      _resetAct();
+      _notice = null;
+    });
+    unawaited(_speak(savedText));
+    messenger.showSnackBar(SnackBar(
+      content: Text(savedText),
+      duration: const Duration(seconds: 8),
+      action: SnackBarAction(
+        label: undoLabel,
+        onPressed: () async {
+          try {
+            // Dziennik to dowód — wpisu nie kasujemy, tylko oznaczamy.
+            await _journalDao.softDelete(entry.id, by: stamp);
+          } catch (e) {
+            debugPrint('Assistant journal undo failed: $e');
+            messenger.showSnackBar(SnackBar(content: Text(undoFailedText)));
+            return;
+          }
+          await _history.markUndone(history.id);
           messenger.showSnackBar(SnackBar(content: Text(undoneText)));
         },
       ),
@@ -485,6 +743,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       'gas' => en ? 'gas' : 'gaz',
       'joint' => en ? 'joint' : 'złącze',
       'query' => en ? 'tool' : 'narzędzie',
+      'purge_lpm' => en ? 'purge flow' : 'przepływ formowania',
+      'weld_no' => en ? 'weld number' : 'numer spoiny',
+      'project' => en ? 'project' : 'projekt',
+      'wps' => 'WPS',
       _ => field ?? '?',
     };
   }
@@ -607,21 +869,33 @@ class _AiChatScreenState extends State<AiChatScreen>
       setState(() => _listening = false);
     }
     // Treść pytania wychodzi na serwer — najpierw zgoda (bez wymogu imienia).
-    if (!await ensureServerConsent(context)) return;
+    // Bez zgody: pomoc offline z aplikacji, NIC nie wychodzi z telefonu.
+    final consented = await ensureServerConsent(context);
     if (!mounted) return;
 
+    // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
+    final history = chatHistoryForRequest(_messages);
     setState(() {
       _messages.add(ChatMessage(role: ChatRole.user, text: text));
       _inputCtrl.clear();
       _voiceUsed = false;
     });
+
+    if (!consented) {
+      final offline = AiChatService.instance.offlineReply(text);
+      setState(() => _messages.add(offline));
+      _scrollToBottom();
+      await _speak(offline.text);
+      return;
+    }
+
     _typing.value = true;
     _scrollToBottom();
 
     try {
       final sender = widget.chatSender ??
           (t, h) => AiChatService.instance.sendMessage(t, history: h);
-      final reply = await sender(text, List.of(_messages));
+      final reply = await sender(text, history);
       if (!mounted) return;
       setState(() => _messages.add(reply));
       _typing.value = false;
@@ -977,6 +1251,44 @@ class _AiChatScreenState extends State<AiChatScreen>
               ],
             ),
           ),
+        if (_queryResults != null) ...[
+          const SizedBox(height: 12),
+          _InfoCard(
+            key: const Key('assistant-query-results'),
+            children: [
+              Text(
+                _tr('Moje parametry: $_queryTitle',
+                    'My parameters: $_queryTitle'),
+                style: const TextStyle(
+                    color: _kTextPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              if (_queryResults!.isEmpty)
+                Text(
+                  _tr('Nic nie znalazłem w „Parametry — rury" → Moje.',
+                      'Nothing found in "Pipe parameters" → Mine.'),
+                  style: const TextStyle(color: _kTextSec, fontSize: 14.5),
+                ),
+              for (final p in _queryResults!)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(myWeldParamLine(p, context.language),
+                      style: const TextStyle(
+                          color: _kTextPrimary,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w600)),
+                ),
+              const SizedBox(height: 6),
+              Text(
+                _tr('Tylko odczyt — nic nie zmieniono.',
+                    'Read only — nothing was changed.'),
+                style: const TextStyle(color: _kTextMut, fontSize: 12.5),
+              ),
+            ],
+          ),
+        ],
         if (_notice != null) ...[
           const SizedBox(height: 12),
           _InfoCard(
@@ -1110,7 +1422,14 @@ class _SaveSummaryPage extends StatelessWidget {
       if (draft.flowLpm != null)
         (tr('Przepływ gazu', 'Gas flow'), '${n(draft.flowLpm!)} l/min'),
       if (draft.electrodeMm != null)
-        (tr('Elektroda', 'Electrode'), '${n(draft.electrodeMm!)} mm'),
+        (
+          draft.process == 'MIG_MAG'
+              ? tr('Drut (średnica)', 'Wire (diameter)')
+              : tr('Elektroda', 'Electrode'),
+          '${n(draft.electrodeMm!)} mm'
+        ),
+      if (draft.purgeLpm != null)
+        (tr('Formowanie', 'Purge'), '${n(draft.purgeLpm!)} l/min'),
       if (draft.joint != null)
         (tr('Złącze', 'Joint'), assistantJointLabel(draft.joint!, lang)),
       (tr('Notatka', 'Note'), note),
@@ -1211,6 +1530,125 @@ class _SaveSummaryPage extends StatelessWidget {
   }
 }
 
+/// Podsumowanie wpisu do dziennika spoin — zapis dopiero po „Zapisz".
+class _JournalSummaryPage extends StatelessWidget {
+  final WeldEntry entry;
+  const _JournalSummaryPage({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    String tr(String pl, String en) => context.tr(pl: pl, en: en);
+    final rows = <(String, String)>[
+      (tr('Nr spoiny', 'Weld no.'), entry.weldNo),
+      (tr('Projekt', 'Project'), entry.projectName),
+      ('WPS', entry.wpsRef.isEmpty ? tr('nie podano', 'not given') : entry.wpsRef),
+      (
+        tr('Spawacz (stempel)', 'Welder (stamp)'),
+        entry.welder.isEmpty
+            ? tr('brak — ustaw tożsamość spawacza', 'none — set up welder identity')
+            : entry.welder
+      ),
+      (tr('Data', 'Date'), entry.date),
+      (tr('Status', 'Status'), tr('do badania', 'pending')),
+      (tr('Notatka', 'Note'), entry.notes),
+    ];
+    return Scaffold(
+      backgroundColor: _kBg,
+      appBar: AppBar(
+        backgroundColor: _kCard,
+        title: Text(tr('Sprawdź i zapisz', 'Check and save')),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  Text(
+                    tr('Dopiszę dokładnie to do dziennika spoin:',
+                        'I will add exactly this to the weld journal:'),
+                    style: const TextStyle(
+                        color: _kTextPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  _InfoCard(
+                    key: const Key('assistant-journal-summary'),
+                    children: [
+                      for (final (label, value) in rows)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 130,
+                                child: Text(label,
+                                    style: const TextStyle(
+                                        color: _kTextSec, fontSize: 14)),
+                              ),
+                              Expanded(
+                                child: Text(value,
+                                    style: const TextStyle(
+                                        color: _kTextPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700)),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    tr('Resztę pól (linia, materiał, badania) uzupełnisz w dzienniku.',
+                        'Fill in the other fields (line, material, NDT) in the journal.'),
+                    style: const TextStyle(color: _kTextMut, fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 64,
+                      child: OutlinedButton(
+                        key: const Key('assistant-journal-edit'),
+                        onPressed: () => Navigator.pop(context, false),
+                        child: Text(tr('Popraw', 'Edit'),
+                            style: const TextStyle(fontSize: 17)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 64,
+                      child: FilledButton.icon(
+                        key: const Key('assistant-journal-save'),
+                        onPressed: () => Navigator.pop(context, true),
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(tr('Zapisz', 'Save'),
+                            style: const TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Historia zatwierdzonych operacji
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1266,10 +1704,16 @@ class _HistoryPage extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          e.undone
-                              ? tr('Zapis parametru — cofnięty',
-                                  'Parameter saved — undone')
-                              : tr('Zapis parametru', 'Parameter saved'),
+                          e.kind == kIntentAddWeldJournalEntry
+                              ? (e.undone
+                                  ? tr('Wpis do dziennika — cofnięty',
+                                      'Journal entry — undone')
+                                  : tr('Wpis do dziennika spoin',
+                                      'Weld journal entry'))
+                              : (e.undone
+                                  ? tr('Zapis parametru — cofnięty',
+                                      'Parameter saved — undone')
+                                  : tr('Zapis parametru', 'Parameter saved')),
                           style: const TextStyle(
                               color: _kTextPrimary,
                               fontWeight: FontWeight.w800),
