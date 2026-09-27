@@ -495,6 +495,29 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         (m != null
             ? isCrMoPNo(m.pNo)
             : isCrMoComposition(cr: _parse(_crCtrl), mo: _parse(_moCtrl)));
+    // EN 1011-2 zał. C metoda B — Q to energia liniowa wg EN 1011-1 (z η)
+    // z pierwszej zakładki, niezależnie od wybranej tam konwencji.
+    final qEn = heatInputKJPerMm(
+      volts: _parse(_voltsCtrl),
+      amps: _parse(_ampsCtrl),
+      travelMmPerMin: _parse(_travelCtrl),
+      standard: HeatInputStandard.en1011,
+      efficiency: _eta,
+    );
+    final cet = qEn == null
+        ? null
+        : en1011MethodBPreheat(
+            c: _parse(_cCtrl),
+            mn: _parse(_mnCtrl),
+            mo: _parse(_moCtrl),
+            cr: _parse(_crCtrl),
+            cu: _parse(_cuCtrl),
+            ni: _parse(_niCtrl),
+            v: _parse(_vCtrl),
+            thicknessMm: t,
+            hdMlPer100g: _hd,
+            heatInputKjMm: qEn,
+          );
     return _PreheatView(
       ce: ce,
       thicknessMm: t,
@@ -505,7 +528,39 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       seferianTotalCe: seferian?.totalCe,
       codeMinC: codeMin,
       codeMin2012C: codeMin2012,
+      cet: cet,
+      qEnKjMm: qEn,
     );
+  }
+
+  /// Wodór dyfundujący HD [ml/100 g] dla metody B (H5 / H10 / H15).
+  double _hd = 10;
+
+  String _cetNote(_PreheatView p) {
+    final r = p.cet;
+    if (p.qEnKjMm == null || r == null) {
+      return context.tr(
+        pl: 'Policz najpierw heat input (zakładka 1) — metoda B potrzebuje Q wg EN 1011-1.',
+        en: 'Calculate heat input first (tab 1) — method B needs Q per EN 1011-1.',
+      );
+    }
+    final q = p.qEnKjMm!.toStringAsFixed(2);
+    final base = context.tr(
+      pl: 'CET = ${r.cet.toStringAsFixed(3)} · HD = ${_hd.toStringAsFixed(0)} ml/100 g · Q = $q kJ/mm (EN 1011-1).',
+      en: 'CET = ${r.cet.toStringAsFixed(3)} · HD = ${_hd.toStringAsFixed(0)} ml/100 g · Q = $q kJ/mm (EN 1011-1).',
+    );
+    if (r.outOfRange.isEmpty) return base;
+    final why = [
+      for (final o in r.outOfRange)
+        switch (o) {
+          CetOutOfRange.cet => context.tr(pl: 'CET poza 0,2–0,5 %', en: 'CET outside 0.2–0.5 %'),
+          CetOutOfRange.thickness => context.tr(pl: 'grubość poza 10–90 mm', en: 'thickness outside 10–90 mm'),
+          CetOutOfRange.hydrogen => context.tr(pl: 'HD poza 1–20 ml/100 g', en: 'HD outside 1–20 ml/100 g'),
+          CetOutOfRange.heatInput => context.tr(pl: 'Q poza 0,5–4,0 kJ/mm', en: 'Q outside 0.5–4.0 kJ/mm'),
+          CetOutOfRange.composition => context.tr(pl: 'skład poza zakresem metody', en: 'chemistry outside the method range'),
+        },
+    ].join(', ');
+    return '$base ${context.tr(pl: 'Poza zakresem stosowania: $why.', en: 'Outside the scope: $why.')}';
   }
 
   String _ruleNote(CeRuleOfThumb r) {
@@ -1578,6 +1633,33 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   ),
                 ),
               if (p.ceMethods) ...[
+                // Normatywna metoda obliczeniowa — przed szacunkami.
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'EN 1011-2 zał. C, metoda B (CET, wodór, energia liniowa)',
+                    en: 'EN 1011-2 Annex C, method B (CET, hydrogen, heat input)',
+                  ),
+                  value: p.cet?.preheatC == null
+                      ? '—'
+                      : p.cet!.preheatC! <= 0
+                          ? '≤ 0 °C'
+                          : '${p.cet!.preheatC!.toStringAsFixed(0)} °C',
+                  hint: _cetNote(p),
+                ),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    for (final hd in const [5.0, 10.0, 15.0])
+                      ChoiceChip(
+                        label: Text('HD ${hd.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 11)),
+                        selected: _hd == hd,
+                        onSelected: (_) => setState(() => _hd = hd),
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
                 _MethodRow(
                   label: context.tr(
                     pl: 'Seferian (szacunek z chemii i grubości)',
@@ -1639,13 +1721,15 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'Te liczby odpowiadają na różne pytania, więc mogą się różnić: '
                       'minimum kodowe to dolna granica kodu rurociągowego dla grupy P-No i grubości, '
                       'Seferian i reguła CE szacują ryzyko pęknięć zimnych ze składu. '
-                      'Normatywne metody obliczeniowe: EN 1011-2 zał. C (metoda A — CE, metoda B — CET, '
-                      'z wodorem i energią liniową). Stosuj temperaturę z WPS; nie niższą niż minimum kodowe.',
+                      'Normatywne metody obliczeniowe: EN 1011-2 zał. C — metoda B (CET, z wodorem i energią liniową) '
+                      'liczona wyżej; metoda A (CE, nomogramy) — odczyt z normy. Stosuj temperaturę z WPS; '
+                      'nie niższą niż minimum kodowe.',
                   en: 'These numbers answer different questions, so they can differ: '
                       'the code minimum is the piping-code lower limit for the P-No and thickness, '
                       'Seferian and the CE rule estimate cold-cracking risk from chemistry. '
-                      'Normative calculation methods: EN 1011-2 Annex C (method A — CE, method B — CET, '
-                      'with hydrogen and heat input). Use the WPS temperature; never below the code minimum.',
+                      'Normative calculation methods: EN 1011-2 Annex C — method B (CET, with hydrogen and heat input) '
+                      'calculated above; method A (CE, nomograms) — read from the standard. Use the WPS temperature; '
+                      'never below the code minimum.',
                 ),
                 style: const TextStyle(color: _kTextSec, fontSize: 11, height: 1.45),
               ),
@@ -1816,6 +1900,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
       ],
       if (p.ceMethods) ...[
+        'EN 1011-2 C.3 (CET ${p.cet?.cet.toStringAsFixed(3) ?? '—'}, HD ${_hd.toStringAsFixed(0)}): '
+            '${p.cet?.preheatC == null ? '—' : '${p.cet!.preheatC!.toStringAsFixed(0)} °C'}',
         'Seferian: ${p.seferianC == null ? '—' : '${p.seferianC!.toStringAsFixed(0)} °C ([C] ${p.seferianTotalCe!.toStringAsFixed(3)})'}',
         context.tr(
           pl: 'Reguła CE: ${p.rule.preheatC.toStringAsFixed(0)} °C — ${_ruleNote(p.rule)}',
@@ -1889,7 +1975,13 @@ class _PreheatView {
 
   /// Cr-Mo / P91 (P-No 4, 5A, 5B, 5C, 15E): metody z CE ukryte.
   final bool crMo;
+
+  /// EN 1011-2 zał. C metoda B; null, gdy brak Q.
+  final CetPreheatResult? cet;
+  final double? qEnKjMm;
   const _PreheatView({
+    this.cet,
+    this.qEnKjMm,
     required this.ce,
     required this.thicknessMm,
     required this.stainless,

@@ -236,6 +236,49 @@ void main() {
     }
   });
 
+  // EN 1011-2:2001 zał. C metoda B (C.2, C.8 — tekst normy):
+  //  C 0,20 / Mn 1,50 → CET = 0,20 + 1,50/10 = 0,35
+  //  d = 20, HD = 5, Q = 1,5:
+  //   697·0,35 = 243,95; 160·tanh(20/35) = 160·0,516408 = 82,625;
+  //   62·5^0,35 = 62·1,756467 = 108,901; (53·0,35 − 32)·1,5 = −20,175
+  //   Tp = 243,95 + 82,625 + 108,901 − 20,175 − 328 = 87,30 °C
+  group('EN 1011-2 metoda B (CET)', () {
+    test('CET', () {
+      expect(carbonEquivalentCet(c: 0.2, mn: 1.5), closeTo(0.35, 1e-12));
+      expect(
+          carbonEquivalentCet(c: 0.1, mn: 1.0, mo: 0.2, cr: 0.4, cu: 0.2, ni: 0.8),
+          closeTo(0.1 + 0.12 + 0.03 + 0.02, 1e-12));
+    });
+    test('Tp = 87,3 °C', () {
+      final r = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: 5, heatInputKjMm: 1.5)!;
+      expect(r.cet, closeTo(0.35, 1e-12));
+      expect(r.preheatC, closeTo(87.30, 0.05));
+      expect(r.outOfRange, isEmpty);
+    });
+    test('więcej wodoru → wyżej; większe Q → niżej', () {
+      double tp({double hd = 5, double q = 1.5}) => en1011MethodBPreheat(
+              c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: hd, heatInputKjMm: q)!
+          .preheatC!;
+      expect(tp(hd: 15), greaterThan(tp(hd: 5)));
+      expect(tp(q: 3), lessThan(tp(q: 1)));
+    });
+    test('poza zakresem stosowania → brak Tp i przyczyny', () {
+      final thin = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 8, hdMlPer100g: 5, heatInputKjMm: 1.5)!;
+      expect(thin.preheatC, isNull);
+      expect(thin.outOfRange, [CetOutOfRange.thickness]);
+      final p91 = en1011MethodBPreheat(
+          c: 0.1, mn: 0.45, cr: 9, mo: 1, thicknessMm: 20, hdMlPer100g: 5,
+          heatInputKjMm: 1.5)!;
+      expect(p91.preheatC, isNull);
+      expect(p91.outOfRange, contains(CetOutOfRange.composition));
+      final lowQ = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: 5, heatInputKjMm: 0.3)!;
+      expect(lowQ.outOfRange, [CetOutOfRange.heatInput]);
+    });
+  });
+
   group('metody z CE nie dla Cr-Mo / P91', () {
     for (final (p, expected) in [
       ('1', false),

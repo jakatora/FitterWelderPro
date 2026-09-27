@@ -268,3 +268,92 @@ int? b313CurrentMinPreheatC({
   }
   return 10;
 }
+
+// ── EN 1011-2:2001 zał. C, metoda B (CET) ────────────────────────────────
+//
+// Sprawdzone w tekście normy (BS EN 1011-2:2001, C.3):
+//   CET = C + (Mn + Mo)/10 + (Cr + Cu)/20 + Ni/40   [%]            (C.2)
+//   Tp  = 697·CET + 160·tanh(d/35) + 62·HD^0,35 + (53·CET − 32)·Q − 328  (C.8)
+// Zakres stosowania (C.3.3): stale konstrukcyjne o Re do 1000 N/mm²,
+// CET 0,2–0,5 %, d 10–90 mm, HD 1–20 ml/100 g, Q 0,5–4,0 kJ/mm; skład
+// (C.3.2.1): C 0,05–0,32; Mn 0,5–1,9; Cr ≤ 1,5; Cu ≤ 0,7; Mo ≤ 0,75;
+// Ni ≤ 2,5; V ≤ 0,18. Grupy 1–4 wg CR ISO 15608. Dla złączy o różnej
+// grubości liczy się grubszą blachę (C.3.1). Q — energia liniowa wg
+// EN 1011-1 (z η).
+
+/// CET wg EN 1011-2 (C.2).
+double carbonEquivalentCet({
+  required double c,
+  required double mn,
+  double mo = 0,
+  double cr = 0,
+  double cu = 0,
+  double ni = 0,
+}) =>
+    c + (mn + mo) / 10.0 + (cr + cu) / 20.0 + ni / 40.0;
+
+/// Powód, dla którego metoda B nie ma zastosowania.
+enum CetOutOfRange { cet, thickness, hydrogen, heatInput, composition }
+
+class CetPreheatResult {
+  final double cet;
+
+  /// Tp [°C] albo `null`, gdy dane są poza zakresem stosowania metody.
+  final double? preheatC;
+  final List<CetOutOfRange> outOfRange;
+
+  const CetPreheatResult({
+    required this.cet,
+    required this.preheatC,
+    required this.outOfRange,
+  });
+}
+
+/// EN 1011-2 zał. C metoda B. Poza zakresem stosowania zwraca Tp = null
+/// z listą przyczyn — metoda nie ekstrapoluje.
+CetPreheatResult? en1011MethodBPreheat({
+  required double c,
+  required double mn,
+  double mo = 0,
+  double cr = 0,
+  double cu = 0,
+  double ni = 0,
+  double v = 0,
+  required double thicknessMm,
+  required double hdMlPer100g,
+  required double heatInputKjMm,
+}) {
+  final inputs = [c, mn, mo, cr, cu, ni, v, thicknessMm, hdMlPer100g, heatInputKjMm];
+  if (inputs.any((x) => !x.isFinite || x < 0)) return null;
+  final cet = carbonEquivalentCet(c: c, mn: mn, mo: mo, cr: cr, cu: cu, ni: ni);
+  final out = <CetOutOfRange>[
+    if (cet < 0.2 || cet > 0.5) CetOutOfRange.cet,
+    if (thicknessMm < 10 || thicknessMm > 90) CetOutOfRange.thickness,
+    if (hdMlPer100g < 1 || hdMlPer100g > 20) CetOutOfRange.hydrogen,
+    if (heatInputKjMm < 0.5 || heatInputKjMm > 4.0) CetOutOfRange.heatInput,
+    if (c < 0.05 ||
+        c > 0.32 ||
+        mn < 0.5 ||
+        mn > 1.9 ||
+        cr > 1.5 ||
+        cu > 0.7 ||
+        mo > 0.75 ||
+        ni > 2.5 ||
+        v > 0.18)
+      CetOutOfRange.composition,
+  ];
+  if (out.isNotEmpty) {
+    return CetPreheatResult(cet: cet, preheatC: null, outOfRange: out);
+  }
+  double tanh(double x) {
+    final e2 = math.exp(2 * x);
+    return (e2 - 1) / (e2 + 1);
+  }
+
+  final tp = 697 * cet +
+      160 * tanh(thicknessMm / 35) +
+      62 * math.pow(hdMlPer100g, 0.35) +
+      (53 * cet - 32) * heatInputKjMm -
+      328;
+  return CetPreheatResult(cet: cet, preheatC: tp, outOfRange: const []);
+}

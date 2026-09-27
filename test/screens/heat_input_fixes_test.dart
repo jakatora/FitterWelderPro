@@ -214,6 +214,26 @@ void main() {
       expect(find.textContaining('Seferian ('), findsNothing);
     });
 
+    // EN 1011-2 zał. C metoda B: domyślnie C 0,20 / Mn 1,00 → CET 0,30,
+    // t = 15 mm, SMAW 22 V / 110 A / 200 mm/min → Q = 0,5808 kJ/mm, HD 10:
+    //   697·0,30 = 209,1; 160·tanh(15/35) = 64,66; 62·10^0,35 = 138,80;
+    //   (53·0,30 − 32)·0,5808 = −9,35 → Tp = 75,2 °C → „75 °C”.
+    // HD 5: 62·5^0,35 = 108,90 → 45,3 → „45 °C”. t = 8 mm → poza zakresem.
+    testWidgets('EN 1011-2 metoda B liczona z Q z pierwszej zakładki',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.widgetWithText(Tab, 'Preheat / CE'));
+      await tester.pumpAndSettle();
+      expect(find.text('EN 1011-2 Annex C, method B (CET, hydrogen, heat input)'),
+          findsOneWidget);
+      expect(find.text('75 °C'), findsOneWidget);
+      await tester.tap(find.text('HD 5'));
+      await tester.pumpAndSettle();
+      expect(find.text('45 °C'), findsOneWidget);
+      await _enter(tester, 'Thickness', '8');
+      expect(find.textContaining('thickness outside 10–90 mm'), findsOneWidget);
+    });
+
     testWidgets('DN/SCH ustawia grubość do obliczeń', (tester) async {
       SharedPreferences.setMockInitialValues(
           {'heat_input_pipe_dn': 200, 'heat_input_pipe_sch': '80'});
