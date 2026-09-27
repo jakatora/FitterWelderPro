@@ -655,7 +655,11 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
           _error = _tr('CUT ≤ 0 — sprawdź wymiary', 'CUT ≤ 0 — check dimensions');
         }
       } catch (e) {
-        _error = '${_tr('Błąd', 'Error')}: $e';
+        // Not the raw "FormatException: bad number" — say what to do.
+        _error = _isoController.text.trim().isEmpty
+            ? _tr('Wpisz wymiar ISO', 'Enter the ISO dimension')
+            : _tr('Nieczytelny wymiar — użyj cyfr, przecinka i + − × ( )',
+                'Unreadable dimension — use digits, a decimal point and + − × ( )');
       }
     });
   }
@@ -964,7 +968,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                         'Dodaj: KOMP → RURA → KOMP  (lub OPEN_END na początku/końcu)',
                         'Add: COMP → PIPE → COMP  (or OPEN_END at start/end)',
                       ),
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF9BA3C7)),
                     ),
                     const SizedBox(height: 12),
 
@@ -1014,6 +1018,10 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                                           _isoMm = prevIsoMm;
                                           _cutMm = prevCutMm;
                                         });
+                                        // Recompute from what is on screen
+                                        // now: after a pick in between the
+                                        // restored CUT would be stale.
+                                        _recalc();
                                       },
                                     ),
                                   ));
@@ -1064,7 +1072,7 @@ class _SegmentBuilderScreenState extends State<SegmentBuilderScreen> {
                           'Wyrażenia są dozwolone, np. 3000+525-80',
                           'Expressions allowed, e.g. 3000+525-80',
                         ),
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF9BA3C7)),
                       ),
                       const SizedBox(height: 10),
                       TextField(
@@ -1202,7 +1210,7 @@ class _SequenceChip extends StatelessWidget {
     final refLbl = picked.refLabel(context);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.only(left: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF22263A),
         borderRadius: BorderRadius.circular(10),
@@ -1224,16 +1232,21 @@ class _SequenceChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(label,
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFE7ECF3))),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFE7ECF3))),
               if (refLbl.isNotEmpty)
                 Text(refLbl,
-                    style: const TextStyle(fontSize: 10, color: Color(0xFFFF8E1E))),
+                    style: const TextStyle(fontSize: 12, color: Color(0xFFFF8E1E))),
             ],
           ),
           const SizedBox(width: 6),
-          GestureDetector(
-            onTap: onRemove,
-            child: const Icon(Icons.close, size: 14, color: kTextMut),
+          // 48 dp target (it was a 14 px icon under a bare GestureDetector —
+          // hard to hit in gloves, and a miss hit the chip next to it).
+          IconButton(
+            tooltip: context.tr(pl: 'Usuń element', en: 'Remove item'),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            padding: EdgeInsets.zero,
+            onPressed: onRemove,
+            icon: const Icon(Icons.close, size: 22, color: kTextMut),
           ),
         ],
       ),
@@ -1279,7 +1292,7 @@ class _IsoVisualization extends StatelessWidget {
               const SizedBox(width: 6),
               Text(
                 context.tr(pl: 'Schemat pomiaru ISO', en: 'ISO measurement diagram'),
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF9BA3C7)),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF9BA3C7)),
               ),
             ],
           ),
@@ -1300,7 +1313,7 @@ class _IsoVisualization extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: Container(
-                  height: 38,
+                  height: 48,
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   decoration: BoxDecoration(
                     color: const Color(0xFF22263A),
@@ -1311,7 +1324,7 @@ class _IsoVisualization extends StatelessWidget {
                     child: Text(
                       context.tr(pl: 'RURA', en: 'PIPE'),
                       style: const TextStyle(
-                          fontSize: 10, color: Color(0xFFFF8E1E), fontWeight: FontWeight.w800),
+                          fontSize: 12, color: Color(0xFFFF8E1E), fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
@@ -1334,15 +1347,15 @@ class _IsoVisualization extends StatelessWidget {
             children: [
               Text(
                 startOff > 0 ? '← ${startOff.toStringAsFixed(1)} mm' : '← 0 mm',
-                style: const TextStyle(fontSize: 10, color: kTextMut),
+                style: const TextStyle(fontSize: 12, color: kTextMut),
               ),
               Text(
                 context.tr(pl: '── ISO ──', en: '── ISO ──'),
-                style: const TextStyle(fontSize: 10, color: Color(0xFF9BA3C7), letterSpacing: 1),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF9BA3C7), letterSpacing: 1),
               ),
               Text(
                 endOff > 0 ? '${endOff.toStringAsFixed(1)} mm →' : '0 mm →',
-                style: const TextStyle(fontSize: 10, color: kTextMut),
+                style: const TextStyle(fontSize: 12, color: kTextMut),
               ),
             ],
           ),
@@ -1355,7 +1368,7 @@ class _IsoVisualization extends StatelessWidget {
                 pl: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds sp.',
                 en: '+ gap: ${gapMm.toStringAsFixed(1)} mm × $welds welds',
               ),
-              style: const TextStyle(fontSize: 10, color: Color(0xFF4A9EFF)),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF4A9EFF)),
             ),
           ],
         ],
@@ -1376,7 +1389,7 @@ class _CompBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 38,
+      height: 48,
       margin: const EdgeInsets.symmetric(horizontal: 2),
       decoration: BoxDecoration(
         color: const Color(0xFF22263A),
@@ -1390,12 +1403,12 @@ class _CompBlock extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(label,
-                    style: const TextStyle(fontSize: 9, color: Color(0xFFE7ECF3)),
+                    style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3)),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
                 if (refLabel.isNotEmpty)
                   Text(refLabel,
-                      style: const TextStyle(fontSize: 8, color: Color(0xFFFF8E1E))),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFFFF8E1E))),
               ],
             ),
           ),
@@ -1510,8 +1523,8 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(child: Text(label, style: TextStyle(fontSize: 11, color: color))),
-          Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 13, color: color))),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: color)),
         ],
       ),
     );
@@ -1556,7 +1569,7 @@ class _RefPointSheet extends StatelessWidget {
                     Text(
                       'Ø${component.diameterMm.toStringAsFixed(1)}  t${component.wallThicknessMm.toStringAsFixed(1)}'
                       '${compLen != null ? "  L=${compLen.toStringAsFixed(1)} mm" : ""}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7)),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF9BA3C7)),
                     ),
                   ],
                 ),
@@ -1673,9 +1686,15 @@ class _RefOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    // InkWell, not a bare GestureDetector: the ripple confirms the hit in
+    // gloves.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: isDefault
@@ -1722,19 +1741,20 @@ class _RefOption extends StatelessWidget {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(context.tr(pl: 'domyślny', en: 'default'),
-                              style: const TextStyle(fontSize: 9, color: Color(0xFFFF8E1E))),
+                              style: const TextStyle(fontSize: 12, color: Color(0xFFFF8E1E))),
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(_desc(context),
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF9BA3C7))),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF9BA3C7))),
                 ],
               ),
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1752,7 +1772,7 @@ class _RefDiagram extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
+      height: 72,
       decoration: BoxDecoration(
         color: const Color(0xFF151821),
         borderRadius: BorderRadius.circular(10),
@@ -1830,7 +1850,7 @@ class _DiagramDot extends StatelessWidget {
         const SizedBox(height: 2),
         Text(label,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 7, color: color, height: 1.2)),
+            style: TextStyle(fontSize: 12, color: color, height: 1.1)),
       ],
     );
   }
@@ -1846,7 +1866,9 @@ class _ComponentPalette extends StatelessWidget {
       onTap: () => onTapType(type),
       borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        // ≥ 48 dp tall: the buttons were ~34 dp, below the glove target.
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: axial ? const Color(0xFF1A3040) : const Color(0xFF2A2520),
           borderRadius: BorderRadius.circular(18),
@@ -1864,7 +1886,7 @@ class _ComponentPalette extends StatelessWidget {
             else
               ComponentIcon(type: type, size: 18),
             const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3))),
+            Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFFE7ECF3))),
           ],
         ),
       ),

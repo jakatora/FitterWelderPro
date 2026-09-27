@@ -376,6 +376,19 @@ class ProjectDao {
     );
   }
 
+  /// Marks the project as just worked on: the project list is sorted by
+  /// `updated_at`, and adding / editing / deleting a segment used not to
+  /// move it — the project the fitter worked on today sank down the list.
+  Future<void> touch(String projectId) async {
+    final db = await AppDatabase.get();
+    await db.update(
+      'projects',
+      {'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [projectId],
+    );
+  }
+
   Future<void> updateName(String projectId, String name) async {
     final db = await AppDatabase.get();
     await db.update(
