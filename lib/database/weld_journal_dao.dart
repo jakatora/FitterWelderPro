@@ -78,8 +78,10 @@ class WeldJournalDao {
   /// A status change made here (in the editor) is logged as `STATUS`.
   ///
   /// [warning] as in [insert]; logged only when something was saved.
+  /// [unlockReason] — justification for editing an accepted weld, logged as
+  /// `UNLOCK` before the field changes.
   Future<List<WeldChange>> update(WeldEntry e,
-      {String by = '', String? warning}) async {
+      {String by = '', String? warning, String? unlockReason}) async {
     final db = await AppDatabase.get();
     return db.transaction((txn) async {
       final before = await _read(txn, e.id);
@@ -92,6 +94,10 @@ class WeldJournalDao {
       if (changes.isEmpty) return const <WeldChange>[];
       await txn.update(table, after.toRow(),
           where: 'id = ?', whereArgs: [e.id]);
+      final reason = unlockReason?.trim() ?? '';
+      if (reason.isNotEmpty) {
+        await _log(txn, e.id, by, WeldHistoryAction.unlock, newValue: reason);
+      }
       for (final c in changes) {
         await _log(
           txn,
@@ -111,8 +117,10 @@ class WeldJournalDao {
   }
 
   /// The explicit status action. Returns false when [status] is already the
-  /// stored one (nothing written).
-  Future<bool> setStatus(String id, String status, {String by = ''}) async {
+  /// stored one (nothing written). [warning] — the consistency warning the
+  /// user confirmed (logged as `CHECK`).
+  Future<bool> setStatus(String id, String status,
+      {String by = '', String? warning}) async {
     final db = await AppDatabase.get();
     return db.transaction((txn) async {
       final before = await _read(txn, id);
@@ -122,6 +130,7 @@ class WeldJournalDao {
           where: 'id = ?', whereArgs: [id]);
       await _log(txn, id, by, WeldHistoryAction.status,
           field: 'status', oldValue: before.status, newValue: status);
+      await _logWarning(txn, id, by, warning);
       return true;
     });
   }
@@ -182,6 +191,31 @@ class WeldJournalDao {
       }
       return plan.repair;
     });
+  }
+
+  /// Records a completed pre-weld checklist on weld [id] (`CHECKLIST`).
+  Future<void> addChecklist(String id, String summary, {String by = ''}) async {
+    final db = await AppDatabase.get();
+    await db.transaction((txn) async {
+      await _log(txn, id, by, WeldHistoryAction.checklist, newValue: summary);
+    });
+  }
+
+  /// History of many welds at once (PDF appendix): weld id → entries,
+  /// oldest first.
+  Future<Map<String, List<WeldHistoryEntry>>> historyFor(
+      Iterable<String> ids) async {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) return const {};
+    final db = await AppDatabase.get();
+    final rows = await db.query(historyTable, orderBy: 'at ASC, rowid ASC');
+    final out = <String, List<WeldHistoryEntry>>{};
+    for (final r in rows) {
+      final h = WeldHistoryEntry.fromRow(r);
+      if (!wanted.contains(h.weldId)) continue;
+      (out[h.weldId] ??= <WeldHistoryEntry>[]).add(h);
+    }
+    return out;
   }
 
   /// History of weld [id], newest first.

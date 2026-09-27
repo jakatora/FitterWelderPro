@@ -38,6 +38,35 @@ enum WpsStandard {
   }
 }
 
+/// Status dokumentu WPS (v25). Pusty = nie podano (wpis sprzed v25) —
+/// traktowany jak zatwierdzona, bez ostrzeżeń.
+enum WpsDocStatus {
+  unknown('', '—', '—'),
+
+  /// pWPS — wstępna instrukcja, jeszcze bez WPQR/PQR (ISO 15614-1 §3).
+  /// Wolno nią spawać tylko złącze próbne kwalifikacji.
+  preliminary('PWPS', 'pWPS (niezakwalifikowana)', 'pWPS (not qualified)'),
+
+  /// Zatwierdzona, obowiązująca.
+  approved('APPROVED', 'Zatwierdzona', 'Approved'),
+
+  /// Wycofana — nie wolno nią spawać nowych złączy.
+  withdrawn('WITHDRAWN', 'Wycofana', 'Withdrawn');
+
+  const WpsDocStatus(this.code, this.labelPl, this.labelEn);
+  final String code;
+  final String labelPl;
+  final String labelEn;
+
+  static WpsDocStatus fromCode(String? raw) {
+    final v = raw?.trim().toUpperCase() ?? '';
+    for (final s in WpsDocStatus.values) {
+      if (s.code == v) return s;
+    }
+    return WpsDocStatus.unknown;
+  }
+}
+
 /// Kod konwencji energii liniowej w bazie i w JSON-ie.
 String heatInputMethodCode(HeatInputStandard m) => switch (m) {
       HeatInputStandard.en1011 => 'EN',
@@ -113,6 +142,9 @@ class WpsRecord {
   final String pwht;
   final String notes;
 
+  /// Status dokumentu (v25): pWPS / zatwierdzona / wycofana.
+  final WpsDocStatus docStatus;
+
   /// Kopia pliku WPS (PDF / zdjęcie) w `<documents>/heat_photos`. Nie
   /// wchodzi do eksportu JSON — to ścieżka na TYM telefonie.
   final String? attachmentPath;
@@ -144,6 +176,7 @@ class WpsRecord {
     this.heatInputMethod = HeatInputStandard.en1011,
     this.pwht = '',
     this.notes = '',
+    this.docStatus = WpsDocStatus.unknown,
     this.attachmentPath,
     required this.createdAt,
     required this.updatedAt,
@@ -182,7 +215,23 @@ class WpsRecord {
         'attachment_path': attachmentPath,
         'created_at': createdAt,
         'updated_at': updatedAt,
+        'doc_status': docStatus.code.isEmpty ? null : docStatus.code,
       };
+
+  /// Treść WPS bez identyfikatora, znaczników czasu i ścieżki pliku — to,
+  /// co porównujemy, żeby wiedzieć, czy edycja zmieniła technologię.
+  Map<String, Object?> contentRow() => toRow()
+    ..remove('id')
+    ..remove('attachment_path')
+    ..remove('created_at')
+    ..remove('updated_at');
+
+  /// Ta sama treść technologiczna co [other].
+  bool sameContentAs(WpsRecord other) {
+    final a = contentRow();
+    final b = other.contentRow();
+    return a.keys.every((k) => '${a[k] ?? ''}' == '${b[k] ?? ''}');
+  }
 
   static WpsRecord fromRow(Map<String, Object?> r) => WpsRecord(
         id: r['id'] as String,
@@ -210,6 +259,7 @@ class WpsRecord {
                 HeatInputStandard.en1011,
         pwht: _text(r['pwht']),
         notes: _text(r['notes']),
+        docStatus: WpsDocStatus.fromCode(r['doc_status'] as String?),
         attachmentPath: _nullableText(r['attachment_path']),
         createdAt: (r['created_at'] as num?)?.toInt() ?? 0,
         updatedAt: (r['updated_at'] as num?)?.toInt() ?? 0,
@@ -245,10 +295,121 @@ class WpsRecord {
         heatInputMethod: heatInputMethod,
         pwht: pwht,
         notes: notes,
+        docStatus: docStatus,
         attachmentPath: attachmentPath,
         createdAt: now,
         updatedAt: now,
       );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Wersje treści WPS (v25, tabela `wps_versions`)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Jedna wersja treści WPS: snapshot wiersza obowiązujący od [validFrom].
+///
+/// WPS to dokument nadzorowany. Dawniej edycja (albo „Zastąp” przy
+/// imporcie) nadpisywała wiersz, a kontrola spoin liczyła się przy każdym
+/// otwarciu listy z BIEŻĄCEJ treści — poprawka zakresu „po cichu” zmieniała
+/// werdykt dla spoin wykonanych wcześniej. Teraz każda zmiana treści to nowa
+/// wersja, a spoina jest oceniana wg wersji obowiązującej w dniu spawania.
+class WpsVersion {
+  final String id;
+  final String wpsId;
+  final int versionNo;
+
+  /// Epoch ms, od kiedy ta treść obowiązuje (0 = „od zawsze” — wersja
+  /// sprzed historii albo pierwsza wpisana).
+  final int validFrom;
+  final WpsRecord snapshot;
+  final String byStamp;
+  final int createdAt;
+
+  const WpsVersion({
+    required this.id,
+    required this.wpsId,
+    required this.versionNo,
+    required this.validFrom,
+    required this.snapshot,
+    this.byStamp = '',
+    required this.createdAt,
+  });
+
+  Map<String, Object?> toRow() => <String, Object?>{
+        'id': id,
+        'wps_id': wpsId,
+        'version_no': versionNo,
+        'valid_from': validFrom,
+        'snapshot': jsonEncode(snapshot.toRow()),
+        'by_stamp': byStamp.isEmpty ? null : byStamp,
+        'created_at': createdAt,
+      };
+
+  /// `null` dla nieczytelnego snapshotu — jedna zepsuta wersja nie może
+  /// wywrócić kontroli całego dziennika.
+  static WpsVersion? fromRow(Map<String, Object?> r) {
+    try {
+      final decoded = jsonDecode(r['snapshot'] as String);
+      if (decoded is! Map) return null;
+      final row = <String, Object?>{
+        for (final e in decoded.entries) e.key.toString(): e.value,
+      };
+      row['id'] = r['wps_id'];
+      return WpsVersion(
+        id: r['id'] as String,
+        wpsId: r['wps_id'] as String,
+        versionNo: (r['version_no'] as num?)?.toInt() ?? 0,
+        validFrom: (r['valid_from'] as num?)?.toInt() ?? 0,
+        snapshot: WpsRecord.fromRow(row),
+        byStamp: (r['by_stamp'] as String?) ?? '',
+        createdAt: (r['created_at'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Treść [current] obowiązująca w dniu [weldDay].
+///
+/// [versions] — zapisane wersje tej WPS (dowolna kolejność). Gdy bieżący
+/// wiersz różni się od ostatniej wersji (np. odtworzony ze starszej kopii
+/// zapasowej), bieżąca treść jest traktowana jako najnowsza wersja od
+/// [WpsRecord.updatedAt]. Spoina sprzed pierwszej wersji (WPS wpisana do
+/// aplikacji później niż spawano) dostaje wersję najstarszą.
+WpsRecord wpsAsOf(
+  WpsRecord current,
+  Iterable<WpsVersion> versions,
+  DateTime weldDay,
+) {
+  final list = [
+    for (final v in versions)
+      if (v.wpsId == current.id) v,
+  ]..sort((a, b) {
+      final byTime = a.validFrom.compareTo(b.validFrom);
+      return byTime != 0 ? byTime : a.versionNo.compareTo(b.versionNo);
+    });
+  final timeline = <(int, WpsRecord)>[
+    for (final v in list) (v.validFrom, v.snapshot),
+  ];
+  if (timeline.isEmpty || !timeline.last.$2.sameContentAs(current)) {
+    timeline.add((timeline.isEmpty ? 0 : current.updatedAt, current));
+  }
+  // Koniec dnia spawania: wersja zapisana tego samego dnia już obowiązuje.
+  final endOfDay = DateTime(weldDay.year, weldDay.month, weldDay.day + 1)
+      .millisecondsSinceEpoch;
+  WpsRecord picked = timeline.first.$2;
+  for (final (from, record) in timeline) {
+    if (from < endOfDay) picked = record;
+  }
+  // Tożsamość i plik zawsze z bieżącego wiersza.
+  return WpsRecord.fromRow({
+    ...picked.toRow(),
+    'id': current.id,
+    'attachment_path': current.attachmentPath,
+    'created_at': current.createdAt,
+    'updated_at': current.updatedAt,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

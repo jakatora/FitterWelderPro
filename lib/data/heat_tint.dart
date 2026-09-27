@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Weld discoloration ("heat tint") reference for the inside of austenitic
 // stainless tube, modelled on AWS D18.1 / D18.2 sample discoloration levels.
@@ -41,7 +42,67 @@ class HeatTintLevel {
   });
 }
 
+/// Typowa ocena poziomu (orientacyjnie): pharma do poz. 2, spożywczy do
+/// poz. 4, 5–6 graniczne, od 7 odrzut. Legenda ekranu mówi DOKŁADNIE to samo
+/// co kafle — poziom 3 to „OK spożywczy” wszędzie.
 enum HeatTintVerdict { pharma, food, marginal, reject }
+
+/// Jeden kolor oceny dla ekranu przebarwień i edytora kuponu.
+Color heatTintVerdictColor(HeatTintVerdict v) => switch (v) {
+      HeatTintVerdict.pharma => const Color(0xFF2ECC71),
+      HeatTintVerdict.food => const Color(0xFF4A9EFF),
+      HeatTintVerdict.marginal => const Color(0xFFFF8E1E),
+      HeatTintVerdict.reject => const Color(0xFFE74C3C),
+    };
+
+/// Najwyższy poziom typowo akceptowany dla oceny [v] (do legendy).
+const int kPharmaTypicalMaxLevel = 2;
+const int kFoodTypicalMaxLevel = 4;
+
+// ─── Limit akceptacji projektu ───────────────────────────────────────────────
+//
+// Wiążący poziom podaje specyfikacja projektu (ASME BPE ma osobne kryteria
+// dla powierzchni elektropolerowanych i szlifowanych, 3-A / EHEDG własne).
+// Spawacz ustawia go raz; log kuponów ostrzega przy wyniku OK ponad limitem.
+
+/// Klucz preferencji z limitem (poziom 1–10).
+const String kHeatTintLimitPrefsKey = 'heat_tint_accept_limit_v1';
+
+/// Domyślnie: typowy limit spożywczy (poz. 4) — ostrzeżenie od poziomu 5.
+const int kDefaultHeatTintLimit = kFoodTypicalMaxLevel;
+
+/// Gotowe ustawienia limitu.
+enum HeatTintLimitPreset {
+  pharma(kPharmaTypicalMaxLevel, 'Pharma (typowo ≤ 2)', 'Pharma (typically ≤ 2)'),
+  food(kFoodTypicalMaxLevel, 'Spożywczy (typowo ≤ 4)', 'Food (typically ≤ 4)');
+
+  const HeatTintLimitPreset(this.maxLevel, this.labelPl, this.labelEn);
+  final int maxLevel;
+  final String labelPl;
+  final String labelEn;
+}
+
+int _clampLevel(int v) => v < 1 ? 1 : (v > 10 ? 10 : v);
+
+/// Limit akceptacji projektu; brak / błąd preferencji → [kDefaultHeatTintLimit].
+Future<int> loadHeatTintLimit() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getInt(kHeatTintLimitPrefsKey);
+    return v == null ? kDefaultHeatTintLimit : _clampLevel(v);
+  } catch (_) {
+    return kDefaultHeatTintLimit;
+  }
+}
+
+Future<void> saveHeatTintLimit(int level) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(kHeatTintLimitPrefsKey, _clampLevel(level));
+  } catch (_) {
+    // Brak preferencji — limit zostaje domyślny.
+  }
+}
 
 const List<HeatTintLevel> kHeatTintLevels = [
   HeatTintLevel(

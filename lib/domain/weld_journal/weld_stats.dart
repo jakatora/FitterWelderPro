@@ -14,6 +14,13 @@
 /// samples already marked"; which welds to take is the inspector's call, so
 /// nothing is selected automatically.
 ///
+/// The counter is kept PER METHOD (§341.3.4(a): the additional samples are
+/// examined "by the same method" as the rejected one — an extra RT does not
+/// answer a PT reject). A NOK with no scope recorded is NOT counted as a
+/// random reject: an empty scope means "unknown", not "spot sample" — it is
+/// reported separately ([WeldGroupStats.rejectsNoScope]) for the inspector
+/// to classify.
+///
 /// Pure Dart: no Flutter, no I/O.
 library;
 
@@ -41,6 +48,13 @@ class WeldGroupStats {
   /// Examinations marked as additional (§341.3.4) samples.
   final int progressiveSelected;
 
+  /// NOK results with no scope recorded — not counted for §341.3.4.
+  final int rejectsNoScope;
+
+  /// Random/spot rejects and additional samples per method.
+  final Map<NdtMethod, int> rejectsByMethod;
+  final Map<NdtMethod, int> progressiveByMethod;
+
   /// Target % of volumetric examination from the project settings, if any.
   final double? targetPct;
 
@@ -54,6 +68,9 @@ class WeldGroupStats {
     required this.repairs,
     required this.rejects,
     required this.progressiveSelected,
+    this.rejectsNoScope = 0,
+    this.rejectsByMethod = const {},
+    this.progressiveByMethod = const {},
     this.targetPct,
   });
 
@@ -63,10 +80,21 @@ class WeldGroupStats {
   /// Two additional examinations per reject.
   int get progressiveRequired => rejects * 2;
 
-  /// Additional examinations still to be done ("do dobadania").
-  int get toExamine {
-    final left = progressiveRequired - progressiveSelected;
+  /// Additional examinations still to be done by [m].
+  int toExamineBy(NdtMethod m) {
+    final left =
+        (rejectsByMethod[m] ?? 0) * 2 - (progressiveByMethod[m] ?? 0);
     return left < 0 ? 0 : left;
+  }
+
+  /// Additional examinations still to be done ("do dobadania"), summed per
+  /// method — an extra sample of another method does not count.
+  int get toExamine {
+    if (rejectsByMethod.isEmpty && progressiveByMethod.isEmpty) {
+      final left = progressiveRequired - progressiveSelected;
+      return left < 0 ? 0 : left;
+    }
+    return NdtMethod.values.fold(0, (sum, m) => sum + toExamineBy(m));
   }
 
   bool get belowTarget =>
@@ -97,7 +125,10 @@ class _Acc {
       repairedWelds = 0,
       repairs = 0,
       rejects = 0,
-      progressive = 0;
+      progressive = 0,
+      noScope = 0;
+  final Map<NdtMethod, int> rejByM = {};
+  final Map<NdtMethod, int> progByM = {};
   _Acc(this.key, [this.target]);
 
   void add(WeldEntry e) {
@@ -109,9 +140,28 @@ class _Acc {
     if (rtDone || utDone) vol++;
     if (e.repairs.isNotEmpty) repairedWelds++;
     repairs += e.repairs.length;
-    rejects += _randomRejects(e);
-    progressive +=
-        e.ndt.values.where((n) => n.scope == NdtScope.progressive).length;
+    void count(NdtMethod m, WeldNdt n) {
+      if (!n.isRejected) return;
+      if (n.scope.isEmpty) {
+        noScope++;
+      } else if (n.scope != NdtScope.required) {
+        rejects++;
+        rejByM[m] = (rejByM[m] ?? 0) + 1;
+      }
+    }
+
+    for (final x in e.ndt.entries) {
+      count(x.key, x.value);
+      if (x.value.scope == NdtScope.progressive) {
+        progressive++;
+        progByM[x.key] = (progByM[x.key] ?? 0) + 1;
+      }
+    }
+    for (final r in e.repairs) {
+      for (final x in r.prevNdt.entries) {
+        count(x.key, x.value);
+      }
+    }
   }
 
   WeldGroupStats build() => WeldGroupStats(
@@ -124,21 +174,17 @@ class _Acc {
         repairs: repairs,
         rejects: rejects,
         progressiveSelected: progressive,
+        rejectsNoScope: noScope,
+        rejectsByMethod: Map.unmodifiable(rejByM),
+        progressiveByMethod: Map.unmodifiable(progByM),
         targetPct: target,
       );
 }
 
-/// Rejects that trigger §341.3.4 on [e]: NOK in a random, spot or
-/// progressive sample — now, or in the state saved by a repair. A NOK under
-/// 100 % ("required") examination is repaired, not sampled further.
-int _randomRejects(WeldEntry e) {
-  bool counts(WeldNdt n) => n.isRejected && n.scope != NdtScope.required;
-  var n = e.ndt.values.where(counts).length;
-  for (final r in e.repairs) {
-    n += r.prevNdt.values.where(counts).length;
-  }
-  return n;
-}
+// Rejects that trigger §341.3.4: NOK in a random, spot or progressive sample
+// — now, or in the state saved by a repair. A NOK under 100 % ("required")
+// examination is repaired, not sampled further; a NOK with no scope is
+// unknown and counted apart (see the library doc).
 
 /// Groups by a trimmed, case-insensitive key; keeps the first-seen casing
 /// and the first-seen order.
@@ -212,6 +258,9 @@ WeldJournalStats computeWeldJournalStats(
             repairs: g.repairs,
             rejects: g.rejects,
             progressiveSelected: g.progressiveSelected,
+            rejectsNoScope: g.rejectsNoScope,
+            rejectsByMethod: g.rejectsByMethod,
+            progressiveByMethod: g.progressiveByMethod,
             targetPct: t,
           );
   }).toList();

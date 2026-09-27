@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'package:cut_list_app/domain/weld_journal/weld_history.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
 import 'package:cut_list_app/services/weld_journal_export.dart';
 
@@ -120,6 +121,56 @@ void main() {
       generatedAt: DateTime(2026, 9, 24),
     );
     expect(String.fromCharCodes((await doc.save()).take(5)), '%PDF-');
+  });
+
+  test(
+      'PDF z uwagami QC („zapisano mimo ostrzeżeń”) i dodatkiem z historią '
+      'zmian', () async {
+    final history = [
+      const WeldHistoryEntry(
+          id: 'h1',
+          weldId: 'w',
+          at: 1790000000000,
+          byStamp: 'JK-12',
+          action: WeldHistoryAction.create,
+          newValue: 'W-001'),
+      const WeldHistoryEntry(
+          id: 'h2',
+          weldId: 'w',
+          at: 1790000100000,
+          byStamp: 'JK-12',
+          action: WeldHistoryAction.check,
+          newValue: 'Zapisano mimo ostrzeżeń:\n• WPS X — Pozycja: PE'),
+      const WeldHistoryEntry(
+          id: 'h3',
+          weldId: 'w',
+          at: 1790000200000,
+          byStamp: 'QC',
+          action: WeldHistoryAction.status,
+          field: 'status',
+          oldValue: 'PENDING',
+          newValue: 'OK'),
+    ];
+    final remarks = weldQcRemarks(
+        current: const ['WPS X — Pozycja: PE — poza zakresem'],
+        history: history);
+    expect(remarks, hasLength(2));
+    expect(remarks.last, contains('Zapisano mimo ostrzeżeń'));
+    final lines = weldHistoryLines(history.reversed, en: false);
+    expect(lines.first, contains('Utworzono'));
+    expect(lines.last, contains('Status: PENDING → OK'));
+
+    final rec = WeldJournalRecord(
+        weldNo: 'W-001', status: 'OK', qcRemarks: remarks, history: lines);
+    expect(buildWeldJournalCsv([rec]), contains('poza zakresem'));
+    final doc = await WeldJournalExport.buildPdfDocument(
+      records: [rec, _rec(1)],
+      font: _font('Roboto-Regular.ttf'),
+      generatedAt: DateTime(2026, 9, 24),
+    );
+    expect(String.fromCharCodes((await doc.save()).take(5)), '%PDF-');
+    // Dodatek z historią zaczyna się na nowej stronie.
+    expect(doc.document.pdfPageList.pages.length, greaterThanOrEqualTo(3));
   });
 
   test('pusta selekcja daje dokument z informacją, nie wyjątek', () async {

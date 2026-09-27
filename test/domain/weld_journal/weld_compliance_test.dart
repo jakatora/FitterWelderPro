@@ -186,8 +186,16 @@ void main() {
     test('pełna nazwa z rewizją, sam numer (stary tekst), identyfikator', () {
       expect(resolveWpsRef('WPS-141-01 rev. B', [older, _wps])?.id, 'wps-1');
       expect(resolveWpsRef('wps-141-01 REV. a', [older, _wps])?.id, 'old');
-      // Sam numer → najnowsza zapisana rewizja.
-      expect(resolveWpsRef(' WPS-141-01 ', [older, _wps])?.id, 'wps-1');
+      // Sam numer przy kilku rewizjach → niejednoznaczne (nie najnowsza —
+      // rev. B mogła powstać po dacie spoiny).
+      expect(resolveWpsRef(' WPS-141-01 ', [older, _wps]), isNull);
+      expect(
+          resolveWpsRefDetailed(' WPS-141-01 ', [older, _wps])
+              .ambiguous
+              .map((w) => w.revision),
+          ['A', 'B']);
+      // Jedna rewizja w bibliotece → sam numer wystarcza.
+      expect(resolveWpsRef('WPS-141-01', [_wps])?.id, 'wps-1');
       expect(resolveWpsRef('cokolwiek', [older, _wps], wpsId: 'old')?.id,
           'old');
       expect(resolveWpsRef('WPS-999', [older, _wps]), isNull);
@@ -383,6 +391,105 @@ void main() {
         today: DateTime(2026, 3, 1),
       );
       expect(c.welderNotQualified, isFalse);
+    });
+  });
+
+  group('WPS: rewizje, wersje treści i status dokumentu (v25)', () {
+    final older = WpsRecord(
+        id: 'old', wpsNo: 'WPS-141-01', revision: 'A', createdAt: 0,
+        updatedAt: 1);
+
+    test('sam numer przy dwóch rewizjach → „nie da się porównać”, nie alarm',
+        () {
+      final c = _assess(_weld(wpsRef: 'WPS-141-01', position: 'PE'),
+          library: [older, _wps], certificates: const []);
+      expect(c.wps, isNull);
+      expect(c.ambiguousWps, hasLength(2));
+      expect(c.outsideWps, isFalse);
+      expect(c.wpsNeedsReview, isTrue);
+      expect(c.wpsNotInLibrary, isFalse);
+      expect(c.hasWarnings, isFalse);
+      expect(c.infoLines(en: false).join(), contains('kilka rewizji (A, B)'));
+    });
+
+    test('spoina zapamiętała wps_id — rozstrzyga bez tekstu', () {
+      final c = _assess(
+          _weld(wpsRef: 'WPS-141-01').copyWith(wpsId: 'old'),
+          library: [older, _wps],
+          certificates: const []);
+      expect(c.wps?.id, 'old');
+    });
+
+    test('edycja WPS po dniu spawania nie zmienia oceny dawnej spoiny', () {
+      // Wersja 1 (od zawsze): pozycje PA, PC, PF, PE. Wersja 2 od
+      // 2026-10-01: PA, PC, PF.
+      final v1 = WpsVersion(
+          id: 'v1',
+          wpsId: 'wps-1',
+          versionNo: 1,
+          validFrom: 0,
+          snapshot: WpsRecord.fromRow(
+              {..._wps.toRow(), 'positions': 'PA, PC, PF, PE'}),
+          createdAt: 0);
+      final v2 = WpsVersion(
+          id: 'v2',
+          wpsId: 'wps-1',
+          versionNo: 2,
+          validFrom: DateTime(2026, 10, 1).millisecondsSinceEpoch,
+          snapshot: _wps,
+          createdAt: 0);
+      WeldCompliance run(String date) => assessWeldCompliance(
+            entry: _weld(position: 'PE', date: date),
+            wpsLibrary: const [_wps],
+            certificates: [_cert(positions: 'wszystkie')],
+            today: DateTime(2026, 10, 5),
+            wpsVersions: {
+              'wps-1': [v1, v2]
+            },
+          );
+      final old = run('2026-09-20');
+      expect(old.outsideWps, isFalse);
+      expect(old.wpsOlderVersion, isTrue);
+      final fresh = run('2026-10-02');
+      expect(fresh.outsideWps, isTrue);
+      expect(fresh.wpsOlderVersion, isFalse);
+    });
+
+    test('bieżąca treść różna od ostatniej wersji → najnowsza od updated_at',
+        () {
+      final v1 = WpsVersion(
+          id: 'v1',
+          wpsId: 'wps-1',
+          versionNo: 1,
+          validFrom: 0,
+          snapshot:
+              WpsRecord.fromRow({..._wps.toRow(), 'positions': 'wszystkie'}),
+          createdAt: 0);
+      final current = WpsRecord.fromRow({
+        ..._wps.toRow(),
+        'updated_at': DateTime(2026, 9, 1).millisecondsSinceEpoch,
+      });
+      expect(wpsAsOf(current, [v1], DateTime(2026, 8, 31)).positions,
+          'wszystkie');
+      expect(wpsAsOf(current, [v1], DateTime(2026, 9, 1)).positions,
+          'PA, PC, PF');
+      // Bez wersji — bieżąca treść.
+      expect(wpsAsOf(current, const [], DateTime(2020)).positions,
+          'PA, PC, PF');
+    });
+
+    test('WPS wycofana → poza WPS; pWPS → do wyjaśnienia z ostrzeżeniem', () {
+      final withdrawn = WpsRecord.fromRow(
+          {..._wps.toRow(), 'doc_status': WpsDocStatus.withdrawn.code});
+      final c = _assess(_weld(), library: [withdrawn]);
+      expect(c.outsideWps, isTrue);
+      expect(c.warningLines(en: false).first, contains('wycofana'));
+      final pwps = WpsRecord.fromRow(
+          {..._wps.toRow(), 'doc_status': WpsDocStatus.preliminary.code});
+      final p = _assess(_weld(), library: [pwps]);
+      expect(p.outsideWps, isFalse);
+      expect(p.wpsNeedsReview, isTrue);
+      expect(p.hasWarnings, isTrue);
     });
   });
 }

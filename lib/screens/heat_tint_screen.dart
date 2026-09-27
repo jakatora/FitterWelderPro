@@ -6,17 +6,36 @@ import '../theme/app_theme.dart' show kTextMut;
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
-const _kGreen  = Color(0xFF2ECC71);
-const _kBlue   = Color(0xFF4A9EFF);
 const _kOrange = Color(0xFFFF8E1E);
 const _kRed    = Color(0xFFE74C3C);
 const _kSec    = Color(0xFF9BA3C7);
 const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 /// Weld discoloration chart — the welder reads the inside bead colour against
-/// the chart and gets a pass/fail verdict for food vs pharma acceptance.
-class HeatTintScreen extends StatelessWidget {
+/// the chart and gets a pass/fail verdict for food vs pharma acceptance, plus
+/// the project's own acceptance limit (the coupon log warns above it).
+class HeatTintScreen extends StatefulWidget {
   const HeatTintScreen({super.key});
+
+  @override
+  State<HeatTintScreen> createState() => _HeatTintScreenState();
+}
+
+class _HeatTintScreenState extends State<HeatTintScreen> {
+  int _limit = kDefaultHeatTintLimit;
+
+  @override
+  void initState() {
+    super.initState();
+    loadHeatTintLimit().then((v) {
+      if (mounted) setState(() => _limit = v);
+    });
+  }
+
+  Future<void> _setLimit(int v) async {
+    setState(() => _limit = v);
+    await saveHeatTintLimit(v);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +58,10 @@ class HeatTintScreen extends StatelessWidget {
             style: const TextStyle(color: _kSec, fontSize: 13, height: 1.45),
           ),
           const SizedBox(height: 14),
-          ...kHeatTintLevels.map((l) => _LevelTile(level: l)),
+          _LimitCard(limit: _limit, onChanged: _setLimit),
+          const SizedBox(height: 12),
+          ...kHeatTintLevels
+              .map((l) => _LevelTile(level: l, aboveLimit: l.level > _limit)),
           const SizedBox(height: 14),
           _LegendCard(),
           const SizedBox(height: 12),
@@ -79,14 +101,7 @@ class HeatTintScreen extends StatelessWidget {
   }
 }
 
-Color _verdictColor(HeatTintVerdict v) {
-  switch (v) {
-    case HeatTintVerdict.pharma:   return _kGreen;
-    case HeatTintVerdict.food:     return _kBlue;
-    case HeatTintVerdict.marginal: return _kOrange;
-    case HeatTintVerdict.reject:   return _kRed;
-  }
-}
+Color _verdictColor(HeatTintVerdict v) => heatTintVerdictColor(v);
 
 // A data row may ship the O₂ band as a "PL / EN" slash-pair. Split it so each
 // locale sees only its half (plain "~ 100 ppm" rows pass through unchanged).
@@ -113,7 +128,10 @@ String _verdictLabel(BuildContext context, HeatTintVerdict v) {
 
 class _LevelTile extends StatelessWidget {
   final HeatTintLevel level;
-  const _LevelTile({required this.level});
+
+  /// Poziom ponad limitem akceptacji projektu.
+  final bool aboveLimit;
+  const _LevelTile({required this.level, this.aboveLimit = false});
 
   @override
   Widget build(BuildContext context) {
@@ -164,6 +182,16 @@ class _LevelTile extends StatelessWidget {
                         color: _kSec,
                         fontSize: 12,
                         fontWeight: FontWeight.w600)),
+                if (aboveLimit)
+                  Text(
+                    context.tr(
+                        pl: 'ponad limit projektu',
+                        en: 'above the project limit'),
+                    style: const TextStyle(
+                        color: _kRed,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700),
+                  ),
               ],
             ),
           ),
@@ -238,13 +266,88 @@ class _LegendCard extends StatelessWidget {
           ]),
           Text(
             context.tr(
-              pl: 'Pharma zwykle do poz. 2–3, spożywczy do poz. 3–4. '
-                  'Graniczne → konsultuj z kontrolą jakości.',
-              en: 'Pharma typically up to level 2–3, food up to 3–4. '
-                  'Marginal → check with QC.',
+              pl: 'Pharma zwykle do poz. $kPharmaTypicalMaxLevel, spożywczy '
+                  'do poz. $kFoodTypicalMaxLevel (tak jak na kaflach). '
+                  'Graniczne → konsultuj z kontrolą jakości. Kolor na '
+                  'ekranie jest orientacyjny — porównuj z fizycznym '
+                  'wzornikiem AWS D18.2.',
+              en: 'Pharma typically up to level $kPharmaTypicalMaxLevel, food '
+                  'up to $kFoodTypicalMaxLevel (as on the tiles). Marginal → '
+                  'check with QC. Screen colour is indicative — compare with '
+                  'the physical AWS D18.2 chart.',
             ),
             style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Limit akceptacji projektu — wiążący wg specyfikacji; log kuponów
+/// ostrzega przy wyniku OK ponad nim.
+class _LimitCard extends StatelessWidget {
+  final int limit;
+  final ValueChanged<int> onChanged;
+  const _LimitCard({required this.limit, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final en = context.language == AppLanguage.en;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kCard,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.tr(
+                pl: 'Limit akceptacji projektu: poziom ≤ $limit',
+                en: 'Project acceptance limit: level ≤ $limit'),
+            style: const TextStyle(
+                color: Color(0xFFE7ECF3),
+                fontSize: 14,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            context.tr(
+                pl: 'Ustaw wg specyfikacji projektu (BPE, 3-A, klient). Log '
+                    'kuponów ostrzega, gdy kupon ponad limitem ma wynik OK.',
+                en: 'Set per the project specification (BPE, 3-A, client). '
+                    'The coupon log warns when a coupon above the limit is '
+                    'marked OK.'),
+            style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final p in HeatTintLimitPreset.values)
+              ChoiceChip(
+                label: Text(en ? p.labelEn : p.labelPl),
+                selected: limit == p.maxLevel,
+                onSelected: (_) => onChanged(p.maxLevel),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
+          ]),
+          const SizedBox(height: 4),
+          Row(children: [
+            Text(context.tr(pl: 'Własny:', en: 'Custom:'),
+                style: const TextStyle(color: _kSec, fontSize: 13)),
+            Expanded(
+              child: Slider(
+                value: limit.toDouble(),
+                min: 1,
+                max: 10,
+                divisions: 9,
+                label: '$limit',
+                onChanged: (v) => onChanged(v.round()),
+              ),
+            ),
+          ]),
         ],
       ),
     );

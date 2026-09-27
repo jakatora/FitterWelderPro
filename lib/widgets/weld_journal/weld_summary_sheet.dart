@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../domain/weld_journal/weld_ndt.dart';
 import '../../domain/weld_journal/weld_stats.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -21,6 +22,9 @@ String weldStatsLine(BuildContext context, WeldJournalStats s) {
     '${context.tr(pl: 'naprawy', en: 'repairs')} ${t.repairs}',
     if (toExamine > 0)
       '${context.tr(pl: 'do dobadania', en: 'to examine')} $toExamine',
+    if (t.rejectsNoScope > 0)
+      '${context.tr(pl: 'NOK bez zakresu', en: 'NOK without scope')} '
+          '${t.rejectsNoScope}',
   ].join(' · ');
 }
 
@@ -176,7 +180,14 @@ class _WeldSummary extends StatelessWidget {
               '${g.repairedWelds}/${g.welds} (${_pct(g.repairRatePct)})',
           '${context.tr(pl: 'odrzucone', en: 'rejected')} ${g.rejects}',
           '${context.tr(pl: 'do dobadania', en: 'to examine')} '
-              '${g.toExamine}',
+              '${g.toExamine}'
+              '${g.toExamine == 0 ? '' : ' (${[
+                  for (final m in NdtMethod.values)
+                    if (g.toExamineBy(m) > 0) '${m.code} ${g.toExamineBy(m)}',
+                ].join(', ')})'}',
+          if (g.rejectsNoScope > 0)
+            '${context.tr(pl: 'NOK bez zakresu — sklasyfikuj', en: 'NOK without scope — classify')} '
+                '${g.rejectsNoScope}',
         ].join(' · '),
         warn: g.toExamine > 0,
       );

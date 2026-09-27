@@ -15,6 +15,7 @@ import 'package:cut_list_app/database/coupon_dao.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/domain/weld_journal/coupon_entry.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_history.dart';
+import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/weld_journal_screen.dart';
 import 'package:cut_list_app/widgets/weld_journal/wj_ui.dart';
@@ -248,9 +249,14 @@ void main() {
     await tester.pump();
     await _settle(tester, rounds: 3);
     await tester.pumpAndSettle();
+    // Domyślnie tylko kupony z dnia spoiny (dziś) — kupon z 2026-09-20
+    // widać po wyłączeniu filtra.
+    expect(find.textContaining('M-3'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('coupon-picker-weld-day')));
+    await tester.pumpAndSettle();
     await tester.tap(find.textContaining('M-3'));
     await tester.pumpAndSettle();
-    expect(find.text('Powiązany z logiem kuponów'), findsOneWidget);
+    expect(find.textContaining('Kupon w logu: OK'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
     await tester.pump();
@@ -260,6 +266,108 @@ void main() {
     final w = (await tester.runAsync(() => WeldJournalDao().listAll()))!.single;
     expect(w.couponId, 'c-7');
     expect(w.couponRef, '2026-09-20 · M-3 · 2"×1.65 · P12 · OK');
+  });
+
+  testWidgets('kupon NOK: wyszarzony, podpięcie tylko z potwierdzeniem',
+      (tester) async {
+    await clear(tester);
+    await tester.runAsync(() async {
+      final db = await AppDatabase.get();
+      await db.delete('weld_coupons');
+      await CouponDao().insert(const CouponEntry(
+        id: 'c-bad',
+        date: '2026-09-20',
+        welder: 'JK-12',
+        machine: 'M-9',
+        size: '',
+        result: 'NOK',
+        notes: '',
+      ));
+    });
+    await _pumpScreen(tester);
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Badania NDT i kupon'));
+    await tester.tap(find.text('Badania NDT i kupon'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Wybierz z logu kuponów'));
+    await tester.tap(find.byTooltip('Wybierz z logu kuponów'));
+    await tester.pump();
+    await _settle(tester, rounds: 3);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('coupon-picker-weld-day')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('M-9'));
+    await tester.pumpAndSettle();
+    expect(find.text('Spoina na kuponie NOK?'), findsOneWidget);
+    await tester.tap(find.text('Anuluj').last);
+    await tester.pumpAndSettle();
+    // Nadal w pickerze — nic nie podpięto.
+    expect(find.textContaining('M-9'), findsOneWidget);
+    await tester.tap(find.textContaining('M-9'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Podepnij mimo to'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Kupon w logu: NOK'), findsOneWidget);
+  });
+
+  testWidgets(
+      'status OK przy RT NOK: jawne ostrzeżenie, „Zmień mimo to” idzie do '
+      'historii', (tester) async {
+    await clear(tester);
+    await _seed(tester, [
+      weld('w1', weldNo: 'W-001', status: 'PENDING', ndt: {
+        NdtMethod.rt: ndtOf(NdtScope.selected, NdtResult.nok, 'RT-7'),
+      }),
+    ]);
+    await _pumpScreen(tester);
+    expect(find.byKey(const ValueKey('weld-issues-w1')), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.pending_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK — przyjęta'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Zmień status'));
+    await tester.pumpAndSettle();
+    expect(find.text('Niespójny dokument odbiorowy'), findsOneWidget);
+    expect(find.textContaining('Status OK przy wyniku NDT NOK (RT)'),
+        findsOneWidget);
+    await tester.tap(find.text('Zmień mimo to'));
+    await tester.pumpAndSettle();
+    await _settle(tester);
+    await tester.pumpAndSettle();
+
+    expect((await _read(tester, 'w1'))!.status, 'OK');
+    final history =
+        (await tester.runAsync(() => WeldJournalDao().history('w1')))!;
+    expect(
+        history.any((h) =>
+            h.action == WeldHistoryAction.check &&
+            h.newValue.contains('niespójności')),
+        isTrue);
+    // Lista pokazuje niespójność.
+    expect(find.byKey(const ValueKey('weld-issues-w1')), findsOneWidget);
+  });
+
+  testWidgets('odebrana spoina: dane wykonania zablokowane, odblokowanie z '
+      'uzasadnieniem', (tester) async {
+    await clear(tester);
+    await _seed(tester, [
+      weld('w1', weldNo: 'W-001', status: 'OK')
+          .copyWith(inspector: 'J. Inspektor', inspectedAt: '2026-09-21'),
+    ]);
+    await _pumpScreen(tester);
+    await tester.tap(find.text('W-001'));
+    await tester.pumpAndSettle();
+    await _settle(tester, rounds: 3);
+    expect(find.byKey(const ValueKey('weld-locked-banner')), findsOneWidget);
+    await tester.tap(find.text('Odblokuj'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('weld-unlock-reason')), 'Korekta nr wytopu');
+    await tester.tap(find.text('Odblokuj').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('weld-locked-banner')), findsNothing);
   });
 
   testWidgets('duplikat numeru w projekcie wymaga potwierdzenia',

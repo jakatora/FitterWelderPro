@@ -127,22 +127,39 @@ String wpsRefOf(WpsRecord wps) => wps.displayName;
 
 String _key(String s) => s.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
 
+/// Wynik dopasowania wpisu WPS spoiny do biblioteki.
+class WpsResolution {
+  /// Dopasowana WPS; `null` = brak albo niejednoznaczność.
+  final WpsRecord? wps;
+
+  /// Sam numer bez rewizji, a w bibliotece jest kilka rewizji tej WPS —
+  /// kandydaci, z których spawacz musi wybrać. Pusta = jednoznacznie.
+  final List<WpsRecord> ambiguous;
+
+  const WpsResolution(this.wps, [this.ambiguous = const <WpsRecord>[]]);
+}
+
 /// WPS z [library], na którą wskazuje wpis dziennika: najpierw po [wpsId]
-/// (wybrana z listy w tej sesji edytora), potem po pełnej nazwie z rewizją
-/// („WPS-141-01 rev. B"), na końcu po samym numerze (stary wolny tekst) —
-/// przy kilku rewizjach najnowsza zapisana, tak jak `WpsDao.findByNumber`.
-WpsRecord? resolveWpsRef(
+/// (wybrana z listy — od v25 zapamiętana w spoinie), potem po pełnej nazwie
+/// z rewizją („WPS-141-01 rev. B”), na końcu po samym numerze (stary wolny
+/// tekst).
+///
+/// Sam numer przy KILKU rewizjach w bibliotece nie jest już dopasowywany do
+/// najnowszej: rev. B mogła powstać po dacie spoiny albo mieć węższy zakres.
+/// Wynik to [WpsResolution.ambiguous] — „nie da się porównać, wybierz
+/// rewizję”. Kilka wierszy o tej samej rewizji (duplikat) → najnowszy.
+WpsResolution resolveWpsRefDetailed(
   String wpsRef,
   Iterable<WpsRecord> library, {
   String? wpsId,
 }) {
   if (wpsId != null && wpsId.isNotEmpty) {
     for (final w in library) {
-      if (w.id == wpsId) return w;
+      if (w.id == wpsId) return WpsResolution(w);
     }
   }
   final ref = _key(wpsRef);
-  if (ref.isEmpty) return null;
+  if (ref.isEmpty) return const WpsResolution(null);
   WpsRecord? newest(Iterable<WpsRecord> xs) {
     WpsRecord? best;
     for (final w in xs) {
@@ -151,9 +168,24 @@ WpsRecord? resolveWpsRef(
     return best;
   }
 
-  return newest(library.where((w) => _key(w.displayName) == ref)) ??
-      newest(library.where((w) => _key(w.wpsNo) == ref));
+  final byName = newest(library.where((w) => _key(w.displayName) == ref));
+  if (byName != null) return WpsResolution(byName);
+  final byNo = library.where((w) => _key(w.wpsNo) == ref).toList();
+  final revisions = {for (final w in byNo) _key(w.revision)};
+  if (revisions.length > 1) {
+    return WpsResolution(null, byNo..sort((a, b) =>
+        a.revision.toUpperCase().compareTo(b.revision.toUpperCase())));
+  }
+  return WpsResolution(newest(byNo));
 }
+
+/// [resolveWpsRefDetailed] bez listy kandydatów.
+WpsRecord? resolveWpsRef(
+  String wpsRef,
+  Iterable<WpsRecord> library, {
+  String? wpsId,
+}) =>
+    resolveWpsRefDetailed(wpsRef, library, wpsId: wpsId).wps;
 
 // ─── Wynik kontroli ─────────────────────────────────────────────────────────
 
@@ -175,11 +207,19 @@ class WeldCompliance {
   /// Tekst z pola WPS spoiny (może być pusty).
   final String wpsRef;
 
-  /// WPS z biblioteki, którą sprawdzono; `null` = brak / nie znaleziono.
+  /// WPS z biblioteki, którą sprawdzono — w treści obowiązującej w dniu
+  /// spawania (wersje v25); `null` = brak / nie znaleziono / niejednoznaczna.
   final WpsRecord? wps;
   final List<RangeIssue> wpsIssues;
   final List<WelderStampCoverage> welders;
   final DateTime weldDate;
+
+  /// Kilka rewizji pasuje do samego numeru — nie porównano (v25).
+  final List<WpsRecord> ambiguousWps;
+
+  /// Oceniono wg starszej wersji treści WPS (obowiązującej w dniu spawania),
+  /// a nie bieżącej.
+  final bool wpsOlderVersion;
 
   const WeldCompliance({
     required this.wpsRef,
@@ -187,31 +227,59 @@ class WeldCompliance {
     required this.wpsIssues,
     required this.welders,
     required this.weldDate,
+    this.ambiguousWps = const <WpsRecord>[],
+    this.wpsOlderVersion = false,
   });
 
-  /// Spoina POZA zakresem WPS (co najmniej jeden parametr poza zakresem).
+  /// WPS wycofana w dniu spawania.
+  bool get wpsWithdrawn => wps?.docStatus == WpsDocStatus.withdrawn;
+
+  /// pWPS — procedura jeszcze niezakwalifikowana.
+  bool get wpsPreliminary => wps?.docStatus == WpsDocStatus.preliminary;
+
+  /// Spoina POZA zakresem WPS (co najmniej jeden parametr poza zakresem)
+  /// albo wykonana wg wycofanej WPS.
   bool get outsideWps =>
+      wpsWithdrawn ||
       wpsIssues.any((i) => i.severity == RangeIssueSeverity.outOfRange);
 
-  /// Coś w WPS do wyjaśnienia (np. energia w innej konwencji) — bez
-  /// stwierdzonej niezgodności.
-  bool get wpsNeedsReview => !outsideWps && wpsIssues.isNotEmpty;
+  /// Coś w WPS do wyjaśnienia (np. energia w innej konwencji, pozycja
+  /// w innym systemie, kilka rewizji, pWPS) — bez stwierdzonej niezgodności.
+  bool get wpsNeedsReview =>
+      !outsideWps &&
+      (wpsIssues.isNotEmpty || ambiguousWps.isNotEmpty || wpsPreliminary);
 
   /// Któryś spawacz spoiny nie miał w dniu spawania ważnego uprawnienia,
   /// które ją obejmuje.
   bool get welderNotQualified => welders.any((w) => w.notQualified);
 
   /// Jest o czym ostrzec przed zapisem.
-  bool get hasWarnings => wpsIssues.isNotEmpty || welderNotQualified;
+  bool get hasWarnings =>
+      wpsIssues.isNotEmpty ||
+      welderNotQualified ||
+      wpsWithdrawn ||
+      wpsPreliminary;
 
   /// Pole WPS wypełnione, ale takiej WPS nie ma w bibliotece.
-  bool get wpsNotInLibrary => wps == null && wpsRef.trim().isNotEmpty;
+  bool get wpsNotInLibrary =>
+      wps == null && ambiguousWps.isEmpty && wpsRef.trim().isNotEmpty;
 
   /// Punkty ostrzeżenia — po jednym na niezgodność.
   List<String> warningLines({required bool en}) {
     final out = <String>[];
     final w = wps;
     if (w != null) {
+      if (wpsWithdrawn) {
+        out.add(en
+            ? 'WPS ${w.displayName} was withdrawn on the weld date.'
+            : 'WPS ${w.displayName} była wycofana w dniu spawania.');
+      } else if (wpsPreliminary) {
+        out.add(en
+            ? 'WPS ${w.displayName} is a pWPS — not qualified yet (only a '
+                'qualification test piece may be welded to it).'
+            : 'WPS ${w.displayName} to pWPS — jeszcze niezakwalifikowana '
+                '(wolno nią spawać tylko złącze próbne kwalifikacji).');
+      }
       for (final i in wpsIssues) {
         out.add('WPS ${w.displayName} — ${en ? i.messageEn : i.messagePl}');
       }
@@ -244,12 +312,29 @@ class WeldCompliance {
       out.add(en
           ? 'No WPS chosen — the weld was not checked against a WPS.'
           : 'Nie wybrano WPS — spoiny nie porównano z WPS.');
+    } else if (ambiguousWps.isNotEmpty) {
+      final revs = ambiguousWps
+          .map((w) => w.revision.trim().isEmpty ? '—' : w.revision.trim())
+          .join(', ');
+      out.add(en
+          ? 'WPS "${wpsRef.trim()}" has several revisions in the library '
+              '($revs) — pick the revision on the weld card; range not '
+              'checked.'
+          : 'WPS „${wpsRef.trim()}" ma w bibliotece kilka rewizji ($revs) — '
+              'wybierz rewizję na karcie spoiny; zakresu nie sprawdzono.');
     } else if (wps == null) {
       out.add(en
           ? 'WPS "${wpsRef.trim()}" is not in the WPS library — range not '
               'checked.'
           : 'WPS „${wpsRef.trim()}" nie ma w Bibliotece WPS — zakresu nie '
               'sprawdzono.');
+    }
+    if (wps != null && wpsOlderVersion) {
+      out.add(en
+          ? 'Checked against the WPS content in force on the weld date (an '
+              'older version — the WPS was edited later).'
+          : 'Porównano z treścią WPS obowiązującą w dniu spawania (starsza '
+              'wersja — WPS edytowano później).');
     }
     for (final s in welders.where((s) => s.coverage.noCertificates)) {
       final who = s.stamp.isEmpty ? '' : ' ${s.stamp}';
@@ -320,10 +405,18 @@ WeldCompliance assessWeldCompliance({
   String? wpsId,
   required DateTime today,
   Map<String, List<JournalWeld>>? journalCache,
+  Map<String, List<WpsVersion>> wpsVersions = const {},
 }) {
   final weld = weldParametersOf(entry);
   final date = weldDateOf(entry, fallback: today);
-  final wps = resolveWpsRef(entry.wpsRef, wpsLibrary, wpsId: wpsId);
+  final resolution = resolveWpsRefDetailed(entry.wpsRef, wpsLibrary,
+      wpsId: wpsId ?? entry.wpsId);
+  final current = resolution.wps;
+  // Treść WPS z dnia spawania — edycja WPS nie zmienia werdyktu dawnych
+  // spoin.
+  final wps = current == null
+      ? null
+      : wpsAsOf(current, wpsVersions[current.id] ?? const [], date);
   final certList = certificates.toList(growable: false);
   final welders = <WelderStampCoverage>[];
   for (final s in stampsToCheck(entry)) {
@@ -353,6 +446,8 @@ WeldCompliance assessWeldCompliance({
         wps == null ? const <RangeIssue>[] : checkWeldAgainstWps(weld, wps),
     welders: welders,
     weldDate: date,
+    ambiguousWps: resolution.ambiguous,
+    wpsOlderVersion: wps != null && !wps.sameContentAs(current!),
   );
 }
 

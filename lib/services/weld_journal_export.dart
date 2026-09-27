@@ -33,6 +33,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../domain/weld_journal/weld_entry.dart';
 import '../domain/weld_journal/weld_filter.dart';
+import '../domain/weld_journal/weld_history.dart';
 import '../domain/weld_journal/weld_journal_settings.dart';
 import '../domain/weld_journal/weld_ndt.dart';
 
@@ -109,6 +110,16 @@ class WeldJournalRecord {
   /// Soft-deleted entry (only exported from the "deleted" view).
   final bool deleted;
 
+  /// QC remarks (v25): current WPS / qualification / document-consistency
+  /// warnings and every "saved despite warnings" decision from the history.
+  /// An inspector reading the data book must see that a weld was saved
+  /// outside the WPS.
+  final List<String> qcRemarks;
+
+  /// Change history lines, oldest first (PDF appendix), e.g.
+  /// `2026-09-24 14:05 · JK-12 · Edycja · Status: PENDING → OK`.
+  final List<String> history;
+
   const WeldJournalRecord({
     required this.weldNo,
     this.projectName = '',
@@ -150,13 +161,22 @@ class WeldJournalRecord {
     this.inspector = '',
     this.inspectedAt = '',
     this.deleted = false,
+    this.qcRemarks = const [],
+    this.history = const [],
   });
 
   WeldNdt ndtOf(NdtMethod m) => ndt[m] ?? const WeldNdt();
 }
 
 /// Immutable export snapshot of [e], written out field by field.
-WeldJournalRecord weldJournalRecordOf(WeldEntry e) => WeldJournalRecord(
+/// [qcRemarks] and [history] come from the screen (compliance check and the
+/// history table) — see [weldQcRemarks] and [weldHistoryLines].
+WeldJournalRecord weldJournalRecordOf(
+  WeldEntry e, {
+  List<String> qcRemarks = const [],
+  List<String> history = const [],
+}) =>
+    WeldJournalRecord(
       weldNo: e.weldNo,
       projectName: e.projectName,
       pipeName: e.pipeName,
@@ -197,7 +217,59 @@ WeldJournalRecord weldJournalRecordOf(WeldEntry e) => WeldJournalRecord(
       inspector: e.inspector,
       inspectedAt: e.inspectedAt,
       deleted: e.isDeleted,
+      qcRemarks: qcRemarks,
+      history: history,
     );
+
+/// History of one weld as export lines, oldest first.
+List<String> weldHistoryLines(Iterable<WeldHistoryEntry> entries,
+    {required bool en}) {
+  final sorted = [...entries]..sort((a, b) => a.at.compareTo(b.at));
+  return [
+    for (final h in sorted)
+      [
+        formatHistoryTime(h.at),
+        if (h.byStamp.isNotEmpty) h.byStamp,
+        weldHistoryActionLabel(h.action, en: en),
+        if (h.field.isNotEmpty && h.field != 'repair')
+          '${weldFieldLabel(h.field, en: en)}: '
+              '${weldFieldDisplayValue(h.field, h.oldValue, en: en)} → '
+              '${weldFieldDisplayValue(h.field, h.newValue, en: en)}'
+        else if (h.newValue.isNotEmpty || h.oldValue.isNotEmpty)
+          (h.newValue.isNotEmpty ? h.newValue : h.oldValue)
+              .replaceAll('\n', ' '),
+      ].join(' · '),
+  ];
+}
+
+/// QC remarks of a weld: [current] warnings (compliance / consistency, as
+/// shown on the card) plus every `CHECK` ("saved despite warnings") entry of
+/// its history, deduplicated, in that order.
+List<String> weldQcRemarks({
+  Iterable<String> current = const [],
+  Iterable<WeldHistoryEntry> history = const [],
+}) {
+  final out = <String>[];
+  final seen = <String>{};
+  void add(String s) {
+    final t = s.trim();
+    if (t.isNotEmpty && seen.add(t)) out.add(t);
+  }
+
+  for (final c in current) {
+    add(c);
+  }
+  final checks = history
+      .where((h) => h.action == WeldHistoryAction.check)
+      .toList()
+    ..sort((a, b) => a.at.compareTo(b.at));
+  for (final h in checks) {
+    add('${formatHistoryTime(h.at)}'
+        '${h.byStamp.isEmpty ? '' : ' ${h.byStamp}'}: '
+        '${h.newValue.replaceAll('\n', ' ')}');
+  }
+  return out;
+}
 
 extension WeldEntryExport on WeldEntry {
   WeldJournalRecord toExportRecord() => weldJournalRecordOf(this);
@@ -206,8 +278,16 @@ extension WeldEntryExport on WeldEntry {
 /// Rows handed to the exporter for [filter] — exactly `filterWeldEntries`,
 /// mapped to export records, order preserved.
 List<WeldJournalRecord> weldJournalExportRecords(
-        List<WeldEntry> entries, WeldJournalFilter filter) =>
-    filterWeldEntries(entries, filter).map(weldJournalRecordOf).toList();
+  List<WeldEntry> entries,
+  WeldJournalFilter filter, {
+  Map<String, List<String>> qcRemarks = const {},
+  Map<String, List<String>> history = const {},
+}) =>
+    filterWeldEntries(entries, filter)
+        .map((e) => weldJournalRecordOf(e,
+            qcRemarks: qcRemarks[e.id] ?? const [],
+            history: history[e.id] ?? const []))
+        .toList();
 
 /// Field separator. Semicolon, not comma: Polish Windows Excel opens a
 /// comma-separated file as one squashed column, and this file is printed and
@@ -286,6 +366,8 @@ final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Odbiór — inspektor / Accepted by', (r) => r.inspector),
   _CsvColumn('Odbiór — data / Acceptance date', (r) => r.inspectedAt),
   _CsvColumn('Usunięta / Deleted', (r) => r.deleted ? 'TAK / YES' : ''),
+  // ---- v25
+  _CsvColumn('Uwagi QC / QC remarks', (r) => r.qcRemarks.join(' | ')),
 ];
 
 /// Header labels in export order. Exposed so a test can pin the order down —
@@ -696,6 +778,19 @@ class WeldJournalExport {
           _sectionTitle('2. Badania NDT, naprawy, PWHT i odbiór / '
               'NDT, repairs, PWHT and acceptance'),
           _ndtTable(records),
+          if (records.any((r) => r.qcRemarks.isNotEmpty)) ...[
+            pw.SizedBox(height: 10),
+            _sectionTitle('3. Uwagi QC — ostrzeżenia i „zapisano mimo '
+                'ostrzeżeń” / QC remarks — warnings and "saved despite '
+                'warnings"'),
+            _remarksTable(records),
+          ],
+          if (records.any((r) => r.history.isNotEmpty)) ...[
+            pw.NewPage(),
+            _sectionTitle('4. Historia zmian (dodatek) / Change history '
+                '(appendix)'),
+            _historyTable(records),
+          ],
         ],
         pw.SizedBox(height: 10),
         _legend(),
@@ -960,6 +1055,42 @@ class WeldJournalExport {
           ]),
     );
   }
+
+  // ── Table 3: QC remarks ───────────────────────────────────────────────────
+  static pw.Widget _remarksTable(List<WeldJournalRecord> records) => _table(
+        headers: const ['Nr / No.', 'Uwagi QC / QC remarks', 'Status'],
+        widths: const {
+          0: pw.FixedColumnWidth(46),
+          1: pw.FlexColumnWidth(8),
+          2: pw.FixedColumnWidth(38),
+        },
+        rows: [
+          for (final r in records)
+            if (r.qcRemarks.isNotEmpty)
+              [
+                _cell(r.weldNo, bold: true),
+                _cell(r.qcRemarks.map((l) => '• $l').join('\n'),
+                    color: _kNokInk),
+                _statusCell(r),
+              ],
+        ],
+      );
+
+  // ── Appendix: change history ──────────────────────────────────────────────
+  static pw.Widget _historyTable(List<WeldJournalRecord> records) => _table(
+        headers: const [
+          'Nr / No.',
+          'Kiedy · kto · co · było → jest / When · who · what · was → is',
+        ],
+        widths: const {
+          0: pw.FixedColumnWidth(46),
+          1: pw.FlexColumnWidth(10),
+        },
+        rows: [
+          for (final r in records)
+            for (final l in r.history) [_cell(r.weldNo, bold: true), _cell(l)],
+        ],
+      );
 
   static pw.Widget _table({
     required List<String> headers,

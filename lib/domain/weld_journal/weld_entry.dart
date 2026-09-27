@@ -131,6 +131,10 @@ class WeldEntry {
   final String exam;
   final String wpsRef;
 
+  /// `wps_library.id` of the WPS picked from the library (v25); null for a
+  /// number typed by hand — then [wpsRef] is matched to the library by text.
+  final String? wpsId;
+
   /// PWHT required: null = not stated, true / false.
   final bool? pwhtRequired;
   final String pwhtChart;
@@ -172,6 +176,7 @@ class WeldEntry {
     this.couponRef = '',
     this.exam = '',
     this.wpsRef = '',
+    this.wpsId,
     this.projectId,
     this.isoDrawing = '',
     this.isoRev = '',
@@ -266,6 +271,8 @@ class WeldEntry {
         'inspected_at': inspectedAt,
         'deleted_at': deletedAt,
         ...ndtToRow(ndt),
+        // ---- v25
+        'wps_id': wpsId,
       };
 
   static String _s(Object? v) => v is String ? v : (v == null ? '' : '$v');
@@ -293,6 +300,7 @@ class WeldEntry {
       couponRef: _s(r['coupon_ref']),
       exam: _s(r['exam']),
       wpsRef: _s(r['wps_ref']),
+      wpsId: r['wps_id'] as String?,
       projectId: r['project_id'] as String?,
       isoDrawing: _s(r['iso_drawing']),
       isoRev: _s(r['iso_rev']),
@@ -322,7 +330,8 @@ class WeldEntry {
   /// Every field an inspector can see, as the strings the history log
   /// compares and stores. Keys are the column names, in column order.
   ///
-  /// Left out on purpose: `id`; `project_id` and `coupon_id` (internal links —
+  /// Left out on purpose: `id`; `project_id`, `coupon_id` and `wps_id`
+  /// (internal links —
   /// the visible project / coupon text is logged instead); `deleted_at`
   /// (deleting and restoring are their own history actions).
   Map<String, String> auditFields() {
@@ -370,6 +379,7 @@ class WeldEntry {
     Object? couponId = _keep,
     String? exam,
     String? wpsRef,
+    Object? wpsId = _keep,
     Object? pwhtRequired = _keep,
     String? pwhtChart,
     String? hardness,
@@ -418,6 +428,7 @@ class WeldEntry {
             identical(couponId, _keep) ? this.couponId : couponId as String?,
         exam: exam ?? this.exam,
         wpsRef: wpsRef ?? this.wpsRef,
+        wpsId: identical(wpsId, _keep) ? this.wpsId : wpsId as String?,
         pwhtRequired: identical(pwhtRequired, _keep)
             ? this.pwhtRequired
             : pwhtRequired as bool?,

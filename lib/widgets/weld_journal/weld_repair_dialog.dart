@@ -84,10 +84,15 @@ class _WeldRepairDialogState extends State<_WeldRepairDialog> {
               context.tr(
                 pl: 'Poprzedni status i wyniki NDT zostaną zapisane w '
                     'naprawie ${widget.nextLabel}. Spoina wróci do statusu '
-                    '„Oczekuje” i do ponownego badania tymi samymi metodami.',
+                    '„Oczekuje” i do ponownego badania tymi samymi metodami. '
+                    'Odbiór inspektora, nr wykresu PWHT i twardość zostaną '
+                    'wyczyszczone (stare wartości zostają w naprawie i w '
+                    'historii spoiny).',
                 en: 'The previous status and NDT results are kept in repair '
                     '${widget.nextLabel}. The weld goes back to "Pending" and '
-                    'to re-examination by the same methods.',
+                    'to re-examination by the same methods. The inspector '
+                    'acceptance, PWHT chart no. and hardness are cleared (the '
+                    'old values stay in the repair and the weld history).',
               ),
               style: const TextStyle(fontSize: 13, color: kTextSec),
             ),

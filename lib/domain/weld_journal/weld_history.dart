@@ -25,9 +25,19 @@ abstract final class WeldHistoryAction {
   static const String restore = 'RESTORE';
   static const String repair = 'REPAIR';
 
-  /// Saved despite a WPS / welder-qualification warning — the warning text
-  /// is [WeldHistoryEntry.newValue] (see `weld_compliance.dart`).
+  /// Saved despite a warning — WPS / welder qualification
+  /// (`weld_compliance.dart`) or document consistency
+  /// (`weld_consistency.dart`); the warning text is
+  /// [WeldHistoryEntry.newValue].
   static const String check = 'CHECK';
+
+  /// Execution fields of an accepted weld unlocked for editing — the
+  /// justification is [WeldHistoryEntry.newValue] (v25).
+  static const String unlock = 'UNLOCK';
+
+  /// Pre-weld checklist done for this weld — summary with the O₂ and
+  /// preheat readings in [WeldHistoryEntry.newValue] (v25).
+  static const String checklist = 'CHECKLIST';
 }
 
 /// One field that differs between two versions of a weld.
@@ -209,6 +219,11 @@ String weldHistoryActionLabel(String action, {required bool en}) =>
       WeldHistoryAction.restore => en ? 'Restored' : 'Przywrócono',
       WeldHistoryAction.repair => en ? 'Repair' : 'Naprawa',
       WeldHistoryAction.check =>
-        en ? 'Warning: WPS / qualification' : 'Ostrzeżenie: WPS / uprawnienia',
+        en ? 'Saved despite warnings' : 'Zapisano mimo ostrzeżeń',
+      WeldHistoryAction.unlock => en
+          ? 'Accepted weld unlocked for editing'
+          : 'Odblokowano edycję odebranej spoiny',
+      WeldHistoryAction.checklist =>
+        en ? 'Pre-weld checklist' : 'Checklista przed spawaniem',
       _ => action,
     };
