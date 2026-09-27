@@ -248,6 +248,46 @@ void main() {
     });
   });
 
+  // ── Sonda E: kropka spoiny między dwiema rurami (P3, poza zakresem) ────
+  group('sonda E — kropka spoiny między dwiema rurami', () {
+    test('przypięte zachowanie: kropka = wolny koniec, 1500 − 152 − 3', () {
+      // Znane ograniczenie (P3 w raporcie): spoina między rurami nie daje
+      // szczeliny. Błąd bezpieczny (rura dłuższa o jedną szczelinę), ale
+      // przypięty, żeby zmiana była świadoma.
+      final l = _elbow(gp(0, 0));
+      final w = Comp(gp(8, 0), 'weld');
+      final r = _elbow(gp(16, 0));
+      final a = Pipe(gp(0, 0), gp(8, 0), Dim('1500'));
+      final b = Pipe(gp(8, 0), gp(16, 0), Dim('1500'));
+      expect(sketchCutMm(a, [l, w, r], gapMm: 3), 1345);
+      expect(sketchCutMm(b, [l, w, r], gapMm: 3), 1345);
+    });
+  });
+
+  // ── Sonda F: kołnierz bez długości zabudowy ───────────────────────────
+  group('sonda F — kolano → kołnierz WN bez długości', () {
+    final e = _elbow(gp(0, 0));
+    final f = Comp(gp(8, 0), 'flange',
+        dn: 100, endA: EndConnection.weldNeck, endB: EndConnection.none);
+
+    test('domyślnie przez szyjkę — bez długości to brak liczby, nie 0', () {
+      final pipe = Pipe(gp(0, 0), gp(8, 0),
+          Dim('1000', stopA: SideStop.centre, stopB: SideStop.end));
+      final plan =
+          planProjectFromSketch(pipes: [pipe], components: [e, f], gapMm: 3);
+      expect(plan.segments, isEmpty);
+      expect(plan.skipped.single.reason.pl, contains('bez długości zabudowy'));
+    });
+
+    test('wybrane „do spoiny”: długość kołnierza niepotrzebna, 842', () {
+      final pipe = Pipe(gp(0, 0), gp(8, 0),
+          Dim('1000', stopA: SideStop.centre, stopB: SideStop.face));
+      final plan =
+          planProjectFromSketch(pipes: [pipe], components: [e, f], gapMm: 3);
+      expect(plan.segments.single.cutMm, 842);
+    });
+  });
+
   // ── Sonda D: olet w węźle przelotu ────────────────────────────────────
   group('sonda D — olet w punkcie, gdzie spotykają się dwie rury przelotu', () {
     final e1 = gp(0, 0);

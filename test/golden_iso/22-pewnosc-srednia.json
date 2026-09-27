@@ -1,0 +1,58 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "22-pewnosc-srednia",
+  "title": "Wymiar odczytany ze średnią pewnością — ostrzeżenie do rzutu oka, bez blokady",
+  "drawing": "Otwarty koniec → kolano E1 → kolano E2 → otwarty koniec, jak przypadek 01, ale s2 (1200) model przeczytał z pewnością „medium” (lekko nieczytelny). DN100 Sch 40, Class 150. Kolano 90° LR A=152 (ASME B16.9). Przegląd G3: przed poprawką medium nie było nigdzie oznaczone.",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1022",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-1022-A1A",
+        "pipeClass": "CL150",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "segments": [
+        {"id": "s1", "fromId": null, "toId": "E1", "dimensionMm": 1500, "rawDimension": "1500", "auxiliary": false, "confidence": "high"},
+        {"id": "s2", "fromId": "E1", "toId": "E2", "dimensionMm": 1200, "rawDimension": "1200", "auxiliary": false, "confidence": "medium"},
+        {"id": "s3", "fromId": "E2", "toId": null, "dimensionMm": 700, "rawDimension": "700", "auxiliary": false, "confidence": "high"}
+      ],
+      "components": [
+        {"id": "E1", "type": "elbow90", "label": "90° LR", "confidence": "high"},
+        {"id": "E2", "type": "elbow90", "label": "90° LR", "confidence": "high"}
+      ],
+      "elevations": [],
+      "billOfMaterials": [],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 30000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "note": "Szczelina 0: 1200 − 304 = 896; wymiar oznaczony do rzutu oka (ostrzeżenie), zapis możliwy.",
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "warnings": ["mediumConfidence"],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348"},
+          {"id": "s2", "cutMm": 896, "calc": "1200 − 2×152 = 896", "blocked": false},
+          {"id": "s3", "cutMm": 548, "calc": "700 − 152 = 548"}
+        ]
+      }
+    }
+  ]
+}

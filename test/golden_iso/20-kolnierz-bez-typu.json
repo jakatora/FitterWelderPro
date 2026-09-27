@@ -1,0 +1,110 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "20-kolnierz-bez-typu",
+  "title": "Kołnierz bez typu na końcu linii — WN tylko jako propozycja, Y dopiero po potwierdzeniu",
+  "drawing": "Otwarty koniec → kolano E1 → kołnierz F1 opisany tylko „FLG RF 150#” (bez WN / SO). Wymiar E1–F1 z oznaczeniem CL → FACE odczytanym z wysoką pewnością. DN100 Sch 40 A312 TP316L, Class 150. Take-outy: kolano 90° LR A=152 (ASME B16.9); kołnierz WN Y=76 (ASME B16.5). Przegląd G3, sonda „15 bez flangeType”: przed poprawką s2 = 772 bez potwierdzenia — przy kołnierzu SO rura o ok. 60 mm za krótka.",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1020",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-1020-A1A",
+        "pipeClass": "CL150",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "segments": [
+        {
+          "id": "s1",
+          "fromId": null,
+          "toId": "E1",
+          "dimensionMm": 1500,
+          "rawDimension": "1500",
+          "auxiliary": false,
+          "confidence": "high"
+        },
+        {
+          "id": "s2",
+          "fromId": "E1",
+          "toId": "F1",
+          "dimensionMm": 1000,
+          "rawDimension": "1000",
+          "refFrom": "CL",
+          "refTo": "FACE",
+          "auxiliary": false,
+          "confidence": "high"
+        }
+      ],
+      "components": [
+        {
+          "id": "E1",
+          "type": "elbow90",
+          "label": "90° LR",
+          "confidence": "high"
+        },
+        {
+          "id": "F1",
+          "type": "flange",
+          "label": "FLG RF 150#",
+          "confidence": "high"
+        }
+      ],
+      "elevations": [],
+      "billOfMaterials": [],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 30000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [
+    "Kołnierz SO nie ma w aplikacji wartości wsunięcia — po wyborze „do spoiny” monter wpisuje ją ręcznie."
+  ],
+  "steps": [
+    {
+      "note": "FACE z wysoką pewnością NIE wystarcza: typ kołnierza nieznany, więc s2 czeka na potwierdzenie; ostrzeżenie mówi, że WN to założenie.",
+      "expect": {
+        "canSave": true,
+        "gaps": ["dimensionReferenceUnknown"],
+        "warnings": ["flangeAssumedWeldNeck"],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348", "blocked": false},
+          {"id": "s2", "cutMm": null, "proposed": "CTE", "calc": "brak — propozycja 1000 − 152 − 76 = 772 czeka na potwierdzenie", "blocked": true}
+        ]
+      }
+    },
+    {
+      "note": "Monter sprawdził: to kołnierz wsuwany, wymiar do jego czoła (bez Y).",
+      "fitter": {"references": {"s2": "CTF"}},
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348"},
+          {"id": "s2", "cutMm": 848, "calc": "1000 − 152 = 848 (bez Y)"}
+        ]
+      }
+    },
+    {
+      "note": "Albo: potwierdził WN do przylgi — dopiero teraz Y odejmuje się.",
+      "fitter": {"references": {"s2": "proposal"}},
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348"},
+          {"id": "s2", "cutMm": 772, "calc": "1000 − 152 (E1) − 76 (Y WN, B16.5) = 772"}
+        ]
+      }
+    }
+  ]
+}
