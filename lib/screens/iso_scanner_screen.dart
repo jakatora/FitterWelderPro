@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -6,16 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../config/feature_flags.dart';
+import '../database/iso_scan_dao.dart';
 import '../i18n/app_language.dart';
-import '../services/iso_parser.dart';
+import '../services/heat_photo_storage.dart';
 import '../services/iso_scanner_ai.dart';
 import '../theme/app_theme.dart' show kTextMut;
-import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
-import '../widgets/iso_expression_keys.dart';
-import '../widgets/number_field.dart';
 import '../widgets/premium_gate.dart';
 import '../widgets/scan_consent_gate.dart';
 import 'scan_review_screen.dart';
@@ -33,14 +33,15 @@ const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 // it into a cut list.
 //
 // The fitter loads a photo of the iso, pans / zooms it on the top half of
-// the screen, and on the bottom enters each pipe run from the drawing:
-//   - the ISO dimension (face-to-face / centre-to-centre)
-//   - the take-outs of the components on each end (elbow centre-to-face,
-//     flange thickness, valve width…)
+// the screen, and sends it to the AI. What comes back is listed as READ —
+// dimensions as printed (ISO), never as cut lengths. The cut list is made on
+// the review screen (ScanReviewScreen → ProjectDao/SegmentDao) by the one
+// engine, with take-outs, root gap and blocks on uncertain values.
 //
-// CUT = ISO − Σ take-outs. Per-segment results and a grand total are shown
-// live; the whole cut list is one tap away from the clipboard, and one tap
-// away from a real project (ScanReviewScreen → ProjectDao/SegmentDao).
+// Until 2026-09 this screen kept its own list with its own "CUT" = ISO minus
+// typed deducts: a 1200 elbow–elbow run showed and copied "CUT 1200" while
+// the review said 892. That second formula is gone. Every reading is stored
+// on the phone (iso_scans, schema v24) and reopens without a second scan.
 //
 // This is the ONLY screen in the app that needs a connection: the scan is a
 // Claude Vision call on the Railway backend. Everything else — calculators,
@@ -128,73 +129,13 @@ class IsoScannerScreen extends StatefulWidget {
   State<IsoScannerScreen> createState() => _IsoScannerScreenState();
 }
 
-class _Deduct {
-  final TextEditingController name;
-  final TextEditingController value;
-  _Deduct([String n = '', String v = ''])
-      : name = TextEditingController(text: n),
-        value = TextEditingController(text: v);
-  void dispose() {
-    name.dispose();
-    value.dispose();
-  }
-}
-
-class _Segment {
-  final TextEditingController iso;
-  final List<_Deduct> deducts;
-  _Segment()
-      : iso = TextEditingController(),
-        deducts = [];
-  void dispose() {
-    iso.dispose();
-    for (final d in deducts) {
-      d.dispose();
-    }
-  }
-
-  /// CUT length in mm based on what's typed. NaN when ISO can't be parsed.
-  double get cutMm {
-    double v;
-    try {
-      v = parseIsoExpression(iso.text);
-    } catch (_) {
-      return double.nan;
-    }
-    for (final d in deducts) {
-      if (d.value.text.trim().isEmpty) continue;
-      try {
-        v -= parseIsoExpression(d.value.text);
-      } catch (_) {
-        // Silently skipped here — P0r-04 tracks the failure via
-        // `deductParseErrors` so the warning chip can fire.
-      }
-    }
-    return v;
-  }
-
-  /// P0r-04: counts deducts that have text but can't be parsed.
-  /// Without this, a deduct typed "abc" silently drops, `cutMm` looks
-  /// plausible, `_invalidSegmentCount` stays 0, and the welder cuts pipe
-  /// stock LONGER than the BOM says (waste) instead of seeing the warning.
-  int get deductParseErrors {
-    int n = 0;
-    for (final d in deducts) {
-      if (d.value.text.trim().isEmpty) continue;
-      try {
-        parseIsoExpression(d.value.text);
-      } catch (_) {
-        n++;
-      }
-    }
-    return n;
-  }
-}
-
 class _IsoScannerScreenState extends State<IsoScannerScreen> {
   String? _imagePath;
-  final List<_Segment> _segments = [_Segment()];
   final _projectName = TextEditingController();
+
+  /// Readings stored on this phone (newest first) — reopened without a
+  /// second, paid scan.
+  List<IsoScanRecord> _savedScans = const [];
   final TransformationController _viewer = TransformationController();
 
   bool _aiBusy = false;
@@ -212,6 +153,114 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     super.initState();
     _lastScan = widget.initialScan;
     _refreshBudget();
+    unawaited(_loadSavedScans());
+  }
+
+  Future<void> _loadSavedScans() async {
+    try {
+      final list = await IsoScanDao().listRecent(limit: 10);
+      if (!mounted) return;
+      setState(() => _savedScans = list);
+    } catch (e) {
+      // No stored readings to offer is not a reason to fail the screen.
+      debugPrint('ISO scanner: reading stored scans failed: $e');
+    }
+  }
+
+  /// Stores a finished reading (envelope + a copy of the photo in the
+  /// backed-up photo folder) so it survives the app being killed and can be
+  /// reopened without spending another scan.
+  Future<void> _persistScan(AiScanResult result, String? photoPath) async {
+    final envelope = result.envelope;
+    if (envelope == null) return;
+    String? kept;
+    if (photoPath != null) {
+      try {
+        kept = await persistPickedHeatPhoto(photoPath);
+      } catch (e) {
+        debugPrint('ISO scanner: keeping the photo failed: $e');
+      }
+    }
+    try {
+      final name = _projectName.text.trim();
+      await IsoScanDao().insert(IsoScanRecord(
+        id: const Uuid().v4(),
+        name: name.isEmpty ? result.titleBlock.lineNumber : name,
+        imagePath: kept,
+        envelopeJson: jsonEncode(envelope),
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+      if (kept != null && mounted) setState(() => _imagePath = kept);
+      await _loadSavedScans();
+    } catch (e) {
+      debugPrint('ISO scanner: storing the scan failed: $e');
+    }
+  }
+
+  /// Puts a stored reading back on screen — no network, no budget.
+  void _reopenScan(IsoScanRecord r) {
+    final env = r.envelope;
+    if (env == null) {
+      _toast(_tr('Tego odczytu nie da się otworzyć.',
+          'This reading cannot be opened.'));
+      return;
+    }
+    final scan = AiScanResult.fromEnvelope(env);
+    final photo = r.imagePath;
+    setState(() {
+      _lastScan = scan;
+      _imagePath = (photo != null && File(photo).existsSync()) ? photo : null;
+      _aiStatus = null;
+      if (_projectName.text.trim().isEmpty && (r.name ?? '').isNotEmpty) {
+        _projectName.text = r.name!;
+      }
+    });
+  }
+
+  Future<void> _pickSavedScan() async {
+    await _loadSavedScans();
+    if (!mounted) return;
+    if (_savedScans.isEmpty) {
+      _toast(_tr('Nie ma zapisanych skanów.', 'There are no stored scans.'));
+      return;
+    }
+    final picked = await showModalBottomSheet<IsoScanRecord>(
+      context: context,
+      backgroundColor: _kCard,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                _tr('Zapisane skany — otwarcie nie zużywa limitu',
+                    'Stored scans — reopening costs no scan'),
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ),
+            for (final r in _savedScans)
+              ListTile(
+                minVerticalPadding: 12,
+                leading: const Icon(Icons.history, color: _kOrange),
+                title: Text((r.name ?? '').isEmpty
+                    ? _tr('Skan bez nazwy', 'Unnamed scan')
+                    : r.name!),
+                subtitle: Text(_scanDate(r.createdAt)),
+                onTap: () => Navigator.pop(ctx, r),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null && mounted) _reopenScan(picked);
+  }
+
+  String _scanDate(int ms) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
   }
 
   Future<void> _refreshBudget() async {
@@ -222,9 +271,6 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
 
   @override
   void dispose() {
-    for (final s in _segments) {
-      s.dispose();
-    }
     _projectName.dispose();
     _viewer.dispose();
     super.dispose();
@@ -336,11 +382,12 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
       _toast(_tr(
         'Dzienny limit skanów wyczerpany '
             '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
-            'Odnowi się po północy — do tego czasu wpisz wymiary ręcznie.',
+            'Odnowi się po północy — do tego czasu użyj Zeszytu ISO albo '
+            'kreatora segmentu.',
         'Daily scan limit used up '
             '($kAiScanDailyLimitPerDevice/$kAiScanDailyLimitPerDevice). '
-            'It resets after midnight — until then type the dimensions in '
-            'by hand.',
+            'It resets after midnight — until then use the ISO notebook or '
+            'the segment builder.',
       ));
       return;
     }
@@ -399,65 +446,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         return;
       }
 
-      // P0-06: a welder who already typed segments shouldn't lose them by
-      // tapping "Analyse AI" out of curiosity. Confirm before overwriting,
-      // and stash a snapshot so the Undo SnackBar can restore the typed
-      // rows if the AI result turns out to be off-base.
-      final hadUserInput = _segments.any(
-        (s) => s.iso.text.trim().isNotEmpty ||
-            s.deducts.any((d) => d.value.text.trim().isNotEmpty),
-      );
-      if (hadUserInput) {
-        if (!mounted) return;
-        final overwrite = await showDialog<bool>(
-          context: context,
-          builder: (dialogCtx) => AlertDialog(
-            title: Text(_tr(
-              'Zastąpić wpisane odcinki?',
-              'Replace typed segments?',
-            )),
-            content: Text(_tr(
-              'AI rozpoznała ${result.segments.length} odcinków. '
-                  'Zastąpienie usunie wpisane przez Ciebie dane.',
-              'AI found ${result.segments.length} segments. '
-                  'Replacing will discard the rows you typed.',
-            )),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogCtx, false),
-                child: Text(_tr('Zachowaj moje', 'Keep mine')),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(dialogCtx, true),
-                child: Text(_tr('Zastąp', 'Replace')),
-              ),
-            ],
-          ),
-        );
-        if (!mounted) return;
-        if (overwrite != true) {
-          setState(() {
-            _aiBusy = false;
-            _aiStatus = null;
-          });
-          return;
-        }
-      }
-      final snapshot = _snapshotSegments();
       _applyAiResult(result);
-      if (mounted && hadUserInput) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_tr(
-            'Zastąpiono wpisane odcinki wynikiem AI.',
-            'Replaced your segments with the AI result.',
-          )),
-          duration: const Duration(seconds: 8),
-          action: SnackBarAction(
-            label: _tr('Cofnij', 'Undo'),
-            onPressed: () => _restoreSegments(snapshot),
-          ),
-        ));
-      }
+      // The reading was paid for: keep it (and the photo) on the phone
+      // before anything else can throw it away.
+      await _persistScan(result, path);
+      if (!mounted) return;
 
       await Haptic.saved();
       setState(() {
@@ -591,97 +584,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     }
   }
 
-  /// P0-06: serialise the typed segment list into pure value structs so an
-  /// Undo SnackBar can rehydrate it after the AI overwrite. Stores text only
-  /// — controllers are recreated on restore to avoid disposed-controller
-  /// reuse.
-  List<({String iso, List<({String name, String value})> deducts})>
-      _snapshotSegments() {
-    return _segments
-        .map((s) => (
-              iso: s.iso.text,
-              deducts: s.deducts
-                  .map((d) => (name: d.name.text, value: d.value.text))
-                  .toList(),
-            ))
-        .toList();
-  }
-
-  void _restoreSegments(
-    List<({String iso, List<({String name, String value})> deducts})> snap,
-  ) {
-    if (!mounted) return;
-    for (final s in _segments) {
-      s.dispose();
-    }
-    setState(() {
-      _segments.clear();
-      for (final ss in snap) {
-        final seg = _Segment();
-        seg.iso.text = ss.iso;
-        for (final dd in ss.deducts) {
-          seg.deducts.add(_Deduct(dd.name, dd.value));
-        }
-        _segments.add(seg);
-      }
-      if (_segments.isEmpty) _segments.add(_Segment());
-    });
-  }
-
-  /// Translates an [AiScanResult] into the screen's segment list.
-  ///
-  /// Each AI segment becomes a _Segment with its dimension pre-filled. We
-  /// don't auto-fill take-outs — the AI never invents those, the user
-  /// fills them in by hand (or accepts the hint from B16.9 in the
-  /// "review" dialog).
+  /// Takes an AI reading on screen: the title-block strip, the line name,
+  /// and the list of what was read. The screen itself never turns a
+  /// dimension into a cut length — the review screen does, through the one
+  /// engine, with the fittings' take-outs and the root gap.
   void _applyAiResult(AiScanResult result) {
-    // Clear current segments.
-    for (final s in _segments) {
-      s.dispose();
-    }
-    _segments.clear();
-
-    if (result.segments.isEmpty) {
-      _segments.add(_Segment());
-    } else {
-      for (final aiSeg in result.segments) {
-        if (aiSeg.auxiliary) continue; // skip auxiliary / hidden lines
-        final seg = _Segment();
-        // Clamp AI-suggested dimensions to a sane prefab range. Vision
-        // models occasionally hallucinate negative values or order-of-
-        // magnitude misreads (e.g. "1500 mm" → 150000) which would silently
-        // poison the cut list.
-        //
-        // P0r-02: the previous fallback to rawDimension silently re-routed
-        // the same out-of-band number through the parser as a string,
-        // bypassing this guard. Now we try-parse rawDimension and re-apply
-        // the (0, 100000) gate; if it still fails, the row is left blank
-        // so the fitter sees an empty field + the "do sprawdzenia" chip
-        // instead of an absurd auto-filled number.
-        final dim = aiSeg.dimensionMm;
-        if (dim != null && dim > 0 && dim < 100000 && dim.isFinite) {
-          seg.iso.text = dim.toStringAsFixed(0);
-        } else {
-          final raw = aiSeg.rawDimension;
-          if (raw != null && raw.isNotEmpty) {
-            try {
-              final parsed = parseIsoExpression(raw);
-              if (parsed.isFinite && parsed > 0 && parsed < 100000) {
-                seg.iso.text = raw;
-              }
-            } catch (_) {
-              // Unparseable raw + rejected dim → leave blank, surface via chip.
-            }
-          }
-        }
-        _segments.add(seg);
-      }
-      if (_segments.isEmpty) _segments.add(_Segment());
-    }
-
-    // Prefer the line number from the title block (richer), fall back to
-    // the top-level lineNumber.
-    //
     // P1-13: AI-returned line numbers occasionally carry embedded CR/LF from
     // multi-line OCR. Strip them and clamp to the same 80-char ceiling the
     // _projectName field enforces so the auto-fill stays within bounds.
@@ -799,21 +706,7 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                           ),
                           const SizedBox(height: 6),
                           for (final need in result.needsUserInput)
-                            _MissingInputRow(
-                              need: need,
-                              segments: _segments,
-                              onApply: (segIdx, name, value) {
-                                if (segIdx < 0 ||
-                                    segIdx >= _segments.length) {
-                                  return;
-                                }
-                                final seg = _segments[segIdx];
-                                seg.deducts.add(_Deduct(name, value));
-                                setState(() {});
-                                setLocal(() {});
-                              },
-                              tr: _tr,
-                            ),
+                            _MissingInputRow(need: need, tr: _tr),
                           const SizedBox(height: 10),
                         ],
 
@@ -913,33 +806,33 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     );
   }
 
-  // Dirty when the fitter has a photo loaded, an AI scan result, a project
-  // name, or any typed segment data. Accidental swipe-back on a shop-floor
-  // phone (especially after a 30-90s AI scan that cost a Vision API call)
-  // would silently wipe everything.
+  // Dirty when the fitter has a photo loaded, an AI scan result or a project
+  // name. Accidental swipe-back on a shop-floor phone would otherwise wipe
+  // them without a word (a finished reading is stored, see _persistScan,
+  // and the dialog says so).
   bool get _isDirty {
     if (_imagePath != null) return true;
     if (_lastScan != null) return true;
     if (_projectName.text.trim().isNotEmpty) return true;
-    for (final s in _segments) {
-      if (s.iso.text.trim().isNotEmpty) return true;
-      for (final d in s.deducts) {
-        if (d.name.text.trim().isNotEmpty) return true;
-        if (d.value.text.trim().isNotEmpty) return true;
-      }
-    }
     return false;
   }
 
   Future<bool> _confirmDiscard() async {
+    final stored = _lastScan?.envelope != null;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_tr('Porzucić skan?', 'Discard scan?')),
-        content: Text(_tr(
-          'Zdjęcie, wynik AI i wpisane wymiary zostaną utracone.',
-          'The photo, AI result and entered dimensions will be lost.',
-        )),
+        title: Text(_tr('Wyjść ze skanera?', 'Leave the scanner?')),
+        content: Text(stored
+            ? _tr(
+                'Odczyt AI jest zapisany w telefonie — otworzysz go z '
+                    '„Zapisane skany” bez ponownego skanowania.',
+                'The AI reading is stored on the phone — reopen it from '
+                    '“Stored scans” without scanning again.')
+            : _tr(
+                'Zdjęcie i niezapisany wynik zostaną utracone.',
+                'The photo and any unsaved result will be lost.',
+              )),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -955,90 +848,14 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     return ok ?? false;
   }
 
-  void _addSegment() {
-    Haptic.tap();
-    setState(() => _segments.add(_Segment()));
-  }
-
-  void _removeSegment(int i) {
-    if (_segments.length <= 1) {
-      // Last segment — clear instead of removing.
-      Haptic.tap();
-      setState(() {
-        _segments[i].dispose();
-        _segments[i] = _Segment();
-      });
-      return;
-    }
-    Haptic.tap();
-    setState(() {
-      _segments[i].dispose();
-      _segments.removeAt(i);
-    });
-  }
-
-  void _addDeduct(int segIdx) {
-    Haptic.tap();
-    setState(() => _segments[segIdx].deducts.add(_Deduct()));
-  }
-
-  void _removeDeduct(int segIdx, int dedIdx) {
-    Haptic.tap();
-    setState(() {
-      _segments[segIdx].deducts[dedIdx].dispose();
-      _segments[segIdx].deducts.removeAt(dedIdx);
-    });
-  }
-
-  double get _totalCutMm {
-    double sum = 0;
-    for (final s in _segments) {
-      final c = s.cutMm;
-      // Drop NaN / infinite (unparseable ISO) AND drop negative cuts (a
-      // deduct typo or AI hallucination producing CUT < 0 would otherwise
-      // silently shrink the total — fitter cuts pipe stock by metres less
-      // than needed). `_invalidSegmentCount` surfaces the dropped count in
-      // the UI so the user knows the headline number is exclusive.
-      if (c.isFinite && c >= 0) sum += c;
-    }
-    return sum;
-  }
-
-  /// Number of segments excluded from `_totalCutMm` due to unparseable ISO
-  /// or a negative computed CUT. Drives the warning chip in the cut-list UI.
-  ///
-  /// P0r-03: also counts the "ISO blank + deducts populated" case.
-  /// P0r-04: also counts segments with deduct parse failures, where cutMm
-  /// looks plausible but ignored an "abc" deduct — silent over-cut.
-  int get _invalidSegmentCount {
-    int n = 0;
-    for (final s in _segments) {
-      final isoEmpty = s.iso.text.trim().isEmpty;
-      final anyDeduct = s.deducts.any((d) => d.value.text.trim().isNotEmpty);
-      // Fully-empty row → not yet filled in by the user, no warning.
-      if (isoEmpty && !anyDeduct) continue;
-      // Empty ISO + populated deduct → row is in a half-filled state that
-      // produces NaN; flag explicitly so the user knows to type the ISO.
-      if (isoEmpty && anyDeduct) {
-        n++;
-        continue;
-      }
-      final c = s.cutMm;
-      if (!c.isFinite || c < 0 || s.deductParseErrors > 0) n++;
-    }
-    return n;
-  }
-
-  int get _dimensionedCount =>
-      _segments.where((s) => s.iso.text.trim().isNotEmpty).length;
-
   /// Whether a scan result is on hand that the planner can work from.
   bool get _canOpenReview {
     final scan = _lastScan;
     return !_aiBusy && scan != null && !scan.isError && scan.segments.isNotEmpty;
   }
 
-  /// Hands the scan to the review screen, where it becomes a project.
+  /// Hands the scan to the review screen — the only place a dimension of
+  /// the drawing becomes a cut length (one engine: take-outs, gap, blocks).
   void _openScanReview() {
     final scan = _lastScan;
     if (scan == null) return;
@@ -1049,50 +866,10 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
         builder: (_) => ScanReviewScreen(
           scan: scan,
           suggestedName: name.isEmpty ? null : name,
+          imagePath: _imagePath,
         ),
       ),
     );
-  }
-
-  Future<void> _copySummary() async {
-    final buf = StringBuffer();
-    buf.writeln(_projectName.text.trim().isEmpty
-        ? _tr('Skan izometryku', 'Isometric scan')
-        : _projectName.text.trim());
-    buf.writeln('═' * 28);
-    if (_imagePath != null) {
-      buf.writeln('${_tr('Źródło', 'Source')}: ${_imagePath!.split(Platform.pathSeparator).last}');
-      buf.writeln();
-    }
-
-    buf.writeln(_tr('CUT LIST', 'CUT LIST'));
-    for (var i = 0; i < _segments.length; i++) {
-      final s = _segments[i];
-      if (s.iso.text.trim().isEmpty) continue;
-      final cut = s.cutMm;
-      final cutStr = cut.isFinite
-          ? '${cut.toStringAsFixed(1)} mm'
-          : _tr('(nieczytelne)', '(unreadable)');
-      final hasDeducts = s.deducts.any((d) => d.value.text.trim().isNotEmpty);
-      if (!hasDeducts) {
-        buf.writeln('  ${i + 1}. ${s.iso.text.trim()} = $cutStr');
-      } else {
-        buf.writeln('  ${i + 1}. ${_tr('ISO', 'ISO')}: ${s.iso.text.trim()}');
-        for (final d in s.deducts) {
-          if (d.value.text.trim().isEmpty) continue;
-          final tag = d.name.text.trim().isEmpty ? '?' : d.name.text.trim();
-          buf.writeln('       − $tag: ${d.value.text.trim()}');
-        }
-        buf.writeln('     ${_tr('CUT', 'CUT')}: $cutStr');
-      }
-    }
-    buf.writeln('  ${'─' * 24}');
-    buf.writeln('  ${_tr('Suma CUT', 'Total CUT')}: '
-        '${_totalCutMm.toStringAsFixed(1)} mm');
-
-    if (!mounted) return;
-    await copyToClipboard(context, buf.toString(),
-        label: _tr('Zestawienie', 'Summary'));
   }
 
   @override
@@ -1133,9 +910,9 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
               exhausted
                   ? _tr(
                       'Limit skanów na dziś wyczerpany — odnowi się po '
-                          'północy. Wymiary wpiszesz ręcznie.',
+                          'północy. Zapisane skany otworzysz bez limitu.',
                       'Today\'s scan budget is used up — it resets after '
-                          'midnight. You can still type dimensions in.',
+                          'midnight. Stored scans reopen without it.',
                     )
                   : _tr(
                       'Skan wymaga internetu (reszta aplikacji działa '
@@ -1218,6 +995,96 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
     );
   }
 
+  /// Below the photo: before a scan, the stored readings; after it, what the
+  /// model read (dimensions as printed — labelled ISO, not CUT) and the big
+  /// button to the review screen, where cuts are computed and saved.
+  Widget _resultsPanel() {
+    final scan = _lastScan;
+    if (scan == null || scan.isError) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        children: [
+          Text(
+            _tr(
+                'Po skanie zobaczysz tu odczytane wymiary. Długości cięcia '
+                    'policzy przegląd skanu — z odliczeniami kształtek, '
+                    'szczeliną i blokadą niepewnych wartości.',
+                'After a scan the dimensions read will be listed here. Cut '
+                    'lengths are computed on the review screen — with the '
+                    'fittings\' take-outs, the root gap and blocks on '
+                    'uncertain values.'),
+            style: const TextStyle(fontSize: 13, height: 1.35, color: _kSec),
+          ),
+          if (_savedScans.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _SectionLabel(
+              text: _tr('Zapisane skany', 'Stored scans'),
+              count: _savedScans.length,
+            ),
+            const SizedBox(height: 6),
+            for (final r in _savedScans.take(3))
+              Card(
+                color: _kCard,
+                margin: const EdgeInsets.only(bottom: 6),
+                child: ListTile(
+                  minVerticalPadding: 12,
+                  leading: const Icon(Icons.history, color: _kOrange),
+                  title: Text((r.name ?? '').isEmpty
+                      ? _tr('Skan bez nazwy', 'Unnamed scan')
+                      : r.name!),
+                  subtitle: Text(
+                      '${_scanDate(r.createdAt)} · ${_tr('otwarcie bez limitu', 'no scan spent')}'),
+                  onTap: _aiBusy ? null : () => _reopenScan(r),
+                ),
+              ),
+          ],
+        ],
+      );
+    }
+    final segments = scan.segments.where((s) => !s.auxiliary).toList();
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      children: [
+        SizedBox(
+          height: 56,
+          child: FilledButton.icon(
+            key: const ValueKey('scan-open-review'),
+            onPressed: _canOpenReview ? _openScanReview : null,
+            icon: const Icon(Icons.fact_check_outlined),
+            label: Text(
+              _tr('Sprawdź cięcia i utwórz projekt',
+                  'Check the cuts and create a project'),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _tr(
+              'Poniżej wymiary tak, jak je odczytała AI (ISO z rysunku) — to '
+                  'NIE są długości cięcia. CUT liczy przegląd.',
+              'Below: the dimensions as the AI read them (ISO from the '
+                  'drawing) — NOT cut lengths. The review computes the CUT.'),
+          style: const TextStyle(fontSize: 12.5, height: 1.35, color: _kSec),
+        ),
+        const SizedBox(height: 8),
+        _SectionLabel(
+          text: _tr('Odczytane wymiary', 'Dimensions read'),
+          count: segments.length,
+        ),
+        const SizedBox(height: 6),
+        for (var i = 0; i < segments.length; i++)
+          _ReadDimensionRow(index: i + 1, segment: segments[i], tr: _tr),
+        if (segments.isEmpty)
+          Text(
+            _tr('AI nie odczytała żadnego odcinka rury.',
+                'The AI read no pipe runs.'),
+            style: const TextStyle(color: _kRed, fontSize: 13),
+          ),
+      ],
+    );
+  }
+
   Widget _buildScannerScaffold(BuildContext context) {
     return PopScope(
       canPop: !_isDirty,
@@ -1255,10 +1122,11 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
                 'Create a project from this scan'),
             onPressed: _canOpenReview ? _openScanReview : null,
           ),
+          // Stored readings — reopened without a second, paid scan.
           IconButton(
-            icon: const Icon(Icons.copy_all_outlined),
-            tooltip: _tr('Kopiuj zestawienie', 'Copy summary'),
-            onPressed: _dimensionedCount == 0 ? null : _copySummary,
+            icon: const Icon(Icons.history),
+            tooltip: _tr('Zapisane skany', 'Stored scans'),
+            onPressed: _aiBusy ? null : _pickSavedScan,
           ),
         ],
       ),
@@ -1373,89 +1241,14 @@ class _IsoScannerScreenState extends State<IsoScannerScreen> {
             ),
           ),
 
-          // ── Cut list summary strip ─────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
-            color: _kCard,
-            child: Row(
-              children: [
-                Icon(Icons.content_cut, size: 14, color: _kOrange),
-                const SizedBox(width: 6),
-                Text(
-                  '${_tr('Odcinki', 'Segments')}: '
-                  '$_dimensionedCount/${_segments.length}',
-                  style: const TextStyle(
-                      fontSize: 12,
-                      color: _kSec,
-                      fontWeight: FontWeight.w600),
-                ),
-                const Spacer(),
-                // Warning chip — surfaces segments excluded from the total
-                // because their ISO was unparseable OR resolved to a
-                // negative CUT (deduct typo, AI hallucination). Without
-                // this, a corrupt segment silently shrinks the total and
-                // the fitter pulls too little stock.
-                if (_invalidSegmentCount > 0) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: _kRed.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                          color: _kRed.withValues(alpha: 0.6), width: 0.8),
-                    ),
-                    child: Text(
-                      '$_invalidSegmentCount '
-                      '${_tr('do sprawdzenia', 'to check')}',
-                      style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: _kRed),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  '${_tr('Suma CUT', 'Total CUT')}: '
-                  '${_totalCutMm.toStringAsFixed(1)} mm',
-                  style: const TextStyle(
-                      fontSize: 13,
-                      color: _kOrange,
-                      fontWeight: FontWeight.w900),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Segments list ──────────────────────────────────────────────
+          // ── What was read, and the one way to a cut list ───────────────
+          // This screen shows the drawing's dimensions as read, never a
+          // "CUT": a cut length needs the fittings' take-outs, the root gap
+          // and the blocks on uncertain values — the review screen computes
+          // all of that through the one engine.
           Expanded(
             flex: 7,
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-              itemCount: _segments.length + 1,
-              itemBuilder: (_, i) {
-                if (i == _segments.length) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: OutlinedButton.icon(
-                      onPressed: _addSegment,
-                      icon: const Icon(Icons.add),
-                      label: Text(_tr('Dodaj odcinek', 'Add segment')),
-                    ),
-                  );
-                }
-                return _SegmentCard(
-                  index: i,
-                  segment: _segments[i],
-                  onRemove: () => _removeSegment(i),
-                  onAddDeduct: () => _addDeduct(i),
-                  onRemoveDeduct: (k) => _removeDeduct(i, k),
-                  onChanged: () => setState(() {}),
-                  tr: _tr,
-                );
-              },
-            ),
+            child: _resultsPanel(),
           ),
         ],
       ),
@@ -1703,25 +1496,17 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+/// "The AI needs a take-out" with the offline ASME value, for information:
+/// the take-out itself is set (and its CUT computed) on the review screen.
 class _MissingInputRow extends StatelessWidget {
   final AiNeedsInput need;
-  final List<_Segment> segments;
-  final void Function(int segIdx, String name, String value) onApply;
   final String Function(String, String) tr;
-  const _MissingInputRow({
-    required this.need,
-    required this.segments,
-    required this.onApply,
-    required this.tr,
-  });
+  const _MissingInputRow({required this.need, required this.tr});
 
   @override
   Widget build(BuildContext context) {
-    // AI suggests "give me a take-out". Our offline B16.9 table almost
-    // always has a sensible default — pre-fill it.
     final suggested = need.suggestedTakeoutMm();
     final dn = need.guessDn();
-
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
@@ -1758,36 +1543,16 @@ class _MissingInputRow extends StatelessWidget {
             ),
           ],
           if (suggested != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.only(left: 22),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _kBlue.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '$suggested mm  ·  ASME B16.9 DN${dn ?? ""}'
-                          '${need.is45 ? " 45°" : need.isShortRadius ? " SR" : " LR"}',
-                      style: const TextStyle(
-                          color: _kBlue,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  const Spacer(),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.add_circle_outline, size: 16),
-                    label: Text(tr('Dodaj do odcinka',
-                        'Add to segment')),
-                    onPressed: () =>
-                        _pickSegmentAndApply(context, suggested),
-                  ),
-                ],
+              child: Text(
+                '${tr('Tabela', 'Table')}: $suggested mm  ·  ASME B16.9 '
+                    'DN${dn ?? ""}'
+                    '${need.is45 ? " 45°" : need.isShortRadius ? " SR" : " LR"}'
+                    ' — ${tr('ustawisz w przeglądzie', 'set it on the review')}',
+                style: const TextStyle(
+                    color: _kBlue, fontSize: 12, fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -1795,69 +1560,64 @@ class _MissingInputRow extends StatelessWidget {
       ),
     );
   }
+}
 
-  /// Tiny dialog asking which segment the take-out belongs to.
-  /// (AI gives us the component id, but mapping component → segment
-  /// reliably is fragile; the fitter knows immediately by glancing at the
-  /// drawing.)
-  Future<void> _pickSegmentAndApply(
-      BuildContext context, int suggestedMm) async {
-    final pick = await showDialog<int>(
-      context: context,
-      builder: (dctx) {
-        return AlertDialog(
-          title: Text(tr('Do którego odcinka odjąć?',
-              'Subtract from which segment?')),
-          content: SizedBox(
-            width: 320,
-            // Cap height so a long list (40+ segments scanned from a busy
-            // drawing) scrolls instead of pushing the dialog off-screen on
-            // small phones.
-            height: MediaQuery.of(dctx).size.height * 0.5,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: segments.length,
-              itemBuilder: (_, i) {
-                final s = segments[i];
-                final iso = s.iso.text.trim().isEmpty
-                    ? tr('(pusty)', '(empty)')
-                    : s.iso.text;
-                return ListTile(
-                  dense: true,
-                  leading: CircleAvatar(
-                    radius: 12,
-                    backgroundColor: _kBlue.withValues(alpha: 0.18),
-                    child: Text('${i + 1}',
-                        style: const TextStyle(
-                            color: _kBlue,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800)),
-                  ),
-                  title: Text('${tr('Odcinek', 'Segment')} ${i + 1}'),
-                  subtitle: Text(iso),
-                  onTap: () => Navigator.pop(dctx, i),
-                );
-              },
-            ),
+/// One dimension as the AI read it: the drawing's number (ISO) and how sure
+/// the model was. Deliberately no CUT — see [_IsoScannerScreenState].
+class _ReadDimensionRow extends StatelessWidget {
+  final int index;
+  final AiSegment segment;
+  final String Function(String, String) tr;
+  const _ReadDimensionRow({
+    required this.index,
+    required this.segment,
+    required this.tr,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final raw = segment.rawDimension?.trim();
+    final mm = segment.dimensionMm;
+    final shown = (raw != null && raw.isNotEmpty)
+        ? raw
+        : (mm != null ? '${mm.toStringAsFixed(mm == mm.roundToDouble() ? 0 : 1)} mm' : '—');
+    final (Color c, String conf) = switch (segment.confidence) {
+      AiConfidence.high => (_kSec, tr('pewny', 'sure')),
+      AiConfidence.medium => (const Color(0xFFFFC44D), tr('średnio pewny', 'medium')),
+      _ => (_kRed, tr('niepewny', 'unsure')),
+    };
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      constraints: const BoxConstraints(minHeight: 44),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: _kCard,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Row(
+        children: [
+          Text('$index.',
+              style: const TextStyle(
+                  color: _kBlue, fontSize: 13, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 10),
+          Text('ISO ',
+              style: const TextStyle(
+                  color: _kSec, fontSize: 12, fontWeight: FontWeight.w700)),
+          Expanded(
+            child: Text(shown,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800)),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dctx, null),
-              child: Text(tr('Anuluj', 'Cancel')),
-            ),
-          ],
-        );
-      },
+          Text(conf,
+              style: TextStyle(
+                  color: c, fontSize: 12, fontWeight: FontWeight.w700)),
+        ],
+      ),
     );
-    if (pick == null) return;
-    // P1-13: AI-suggested componentId / type can contain newlines or be
-    // surprisingly long (whole sentence pasted as an id). Strip CR/LF and
-    // cap at 24 chars so the deduct name controller stays compact and the
-    // clipboard / PDF / AI re-prompt downstream don't break a line.
-    final rawLabel = need.componentId ?? need.type;
-    var label = rawLabel.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-    if (label.length > 24) label = label.substring(0, 24);
-    onApply(pick, label, suggestedMm.toString());
   }
 }
 
@@ -1925,226 +1685,6 @@ class _IconBtn extends StatelessWidget {
         onPressed: onTap,
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
         padding: EdgeInsets.zero,
-      ),
-    );
-  }
-}
-
-// ── One segment card ─────────────────────────────────────────────────────────
-
-class _SegmentCard extends StatelessWidget {
-  final int index;
-  final _Segment segment;
-  final VoidCallback onRemove;
-  final VoidCallback onAddDeduct;
-  final void Function(int) onRemoveDeduct;
-  final VoidCallback onChanged;
-  final String Function(String, String) tr;
-
-  const _SegmentCard({
-    required this.index,
-    required this.segment,
-    required this.onRemove,
-    required this.onAddDeduct,
-    required this.onRemoveDeduct,
-    required this.onChanged,
-    required this.tr,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cut = segment.cutMm;
-    final hasIso = segment.iso.text.trim().isNotEmpty;
-    // A finite cut is fine. An unparseable ISO with non-empty text needs an
-    // inline hint so the fitter knows WHY the result is "—" instead of
-    // staring at a blank dash.
-    final parseError = hasIso && !cut.isFinite;
-    final cutLabel = cut.isFinite
-        ? '${cut.toStringAsFixed(1)} mm'
-        : (hasIso ? tr('błąd składni', 'syntax error') : '—');
-    final cutColor =
-        cut.isFinite && cut < 0 ? _kRed : (cut.isFinite ? _kOrange : _kMuted);
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-      decoration: BoxDecoration(
-        color: _kCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 26, height: 26,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: _kBlue.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text('${index + 1}',
-                    style: const TextStyle(
-                        color: _kBlue,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: segment.iso,
-                  keyboardType: TextInputType.text,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    labelText: tr('ISO segmentu', 'Segment ISO'),
-                    hintText: tr('np. 3000+525-80', 'e.g. 3000+525-80'),
-                    suffixText: 'mm',
-                    errorText: parseError
-                        ? tr(
-                            'Sprawdź składnię: liczby + − × ( )',
-                            'Check syntax: numbers + − × ( )',
-                          )
-                        : null,
-                  ),
-                  onChanged: (_) => onChanged(),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, size: 18),
-                tooltip: tr('Usuń odcinek', 'Remove segment'),
-                onPressed: onRemove,
-              ),
-            ],
-          ),
-          if (segment.deducts.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            for (var k = 0; k < segment.deducts.length; k++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4, left: 36),
-                child: Row(
-                  children: [
-                    Text('−',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Theme.of(context).colorScheme.tertiary)),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      flex: 5,
-                      child: TextField(
-                        controller: segment.deducts[k].name,
-                        decoration: InputDecoration(
-                          isDense: true,
-                          hintText: tr('komponent', 'component'),
-                        ),
-                        onChanged: (_) => onChanged(),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      flex: 4,
-                      child: Builder(builder: (_) {
-                        // Sanity-check the typed deduct: empty is fine, a
-                        // parse failure is caught elsewhere, but a NEGATIVE
-                        // deduct (− of −) or one larger than any real fitting
-                        // allowance (>5000 mm) is almost always a typo that
-                        // would silently wreck the CUT total.
-                        final raw = segment.deducts[k].value.text.trim();
-                        double? parsed;
-                        if (raw.isNotEmpty) {
-                          try {
-                            parsed = parseIsoExpression(raw);
-                          } catch (_) {}
-                        }
-                        final outOfRange = parsed != null &&
-                            (parsed < 0 || parsed > 5000);
-                        return TextField(
-                          controller: segment.deducts[k].value,
-                          // Deducts are typically a single mm value (gasket,
-                          // fitting allowance). Number pad keeps gloved entry
-                          // fast; parser already accepts both "," and "."
-                          // so the locale comma key on Android works too.
-                          // Signed keypad (iOS: numbers & punctuation) so an
-                          // expression like 2×38 or a "-" is still typeable;
-                          // the filter is the ISO parser's own character set.
-                          keyboardType: numberKeyboard(signed: true),
-                          inputFormatters: isoExpressionInputFormatters(),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintText: '76',
-                            suffixText: 'mm',
-                            errorText: outOfRange
-                                ? tr('Zakres 0–5000 mm', 'Range 0–5000 mm')
-                                : null,
-                          ),
-                          onChanged: (_) => onChanged(),
-                        );
-                      }),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(Icons.remove_circle_outline, size: 18),
-                      onPressed: () => onRemoveDeduct(k),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-          Padding(
-            padding: const EdgeInsets.only(left: 32, top: 6),
-            child: Row(
-              children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
-                  label: Text(tr('Dodaj komponent', 'Add component'),
-                      style: const TextStyle(fontSize: 12)),
-                  onPressed: onAddDeduct,
-                ),
-                const Spacer(),
-                // CUT result pill — tinted background gives the headline
-                // value visual weight so it's scannable in a long list.
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: cut.isFinite
-                        ? cutColor.withValues(alpha: 0.12)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: cut.isFinite
-                          ? cutColor.withValues(alpha: 0.35)
-                          : Colors.transparent,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${tr('CUT', 'CUT')}  ',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: _kSec,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5),
-                      ),
-                      Text(cutLabel,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                            color: cutColor,
-                            letterSpacing: -0.3,
-                          )),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

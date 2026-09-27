@@ -774,7 +774,14 @@ class AiScanResult {
     this.weldMarks = const [],
     this.spools = const [],
     this.overallDimensions = const [],
+    this.envelope,
   }) : titleBlock = titleBlock ?? AiTitleBlock();
+
+  /// The response exactly as the server sent it (`{result, tookMs, model}`),
+  /// when this reading came from [AiScanResult.fromEnvelope]. Kept so the
+  /// paid reading can be stored and reopened without a second scan
+  /// (`IsoScanDao`); corrections made on the review screen are not in it.
+  final Map<String, dynamic>? envelope;
 
   bool get isError =>
       error != null ||
@@ -821,12 +828,14 @@ class AiScanResult {
         weldMarks: weldMarks,
         spools: spools,
         overallDimensions: overallDimensions,
+        envelope: envelope,
       );
 
   factory AiScanResult.fromEnvelope(Map<String, dynamic> envelope) {
     final result = (envelope['result'] as Map?)?.cast<String, dynamic>() ?? {};
     final version = _jInt(result['schemaVersion'] ?? envelope['schemaVersion']);
     return AiScanResult(
+      envelope: envelope,
       schemaVersion: (version == null || version < 1) ? 1 : version,
       weldMarks: ((result['welds'] as List?) ?? const [])
           .whereType<Map>()

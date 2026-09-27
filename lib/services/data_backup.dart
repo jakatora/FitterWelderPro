@@ -149,6 +149,9 @@ const Map<String, String> kPhotoPathColumns = {
   // tak samo jak zdjęcia wytopów.
   'welder_certificates': 'photo_path',
   'wps_library': 'attachment_path',
+  // v24: zdjęcie izometryku przy zapisanym odczycie skanera — kopia
+  // w <documents>/heat_photos, jak wyżej.
+  'iso_scans': 'image_path',
 };
 
 /// A problem with the *file the user picked*, phrased for the user.

@@ -39,7 +39,12 @@ class AppDatabase {
   //   klienta i klasę rurociągu (line_no, iso_no, iso_rev, client, spec),
   //   `segments` oznaczenie sztuki i spool (label, spool_id). Wszystko TEXT,
   //   NULL, bez domyślnych — stary projekt po prostu ich nie ma.
-  static const int _dbVersion = 22;
+  // v24: odczyt skanera izometryku `iso_scans` — koperta odpowiedzi serwera
+  //   (JSON) i kopia zdjęcia w <documents>/heat_photos (katalog objęty kopią
+  //   zapasową). Płatny skan przeżywa zabicie aplikacji i „Odrzuć”; ponowne
+  //   otwarcie nie zużywa limitu. Tabela nowa i pusta. (v23 zarezerwowana
+  //   dla równoległej zmiany — kolejność ustala scalenie.)
+  static const int _dbVersion = 24;
 
   /// The schema version [get] opens the database at.
   ///
@@ -389,6 +394,13 @@ CREATE TABLE IF NOT EXISTS projects (
       for (final column in kSegmentIdentityColumns.entries) {
         await _ensureColumn(db, 'segments', column.key, column.value);
       }
+    }
+
+    // ---- v24: odczyty skanera izometryku. Tabela nowa — self-heal na
+    // początku już ją utworzył; jawnie jeszcze raz (idempotentnie), żeby
+    // krok wersji był samodzielny. Nic istniejącego nie jest ruszane.
+    if (oldVersion < 24) {
+      await _createIsoScanTable(db);
     }
 
     // Last, now that every column the indexes reference exists.
@@ -808,6 +820,23 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
 );
 ''');
     await _createQualificationTables(db);
+    await _createIsoScanTable(db);
+  }
+
+  /// v24: odczyty skanera izometryku — iso_scan_dao.dart. `envelope_json` to
+  /// odpowiedź serwera dokładnie tak, jak przyszła (`{result, tookMs,
+  /// model}`), `image_path` kopia zdjęcia w katalogu `heat_photos`
+  /// (`kPhotoPathColumns` w data_backup.dart).
+  static Future<void> _createIsoScanTable(DatabaseExecutor db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS iso_scans (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  image_path TEXT,
+  envelope_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+''');
   }
 
   /// v21: rejestr uprawnień spawacza i biblioteka WPS.
