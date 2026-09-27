@@ -27,6 +27,8 @@
 /// [PrefabEngine] exactly like a hand-built segment does.
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -40,6 +42,7 @@ import '../services/iso_scanner_ai.dart';
 import '../services/scan_outputs.dart';
 import '../services/scan_to_project.dart';
 import '../services/iso_parser.dart';
+import '../services/prefab_engine.dart' show SideStop;
 import '../services/welder_identity.dart';
 import '../data/pipe_schedules.dart';
 import '../utils/haptic.dart';
@@ -82,12 +85,18 @@ class ScanReviewScreen extends StatefulWidget {
   final double? initialDiameterMm;
   final double? initialWallThicknessMm;
 
+  /// The photo the scan was read from, shown (zoomable) above the cuts — the
+  /// messages here say "check it on the drawing", and the drawing used to be
+  /// a screen back.
+  final String? imagePath;
+
   const ScanReviewScreen({
     super.key,
     required this.scan,
     this.suggestedName,
     this.initialDiameterMm,
     this.initialWallThicknessMm,
+    this.imagePath,
   });
 
   @override
@@ -1001,14 +1010,23 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
                     color: options[ref] == null ? _kMuted : null,
                   ),
                 ),
-                subtitle: Text(
-                  options[ref] == null
-                      ? _tr('nie da się policzyć', 'cannot be computed')
-                      : 'CUT ${options[ref]!.toStringAsFixed(1)} mm',
-                  style: TextStyle(
-                    color: options[ref] == null ? _kMuted : _kGreen,
-                    fontWeight: FontWeight.w700,
-                  ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _stopsInWords(seg, ref),
+                      style: const TextStyle(fontSize: 13, color: _kSec),
+                    ),
+                    Text(
+                      options[ref] == null
+                          ? _tr('nie da się policzyć', 'cannot be computed')
+                          : 'CUT ${options[ref]!.toStringAsFixed(1)} mm',
+                      style: TextStyle(
+                        color: options[ref] == null ? _kMuted : _kGreen,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
                 onTap: options[ref] == null
                     ? null
@@ -1069,13 +1087,37 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
           .map((w) => w.text(polish: !_isEnglish)),
       ..._scan.uncertainty,
     ];
+    final glance = [
+      for (final s in _segments)
+        if (_plan
+            .warningsFor(s.sourceId)
+            .any((w) => w.code == ScanIssueCode.mediumConfidence))
+          s,
+    ];
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       children: [
+        if (widget.imagePath != null) _drawingPanel(widget.imagePath!),
         if (_saveError != null) _errorBanner(_saveError!),
         if (_gate.projectGaps.isNotEmpty) _gapsCard(),
         if (_gate.blocked.isNotEmpty) _blockedCutsCard(),
         if (warnings.isNotEmpty) _warningsCard(warnings),
+        if (glance.isNotEmpty)
+          _issueCard(
+            color: _kAmber,
+            icon: Icons.visibility_outlined,
+            title: _tr(
+                'Do rzutu oka (${glance.length}) — wymiar odczytany średnio '
+                    'pewnie',
+                'For a glance (${glance.length}) — dimension read with '
+                    'medium confidence'),
+            lines: [
+              for (final s in glance)
+                '${_tr('Odcinek', 'Segment')} ${s.label}: ISO '
+                    '${s.isoExpr?.trim().isNotEmpty == true ? s.isoExpr!.trim() : _fmt(s.isoMm)}',
+            ],
+            textColor: const Color(0xFFFFE9B8),
+          ),
         _headerCard(),
         const SizedBox(height: 10),
         Padding(
@@ -1102,6 +1144,89 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   }
 
   bool get _isEnglish => context.language == AppLanguage.en;
+
+  /// The photographed drawing, pinch-zoomable, folded away on demand.
+  Widget _drawingPanel(String path) {
+    final file = File(path);
+    return Padding(
+      key: const ValueKey('scan-review-drawing'),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+      color: _kCard,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: _kBorder),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: true,
+          leading: const Icon(Icons.image_outlined, color: _kSec),
+          title: Text(
+            _tr('Rysunek — zdjęcie ze skanu', 'Drawing — the scanned photo'),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            _tr('Rozsuń dwoma palcami, żeby przybliżyć wymiar',
+                'Pinch to zoom in on a dimension'),
+            style: const TextStyle(fontSize: 12.5, color: _kSec),
+          ),
+          children: [
+            SizedBox(
+              height: 280,
+              child: file.existsSync()
+                  ? ClipRect(
+                      child: InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 8,
+                        child: Image.file(file,
+                            fit: BoxFit.contain, cacheWidth: 2048),
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        _tr('Zdjęcia nie ma już w telefonie.',
+                            'The photo is no longer on the phone.'),
+                        style: const TextStyle(color: _kMuted),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+
+  /// A reference option in words, end by end — "kołnierz: do przylgi (−Y
+  /// 76 mm)" — so "oś-koniec" never has to be decoded at a flange, where the
+  /// fitter reads "czoło" as the gasket face.
+  String _stopsInWords(PlannedSegment seg, ScanStops stops) {
+    String side(ScanEndpoint e, SideStop stop) {
+      if (e.isOpenEnd) return _tr('koniec rury', 'pipe end');
+      final what = e.label ?? e.rawType ?? _tr('element', 'component');
+      if (e.isAxial) {
+        return stop == SideStop.centre
+            ? _tr('$what: do osi', '$what: to the centreline')
+            : _tr('$what: do końca kształtki', '$what: to the fitting end');
+      }
+      final body = e.bodyLengthMm;
+      final len = body == null ? '' : ' ${_fmt(body)} mm';
+      if (e.tool == 'flange') {
+        return stop == SideStop.end
+            ? _tr('$what: do przylgi (−Y$len)',
+                '$what: to the gasket face (−Y$len)')
+            : _tr('$what: do spoiny (bez Y)', '$what: to the weld (no Y)');
+      }
+      return stop == SideStop.end
+          ? _tr('$what: przez korpus (−$len)',
+              '$what: through the body (−$len)')
+          : _tr('$what: do czoła', '$what: to its face');
+    }
+
+    return '${side(seg.start, stops.start)}  →  ${side(seg.end, stops.end)}';
+  }
 
   Widget _errorBanner(String message) {
     return Container(
@@ -1435,6 +1560,10 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     final wallMissing =
         segGaps.any((g) => g.code == ScanIssueCode.missingSegmentWall);
 
+    // Read with medium confidence ("slightly illegible"): not a block, but
+    // the number itself is coloured so a glance at the drawing is not missed.
+    final medium =
+        segWarnings.any((w) => w.code == ScanIssueCode.mediumConfidence);
     final borderColor = blocked
         ? _kRed
         : unsure
@@ -1502,18 +1631,28 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
+                  key: ValueKey('scan-iso-${seg.sourceId}'),
                   onPressed: () => _editDimension(seg),
-                  icon: const Icon(Icons.straighten, size: 18),
+                  icon: Icon(
+                      medium ? Icons.visibility_outlined : Icons.straighten,
+                      size: 18),
                   label: Text(
                     seg.isoMm == null
                         ? _tr('WPISZ WYMIAR', 'ENTER DIMENSION')
-                        : 'ISO ${seg.isoExpr?.trim().isNotEmpty == true ? seg.isoExpr!.trim() : _fmt(seg.isoMm)}',
+                        : '${medium ? '? ' : ''}ISO ${seg.isoExpr?.trim().isNotEmpty == true ? seg.isoExpr!.trim() : _fmt(seg.isoMm)}',
                     overflow: TextOverflow.ellipsis,
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: seg.isoMm == null ? _kRed : null,
+                    foregroundColor: seg.isoMm == null
+                        ? _kRed
+                        : (medium ? _kAmber : null),
+                    backgroundColor:
+                        medium ? _kAmber.withValues(alpha: 0.12) : null,
                     side: BorderSide(
-                        color: seg.isoMm == null ? _kRed : _kBorder),
+                        color: seg.isoMm == null
+                            ? _kRed
+                            : (medium ? _kAmber : _kBorder),
+                        width: medium ? 1.6 : 1),
                   ),
                 ),
               ),

@@ -1,0 +1,74 @@
+{
+  "format": "fwp-golden-iso",
+  "formatVersion": 2,
+  "id": "21-wymiar-tekst-rozny-od-liczby",
+  "title": "Tekst wymiaru z rysunku ≠ liczba z odczytu — blokada cięcia do potwierdzenia",
+  "drawing": "Otwarty koniec → kolano E1 → kolano E2 → kolano E3 → otwarty koniec. Na rysunku s2 = 1250, model podał 1200. s3 w stopach i calach 4'-6\" = 1371,6 mm, model podał 1372 (różnica 0,4 mm — zaokrąglenie, bez blokady). s4 zapisane „1,500” (separator tysięcy), model podał 1500 — tekst czytany z przecinkiem dziesiętnym to 1,5 mm, więc blokada. DN100 Sch 40, Class 150. Kolano 90° LR A=152 (ASME B16.9). Przegląd G3, sonda raw ≠ dim: przed poprawką s2 = 892 z 1200 bez blokady.",
+  "source": "Ręcznie zapisany odczyt AI (koperta jak z POST /api/fitter/scan-iso) — nie prawdziwe zdjęcie.",
+  "gapMm": 0,
+  "envelope": {
+    "result": {
+      "drawingStandard": "ISO",
+      "sizeNotation": "DN",
+      "isHygienic": false,
+      "titleBlock": {
+        "drawingNumber": "ISO-P-1021",
+        "sheet": "1/1",
+        "revision": "A",
+        "lineNumber": "DN100-P-1021-A1A",
+        "pipeClass": "CL150",
+        "material": "A312 TP316L",
+        "schedule": "Sch 40",
+        "units": "mm"
+      },
+      "segments": [
+        {"id": "s1", "fromId": null, "toId": "E1", "dimensionMm": 1500, "rawDimension": "1500", "auxiliary": false, "confidence": "high"},
+        {"id": "s2", "fromId": "E1", "toId": "E2", "dimensionMm": 1200, "rawDimension": "1250", "auxiliary": false, "confidence": "high"},
+        {"id": "s3", "fromId": "E2", "toId": "E3", "dimensionMm": 1372, "rawDimension": "4'-6\"", "auxiliary": false, "confidence": "high"},
+        {"id": "s4", "fromId": "E3", "toId": null, "dimensionMm": 1500, "rawDimension": "1,500", "auxiliary": false, "confidence": "high"}
+      ],
+      "components": [
+        {"id": "E1", "type": "elbow90", "label": "90° LR", "confidence": "high"},
+        {"id": "E2", "type": "elbow90", "label": "90° LR", "confidence": "high"},
+        {"id": "E3", "type": "elbow90", "label": "90° LR", "confidence": "high"}
+      ],
+      "elevations": [],
+      "billOfMaterials": [],
+      "needsUserInput": [],
+      "uncertainty": [],
+      "warnings": []
+    },
+    "tookMs": 30000,
+    "model": "claude-sonnet-5"
+  },
+  "knownLimitations": [],
+  "steps": [
+    {
+      "note": "s2 i s4 czekają: tekst z rysunku mówi co innego niż liczba. Cięcie jest policzone i pokazane, ale nie zapisze się.",
+      "expect": {
+        "canSave": true,
+        "gaps": ["dimensionTextMismatch"],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348", "blocked": false},
+          {"id": "s2", "cutMm": 896, "calc": "1200 − 2×152 = 896 — z liczby modelu, zablokowane (rysunek: 1250)", "blocked": true},
+          {"id": "s3", "cutMm": 1068, "calc": "1372 − 2×152 = 1068 — 4'-6\" = 1371,6, różnica 0,4 mm w tolerancji", "blocked": false},
+          {"id": "s4", "cutMm": 1348, "calc": "1500 − 152 = 1348 — zablokowane („1,500” nie jest jednoznaczne)", "blocked": true}
+        ]
+      }
+    },
+    {
+      "note": "Monter przepisał wymiary z rysunku.",
+      "fitter": {"dimensions": {"s2": "1250", "s4": "1500"}},
+      "expect": {
+        "canSave": true,
+        "gaps": [],
+        "segments": [
+          {"id": "s1", "cutMm": 1348, "calc": "1500 − 152 = 1348"},
+          {"id": "s2", "cutMm": 946, "calc": "1250 − 2×152 = 946"},
+          {"id": "s3", "cutMm": 1068, "calc": "1372 − 2×152 = 1068"},
+          {"id": "s4", "cutMm": 1348, "calc": "1500 − 152 = 1348"}
+        ]
+      }
+    }
+  ]
+}

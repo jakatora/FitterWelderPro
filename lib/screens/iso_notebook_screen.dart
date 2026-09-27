@@ -19,6 +19,7 @@ import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 import '../models/prefab/dim_ref.dart';
 import '../services/prefab_engine.dart' as prefab;
+import '../services/prefab_engine.dart' show SideStop;
 import '../models/prefab/end_connection.dart';
 import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
@@ -91,9 +92,24 @@ class _CutCalc implements SketchDimension {
   /// [_IsoState._resolvedCut] via [prefab.PrefabEngine].
   @override
   final DimRef ref;
-  const _CutCalc(this.iso, {this.deducts = const [], this.ref = DimRef.centreToCentre});
+
+  /// Where the dimension stops at the pipe's end `a` / `b`, picked per end in
+  /// the dimension window (both or neither — null on a dimension typed before
+  /// the window asked, which [ref] then describes).
+  @override
+  final SideStop? stopA;
+  @override
+  final SideStop? stopB;
+
+  const _CutCalc(this.iso,
+      {this.deducts = const [],
+      this.ref = DimRef.centreToCentre,
+      this.stopA,
+      this.stopB});
 
   bool get hasDeducts => deducts.isNotEmpty;
+
+  bool get hasStops => stopA != null && stopB != null;
 
   /// Parenthesised ISO — "(1500)" — is a REFERENCE dimension: printed on the
   /// drawing, never sawn. Kept as a flag rather than a second cut formula so
@@ -211,6 +227,144 @@ bool _isAxialTool(_Tool t) => sketchIsAxialTool(t.name);
 /// [sketchAxialTakeoutOf].
 int? _axialTakeoutOf(_Comp c) => sketchAxialTakeoutOf(c);
 
+/// The DimRef naming the stop pair ([a], [b]) in either order, or null when
+/// none does (through the body at both ends).
+DimRef? _dimRefForStops(SideStop a, SideStop b) {
+  const pairs = <DimRef, (SideStop, SideStop)>{
+    DimRef.centreToCentre: (SideStop.centre, SideStop.centre),
+    DimRef.centreToFace: (SideStop.centre, SideStop.face),
+    DimRef.faceToFace: (SideStop.face, SideStop.face),
+    DimRef.faceToEnd: (SideStop.face, SideStop.end),
+    DimRef.centreToEnd: (SideStop.centre, SideStop.end),
+  };
+  for (final e in pairs.entries) {
+    final (x, y) = e.value;
+    if ((x == a && y == b) || (x == b && y == a)) return e.key;
+  }
+  return null;
+}
+
+/// One end of the stop picker in the dimension window.
+class _StopPickerEnd {
+  final String title;
+  final List<({SideStop stop, ({String pl, String en}) words, double cutMm})>
+      options;
+  final SideStop selected;
+  final ValueChanged<SideStop> onSelected;
+  const _StopPickerEnd({
+    required this.title,
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+  });
+}
+
+/// "Where does the dimension stop?" — per end, in words, each choice with
+/// the CUT it gives. Rows are ≥ 48 dp for gloved fingers.
+class _StopPicker extends StatelessWidget {
+  final String Function(String pl, String en) tr;
+  final bool legacyUnconfirmed;
+  final List<_StopPickerEnd> ends;
+  const _StopPicker({
+    required this.tr,
+    required this.legacyUnconfirmed,
+    required this.ends,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('iso-stop-picker'),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: legacyUnconfirmed ? cs.error : cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            tr('Dokąd biegnie wymiar z rysunku?',
+                'Where does the drawing dimension run to?'),
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: cs.onSurface),
+          ),
+          if (legacyUnconfirmed)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                tr(
+                    'Ten wymiar nie miał wybranego punktu odniesienia. '
+                        'Sprawdź na rysunku i zatwierdź OK — do tego czasu '
+                        'rura nie trafi do projektu.',
+                    'This dimension had no reference point picked. Check '
+                        'the drawing and confirm with OK — until then the '
+                        'pipe stays out of a project.'),
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: cs.error),
+              ),
+            ),
+          for (final end in ends) ...[
+            const SizedBox(height: 8),
+            Text(end.title,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurfaceVariant)),
+            for (final o in end.options)
+              InkWell(
+                onTap: () => end.onSelected(o.stop),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: Row(
+                    children: [
+                      Icon(
+                        o.stop == end.selected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                        color: o.stop == end.selected
+                            ? cs.primary
+                            : cs.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          tr(o.words.pl, o.words.en),
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: o.stop == end.selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                              color: cs.onSurface),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        o.cutMm.isFinite
+                            ? 'CUT ${o.cutMm.toStringAsFixed(1)}'
+                            : 'CUT —',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: cs.primary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // The take-out, weld and CUT rules themselves live in
 // `lib/domain/iso_notebook/sketch_cut.dart` (tested there): the CUT project
 // created from a sketch must store exactly the number this screen shows, and
@@ -317,6 +471,23 @@ class _Comp implements _Item, SketchComponent {
         cteMm: cte,
         physicalLengthMm: physicalLengthMm,
         dnOut: dnOut,
+        endA: endA,
+        endB: endB,
+      );
+
+  /// Tee spec: run DN, branch DN (null or equal = equal tee) and the run
+  /// take-out C the fitter confirmed (null = B16.9 table).
+  _Comp withTeeSpec({required int dn, int? dnBranch, int? cte}) => _Comp(
+        pos,
+        t,
+        dir: dir,
+        dir2: dir2,
+        label: label,
+        dn: dn,
+        elbowSubtype: null,
+        cteMm: cte,
+        physicalLengthMm: physicalLengthMm,
+        dnOut: (dnBranch == null || dnBranch == dn) ? null : dnBranch,
         endA: endA,
         endB: endB,
       );
@@ -1349,6 +1520,74 @@ class _IsoState extends State<IsoNotebookScreen> {
     return (p - (a + ab * t)).distance;
   }
 
+  // ── two-finger pinch / pan ──────────────────────────────────────────────────
+  // One finger draws (or scrolls in pan mode) exactly as before; a second
+  // finger turns the gesture into zoom + scroll, in any mode, and abandons a
+  // line that was being drawn. Zoom used to live only in the "View" menu:
+  // two or three taps per step on a 360 dp phone in gloves.
+  bool _pinching = false;
+  double _pinchLastScale = 1.0;
+
+  void _beginPinch() {
+    _pinching = true;
+    _pinchLastScale = 1.0;
+    if (_dragA != null || _dragB != null) {
+      setState(() {
+        _dragA = null;
+        _dragB = null;
+      });
+    }
+  }
+
+  void _scaleStart(ScaleStartDetails d) {
+    if (_pinching) {
+      // Reconfigured (a finger joined or left): the scale restarts at 1.
+      _pinchLastScale = 1.0;
+      return;
+    }
+    if (d.pointerCount >= 2) {
+      _beginPinch();
+      return;
+    }
+    _panStart(DragStartDetails(
+      globalPosition: d.focalPoint,
+      localPosition: d.localFocalPoint,
+    ));
+  }
+
+  void _scaleUpdate(ScaleUpdateDetails d) {
+    if (!_pinching && d.pointerCount >= 2) _beginPinch();
+    if (_pinching) {
+      if (d.pointerCount < 2) return;
+      final factor = d.scale / _pinchLastScale;
+      _pinchLastScale = d.scale;
+      setState(() => _viewOffset += d.focalPointDelta);
+      if ((factor - 1).abs() > 1e-4) _zoomBy(factor, focal: d.localFocalPoint);
+      return;
+    }
+    _panUpdate(DragUpdateDetails(
+      globalPosition: d.focalPoint,
+      localPosition: d.localFocalPoint,
+      delta: d.focalPointDelta,
+    ));
+  }
+
+  void _scaleEnd(ScaleEndDetails d) {
+    if (_pinching) {
+      // Stay in pinch mode until the last finger is up, so the finger that
+      // stays down does not start drawing a line.
+      if (d.pointerCount == 0) _pinching = false;
+      return;
+    }
+    if (d.pointerCount >= 2) {
+      // A second finger joined a line being drawn: that is a pinch, not the
+      // end of the line.
+      _beginPinch();
+      return;
+    }
+    _panEnd(DragEndDetails(velocity: d.velocity));
+  }
+
   // ── line drawing (pan) ──────────────────────────────────────────────────────
   void _panStart(DragStartDetails d) {
     if (_panMode) {
@@ -1615,7 +1854,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// component carrying `dnOut`. We don't store inferred DN on the segment
   /// (segments are immutable) — `_cutListLines` queries this on demand.
   int? _inferredDnFor(_Seg seg) =>
-      sketchInferredDn(seg, _comps, _s * 0.45);
+      sketchInferredDn(seg, _comps, _s * 0.45, pipes: _pipes);
 
   /// Return 0..5 — the index into [_isoHeadings] whose unit vector best
   /// aligns with [v]. Used to convert a free vector (the pipe's outgoing
@@ -1731,6 +1970,13 @@ class _IsoState extends State<IsoNotebookScreen> {
       final comp = _items[idx] as _Comp;
       if (comp.isElbow) {
         await _editElbowSpec(idx);
+        return;
+      }
+      if (comp.t == _Tool.tee) {
+        // A tee has two take-outs once its branch is smaller: C on the run,
+        // M on the branch (B16.9 Tab. 6.1-7). The sheet is where the branch
+        // size is set; rotating moved into it.
+        await _editTeeSpec(idx);
         return;
       }
       _push();
@@ -1923,7 +2169,55 @@ class _IsoState extends State<IsoNotebookScreen> {
     final isoCtrl = TextEditingController(text: current?.iso ?? '');
     final slopeCtrl = TextEditingController(text: slope);
     bool insulFlag = insulated;
-    DimRef refLocal = current?.ref ?? DimRef.centreToCentre;
+
+    // ── Where the dimension stops at each end ─────────────────────────────
+    // Chosen per end, in words, in plain sight — the old picker was five
+    // codes (CTC / CTF / FTF / FTE / CTE) folded away under "Advanced", with
+    // "centre–centre" as the silent default, so an elbow → weld-neck flange
+    // run came out long by the flange's Y. The default is now the segment
+    // builder's: an elbow to its centreline, a flange through to its gasket
+    // face, a valve / reducer / cap to the face the pipe meets.
+    final tol = _s * 0.45;
+    final compsNow = _comps.toList(growable: false);
+    final pipesNow = _pipes;
+    final kindA = segA == null
+        ? SketchEndKind.free
+        : sketchEndKindAt(segA, compsNow, tol);
+    final kindB = segB == null
+        ? SketchEndKind.free
+        : sketchEndKindAt(segB, compsNow, tol);
+    bool bodied(SketchEndKind k) =>
+        k == SketchEndKind.flange || k == SketchEndKind.body;
+    final showStops = bodied(kindA) || bodied(kindB);
+    SideStop stopA = sketchDefaultStopFor(kindA);
+    SideStop stopB = sketchDefaultStopFor(kindB);
+    // A dimension from before the per-end choice whose reference was never
+    // picked: preselect the default and say it has to be confirmed.
+    var legacyUnconfirmed = false;
+    if (current != null && current.hasStops) {
+      stopA = current.stopA!;
+      stopB = current.stopB!;
+    } else if (current != null && segA != null && segB != null) {
+      final legacy = _Seg(segA, segB, _Tool.pipe, calc: current);
+      legacyUnconfirmed = sketchRefUnconfirmed(legacy, compsNow, tol);
+      if (!legacyUnconfirmed) {
+        // A reference the fitter did pick: reopen on exactly the stops it
+        // resolved to, so OK without a change keeps the same CUT.
+        final b = sketchCutBreakdown(legacy, compsNow,
+            tol: tol, gapMm: _gapMm, pipes: pipesNow);
+        final ra = b?.stopA;
+        final rb = b?.stopB;
+        if (ra != null && sketchStopOptionsFor(kindA).contains(ra)) {
+          stopA = ra;
+        }
+        if (rb != null && sketchStopOptionsFor(kindB).contains(rb)) {
+          stopB = rb;
+        }
+      }
+    }
+    DimRef refFor(SideStop a, SideStop b) =>
+        _dimRefForStops(a, b) ?? current?.ref ?? DimRef.centreToCentre;
+
     final rows = <(TextEditingController name, TextEditingController value)>[];
     for (final d in current?.deducts ?? const <_Deduct>[]) {
       rows.add((
@@ -1939,10 +2233,14 @@ class _IsoState extends State<IsoNotebookScreen> {
     // Wrap the whole dialog flow in try/finally so the controllers are
     // disposed deterministically when the user taps OK, Cancel or the back
     // gesture. Previously each open/close leaked 2-N controllers; over a
-    // long session that's measurable jank.
-    try {
-      return await showDialog<_CalcResult>(
+    // long session that's measurable jank. They are disposed once the route
+    // is GONE, not when push() returns: the dialog is still fading out then,
+    // and its fields rebuilt on disposed controllers (a debug assertion on
+    // every OK).
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<_CalcResult>(
       context: context,
+      themes: InheritedTheme.capture(from: context, to: navigator.context),
       builder: (dctx) => StatefulBuilder(
         builder: (dctx, setLocal) {
           final cs = Theme.of(dctx).colorScheme;
@@ -1961,14 +2259,33 @@ class _IsoState extends State<IsoNotebookScreen> {
             debugPrint('_askCalc live ISO parse failed: $e');
           }
           double deductSum = 0;
-          for (final r in rows) {
+          // Rows whose value does not parse ("3+" — an operator key pressed
+          // last). They block OK: a row the fitter typed and the arithmetic
+          // skipped would leave the pipe long by exactly that row.
+          final badRows = <int>{};
+          for (var i = 0; i < rows.length; i++) {
+            final r = rows[i];
             if (r.$2.text.trim().isEmpty) continue;
             try {
-              deductSum += parseIsoExpression(r.$2.text);
+              final v = parseIsoExpression(r.$2.text);
+              if (!v.isFinite) throw const FormatException('non-finite');
+              deductSum += v;
             } catch (e) {
-              debugPrint('_askCalc live deduct parse failed: $e');
+              badRows.add(i);
             }
           }
+          final blockedByRows = calcMode && badRows.isNotEmpty;
+          _CutCalc previewCalc(SideStop a, SideStop b) => _CutCalc(
+                isoCtrl.text,
+                deducts: [
+                  for (final r in rows)
+                    if (r.$2.text.trim().isNotEmpty)
+                      _Deduct(r.$1.text, r.$2.text),
+                ],
+                ref: refFor(a, b),
+                stopA: showStops ? a : null,
+                stopB: showStops ? b : null,
+              );
           // Live CUT, through the SAME engine the drawing and the cut list
           // use. The preview used to be ISO minus the typed rows only, so a
           // segment between two DN100 elbows promised 2000 mm here and then
@@ -1991,27 +2308,24 @@ class _IsoState extends State<IsoNotebookScreen> {
                 pa,
                 pb,
                 _Tool.pipe,
-                calc: _CutCalc(
-                  isoCtrl.text,
-                  deducts: [
-                    for (final r in rows)
-                      if (r.$2.text.trim().isNotEmpty)
-                        _Deduct(r.$1.text, r.$2.text),
-                  ],
-                  ref: refLocal,
-                ),
+                calc: previewCalc(stopA, stopB),
               );
               final v = _resolvedCut(preview);
               // NaN means the engine rejected it (unreadable / non-positive).
               // Fall back to the raw subtraction so the card can still show
               // the negative number and its "components longer than ISO"
-              // warning instead of going blank.
-              cutMm = v.isFinite ? v : isoMm - deductSum;
+              // warning instead of going blank — but never for an unreadable
+              // row: that is "no cut", not a number.
+              cutMm = v.isFinite
+                  ? v
+                  : (blockedByRows ? null : isoMm - deductSum);
               if (v.isFinite && _gapMm > 0) {
-                gapDeduct =
-                    _gapMm * sketchWeldCount(preview, _comps, _s * 0.45);
+                gapDeduct = _gapMm *
+                    sketchWeldCount(preview, compsNow, tol, pipes: pipesNow);
               }
-              autoDeduct = isoMm - deductSum - cutMm - gapDeduct;
+              if (cutMm != null) {
+                autoDeduct = isoMm - deductSum - cutMm - gapDeduct;
+              }
             } else {
               cutMm = isoMm - deductSum;
             }
@@ -2242,6 +2556,53 @@ class _IsoState extends State<IsoNotebookScreen> {
                       ),
                     ],
 
+                    // ── Where the dimension stops (flange / valve / reducer /
+                    // cap on an end) — in words, with the CUT of each choice.
+                    if (showStops && segA != null && segB != null) ...[
+                      const SizedBox(height: 14),
+                      _StopPicker(
+                        tr: _tr,
+                        legacyUnconfirmed: legacyUnconfirmed,
+                        ends: [
+                          for (final (end, kind, isA) in [
+                            (segA, kindA, true),
+                            (segB, kindB, false),
+                          ])
+                            if (sketchStopOptionsFor(kind).length > 1)
+                              _StopPickerEnd(
+                                title: _endTitle(end, isA),
+                                options: [
+                                  for (final st in sketchStopOptionsFor(kind))
+                                    (
+                                      stop: st,
+                                      words: sketchStopWords(kind, st),
+                                      cutMm: isoMm == null
+                                          ? double.nan
+                                          : _resolvedCut(_Seg(
+                                              segA,
+                                              segB,
+                                              _Tool.pipe,
+                                              calc: previewCalc(
+                                                isA ? st : stopA,
+                                                isA ? stopB : st,
+                                              ),
+                                            )),
+                                    ),
+                                ],
+                                selected: isA ? stopA : stopB,
+                                onSelected: (st) => setLocal(() {
+                                  if (isA) {
+                                    stopA = st;
+                                  } else {
+                                    stopB = st;
+                                  }
+                                  legacyUnconfirmed = false;
+                                }),
+                              ),
+                        ],
+                      ),
+                    ],
+
                     if (calcMode) ...[
                       const SizedBox(height: 14),
                       Row(
@@ -2298,6 +2659,9 @@ class _IsoState extends State<IsoNotebookScreen> {
                                     isDense: true,
                                     hintText: '76',
                                     suffixText: 'mm',
+                                    errorText: badRows.contains(i)
+                                        ? _tr('nieczytelne', 'unreadable')
+                                        : null,
                                   ),
                                   onTap: () =>
                                       setLocal(() => activeExpr = i),
@@ -2330,6 +2694,21 @@ class _IsoState extends State<IsoNotebookScreen> {
                             ),
                           ),
                       ],
+                      if (blockedByRows)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Text(
+                            _tr(
+                                'Nieczytelny wiersz odliczenia — popraw go '
+                                    'albo usuń. Bez tego nie ma cięcia.',
+                                'Unreadable deduct row — fix or remove it. '
+                                    'There is no cut until then.'),
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: cs.error),
+                          ),
+                        ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -2425,73 +2804,6 @@ class _IsoState extends State<IsoNotebookScreen> {
                               isDense: true,
                             ),
                           ),
-                          // ── DimRef picker — only when a physical-length
-                          // component (flange, cap, valve, reducer…) sits on
-                          // at least one end of this segment. For pure
-                          // axial-on-both-sides runs the designer always
-                          // dimensions centre-to-centre, so we hide the row
-                          // entirely to avoid noise.
-                          Builder(builder: (_) {
-                            bool endHasPhysical(Offset? p) {
-                              if (p == null) return false;
-                              const physicalTools = <_Tool>{
-                                _Tool.reducer,
-                                _Tool.flange,
-                                _Tool.blindFlange,
-                                _Tool.cap,
-                                _Tool.gateValve,
-                                _Tool.ballValve,
-                                _Tool.checkValve,
-                                _Tool.globeValve,
-                                _Tool.butterflyValve,
-                              };
-                              for (final it in _items) {
-                                if (it is! _Comp) continue;
-                                if (!physicalTools.contains(it.t)) continue;
-                                if ((it.pos - p).distance < _s * 0.45) {
-                                  return true;
-                                }
-                              }
-                              return false;
-                            }
-
-                            final showPicker =
-                                endHasPhysical(segA) || endHasPhysical(segB);
-                            if (!showPicker) return const SizedBox.shrink();
-                            final cs2 = Theme.of(dctx).colorScheme;
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 10),
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _tr('Wymiar ISO odnosi się do',
-                                        'ISO dimension is measured between'),
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: cs2.onSurfaceVariant,
-                                        letterSpacing: 0.4),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 4,
-                                    children: [
-                                      for (final r in DimRef.values)
-                                        ChoiceChip(
-                                          label: Text(r.code),
-                                          selected: refLocal == r,
-                                          onSelected: (_) => setLocal(
-                                              () => refLocal = r),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
                           const SizedBox(height: 6),
                           CheckboxListTile(
                             contentPadding: EdgeInsets.zero,
@@ -2517,30 +2829,41 @@ class _IsoState extends State<IsoNotebookScreen> {
                 child: Text(_tr('Anuluj', 'Cancel')),
               ),
               ElevatedButton(
-                onPressed: () {
-                  final iso = isoCtrl.text.trim();
-                  if (iso.isEmpty) {
-                    Navigator.pop(dctx, const _CalcResult.removed());
-                    return;
-                  }
-                  final deducts = <_Deduct>[];
-                  if (calcMode) {
-                    for (final r in rows) {
-                      final v = r.$2.text.trim();
-                      if (v.isEmpty) continue;
-                      deducts.add(_Deduct(r.$1.text.trim(), v));
-                    }
-                  }
-                  Navigator.pop(
-                      dctx,
-                      _CalcResult.set(
-                          _CutCalc(iso,
-                              deducts: List.unmodifiable(deducts),
-                              ref: refLocal),
-                          slope: slopeCtrl.text.trim(),
-                          insulated: insulFlag,
-                          ref: refLocal));
-                },
+                // An unreadable deduct row blocks OK — it must be fixed or
+                // removed, never saved to be skipped by the arithmetic.
+                onPressed: blockedByRows
+                    ? null
+                    : () {
+                        final iso = isoCtrl.text.trim();
+                        if (iso.isEmpty) {
+                          Navigator.pop(dctx, const _CalcResult.removed());
+                          return;
+                        }
+                        final deducts = <_Deduct>[];
+                        if (calcMode) {
+                          for (final r in rows) {
+                            final v = r.$2.text.trim();
+                            if (v.isEmpty) continue;
+                            deducts.add(_Deduct(r.$1.text.trim(), v));
+                          }
+                        }
+                        final ref = refFor(stopA, stopB);
+                        Navigator.pop(
+                            dctx,
+                            _CalcResult.set(
+                                _CutCalc(iso,
+                                    deducts: List.unmodifiable(deducts),
+                                    ref: ref,
+                                    // Stored only where there was a choice
+                                    // to make — a run between elbows stays
+                                    // centre–centre, readable by older
+                                    // builds.
+                                    stopA: showStops ? stopA : null,
+                                    stopB: showStops ? stopB : null),
+                                slope: slopeCtrl.text.trim(),
+                                insulated: insulFlag,
+                                ref: ref));
+                      },
                 child: const Text('OK'),
               ),
             ],
@@ -2548,13 +2871,17 @@ class _IsoState extends State<IsoNotebookScreen> {
         },
       ),
     );
+    try {
+      return await navigator.push(route);
     } finally {
-      isoCtrl.dispose();
-      slopeCtrl.dispose();
-      for (final r in rows) {
-        r.$1.dispose();
-        r.$2.dispose();
-      }
+      unawaited(route.completed.whenComplete(() {
+        isoCtrl.dispose();
+        slopeCtrl.dispose();
+        for (final r in rows) {
+          r.$1.dispose();
+          r.$2.dispose();
+        }
+      }));
     }
   }
 
@@ -2617,6 +2944,192 @@ class _IsoState extends State<IsoNotebookScreen> {
     );
     } finally {
       ctrl.dispose();
+    }
+  }
+
+  /// Sheet for one tee: run DN, branch DN, run take-out C, and the branch
+  /// take-out M the reducing tee gets from ASME B16.9 Tab. 6.1-7. Which pipe
+  /// is the branch is read off the drawing (the leg that is not in line with
+  /// the other two); a missing M in the table is said out loud, never
+  /// filled with C.
+  Future<void> _editTeeSpec(int idx) async {
+    final comp = _items[idx] as _Comp;
+    final sizes = TakeoutCatalog.tee.keys.toList()..sort();
+    int dn = comp.dn ?? _dnForComp(comp) ?? 100;
+    if (!sizes.contains(dn)) {
+      final wanted = dn;
+      dn = sizes.firstWhere((s) => s >= wanted, orElse: () => sizes.last);
+    }
+    int branch = comp.dnOut ?? dn;
+    final cteCtrl = TextEditingController(
+        text: (comp.cteMm ?? TakeoutCatalog.tee[dn])?.toString() ?? '');
+    try {
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetCtx) => Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom),
+          child: StatefulBuilder(builder: (sheetCtx, setLocal) {
+            final cs = Theme.of(sheetCtx).colorScheme;
+            final branchSizes = [for (final s in sizes) if (s <= dn) s];
+            if (!branchSizes.contains(branch)) branch = dn;
+            final reducing = branch != dn;
+            final outlets = TakeoutCatalog.reducingTeeOutletM[dn];
+            final int? m =
+                reducing ? (outlets == null ? null : outlets[branch]) : null;
+            Widget dnPicker(String label, int value, List<int> options,
+                    ValueChanged<int> onChanged) =>
+                InputDecorator(
+                  decoration: InputDecoration(labelText: label),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      isExpanded: true,
+                      isDense: true,
+                      value: value,
+                      items: [
+                        for (final s in options)
+                          DropdownMenuItem(value: s, child: Text('DN$s')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setLocal(() => onChanged(v));
+                      },
+                    ),
+                  ),
+                );
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(_tr('Trójnik', 'Tee'),
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: cs.onSurface)),
+                    const SizedBox(height: 4),
+                    Text(
+                      _tr(
+                          'Przelot odejmuje C, odgałęzienie trójnika '
+                              'redukcyjnego odejmuje M (ASME B16.9). '
+                              'Odgałęzienie to rura, która nie leży w linii '
+                              'z dwiema pozostałymi.',
+                          'The run takes off C, the branch of a reducing '
+                              'tee takes off M (ASME B16.9). The branch is '
+                              'the pipe not in line with the other two.'),
+                      style: TextStyle(
+                          fontSize: 12.5, color: cs.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                        child: dnPicker(_tr('DN przelotu', 'Run DN'), dn,
+                            sizes, (v) {
+                          dn = v;
+                          cteCtrl.text =
+                              TakeoutCatalog.tee[v]?.toString() ?? '';
+                        }),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: dnPicker(
+                            _tr('DN odgałęzienia', 'Branch DN'),
+                            branchSizes.contains(branch) ? branch : dn,
+                            branchSizes,
+                            (v) => branch = v),
+                      ),
+                    ]),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: cteCtrl,
+                      keyboardType: numberKeyboard(decimal: false),
+                      inputFormatters: numberInputFormatters(decimal: false),
+                      decoration: InputDecoration(
+                        labelText: _tr('C — oś → koniec przelotu',
+                            'C — centre → run end'),
+                        suffixText: 'mm',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      !reducing
+                          ? _tr('Trójnik równy: odgałęzienie też odejmuje C.',
+                              'Equal tee: the branch takes off C as well.')
+                          : m != null
+                              ? _tr(
+                                  'M — oś → koniec odgałęzienia: $m mm '
+                                      '(B16.9, DN$dn×$branch)',
+                                  'M — centre → branch end: $m mm '
+                                      '(B16.9, DN$dn×$branch)')
+                              : _tr(
+                                  'Brak M dla DN$dn×$branch w tabeli B16.9 — '
+                                      'odgałęzienie nie będzie odjęte, '
+                                      'dopóki nie wpiszesz go wierszem '
+                                      '„Trójnik (CTE)” w oknie wymiaru.',
+                                  'No M for DN$dn×$branch in the B16.9 table '
+                                      '— the branch is not deducted until '
+                                      'you type it as a “Trójnik (CTE)” row '
+                                      'in the dimension window.'),
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: (reducing && m == null)
+                              ? cs.error
+                              : cs.onSurface),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(children: [
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(48, 48)),
+                        onPressed: () => Navigator.pop(sheetCtx, 'rotate'),
+                        icon: const Icon(Icons.rotate_right),
+                        label: Text(_tr('Obróć', 'Rotate')),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                            minimumSize: const Size(48, 48)),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                        child: Text(_tr('Anuluj', 'Cancel')),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                            minimumSize: const Size(48, 48)),
+                        onPressed: () => Navigator.pop(sheetCtx, 'save'),
+                        child: Text(_tr('Zapisz', 'Save')),
+                      ),
+                    ]),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+      if (!mounted || action == null) return;
+      final current = _items[idx];
+      if (current is! _Comp) return;
+      _push();
+      if (action == 'rotate') {
+        _mutate(() => _items[idx] = current.rotate());
+        return;
+      }
+      final typed = parseDecimal(cteCtrl.text);
+      final table = TakeoutCatalog.tee[dn];
+      final cte = (typed == null || typed <= 0) ? null : typed.round();
+      _mutate(() => _items[idx] = current.withTeeSpec(
+            dn: dn,
+            dnBranch: branch,
+            // Only a number that differs from the table is the fitter's own;
+            // the table value stays implicit so a DN change refills it.
+            cte: (cte == null || cte == table) ? null : cte,
+          ));
+    } finally {
+      cteCtrl.dispose();
     }
   }
 
@@ -3832,7 +4345,30 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// unreadable, the dimension is a "(reference)" one, or the engine rejects
   /// the result.
   double _resolvedCut(_Seg seg) =>
-      sketchCutMm(seg, _comps, tol: _s * 0.45, gapMm: _gapMm);
+      sketchCutMm(seg, _comps, tol: _s * 0.45, gapMm: _gapMm, pipes: _pipes);
+
+  /// Everything [_resolvedCut] is made of, for the cut list and the flags.
+  SketchCutBreakdown? _breakdown(_Seg seg) => sketchCutBreakdown(seg, _comps,
+      tol: _s * 0.45, gapMm: _gapMm, pipes: _pipes);
+
+  /// "Koniec A — Kołnierz DN100 (dł. 76 mm)" for the stop picker.
+  String _endTitle(Offset end, bool isA) {
+    final pl = context.language == AppLanguage.pl;
+    final tol = _s * 0.45;
+    final parts = <String>[];
+    for (final c in _comps) {
+      if ((c.pos - end).distance >= tol) continue;
+      if (!_isAxialTool(c.t) && !sketchIsPhysicalTool(c.t.name)) continue;
+      final dn = c.dn != null ? ' DN${c.dn}' : '';
+      final len = c.physicalLengthMm != null && c.physicalLengthMm! > 0
+          ? ' (${pl ? "dł." : "L"} ${c.physicalLengthMm} mm)'
+          : '';
+      parts.add('${compName(c.t, pl)}$dn$len');
+    }
+    final what =
+        parts.isEmpty ? (pl ? 'koniec rury' : 'pipe end') : parts.join(' + ');
+    return '${pl ? "Koniec" : "End"} ${isA ? "A" : "B"} — $what';
+  }
 
   double get _totalMm {
     double sum = 0;
@@ -3905,27 +4441,36 @@ class _IsoState extends State<IsoNotebookScreen> {
         lines.add('  $n. ${isPl ? "(bez wymiaru)" : "(no dimension)"}');
         continue;
       }
-      final cut = _resolvedCut(s);
+      // Every number below comes from the one breakdown the CUT itself is
+      // computed from — the list used to re-derive them and could list a
+      // take-out the CUT had not taken (or miss one it had).
+      final b = _breakdown(s);
+      final cut = b?.cutMm ?? double.nan;
       final comps = _comps.toList(growable: false);
-      final axial = sketchAxialTakeoutsFor(s, comps, tol, manual: c.deducts);
-      final autoCte = axial.totalMm;
-      final leftPhys = sketchPhysicalDeductAt(s.a, comps, tol);
-      final rightPhys = sketchPhysicalDeductAt(s.b, comps, tol);
-      final midPhys = sketchMidPhysicalDeduct(s, comps, tol);
+      final axial = b?.axial ??
+          sketchAxialTakeoutsFor(s, comps, tol,
+              manual: c.deducts, pipes: pipes);
+      final deductA = b?.deductAMm ?? 0;
+      final deductB = b?.deductBMm ?? 0;
+      final midPhys = b?.midPhysicalMm ?? 0;
       // The sketch's weld gap, once per welded end — part of the CUT above,
       // so it is listed with the other deducts.
-      final welds = sketchWeldCount(s, comps, tol);
+      final welds = b?.welds ?? 0;
       final gapSum = _gapMm > 0 ? _gapMm * welds : 0.0;
-      // Mirror engine semantics: physicals on segment ends only contribute
-      // when the dimension goes ALL THE WAY THROUGH the body (end-stop
-      // refs: faceToEnd, centreToEnd). For face-stop refs (CTF, FTF) the
-      // physical body is NOT subtracted, so don't list it as a deduct.
-      final endPhysicalsActive = c.ref == DimRef.faceToEnd ||
-          c.ref == DimRef.centreToEnd;
-      final endPhysSum = endPhysicalsActive ? leftPhys + rightPhys : 0;
-      final hasAnyDeduct = c.hasDeducts || autoCte > 0 ||
-          endPhysSum > 0 || midPhys > 0 || gapSum > 0;
-      final refTag = isPl ? c.ref.labelPl : c.ref.labelEn;
+      final hasAnyDeduct = c.hasDeducts ||
+          deductA > 0 ||
+          deductB > 0 ||
+          midPhys > 0 ||
+          gapSum > 0;
+      String stopTag(SideStop? st) => switch (st) {
+            SideStop.centre => isPl ? 'oś' : 'CL',
+            SideStop.end => isPl ? 'przez korpus' : 'through body',
+            SideStop.face || null => isPl ? 'czoło' : 'face',
+          };
+      final refTag = (b?.explicitStops ?? false)
+          ? '${stopTag(b!.stopA)} – ${stopTag(b.stopB)}'
+          : (isPl ? c.ref.labelPl : c.ref.labelEn);
+      final unreadable = b?.unreadableDeducts ?? const <SketchDeduct>[];
       final cutStr = c.isReference
           ? (isPl ? '(wymiar odniesienia)' : '(reference dimension)')
           : cut.isFinite
@@ -3936,16 +4481,17 @@ class _IsoState extends State<IsoNotebookScreen> {
       if (hasAnyDeduct) {
         lines.add('  $n.$dnTag  ISO: ${c.iso}   [$refTag]');
         for (final d in c.deducts) {
-          lines.add('       − ${d.name.isEmpty ? "?" : d.name}: ${d.value}');
+          final bad = unreadable.contains(d);
+          lines.add('       − ${d.name.isEmpty ? "?" : d.name}: ${d.value}'
+              '${bad ? (isPl ? "   ! NIECZYTELNE — brak cięcia" : "   ! UNREADABLE — no cut") : ""}');
         }
-        if (autoCte > 0) {
-          lines.add('       − ${isPl ? "oś kształtek" : "fitting CTE"}: $autoCte mm');
+        if (deductA > 0) {
+          lines.add('       − ${isPl ? "koniec A" : "end A"} '
+              '(${stopTag(b?.stopA)}): ${_fmtMm(deductA)} mm');
         }
-        if (endPhysicalsActive && leftPhys > 0) {
-          lines.add('       − ${isPl ? "komponent (lewy)" : "component (left)"}: $leftPhys mm');
-        }
-        if (endPhysicalsActive && rightPhys > 0) {
-          lines.add('       − ${isPl ? "komponent (prawy)" : "component (right)"}: $rightPhys mm');
+        if (deductB > 0) {
+          lines.add('       − ${isPl ? "koniec B" : "end B"} '
+              '(${stopTag(b?.stopB)}): ${_fmtMm(deductB)} mm');
         }
         if (midPhys > 0) {
           lines.add('       − ${isPl ? "komponenty w środku" : "mid components"}: $midPhys mm');
@@ -3963,8 +4509,18 @@ class _IsoState extends State<IsoNotebookScreen> {
       // Silence there reads as "nothing to subtract"; say it out loud so the
       // fitter knows the number is short of a deduct rather than final.
       for (final m in axial.missing) {
-        lines.add('       ! ${compName((m as _Comp).t, isPl)}: '
-            '${isPl ? "brak wymiaru (CTE) — NIE odjęto" : "no dimension (CTE) — NOT deducted"}');
+        final tee = axial.teeRoleUnknown.contains(m);
+        lines.add('       ! ${compName((m as _Comp).t, isPl)}: ${tee ? (isPl ? "trójnik redukcyjny — nie wiadomo, czy to przelot (C) czy odgałęzienie (M); NIE odjęto" : "reducing tee — run (C) or branch (M) unknown; NOT deducted") : (isPl ? "brak wymiaru (CTE) — NIE odjęto" : "no dimension (CTE) — NOT deducted")}');
+      }
+      for (final m in axial.claimedByHand) {
+        lines.add('       · ${compName((m as _Comp).t, isPl)}: '
+            '${isPl ? "odjęte wierszem ręcznym" : "deducted by a typed row"}');
+      }
+      if (axial.oletHeaderEnds.isNotEmpty) {
+        lines.add('       ! ${isPl ? "rura główna przy olecie narysowana dwiema liniami — narysuj przelot jedną linią" : "header at an olet drawn as two lines — draw the run as one line"}');
+      }
+      if (b?.refUnconfirmed ?? false) {
+        lines.add('       ! ${isPl ? "przy kołnierzu / zaworze nie wybrano, dokąd biegnie wymiar — otwórz wymiar i potwierdź" : "at the flange / valve the dimension reference was never picked — open the dimension and confirm it"}');
       }
       if (s.hasSlope) {
         lines.add('       (${isPl ? "spadek" : "slope"}: ${s.slope})');
@@ -4685,8 +5241,35 @@ class _IsoState extends State<IsoNotebookScreen> {
             if (txt.isEmpty) {
               _items[idx] = entry.key.withCalc(null);
             } else {
-              _items[idx] = entry.key.withCalc(_CutCalc(txt));
+              // Keep what the dimension already carried (typed rows, the
+              // reference). A new one at a flange / valve starts from the
+              // builder's per-end default, never from centre–centre.
+              final old = entry.key.calc;
+              final tol = _s * 0.45;
+              final comps = _comps.toList(growable: false);
+              bool bodied(Offset p) {
+                final k = sketchEndKindAt(p, comps, tol);
+                return k == SketchEndKind.flange || k == SketchEndKind.body;
+              }
+
+              final seg = entry.key;
+              final needsStops = bodied(seg.a) || bodied(seg.b);
+              final def = sketchDefaultStops(seg, comps, tol);
+              _items[idx] = seg.withCalc(old != null
+                  ? _CutCalc(txt,
+                      deducts: old.deducts,
+                      ref: old.ref,
+                      stopA: old.stopA,
+                      stopB: old.stopB)
+                  : _CutCalc(txt,
+                      ref: needsStops
+                          ? (_dimRefForStops(def.a, def.b) ??
+                              DimRef.centreToCentre)
+                          : DimRef.centreToCentre,
+                      stopA: needsStops ? def.a : null,
+                      stopB: needsStops ? def.b : null));
             }
+
           }
           for (final entry in compControllers.entries) {
             final raw = entry.value.text.trim();
@@ -5040,9 +5623,18 @@ class _IsoState extends State<IsoNotebookScreen> {
     // dimension too and `_drawDim` renders them, so a pipes-only map would
     // leave those labels with no value to draw.
     final cutBySeg = <_Seg, double>{};
+    // Pipes whose number is on the drawing but must not be trusted yet: a
+    // reference never picked at a flange / valve, a header drawn in two at an
+    // olet. Painted with "?" so the fitter does not saw from them.
+    final doubtful = <_Seg>{};
     for (final it in _items) {
       if (it is! _Seg || it.calc == null) continue;
-      cutBySeg[it] = _resolvedCut(it);
+      final b = _breakdown(it);
+      cutBySeg[it] = b?.cutMm ?? double.nan;
+      if (b != null &&
+          (b.refUnconfirmed || b.axial.oletHeaderEnds.isNotEmpty)) {
+        doubtful.add(it);
+      }
     }
     int dimensioned = 0;
     double totalMm = 0;
@@ -5391,9 +5983,11 @@ class _IsoState extends State<IsoNotebookScreen> {
               children: [
                 Positioned.fill(
                   child: GestureDetector(
-                    onPanStart: _panStart,
-                    onPanUpdate: _panUpdate,
-                    onPanEnd: _panEnd,
+                    // Scale = one-finger drag (draw / scroll) + two-finger
+                    // pinch-zoom and pan; see _scaleStart.
+                    onScaleStart: _scaleStart,
+                    onScaleUpdate: _scaleUpdate,
+                    onScaleEnd: _scaleEnd,
                     onTapUp: _tapUp,
                     onLongPressStart: _longPress,
                     child: RepaintBoundary(
@@ -5425,6 +6019,7 @@ class _IsoState extends State<IsoNotebookScreen> {
                             mapping: mapping,
                             projectName: _projectName,
                             cutBySeg: cutBySeg,
+                            doubtful: doubtful,
                             missingDimLabel:
                                 _tr('brak wymiaru', 'no dimension'),
                             // Ghost extension shows which iso axis the snap is
@@ -5768,10 +6363,15 @@ class _Toolbar extends StatelessWidget {
         label: e.$3,
         child: GestureDetector(
           onTap: () => onTool(e.$1),
+          behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            // 48 dp touch target — the chips were ~27 dp tall, too small for
+            // a gloved finger.
+            constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
+            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: sel ? cs.primaryContainer : Colors.transparent,
               // const-hoisted: chip radius is fixed, avoid 24x BorderRadius
@@ -5787,13 +6387,13 @@ class _Toolbar extends StatelessWidget {
               // to assistive tech, so silence the icon.
               ExcludeSemantics(
                 child: Icon(e.$2,
-                    size: 15,
+                    size: 20,
                     color: sel ? cs.primary : cs.onSurfaceVariant),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
               Text(e.$3,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: sel ? FontWeight.bold : FontWeight.normal,
                   color: sel ? cs.primary : cs.onSurface,
                 )),
@@ -5902,6 +6502,10 @@ class _SummaryBar extends StatelessWidget {
       hint = context.tr(
           pl: 'Dotknij → umieść • ponownie → wpisz DN/typ (CTE) • przytrzymaj → usuń',
           en: 'Tap → place • again → enter DN/type (CTE) • long-press → remove');
+    } else if (tool == _Tool.tee) {
+      hint = context.tr(
+          pl: 'Dotknij → umieść • ponownie → DN przelotu i odgałęzienia (C/M), obrót • przytrzymaj → usuń',
+          en: 'Tap → place • again → run and branch DN (C/M), rotate • long-press → remove');
     } else {
       hint = context.tr(
           pl: 'Dotknij → umieść • ponownie → obróć • przytrzymaj → usuń',
@@ -5997,6 +6601,11 @@ class _Painter extends CustomPainter {
   /// formula.
   final Map<_Seg, double> cutBySeg;
 
+  /// Segments whose CUT is drawn but not yet to be trusted (a reference
+  /// never picked at a flange / valve, a header drawn in two at an olet):
+  /// painted in the warning colour with a "?".
+  final Set<_Seg> doubtful;
+
   /// Localised "no dimension" tag for a fitting whose take-out is unknown.
   /// Painters have no BuildContext, so the string is resolved by the caller.
   final String missingDimLabel;
@@ -6012,6 +6621,7 @@ class _Painter extends CustomPainter {
     required this.mapping,
     required this.projectName,
     required this.cutBySeg,
+    this.doubtful = const {},
     required this.missingDimLabel,
     this.axisLock = false,
     this.showStatusBox = true,
@@ -6768,7 +7378,8 @@ class _Painter extends CustomPainter {
     // saw can cut. The old label printed the negative millimetres straight
     // onto the drawing while the table beside it said "(nieczytelne)".
     final cutUsable = !isRef && cutMm.isFinite && cutMm > 0;
-    final accent = (!isRef && !cutUsable)
+    final isDoubtful = doubtful.contains(seg);
+    final accent = (!isRef && (!cutUsable || isDoubtful))
         ? cs.error
         : (isCut ? cs.tertiary : cs.primary);
 
@@ -6815,6 +7426,7 @@ class _Painter extends CustomPainter {
       label = cutMm == cutMm.roundToDouble()
           ? cutMm.toStringAsFixed(0)
           : cutMm.toStringAsFixed(1);
+      if (isDoubtful) label = '⚠ $label ?';
     }
 
     final tp = TextPainter(
@@ -6822,7 +7434,7 @@ class _Painter extends CustomPainter {
         text: label,
         style: TextStyle(
           color: isRef ? cs.onSurfaceVariant : accent,
-          fontSize: 11.5,
+          fontSize: 13,
           fontWeight: FontWeight.w900,
           fontStyle: isRef ? FontStyle.italic : FontStyle.normal,
         ),

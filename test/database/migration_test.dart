@@ -295,6 +295,14 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'created_at',
     'updated_at',
   ],
+  // v24: odczyt skanera izometryku — dotąd żył tylko w pamięci ekranu.
+  'iso_scans': <String>[
+    'id',
+    'name',
+    'image_path',
+    'envelope_json',
+    'created_at',
+  ],
   // v21: rejestr uprawnień spawacza (ISO 9606-1 / ASME IX WPQ). Dotąd jeden
   // numer i jedna data w SharedPreferences, błędnie nazwane „WPQR".
   'welder_certificates': <String>[
@@ -667,6 +675,17 @@ Future<void> _buildV21(Database db) async {
     'heat_tint': 'INTEGER',
   }.entries) {
     await db.execute('ALTER TABLE weld_coupons ADD COLUMN ${c.key} ${c.value};');
+  }
+}
+
+/// v22 as shipped: v21 plus the piece identification columns.
+Future<void> _buildV22(Database db) async {
+  await _buildV21(db);
+  for (final c in AppDatabase.kProjectIdentityColumns.entries) {
+    await db.execute('ALTER TABLE projects ADD COLUMN ${c.key} ${c.value};');
+  }
+  for (final c in AppDatabase.kSegmentIdentityColumns.entries) {
+    await db.execute('ALTER TABLE segments ADD COLUMN ${c.key} ${c.value};');
   }
 }
 
@@ -1230,6 +1249,47 @@ CREATE TABLE component_library (
     expect(
         (await db.query('segments', where: "id = 's1'")).single['label'],
         'SP02-03');
+  });
+
+  test('v22 -> v24: odczyt skanu dostaje własną tabelę, reszta bez zmian',
+      () async {
+    final db = await migrateFrom(
+      22,
+      _buildV22,
+      seedData: (legacy) async {
+        await legacy.insert('projects', <String, Object?>{
+          'id': 'p22',
+          'name': 'Rack 22',
+          'material_group': 'SS',
+          'diameter_mm': 60.3,
+          'wall_thickness_mm': 2.77,
+          'current_diameter_mm': 60.3,
+          'stock_length_mm': 6000.0,
+          'saw_kerf_mm': 1.5,
+          'gap_mm': 0.0,
+          'created_at': 1000,
+          'updated_at': 1000,
+          'line_no': 'L-22',
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+    expect(AppDatabase.schemaVersion, greaterThanOrEqualTo(24));
+    await expectShippingSchema(db, from: 22);
+    expect((await db.query('projects')).single['line_no'], 'L-22');
+    expect(await db.query('iso_scans'), isEmpty);
+
+    await db.insert('iso_scans', <String, Object?>{
+      'id': 'scan-1',
+      'name': 'DN100-P-1001',
+      'image_path': '/docs/heat_photos/a.jpg',
+      'envelope_json': '{"result":{}}',
+      'created_at': 5000,
+    });
+    expect((await db.query('iso_scans')).single['envelope_json'],
+        '{"result":{}}');
   });
 
   test('the approved seed data lands on every upgrade path', () async {

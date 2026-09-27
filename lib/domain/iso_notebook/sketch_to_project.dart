@@ -195,6 +195,7 @@ SketchProjectPlan planProjectFromSketch({
     final result = _planOne(
       pipe,
       components,
+      pipes: pipes,
       tol: tol,
       gapMm: gap,
       reversed: step.reversed,
@@ -204,7 +205,7 @@ SketchProjectPlan planProjectFromSketch({
       continue;
     }
     final seg = result.plan!;
-    final dn = sketchInferredDn(pipe, components, tol);
+    final dn = sketchInferredDn(pipe, components, tol, pipes: pipes);
     if (dn != null) dnCounts[dn] = (dnCounts[dn] ?? 0) + 1;
     segments.add(SketchSegmentPlan(
       seqNo: segments.length + 1,
@@ -373,8 +374,8 @@ class _Planned {
   final SketchSegmentEnd start;
   final SketchSegmentEnd end;
   final List<SketchPlanNote> notes;
-  const _Planned(this.isoExpr, this.isoMm, this.cutMm, this.start, this.end,
-      this.notes);
+  const _Planned(
+      this.isoExpr, this.isoMm, this.cutMm, this.start, this.end, this.notes);
 }
 
 class _OneResult {
@@ -392,6 +393,7 @@ String _mm(double v) {
 _OneResult _planOne(
   SketchPipe pipe,
   List<SketchComponent> components, {
+  required List<SketchPipe> pipes,
   required double tol,
   required double gapMm,
   required bool reversed,
@@ -409,11 +411,46 @@ _OneResult _planOne(
       'reference dimension in brackets — not a cut',
     ));
   }
-  final b = sketchCutBreakdown(pipe, components, tol: tol, gapMm: gapMm);
+  final b = sketchCutBreakdown(pipe, components,
+      tol: tol, gapMm: gapMm, pipes: pipes);
   if (b == null) {
     return _OneResult.skip(SketchPlanNote(
       'nieczytelny wymiar „${dim.iso}” — popraw go na szkicu',
       'unreadable dimension “${dim.iso}” — fix it on the sketch',
+    ));
+  }
+  if (b.unreadableDeducts.isNotEmpty) {
+    final rows = b.unreadableDeducts
+        .map((d) => '${d.name.trim().isEmpty ? '?' : d.name.trim()}: '
+            '${d.value.trim()}')
+        .join(', ');
+    return _OneResult.skip(SketchPlanNote(
+      'nieczytelne odliczenie „$rows” — popraw je w oknie wymiaru',
+      'unreadable deduct “$rows” — fix it in the dimension window',
+    ));
+  }
+  if (b.refUnconfirmed) {
+    return const _OneResult.skip(SketchPlanNote(
+      'przy kołnierzu / zaworze nie potwierdzono, dokąd biegnie wymiar — '
+          'otwórz wymiar i wybierz punkt odniesienia',
+      'at the flange / valve it is not confirmed where the dimension runs '
+          'to — open the dimension and pick the reference point',
+    ));
+  }
+  if (b.axial.oletHeaderEnds.isNotEmpty) {
+    return const _OneResult.skip(SketchPlanNote(
+      'rura główna przy olecie narysowana dwiema liniami — to jedna rura, '
+          'narysuj przelot jedną linią',
+      'the header at an olet is drawn as two lines — it is one pipe, draw '
+          'the run as one line',
+    ));
+  }
+  if (b.axial.teeRoleUnknown.isNotEmpty) {
+    return const _OneResult.skip(SketchPlanNote(
+      'trójnik redukcyjny: ze szkicu nie wynika, czy ta rura to przelot czy '
+          'odgałęzienie (C czy M) — dorysuj przelot jako linię prostą',
+      'reducing tee: the sketch does not show whether this pipe is the run '
+          'or the branch (C or M) — draw the run as a straight line',
     ));
   }
   if (b.axial.missing.isNotEmpty) {
@@ -430,10 +467,18 @@ _OneResult _planOne(
       'a component inside the run has no length — complete it on the sketch',
     ));
   }
-  if (dim.ref == DimRef.faceToEnd || dim.ref == DimRef.centreToEnd) {
+  final throughEnds = b.explicitStops
+      ? [
+          if (b.stopA == SideStop.end) pipe.a,
+          if (b.stopB == SideStop.end) pipe.b,
+        ]
+      : (dim.ref == DimRef.faceToEnd || dim.ref == DimRef.centreToEnd)
+          ? [pipe.a, pipe.b]
+          : const <Offset>[];
+  if (throughEnds.isNotEmpty) {
     // The dimension runs THROUGH a body — a body whose length is unknown
     // contributes 0 on the sketch, which is a gap, not a number.
-    for (final endpoint in [pipe.a, pipe.b]) {
+    for (final endpoint in throughEnds) {
       for (final c in components) {
         if ((c.pos - endpoint).distance >= tol) continue;
         if (!sketchIsPhysicalTool(c.toolName)) continue;
@@ -468,15 +513,11 @@ _OneResult _planOne(
   final rc = b.axial.rightMm.toDouble();
   final lp = b.leftPhysicalMm.toDouble();
   final rp = b.rightPhysicalMm.toDouble();
-  final stops = PrefabEngine.resolveSideStops(
-    ref: b.ref,
-    leftCteMm: lc,
-    rightCteMm: rc,
-    leftPhysicalLenMm: lp,
-    rightPhysicalLenMm: rp,
-    leftIsPhysical: lp > 0,
-    rightIsPhysical: rp > 0,
-  );
+  // The stops the sketch's own CUT used (explicit, or resolved from ref).
+  final stopA = b.stopA;
+  final stopB = b.stopB;
+  final stops =
+      (stopA == null || stopB == null) ? null : (left: stopA, right: stopB);
   if (stops == null) {
     return const _OneResult.skip(SketchPlanNote(
       'nie da się ustalić punktu odniesienia wymiaru',
@@ -491,7 +532,8 @@ _OneResult _planOne(
       };
 
   _End side(Offset p, SideStop stop, double cte, double phys) {
-    final welded = sketchEndIsWelded(p, components, tol);
+    final welded =
+        sketchEndIsWelded(p, components, tol, pipe: pipe, pipes: pipes);
     var axial = false;
     for (final c in components) {
       if ((c.pos - p).distance < tol && sketchIsAxialTool(c.toolName)) {

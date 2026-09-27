@@ -205,6 +205,24 @@ enum ScanIssueCode {
   /// An elbow cut to an angle other than 45° / 90°: its take-out is the
   /// segment formula of B16.9 §6.2.4.
   cutElbow,
+
+  // ── 2026-09 (przegląd G3) ───────────────────────────────────────────
+
+  /// The dimension as printed (`rawDimension`, units normalised) and the
+  /// number the model gave (`dimensionMm`) disagree. Blocks the run until the
+  /// fitter re-enters the dimension from the drawing — the model's own
+  /// feet-and-inches conversion is exactly what can go wrong silently.
+  dimensionTextMismatch,
+
+  /// A flange without a stated type (no `flangeType`, no WN / SO marking)
+  /// was proposed as a weld neck (its Y comes off at the gasket face). The
+  /// reference is not taken from the drawing for it: the fitter confirms —
+  /// a slip-on there leaves the pipe tens of millimetres short.
+  flangeAssumedWeldNeck,
+
+  /// The model read a dimension with medium confidence ("slightly
+  /// illegible"). Not blocking, but highlighted for a glance.
+  mediumConfidence,
 }
 
 /// One gap or warning, with both UI languages baked in.
@@ -376,6 +394,11 @@ class ScanEndpoint {
   /// True when the take-out / body length was typed in by the fitter.
   final bool fromFitter;
 
+  /// A flange proposed as a weld neck only because nothing said otherwise
+  /// (no `flangeType`, no WN / SO marking) — see
+  /// [ScanIssueCode.flangeAssumedWeldNeck].
+  final bool flangeTypeAssumed;
+
   const ScanEndpoint({
     this.componentId,
     this.rawType,
@@ -393,6 +416,7 @@ class ScanEndpoint {
     this.missingPl,
     this.missingEn,
     this.fromFitter = false,
+    this.flangeTypeAssumed = false,
   });
 
   /// An open end of the spool — nothing is fitted here.
@@ -1167,6 +1191,7 @@ ScanPlan planFromScan(
   final planned = <PlannedSegment>[];
   final assumedLongRadius = <String>{};
   final reducersSeen = <String>{};
+  final flangesAssumedWn = <String>{};
   var socketWeldSeen = false;
 
   for (var position = 0; position < route.order.length; position++) {
@@ -1229,6 +1254,35 @@ ScanPlan planFromScan(
       }
     }
     if (isoMm != null && (!isoMm.isFinite || isoMm <= 0)) isoMm = null;
+
+    // The number and the text it was read from must agree. The model
+    // converts feet and inches (and reads "1,500") itself; a slip there with
+    // the correct text beside it is exactly what this layer is for (spec §2
+    // rule 4). Text we cannot parse says nothing either way.
+    final dimFromModel = seg.dimensionMm;
+    if (!seg.userConfirmed &&
+        dimFromModel != null &&
+        isoMm != null &&
+        rawDimension != null &&
+        rawDimension.isNotEmpty) {
+      final fromText = _mmFromDrawingText(rawDimension);
+      if (fromText != null &&
+          (fromText - dimFromModel).abs() > kDimensionTextToleranceMm) {
+        gaps.add(ScanIssue(
+          code: ScanIssueCode.dimensionTextMismatch,
+          blocking: true,
+          segmentId: segmentId,
+          dimensionLabel: rawDimension,
+          pl: 'Wymiar „$rawDimension” z rysunku to ${_mmText(fromText)} mm, '
+              'a odczyt podał ${_mmText(dimFromModel)} mm — sprawdź na '
+              'rysunku i wpisz właściwy (stuknij wymiar ISO odcinka).',
+          en: 'The drawing says “$rawDimension” = ${_mmText(fromText)} mm, '
+              'but the reading gave ${_mmText(dimFromModel)} mm — check the '
+              'drawing and enter the right one (tap the segment\'s ISO '
+              'dimension).',
+        ));
+      }
+    }
 
     // An offset dimensioned only by its projections: its true length is
     // arithmetic on printed numbers (√ of the squares), shown with the
@@ -1319,6 +1373,21 @@ ScanPlan planFromScan(
                 'check it against the drawing.',
       );
       (issue.blocking ? gaps : warnings).add(issue);
+    } else if (!seg.userConfirmed &&
+        seg.confidence == AiConfidence.medium &&
+        isoMm != null) {
+      // "Slightly illegible": not a block, but never unmarked either — the
+      // review highlights it for a glance at the drawing.
+      warnings.add(ScanIssue(
+        code: ScanIssueCode.mediumConfidence,
+        blocking: false,
+        segmentId: segmentId,
+        dimensionLabel: dimensionLabel,
+        pl: 'Średnio pewny odczyt wymiaru ${dimensionLabel ?? ""} — rzuć '
+            'okiem na rysunek.',
+        en: 'Medium-confidence reading of ${dimensionLabel ?? ""} — glance '
+            'at the drawing.',
+      ));
     }
 
     // ── Size of this run ─────────────────────────────────────────────
@@ -1368,6 +1437,23 @@ ScanPlan planFromScan(
       rightIsPhysical: end.isPhysical,
     );
     final proposed = _proposeStops(start, end);
+    for (final e in [start, end]) {
+      final id = e.componentId;
+      if (!e.flangeTypeAssumed || id == null) continue;
+      if (!flangesAssumedWn.add(id)) continue;
+      warnings.add(ScanIssue(
+        code: ScanIssueCode.flangeAssumedWeldNeck,
+        blocking: false,
+        segmentId: segmentId,
+        componentId: id,
+        pl: 'Kołnierz ${e.label ?? id} bez typu na rysunku — proponuję WN '
+            '(szyjka Y odejmowana przy wymiarze do przylgi). Jeśli to kołnierz '
+            'SO / wsuwany, wybierz „do spoiny” i wpisz wsunięcie ręcznie.',
+        en: 'Flange ${e.label ?? id} has no type on the drawing — proposed '
+            'as WN (hub Y taken off for a dimension to the gasket face). If it '
+            'is a slip-on, pick "to the weld" and enter the set-back by hand.',
+      ));
+    }
     ScanStops? stops = needsPicker ? null : proposed;
     var refSource = needsPicker ? ScanRefSource.none : ScanRefSource.derived;
     if (seg.confidence == AiConfidence.high || seg.userConfirmed) {
@@ -1536,6 +1622,34 @@ ScanPlan planFromScan(
 String _mmText(double v) =>
     v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 
+/// How far the model's number may sit from the printed text (after unit
+/// normalisation) before the run is blocked: rounding a feet-and-inches
+/// conversion to whole millimetres, and nothing more.
+const double kDimensionTextToleranceMm = 0.5;
+
+/// Millimetres of a dimension as printed on the drawing — `1500`,
+/// `4'-6"`, `1500 mm`, `3000+525` — or null when the text is not a plain
+/// length this app can read.
+double? _mmFromDrawingText(String text) {
+  // "1 250" / "1 250" — a space (or a thin / no-break space) between groups
+  // of three digits is the Polish / ISO way to write thousands.
+  final grouped = text.trim().replaceAll(RegExp('[   ]'), ' ');
+  if (RegExp(r'^\d{1,3}( \d{3})+(\s*mm)?$').hasMatch(grouped)) {
+    return double.parse(grouped.replaceAll(RegExp(r'\s|mm'), ''));
+  }
+  var v = UnitParser.parseToMm(text);
+  if (v == null) {
+    try {
+      v = parseIsoExpression(text);
+    } on FormatException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+  return (v.isFinite && v > 0) ? v : null;
+}
+
 /// Stop a dimension line's end mark (`CL` / `FACE` / `EOP`) means at [e],
 /// or null when the mark says nothing unambiguous for that kind of end.
 SideStop? _drawingStop(ScanEndpoint e, String? ref) {
@@ -1547,6 +1661,10 @@ SideStop? _drawingStop(ScanEndpoint e, String? ref) {
     return null;
   }
   if (e.isWeldNeckFlange) {
+    // A flange of unstated type: whether FACE means "through a WN hub" or
+    // "at a slip-on's face" is the fitter's call, however sure the model
+    // was about the mark.
+    if (e.flangeTypeAssumed) return null;
     // A flange's face is its gasket face — through the hub.
     if (r == 'FACE' || r == 'GF') return SideStop.end;
     if (r == 'EOP') return SideStop.face;
@@ -2841,7 +2959,19 @@ ScanEndpoint _endpoint(
     missingPl: missingPl,
     missingEn: missingEn,
     fromFitter: fromFitter,
+    flangeTypeAssumed: tool == 'flange' &&
+        proposedStop == SideStop.end &&
+        !_isWeldNeckMarked(component),
   );
+}
+
+/// A flange the drawing itself calls a weld neck: `flangeType` WN, or WN /
+/// WELD NECK in its label or type.
+bool _isWeldNeckMarked(AiComponent component) {
+  final t = component.flangeType;
+  if (t != null) return t == 'WN';
+  final marking = '${component.label ?? ''} ${component.type}'.toUpperCase();
+  return RegExp(r'\bWN\b|WELD[\s-]*NECK|\bW\.N\.').hasMatch(marking);
 }
 
 class _Takeout {

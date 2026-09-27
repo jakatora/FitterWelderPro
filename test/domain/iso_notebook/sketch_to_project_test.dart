@@ -21,72 +21,9 @@ import 'package:cut_list_app/services/prefab_engine.dart';
 import 'package:cut_list_app/services/takeout_catalog.dart';
 
 import '../../support/test_database.dart';
+import 'sketch_fakes.dart';
 
-// ── Minimal sketch model (what the notebook's private classes implement) ──
-
-class Comp implements SketchComponent {
-  Comp(
-    this.pos,
-    this.toolName, {
-    this.dn,
-    this.cteMm,
-    this.physicalLengthMm,
-    this.dnOut,
-    this.endA,
-    this.endB,
-  });
-  @override
-  final Offset pos;
-  @override
-  final String toolName;
-  @override
-  final int? dn;
-  @override
-  final int? cteMm;
-  @override
-  final int? physicalLengthMm;
-  @override
-  final int? dnOut;
-  @override
-  final EndConnection? endA;
-  @override
-  final EndConnection? endB;
-}
-
-class Ded implements SketchDeduct {
-  Ded(this.name, this.value);
-  @override
-  final String name;
-  @override
-  final String value;
-}
-
-class Dim implements SketchDimension {
-  Dim(this.iso, {this.ref = DimRef.centreToCentre, this.deducts = const []});
-  @override
-  final String iso;
-  @override
-  final DimRef ref;
-  @override
-  final List<SketchDeduct> deducts;
-  @override
-  bool get isReference {
-    final t = iso.trim();
-    return t.startsWith('(') && t.endsWith(')');
-  }
-}
-
-class Pipe implements SketchPipe {
-  Pipe(this.a, this.b, [this.dimension]);
-  @override
-  final Offset a;
-  @override
-  final Offset b;
-  @override
-  final SketchDimension? dimension;
-}
-
-const _g = 32.0; // grid step
+const _g = kGrid; // grid step
 Offset _p(double x, double y) => Offset(x * _g, y * _g);
 
 Comp _elbow(Offset p, {int cte = 152}) =>
@@ -198,7 +135,8 @@ void main() {
       expect(_nb(p5), 600 - 3);
     });
 
-    test('a free pipe end is not a weld; a weld dot near a joint changes '
+    test(
+        'a free pipe end is not a weld; a weld dot near a joint changes '
         'nothing', () {
       expect(sketchEndIsWelded(_f0, _comps, kSketchJointTolerance), isFalse);
       expect(sketchEndIsWelded(_e1, _comps, kSketchJointTolerance), isTrue);
@@ -246,8 +184,8 @@ void main() {
   });
 
   group('planProjectFromSketch', () {
-    final plan = planProjectFromSketch(
-        pipes: _pipes, components: _comps, gapMm: _gap);
+    final plan =
+        planProjectFromSketch(pipes: _pipes, components: _comps, gapMm: _gap);
 
     test('route order, sketch labels and skipped pipes', () {
       expect([for (final s in plan.segments) s.label],
@@ -353,9 +291,10 @@ void main() {
   group('szkic → projekt → baza', () {
     useTestDatabase();
 
-    test('CUT z bazy == CUT zeszytu; builder and gap recompute agree', () async {
-      final plan = planProjectFromSketch(
-          pipes: _pipes, components: _comps, gapMm: _gap);
+    test('CUT z bazy == CUT zeszytu; builder and gap recompute agree',
+        () async {
+      final plan =
+          planProjectFromSketch(pipes: _pipes, components: _comps, gapMm: _gap);
       final projectId = await createProjectFromSketch(
         plan,
         const SketchProjectSettings(
@@ -402,10 +341,7 @@ void main() {
       // Change the project's gap: the recompute must land on the notebook's
       // CUT at the new gap — same welds on both sides.
       await ProjectDao().updateSettings(projectId,
-          name: project.name,
-          stockLengthMm: 6000,
-          sawKerfMm: 1,
-          gapMm: 5);
+          name: project.name, stockLengthMm: 6000, sawKerfMm: 1, gapMm: 5);
       final after = await SegmentDao().listForProject(projectId);
       for (var i = 0; i < after.length; i++) {
         final pipe = _pipes[plan.segments[i].pipeIndex];
