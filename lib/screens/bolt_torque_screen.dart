@@ -70,7 +70,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
   void _applyFlangePreset(int dn, int cls) {
     final b = FlangeCatalog.lookup(dn, cls);
     if (b == null) {
-      // DN/Class combo not in ASME B16.5 (e.g., small DN at high class).
+      // DN/Class combo missing from the APP's catalogue (the catalogue covers
+      // the full picker grid; this is a guard, not a claim about B16.5).
       // Drop the stale preset chip so the user isn't left thinking the old
       // bolt count still applies, and tell them to pick a valid combo.
       setState(() {
@@ -86,8 +87,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
           backgroundColor: _kCard,
           content: Text(
             context.tr(
-              pl: 'Brak DN$dn × Class $cls w B16.5 — wybierz inną kombinację lub tryb ręczny.',
-              en: 'DN$dn × Class $cls not in B16.5 — pick another combo or manual mode.',
+              pl: 'Brak DN$dn × Class $cls w katalogu aplikacji — wybierz śrubę ręcznie wg ASME B16.5.',
+              en: 'DN$dn × Class $cls is not in the app catalogue — pick the bolt manually per ASME B16.5.',
             ),
             style: const TextStyle(color: _kTextSec, fontSize: 12),
           ),
@@ -309,7 +310,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                         ),
                         TextButton(
                           onPressed: _clearFlangePreset,
-                          child: Text(context.tr(pl: 'Reczne', en: 'Manual')),
+                          child: Text(context.tr(pl: 'Ręcznie', en: 'Manual')),
                         ),
                       ],
                     ),
@@ -406,8 +407,10 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                 ),
                 Text(
                   context.tr(
-                    pl: 'ASME PCC-1 zaleca 50% SMYS dla flange średniego ryzyka, 60-70% dla krytycznego.',
-                    en: 'ASME PCC-1 recommends 50% SMYS for typical flanges, 60-70% for critical.',
+                    pl: 'Docelowe naprężenie w śrubie dobiera się z ograniczeń kołnierza, uszczelki i śrub '
+                        '(ASME PCC-1, zał. O) albo z procedury złącza — suwak to tylko założenie do obliczeń.',
+                    en: 'The target bolt stress is chosen from the flange, gasket and bolt limits '
+                        '(ASME PCC-1, Appendix O) or the joint procedure — the slider is only a calculation input.',
                   ),
                   style: const TextStyle(color: _kTextMut, fontSize: 11, height: 1.4),
                 ),
@@ -506,12 +509,24 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                     const SizedBox(height: 4),
                     Text(
                       context.tr(
-                        pl: '$_flangeBoltCount śrub × ${_torqueNm!.toStringAsFixed(0)} N·m, gwiazda 25/50/75/100%',
-                        en: '$_flangeBoltCount bolts × ${_torqueNm!.toStringAsFixed(0)} N·m, star 25/50/75/100%',
+                        pl: '$_flangeBoltCount śrub × ${_torqueNm!.toStringAsFixed(0)} N·m, rundy wg ASME PCC-1',
+                        en: '$_flangeBoltCount bolts × ${_torqueNm!.toStringAsFixed(0)} N·m, rounds per ASME PCC-1',
                       ),
                       style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
                     ),
                   ],
+                  const SizedBox(height: 10),
+                  // PCC-1-2019 Table 1 (legacy): round moments in N·m and ft·lb,
+                  // so the monter does not do the percentages in his head.
+                  for (final r in pcc1LegacyRounds(_torqueNm!))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        '${context.tr(pl: 'Runda', en: 'Round')} ${r.round}: '
+                        '${r.label} → ${r.formatNm()} N·m (${r.formatFtLb()} ft·lb)',
+                        style: const TextStyle(color: _kTextSec, fontSize: 12),
+                      ),
+                    ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -543,26 +558,26 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                                 : '';
                             final lubeLine = _lubeName(_lube, context);
                             final msg = context.tr(
-                              pl: '${flangeLine}Sruba: $_boltSize" $_grade\n'
+                              pl: '$flangeLineŚruba: $_boltSize" $_grade\n'
                                   'Smar: $lubeLine\n'
                                   'Preload: ${(_preloadFraction * 100).toStringAsFixed(0)}% SMYS\n'
                                   'MOMENT: ${_torqueNm!.toStringAsFixed(0)} N·m '
                                   '(${_torqueFtLb!.toStringAsFixed(0)} ft·lb)\n'
-                                  'Gwiazda 25/50/75/100%, re-torque po 20min-4h.',
+                                  '${pcc1ShareLines(_torqueNm!, english: false)}',
                               en: '${flangeLine}Bolt: $_boltSize" $_grade\n'
                                   'Lube: $lubeLine\n'
                                   'Preload: ${(_preloadFraction * 100).toStringAsFixed(0)}% SMYS\n'
                                   'TORQUE: ${_torqueNm!.toStringAsFixed(0)} N·m '
                                   '(${_torqueFtLb!.toStringAsFixed(0)} ft·lb)\n'
-                                  'Star 25/50/75/100%, re-torque after 20min-4h.',
+                                  '${pcc1ShareLines(_torqueNm!, english: true)}',
                             );
                             Share.share(msg,
                                 subject: context.tr(
-                                    pl: 'Moment dokrecania',
+                                    pl: 'Moment dokręcania',
                                     en: 'Bolt torque'));
                           },
                           icon: const Icon(Icons.ios_share, size: 16),
-                          label: Text(context.tr(pl: 'Udostepnij', en: 'Share')),
+                          label: Text(context.tr(pl: 'Udostępnij', en: 'Share')),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: _kAccent,
                             side: BorderSide(color: _kAccent.withValues(alpha: 0.5)),
@@ -613,12 +628,11 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
               children: [
                 _StepLine(num: '1', text: context.tr(pl: 'Smaruj gwinty + powierzchnię nakrętki', en: 'Lube threads + nut bearing face')),
                 _StepLine(num: '2', text: context.tr(pl: 'Ręcznie dokręć wszystkie śruby', en: 'Hand-tighten all bolts')),
-                _StepLine(num: '3', text: context.tr(pl: '25% target — gwiazda', en: '25% target — star pattern')),
-                _StepLine(num: '4', text: context.tr(pl: '50% target — gwiazda', en: '50% target — star pattern')),
-                _StepLine(num: '5', text: context.tr(pl: '75% target — gwiazda', en: '75% target — star pattern')),
-                _StepLine(num: '6', text: context.tr(pl: '100% target — gwiazda', en: '100% target — star pattern')),
-                _StepLine(num: '7', text: context.tr(pl: 'Final pass: 100% — okrężnie', en: 'Final pass: 100% — circular')),
-                _StepLine(num: '8', text: context.tr(pl: 'Relaxation pass po 20 min - 4 h (re-torque 100%)', en: 'Relaxation pass after 20 min - 4 h (re-torque 100%)')),
+                _StepLine(num: '3', text: context.tr(pl: 'Runda 1: 20–30 % momentu — na krzyż (sprawdzaj równoległość szczeliny)', en: 'Round 1: 20–30 % of target — cross pattern (check the flange gap)')),
+                _StepLine(num: '4', text: context.tr(pl: 'Runda 2: 50–70 % momentu — na krzyż', en: 'Round 2: 50–70 % of target — cross pattern')),
+                _StepLine(num: '5', text: context.tr(pl: 'Runda 3: 100 % momentu — na krzyż', en: 'Round 3: 100 % of target — cross pattern')),
+                _StepLine(num: '6', text: context.tr(pl: 'Runda 4: 100 % — okrężnie, aż nakrętki przestaną się obracać', en: 'Round 4: 100 % — circular, until no further nut rotation')),
+                _StepLine(num: '7', text: context.tr(pl: 'Runda 5: jeśli czas pozwala — po min. 4 h powtórz rundę 4 (ASME PCC-1, tab. 1)', en: 'Round 5: time permitting — after a minimum of 4 h repeat Round 4 (ASME PCC-1, Table 1)')),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(10),

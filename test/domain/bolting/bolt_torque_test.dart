@@ -176,4 +176,23 @@ void main() {
           throwsArgumentError);
     });
   });
+
+  // ASME PCC-1-2019, tab. 1 (legacy): R1 20–30 %, R2 50–70 %, R3 100 %,
+  // R4 okrężnie 100 %, R5 „time permitting, wait a minimum of 4 h and repeat
+  // Round 4”. 200 N·m → R1 40–60, R2 100–140, R3 200.
+  group('pcc1LegacyRounds', () {
+    test('momenty rund dla 200 N·m', () {
+      final r = pcc1LegacyRounds(200);
+      expect(r.map((x) => x.label), ['20–30 %', '50–70 %', '100 %']);
+      expect(r.map((x) => x.formatNm()), ['40–60', '100–140', '200']);
+      // 40/1,3558 = 29,5 → „30”; 60/1,3558 = 44,3 → „44”.
+      expect(r.first.formatFtLb(), '30–44');
+    });
+    test('notatka: runda 5 po min. 4 h', () {
+      final pl = pcc1ShareLines(200, english: false);
+      expect(pl, contains('po min. 4 h'));
+      expect(pl, isNot(contains('20min')));
+      expect(pcc1ShareLines(200, english: true), contains('after min. 4 h'));
+    });
+  });
 }

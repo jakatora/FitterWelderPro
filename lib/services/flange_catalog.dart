@@ -50,6 +50,12 @@ class FlangeCatalog {
     '250_300': FlangeBolting(16, '1'),
     '300_300': FlangeBolting(16, '1-1/8'),
     // ── Class 600 ──────────────────────────────────────────────────────────
+    // NPS ½–1½: wermac.org „ASME B16.5 Class 600 WN — Stud Bolts”.
+    '15_600':  FlangeBolting(4, '1/2'),
+    '20_600':  FlangeBolting(4, '5/8'),
+    '25_600':  FlangeBolting(4, '5/8'),
+    '32_600':  FlangeBolting(4, '5/8'),
+    '40_600':  FlangeBolting(4, '3/4'),
     '50_600':  FlangeBolting(8, '5/8'),
     '65_600':  FlangeBolting(8, '3/4'),
     '80_600':  FlangeBolting(8, '3/4'),
@@ -59,7 +65,14 @@ class FlangeCatalog {
     '250_600': FlangeBolting(16, '1-1/4'),
     '300_600': FlangeBolting(20, '1-1/4'),
     // ── Class 900 ──────────────────────────────────────────────────────────
+    // NPS ½–2½ identical to Class 1500 (wermac.org Class 900 / 1500 tables).
+    '15_900':  FlangeBolting(4, '3/4'),
+    '20_900':  FlangeBolting(4, '3/4'),
+    '25_900':  FlangeBolting(4, '7/8'),
+    '32_900':  FlangeBolting(4, '7/8'),
+    '40_900':  FlangeBolting(4, '1'),
     '50_900':  FlangeBolting(8, '7/8'),
+    '65_900':  FlangeBolting(8, '1'),
     '80_900':  FlangeBolting(8, '7/8'),
     '100_900': FlangeBolting(8, '1-1/8'),
     '150_900': FlangeBolting(12, '1-1/8'),
@@ -67,7 +80,13 @@ class FlangeCatalog {
     '250_900': FlangeBolting(16, '1-3/8'),
     '300_900': FlangeBolting(20, '1-3/8'),
     // ── Class 1500 ─────────────────────────────────────────────────────────
+    '15_1500':  FlangeBolting(4, '3/4'),
+    '20_1500':  FlangeBolting(4, '3/4'),
+    '25_1500':  FlangeBolting(4, '7/8'),
+    '32_1500':  FlangeBolting(4, '7/8'),
+    '40_1500':  FlangeBolting(4, '1'),
     '50_1500':  FlangeBolting(8, '7/8'),
+    '65_1500':  FlangeBolting(8, '1'),
     '80_1500':  FlangeBolting(8, '1-1/8'),
     '100_1500': FlangeBolting(8, '1-1/4'),
     '150_1500': FlangeBolting(12, '1-3/8'),
