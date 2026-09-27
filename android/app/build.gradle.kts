@@ -3,18 +3,36 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
+    // Bez id("kotlin-android") — migracja do Built-in Kotlin (Flutter 3.47,
+    // AGP 9). android.builtInKotlin zostaje false, dopóki wtyczki
+    // (device_info_plus, flutter_tts, package_info_plus, share_plus,
+    // wakelock_plus) same nakładają KGP.
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
-val hasReleaseKeystore = keystorePropertiesFile.exists()
 
-if (hasReleaseKeystore) {
+if (keystorePropertiesFile.exists()) {
     FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
+
+// Release MUSI być podpisany kluczem uploadu. Wcześniej brak key.properties
+// dawał po cichu „release" podpisany kluczem debug — Play go odrzuca, a w
+// najgorszym razie trafia do testów pod złą sygnaturą. Teraz build release
+// bez kompletnego key.properties kończy się błędem (debug działa jak dotąd).
+val releaseSigningProblem: String? = when {
+    !keystorePropertiesFile.exists() ->
+        "Brak android/key.properties (wzór: android/key.properties.example)."
+    listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .any { keystoreProperties.getProperty(it).isNullOrBlank() } ->
+        "android/key.properties nie ma kompletu: storeFile, storePassword, keyAlias, keyPassword."
+    !keystorePropertiesFile.parentFile.resolve(keystoreProperties.getProperty("storeFile")).exists() ->
+        "Plik keystore z android/key.properties (storeFile) nie istnieje."
+    else -> null
+}
+val hasReleaseKeystore = releaseSigningProblem == null
 
 android {
     namespace = "com.startklaar.fitterwelder"
@@ -24,10 +42,8 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                val storeFilePath = keystoreProperties.getProperty("storeFile")
-                if (!storeFilePath.isNullOrBlank()) {
-                    storeFile = keystorePropertiesFile.parentFile.resolve(storeFilePath)
-                }
+                storeFile = keystorePropertiesFile.parentFile
+                    .resolve(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
@@ -42,10 +58,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -64,10 +76,10 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // Bez klucza uploadu: brak podpisu (NIE klucz debug), a zadanie
+            // verifyReleaseSigning niżej zatrzymuje build release błędem.
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
             }
             // R8: skracanie i optymalizacja kodu + usuwanie nieuzywanych zasobow.
             // Play Console zaleca to dla mniejszego rozmiaru i zuzycia pamieci.
@@ -84,8 +96,32 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 flutter {
     source = "../.."
+}
+
+// Każdy build wariantu release (apk, appbundle, install) przechodzi przez
+// preReleaseBuild — tam wpinamy twarde sprawdzenie klucza uploadu.
+val signingProblem = releaseSigningProblem
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    doLast {
+        if (signingProblem != null) {
+            throw GradleException(
+                "Build release przerwany: $signingProblem Release nie jest podpisywany " +
+                    "kluczem debug. Skopiuj key.properties i upload-keystore.jks (patrz " +
+                    "android/key.properties.example) albo zbuduj wariant debug.",
+            )
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 

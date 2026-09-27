@@ -22,6 +22,8 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -540,20 +542,17 @@ class WeldJournalExport {
     // notes, welder names and project names renders. The `pdf` package's
     // built-in Helvetica is Latin-1 only and drops those glyphs — same fix
     // iso_pdf_export.dart already carries.
-    final baseFont =
-        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
-    final boldFont =
-        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf'));
-    final doc = await buildPdfDocument(
+    final baseFont = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final boldFont = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+    final bytes = await renderPdfBytes(
       records: records,
-      font: baseFont,
-      boldFont: boldFont,
+      fontBytes: Uint8List.sublistView(baseFont),
+      boldFontBytes: Uint8List.sublistView(boldFont),
       header: header,
       filterDescription: filterDescription,
       welderFallback: welderFallback,
       generatedAt: now,
     );
-    final bytes = await doc.save();
     final name = weldJournalFileName(
       extension: 'pdf',
       generatedAt: now,
@@ -574,6 +573,41 @@ class WeldJournalExport {
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: _subject(records, filterLabel),
     );
+  }
+
+  /// Renders the journal PDF to bytes in a background isolate
+  /// (`Isolate.run`), not on the UI thread.
+  ///
+  /// Layout and `doc.save()` for a 400-weld journal take ~3 s on desktop JIT
+  /// and 1–3 s of frozen screen on a weak Android phone — no spinner, no
+  /// back gesture. Everything handed to the isolate is plain data: the
+  /// immutable [WeldJournalRecord]s, the header, the date and the raw TTF
+  /// bytes (a `pw.Font` is built on the other side). Only the finished
+  /// `Uint8List` comes back.
+  static Future<Uint8List> renderPdfBytes({
+    required List<WeldJournalRecord> records,
+    required Uint8List fontBytes,
+    Uint8List? boldFontBytes,
+    WeldJournalPdfHeader header = const WeldJournalPdfHeader(),
+    String filterDescription = '',
+    String welderFallback = '',
+    required DateTime generatedAt,
+  }) {
+    final rows = List<WeldJournalRecord>.unmodifiable(records);
+    return Isolate.run(() async {
+      final doc = await buildPdfDocument(
+        records: rows,
+        font: pw.Font.ttf(ByteData.sublistView(fontBytes)),
+        boldFont: boldFontBytes == null
+            ? null
+            : pw.Font.ttf(ByteData.sublistView(boldFontBytes)),
+        header: header,
+        filterDescription: filterDescription,
+        welderFallback: welderFallback,
+        generatedAt: generatedAt,
+      );
+      return doc.save();
+    }, debugName: 'weld-journal-pdf');
   }
 
   /// Lays the journal out as landscape A4 pages. No platform calls — the

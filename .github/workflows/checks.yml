@@ -5,8 +5,9 @@
 # testów w `test/` nie uruchamiały się automatycznie ani razu, więc regresja w
 # obliczeniach cut listy mogła dojechać do sklepu niezauważona.
 #
-# Ten pipeline jest celowo tani (ubuntu, bez podpisów, bez buildu) i ma jedno
-# zadanie: nie wpuścić czerwonego testu do gałęzi.
+# Ten pipeline jest celowo tani (ubuntu, bez podpisów) i ma dwa zadania: nie
+# wpuścić czerwonego testu do gałęzi i złapać zepsuty build Androida (job
+# android-debug-apk) zanim wyjdzie przy wydaniu.
 name: Analyzer i testy
 
 on:
@@ -18,6 +19,8 @@ on:
       - pubspec.lock
       - lib/**
       - test/**
+      - android/**
+      - assets/**
       - .github/workflows/checks.yml
   pull_request:
   workflow_dispatch:
@@ -50,3 +53,52 @@ jobs:
 
       - name: Flutter test
         run: flutter test --no-pub --reporter expanded
+
+  # Build Androida (Gradle / AGP / Kotlin / R8 zasobów) — bez tego błąd
+  # toolchainu wychodził dopiero przy wydaniu. APK debug: podpisany kluczem
+  # debug, bez key.properties i bez sekretów. Release bez key.properties
+  # celowo kończy się błędem (android/app/build.gradle.kts), więc go tu nie
+  # budujemy.
+  android-debug-apk:
+    name: flutter build apk --debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # AGP 9 / Gradle 9 wymagają JDK 17+; lokalnie budujemy na JDK 21.
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build APK (debug)
+        run: flutter build apk --debug --no-pub
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
