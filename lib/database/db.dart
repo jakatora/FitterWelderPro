@@ -39,11 +39,21 @@ class AppDatabase {
   //   klienta i klasę rurociągu (line_no, iso_no, iso_rev, client, spec),
   //   `segments` oznaczenie sztuki i spool (label, spool_id). Wszystko TEXT,
   //   NULL, bez domyślnych — stary projekt po prostu ich nie ma.
+  // v23: identyfikowalność materiału w projektach CUT —
+  //   `component_heats` dostaje `segment_id` + `side` (START / PIPE / END):
+  //   numer wytopu przypięty do stabilnego id segmentu, nie do `seq_no`
+  //   (usunięty ostatni segment oddawał swój numer następnemu i heat
+  //   „przechodził” na inną kształtkę). Stare klucze `S003_END` są
+  //   przepinane na id segmentu; wpis, którego segmentu już nie ma, zostaje
+  //   z `segment_id` NULL (ekran pokazuje go jako „bez miejsca”).
+  //   `heat_photos.heat_no` — numer wytopu na zdjęciu etykiety / atestu.
+  //   `cut_marks` — odhaczone ucięte kawałki listy cięć (offline).
   // v24: odczyt skanera izometryku `iso_scans` — koperta odpowiedzi serwera
   //   (JSON) i kopia zdjęcia w <documents>/heat_photos (katalog objęty kopią
   //   zapasową). Płatny skan przeżywa zabicie aplikacji i „Odrzuć”; ponowne
-  //   otwarcie nie zużywa limitu. Tabela nowa i pusta. (v23 zarezerwowana
-  //   dla równoległej zmiany — kolejność ustala scalenie.)
+  //   otwarcie nie zużywa limitu. Tabela nowa i pusta. (v23 i v24 powstały
+  //   równolegle; krok v23 jest idempotentny i wykonuje się zawsze, więc
+  //   baza z v24 bez v23 też go dostaje.)
   static const int _dbVersion = 24;
 
   /// The schema version [get] opens the database at.
@@ -396,6 +406,25 @@ CREATE TABLE IF NOT EXISTS projects (
       }
     }
 
+    // ---- v23: identyfikowalność (heat) w projektach CUT. Kolumny NULL;
+    // `cut_marks` przyszło z _createTables na początku. Istniejące wpisy
+    // heat są przepinane z `seq_no` na id segmentu — żaden nie jest kasowany.
+    //
+    // Bez warunku `oldVersion < 23`: v24 (skaner) powstał równolegle, więc
+    // baza testowa mogła dostać v24 bez kroku v23 — a indeks na
+    // component_heats(segment_id) w _createIndexes wywróciłby wtedy start
+    // aplikacji. Każda instrukcja jest idempotentna (_ensureColumn, relink
+    // tylko wierszy bez segment_id), więc powtórka niczego nie zmienia.
+    {
+      for (final column in kComponentHeatV23Columns.entries) {
+        await _ensureColumn(db, 'component_heats', column.key, column.value);
+      }
+      for (final column in kHeatPhotoV23Columns.entries) {
+        await _ensureColumn(db, 'heat_photos', column.key, column.value);
+      }
+      await relinkLegacyHeatKeys(db);
+    }
+
     // ---- v24: odczyty skanera izometryku. Tabela nowa — self-heal na
     // początku już ją utworzył; jawnie jeszcze raz (idempotentnie), żeby
     // krok wersji był samodzielny. Nic istniejącego nie jest ruszane.
@@ -524,6 +553,51 @@ CREATE TABLE IF NOT EXISTS projects (
     'spool_id': 'TEXT',
   };
 
+  /// component_heats columns added in v23: the segment (stable id) and the
+  /// place on it — `START`, `PIPE` or `END` — the heat number belongs to.
+  static const Map<String, String> kComponentHeatV23Columns = <String, String>{
+    'segment_id': 'TEXT',
+    'side': 'TEXT',
+  };
+
+  /// heat_photos columns added in v23: the heat number read off the label.
+  static const Map<String, String> kHeatPhotoV23Columns = <String, String>{
+    'heat_no': 'TEXT',
+  };
+
+  /// Pins pre-v23 heat entries (`component_key` = `S003_END`, built from the
+  /// segment's seq_no) to the segment's id and side.
+  ///
+  /// Only rows still without a `segment_id` are touched, so running it twice
+  /// changes nothing. A key whose segment is gone (deleted since) — or that
+  /// does not follow the old pattern — stays unlinked: nothing is guessed,
+  /// nothing is deleted, the screen lists it as "no place".
+  static Future<void> relinkLegacyHeatKeys(DatabaseExecutor db) async {
+    final rows = await db.rawQuery(
+        'SELECT id, project_id, component_key FROM component_heats '
+        'WHERE segment_id IS NULL');
+    final pattern = RegExp(r'^S(\d+)_(START|END)$');
+    for (final r in rows) {
+      final m = pattern.firstMatch((r['component_key'] as String?) ?? '');
+      if (m == null) continue;
+      final seq = int.parse(m.group(1)!);
+      final seg = await db.query(
+        'segments',
+        columns: ['id'],
+        where: 'project_id = ? AND seq_no = ?',
+        whereArgs: [r['project_id'], seq],
+        limit: 1,
+      );
+      if (seg.isEmpty) continue;
+      await db.update(
+        'component_heats',
+        {'segment_id': seg.first['id'], 'side': m.group(2)},
+        where: 'id = ?',
+        whereArgs: [r['id']],
+      );
+    }
+  }
+
   /// weld_coupons columns added in v20 (name → SQLite type).
   static const Map<String, String> _kWeldCouponsV20Columns = <String, String>{
     'program_no': 'TEXT',
@@ -608,6 +682,7 @@ CREATE TABLE IF NOT EXISTS heat_photos (
   image_path TEXT NOT NULL,
   note TEXT,
   created_at INTEGER NOT NULL,
+${_columnsDdl(kHeatPhotoV23Columns)},
   FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 ''');
@@ -620,7 +695,21 @@ CREATE TABLE IF NOT EXISTS component_heats (
   image_path TEXT,
   note TEXT,
   created_at INTEGER NOT NULL,
+${_columnsDdl(kComponentHeatV23Columns)},
   FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+''');
+    // v23: pieces of the cut list ticked off at the saw. One row per piece
+    // (segment + part of a split cut); `cut_mm` is the segment's CUT when it
+    // was ticked, so a mark on a segment corrected since is not trusted.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS cut_marks (
+  project_id TEXT NOT NULL,
+  segment_id TEXT NOT NULL,
+  part INTEGER NOT NULL,
+  cut_mm REAL NOT NULL,
+  marked_at INTEGER NOT NULL,
+  PRIMARY KEY (segment_id, part)
 );
 ''');
     await db.execute('''
@@ -928,6 +1017,10 @@ CREATE TABLE IF NOT EXISTS wps_library (
         'CREATE INDEX IF NOT EXISTS idx_component_heats_project ON component_heats(project_id);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_component_heats_key ON component_heats(project_id, component_key);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_component_heats_segment ON component_heats(project_id, segment_id);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_cut_marks_project ON cut_marks(project_id);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_weld_params_main ON weld_params(base_material, diameter_mm, wall_thickness_mm, method);');
     await db.execute(

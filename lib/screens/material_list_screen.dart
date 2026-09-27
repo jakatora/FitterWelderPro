@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../database/component_library_dao.dart';
 import '../database/project_dao.dart';
@@ -9,6 +8,8 @@ import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/material_item.dart';
 import '../models/project.dart';
+import '../database/component_heat_dao.dart';
+import '../services/heat_traceability.dart' show HeatReportRow;
 import '../services/material_list_builder.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
@@ -64,13 +65,42 @@ String bomDescription(MaterialItem item, {required bool english}) {
 }
 
 /// `3.500 m` for pipes, `4 szt.` / `4 pcs` / `1 pc` for fittings.
+String bomLengthText(MaterialItem item) {
+  final mm = item.totalLengthMm ?? 0;
+  // Guard against NaN/Infinity propagating from upstream aggregations —
+  // on the shop floor "NaN m" is unreadable through gloves and noise.
+  if (!mm.isFinite) return '— m';
+  return '${(mm / 1000.0).toStringAsFixed(3)} m';
+}
+
+/// `2 sztangi × 6000 mm` — what to take from the rack for a PIPE row, from
+/// the cut-list nesting (kerf included); null when the stock is unknown.
+String? bomBarsText(MaterialItem item, {required bool english}) {
+  final bars = item.bars;
+  final stock = item.stockLengthMm;
+  if (item.category != 'PIPE' || bars == null || stock == null) return null;
+  final s = stock.toStringAsFixed(0);
+  if (english) return '${bars == 1 ? '1 bar' : '$bars bars'} × $s mm';
+  final mod10 = bars % 10;
+  final mod100 = bars % 100;
+  final word = bars == 1
+      ? 'sztanga'
+      : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+          ? 'sztangi'
+          : 'sztang';
+  return '$bars $word × $s mm';
+}
+
+/// Quantity as the storeroom line carries it: for a pipe the net length AND
+/// the bars the cut list needs (`3.000 m netto · 1 sztanga × 6000 mm`) — the
+/// net sum alone undercounted the order by the kerf and the offcuts; for a
+/// fitting `4 szt.` / `4 pcs` / `1 pc`.
 String bomQuantityText(MaterialItem item, {required bool english}) {
   if (item.category == 'PIPE') {
-    final mm = item.totalLengthMm ?? 0;
-    // Guard against NaN/Infinity propagating from upstream aggregations —
-    // on the shop floor "NaN m" is unreadable through gloves and noise.
-    if (!mm.isFinite) return '— m';
-    return '${(mm / 1000.0).toStringAsFixed(3)} m';
+    final len = bomLengthText(item);
+    final bars = bomBarsText(item, english: english);
+    if (bars == null) return len;
+    return english ? '$len net · $bars' : '$len netto · $bars';
   }
   final qty = item.quantity ?? 0;
   if (!english) return '$qty szt.';
@@ -87,11 +117,15 @@ String bomLine(MaterialItem item, {required bool english}) =>
 ///
 /// A non-empty [identity] (line / ISO / revision / client / class) goes on
 /// the line under the title, so the storeroom knows which drawing to pull.
+///
+/// [heatRows] (heat numbers recorded for the project) follow under their own
+/// heading, so the storeroom and QC get the traceability with the order.
 String buildBomText({
   required List<MaterialItem> items,
   required String? projectName,
   required bool english,
   ProjectIdentity? identity,
+  List<HeatReportRow> heatRows = const [],
 }) {
   final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
   final buf = StringBuffer(
@@ -102,6 +136,13 @@ String buildBomText({
   }
   for (final item in items) {
     buf.writeln(bomLine(item, english: english));
+  }
+  if (heatRows.isNotEmpty) {
+    buf.writeln();
+    buf.writeln(english ? 'Heat numbers:' : 'Numery wytopów:');
+    for (final r in heatRows) {
+      buf.writeln(r.line);
+    }
   }
   return buf.toString();
 }
@@ -151,28 +192,14 @@ class MaterialListScreen extends StatefulWidget {
 }
 
 class _MaterialListScreenState extends State<MaterialListScreen> {
-  // Deep-link safety: BOM is reached via Navigator.push with projectId in the
-  // constructor. If the OS kills the app while the welder is on this screen
-  // (low memory, switching to camera for cert photos) and they reopen via a
-  // future deep link / shortcut that lost the id, we still want them to land
-  // back on the last BOM rather than an empty screen on the shop floor.
-  static const String _kLastBomProjectIdPref = 'material_list.last_project_id';
-
   late final MaterialListBuilder _builder;
   bool _loading = true;
-  // P1-10: when true the empty state is shown because we have no project id
-  // (deep-link / restored route without args, no last-known pid in prefs) —
-  // NOT because the project has zero segments. The empty-state UI branches on
-  // this so the welder sees the actionable message instead of the "add
-  // segments first" hint that would be a dead-end here.
+  // True when the screen was opened without a project id — the empty state
+  // then says so instead of "add segments", which would be a dead end.
   bool _missingPid = false;
   List<MaterialItem> _items = [];
-  // P2-08: track whether the currently-rendered list came from a previous
-  // (possibly stale) load and we failed to refresh. Tracked so the load
-  // path can keep the last-known list on screen rather than blanking it
-  // while we surface the "showing saved data — Ponów" SnackBar.
-  // ignore: unused_field
-  bool _staleCache = false;
+  // Heat numbers of the project (v23), appended to the copied / shared BOM.
+  List<HeatReportRow> _heatRows = const [];
   // Title line of the copied / shared BOM, so the storeroom knows which job
   // the list belongs to. Null when the project has no name.
   String? _projectName;
@@ -187,7 +214,8 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   void initState() {
     super.initState();
     _builder = widget.builder ??
-        MaterialListBuilder(SegmentDao(), ComponentLibraryDao(), ProjectDao());
+        MaterialListBuilder(SegmentDao(), ComponentLibraryDao(), ProjectDao(),
+            ComponentHeatDao());
     _load();
   }
 
@@ -203,6 +231,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       projectName: _projectName,
       english: _english,
       identity: _identity,
+      heatRows: _heatRows,
     );
     final done = context.tr(
       pl: 'Skopiowano listę materiałową (${_items.length} poz.)',
@@ -231,6 +260,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
       projectName: _projectName,
       english: english,
       identity: _identity,
+      heatRows: _heatRows,
     );
     final title = english ? 'Material list (BOM)' : 'Lista materiałowa (BOM)';
     final failed = context.tr(
@@ -265,55 +295,39 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
   /// Loads (or reloads) the BOM. When [isRefresh] is true the previous list
   /// is kept rendered while we work (P2-08 — pull-to-refresh shouldn't blank
   /// the shop-floor BOM the welder is reading from), and on success we fire a
-  /// short "Zaktualizowano BOM (N pozycji)" SnackBar. On failure we keep the
-  /// stale list, set [_staleCache] and surface the "showing saved data" toast.
+  /// short "Zaktualizowano BOM (N pozycji)" SnackBar. On failure the last
+  /// list stays on screen with a "showing saved data" toast.
   Future<void> _load({bool isRefresh = false}) async {
     if (!isRefresh) {
       setState(() => _loading = true);
     }
     try {
-      var pid = widget.projectId;
-      // Recover last-known BOM project if caller handed us an empty id (e.g.
-      // route restored from OS state without args). Real navigation always
-      // passes a non-empty id, so this branch is a safety net only.
-      if (pid.isEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        if (!mounted) return;
-        pid = prefs.getString(_kLastBomProjectIdPref) ?? '';
-      }
-      // Track whether we tried to load with an empty pid so the empty-state UI
-      // can distinguish "missing project id" from "no segments yet" (P1-10).
+      final pid = widget.projectId;
       _missingPid = pid.isEmpty;
       final items = pid.isEmpty
           ? <MaterialItem>[]
           : await _builder.buildForProject(pid);
       if (!mounted) return;
-      // Best effort: the BOM is still useful without a title.
+      // Best effort: the BOM is still useful without a title or heats.
       String? projectName;
       ProjectIdentity? identity;
+      var heatRows = const <HeatReportRow>[];
       if (pid.isNotEmpty) {
         try {
           projectName = await _builder.projectName(pid);
           identity = await _builder.projectIdentity(pid);
+          heatRows = await _builder.heatReport(pid, english: _english);
         } catch (e) {
           debugPrint('material_list projectName failed: $e');
         }
-        if (!mounted) return;
-      }
-      // Persist on every successful, non-empty load so the next cold start has
-      // a known-good fallback. Done after the build so we never persist a junk id.
-      if (pid.isNotEmpty) {
-        final prefs = await SharedPreferences.getInstance();
-        if (!mounted) return;
-        await prefs.setString(_kLastBomProjectIdPref, pid);
         if (!mounted) return;
       }
       setState(() {
         _items = items;
         _projectName = projectName;
         _identity = identity;
+        _heatRows = heatRows;
         _loading = false;
-        _staleCache = false;
       });
       // P2-08: on refresh confirm with a short toast — without it the welder
       // can't tell whether a pull-to-refresh actually re-ran the builder
@@ -339,10 +353,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
         // P2-08: keep the previously-rendered list visible and flag it as
         // stale. Welder still sees the last-known BOM (better than a blank
         // page mid-job) but the SnackBar tells them the refresh failed.
-        setState(() {
-          _loading = false;
-          _staleCache = true;
-        });
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
@@ -363,7 +374,6 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
         setState(() {
           _loading = false;
           _items = [];
-          _staleCache = false;
         });
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
@@ -460,27 +470,6 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                         ),
-                        const SizedBox(height: 12),
-                        // P1-10: "Wyczyść filtr" semantic — when we landed here because
-                        // the stored last-known pid is stale (project was deleted) the
-                        // welder needs a way to wipe that pref and back out. The Retry
-                        // re-runs _load after clearing so they immediately get the
-                        // "no project" branch and can pick a fresh one from the menu.
-                        if (_missingPid)
-                          TextButton.icon(
-                            onPressed: () async {
-                              final prefs = await SharedPreferences.getInstance();
-                              if (!mounted) return;
-                              await prefs.remove(_kLastBomProjectIdPref);
-                              if (!mounted) return;
-                              await _load();
-                            },
-                            icon: const Icon(Icons.refresh, size: 18),
-                            label: Text(context.tr(
-                              pl: 'Wyczyść filtr',
-                              en: 'Clear filter',
-                            )),
-                          ),
                         const SizedBox(height: 16),
                         // First-time coaching: BOM is auto-built from segments, but a
                         // brand-new user lands here from the project menu without ever
@@ -508,8 +497,8 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                               const SizedBox(height: 6),
                               Text(
                                 context.tr(
-                                  pl: 'Otwórz ISO/Notatnik w projekcie i dodaj kilka rur (np. DN50, 6 m) oraz kolan. Wróć tu — lista materiałowa zbuduje się sama.',
-                                  en: 'Open ISO/Notebook in this project and add a few pipes (e.g. DN50, 6 m) and elbows. Come back — the BOM builds itself.',
+                                  pl: 'Wróć do projektu i dodaj segmenty przyciskiem „Dodaj segment”. Lista materiałowa zbuduje się sama z rur i kształtek segmentów.',
+                                  en: 'Go back to the project and add segments with "Add segment". The BOM builds itself from their pipes and fittings.',
                                 ),
                                 style: const TextStyle(fontSize: 12, height: 1.3),
                               ),
@@ -550,13 +539,19 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                       final i = identityLine == null ? index : index - 1;
                       final it = _items[i];
                       final isPipe = it.category == 'PIPE';
-                      // Dual-unit trailing (P1-35): metric + imperial side-by-
-                      // side for PIPE rows; piece-count for everything else.
-                      // EN singular: "1 pc" not "1 pcs"; PL "szt." is invariant.
-                      final trailingText =
-                          bomQuantityText(it, english: english);
+                      // PIPE: net metres on the right, bars to take from the
+                      // rack (+ inches) under the description. Fittings: the
+                      // piece count once, on the right — it used to be
+                      // printed twice in the same row.
+                      final trailingText = isPipe
+                          ? bomLengthText(it)
+                          : bomQuantityText(it, english: english);
+                      final bars = bomBarsText(it, english: english);
                       final trailingDual = isPipe
-                          ? _fmtLenDual(it.totalLengthMm ?? 0)
+                          ? [
+                              if (bars != null) bars,
+                              _fmtLenDual(it.totalLengthMm ?? 0),
+                            ].join(' · ')
                           : null;
                       return _BomRow(
                         catLabel: bomCategoryLabel(it, english: english),
@@ -564,7 +559,7 @@ class _MaterialListScreenState extends State<MaterialListScreen> {
                         description: bomDescription(it, english: english),
                         trailingText: trailingText,
                         trailingDual: trailingDual,
-                        qtyText: isPipe ? null : trailingText,
+                        qtyText: null,
                         // P3-10: long-press copies "CAT - desc - trailing" so
                         // welder can paste a single BOM line straight into
                         // chat/SMS to the storeroom without re-typing through
@@ -627,9 +622,8 @@ class _BomRow extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
-            Haptic.tap();
-          },
+          // Long-press copies the line; a plain tap does nothing, so it no
+          // longer buzzes as if something had happened.
           onLongPress: () => copyToClipboard(context, copyPayload),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),

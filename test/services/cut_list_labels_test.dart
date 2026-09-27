@@ -99,18 +99,21 @@ void main() {
       expect(
         oversizeCutWarning(split, stockLengthMm: 6000, english: false),
         'S01: odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na '
-        '2 części; potrzebna dodatkowa spoina łącząca; uwzględnij gap.',
+        '2 części: 6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — '
+        'nic nie odjęto).',
       );
       expect(
         oversizeCutWarning(split, stockLengthMm: 6000, english: true),
         'S01: piece 7000 mm is longer than the 6000 mm stock bar — split into '
-        '2 parts; an extra joining weld is needed; allow for the gap.',
+        '2 parts: 6000 + 1000 mm; an extra joining weld (project gap 0 mm — '
+        'nothing taken off).',
       );
       expect(
         oversizeCutWarning(split,
             stockLengthMm: 6000, english: false, withLabel: false),
-        'odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części; '
-        'potrzebna dodatkowa spoina łącząca; uwzględnij gap.',
+        'odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części: '
+        '6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — nic nie '
+        'odjęto).',
       );
     });
 
@@ -121,12 +124,14 @@ void main() {
       expect(
         oversizeCutWarning(split, stockLengthMm: 6000, english: false),
         'S04: odcinek 14000 mm dłuższy niż sztanga 6000 mm — dzielony na '
-        '3 części; potrzebne 2 dodatkowe spoiny łączące; uwzględnij gap.',
+        '3 części: 6000 + 6000 + 2000 mm; 2 dodatkowe spoiny łączące (gap '
+        'projektu 0 mm — nic nie odjęto).',
       );
       expect(
         oversizeCutWarning(split, stockLengthMm: 6000, english: true),
         'S04: piece 14000 mm is longer than the 6000 mm stock bar — split into '
-        '3 parts; 2 extra joining welds are needed; allow for the gap.',
+        '3 parts: 6000 + 6000 + 2000 mm; 2 extra joining welds (project gap '
+        '0 mm — nothing taken off).',
       );
     });
 
@@ -136,7 +141,8 @@ void main() {
         oversizeCutWarning(s.splitCuts.single,
             stockLengthMm: 6000, english: false),
         'S05: odcinek 35000 mm dłuższy niż sztanga 6000 mm — dzielony na '
-        '6 części; potrzebnych 5 dodatkowych spoin łączących; uwzględnij gap.',
+        '6 części: 6000 + 6000 + 6000 + 6000 + 6000 + 5000 mm; 5 dodatkowych '
+        'spoin łączących (gap projektu 0 mm — nic nie odjęto).',
       );
     });
   });
@@ -177,8 +183,8 @@ void main() {
         'Material: SS  Stock: 6000 mm  Kerf: 3.0 mm\n'
         '\n'
         'WARNING: S01: piece 7000 mm is longer than the 6000 mm stock bar — '
-        'split into 2 parts; an extra joining weld is needed; allow for the '
-        'gap.\n'
+        'split into 2 parts: 6000 + 1000 mm; an extra joining weld (project gap '
+        '0 mm — nothing taken off).\n'
         '\n'
         'Ø114.3 × 6.0:\n'
         '  Bar 1: S01 (1/2): 6000  (remaining 0 mm)\n'

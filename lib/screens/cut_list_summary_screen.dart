@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../database/cut_mark_dao.dart';
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
@@ -12,6 +13,7 @@ import '../models/segment.dart';
 import '../services/bar_nesting.dart';
 import '../services/cut_list_csv.dart';
 import '../services/cut_list_summary.dart';
+import '../services/heat_traceability.dart';
 import '../services/pdf_export_service.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
@@ -95,6 +97,11 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
   // on bars, waste or which segment sits on which bar.
   // Recomputed only in _load() so rebuilds don't re-run the nesting.
   CutListSummary? _summary;
+  // Heat numbers of the project (v23) — go into the PDF and the CSV.
+  HeatTrace? _heatTrace;
+  // Pieces ticked off at the saw: `segmentId|part` → CUT when ticked.
+  Map<String, double> _marks = const {};
+  final _cutMarks = CutMarkDao();
   bool _loading = true;
   bool _exporting = false;
   // P1-44: load lifecycle hardening — guard against reentrancy, stale awaits
@@ -136,13 +143,26 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
               segments: segs,
               stockLengthMm: p.stockLengthMm,
               sawKerfMm: p.sawKerfMm,
+              joinGapMm: p.gapMm,
             );
+      // Heat numbers (for the exports) and saw ticks are extras: a failure
+      // there must not take the cut plan down with it.
+      HeatTrace? trace;
+      var marks = const <String, double>{};
+      try {
+        trace = await loadHeatTrace(widget.projectId, segs);
+        marks = await _cutMarks.forProject(widget.projectId);
+      } catch (e) {
+        debugPrint('[CutListSummary] heats/marks failed: $e');
+      }
 
       if (gen != _loadGen || !mounted) return;
       setState(() {
         _project    = p;
         _segments   = segs;
         _summary    = summary;
+        _heatTrace  = trace;
+        _marks      = marks;
         _loading    = false;
         _loadError  = null;
       });
@@ -222,6 +242,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
         segments: segsSnapshot,
         english: english,
         sharePositionOrigin: _shareOrigin(),
+        heatRows: _heatTrace?.report(english: english) ?? const [],
       );
     } catch (e, st) {
       debugPrint('[CutListSummary] _exportPdf failed: $e\n$st');
@@ -402,7 +423,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                       )
                     else ...[
                       // ── PODSUMOWANIE ZBIORCZE ─────────────────────────
-                      CutListGlobalSummary(summary: summary),
+                      CutListGlobalSummary(summary: summary, isCut: _isCut),
                       const SizedBox(height: 12),
 
                       // ── OSTRZEŻENIE: ODCINEK DŁUŻSZY NIŻ SZTANGA ──────
@@ -422,6 +443,8 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
                           materialGroup: p.materialGroup,
                           stockLengthMm: p.stockLengthMm,
                           sawKerfMm: p.sawKerfMm,
+                          isCut: _isCut,
+                          onToggleCut: _toggleCut,
                         );
                       }),
                     ],
@@ -441,6 +464,7 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
             segments: _segments,
             stockLengthMm: p.stockLengthMm,
             sawKerfMm: p.sawKerfMm,
+            joinGapMm: p.gapMm,
           ),
       english: _english,
       identity: p.identity,
@@ -462,7 +486,55 @@ class _CutListSummaryScreenState extends State<CutListSummaryScreen> {
       segments: _segments,
       english: _english,
       identity: p.identity,
+      joinGapMm: p.gapMm,
+      heats: _heatTrace?.bySegment ?? const {},
     );
+  }
+
+  bool _isCut(BarPiece piece) {
+    final id = piece.sourceId;
+    if (id == null) return false;
+    return CutMarkDao.stillValid(
+        _marks[CutMarkDao.keyOf(id, piece.part)], piece.sourceLengthMm);
+  }
+
+  /// Ticks a piece off (or back on) at the saw. Saved at once, locally.
+  Future<void> _toggleCut(BarPiece piece) async {
+    final p = _project;
+    final id = piece.sourceId;
+    if (p == null || id == null) return;
+    final key = CutMarkDao.keyOf(id, piece.part);
+    final wasCut = _isCut(piece);
+    // Optimistic: the box flips under the glove right away.
+    setState(() {
+      final next = Map<String, double>.from(_marks);
+      if (wasCut) {
+        next.remove(key);
+      } else {
+        next[key] = piece.sourceLengthMm;
+      }
+      _marks = next;
+    });
+    await Haptic.tap();
+    try {
+      if (wasCut) {
+        await _cutMarks.unmark(segmentId: id, part: piece.part);
+      } else {
+        await _cutMarks.mark(
+          projectId: p.id,
+          segmentId: id,
+          part: piece.part,
+          cutMm: piece.sourceLengthMm,
+        );
+      }
+    } catch (e) {
+      debugPrint('[CutListSummary] cut mark failed: $e');
+      if (!mounted) return;
+      final marks = await _cutMarks.forProject(p.id).catchError((_) => _marks);
+      if (!mounted) return;
+      setState(() => _marks = marks);
+      _snack(context.tr(pl: 'Nie udało się zapisać odhaczenia.', en: 'Could not save the tick.'), _kRed);
+    }
   }
 
   Future<void> _onShareAction(_ShareAction action, Project p) async {
@@ -652,10 +724,18 @@ class _ProjectHeader extends StatelessWidget {
 /// screen always match the group cards below and the exported PDF.
 class CutListGlobalSummary extends StatelessWidget {
   final CutListSummary summary;
-  const CutListGlobalSummary({super.key, required this.summary});
+
+  /// Whether a piece is ticked off at the saw; null = no progress line.
+  final bool Function(BarPiece piece)? isCut;
+  const CutListGlobalSummary({super.key, required this.summary, this.isCut});
 
   @override
   Widget build(BuildContext context) {
+    final pieces = [
+      for (final g in summary.groups)
+        for (final plan in g.plans) ...plan.pieces,
+    ];
+    final cutCount = isCut == null ? 0 : pieces.where(isCut!).length;
     final totalBars = summary.totalBars;
     final totalCutMm = summary.totalNetMm;
     final wastePct = summary.wastePct;
@@ -700,6 +780,24 @@ class CutListGlobalSummary extends StatelessWidget {
               ),
             ],
           ),
+          if (isCut != null && pieces.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              context.tr(
+                pl: 'Ucięte: $cutCount / ${pieces.length}',
+                en: 'Cut: $cutCount / ${pieces.length}',
+              ),
+              key: const ValueKey('cut-progress'),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _kText),
+            ),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: cutCount / pieces.length,
+              minHeight: 8,
+              color: _kGreen,
+              backgroundColor: _kBorder,
+            ),
+          ],
         ],
       ),
     );
@@ -734,7 +832,7 @@ class _SummaryStatBox extends StatelessWidget {
             Icon(icon, size: 16, color: color),
             const SizedBox(height: 4),
             Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: color)),
-            Text(label, style: const TextStyle(fontSize: 10, color: _kMuted)),
+            Text(label, style: const TextStyle(fontSize: 12, color: _kMuted)),
           ],
         ),
       ),
@@ -814,12 +912,19 @@ class CutListPipeGroup extends StatelessWidget {
   final double stockLengthMm;
   final double sawKerfMm;
 
+  /// Saw ticks: whether a piece is cut, and what a tap on its box does.
+  /// Without them the bars show no boxes.
+  final bool Function(BarPiece piece)? isCut;
+  final void Function(BarPiece piece)? onToggleCut;
+
   const CutListPipeGroup({
     super.key,
     required this.group,
     required this.materialGroup,
     required this.stockLengthMm,
     required this.sawKerfMm,
+    this.isCut,
+    this.onToggleCut,
   });
 
   /// ASME/ISO line-list shorthand a fitter would paint on the pipe end:
@@ -862,39 +967,53 @@ class CutListPipeGroup extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                context.tr(
-                  pl: 'Rura  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
-                  en: 'Pipe  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
-                ),
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.tr(
+                      pl: 'Rura  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
+                      en: 'Pipe  Ø${group.diameterMm.toStringAsFixed(1)} × ${group.wallMm.toStringAsFixed(1)} mm',
+                    ),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _kText),
+                  ),
+                  const SizedBox(height: 4),
+                  // Under the title (not beside it): with 12 px text the
+                  // three no longer fit one line on a 360 dp phone.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      // ASME line-tag chip: short pipe ID a fitter writes on
+                      // the cut end.
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF22263A),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: _kBorder),
+                        ),
+                        child: Text(
+                          _lineTag(),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            color: _kText,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        // P1-38: pluralBars centralises the PL `1/2-4/5+`
+                        // rule; EN cleanly toggles bar/bars.
+                        pluralBars(plans.length, context),
+                        style: const TextStyle(fontSize: 12, color: _kOrange, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ),
-            // ASME line-tag chip: short pipe ID a fitter writes on the cut end.
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFF22263A),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: _kBorder),
-              ),
-              child: Text(
-                _lineTag(),
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: _kText,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            Text(
-              // P1-38: pluralBars centralises the PL `1/2-4/5+` rule so the
-              // same `${n} szt.` shorthand here matches the global summary
-              // box; EN cleanly toggles bar/bars.
-              pluralBars(plans.length, context),
-              style: const TextStyle(fontSize: 12, color: _kOrange, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -918,7 +1037,7 @@ class CutListPipeGroup extends StatelessWidget {
                 // pluralBars. EN folds to "1 piece" / "N pieces" — natural
                 // for both header and parenthetical use.
                 pluralPieces(cuts.length, context),
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _kMuted, letterSpacing: 0.5),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: _kMuted, letterSpacing: 0.5),
               ),
               const SizedBox(height: 6),
               Wrap(
@@ -936,8 +1055,8 @@ class CutListPipeGroup extends StatelessWidget {
               const Divider(height: 20, color: _kBorder),
               Text(
                 context.tr(
-                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Odpad: ${totalWaste.toStringAsFixed(0)} mm',
-                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Waste: ${totalWaste.toStringAsFixed(0)} mm',
+                  pl: 'Netto: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Odpad: ${formatCutMm(totalWaste)} mm',
+                  en: 'Net: ${(totalNet / 1000).toStringAsFixed(3)} m  ·  Waste: ${formatCutMm(totalWaste)} mm',
                 ),
                 style: const TextStyle(fontSize: 12, color: _kMuted),
               ),
@@ -952,6 +1071,8 @@ class CutListPipeGroup extends StatelessWidget {
           plan: plans[i],
           stockLengthMm: stockLengthMm,
           sawKerfMm: sawKerfMm,
+          isCut: isCut,
+          onToggleCut: onToggleCut,
         )),
         const SizedBox(height: 20),
       ],
@@ -1001,10 +1122,10 @@ class _PieceChip extends StatelessWidget {
             const SizedBox(width: 4),
           ],
           if (label != null) ...[
-            Text(label!, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kTag)),
+            Text(label!, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _kTag)),
             const SizedBox(width: 5),
           ],
-          Text('${lengthMm.toStringAsFixed(0)} mm', style: const TextStyle(fontSize: 12, color: _kText)),
+          Text('${formatCutMm(lengthMm)} mm', style: const TextStyle(fontSize: 13, color: _kText)),
         ],
       ),
     );
@@ -1017,16 +1138,71 @@ class _BarCard extends StatelessWidget {
   final BarPlan plan;
   final double stockLengthMm;
   final double sawKerfMm;
+  final bool Function(BarPiece piece)? isCut;
+  final void Function(BarPiece piece)? onToggleCut;
 
   const _BarCard({
     required this.index,
     required this.plan,
     required this.stockLengthMm,
     required this.sawKerfMm,
+    this.isCut,
+    this.onToggleCut,
   });
 
+  /// One piece with a 48 dp tick box: tap when it is off the saw.
+  Widget _tickRow(BuildContext context, BarPiece piece) {
+    final cut = isCut?.call(piece) ?? false;
+    final tag = piece.tag;
+    return InkWell(
+      key: ValueKey('cut-tick-${piece.sourceId}-${piece.part}'),
+      onTap: () => onToggleCut!(piece),
+      borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: Row(
+          children: [
+            Icon(
+              cut ? Icons.check_box : Icons.check_box_outline_blank,
+              size: 28,
+              color: cut ? _kGreen : _kMuted,
+              semanticLabel: cut
+                  ? context.tr(pl: 'ucięte', en: 'cut')
+                  : context.tr(pl: 'do cięcia', en: 'to cut'),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text.rich(
+                TextSpan(children: [
+                  if (tag != null)
+                    TextSpan(
+                      text: '$tag  ',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: piece.isSplit ? _kWarn : _kTag,
+                      ),
+                    ),
+                  TextSpan(
+                    text: '${formatCutMm(piece.lengthMm)} mm',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: cut ? _kMuted : _kText,
+                      decoration: cut ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _copyText(BuildContext context) {
-    final rest = plan.remainingMm.toStringAsFixed(0);
+    final rest = formatCutMm(plan.remainingMm);
     return context.tr(
       pl: 'Sztanga ${index + 1}: ${formatBarPieces(plan)} (zostaje $rest mm)',
       en: 'Bar ${index + 1}: ${formatBarPieces(plan)} (remaining $rest mm)',
@@ -1065,10 +1241,13 @@ class _BarCard extends StatelessWidget {
                       context.tr(pl: 'Sztanga ${index + 1}', en: 'Bar ${index + 1}'),
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _kOrange),
                     ),
-                    const Spacer(),
-                    Text(
-                      '${usedMm.toStringAsFixed(0)} / ${stockLengthMm.toStringAsFixed(0)} mm',
-                      style: const TextStyle(fontSize: 11, color: _kMuted),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${formatCutMm(usedMm)} / ${formatCutMm(stockLengthMm)} mm',
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 12, color: _kMuted),
+                      ),
                     ),
                   ],
                 ),
@@ -1078,7 +1257,11 @@ class _BarCard extends StatelessWidget {
                 _BarVisual(plan: plan, stockLengthMm: stockLengthMm, sawKerfMm: sawKerfMm),
                 const SizedBox(height: 8),
 
-                // Odcinki: segment tag + mm for every piece on this bar.
+                // Odcinki: segment tag + mm for every piece on this bar —
+                // with a tick box each when the screen keeps saw ticks.
+                if (onToggleCut != null)
+                  for (final piece in plan.pieces) _tickRow(context, piece)
+                else
                 Text.rich(
                   TextSpan(children: [
                     for (var i = 0; i < plan.pieces.length; i++) ...[
@@ -1094,7 +1277,7 @@ class _BarCard extends StatelessWidget {
                           ),
                         ),
                       TextSpan(
-                        text: plan.pieces[i].lengthMm.toStringAsFixed(0),
+                        text: formatCutMm(plan.pieces[i].lengthMm),
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _kText),
                       ),
                     ],
@@ -1112,7 +1295,7 @@ class _BarCard extends StatelessWidget {
                             pl: 'Część odcinka dłuższego niż sztanga — dodatkowa spoina łącząca, uwzględnij gap',
                             en: 'Part of a piece longer than the bar — extra joining weld, allow for the gap',
                           ),
-                          style: const TextStyle(fontSize: 11, color: _kWarn),
+                          style: const TextStyle(fontSize: 12, color: _kWarn),
                         ),
                       ),
                     ],
@@ -1126,10 +1309,10 @@ class _BarCard extends StatelessWidget {
                   children: [
                     Text(
                       context.tr(
-                        pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${plan.remainingMm.toStringAsFixed(0)} mm',
-                        en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${plan.remainingMm.toStringAsFixed(0)} mm',
+                        pl: 'Cięcia: ${plan.cutsCount}  ·  Zostaje: ${formatCutMm(plan.remainingMm)} mm',
+                        en: 'Cuts: ${plan.cutsCount}  ·  Remaining: ${formatCutMm(plan.remainingMm)} mm',
                       ),
-                      style: TextStyle(fontSize: 11, color: wasteColor),
+                      style: TextStyle(fontSize: 12, color: wasteColor),
                     ),
                     if (plan.remainingMm > 200)
                       Container(
@@ -1141,7 +1324,7 @@ class _BarCard extends StatelessWidget {
                         ),
                         child: Text(
                           context.tr(pl: 'nadaje się na spady', en: 'usable offcut'),
-                          style: const TextStyle(fontSize: 10, color: _kGreen),
+                          style: const TextStyle(fontSize: 12, color: _kGreen),
                         ),
                       ),
                   ],
@@ -1166,7 +1349,7 @@ class _BarCard extends StatelessWidget {
                         en: 'Long-press to copy',
                       ),
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         color: _kMuted.withValues(alpha: 0.7),
                         fontStyle: FontStyle.italic,
                       ),
@@ -1269,8 +1452,8 @@ class _BarVisual extends StatelessWidget {
                   child: plan.remainingMm > 300
                       ? Center(
                           child: Text(
-                            plan.remainingMm.toStringAsFixed(0),
-                            style: const TextStyle(fontSize: 9, color: _kMuted),
+                            formatCutMm(plan.remainingMm),
+                            style: const TextStyle(fontSize: 12, color: _kMuted),
                           ),
                         )
                       : null,

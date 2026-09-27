@@ -105,9 +105,9 @@ void main() {
       // Kolumny segment;iso;uwagi dopisane na końcu (stare pozycje kolumn
       // bez zmian): etykieta segmentu, wyrażenie ISO (tu puste), uwagi —
       // i za nimi oznaczenie sztuki (v22; tu puste).
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;\n'
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;\n'
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S03;;;\n',
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;;;;\n'
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;;;;\n'
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S03;;;;;;\n',
     );
     expect(offline.connectionAttempts, 0);
   });
@@ -121,10 +121,10 @@ void main() {
     ]);
     final rows = csv.trimRight().split('\n').skip(2).toList();
     expect(rows, [
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;',
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S03;;;',
-      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S04;;;',
-      '"Linia DN100";CS;6000;3.0;60.3;3.9;1;1;700;5297;S02;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;S01;;;;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S03;;;;;;',
+      '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;S04;;;;;;',
+      '"Linia DN100";CS;6000;3.0;60.3;3.9;1;1;700;5297;S02;;;;;;',
     ]);
     expect(offline.connectionAttempts, 0);
   });
@@ -132,7 +132,7 @@ void main() {
   test('nazwa z cudzysłowem jest cytowana wg RFC 4180', () {
     final csv = _csv([_seg(1, 1200)], name: 'Hala "B"');
     final rows = csv.trimRight().split('\n');
-    expect(rows.last, '"Hala ""B""";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;;;');
+    expect(rows.last, '"Hala ""B""";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;;;;;;');
     expect(csvQuote('CS'), 'CS');
     expect(csvQuote('a;b'), '"a;b"');
   });
@@ -147,7 +147,7 @@ void main() {
   test('nagłówek EN jest przekazywany bez zmian', () {
     final csv = _csv([_seg(1, 1200)], header: kCutListCsvHeaderEn);
     expect(csv.split('\n')[1],
-        'project;material;stock_mm;kerf_mm;diameter_mm;wall_mm;bar_no;piece_no;cut_mm;bar_remaining_mm;segment;iso;note;piece_mark');
+        'project;material;stock_mm;kerf_mm;diameter_mm;wall_mm;bar_no;piece_no;cut_mm;bar_remaining_mm;segment;iso;note;piece_mark;heat_start;heat_pipe;heat_end');
     expect(offline.connectionAttempts, 0);
   });
 
@@ -183,8 +183,8 @@ void main() {
       ]);
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;1501;S01;3000+525-80;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;1200;1501;S02;"4\'-6""";;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;1501;S01;3000+525-80;;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;1200;1501;S02;"4\'-6""";;;;;',
       ]);
     });
 
@@ -192,7 +192,7 @@ void main() {
       final csv = _csv([iso(1, 1200, '-80+3000')], name: '=HYPERLINK("x")');
       final row = csv.trimRight().split('\n').last;
       expect(row,
-          '"\'=HYPERLINK(""x"")";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;\'-80+3000;;');
+          '"\'=HYPERLINK(""x"")";CS;6000;3.0;114.3;6.0;1;1;1200;4797;S01;\'-80+3000;;;;;');
     });
 
     test('7000 mm na sztangach 6000: części S01 (1/2), (2/2) z ostrzeżeniem PL',
@@ -201,12 +201,13 @@ void main() {
       // 2 cięcia → 6000 − 5000 − 6 = 994 mm.
       final csv = _csv([_seg(1, 7000), _seg(2, 4000)]);
       const note = '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na '
-          '2 części; potrzebna dodatkowa spoina łącząca; uwzględnij gap."';
+          '2 części: 6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu '
+          '0 mm — nic nie odjęto)."';
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";;$note;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;4000;994;S02;;;',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;2;1000;994;"S01 (2/2)";;$note;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";;$note;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;4000;994;S02;;;;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;2;1000;994;"S01 (2/2)";;$note;;;;',
       ]);
     });
 
@@ -224,8 +225,9 @@ void main() {
       expect(
         lines[2],
         '"Line 7";SS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";;"piece 7000 mm '
-        'is longer than the 6000 mm stock bar — split into 2 parts; an extra '
-        'joining weld is needed; allow for the gap.";',
+        'is longer than the 6000 mm stock bar — split into 2 parts: 6000 + '
+        '1000 mm; an extra joining weld (project gap 0 mm — nothing taken '
+        'off).";;;;',
       );
     });
   });
@@ -264,10 +266,10 @@ void main() {
       ]);
       final rows = csv.trimRight().split('\n').skip(2).toList();
       expect(rows, [
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;"S01 SP02-03";;;SP02-03',
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;1;3293;201;"S01 SP02-03";;;SP02-03;;;',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;1;2;2500;201;S02;;;;;;',
         // A typed mark is free text: never a formula in Excel.
-        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;"S03 =SP02-05";;;\'=SP02-05',
+        '"Linia DN100";CS;6000;3.0;114.3;6.0;2;1;1200;4797;"S03 =SP02-05";;;\'=SP02-05;;;',
       ]);
     });
 
@@ -292,7 +294,7 @@ void main() {
           '# Linia: DN100-CWS-1234 · ISO: ISO-7 rew. B · Klient: Orlen · Klasa: A1B');
       expect(lines[2], kCutListCsvHeaderPl);
       // The data rows keep every column where it was.
-      expect(lines[3].split(';'), hasLength(14));
+      expect(lines[3].split(';'), hasLength(17));
     });
 
     test('pusta identyfikacja nie dodaje linii', () {

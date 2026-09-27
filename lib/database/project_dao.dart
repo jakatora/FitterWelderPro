@@ -23,6 +23,7 @@ class DeletedProject {
     required this.segments,
     required this.heatPhotos,
     required this.componentHeats,
+    this.cutMarks = const [],
   });
 
   final String projectId;
@@ -31,17 +32,19 @@ class DeletedProject {
   final List<Map<String, Object?>> heatPhotos;
   final List<Map<String, Object?>> componentHeats;
 
+  /// v23: pieces ticked off at the saw.
+  final List<Map<String, Object?>> cutMarks;
+
   /// False when the id matched nothing - the row was already gone.
   bool get existed => projects.isNotEmpty;
 
   /// On-disk photos the app itself wrote, and therefore may delete.
   ///
-  /// Deliberately heat_photos only. `component_heats.image_path` holds the
-  /// path FilePicker handed back and was never copied anywhere
-  /// (project_components_screen.dart stores `imgPath` verbatim), so it can
-  /// point straight at a file in the user's gallery or Downloads. Deleting
-  /// those would destroy the fitter's own photos, not the app's copies.
-  List<String> get ownedPhotoPaths => heatPhotos
+  /// heat_photos AND component_heats: both screens copy the picked photo
+  /// into `<documents>/heat_photos` now. Older rows of either table may
+  /// still point at the user's own gallery file — [ProjectDao.purgePhotoFiles]
+  /// only ever deletes paths inside the app's own directory, so those stay.
+  List<String> get ownedPhotoPaths => [...heatPhotos, ...componentHeats]
       .map((r) => r['image_path'] as String?)
       .whereType<String>()
       .toList(growable: false);
@@ -157,12 +160,14 @@ class ProjectDao {
       final segments = await snapshot('segments', 'project_id');
       final heatPhotos = await snapshot('heat_photos', 'project_id');
       final componentHeats = await snapshot('component_heats', 'project_id');
+      final cutMarks = await snapshot('cut_marks', 'project_id');
 
       // Children first, parent last, so the database never holds a projects
       // row whose dependents are already gone, not even mid-transaction.
       await txn.delete('segments', where: 'project_id = ?', whereArgs: [projectId]);
       await txn.delete('heat_photos', where: 'project_id = ?', whereArgs: [projectId]);
       await txn.delete('component_heats', where: 'project_id = ?', whereArgs: [projectId]);
+      await txn.delete('cut_marks', where: 'project_id = ?', whereArgs: [projectId]);
       await txn.delete('projects', where: 'id = ?', whereArgs: [projectId]);
 
       return DeletedProject(
@@ -171,6 +176,7 @@ class ProjectDao {
         segments: segments,
         heatPhotos: heatPhotos,
         componentHeats: componentHeats,
+        cutMarks: cutMarks,
       );
     });
   }
@@ -199,6 +205,7 @@ class ProjectDao {
       await putBack('segments', deleted.segments);
       await putBack('heat_photos', deleted.heatPhotos);
       await putBack('component_heats', deleted.componentHeats);
+      await putBack('cut_marks', deleted.cutMarks);
     });
   }
 

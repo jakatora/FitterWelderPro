@@ -18,6 +18,7 @@ import 'package:cut_list_app/database/heat_photo_dao.dart';
 import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/database/segment_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/models/component_heat.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/heat_photos_screen.dart';
 import 'package:cut_list_app/screens/project_components_screen.dart';
@@ -167,12 +168,17 @@ void main() {
       expect(find.text('Add HEAT number (optional)'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).last, 'HEAT 4471-B');
+      // v23: osobne pole na numer wytopu (dotąd tylko notatka).
+      await tester.enterText(
+          find.byKey(const ValueKey('heat-photo-heat-no')), '4471-B');
       await tester.tap(find.text('Save'));
       await _pumpUntil(tester, () => find.byType(Image).evaluate().isNotEmpty);
+      expect(find.text('Heat: 4471-B'), findsOneWidget);
 
       final rows = await tester
           .runAsync(() => HeatPhotoDao().listForProject(_projectId));
       final row = rows!.firstWhere((r) => r.note == 'HEAT 4471-B');
+      expect(row.heatNo, '4471-B');
       expect(p.isWithin(heatDir.path, row.imagePath), isTrue,
           reason: 'kopia w heat_photos, nie ścieżka z cache pickera');
       expect(await tester.runAsync(() => File(row.imagePath).readAsBytes()),
@@ -229,11 +235,20 @@ void main() {
         (tester) async {
       await pumpScreen(
           tester, const ProjectComponentsScreen(projectId: _projectId));
+      // Segment z otwartymi końcami: jedno miejsce — jego rura (wcześniej
+      // rura nie miała wiersza, a był fałszywy „OPEN END”).
       await _pumpUntil(tester,
-          () => find.textContaining('S001_END').evaluate().isNotEmpty);
+          () => find.textContaining('S01 • Pipe').evaluate().isNotEmpty);
+      expect(find.textContaining('OPEN END'), findsNothing);
 
       await tester.tap(find.byTooltip('Add heat').last);
       await tester.pumpAndSettle();
+
+      // Pusty numer: okno zostaje i mówi, czego brakuje (dawniej zamykało
+      // się i nic nie zapisywało).
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(find.text('Enter the heat number.'), findsOneWidget);
 
       final camera = find.byKey(const ValueKey('heat-photo-source-camera'));
       expect(camera, findsOneWidget);
@@ -249,14 +264,30 @@ void main() {
       expect(find.textContaining('image_picker_cam.jpg'), findsOneWidget);
 
       await tester.tap(find.text('Save'));
+      // Numer widać na liście (dawniej tylko licznik „Heat: 1”).
       await _pumpUntil(
-          tester, () => find.textContaining('Heat: 1').evaluate().isNotEmpty);
+          tester, () => find.widgetWithText(ActionChip, 'H-77821').evaluate().isNotEmpty);
+      expect(find.widgetWithText(ActionChip, 'H-77821'), findsOneWidget);
 
-      final heats = await tester.runAsync(() => ComponentHeatDao()
-          .listForComponent(projectId: _projectId, componentKey: 'S001_END'));
+      final heats = await tester
+          .runAsync(() => ComponentHeatDao().listForProject(_projectId));
       final heat = heats!.single;
       expect(heat.heatNo, 'H-77821');
+      expect(heat.segmentId, 'heat-cam-s1');
+      expect(heat.side, TraceSide.pipe);
       expect(p.isWithin(heatDir.path, heat.imagePath!), isTrue);
+
+      // Poprawka numeru: dotknięcie chipu → edycja.
+      await tester.tap(find.widgetWithText(ActionChip, 'H-77821'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('heat-number-field')), 'H-77822');
+      await tester.tap(find.text('Save'));
+      await _pumpUntil(
+          tester, () => find.widgetWithText(ActionChip, 'H-77822').evaluate().isNotEmpty);
+      final fixed = await tester
+          .runAsync(() => ComponentHeatDao().listForProject(_projectId));
+      expect(fixed!.single.heatNo, 'H-77822');
     });
   });
 

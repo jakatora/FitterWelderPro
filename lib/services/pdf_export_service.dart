@@ -14,6 +14,7 @@ import '../models/segment.dart';
 import '../services/bar_nesting.dart';
 import '../services/cut_list_csv.dart' show cutListFileStem;
 import '../services/cut_list_summary.dart';
+import '../services/heat_traceability.dart' show HeatReportRow;
 
 // ─── Kolory PDF ────────────────────────────────────────────────────────────
 // The cut list is PRINTED — usually on a worn mono laser in the workshop —
@@ -37,6 +38,7 @@ class PdfExportService {
     required List<Segment> segments,
     bool english = false,
     Rect? sharePositionOrigin,
+    List<HeatReportRow> heatRows = const [],
   }) async {
     final now = DateTime.now();
     final bytes = await buildCutListPdf(
@@ -44,6 +46,7 @@ class PdfExportService {
       segments: segments,
       english: english,
       generatedAt: now,
+      heatRows: heatRows,
     );
     final dir = await getTemporaryDirectory();
     final name = 'CutList_${cutListFileStem(project.name ?? '')}_'
@@ -68,11 +71,15 @@ class PdfExportService {
   /// Text is set in the bundled Roboto (full Latin-2): the `pdf` package's
   /// default Helvetica is Latin-1 only, so ą/ć/ę/ł/ń/ś/ź/ż in project names
   /// and headings came out as empty boxes.
+  ///
+  /// [heatRows] (heat numbers per place, `heatReportRows`) are printed as a
+  /// traceability table after the segment list when there are any.
   static Future<Uint8List> buildCutListPdf({
     required Project project,
     required List<Segment> segments,
     bool english = false,
     DateTime? generatedAt,
+    List<HeatReportRow> heatRows = const [],
     @visibleForTesting pw.ThemeData? theme,
   }) async {
     final doc = pw.Document(theme: theme ?? await loadTheme());
@@ -85,6 +92,7 @@ class PdfExportService {
       segments: segments,
       stockLengthMm: project.stockLengthMm,
       sawKerfMm: project.sawKerfMm,
+      joinGapMm: project.gapMm,
     );
 
     doc.addPage(pw.MultiPage(
@@ -109,6 +117,10 @@ class PdfExportService {
         ...summary.groups.map((g) => _buildGroupBlock(g, project, t)),
         pw.SizedBox(height: 8),
         _buildSegmentTable(segments, summary, t),
+        if (heatRows.isNotEmpty) ...[
+          pw.SizedBox(height: 14),
+          _buildHeatTable(heatRows, t),
+        ],
       ],
     ));
 
@@ -340,11 +352,86 @@ class PdfExportService {
       children: [
         _cell('${index + 1}', size: 11, bold: true),
         // Pieces are the numbers the saw operator reads: largest type on the
-        // page, each prefixed with its segment tag (S03, S03 (1/2)).
-        _cell(formatBarPieces(bar), size: 11),
+        // page, each prefixed with its segment tag (S03, S03 (1/2)) and an
+        // empty box to tick with a pen once it is cut.
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          child: pw.Wrap(
+            spacing: 10,
+            runSpacing: 4,
+            children: [
+              for (var i = 0; i < bar.pieces.length; i++)
+                pw.Row(
+                  mainAxisSize: pw.MainAxisSize.min,
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    if (i > 0) ...[
+                      pw.Text('+',
+                          style: pw.TextStyle(fontSize: 11, color: _kInk)),
+                      pw.SizedBox(width: 6),
+                    ],
+                    _tickBox(),
+                    pw.SizedBox(width: 4),
+                    pw.Text(formatBarPiece(bar.pieces[i]),
+                        style: pw.TextStyle(fontSize: 11, color: _kInk)),
+                  ],
+                ),
+            ],
+          ),
+        ),
         _cell('${bar.cutsCount}'),
-        _cell('${bar.remainingMm.toStringAsFixed(0)} mm '
+        _cell('${formatCutMm(bar.remainingMm)} mm '
             '(${wastePct.toStringAsFixed(0)}%)'),
+      ],
+    );
+  }
+
+  /// Empty square to tick a piece off with a pen at the saw.
+  static pw.Widget _tickBox() => pw.Container(
+        width: 9,
+        height: 9,
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: _kInk, width: 0.8),
+        ),
+      );
+
+  // ── Numery wytopów ───────────────────────────────────────────────────────
+  static pw.Widget _buildHeatTable(List<HeatReportRow> rows, _Tr t) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(t('NUMERY WYTOPÓW (IDENTYFIKOWALNOŚĆ)', 'HEAT NUMBERS (TRACEABILITY)'),
+            style: pw.TextStyle(
+                fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kInk)),
+        pw.SizedBox(height: 6),
+        pw.Table(
+          border: pw.TableBorder.all(color: _kRule, width: _kHairline),
+          columnWidths: const {
+            0: pw.FixedColumnWidth(80),
+            1: pw.FlexColumnWidth(2),
+            2: pw.FlexColumnWidth(2),
+          },
+          children: [
+            pw.TableRow(
+              decoration: pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: _kInk, width: 0.8),
+                ),
+              ),
+              children: [
+                _head('Segment'),
+                _head(t('Element', 'Item')),
+                _head('Heat'),
+              ],
+            ),
+            for (final r in rows)
+              pw.TableRow(children: [
+                _cell(r.segments, bold: true),
+                _cell(r.place),
+                _cell(r.heats, size: 10, bold: true),
+              ]),
+          ],
+        ),
       ],
     );
   }
@@ -358,7 +445,8 @@ class PdfExportService {
     final barsFor = <String, String>{};
     for (final g in summary.groups) {
       g.barsByLabel.forEach((label, bars) {
-        barsFor['${g.diameterMm}|${g.wallMm}|$label'] = bars.join(', ');
+        barsFor['${cutGroupKey(g.diameterMm, g.wallMm)}|$label'] =
+            bars.join(', ');
       });
     }
     // A piece mark (`S03 SP02-03`) needs room; plain `S03` keeps the old
@@ -405,9 +493,9 @@ class PdfExportService {
                   _cell('${s.diameterMm.toStringAsFixed(0)}×'
                       '${s.wallThicknessMm.toStringAsFixed(1)}'),
                   _cell(s.isoExpr),
-                  _cell(s.isoMm.toStringAsFixed(1)),
-                  _cell(s.cutMm.toStringAsFixed(1), size: 10, bold: true),
-                  _cell(barsFor['${s.diameterMm}|${s.wallThicknessMm}|$label'] ??
+                  _cell(formatCutMm(s.isoMm)),
+                  _cell(formatCutMm(s.cutMm), size: 10, bold: true),
+                  _cell(barsFor['${cutGroupKey(s.diameterMm, s.wallThicknessMm)}|$label'] ??
                       '—'),
                 ],
               );

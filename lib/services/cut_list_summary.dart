@@ -108,16 +108,24 @@ class CutListSummary {
 /// expression as reference.
 ///
 /// Pure function (no I/O, no network) so the summary can be checked in tests.
+///
+/// Segments whose Ø and wall differ only by floating-point noise
+/// (114.3 / 114.30000000000001) are one pipe: grouped at 0.01 mm, well below
+/// the 0.1 mm between the closest real ODs (EN 76.1 / sanitary 76.2).
+///
+/// [joinGapMm] — the project's root gap — is taken off a cut that has to be
+/// split over several bars, once per extra joining weld ([splitCutLengths]).
 CutListSummary summarizeCutList({
   required List<Segment> segments,
   required double stockLengthMm,
   required double sawKerfMm,
+  double joinGapMm = 0,
 }) {
   final order = <String>[];
   final dims = <String, List<double>>{};
   final cutsByKey = <String, List<CutRequest>>{};
   for (final s in segments) {
-    final key = '${s.diameterMm}|${s.wallThicknessMm}';
+    final key = cutGroupKey(s.diameterMm, s.wallThicknessMm);
     if (!cutsByKey.containsKey(key)) {
       order.add(key);
       dims[key] = [s.diameterMm, s.wallThicknessMm];
@@ -128,6 +136,7 @@ CutListSummary summarizeCutList({
       s.cutMm,
       label: segmentLabel(s),
       reference: iso.isEmpty ? null : iso,
+      sourceId: s.id,
     ));
   }
 
@@ -150,6 +159,7 @@ CutListSummary summarizeCutList({
         cuts: sorted,
         stockLengthMm: stockLengthMm,
         sawKerfMm: sawKerfMm,
+        joinGapMm: joinGapMm,
       )),
     ));
   }
@@ -161,10 +171,15 @@ CutListSummary summarizeCutList({
   );
 }
 
-/// `S01: 3293` — one piece as the saw operator reads it (label, then mm).
-/// An unlabelled piece is just its length.
+/// Group key of a Ø × wall on the cut list, at 0.01 mm — see
+/// [summarizeCutList]. Also how the PDF finds a segment's group again.
+String cutGroupKey(double diameterMm, double wallMm) =>
+    '${diameterMm.toStringAsFixed(2)}|${wallMm.toStringAsFixed(2)}';
+
+/// `S01: 3293` — one piece as the saw operator reads it (label, then mm,
+/// rounded by [formatCutMm]). An unlabelled piece is just its length.
 String formatBarPiece(BarPiece piece) {
-  final mm = piece.lengthMm.toStringAsFixed(0);
+  final mm = formatCutMm(piece.lengthMm);
   final tag = piece.tag;
   return tag == null ? mm : '$tag: $mm';
 }
@@ -173,11 +188,12 @@ String formatBarPiece(BarPiece piece) {
 String formatBarPieces(BarPlan plan) =>
     plan.pieces.map(formatBarPiece).join(' + ');
 
-/// Warning for a cut longer than the stock bar. [piece] is any part of the
-/// split cut (its source length and part count are what matter).
+/// Warning for a cut longer than the stock bar, with the RESULT of the split
+/// — the parts to cut, already shortened by the joining welds' gap — rather
+/// than an instruction to work it out. [piece] is any part of the split cut.
 ///
 /// PL: `S03: odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na
-/// 2 części; potrzebna dodatkowa spoina łącząca; uwzględnij gap.`
+/// 2 części: 6000 + 997 mm (odjęto gap 3 mm dodatkowej spoiny łączącej).`
 ///
 /// [withLabel] false drops the leading `S03: ` (for a CSV row that already
 /// carries the label in its own column).
@@ -189,26 +205,53 @@ String oversizeCutWarning(
 }) {
   final parts = piece.partCount;
   final welds = parts - 1;
-  final length = piece.sourceLengthMm.toStringAsFixed(0);
-  final stock = stockLengthMm.toStringAsFixed(0);
+  final length = formatCutMm(piece.sourceLengthMm);
+  final stock = formatCutMm(stockLengthMm);
   final prefix = withLabel && piece.label != null ? '${piece.label}: ' : '';
+  final lengths = piece.partLengthsMm.length == parts
+      ? '${piece.partLengthsMm.map(formatCutMm).join(' + ')} mm'
+      : null;
+  final gap = formatCutMm(piece.joinGapMm);
+  final hasGap = piece.joinGapMm > 0;
   if (english) {
-    final weldText = welds == 1
-        ? 'an extra joining weld is needed'
-        : '$welds extra joining welds are needed';
+    final split = lengths == null ? '$parts parts' : '$parts parts: $lengths';
+    final String tail;
+    if (hasGap) {
+      tail = welds == 1
+          ? '($gap mm gap of the extra joining weld taken off).'
+          : '($gap mm gap × $welds extra joining welds taken off).';
+    } else {
+      final weldText = welds == 1
+          ? 'an extra joining weld'
+          : '$welds extra joining welds';
+      tail = '$weldText (project gap 0 mm — nothing taken off).';
+    }
     return '${prefix}piece $length mm is longer than the $stock mm stock bar '
-        '— split into $parts parts; $weldText; allow for the gap.';
+        '— split into $split${hasGap ? ' ' : '; '}$tail';
   }
-  final String weldText;
-  if (welds == 1) {
-    weldText = 'potrzebna dodatkowa spoina łącząca';
-  } else if (_plPaucal(welds)) {
-    weldText = 'potrzebne $welds dodatkowe spoiny łączące';
+  final split = lengths == null ? '$parts części' : '$parts części: $lengths';
+  final String tail;
+  if (hasGap) {
+    if (welds == 1) {
+      tail = '(odjęto gap $gap mm dodatkowej spoiny łączącej).';
+    } else if (_plPaucal(welds)) {
+      tail = '(odjęto gap $gap mm × $welds dodatkowe spoiny łączące).';
+    } else {
+      tail = '(odjęto gap $gap mm × $welds dodatkowych spoin łączących).';
+    }
   } else {
-    weldText = 'potrzebnych $welds dodatkowych spoin łączących';
+    final String weldText;
+    if (welds == 1) {
+      weldText = 'dodatkowa spoina łącząca';
+    } else if (_plPaucal(welds)) {
+      weldText = '$welds dodatkowe spoiny łączące';
+    } else {
+      weldText = '$welds dodatkowych spoin łączących';
+    }
+    tail = '$weldText (gap projektu 0 mm — nic nie odjęto).';
   }
   return '${prefix}odcinek $length mm dłuższy niż sztanga $stock mm — '
-      'dzielony na $parts części; $weldText; uwzględnij gap.';
+      'dzielony na $split${hasGap ? ' ' : '; '}$tail';
 }
 
 /// PL "2-4" plural form (2, 3, 4, 22, 23, 24 … but not 12-14).
@@ -263,7 +306,7 @@ String buildCutListText({
         '${group.wallMm.toStringAsFixed(1)}:');
     for (var i = 0; i < group.plans.length; i++) {
       final plan = group.plans[i];
-      final rest = plan.remainingMm.toStringAsFixed(0);
+      final rest = formatCutMm(plan.remainingMm);
       buf.writeln(english
           ? '  Bar ${i + 1}: ${formatBarPieces(plan)}  (remaining $rest mm)'
           : '  Sztanga ${i + 1}: ${formatBarPieces(plan)}  (zostaje $rest mm)');

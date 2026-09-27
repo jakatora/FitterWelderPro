@@ -19,6 +19,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/models/segment.dart';
+import 'package:cut_list_app/services/heat_traceability.dart';
 import 'package:cut_list_app/services/pdf_export_service.dart';
 
 Project _project(String name) => Project(
@@ -252,9 +253,43 @@ void main() {
     expect(
       text,
       contains('UWAGA: S01: odcinek 7000 mm dłuższy niż sztanga 6000 mm — '
-          'dzielony na 2 części; potrzebna dodatkowa spoina łącząca; '
-          'uwzględnij gap.'),
+          'dzielony na 2 części: 6000 + 1000 mm; dodatkowa spoina łącząca '
+          '(gap projektu 0 mm — nic nie odjęto).'),
     );
+  });
+
+  test('gap projektu odjęty od podzielonego odcinka; tabela wytopów', () async {
+    final p = _project('Linia DN100');
+    final bytes = await PdfExportService.buildCutListPdf(
+      theme: await _oneFontTheme(),
+      project: Project(
+        id: p.id,
+        name: p.name,
+        materialGroup: p.materialGroup,
+        diameterMm: p.diameterMm,
+        wallThicknessMm: p.wallThicknessMm,
+        currentDiameterMm: p.currentDiameterMm,
+        stockLengthMm: 6000,
+        sawKerfMm: 3,
+        gapMm: 3,
+        createdAt: 0,
+        updatedAt: 0,
+      ),
+      segments: [_seg(1, 7000), _seg(2, 1234.5)],
+      heatRows: const [
+        HeatReportRow(
+            segments: 'S01', place: 'Rura Ø114.3 × 6.02', heats: 'A12345'),
+      ],
+      generatedAt: DateTime(2026, 9, 24, 13, 5),
+    );
+    final text = _pdfText(bytes);
+    expect(text, contains('S01 (2/2): 997'));
+    expect(text, contains('6000 + 997 mm (odjęto gap 3 mm'));
+    // Jedna reguła zaokrąglenia: 1234.5 na sztandze i w tabeli segmentów.
+    expect(text, contains('S02: 1234.5'));
+    expect(text, contains('1234.5 1234.5'));
+    expect(text, contains('NUMERY WYTOPÓW'));
+    expect(text, contains('S01 Rura Ø114.3 × 6.02 A12345'));
   });
 
   test('wersja EN', () async {

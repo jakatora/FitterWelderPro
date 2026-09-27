@@ -690,18 +690,20 @@ final kHelpProjectComponents = ScreenHelp(
   titlePl: 'Komponenty projektu / Heat',
   titleEn: 'Project components / Heat',
   bodyPl:
-      'Widok komponentów projektu z przypisaniem numerów wytopów (heat numbers). Dla każdego komponentu możesz przypisać numer certyfikatu materiałowego i zdjęcie etykiety.',
+      'Numery wytopów (heat numbers) projektu: osobno dla rury każdego segmentu i dla każdej kształtki (kształtka na złączu dwóch segmentów to jeden wiersz). Numery trafiają do PDF i CSV listy cięć oraz do kopii listy materiałowej.',
   bodyEn:
-      'Project component view with heat number assignment. For each component you can assign a material certificate number and a label photo.',
+      'The project\'s heat numbers: separately for each segment\'s pipe and for each fitting (a fitting joining two segments is one row). They go into the cut-list PDF and CSV and the copied material list.',
   stepsPl: [
-    HelpStep('🔢', 'Wpisz numer heatu (wytopienia) dla każdego komponentu.'),
+    HelpStep('➕', 'Przycisk + przy wierszu dodaje numer wytopu (można kilka, np. rura z dwóch sztang).'),
     HelpStep('📷', 'W oknie „Dodaj HEAT” zrób zdjęcie etykiety lub atestu (Aparat) albo wybierz z Galerii.'),
-    HelpStep('✅', 'Zatwierdź przyciskiem „Zapisz” w oknie.'),
+    HelpStep('✏️', 'Dotknij numeru, aby go poprawić albo usunąć.'),
+    HelpStep('📌', 'Numer jest przypięty do segmentu, nie do jego numeru — po usunięciu segmentu wpis ląduje w sekcji „Bez miejsca”.'),
   ],
   stepsEn: [
-    HelpStep('🔢', 'Enter the heat number for each component.'),
+    HelpStep('➕', 'The + button on a row adds a heat number (several are fine, e.g. a pipe cut from two bars).'),
     HelpStep('📷', 'In the “Add HEAT” window take a photo of the label or certificate (Camera) or pick one from the Gallery.'),
-    HelpStep('✅', 'Confirm with “Save” in the window.'),
+    HelpStep('✏️', 'Tap a number to correct or delete it.'),
+    HelpStep('📌', 'A number is pinned to the segment, not to its number — after the segment is deleted the entry moves to “No place”.'),
   ],
 );
 
