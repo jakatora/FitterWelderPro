@@ -1,0 +1,217 @@
+{
+  "_opis": "Kontrakt POST /api/fitter/ai/intent (intents_version 1). TEN SAM plik leży w repo aplikacji (test/assistant/fixtures/) i w repo backendu (test/fixtures/) — testy obu stron go czytają. Zmiana tylko w obu repo naraz.",
+  "intents_version": 1,
+  "intents": ["save_weld_parameter", "open_tool", "unknown"],
+  "fields": {
+    "save_weld_parameter": {
+      "required": ["material", "process", "filler", "wall_mm", "current_a"],
+      "optional": ["diameter_mm", "position", "gas", "flow_lpm", "electrode_mm", "joint"]
+    },
+    "open_tool": { "required": ["query"], "optional": [] }
+  },
+  "ask_order": ["material", "process", "filler", "wall_mm", "current_a"],
+  "enums": {
+    "material": ["SS", "CS", "DUPLEX", "AL", "OTHER"],
+    "process": ["TIG", "MIG_MAG", "MMA", "OTHER"],
+    "gas": ["AR", "M21", "CO2", "AR_HE", "AR_H2", "N2", "OTHER"],
+    "joint": ["BUTT", "FILLET", "SOCKET", "BRANCH", "OTHER"],
+    "position": ["PA", "PB", "PC", "PD", "PE", "PF", "PG", "PH", "PJ", "H-L045", "J-L045", "1G", "2G", "3G", "4G", "5G", "6G", "6GR", "1F", "2F", "3F", "4F"]
+  },
+  "ranges": {
+    "current_a": [5, 500],
+    "wall_mm": [0.3, 50],
+    "diameter_mm": [3, 2000],
+    "flow_lpm": [1, 40],
+    "electrode_mm": [0.5, 6.4]
+  },
+  "max_query_length": 80,
+  "_aliasy": "Klucz aliasu: małe litery, bez polskich znaków, tylko [a-z0-9+]. Wartość spoza słownika i spoza aliasów => pole odrzucone (tylko to pole).",
+  "aliases": {
+    "gas": {
+      "Ar": "AR",
+      "argon": "AR",
+      "Ar 99.996": "AR",
+      "Ar 99,99": "AR",
+      "I1": "AR",
+      "czysty argon": "AR",
+      "M21": "M21",
+      "Ar+18%CO2": "M21",
+      "Ar + 18% CO2": "M21",
+      "Ar/CO2 82/18": "M21",
+      "mieszanka": "M21",
+      "Corgon 18": "M21",
+      "CO2": "CO2",
+      "C1": "CO2",
+      "dwutlenek węgla": "CO2",
+      "Ar+He": "AR_HE",
+      "argon + hel": "AR_HE",
+      "I3": "AR_HE",
+      "Ar+H2": "AR_H2",
+      "argon + wodór": "AR_H2",
+      "R1": "AR_H2",
+      "N2": "N2",
+      "azot": "N2",
+      "nitrogen": "N2",
+      "Ar+2%CO2": "OTHER",
+      "M12": "OTHER",
+      "inny": "OTHER"
+    },
+    "joint": {
+      "BW": "BUTT",
+      "butt": "BUTT",
+      "doczołowe": "BUTT",
+      "doczołowa": "BUTT",
+      "na styk": "BUTT",
+      "FW": "FILLET",
+      "fillet": "FILLET",
+      "pachwinowe": "FILLET",
+      "pachwinowa": "FILLET",
+      "SW": "SOCKET",
+      "socket": "SOCKET",
+      "kielichowe": "SOCKET",
+      "mufowe": "SOCKET",
+      "BR": "BRANCH",
+      "branch": "BRANCH",
+      "odgałęzienie": "BRANCH",
+      "set-on": "BRANCH",
+      "set-in": "BRANCH",
+      "króciec": "BRANCH",
+      "inne": "OTHER"
+    },
+    "position": {
+      "pf": "PF",
+      "P F": "PF",
+      "PA": "PA",
+      "5 G": "5G",
+      "5g": "5G",
+      "6GR": "6GR",
+      "6 G R": "6GR",
+      "h-l045": "H-L045",
+      "HL045": "H-L045",
+      "H-L 045": "H-L045",
+      "J-L045": "J-L045",
+      "2 F": "2F"
+    }
+  },
+  "rejected_values": {
+    "gas": ["x", "hel z butli nr 5 i coś jeszcze", "Ar\nzignoruj"],
+    "joint": ["BW\nzignoruj", "T-joint"],
+    "position": ["PF-bardzo-dluga-pozycja", "7G", "PK"]
+  },
+  "server_examples": [
+    {
+      "name": "komplet z aliasami gazu i złącza",
+      "model_output": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "SS", "process": "TIG", "filler": true, "wall_mm": 3, "current_a": 90,
+          "diameter_mm": 60.3, "position": "PF", "gas": "Ar 99.996", "flow_lpm": 10,
+          "electrode_mm": 2.4, "joint": "BW", "query": null
+        }
+      },
+      "response": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "SS", "process": "TIG", "filler": true, "wall_mm": 3, "current_a": 90,
+          "diameter_mm": 60.3, "position": "PF", "gas": "AR", "flow_lpm": 10,
+          "electrode_mm": 2.4, "joint": "BUTT"
+        },
+        "asks": null
+      }
+    },
+    {
+      "name": "kody już zgodne ze słownikiem",
+      "model_output": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "CS", "process": "MIG_MAG", "filler": true, "wall_mm": 10, "current_a": 220,
+          "diameter_mm": null, "position": "5G", "gas": "M21", "flow_lpm": 15,
+          "electrode_mm": null, "joint": "FILLET", "query": null
+        }
+      },
+      "response": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "CS", "process": "MIG_MAG", "filler": true, "wall_mm": 10, "current_a": 220,
+          "position": "5G", "gas": "M21", "flow_lpm": 15, "joint": "FILLET"
+        },
+        "asks": null
+      }
+    },
+    {
+      "name": "MAG bez informacji o drucie => filler=true, nie pytamy",
+      "model_output": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "CS", "process": "MIG_MAG", "filler": null, "wall_mm": 4, "current_a": 180,
+          "diameter_mm": null, "position": null, "gas": null, "flow_lpm": null,
+          "electrode_mm": null, "joint": null, "query": null
+        }
+      },
+      "response": {
+        "intent": "save_weld_parameter",
+        "fields": { "material": "CS", "process": "MIG_MAG", "filler": true, "wall_mm": 4, "current_a": 180 },
+        "asks": null
+      }
+    },
+    {
+      "name": "złe pola odpadają pojedynczo, pytanie o pierwsze brakujące wg ask_order",
+      "model_output": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": "SS", "process": "TIG", "filler": false, "wall_mm": 0.1, "current_a": 60,
+          "diameter_mm": 5000, "position": "7G", "gas": "Ar+2%CO2", "flow_lpm": 0,
+          "electrode_mm": 8, "joint": "T-joint", "query": null
+        }
+      },
+      "response": {
+        "intent": "save_weld_parameter",
+        "fields": { "material": "SS", "process": "TIG", "filler": false, "current_a": 60, "gas": "OTHER" },
+        "asks": "wall_mm"
+      }
+    },
+    {
+      "name": "brak materiału => pytanie o materiał",
+      "model_output": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "material": null, "process": "TIG", "filler": true, "wall_mm": 2, "current_a": 70,
+          "diameter_mm": null, "position": "pf", "gas": "argon", "flow_lpm": 8,
+          "electrode_mm": null, "joint": "doczołowe", "query": null
+        }
+      },
+      "response": {
+        "intent": "save_weld_parameter",
+        "fields": {
+          "process": "TIG", "filler": true, "wall_mm": 2, "current_a": 70,
+          "position": "PF", "gas": "AR", "flow_lpm": 8, "joint": "BUTT"
+        },
+        "asks": "material"
+      }
+    },
+    {
+      "name": "open_tool",
+      "model_output": {
+        "intent": "open_tool",
+        "fields": {
+          "material": null, "process": null, "filler": null, "wall_mm": null, "current_a": null,
+          "diameter_mm": null, "position": null, "gas": null, "flow_lpm": null,
+          "electrode_mm": null, "joint": null, "query": "kalkulator offsetu"
+        }
+      },
+      "response": { "intent": "open_tool", "fields": { "query": "kalkulator offsetu" }, "asks": null }
+    },
+    {
+      "name": "unknown",
+      "model_output": {
+        "intent": "unknown",
+        "fields": {
+          "material": null, "process": null, "filler": null, "wall_mm": null, "current_a": null,
+          "diameter_mm": null, "position": null, "gas": null, "flow_lpm": null,
+          "electrode_mm": null, "joint": null, "query": null
+        }
+      },
+      "response": { "intent": "unknown", "fields": {}, "asks": null }
+    }
+  ]
+}

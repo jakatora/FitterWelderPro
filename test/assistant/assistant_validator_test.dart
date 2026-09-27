@@ -237,5 +237,96 @@ void main() {
     expect(kAssistantIntentsVersion, 1);
     expect(kAssistantIntentsV1.keys.toSet(),
         {kIntentSaveWeldParameter, kIntentOpenTool});
+    // Intencje tylko lokalne — serwer (V1) ich nie zna.
+    expect(kAssistantIntents.keys.toSet(), {
+      kIntentSaveWeldParameter,
+      kIntentOpenTool,
+      kIntentAddWeldJournalEntry,
+      kIntentQueryMyParams,
+      kIntentAnswerQuestion,
+    });
+  });
+
+  group('intencje lokalne', () {
+    test('dziennik: brak numeru → pytanie o numer, potem o projekt', () {
+      expect(
+          (validateAssistantProposal(kIntentAddWeldJournalEntry, {})
+                  as AssistantNeedsField)
+              .field,
+          'weld_no');
+      expect(
+          (validateAssistantProposal(
+                  kIntentAddWeldJournalEntry, {'weld_no': '12'})
+              as AssistantNeedsField)
+              .field,
+          'project');
+      final r = validateAssistantProposal(kIntentAddWeldJournalEntry,
+          {'weld_no': '12', 'project': 'Blok 4', 'wps': 'WPS-141-01'});
+      final d = (r as AssistantReadyToJournal).draft;
+      expect(d.weldNo, '12');
+      expect(d.project, 'Blok 4');
+      expect(d.wps, 'WPS-141-01');
+      expect(assistantQuestionFor('weld_no', AppLanguage.pl), endsWith('?'));
+      expect(assistantQuestionFor('project', AppLanguage.en), endsWith('?'));
+    });
+
+    test('dziennik: pola spoza listy, złe typy i za długie teksty → odmowa',
+        () {
+      final extra = validateAssistantProposal(kIntentAddWeldJournalEntry,
+          {'weld_no': '12', 'project': 'B', 'status': 'OK'});
+      expect((extra as AssistantRejected).reason,
+          AssistantRejectReason.extraField);
+      final type = validateAssistantProposal(
+          kIntentAddWeldJournalEntry, {'weld_no': 12, 'project': 'B'});
+      expect((type as AssistantRejected).reason,
+          AssistantRejectReason.wrongType);
+      final long = validateAssistantProposal(
+          kIntentAddWeldJournalEntry, {'weld_no': '1' * 21, 'project': 'B'});
+      expect((long as AssistantRejected).reason,
+          AssistantRejectReason.outOfRange);
+      final ctrl = validateAssistantProposal(
+          kIntentAddWeldJournalEntry, {'weld_no': '12', 'project': 'B\nX'});
+      expect((ctrl as AssistantRejected).reason,
+          AssistantRejectReason.outOfRange);
+    });
+
+    test('moje parametry: kryteria bez wymogu kompletności', () {
+      final r = validateAssistantProposal(
+          kIntentQueryMyParams, {'material': 'SS', 'wall_mm': 2.0});
+      expect((r as AssistantReadyToQuery).criteria,
+          {'material': 'SS', 'wall_mm': 2.0});
+      expect(validateAssistantProposal(kIntentQueryMyParams, {}),
+          isA<AssistantReadyToQuery>());
+      final bad =
+          validateAssistantProposal(kIntentQueryMyParams, {'current_a': 60});
+      expect((bad as AssistantRejected).reason,
+          AssistantRejectReason.extraField);
+    });
+
+    test('pytanie → tryb Odpowiedz', () {
+      final r = validateAssistantProposal(
+          kIntentAnswerQuestion, {'text': ' Jaki prąd? '});
+      expect((r as AssistantReadyToAnswer).text, 'Jaki prąd?');
+    });
+
+    test('formowanie trafia do kolumny purge_lpm', () {
+      final r = validateAssistantProposal(
+          kIntentSaveWeldParameter, {..._base(), 'purge_lpm': 5});
+      final d = (r as AssistantReadyToSave).draft;
+      expect(d.purgeLpm, 5.0);
+      expect(
+          d
+              .toWeldParam(
+                  id: 'p',
+                  at: DateTime(2026),
+                  byVoice: false,
+                  lang: AppLanguage.pl)
+              .purgeLpm,
+          5.0);
+      final out = validateAssistantProposal(
+          kIntentSaveWeldParameter, {..._base(), 'purge_lpm': 41});
+      expect((out as AssistantRejected).reason,
+          AssistantRejectReason.outOfRange);
+    });
   });
 }

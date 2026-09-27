@@ -11,7 +11,7 @@ import '../models/weld_param.dart';
 import 'assistant_intents.dart';
 
 enum AssistantRejectReason {
-  /// Intencji nie ma na liście [kAssistantIntentsV1].
+  /// Intencji nie ma na liście [kAssistantIntents].
   unknownIntent,
 
   /// Pole spoza listy danej intencji (np. `sql`, `id`).
@@ -47,6 +47,25 @@ class AssistantReadyToOpen extends AssistantCheck {
 }
 
 /// Brakuje istotnego pola — asystent zadaje o nie JEDNO pytanie.
+/// Pytanie wiedzowe — do trybu „Odpowiedz" (nic nie zapisuje).
+class AssistantReadyToAnswer extends AssistantCheck {
+  final String text;
+  const AssistantReadyToAnswer(this.text);
+}
+
+/// Odczyt „Moich parametrów" według kryteriów (offline, nic nie zapisuje).
+class AssistantReadyToQuery extends AssistantCheck {
+  /// Kryteria: pola z [kAssistantIntents] dla `query_my_params` (bez nulli).
+  final Map<String, Object> criteria;
+  const AssistantReadyToQuery(this.criteria);
+}
+
+/// Kompletny wpis do dziennika spoin — do pokazania w podsumowaniu.
+class AssistantReadyToJournal extends AssistantCheck {
+  final WeldJournalDraft draft;
+  const AssistantReadyToJournal(this.draft);
+}
+
 class AssistantNeedsField extends AssistantCheck {
   final String intent;
   final String field;
@@ -65,7 +84,7 @@ class AssistantRejected extends AssistantCheck {
 /// `null` znaczy „nic do zarzucenia". Pola z wartością `null` traktuje jak brak.
 AssistantRejected? findAssistantRejection(
     String intent, Map<String, Object?> fields) {
-  final spec = kAssistantIntentsV1[intent];
+  final spec = kAssistantIntents[intent];
   if (spec == null) return const AssistantRejected(AssistantRejectReason.unknownIntent);
   final allowed = spec.allFields;
   for (final entry in fields.entries) {
@@ -93,6 +112,18 @@ AssistantRejectReason? _checkValue(String key, Object value) {
       if (value is! String) return AssistantRejectReason.wrongType;
       final q = value.trim();
       if (q.isEmpty || q.length > kAssistantMaxQueryLength) {
+        return AssistantRejectReason.outOfRange;
+      }
+      return null;
+    case 'weld_no':
+    case 'project':
+    case 'wps':
+    case 'text':
+      if (value is! String) return AssistantRejectReason.wrongType;
+      final t = value.trim();
+      if (t.isEmpty ||
+          t.length > kAssistantTextLimits[key]! ||
+          RegExp('[\u0000-\u001f\u007f-\u009f\u2028\u2029]').hasMatch(t)) {
         return AssistantRejectReason.outOfRange;
       }
       return null;
@@ -143,6 +174,29 @@ AssistantCheck validateAssistantProposal(
     return AssistantReadyToOpen((q as String).trim());
   }
 
+  if (intent == kIntentAnswerQuestion) {
+    final t = present['text'];
+    if (t == null) return const AssistantNeedsField(kIntentAnswerQuestion, 'text');
+    return AssistantReadyToAnswer((t as String).trim());
+  }
+
+  if (intent == kIntentQueryMyParams) {
+    return AssistantReadyToQuery(Map.unmodifiable(present));
+  }
+
+  if (intent == kIntentAddWeldJournalEntry) {
+    for (final field in kJournalRequiredOrder) {
+      if (!present.containsKey(field)) {
+        return AssistantNeedsField(kIntentAddWeldJournalEntry, field);
+      }
+    }
+    return AssistantReadyToJournal(WeldJournalDraft(
+      weldNo: (present['weld_no'] as String).trim(),
+      project: (present['project'] as String).trim(),
+      wps: (present['wps'] as String?)?.trim(),
+    ));
+  }
+
   // save_weld_parameter
   final process = present['process'];
   if ((process == 'MIG_MAG' || process == 'MMA') && !present.containsKey('filler')) {
@@ -167,6 +221,7 @@ AssistantCheck validateAssistantProposal(
     flowLpm: d('flow_lpm'),
     electrodeMm: d('electrode_mm'),
     joint: present['joint'] as String?,
+    purgeLpm: d('purge_lpm'),
   ));
 }
 
@@ -188,6 +243,12 @@ String assistantQuestionFor(String field, AppLanguage lang) {
       return en ? 'What current, in amps?' : 'Jaki prąd w amperach?';
     case 'query':
       return en ? 'Which tool should I open?' : 'Które narzędzie otworzyć?';
+    case 'weld_no':
+      return en ? 'What is the weld number?' : 'Jaki numer spoiny?';
+    case 'project':
+      return en ? 'Which project?' : 'Do którego projektu?';
+    case 'wps':
+      return en ? 'Which WPS?' : 'Jaki WPS?';
   }
   return en ? 'What is the $field?' : 'Podaj: $field?';
 }
@@ -210,6 +271,9 @@ class WeldParamDraft {
   final double? electrodeMm;
   final String? joint;
 
+  /// Przepływ gazu formującego (l/min) — kolumna `purge_lpm`.
+  final double? purgeLpm;
+
   const WeldParamDraft({
     required this.material,
     required this.process,
@@ -222,6 +286,7 @@ class WeldParamDraft {
     this.flowLpm,
     this.electrodeMm,
     this.joint,
+    this.purgeLpm,
   });
 
   WeldParamDraft copyWith({String? process, bool? filler, String? material}) =>
@@ -237,6 +302,7 @@ class WeldParamDraft {
         flowLpm: flowLpm,
         electrodeMm: electrodeMm,
         joint: joint,
+        purgeLpm: purgeLpm,
       );
 
   /// Wartość `method` w tabeli `weld_params` (ta sama, której używa zakładka
@@ -294,7 +360,7 @@ class WeldParamDraft {
       torchGasLpm: flowLpm ?? 0,
       nozzleType: null,
       nozzleSize: null,
-      purgeLpm: 0,
+      purgeLpm: purgeLpm ?? 0,
       amps: currentA,
       outletHoles: null,
       tempo: null,
@@ -306,6 +372,21 @@ class WeldParamDraft {
 }
 
 String _two(int v) => v.toString().padLeft(2, '0');
+
+/// Zwalidowany wpis do dziennika spoin — jeszcze NIE zapisany. Spawacz
+/// (stempel) i data nie pochodzą z polecenia: dokłada je ekran z tożsamości
+/// spawacza w telefonie i zegara.
+class WeldJournalDraft {
+  final String weldNo;
+  final String project;
+  final String? wps;
+
+  const WeldJournalDraft({
+    required this.weldNo,
+    required this.project,
+    this.wps,
+  });
+}
 
 // ── Etykiety do podsumowania ────────────────────────────────────────────────
 

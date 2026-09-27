@@ -8,6 +8,9 @@
 //
 // Silnik niczego nie zapisuje. Zwraca [AssistantOutcome], a ekran pokazuje
 // pytanie, odmowę albo podsumowanie do potwierdzenia.
+//
+// Intencje tylko lokalne (dziennik spoin, „moje parametry", pytanie do trybu
+// „Odpowiedz") NIGDY nie idą na serwer — serwer ich nie zna (kontrakt V1).
 
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
@@ -50,6 +53,41 @@ class AssistantOutcome {
   });
 }
 
+/// Pola z serwera → kody aplikacji. Gaz, złącze i pozycja przechodzą przez
+/// aliasy kontraktu („Ar 99.996" → AR, „BW" → BUTT); wartość bez aliasu
+/// odpada SAMA (pole opcjonalne), zamiast odrzucać całą odpowiedź. Pola spoza
+/// kontraktu V1 zostają — walidator odrzuci wtedy całość (extraField).
+Map<String, Object?> normalizeRemoteFields(Map<String, Object?> fields) {
+  final out = <String, Object?>{};
+  for (final e in fields.entries) {
+    final v = e.value;
+    if (v == null) continue;
+    if (e.key == 'gas' || e.key == 'joint' || e.key == 'position') {
+      final code = normalizeAssistantCode(e.key, v);
+      if (code != null) out[e.key] = code;
+      continue;
+    }
+    out[e.key] = v;
+  }
+  return out;
+}
+
+/// Odrzucenie odpowiedzi serwera: intencja spoza kontraktu V1 albo pole
+/// spoza jej listy (np. pole tylko lokalne) — potem zwykły walidator.
+AssistantRejected? _remoteContractRejection(
+    String intent, Map<String, Object?> fields) {
+  final spec = kAssistantIntentsV1[intent];
+  if (spec == null) {
+    return const AssistantRejected(AssistantRejectReason.unknownIntent);
+  }
+  for (final key in fields.keys) {
+    if (!spec.allFields.contains(key)) {
+      return AssistantRejected(AssistantRejectReason.extraField, key);
+    }
+  }
+  return findAssistantRejection(intent, fields);
+}
+
 /// Domyślnie: serwer tylko po akceptacji zasad (tej samej, co przy czacie).
 Future<bool> _consentGiven() async {
   if (!BackendConfig.aiBackendLive) return false;
@@ -90,7 +128,8 @@ class AssistantEngine {
 
     if (local.intent != kIntentUnknown) {
       final check = validateAssistantProposal(local.intent, local.fields);
-      if (check is! AssistantNeedsField) {
+      if (check is! AssistantNeedsField ||
+          !kAssistantRemoteIntents.contains(local.intent)) {
         return AssistantOutcome(
             intent: local.intent, check: check, fields: local.fields);
       }
@@ -112,7 +151,8 @@ class AssistantEngine {
             fields: local.fields,
             remoteUnavailable: kind,
           );
-        case RemoteIntentProposal(:final intent, fields: final remoteFields):
+        case RemoteIntentProposal(:final intent, fields: final rawFields):
+          final remoteFields = normalizeRemoteFields(rawFields);
           if (intent != local.intent) {
             // Serwer widzi inną operację niż parser — trzymamy się lokalnej i
             // dopytujemy użytkownika, zamiast zgadywać.
@@ -122,7 +162,7 @@ class AssistantEngine {
                 fields: local.fields,
                 usedRemote: true);
           }
-          final rejection = findAssistantRejection(intent, remoteFields);
+          final rejection = _remoteContractRejection(intent, remoteFields);
           if (rejection != null) {
             return AssistantOutcome(
               intent: local.intent,
@@ -161,7 +201,8 @@ class AssistantEngine {
       case RemoteIntentUnavailable(:final kind):
         return AssistantOutcome(
             intent: kIntentUnknown, check: null, remoteUnavailable: kind);
-      case RemoteIntentProposal(:final intent, :final fields, :final question):
+      case RemoteIntentProposal(:final intent, fields: final rawFields, :final question):
+        final fields = normalizeRemoteFields(rawFields);
         if (intent == kIntentUnknown) {
           return AssistantOutcome(
             intent: kIntentUnknown,
@@ -170,15 +211,16 @@ class AssistantEngine {
             remoteQuestion: question,
           );
         }
-        final check = validateAssistantProposal(intent, fields);
-        if (check is AssistantRejected) {
+        final rejected = _remoteContractRejection(intent, fields);
+        if (rejected != null) {
           return AssistantOutcome(
             intent: intent,
-            check: check,
+            check: rejected,
             usedRemote: true,
-            remoteRejected: check.reason,
+            remoteRejected: rejected.reason,
           );
         }
+        final check = validateAssistantProposal(intent, fields);
         return AssistantOutcome(
           intent: intent,
           check: check,
