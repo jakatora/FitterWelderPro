@@ -16,6 +16,7 @@ import '../../domain/qualification/reminder_plan.dart';
 import '../../domain/qualification/weld_process.dart';
 import '../../domain/qualification/welder_certificate.dart';
 import '../../i18n/app_language.dart';
+import '../../services/qualification_export.dart';
 import '../../services/qualification_reminders.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
@@ -257,7 +258,38 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       appBar: AppBar(
         title: Text(context.tr(
             pl: 'Uprawnienia spawacza', en: 'Welder qualifications')),
-        actions: [HelpButton(help: kHelpCertificateRegister)],
+        actions: [
+          HelpButton(help: kHelpCertificateRegister),
+          PopupMenuButton<String>(
+            tooltip: context.tr(pl: 'Eksport', en: 'Export'),
+            icon: const Icon(Icons.ios_share),
+            enabled: items.isNotEmpty,
+            onSelected: (v) async {
+              try {
+                if (v == 'pdf') {
+                  await QualificationExport.sharePdf(items);
+                } else {
+                  await QualificationExport.shareCsv(items);
+                }
+              } catch (e) {
+                debugPrint('[qualification] export failed: $e');
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'pdf',
+                child: Text(context.tr(
+                    pl: 'PDF: rejestr i log ciągłości',
+                    en: 'PDF: register and continuity log')),
+              ),
+              PopupMenuItem(
+                value: 'csv',
+                child: Text(context.tr(
+                    pl: 'CSV (Excel): rejestr', en: 'CSV (Excel): register')),
+              ),
+            ],
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _loading || _loadFailed ? null : () => _openEditor(),

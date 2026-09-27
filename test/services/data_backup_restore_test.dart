@@ -22,6 +22,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/hydrotest_dao.dart';
+import 'package:cut_list_app/database/passivation_dao.dart';
+import 'package:cut_list_app/domain/passivation/passivation_record.dart';
 import 'package:cut_list_app/database/welder_certificate_dao.dart';
 import 'package:cut_list_app/database/wps_dao.dart';
 import 'package:cut_list_app/domain/qualification/welder_certificate.dart';
@@ -536,5 +538,58 @@ void main() {
         reason: 'plik WPS wskazuje telefon A: ${wps.attachmentPath}');
     expect(await File(wps.attachmentPath!).readAsBytes(),
         <int>[0x25, 0x50, 0x44, 0x46]);
+  });
+
+  test(
+      'v25: historia potwierdzeń, historia kuponów, wersje WPS, rejestr '
+      'pasywacji i odbiór sprzed naprawy jadą z kopią', () async {
+    await WelderCertificateDao().upsert(const WelderCertificate(
+      id: 'cert-25',
+      standard: QualificationStandard.iso9606_1,
+      createdAt: 1,
+      updatedAt: 1,
+    ));
+    await WelderCertificateDao().addConfirmation(CertificateConfirmation(
+      id: 'conf-1',
+      certificateId: 'cert-25',
+      date: DateTime(2026, 7, 5),
+      confirmedBy: 'J. Koordynator',
+      createdAt: 2,
+    ));
+    await CouponDao().insert(_coupon().copyWith(acceptedBy: 'QC Nowak'),
+        by: 'JK-12');
+    await WpsDao().upsert(const WpsRecord(
+        id: 'wps-25',
+        wpsNo: 'WPS-25',
+        docStatus: WpsDocStatus.approved,
+        createdAt: 1,
+        updatedAt: 1));
+    await PassivationDao().save(const PassivationRecord(
+        id: 'pas-1', date: '2026-09-25', line: 'L-7', createdAt: 1,
+        updatedAt: 1));
+    await WeldJournalDao().insert(_weld().copyWith(
+        inspector: 'J. Inspektor', inspectedAt: '2026-09-21'));
+    await WeldJournalDao()
+        .addRepair(_weld().id, date: '2026-09-22', reason: 'x', by: 'JK-12');
+
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await AppDatabase.get();
+    final report = await DataBackup.restore(carried.path);
+    expect(report.skippedTables, isEmpty);
+
+    final cert = (await WelderCertificateDao().getById('cert-25'))!;
+    expect(cert.confirmations.single.confirmedBy, 'J. Koordynator');
+    expect(cert.lastConfirmedDate, DateTime(2026, 7, 5));
+    final coupon = (await CouponDao().listAll()).single;
+    expect(coupon.acceptedBy, 'QC Nowak');
+    expect(await CouponDao().history(coupon.id), hasLength(1));
+    expect((await WpsDao().versionsOf('wps-25')), hasLength(1));
+    expect((await WpsDao().getById('wps-25'))!.docStatus,
+        WpsDocStatus.approved);
+    expect((await PassivationDao().listAll()).single.line, 'L-7');
+    final weld = (await WeldJournalDao().getById(_weld().id))!;
+    expect(weld.inspector, isEmpty);
+    expect(weld.repairs.single.prevAcceptance.inspector, 'J. Inspektor');
   });
 }

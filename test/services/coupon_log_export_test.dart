@@ -46,6 +46,7 @@ void main() {
       'Przebarwienie AWS D18.2 / Heat tint',
       'Wynik / Result',
       'Uwagi / Notes',
+      'Przyjął / Accepted by',
     ]);
   });
 
@@ -60,7 +61,7 @@ void main() {
     // Przecinek dziesiętny: polski Excel czyta "18.5" jako datę 18 maja.
     expect(row, contains(';18,5;'));
     expect(row, contains(';2 — Słomkowy / Light straw;'));
-    expect(row, endsWith(';OK;"boroskop poz. 2; przetop OK"'));
+    expect(row, endsWith(';OK;"boroskop poz. 2; przetop OK";'));
   });
 
   test('kupon bez nowych pól (sprzed v20) ma puste komórki', () {
@@ -68,7 +69,7 @@ void main() {
         id: 'x', date: '2026-03-02', welder: 'JK-12', machine: 'M-3',
         size: '', result: 'NOK', notes: '');
     final row = _rows(buildCouponLogCsv([legacy]))[1];
-    expect(row, '2026-03-02;JK-12;M-3;;;;;;NOK;');
+    expect(row, '2026-03-02;JK-12;M-3;;;;;;NOK;;');
   });
 
   test('nazwa pliku z datą', () {
