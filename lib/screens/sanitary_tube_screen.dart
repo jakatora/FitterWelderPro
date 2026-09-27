@@ -30,7 +30,7 @@ void _showSourceInfo(BuildContext context) {
                 'Wzory tabelaryczne:\n'
                 '  ID = OD − 2·wall\n'
                 '  kg/m = π · (OD − wall) · wall · ρ / 1000\n'
-                '     gdzie ρ = 7.93 g/cm³ (stal 316L)\n'
+                '     gdzie ρ = 8.0 g/cm³ (stal 316L, EN 10088-1)\n'
                 '  L/m = π · ID² / 4000  (ID w mm → litry)\n\n'
                 'Tolerancje OD/ścianki wg normy — sprawdź atest rury '
                 'przed obliczeniem wsadu spawalniczego.',
@@ -41,7 +41,7 @@ void _showSourceInfo(BuildContext context) {
                 'Table formulas:\n'
                 '  ID = OD − 2·wall\n'
                 '  kg/m = π · (OD − wall) · wall · ρ / 1000\n'
-                '     where ρ = 7.93 g/cm³ (316L stainless)\n'
+                '     where ρ = 8.0 g/cm³ (316L stainless, EN 10088-1)\n'
                 '  L/m = π · ID² / 4000  (ID in mm → litres)\n\n'
                 'OD/wall tolerances per the standard — check the mill '
                 'cert before sizing weld consumables.',
@@ -181,11 +181,26 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
           ),
           const _HeaderRow(),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-              itemCount: _rows.length,
-              itemBuilder: (_, i) => _Row(t: _rows[i]),
-            ),
+            child: _rows.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        context.tr(
+                            pl: 'Brak wyników dla "${_q.trim()}" w tej normie — '
+                                'sprawdź drugą zakładkę (BPE / DIN 11850).',
+                            en: 'No results for "${_q.trim()}" in this standard — '
+                                'check the other tab (BPE / DIN 11850).'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: _kMuted, fontSize: 13),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                    itemCount: _rows.length,
+                    itemBuilder: (_, i) => _Row(t: _rows[i]),
+                  ),
           ),
         ],
       ),
@@ -209,9 +224,9 @@ class _HeaderRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          SizedBox(width: 64, child: Text('SIZE', style: s(_kMuted))),
+          SizedBox(width: 64, child: Text(context.tr(pl: 'ROZMIAR', en: 'SIZE'), style: s(_kMuted))),
           Expanded(child: Text('OD', textAlign: TextAlign.center, style: s(_kOrange))),
-          Expanded(child: Text('WALL', textAlign: TextAlign.center, style: s(_kBlue))),
+          Expanded(child: Text(context.tr(pl: 'ŚCIANKA', en: 'WALL'), textAlign: TextAlign.center, style: s(_kBlue))),
           Expanded(child: Text('ID', textAlign: TextAlign.center, style: s(_kMuted))),
           Expanded(child: Text('kg/m', textAlign: TextAlign.center, style: s(_kMuted))),
           Expanded(child: Text('L/m', textAlign: TextAlign.center, style: s(_kGreen))),

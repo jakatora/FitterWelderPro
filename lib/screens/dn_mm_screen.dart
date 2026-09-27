@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
 import '../data/nps_dn_od_r.dart';
+import '../domain/fitter/size_query.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
@@ -48,10 +49,12 @@ class _DnMmScreenState extends State<DnMmScreen> {
       if (dn != null && r.dn == dn) return true;
       if (mm != null && (r.odMm - mm).abs() < 0.25) return true;
       if (q.isEmpty) return dn == null && mm == null;
-      return r.nps.toLowerCase().contains(q) ||
-          r.dn.toString().contains(q) ||
-          r.odMm.toString().contains(q) ||
-          r.rMm.toString().contains(q);
+      // "60,3" (PL comma) must find OD 60.3 like the OD field does; `2"`,
+      // `2 cale`, `DN 50` go through the shared size matcher.
+      final qDot = q.replaceAll(',', '.');
+      return sizeQueryMatches(q, dn: r.dn, nps: r.nps) ||
+          r.odMm.toString().contains(qDot) ||
+          r.rMm.toString().contains(qDot);
     }).toList();
   }
 
