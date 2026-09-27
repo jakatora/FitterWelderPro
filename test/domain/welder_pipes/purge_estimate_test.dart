@@ -50,4 +50,36 @@ void main() {
       expect(kWeldingPurgeFlowLpmMax, lessThan(kPrePurgeFlowLpmMin));
     });
   });
+
+  // 2 otwory Ø2,4: A = 2·π·2,4²/4 = 9,048 mm². 2 m/s = 2000 mm/s →
+  // 18 096 mm³/s = 1,086 L/min. Dawny „złoty środek” 6,0 L/min dawał
+  // 6e6/60/9,048/1000 = 11,05 m/s > próg 6 m/s.
+  group('prędkość na wylotach i złoty środek', () {
+    test('liczby', () {
+      expect(ventAreaMm2(holes: 2, holeDiaMm: 2.4), closeTo(9.0478, 1e-3));
+      expect(
+          flowForVentVelocityLpm(velocityMs: 2, holes: 2, holeDiaMm: 2.4),
+          closeTo(1.0857, 1e-3));
+      expect(ventVelocityMs(flowLpm: 6, holes: 2, holeDiaMm: 2.4),
+          closeTo(11.05, 0.01));
+    });
+    test('złoty środek nigdy nie wywołuje ostrzeżenia back-pressure', () {
+      for (final holes in [1, 2, 4, 8]) {
+        for (final d in [1.0, 1.2, 2.4, 3.0, 5.0]) {
+          final q = flowForVentVelocityLpm(
+              velocityMs: kVentVelocityTargetMs, holes: holes, holeDiaMm: d);
+          final v = ventVelocityMs(flowLpm: q, holes: holes, holeDiaMm: d);
+          expect(v, lessThanOrEqualTo(kVentVelocityComfortMs));
+          expect(v, lessThan(kVentVelocityBackPressureMs));
+          expect(v, greaterThan(kVentVelocityLowMs));
+        }
+      }
+    });
+    test('brak otworów → nieskończona prędkość, zero przepływu', () {
+      expect(ventVelocityMs(flowLpm: 2, holes: 0, holeDiaMm: 2.4),
+          double.infinity);
+      expect(flowForVentVelocityLpm(velocityMs: 2, holes: 0, holeDiaMm: 2.4),
+          0);
+    });
+  });
 }

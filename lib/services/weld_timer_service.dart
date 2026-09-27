@@ -223,8 +223,30 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   WeldTimerAlarm get currentAlarm =>
       WeldTimerAlarm(mode: _mode, maxInterpassC: _maxInterpassC);
 
+  /// Biegnie albo jest zapauzowany w połowie — zmiana trybu skasowałaby ten
+  /// czas, więc ekran pyta najpierw o potwierdzenie (przegląd G4: dotknięcie
+  /// rękawicą „Purge” w trakcie 8-minutowego chłodzenia kasowało odliczanie).
+  bool get hasProgress =>
+      running || (!_finished && _accumulated > Duration.zero);
+
+  /// Odliczanie formowania z innego ekranu (Rury → Gazy, O₂ Purge): tryb
+  /// purge, czas [duration] (zaokrąglony w górę do sekundy), start. Alarm,
+  /// powiadomienie w tle i pełnoekranowy komunikat — jak w zakładce Timer.
+  void startPurge(Duration duration) {
+    final secs = (duration.inMilliseconds / 1000).ceil();
+    if (secs <= 0) return;
+    if (_mode != WeldTimerMode.purge) {
+      setMode(WeldTimerMode.purge);
+    } else {
+      _resetState();
+    }
+    setPurgeSeconds(secs);
+    start();
+  }
+
   // ── Parametry ───────────────────────────────────────────────────────────
-  /// Zmienia tryb; inny tryb zatrzymuje i zeruje timer.
+  /// Zmienia tryb; inny tryb zatrzymuje i zeruje timer. Ekran przy
+  /// [hasProgress] najpierw pyta o potwierdzenie.
   void setMode(WeldTimerMode mode) {
     if (mode == _mode) return;
     _resetState();

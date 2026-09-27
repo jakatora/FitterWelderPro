@@ -494,14 +494,14 @@ final kHelpWelderPipes = ScreenHelp(
   bodyEn:
       'TIG welding parameter sets for pipes: current (AMP), shielding gases, starter data shipped with the app and your own sets. These are guide values — the WPS is binding; keep your WPS in the WPS library (WELDER menu).',
   stepsPl: [
-    HelpStep('📋', 'AMP — referencyjne prądy dla typowych średnic rur SS/CS.'),
-    HelpStep('💨', 'Gazy — zalecane mieszanki i przepływy dla różnych materiałów.'),
+    HelpStep('📋', 'AMP — prąd z listy „Startowe” (ta sama rura = ta sama liczba, między punktami interpolacja, poza danymi brak wyniku); elektroda i gaz palnika z tych samych tabel co ekran Wolfram. Stal węglowa bez własnych punktów = nierdzewna / 0,9.'),
+    HelpStep('💨', 'Gazy — czas przedmuchu, szacunkowy O₂ i wyloty. „Złoty środek” Q celuje w ok. 2 m/s na wylotach (heurystyka), więc nie wywołuje ostrzeżenia o back-pressure. Minutnik pre-purge działa jak Timer spawacza: alarm, praca w tle, komunikat na cały ekran.'),
     HelpStep('✅', 'Startowe — dane dostarczone z aplikacją, orientacyjne (to nie są WPS Twojego zakładu). Swoje WPS wpisz albo zaimportuj w Bibliotece WPS.'),
     HelpStep('👤', 'Moje — własne zestawy parametrów zapisane lokalnie.'),
   ],
   stepsEn: [
-    HelpStep('📋', 'AMP — reference currents for typical pipe diameters SS/CS.'),
-    HelpStep('💨', 'Gases — recommended mixes and flow rates for different materials.'),
+    HelpStep('📋', 'AMP — current from the “Starter” list (same pipe = same number, interpolated between points, no result outside the data); electrode and torch gas from the same tables as the Tungsten screen. Carbon steel without its own points = stainless / 0.9.'),
+    HelpStep('💨', 'Gases — pre-purge time, estimated O₂ and outlets. The “golden middle” Q aims at about 2 m/s through the outlets (a heuristic), so it never triggers the back-pressure warning. The pre-purge timer works like the welder Timer: alarm, runs in the background, full-screen message.'),
     HelpStep('✅', 'Starter — data shipped with the app, for guidance (not your workshop\'s WPS). Enter or import your WPS in the WPS library.'),
     HelpStep('👤', 'Mine — your own parameter sets saved locally.'),
   ],
@@ -511,16 +511,18 @@ final kHelpWelderTanks = ScreenHelp(
   titlePl: 'Parametry spawania — Zbiorniki',
   titleEn: 'Welding parameters — Tanks',
   bodyPl:
-      'Zestawy parametrów spawania TIG dla zbiorników i większych przekrojów, w tym tandem TIG (dwa palniki). Zawiera zakładki AMP i Tandem TIG.',
+      'Tandem TIG na zbiornikach SS: dwóch spawaczy po obu stronach ścianki — palnik zewnętrzny z drutem i wewnętrzny bez drutu. Prądy to wartości startowe z danych użytkownika, nie kwalifikacja — wiąże WPS.',
   bodyEn:
-      'TIG welding parameter sets for tanks and larger sections, including tandem TIG (two torches). Contains AMP and Tandem TIG tabs.',
+      'Tandem TIG on SS tanks: two welders on both sides of the wall — the outer torch with wire and the inner torch without. The currents are starting values from user data, not a qualification — the WPS is binding.',
   stepsPl: [
-    HelpStep('⚡', 'AMP — referencyjne prądy dla zgrzewów obwodowych i podłużnych zbiorników.'),
-    HelpStep('🔀', 'Tandem TIG — parametry dla procesu z dwoma elektrodami (lead + trail).'),
+    HelpStep('🔀', 'Tandem — prądy zewn./wewn. z grubości t1/t2, pozycji i złącza. Liczba pojawia się tylko w zakresie punktów startowych (interpolacja); poza nim ekran pisze „brak danych dla tej grubości” — ustal prąd na próbce.'),
+    HelpStep('⚠️', 'Gdy w danych prąd maleje przy rosnącej grubości, wynik dostaje ostrzeżenie.'),
+    HelpStep('📋', 'Startowe — lista punktów startowych (tylko odczyt).'),
   ],
   stepsEn: [
-    HelpStep('⚡', 'AMP — reference currents for circumferential and longitudinal tank welds.'),
-    HelpStep('🔀', 'Tandem TIG — parameters for the dual-electrode process (lead + trail).'),
+    HelpStep('🔀', 'Tandem — OUT/IN currents from wall t1/t2, position and joint. A number appears only within the range of the starting points (interpolation); outside it the screen says “no data for this thickness” — set the current on a test piece.'),
+    HelpStep('⚠️', 'When the data show the current dropping as thickness grows, the result gets a warning.'),
+    HelpStep('📋', 'Starting points — list of starting points (read only).'),
   ],
 );
 
@@ -534,14 +536,14 @@ final kHelpWelderTools = ScreenHelp(
   stepsPl: [
     HelpStep('🧪', 'Gaz — zużycie gazu osłonowego i formującego na projekt oraz liczba butli (pojemność wodna × ciśnienie, z rezerwą).'),
     HelpStep('💨', 'O₂ Purge — szacunkowy czas i ilość gazu do wypłukania rury do zadanego ppm O₂; sprawdź analizatorem przed spawaniem.'),
-    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu).'),
-    HelpStep('🔁', 'Ciśnienie — przelicznik bar / MPa / kPa / PSI / atm / kgf/cm².'),
+    HelpStep('⏱️', 'Timer — spawanie, chłodzenie między ściegami (przypomnienie o max temp. międzyściegowej z WPS) i formowanie. Liczy dalej po zmianie zakładki i wyjściu z ekranu; na koniec wibruje, daje sygnał i pokazuje komunikat na cały ekran, a ekran nie gaśnie w trakcie odliczania. Gdy aplikacja jest w tle — powiadomienie (o zgodę pyta przy pierwszym odliczaniu). Zmiana trybu w trakcie odliczania pyta „Przerwać odliczanie?”. Z zakładki O₂ Purge można od razu uruchomić odliczanie purge.'),
+    HelpStep('🔁', 'Ciśnienie — przelicznik bar / mbar / MPa / kPa / PSI / atm / kgf/cm² / inH₂O / mmH₂O (formowanie i korki purge).'),
   ],
   stepsEn: [
     HelpStep('🧪', 'Gas — shielding and purge gas for a project and the number of cylinders (water capacity × pressure, with reserve).'),
     HelpStep('💨', 'O₂ Purge — estimated time and gas to purge a pipe down to a target ppm O₂; verify with an analyser before welding.'),
-    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown).'),
-    HelpStep('🔁', 'Pressure — converter bar / MPa / kPa / PSI / atm / kgf/cm².'),
+    HelpStep('⏱️', 'Timer — welding, cooldown between passes (reminder of the max interpass temperature from the WPS) and purge. Keeps running when you switch tabs or leave the screen; at the end it vibrates, sounds and shows a full-screen message, and the screen stays on while counting down. With the app in the background — a notification (permission is asked at the first countdown). Changing the mode during a countdown asks “Stop the countdown?”. The O₂ Purge tab can start the purge countdown directly.'),
+    HelpStep('🔁', 'Pressure — converter bar / mbar / MPa / kPa / PSI / atm / kgf/cm² / inH₂O / mmH₂O (purge and purge dams).'),
   ],
 );
 
@@ -553,15 +555,19 @@ final kHelpHeatInput = ScreenHelp(
   bodyEn:
       'Heat input per EN 1011-1 (with η) or ASME IX (no η), plus an estimated preheat temperature from chemistry and thickness. The result is an aid: the WPS temperature is binding, never below the code minimum; the normative calculation methods are EN 1011-2 Annex C.',
   stepsPl: [
-    HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość.'),
+    HelpStep('🌡️', 'Heat input — kJ/mm z napięcia, prądu i prędkości spawania; η wynika z procesu, a „η z WPS” wpisz tylko, gdy WPS podaje inną wartość. Prędkość można wziąć z pomiaru: długość ściegu + czas jarzenia. Wynik i zakres WPS także w kJ/in i J/in. Gdy danych nie da się policzyć, wynik to „—”.'),
     HelpStep('📏', 'Zakres WPS — wpisz min i/lub max z Twojego WPS albo „Wybierz WPS” z Biblioteki WPS (ustawia zakres i normę liczenia), żeby zobaczyć, czy wynik mieści się w zakresie.'),
-    HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku).'),
+    HelpStep('🔥', 'Preheat / CE — szacunkowa temperatura podgrzewania (Seferian i reguła CE) z CE i grubości. Wiąże WPS / EN 1011-2 / minimum kodowe (ASME B31.3 Tab. 330.1.1 po wyborze gatunku: wydanie ≥ 2014, równe B31.1, oraz dla porównania wydanie 2012). Dla stali Cr-Mo i P91 (P-No 4, 5A, 5B, 5C, 15E) metody z CE są ukryte — tylko minimum kodowe i WPS.'),
+    HelpStep('📋', 'DN / SCH — wybór rury wpisuje ściankę z tabeli ASME B36.10/19 do pola „Grubość” (z Cofnij).'),
+    HelpStep('📐', 'EN 1011-2 zał. C, metoda B — Tp z CET, grubości, wodoru HD (wybierz 5/10/15) i energii liniowej Q z pierwszej zakładki; poza zakresem stosowania metody wynik to „—” z przyczyną.'),
     HelpStep('🧾', 'Gatunek z listy uzupełnia typową chemię — do obliczeń z atestu wpisz skład z atestu 3.1.'),
   ],
   stepsEn: [
-    HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value.'),
+    HelpStep('🌡️', 'Heat input — kJ/mm from voltage, current and travel speed; η follows the process, enter “η from WPS” only if the WPS states another value. Travel speed can come from a measurement: bead length + arc time. Result and WPS range also in kJ/in and J/in. When the inputs cannot be calculated, the result is “—”.'),
     HelpStep('📏', 'WPS range — enter min and/or max from your WPS or “Pick WPS” from the WPS library (sets the range and the calculation standard) to see whether the result is within range.'),
-    HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked).'),
+    HelpStep('🔥', 'Preheat / CE — estimated preheat temperature (Seferian and the CE rule) from CE and thickness. The WPS / EN 1011-2 / code minimum is binding (ASME B31.3 Tab. 330.1.1 once a grade is picked: edition ≥ 2014, equal to B31.1, plus the 2012 edition for comparison). For Cr-Mo and P91 steels (P-No 4, 5A, 5B, 5C, 15E) the CE methods are hidden — only the code minimum and the WPS.'),
+    HelpStep('📋', 'DN / SCH — picking a pipe puts the ASME B36.10/19 wall into the “Thickness” field (with Undo).'),
+    HelpStep('📐', 'EN 1011-2 Annex C, method B — Tp from CET, thickness, hydrogen HD (pick 5/10/15) and the heat input Q from the first tab; outside the method\'s scope the result is “—” with the reason.'),
     HelpStep('🧾', 'A grade from the list fills typical chemistry — for an MTR-based result type the chemistry from the 3.1 certificate.'),
   ],
 );

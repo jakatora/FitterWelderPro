@@ -23,33 +23,9 @@ const _kPrefOverrides = 'prefs_tungsten_overrides';
 const _kPrefInStock   = 'prefs_tungsten_in_stock';
 
 // ── P2-14: per-diameter cup / argon flow / tip-angle reference ──────────────
-// Local catalogue (not in lib/data/tungsten.dart per single-file edit scope).
-// Cup numbers are #-sizing (each # = 1/16" ID); argon flow in l/min for DC-
-// stainless TIG; tip-angle ranges in degrees (sharp → blunt) per diameter.
-class _TungstenExtras {
-  final String cup;          // e.g. '#5 (8 mm)'
-  final String argonFlow;    // e.g. '8–10 l/min'
-  final String tipAngle;     // e.g. '20–30°'
-  const _TungstenExtras({
-    required this.cup,
-    required this.argonFlow,
-    required this.tipAngle,
-  });
-}
-
-// Dart `const Map<double, _>` is illegal because `double` does not have
-// primitive equality. Key by the diameter's printed mm representation
-// instead and look up via `_extrasFor(diaMm)` so callers stay readable.
-const Map<String, _TungstenExtras> _kExtrasByDia = {
-  '1.0': _TungstenExtras(cup: '#4–#5 (6–8 mm)',  argonFlow: '6–8 l/min',   tipAngle: '15–25°'),
-  '1.6': _TungstenExtras(cup: '#5–#6 (8–10 mm)', argonFlow: '8–10 l/min',  tipAngle: '20–30°'),
-  '2.4': _TungstenExtras(cup: '#6–#7 (10–11 mm)', argonFlow: '10–12 l/min', tipAngle: '30–45°'),
-  '3.2': _TungstenExtras(cup: '#7–#8 (11–13 mm)', argonFlow: '12–15 l/min', tipAngle: '45–60°'),
-};
-
-_TungstenExtras? _extrasFor(double diaMm) {
-  return _kExtrasByDia[diaMm.toStringAsFixed(1)];
-}
+// Table lives in lib/data/tungsten.dart (kTungstenExtrasByDia) — the same one
+// Pipes → AMP / Starting points use for the torch gas.
+TungstenExtras? _extrasFor(double diaMm) => tungstenExtrasFor(diaMm);
 
 /// In-memory override record for a single user pick decision.
 /// Persisted as JSON in `prefs_tungsten_overrides` (capped list, newest first).
@@ -531,6 +507,14 @@ class _TungstenScreenState extends State<TungstenScreen> {
             ),
             onChanged: (_) => setState(() {}),
           ),
+          const SizedBox(height: 6),
+          Text(
+            context.tr(
+              pl: 'Tabela orientacyjna (pasma DC−, typowe) — wiąże WPS i karta producenta elektrod.',
+              en: 'Indicative table (typical DC− bands) — the WPS and the electrode maker\'s data are binding.',
+            ),
+            style: const TextStyle(color: _kSec, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 10),
 
           // ── Optional joint identity (notes only, no backend wire) ─────────
@@ -922,7 +906,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                               border: Border.all(color: _kBorder)),
                         ),
                         const SizedBox(width: 8),
-                        Text(t.code,
+                        Text(t.isoCode == t.code ? t.code : '${t.code} (${t.isoCode})',
                             style: const TextStyle(
                                 color: Color(0xFFE7ECF3),
                                 fontSize: 14,

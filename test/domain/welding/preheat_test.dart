@@ -167,4 +167,139 @@ void main() {
       });
     }
   });
+
+  // Wydanie aktualne: ASME B31.1-2022 Table 131.4.1-1 „Preheat Temperatures”
+  // (sprawdzone w tekście normy, str. 104), z którym B31.3 ujednolicił
+  // podgrzewanie od wydania 2014 (Becht, „Substantive changes to 2014
+  // edition”; B31.3 Tab. 330.1.1: 5B SMTS ≤ 414 MPa → 150 °C, > 414 MPa
+  // → 200 °C, > 13 mm i Cr > 6,0 % → 200 °C).
+  //   P-No 1: ≤ 25 mm → 10 °C; > 25 mm i C ≤ 0,30 → 10 °C; > 25 mm i C > 0,30 → 95 °C
+  //   P-No 3: ≤ 13 mm i SMTS ≤ 450 MPa → 10; > 13 mm → 95; SMTS > 450 → 95
+  //   P-No 4: 120 · 5A: SMTS ≤ 414 → 150, > 414 → 200
+  //   P-No 5B: SMTS ≤ 414 → 150, > 414 → 200, > 13 mm i Cr > 6,0 % → 200
+  //   P-No 6: 200 · 9A: 120 · 9B: 150 · 10I: 150 · 15E: 200 · pozostałe: 10
+  // SMTS porównywane w pełnych ksi (60 ksi = 414 MPa; ASTM podaje P22 jako
+  // 415 MPa = 60 ksi, więc P22 NIE jest „> 60 ksi”).
+  group('b313CurrentMinPreheatC — B31.3 ≥ 2014 (= B31.1-2022 Tab. 131.4.1-1)',
+      () {
+    final cases = <({
+      String pNo,
+      double t,
+      double? rm,
+      double? c,
+      double? cr,
+      int? expected,
+      String why
+    })>[
+      (pNo: '1', t: 25, rm: 415, c: 0.35, cr: 0, expected: 10, why: '≤ 25 mm'),
+      (pNo: '1', t: 26, rm: 415, c: 0.25, cr: 0, expected: 10, why: 'C ≤ 0,30'),
+      (pNo: '1', t: 26, rm: 415, c: 0.31, cr: 0, expected: 95, why: 'C > 0,30'),
+      (pNo: '1', t: 26, rm: 415, c: null, cr: 0, expected: 95, why: 'C nieznane → wyższa'),
+      (pNo: '1', t: 10, rm: 550, c: 0.20, cr: 0, expected: 10, why: 'SMTS nie liczy się dla P-1'),
+      (pNo: '3', t: 13, rm: 380, c: 0.2, cr: 0, expected: 10, why: '≤ 13 mm'),
+      (pNo: '3', t: 13.1, rm: 380, c: 0.2, cr: 0, expected: 95, why: '> 13 mm'),
+      (pNo: '3', t: 5, rm: 450, c: 0.2, cr: 0, expected: 10, why: '65 ksi nie jest > 65'),
+      (pNo: '3', t: 5, rm: 485, c: 0.2, cr: 0, expected: 95, why: '70 ksi'),
+      (pNo: '4', t: 5, rm: 415, c: 0.15, cr: 1.2, expected: 120, why: 'P11'),
+      (pNo: '5A', t: 20, rm: 415, c: 0.12, cr: 2.25, expected: 150, why: 'P22 60 ksi'),
+      (pNo: '5A', t: 5, rm: 515, c: 0.12, cr: 2.25, expected: 200, why: '75 ksi'),
+      (pNo: '5A', t: 5, rm: null, c: 0.12, cr: 2.25, expected: 200, why: 'SMTS nieznane → wyższa'),
+      (pNo: '5B', t: 10, rm: 415, c: 0.1, cr: 9, expected: 150, why: 'P9, ≤ 13 mm'),
+      (pNo: '5B', t: 20, rm: 415, c: 0.1, cr: 9, expected: 200, why: 'P9, > 13 mm, Cr > 6'),
+      (pNo: '5B', t: 20, rm: 415, c: 0.1, cr: 5, expected: 150, why: 'P5, Cr ≤ 6'),
+      (pNo: '5B', t: 5, rm: 585, c: 0.1, cr: 5, expected: 200, why: '85 ksi'),
+      (pNo: '6', t: 5, rm: 415, c: 0.12, cr: 12.5, expected: 200, why: '410'),
+      (pNo: '9A', t: 5, rm: 415, c: 0.1, cr: 0, expected: 120, why: '9A'),
+      (pNo: '9B', t: 5, rm: 415, c: 0.1, cr: 0, expected: 150, why: '9B'),
+      (pNo: '10I', t: 5, rm: 415, c: 0.1, cr: 27, expected: 150, why: '10I'),
+      (pNo: '15E', t: 5, rm: 585, c: 0.1, cr: 9, expected: 200, why: 'P91'),
+      (pNo: '8', t: 30, rm: 485, c: 0.03, cr: 17, expected: 10, why: 'pozostałe'),
+      (pNo: '10H', t: 5, rm: 655, c: 0.03, cr: 22, expected: 10, why: 'pozostałe'),
+      (pNo: '43', t: 5, rm: 760, c: 0.04, cr: 21, expected: 10, why: 'pozostałe'),
+      (pNo: '5C', t: 5, rm: 415, c: 0.1, cr: 2.25, expected: null, why: 'brak 5C w tabeli'),
+      (pNo: '1', t: 0, rm: 415, c: 0.2, cr: 0, expected: null, why: 't = 0'),
+    ];
+    for (final k in cases) {
+      test('P-No ${k.pNo}, t ${k.t}, Rm ${k.rm}, C ${k.c}, Cr ${k.cr} → '
+          '${k.expected} (${k.why})', () {
+        expect(
+          b313CurrentMinPreheatC(
+            pNo: k.pNo,
+            thicknessMm: k.t,
+            smtsMpa: k.rm,
+            carbonPct: k.c,
+            chromiumPct: k.cr,
+          ),
+          k.expected,
+        );
+      });
+    }
+  });
+
+  // EN 1011-2:2001 zał. C metoda B (C.2, C.8 — tekst normy):
+  //  C 0,20 / Mn 1,50 → CET = 0,20 + 1,50/10 = 0,35
+  //  d = 20, HD = 5, Q = 1,5:
+  //   697·0,35 = 243,95; 160·tanh(20/35) = 160·0,516408 = 82,625;
+  //   62·5^0,35 = 62·1,756467 = 108,901; (53·0,35 − 32)·1,5 = −20,175
+  //   Tp = 243,95 + 82,625 + 108,901 − 20,175 − 328 = 87,30 °C
+  group('EN 1011-2 metoda B (CET)', () {
+    test('CET', () {
+      expect(carbonEquivalentCet(c: 0.2, mn: 1.5), closeTo(0.35, 1e-12));
+      expect(
+          carbonEquivalentCet(c: 0.1, mn: 1.0, mo: 0.2, cr: 0.4, cu: 0.2, ni: 0.8),
+          closeTo(0.1 + 0.12 + 0.03 + 0.02, 1e-12));
+    });
+    test('Tp = 87,3 °C', () {
+      final r = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: 5, heatInputKjMm: 1.5)!;
+      expect(r.cet, closeTo(0.35, 1e-12));
+      expect(r.preheatC, closeTo(87.30, 0.05));
+      expect(r.outOfRange, isEmpty);
+    });
+    test('więcej wodoru → wyżej; większe Q → niżej', () {
+      double tp({double hd = 5, double q = 1.5}) => en1011MethodBPreheat(
+              c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: hd, heatInputKjMm: q)!
+          .preheatC!;
+      expect(tp(hd: 15), greaterThan(tp(hd: 5)));
+      expect(tp(q: 3), lessThan(tp(q: 1)));
+    });
+    test('poza zakresem stosowania → brak Tp i przyczyny', () {
+      final thin = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 8, hdMlPer100g: 5, heatInputKjMm: 1.5)!;
+      expect(thin.preheatC, isNull);
+      expect(thin.outOfRange, [CetOutOfRange.thickness]);
+      final p91 = en1011MethodBPreheat(
+          c: 0.1, mn: 0.45, cr: 9, mo: 1, thicknessMm: 20, hdMlPer100g: 5,
+          heatInputKjMm: 1.5)!;
+      expect(p91.preheatC, isNull);
+      expect(p91.outOfRange, contains(CetOutOfRange.composition));
+      final lowQ = en1011MethodBPreheat(
+          c: 0.2, mn: 1.5, thicknessMm: 20, hdMlPer100g: 5, heatInputKjMm: 0.3)!;
+      expect(lowQ.outOfRange, [CetOutOfRange.heatInput]);
+    });
+  });
+
+  group('metody z CE nie dla Cr-Mo / P91', () {
+    for (final (p, expected) in [
+      ('1', false),
+      ('3', false),
+      ('4', true),
+      ('5A', true),
+      ('5B', true),
+      ('5C', true),
+      ('15E', true),
+      ('8', false),
+    ]) {
+      test('P-No $p → $expected', () => expect(isCrMoPNo(p), expected));
+    }
+    test('skład ręczny: P11 (1,2 Cr / 0,55 Mo) i P91 (9 Cr / 1 Mo) — Cr-Mo; '
+        'C-Mn i C-½Mo — nie', () {
+      expect(isCrMoComposition(cr: 1.2, mo: 0.55), isTrue);
+      expect(isCrMoComposition(cr: 9.0, mo: 1.0), isTrue);
+      expect(isCrMoComposition(cr: 0.0, mo: 0.0), isFalse);
+      expect(isCrMoComposition(cr: 0.0, mo: 0.5), isFalse);
+      expect(isCrMoComposition(cr: 17.0, mo: 2.5), isFalse,
+          reason: 'nierdzewna ma własną ścieżkę');
+    });
+  });
 }

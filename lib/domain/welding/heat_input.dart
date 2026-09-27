@@ -135,3 +135,33 @@ WpsRangeVerdict checkWpsRange(double heatInput, {double? min, double? max}) {
   if (max != null && heatInput > max) return WpsRangeVerdict.aboveMax;
   return WpsRangeVerdict.inRange;
 }
+
+/// Jednostka energii liniowej na ekranie. 1 cal = 25,4 mm, więc
+/// 1 kJ/mm = 25,4 kJ/in = 25 400 J/in (ASME WPS zwykle w J/in).
+enum HeatInputUnit {
+  kjPerMm('kJ/mm', 1.0, 2),
+  kjPerIn('kJ/in', 25.4, 1),
+  jPerIn('J/in', 25400.0, 0);
+
+  const HeatInputUnit(this.label, this.factor, this.decimals);
+
+  final String label;
+
+  /// Mnożnik z kJ/mm na tę jednostkę.
+  final double factor;
+
+  /// Liczba miejsc po przecinku przy wyświetlaniu.
+  final int decimals;
+
+  double fromKjPerMm(double v) => v * factor;
+  double toKjPerMm(double v) => v / factor;
+  String format(double kjPerMm) => fromKjPerMm(kjPerMm).toStringAsFixed(decimals);
+}
+
+/// Prędkość spawania z długości ściegu i czasu jarzenia łuku:
+/// v [mm/min] = L [mm] / t [s] × 60. `null` dla L ≤ 0, t ≤ 0 lub NaN.
+double? travelSpeedMmPerMin({required double lengthMm, required double seconds}) {
+  if (!lengthMm.isFinite || !seconds.isFinite) return null;
+  if (lengthMm <= 0 || seconds <= 0) return null;
+  return lengthMm / seconds * 60.0;
+}

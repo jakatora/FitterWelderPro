@@ -48,5 +48,34 @@ void main() {
       expect(e.heatInputKJmm > 0, isTrue);
       expect(e.heatInputKJmm.isFinite, isTrue);
     });
+
+    // 2" (50,8 × 1,65), 10 V: I = 48·1,65 + 0,12·50,8 = 85,3 A,
+    // v = 130 − 18·1,65 = 100,3 mm/min → 1,6717 mm/s;
+    // EN (η 0,6): 0,6·10·85,296/1,6717/1000 = 0,306 kJ/mm;
+    // ASME IX (bez η): 0,510 kJ/mm.
+    test('HI EN (η 0,6) i ASME IX (bez η)', () {
+      final e = estimateOrbital(odMm: 50.8, wallMm: 1.65, arcVolts: 10);
+      expect(e.heatInputKJmm, closeTo(0.306, 0.001));
+      expect(e.arcEnergyKJmm, closeTo(0.510, 0.001));
+    });
+  });
+
+  // Przegląd G4: 168,3 × 6,0 dawało 308 A, 273 × 10 → 513 A „autogenicznie”.
+  group('checkOrbitalRange', () {
+    test('cienka ścianka w zakresie', () {
+      expect(checkOrbitalRange(odMm: 50.8, wallMm: 1.65), OrbitalRange.ok);
+      expect(checkOrbitalRange(odMm: 168.3, wallMm: 3.0), OrbitalRange.ok);
+    });
+    test('ścianka > 3 mm poza zakresem', () {
+      expect(checkOrbitalRange(odMm: 168.3, wallMm: 6.0),
+          OrbitalRange.wallTooThick);
+      expect(checkOrbitalRange(odMm: 273, wallMm: 10),
+          OrbitalRange.wallTooThick);
+    });
+    test('prąd > 200 A poza zakresem (duże OD)', () {
+      // 48·3 + 0,12·500 = 204 A
+      expect(checkOrbitalRange(odMm: 500, wallMm: 3.0),
+          OrbitalRange.currentTooHigh);
+    });
   });
 }

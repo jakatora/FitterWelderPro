@@ -89,6 +89,14 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   final _wpsMinCtrl = TextEditingController();
   final _wpsMaxCtrl = TextEditingController();
 
+  /// Jednostka wyniku i zakresu WPS. WPS amerykańskie podają zwykle J/in
+  /// (1 kJ/mm = 25,4 kJ/in = 25 400 J/in). Obliczenia zawsze w kJ/mm.
+  HeatInputUnit _unit = HeatInputUnit.kjPerMm;
+
+  /// v = L / t — długość ściegu [mm] i czas jarzenia [s] (stoper).
+  final _beadLenCtrl = TextEditingController();
+  final _arcTimeCtrl = TextEditingController();
+
   /// WPS the range was taken from ("Wybierz WPS"); cleared when the welder
   /// edits the range by hand or picks another calculation standard.
   WpsRecord? _wpsSource;
@@ -213,16 +221,42 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     final wall = row.walls[sch];
     if (wall == null) return;
     final od = row.od;
+    final prevThickness = _thicknessCtrl.text;
+    final wallText = _fmtWall(wall);
     setState(() {
       _selectedDn = dn;
       _selectedSch = sch;
       _hintOdMm = od;
       _hintWallMm = wall;
+      // Ścianka z tabeli JEST grubością do obliczeń (Seferian, minimum
+      // kodowe) — dawniej była tylko podpowiedzią, a liczyło się 15 mm.
+      _thicknessCtrl.text = wallText;
     });
     if (persist) {
       _persistPipeSize(dn, sch);
+      if (prevThickness != wallText) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text(context.tr(
+              pl: 'Grubość do obliczeń: $wallText mm (DN$dn Sch $sch)',
+              en: 'Thickness for calculation: $wallText mm (DN$dn Sch $sch)',
+            )),
+            action: SnackBarAction(
+              label: context.tr(pl: 'Cofnij', en: 'Undo'),
+              onPressed: () {
+                if (!mounted) return;
+                setState(() => _thicknessCtrl.text = prevThickness);
+              },
+            ),
+          ));
+      }
     }
   }
+
+  static String _fmtWall(double v) =>
+      v.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
 
   /// P2-05: open the DN/SCH picker. Same showModalBottomSheet pattern used
   /// by NpsTableSheet — DN row tap commits, SCH chips above filter on which
@@ -316,8 +350,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     setState(() {
       final min = w.heatInputMinKjMm;
       final max = w.heatInputMaxKjMm;
-      _wpsMinCtrl.text = min == null ? '' : _fmtWps(min);
-      _wpsMaxCtrl.text = max == null ? '' : _fmtWps(max);
+      _wpsMinCtrl.text = min == null ? '' : _fmtWps(min * _unit.factor);
+      _wpsMaxCtrl.text = max == null ? '' : _fmtWps(max * _unit.factor);
       _standard = w.heatInputMethod;
       _wpsSource = w;
     });
@@ -405,19 +439,21 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     _thicknessCtrl.dispose();
     _wpsMinCtrl.dispose();
     _wpsMaxCtrl.dispose();
+    _beadLenCtrl.dispose();
+    _arcTimeCtrl.dispose();
     super.dispose();
   }
 
   // ─── Computed ────────────────────────────────────────────────────────────
-  double get _heatInputKjPerMm =>
-      heatInputKJPerMm(
+  /// null = nie da się policzyć (np. η z WPS spoza 0–1, zerowa prędkość) —
+  /// ekran pokazuje „—” i nie pozwala skopiować wyniku (dawniej „0.00”).
+  double? get _heatInputKjPerMm => heatInputKJPerMm(
         volts: _parse(_voltsCtrl),
         amps: _parse(_ampsCtrl),
         travelMmPerMin: _parse(_travelCtrl),
         standard: _standard,
         efficiency: _eta,
-      ) ??
-      0;
+      );
 
   double get _ce => carbonEquivalentIiw(
         c: _parse(_cCtrl),
@@ -442,18 +478,89 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
       mo: _parse(_moCtrl),
       thicknessMm: t,
     );
-    final codeMin = _material == null
+    final m = _material;
+    final codeMin = m == null
         ? null
-        : b313MinPreheatC(pNo: _material!.pNo, thicknessMm: t);
+        : b313CurrentMinPreheatC(
+            pNo: m.pNo,
+            thicknessMm: t,
+            smtsMpa: m.smtsMpa,
+            carbonPct: _parse(_cCtrl),
+            chromiumPct: _parse(_crCtrl),
+          );
+    final codeMin2012 = m == null
+        ? null
+        : b313MinPreheatC(pNo: m.pNo, thicknessMm: t, smtsMpa: m.smtsMpa);
+    final crMo = !stainless &&
+        (m != null
+            ? isCrMoPNo(m.pNo)
+            : isCrMoComposition(cr: _parse(_crCtrl), mo: _parse(_moCtrl)));
+    // EN 1011-2 zał. C metoda B — Q to energia liniowa wg EN 1011-1 (z η)
+    // z pierwszej zakładki, niezależnie od wybranej tam konwencji.
+    final qEn = heatInputKJPerMm(
+      volts: _parse(_voltsCtrl),
+      amps: _parse(_ampsCtrl),
+      travelMmPerMin: _parse(_travelCtrl),
+      standard: HeatInputStandard.en1011,
+      efficiency: _eta,
+    );
+    final cet = qEn == null
+        ? null
+        : en1011MethodBPreheat(
+            c: _parse(_cCtrl),
+            mn: _parse(_mnCtrl),
+            mo: _parse(_moCtrl),
+            cr: _parse(_crCtrl),
+            cu: _parse(_cuCtrl),
+            ni: _parse(_niCtrl),
+            v: _parse(_vCtrl),
+            thicknessMm: t,
+            hdMlPer100g: _hd,
+            heatInputKjMm: qEn,
+          );
     return _PreheatView(
       ce: ce,
       thicknessMm: t,
       stainless: stainless,
+      crMo: crMo,
       rule: rule,
       seferianC: seferian?.preheatC,
       seferianTotalCe: seferian?.totalCe,
       codeMinC: codeMin,
+      codeMin2012C: codeMin2012,
+      cet: cet,
+      qEnKjMm: qEn,
     );
+  }
+
+  /// Wodór dyfundujący HD [ml/100 g] dla metody B (H5 / H10 / H15).
+  double _hd = 10;
+
+  String _cetNote(_PreheatView p) {
+    final r = p.cet;
+    if (p.qEnKjMm == null || r == null) {
+      return context.tr(
+        pl: 'Policz najpierw heat input (zakładka 1) — metoda B potrzebuje Q wg EN 1011-1.',
+        en: 'Calculate heat input first (tab 1) — method B needs Q per EN 1011-1.',
+      );
+    }
+    final q = p.qEnKjMm!.toStringAsFixed(2);
+    final base = context.tr(
+      pl: 'CET = ${r.cet.toStringAsFixed(3)} · HD = ${_hd.toStringAsFixed(0)} ml/100 g · Q = $q kJ/mm (EN 1011-1).',
+      en: 'CET = ${r.cet.toStringAsFixed(3)} · HD = ${_hd.toStringAsFixed(0)} ml/100 g · Q = $q kJ/mm (EN 1011-1).',
+    );
+    if (r.outOfRange.isEmpty) return base;
+    final why = [
+      for (final o in r.outOfRange)
+        switch (o) {
+          CetOutOfRange.cet => context.tr(pl: 'CET poza 0,2–0,5 %', en: 'CET outside 0.2–0.5 %'),
+          CetOutOfRange.thickness => context.tr(pl: 'grubość poza 10–90 mm', en: 'thickness outside 10–90 mm'),
+          CetOutOfRange.hydrogen => context.tr(pl: 'HD poza 1–20 ml/100 g', en: 'HD outside 1–20 ml/100 g'),
+          CetOutOfRange.heatInput => context.tr(pl: 'Q poza 0,5–4,0 kJ/mm', en: 'Q outside 0.5–4.0 kJ/mm'),
+          CetOutOfRange.composition => context.tr(pl: 'skład poza zakresem metody', en: 'chemistry outside the method range'),
+        },
+    ].join(', ');
+    return '$base ${context.tr(pl: 'Poza zakresem stosowania: $why.', en: 'Outside the scope: $why.')}';
   }
 
   String _ruleNote(CeRuleOfThumb r) {
@@ -489,9 +596,14 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   @override
   Widget build(BuildContext context) {
     final hi = _heatInputKjPerMm;
-    final wpsMin = _parseOptional(_wpsMinCtrl);
-    final wpsMax = _parseOptional(_wpsMaxCtrl);
-    final verdict = hi > 0
+    // Pola zakresu są w wybranej jednostce; porównanie zawsze w kJ/mm.
+    final wpsMin = _parseOptional(_wpsMinCtrl) == null
+        ? null
+        : _parseOptional(_wpsMinCtrl)! / _unit.factor;
+    final wpsMax = _parseOptional(_wpsMaxCtrl) == null
+        ? null
+        : _parseOptional(_wpsMaxCtrl)! / _unit.factor;
+    final verdict = hi != null && hi > 0
         ? checkWpsRange(hi, min: wpsMin, max: wpsMax)
         : WpsRangeVerdict.notSet;
     final preheat = _preheatView();
@@ -578,14 +690,35 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   }
 
   String _fmtRange(double? min, double? max) {
-    final lo = min == null ? '—' : min.toStringAsFixed(2);
-    final hi = max == null ? '—' : max.toStringAsFixed(2);
-    return '$lo – $hi kJ/mm';
+    final lo = min == null ? '—' : _unit.format(min);
+    final hi = max == null ? '—' : _unit.format(max);
+    return '$lo – $hi ${_unit.label}';
   }
+
+  /// Zmiana jednostki przelicza wpisany zakres WPS (pola są w jednostce).
+  void _setUnit(HeatInputUnit u) {
+    if (u == _unit) return;
+    String conv(TextEditingController c) {
+      final v = _parseOptional(c);
+      if (v == null) return c.text;
+      return _fmtWps(u.fromKjPerMm(_unit.toKjPerMm(v)));
+    }
+
+    setState(() {
+      _wpsMinCtrl.text = conv(_wpsMinCtrl);
+      _wpsMaxCtrl.text = conv(_wpsMaxCtrl);
+      _unit = u;
+    });
+  }
+
+  double? get _measuredSpeed => travelSpeedMmPerMin(
+        lengthMm: _parseOptional(_beadLenCtrl) ?? 0,
+        seconds: _parseOptional(_arcTimeCtrl) ?? 0,
+      );
 
   // ─── Tab 1: Heat input ──────────────────────────────────────────────────
   Widget _heatInputTab(
-      double hi, double? wpsMin, double? wpsMax, WpsRangeVerdict verdict) {
+      double? hi, double? wpsMin, double? wpsMax, WpsRangeVerdict verdict) {
     // The WPS range is a hard boundary: in range = green, outside = red.
     // No verdict (neutral colour) until the welder enters the range.
     final Color okColour;
@@ -593,6 +726,13 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     final String verdictText;
     final range = _fmtRange(wpsMin, wpsMax);
     switch (verdict) {
+      case WpsRangeVerdict.notSet when hi == null:
+        okColour = _kTextMut;
+        icon = Icons.block;
+        verdictText = context.tr(
+          pl: 'Brak wyniku — popraw dane (η z WPS 0–1, prędkość > 0).',
+          en: 'No result — fix the inputs (η from WPS 0–1, travel speed > 0).',
+        );
       case WpsRangeVerdict.notSet:
         okColour = _kOrange;
         icon = Icons.info_outline;
@@ -676,6 +816,56 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 rejectZero: true,
                 onChanged: () => setState(() {}),
               ),
+              const SizedBox(height: 10),
+              // v = L / t: spawacz ma zwykle miarkę i stoper, nie mm/min.
+              Text(
+                context.tr(
+                  pl: 'Albo z pomiaru: długość ściegu i czas jarzenia łuku',
+                  en: 'Or from a measurement: bead length and arc time',
+                ),
+                style: const TextStyle(fontSize: 11, color: _kTextSec),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _NumField(
+                      label: context.tr(pl: 'Długość ściegu', en: 'Bead length'),
+                      ctrl: _beadLenCtrl,
+                      suffix: 'mm',
+                      rejectNegative: true,
+                      onChanged: () => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _NumField(
+                      label: context.tr(pl: 'Czas jarzenia', en: 'Arc time'),
+                      ctrl: _arcTimeCtrl,
+                      suffix: 's',
+                      rejectNegative: true,
+                      onChanged: () => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              if (_measuredSpeed != null) ...[
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                    onPressed: () => setState(() {
+                      _travelCtrl.text = _measuredSpeed!.toStringAsFixed(0);
+                    }),
+                    icon: const Icon(Icons.speed, size: 18),
+                    label: Text(context.tr(
+                      pl: 'Wpisz v = ${_measuredSpeed!.toStringAsFixed(0)} mm/min',
+                      en: 'Use v = ${_measuredSpeed!.toStringAsFixed(0)} mm/min',
+                    )),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -754,17 +944,32 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         const SizedBox(height: 12),
 
         _SectionCard(
-          title: context.tr(pl: 'Zakres WPS (kJ/mm)', en: 'WPS range (kJ/mm)'),
+          title: context.tr(pl: 'Zakres WPS (${_unit.label})', en: 'WPS range (${_unit.label})'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Jednostka wyniku i zakresu — WPS wg ASME zwykle w J/in.
+              SegmentedButton<HeatInputUnit>(
+                segments: [
+                  for (final u in HeatInputUnit.values)
+                    ButtonSegment(value: u, label: Text(u.label)),
+                ],
+                selected: {_unit},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) => _setUnit(s.first),
+                style: ButtonStyle(
+                  minimumSize: WidgetStateProperty.all(const Size(48, 48)),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+              ),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   Expanded(
                     child: _NumField(
                       label: context.tr(pl: 'Min', en: 'Min'),
                       ctrl: _wpsMinCtrl,
-                      suffix: 'kJ/mm',
+                      suffix: _unit.label,
                       rejectNegative: true,
                       onChanged: () => setState(() => _wpsSource = null),
                     ),
@@ -774,7 +979,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                     child: _NumField(
                       label: context.tr(pl: 'Max', en: 'Max'),
                       ctrl: _wpsMaxCtrl,
-                      suffix: 'kJ/mm',
+                      suffix: _unit.label,
                       rejectNegative: true,
                       onChanged: () => setState(() => _wpsSource = null),
                     ),
@@ -867,8 +1072,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 children: [
                   Text(
                     // P1-16: HI to 2 decimals — matches the precision welders
-                    // see on a qualified WPS sheet.
-                    hi.toStringAsFixed(2),
+                    // see on a qualified WPS sheet. No result → „—”, never 0.00.
+                    hi == null ? '—' : _unit.format(hi),
                     style: TextStyle(
                       fontSize: 42,
                       fontWeight: FontWeight.w900,
@@ -878,7 +1083,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    'kJ/mm',
+                    _unit.label,
                     style: const TextStyle(
                       fontSize: 16,
                       color: _kTextSec,
@@ -911,13 +1116,15 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: () {
-                  copyToClipboard(
-                    context,
-                    '${hi.toStringAsFixed(2)} kJ/mm ($_process, ${asme ? 'ASME IX' : 'EN 1011-1'})',
-                    label: 'HI',
-                  );
-                },
+                onPressed: hi == null
+                    ? null
+                    : () {
+                        copyToClipboard(
+                          context,
+                          '${_unit.format(hi)} ${_unit.label} ($_process, ${asme ? 'ASME IX' : 'EN 1011-1'})',
+                          label: 'HI',
+                        );
+                      },
                 icon: const Icon(Icons.copy, size: 16),
                 label: Text(context.tr(pl: 'Kopiuj wynik', en: 'Copy result')),
                 style: OutlinedButton.styleFrom(
@@ -950,7 +1157,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   // ─── Tab 2: Preheat / CE ────────────────────────────────────────────────
   Widget _preheatTab(_PreheatView p) {
     final isPl = context.language == AppLanguage.pl;
-    final severity = p.stainless ? _kTextSec : _bandColor(p.rule.band);
+    final severity = p.ceMethods ? _bandColor(p.rule.band) : _kTextSec;
     final tLabel = p.thicknessMm > 0 ? p.thicknessMm.toStringAsFixed(0) : '—';
     return ListView(
       padding: const EdgeInsets.all(12),
@@ -1301,6 +1508,30 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   ),
                   style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
                 )
+              else if (p.crMo)
+                Text(
+                  _material != null
+                      ? context.tr(
+                          pl: 'Stal Cr-Mo / CSEF (P-No ${_material!.pNo}) — CE i metody '
+                              'ze składu (Seferian, reguła CE) nie są dla niej przeznaczone '
+                              'i dają mylące liczby. Wiąże minimum kodowe (niżej) i WPS.',
+                          en: 'Cr-Mo / CSEF steel (P-No ${_material!.pNo}) — CE and '
+                              'chemistry-based methods (Seferian, CE rule) are not meant '
+                              'for it and give misleading numbers. The code minimum (below) '
+                              'and the WPS govern.',
+                        )
+                      : context.tr(
+                          pl: 'Skład wygląda na stal Cr-Mo (Cr ${_crCtrl.text} %, Mo ${_moCtrl.text} %) — '
+                              'CE i metody ze składu (Seferian, reguła CE) nie są dla niej '
+                              'przeznaczone. Wybierz gatunek z listy, żeby zobaczyć minimum '
+                              'kodowe; wiąże WPS.',
+                          en: 'The chemistry looks like a Cr-Mo steel (Cr ${_crCtrl.text} %, Mo ${_moCtrl.text} %) — '
+                              'CE and chemistry-based methods (Seferian, CE rule) are not meant '
+                              'for it. Pick the grade from the list to see the code minimum; '
+                              'the WPS governs.',
+                        ),
+                  style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
+                )
               else
                 Text(
                   p.ce.toStringAsFixed(3),
@@ -1344,24 +1575,91 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              if (_material != null)
+              if (_material != null) ...[
                 _MethodRow(
                   label: context.tr(
-                    pl: 'Minimum kodowe ASME B31.3-2012 Tab. 330.1.1 (P-No ${_material!.pNo})',
-                    en: 'Code minimum ASME B31.3-2012 Tab. 330.1.1 (P-No ${_material!.pNo})',
+                    pl: 'Minimum kodowe ASME B31.3 ≥ 2014 Tab. 330.1.1 (P-No ${_material!.pNo})',
+                    en: 'Code minimum ASME B31.3 ≥ 2014 Tab. 330.1.1 (P-No ${_material!.pNo})',
                   ),
                   value: p.codeMinC == null ? '—' : '${p.codeMinC} °C',
                   hint: p.codeMinC == null
                       ? context.tr(
-                          pl: 'Brak danych w aplikacji — sprawdź kod projektu.',
-                          en: 'No data in the app — check the project code.',
+                          pl: 'Brak tej grupy w tabeli aktualnego wydania — do potwierdzenia w normie projektu.',
+                          en: 'This group is not in the current-edition table — to be confirmed in the project code.',
                         )
                       : context.tr(
-                          pl: 'Dolna granica z kodu (dla Rm ≤ 490 MPa); nie zależy od składu z atestu.',
-                          en: 'Lower limit from the code (for SMTS ≤ 490 MPa); ignores the MTR chemistry.',
+                          pl: 'Wartości jak ASME B31.1-2022 Tab. 131.4.1-1 (od 2014 B31.3 ma te same wymagania). '
+                              'Liczone z t = $tLabel mm, Rm min ${_material!.smtsMpa == null ? '—' : '${_material!.smtsMpa!.toStringAsFixed(0)} MPa'}, '
+                              'C i Cr z pól składu. Sprawdź wydanie wskazane w specyfikacji projektu.',
+                          en: 'Values as ASME B31.1-2022 Table 131.4.1-1 (since 2014 B31.3 has the same requirements). '
+                              'Uses t = $tLabel mm, SMTS ${_material!.smtsMpa == null ? '—' : '${_material!.smtsMpa!.toStringAsFixed(0)} MPa'}, '
+                              'C and Cr from the chemistry fields. Check the edition named in the project specification.',
                         ),
                 ),
-              if (!p.stainless) ...[
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'ASME B31.3-2012 Tab. 330.1.1 (wydanie zastąpione)',
+                    en: 'ASME B31.3-2012 Tab. 330.1.1 (superseded edition)',
+                  ),
+                  value: p.codeMin2012C == null ? '—' : '${p.codeMin2012C} °C',
+                  hint: context.tr(
+                    pl: 'Tylko gdy specyfikacja projektu wskazuje wydanie 2012.',
+                    en: 'Only when the project specification names the 2012 edition.',
+                  ),
+                ),
+              ],
+              if (p.crMo && _material == null)
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Minimum kodowe ASME B31.3',
+                    en: 'Code minimum ASME B31.3',
+                  ),
+                  value: '—',
+                  hint: context.tr(
+                    pl: 'Wybierz gatunek (P-No) z listy u góry.',
+                    en: 'Pick the grade (P-No) from the list above.',
+                  ),
+                ),
+              if (p.crMo)
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Temperatura z WPS',
+                    en: 'Temperature from the WPS',
+                  ),
+                  value: 'WPS',
+                  hint: context.tr(
+                    pl: 'Wiąże WPS; nie niżej niż minimum kodowe.',
+                    en: 'The WPS governs; never below the code minimum.',
+                  ),
+                ),
+              if (p.ceMethods) ...[
+                // Normatywna metoda obliczeniowa — przed szacunkami.
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'EN 1011-2 zał. C, metoda B (CET, wodór, energia liniowa)',
+                    en: 'EN 1011-2 Annex C, method B (CET, hydrogen, heat input)',
+                  ),
+                  value: p.cet?.preheatC == null
+                      ? '—'
+                      : p.cet!.preheatC! <= 0
+                          ? '≤ 0 °C'
+                          : '${p.cet!.preheatC!.toStringAsFixed(0)} °C',
+                  hint: _cetNote(p),
+                ),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    for (final hd in const [5.0, 10.0, 15.0])
+                      ChoiceChip(
+                        label: Text('HD ${hd.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 11)),
+                        selected: _hd == hd,
+                        onSelected: (_) => setState(() => _hd = hd),
+                        materialTapTargetSize: MaterialTapTargetSize.padded,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
                 _MethodRow(
                   label: context.tr(
                     pl: 'Seferian (szacunek z chemii i grubości)',
@@ -1386,8 +1684,23 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   hint: _ruleNote(p.rule),
                   valueColor: severity,
                 ),
-                // Nie metoda podgrzewania, tylko górna granica — ale spawacz
-                // szuka jej w tym samym miejscu.
+              ],
+              // Nie metoda podgrzewania, tylko górna granica — ale spawacz
+              // szuka jej w tym samym miejscu. Z katalogu, gdy gatunek ją ma
+              // (P91 250–300 °C, 316L < 175 °C), inaczej typowo C-Mn.
+              if (_material?.interpassMax != null)
+                _MethodRow(
+                  label: context.tr(
+                    pl: 'Temp. międzyściegowa max (praktyka dla gatunku — wg WPS)',
+                    en: 'Max. interpass temp. (grade practice — per WPS)',
+                  ),
+                  value: _material!.interpassMax!,
+                  hint: context.tr(
+                    pl: 'Z katalogu gatunku ${_material!.key}. Wiąże wartość z WPS.',
+                    en: 'From the ${_material!.key} catalog entry. The WPS value is binding.',
+                  ),
+                )
+              else if (!p.stainless) ...[
                 _MethodRow(
                   label: context.tr(
                     pl: 'Temp. międzyściegowa max (typowo — wg WPS)',
@@ -1408,13 +1721,15 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'Te liczby odpowiadają na różne pytania, więc mogą się różnić: '
                       'minimum kodowe to dolna granica kodu rurociągowego dla grupy P-No i grubości, '
                       'Seferian i reguła CE szacują ryzyko pęknięć zimnych ze składu. '
-                      'Normatywne metody obliczeniowe: EN 1011-2 zał. C (metoda A — CE, metoda B — CET, '
-                      'z wodorem i energią liniową). Stosuj temperaturę z WPS; nie niższą niż minimum kodowe.',
+                      'Normatywne metody obliczeniowe: EN 1011-2 zał. C — metoda B (CET, z wodorem i energią liniową) '
+                      'liczona wyżej; metoda A (CE, nomogramy) — odczyt z normy. Stosuj temperaturę z WPS; '
+                      'nie niższą niż minimum kodowe.',
                   en: 'These numbers answer different questions, so they can differ: '
                       'the code minimum is the piping-code lower limit for the P-No and thickness, '
                       'Seferian and the CE rule estimate cold-cracking risk from chemistry. '
-                      'Normative calculation methods: EN 1011-2 Annex C (method A — CE, method B — CET, '
-                      'with hydrogen and heat input). Use the WPS temperature; never below the code minimum.',
+                      'Normative calculation methods: EN 1011-2 Annex C — method B (CET, with hydrogen and heat input) '
+                      'calculated above; method A (CE, nomograms) — read from the standard. Use the WPS temperature; '
+                      'never below the code minimum.',
                 ),
                 style: const TextStyle(color: _kTextSec, fontSize: 11, height: 1.45),
               ),
@@ -1429,31 +1744,34 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
 
         const SizedBox(height: 14),
 
-        _SectionCard(
-          title: context.tr(
-              pl: 'Reguła orientacyjna CE (nienormatywna)',
-              en: 'CE rule of thumb (non-normative)'),
-          child: Column(
-            children: [
-              _CeRow(range: 'CE <0.35', preheat: '0 / 50 °C', note: context.tr(pl: 'Cienka ścianka brak / ≥25 mm (~1") = 50 °C', en: 'Thin: none / ≥25 mm (~1"): 50 °C'), color: _kGreen),
-              _CeRow(range: '0.35-0.45', preheat: '100-150 °C', note: context.tr(pl: 'Niskie podgrzewanie', en: 'Low preheat'), color: _kGold),
-              _CeRow(range: '0.45-0.55', preheat: '150-200 °C', note: context.tr(pl: '+ elektrody niskowodorowe', en: '+ low-H electrodes'), color: _kOrange),
-              _CeRow(range: 'CE >0.55', preheat: '200-300 °C', note: context.tr(pl: '+ rozważ PWHT', en: '+ consider PWHT'), color: _kAccent),
-            ],
+        // Tabela pasm CE ma sens tylko tam, gdzie metody z CE są pokazywane
+        // (nie dla nierdzewnej i Cr-Mo / P91).
+        if (p.ceMethods) ...[
+          _SectionCard(
+            title: context.tr(
+                pl: 'Reguła orientacyjna CE (nienormatywna)',
+                en: 'CE rule of thumb (non-normative)'),
+            child: Column(
+              children: [
+                _CeRow(range: 'CE <0.35', preheat: '0 / 50 °C', note: context.tr(pl: 'Cienka ścianka brak / ≥25 mm (~1") = 50 °C', en: 'Thin: none / ≥25 mm (~1"): 50 °C'), color: _kGreen),
+                _CeRow(range: '0.35-0.45', preheat: '100-150 °C', note: context.tr(pl: 'Niskie podgrzewanie', en: 'Low preheat'), color: _kGold),
+                _CeRow(range: '0.45-0.55', preheat: '150-200 °C', note: context.tr(pl: '+ elektrody niskowodorowe', en: '+ low-H electrodes'), color: _kOrange),
+                _CeRow(range: 'CE >0.55', preheat: '200-300 °C', note: context.tr(pl: '+ rozważ PWHT', en: '+ consider PWHT'), color: _kAccent),
+              ],
+            ),
           ),
-        ),
-
-        const SizedBox(height: 14),
+          const SizedBox(height: 14),
+        ],
 
         _InfoCard(
           icon: Icons.info_outline,
           text: context.tr(
-            pl: 'Stale Cr-Mo (P-No 4, 5A, 15E): metody z CE nie są do nich przeznaczone — '
-                'obowiązuje minimum kodowe i WPS. Katalog (praktyka WPS): P22 200–250 °C, '
-                'PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
-            en: 'Cr-Mo steels (P-No 4, 5A, 15E): CE-based methods are not meant for them — '
-                'the code minimum and the WPS govern. Catalog (WPS practice): P22 200–250 °C, '
-                'PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
+            pl: 'Stale Cr-Mo (P-No 4, 5A, 5B, 5C, 15E): metody z CE nie są do nich przeznaczone, '
+                'więc ekran ich nie pokazuje — obowiązuje minimum kodowe i WPS. Katalog (praktyka WPS): '
+                'P22 200–250 °C, PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
+            en: 'Cr-Mo steels (P-No 4, 5A, 5B, 5C, 15E): CE-based methods are not meant for them, '
+                'so the screen hides them — the code minimum and the WPS govern. Catalog (WPS practice): '
+                'P22 200–250 °C, PWHT 690–720 °C; P91 200–250 °C, PWHT 750–770 °C.',
           ),
         ),
       ],
@@ -1546,7 +1864,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   // P1-26: build the trace combining HI + CE + Preheat + material.
   // Welder pastes this into a WhatsApp message to the inspector — no need to
   // re-type any number.
-  String _buildTraceString(double hi, _PreheatView p) {
+  String _buildTraceString(double? hi, _PreheatView p) {
     final mat = _material?.key ??
         context.tr(pl: 'własny skład', en: 'custom chem.');
     final std = _standard == HeatInputStandard.asmeIx
@@ -1557,18 +1875,33 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 ? 'EN 1011-1 · η ${_eta.toStringAsFixed(2)} (WPS)'
                 : 'EN 1011-1 · η ${_eta.toStringAsFixed(2)}';
     final lines = <String>[
-      'Heat input: ${hi.toStringAsFixed(2)} kJ/mm ($_process · $std)',
+      hi == null
+          ? context.tr(
+              pl: 'Heat input: — (brak wyniku, $_process · $std)',
+              en: 'Heat input: — (no result, $_process · $std)')
+          : 'Heat input: ${_unit.format(hi)} ${_unit.label} ($_process · $std)',
       p.stainless
           ? context.tr(pl: 'CE: nie dotyczy (stal nierdzewna) · Materiał: $mat',
               en: 'CE: n/a (stainless) · Material: $mat')
-          : context.tr(pl: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Materiał: $mat',
-              en: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Material: $mat'),
-      if (_material != null)
+          : p.crMo
+              ? context.tr(
+                  pl: 'CE: nie stosować do stali Cr-Mo — minimum kodowe i WPS · Materiał: $mat',
+                  en: 'CE: not for Cr-Mo steels — code minimum and WPS · Material: $mat')
+              : context.tr(pl: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Materiał: $mat',
+                  en: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Material: $mat'),
+      if (_material != null) ...[
         context.tr(
-          pl: 'Min. kodowe B31.3: ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
-          en: 'Code min. B31.3: ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
+          pl: 'Min. kodowe B31.3 ≥ 2014 (= B31.1 Tab. 131.4.1-1): ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
+          en: 'Code min. B31.3 ≥ 2014 (= B31.1 Tab. 131.4.1-1): ${p.codeMinC == null ? '—' : '${p.codeMinC} °C'}',
         ),
-      if (!p.stainless) ...[
+        context.tr(
+          pl: 'Min. kodowe B31.3-2012: ${p.codeMin2012C == null ? '—' : '${p.codeMin2012C} °C'}',
+          en: 'Code min. B31.3-2012: ${p.codeMin2012C == null ? '—' : '${p.codeMin2012C} °C'}',
+        ),
+      ],
+      if (p.ceMethods) ...[
+        'EN 1011-2 C.3 (CET ${p.cet?.cet.toStringAsFixed(3) ?? '—'}, HD ${_hd.toStringAsFixed(0)}): '
+            '${p.cet?.preheatC == null ? '—' : '${p.cet!.preheatC!.toStringAsFixed(0)} °C'}',
         'Seferian: ${p.seferianC == null ? '—' : '${p.seferianC!.toStringAsFixed(0)} °C ([C] ${p.seferianTotalCe!.toStringAsFixed(3)})'}',
         context.tr(
           pl: 'Reguła CE: ${p.rule.preheatC.toStringAsFixed(0)} °C — ${_ruleNote(p.rule)}',
@@ -1580,7 +1913,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     return lines.join('\n');
   }
 
-  Future<void> _shareTrace(double hi, _PreheatView p) async {
+  Future<void> _shareTrace(double? hi, _PreheatView p) async {
     try {
       await Share.share(
         _buildTraceString(hi, p),
@@ -1634,20 +1967,38 @@ class _PreheatView {
 
   /// Seferian [C] = [C]c × (1 + 0.005·t) — the equivalent the °C comes from.
   final double? seferianTotalCe;
+  /// ASME B31.3 ≥ 2014 (= B31.1-2022 Tab. 131.4.1-1).
   final int? codeMinC;
+
+  /// ASME B31.3-2012 (wydanie zastąpione) — do porównania.
+  final int? codeMin2012C;
+
+  /// Cr-Mo / P91 (P-No 4, 5A, 5B, 5C, 15E): metody z CE ukryte.
+  final bool crMo;
+
+  /// EN 1011-2 zał. C metoda B; null, gdy brak Q.
+  final CetPreheatResult? cet;
+  final double? qEnKjMm;
   const _PreheatView({
+    this.cet,
+    this.qEnKjMm,
     required this.ce,
     required this.thicknessMm,
     required this.stainless,
+    required this.crMo,
     required this.rule,
     required this.seferianC,
     required this.seferianTotalCe,
     required this.codeMinC,
+    required this.codeMin2012C,
   });
+
+  /// Metody szacowania z CE (Seferian, reguła CE) mają sens.
+  bool get ceMethods => !stainless && !crMo;
 
   /// CE ≥ 0.45 (bands "high" and "critical") — cold-cracking warning.
   bool get highCe =>
-      !stainless && (rule.band == CeBand.high || rule.band == CeBand.critical);
+      ceMethods && (rule.band == CeBand.high || rule.band == CeBand.critical);
 }
 
 /// One named preheat method: label + value + one-line "when it applies".

@@ -10,7 +10,8 @@
 //     P-No 15E — ASME split creep-strength-enhanced ferritic steels out of
 //     P-No 5B; a P-5B qualification does not cover P-15E.
 //   - Preheat CODE minimum is NOT stored here — it is computed from P-No and
-//     thickness in lib/domain/welding/preheat.dart (ASME B31.3 Tab. 330.1.1).
+//     thickness in lib/domain/welding/preheat.dart (ASME B31.3 Tab. 330.1.1,
+//     edition >= 2014 = B31.1-2022 Tab. 131.4.1-1, plus the superseded 2012).
 //     The `practice*` notes below are typical WPS practice, not a code value.
 
 class MaterialSpec {
@@ -31,6 +32,15 @@ class MaterialSpec {
 
   final String notesPl, notesEn;
 
+  /// Specified minimum tensile strength [MPa] (ASTM / ASME II-D) — used by the
+  /// code minimum preheat (B31.3 Tab. 330.1.1 thresholds 60 / 65 ksi).
+  /// null = not needed for the grade's P-No.
+  final double? smtsMpa;
+
+  /// Typical max interpass from the same WPS practice as [practicePl]
+  /// (e.g. '300 °C', '< 175 °C'); null = generic C-Mn value on screen.
+  final String? interpassMax;
+
   const MaterialSpec({
     required this.key,
     required this.name,
@@ -48,6 +58,8 @@ class MaterialSpec {
     required this.practiceEn,
     this.notesPl = '',
     this.notesEn = '',
+    this.smtsMpa,
+    this.interpassMax,
   });
 
   /// Numeric part of the P-No (15E → 15, 5A → 5, 10H → 10).
@@ -66,32 +78,35 @@ class MaterialCatalog {
     // ── P-No 1 — C-Mn steels ───────────────────────────────────────────────
     MaterialSpec(
       key: 'A106 B',
+      smtsMpa: 415, // 60 ksi
       name: 'ASTM A106 Gr.B (seamless C-Mn pipe)',
       pNo: '1',
       c: 0.25, mn: 1.06, cr: 0.0, mo: 0.0, v: 0.0, ni: 0.0, cu: 0.0,
       hiMin: 1.0, hiMax: 2.5,
-      practicePl: 'Min. kodowe ASME B31.3: 10 °C (t < 25 mm), 80 °C (t ≥ 25 mm). '
+      practicePl: 'Min. kodowe ASME B31.3 — patrz wiersz „Minimum kodowe” (zależy od wydania i grubości). '
           'Przy wysokim CE potrzeba więcej — patrz metody.',
-      practiceEn: 'Code min. ASME B31.3: 10 °C (t < 25 mm), 80 °C (t ≥ 25 mm). '
+      practiceEn: 'Code min. ASME B31.3 — see the “Code minimum” row (depends on edition and thickness). '
           'A high CE needs more — see the methods.',
       notesPl: 'Najczęstsza rura procesowa CS. CE ~0.43.',
       notesEn: 'The most common CS process pipe. CE ~0.43.',
     ),
     MaterialSpec(
       key: 'A53 B',
+      smtsMpa: 415, // 60 ksi
       name: 'ASTM A53 Gr.B (ERW/seamless C-Mn pipe)',
       pNo: '1',
       c: 0.30, mn: 1.20, cr: 0.0, mo: 0.0, v: 0.0, ni: 0.0, cu: 0.0,
       hiMin: 1.0, hiMax: 2.5,
-      practicePl: 'Min. kodowe ASME B31.3: 10 °C (t < 25 mm), 80 °C (t ≥ 25 mm). '
+      practicePl: 'Min. kodowe ASME B31.3 — patrz wiersz „Minimum kodowe” (zależy od wydania i grubości). '
           'Przy wysokim CE potrzeba więcej — patrz metody.',
-      practiceEn: 'Code min. ASME B31.3: 10 °C (t < 25 mm), 80 °C (t ≥ 25 mm). '
+      practiceEn: 'Code min. ASME B31.3 — see the “Code minimum” row (depends on edition and thickness). '
           'A high CE needs more — see the methods.',
       notesPl: 'Tańszy zamiennik A106, niższa jakość szwu.',
       notesEn: 'Cheaper alternative to A106, lower seam quality.',
     ),
     MaterialSpec(
       key: 'A516 70',
+      smtsMpa: 485, // 70 ksi
       name: 'ASTM A516 Gr.70 (pressure vessel plate)',
       pNo: '1',
       c: 0.27, mn: 1.20, cr: 0.0, mo: 0.0, v: 0.02, ni: 0.0, cu: 0.0,
@@ -104,6 +119,7 @@ class MaterialCatalog {
     // ── P-No 3 — C-Mo / Mn-Mo ──────────────────────────────────────────────
     MaterialSpec(
       key: 'A335 P1',
+      smtsMpa: 380, // 55 ksi (ASME B31.1-2022 Tab. A-2)
       name: 'A335 P1 (C-½Mo pipe)',
       pNo: '3',
       c: 0.20, mn: 0.50, cr: 0.0, mo: 0.50, v: 0.0, ni: 0.0, cu: 0.0,
@@ -116,6 +132,8 @@ class MaterialCatalog {
     // ── P-No 4 — 1¼Cr-½Mo ─────────────────────────────────────────────────
     MaterialSpec(
       key: 'P11 / T11',
+      smtsMpa: 415, // 60 ksi (ASME B31.1-2022 Tab. A-2)
+      interpassMax: '300 °C',
       name: 'A335 P11 (1¼Cr-½Mo)',
       pNo: '4',
       c: 0.15, mn: 0.50, cr: 1.20, mo: 0.55, v: 0.0, ni: 0.0, cu: 0.0,
@@ -128,6 +146,8 @@ class MaterialCatalog {
     // ── P-No 5A — 2¼Cr-1Mo ────────────────────────────────────────────────
     MaterialSpec(
       key: 'P22 / T22',
+      smtsMpa: 415, // 60 ksi (ASME B31.1-2022 Tab. A-2)
+      interpassMax: '300 °C',
       name: 'A335 P22 (2¼Cr-1Mo)',
       pNo: '5A',
       c: 0.12, mn: 0.45, cr: 2.25, mo: 1.0, v: 0.0, ni: 0.0, cu: 0.0,
@@ -140,6 +160,8 @@ class MaterialCatalog {
     // ── P-No 15E — 9Cr-1Mo-V (Grade 91, CSEF) ─────────────────────────────
     MaterialSpec(
       key: 'P91 / T91',
+      smtsMpa: 585, // 85 ksi
+      interpassMax: '250–300 °C',
       name: 'A335 P91 (9Cr-1Mo-V martensitic)',
       pNo: '15E',
       c: 0.10, mn: 0.45, cr: 9.0, mo: 1.0, v: 0.20, ni: 0.30, cu: 0.0,
@@ -164,6 +186,7 @@ class MaterialCatalog {
     // ── P-No 8 — Austenitic SS ─────────────────────────────────────────────
     MaterialSpec(
       key: '304 / 304L',
+      interpassMax: '< 175 °C',
       name: 'AISI 304 / 304L (18-8 austenitic SS)',
       pNo: '8',
       c: 0.03, mn: 1.50, cr: 18.5, mo: 0.0, v: 0.0, ni: 8.5, cu: 0.0,
@@ -175,6 +198,7 @@ class MaterialCatalog {
     ),
     MaterialSpec(
       key: '316 / 316L',
+      interpassMax: '< 175 °C',
       name: 'AISI 316 / 316L (Mo austenitic SS)',
       pNo: '8',
       c: 0.03, mn: 1.50, cr: 17.0, mo: 2.5, v: 0.0, ni: 12.0, cu: 0.0,
@@ -186,6 +210,7 @@ class MaterialCatalog {
     ),
     MaterialSpec(
       key: '321',
+      interpassMax: '< 175 °C',
       name: 'AISI 321 (Ti-stabilised austenitic SS)',
       pNo: '8',
       c: 0.05, mn: 1.50, cr: 17.5, mo: 0.0, v: 0.0, ni: 9.5, cu: 0.0,
@@ -197,6 +222,7 @@ class MaterialCatalog {
     ),
     MaterialSpec(
       key: '347',
+      interpassMax: '< 175 °C',
       name: 'AISI 347 (Nb-stabilised austenitic SS)',
       pNo: '8',
       c: 0.05, mn: 1.50, cr: 18.0, mo: 0.0, v: 0.0, ni: 10.5, cu: 0.0,
@@ -209,6 +235,7 @@ class MaterialCatalog {
     // ── P-No 10H — Duplex / Super Duplex ───────────────────────────────────
     MaterialSpec(
       key: '2205 Duplex',
+      interpassMax: '< 150 °C',
       name: 'UNS S32205 (22Cr Duplex)',
       pNo: '10H',
       c: 0.03, mn: 1.50, cr: 22.0, mo: 3.0, v: 0.0, ni: 5.5, cu: 0.0,
@@ -220,6 +247,7 @@ class MaterialCatalog {
     ),
     MaterialSpec(
       key: '2507 SuperDuplex',
+      interpassMax: '< 100 °C',
       name: 'UNS S32750 (25Cr Super Duplex)',
       pNo: '10H',
       c: 0.03, mn: 1.20, cr: 25.0, mo: 4.0, v: 0.0, ni: 7.0, cu: 0.0,
@@ -232,6 +260,7 @@ class MaterialCatalog {
     // ── P-No 41-45 — Ni alloys ─────────────────────────────────────────────
     MaterialSpec(
       key: 'Inconel 625',
+      interpassMax: '< 120 °C',
       name: 'UNS N06625 (Ni-Cr-Mo, Inconel 625)',
       pNo: '43',
       c: 0.04, mn: 0.20, cr: 21.5, mo: 9.0, v: 0.0, ni: 60.0, cu: 0.0,

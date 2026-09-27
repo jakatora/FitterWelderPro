@@ -34,6 +34,33 @@ class OrbitalEstimate {
     required this.passes,
     required this.heatInputKJmm,
   });
+
+  /// Arc energy without η (ASME IX QW-409.1(a)) — the same number an ASME
+  /// WPS lists as heat input: HI_EN / 0.6.
+  double get arcEnergyKJmm => heatInputKJmm / kOrbitalTigEfficiency;
+}
+
+/// TIG thermal efficiency per EN 1011-1 Table 1 (the η in [heatInputKJmm]).
+const double kOrbitalTigEfficiency = 0.6;
+
+/// Validity range of this AUTOGENOUS thin-wall model. Above ~3 mm wall an
+/// orbital joint needs a bevel, filler wire and several passes (weld head
+/// with wire feed, programmed per WPS) — the model would only extrapolate a
+/// straight line into hundreds of amps. The limits describe the model, not
+/// a code: beyond them the screen shows a message instead of a number.
+const double kOrbitalMaxWallMm = 3.0;
+
+/// Base-current ceiling of the model [A] (thin-wall tube heads).
+const double kOrbitalMaxCurrentA = 200;
+
+enum OrbitalRange { ok, wallTooThick, currentTooHigh }
+
+/// Whether [odMm] × [wallMm] is inside the model's range.
+OrbitalRange checkOrbitalRange({required double odMm, required double wallMm}) {
+  if (wallMm > kOrbitalMaxWallMm) return OrbitalRange.wallTooThick;
+  final base = 48.0 * wallMm + 0.12 * odMm;
+  if (base > kOrbitalMaxCurrentA) return OrbitalRange.currentTooHigh;
+  return OrbitalRange.ok;
 }
 
 /// [odMm] tube outside diameter, [wallMm] wall thickness, [arcVolts] the TIG
@@ -67,7 +94,7 @@ OrbitalEstimate estimateOrbital({
 
   // Heat input kJ/mm = η · V · I / (v in mm/s) / 1000.
   final vMmS = travel / 60.0;
-  final hi = 0.6 * arcVolts * base / vMmS / 1000.0;
+  final hi = kOrbitalTigEfficiency * arcVolts * base / vMmS / 1000.0;
 
   return OrbitalEstimate(
     circumferenceMm: circ,

@@ -86,9 +86,20 @@ void main() {
     expect(find.text('8 × 5/8" bolts'), findsOneWidget);
     expect(find.text('134'), findsOneWidget);
     expect(
-      find.text('8 bolts × 134 N·m, star 25/50/75/100%'),
+      find.text('8 bolts × 134 N·m, rounds per ASME PCC-1'),
       findsOneWidget,
     );
+    // PCC-1-2019 tab. 1: 20–30 % / 50–70 % / 100 % z 134,07 N·m:
+    //  26,8–40,2 → „27–40” N·m (19,8–29,7 → „20–30” ft·lb);
+    //  67,0–93,8 → „67–94” N·m (49,4–69,2 → „49–69” ft·lb); 100 % → 134 (99).
+    expect(find.text('Round 1: 20–30 % → 27–40 N·m (20–30 ft·lb)'),
+        findsOneWidget);
+    expect(find.text('Round 2: 50–70 % → 67–94 N·m (49–69 ft·lb)'),
+        findsOneWidget);
+    expect(find.text('Round 3: 100 % → 134 N·m (99 ft·lb)'), findsOneWidget);
+    // Runda 5 po min. 4 h (PCC-1), nie „20 min – 4 h”.
+    expect(find.textContaining('minimum of 4 h'), findsOneWidget);
+    expect(find.textContaining('20 min'), findsNothing);
   });
 
   // Śruby > 1": gwint 8UN wg ASME B16.5, A_s wg ASME B1.1.
@@ -119,8 +130,47 @@ void main() {
     expect(find.text('844'), findsOneWidget);
   });
 
-  test('katalog B16.5 odrzuca DN15 × Class 1500', () {
-    expect(FlangeCatalog.lookup(15, 1500), isNull);
+  // ASME B16.5 — śruby (wermac.org, „Stud Bolts”, WN Class 600/900/1500):
+  //  Class 600: ½" 4×½, ¾" 4×⅝, 1" 4×⅝, 1¼" 4×⅝, 1½" 4×¾, 2" 8×⅝, 2½" 8×¾
+  //  Class 900 = 1500 dla NPS ½–2½: ½" 4×¾, ¾" 4×¾, 1" 4×⅞, 1¼" 4×⅞,
+  //    1½" 4×1, 2" 8×⅞, 2½" 8×1
+  //  Dawniej DN15 × Class 1500 było „brak w B16.5” — nieprawda.
+  test('katalog B16.5: Class 600/900/1500 dla DN15–65', () {
+    const expected = <(int, int), (int, String)>{
+      (15, 600): (4, '1/2'),
+      (20, 600): (4, '5/8'),
+      (25, 600): (4, '5/8'),
+      (32, 600): (4, '5/8'),
+      (40, 600): (4, '3/4'),
+      (50, 600): (8, '5/8'),
+      (65, 600): (8, '3/4'),
+      (15, 900): (4, '3/4'),
+      (20, 900): (4, '3/4'),
+      (25, 900): (4, '7/8'),
+      (32, 900): (4, '7/8'),
+      (40, 900): (4, '1'),
+      (50, 900): (8, '7/8'),
+      (65, 900): (8, '1'),
+      (15, 1500): (4, '3/4'),
+      (20, 1500): (4, '3/4'),
+      (25, 1500): (4, '7/8'),
+      (32, 1500): (4, '7/8'),
+      (40, 1500): (4, '1'),
+      (50, 1500): (8, '7/8'),
+      (65, 1500): (8, '1'),
+    };
+    for (final e in expected.entries) {
+      final b = FlangeCatalog.lookup(e.key.$1, e.key.$2);
+      expect(b, isNotNull, reason: 'DN${e.key.$1} × #${e.key.$2}');
+      expect((b!.boltCount, b.boltSize), e.value,
+          reason: 'DN${e.key.$1} × #${e.key.$2}');
+    }
+    // Pełna siatka DN × klasa z listy wyboru — żadnej dziury.
+    for (final dn in FlangeCatalog.dns) {
+      for (final cls in FlangeCatalog.classes) {
+        expect(FlangeCatalog.lookup(dn, cls), isNotNull, reason: 'DN$dn × #$cls');
+      }
+    }
     final dn100 = FlangeCatalog.lookup(100, 150);
     expect(dn100, isNotNull);
     expect(dn100!.boltCount, 8);

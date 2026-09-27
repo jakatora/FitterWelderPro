@@ -42,3 +42,51 @@ const double kPrePurgeFlowLpmMax = 20;
 
 /// Flow to reduce to while welding [L/min] — about this or less.
 const double kWeldingPurgeFlowLpmMax = 5;
+
+// Outlet (vent) velocity bands used by Pipes → Gases. HEURISTIC, not a
+// code: very high velocity through small vent holes means the outlet chokes
+// and the pipe pressurises (concave root). One set of numbers for the
+// warning text AND the "golden middle" button, so the button can never
+// recommend a flow that the same screen then warns about (review G4: the
+// old per-hole rule gave 11 m/s against a 6 m/s warning).
+
+/// Below this the outlet is "very open" [m/s].
+const double kVentVelocityLowMs = 0.5;
+
+/// Upper end of the comfortable band [m/s].
+const double kVentVelocityComfortMs = 3.0;
+
+/// Above this: back-pressure warning [m/s].
+const double kVentVelocityBackPressureMs = 6.0;
+
+/// "Golden middle" target inside the comfortable band [m/s].
+const double kVentVelocityTargetMs = 2.0;
+
+/// Total vent area [mm²] of [holes] round holes Ø[holeDiaMm].
+double ventAreaMm2({required int holes, required double holeDiaMm}) =>
+    holes <= 0 || !(holeDiaMm > 0)
+        ? 0
+        : holes * math.pi * holeDiaMm * holeDiaMm / 4;
+
+/// Mean outlet velocity [m/s] for [flowLpm] through the vents.
+double ventVelocityMs({
+  required double flowLpm,
+  required int holes,
+  required double holeDiaMm,
+}) {
+  final a = ventAreaMm2(holes: holes, holeDiaMm: holeDiaMm);
+  if (a <= 0) return double.infinity;
+  return flowLpm * 1e6 / 60 / a / 1000; // mm³/s ÷ mm² = mm/s → m/s
+}
+
+/// Flow [L/min] giving [velocityMs] at the outlet.
+double flowForVentVelocityLpm({
+  required double velocityMs,
+  required int holes,
+  required double holeDiaMm,
+}) =>
+    ventAreaMm2(holes: holes, holeDiaMm: holeDiaMm) *
+    velocityMs *
+    1000 *
+    60 /
+    1e6;

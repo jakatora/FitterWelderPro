@@ -195,6 +195,64 @@ void main() {
     expect(fx.keepsScreenOn, isFalse);
   });
 
+  // Przegląd G4: dotknięcie „Purge” w trakcie chłodzenia kasowało odliczanie
+  // bez pytania.
+  testWidgets('zmiana trybu przy biegnącym odliczaniu pyta o potwierdzenie',
+      (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Cooldown'));
+    await tester.pump();
+    await tester.enterText(_field('Cool time (min)'), '8');
+    await tester.pump();
+    await tester.tap(find.text('Start'));
+    await tester.pump(const Duration(seconds: 10));
+
+    await tester.tap(find.text('Purge'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stop the countdown?'), findsOneWidget);
+    await tester.tap(find.text('No, keep it'));
+    await tester.pumpAndSettle();
+    expect(WeldTimerService.instance.mode, WeldTimerMode.cool);
+    expect(WeldTimerService.instance.running, isTrue);
+
+    await tester.tap(find.text('Purge'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stop it'));
+    await tester.pumpAndSettle();
+    expect(WeldTimerService.instance.mode, WeldTimerMode.purge);
+    expect(WeldTimerService.instance.running, isFalse);
+  });
+
+  testWidgets('bez odliczania zmiana trybu nie pyta', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Cooldown'));
+    await tester.pumpAndSettle();
+    expect(find.text('Stop the countdown?'), findsNothing);
+    expect(WeldTimerService.instance.mode, WeldTimerMode.cool);
+  });
+
+  // O₂ Purge: 60,3 × 2, L = 1000 mm, Q = 10 L/min, cel 20 ppm → 138 s
+  // („2m 18s”); przycisk startuje odliczanie w serwisie (alarm jak Timer).
+  testWidgets('O₂ Purge: „Start timera purge” uruchamia serwis', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.widgetWithText(Tab, 'O₂ Purge'));
+    await tester.pumpAndSettle();
+    await tester.enterText(_field('OD (mm)'), '60.3');
+    await tester.enterText(_field('t (mm)'), '2');
+    await tester.enterText(_field('Section length to purge (mm)'), '1000');
+    await tester.enterText(_field('Gas flow Q (L/min)'), '10');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Start purge timer (2m 18s)'));
+    await tester.tap(find.text('Start purge timer (2m 18s)'));
+    await tester.pump();
+    final t = WeldTimerService.instance;
+    expect(t.mode, WeldTimerMode.purge);
+    expect(t.running, isTrue);
+    expect(t.purgeSeconds, 139); // 138,3 s w górę
+    t.reset();
+    await tester.pump();
+  });
+
   testWidgets('pierwszy start odliczania prosi o zgodę na powiadomienia',
       (tester) async {
     await pumpApp(tester);

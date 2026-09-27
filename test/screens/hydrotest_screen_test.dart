@@ -207,4 +207,98 @@ void main() {
     expect(meta.reliefSetBar, 19.5);
     await tester.pumpAndSettle();
   });
+
+  // B31.3 hydro, P = 10 → Pt = 15,00 bar. Najwyższy punkt 10 m nad
+  // manometrem: 15 + 10 · 0,0980665 = 15,98 bar; najniższy 5 m pod
+  // manometrem: 15,98 + 0,49 = 16,47 bar.
+  testWidgets('słup wody: odczyt manometru i najniższy punkt; arkusz porównuje '
+      'ciśnienie początkowe z odczytem', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'Design pressure (bar)', '10');
+    await _enter(tester, 'Highest point above gauge (m)', '10');
+    await _enter(tester, 'Lowest point below gauge (m)', '5');
+    expect(find.text('15.98 bar'), findsOneWidget);
+    expect(find.textContaining('lowest point: 16.47 bar'), findsOneWidget);
+
+    await _tapText(tester, 'Save test');
+    expect(_textField(tester, 'Start pressure (bar)').decoration!.hintText,
+        'calc. 15.98');
+    // 15,5 bar ≥ Pt, ale < odczytu wymaganego przy tym manometrze.
+    await _enter(tester, 'Start pressure (bar)', '15,5');
+    expect(find.textContaining('Start pressure below the required 15.98 bar'),
+        findsOneWidget);
+    await _enter(tester, 'Start pressure (bar)', '16');
+    expect(find.textContaining('Start pressure below the required'),
+        findsNothing);
+  });
+
+  testWidgets('arkusz: PASS przy ciśnieniu < Pt → ostrzeżenie i oznaczenie '
+      'na protokole', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'Design pressure (bar)', '10'); // Pt 15,00
+    await _tapText(tester, 'Save test');
+    await _enter(tester, 'System / line *', 'LOW-1');
+    await _enter(tester, 'Start pressure (bar)', '12');
+    expect(find.textContaining('marked NOT CODE-COMPLIANT'), findsOneWidget);
+    await _tapText(tester, 'PASS');
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    for (var i = 0; i < 3; i++) {
+      await flushTestDatabase(tester);
+      await tester.pump();
+    }
+    final rows = await tester.runAsync(() => HydrotestDao().listAll());
+    final r = rows!.firstWhere((x) => x.systemName == 'LOW-1');
+    expect(hydrotestPassNotCompliant(r), isTrue);
+    expect(hydrotestStartPressureNote(r), contains('NIE SPEŁNIA'));
+    await tester.pumpAndSettle();
+  });
+
+  // Pneumatyczna P = 10 → Pt 11,00, maks. 1,33 · P = 13,30 bar.
+  // OD 60,3 × 3,91, Re 5 MPa: P(90 % Re) = 2 · 3,91 · 4,5 / 60,3 · 10
+  // = 5,84 bar < 13,30 → maks. Pt = 5,84 bar, Pt 11 bar za wysokie.
+  testWidgets('pneumatyczna: Re → 90 % Re; arkusz: start > 1,33·P',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'OD (mm)', '60,3');
+    await _enter(tester, 'Wall t (mm)', '3,91');
+    await _enter(tester, 'Design pressure (bar)', '10');
+    await _tapText(tester, 'ASME B31.3 — pneumatic');
+    expect(_field('Highest point above gauge (m)'), findsNothing,
+        reason: 'słup gazu pomijalny');
+    await _enter(tester, 'Yield at test temp. (MPa) — optional', '5');
+    expect(find.textContaining('at 90 % of yield = 5.84 bar'), findsOneWidget);
+    expect(find.textContaining('exceeds the maximum'), findsOneWidget);
+    await _enter(tester, 'Yield at test temp. (MPa) — optional', '240');
+    // Re 240: P(90 % Re) = 280,1 bar > 13,30 → maks. Pt = 13,30 bar.
+    expect(find.textContaining('at 90 % of yield = 13.30 bar'),
+        findsOneWidget);
+    expect(find.textContaining('exceeds the maximum'), findsNothing);
+
+    await _tapText(tester, 'Save test');
+    await _enter(tester, 'Start pressure (bar)', '14');
+    expect(find.textContaining('Start pressure above the max 1.33·P = 13.30'),
+        findsOneWidget);
+    // §345.5.1: zawór ≤ 11 + min(3,45; 1,1) = 12,10 bar.
+    await _enter(tester, 'Relief valve set pressure (bar)', '13');
+    expect(find.textContaining('= 12.10 bar (ASME B31.3 §345.5.1)'),
+        findsOneWidget);
+    await _enter(tester, 'Relief valve set pressure (bar)', '12');
+    expect(find.textContaining('§345.5.1).'), findsNothing);
+  });
+
+  testWidgets('EN 13480-5: σ/Re i granica „do potwierdzenia w normie”',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'OD (mm)', '60,3');
+    await _enter(tester, 'Wall t (mm)', '3,91');
+    await _enter(tester, 'Design pressure (bar)', '10');
+    await _tapText(tester, 'EN 13480-5 / PED — hydrostatic');
+    await _enter(tester, 'Yield at test temp. (MPa) — optional', '240');
+    // Pt 14,30 bar → σ = 1,43 · 60,3 / (2 · 3,91) = 11,0 MPa = 5 % Re.
+    expect(find.textContaining('(5 % of yield)'), findsOneWidget);
+    expect(find.textContaining('to be confirmed in the standard'),
+        findsWidgets);
+  });
 }

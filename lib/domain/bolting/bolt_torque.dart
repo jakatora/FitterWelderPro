@@ -148,3 +148,57 @@ BoltTorqueResult boltTorque({
   final tNm = nutFactor * fN * (size.diameterMm / 1000.0);
   return BoltTorqueResult(stressAreaMm2: asMm2, preloadN: fN, torqueNm: tNm);
 }
+
+/// Runda dokręcania wg ASME PCC-1-2019, tab. 1 (procedura „legacy”):
+///  1 — 20–30 % momentu docelowego (na krzyż),
+///  2 — 50–70 % (na krzyż),
+///  3 — 100 % (na krzyż),
+///  4 — 100 % okrężnie, aż nakrętki przestaną się obracać,
+///  5 — „time permitting, wait a minimum of 4 h and repeat Round 4”.
+class Pcc1Round {
+  final int round;
+  final double minFraction;
+  final double maxFraction;
+  final double targetNm;
+
+  const Pcc1Round(this.round, this.minFraction, this.maxFraction, this.targetNm);
+
+  double get minNm => targetNm * minFraction;
+  double get maxNm => targetNm * maxFraction;
+
+  /// '20–30 %' albo '100 %'.
+  String get label => minFraction == maxFraction
+      ? '${(minFraction * 100).round()} %'
+      : '${(minFraction * 100).round()}–${(maxFraction * 100).round()} %';
+
+  String formatNm() => minFraction == maxFraction
+      ? minNm.toStringAsFixed(0)
+      : '${minNm.toStringAsFixed(0)}–${maxNm.toStringAsFixed(0)}';
+
+  String formatFtLb() => minFraction == maxFraction
+      ? (minNm / kNmPerFtLb).toStringAsFixed(0)
+      : '${(minNm / kNmPerFtLb).toStringAsFixed(0)}–'
+          '${(maxNm / kNmPerFtLb).toStringAsFixed(0)}';
+}
+
+/// Rundy 1–3 z momentami [N·m] dla [targetNm] (rundy 4–5 to 100 %).
+List<Pcc1Round> pcc1LegacyRounds(double targetNm) => [
+      Pcc1Round(1, 0.20, 0.30, targetNm),
+      Pcc1Round(2, 0.50, 0.70, targetNm),
+      Pcc1Round(3, 1.0, 1.0, targetNm),
+    ];
+
+/// Linie do udostępnianej notatki (PL / EN).
+String pcc1ShareLines(double targetNm, {required bool english}) {
+  final r = pcc1LegacyRounds(targetNm);
+  final rounds = r
+      .map((x) => english
+          ? 'Round ${x.round}: ${x.label} = ${x.formatNm()} N·m (cross)'
+          : 'Runda ${x.round}: ${x.label} = ${x.formatNm()} N·m (na krzyż)')
+      .join('\n');
+  return english
+      ? '$rounds\nRound 4: 100 % circular until no nut rotation.\n'
+          'Round 5: after min. 4 h repeat Round 4 (ASME PCC-1).'
+      : '$rounds\nRunda 4: 100 % okrężnie, aż nakrętki staną.\n'
+          'Runda 5: po min. 4 h powtórz rundę 4 (ASME PCC-1).';
+}

@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n/app_language.dart';
 
-import '../community_sync_service.dart';
 import '../local_repo.dart';
 import '../welder_pipe_param.dart';
-import '../param_signature.dart';
 import '../../../widgets/number_field.dart';
 
 enum WeldTempo { slow, normal, fast }
@@ -44,10 +42,8 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
   final _formKey = GlobalKey<FormState>();
 
   final _repo = WelderPipeLocalRepo();
-  final _sync = WelderPipeCommunitySyncService();
 
   bool _saving = false;
-  bool _sendToCommunity = true;
 
   String _material = 'CARBON_STEEL';
   final _odCtrl = TextEditingController();
@@ -154,37 +150,19 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
       final wireEnabled = _wireEnabled;
       final wireMm = wireEnabled ? _parse(_wireCtrl.text.trim()) : null;
 
-      final payload = <String, dynamic>{
-        'module': 'welder_pipe',
-        'material': _material.trim().toUpperCase(),
-        'od_mm': od,
-        'wt_mm': wt,
-        'amps': amps,
-        'method': _method,
-        'cup_size': cup,
-        'electrode_mm': electrode,
-        'torch_gas': _torchGas.trim().toUpperCase(),
-        'pipe_gas': _pipeGas.trim().toUpperCase(),
-        'purge_enabled': purgeEnabled,
-        'purge_flow_lpm': purgeFlow,
-        'wire_enabled': wireEnabled,
-        'wire_mm': wireMm,
-      };
-
-      final sig = WelderPipeSignature.signature(payload);
       final now = DateTime.now();
 
       final param = WelderPipeParam(
         id: widget.existing?.id,
-        material: payload['material'],
+        material: _material.trim().toUpperCase(),
         odMm: od,
         wtMm: wt,
         amps: amps,
         method: _method,
         cupSize: cup,
         electrodeMm: electrode,
-        torchGas: payload['torch_gas'] as String,
-        pipeGas: payload['pipe_gas'] as String,
+        torchGas: _torchGas.trim().toUpperCase(),
+        pipeGas: _pipeGas.trim().toUpperCase(),
         outletHolesCount: int.tryParse(_outletHolesCtrl.text.trim()) ?? 1,
         weldTempo: tempoDb(_tempo),
         purgeEnabled: purgeEnabled,
@@ -192,17 +170,16 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
         wireEnabled: wireEnabled,
         wireMm: wireMm,
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-        signature: sig,
+        // Repozytorium liczy sygnaturę wiersza samo (local_repo.dart) — jedna
+        // funkcja, jeden wynik.
+        signature: '',
         createdAt: widget.existing?.createdAt ?? now,
         updatedAt: now,
       );
 
+      // Zapis wyłącznie lokalny. Dawna „pula 100/100” oznaczała wpisy jako
+      // wysłane bez żadnego żądania HTTP — usunięta (przegląd G7).
       await _repo.upsertMyParam(id: widget.existing?.id, param: param);
-
-      if (_sendToCommunity) {
-        await _sync.submitMyParamToCommunity(payload);
-        await _sync.syncOutboxOnce();
-      }
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -451,14 +428,6 @@ class _WelderPipeParamEditScreenState extends State<WelderPipeParamEditScreen> {
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-
-              SwitchListTile(
-                value: _sendToCommunity,
-                onChanged: _saving ? null : (v) => setState(() => _sendToCommunity = v),
-                title: Text(trL(pl: 'Dodaj do puli 100/100 (społeczność)', en: 'Add to 100/100 pool (community)')),
-                subtitle: Text(trL(pl: 'Jeśli 100 różnych osób doda identyczne – trafi do zatwierdzonych', en: 'If 100 different people add the same entry, it becomes approved')),
               ),
               const SizedBox(height: 12),
 

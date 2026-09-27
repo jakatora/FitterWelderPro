@@ -93,6 +93,44 @@ void main() {
       expect(find.text('0.48'), findsOneWidget);
     });
 
+    // ASME IX GTAW 12 V / 100 A / 90 mm/min = 0,80 kJ/mm = 20,3 kJ/in
+    // = 20 320 J/in; zakres WPS wpisany w kJ/mm przeliczany przy zmianie.
+    testWidgets('jednostki kJ/mm ↔ kJ/in ↔ J/in dla wyniku i zakresu WPS',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.text('GTAW'));
+      await tester.pump();
+      await tester.tap(find.text('ASME IX'));
+      await tester.pump();
+      await _enter(tester, 'Max', '1');
+      expect(find.text('0.80'), findsOneWidget);
+
+      await tester.tap(find.text('J/in'));
+      await tester.pump();
+      expect(find.text('20320'), findsOneWidget);
+      expect(tester.widget<TextField>(_field('Max')).controller!.text, '25400');
+      expect(find.textContaining('Within WPS range'), findsOneWidget);
+
+      await tester.tap(find.text('kJ/in'));
+      await tester.pump();
+      expect(find.text('20.3'), findsOneWidget);
+      expect(tester.widget<TextField>(_field('Max')).controller!.text, '25.4');
+    });
+
+    // L = 300 mm, t = 90 s → v = 300/90·60 = 200 mm/min.
+    testWidgets('v z długości ściegu i czasu jarzenia', (tester) async {
+      await _pump(tester);
+      await _enter(tester, 'Travel speed', '150');
+      await _enter(tester, 'Bead length', '300');
+      await _enter(tester, 'Arc time', '90');
+      await tester.tap(find.text('Use v = 200 mm/min'));
+      await tester.pump();
+      expect(tester.widget<TextField>(_field('Travel speed')).controller!.text,
+          '200');
+      // SMAW 22 V / 110 A / 200 mm/min → 0,58 kJ/mm
+      expect(find.text('0.58'), findsOneWidget);
+    });
+
     testWidgets('FCAW-S ma η 0,80 (EN 1011-1), nie 0,75', (tester) async {
       await _pump(tester);
       await tester.tap(find.text('FCAW-S'));
@@ -117,8 +155,11 @@ void main() {
       expect(find.text('125 °C'), findsOneWidget);
       // Seferian: [C]c 0,3678 · 1,075 → 133 °C
       expect(find.text('133 °C'), findsOneWidget);
-      // minimum kodowe ASME B31.3 Tab. 330.1.1, P-No 1, t < 25 mm → 10 °C
-      expect(find.text('10 °C'), findsOneWidget);
+      // minimum kodowe ASME B31.3 Tab. 330.1.1, P-No 1, t ≤ 25 mm → 10 °C —
+      // w wydaniu ≥ 2014 i w zastąpionym 2012 (dwa wiersze z wydaniem).
+      expect(find.text('10 °C'), findsNWidgets(2));
+      expect(find.textContaining('B31.3 ≥ 2014'), findsWidgets);
+      expect(find.textContaining('B31.3-2012'), findsWidgets);
       expect(find.textContaining('B31.3'), findsWidgets);
       expect(find.textContaining('different questions'), findsOneWidget,
           reason: 'wyjaśnienie, dlaczego liczby się różnią');
@@ -137,6 +178,77 @@ void main() {
 
       expect(find.textContaining('P-No 15E'), findsWidgets);
       expect(find.textContaining('P-No 5 '), findsNothing);
+    });
+
+    // Przegląd G4: P91 (9 % Cr, poniżej progu nierdzewnej) dostawał
+    // Seferiana 365 °C i czerwone „CE ≥ 0.45” (CE 2,235) obok minimum 200 °C.
+    testWidgets('P91 / P22: bez Seferiana i reguły CE; minimum kodowe i WPS',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.widgetWithText(Tab, 'Preheat / CE'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('P91 / T91'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Seferian ('), findsNothing);
+      expect(find.textContaining('CE rule of thumb', findRichText: true),
+          findsNothing);
+      expect(find.textContaining('CE RULE OF THUMB', findRichText: true),
+          findsNothing);
+      expect(find.text('365 °C'), findsNothing);
+      expect(find.text('2.235'), findsNothing);
+      expect(find.textContaining('high risk of cold cracking'), findsNothing);
+      expect(find.textContaining('are not meant for it'), findsOneWidget);
+      // P-No 15E: 200 °C w obu wydaniach.
+      expect(find.text('200 °C'), findsNWidgets(2));
+      expect(find.text('Temperature from the WPS'), findsOneWidget);
+      // Max interpass z katalogu P91, nie „typowo 250 °C”.
+      expect(find.text('250–300 °C'), findsOneWidget);
+
+      // P22 (5A, SMTS 60 ksi), t = 20 mm: aktualne 150 °C, 2012: 175 °C.
+      await tester.tap(find.text('P22 / T22'));
+      await tester.pumpAndSettle();
+      await _enter(tester, 'Thickness', '20');
+      expect(find.text('150 °C'), findsOneWidget);
+      expect(find.text('175 °C'), findsOneWidget);
+      expect(find.textContaining('Seferian ('), findsNothing);
+    });
+
+    // EN 1011-2 zał. C metoda B: domyślnie C 0,20 / Mn 1,00 → CET 0,30,
+    // t = 15 mm, SMAW 22 V / 110 A / 200 mm/min → Q = 0,5808 kJ/mm, HD 10:
+    //   697·0,30 = 209,1; 160·tanh(15/35) = 64,66; 62·10^0,35 = 138,80;
+    //   (53·0,30 − 32)·0,5808 = −9,35 → Tp = 75,2 °C → „75 °C”.
+    // HD 5: 62·5^0,35 = 108,90 → 45,3 → „45 °C”. t = 8 mm → poza zakresem.
+    testWidgets('EN 1011-2 metoda B liczona z Q z pierwszej zakładki',
+        (tester) async {
+      await _pump(tester);
+      await tester.tap(find.widgetWithText(Tab, 'Preheat / CE'));
+      await tester.pumpAndSettle();
+      expect(find.text('EN 1011-2 Annex C, method B (CET, hydrogen, heat input)'),
+          findsOneWidget);
+      expect(find.text('75 °C'), findsOneWidget);
+      await tester.tap(find.text('HD 5'));
+      await tester.pumpAndSettle();
+      expect(find.text('45 °C'), findsOneWidget);
+      await _enter(tester, 'Thickness', '8');
+      expect(find.textContaining('thickness outside 10–90 mm'), findsOneWidget);
+    });
+
+    testWidgets('DN/SCH ustawia grubość do obliczeń', (tester) async {
+      SharedPreferences.setMockInitialValues(
+          {'heat_input_pipe_dn': 200, 'heat_input_pipe_sch': '80'});
+      tester.view.physicalSize = const Size(1200, 3400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(Tab, 'Preheat / CE'));
+      await tester.pumpAndSettle();
+
+      // ASME B36.10M DN200 Sch 80: 12,70 mm.
+      expect(tester.widget<TextField>(_field('Thickness')).controller!.text,
+          '12.7');
+      expect(find.textContaining('t = 13 mm'), findsOneWidget);
     });
 
     testWidgets('wybór gatunku nie wpisuje „typowego” zakresu jako WPS',
@@ -256,6 +368,13 @@ void main() {
       await _enter(tester, eta, '0,8,5');
       expect(find.text('Invalid number'), findsOneWidget);
       expect(find.textContaining('NaN'), findsNothing);
+      // Brak wyniku to „—”, nie „0.00 kJ/mm”, i nie da się go skopiować.
+      expect(find.text('0.00'), findsNothing);
+      expect(find.text('—'), findsOneWidget);
+      expect(find.textContaining('No result'), findsOneWidget);
+      final copy = tester.widget<OutlinedButton>(find.ancestor(
+          of: find.text('Copy result'), matching: find.byType(OutlinedButton)));
+      expect(copy.onPressed, isNull);
 
       // ASME IX nie używa η — pola nie ma, wynik bez η.
       await tester.tap(find.text('ASME IX'));
