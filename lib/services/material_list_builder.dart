@@ -1,3 +1,4 @@
+import '../database/component_heat_dao.dart';
 import '../database/component_library_dao.dart';
 import '../database/project_dao.dart';
 import '../database/segment_dao.dart';
@@ -5,6 +6,8 @@ import '../models/library_component.dart';
 import '../models/material_item.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
+import 'cut_list_summary.dart';
+import 'heat_traceability.dart';
 
 /// Identity of the fitting at one end of a segment — what decides whether
 /// two segment ends can be the same physical piece.
@@ -47,8 +50,22 @@ class MaterialListBuilder {
   final SegmentDao _segments;
   final ComponentLibraryDao _library;
   final ProjectDao? _projects;
+  final ComponentHeatDao? _heats;
 
-  MaterialListBuilder(this._segments, this._library, [this._projects]);
+  MaterialListBuilder(this._segments, this._library,
+      [this._projects, this._heats]);
+
+  /// Heat numbers recorded for the project, one row per place — appended to
+  /// the copied / shared BOM. Empty when the builder has no heat DAO.
+  Future<List<HeatReportRow>> heatReport(String projectId,
+      {required bool english}) async {
+    final heats = _heats;
+    if (heats == null) return const [];
+    final segs = await _segments.listForProject(projectId);
+    final trace =
+        await loadHeatTrace(projectId, segs, heats: heats, library: _library);
+    return trace.report(english: english);
+  }
 
   /// Project name for the BOM title (copy / share); null when unknown or when
   /// the builder was created without a [ProjectDao].
@@ -72,13 +89,7 @@ class MaterialListBuilder {
 
   Future<List<MaterialItem>> buildForProject(String projectId) async {
     final segs = await _segments.listForProject(projectId);
-
-    // PIPE totals (length sum by diameter+wall)
-    final pipeMap = <String, double>{};
-    for (final s in segs) {
-      final key = 'PIPE|${s.diameterMm}|${s.wallThicknessMm}';
-      pipeMap[key] = (pipeMap[key] ?? 0) + s.cutMm;
-    }
+    final project = await _projects?.getById(projectId);
 
     // Resolve every library entry once; remember how the segments describe
     // an id in case the entry has since been deleted from the library.
@@ -102,21 +113,7 @@ class MaterialListBuilder {
           : portsForType(library[key.libraryId]?.type),
     );
 
-    final items = <MaterialItem>[];
-
-    // Pipes first
-    for (final e in pipeMap.entries) {
-      final parts = e.key.split('|');
-      final diameter = double.parse(parts[1]);
-      final wall = double.parse(parts[2]);
-      items.add(
-        MaterialItem(
-          category: 'PIPE',
-          description: 'Pipe Ø${diameter.toStringAsFixed(1)} x ${wall.toStringAsFixed(1)}',
-          totalLengthMm: e.value,
-        ),
-      );
-    }
+    final items = <MaterialItem>[...pipeItems(segs, project: project)];
 
     // Components
     for (final entry in counts.entries) {
@@ -171,6 +168,36 @@ class MaterialListBuilder {
     });
 
     return items;
+  }
+
+  /// PIPE rows, one per Ø × wall, from the SAME nesting as the cut list
+  /// ([summarizeCutList]: stock length, saw kerf, split cuts shortened by the
+  /// joining weld's gap). The BOM used to add up the net CUT only — the
+  /// storeroom ordered 5.9 m where the saw needed two 6 m bars.
+  ///
+  /// Without a [project] (stock length unknown) the rows carry the net length
+  /// only and [MaterialItem.bars] stays null.
+  static List<MaterialItem> pipeItems(List<Segment> segs, {Project? project}) {
+    final summary = summarizeCutList(
+      segments: segs,
+      stockLengthMm: project?.stockLengthMm ?? 0,
+      sawKerfMm: project?.sawKerfMm ?? 0,
+      joinGapMm: project?.gapMm ?? 0,
+    );
+    return [
+      for (final g in summary.groups)
+        MaterialItem(
+          category: 'PIPE',
+          description: 'Pipe Ø${g.diameterMm.toStringAsFixed(1)} x '
+              '${g.wallMm.toStringAsFixed(1)}',
+          totalLengthMm: g.cutsMm
+              .where((c) => c.isFinite && c > 0)
+              .fold<double>(0, (s, c) => s + c),
+          diameterMm: g.diameterMm,
+          bars: project == null ? null : g.plans.length,
+          stockLengthMm: project?.stockLengthMm,
+        ),
+    ];
   }
 
   /// BOM row for a fitting known only by its end kind. [description] is an
@@ -235,6 +262,34 @@ class MaterialListBuilder {
     return null;
   }
 
+  /// Whether the fitting at the END of one segment ([end]) and the one at the
+  /// START of the next ([start]) are the same piece of steel — the joint rule
+  /// shared by the BOM count ([countFittings]) and the heat-number list
+  /// (`traceabilityPoints`), so both see the same fittings.
+  ///
+  /// * Same key (same library entry, or same kind/OD/take-out) → one piece,
+  ///   unless it has a single weld port (flange: a bolted PAIR).
+  /// * No library entry on either side (ISO scan / sketch — the type is not
+  ///   stored) and the same kind: one piece even when the keys differ,
+  ///   because the key carries what differs legitimately across ONE fitting:
+  ///   a body fitting (`nonAxial`) between two ODs is a reducer; an axial
+  ///   fitting measured to the axis on one side and to the face (0) on the
+  ///   other is still one elbow. Axial fittings still need the same OD.
+  static bool isSameFittingAtJoint(FittingKey end, FittingKey? start,
+      {int ports = 2}) {
+    if (start == null || ports < 2) return false;
+    if (end == start) return true;
+    if (end.libraryId != null || start.libraryId != null) return false;
+    if (end.kind != start.kind) return false;
+    if (end.kind == 'nonAxial') return true;
+    if (end.kind == 'axial') {
+      final a = end.diameterMm;
+      final b = start.diameterMm;
+      return a != null && b != null && (a - b).abs() <= 0.05;
+    }
+    return false;
+  }
+
   /// Number of PHYSICAL fittings per [FittingKey].
   ///
   /// `library_id` identifies an ENTRY IN THE COMPONENT LIBRARY (a fitting
@@ -296,7 +351,8 @@ class MaterialListBuilder {
 
     for (var i = 0; i + 1 < ordered.length; i++) {
       final key = ends[i];
-      if (key != null && key == starts[i + 1] && ports(key) >= 2) {
+      if (key != null &&
+          isSameFittingAtJoint(key, starts[i + 1], ports: ports(key))) {
         joints[key] = (joints[key] ?? 0) + 1;
         endJoined[i] = true;
         startJoined[i + 1] = true;

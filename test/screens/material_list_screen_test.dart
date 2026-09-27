@@ -19,6 +19,7 @@ import 'package:cut_list_app/models/material_item.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/models/segment.dart';
 import 'package:cut_list_app/screens/material_list_screen.dart';
+import 'package:cut_list_app/services/heat_traceability.dart';
 import 'package:cut_list_app/services/material_list_builder.dart';
 
 const _share = MethodChannel('dev.fluttercommunity.plus/share');
@@ -118,7 +119,7 @@ MaterialListBuilder _builder() => MaterialListBuilder(
     );
 
 const _expectedPl = 'Lista materiałowa (BOM) — Łącznik żółć\n'
-    'RURA - Rura Ø114.3 x 3.6 - 3.000 m\n'
+    'RURA - Rura Ø114.3 x 3.6 - 3.000 m netto · 1 sztanga × 6000 mm\n'
     'ELB90 - ELB90 Ø114.3 x 3.6 | A=76.2 - 1 szt.\n'
     'FLANGE - FLANGE Ø114.3 x 3.6 | FACE= 60.0 - 2 szt.\n'
     'TEE - TEE Ø114.3 x 3.6 | A=76.2 - 1 szt.\n';
@@ -239,6 +240,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(clipboard.single.split('\n').take(2).toList(),
         ['Lista materiałowa (BOM) — Łącznik żółć', line]);
+  });
+
+  test('BOM rury: sztangi z rzazem jak lista cięć, nie sama suma netto',
+      () async {
+    // 3000 + 2999 z rzazem 3: 3000 + 3 + 2999 = 6002 > 6000 → 2 sztangi,
+    // choć netto to tylko 5,999 m (stary BOM: „5.999 m” = jedna sztanga).
+    Segment cut(int seq, double mm) => Segment(
+          id: 'c$seq',
+          projectId: _pid,
+          seqNo: seq,
+          diameterMm: 114.3,
+          wallThicknessMm: 3.6,
+          startKind: 'logical',
+          startLibraryId: null,
+          startValueMm: 0,
+          endKind: 'logical',
+          endLibraryId: null,
+          endValueMm: 0,
+          isoRef: 'OPEN|OPEN',
+          isoExpr: '$mm',
+          isoMm: mm,
+          cutMm: mm,
+          createdAt: 0,
+          updatedAt: 0,
+        );
+    final items = await MaterialListBuilder(
+      _FakeSegmentDao([cut(1, 3000), cut(2, 2999)]),
+      _FakeLibraryDao(),
+      _FakeProjectDao(),
+    ).buildForProject(_pid);
+    final pipe = items.single;
+    expect(pipe.totalLengthMm, 5999);
+    expect(pipe.bars, 2);
+    expect(bomQuantityText(pipe, english: false),
+        '5.999 m netto · 2 sztangi × 6000 mm');
+    expect(bomQuantityText(pipe, english: true), '5.999 m net · 2 bars × 6000 mm');
+  });
+
+  test('buildBomText: numery wytopów pod pozycjami', () {
+    expect(
+      buildBomText(
+        items: const [],
+        projectName: 'X',
+        english: false,
+        heatRows: const [
+          HeatReportRow(
+              segments: 'S01', place: 'Rura Ø114.3 × 3.60', heats: 'A1, A2'),
+        ],
+      ),
+      'Lista materiałowa (BOM) — X\n'
+      '\n'
+      'Numery wytopów:\n'
+      'S01 · Rura Ø114.3 × 3.60: A1, A2\n',
+    );
   });
 
   test('buildBomText: pusta identyfikacja nie dodaje linii', () {

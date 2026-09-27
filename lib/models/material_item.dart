@@ -21,6 +21,14 @@ class MaterialItem {
   /// True when segments point at a library entry that no longer exists.
   final bool libraryEntryMissing;
 
+  /// PIPE rows: stock bars this Ø × wall takes on the cut list (same nesting
+  /// with kerf as the cut-list screen, PDF and CSV). Null when the project's
+  /// stock length is unknown — then only the net length is known.
+  final int? bars;
+
+  /// PIPE rows: the stock bar length [bars] are counted in.
+  final double? stockLengthMm;
+
   MaterialItem({
     required this.category,
     required this.description,
@@ -30,5 +38,7 @@ class MaterialItem {
     this.diameterMm,
     this.takeoutMm,
     this.libraryEntryMissing = false,
+    this.bars,
+    this.stockLengthMm,
   });
 }

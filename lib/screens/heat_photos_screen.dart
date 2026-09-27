@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as ph;
 import 'package:uuid/uuid.dart';
 
 import '../database/component_library_dao.dart';
 import '../database/heat_photo_dao.dart';
 import '../database/project_dao.dart';
+import '../database/segment_dao.dart';
 import '../i18n/app_language.dart';
 import '../models/heat_photo.dart';
 import '../services/heat_photo_capture.dart';
@@ -35,20 +37,31 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
   bool _loading = true;
 
   Future<void> _load() async {
-    setState(() => _loading = true);
     final p = await _projectDao.getById(widget.projectId);
-    List<LibraryComponent> lib = [];
+    final lib = <String, LibraryComponent>{};
     if (p != null) {
-      lib = await _libDao.listFor(
-        materialGroup: p.materialGroup,
-        currentDiameter: p.diameterMm,
-        wallThickness: p.wallThicknessMm,
-      );
+      // Every size the project runs through, not just the one it started on:
+      // fittings behind a reducer used to be impossible to pick.
+      final sizes = <String, (double, double)>{
+        '${p.diameterMm}|${p.wallThicknessMm}': (p.diameterMm, p.wallThicknessMm),
+        for (final s in await SegmentDao().listForProject(p.id))
+          '${s.diameterMm}|${s.wallThicknessMm}': (s.diameterMm, s.wallThicknessMm),
+      };
+      for (final (d, w) in sizes.values) {
+        for (final c in await _libDao.listFor(
+          materialGroup: p.materialGroup,
+          currentDiameter: d,
+          wallThickness: w,
+        )) {
+          lib[c.id] = c;
+        }
+      }
     }
     final rows = await _dao.listForProject(widget.projectId);
+    if (!mounted) return;
     setState(() {
       _project = p;
-      _library = lib;
+      _library = lib.values.toList();
       _items = rows;
       _loading = false;
     });
@@ -88,14 +101,27 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
 
     LibraryComponent? selected;
     final noteCtrl = TextEditingController();
+    final heatCtrl = TextEditingController();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(context.tr(pl: 'Dodaj HEAT number (opcjonalnie)', en: 'Add HEAT number (optional)')),
-        content: Column(
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // The screen is called "Heat numbers" but had no field for one:
+            // the number could only go into the free-text note.
+            TextField(
+              key: const ValueKey('heat-photo-heat-no'),
+              controller: heatCtrl,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                labelText: context.tr(pl: 'Numer wytopu (heat)', en: 'Heat number'),
+              ),
+            ),
+            const SizedBox(height: 12),
             if (_library.isEmpty)
               // Empty library would render a tappable-but-empty dropdown —
               // confusing on shop floor. Show a clear hint instead.
@@ -124,6 +150,7 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
               decoration: InputDecoration(labelText: context.tr(pl: 'Notatka (opcjonalnie)', en: 'Note (optional)')),
             )
           ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
@@ -164,10 +191,29 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
       'image_path': persistentPath,
       'note': noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
       'created_at': now,
+      'heat_no': heatCtrl.text.trim().isEmpty ? null : heatCtrl.text.trim(),
     });
 
     await Haptic.saved();
     await _load();
+  }
+
+  void _showFull(File file) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(),
+          backgroundColor: Colors.black,
+          body: Center(
+            child: InteractiveViewer(
+              maxScale: 6,
+              child: Image.file(file, fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _delete(HeatPhoto item) async {
@@ -192,10 +238,17 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
     if (confirmed != true) return;
 
     await _dao.deleteById(item.id);
-    // Best-effort removal of the on-disk copy we own.
+    // Best-effort removal of the on-disk copy — only one the app owns.
+    // Rows from before photos were copied point at the user's own gallery
+    // file; deleting that would destroy his photo (same rule as
+    // ProjectDao.purgePhotoFiles).
     try {
-      final f = File(item.imagePath);
-      if (await f.exists()) await f.delete();
+      final root = ph.normalize((await heatPhotosDirectory()).path);
+      final path = ph.normalize(item.imagePath);
+      if (ph.isWithin(root, path)) {
+        final f = File(path);
+        if (await f.exists()) await f.delete();
+      }
     } catch (_) {}
 
     await Haptic.saved();
@@ -250,18 +303,38 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
                       itemBuilder: (ctx, i) {
                         final it = _items[i];
                         final file = File(it.imagePath);
+                        final compId = it.libraryComponentId;
+                        final comp = compId == null
+                            ? null
+                            : _library.where((c) => c.id == compId).firstOrNull;
                         return Card(
                           child: Padding(
-                            padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
+                            // Safe-area padding belongs to the list end only
+                            // (it used to add ~34 px under EVERY photo).
+                            padding: const EdgeInsets.all(12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: it.note != null
-                                          ? Text(it.note!, style: const TextStyle(fontWeight: FontWeight.w600))
-                                          : const SizedBox.shrink(),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          if (it.heatNo != null)
+                                            Text('Heat: ${it.heatNo}',
+                                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                                          // The picked component used to be saved and never shown.
+                                          if (compId != null)
+                                            Text(
+                                              comp?.displayLabel() ??
+                                                  context.tr(pl: 'komponent usunięty z biblioteki', en: 'component deleted from the library'),
+                                              style: const TextStyle(fontSize: 13),
+                                            ),
+                                          if (it.note != null)
+                                            Text(it.note!, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                        ],
+                                      ),
                                     ),
                                     IconButton(
                                       tooltip: context.tr(pl: 'Usuń', en: 'Delete'),
@@ -282,11 +355,16 @@ class _HeatPhotosScreenState extends State<HeatPhotosScreen> {
                                       // scroll. `gaplessPlayback` keeps the
                                       // previous frame while the new one
                                       // decodes (no white flash).
-                                      ? Image.file(
-                                          file,
-                                          fit: BoxFit.cover,
-                                          cacheWidth: 1080,
-                                          gaplessPlayback: true,
+                                      // Tap: full screen with pinch-zoom, to
+                                      // read the number off the label.
+                                      ? GestureDetector(
+                                          onTap: () => _showFull(file),
+                                          child: Image.file(
+                                            file,
+                                            fit: BoxFit.cover,
+                                            cacheWidth: 1080,
+                                            gaplessPlayback: true,
+                                          ),
                                         )
                                       : Center(child: Text(context.tr(pl: 'Plik nie istnieje', en: 'File does not exist'))),
                                 ),

@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/database/cut_mark_dao.dart';
 import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/database/segment_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -138,7 +139,8 @@ void main() {
     expect(find.text('Odcinek dłuższy niż sztanga'), findsOneWidget);
     expect(
       find.text('S01: odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony '
-          'na 2 części; potrzebna dodatkowa spoina łącząca; uwzględnij gap.'),
+          'na 2 części: 6000 + 1000 mm; dodatkowa spoina łącząca (gap '
+          'projektu 0 mm — nic nie odjęto).'),
       findsOneWidget,
     );
 
@@ -150,12 +152,22 @@ void main() {
     for (final iso in ['7000', '4000', '1200']) {
       expect(find.byTooltip('ISO: $iso'), findsOneWidget);
     }
-    expect(find.textContaining('S01 (1/2) 6000', findRichText: true),
-        findsOneWidget);
-    expect(find.textContaining('S02 4000  +  S03 1200', findRichText: true),
-        findsOneWidget);
-    expect(find.textContaining('S01 (2/2) 1000', findRichText: true),
-        findsOneWidget);
+    // Każdy kawałek na sztandze ma kratkę do odhaczenia (≥ 48 dp).
+    for (final text in ['S01 (1/2)  6000 mm', 'S02  4000 mm', 'S03  1200 mm',
+        'S01 (2/2)  1000 mm']) {
+      expect(find.text(text, findRichText: true), findsOneWidget, reason: text);
+    }
+    final tick = find.byKey(ValueKey('cut-tick-$pid-s3-1'));
+    expect(tester.getSize(tick).height, greaterThanOrEqualTo(48));
+    expect(find.text('Ucięte: 0 / 4'), findsOneWidget);
+    await tester.tap(tick);
+    await settle(tester, () => find.text('Ucięte: 1 / 4').evaluate().isNotEmpty);
+    expect(find.text('Ucięte: 1 / 4'), findsOneWidget);
+    // Zapisane lokalnie: po ponownym wczytaniu nadal odhaczone.
+    final marks =
+        await tester.runAsync(() => CutMarkDao().forProject(pid));
+    expect(marks!.keys, ['$pid-s3|1']);
+    await tester.pump(const Duration(seconds: 5));
     // Karty z częścią podzielonego cięcia mówią o spoinie łączącej.
     expect(
       find.text('Część odcinka dłuższego niż sztanga — dodatkowa spoina '
@@ -190,13 +202,15 @@ void main() {
     // Last column: the piece mark (v22) — none of these segments has one.
     expect(csvLines.skip(2), [
       '"Łącznik żółć";SS;6000;3.0;114.3;6.0;1;1;6000;0;"S01 (1/2)";7000;'
-          '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części; '
-          'potrzebna dodatkowa spoina łącząca; uwzględnij gap.";',
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;1;4000;794;S02;4000;;',
-      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;2;1200;794;S03;1200;;',
+          '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części: '
+          '6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — nic nie '
+          'odjęto).";;;;',
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;1;4000;794;S02;4000;;;;;',
+      '"Łącznik żółć";SS;6000;3.0;114.3;6.0;2;2;1200;794;S03;1200;;;;;',
       '"Łącznik żółć";SS;6000;3.0;114.3;6.0;3;1;1000;4997;"S01 (2/2)";7000;'
-          '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części; '
-          'potrzebna dodatkowa spoina łącząca; uwzględnij gap.";',
+          '"odcinek 7000 mm dłuższy niż sztanga 6000 mm — dzielony na 2 części: '
+          '6000 + 1000 mm; dodatkowa spoina łącząca (gap projektu 0 mm — nic nie '
+          'odjęto).";;;;',
     ]);
 
     // ── Udostępnij jako tekst ─────────────────────────────────────────────
@@ -222,7 +236,7 @@ void main() {
     expect(clipboard.single, contains(';"S01 (2/2)";'));
 
     // ── Przytrzymanie karty sztangi kopiuje ją z etykietami ───────────────
-    await tester.longPress(find.textContaining('S02 4000', findRichText: true));
+    await tester.longPress(find.text('Sztanga 2'));
     await tester.pumpAndSettle();
     expect(clipboard.last, 'Sztanga 2: S02: 4000 + S03: 1200 (zostaje 794 mm)');
 

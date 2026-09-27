@@ -76,6 +76,8 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'image_path',
     'note',
     'created_at',
+    // v23: numer wytopu z etykiety.
+    'heat_no',
   ],
   'component_heats': <String>[
     'id',
@@ -85,6 +87,17 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'image_path',
     'note',
     'created_at',
+    // v23: przypięcie do stabilnego id segmentu.
+    'segment_id',
+    'side',
+  ],
+  // v23: odhaczone ucięte kawałki listy cięć.
+  'cut_marks': <String>[
+    'project_id',
+    'segment_id',
+    'part',
+    'cut_mm',
+    'marked_at',
   ],
   'weld_params': <String>[
     'id',
@@ -773,6 +786,7 @@ void main() {
     17: _buildV17WithScreenTables,
     19: _buildV19,
     21: _buildV21,
+    22: _buildV22,
   }.entries) {
     test('v${start.key} -> current: every table and column is present', () async {
       final db = await migrateFrom(start.key, start.value);
@@ -805,6 +819,7 @@ void main() {
       17: _buildV17WithScreenTables,
       19: _buildV19,
       21: _buildV21,
+    22: _buildV22,
     }.entries) {
       final migrated = await migrateFrom(start.key, start.value);
       addTearDown(migrated.close);
@@ -1290,6 +1305,109 @@ CREATE TABLE component_library (
     });
     expect((await db.query('iso_scans')).single['envelope_json'],
         '{"result":{}}');
+  });
+
+  test('v22 -> v23: numery wytopów przepięte z seq_no na id segmentu, nic nie '
+      'ginie', () async {
+    // Monter wpisał heat do kolana na końcu S001, do startu S001 i do
+    // S003_END — a segment 3 został potem usunięty. Po aktualizacji dwa
+    // pierwsze wpisy wskazują id swoich segmentów; trzeci zostaje (bez
+    // miejsca), bo zgadywanie przypisałoby wytop innej kształtce.
+    final db = await migrateFrom(
+      22,
+      _buildV22,
+      seedData: (legacy) async {
+        await legacy.insert('projects', <String, Object?>{
+          'id': 'p22',
+          'name': 'Rack 3',
+          'diameter_mm': 114.3,
+          'wall_thickness_mm': 3.05,
+          'current_diameter_mm': 114.3,
+          'created_at': 1,
+          'updated_at': 1,
+        });
+        for (final (id, seq) in [('seg-a', 1), ('seg-b', 2)]) {
+          await legacy.insert('segments', <String, Object?>{
+            'id': id,
+            'project_id': 'p22',
+            'seq_no': seq,
+            'diameter_mm': 114.3,
+            'wall_thickness_mm': 3.05,
+            'start_kind': 'axial',
+            'start_value_mm': 152.4,
+            'end_kind': 'axial',
+            'end_value_mm': 152.4,
+            'iso_ref': 'AXIS|AXIS',
+            'iso_expr': '1000',
+            'iso_mm': 1000.0,
+            'cut_mm': 695.2,
+            'created_at': 1,
+            'updated_at': 1,
+          });
+        }
+        for (final (id, key, heat) in [
+          ('h1', 'S001_END', 'H-111'),
+          ('h2', 'S001_START', 'H-000'),
+          ('h3', 'S003_END', 'H-333'),
+        ]) {
+          await legacy.insert('component_heats', <String, Object?>{
+            'id': id,
+            'project_id': 'p22',
+            'component_key': key,
+            'heat_no': heat,
+            'image_path': null,
+            'note': 'n-$id',
+            'created_at': 5,
+          });
+        }
+        await legacy.insert('heat_photos', <String, Object?>{
+          'id': 'ph1',
+          'project_id': 'p22',
+          'library_component_id': null,
+          'image_path': '/x/heat_photos/a.jpg',
+          'note': 'H-777 na etykiecie',
+          'created_at': 6,
+        });
+      },
+    );
+    addTearDown(db.close);
+
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+    final heats = {
+      for (final r in await db.query('component_heats')) r['id']: r,
+    };
+    expect(heats.keys, unorderedEquals(['h1', 'h2', 'h3']),
+        reason: 'żaden wpis nie może zniknąć');
+    expect(heats['h1']!['segment_id'], 'seg-a');
+    expect(heats['h1']!['side'], 'END');
+    expect(heats['h2']!['segment_id'], 'seg-a');
+    expect(heats['h2']!['side'], 'START');
+    expect(heats['h3']!['segment_id'], isNull,
+        reason: 'segmentu 3 nie ma — nie wolno go zgadywać');
+    expect(heats['h3']!['heat_no'], 'H-333');
+    expect(heats['h1']!['heat_no'], 'H-111');
+    expect(heats['h1']!['note'], 'n-h1');
+
+    final photo = (await db.query('heat_photos')).single;
+    expect(photo['note'], 'H-777 na etykiecie');
+    expect(photo['heat_no'], isNull, reason: 'numeru nie wymyślamy z notatki');
+
+    expect(await db.query('cut_marks'), isEmpty);
+    await db.insert('cut_marks', <String, Object?>{
+      'project_id': 'p22',
+      'segment_id': 'seg-a',
+      'part': 1,
+      'cut_mm': 695.2,
+      'marked_at': 9,
+    });
+    expect(await db.query('cut_marks'), hasLength(1));
+
+    // Drugi przebieg migracji niczego nie przestawia.
+    await AppDatabase.migrate(db, 22, AppDatabase.schemaVersion);
+    expect(
+        (await db.query('component_heats', where: "id = 'h1'"))
+            .single['segment_id'],
+        'seg-a');
   });
 
   test('the approved seed data lands on every upgrade path', () async {

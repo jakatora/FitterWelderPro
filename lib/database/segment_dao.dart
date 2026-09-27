@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 import '../database/db.dart';
 import '../models/segment.dart';
 
@@ -75,6 +77,55 @@ class SegmentDao {
   Future<void> deleteById(String segmentId) async {
     final db = await AppDatabase.get();
     await db.delete('segments', where: 'id = ?', whereArgs: [segmentId]);
+  }
+
+  /// Deletes a segment and hands back its row, for Undo ([restore]).
+  ///
+  /// Heat numbers and saw ticks of the segment are left alone: they are
+  /// pinned to its id, so Undo brings them back with it, and until then the
+  /// heat screen lists the entries as "no place" instead of losing them.
+  /// Null when the segment was already gone.
+  Future<Map<String, Object?>?> deleteWithSnapshot(String segmentId) async {
+    final db = await AppDatabase.get();
+    return db.transaction<Map<String, Object?>?>((txn) async {
+      final rows = await txn.query('segments',
+          where: 'id = ?', whereArgs: [segmentId], limit: 1);
+      if (rows.isEmpty) return null;
+      await txn.delete('segments', where: 'id = ?', whereArgs: [segmentId]);
+      return Map<String, Object?>.from(rows.first);
+    });
+  }
+
+  /// Puts back a segment deleted by [deleteWithSnapshot], with its id (so
+  /// its heat numbers reattach) and, if still free, its number. When a new
+  /// segment has taken the number in the meantime, the restored one goes to
+  /// the end (next free number) rather than failing the Undo. Returns the
+  /// seq_no it got.
+  Future<int> restore(Map<String, Object?> row) async {
+    final db = await AppDatabase.get();
+    return db.transaction<int>((txn) async {
+      final projectId = row['project_id'] as String;
+      final seq = (row['seq_no'] as num).toInt();
+      final taken = await txn.query('segments',
+          columns: ['id'],
+          where: 'project_id = ? AND seq_no = ?',
+          whereArgs: [projectId, seq],
+          limit: 1);
+      var useSeq = seq;
+      if (taken.isNotEmpty) {
+        final m = await txn.rawQuery(
+          'SELECT COALESCE(MAX(seq_no), 0) AS m FROM segments WHERE project_id = ?;',
+          [projectId],
+        );
+        useSeq = ((m.first['m'] as num?)?.toInt() ?? 0) + 1;
+      }
+      await txn.insert(
+        'segments',
+        {...row, 'seq_no': useSeq},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return useSeq;
+    });
   }
 
   Future<void> deleteAllForProject(String projectId) async {

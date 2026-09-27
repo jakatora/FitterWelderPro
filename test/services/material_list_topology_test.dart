@@ -71,12 +71,12 @@ Segment _seg(int seq, String? start, String? end, {double cut = 1000}) {
 /// Segment as ScanReviewScreen saves it: no library ids, only the end kind
 /// and the take-out in *_value_mm (0 for faces and open ends).
 Segment _scan(int seq, String startKind, double startMm, String endKind,
-    double endMm) {
+    double endMm, {double dia = 114.3}) {
   return Segment(
     id: 'K$seq',
     projectId: _pid,
     seqNo: seq,
-    diameterMm: 114.3,
+    diameterMm: dia,
     wallThicknessMm: 6.02,
     startKind: startKind,
     startLibraryId: null,
@@ -271,6 +271,30 @@ void main() {
         (104.8, 1),
         (152.4, 1),
       ]);
+    });
+
+    test('redukcja ze skanu między Ø114,3 a Ø60,3: 1 sztuka (było 2)',
+        () async {
+      // Koniec S1 (Ø114,3) i początek S2 (Ø60,3) to ta sama redukcja — typ
+      // nie jest zapisany, a klucz ze średnicą segmentu rozdzielał ją na dwie.
+      expect(
+        await _counts([
+          _scan(1, 'logical', 0, 'nonAxial', 0),
+          _scan(2, 'nonAxial', 0, 'logical', 0, dia: 60.3),
+        ]),
+        {'FITTING_BODY': 1},
+      );
+    });
+
+    test('kolano do osi z jednej strony, do czoła z drugiej: 1 sztuka',
+        () async {
+      expect(
+        await _counts([
+          _scan(1, 'logical', 0, 'axial', 152.4),
+          _scan(2, 'axial', 0, 'logical', 0),
+        ]),
+        {'FITTING_AXIAL': 1},
+      );
     });
 
     test('same otwarte końce: tylko rura', () async {

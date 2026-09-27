@@ -8,7 +8,55 @@ class CutRequest {
   final String? label;
   final String? reference;
 
-  const CutRequest(this.lengthMm, {this.label, this.reference});
+  /// Id of the source segment — what a piece ticked off at the saw is
+  /// remembered by (`cut_marks`). Null for callers that only have lengths.
+  final String? sourceId;
+
+  const CutRequest(this.lengthMm, {this.label, this.reference, this.sourceId});
+}
+
+/// Length on the cut list, the ONE rounding rule of the screen, the PDF, the
+/// CSV and the shared text: 0.1 mm, a trailing `.0` dropped (`3293`,
+/// `1234.5`). The bars used to print whole millimetres and the segment table
+/// one decimal, so the same CUT read 1235 in one place and 1234.5 in another.
+String formatCutMm(double mm) {
+  if (!mm.isFinite) return '—';
+  final tenths = (mm * 10).round();
+  if (tenths == 0) return '0';
+  final s = (tenths / 10).toStringAsFixed(1);
+  return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+}
+
+/// Parts a cut of [cutMm] is split into when it is longer than a stock bar:
+/// full bars, then the rest — shortened by the root gap of every extra
+/// joining weld, so the spool welded back together is [cutMm] long.
+///
+/// `n` parts need `n − 1` joining welds, each opening a [joinGapMm] gap:
+/// the parts add up to `cutMm − joinGapMm × (n − 1)`. When the gap makes the
+/// last part zero or negative (a cut just over a bar), the last two parts
+/// share what is left evenly instead of printing an impossible length.
+/// A cut that fits the bar comes back whole.
+List<double> splitCutLengths(
+  double cutMm, {
+  required double stockLengthMm,
+  double joinGapMm = 0,
+}) {
+  if (!(stockLengthMm > 0) || cutMm <= stockLengthMm) return [cutMm];
+  final gap = joinGapMm.isFinite && joinGapMm > 0 ? joinGapMm : 0.0;
+  var n = 2;
+  while (cutMm - gap * (n - 1) > n * stockLengthMm) {
+    n++;
+  }
+  final net = cutMm - gap * (n - 1);
+  final parts = List<double>.filled(n - 1, stockLengthMm, growable: true)
+    ..add(net - (n - 1) * stockLengthMm);
+  if (parts.last <= 0) {
+    final rest = net - (n - 2) * stockLengthMm;
+    parts
+      ..removeRange(n - 2, n)
+      ..addAll([rest / 2, rest / 2]);
+  }
+  return parts;
 }
 
 /// One piece laid out on a stock bar.
@@ -32,6 +80,16 @@ class BarPiece {
   /// The full length that was requested (equal to [lengthMm] when not split).
   final double sourceLengthMm;
 
+  /// Id of the source segment ([CutRequest.sourceId]).
+  final String? sourceId;
+
+  /// Every part of the split cut, in part order (just [lengthMm] when not
+  /// split) — what the oversize warning prints.
+  final List<double> partLengthsMm;
+
+  /// Root gap taken off per joining weld when the cut was split.
+  final double joinGapMm;
+
   const BarPiece({
     required this.lengthMm,
     this.label,
@@ -39,7 +97,11 @@ class BarPiece {
     this.part = 1,
     this.partCount = 1,
     double? sourceLengthMm,
-  }) : sourceLengthMm = sourceLengthMm ?? lengthMm;
+    this.sourceId,
+    List<double>? partLengthsMm,
+    this.joinGapMm = 0,
+  })  : sourceLengthMm = sourceLengthMm ?? lengthMm,
+        partLengthsMm = partLengthsMm ?? const [];
 
   /// True when the source cut is longer than a stock bar and this is one of
   /// its parts.
@@ -103,10 +165,14 @@ List<BarPlan> nestCutsToBars({
 /// Every piece on the result carries the label of the cut it came from. Ties
 /// between equal lengths keep the input order, so the same cut list always
 /// gives the same labels on the same bars.
+///
+/// A cut longer than a bar is split by [splitCutLengths]: [joinGapMm] (the
+/// project's root gap) comes off the parts once per extra joining weld.
 List<BarPlan> nestPiecesToBars({
   required List<CutRequest> cuts,
   required double stockLengthMm,
   required double sawKerfMm,
+  double joinGapMm = 0,
 }) {
   if (stockLengthMm <= 0) return [];
 
@@ -132,16 +198,16 @@ List<BarPlan> nestPiecesToBars({
         lengthMm: c,
         label: cut.label,
         reference: cut.reference,
+        sourceId: cut.sourceId,
       ));
       continue;
     }
-    final parts = <double>[];
-    var remaining = c;
-    while (remaining > stockLengthMm) {
-      parts.add(stockLengthMm);
-      remaining -= stockLengthMm;
-    }
-    if (remaining > 0) parts.add(remaining);
+    final parts = splitCutLengths(
+      c,
+      stockLengthMm: stockLengthMm,
+      joinGapMm: joinGapMm,
+    );
+    final gap = joinGapMm.isFinite && joinGapMm > 0 ? joinGapMm : 0.0;
     for (var p = 0; p < parts.length; p++) {
       expanded.add(BarPiece(
         lengthMm: parts[p],
@@ -150,6 +216,9 @@ List<BarPlan> nestPiecesToBars({
         part: p + 1,
         partCount: parts.length,
         sourceLengthMm: c,
+        sourceId: cut.sourceId,
+        partLengthsMm: List<double>.unmodifiable(parts),
+        joinGapMm: gap,
       ));
     }
   }

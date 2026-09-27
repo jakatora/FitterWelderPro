@@ -42,8 +42,11 @@ class RoutePosition {
 ///
 /// Rules, on the segment with the highest seq_no:
 ///   * none saved → the project's own diameter and wall;
-///   * its END is a library REDUCER whose inlet is that segment's diameter →
-///     the reducer's outlet, wall unknown (null);
+///   * its END is a library REDUCER with one end on that segment's diameter →
+///     the reducer's OTHER end, wall unknown (null). Both ways round: inlet
+///     on the pipe is a reduction (route goes down to the outlet), outlet on
+///     the pipe is an expander (route goes up to the inlet) — see
+///     [reducerOtherEndMm];
 ///   * its END is a library component that is gone from the library → the
 ///     stored `current_diameter_mm` is the only witness left: if it differs
 ///     from the segment, a reduction happened there (wall unknown);
@@ -51,6 +54,25 @@ class RoutePosition {
 ///
 /// [lastEndComponent] is the library record of that last segment's END, or
 /// null when it has none (or it was deleted).
+/// Diameter on the far side of reducer [comp] when one of its ends sits on
+/// a pipe of [pipeDiameterMm], or null when neither end does (a damaged or
+/// mismatched row — then nothing may be inferred from it).
+///
+/// The library stores a reducer as `diameter_mm` → `diameter_out_mm`, but the
+/// fitting has no direction of its own: welded on by its small end it is an
+/// expander. The builder offers a reducer whenever EITHER end matches the
+/// pipe (`ComponentLibraryDao.listFor`), so both readings must be handled.
+double? reducerOtherEndMm(LibraryComponent comp, double pipeDiameterMm) {
+  // Same tolerance the library offered the reducer with — a pipe the picker
+  // matched must also be recognised here.
+  const eps = kLibraryMatchToleranceMm + 1e-9;
+  final out = comp.diameterOutMm;
+  if (out == null || out <= 0) return null;
+  if ((comp.diameterMm - pipeDiameterMm).abs() <= eps) return out;
+  if ((out - pipeDiameterMm).abs() <= eps) return comp.diameterMm;
+  return null;
+}
+
 RoutePosition routeAfterSegments({
   required Project project,
   required List<Segment> segments,
@@ -75,11 +97,9 @@ RoutePosition routeAfterSegments({
         );
       }
     } else if (comp.type == 'REDUCER') {
-      final out = comp.diameterOutMm;
-      if (out != null &&
-          out > 0 &&
-          (comp.diameterMm - last.diameterMm).abs() < eps) {
-        return RoutePosition(diameterMm: out, wallThicknessMm: null);
+      final other = reducerOtherEndMm(comp, last.diameterMm);
+      if (other != null) {
+        return RoutePosition(diameterMm: other, wallThicknessMm: null);
       }
     }
   }
@@ -107,11 +127,26 @@ class _FitterScreenState extends State<FitterScreen> {
   RoutePosition? _route;
   bool _loading = true;
 
+  /// Library entries the segments use (id → entry, null = deleted), read
+  /// once per load — every row used to fire two queries on every rebuild,
+  /// and its labels flickered "...".
+  Map<String, LibraryComponent?> _library = const {};
+
   Future<void> _load() async {
     if (!mounted) return;
-    setState(() => _loading = true);
+    // Only the very first load swaps the list for a spinner. A reload after
+    // an add / edit / delete keeps the list — and the fitter's place in a
+    // 40-segment list — on screen.
     final p = await _projectDao.getById(widget.projectId);
     final segs = await _segmentDao.listForProject(widget.projectId);
+    final library = <String, LibraryComponent?>{};
+    for (final s in segs) {
+      for (final id in [s.startLibraryId, s.endLibraryId]) {
+        if (id != null && !library.containsKey(id)) {
+          library[id] = await _libDao.getById(id);
+        }
+      }
+    }
 
     RoutePosition? route;
     if (p != null) {
@@ -119,7 +154,7 @@ class _FitterScreenState extends State<FitterScreen> {
       if (segs.isNotEmpty) {
         final last = segs.reduce((a, b) => a.seqNo >= b.seqNo ? a : b);
         final endId = last.endLibraryId;
-        if (endId != null) lastEnd = await _libDao.getById(endId);
+        if (endId != null) lastEnd = library[endId];
       }
       route = routeAfterSegments(
           project: p, segments: segs, lastEndComponent: lastEnd);
@@ -135,9 +170,44 @@ class _FitterScreenState extends State<FitterScreen> {
     setState(() {
       _project = p;
       _segments = segs;
+      _library = library;
       _route = route;
       _loading = false;
     });
+  }
+
+  /// Swipe-delete with Undo: the row goes at once, and for 6 s the snackbar
+  /// can put it back — same id (its heat numbers and saw ticks reattach)
+  /// and, if still free, the same number. The project list has had Undo for
+  /// a while; a segment was "cannot be undone".
+  Future<void> _deleteSegment(Segment s) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final label = context.tr(
+        pl: 'Usunięto segment ${s.seqNo}.', en: 'Segment ${s.seqNo} deleted.');
+    final undo = context.tr(pl: 'COFNIJ', en: 'UNDO');
+    // Out of the list right away, so the Dismissible is not rebuilt.
+    setState(() => _segments = [
+          for (final x in _segments)
+            if (x.id != s.id) x,
+        ]);
+    final snapshot = await _segmentDao.deleteWithSnapshot(s.id);
+    await _projectDao.touch(s.projectId);
+    await _load();
+    if (!mounted || snapshot == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(label),
+        action: SnackBarAction(
+          label: undo,
+          onPressed: () async {
+            await _segmentDao.restore(snapshot);
+            await _projectDao.touch(s.projectId);
+            await _load();
+          },
+        ),
+      ));
   }
 
   @override
@@ -201,6 +271,7 @@ class _FitterScreenState extends State<FitterScreen> {
       'created_at': now,
       'updated_at': now,
     });
+    await _projectDao.touch(p.id);
 
     // No separate "reducer moves the route" step any more: _load derives the
     // route from the segments, so a reducer END moves it, and deleting that
@@ -272,6 +343,7 @@ class _FitterScreenState extends State<FitterScreen> {
       ..._measuredColumns(result),
       'updated_at': DateTime.now().millisecondsSinceEpoch,
     });
+    if (changed > 0) await _projectDao.touch(p.id);
 
     // No route bookkeeping here either: _load derives it from the segments,
     // so re-saving a segment can never shift the route twice.
@@ -323,10 +395,23 @@ class _FitterScreenState extends State<FitterScreen> {
     );
   }
 
-  Future<String> _compLabel(String? libraryId) async {
-    if (libraryId == null) return 'OPEN END/LOGICAL';
-    final c = await _libDao.getById(libraryId);
-    return c?.type ?? 'COMP';
+  /// What sits at one end of a segment, in words. A fitting from the ISO scan
+  /// or sketch has no library id but a stored kind — it is an elbow or a body
+  /// fitting, not an open end (the old label called every such end
+  /// "OPEN END/LOGICAL").
+  String _compLabel(String? libraryId, String kind) {
+    if (libraryId != null) {
+      return _library[libraryId]?.type ??
+          context.tr(pl: 'usunięty z biblioteki', en: 'deleted from library');
+    }
+    switch (kind) {
+      case 'axial':
+        return context.tr(pl: 'Kształtka (skan)', en: 'Fitting (scan)');
+      case 'nonAxial':
+        return context.tr(pl: 'Element (skan)', en: 'Component (scan)');
+      default:
+        return context.tr(pl: 'Koniec otwarty', en: 'Open end');
+    }
   }
 
   @override
@@ -357,7 +442,7 @@ class _FitterScreenState extends State<FitterScreen> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.inventory_2_outlined),
-                  tooltip: context.tr(pl: 'Komponenty / Heat', en: 'Components / Heat'),
+                  tooltip: context.tr(pl: 'Numery wytopów (heat)', en: 'Heat numbers'),
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -376,7 +461,9 @@ class _FitterScreenState extends State<FitterScreen> {
                   },
                 ),
               ],
-        title: Text(p?.name?.isNotEmpty == true ? p!.name! : 'Projekt'),
+        title: Text(p?.name?.isNotEmpty == true
+            ? p!.name!
+            : context.tr(pl: 'Projekt', en: 'Project')),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _project == null ? null : _addSegment,
@@ -418,14 +505,14 @@ class _FitterScreenState extends State<FitterScreen> {
                                       context: context,
                                       builder: (_) => AlertDialog(
                                         title: Text(context.tr(pl: 'Usuń segment', en: 'Delete segment')),
-                                        // Deleting is no longer the only way
-                                        // to fix a bad dimension, so say so
-                                        // here — this dialog is exactly where
-                                        // a fitter lands who only wanted to
+                                        // Deleting is not the way to fix a
+                                        // bad dimension, so say so here —
+                                        // this dialog is exactly where a
+                                        // fitter lands who only wanted to
                                         // correct a digit.
                                         content: Text(context.tr(
-                                          pl: 'Usunąć Segment ${s.seqNo}? Tej operacji nie można cofnąć.\n\nAby tylko poprawić wymiar — anuluj i dotknij segmentu.',
-                                          en: 'Delete Segment ${s.seqNo}? This cannot be undone.\n\nTo just fix a dimension — cancel and tap the segment.',
+                                          pl: 'Usunąć Segment ${s.seqNo}? Przez kilka sekund możesz to cofnąć.\n\nAby tylko poprawić wymiar — anuluj i dotknij segmentu.',
+                                          en: 'Delete Segment ${s.seqNo}? You can undo it for a few seconds.\n\nTo just fix a dimension — cancel and tap the segment.',
                                         )),
                                         actions: [
                                           TextButton(
@@ -441,19 +528,11 @@ class _FitterScreenState extends State<FitterScreen> {
                                       ),
                                     ) ?? false;
                                   },
-                                  onDismissed: (_) async {
-                                    await _segmentDao.deleteById(s.id);
-                                    await _load();
-                                  },
-                                  child: FutureBuilder<List<String>>(
-                                    future: Future.wait([
-                                      _compLabel(s.startLibraryId),
-                                      _compLabel(s.endLibraryId),
-                                    ]),
-                                    builder: (_, snap) {
-                                      final labels = snap.data;
-                                      final startLbl = labels == null ? '...' : labels[0];
-                                      final endLbl = labels == null ? '...' : labels[1];
+                                  onDismissed: (_) => _deleteSegment(s),
+                                  child: Builder(
+                                    builder: (_) {
+                                      final startLbl = _compLabel(s.startLibraryId, s.startKind);
+                                      final endLbl = _compLabel(s.endLibraryId, s.endKind);
                                       return ListTile(
                                         leading: CircleAvatar(
                                           backgroundColor: const Color(0xFFFF8E1E).withValues(alpha: 0.15),

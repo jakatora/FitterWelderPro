@@ -234,6 +234,55 @@ void main() {
     expect(tests.map((t) => t.toRow()), [_hydro.toRow()]);
   });
 
+  test('v23: heat przypięty do segmentu, numer na zdjęciu i odhaczone cięcia '
+      'jadą z kopią', () async {
+    await _insertProject('project-1');
+    final db = await AppDatabase.get();
+    await db.insert('component_heats', <String, Object?>{
+      'id': 'heat-v23',
+      'project_id': 'project-1',
+      'component_key': 'seg-7_PIPE',
+      'heat_no': 'A12345',
+      'image_path': null,
+      'note': 'atest 3.1',
+      'created_at': 1000,
+      'segment_id': 'seg-7',
+      'side': 'PIPE',
+    });
+    await db.insert('heat_photos', <String, Object?>{
+      'id': 'photo-v23',
+      'project_id': 'project-1',
+      'library_component_id': null,
+      'image_path': p.join(phoneA.heatPhotos.path, 'missing.jpg'),
+      'note': null,
+      'created_at': 1000,
+      'heat_no': 'B-777',
+    });
+    await db.insert('cut_marks', <String, Object?>{
+      'project_id': 'project-1',
+      'segment_id': 'seg-7',
+      'part': 1,
+      'cut_mm': 1234.5,
+      'marked_at': 1001,
+    });
+
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await AppDatabase.get();
+    final report = await DataBackup.restore(carried.path);
+    expect(report.skippedTables, isEmpty);
+
+    final restored = await AppDatabase.get();
+    final heat = (await restored.query('component_heats')).single;
+    expect(heat['segment_id'], 'seg-7');
+    expect(heat['side'], 'PIPE');
+    expect(heat['heat_no'], 'A12345');
+    expect((await restored.query('heat_photos')).single['heat_no'], 'B-777');
+    final mark = (await restored.query('cut_marks')).single;
+    expect(mark['segment_id'], 'seg-7');
+    expect((mark['cut_mm']! as num).toDouble(), 1234.5);
+  });
+
   test('zdjęcie wytopu wybrane z galerii jedzie razem z kopią', () async {
     // Rows written before the component-heat picker started copying into
     // <documents>/heat_photos hold the gallery path FilePicker returned.
