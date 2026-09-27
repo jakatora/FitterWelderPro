@@ -264,6 +264,25 @@ class WelderQualificationService {
     return all.where((c) => c.stampKey == key).length;
   }
 
+  /// Ile spoin (nieusuniętych) dziennika podpisano stemplem [stamp] —
+  /// jako spawacz, grań albo lico. Brak tabeli / błąd = 0.
+  Future<int> countJournalWeldsWithStamp(String stamp) async {
+    final key = stamp.trim().toUpperCase();
+    if (key.isEmpty) return 0;
+    try {
+      final db = await AppDatabase.get();
+      final rows = await db.rawQuery(
+          'SELECT COUNT(*) AS n FROM weld_journal WHERE deleted_at IS NULL '
+          'AND (UPPER(TRIM(welder)) = ? OR UPPER(TRIM(root_welder)) = ? '
+          'OR UPPER(TRIM(cap_welder)) = ?)',
+          <Object?>[key, key, key]);
+      return (rows.single['n'] as num?)?.toInt() ?? 0;
+    } catch (e) {
+      debugPrint('[qualification] journal count failed: $e');
+      return 0;
+    }
+  }
+
   /// Zmiana stempla w tożsamości: przepisuje stempel certyfikatów ze
   /// [from] na [to] (tylko za zgodą spawacza — spoin nie ruszamy, to dowód).
   Future<int> reassignStamp(String from, String to) async {

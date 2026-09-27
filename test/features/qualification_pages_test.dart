@@ -84,7 +84,9 @@ void main() {
   Future<void> clearTables(WidgetTester tester) => tester.runAsync(() async {
         final db = await AppDatabase.get();
         await db.delete('welder_certificates');
+        await db.delete('welder_cert_confirmations');
         await db.delete('wps_library');
+        await db.delete('wps_versions');
       });
 
   group('rejestr uprawnień', () {
@@ -236,6 +238,34 @@ void main() {
       expect(c.jointKinds.map((k) => k.code), ['BW']);
     });
 
+    testWidgets('formularz: stempel zapisany, egzamin z przyszłości odrzucony',
+        (tester) async {
+      await clearTables(tester);
+      await _pump(tester, const CertificateEditPage());
+      await tester.enterText(_field('Stempel spawacza'), 'xy-7');
+      await tester.enterText(_field('Nr certyfikatu / WPQ'), 'PL-7');
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Zapisz'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
+      await _settle(tester);
+      final c = (await tester.runAsync(() => WelderCertificateDao().listAll()))!
+          .single;
+      expect(c.welderStamp, 'XY-7');
+    });
+
+    testWidgets('formularz: wyjście z niezapisanymi zmianami pyta',
+        (tester) async {
+      await clearTables(tester);
+      await _pump(tester, const CertificateEditPage());
+      await tester.enterText(_field('Nr certyfikatu / WPQ'), 'PL-8');
+      await tester.tap(find.byTooltip('Wstecz'));
+      await tester.pumpAndSettle();
+      expect(find.text('Porzucić zmiany?'), findsOneWidget);
+      await tester.tap(find.text('Wróć do edycji'));
+      await tester.pumpAndSettle();
+      expect(find.text('Porzucić zmiany?'), findsNothing);
+      expect(find.text('PL-8'), findsOneWidget);
+    });
+
     testWidgets('formularz: min > max — nie zapisuje', (tester) async {
       await clearTables(tester);
       await _pump(tester, const CertificateEditPage());
@@ -314,6 +344,62 @@ void main() {
       await _settle(tester);
       expect(find.text('Wymagany'), findsOneWidget);
       expect(await tester.runAsync(() => WpsDao().listAll()), isEmpty);
+    });
+
+    testWidgets('formularz WPS: wyjście z niezapisanymi zmianami pyta',
+        (tester) async {
+      await clearTables(tester);
+      await _pump(tester, const WpsEditPage());
+      await tester.enterText(_field('Nr WPS *'), 'WPS-9');
+      await tester.tap(find.byTooltip('Wstecz'));
+      await tester.pumpAndSettle();
+      expect(find.text('Porzucić zmiany?'), findsOneWidget);
+    });
+
+    testWidgets(
+        'formularz WPS: zmiana treści → „popraw bieżącą” zostawia wersję',
+        (tester) async {
+      await clearTables(tester);
+      const base = WpsRecord(
+        id: 'w1',
+        wpsNo: 'WPS-7',
+        revision: 'A',
+        positions: 'PA, PF',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      await tester.runAsync(() => WpsDao().upsert(base));
+      await _pump(tester, const WpsEditPage(wps: base));
+      await tester.enterText(_field('Pozycje'), 'PA');
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Zapisz'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
+      await tester.pumpAndSettle();
+      expect(find.text('Zmieniono treść WPS'), findsOneWidget);
+      await tester.tap(find.text('Popraw bieżącą'));
+      await _settle(tester);
+      await tester.pumpAndSettle();
+      final versions =
+          (await tester.runAsync(() => WpsDao().versionsOf('w1')))!;
+      expect(versions.map((v) => v.snapshot.positions), ['PA, PF', 'PA']);
+    });
+
+    testWidgets('formularz WPS: duplikat numeru i rewizji ostrzega',
+        (tester) async {
+      await clearTables(tester);
+      await tester.runAsync(() => WpsDao().upsert(const WpsRecord(
+          id: 'w1', wpsNo: 'WPS-7', revision: 'A', createdAt: 1, updatedAt: 1)));
+      // Nowa WPS o tym samym numerze i rewizji → ostrzeżenie.
+      await _pump(tester, const WpsEditPage());
+      await tester.enterText(_field('Nr WPS *'), 'wps-7');
+      await tester.enterText(_field('Rewizja'), 'a');
+      await tester.ensureVisible(find.widgetWithText(FilledButton, 'Zapisz'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Zapisz'));
+      await _settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Taka WPS już jest w bibliotece'), findsOneWidget);
+      await tester.tap(find.text('Anuluj').last);
+      await tester.pumpAndSettle();
+      expect(await tester.runAsync(() => WpsDao().listAll()), hasLength(1));
     });
 
     testWidgets('formularz WPS: zakres energii liniowej zapisany z konwencją',

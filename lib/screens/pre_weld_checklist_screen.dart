@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../database/weld_journal_dao.dart';
+import '../domain/weld_journal/coupon_entry.dart' show parseO2Ppm, formatO2Ppm;
+import '../domain/weld_journal/weld_entry.dart';
 import '../i18n/app_language.dart';
 import '../services/material_catalog.dart';
+import '../services/welder_identity.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
+import '../widgets/number_field.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -13,6 +18,68 @@ const _kGreen  = Color(0xFF2ECC71);
 const _kSec    = Color(0xFF9BA3C7);
 const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
+/// Proces spawania — zestaw punktów zależy od niego (v25). MMA na stali
+/// węglowej nie dostaje punktów gazu formującego, wolframu ani narzędzi do
+/// nierdzewki: odhaczanie punktów, które nie dotyczą, uczy odhaczania bez
+/// sprawdzania.
+enum WeldingProcessKind {
+  tigOrbital('tig-orb', 'TIG orbitalny', 'Orbital TIG'),
+  tigManual('tig-man', 'TIG ręczny', 'Manual TIG'),
+  mma('mma', 'MMA (111)', 'MMA / SMAW (111)'),
+  mag('mag', 'MAG (135/136)', 'MAG / GMAW (135/136)');
+
+  const WeldingProcessKind(this.id, this.labelPl, this.labelEn);
+  final String id;
+  final String labelPl;
+  final String labelEn;
+
+  bool get isTig => this == tigOrbital || this == tigManual;
+
+  static WeldingProcessKind fromId(String? id) =>
+      values.firstWhere((p) => p.id == id, orElse: () => tigOrbital);
+}
+
+/// Kiedy punkt uniwersalny ma sens.
+enum _Scope {
+  all,
+  orbital,
+  notOrbital,
+  tig,
+
+  /// Gaz formujący: TIG na nierdzewce / duplex / Ni / Cr-Mo z graniem TIG.
+  backing,
+
+  /// Sam gaz osłonowy (TIG bez formowania, MAG).
+  shieldOnly,
+
+  /// Nierdzewka / duplex / stopy Ni (albo materiał niewybrany — lista
+  /// higieniczna).
+  stainless,
+  mma,
+  mag,
+}
+
+bool _stainlessLike(MaterialSpec? m) =>
+    m == null ||
+    const {'8', '10H', '41', '42', '43', '44', '45'}.contains(m.pNo);
+
+bool _needsBacking(WeldingProcessKind p, MaterialSpec? m) =>
+    p.isTig && (_stainlessLike(m) || const {'5A', '15E'}.contains(m?.pNo));
+
+bool _applies(_Scope s, WeldingProcessKind p, MaterialSpec? m) =>
+    switch (s) {
+      _Scope.all => true,
+      _Scope.orbital => p == WeldingProcessKind.tigOrbital,
+      _Scope.notOrbital => p != WeldingProcessKind.tigOrbital,
+      _Scope.tig => p.isTig,
+      _Scope.backing => _needsBacking(p, m),
+      _Scope.shieldOnly =>
+        (p.isTig || p == WeldingProcessKind.mag) && !_needsBacking(p, m),
+      _Scope.stainless => _stainlessLike(m),
+      _Scope.mma => p == WeldingProcessKind.mma,
+      _Scope.mag => p == WeldingProcessKind.mag,
+    };
+
 class _Check {
   /// Stable identifier for persistence — must NEVER change once shipped,
   /// or saved ticks will silently disappear / drift to wrong items.
@@ -20,7 +87,8 @@ class _Check {
   final String id;
   final String pl;
   final String en;
-  const _Check(this.id, this.pl, this.en);
+  final _Scope scope;
+  const _Check(this.id, this.pl, this.en, [this.scope = _Scope.all]);
 }
 
 /// Pre-weld checklist for hygienic stainless tube — the run-through a welder
@@ -40,11 +108,15 @@ const Map<String, List<_Check>> _pNumberExtras = {
   // P-No 1 — C-Mn steel
   '1': [
     _Check('p1-low-h-electrode',
-           'Elektroda E7018 / drut ER70S-2 w zamkniętym piecu (low-H)',
-           'E7018 / ER70S-2 from sealed oven (low-H)'),
+           'Elektrody zasadowe (np. E7018) z suszarki / piecyka wg producenta '
+           '(low-H); drut TIG/MAG suchy i czysty',
+           'Basic electrodes (e.g. E7018) from the drying / holding oven per '
+           'the maker (low-H); TIG/MAG wire dry and clean'),
     _Check('p1-bevel-clean',
-           'Bevel 30° czysty, brak rdzy, kupon poradiowany jeśli >25 mm',
-           'Bevel 30° clean, no rust, radiograph if >25 mm'),
+           'Ukos wg WPS (ISO 9692-1 zwykle 30°, rury ASME B16.25 37,5°), '
+           'czysty, bez rdzy i zgorzeliny',
+           'Bevel per WPS (ISO 9692-1 typically 30°, ASME B16.25 pipe '
+           '37.5°), clean, no rust or mill scale'),
   ],
   // P-No 4 — 1¼Cr-½Mo
   '4': [
@@ -97,11 +169,15 @@ const Map<String, List<_Check>> _pNumberExtras = {
            'Drut L-grade (ER308L/ER316L) — niski C zapobiega sensitization',
            'L-grade filler (ER308L/ER316L) — low C prevents sensitization'),
     _Check('p8-argon-pure',
-           'Argon czysty, brak N₂ w gazie formującym',
-           'Argon pure, no N₂ in backing gas'),
+           'Gaz formujący zgodny z WPS (np. Ar I1 albo N₂ + H₂ — '
+           'ISO 14175 N5), partia gazu sprawdzona',
+           'Backing gas per WPS (e.g. Ar I1 or N₂ + H₂ — ISO 14175 N5), '
+           'gas batch checked'),
     _Check('p8-passivation',
-           'Pasywacja po spawaniu zaplanowana (kwas azotowy)',
-           'Post-weld passivation scheduled (nitric acid)'),
+           'Trawienie / pasywacja po spawaniu zaplanowane wg specyfikacji '
+           '(środek wg karty produktu — azotowy albo cytrynowy)',
+           'Post-weld pickling / passivation scheduled per the specification '
+           '(agent per the data sheet — nitric or citric)'),
   ],
   // P-No 10H — Duplex
   '10H': [
@@ -124,49 +200,77 @@ const Map<String, List<_Check>> _pNumberExtras = {
            'Niski HI <1.5 kJ/mm — narrow string beads',
            'Low HI <1.5 kJ/mm — narrow string beads'),
     _Check('p43-argon-pure',
-           'Argon czysty (>99.99%), brak Helium na nierdzewce',
-           'Pure argon (>99.99%), no Helium on SS'),
+           'Gaz osłonowy wg WPS (Ar ≥ 99,99 % albo mieszanka Ar/He — typowa '
+           'dla stopów Ni)',
+           'Shielding gas per WPS (Ar ≥ 99.99 % or an Ar/He mix — common for '
+           'Ni alloys)'),
     _Check('p43-ercr-mo3-wire',
            'Drut ERNiCrMo-3 (625) z certyfikatu',
            'ERNiCrMo-3 (625) wire with cert'),
   ],
 };
 
+/// Punkty ogólne. Dla TIG orbitalnego bez wybranego materiału (lista
+/// higieniczna, domyślna) to dokładnie 11 dawnych punktów; inne procesy
+/// i materiały dostają tylko te, które ich dotyczą.
 const List<_Check> _checks = [
   _Check('univ-fitup-gap',
          'Szczelina fit-up ≈ 0, rury współosiowe (brak przesunięcia lic)',
-         'Fit-up gap ≈ 0, tubes aligned (no land mismatch)'),
+         'Fit-up gap ≈ 0, tubes aligned (no land mismatch)', _Scope.orbital),
+  _Check('univ-fitup-wps',
+         'Szczelina, ukos i przesunięcie lic (hi-lo) zgodne z WPS',
+         'Root gap, bevel and hi-lo mismatch per WPS', _Scope.notOrbital),
   _Check('univ-tube-ends-clean',
          'Końce rur czyste — odtłuszczone, bez śladów markera',
          'Tube ends clean — degreased, no marker ink'),
   _Check('univ-backing-gas',
          'Gaz formujący podłączony, tamy/korki purge założone',
-         'Backing gas connected, purge dams/plugs fitted'),
+         'Backing gas connected, purge dams/plugs fitted', _Scope.backing),
   _Check('univ-gas-flow',
          'Przepływ gazu osłonowego i formującego ustawiony',
-         'Shielding and backing gas flow set'),
+         'Shielding and backing gas flow set', _Scope.backing),
+  _Check('univ-shield-flow',
+         'Przepływ gazu osłonowego ustawiony, osłona od wiatru',
+         'Shielding gas flow set, wind shield in place', _Scope.shieldOnly),
   _Check('univ-o2-limit',
          'O₂ w gazie formującym poniżej limitu (miernik)',
-         'Backing-gas O₂ below the limit (meter checked)'),
+         'Backing-gas O₂ below the limit (meter checked)', _Scope.backing),
   _Check('univ-pre-purge',
          'Pre-purge odczekany — powietrze wypłukane',
-         'Pre-purge time elapsed — air flushed out'),
+         'Pre-purge time elapsed — air flushed out', _Scope.backing),
   _Check('univ-tungsten',
          'Elektroda wolframowa zaostrzona, czysta, właściwa średnica',
-         'Tungsten electrode sharp, clean, correct diameter'),
+         'Tungsten electrode sharp, clean, correct diameter', _Scope.tig),
+  _Check('mma-electrodes',
+         'Elektrody wg WPS, wysuszone / z piecyka wg producenta, bez '
+         'uszkodzonej otuliny',
+         'Electrodes per WPS, dried / from the holding oven per the maker, '
+         'no damaged coating', _Scope.mma),
+  _Check('mag-torch',
+         'Dysza i końcówka prądowa czyste, drut bez rdzy, podajnik OK',
+         'Nozzle and contact tip clean, wire rust-free, feeder OK', _Scope.mag),
   _Check('univ-wps-params',
          'Parametry maszyny zgodne z WPS / programem',
          'Machine parameters match the WPS / program'),
   _Check('univ-test-coupon',
          'Kupon próbny dnia wykonany i zaakceptowany',
-         "Today's test coupon welded and accepted"),
+         "Today's test coupon welded and accepted", _Scope.orbital),
   _Check('univ-weld-no',
          'Numer spoiny naniesiony, weld map zaktualizowana',
          'Weld number marked, weld map updated'),
   _Check('univ-tools-ss-only',
          'Narzędzia dedykowane do nierdzewki (brak kontaktu z żelazem)',
-         'Stainless-only tools used (no iron cross-contamination)'),
+         'Stainless-only tools used (no iron cross-contamination)',
+         _Scope.stainless),
 ];
+
+/// Dodatki dla P-No; stopy Ni 41–45 dzielą listę '43'.
+List<_Check>? _extrasFor(String pNo) {
+  final direct = _pNumberExtras[pNo];
+  if (direct != null) return direct;
+  if (const {'41', '42', '44', '45'}.contains(pNo)) return _pNumberExtras['43'];
+  return null;
+}
 
 /// Scans a preheatNote like "200–250 °C, interpass 250–300 °C" for °C numbers
 /// and appends a "  (~390–480 °F)" tail. Best-effort — if no °C number is
@@ -198,7 +302,11 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   /// against austenitic context — false-affirming a safety check). Stable
   /// IDs persist correctly across material changes AND across cold starts.
   final Set<String> _done = <String>{};
+
+  /// Punkty oznaczone „nie dotyczy” — liczone osobno od sprawdzonych.
+  final Set<String> _na = <String>{};
   MaterialSpec? _material;
+  WeldingProcessKind _process = WeldingProcessKind.tigOrbital;
 
   /// Ticks came back from SharedPreferences (an earlier session today) and
   /// the welder has not yet confirmed they belong to THIS weld. While true,
@@ -207,6 +315,14 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
 
   static const _kDoneKeyPrefix = 'preweld_done_';
   static const _kMaterialKeyPrefix = 'preweld_material_';
+  static const _kNaKeyPrefix = 'preweld_na_';
+  static const _kProcessKeyPrefix = 'preweld_process_';
+  static const _kPrefixes = [
+    _kDoneKeyPrefix,
+    _kMaterialKeyPrefix,
+    _kNaKeyPrefix,
+    _kProcessKeyPrefix,
+  ];
 
   String get _todayKey {
     final n = DateTime.now();
@@ -230,10 +346,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       // midnight is the implicit guarantee.
       final today = _todayKey;
       for (final k in prefs.getKeys()) {
-        if (!k.startsWith(_kDoneKeyPrefix) &&
-            !k.startsWith(_kMaterialKeyPrefix)) {
-          continue;
-        }
+        if (!_kPrefixes.any(k.startsWith)) continue;
         final tail = k.substring(k.lastIndexOf('_') + 1);
         if (tail != today) {
           await prefs.remove(k);
@@ -241,6 +354,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       }
       final savedIds = prefs.getStringList('$_kDoneKeyPrefix$today');
       final savedMaterialKey = prefs.getString('$_kMaterialKeyPrefix$today');
+      final savedNa = prefs.getStringList('$_kNaKeyPrefix$today');
+      final savedProcess = prefs.getString('$_kProcessKeyPrefix$today');
       if (!mounted) return;
       var droppedStale = false;
       setState(() {
@@ -252,14 +367,21 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         if (savedMaterialKey != null) {
           _material = MaterialCatalog.findByKey(savedMaterialKey);
         }
+        _process = WeldingProcessKind.fromId(savedProcess);
+        if (savedNa != null) {
+          _na
+            ..clear()
+            ..addAll(savedNa);
+        }
         // A saved tick whose check is no longer on the list (renamed
         // catalog key, material that failed to restore) must not count
         // towards "all set" — that would false-affirm an unchecked item.
         final validIds = _all.map((c) => c.id).toSet();
         final before = _done.length;
         _done.removeWhere((id) => !validIds.contains(id));
+        _na.removeWhere((id) => !validIds.contains(id));
         droppedStale = _done.length != before;
-        _restoredNeedsConfirm = _done.isNotEmpty;
+        _restoredNeedsConfirm = _done.isNotEmpty || _na.isNotEmpty;
       });
       if (droppedStale) _persist();
     } catch (_) {
@@ -272,6 +394,8 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('$_kDoneKeyPrefix$_todayKey', _done.toList());
+      await prefs.setStringList('$_kNaKeyPrefix$_todayKey', _na.toList());
+      await prefs.setString('$_kProcessKeyPrefix$_todayKey', _process.id);
       final mat = _material?.key;
       if (mat == null) {
         await prefs.remove('$_kMaterialKeyPrefix$_todayKey');
@@ -288,10 +412,15 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   /// Combined check list = universal items + extras for the picked grade's
   /// P-Number. Stable IDs make ticks survive material swaps; the indices
   /// here are only used for ListView builder traversal.
+  List<_Check> get _universal => [
+        for (final c in _checks)
+          if (_applies(c.scope, _process, _material)) c,
+      ];
+
   List<_Check> get _all {
-    final list = <_Check>[..._checks];
+    final list = <_Check>[..._universal];
     if (_material != null) {
-      final extras = _pNumberExtras[_material!.pNo];
+      final extras = _extrasFor(_material!.pNo);
       if (extras != null) list.addAll(extras);
     }
     return list;
@@ -301,7 +430,34 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   /// `_done.length` directly would let a stale ID stand in for an unchecked
   /// item and show "all set" too early.
   int _doneCountIn(List<_Check> list) =>
-      list.where((c) => _done.contains(c.id)).length;
+      list.where((c) => _done.contains(c.id) && !_na.contains(c.id)).length;
+
+  int _naCountIn(List<_Check> list) =>
+      list.where((c) => _na.contains(c.id)).length;
+
+  /// Wszystkie punkty listy sprawdzone albo „nie dotyczy”.
+  bool _completeIn(List<_Check> list) =>
+      list.isNotEmpty &&
+      list.every((c) => _done.contains(c.id) || _na.contains(c.id));
+
+  void _toggleNa(_Check check) {
+    setState(() {
+      if (_na.remove(check.id)) return;
+      _na.add(check.id);
+      _done.remove(check.id);
+    });
+    _persist();
+  }
+
+  void _setProcess(WeldingProcessKind p) {
+    setState(() {
+      _process = p;
+      final validIds = _all.map((c) => c.id).toSet();
+      _done.removeWhere((id) => !validIds.contains(id));
+      _na.removeWhere((id) => !validIds.contains(id));
+    });
+    _persist();
+  }
 
   void _toggle(_Check check) {
     setState(() {
@@ -309,11 +465,12 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
         _done.remove(check.id);
       } else {
         _done.add(check.id);
+        _na.remove(check.id);
         Haptic.tap();
       }
     });
     final list = _all;
-    if (!_restoredNeedsConfirm && _doneCountIn(list) == list.length) {
+    if (!_restoredNeedsConfirm && _completeIn(list)) {
       Haptic.saved();
     }
     _persist();
@@ -371,9 +528,11 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   /// (including whether the ticks still needed confirmation).
   void _clearForNewWeld({required String message}) {
     final snapshot = Set<String>.from(_done);
+    final naSnapshot = Set<String>.from(_na);
     final wasUnconfirmed = _restoredNeedsConfirm;
     setState(() {
       _done.clear();
+      _na.clear();
       _restoredNeedsConfirm = false;
     });
     _persist();
@@ -391,6 +550,9 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               _done
                 ..clear()
                 ..addAll(snapshot);
+              _na
+                ..clear()
+                ..addAll(naSnapshot);
               _restoredNeedsConfirm = wasUnconfirmed;
             });
             _persist();
@@ -401,8 +563,59 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
 
   void _confirmSameWeld() {
     setState(() => _restoredNeedsConfirm = false);
+    if (_completeIn(_all)) Haptic.saved();
+  }
+
+  /// Zapis wykonanej checklisty do spoiny w dzienniku — wpis historii
+  /// `CHECKLIST` z odczytem O₂ i podgrzania (v25).
+  Future<void> _saveToWeld() async {
     final list = _all;
-    if (_doneCountIn(list) == list.length) Haptic.saved();
+    final en = AppLanguageController.isEnglish;
+    final done = _doneCountIn(list);
+    final na = [
+      for (final c in list)
+        if (_na.contains(c.id)) en ? c.en : c.pl,
+    ];
+    final result = await showModalBottomSheet<(String, String)>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _kCard,
+      builder: (_) => _SaveToWeldSheet(
+        summary: [
+          en
+              ? 'Pre-weld checklist: $done/${list.length - na.length} checked'
+              : 'Checklista przed spawaniem: $done/${list.length - na.length} '
+                  'sprawdzone',
+          '${en ? 'process' : 'proces'} '
+              '${en ? _process.labelEn : _process.labelPl}',
+          if (_material != null)
+            '${en ? 'material' : 'materiał'} ${_material!.key}',
+          if (na.isNotEmpty)
+            '${en ? 'n/a' : 'n/d'}: ${na.join('; ')}',
+        ].join(' · '),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final (weldId, text) = result;
+    try {
+      await WeldJournalDao().addChecklist(weldId, text,
+          by: WelderIdentityService.instance.current?.stamp ?? '');
+    } catch (e) {
+      debugPrint('[checklist] save to weld failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+            pl: 'Nie udało się zapisać w dzienniku.',
+            en: 'Could not save to the journal.')),
+      ));
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(
+          pl: 'Checklista zapisana w historii spoiny.',
+          en: 'Checklist saved in the weld history.')),
+    ));
   }
 
   void _setMaterial(MaterialSpec? m) {
@@ -415,6 +628,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
       // bug the audit flagged.
       final validIds = _all.map((c) => c.id).toSet();
       _done.removeWhere((id) => !validIds.contains(id));
+      _na.removeWhere((id) => !validIds.contains(id));
     });
     _persist();
   }
@@ -423,8 +637,10 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   Widget build(BuildContext context) {
     final isPl = context.language == AppLanguage.pl;
     final list = _all;
+    final universalCount = _universal.length;
     final doneCount = _doneCountIn(list);
-    final complete = list.isNotEmpty && doneCount == list.length;
+    final naCount = _naCountIn(list);
+    final complete = _completeIn(list);
     // Ticks restored from an earlier session never count as "all set" until
     // the welder confirms they belong to this weld.
     final all = complete && !_restoredNeedsConfirm;
@@ -480,11 +696,22 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                         fontWeight: FontWeight.w600),
                   ),
                 ),
-                Text('$doneCount/${list.length}',
-                    style: TextStyle(
-                        color: all ? _kGreen : _kOrange,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text('$doneCount/${list.length - naCount}',
+                        style: TextStyle(
+                            color: all ? _kGreen : _kOrange,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900)),
+                    if (naCount > 0)
+                      Text(
+                          context.tr(
+                              pl: 'n/d: $naCount', en: 'n/a: $naCount'),
+                          style: const TextStyle(
+                              color: _kSec, fontSize: 11)),
+                  ],
+                ),
               ],
             ),
           ),
@@ -512,6 +739,23 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: SizedBox(
                 width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('checklist-save-to-weld'),
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48)),
+                  icon: const Icon(Icons.assignment_turned_in_outlined),
+                  label: Text(context.tr(
+                      pl: 'Zapisz w dzienniku spoiny…',
+                      en: 'Save to the weld journal…')),
+                  onPressed: _saveToWeld,
+                ),
+              ),
+            ),
+          if (all)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: SizedBox(
+                width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 48),
@@ -530,6 +774,29 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                 ),
               ),
             ),
+          // Process picker (v25) — the universal list follows the process.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SizedBox(
+              height: 48,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final p in WeldingProcessKind.values) ...[
+                    ChoiceChip(
+                      key: ValueKey('checklist-process-${p.id}'),
+                      label: Text(isPl ? p.labelPl : p.labelEn,
+                          style: const TextStyle(fontSize: 13)),
+                      selected: _process == p,
+                      onSelected: (_) => _setProcess(p),
+                      materialTapTargetSize: MaterialTapTargetSize.padded,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
+            ),
+          ),
           // Material picker — adds grade-specific checks (P91 needs PWHT slot,
           // Duplex needs ferrite check, etc.) on top of the universal list.
           Padding(
@@ -578,10 +845,11 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
               itemBuilder: (_, i) {
                 final c = list[i];
                 final done = _done.contains(c.id);
-                final isExtra = i >= _checks.length;
+                final na = _na.contains(c.id);
+                final isExtra = i >= universalCount;
                 // Group divider before the first material-specific extra so the
                 // jump from universal → grade-specific is visible at a glance.
-                final showDivider = isExtra && i == _checks.length;
+                final showDivider = isExtra && i == universalCount;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -609,9 +877,11 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          done
-                              ? Icons.check_box
-                              : Icons.check_box_outline_blank,
+                          na
+                              ? Icons.indeterminate_check_box_outlined
+                              : done
+                                  ? Icons.check_box
+                                  : Icons.check_box_outline_blank,
                           color: done ? _kGreen : _kMuted,
                           size: 24,
                         ),
@@ -645,12 +915,25 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
                                   color: done
                                       ? _kMuted
                                       : const Color(0xFFE7ECF3),
-                                  decoration: done
+                                  decoration: done || na
                                       ? TextDecoration.lineThrough
                                       : null,
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                        // „Nie dotyczy” — osobno od „sprawdzone”.
+                        SizedBox(
+                          height: 40,
+                          child: TextButton(
+                            key: ValueKey('checklist-na-${c.id}'),
+                            style: TextButton.styleFrom(
+                              minimumSize: const Size(48, 40),
+                              foregroundColor: na ? _kOrange : _kSec,
+                            ),
+                            onPressed: () => _toggleNa(c),
+                            child: Text(context.tr(pl: 'n/d', en: 'n/a')),
                           ),
                         ),
                       ],
@@ -771,6 +1054,139 @@ class _SectionDivider extends StatelessWidget {
             ),
           ),
           Expanded(child: Container(height: 1, color: _kBorder)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Wybór spoiny z dziennika i odczyty O₂ / podgrzania do wpisu CHECKLIST.
+class _SaveToWeldSheet extends StatefulWidget {
+  final String summary;
+  const _SaveToWeldSheet({required this.summary});
+
+  @override
+  State<_SaveToWeldSheet> createState() => _SaveToWeldSheetState();
+}
+
+class _SaveToWeldSheetState extends State<_SaveToWeldSheet> {
+  final _o2 = TextEditingController();
+  final _preheat = TextEditingController();
+  late final Future<List<WeldEntry>> _welds = WeldJournalDao().listAll().then(
+      (all) => all.where((e) => !e.isDeleted).toList()
+        ..sort((a, b) => b.date.compareTo(a.date)));
+  String? _picked;
+
+  @override
+  void dispose() {
+    _o2.dispose();
+    _preheat.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final id = _picked;
+    if (id == null) return;
+    final en = AppLanguageController.isEnglish;
+    final o2 = parseO2Ppm(_o2.text);
+    final preheat = parseDecimal(_preheat.text);
+    final text = [
+      widget.summary,
+      if (o2 != null) 'O₂ ${formatO2Ppm(o2)} ppm',
+      if (preheat != null)
+        '${en ? 'preheat' : 'podgrzanie'} ${_preheat.text.trim()} °C',
+    ].join(' · ');
+    Navigator.pop(context, (id, text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            context.tr(
+                pl: 'Zapisz checklistę do spoiny',
+                en: 'Save the checklist to a weld'),
+            style: const TextStyle(
+                color: _kOrange, fontSize: 15, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          FutureBuilder<List<WeldEntry>>(
+            future: _welds,
+            builder: (_, snap) {
+              if (!snap.hasData) {
+                return snap.hasError
+                    ? Text(context.tr(
+                        pl: 'Nie udało się wczytać dziennika.',
+                        en: 'Failed to load the journal.'))
+                    : const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+              }
+              final welds = snap.data!;
+              if (welds.isEmpty) {
+                return Text(context.tr(
+                    pl: 'Dziennik jest pusty — najpierw dodaj spoinę.',
+                    en: 'The journal is empty — add a weld first.'));
+              }
+              return DropdownButtonFormField<String>(
+                key: const ValueKey('checklist-weld-pick'),
+                initialValue: _picked,
+                isExpanded: true,
+                decoration: InputDecoration(
+                    labelText: context.tr(pl: 'Spoina', en: 'Weld')),
+                items: [
+                  for (final w in welds.take(200))
+                    DropdownMenuItem(
+                      value: w.id,
+                      child: Text(
+                        [w.weldNo, w.projectName, w.date]
+                            .where((s) => s.trim().isNotEmpty)
+                            .join(' · '),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _picked = v),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _o2,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
+                decoration: InputDecoration(
+                    labelText: context.tr(
+                        pl: 'O₂ zmierzone (ppm)', en: 'Measured O₂ (ppm)')),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: _preheat,
+                keyboardType: numberKeyboard(),
+                inputFormatters: numberInputFormatters(),
+                decoration: InputDecoration(
+                    labelText: context.tr(
+                        pl: 'Podgrzanie (°C)', en: 'Preheat (°C)')),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+            onPressed: _picked == null ? null : _save,
+            child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
+          ),
         ],
       ),
     );

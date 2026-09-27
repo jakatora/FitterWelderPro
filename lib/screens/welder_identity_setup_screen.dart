@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../i18n/app_language.dart';
 import '../services/welder_identity.dart';
+import '../services/welder_qualification_service.dart';
 import '../theme/app_theme.dart';
 
 class WelderIdentitySetupScreen extends StatefulWidget {
@@ -96,9 +97,17 @@ class _WelderIdentitySetupScreenState
       ));
       return;
     }
+    final existing = WelderIdentityService.instance.current;
+    final newStamp = _stampCtrl.text.trim().toUpperCase();
+    final oldStamp = existing?.stamp.trim().toUpperCase() ?? '';
+    var reassign = false;
+    if (oldStamp.isNotEmpty && oldStamp != newStamp) {
+      final decision = await _confirmStampChange(oldStamp, newStamp);
+      if (decision == null || !mounted) return;
+      reassign = decision;
+    }
     setState(() => _saving = true);
     final now = DateTime.now();
-    final existing = WelderIdentityService.instance.current;
     final identity = WelderIdentity(
       stamp: _stampCtrl.text.trim().toUpperCase(),
       // Legacy qualification fields: no longer edited here (see the header),
@@ -117,6 +126,14 @@ class _WelderIdentitySetupScreenState
       qualificationDeclaredAt: existing?.qualificationDeclaredAt ?? now,
     );
     final ok = await WelderIdentityService.instance.save(identity);
+    if (ok && reassign) {
+      try {
+        await WelderQualificationService.instance
+            .reassignStamp(oldStamp, newStamp);
+      } catch (e) {
+        debugPrint('[identity] stamp reassign failed: $e');
+      }
+    }
     if (!mounted) return;
     setState(() => _saving = false);
     if (!ok) {
@@ -135,6 +152,65 @@ class _WelderIdentitySetupScreenState
       )),
     ));
     Navigator.pop(context, true);
+  }
+
+  /// Zmiana stempla: `null` = anuluj, `false` = zmień tylko stempel,
+  /// `true` = przepisz też stempel certyfikatów.
+  Future<bool?> _confirmStampChange(String oldStamp, String newStamp) async {
+    final service = WelderQualificationService.instance;
+    var certs = 0;
+    var welds = 0;
+    try {
+      certs = await service.countCertificatesWithStamp(oldStamp);
+      welds = await service.countJournalWeldsWithStamp(oldStamp);
+    } catch (e) {
+      debugPrint('[identity] stamp usage count failed: $e');
+    }
+    if (!mounted) return null;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_tr('Zmiana stempla $oldStamp → $newStamp',
+            'Stamp change $oldStamp → $newStamp')),
+        content: Text([
+          if (certs > 0)
+            _tr(
+                'Certyfikatów ze stemplem $oldStamp: $certs. Bez przepisania '
+                    'przestaną pasować do spoin nowego stempla — dziennik '
+                    'pokaże „brak certyfikatów”.',
+                'Certificates with stamp $oldStamp: $certs. Unless '
+                    'reassigned they stop matching welds of the new stamp — '
+                    'the journal will show "no certificates".'),
+          if (welds > 0)
+            _tr(
+                'Spoin w dzienniku ze stemplem $oldStamp: $welds. Tych nie '
+                    'zmieniamy (to dowód) i nie liczą się już do ciągłości '
+                    'ASME nowego stempla.',
+                'Journal welds with stamp $oldStamp: $welds. They stay as '
+                    'they are (evidence) and no longer count towards ASME '
+                    'continuity of the new stamp.'),
+          _tr('Historia zmian będzie miała od teraz autora $newStamp.',
+              'From now on the change history is authored by $newStamp.'),
+        ].join('\n\n')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(_tr('Anuluj', 'Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(_tr('Zmień tylko stempel', 'Change the stamp only')),
+          ),
+          if (certs > 0)
+            FilledButton(
+              key: const ValueKey('identity-reassign-certs'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(_tr('Przepisz certyfikaty ($certs)',
+                  'Reassign certificates ($certs)')),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
