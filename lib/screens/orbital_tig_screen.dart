@@ -190,6 +190,30 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
             en: 'Wall cannot exceed half the OD');
         return;
       }
+      // Model range: autogenous thin-wall tube. Outside it — a message, not
+      // an extrapolated number (168 × 6 mm gave 308 A, 273 × 10 mm 513 A).
+      switch (checkOrbitalRange(odMm: od, wallMm: wall)) {
+        case OrbitalRange.wallTooThick:
+          _error = context.tr(
+              pl: 'Ścianka > ${kOrbitalMaxWallMm.toStringAsFixed(0)} mm — poza zakresem '
+                  'orbitalu autogenicznego (bez drutu). Potrzebna faza, drut i kilka '
+                  'przejść — parametry wg WPS i programu głowicy.',
+              en: 'Wall > ${kOrbitalMaxWallMm.toStringAsFixed(0)} mm — outside autogenous '
+                  '(no filler) orbital. A bevel, filler wire and several passes are '
+                  'needed — parameters per the WPS and the weld head program.');
+          return;
+        case OrbitalRange.currentTooHigh:
+          _error = context.tr(
+              pl: 'Prąd bazowy > ${kOrbitalMaxCurrentA.toStringAsFixed(0)} A — poza '
+                  'zakresem modelu dla cienkościennych rurek. Parametry wg WPS '
+                  'i programu głowicy.',
+              en: 'Base current > ${kOrbitalMaxCurrentA.toStringAsFixed(0)} A — outside '
+                  'the thin-wall tube model. Parameters per the WPS and the weld '
+                  'head program.');
+          return;
+        case OrbitalRange.ok:
+          break;
+      }
       _est = estimateOrbital(odMm: od, wallMm: wall, arcVolts: v);
     });
   }
@@ -383,10 +407,22 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
             _ResultCard(
               title: context.tr(pl: 'Prąd wg poziomu orbity', en: 'Current per orbital level'),
               children: [
-                _LevelRow(level: 1, name: context.tr(pl: 'Płasko (dół)', en: 'Flat (down)'), amps: e.levelCurrentA[0]),
-                _LevelRow(level: 2, name: context.tr(pl: 'Pionowo w dół', en: 'Vertical-down'), amps: e.levelCurrentA[1]),
-                _LevelRow(level: 3, name: context.tr(pl: 'Pionowo w górę', en: 'Vertical-up'), amps: e.levelCurrentA[2]),
-                _LevelRow(level: 4, name: context.tr(pl: 'Pułapowo (góra)', en: 'Overhead (top)'), amps: e.levelCurrentA[3]),
+                // Levels compensate the tube heating up during the orbit;
+                // which position each sector covers depends on the start
+                // point — so no position names (review G4).
+                _LevelRow(level: 1, name: context.tr(pl: 'Sektor 1 (start)', en: 'Sector 1 (start)'), amps: e.levelCurrentA[0]),
+                _LevelRow(level: 2, name: context.tr(pl: 'Sektor 2', en: 'Sector 2'), amps: e.levelCurrentA[1]),
+                _LevelRow(level: 3, name: context.tr(pl: 'Sektor 3', en: 'Sector 3'), amps: e.levelCurrentA[2]),
+                _LevelRow(level: 4, name: context.tr(pl: 'Sektor 4 (koniec)', en: 'Sector 4 (end)'), amps: e.levelCurrentA[3]),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    context.tr(
+                        pl: 'Poziomy kompensują nagrzewanie rury w trakcie obrotu; które pozycje obejmuje sektor, zależy od punktu startu.',
+                        en: 'Levels compensate the tube heating up during the orbit; which positions a sector covers depends on the start point.'),
+                    style: const TextStyle(color: _kMuted, fontSize: 11),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -407,8 +443,15 @@ class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
                     label: context.tr(pl: 'Liczba przejść', en: 'Passes'),
                     value: '${e.passes}'),
                 _DataRow(
-                    label: context.tr(pl: 'Energia liniowa (orient.)', en: 'Heat input (approx.)'),
+                    label: context.tr(
+                        pl: 'Energia liniowa (orient.) — EN 1011-1, η 0,6',
+                        en: 'Heat input (approx.) — EN 1011-1, η 0.6'),
                     value: '${e.heatInputKJmm.toStringAsFixed(2)} kJ/mm'),
+                _DataRow(
+                    label: context.tr(
+                        pl: 'Energia łuku — ASME IX QW-409.1, bez η',
+                        en: 'Arc energy — ASME IX QW-409.1, no η'),
+                    value: '${e.arcEnergyKJmm.toStringAsFixed(2)} kJ/mm'),
               ],
             ),
             const SizedBox(height: 10),
