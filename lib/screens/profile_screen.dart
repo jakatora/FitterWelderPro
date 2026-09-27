@@ -21,6 +21,8 @@ import '../utils/haptic.dart';
 import '../widgets/scan_consent_gate.dart';
 import '../widgets/wpqr_chip.dart';
 import 'legal_screen.dart';
+import 'onboarding_name_screen.dart'
+    show describeNameProblem, fullNameTooLongMessage;
 import 'root_gate.dart';
 
 // Twój profil.
@@ -33,8 +35,6 @@ import 'root_gate.dart';
 //   1. mówi wprost, co jest publiczne, a co zostaje na telefonie,
 //   2. pozwala poprawić imię i nazwisko,
 //   3. pokazuje, kogo zablokowałeś, i pozwala odblokować.
-
-final RegExp _kNameAllowed = RegExp(r"^[\p{L} '\-]{2,}$", unicode: true);
 
 class ProfileScreen extends StatefulWidget {
   /// Otwiera od razu okno „Usunąć moje dane?" (wejście z wyszukiwarki na
@@ -69,6 +69,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _load() async {
     final profile = await UserProfileService.instance.get();
     await BlockedUsers.instance.load();
+    await LegalConsent.instance.load();
+    await ScanConsent.load();
     if (!mounted) return;
     setState(() {
       _firstCtrl.text = profile?.firstName ?? '';
@@ -89,24 +91,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-  String? _validate(String value) {
-    final v = value.trim();
-    if (v.isEmpty) {
-      return context.tr(
-          pl: 'To pole jest wymagane.', en: 'This field is required.');
-    }
-    if (!_kNameAllowed.hasMatch(v)) {
-      return context.tr(
-        pl: 'Min. 2 litery, bez cyfr i znaków specjalnych.',
-        en: 'Min. 2 letters, no digits or special characters.',
-      );
-    }
-    return null;
-  }
-
   Future<void> _save() async {
-    final firstErr = _validate(_firstCtrl.text);
-    final lastErr = _validate(_lastCtrl.text);
+    // Ten sam walidator co krok imienia przed czatem (user_profile.dart).
+    final firstErr = describeNameProblem(context, checkNamePart(_firstCtrl.text));
+    var lastErr = describeNameProblem(context, checkNamePart(_lastCtrl.text));
+    if (firstErr == null &&
+        lastErr == null &&
+        fullNameTooLong(_firstCtrl.text, _lastCtrl.text)) {
+      lastErr = fullNameTooLongMessage(context);
+    }
     setState(() {
       _firstError = firstErr;
       _lastError = lastErr;
@@ -742,6 +735,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (resetIdentity) await PremiumService.instance.resetIdentity();
   }
 
+  // ───────────────────────────── Zgody ─────────────────────────────────────
+  //
+  // RODO art. 7 ust. 3: wycofanie zgody ma być tak łatwe jak jej wyrażenie.
+  // Wycofanie działa na przyszłość — dane już wysłane na serwer usuwa
+  // „Usuń moje dane", i okno mówi to wprost.
+
+  static String _formatDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.'
+      '${d.month.toString().padLeft(2, '0')}.${d.year}';
+
+  Future<void> _withdrawConsent({required bool scanner}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        scrollable: true,
+        title: Text(context.tr(pl: 'Wycofać zgodę?', en: 'Withdraw consent?')),
+        content: Text(scanner
+            ? context.tr(
+                pl: 'Skaner nie wyśle żadnego zdjęcia, dopóki znowu się nie '
+                    'zgodzisz — zapyta o to przy następnym skanie. Ręczne '
+                    'wpisywanie wymiarów działa bez zgody.',
+                en: 'The scanner will not send any photo until you agree '
+                    'again — it asks before the next scan. Typing dimensions '
+                    'by hand works without consent.',
+              )
+            : context.tr(
+                pl: 'Czat i odpowiedzi asystenta zapytają o akceptację zasad '
+                    'przy następnym użyciu. Kalkulatory działają bez niej.\n\n'
+                    'To, co już wysłałeś, zostaje na serwerze — żeby to '
+                    'usunąć, użyj „Usuń moje dane".',
+                en: 'Chat and assistant answers will ask you to accept the '
+                    'rules the next time you use them. The calculators work '
+                    'without it.\n\n'
+                    'What you already sent stays on the server — to remove '
+                    'it, use "Delete my data".',
+              )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(pl: 'Wycofaj', en: 'Withdraw')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (scanner) {
+      await ScanConsent.clear();
+    } else {
+      await LegalConsent.instance.clear();
+    }
+    if (!mounted) return;
+    Haptic.saved();
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')),
+    ));
+  }
+
+  Widget _consentTile({
+    required String keyId,
+    required IconData icon,
+    required String title,
+    required DateTime? acceptedAt,
+    required bool accepted,
+    required VoidCallback onWithdraw,
+  }) {
+    final status = accepted
+        ? context.tr(
+            pl: acceptedAt == null
+                ? 'Udzielona (zasady w wersji $kLegalVersion)'
+                : 'Udzielona ${_formatDate(acceptedAt)} '
+                    '(zasady w wersji $kLegalVersion)',
+            en: acceptedAt == null
+                ? 'Given (rules version $kLegalVersion)'
+                : 'Given ${_formatDate(acceptedAt)} '
+                    '(rules version $kLegalVersion)',
+          )
+        : context.tr(
+            pl: 'Nie udzielona — zapytamy, gdy będzie potrzebna',
+            en: 'Not given — we ask when it is needed');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: kCard,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: kBorder),
+        ),
+        child: ListTile(
+          minVerticalPadding: 12,
+          leading: Icon(icon, color: kTextSec, size: 20),
+          title: Text(title,
+              style: const TextStyle(
+                  color: kText, fontWeight: FontWeight.w600, fontSize: 14)),
+          subtitle: Text(status,
+              style: const TextStyle(color: kTextMut, fontSize: 12)),
+          trailing: accepted
+              ? TextButton(
+                  key: ValueKey('consent-withdraw-$keyId'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(kMinTapTarget, kMinTapTarget),
+                  ),
+                  onPressed: onWithdraw,
+                  child: Text(
+                    context.tr(pl: 'Wycofaj', en: 'Withdraw'),
+                    style: const TextStyle(
+                        color: kArc, fontWeight: FontWeight.w700),
+                  ),
+                )
+              : null,
+        ),
+      ),
+    );
+  }
+
   Future<void> _unblock(BlockedUser u) async {
     await BlockedUsers.instance.unblock(u.deviceId);
     if (!mounted) return;
@@ -818,7 +933,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 TextField(
                   controller: _firstCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(errorText: _firstError),
+                  maxLength: kNamePartMaxLength,
+                  decoration: InputDecoration(
+                      errorText: _firstError, counterText: ''),
                   onChanged: (_) {
                     if (_firstError != null) setState(() => _firstError = null);
                     setState(() {}); // odśwież podgląd podpisu
@@ -830,7 +947,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 TextField(
                   controller: _lastCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(errorText: _lastError),
+                  maxLength: kNamePartMaxLength,
+                  decoration: InputDecoration(
+                      errorText: _lastError, counterText: ''),
                   onChanged: (_) {
                     if (_lastError != null) setState(() => _lastError = null);
                     setState(() {});
@@ -966,6 +1085,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       pl: 'Nadpisze dane na tym telefonie',
                       en: 'Overwrites the data on this phone'),
                   onTap: _busy ? null : _restore,
+                ),
+
+                const SizedBox(height: 32),
+                _Label(context.tr(pl: 'Zgody', en: 'Consents')),
+                const SizedBox(height: 8),
+                _consentTile(
+                  keyId: 'rules',
+                  icon: Icons.gavel_outlined,
+                  title: context.tr(
+                      pl: 'Zasady (czat i asystent)',
+                      en: 'Rules (chat and assistant)'),
+                  acceptedAt: LegalConsent.instance.acceptedAt,
+                  accepted: LegalConsent.instance.isAccepted,
+                  onWithdraw: () => _withdrawConsent(scanner: false),
+                ),
+                _consentTile(
+                  keyId: 'scanner',
+                  icon: Icons.document_scanner_outlined,
+                  title: context.tr(
+                      pl: 'Wysyłka zdjęć do skanera',
+                      en: 'Sending photos to the scanner'),
+                  acceptedAt: ScanConsent.acceptedAt,
+                  accepted: ScanConsent.isAccepted,
+                  onWithdraw: () => _withdrawConsent(scanner: true),
                 ),
 
                 const SizedBox(height: 32),
