@@ -1,6 +1,11 @@
 /// Create or edit one test coupon of the coupon log: date, welder, machine,
 /// size, weld program and its parameters, the O₂ reading of the purge, the
-/// heat tint level on the AWS D18.2 scale and the result.
+/// heat tint level on the AWS D18.2 scale, the result and who accepted it.
+///
+/// v25: a new coupon starts "to be assessed" (no default OK); saving an OK
+/// above the project heat-tint limit or without "accepted by" asks first;
+/// changing a coupon that welds are linked to says which welds get the new
+/// reference (the DAO rewrites it with a history row on each weld).
 library;
 
 import 'package:flutter/material.dart';
@@ -10,6 +15,7 @@ import '../../database/coupon_dao.dart';
 import '../../domain/weld_journal/coupon_entry.dart';
 import '../../domain/weld_journal/weld_dates.dart';
 import '../../i18n/app_language.dart';
+import '../../services/welder_identity.dart';
 import '../../theme/app_theme.dart';
 import 'wj_ui.dart';
 import '../number_field.dart';
@@ -34,12 +40,8 @@ Future<CouponEntry?> showCouponEditor(
           initial: initial, isNew: isNew, dao: dao ?? CouponDao()),
     );
 
-Color _verdictColor(HeatTintVerdict v) => switch (v) {
-      HeatTintVerdict.pharma => kPass,
-      HeatTintVerdict.food => kPass,
-      HeatTintVerdict.marginal => kWarn,
-      HeatTintVerdict.reject => kFail,
-    };
+/// Ten sam kolor oceny co na ekranie przebarwień.
+Color _verdictColor(HeatTintVerdict v) => heatTintVerdictColor(v);
 
 class _CouponEditor extends StatefulWidget {
   final CouponEntry initial;
@@ -62,7 +64,12 @@ class _CouponEditorState extends State<_CouponEditor> {
   late final _params = TextEditingController(text: _c.programParams);
   late final _o2 = TextEditingController(text: formatO2Ppm(_c.o2Ppm));
   late final _notes = TextEditingController(text: _c.notes);
-  late String _result = _c.result.isEmpty ? 'OK' : _c.result;
+  late final _acceptedBy = TextEditingController(text: _c.acceptedBy);
+  late final _acceptedAt = TextEditingController(text: _c.acceptedAt);
+  // Nowy kupon: „do oceny” — nigdy domyślne OK.
+  late String _result = CouponResult.normalize(_c.result);
+  int _tintLimit = kDefaultHeatTintLimit;
+  String? _acceptedAtError;
   late int? _tint = _c.heatTint;
   bool _saving = false;
   bool _closing = false;
@@ -74,12 +81,16 @@ class _CouponEditorState extends State<_CouponEditor> {
   void initState() {
     super.initState();
     _snapshot0 = _build(_c.o2Ppm);
+    loadHeatTintLimit().then((v) {
+      if (mounted) setState(() => _tintLimit = v);
+    });
   }
 
   @override
   void dispose() {
     for (final c in [
       _date, _welder, _machine, _size, _program, _params, _o2, _notes,
+      _acceptedBy, _acceptedAt,
     ]) {
       c.dispose();
     }
@@ -97,6 +108,8 @@ class _CouponEditorState extends State<_CouponEditor> {
         heatTint: _tint,
         result: _result,
         notes: _notes.text.trim(),
+        acceptedBy: _acceptedBy.text.trim(),
+        acceptedAt: _acceptedAt.text.trim(),
       );
 
   bool get _dirty {
@@ -133,8 +146,42 @@ class _CouponEditorState extends State<_CouponEditor> {
     if (discard == true && mounted) nav.pop();
   }
 
+  Future<bool> _confirm(String title, List<String> lines, String okLabel) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final l in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(l, style: const TextStyle(fontSize: 13)),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(ctx.tr(pl: 'Popraw', en: 'Fix')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(okLabel),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
   Future<void> _save() async {
     final date = normalizeWeldDate(_date.text);
+    final accepted = normalizeWeldDate(_acceptedAt.text);
     final rawO2 = _o2.text.trim();
     final o2 = parseO2Ppm(rawO2);
     setState(() {
@@ -143,19 +190,62 @@ class _CouponEditorState extends State<_CouponEditor> {
               pl: 'Data RRRR-MM-DD lub DD.MM.RRRR',
               en: 'Date YYYY-MM-DD or DD.MM.YYYY')
           : null;
+      _acceptedAtError = accepted == null
+          ? context.tr(pl: 'Nieprawidłowa data', en: 'Invalid date')
+          : null;
       _o2Error = rawO2.isNotEmpty && o2 == null
           ? context.tr(pl: 'Liczba ppm ≥ 0', en: 'A ppm value ≥ 0')
           : null;
     });
-    if (date == null || _o2Error != null) return;
+    if (date == null || accepted == null || _o2Error != null) return;
     _date.text = date;
-    final c = _build(o2).copyWith(date: date);
+    _acceptedAt.text = accepted;
+    final c = _build(o2).copyWith(date: date, acceptedAt: accepted);
+    final en = AppLanguageController.isEnglish;
+    final warnings = couponWarnings(c, tintLimit: _tintLimit, en: en);
+    if (warnings.isNotEmpty &&
+        !await _confirm(
+            context.tr(pl: 'Sprawdź wynik kuponu', en: 'Check the coupon'),
+            warnings,
+            context.tr(pl: 'Zapisz mimo to', en: 'Save anyway'))) {
+      return;
+    }
+    if (!mounted) return;
+    // Kupon podpięty do spoin: zmiana odnośnika (np. wynik OK → NOK) trafi
+    // do każdej z nich — mówimy do których.
+    if (!widget.isNew && c.reference != widget.initial.reference) {
+      var linked = const <(String, String)>[];
+      try {
+        linked = await widget.dao.linkedWelds(c.id);
+      } catch (e) {
+        debugPrint('CouponLog linked welds failed: $e');
+      }
+      if (!mounted) return;
+      if (linked.isNotEmpty &&
+          !await _confirm(
+              context.tr(
+                  pl: 'Kupon podpięty do spoin (${linked.length})',
+                  en: 'Coupon linked to welds (${linked.length})'),
+              [
+                context.tr(
+                    pl: 'Odnośnik w spoinach zmieni się na: ${c.reference}. '
+                        'Zmiana trafi do historii każdej spoiny:',
+                    en: 'The reference in the welds becomes: ${c.reference}. '
+                        'The change goes to the history of each weld:'),
+                linked.map((w) => w.$2).join(', '),
+              ],
+              context.tr(pl: 'Zapisz', en: 'Save'))) {
+        return;
+      }
+    }
+    if (!mounted) return;
+    final by = WelderIdentityService.instance.current?.stamp ?? '';
     setState(() => _saving = true);
     try {
       if (widget.isNew) {
-        await widget.dao.insert(c);
+        await widget.dao.insert(c, by: by);
       } else {
-        await widget.dao.update(c);
+        await widget.dao.update(c, by: by);
       }
       if (!mounted) return;
       Navigator.pop(context, c);
@@ -304,13 +394,40 @@ class _CouponEditorState extends State<_CouponEditor> {
                       _tintPicker(context),
                       const SizedBox(height: 14),
                       Wrap(spacing: 8, runSpacing: 8, children: [
-                        for (final r in [('OK', kPass), ('NOK', kFail)])
+                        for (final r in [
+                          (
+                            CouponResult.pending,
+                            context.tr(pl: 'Do oceny', en: 'To assess'),
+                            kArc
+                          ),
+                          (CouponResult.ok, 'OK', kPass),
+                          (CouponResult.nok, 'NOK', kFail),
+                        ])
                           WjChoiceChip(
-                            label: r.$1,
-                            color: r.$2,
+                            label: r.$2,
+                            color: r.$3,
                             selected: _result == r.$1,
                             onTap: () => setState(() => _result = r.$1),
                           ),
+                      ]),
+                      const SizedBox(height: 10),
+                      WjRow([
+                        TextField(
+                          controller: _acceptedBy,
+                          decoration: InputDecoration(
+                              labelText: context.tr(
+                                  pl: 'Przyjął (kto)', en: 'Accepted by')),
+                        ),
+                        TextField(
+                          controller: _acceptedAt,
+                          keyboardType: TextInputType.datetime,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                                pl: 'Data przyjęcia', en: 'Accepted on'),
+                            hintText: 'RRRR-MM-DD',
+                            errorText: _acceptedAtError,
+                          ),
+                        ),
                       ]),
                       const SizedBox(height: 12),
                       TextField(
@@ -386,9 +503,13 @@ class _CouponEditorState extends State<_CouponEditor> {
             padding: const EdgeInsets.only(top: 6),
             child: Text(
               '${picked.level} — ${en ? picked.nameEn : picked.namePl} '
-              '(${picked.approxO2} O₂)',
+              '(${picked.approxO2} O₂)'
+              '${picked.level > _tintLimit ? (en ? ' — above the project limit ≤ $_tintLimit' : ' — ponad limit projektu ≤ $_tintLimit') : ''}',
               style: TextStyle(
-                  fontSize: 12, color: _verdictColor(picked.verdict)),
+                  fontSize: 12,
+                  color: picked.level > _tintLimit
+                      ? kFail
+                      : _verdictColor(picked.verdict)),
             ),
           ),
       ],

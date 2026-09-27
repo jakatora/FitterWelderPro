@@ -10,8 +10,85 @@
 /// Pure Dart: no Flutter, no I/O.
 library;
 
+import 'dart:convert';
+
 import 'weld_entry.dart';
 import 'weld_ndt.dart';
+
+/// Odbiór, PWHT i twardość spoiny sprzed naprawy (kolumna
+/// `weld_repairs.prev_acceptance`, v25, JSON).
+///
+/// Naprawiona spoina czeka na ponowne badanie — dawny odbiór inspektora,
+/// wykres PWHT i pomiar twardości dotyczą spoiny, której już nie ma
+/// (ASME B31.3 §341.3.3: naprawa jest badana ponownie; wymagane PWHT
+/// powtarza się po naprawie). Dlatego naprawa je kasuje, a stare wartości
+/// trafiają tutaj i do historii spoiny.
+class WeldAcceptanceSnapshot {
+  final String inspector;
+  final String inspectedAt;
+  final String pwhtChart;
+  final String hardness;
+
+  const WeldAcceptanceSnapshot({
+    this.inspector = '',
+    this.inspectedAt = '',
+    this.pwhtChart = '',
+    this.hardness = '',
+  });
+
+  factory WeldAcceptanceSnapshot.of(WeldEntry w) => WeldAcceptanceSnapshot(
+        inspector: w.inspector.trim(),
+        inspectedAt: w.inspectedAt.trim(),
+        pwhtChart: w.pwhtChart.trim(),
+        hardness: w.hardness.trim(),
+      );
+
+  bool get isEmpty =>
+      inspector.isEmpty &&
+      inspectedAt.isEmpty &&
+      pwhtChart.isEmpty &&
+      hardness.isEmpty;
+
+  /// JSON albo `null` dla pustego (stary wiersz naprawy też ma NULL).
+  String? encode() => isEmpty
+      ? null
+      : jsonEncode(<String, String>{
+          if (inspector.isNotEmpty) 'inspector': inspector,
+          if (inspectedAt.isNotEmpty) 'inspected_at': inspectedAt,
+          if (pwhtChart.isNotEmpty) 'pwht_chart': pwhtChart,
+          if (hardness.isNotEmpty) 'hardness': hardness,
+        });
+
+  /// Uszkodzony tekst daje pusty zapis — nie wywraca odczytu dziennika.
+  static WeldAcceptanceSnapshot decode(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return const WeldAcceptanceSnapshot();
+    }
+    try {
+      final m = jsonDecode(raw);
+      if (m is! Map) return const WeldAcceptanceSnapshot();
+      String f(String k) => m[k] is String ? m[k] as String : '';
+      return WeldAcceptanceSnapshot(
+        inspector: f('inspector'),
+        inspectedAt: f('inspected_at'),
+        pwhtChart: f('pwht_chart'),
+        hardness: f('hardness'),
+      );
+    } catch (_) {
+      return const WeldAcceptanceSnapshot();
+    }
+  }
+
+  /// „odbiór/accepted J. Inspektor 2025-10-03, PWHT PWHT-17, HB/HV 210 HV10".
+  String describe() {
+    final who = [inspector, inspectedAt].where((s) => s.isNotEmpty).join(' ');
+    return [
+      if (who.isNotEmpty) 'odbiór/accepted $who',
+      if (pwhtChart.isNotEmpty) 'PWHT $pwhtChart',
+      if (hardness.isNotEmpty) 'HB/HV $hardness',
+    ].join(', ');
+  }
+}
 
 class WeldRepair {
   final String id;
@@ -32,6 +109,9 @@ class WeldRepair {
   /// NDT state before the repair — results, report numbers, dates.
   final Map<NdtMethod, WeldNdt> prevNdt;
 
+  /// Acceptance, PWHT chart and hardness before the repair (v25).
+  final WeldAcceptanceSnapshot prevAcceptance;
+
   /// Stamp of whoever recorded the repair (welder identity on the phone).
   final String byStamp;
 
@@ -46,6 +126,7 @@ class WeldRepair {
     required this.reason,
     required this.prevStatus,
     required this.prevNdt,
+    this.prevAcceptance = const WeldAcceptanceSnapshot(),
     required this.byStamp,
     required this.createdAt,
   });
@@ -63,6 +144,7 @@ class WeldRepair {
         'prev_ndt': encodeNdtSnapshot(prevNdt),
         'by_stamp': byStamp,
         'created_at': createdAt,
+        'prev_acceptance': prevAcceptance.encode(),
       };
 
   static WeldRepair fromRow(Map<String, Object?> r) => WeldRepair(
@@ -73,6 +155,8 @@ class WeldRepair {
         reason: (r['reason'] as String?) ?? '',
         prevStatus: (r['prev_status'] as String?) ?? '',
         prevNdt: decodeNdtSnapshot(r['prev_ndt'] as String?),
+        prevAcceptance:
+            WeldAcceptanceSnapshot.decode(r['prev_acceptance'] as String?),
         byStamp: (r['by_stamp'] as String?) ?? '',
         createdAt: (r['created_at'] as num?)?.toInt() ?? 0,
       );
@@ -87,9 +171,11 @@ class WeldRepair {
     ];
     // Comma, not semicolon: the summary lands in a CSV cell, and although
     // the CSV writer quotes it correctly, a comma keeps the cell readable.
+    final acceptance = prevAcceptance.describe();
     final was = [
       if (prevStatus.isNotEmpty) prevStatus,
       ...prevNok,
+      if (acceptance.isNotEmpty) acceptance,
     ].join(', ');
     final head = [label, if (date.isNotEmpty) date].join(' ');
     final body = reason.trim().isEmpty ? '' : ': ${reason.trim()}';
@@ -109,7 +195,12 @@ class WeldRepairPlan {
 /// Records a repair on [weld].
 ///
 /// The weld goes back to `PENDING` and every NDT result, report number and
-/// date is cleared — the repaired weld has not been examined yet. The scope
+/// date is cleared — the repaired weld has not been examined yet. The
+/// inspector's acceptance (who, when), the PWHT chart number and the
+/// hardness are cleared too: they belong to the weld that was cut out, and a
+/// PDF showing an accepted weld that awaits re-examination is a false record.
+/// Their old values are kept in [WeldRepair.prevAcceptance] (and the DAO logs
+/// every cleared field to the weld history). "PWHT required" stays. The scope
 /// stays: a weld selected for RT is re-radiographed. A method that had a
 /// result but no scope becomes [NdtScope.required], because re-examination
 /// by the same method is not optional after a repair.
@@ -130,6 +221,7 @@ WeldRepairPlan planWeldRepair(
     reason: reason.trim(),
     prevStatus: weld.status,
     prevNdt: compactNdt(weld.ndt),
+    prevAcceptance: WeldAcceptanceSnapshot.of(weld),
     byStamp: byStamp,
     createdAt: createdAt,
   );
@@ -145,6 +237,10 @@ WeldRepairPlan planWeldRepair(
     weld.copyWith(
       status: 'PENDING',
       ndt: reset,
+      inspector: '',
+      inspectedAt: '',
+      pwhtChart: '',
+      hardness: '',
       repairs: [...weld.repairs, repair],
     ),
   );

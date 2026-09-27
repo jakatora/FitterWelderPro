@@ -11,12 +11,25 @@
 /// used to sit under 15 fields, below the keyboard), every chip is ≥ 48 dp,
 /// and "Zapisz i następna" saves and hands the screen a copy for the next
 /// joint with the number incremented.
+///
+/// v25 (dokumentacja jakości):
+///  • spójność dokumentu — status OK / odbiór przy NDT NOK, badaniu bez
+///    wyniku, dacie odbioru sprzed spawania, kuponie NOK itd. to jawne
+///    ostrzeżenie przy zapisie; „Zapisz mimo to” trafia do historii;
+///  • odnośnik kuponu jest „żywy” — karta pokazuje stan kuponu z logu
+///    (OK / do oceny / NOK / usunięty);
+///  • odebrana spoina ma zablokowane pola wykonawcze; odblokowanie wymaga
+///    uzasadnienia, które trafia do historii;
+///  • WPS wybrana z biblioteki jest zapamiętana w spoinie (`wps_id`).
 library;
 
 import 'package:flutter/material.dart';
 
+import '../../database/coupon_dao.dart';
 import '../../database/weld_journal_dao.dart';
+import '../../domain/weld_journal/coupon_entry.dart';
 import '../../domain/weld_journal/weld_compliance.dart';
+import '../../domain/weld_journal/weld_consistency.dart';
 import '../../domain/weld_journal/weld_dates.dart';
 import '../../domain/weld_journal/weld_defaults.dart';
 import '../../domain/weld_journal/weld_entry.dart';
@@ -61,6 +74,7 @@ Future<WeldEditorResult?> showWeldEditor(
   required String stamp,
   WeldJournalDao? dao,
   WeldComplianceCheck? check,
+  CouponDao? coupons,
 }) =>
     showModalBottomSheet<WeldEditorResult>(
       context: context,
@@ -82,6 +96,7 @@ Future<WeldEditorResult?> showWeldEditor(
         stamp: stamp,
         dao: dao ?? WeldJournalDao(),
         check: check ?? checkWeldCompliance,
+        coupons: coupons ?? CouponDao(),
       ),
     );
 
@@ -97,6 +112,9 @@ class WeldEditorSheet extends StatefulWidget {
   /// weld.
   final WeldComplianceCheck check;
 
+  /// Log kuponów — stan podpiętego kuponu („żywy” odnośnik).
+  final CouponDao? coupons;
+
   const WeldEditorSheet({
     super.key,
     required this.initial,
@@ -106,6 +124,7 @@ class WeldEditorSheet extends StatefulWidget {
     required this.stamp,
     required this.dao,
     this.check = checkWeldCompliance,
+    this.coupons,
   });
 
   @override
@@ -162,9 +181,24 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   /// ("1,25 EN"), see weld_compliance.dart.
   late HeatInputStandard? _hiMethod = _hiInitial.method;
 
-  /// WPS picked from the library in this session; typing unlinks it. A weld
-  /// opened later is matched to the library by its `wps_ref` text.
-  String? _wpsId;
+  /// WPS picked from the library (stored in the weld since v25); typing
+  /// unlinks it — then `wps_ref` is matched to the library by text.
+  late String? _wpsId = _e.wpsId;
+
+  /// Kupon podpięty do spoiny, odczytany z logu (także usunięty); `null` =
+  /// brak w logu. [_couponKnown] — log udało się odczytać.
+  CouponEntry? _couponRow;
+  bool _couponKnown = false;
+
+  /// Niespójności spoiny w chwili otwarcia — przy zapisie pytamy tylko o
+  /// nowe.
+  List<WeldConsistencyIssue> _initialIssues = const [];
+
+  /// Odebrana spoina: pola wykonawcze zablokowane do czasu odblokowania
+  /// z uzasadnieniem.
+  late bool _locked = !widget.isNew &&
+      (_e.inspector.trim().isNotEmpty || _e.inspectedAt.trim().isNotEmpty);
+  String? _unlockReason;
 
   /// Last WPS / qualification check (on open of an existing weld, and after
   /// "Popraw" in the save warning).
@@ -189,10 +223,35 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   List<WeldHistoryEntry>? _history;
 
   List<TextEditingController> get _controllers => [
-        _no, _proj, _line, _iso, _isoRev, _spool, _pkg, _mat, _od, _t,
-        _heat1, _heat2, _wps, _fillerClass, _fillerBatch, _preheat,
-        _interpass, _heatInput, _welder, _root, _cap, _fitter, _date,
-        _coupon, _exam, _pwhtChart, _hardness, _inspector, _inspectedAt,
+        _no,
+        _proj,
+        _line,
+        _iso,
+        _isoRev,
+        _spool,
+        _pkg,
+        _mat,
+        _od,
+        _t,
+        _heat1,
+        _heat2,
+        _wps,
+        _fillerClass,
+        _fillerBatch,
+        _preheat,
+        _interpass,
+        _heatInput,
+        _welder,
+        _root,
+        _cap,
+        _fitter,
+        _date,
+        _coupon,
+        _exam,
+        _pwhtChart,
+        _hardness,
+        _inspector,
+        _inspectedAt,
         _notes,
       ];
 
@@ -204,9 +263,17 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
     // welder fills on every joint).
     final e = _e;
     if (widget.isNew ||
-        [e.spool, e.testPackage, e.jointType, e.position, e.material, e.od,
-                e.t, e.heatNo1, e.heatNo2]
-            .any((s) => s.isNotEmpty)) {
+        [
+          e.spool,
+          e.testPackage,
+          e.jointType,
+          e.position,
+          e.material,
+          e.od,
+          e.t,
+          e.heatNo1,
+          e.heatNo2
+        ].any((s) => s.isNotEmpty)) {
       _open.add('joint');
     }
     if (widget.isNew ||
@@ -229,6 +296,134 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       _loadHistory();
       _runCardCheck();
     }
+    _loadCoupon(_e.couponId, initial: true);
+  }
+
+  Future<void> _loadCoupon(String? id, {bool initial = false}) async {
+    final dao = widget.coupons;
+    CouponEntry? row;
+    var known = false;
+    if (id != null && id.isNotEmpty && dao != null) {
+      try {
+        row = await dao.getById(id);
+        known = true;
+      } catch (e) {
+        debugPrint('[weld_journal] coupon read failed: $e');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _couponRow = row;
+      _couponKnown = known;
+      if (initial) {
+        _initialIssues = widget.isNew
+            ? const []
+            : weldConsistencyIssues(_e,
+                coupon: row, couponKnown: known, today: DateTime.now());
+      }
+    });
+  }
+
+  Future<void> _unlock() async {
+    final ctrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.tr(
+            pl: 'Odblokować odebraną spoinę?',
+            en: 'Unlock the accepted weld?')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              ctx.tr(
+                  pl: 'Spoina ma odbiór inspektora. Zmiana danych wykonania '
+                      'po odbiorze wymaga uzasadnienia — trafi ono do '
+                      'historii spoiny razem ze zmianami.',
+                  en: 'The weld has an inspector acceptance. Changing the '
+                      'execution data after acceptance needs a reason — it '
+                      'goes to the weld history with the changes.'),
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const ValueKey('weld-unlock-reason'),
+              controller: ctrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: ctx.tr(pl: 'Uzasadnienie', en: 'Reason'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(ctx.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              if (ctrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, ctrl.text.trim());
+            },
+            child: Text(ctx.tr(pl: 'Odblokuj', en: 'Unlock')),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || reason.isEmpty || !mounted) return;
+    setState(() {
+      _locked = false;
+      _unlockReason = reason;
+    });
+  }
+
+  /// Ostrzeżenie o nowych niespójnościach: `true` = „Zapisz mimo to”.
+  Future<bool> _confirmConsistency(List<WeldConsistencyIssue> issues) async {
+    final en = AppLanguageController.isEnglish;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(ctx.tr(
+            pl: 'Niespójny dokument odbiorowy',
+            en: 'Inconsistent acceptance record')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final i in issues)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• ${i.text(en: en)}',
+                      style: const TextStyle(fontSize: 13)),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                ctx.tr(
+                    pl: 'Zapis nie jest blokowany — ostrzeżenie trafi do '
+                        'historii spoiny i do PDF.',
+                    en: 'Saving is not blocked — the warning goes to the '
+                        "weld's history and the PDF."),
+                style: const TextStyle(fontSize: 12, color: kTextSec),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(ctx.tr(pl: 'Popraw', en: 'Fix')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(ctx.tr(pl: 'Zapisz mimo to', en: 'Save anyway')),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   Future<WeldCompliance?> _runCheck(WeldEntry entry) async {
@@ -287,6 +482,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         method: _method,
         weldType: _weldType,
         wpsRef: _wps.text.trim(),
+        wpsId: _wpsId,
         fillerClass: _fillerClass.text.trim(),
         fillerBatch: _fillerBatch.text.trim(),
         preheatC: _preheat.text.trim(),
@@ -314,6 +510,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         ..._build().auditFields(),
         'project_id': _projectId ?? '',
         'coupon_id': _couponId ?? '',
+        'wps_id': _wpsId ?? '',
       };
 
   bool get _isDirty {
@@ -436,6 +633,25 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
     if (dups.isNotEmpty && !await _confirmDuplicate(dups)) return;
     if (!mounted) return;
 
+    // Spójność dokumentu odbiorowego: nowe niespójności → jawne ostrzeżenie,
+    // „Zapisz mimo to” do historii.
+    final en = AppLanguageController.isEnglish;
+    final fresh = newConsistencyIssues(
+        _initialIssues,
+        weldConsistencyIssues(entry,
+            coupon: _couponRow,
+            couponKnown: _couponKnown,
+            today: DateTime.now()));
+    String? consistencyWarning;
+    if (fresh.isNotEmpty) {
+      if (!await _confirmConsistency(fresh)) {
+        if (mounted) setState(() => _open.addAll(['ndt', 'acceptance']));
+        return;
+      }
+      if (!mounted) return;
+      consistencyWarning = consistencyHistoryText(fresh, en: en);
+    }
+
     // WPS and welder qualification: a warning, never a block. The welder
     // decides; "Zapisz mimo to" goes to the weld's history.
     setState(() => _saving = true);
@@ -456,11 +672,18 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       warning = compliance.historyText(en: AppLanguageController.isEnglish);
       setState(() => _saving = true);
     }
+    final allWarnings = [
+      if (warning != null) warning,
+      if (consistencyWarning != null) consistencyWarning,
+    ].join('\n\n');
     try {
       if (widget.isNew) {
-        await widget.dao.insert(entry, by: widget.stamp, warning: warning);
+        await widget.dao.insert(entry, by: widget.stamp, warning: allWarnings);
       } else {
-        await widget.dao.update(entry, by: widget.stamp, warning: warning);
+        await widget.dao.update(entry,
+            by: widget.stamp,
+            warning: allWarnings,
+            unlockReason: _unlockReason);
       }
       // Remember for the next joint — a name typed by hand too.
       await saveLastWeldProject(entry.projectName);
@@ -507,11 +730,16 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
 
   Future<void> _pickCoupon() async {
     FocusScope.of(context).unfocus();
-    final c = await showCouponPickerSheet(context, currentId: _couponId);
+    final c = await showCouponPickerSheet(context,
+        currentId: _couponId,
+        dao: widget.coupons,
+        weldDate: normalizeWeldDate(_date.text) ?? '');
     if (c == null || !mounted) return;
     setState(() {
       _coupon.text = c.reference;
       _couponId = c.id;
+      _couponRow = c;
+      _couponKnown = true;
     });
   }
 
@@ -532,11 +760,17 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
 
   Future<void> _pickDate(TextEditingController ctrl) async {
     final now = DateTime.now();
+    final first = DateTime(now.year - 10);
+    final last = DateTime(now.year + 1, 12, 31);
+    var initial = DateTime.tryParse(ctrl.text.trim()) ?? now;
+    // Stara spoina albo literówka poza zakresem kalendarza — przycięte.
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.tryParse(ctrl.text.trim()) ?? now,
-      firstDate: DateTime(now.year - 10),
-      lastDate: DateTime(now.year + 1),
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
     );
     if (picked != null) ctrl.text = isoDate(picked);
   }
@@ -703,8 +937,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
 
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text,
-            style: const TextStyle(fontSize: 12, color: kTextSec)),
+        child:
+            Text(text, style: const TextStyle(fontSize: 12, color: kTextSec)),
       );
 
   Widget _form(BuildContext context) {
@@ -731,213 +965,258 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
             ),
           ),
         if (_check != null) WeldCompliancePanel(compliance: _check!),
-        // ── Identification ────────────────────────────────────────────────
-        TextField(
-          controller: _no,
-          onChanged: (_) => _autoNo = false,
-          textInputAction: TextInputAction.next,
-          decoration: InputDecoration(
-            labelText: context.tr(pl: 'Numer spoiny', en: 'Weld number'),
-            hintText: 'W-001 / SP-001-W005',
-            errorText: _noError,
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.auto_awesome, size: 20),
-              tooltip: context.tr(
-                  pl: 'Następny numer wg projektu',
-                  en: 'Next number for this project'),
-              onPressed: () => setState(() {
-                _no.text = suggestNextWeldNo(widget.journal,
-                    projectName: _proj.text);
-                _autoNo = true;
-              }),
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        WjRow([
-          TextField(
-            controller: _proj,
-            textInputAction: TextInputAction.next,
-            // A hand-typed name is not a project of the app any more.
-            onChanged: (_) => _projectId = null,
-            decoration: _dec('Projekt', 'Project',
-                suffix: IconButton(
-                  icon: const Icon(Icons.folder_open_outlined, size: 20),
-                  tooltip: context.tr(
-                      pl: 'Wybierz projekt z listy',
-                      en: 'Pick a project from the list'),
-                  onPressed: _saving ? null : _pickProject,
-                )),
-          ),
-          _text(_line, 'Linia', 'Line', hint: '2"-WFI-101'),
-        ]),
-        WjRow([
-          _text(_iso, 'Nr ISO / rysunku', 'ISO / drawing no.'),
-          _text(_isoRev, 'Rewizja', 'Revision', hint: 'A'),
-        ]),
-        TextField(
-          controller: _date,
-          keyboardType: TextInputType.datetime,
-          decoration: InputDecoration(
-            labelText: context.tr(pl: 'Data spawania', en: 'Weld date'),
-            hintText: 'RRRR-MM-DD',
-            errorText: _dateError,
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.calendar_month_outlined, size: 20),
-              tooltip: context.tr(pl: 'Wybierz datę', en: 'Pick date'),
-              onPressed: () => _pickDate(_date),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        _label(context.tr(pl: 'Status', en: 'Status')),
-        _chips<String>([
-          for (final s in WeldStatus.values)
-            (s, weldStatusShort(context, s), weldStatusColor(s)),
-          if (!WeldStatus.values.contains(_status))
-            (_status, _status, kTextSec),
-        ], _status, (v) => _status = v),
-
-        // ── Joint & material ──────────────────────────────────────────────
-        WjSection(
-          title: context.tr(pl: 'Złącze i materiał', en: 'Joint and material'),
-          icon: Icons.join_inner,
-          expanded: _open.contains('joint'),
-          onToggle: () => _toggle('joint'),
-          badge: [e.jointType, e.position, e.material]
-              .where((s) => s.isNotEmpty)
-              .join(' · '),
-          children: [
-            WjRow([
-              _text(_spool, 'Spool', 'Spool'),
-              _text(_pkg, 'Pakiet testowy', 'Test package'),
-            ]),
-            _label(context.tr(pl: 'Typ złącza', en: 'Joint type')),
-            _chips<String>([
-              ('', '—', kTextSec),
-              (WeldJointType.butt,
-                  context.tr(pl: 'BW doczołowe', en: 'BW butt'), kArc),
-              (WeldJointType.socket,
-                  context.tr(pl: 'SW kielichowe', en: 'SW socket'), kArc),
-              (WeldJointType.branch,
-                  context.tr(pl: 'Odgałęzienie', en: 'Branch'), kArc),
-              (WeldJointType.fillet,
-                  context.tr(pl: 'FW pachwinowe', en: 'FW fillet'), kArc),
-            ], _jointType, (v) => _jointType = v),
-            _chips<String>([
-              ('', '—', kTextSec),
-              (WeldLocation.shop,
-                  context.tr(pl: 'Warsztatowa', en: 'Shop'), kArc),
-              (WeldLocation.field,
-                  context.tr(pl: 'Montażowa', en: 'Field'), kArc),
-            ], _shopField, (v) => _shopField = v),
-            WjRow([
-              _dropdown('Pozycja', 'Position', _position, kWeldPositions,
-                  (v) => _position = v),
-              _dropdown('Typ spawania', 'Weld type', _weldType, _kWeldTypes,
-                  (v) => _weldType = v,
-                  labels: {
-                    'ORBITAL': context.tr(pl: 'Orbitalna', en: 'Orbital'),
-                    'AUTO': context.tr(pl: 'Automatyczna', en: 'Automatic'),
-                    'MANUAL': context.tr(pl: 'Ręczna', en: 'Manual'),
-                  }),
-            ]),
-            _text(_mat, 'Materiał', 'Material', hint: '316L / P265GH'),
-            const SizedBox(height: 10),
-            WjRow([
-              _text(_od, 'OD (mm)', 'OD (mm)', hint: '60.3', numeric: true),
-              _text(_t, 't (mm)', 't (mm)', hint: '2.0', numeric: true),
-            ]),
-            WjRow([
-              _text(_heat1, 'Nr wytopu 1', 'Heat no. 1', hint: 'MTR'),
-              _text(_heat2, 'Nr wytopu 2', 'Heat no. 2', hint: 'MTR'),
-            ]),
-          ],
-        ),
-
-        // ── Process, filler, actual parameters ────────────────────────────
-        WjSection(
-          title: context.tr(
-              pl: 'Proces, WPS, spoiwo, parametry',
-              en: 'Process, WPS, filler, parameters'),
-          icon: Icons.bolt_outlined,
-          expanded: _open.contains('process'),
-          onToggle: () => _toggle('process'),
-          badge: [e.method, e.wpsRef].where((s) => s.isNotEmpty).join(' · '),
-          children: [
-            WjRow([
-              _dropdown('Proces', 'Process', _method, _kMethods,
-                  (v) => _method = v,
-                  labels: const {'Tandem': 'Tandem TIG'}),
-              TextField(
-                controller: _wps,
-                textInputAction: TextInputAction.next,
-                // A hand-typed number is matched to the library by text.
-                onChanged: (_) {
-                  if (_wpsId != null) setState(() => _wpsId = null);
-                },
-                decoration: _dec('Nr WPS / pWPS', 'WPS / pWPS no.',
-                    suffix: IconButton(
-                      icon: const Icon(Icons.library_books_outlined, size: 20),
+        if (_locked) _lockBanner(context),
+        AbsorbPointer(
+          absorbing: _locked,
+          child: Opacity(
+            opacity: _locked ? 0.6 : 1,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Identification ────────────────────────────────────────────────
+                TextField(
+                  controller: _no,
+                  onChanged: (_) => _autoNo = false,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText:
+                        context.tr(pl: 'Numer spoiny', en: 'Weld number'),
+                    hintText: 'W-001 / SP-001-W005',
+                    errorText: _noError,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.auto_awesome, size: 20),
                       tooltip: context.tr(
-                          pl: 'Wybierz z Biblioteki WPS',
-                          en: 'Pick from the WPS library'),
-                      onPressed: _saving ? null : _pickWps,
-                    )),
-              ),
-            ]),
-            if (_wpsId != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  context.tr(
-                      pl: 'Z Biblioteki WPS — zakres sprawdzany przy zapisie',
-                      en: 'From the WPS library — range checked on save'),
-                  style: const TextStyle(fontSize: 11, color: kPass),
+                          pl: 'Następny numer wg projektu',
+                          en: 'Next number for this project'),
+                      onPressed: () => setState(() {
+                        _no.text = suggestNextWeldNo(widget.journal,
+                            projectName: _proj.text);
+                        _autoNo = true;
+                      }),
+                    ),
+                  ),
                 ),
-              ),
-            WjRow([
-              _text(_fillerClass, 'Spoiwo — klasyfikacja', 'Filler class.',
-                  hint: 'ER316LSi'),
-              _text(_fillerBatch, 'Spoiwo — nr partii', 'Filler batch'),
-            ]),
-            _label(context.tr(
-                pl: 'Wartości rzeczywiste (zmierzone)',
-                en: 'Actual (measured) values')),
-            WjRow([
-              _text(_preheat, 'Podgrzanie °C', 'Preheat °C', numeric: true),
-              _text(_interpass, 'Międzyścieg. °C', 'Interpass °C',
-                  numeric: true),
-              _text(_heatInput, 'kJ/mm', 'kJ/mm', numeric: true),
-            ]),
-            _label(context.tr(
-                pl: 'Energia liniowa liczona wg', en: 'Heat input per')),
-            _chips<HeatInputStandard?>([
-              (null, '—', kTextSec),
-              (HeatInputStandard.en1011, 'EN 1011-1 (k)', kArc),
-              (HeatInputStandard.asmeIx,
-                  context.tr(pl: 'ASME IX (bez k)', en: 'ASME IX (no k)'),
-                  kArc),
-            ], _hiMethod, (v) => _hiMethod = v),
-          ],
-        ),
+                const SizedBox(height: 10),
+                WjRow([
+                  TextField(
+                    controller: _proj,
+                    textInputAction: TextInputAction.next,
+                    // A hand-typed name is not a project of the app any more.
+                    onChanged: (_) => _projectId = null,
+                    decoration: _dec('Projekt', 'Project',
+                        suffix: IconButton(
+                          icon:
+                              const Icon(Icons.folder_open_outlined, size: 20),
+                          tooltip: context.tr(
+                              pl: 'Wybierz projekt z listy',
+                              en: 'Pick a project from the list'),
+                          onPressed: _saving ? null : _pickProject,
+                        )),
+                  ),
+                  _text(_line, 'Linia', 'Line', hint: '2"-WFI-101'),
+                ]),
+                WjRow([
+                  _text(_iso, 'Nr ISO / rysunku', 'ISO / drawing no.'),
+                  _text(_isoRev, 'Rewizja', 'Revision', hint: 'A'),
+                ]),
+                TextField(
+                  controller: _date,
+                  keyboardType: TextInputType.datetime,
+                  decoration: InputDecoration(
+                    labelText: context.tr(pl: 'Data spawania', en: 'Weld date'),
+                    hintText: 'RRRR-MM-DD',
+                    errorText: _dateError,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                      tooltip: context.tr(pl: 'Wybierz datę', en: 'Pick date'),
+                      onPressed: () => _pickDate(_date),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _label(context.tr(pl: 'Status', en: 'Status')),
+                _chips<String>([
+                  for (final s in WeldStatus.values)
+                    (s, weldStatusShort(context, s), weldStatusColor(s)),
+                  if (!WeldStatus.values.contains(_status))
+                    (_status, _status, kTextSec),
+                ], _status, (v) => _status = v),
 
-        // ── Welders ───────────────────────────────────────────────────────
-        WjSection(
-          title: context.tr(pl: 'Spawacze i monter', en: 'Welders and fitter'),
-          icon: Icons.badge_outlined,
-          expanded: _open.contains('welders'),
-          onToggle: () => _toggle('welders'),
-          badge: e.stamps.join(' · '),
-          children: [
-            _text(_welder, 'Spawacz (stempel)', 'Welder (stamp)'),
-            const SizedBox(height: 10),
-            WjRow([
-              _text(_root, 'Stempel graniówki', 'Root stamp'),
-              _text(_cap, 'Stempel lica', 'Cap stamp'),
-            ]),
-            _text(_fitter, 'Monter (fit-up)', 'Fitter (fit-up)'),
-          ],
+                // ── Joint & material ──────────────────────────────────────────────
+                WjSection(
+                  title: context.tr(
+                      pl: 'Złącze i materiał', en: 'Joint and material'),
+                  icon: Icons.join_inner,
+                  expanded: _open.contains('joint'),
+                  onToggle: () => _toggle('joint'),
+                  badge: [e.jointType, e.position, e.material]
+                      .where((s) => s.isNotEmpty)
+                      .join(' · '),
+                  children: [
+                    WjRow([
+                      _text(_spool, 'Spool', 'Spool'),
+                      _text(_pkg, 'Pakiet testowy', 'Test package'),
+                    ]),
+                    _label(context.tr(pl: 'Typ złącza', en: 'Joint type')),
+                    _chips<String>([
+                      ('', '—', kTextSec),
+                      (
+                        WeldJointType.butt,
+                        context.tr(pl: 'BW doczołowe', en: 'BW butt'),
+                        kArc
+                      ),
+                      (
+                        WeldJointType.socket,
+                        context.tr(pl: 'SW kielichowe', en: 'SW socket'),
+                        kArc
+                      ),
+                      (
+                        WeldJointType.branch,
+                        context.tr(pl: 'Odgałęzienie', en: 'Branch'),
+                        kArc
+                      ),
+                      (
+                        WeldJointType.fillet,
+                        context.tr(pl: 'FW pachwinowe', en: 'FW fillet'),
+                        kArc
+                      ),
+                    ], _jointType, (v) => _jointType = v),
+                    _chips<String>([
+                      ('', '—', kTextSec),
+                      (
+                        WeldLocation.shop,
+                        context.tr(pl: 'Warsztatowa', en: 'Shop'),
+                        kArc
+                      ),
+                      (
+                        WeldLocation.field,
+                        context.tr(pl: 'Montażowa', en: 'Field'),
+                        kArc
+                      ),
+                    ], _shopField, (v) => _shopField = v),
+                    WjRow([
+                      _dropdown('Pozycja', 'Position', _position,
+                          kWeldPositions, (v) => _position = v),
+                      _dropdown('Typ spawania', 'Weld type', _weldType,
+                          _kWeldTypes, (v) => _weldType = v,
+                          labels: {
+                            'ORBITAL':
+                                context.tr(pl: 'Orbitalna', en: 'Orbital'),
+                            'AUTO':
+                                context.tr(pl: 'Automatyczna', en: 'Automatic'),
+                            'MANUAL': context.tr(pl: 'Ręczna', en: 'Manual'),
+                          }),
+                    ]),
+                    _text(_mat, 'Materiał', 'Material', hint: '316L / P265GH'),
+                    const SizedBox(height: 10),
+                    WjRow([
+                      _text(_od, 'OD (mm)', 'OD (mm)',
+                          hint: '60.3', numeric: true),
+                      _text(_t, 't (mm)', 't (mm)', hint: '2.0', numeric: true),
+                    ]),
+                    WjRow([
+                      _text(_heat1, 'Nr wytopu 1', 'Heat no. 1', hint: 'MTR'),
+                      _text(_heat2, 'Nr wytopu 2', 'Heat no. 2', hint: 'MTR'),
+                    ]),
+                  ],
+                ),
+
+                // ── Process, filler, actual parameters ────────────────────────────
+                WjSection(
+                  title: context.tr(
+                      pl: 'Proces, WPS, spoiwo, parametry',
+                      en: 'Process, WPS, filler, parameters'),
+                  icon: Icons.bolt_outlined,
+                  expanded: _open.contains('process'),
+                  onToggle: () => _toggle('process'),
+                  badge: [e.method, e.wpsRef]
+                      .where((s) => s.isNotEmpty)
+                      .join(' · '),
+                  children: [
+                    WjRow([
+                      _dropdown('Proces', 'Process', _method, _kMethods,
+                          (v) => _method = v,
+                          labels: const {'Tandem': 'Tandem TIG'}),
+                      TextField(
+                        controller: _wps,
+                        textInputAction: TextInputAction.next,
+                        // A hand-typed number is matched to the library by text.
+                        onChanged: (_) {
+                          if (_wpsId != null) setState(() => _wpsId = null);
+                        },
+                        decoration: _dec('Nr WPS / pWPS', 'WPS / pWPS no.',
+                            suffix: IconButton(
+                              icon: const Icon(Icons.library_books_outlined,
+                                  size: 20),
+                              tooltip: context.tr(
+                                  pl: 'Wybierz z Biblioteki WPS',
+                                  en: 'Pick from the WPS library'),
+                              onPressed: _saving ? null : _pickWps,
+                            )),
+                      ),
+                    ]),
+                    if (_wpsId != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          context.tr(
+                              pl: 'Z Biblioteki WPS — zakres sprawdzany przy zapisie',
+                              en: 'From the WPS library — range checked on save'),
+                          style: const TextStyle(fontSize: 11, color: kPass),
+                        ),
+                      ),
+                    WjRow([
+                      _text(_fillerClass, 'Spoiwo — klasyfikacja',
+                          'Filler class.',
+                          hint: 'ER316LSi'),
+                      _text(_fillerBatch, 'Spoiwo — nr partii', 'Filler batch'),
+                    ]),
+                    _label(context.tr(
+                        pl: 'Wartości rzeczywiste (zmierzone)',
+                        en: 'Actual (measured) values')),
+                    WjRow([
+                      _text(_preheat, 'Podgrzanie °C', 'Preheat °C',
+                          numeric: true),
+                      _text(_interpass, 'Międzyścieg. °C', 'Interpass °C',
+                          numeric: true),
+                      _text(_heatInput, 'kJ/mm', 'kJ/mm', numeric: true),
+                    ]),
+                    _label(context.tr(
+                        pl: 'Energia liniowa liczona wg',
+                        en: 'Heat input per')),
+                    _chips<HeatInputStandard?>([
+                      (null, '—', kTextSec),
+                      (HeatInputStandard.en1011, 'EN 1011-1 (k)', kArc),
+                      (
+                        HeatInputStandard.asmeIx,
+                        context.tr(pl: 'ASME IX (bez k)', en: 'ASME IX (no k)'),
+                        kArc
+                      ),
+                    ], _hiMethod, (v) => _hiMethod = v),
+                  ],
+                ),
+
+                // ── Welders ───────────────────────────────────────────────────────
+                WjSection(
+                  title: context.tr(
+                      pl: 'Spawacze i monter', en: 'Welders and fitter'),
+                  icon: Icons.badge_outlined,
+                  expanded: _open.contains('welders'),
+                  onToggle: () => _toggle('welders'),
+                  badge: e.stamps.join(' · '),
+                  children: [
+                    _text(_welder, 'Spawacz (stempel)', 'Welder (stamp)'),
+                    const SizedBox(height: 10),
+                    WjRow([
+                      _text(_root, 'Stempel graniówki', 'Root stamp'),
+                      _text(_cap, 'Stempel lica', 'Cap stamp'),
+                    ]),
+                    _text(_fitter, 'Monter (fit-up)', 'Fitter (fit-up)'),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
 
         // ── NDT & coupon ──────────────────────────────────────────────────
@@ -948,8 +1227,10 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
           onToggle: () => _toggle('ndt'),
           badge: [
             for (final m in NdtMethod.values)
-              if (e.ndtOf(m).hasResult) '${m.code} ${e.ndtOf(m).result}'
-              else if (e.ndtOf(m).isAwaiting) '${m.code} …',
+              if (e.ndtOf(m).hasResult)
+                '${m.code} ${e.ndtOf(m).result}'
+              else if (e.ndtOf(m).isAwaiting)
+                '${m.code} …',
           ].join(' · '),
           children: [
             WeldNdtEditor(
@@ -976,16 +1257,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
                     onPressed: _pickCoupon,
                   )),
             ),
-            if (_couponId != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  context.tr(
-                      pl: 'Powiązany z logiem kuponów',
-                      en: 'Linked to the coupon log'),
-                  style: const TextStyle(fontSize: 11, color: kPass),
-                ),
-              ),
+            if (_couponId != null) _couponLinkRow(context),
           ],
         ),
 
@@ -1081,6 +1353,63 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _lockBanner(BuildContext context) => Container(
+        key: const ValueKey('weld-locked-banner'),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+        decoration: BoxDecoration(
+          color: kPass.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: kPass.withValues(alpha: 0.5)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.lock_outline, size: 18, color: kPass),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              context.tr(
+                  pl: 'Spoina odebrana — dane wykonania zablokowane. NDT, '
+                      'odbiór i uwagi można uzupełniać.',
+                  en: 'Weld accepted — execution data locked. NDT, acceptance '
+                      'and notes stay editable.'),
+              style: const TextStyle(fontSize: 12, color: kText),
+            ),
+          ),
+          TextButton(
+            onPressed: _unlock,
+            child: Text(context.tr(pl: 'Odblokuj', en: 'Unlock')),
+          ),
+        ]),
+      );
+
+  Widget _couponLinkRow(BuildContext context) {
+    final en = AppLanguageController.isEnglish;
+    final state = _couponKnown
+        ? couponLinkState(_build(), _couponRow)
+        : CouponLinkState.none;
+    final label = state == CouponLinkState.none
+        ? context.tr(
+            pl: 'Powiązany z logiem kuponów', en: 'Linked to the coupon log')
+        : couponLinkLabel(state, en: en);
+    final color = couponLinkIsBad(state)
+        ? kFail
+        : state == CouponLinkState.pending
+            ? kWarn
+            : kPass;
+    final live = _couponRow?.reference;
+    return Padding(
+      key: const ValueKey('weld-coupon-link'),
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        [
+          label,
+          if (live != null && live != _coupon.text.trim()) live,
+        ].join(' · '),
+        style: TextStyle(fontSize: 11, color: color),
+      ),
     );
   }
 }

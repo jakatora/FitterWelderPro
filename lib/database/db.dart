@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:flutter/foundation.dart';
@@ -54,7 +56,22 @@ class AppDatabase {
   //   otwarcie nie zużywa limitu. Tabela nowa i pusta. (v23 i v24 powstały
   //   równolegle; krok v23 jest idempotentny i wykonuje się zawsze, więc
   //   baza z v24 bez v23 też go dostaje.)
-  static const int _dbVersion = 24;
+  // v25 (G5 — dokumentacja jakości):
+  //   • `welder_cert_confirmations` — historia potwierdzeń ISO 9606-1 §9.2
+  //     (data, kto, uwagi). Dotychczasowe `last_confirmed_date` każdego
+  //     certyfikatu staje się pierwszym wpisem historii;
+  //   • `weld_coupon_history` + kolumny `deleted_at`, `accepted_by`,
+  //     `accepted_at` w `weld_coupons` — historia zmian kuponów, miękkie
+  //     usuwanie i „kto przyjął";
+  //   • `weld_repairs.prev_acceptance` — odbiór, PWHT i twardość sprzed
+  //     naprawy (JSON);
+  //   • `weld_journal.wps_id` — WPS wybrana z biblioteki;
+  //   • `wps_library.doc_status` i `wps_versions` — status dokumentu
+  //     (pWPS / zatwierdzona / wycofana) i wersje treści WPS z datą
+  //     obowiązywania; każda istniejąca WPS dostaje wersję 1 „od zawsze";
+  //   • `passivation_records` — rejestr trawienia / pasywacji.
+  //   Wszystkie nowe kolumny NULL, bez domyślnych — stary wiersz ich nie ma.
+  static const int _dbVersion = 25;
 
   /// The schema version [get] opens the database at.
   ///
@@ -432,8 +449,72 @@ CREATE TABLE IF NOT EXISTS projects (
       await _createIsoScanTable(db);
     }
 
+    // ---- v25: dokumentacja jakości (G5). Tabele przyszły z _createTables na
+    // początku migracji; tu kolumny w istniejących tabelach i przeniesienie
+    // danych. Idempotentne — ponowne przejście nie dubluje wpisów.
+    if (oldVersion < 25) {
+      await migrateV25(db);
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
+  }
+
+  /// Krok v25 (patrz komentarz przy [_dbVersion]). Publiczny dla testu.
+  @visibleForTesting
+  static Future<void> migrateV25(Database db) async {
+    await _createQualityTables(db);
+    for (final c in kWeldJournalV25Columns.entries) {
+      await _ensureColumn(db, 'weld_journal', c.key, c.value);
+    }
+    for (final c in kWeldCouponsV25Columns.entries) {
+      await _ensureColumn(db, 'weld_coupons', c.key, c.value);
+    }
+    for (final c in kWeldRepairsV25Columns.entries) {
+      await _ensureColumn(db, 'weld_repairs', c.key, c.value);
+    }
+    for (final c in kWpsLibraryV25Columns.entries) {
+      await _ensureColumn(db, 'wps_library', c.key, c.value);
+    }
+
+    // Ostatnie potwierdzenie → pierwszy wpis historii potwierdzeń. Nic nie
+    // jest kasowane: kolumna last_confirmed_date zostaje (czyta ją starsza
+    // kopia zapasowa i jest „ostatnim" wpisem łańcucha).
+    await db.execute('''
+INSERT INTO welder_cert_confirmations
+  (id, certificate_id, date, confirmed_by, notes, created_at)
+SELECT 'v25-' || c.id, c.id, c.last_confirmed_date, NULL,
+       'Przeniesione z pola „Ostatnie potwierdzenie" (v25)',
+       COALESCE(c.updated_at, 0)
+FROM welder_certificates c
+WHERE c.last_confirmed_date IS NOT NULL
+  AND TRIM(c.last_confirmed_date) <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM welder_cert_confirmations x
+    WHERE x.certificate_id = c.id AND x.date = c.last_confirmed_date);
+''');
+
+    // Każda WPS dostaje wersję 1 z bieżącą treścią, obowiązującą „od zawsze"
+    // (valid_from = 0): historii sprzed v25 nie znamy, więc stare spoiny są
+    // oceniane dokładnie tak jak dotąd.
+    final wps = await db.query('wps_library');
+    for (final row in wps) {
+      final id = row['id'] as String?;
+      if (id == null) continue;
+      final has = Sqflite.firstIntValue(await db.rawQuery(
+              'SELECT COUNT(*) FROM wps_versions WHERE wps_id = ?', [id])) ??
+          0;
+      if (has > 0) continue;
+      await db.insert('wps_versions', <String, Object?>{
+        'id': 'v25-$id-1',
+        'wps_id': id,
+        'version_no': 1,
+        'valid_from': 0,
+        'snapshot': jsonEncode(row),
+        'by_stamp': null,
+        'created_at': (row['updated_at'] as num?)?.toInt() ?? 0,
+      });
+    }
   }
 
   @visibleForTesting
@@ -797,7 +878,8 @@ CREATE TABLE IF NOT EXISTS weld_journal (
   coupon_ref TEXT,
   exam TEXT,
   wps_ref TEXT,
-${_columnsDdl(_kWeldJournalV20Columns)}
+${_columnsDdl(_kWeldJournalV20Columns)},
+${_columnsDdl(kWeldJournalV25Columns)}
 );
 ''');
     // v20: change history of the journal — one row per changed field (or per
@@ -827,7 +909,8 @@ CREATE TABLE IF NOT EXISTS weld_repairs (
   prev_status TEXT,
   prev_ndt TEXT,
   by_stamp TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+${_columnsDdl(kWeldRepairsV25Columns)}
 );
 ''');
     // v20: per-project journal settings — PDF header and the RT/UT target
@@ -854,7 +937,8 @@ CREATE TABLE IF NOT EXISTS weld_coupons (
   size TEXT,
   result TEXT,
   notes TEXT,
-${_columnsDdl(_kWeldCouponsV20Columns)}
+${_columnsDdl(_kWeldCouponsV20Columns)},
+${_columnsDdl(kWeldCouponsV25Columns)}
 );
 ''');
     // Pressure-test register — hydrotest_dao.dart. Units: bar, °C, minutes,
@@ -910,6 +994,100 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
 ''');
     await _createQualificationTables(db);
     await _createIsoScanTable(db);
+    await _createQualityTables(db);
+  }
+
+  /// weld_journal columns added in v25: the WPS picked from the library.
+  static const Map<String, String> kWeldJournalV25Columns = <String, String>{
+    'wps_id': 'TEXT',
+  };
+
+  /// weld_coupons columns added in v25: soft delete and who accepted the
+  /// coupon, when (`YYYY-MM-DD`).
+  static const Map<String, String> kWeldCouponsV25Columns = <String, String>{
+    'deleted_at': 'INTEGER',
+    'accepted_by': 'TEXT',
+    'accepted_at': 'TEXT',
+  };
+
+  /// weld_repairs columns added in v25: acceptance, PWHT chart and hardness
+  /// the weld carried before the repair (JSON, see weld_repair.dart).
+  static const Map<String, String> kWeldRepairsV25Columns = <String, String>{
+    'prev_acceptance': 'TEXT',
+  };
+
+  /// wps_library columns added in v25: document status (pWPS / approved /
+  /// withdrawn), see wps_record.dart.
+  static const Map<String, String> kWpsLibraryV25Columns = <String, String>{
+    'doc_status': 'TEXT',
+  };
+
+  /// v25: tabele dokumentacji jakości (G5) — historia potwierdzeń
+  /// uprawnień, historia kuponów, wersje WPS i rejestr pasywacji.
+  static Future<void> _createQualityTables(DatabaseExecutor db) async {
+    // Potwierdzenia EN ISO 9606-1 §9.2 (i wpisy ciągłości WPQ). Łańcuch
+    // tych dat liczy status certyfikatu na dowolny dzień.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS welder_cert_confirmations (
+  id TEXT PRIMARY KEY,
+  certificate_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  confirmed_by TEXT,
+  notes TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
+    // Historia zmian logu kuponów — jak weld_journal_history.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_coupon_history (
+  id TEXT PRIMARY KEY,
+  coupon_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  by_stamp TEXT,
+  action TEXT NOT NULL,
+  field TEXT,
+  old_value TEXT,
+  new_value TEXT
+);
+''');
+    // Wersje treści WPS: snapshot wiersza wps_library (JSON) obowiązujący
+    // od valid_from (epoch ms). Spoina jest oceniana wg wersji z dnia
+    // spawania.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS wps_versions (
+  id TEXT PRIMARY KEY,
+  wps_id TEXT NOT NULL,
+  version_no INTEGER NOT NULL,
+  valid_from INTEGER NOT NULL,
+  snapshot TEXT NOT NULL,
+  by_stamp TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
+    // Rejestr trawienia / pasywacji (data book). Temperatura °C, czas min,
+    // konduktywność wody płuczącej µS/cm.
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS passivation_records (
+  id TEXT PRIMARY KEY,
+  date TEXT,
+  treatment TEXT,
+  line TEXT,
+  test_package TEXT,
+  area TEXT,
+  agent TEXT,
+  agent_batch TEXT,
+  dwell_min REAL,
+  temp_c REAL,
+  rinse_us_cm REAL,
+  test_method TEXT,
+  test_result TEXT,
+  by_stamp TEXT,
+  notes TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+''');
   }
 
   /// v24: odczyty skanera izometryku — iso_scan_dao.dart. `envelope_json` to
@@ -992,7 +1170,8 @@ CREATE TABLE IF NOT EXISTS wps_library (
   notes TEXT,
   attachment_path TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+${_columnsDdl(kWpsLibraryV25Columns)}
 );
 ''');
   }
@@ -1039,6 +1218,12 @@ CREATE TABLE IF NOT EXISTS wps_library (
         'CREATE INDEX IF NOT EXISTS idx_weld_repairs_weld ON weld_repairs(weld_id, seq);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_wps_library_no ON wps_library(wps_no, revision);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_cert_confirmations_cert ON welder_cert_confirmations(certificate_id, date);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_coupon_history_coupon ON weld_coupon_history(coupon_id, at);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_wps_versions_wps ON wps_versions(wps_id, valid_from);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {

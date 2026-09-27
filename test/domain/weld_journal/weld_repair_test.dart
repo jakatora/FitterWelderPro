@@ -79,4 +79,47 @@ void main() {
       ..['prev_ndt'] = '{nie-json';
     expect(WeldRepair.fromRow(row).prevNdt, isEmpty);
   });
+
+  group('naprawa kasuje odbiór, PWHT i twardość (stare wartości w naprawie)',
+      () {
+    final accepted = rejected.copyWith(
+      inspector: 'J. Inspektor',
+      inspectedAt: '2025-10-03',
+      pwhtRequired: true,
+      pwhtChart: 'PWHT-17',
+      hardness: '210 HV10',
+    );
+
+    test('spoina po naprawie nie ma odbioru ani wykresu PWHT', () {
+      final plan = planWeldRepair(accepted,
+          id: 'r1', date: '2026-09-21', reason: 'x', byStamp: '', createdAt: 1);
+      expect(plan.weld.inspector, isEmpty);
+      expect(plan.weld.inspectedAt, isEmpty);
+      expect(plan.weld.pwhtChart, isEmpty);
+      expect(plan.weld.hardness, isEmpty);
+      // Wymóg PWHT zostaje — naprawa go nie znosi.
+      expect(plan.weld.pwhtRequired, isTrue);
+    });
+
+    test('stare wartości zostają w zapisie naprawy i w jej opisie', () {
+      final plan = planWeldRepair(accepted,
+          id: 'r1', date: '2026-09-21', reason: 'x', byStamp: '', createdAt: 1);
+      final prev = plan.repair.prevAcceptance;
+      expect(prev.inspector, 'J. Inspektor');
+      expect(prev.inspectedAt, '2025-10-03');
+      expect(prev.pwhtChart, 'PWHT-17');
+      expect(prev.hardness, '210 HV10');
+      final back = WeldRepair.fromRow(plan.repair.toRow());
+      expect(back.prevAcceptance.inspector, 'J. Inspektor');
+      expect(back.prevAcceptance.pwhtChart, 'PWHT-17');
+      expect(plan.repair.summary(), contains('J. Inspektor'));
+    });
+
+    test('naprawa spoiny bez odbioru: pusty zapis, NULL w bazie', () {
+      final plan = planWeldRepair(rejected,
+          id: 'r1', date: '2026-09-21', reason: 'x', byStamp: '', createdAt: 1);
+      expect(plan.repair.prevAcceptance.isEmpty, isTrue);
+      expect(plan.repair.toRow()['prev_acceptance'], isNull);
+    });
+  });
 }

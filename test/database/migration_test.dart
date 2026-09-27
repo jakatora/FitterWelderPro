@@ -216,6 +216,8 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'ndt_ut_result',
     'ndt_ut_report',
     'ndt_ut_date',
+    // v25: WPS picked from the library.
+    'wps_id',
   ],
   // v20: who changed what on a weld, when, from what to what.
   'weld_journal_history': <String>[
@@ -239,6 +241,8 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'prev_ndt',
     'by_stamp',
     'created_at',
+    // v25: acceptance / PWHT / hardness before the repair.
+    'prev_acceptance',
   ],
   // v20: PDF header and RT/UT target per project.
   'weld_journal_projects': <String>[
@@ -264,6 +268,21 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'program_params',
     'o2_ppm',
     'heat_tint',
+    // v25: soft delete, who accepted and when.
+    'deleted_at',
+    'accepted_by',
+    'accepted_at',
+  ],
+  // v25: change history of the coupon log.
+  'weld_coupon_history': <String>[
+    'id',
+    'coupon_id',
+    'at',
+    'by_stamp',
+    'action',
+    'field',
+    'old_value',
+    'new_value',
   ],
   'hydrotest_records': <String>[
     'id',
@@ -372,6 +391,48 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'attachment_path',
     'created_at',
     'updated_at',
+    // v25: status dokumentu (pWPS / zatwierdzona / wycofana).
+    'doc_status',
+  ],
+  // v25: historia potwierdzeń ISO 9606-1 §9.2 / wpisów ciągłości WPQ.
+  'welder_cert_confirmations': <String>[
+    'id',
+    'certificate_id',
+    'date',
+    'confirmed_by',
+    'notes',
+    'created_at',
+  ],
+  // v25: wersje treści WPS z datą obowiązywania.
+  'wps_versions': <String>[
+    'id',
+    'wps_id',
+    'version_no',
+    'valid_from',
+    'snapshot',
+    'by_stamp',
+    'created_at',
+  ],
+  // v25: rejestr trawienia / pasywacji.
+  'passivation_records': <String>[
+    'id',
+    'date',
+    'treatment',
+    'line',
+    'test_package',
+    'area',
+    'agent',
+    'agent_batch',
+    'dwell_min',
+    'temp_c',
+    'rinse_us_cm',
+    'test_method',
+    'test_result',
+    'by_stamp',
+    'notes',
+    'created_at',
+    'updated_at',
+    'deleted_at',
   ],
 };
 
@@ -700,6 +761,83 @@ Future<void> _buildV22(Database db) async {
   for (final c in AppDatabase.kSegmentIdentityColumns.entries) {
     await db.execute('ALTER TABLE segments ADD COLUMN ${c.key} ${c.value};');
   }
+}
+
+/// v22 on a device that had opened the journal and the qualification
+/// register: the v20/v21 tables in their pre-v25 shape. Starting point of
+/// the G5 quality-documentation step (v25).
+Future<void> _buildV22WithRegisters(Database db) async {
+  await _buildV22(db);
+  await db.execute('''
+CREATE TABLE welder_certificates (
+  id TEXT PRIMARY KEY,
+  welder_stamp TEXT,
+  standard TEXT NOT NULL DEFAULT 'ISO_9606_1',
+  standard_label TEXT,
+  cert_no TEXT,
+  examiner TEXT,
+  test_date TEXT,
+  expiry_date TEXT,
+  last_confirmed_date TEXT,
+  prolongation TEXT,
+  processes TEXT,
+  material_group TEXT,
+  thickness_min_mm REAL,
+  thickness_max_mm REAL,
+  diameter_min_mm REAL,
+  diameter_max_mm REAL,
+  positions TEXT,
+  filler TEXT,
+  joint_kinds TEXT,
+  notes TEXT,
+  photo_path TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE wps_library (
+  id TEXT PRIMARY KEY,
+  wps_no TEXT NOT NULL,
+  revision TEXT,
+  standard TEXT,
+  pqr_ref TEXT,
+  processes TEXT,
+  material_group TEXT,
+  thickness_min_mm REAL,
+  thickness_max_mm REAL,
+  diameter_min_mm REAL,
+  diameter_max_mm REAL,
+  positions TEXT,
+  joint_kinds TEXT,
+  filler TEXT,
+  shielding_gas TEXT,
+  backing_gas TEXT,
+  preheat_min_c REAL,
+  interpass_max_c REAL,
+  heat_input_min_kj_mm REAL,
+  heat_input_max_kj_mm REAL,
+  heat_input_method TEXT,
+  pwht TEXT,
+  notes TEXT,
+  attachment_path TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  await db.execute('''
+CREATE TABLE weld_repairs (
+  id TEXT PRIMARY KEY,
+  weld_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  date TEXT,
+  reason TEXT,
+  prev_status TEXT,
+  prev_ndt TEXT,
+  by_stamp TEXT,
+  created_at INTEGER NOT NULL
+);
+''');
 }
 
 void main() {
@@ -1408,6 +1546,109 @@ CREATE TABLE component_library (
         (await db.query('component_heats', where: "id = 'h1'"))
             .single['segment_id'],
         'seg-a');
+  });
+
+  test(
+      'v22 -> v25: potwierdzenie przechodzi do historii, WPS dostaje wersję 1, '
+      'kupony / naprawy / spoiny zostają bez zmian', () async {
+    final db = await migrateFrom(
+      22,
+      _buildV22WithRegisters,
+      seedData: (legacy) async {
+        await legacy.insert('welder_certificates', <String, Object?>{
+          'id': 'cert-1',
+          'standard': 'ISO_9606_1',
+          'cert_no': 'PL-001',
+          'test_date': '2025-01-10',
+          'last_confirmed_date': '2025-07-05',
+          'created_at': 1,
+          'updated_at': 7,
+        });
+        await legacy.insert('welder_certificates', <String, Object?>{
+          'id': 'cert-2',
+          'standard': 'ASME_IX',
+          'cert_no': 'WPQ-9',
+          'created_at': 1,
+          'updated_at': 1,
+        });
+        await legacy.insert('wps_library', <String, Object?>{
+          'id': 'wps-1',
+          'wps_no': 'WPS-141-01',
+          'revision': 'B',
+          'positions': 'PA, PC, PF',
+          'heat_input_max_kj_mm': 1.2,
+          'created_at': 1,
+          'updated_at': 5,
+        });
+        await legacy.insert('weld_coupons', <String, Object?>{
+          'id': 'c1',
+          'date': '2026-09-01',
+          'welder': 'JK-12',
+          'result': 'NOK',
+          'o2_ppm': 12.5,
+        });
+        await legacy.insert('weld_repairs', <String, Object?>{
+          'id': 'r1',
+          'weld_id': 'w1',
+          'seq': 1,
+          'date': '2026-09-02',
+          'reason': 'porowatość',
+          'prev_status': 'NOK',
+          'prev_ndt': '{"RT":{"result":"NOK"}}',
+          'created_at': 9,
+        });
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w1',
+          'weld_no': 'W-1',
+          'wps_ref': 'WPS-141-01 rev. B',
+          'status': 'PENDING',
+        });
+      },
+    );
+    addTearDown(db.close);
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+
+    // Certyfikaty bez zmian; ostatnie potwierdzenie = pierwszy wpis historii.
+    final certs = await db.query('welder_certificates', orderBy: 'id');
+    expect(certs.map((c) => c['last_confirmed_date']), ['2025-07-05', null]);
+    final conf = await db.query('welder_cert_confirmations');
+    expect(conf, hasLength(1));
+    expect(conf.single['certificate_id'], 'cert-1');
+    expect(conf.single['date'], '2025-07-05');
+
+    // WPS: wiersz bez zmian, wersja 1 obowiązuje od zawsze.
+    final wps = (await db.query('wps_library')).single;
+    expect(wps['positions'], 'PA, PC, PF');
+    expect(wps['doc_status'], isNull);
+    final versions = await db.query('wps_versions');
+    expect(versions, hasLength(1));
+    expect(versions.single['wps_id'], 'wps-1');
+    expect(versions.single['version_no'], 1);
+    expect(versions.single['valid_from'], 0);
+    expect(versions.single['snapshot'] as String, contains('PA, PC, PF'));
+
+    // Kupon: wynik NOK zostaje, nowe pola puste — nikt go nie „usunął".
+    final coupon = (await db.query('weld_coupons')).single;
+    expect(coupon['result'], 'NOK');
+    expect((coupon['o2_ppm']! as num).toDouble(), 12.5);
+    expect(coupon['deleted_at'], isNull);
+    expect(coupon['accepted_by'], isNull);
+
+    final repair = (await db.query('weld_repairs')).single;
+    expect(repair['prev_ndt'], '{"RT":{"result":"NOK"}}');
+    expect(repair['prev_acceptance'], isNull);
+
+    final weld = (await db.query('weld_journal')).single;
+    expect(weld['wps_ref'], 'WPS-141-01 rev. B');
+    expect(weld['wps_id'], isNull);
+
+    expect(await db.query('weld_coupon_history'), isEmpty);
+    expect(await db.query('passivation_records'), isEmpty);
+
+    // Ponowne przejście kroku v25 nie dubluje wpisów.
+    await AppDatabase.migrateV25(db);
+    expect(await db.query('welder_cert_confirmations'), hasLength(1));
+    expect(await db.query('wps_versions'), hasLength(1));
   });
 
   test('the approved seed data lands on every upgrade path', () async {

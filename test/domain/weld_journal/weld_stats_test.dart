@@ -153,4 +153,26 @@ void main() {
     expect(s.total.repairRatePct, 0);
     expect(s.byWelder, isEmpty);
   });
+
+  group('§341.3.4 — bez fałszywych odrzutów, per metoda', () {
+    test('VT NOK bez zakresu nie jest odrzutem losowym', () {
+      final st = computeWeldJournalStats([
+        weld('w1', ndt: {NdtMethod.vt: ndtOf(NdtScope.none, NdtResult.nok)}),
+      ]);
+      expect(st.total.rejects, 0);
+      expect(st.total.toExamine, 0);
+      expect(st.total.rejectsNoScope, 1);
+    });
+
+    test('dodatkowe badanie innej metody nie odpowiada na odrzut', () {
+      final st = computeWeldJournalStats([
+        weld('w1', ndt: {NdtMethod.pt: ndtOf(NdtScope.selected, NdtResult.nok)}),
+        weld('w2', ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive)}),
+        weld('w3', ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive)}),
+      ]);
+      expect(st.total.rejectsByMethod[NdtMethod.pt], 1);
+      expect(st.total.toExamineBy(NdtMethod.pt), 2);
+      expect(st.total.toExamine, 2);
+    });
+  });
 }

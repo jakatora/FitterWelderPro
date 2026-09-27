@@ -147,6 +147,7 @@ void main() {
         'Odbiór — inspektor / Accepted by',
         'Odbiór — data / Acceptance date',
         'Usunięta / Deleted',
+        'Uwagi QC / QC remarks',
       ]);
     });
 

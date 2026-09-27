@@ -44,9 +44,16 @@ final List<(String, String Function(CouponEntry))> _columns = [
   ('Parametry / Parameters', (c) => c.programParams),
   ('O₂ (ppm)', (c) => _o2Csv(c.o2Ppm)),
   ('Przebarwienie AWS D18.2 / Heat tint', (c) => couponHeatTintLabel(c.heatTint)),
-  ('Wynik / Result', (c) => c.result),
+  ('Wynik / Result', (c) => _result(c)),
   ('Uwagi / Notes', (c) => c.notes),
+  // ---- v25
+  ('Przyjął / Accepted by',
+      (c) => [c.acceptedBy, c.acceptedAt].where((s) => s.isNotEmpty).join(' ')),
 ];
+
+/// „do oceny / to assess” zamiast technicznego PENDING.
+String _result(CouponEntry c) =>
+    c.isPending ? 'do oceny / to assess' : c.result;
 
 List<String> get couponLogCsvHeaders =>
     _columns.map((c) => c.$1).toList(growable: false);
@@ -148,7 +155,9 @@ class CouponLogExport {
     final stamp = '${generatedAt.year}-${two(generatedAt.month)}-'
         '${two(generatedAt.day)} ${two(generatedAt.hour)}:'
         '${two(generatedAt.minute)}';
-    final ok = coupons.where((c) => c.result == 'OK').length;
+    final ok = coupons.where((c) => c.isOk).length;
+    final nok = coupons.where((c) => c.isRejected).length;
+    final pending = coupons.length - ok - nok;
 
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
@@ -184,7 +193,7 @@ class CouponLogExport {
       build: (_) => [
         pw.Text(
           'Kupony / Coupons: ${coupons.length}   OK: $ok   '
-          'NOK: ${coupons.length - ok}',
+          'NOK: $nok   Do oceny / To assess: $pending',
           style: pw.TextStyle(fontSize: 9, color: _kInk),
         ),
         pw.SizedBox(height: 6),
@@ -205,6 +214,7 @@ class CouponLogExport {
               7: pw.FlexColumnWidth(1.1),
               8: pw.FixedColumnWidth(34),
               9: pw.FlexColumnWidth(1.6),
+              10: pw.FlexColumnWidth(1.1),
             },
             children: [
               pw.TableRow(
@@ -236,7 +246,11 @@ class CouponLogExport {
                         style: pw.TextStyle(
                           fontSize: 7,
                           color: col.$1 == 'Wynik / Result'
-                              ? (c.result == 'OK' ? _kOkInk : _kNokInk)
+                              ? (c.isOk
+                                  ? _kOkInk
+                                  : c.isRejected
+                                      ? _kNokInk
+                                      : _kInkMuted)
                               : _kInk,
                           fontWeight: col.$1 == 'Wynik / Result'
                               ? pw.FontWeight.bold

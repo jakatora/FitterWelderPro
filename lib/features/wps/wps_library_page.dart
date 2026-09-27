@@ -23,6 +23,7 @@ import '../../domain/qualification/weld_process.dart';
 import '../../domain/welding/heat_input.dart';
 import '../../domain/wps/wps_record.dart';
 import '../../i18n/app_language.dart';
+import '../../services/welder_identity.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/help_button.dart';
@@ -147,11 +148,12 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
       _snack(e.messagePl, e.messageEn);
       return;
     }
-    final existing = await _dao.findByNumber(incoming.wpsNo,
-        revision: incoming.revision);
+    final existing =
+        await _dao.findByNumber(incoming.wpsNo, revision: incoming.revision);
     final now = DateTime.now().millisecondsSinceEpoch;
     var record = incoming.withIdentity(id: const Uuid().v4(), now: now);
-    if (existing != null && existing.revision.trim() == incoming.revision.trim()) {
+    if (existing != null &&
+        existing.revision.trim() == incoming.revision.trim()) {
       if (!mounted) return;
       final choice = await showDialog<String>(
         context: context,
@@ -161,9 +163,13 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
               en: 'This WPS is already in the library')),
           content: Text(context.tr(
             pl: '${existing.displayName} — zastąpić zapisaną wersję '
-                'zaimportowaną, czy dodać jako kopię?',
+                'zaimportowaną, czy dodać jako kopię? Przy zastąpieniu '
+                'dotychczasowa treść zostaje w historii wersji, a spoiny '
+                'sprzed importu są oceniane wg niej.',
             en: '${existing.displayName} — replace the saved one with the '
-                'imported one, or add it as a copy?',
+                'imported one, or add it as a copy? On replace the previous '
+                'content stays in the version history and welds made before '
+                'the import are judged against it.',
           )),
           actions: [
             TextButton(
@@ -194,7 +200,8 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
       }
     }
     try {
-      await _dao.upsert(record);
+      await _dao.upsert(record,
+          by: WelderIdentityService.instance.current?.stamp ?? '');
     } catch (_) {
       _snack('Nie udało się zapisać WPS.', 'Could not save the WPS.');
       return;
@@ -274,8 +281,13 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
     );
     if (ok != true) return;
     await _dao.delete(wps.id);
-    await WelderQualificationService.instance
-        .deleteOwnedFile(wps.attachmentPath);
+    // Nowa rewizja może dzielić plik ze starą — nie kasujemy cudzego.
+    final shared = _all.any(
+        (w) => w.id != wps.id && w.attachmentPath == wps.attachmentPath);
+    if (!shared) {
+      await WelderQualificationService.instance
+          .deleteOwnedFile(wps.attachmentPath);
+    }
     await _load();
   }
 
@@ -301,7 +313,8 @@ class _WpsLibraryPageState extends State<WpsLibraryPage> {
               PopupMenuItem(
                 value: 'clipboard',
                 child: Text(context.tr(
-                    pl: 'Wklej JSON ze schowka', en: 'Paste JSON from clipboard')),
+                    pl: 'Wklej JSON ze schowka',
+                    en: 'Paste JSON from clipboard')),
               ),
             ],
           ),
@@ -407,13 +420,19 @@ class _WpsCard extends StatelessWidget {
     final lines = <String>[
       [
         english ? w.standard.labelEn : w.standard.labelPl,
+        if (w.docStatus != WpsDocStatus.unknown)
+          english ? w.docStatus.labelEn : w.docStatus.labelPl,
         if (w.pqrRef.trim().isNotEmpty)
-          context.tr(pl: 'WPQR/PQR ${w.pqrRef.trim()}', en: 'WPQR/PQR ${w.pqrRef.trim()}'),
+          context.tr(
+              pl: 'WPQR/PQR ${w.pqrRef.trim()}',
+              en: 'WPQR/PQR ${w.pqrRef.trim()}'),
       ].join(' · '),
       [
         if (w.processes.trim().isNotEmpty) w.processes.trim(),
         if (w.materialGroup.trim().isNotEmpty)
-          context.tr(pl: 'grupa ${w.materialGroup.trim()}', en: 'group ${w.materialGroup.trim()}'),
+          context.tr(
+              pl: 'grupa ${w.materialGroup.trim()}',
+              en: 'group ${w.materialGroup.trim()}'),
         if (w.thicknessMinMm != null || w.thicknessMaxMm != null)
           't ${describeRange(w.thicknessMinMm, w.thicknessMaxMm, 'mm')}',
         if (w.diameterMinMm != null || w.diameterMaxMm != null)
@@ -424,9 +443,13 @@ class _WpsCard extends StatelessWidget {
       [
         if (w.filler.trim().isNotEmpty) w.filler.trim(),
         if (w.shieldingGas.trim().isNotEmpty)
-          context.tr(pl: 'osłona ${w.shieldingGas.trim()}', en: 'shield ${w.shieldingGas.trim()}'),
+          context.tr(
+              pl: 'osłona ${w.shieldingGas.trim()}',
+              en: 'shield ${w.shieldingGas.trim()}'),
         if (w.backingGas.trim().isNotEmpty)
-          context.tr(pl: 'formowanie ${w.backingGas.trim()}', en: 'backing ${w.backingGas.trim()}'),
+          context.tr(
+              pl: 'formowanie ${w.backingGas.trim()}',
+              en: 'backing ${w.backingGas.trim()}'),
       ].join(' · '),
       [
         if (w.preheatMinC != null)
@@ -473,7 +496,8 @@ class _WpsCard extends StatelessWidget {
           for (final l in lines)
             Padding(
               padding: const EdgeInsets.only(top: 3, right: 8),
-              child: Text(l, style: const TextStyle(fontSize: 12.5, color: kTextSec)),
+              child: Text(l,
+                  style: const TextStyle(fontSize: 12.5, color: kTextSec)),
             ),
           Wrap(
             spacing: 2,

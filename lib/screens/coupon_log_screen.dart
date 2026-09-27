@@ -5,6 +5,7 @@ import '../data/heat_tint.dart';
 import '../database/coupon_dao.dart';
 import '../domain/weld_journal/coupon_entry.dart';
 import '../domain/weld_journal/weld_dates.dart';
+import '../domain/weld_journal/weld_history.dart' show formatHistoryTime;
 import '../i18n/app_language.dart';
 import '../services/coupon_log_export.dart';
 import '../services/welder_identity.dart';
@@ -23,6 +24,11 @@ export '../domain/weld_journal/coupon_entry.dart';
 /// that daily log, which an auditor will ask for: now editable, exportable
 /// (CSV/PDF), and carrying the weld program, the O₂ reading and the heat
 /// tint level (AWS D18.2). The weld journal links welds to these coupons.
+///
+/// v25: every change is logged (history per coupon), deleting is soft and
+/// reversible ("Pokaż usunięte" → Przywróć), a new coupon starts "to be
+/// assessed" instead of OK, and deleting a coupon that welds refer to says
+/// which welds will show it as deleted.
 class CouponLogScreen extends StatefulWidget {
   const CouponLogScreen({super.key});
 
@@ -36,6 +42,9 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
   List<CouponEntry> _items = [];
   bool _loading = true;
   bool _exporting = false;
+  bool _showDeleted = false;
+
+  String get _stamp => WelderIdentityService.instance.current?.stamp ?? '';
 
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
@@ -49,7 +58,8 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final all = await _dao.listAll();
+      await WelderIdentityService.instance.get();
+      final all = await _dao.listAll(includeDeleted: _showDeleted);
       if (!mounted) return;
       setState(() {
         _items = all;
@@ -80,7 +90,8 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
         welder: identity?.stamp ?? '',
         machine: '',
         size: '',
-        result: 'OK',
+        // Do oceny — kupon przyjmuje się świadomie, nie domyślnie.
+        result: CouponResult.pending,
         notes: '',
       ),
     );
@@ -100,16 +111,32 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
   }
 
   Future<void> _delete(CouponEntry e) async {
+    var linked = const <(String, String)>[];
+    try {
+      linked = await _dao.linkedWelds(e.id);
+    } catch (err) {
+      debugPrint('CouponLog linked welds error: $err');
+    }
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(pl: 'Usunąć kupon?', en: 'Delete coupon?')),
-        content: Text(ctx.tr(
-          pl: 'Kupon próbny zostanie usunięty z dziennika audytowego. '
-              'Spoiny powiązane z nim zachowają jego opis.',
-          en: 'This test coupon will be removed from the audit log. Welds '
-              'linked to it keep its reference text.',
-        )),
+        content: Text([
+          ctx.tr(
+            pl: 'Kupon zniknie z listy, ale zostanie w logu z historią — '
+                'przywrócisz go przełącznikiem „Pokaż usunięte”.',
+            en: 'The coupon leaves the list but stays in the log with its '
+                'history — restore it with "Show deleted".',
+          ),
+          if (linked.isNotEmpty)
+            ctx.tr(
+              pl: 'Spoiny powiązane z kuponem (${linked.length}) pokażą go '
+                  'jako usunięty: ${linked.map((w) => w.$2).join(', ')}.',
+              en: 'Welds linked to it (${linked.length}) will show it as '
+                  'deleted: ${linked.map((w) => w.$2).join(', ')}.',
+            ),
+        ].join('\n\n')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -126,7 +153,7 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
     );
     if (ok != true || !mounted) return;
     try {
-      await _dao.delete(e.id);
+      await _dao.softDelete(e.id, by: _stamp);
     } catch (err) {
       debugPrint('CouponLog delete error: $err');
       if (!mounted) return;
@@ -147,20 +174,93 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
       content: Text(_tr('Usunięto kupon.', 'Coupon deleted.')),
       action: SnackBarAction(
         label: _tr('Cofnij', 'Undo'),
-        onPressed: () async {
-          try {
-            await _dao.insert(e);
-          } catch (err) {
-            debugPrint('CouponLog undo error: $err');
-          }
-          if (mounted) await _load();
-        },
+        onPressed: () => _restore(e, quiet: true),
       ),
     ));
   }
 
+  Future<void> _restore(CouponEntry e, {bool quiet = false}) async {
+    try {
+      await _dao.restore(e.id, by: _stamp);
+    } catch (err) {
+      debugPrint('CouponLog restore error: $err');
+    }
+    if (mounted) await _load();
+    if (quiet || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr('Przywrócono kupon.', 'Coupon restored.')),
+    ));
+  }
+
+  Future<void> _history(CouponEntry e) async {
+    List<CouponHistoryEntry> h;
+    try {
+      h = await _dao.history(e.id);
+    } catch (err) {
+      debugPrint('CouponLog history error: $err');
+      h = const [];
+    }
+    if (!mounted) return;
+    final en = AppLanguageController.isEnglish;
+    String action(String a) => switch (a) {
+          CouponHistoryAction.create => en ? 'Created' : 'Utworzono',
+          CouponHistoryAction.update => en ? 'Edited' : 'Edycja',
+          CouponHistoryAction.delete => en ? 'Deleted' : 'Usunięto',
+          CouponHistoryAction.restore => en ? 'Restored' : 'Przywrócono',
+          _ => a,
+        };
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: kCard,
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                ctx.tr(pl: 'Historia kuponu', en: 'Coupon history'),
+                style: const TextStyle(
+                    color: kArc, fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              if (h.isEmpty)
+                Text(ctx.tr(pl: 'Brak wpisów.', en: 'No entries.'),
+                    style: const TextStyle(color: kTextMut)),
+              for (final x in h)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    [
+                      '${formatHistoryTime(x.at)} · ${action(x.action)}'
+                          '${x.byStamp.isEmpty ? '' : ' · ${x.byStamp}'}',
+                      if (x.field.isNotEmpty)
+                        '${couponFieldLabel(x.field, en: en)}: '
+                            '${x.oldValue.isEmpty ? '—' : x.oldValue} → '
+                            '${x.newValue.isEmpty ? '—' : x.newValue}'
+                      else if ((x.newValue.isNotEmpty ? x.newValue : x.oldValue)
+                          .isNotEmpty)
+                        x.newValue.isNotEmpty ? x.newValue : x.oldValue,
+                    ].join('\n'),
+                    style: const TextStyle(fontSize: 13, color: kText),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Eksport: tylko kupony nieusunięte (usunięte są w historii).
+  List<CouponEntry> get _exportable =>
+      _items.where((c) => !c.isDeleted).toList();
+
   Future<void> _export(Future<void> Function() job) async {
-    if (_items.isEmpty) {
+    if (_exportable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr('Brak kuponów do wyeksportowania.',
             'No coupons to export.')),
@@ -195,14 +295,28 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
             tooltip: _tr('Eksport CSV (Excel)', 'Export CSV (Excel)'),
             onPressed: _exporting
                 ? null
-                : () => _export(() => CouponLogExport.shareCsv(_items)),
+                : () => _export(() => CouponLogExport.shareCsv(_exportable)),
           ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_outlined),
             tooltip: _tr('Eksport PDF', 'Export PDF'),
             onPressed: _exporting
                 ? null
-                : () => _export(() => CouponLogExport.sharePdf(_items)),
+                : () => _export(() => CouponLogExport.sharePdf(_exportable)),
+          ),
+          PopupMenuButton<String>(
+            tooltip: _tr('Więcej', 'More'),
+            onSelected: (_) {
+              setState(() => _showDeleted = !_showDeleted);
+              _load();
+            },
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'deleted',
+                checked: _showDeleted,
+                child: Text(_tr('Pokaż usunięte', 'Show deleted')),
+              ),
+            ],
           ),
         ],
       ),
@@ -238,7 +352,11 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
                   itemBuilder: (_, i) => _CouponTile(
                     entry: _items[i],
                     onTap: () => _edit(_items[i]),
-                    onDelete: () => _delete(_items[i]),
+                    onAction: (a) => switch (a) {
+                      'history' => _history(_items[i]),
+                      'restore' => _restore(_items[i]),
+                      _ => _delete(_items[i]),
+                    },
                   ),
                 ),
       floatingActionButton: FloatingActionButton.extended(
@@ -255,14 +373,22 @@ class _CouponLogScreenState extends State<CouponLogScreen> {
 class _CouponTile extends StatelessWidget {
   final CouponEntry entry;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+  final ValueChanged<String> onAction;
   const _CouponTile(
-      {required this.entry, required this.onTap, required this.onDelete});
+      {required this.entry, required this.onTap, required this.onAction});
 
   @override
   Widget build(BuildContext context) {
-    final ok = entry.result == 'OK';
-    final c = ok ? kPass : kFail;
+    final c = entry.isDeleted
+        ? kTextMut
+        : entry.isOk
+            ? kPass
+            : entry.isRejected
+                ? kFail
+                : kArc;
+    final resultLabel = entry.isPending
+        ? context.tr(pl: 'do oceny', en: 'to assess')
+        : entry.result;
     final tint =
         kHeatTintLevels.where((l) => l.level == entry.heatTint).firstOrNull;
     final details = [
@@ -292,7 +418,7 @@ class _CouponTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: c.withValues(alpha: 0.4)),
                 ),
-                child: Text(entry.result,
+                child: Text(resultLabel,
                     style: TextStyle(
                         color: c, fontSize: 12, fontWeight: FontWeight.w800)),
               ),
@@ -319,11 +445,25 @@ class _CouponTile extends StatelessWidget {
                         if (entry.machine.isNotEmpty) entry.machine,
                         if (entry.size.isNotEmpty) entry.size,
                       ].join('  ·  '),
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: kText,
                           fontSize: 13,
-                          fontWeight: FontWeight.w700),
+                          fontWeight: FontWeight.w700,
+                          decoration: entry.isDeleted
+                              ? TextDecoration.lineThrough
+                              : null),
                     ),
+                    if (entry.isDeleted)
+                      Text(context.tr(pl: 'usunięty', en: 'deleted'),
+                          style:
+                              const TextStyle(color: kFail, fontSize: 12)),
+                    if (entry.acceptedBy.isNotEmpty)
+                      Text(
+                          '${context.tr(pl: 'przyjął', en: 'accepted by')} '
+                          '${entry.acceptedBy}'
+                          '${entry.acceptedAt.isEmpty ? '' : ' · ${entry.acceptedAt}'}',
+                          style: const TextStyle(
+                              color: kTextSec, fontSize: 12)),
                     if (entry.date.isNotEmpty)
                       Text(entry.date,
                           style:
@@ -344,10 +484,26 @@ class _CouponTile extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: kTextMut),
-                tooltip: context.tr(pl: 'Usuń kupon', en: 'Delete coupon'),
-                onPressed: onDelete,
+              PopupMenuButton<String>(
+                tooltip: context.tr(pl: 'Akcje kuponu', en: 'Coupon actions'),
+                icon: const Icon(Icons.more_vert, color: kTextSec),
+                onSelected: onAction,
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                      value: 'history',
+                      child: Text(context.tr(
+                          pl: 'Historia zmian', en: 'Change history'))),
+                  if (entry.isDeleted)
+                    PopupMenuItem(
+                        value: 'restore',
+                        child:
+                            Text(context.tr(pl: 'Przywróć', en: 'Restore')))
+                  else
+                    PopupMenuItem(
+                        value: 'delete',
+                        child: Text(context.tr(pl: 'Usuń…', en: 'Delete…'),
+                            style: const TextStyle(color: kFail))),
+                ],
               ),
             ],
           ),

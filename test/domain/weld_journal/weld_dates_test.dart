@@ -39,4 +39,21 @@ void main() {
     expect(isIsoWeldDate('24.09.2026'), isFalse);
     expect(isIsoWeldDate(''), isFalse);
   });
+
+  test('rok spoza zakresu 2000..(dziś+1) to literówka, nie data', () {
+    final today = DateTime(2026, 9, 26);
+    expect(normalizeWeldDate('2062-09-01', today: today), isNull);
+    expect(normalizeWeldDate('0026-09-01', today: today), isNull);
+    expect(normalizeWeldDate('01.09.1999', today: today), isNull);
+    expect(normalizeWeldDate('2000-01-01', today: today), '2000-01-01');
+    expect(normalizeWeldDate('2027-12-31', today: today), '2027-12-31');
+    expect(normalizeWeldDate('2028-01-01', today: today), isNull);
+  });
+
+  test('data z przyszłości jest rozpoznawana (ostrzeżenie, nie blokada)', () {
+    final today = DateTime(2026, 9, 26, 23, 59);
+    expect(isFutureWeldDate('2026-09-27', today: today), isTrue);
+    expect(isFutureWeldDate('2026-09-26', today: today), isFalse);
+    expect(isFutureWeldDate('', today: today), isFalse);
+  });
 }

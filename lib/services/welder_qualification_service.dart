@@ -28,6 +28,7 @@ import '../domain/qualification/certificate_status.dart';
 import '../domain/qualification/journal_welds.dart';
 import '../domain/qualification/reminder_plan.dart';
 import '../domain/qualification/welder_certificate.dart';
+import '../domain/weld_journal/weld_compliance.dart' show certificatesForStamp;
 import '../domain/wps/weld_range_check.dart';
 import '../domain/wps/wps_record.dart';
 import '../i18n/app_language.dart';
@@ -227,6 +228,69 @@ class WelderQualificationService {
     await refresh();
   }
 
+  /// Dopisuje potwierdzenie 6-miesięczne (ISO 9606-1 §9.2) / wpis ciągłości
+  /// WPQ do historii certyfikatu. Nic nie nadpisuje — dawne potwierdzenia
+  /// zostają ogniwami łańcucha.
+  Future<void> addConfirmation(
+    WelderCertificate certificate, {
+    required DateTime date,
+    String confirmedBy = '',
+    String notes = '',
+    DateTime? now,
+  }) async {
+    final ts = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    await _dao.addConfirmation(CertificateConfirmation(
+      id: const Uuid().v4(),
+      certificateId: certificate.id,
+      date: DateTime(date.year, date.month, date.day),
+      confirmedBy: confirmedBy.trim(),
+      notes: notes.trim(),
+      createdAt: ts,
+    ));
+    await refresh();
+  }
+
+  /// Usuwa błędny wpis z historii potwierdzeń.
+  Future<void> deleteConfirmation(CertificateConfirmation confirmation) async {
+    await _dao.deleteConfirmation(confirmation);
+    await refresh();
+  }
+
+  /// Ile certyfikatów ma stempel [stamp] (bez rozróżniania wielkości liter).
+  Future<int> countCertificatesWithStamp(String stamp) async {
+    final key = stamp.trim().toUpperCase();
+    if (key.isEmpty) return 0;
+    final all = await listCertificates();
+    return all.where((c) => c.stampKey == key).length;
+  }
+
+  /// Ile spoin (nieusuniętych) dziennika podpisano stemplem [stamp] —
+  /// jako spawacz, grań albo lico. Brak tabeli / błąd = 0.
+  Future<int> countJournalWeldsWithStamp(String stamp) async {
+    final key = stamp.trim().toUpperCase();
+    if (key.isEmpty) return 0;
+    try {
+      final db = await AppDatabase.get();
+      final rows = await db.rawQuery(
+          'SELECT COUNT(*) AS n FROM weld_journal WHERE deleted_at IS NULL '
+          'AND (UPPER(TRIM(welder)) = ? OR UPPER(TRIM(root_welder)) = ? '
+          'OR UPPER(TRIM(cap_welder)) = ?)',
+          <Object?>[key, key, key]);
+      return (rows.single['n'] as num?)?.toInt() ?? 0;
+    } catch (e) {
+      debugPrint('[qualification] journal count failed: $e');
+      return 0;
+    }
+  }
+
+  /// Zmiana stempla w tożsamości: przepisuje stempel certyfikatów ze
+  /// [from] na [to] (tylko za zgodą spawacza — spoin nie ruszamy, to dowód).
+  Future<int> reassignStamp(String from, String to) async {
+    final n = await _dao.reassignStamp(from, to);
+    await refresh();
+    return n;
+  }
+
   /// Usuwa certyfikat i jego zdjęcie (kopię w `heat_photos`).
   Future<void> delete(WelderCertificate certificate) async {
     await _dao.delete(certificate.id);
@@ -304,16 +368,15 @@ class WelderQualificationService {
     if (wps == null && wpsNo != null && wpsNo.trim().isNotEmpty) {
       wps = await wpsDao.findByNumber(wpsNo);
     }
+    final owner = (await WelderIdentityService.instance.get())?.stamp;
     final stamp = (welderStamp != null && welderStamp.trim().isNotEmpty)
         ? welderStamp
-        : (await WelderIdentityService.instance.get())?.stamp;
-    final stampKey = stamp?.trim().toUpperCase();
-    final certificates = (await listCertificates())
-        .where((c) =>
-            c.welderStamp == null ||
-            stampKey == null ||
-            c.welderStamp!.trim().toUpperCase() == stampKey)
-        .toList();
+        : owner;
+    // Certyfikat bez stempla należy do właściciela telefonu — nie do
+    // każdego spawacza brygady (patrz certificatesForStamp).
+    final certificates = certificatesForStamp(
+        await listCertificates(), stamp,
+        ownerStamp: owner);
     final journal = await readJournalWelds(stamp: stamp, today: weldDate);
     return WeldCheckReport(
       wps: wps,

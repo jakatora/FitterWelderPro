@@ -13,11 +13,23 @@
 //     CSV/PDF export is exactly the visible set;
 //   * natural weld-number order, prefix-preserving number suggestion and a
 //     duplicate warning; "next weld" and remembered values for gloved hands.
+// v25 (quality documentation):
+//   * document consistency (status / acceptance vs NDT, dates, PWHT, coupon)
+//     is a badge on the list and an explicit warning on a status change;
+//   * the coupon link is live — a NOK or deleted coupon shows on the tile;
+//   * compliance uses the WPS content in force on the weld date;
+//   * the PDF carries the QC remarks ("saved despite warnings") and the
+//     change history as an appendix;
+//   * a banner asks for the welder stamp when none is set (after a restore).
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../database/coupon_dao.dart';
 import '../database/weld_journal_dao.dart';
 import '../database/wps_dao.dart';
+import '../domain/weld_journal/coupon_entry.dart';
+import '../domain/weld_journal/weld_consistency.dart';
+import '../domain/weld_journal/weld_history.dart';
 import '../domain/qualification/certificate_status.dart' show JournalWeld;
 import '../domain/weld_journal/weld_compliance.dart';
 import '../domain/weld_journal/weld_dates.dart';
@@ -33,6 +45,7 @@ import '../services/welder_identity.dart';
 import '../services/welder_qualification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/help_button.dart';
+import 'welder_identity_setup_screen.dart';
 import '../widgets/weld_journal/weld_compliance_view.dart';
 import '../widgets/weld_journal/weld_editor_sheet.dart';
 import '../widgets/weld_journal/weld_filter_sheet.dart';
@@ -75,6 +88,10 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// WPS library and the qualification register are both empty — nothing to
   /// check, nothing to show.
   Map<String, WeldCompliance> _compliance = const {};
+
+  /// Coupon log rows by id (deleted included) — the live coupon link.
+  /// `null` when the log could not be read.
+  Map<String, CouponEntry>? _coupons;
   WeldJournalFilter _filter = const WeldJournalFilter();
   String _lastWeldId = '';
   bool _loading = true;
@@ -101,6 +118,14 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
+      // Log kuponów czytany równolegle z dziennikiem (bez dodatkowego
+      // czekania na liście).
+      final couponsFuture = CouponDao()
+          .listAll(includeDeleted: true)
+          .then<List<CouponEntry>?>((v) => v, onError: (Object e) {
+        debugPrint('[weld_journal] coupon log load failed: $e');
+        return null;
+      });
       final all = await _dao.listAll();
       var settings = const <String, WeldJournalProjectSettings>{};
       try {
@@ -110,11 +135,15 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       }
       final defaults = await loadWeldDefaults();
       final compliance = await _assess(all);
+      final couponList = await couponsFuture;
+      final coupons =
+          couponList == null ? null : {for (final c in couponList) c.id: c};
       if (!mounted) return;
       setState(() {
         _entries = all;
         _settings = settings;
         _compliance = compliance;
+        _coupons = coupons;
         _lastWeldId = defaults.lastWeldId;
         _loading = false;
       });
@@ -136,9 +165,13 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// whole list. A failure only hides the badges.
   Future<Map<String, WeldCompliance>> _assess(List<WeldEntry> all) async {
     try {
-      final library = await WpsDao().listAll();
-      final certificates =
-          await WelderQualificationService.instance.listCertificates();
+      final wpsDao = WpsDao();
+      final versionsFuture = wpsDao.versionsByWps();
+      final certificatesFuture =
+          WelderQualificationService.instance.listCertificates();
+      final library = await wpsDao.listAll();
+      final versions = await versionsFuture;
+      final certificates = await certificatesFuture;
       if (library.isEmpty && certificates.isEmpty) return const {};
       final rows = [for (final e in all) e.toRow()];
       final cache = <String, List<JournalWeld>>{};
@@ -154,6 +187,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
               defaultStamp: _stamp,
               today: today,
               journalCache: cache,
+              wpsVersions: versions,
             ),
       };
     } catch (e) {
@@ -163,6 +197,38 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   List<WeldEntry> get _visible => filterWeldEntries(_entries, _filter);
+
+  /// Document-consistency issues of [e] (with the live coupon).
+  List<WeldConsistencyIssue> _issuesOf(WeldEntry e) {
+    final coupons = _coupons;
+    return weldConsistencyIssues(e,
+        coupon: coupons?[e.couponId],
+        couponKnown: coupons != null,
+        today: DateTime.now());
+  }
+
+  /// Most frequent stamp in the journal — a hint for the identity banner.
+  String get _likelyStamp {
+    final counts = <String, int>{};
+    for (final e in _entries) {
+      for (final s in e.stamps) {
+        final k = s.toUpperCase();
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
+    }
+    if (counts.isEmpty) return '';
+    return (counts.entries.toList()..sort((a, b) => b.value - a.value))
+        .first
+        .key;
+  }
+
+  Future<void> _openIdentity() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => const WelderIdentitySetupScreen(),
+    ));
+    await WelderIdentityService.instance.get();
+    if (mounted) await _load();
+  }
 
   /// Everything the filter selects except the status — what the badges and
   /// the NDT summary count, so tapping a status chip does not zero them.
@@ -216,8 +282,9 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       }
     }
     final stats = computeWeldJournalStats(scope, volumetricTargets: _targets);
-    final describe =
-        _filter.copyWith(status: 'ALL').describe(en: AppLanguageController.isEnglish);
+    final describe = _filter
+        .copyWith(status: 'ALL')
+        .describe(en: AppLanguageController.isEnglish);
     final last = _lastWeld;
 
     return Scaffold(
@@ -259,12 +326,41 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_stamp.isEmpty && _entries.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                    child: Material(
+                      color: kWarn.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      child: ListTile(
+                        key: const ValueKey('weld-journal-stamp-banner'),
+                        leading: const Icon(Icons.badge_outlined, color: kWarn),
+                        title: Text(
+                          _tr(
+                            'Ustaw stempel spawacza — bez niego ciągłość ASME '
+                                'i autor zmian w historii nie działają.',
+                            'Set your welder stamp — without it ASME '
+                                'continuity and the change author do not work.',
+                          ),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        subtitle: _likelyStamp.isEmpty
+                            ? null
+                            : Text(_tr(
+                                'Najczęstszy w dzienniku: $_likelyStamp',
+                                'Most frequent in the journal: '
+                                    '$_likelyStamp')),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _openIdentity,
+                      ),
+                    ),
+                  ),
                 if (!_filter.deleted)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
                     child: Row(children: [
-                      _StatBadge(_tr('Razem', 'Total'), '${scope.length}',
-                          kTextSec),
+                      _StatBadge(
+                          _tr('Razem', 'Total'), '${scope.length}', kTextSec),
                       const SizedBox(width: 8),
                       _StatBadge('OK', '$ok', kPass),
                       const SizedBox(width: 8),
@@ -375,10 +471,10 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
                             return _WeldTile(
                               entry: e,
                               compliance: _compliance[e.id],
+                              issues: e.isDeleted ? const [] : _issuesOf(e),
                               onTap: () => _openEditor(e, isNew: false),
-                              onStatusTap: e.isDeleted
-                                  ? null
-                                  : () => _changeStatus(e),
+                              onStatusTap:
+                                  e.isDeleted ? null : () => _changeStatus(e),
                               onAction: (a) => _onTileAction(e, a),
                             );
                           },
@@ -484,8 +580,36 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     final picked = await showWeldStatusDialog(context,
         weldNo: e.weldNo, current: e.status);
     if (picked == null || !mounted) return;
+    // Status OK przy NDT NOK / badaniu bez wyniku / kuponie NOK itd. — jawne
+    // ostrzeżenie; „Zmień mimo to” trafia do historii.
+    final fresh = newConsistencyIssues(
+        _issuesOf(e), _issuesOf(e.copyWith(status: picked)));
+    String? warning;
+    if (fresh.isNotEmpty) {
+      final en = AppLanguageController.isEnglish;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(_tr('Niespójny dokument odbiorowy',
+              'Inconsistent acceptance record')),
+          content: Text(fresh.map((i) => '• ${i.text(en: en)}').join('\n')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(_tr('Anuluj', 'Cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(_tr('Zmień mimo to', 'Change anyway')),
+            ),
+          ],
+        ),
+      );
+      if (go != true || !mounted) return;
+      warning = consistencyHistoryText(fresh, en: en);
+    }
     try {
-      await _dao.setStatus(e.id, picked, by: _stamp);
+      await _dao.setStatus(e.id, picked, by: _stamp, warning: warning);
     } catch (err) {
       debugPrint('WeldJournal setStatus error: $err');
       if (!mounted) return;
@@ -537,8 +661,8 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       debugPrint('WeldJournal repair error: $err');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            _tr('Nie udało się zapisać naprawy.', 'Failed to save the repair.')),
+        content: Text(_tr(
+            'Nie udało się zapisać naprawy.', 'Failed to save the repair.')),
       ));
     }
   }
@@ -575,16 +699,16 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       debugPrint('WeldJournal delete error: $err');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_tr('Nie udało się usunąć spoiny.',
-            'Failed to delete weld.')),
+        content:
+            Text(_tr('Nie udało się usunąć spoiny.', 'Failed to delete weld.')),
       ));
       return;
     }
     await _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_tr('Usunięto spoinę ${e.weldNo}.',
-          'Weld ${e.weldNo} deleted.')),
+      content: Text(
+          _tr('Usunięto spoinę ${e.weldNo}.', 'Weld ${e.weldNo} deleted.')),
       action: SnackBarAction(
         label: _tr('Cofnij', 'Undo'),
         onPressed: () => _restore(e, quiet: true),
@@ -601,8 +725,8 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     await _load();
     if (quiet || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_tr('Przywrócono spoinę ${e.weldNo}.',
-          'Weld ${e.weldNo} restored.')),
+      content: Text(
+          _tr('Przywrócono spoinę ${e.weldNo}.', 'Weld ${e.weldNo} restored.')),
     ));
   }
 
@@ -612,8 +736,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       final projects = _journalProjects;
       if (projects.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_tr(
-              'Najpierw zapisz spoinę z nazwą projektu.',
+          content: Text(_tr('Najpierw zapisz spoinę z nazwą projektu.',
               'Save a weld with a project name first.')),
         ));
         return;
@@ -649,7 +772,8 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   bool _hasSomethingToExport() {
     if (_visible.isNotEmpty) return true;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(_tr('Brak spoin do wyeksportowania.', 'No welds to export.')),
+      content:
+          Text(_tr('Brak spoin do wyeksportowania.', 'No welds to export.')),
     ));
     return false;
   }
@@ -683,9 +807,38 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     }
   }
 
+  /// QC remarks and history lines of the exported welds (v25).
+  Future<(Map<String, List<String>>, Map<String, List<String>>)>
+      _exportExtras() async {
+    final en = AppLanguageController.isEnglish;
+    final visible = _visible;
+    var history = const <String, List<WeldHistoryEntry>>{};
+    try {
+      history = await _dao.historyFor(visible.map((e) => e.id));
+    } catch (e) {
+      debugPrint('[weld_journal] history for export failed: $e');
+    }
+    final remarks = <String, List<String>>{};
+    final lines = <String, List<String>>{};
+    for (final e in visible) {
+      final h = history[e.id] ?? const <WeldHistoryEntry>[];
+      remarks[e.id] = weldQcRemarks(
+        current: [
+          ...?_compliance[e.id]?.warningLines(en: en),
+          for (final i in _issuesOf(e)) i.text(en: en),
+        ],
+        history: h,
+      );
+      lines[e.id] = weldHistoryLines(h, en: en);
+    }
+    return (remarks, lines);
+  }
+
   Future<void> _exportCsv() async {
     if (!_hasSomethingToExport()) return;
-    final records = weldJournalExportRecords(_entries, _filter);
+    final (remarks, _) = await _exportExtras();
+    final records =
+        weldJournalExportRecords(_entries, _filter, qcRemarks: remarks);
     await _runExport(() => WeldJournalExport.shareCsv(
           records: records,
           filterLabel: _filter.fileTag,
@@ -694,9 +847,10 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
 
   Future<void> _exportPdf() async {
     if (!_hasSomethingToExport()) return;
-    final records = weldJournalExportRecords(_entries, _filter);
-    final description =
-        _filter.describe(en: AppLanguageController.isEnglish);
+    final (remarks, history) = await _exportExtras();
+    final records = weldJournalExportRecords(_entries, _filter,
+        qcRemarks: remarks, history: history);
+    final description = _filter.describe(en: AppLanguageController.isEnglish);
     await _runExport(() => WeldJournalExport.sharePdf(
           records: records,
           filterLabel: _filter.fileTag,
@@ -714,6 +868,9 @@ enum _TileAction { status, next, repair, history, delete, restore }
 class _WeldTile extends StatelessWidget {
   final WeldEntry entry;
   final WeldCompliance? compliance;
+
+  /// Document-consistency issues (v25).
+  final List<WeldConsistencyIssue> issues;
   final VoidCallback onTap;
   final VoidCallback? onStatusTap;
   final ValueChanged<_TileAction> onAction;
@@ -721,6 +878,7 @@ class _WeldTile extends StatelessWidget {
   const _WeldTile({
     required this.entry,
     this.compliance,
+    this.issues = const [],
     required this.onTap,
     required this.onStatusTap,
     required this.onAction,
@@ -732,8 +890,10 @@ class _WeldTile extends StatelessWidget {
     final color = e.isDeleted ? kTextMut : weldStatusColor(e.status);
     final ndt = [
       for (final n in e.ndt.entries)
-        if (n.value.hasResult) '${n.key.name.toUpperCase()} ${n.value.result}'
-        else if (n.value.isAwaiting) '${n.key.name.toUpperCase()} …',
+        if (n.value.hasResult)
+          '${n.key.name.toUpperCase()} ${n.value.result}'
+        else if (n.value.isAwaiting)
+          '${n.key.name.toUpperCase()} …',
     ];
     return InkWell(
       onTap: onTap,
@@ -752,7 +912,8 @@ class _WeldTile extends StatelessWidget {
             Semantics(
               button: onStatusTap != null,
               label: context.tr(
-                  pl: 'Status ${e.status} — zmień', en: 'Status ${e.status} — change'),
+                  pl: 'Status ${e.status} — zmień',
+                  en: 'Status ${e.status} — change'),
               child: InkWell(
                 onTap: onStatusTap,
                 borderRadius: BorderRadius.circular(10),
@@ -804,8 +965,8 @@ class _WeldTile extends StatelessWidget {
                       Expanded(
                         child: Text(e.projectName,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 12, color: kTextSec)),
+                            style:
+                                const TextStyle(fontSize: 12, color: kTextSec)),
                       ),
                     ],
                   ]),
@@ -841,6 +1002,27 @@ class _WeldTile extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: WeldComplianceBadges(compliance: compliance!),
+                    ),
+                  if (issues.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Tooltip(
+                        message: issues
+                            .map((i) =>
+                                i.text(en: AppLanguageController.isEnglish))
+                            .join('\n'),
+                        child: Text(
+                          '⚠ ${issues.first.text(en: AppLanguageController.isEnglish)}'
+                          '${issues.length > 1 ? ' (+${issues.length - 1})' : ''}',
+                          key: ValueKey('weld-issues-${e.id}'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 11,
+                              color: kFail,
+                              fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     ),
                   if (e.notes.isNotEmpty)
                     Padding(
@@ -878,8 +1060,8 @@ class _WeldTile extends StatelessWidget {
                 ],
                 PopupMenuItem(
                     value: _TileAction.history,
-                    child: Text(
-                        context.tr(pl: 'Historia zmian', en: 'Change history'))),
+                    child: Text(context.tr(
+                        pl: 'Historia zmian', en: 'Change history'))),
                 if (e.isDeleted)
                   PopupMenuItem(
                       value: _TileAction.restore,

@@ -70,7 +70,8 @@ WelderCertificate _cert({DateTime? expiry}) => WelderCertificate(
       certNo: 'UDT/123/2026',
       testDate: DateTime(2026, 1, 10),
       expiryDate: expiry ?? DateTime(2028, 1, 10),
-      lastConfirmedDate: DateTime(2026, 8, 1),
+      // Potwierdzenie w terminie (egzamin 2026-01-10 + 6 mies. = 2026-07-10).
+      lastConfirmedDate: DateTime(2026, 7, 1),
       processes: '141',
       positions: 'wszystkie',
       createdAt: 0,

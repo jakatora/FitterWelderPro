@@ -62,6 +62,9 @@ String wpsSummaryLine(WpsRecord w, {required bool en}) {
     HeatInputStandard.asmeIx => 'ASME',
   };
   return [
+    if (w.docStatus == WpsDocStatus.preliminary) 'pWPS',
+    if (w.docStatus == WpsDocStatus.withdrawn)
+      en ? 'WITHDRAWN' : 'WYCOFANA',
     if (w.processes.trim().isNotEmpty) w.processes.trim(),
     if (w.materialGroup.trim().isNotEmpty)
       '${en ? 'gr.' : 'gr.'} ${w.materialGroup.trim()}',
@@ -158,8 +161,7 @@ class _WpsPickerListState extends State<WpsPickerList> {
                         decoration: BoxDecoration(
                           color: selected ? kArc.withValues(alpha: 0.12) : kBg,
                           borderRadius: BorderRadius.circular(10),
-                          border:
-                              Border.all(color: selected ? kArc : kBorder),
+                          border: Border.all(color: selected ? kArc : kBorder),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,8 +193,8 @@ class _WpsPickerListState extends State<WpsPickerList> {
                       minimumSize: const Size(kMinTapTarget, kMinTapTarget)),
                   onPressed: _openLibrary,
                   icon: const Icon(Icons.library_books_outlined, size: 20),
-                  label: Text(context.tr(
-                      pl: 'Biblioteka WPS', en: 'WPS library')),
+                  label:
+                      Text(context.tr(pl: 'Biblioteka WPS', en: 'WPS library')),
                 ),
               ),
               TextButton(

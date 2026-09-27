@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/data/heat_tint.dart';
 
@@ -76,6 +77,34 @@ void main() {
         expect(l.nameEn.trim().isNotEmpty, isTrue);
         expect(l.approxO2.trim().isNotEmpty, isTrue);
       }
+    });
+  });
+
+  group('jedna ocena poziomu (legenda = kafel)', () {
+    test('typowe progi legendy zgadzają się z werdyktami kafli', () {
+      for (final l in kHeatTintLevels) {
+        if (l.level <= kPharmaTypicalMaxLevel) {
+          expect(l.verdict, HeatTintVerdict.pharma, reason: '${l.level}');
+        } else if (l.level <= kFoodTypicalMaxLevel) {
+          expect(l.verdict, HeatTintVerdict.food, reason: '${l.level}');
+        } else {
+          expect(l.verdict,
+              isNot(anyOf(HeatTintVerdict.pharma, HeatTintVerdict.food)),
+              reason: '${l.level}');
+        }
+      }
+      // Poziom 3 — spożywczy, nie pharma.
+      expect(kHeatTintLevels[2].verdict, HeatTintVerdict.food);
+    });
+
+    test('limit projektu: domyślnie spożywczy, zapis i odczyt, zakres 1–10',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      expect(await loadHeatTintLimit(), kDefaultHeatTintLimit);
+      await saveHeatTintLimit(HeatTintLimitPreset.pharma.maxLevel);
+      expect(await loadHeatTintLimit(), 2);
+      await saveHeatTintLimit(42);
+      expect(await loadHeatTintLimit(), 10);
     });
   });
 }

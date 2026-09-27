@@ -117,11 +117,18 @@ class DateField extends StatelessWidget {
 
   Future<void> _pick(BuildContext context) async {
     final now = DateTime.now();
+    final first = DateTime(now.year - 15);
+    final last = DateTime(now.year + 10, 12, 31);
+    var initial = value ?? now;
+    // Stary certyfikat (np. egzamin 2009 z migracji) poza zakresem
+    // kalendarza — przycięty zamiast asercji showDatePicker.
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
-      initialDate: value ?? now,
-      firstDate: DateTime(now.year - 15),
-      lastDate: DateTime(now.year + 10),
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
     );
     if (picked != null) onChanged(dateOnly(picked));
   }

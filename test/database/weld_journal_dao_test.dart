@@ -152,6 +152,38 @@ void main() {
     );
   });
 
+  test('naprawa po odbiorze: odbiór, PWHT i twardość skasowane, historia '
+      'pokazuje stare wartości', () async {
+    await dao().insert(weld('w1', status: 'NOK').copyWith(
+          inspector: 'J. Inspektor',
+          inspectedAt: '2025-10-03',
+          pwhtChart: 'PWHT-17',
+          hardness: '210 HV10',
+        ));
+    await dao().addRepair('w1', date: '2026-09-21', reason: 'x', by: 'JK-12');
+    final w = (await dao().getById('w1'))!;
+    expect(w.inspector, isEmpty);
+    expect(w.inspectedAt, isEmpty);
+    expect(w.pwhtChart, isEmpty);
+    expect(w.hardness, isEmpty);
+    expect(w.repairs.single.prevAcceptance.inspector, 'J. Inspektor');
+    final h = await dao().history('w1');
+    for (final (field, old) in [
+      ('inspector', 'J. Inspektor'),
+      ('inspected_at', '2025-10-03'),
+      ('pwht_chart', 'PWHT-17'),
+      ('hardness', '210 HV10'),
+    ]) {
+      expect(
+          h.any((e) =>
+              e.action == WeldHistoryAction.repair &&
+              e.field == field &&
+              e.oldValue == old),
+          isTrue,
+          reason: field);
+    }
+  });
+
   test('listAll dołącza naprawy i sortuje numery naturalnie', () async {
     for (final no in ['W10', 'W9', 'W11']) {
       await dao().insert(weld(no));
