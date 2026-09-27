@@ -20,9 +20,34 @@ import 'legal_screen.dart';
 
 const _kErrorRed = Color(0xFFE57373);
 
-// Unicode-aware: allow letters (incl. Polish diacritics), spaces, apostrophe
-// and dash (e.g. "Anna-Maria", "O'Brien"). Min 2 chars.
-final RegExp _kNameAllowed = RegExp(r"^[\p{L} '\-]{2,}$", unicode: true);
+/// Komunikat dla wyniku [checkNamePart] (wspólny dla onboardingu i profilu).
+String? describeNameProblem(BuildContext context, NameProblem? problem) {
+  switch (problem) {
+    case null:
+      return null;
+    case NameProblem.empty:
+      return context.tr(
+          pl: 'To pole jest wymagane.', en: 'This field is required.');
+    case NameProblem.invalid:
+      return context.tr(
+        pl: 'Min. 2 litery, bez cyfr i znaków specjalnych.',
+        en: 'Min. 2 letters, no digits or special characters.',
+      );
+    case NameProblem.tooLong:
+      return context.tr(
+        pl: 'Max. $kNamePartMaxLength znaki.',
+        en: 'Max. $kNamePartMaxLength characters.',
+      );
+  }
+}
+
+/// Komunikat, gdy „Imię Nazwisko" nie mieści się w podpisie czatu.
+String fullNameTooLongMessage(BuildContext context) => context.tr(
+      pl: 'Imię i nazwisko razem: max $kFullNameMaxLength znaki '
+          '(tyle mieści podpis na czacie).',
+      en: 'First and last name together: max $kFullNameMaxLength characters '
+          '(the chat signature limit).',
+    );
 
 class OnboardingNameScreen extends StatefulWidget {
   /// Called once a valid profile has been saved and the rules accepted.
@@ -57,26 +82,16 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
     super.dispose();
   }
 
-  String? _validate(String value) {
-    final v = value.trim();
-    if (v.isEmpty) {
-      return context.tr(
-          pl: 'To pole jest wymagane.', en: 'This field is required.');
-    }
-    if (!_kNameAllowed.hasMatch(v)) {
-      return context.tr(
-        pl: 'Min. 2 litery, bez cyfr i znaków specjalnych.',
-        en: 'Min. 2 letters, no digits or special characters.',
-      );
-    }
-    return null;
-  }
-
   Future<void> _submit() async {
     // Dwa szybkie stuknięcia nie mogą zapisać profilu dwa razy.
     if (_saving) return;
-    final firstErr = _validate(_firstCtrl.text);
-    final lastErr = _validate(_lastCtrl.text);
+    final firstErr = describeNameProblem(context, checkNamePart(_firstCtrl.text));
+    var lastErr = describeNameProblem(context, checkNamePart(_lastCtrl.text));
+    if (firstErr == null &&
+        lastErr == null &&
+        fullNameTooLong(_firstCtrl.text, _lastCtrl.text)) {
+      lastErr = fullNameTooLongMessage(context);
+    }
     setState(() {
       _firstError = firstErr;
       _lastError = lastErr;
@@ -92,9 +107,10 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
       lastName: _lastCtrl.text.trim(),
     );
     final ok = await UserProfileService.instance.save(profile);
-    // Zgoda zapisywana razem z profilem: użytkownik zaakceptował zasady w tym
-    // samym kroku, w którym się przedstawił.
-    await LegalConsent.instance.accept();
+    // Zgoda zapisywana razem z profilem (ten sam krok) — ale dopiero PO
+    // udanym zapisie. Wcześniej szła także po błędzie: monter widział „Nie
+    // udało się zapisać", a zgoda już była zapisana bez profilu.
+    if (ok) await LegalConsent.instance.accept();
     if (!mounted) return;
     if (!ok) {
       setState(() => _saving = false);
@@ -206,6 +222,7 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
                 textInputAction: TextInputAction.next,
                 textCapitalization: TextCapitalization.words,
                 autofocus: true,
+                maxLength: kNamePartMaxLength,
                 style: const TextStyle(color: kText, fontSize: 16),
                 decoration: _decoration(
                   hint: context.tr(pl: 'np. Jan', en: 'e.g. John'),
@@ -225,6 +242,7 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
                 focusNode: _lastFocus,
                 textInputAction: TextInputAction.done,
                 textCapitalization: TextCapitalization.words,
+                maxLength: kNamePartMaxLength,
                 style: const TextStyle(color: kText, fontSize: 16),
                 decoration: _decoration(
                   hint: context.tr(pl: 'np. Kowalski', en: 'e.g. Smith'),
@@ -320,6 +338,8 @@ class _OnboardingNameScreenState extends State<OnboardingNameScreen> {
     return InputDecoration(
       hintText: hint,
       errorText: error,
+      // Limit pilnuje maxLength pola; licznik pod każdym polem to szum.
+      counterText: '',
       prefixIcon: Icon(icon, color: kTextSec, size: 20),
       filled: true,
       fillColor: kCard,

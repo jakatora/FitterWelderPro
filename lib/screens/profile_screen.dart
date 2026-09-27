@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../assistant/assistant_history.dart';
 import '../config/app_links.dart';
 import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
@@ -17,8 +18,11 @@ import '../services/user_profile.dart';
 import '../services/welder_identity.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
+import '../widgets/scan_consent_gate.dart';
 import '../widgets/wpqr_chip.dart';
 import 'legal_screen.dart';
+import 'onboarding_name_screen.dart'
+    show describeNameProblem, fullNameTooLongMessage;
 import 'root_gate.dart';
 
 // Twój profil.
@@ -32,10 +36,12 @@ import 'root_gate.dart';
 //   2. pozwala poprawić imię i nazwisko,
 //   3. pokazuje, kogo zablokowałeś, i pozwala odblokować.
 
-final RegExp _kNameAllowed = RegExp(r"^[\p{L} '\-]{2,}$", unicode: true);
-
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  /// Otwiera od razu okno „Usunąć moje dane?" (wejście z wyszukiwarki na
+  /// ekranie głównym). Nic nie znika bez potwierdzenia w tym oknie.
+  final bool openDeleteOnStart;
+
+  const ProfileScreen({super.key, this.openDeleteOnStart = false});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -63,12 +69,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _load() async {
     final profile = await UserProfileService.instance.get();
     await BlockedUsers.instance.load();
+    await LegalConsent.instance.load();
+    await ScanConsent.load();
     if (!mounted) return;
     setState(() {
       _firstCtrl.text = profile?.firstName ?? '';
       _lastCtrl.text = profile?.lastName ?? '';
       _loading = false;
     });
+    if (widget.openDeleteOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _deleteMyData();
+      });
+    }
   }
 
   @override
@@ -78,24 +91,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-  String? _validate(String value) {
-    final v = value.trim();
-    if (v.isEmpty) {
-      return context.tr(
-          pl: 'To pole jest wymagane.', en: 'This field is required.');
-    }
-    if (!_kNameAllowed.hasMatch(v)) {
-      return context.tr(
-        pl: 'Min. 2 litery, bez cyfr i znaków specjalnych.',
-        en: 'Min. 2 letters, no digits or special characters.',
-      );
-    }
-    return null;
-  }
-
   Future<void> _save() async {
-    final firstErr = _validate(_firstCtrl.text);
-    final lastErr = _validate(_lastCtrl.text);
+    // Ten sam walidator co krok imienia przed czatem (user_profile.dart).
+    final firstErr = describeNameProblem(context, checkNamePart(_firstCtrl.text));
+    var lastErr = describeNameProblem(context, checkNamePart(_lastCtrl.text));
+    if (firstErr == null &&
+        lastErr == null &&
+        fullNameTooLong(_firstCtrl.text, _lastCtrl.text)) {
+      lastErr = fullNameTooLongMessage(context);
+    }
     setState(() {
       _firstError = firstErr;
       _lastError = lastErr;
@@ -396,18 +400,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           pl: 'Najpierw usuniemy z serwera Twoje wiadomości z czatu, '
               'zgłoszenia, ogłoszenia oraz identyfikator i sekret instalacji.\n\n'
               'Potem skasujemy z tego telefonu Twoje imię i nazwisko, zgodę na '
-              'zasady, listę zablokowanych, tożsamość spawacza (stempel '
-              'i e-mail) oraz rejestr uprawnień spawacza (certyfikaty, '
-              'zdjęcia, przypomnienia). Nowe spoiny przestaną się podpisywać '
-              'Twoim stemplem.\n\n'
+              'zasady, zgodę na wysyłkę zdjęć do skanera, historię asystenta, '
+              'listę zablokowanych i zgłoszonych wiadomości, tożsamość '
+              'spawacza (stempel i e-mail) oraz rejestr uprawnień spawacza '
+              '(certyfikaty, zdjęcia, przypomnienia). Nowe spoiny przestaną '
+              'się podpisywać Twoim stemplem.\n\n'
               'Projekty, cut listy, Biblioteka WPS i zapisane spoiny zostają '
               '— razem ze stemplem, którym już je podpisałeś.\n\n'
               'Na koniec pokażemy, co dokładnie usunęliśmy na serwerze, a co na '
               'telefonie.',
           en: 'First we delete from the server your chat messages, reports, job '
               'listings and your installation identifier and secret.\n\n'
-              'Then we erase from this phone your name, your consent, your '
-              'block list, your welder identity (stamp and e-mail) and the '
+              'Then we erase from this phone your name, your consent to the '
+              'rules, your consent to send photos to the scanner, the '
+              'assistant history, your block list and reported messages, '
+              'your welder identity (stamp and e-mail) and the '
               'welder qualification register (certificates, photos, '
               'reminders). New welds will no longer be signed with your '
               'stamp.\n\n'
@@ -589,30 +596,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _localSummary(bool identityKept) => identityKept
       ? context.tr(
-          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych, tożsamość spawacza (stempel, e-mail) i rejestr '
-              'uprawnień (certyfikaty, zdjęcia, przypomnienia). '
-              'Identyfikator instalacji zostaje, bo łączy telefon z aktywną '
-              'subskrypcją Premium. Projekty, cut listy i dziennik spoin '
-              'zostają.',
-          en: 'Deleted from the phone: your name, your consent, your block '
-              'list, your welder identity (stamp, e-mail) and the '
-              'qualification register (certificates, photos, reminders). The '
-              'installation identifier stays because it links the phone to '
-              'your active Premium subscription. Projects, cut lists and the '
-              'weld journal stay.',
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
+              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
+              'e-mail) i rejestr uprawnień (certyfikaty, zdjęcia, '
+              'przypomnienia). Identyfikator instalacji zostaje, bo łączy '
+              'telefon z aktywną subskrypcją Premium. Projekty, cut listy i '
+              'dziennik spoin zostają.',
+          en: 'Deleted from the phone: your name, your consent to the rules, '
+              'your scanner consent (photo upload), the assistant history, '
+              'your block and report lists, your welder identity (stamp, '
+              'e-mail) and the qualification register (certificates, photos, '
+              'reminders). The installation identifier stays because it '
+              'links the phone to your active Premium subscription. Projects, '
+              'cut lists and the weld journal stay.',
         )
       : context.tr(
-          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, listę '
-              'zablokowanych, tożsamość spawacza (stempel, e-mail), rejestr '
-              'uprawnień (certyfikaty, zdjęcia, przypomnienia) oraz '
-              'identyfikator i sekret instalacji. Projekty, cut listy i '
-              'dziennik spoin zostają.',
-          en: 'Deleted from the phone: your name, your consent, your block '
-              'list, your welder identity (stamp, e-mail), the qualification '
-              'register (certificates, photos, reminders) and the '
-              'installation identifier and secret. Projects, cut lists and the '
-              'weld journal stay.',
+          pl: 'Z telefonu usunęliśmy: imię i nazwisko, zgodę na zasady, zgodę '
+              'skanera (wysyłka zdjęć), historię asystenta, listę '
+              'zablokowanych i zgłoszonych, tożsamość spawacza (stempel, '
+              'e-mail), rejestr uprawnień (certyfikaty, zdjęcia, '
+              'przypomnienia) oraz identyfikator i sekret instalacji. '
+              'Projekty, cut listy i dziennik spoin zostają.',
+          en: 'Deleted from the phone: your name, your consent to the rules, '
+              'your scanner consent (photo upload), the assistant history, '
+              'your block and report lists, your welder identity (stamp, '
+              'e-mail), the qualification register (certificates, photos, '
+              'reminders) and the installation identifier and secret. '
+              'Projects, cut lists and the weld journal stay.',
         );
 
   /// Serwer nie usunął danych (brak sieci, odrzucona instalacja, błąd).
@@ -699,12 +710,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Dane na telefonie: profil, zgoda, tożsamość spawacza, blokady i — gdy
-  /// [resetIdentity] — identyfikator i sekret instalacji (od razu powstaje
-  /// nowa, niezwiązana z niczym para; nic nie leci na serwer).
+  /// Dane na telefonie: profil, zgody (zasady i skaner), historia asystenta,
+  /// tożsamość spawacza, blokady, zgłoszone wiadomości i — gdy
+  /// [resetIdentity] — identyfikator i sekret instalacji (nowa para powstanie
+  /// dopiero przy następnym kontakcie z serwerem; nic nie leci na serwer).
   Future<void> _eraseLocalData({required bool resetIdentity}) async {
     await UserProfileService.instance.clear();
     await LegalConsent.instance.clear();
+    // Zgoda na wysyłkę zdjęć do skanera to osobna zgoda — bez tego skaner po
+    // „usuń moje dane" dalej wysyłał zdjęcia bez pytania.
+    await ScanConsent.clear();
+    // Historia asystenta trzyma opisy zapisanych operacji (parametry, notatki).
+    await AssistantHistoryStore.instance.clear();
+    await ReportedMessages.instance.clear();
     // Tego brakowało. Bez tego wywołania „usuń moje dane" zostawiało na
     // telefonie komplet danych spawacza (stempel, nr WPQR, e-mail), a
     // weld_journal_screen dalej pre-wypełniał nimi pole „spawacz" — nowe
@@ -715,6 +733,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await BlockedUsers.instance.unblock(u.deviceId);
     }
     if (resetIdentity) await PremiumService.instance.resetIdentity();
+  }
+
+  // ───────────────────────────── Zgody ─────────────────────────────────────
+  //
+  // RODO art. 7 ust. 3: wycofanie zgody ma być tak łatwe jak jej wyrażenie.
+  // Wycofanie działa na przyszłość — dane już wysłane na serwer usuwa
+  // „Usuń moje dane", i okno mówi to wprost.
+
+  static String _formatDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.'
+      '${d.month.toString().padLeft(2, '0')}.${d.year}';
+
+  Future<void> _withdrawConsent({required bool scanner}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        scrollable: true,
+        title: Text(context.tr(pl: 'Wycofać zgodę?', en: 'Withdraw consent?')),
+        content: Text(scanner
+            ? context.tr(
+                pl: 'Skaner nie wyśle żadnego zdjęcia, dopóki znowu się nie '
+                    'zgodzisz — zapyta o to przy następnym skanie. Ręczne '
+                    'wpisywanie wymiarów działa bez zgody.',
+                en: 'The scanner will not send any photo until you agree '
+                    'again — it asks before the next scan. Typing dimensions '
+                    'by hand works without consent.',
+              )
+            : context.tr(
+                pl: 'Czat i odpowiedzi asystenta zapytają o akceptację zasad '
+                    'przy następnym użyciu. Kalkulatory działają bez niej.\n\n'
+                    'To, co już wysłałeś, zostaje na serwerze — żeby to '
+                    'usunąć, użyj „Usuń moje dane".',
+                en: 'Chat and assistant answers will ask you to accept the '
+                    'rules the next time you use them. The calculators work '
+                    'without it.\n\n'
+                    'What you already sent stays on the server — to remove '
+                    'it, use "Delete my data".',
+              )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dctx, true),
+            child: Text(context.tr(pl: 'Wycofaj', en: 'Withdraw')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (scanner) {
+      await ScanConsent.clear();
+    } else {
+      await LegalConsent.instance.clear();
+    }
+    if (!mounted) return;
+    Haptic.saved();
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(context.tr(pl: 'Zgoda wycofana.', en: 'Consent withdrawn.')),
+    ));
+  }
+
+  Widget _consentTile({
+    required String keyId,
+    required IconData icon,
+    required String title,
+    required DateTime? acceptedAt,
+    required bool accepted,
+    required VoidCallback onWithdraw,
+  }) {
+    final status = accepted
+        ? context.tr(
+            pl: acceptedAt == null
+                ? 'Udzielona (zasady w wersji $kLegalVersion)'
+                : 'Udzielona ${_formatDate(acceptedAt)} '
+                    '(zasady w wersji $kLegalVersion)',
+            en: acceptedAt == null
+                ? 'Given (rules version $kLegalVersion)'
+                : 'Given ${_formatDate(acceptedAt)} '
+                    '(rules version $kLegalVersion)',
+          )
+        : context.tr(
+            pl: 'Nie udzielona — zapytamy, gdy będzie potrzebna',
+            en: 'Not given — we ask when it is needed');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: kCard,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: kBorder),
+        ),
+        child: ListTile(
+          minVerticalPadding: 12,
+          leading: Icon(icon, color: kTextSec, size: 20),
+          title: Text(title,
+              style: const TextStyle(
+                  color: kText, fontWeight: FontWeight.w600, fontSize: 14)),
+          subtitle: Text(status,
+              style: const TextStyle(color: kTextMut, fontSize: 12)),
+          trailing: accepted
+              ? TextButton(
+                  key: ValueKey('consent-withdraw-$keyId'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(kMinTapTarget, kMinTapTarget),
+                  ),
+                  onPressed: onWithdraw,
+                  child: Text(
+                    context.tr(pl: 'Wycofaj', en: 'Withdraw'),
+                    style: const TextStyle(
+                        color: kArc, fontWeight: FontWeight.w700),
+                  ),
+                )
+              : null,
+        ),
+      ),
+    );
   }
 
   Future<void> _unblock(BlockedUser u) async {
@@ -774,10 +914,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       pl: 'Co zostaje na telefonie',
                       en: 'What stays on your phone'),
                   body: context.tr(
-                    pl: 'Projekty, cut listy, dziennik spoin, zdjęcia i wyniki '
-                        'kalkulatorów. Nic z tego nie trafia na serwer.',
-                    en: 'Projects, cut lists, weld journal, photos and calculator '
-                        'results. None of it goes to a server.',
+                    pl: 'Projekty, cut listy, dziennik spoin, zdjęcia wytopów i '
+                        'wyniki kalkulatorów. Nic z tego nie trafia na nasz '
+                        'serwer. Na serwer idzie tylko to, co sam wyślesz: '
+                        'wiadomość na czacie, zdjęcie rysunku do skanera albo '
+                        'pytanie do asystenta.',
+                    en: 'Projects, cut lists, weld journal, heat photos and '
+                        'calculator results. None of it goes to our server. '
+                        'Only what you send goes there: a chat message, a '
+                        'drawing photo for the scanner or a question for the '
+                        'assistant.',
                   ),
                 ),
                 const SizedBox(height: 26),
@@ -787,7 +933,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 TextField(
                   controller: _firstCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(errorText: _firstError),
+                  maxLength: kNamePartMaxLength,
+                  decoration: InputDecoration(
+                      errorText: _firstError, counterText: ''),
                   onChanged: (_) {
                     if (_firstError != null) setState(() => _firstError = null);
                     setState(() {}); // odśwież podgląd podpisu
@@ -799,7 +947,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 TextField(
                   controller: _lastCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(errorText: _lastError),
+                  maxLength: kNamePartMaxLength,
+                  decoration: InputDecoration(
+                      errorText: _lastError, counterText: ''),
                   onChanged: (_) {
                     if (_lastError != null) setState(() => _lastError = null);
                     setState(() {});
@@ -844,10 +994,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     child: Text(
                       context.tr(
-                        pl: 'Nikogo nie zablokowałeś. Na czacie przytrzymaj '
-                            'wiadomość, żeby zgłosić ją lub zablokować autora.',
-                        en: 'You have not blocked anyone. In chat, long-press a '
-                            'message to report it or block its author.',
+                        pl: 'Nikogo nie zablokowałeś. Na czacie stuknij ⋮ przy '
+                            'wiadomości (albo ją przytrzymaj), żeby zgłosić ją '
+                            'lub zablokować autora.',
+                        en: 'You have not blocked anyone. In chat, tap ⋮ next '
+                            'to a message (or long-press it) to report it or '
+                            'block its author.',
                       ),
                       style: const TextStyle(
                           color: kTextSec, fontSize: 13, height: 1.5),
@@ -933,6 +1085,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       pl: 'Nadpisze dane na tym telefonie',
                       en: 'Overwrites the data on this phone'),
                   onTap: _busy ? null : _restore,
+                ),
+
+                const SizedBox(height: 32),
+                _Label(context.tr(pl: 'Zgody', en: 'Consents')),
+                const SizedBox(height: 8),
+                _consentTile(
+                  keyId: 'rules',
+                  icon: Icons.gavel_outlined,
+                  title: context.tr(
+                      pl: 'Zasady (czat i asystent)',
+                      en: 'Rules (chat and assistant)'),
+                  acceptedAt: LegalConsent.instance.acceptedAt,
+                  accepted: LegalConsent.instance.isAccepted,
+                  onWithdraw: () => _withdrawConsent(scanner: false),
+                ),
+                _consentTile(
+                  keyId: 'scanner',
+                  icon: Icons.document_scanner_outlined,
+                  title: context.tr(
+                      pl: 'Wysyłka zdjęć do skanera',
+                      en: 'Sending photos to the scanner'),
+                  acceptedAt: ScanConsent.acceptedAt,
+                  accepted: ScanConsent.isAccepted,
+                  onWithdraw: () => _withdrawConsent(scanner: true),
                 ),
 
                 const SizedBox(height: 32),
@@ -1126,9 +1302,11 @@ class _Identity extends StatelessWidget {
                     ? context.tr(
                         pl: 'Potrzebne tylko do pisania na czacie',
                         en: 'Only needed to post in chat')
+                    // Serwer trzyma podpis przy każdej wysłanej wiadomości —
+                    // zmiana imienia dotyczy tylko nowych.
                     : context.tr(
-                        pl: 'Tak podpisane są Twoje wiadomości',
-                        en: 'This signs your messages'),
+                        pl: 'Tak podpisujesz nowe wiadomości',
+                        en: 'This signs your new messages'),
                 style: const TextStyle(color: kTextMut, fontSize: 12),
               ),
             ],

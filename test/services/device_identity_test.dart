@@ -66,10 +66,23 @@ void main() {
       expect(a, isNot(b), reason: 'dwa sekrety nie mogą być takie same');
     });
 
-    test('świeża instalacja: device_id i sekret powstają razem i są trwałe',
-        () async {
+    test('start świeżej instalacji NIE tworzy identyfikatora', () async {
+      // main.dart woła init() przy każdym starcie. Wcześniej to tworzyło i
+      // zapisywało device_id, więc „Usuń moje dane" zawsze myślało, że jest
+      // czego szukać na serwerze (gałąź nothingToDelete była martwa).
       _seed({});
       await PremiumService.instance.init();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('fitter_device_id'), isNull);
+      expect(prefs.getString('fitter_install_secret'), isNull);
+      expect(PremiumService.instance.installSecret, isNull);
+      expect(await PremiumService.instance.hasStoredDeviceId(), isFalse);
+    });
+
+    test('świeża instalacja: device_id i sekret powstają razem przy pierwszej '
+        'potrzebie i są trwałe', () async {
+      _seed({});
+      await PremiumService.instance.ensureIdentity();
       final id = PremiumService.instance.deviceId;
       final secret = PremiumService.instance.installSecret;
       expect(id, matches(RegExp(r'^[0-9a-f]{32}$')));
@@ -78,12 +91,22 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('fitter_device_id'), id);
       expect(prefs.getString('fitter_install_secret'), secret);
+      expect(await PremiumService.instance.hasStoredDeviceId(), isTrue);
 
       // Zimny start: ta sama para z dysku.
       PremiumService.instance.resetForTest();
       await PremiumService.instance.init();
       expect(PremiumService.instance.deviceId, id);
       expect(PremiumService.instance.installSecret, secret);
+    });
+
+    test('authHeaders tworzy tożsamość, gdy jej nie było', () async {
+      _seed({});
+      final headers = await PremiumService.instance.authHeaders();
+      final prefs = await SharedPreferences.getInstance();
+      expect(headers[kDeviceIdHeader], prefs.getString('fitter_device_id'));
+      expect(headers[kInstallSecretHeader],
+          prefs.getString('fitter_install_secret'));
     });
 
     test('aktualizacja z 0.2.0: device_id zostaje, sekret dochodzi', () async {
@@ -99,16 +122,19 @@ void main() {
 
     test('zgubiony device_id = nowa tożsamość, także nowy sekret', () async {
       _seed({'fitter_install_secret': _secret});
-      await PremiumService.instance.init();
+      await PremiumService.instance.ensureIdentity();
       expect(PremiumService.instance.installSecret, isNot(_secret));
+      expect(PremiumService.isValidInstallSecret(
+          PremiumService.instance.installSecret), isTrue);
       expect(PremiumService.instance.deviceId, isNot(_deviceId));
     });
 
-    test('współbieżne init() widzą ten sam, zapisany device_id', () async {
+    test('współbieżne ensureIdentity() widzą ten sam, zapisany device_id',
+        () async {
       _seed({});
       final ids = <String>[];
       await Future.wait(List.generate(5, (_) async {
-        await PremiumService.instance.init();
+        await PremiumService.instance.ensureIdentity();
         ids.add(PremiumService.instance.deviceId);
       }));
       expect(ids.toSet(), hasLength(1));
@@ -125,8 +151,8 @@ void main() {
       });
     });
 
-    test('resetIdentity: nowa para, author_id znika — bez żadnego żądania',
-        () async {
+    test('resetIdentity: stara para i author_id znikają — bez żadnego żądania; '
+        'nowa powstaje dopiero przy potrzebie', () async {
       final backend = _FakeBackend((_) async => _json(500, {}));
       ApiClient.instance.debugSetClient(backend.client);
       _seed({
@@ -138,12 +164,19 @@ void main() {
       expect(PremiumService.instance.authorId, 'a_0123');
 
       await PremiumService.instance.resetIdentity();
-      expect(PremiumService.instance.deviceId, isNot(_deviceId));
-      expect(PremiumService.instance.installSecret, isNot(_secret));
+      expect(PremiumService.instance.installSecret, isNull);
       expect(PremiumService.instance.authorId, isNull);
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('fitter_device_id'), PremiumService.instance.deviceId);
+      expect(prefs.getString('fitter_device_id'), isNull);
+      expect(prefs.getString('fitter_install_secret'), isNull);
       expect(prefs.getString('fitter_author_id'), isNull);
+      expect(await PremiumService.instance.hasStoredDeviceId(), isFalse,
+          reason: 'po usunięciu danych nie ma już czego szukać na serwerze');
+
+      await PremiumService.instance.ensureIdentity();
+      expect(PremiumService.instance.deviceId, isNot(_deviceId));
+      expect(PremiumService.instance.installSecret, isNot(_secret));
+      expect(prefs.getString('fitter_device_id'), PremiumService.instance.deviceId);
       expect(backend.requests, isEmpty);
     });
   });

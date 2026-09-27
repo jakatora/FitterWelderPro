@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Lightweight per-device user profile: first + last name. NOT asked for on
@@ -19,6 +20,46 @@ import 'package:shared_preferences/shared_preferences.dart';
 //
 // Persisted to SharedPreferences (key `user_profile_v1`), mirroring the
 // WelderIdentityService pattern so there's no new sqflite migration story.
+
+// ─── Walidacja imienia i nazwiska (wspólna: onboarding i profil) ──────────
+
+/// Najdłuższe imię albo nazwisko (pole tekstowe ma ten `maxLength`).
+const int kNamePartMaxLength = 32;
+
+/// Podpis na czacie („Imię Nazwisko") — serwer i ChatService przycinają go
+/// do tylu znaków, więc dłuższego nie przyjmujemy, zamiast po cichu ciąć.
+const int kFullNameMaxLength = 32;
+
+enum NameProblem {
+  /// Puste pole.
+  empty,
+
+  /// Mniej niż 2 litery albo znaki spoza liter, spacji, apostrofu i myślnika.
+  invalid,
+
+  /// Dłuższe niż [kNamePartMaxLength].
+  tooLong,
+}
+
+final RegExp _nameChars = RegExp(r"^[\p{L} '\-]+$", unicode: true);
+final RegExp _letter = RegExp(r'\p{L}', unicode: true);
+
+/// `null` = poprawne. Litery (także polskie), spacja, apostrof i myślnik
+/// („Anna-Maria", „O'Brien"), co najmniej 2 LITERY — „--" nie przejdzie.
+NameProblem? checkNamePart(String value) {
+  final v = value.trim();
+  if (v.isEmpty) return NameProblem.empty;
+  if (v.length > kNamePartMaxLength) return NameProblem.tooLong;
+  if (!_nameChars.hasMatch(v) || _letter.allMatches(v).length < 2) {
+    return NameProblem.invalid;
+  }
+  return null;
+}
+
+/// Czy „Imię Nazwisko" przekracza [kFullNameMaxLength] znaków.
+bool fullNameTooLong(String firstName, String lastName) =>
+    '${firstName.trim()} ${lastName.trim()}'.trim().length >
+    kFullNameMaxLength;
 
 class UserProfile {
   final String firstName;
@@ -99,7 +140,13 @@ class UserProfileService {
     }
   }
 
+  /// Tylko do testów: podmienia zapis (np. symuluje awarię dysku).
+  @visibleForTesting
+  static Future<bool> Function(UserProfile profile)? debugSaveOverride;
+
   Future<bool> save(UserProfile profile) async {
+    final override = debugSaveOverride;
+    if (override != null) return override(profile);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kPrefsKey, jsonEncode(profile.toJson()));

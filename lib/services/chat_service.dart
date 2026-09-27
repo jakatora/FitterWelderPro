@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../config/backend_config.dart';
 import '../config/feature_flags.dart';
@@ -187,8 +188,12 @@ class ChatService {
       id: 'jobs',
       namePl: 'Praca / brygady',
       nameEn: 'Jobs / crews',
-      descPl: 'Szukam ekipy, szukam roboty, wymiana CV.',
-      descEn: 'Looking for crew, looking for work, CV swaps.',
+      // Bez „wymiany CV": czat jest publiczny, a polityka prosi, żeby nie
+      // publikować telefonów ani adresów. Kontakt — prywatnymi kanałami.
+      descPl: 'Szukam ekipy, szukam roboty. Kontakt ustalcie prywatnie — '
+          'bez telefonów i adresów na czacie.',
+      descEn: 'Looking for a crew or for work. Swap contact details '
+          'privately — no phone numbers or addresses in chat.',
     ),
   ];
 
@@ -262,9 +267,17 @@ class ChatService {
         .toList();
   }
 
+  /// Nowy klucz idempotencji (UUID v4) — jeden na wiadomość albo zgłoszenie.
+  static String newIdempotencyKey() => const Uuid().v4();
+
+  /// Wysyła wiadomość. [idempotencyKey] identyfikuje TĘ wiadomość: ApiClient
+  /// ponawia po timeoucie z tym samym kluczem, a ekran przy „Ponów" podaje
+  /// klucz nieudanej próby — serwer (deduplikacja 24 h per urządzenie) nie
+  /// zapisze jej drugi raz, nawet gdy pierwsza próba jednak doszła.
   Future<ChatMessage> postMessage({
     required String room,
     required String text,
+    String? idempotencyKey,
   }) async {
     final nick = await getNickname();
     final headers = await PremiumService.instance.authHeaders();
@@ -277,7 +290,10 @@ class ChatService {
         'nickname': nick,
         'text': text,
       },
-      headers: headers,
+      headers: {
+        ...headers,
+        kIdempotencyKeyHeader: idempotencyKey ?? newIdempotencyKey(),
+      },
       timeout: const Duration(seconds: 8),
     );
     return ChatMessage.fromJson(body['message'] as Map<String, dynamic>);
@@ -293,7 +309,7 @@ class ChatService {
     await ApiClient.instance.postJson(
       BackendConfig.chatReport,
       body: {'id': messageId, 'device_id': deviceId},
-      headers: headers,
+      headers: {...headers, kIdempotencyKeyHeader: newIdempotencyKey()},
       timeout: const Duration(seconds: 8),
     );
   }

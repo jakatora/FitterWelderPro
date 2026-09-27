@@ -17,12 +17,25 @@ const String kDeviceIdHeader = 'X-Device-Id';
 /// `device_id` bez sekretu albo z innym sekretem dostaje 401.
 const String kInstallSecretHeader = 'X-Install-Secret';
 
+/// Klucz idempotencji zapisu — UUID v4 nadany RAZ na operację (wiadomość,
+/// zgłoszenie) i powtarzany bez zmian przy każdym ponowieniu. Serwer
+/// (`POST /api/fitter/chat/messages`, `POST /api/fitter/chat/report`)
+/// deduplikuje po nim przez 24 h per urządzenie: drugie żądanie z tym samym
+/// kluczem dostaje wynik pierwszego zamiast drugiego zapisu.
+///
+/// [ApiClient.postJson] ponawia POST TYLKO wtedy, gdy żądanie niesie ten
+/// nagłówek — bez niego ponowienie po timeoucie mogłoby zdublować zapis.
+const String kIdempotencyKeyHeader = 'Idempotency-Key';
+
 /// Thin HTTP wrapper used by every service that talks to the Railway backend.
 ///
 /// What it adds on top of `package:http`:
 ///   - one place to enforce a sensible timeout per call (default 10 s),
 ///   - automatic retry (1 attempt) on transient failures: 5xx, socket reset,
-///     `SocketException`, `HandshakeException`, `TimeoutException`,
+///     `SocketException`, `HandshakeException`, `TimeoutException` — for GET
+///     and DELETE (idempotent) always, for POST only when the request carries
+///     an [kIdempotencyKeyHeader] (a timed-out POST may already have been
+///     stored by the server; retrying it blindly duplicates chat messages),
 ///   - exponential back-off between attempts (500 ms → ~1.5 s with jitter),
 ///   - structured `debugPrint` of failures so support has something useful,
 ///   - small `_isTransient` helper kept private to avoid services replicating
@@ -68,6 +81,10 @@ class ApiClient {
   }
 
   /// POST JSON body → JSON map.
+  ///
+  /// Ponawiany (raz, tym samym żądaniem) wyłącznie wtedy, gdy [headers]
+  /// zawierają [kIdempotencyKeyHeader]. Bez klucza błąd przejściowy wraca od
+  /// razu do wywołującego — serwer mógł już zapisać pierwsze żądanie.
   Future<Map<String, dynamic>> postJson(
     String path, {
     required Map<String, dynamic> body,
@@ -75,8 +92,12 @@ class ApiClient {
     Map<String, String>? headers,
   }) async {
     final uri = Uri.parse('${BackendConfig.baseUrl}$path');
+    final idempotent = headers?.keys.any(
+            (k) => k.toLowerCase() == kIdempotencyKeyHeader.toLowerCase()) ??
+        false;
     final resp = await _withRetry(
       'POST $path',
+      retry: idempotent,
       () => _client
           .post(
             uri,
@@ -112,10 +133,13 @@ class ApiClient {
   /// Runs [send] once. On transient failure waits ~500 ms + jitter and tries
   /// again. We intentionally cap at one retry — a backend issue lasting more
   /// than a second is going to take human attention; spinning won't help.
+  /// [retry] == false runs [send] exactly once (non-idempotent POST).
   Future<http.Response> _withRetry(
     String label,
-    Future<http.Response> Function() send,
-  ) async {
+    Future<http.Response> Function() send, {
+    bool retry = true,
+  }) async {
+    if (!retry) return send();
     try {
       final resp = await send();
       if (_isRetryableStatus(resp.statusCode)) {

@@ -6,14 +6,16 @@ import 'package:crypto/crypto.dart';
 ///
 /// In a real application you would back this with a secure database or
 /// authentication provider. Passwords are hashed using SHA-256 before
-/// storage. For demonstration purposes a single test user is included.
+/// storage.
+///
+/// Relikt prototypu: ekran rejestracji jest dziś nieosiągalny (rejestr
+/// narzędzi go pomija), a o usunięciu modułu decyduje właściciel. Zaszyty
+/// użytkownik demo (e-mail i hasło w kodzie) został usunięty 2026-09-26 —
+/// żadnych kont wbudowanych w kod.
 class AuthService {
   /// In-memory map of users and their hashed passwords. Keys are
-  /// normalized to lowercase email addresses.
-  static final Map<String, String> _users = {
-    // Pre-register a demo user: test@example.com with password "password123".
-    'test@example.com': sha256.convert(utf8.encode('password123')).toString(),
-  };
+  /// normalized to lowercase email addresses. Starts empty.
+  static final Map<String, String> _users = {};
 
   /// Returns the SHA-256 hash of the provided [password] as a hex string.
   static String _hash(String password) {

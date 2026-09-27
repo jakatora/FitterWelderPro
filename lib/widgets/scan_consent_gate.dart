@@ -26,10 +26,14 @@ class ScanConsent {
   static const String prefsKey = 'iso_scan_consent_v1';
 
   static int? _acceptedVersion;
+  static DateTime? _acceptedAt;
   static bool _hydrated = false;
 
   static bool get isAccepted =>
       _acceptedVersion != null && _acceptedVersion! >= kLegalVersion;
+
+  /// Kiedy monter zgodził się na wysyłkę zdjęć (do sekcji „Zgody" w profilu).
+  static DateTime? get acceptedAt => isAccepted ? _acceptedAt : null;
 
   static Future<void> load() async {
     if (_hydrated) return;
@@ -40,10 +44,13 @@ class ScanConsent {
         final decoded = jsonDecode(raw);
         if (decoded is Map) {
           _acceptedVersion = (decoded['version'] as num?)?.toInt();
+          final at = decoded['acceptedAt'];
+          _acceptedAt = at is String ? DateTime.tryParse(at) : null;
         }
       }
     } catch (_) {
       _acceptedVersion = null;
+      _acceptedAt = null;
     } finally {
       _hydrated = true;
     }
@@ -51,6 +58,7 @@ class ScanConsent {
 
   static Future<void> accept() async {
     _acceptedVersion = kLegalVersion;
+    _acceptedAt = DateTime.now();
     _hydrated = true;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -58,7 +66,7 @@ class ScanConsent {
         prefsKey,
         jsonEncode({
           'version': kLegalVersion,
-          'acceptedAt': DateTime.now().toIso8601String(),
+          'acceptedAt': _acceptedAt!.toIso8601String(),
         }),
       );
     } catch (_) {
@@ -66,8 +74,23 @@ class ScanConsent {
     }
   }
 
+  /// Wycofanie zgody — „Usuń moje dane" i „Wycofaj" w profilu. Kasuje zapis
+  /// z dysku i stan w pamięci, więc następny skan znowu zapyta o zgodę.
+  static Future<void> clear() async {
+    _acceptedVersion = null;
+    _acceptedAt = null;
+    _hydrated = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(prefsKey);
+    } catch (_) {
+      // Stan w pamięci już wyczyszczony — w tej sesji skaner zapyta znowu.
+    }
+  }
+
   /// Tylko do testów.
   static void resetForTest() {
+    _acceptedAt = null;
     _acceptedVersion = null;
     _hydrated = false;
   }

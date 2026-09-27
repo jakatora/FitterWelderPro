@@ -12,7 +12,7 @@ import '../services/premium_service.dart';
 import '../utils/haptic.dart';
 import '../widgets/community_gate.dart';
 import 'profile_screen.dart';
-import '../theme/app_theme.dart' show kTextMut;
+import '../theme/app_theme.dart' show kMinTapTarget, kTextMut;
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
 //   1. ChatScreen — list of rooms
@@ -22,7 +22,8 @@ import '../theme/app_theme.dart' show kTextMut;
 // the backend confirms (the next poll will dedup against id).
 
 const _kCard = Color(0xFF141821);
-const _kAccent = Color(0xFFAB47BC); // purple accent — distinct from premium gold
+const _kAccent =
+    Color(0xFFAB47BC); // purple accent — distinct from premium gold
 const _kBorder = Color(0xFF2A3140);
 const _kTextSec = Color(0xFF9BA3C7);
 const _kTextMut = kTextMut;
@@ -30,6 +31,22 @@ const _kTextMut = kTextMut;
 // under workshop fluorescents) + brighter edit-nickname icon.
 const _kChevron = Color(0xFFB0B7D4);
 const _kIconBright = Color(0xFFE0E4F2);
+
+// Kolory tekstu w dymkach — publiczne, bo pilnuje ich test kontrastu
+// (test/screens/chat_message_actions_test.dart, WCAG AA ≥ 4,5:1). Fiolet
+// akcentu (#AB47BC) na karcie miał 3,7:1, a kTextMut na własnym dymku 3,3:1.
+
+/// Tło własnego dymka: fiolet akcentu w 50% na tle ekranu.
+const Color kChatMineBubble = Color(0x80AB47BC);
+
+/// Podpis autora nad cudzą wiadomością (≈ 7,4:1 na karcie).
+const Color kChatAuthorName = Color(0xFFCE93D8);
+
+/// Godzina we własnym dymku (≈ 6,9:1 na fiolecie).
+const Color kChatTimeOnMine = Color(0xFFD9CCE0);
+
+/// Godzina w cudzym dymku (≈ 5,5:1 na karcie).
+const Color kChatTimeOnOthers = kTextMut;
 
 // Podpis pod wiadomością pochodzi z profilu (imię i nazwisko). Nie ma osobnej,
 // dowolnie zmiennej ksywki — nie ma więc czego walidować. Kto chce zmienić to,
@@ -75,8 +92,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _error = null;
     });
     try {
-      final rooms = await (widget.loadRooms?.call() ??
-          ChatService.instance.listRooms());
+      final rooms =
+          await (widget.loadRooms?.call() ?? ChatService.instance.listRooms());
       if (!mounted) return;
       setState(() {
         _rooms = rooms;
@@ -126,8 +143,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemCount: _rooms?.length ?? 0,
                     itemBuilder: (_, i) {
                       final r = _rooms![i];
-                      final name = context.language == AppLanguage.pl ? r.namePl : r.nameEn;
-                      final desc = context.language == AppLanguage.pl ? r.descPl : r.descEn;
+                      final name = context.language == AppLanguage.pl
+                          ? r.namePl
+                          : r.nameEn;
+                      final desc = context.language == AppLanguage.pl
+                          ? r.descPl
+                          : r.descEn;
                       return _RoomTile(
                         name: name,
                         desc: desc,
@@ -215,9 +236,12 @@ class _ErrorRetry extends StatelessWidget {
             const Icon(Icons.cloud_off, color: _kTextMut, size: 40),
             const SizedBox(height: 12),
             Text(
-              context.tr(pl: 'Brak połączenia z czatem', en: 'Chat unreachable'),
+              context.tr(
+                  pl: 'Brak połączenia z czatem', en: 'Chat unreachable'),
               style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFE7ECF3)),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFE7ECF3)),
             ),
             const SizedBox(height: 4),
             Text(
@@ -245,57 +269,63 @@ class _RoomTile extends StatelessWidget {
   final String name;
   final String desc;
   final VoidCallback onTap;
-  const _RoomTile({required this.name, required this.desc, required this.onTap});
+  const _RoomTile(
+      {required this.name, required this.desc, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          Haptic.tap();
-          onTap();
-        },
-        child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _kCard,
+    // Margines NA ZEWNĄTRZ InkWell — wcześniej był w środku i rozlew
+    // dotknięcia wychodził poza kartę.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _kBorder),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: _kAccent.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.tag, color: _kAccent, size: 20),
+          onTap: () {
+            Haptic.tap();
+            onTap();
+          },
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _kCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _kBorder),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name,
-                      style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFE7ECF3))),
-                  const SizedBox(height: 2),
-                  Text(desc,
-                      style: const TextStyle(fontSize: 12, color: _kTextSec, height: 1.3)),
-                ],
-              ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _kAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.tag, color: _kAccent, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name,
+                          style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFE7ECF3))),
+                      const SizedBox(height: 2),
+                      Text(desc,
+                          style: const TextStyle(
+                              fontSize: 12, color: _kTextSec, height: 1.3)),
+                    ],
+                  ),
+                ),
+                // P3-13 — brighter chevron so the affordance reads off the card.
+                const Icon(Icons.chevron_right, color: _kChevron),
+              ],
             ),
-            // P3-13 — brighter chevron so the affordance reads off the card.
-            const Icon(Icons.chevron_right, color: _kChevron),
-          ],
-        ),
+          ),
         ),
       ),
     );
@@ -323,6 +353,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   bool _loading = true;
   bool _sending = false;
 
+  /// Treść i klucz idempotencji ostatniej NIEUDANEJ wysyłki — patrz [_send].
+  String? _pendingText;
+  String? _pendingKey;
+
   /// Bramka imienia i zasad jest właśnie na ekranie — drugie stuknięcie
   /// „Wyślij" nie może otworzyć jej drugi raz.
   bool _gating = false;
@@ -347,9 +381,13 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   /// Wiadomości bez tych od zablokowanych autorów. Filtrujemy po stronie
   /// klienta i po identyfikatorze autora (`author_id`, a na starym backendzie
   /// device_id), nie po nazwie — nazwę można zmienić, blokada ma przetrwać.
+  ///
+  /// Wiadomości zgłoszone z tego telefonu też znikają od razu — serwer ukrywa
+  /// je wszystkim dopiero po 3 zgłoszeniach.
   List<ChatMessage> get _visibleMessages => _messages
       .where((m) =>
-          !BlockedUsers.instance.isBlockedAny([m.authorId, m.deviceId]))
+          !BlockedUsers.instance.isBlockedAny([m.authorId, m.deviceId]) &&
+          !ReportedMessages.instance.isReported(m.id))
       .toList();
 
   /// Własna wiadomość: pole `mine` od serwera, a na starym backendzie
@@ -358,8 +396,12 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       m.isMine(myDeviceId: _myDeviceId, myAuthorId: _myAuthorId);
 
   Future<void> _bootstrap() async {
-    await PremiumService.instance.init();
+    // Pokój otwiera się po bramce zgody, a odpytywanie i tak wysyła
+    // identyfikator — tworzymy go (jeśli trzeba) i zapisujemy od razu, żeby
+    // porównanie „moje / cudze" nie trafiło na tymczasowy.
+    await PremiumService.instance.ensureIdentity();
     await BlockedUsers.instance.load();
+    await ReportedMessages.instance.load();
     // P1-43 — read PremiumService.deviceId (NOT nickname) so the isMine
     // check is stable across nickname edits. Guarded against empty in the
     // bubble too.
@@ -416,8 +458,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   Future<void> _refresh({bool initial = false}) async {
     if (mounted) setState(() => _polling = true);
     try {
-      final msgs = await ChatService.instance
-          .listMessages(widget.room.id, limit: 100);
+      final msgs =
+          await ChatService.instance.listMessages(widget.room.id, limit: 100);
       if (!mounted) return;
       setState(() {
         _messages
@@ -536,16 +578,24 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       if (!ok || !mounted) return;
     }
     setState(() => _sending = true);
+    // Klucz idempotencji: ta sama treść po nieudanej próbie („Ponów" albo
+    // ponowne „Wyślij") idzie z TYM SAMYM kluczem. Jeśli pierwsza próba
+    // jednak doszła, serwer zwróci ją zamiast zapisać drugi raz.
+    final key = (_pendingText == text ? _pendingKey : null) ??
+        ChatService.newIdempotencyKey();
+    _pendingText = text;
+    _pendingKey = key;
     try {
       final msg = await ChatService.instance
-          .postMessage(room: widget.room.id, text: text);
+          .postMessage(room: widget.room.id, text: text, idempotencyKey: key);
       _ctrl.clear();
+      _pendingText = null;
+      _pendingKey = null;
       if (!mounted) return;
       setState(() {
-        _messages.add(msg);
-        // P1-42 — record the composite key so the next _pollDelta dedupes
-        // this optimistically-appended message against the backend echo.
-        _seenKeys.add(_keyOf(msg));
+        // Po ponowieniu serwer może odesłać wiadomość, którą odpytywanie
+        // zdążyło już pokazać — drugi raz jej nie dokładamy.
+        if (_seenKeys.add(_keyOf(msg))) _messages.add(msg);
         _sending = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -589,8 +639,8 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           failure == ChatFailure.offline || failure == ChatFailure.server;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(message),
-        duration: Duration(
-            seconds: failure == ChatFailure.installSecret ? 10 : 6),
+        duration:
+            Duration(seconds: failure == ChatFailure.installSecret ? 10 : 6),
         action: isRetryable
             ? SnackBarAction(
                 label: context.tr(pl: 'Ponów', en: 'Retry'),
@@ -626,25 +676,27 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                 child: Text(
                   m.nickname,
                   style: const TextStyle(
-                      color: _kTextSec, fontSize: 13, fontWeight: FontWeight.w600),
+                      color: _kTextSec,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
                 ),
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.flag_outlined, color: Color(0xFFF5B23D)),
-              title: Text(context.tr(
-                  pl: 'Zgłoś wiadomość', en: 'Report message')),
+              leading:
+                  const Icon(Icons.flag_outlined, color: Color(0xFFF5B23D)),
+              title:
+                  Text(context.tr(pl: 'Zgłoś wiadomość', en: 'Report message')),
               subtitle: Text(
-                context.tr(
-                    pl: 'Trafi do moderacji', en: 'Sent to moderation'),
+                context.tr(pl: 'Trafi do moderacji', en: 'Sent to moderation'),
                 style: const TextStyle(color: _kTextMut, fontSize: 12),
               ),
               onTap: () => Navigator.pop(sctx, 'report'),
             ),
             ListTile(
               leading: const Icon(Icons.block, color: Color(0xFFF0655A)),
-              title: Text(context.tr(
-                  pl: 'Zablokuj autora', en: 'Block author')),
+              title:
+                  Text(context.tr(pl: 'Zablokuj autora', en: 'Block author')),
               subtitle: Text(
                 context.tr(
                     pl: 'Przestaniesz widzieć jego wiadomości',
@@ -714,8 +766,12 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       builder: (dctx) => AlertDialog(
         title: Text(context.tr(pl: 'Zgłoś wiadomość', en: 'Report message')),
         content: Text(context.tr(
-          pl: 'Wiadomość zostanie ukryta po 3 zgłoszeniach od różnych użytkowników.',
-          en: 'A message gets hidden after 3 reports from distinct devices.',
+          pl: 'U Ciebie wiadomość zniknie od razu. Zgłoszenie trafia do '
+              'kolejki moderacji, a po 3 zgłoszeniach od różnych osób '
+              'wiadomość znika automatycznie dla wszystkich.',
+          en: 'The message disappears for you right away. The report goes '
+              'to the moderation queue, and after 3 reports from different '
+              'people the message is hidden for everyone automatically.',
         )),
         actions: [
           TextButton(
@@ -732,17 +788,23 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
     if (confirm == true) {
       try {
         await ChatService.instance.report(m.id);
+        // Ukrywamy dopiero po przyjęciu zgłoszenia — gdy nie doszło, monter
+        // widzi komunikat i wiadomość, którą może zgłosić jeszcze raz.
+        await ReportedMessages.instance.add(m.id);
         if (!mounted) return;
+        setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(context.tr(pl: 'Zgłoszono.', en: 'Reported.')),
+          content: Text(context.tr(
+              pl: 'Zgłoszono. Ta wiadomość jest już dla Ciebie ukryta.',
+              en: 'Reported. This message is now hidden for you.')),
         ));
       } catch (e) {
         debugPrint('ChatRoom.report error: $e');
         if (!mounted) return;
         final failure = classifyChatError(e);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          duration: Duration(
-              seconds: failure == ChatFailure.installSecret ? 10 : 4),
+          duration:
+              Duration(seconds: failure == ChatFailure.installSecret ? 10 : 4),
           content: Text(switch (failure) {
             ChatFailure.installSecret => _installSecretMessage(context),
             ChatFailure.rateLimited => context.tr(
@@ -784,9 +846,16 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           children: [
             Icon(Icons.tag, color: _kAccent, size: 18),
             const SizedBox(width: 6),
-            Text(
-              name,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            // Nazwa pokoju przychodzi z serwera — długa nie może przepełnić
+            // paska.
+            Flexible(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
             ),
             // P3-13 — polling loading dot in AppBar (visible only while a
             // poll is in flight). Tells the user the channel is being
@@ -819,11 +888,14 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                         // zero messages.
                         child: _visibleMessages.isEmpty
                             ? ListView(
-                                physics:
-                                    const AlwaysScrollableScrollPhysics(),
-                                children: const [
-                                  SizedBox(height: 80),
-                                  _EmptyRoomCta(),
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  const SizedBox(height: 80),
+                                  // Pokój nie jest pusty, jeśli wszystko
+                                  // ukryły blokady i zgłoszenia — „bądź
+                                  // pierwszy" wprowadzałoby w błąd.
+                                  _EmptyRoomCta(
+                                      allHidden: _messages.isNotEmpty),
                                 ],
                               )
                             : ListView.builder(
@@ -840,7 +912,7 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
                                   // otherwise falsely flag every message
                                   // as mine.
                                   isMine: _isMine(_visibleMessages[i]),
-                                  onLongPress: () =>
+                                  onActions: () =>
                                       _messageActions(_visibleMessages[i]),
                                 ),
                               ),
@@ -860,10 +932,27 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
 // P1-42 — empty-room first-message CTA. Renders when _messages.isEmpty so
 // the welder knows the channel is alive and that posting first is welcome.
 class _EmptyRoomCta extends StatelessWidget {
-  const _EmptyRoomCta();
+  /// W pokoju są wiadomości, ale wszystkie ukryły blokady i zgłoszenia.
+  final bool allHidden;
+  const _EmptyRoomCta({this.allHidden = false});
 
   @override
   Widget build(BuildContext context) {
+    if (allHidden) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        child: Text(
+          context.tr(
+            pl: 'Wszystkie wiadomości w tym pokoju są ukryte (zablokowani '
+                'autorzy albo Twoje zgłoszenia). Blokady zdejmiesz w profilu.',
+            en: 'All messages in this room are hidden (blocked authors or '
+                'your reports). You can unblock people in your profile.',
+          ),
+          style: const TextStyle(fontSize: 13, color: _kTextSec, height: 1.4),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
@@ -903,11 +992,14 @@ class _EmptyRoomCta extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isMine;
-  final VoidCallback onLongPress;
+
+  /// Menu „Zgłoś / Zablokuj" dla cudzej wiadomości — z widocznego przycisku
+  /// ⋮ oraz (skrót) z długiego przytrzymania dymka.
+  final VoidCallback onActions;
   const _MessageBubble({
     required this.message,
     required this.isMine,
-    required this.onLongPress,
+    required this.onActions,
   });
 
   @override
@@ -916,67 +1008,103 @@ class _MessageBubble extends StatelessWidget {
     // P3-13 — bump own-bubble alpha into 0.45-0.55 band so the welder can
     // distinguish their own posts at a glance under workshop lighting; the
     // previous 0.25 was washed-out on AMOLED panels at low brightness.
-    final color = isMine ? _kAccent.withValues(alpha: 0.50) : _kCard;
+    final color = isMine ? kChatMineBubble : _kCard;
     final align = isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    return GestureDetector(
-      onLongPress: isMine ? null : onLongPress,
-      child: Padding(
+    final bubble = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.78,
+      ),
+      child: _bubbleBody(color, align, time),
+    );
+    if (isMine) {
+      return Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Column(
-          crossAxisAlignment: align,
-          children: [
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.78,
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(12),
-                    topRight: const Radius.circular(12),
-                    bottomLeft: Radius.circular(isMine ? 12 : 2),
-                    bottomRight: Radius.circular(isMine ? 2 : 12),
-                  ),
-                  border: Border.all(color: _kBorder.withValues(alpha: 0.7)),
-                ),
-                child: Column(
-                  crossAxisAlignment: align,
-                  children: [
-                    if (!isMine)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Text(
-                          message.nickname,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: _kAccent,
-                          ),
-                        ),
-                      ),
-                    Text(
-                      message.text,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFFE7ECF3),
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      time,
-                      style: const TextStyle(fontSize: 12, color: _kTextMut),
-                    ),
-                  ],
+        child: Column(crossAxisAlignment: align, children: [bubble]),
+      );
+    }
+    // Cudza wiadomość: widoczny przycisk ⋮ (≥ 48 dp, z etykietą) obok dymka.
+    // Długie przytrzymanie zostaje jako skrót — z podpowiedzią dla czytnika
+    // ekranu, a nie jako jedyna droga do zgłoszenia (WCAG 2.5.1, Apple 1.2).
+    final actionsLabel = context.tr(
+      pl: 'Akcje wiadomości: ${message.nickname}',
+      en: 'Message actions: ${message.nickname}',
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Flexible(
+            child: MergeSemantics(
+              child: Semantics(
+                onLongPressHint:
+                    context.tr(pl: 'Zgłoś lub zablokuj', en: 'Report or block'),
+                child: GestureDetector(
+                  onLongPress: onActions,
+                  child: bubble,
                 ),
               ),
             ),
-          ],
+          ),
+          IconButton(
+            key: ValueKey('chat-actions-${message.id}'),
+            onPressed: onActions,
+            tooltip: actionsLabel,
+            icon: const Icon(Icons.more_vert, color: _kTextSec, size: 22),
+            constraints: const BoxConstraints(
+                minWidth: kMinTapTarget, minHeight: kMinTapTarget),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bubbleBody(Color color, CrossAxisAlignment align, String time) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(12),
+          topRight: const Radius.circular(12),
+          bottomLeft: Radius.circular(isMine ? 12 : 2),
+          bottomRight: Radius.circular(isMine ? 2 : 12),
         ),
+        border: Border.all(color: _kBorder.withValues(alpha: 0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: align,
+        children: [
+          if (!isMine)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text(
+                message.nickname,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: kChatAuthorName,
+                ),
+              ),
+            ),
+          Text(
+            message.text,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFFE7ECF3),
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            time,
+            style: TextStyle(
+              fontSize: 12,
+              color: isMine ? kChatTimeOnMine : kChatTimeOnOthers,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1012,7 +1140,8 @@ class _Composer extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(8, 4, 4, 6),
         decoration: BoxDecoration(
           color: _kCard,
-          border: Border(top: BorderSide(color: _kBorder.withValues(alpha: 0.8))),
+          border:
+              Border(top: BorderSide(color: _kBorder.withValues(alpha: 0.8))),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -1029,7 +1158,8 @@ class _Composer extends StatelessWidget {
                 style: const TextStyle(fontSize: 16),
                 onSubmitted: (_) => onSend(),
                 decoration: InputDecoration(
-                  hintText: context.tr(pl: 'Napisz wiadomość…', en: 'Type a message…'),
+                  hintText: context.tr(
+                      pl: 'Napisz wiadomość…', en: 'Type a message…'),
                   hintStyle: const TextStyle(fontSize: 16, color: _kTextMut),
                   counterText: '',
                   isDense: true,
@@ -1044,6 +1174,8 @@ class _Composer extends StatelessWidget {
             const SizedBox(width: 4),
             IconButton(
               onPressed: sending ? null : onSend,
+              // Bez etykiety TalkBack i VoiceOver czytały samo „przycisk".
+              tooltip: context.tr(pl: 'Wyślij', en: 'Send'),
               iconSize: 28,
               constraints: const BoxConstraints(minWidth: 56, minHeight: 56),
               icon: sending

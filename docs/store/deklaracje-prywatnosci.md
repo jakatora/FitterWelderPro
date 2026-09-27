@@ -106,6 +106,21 @@ Shared” była zbyt ostrożna; jeśli właściciel woli ostrożniej, zaznaczyć
   Google. Aplikacja musi za to mieć uprawnienie `RECORD_AUDIO` z opisem w
   polityce (jest: sekcja „Asystent AI”).
 
+## Manifesty w repo (2026-09-26)
+
+- `ios/Runner/PrivacyInfo.xcprivacy` odpowiada tabeli App Privacy wyżej:
+  Name, Other User Content, User ID (Linked), Photos or Videos (Not linked),
+  wszystkie bez śledzenia, cel App Functionality. Required Reason API:
+  UserDefaults `CA92.1` (shared_preferences) i File Timestamp `C617.1`
+  (SQLite z `sqlite3_flutter_libs` bez własnego manifestu, `dart:io` w
+  kontenerze aplikacji). Pilnuje `test/store/privacy_manifests_test.dart`.
+- Android: `android:allowBackup="true"` z regułami (`res/xml/backup_rules.xml`,
+  `res/xml/data_extraction_rules.xml`) — z kopii Google wypada plik
+  SharedPreferences (identyfikator i sekret instalacji, imię, zgody), zostają
+  projekty, dziennik i zdjęcia. Opis w polityce („Co zostaje na Twoim
+  telefonie”). Data safety: kopia systemowa to kopia użytkownika, nie
+  „zbieranie” przez aplikację.
+
 ## URL-e wymagane przez sklepy
 
 - Polityka prywatności i strona usuwania danych — po wdrożeniu nowego backendu

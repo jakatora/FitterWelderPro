@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/legal_screen.dart';
 import 'package:cut_list_app/screens/onboarding_name_screen.dart';
+import 'package:cut_list_app/services/legal_consent.dart';
+import 'package:cut_list_app/services/user_profile.dart';
 
 import '../test_prefs.dart';
 
@@ -104,5 +106,51 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
     }
     expect(done, 1);
+  });
+
+  testWidgets('zapis profilu padł → zgoda NIE zostaje zapisana',
+      (tester) async {
+    // Wcześniej LegalConsent.accept() szło także po nieudanym zapisie:
+    // użytkownik widział „Nie udało się zapisać", a zgoda już była.
+    UserProfileService.debugSaveOverride = (_) async => false;
+    addTearDown(() => UserProfileService.debugSaveOverride = null);
+    var done = 0;
+    await _pump(tester, onDone: () => done++);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Marek');
+    await tester.enterText(fields.at(1), 'Kowalczyk');
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    await tester.tap(find.byType(FilledButton));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(done, 0);
+    expect(find.text('Nie udało się zapisać. Spróbuj ponownie.'),
+        findsOneWidget);
+    await LegalConsent.instance.load();
+    expect(LegalConsent.instance.isAccepted, isFalse);
+  });
+
+  testWidgets('nazwa bez liter („--") i za długa — błąd przy polu',
+      (tester) async {
+    await _pump(tester);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), '--');
+    await tester.enterText(fields.at(1), 'Kowalczyk');
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(find.text('Min. 2 litery, bez cyfr i znaków specjalnych.'),
+        findsOneWidget);
+    // Pole ma limit znaków — licznik/obcięcie po stronie pola.
+    expect(tester.widget<TextField>(fields.at(0)).maxLength, kNamePartMaxLength);
+
+    await tester.enterText(fields.at(0), 'A' * 20);
+    await tester.enterText(fields.at(1), 'B' * 20);
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(find.textContaining('razem: max 32 znaki'), findsOneWidget);
   });
 }

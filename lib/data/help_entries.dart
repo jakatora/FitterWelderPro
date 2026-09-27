@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../config/app_links.dart';
+import '../config/feature_flags.dart';
 import '../i18n/app_language.dart';
 
 // Help v2 — searchable knowledge base for fitters and welders.
@@ -1122,6 +1124,128 @@ List<HelpCategory> kHelpCategories = [
           'Mitigation: pipe coating + paint before insulation, closed-cell foam if T allows, vapor barrier sealed on cold lines, periodic insulation removal + UT every 5-10 yr.',
         ),
         tags: ['cui', 'corrosion', 'insulation', 'hidden-damage', 'inspection'],
+      ),
+    ],
+  ),
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 14. APLIKACJA I KONTO — jak działa sama aplikacja (czat, dane, skaner,
+  // asystent, kopia, kontakt). Apple 1.2 / Google Play: kontakt i usuwanie
+  // danych mają być łatwe do znalezienia, nie tylko w profilu.
+  // ════════════════════════════════════════════════════════════════════════
+  HelpCategory(
+    id: 'app-account',
+    title: _bi('Aplikacja i konto', 'App and account'),
+    subtitle: _bi('Czat, dane, skaner, asystent, kopia',
+        'Chat, data, scanner, assistant, backup'),
+    icon: Icons.smartphone,
+    accentArgb: 0xFF9BA3C7,
+    entries: [
+      HelpEntry(
+        id: 'app-chat-report',
+        question: _bi(
+          'Jak zgłosić wiadomość albo zablokować kogoś na czacie?',
+          'How do I report a message or block someone in chat?',
+        ),
+        answer: _bi(
+          'Stuknij ⋮ przy wiadomości (albo ją przytrzymaj) i wybierz „Zgłoś wiadomość" lub „Zablokuj autora". '
+          'Zgłoszona wiadomość od razu znika u Ciebie, a po 3 zgłoszeniach od różnych osób — u wszystkich; zgłoszenie trafia do kolejki moderacji. '
+          'Blokada działa tylko na Twoim telefonie i autor się o niej nie dowie. Odblokujesz go w Profilu → Zablokowani.',
+          'Tap ⋮ next to a message (or long-press it) and choose "Report message" or "Block author". '
+          'A reported message disappears for you right away, and after 3 reports from different people — for everyone; the report goes to the moderation queue. '
+          'A block works only on your phone and the author is not told. Undo it in Profile → Blocked.',
+        ),
+        tags: ['czat', 'chat', 'zgloszenie', 'zglos', 'report', 'blokada', 'block', 'moderacja'],
+      ),
+      HelpEntry(
+        id: 'app-delete-data',
+        question: _bi(
+          'Gdzie usunąć swoje dane?',
+          'Where do I delete my data?',
+        ),
+        answer: _bi(
+          'Profil → „Usuń moje dane". Najpierw usuwamy z serwera Twoje wiadomości z czatu, zgłoszenia i identyfikator instalacji, '
+          'potem z telefonu: imię i nazwisko, zgody (zasady, skaner), historię asystenta, listę zablokowanych i tożsamość spawacza. '
+          'Projekty, cut listy i dziennik spoin zostają. Bez aplikacji napisz na ${AppLinks.supportEmail}.',
+          'Profile → "Delete my data". First we delete your chat messages, reports and installation identifier from the server, '
+          'then from the phone: your name, consents (rules, scanner), the assistant history, your block list and welder identity. '
+          'Projects, cut lists and the weld journal stay. Without the app, write to ${AppLinks.supportEmail}.',
+        ),
+        tags: ['usun-dane', 'usun', 'dane', 'rodo', 'prywatnosc', 'delete', 'gdpr', 'privacy'],
+      ),
+      HelpEntry(
+        id: 'app-scanner',
+        question: _bi(
+          'Co wysyła skaner rysunków i jaki ma limit?',
+          'What does the drawing scanner send and what is the limit?',
+        ),
+        answer: _bi(
+          'Po Twojej zgodzie zdjęcie rysunku idzie na nasz serwer, a stamtąd do Anthropic (model Claude), który odczytuje wymiary i elementy. '
+          'Serwer nie zapisuje zdjęcia. Skaner jest darmowy, z limitem $kAiScanDailyLimitPerDevice skanów dziennie na telefon. '
+          'Niepewne wartości są oznaczone — sprawdź je z rysunkiem. Zgodę wycofasz w Profilu → Zgody.',
+          'With your consent the drawing photo goes to our server and on to Anthropic (the Claude model), which reads the dimensions and components. '
+          'The server does not store the photo. The scanner is free, with a limit of $kAiScanDailyLimitPerDevice scans a day per phone. '
+          'Uncertain values are flagged — check them against the drawing. Withdraw consent in Profile → Consents.',
+        ),
+        tags: ['skaner', 'scanner', 'zdjecie', 'rysunek', 'iso', 'limit', 'anthropic'],
+      ),
+      HelpEntry(
+        id: 'app-assistant',
+        question: _bi(
+          'Co wysyła asystent?',
+          'What does the assistant send?',
+        ),
+        answer: _bi(
+          'Polecenia rozpoznane na telefonie („otwórz kalkulator", „zapisz parametry") nie opuszczają telefonu. '
+          'Tryb „Odpowiedz" i polecenia, których telefon nie rozpozna, wysyłają treść pytania i kilka ostatnich wiadomości rozmowy na nasz serwer i do Anthropic — bez imienia i nazwiska. '
+          'Nie zapisujemy pytań ani odpowiedzi. Mowę na tekst zamienia system telefonu.',
+          'Commands recognised on the phone ("open the calculator", "save parameters") never leave the phone. '
+          '"Answer" mode and commands the phone cannot recognise send the question and a few recent messages to our server and to Anthropic — without your name. '
+          'We do not store questions or answers. Speech is turned into text by the phone\'s system.',
+        ),
+        tags: ['asystent', 'assistant', 'ai', 'mikrofon', 'glos', 'voice', 'anthropic'],
+      ),
+      HelpEntry(
+        id: 'app-backup',
+        question: _bi(
+          'Jak przenieść dane na nowy telefon?',
+          'How do I move my data to a new phone?',
+        ),
+        answer: _bi(
+          'Profil → „Kopia zapasowa" tworzy jeden plik ZIP (projekty, cut listy, dziennik spoin, zdjęcia, rejestr uprawnień, Biblioteka WPS). '
+          'Zapisz go albo wyślij sobie, a na nowym telefonie: Profil → „Przywróć z pliku" (nadpisuje dane na tym telefonie). '
+          'Na Androidzie z włączoną kopią Google system może też sam odtworzyć projekty i dziennik — bez imienia, zgód i identyfikatora czatu.',
+          'Profile → "Back up my data" creates one ZIP file (projects, cut lists, weld journal, photos, qualification register, WPS library). '
+          'Save it or send it to yourself, and on the new phone: Profile → "Restore from a file" (overwrites the data on that phone). '
+          'On Android with Google backup on, the system may also restore projects and the journal itself — without your name, consents or chat identifier.',
+        ),
+        tags: ['kopia', 'backup', 'przywroc', 'restore', 'nowy-telefon', 'zip'],
+      ),
+      HelpEntry(
+        id: 'app-pin',
+        question: _bi(
+          'Jak przypiąć narzędzie na ekranie głównym?',
+          'How do I pin a tool to the home screen?',
+        ),
+        answer: _bi(
+          'Przytrzymaj narzędzie w menu Montera, Spawacza albo w wynikach wyszukiwania — trafi do „Przypięte" na górze ekranu głównego. '
+          'Tak samo je odepniesz. Wyszukiwarka na ekranie głównym znajduje też Czat, Profil, „Usuń moje dane" i zasady.',
+          'Long-press a tool in the Fitter or Welder menu or in search results — it goes to "Pinned" at the top of the home screen. '
+          'Do the same to unpin it. The home screen search also finds Chat, Profile, "Delete my data" and the rules.',
+        ),
+        tags: ['przypnij', 'pin', 'ulubione', 'favorite', 'wyszukiwarka'],
+      ),
+      HelpEntry(
+        id: 'app-contact',
+        question: _bi(
+          'Jak się z nami skontaktować?',
+          'How do I contact you?',
+        ),
+        answer: _bi(
+          'Napisz na ${AppLinks.supportEmail} — pytania, błędy, prośby o usunięcie danych. Adres jest też w Profilu → „Kontakt".',
+          'Write to ${AppLinks.supportEmail} — questions, bugs, data deletion requests. The address is also in Profile → "Contact".',
+        ),
+        tags: ['kontakt', 'contact', 'email', 'support', 'pomoc'],
       ),
     ],
   ),

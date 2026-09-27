@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../data/help_entries.dart';
 import '../i18n/app_language.dart';
 import '../services/help_search.dart';
-import '../theme/app_theme.dart' show kTextMut;
+import '../theme/app_theme.dart' show kMinTapTarget, kTextMut;
 
 // Help v2 — searchable knowledge base for fitters and welders.
 // Layout:
@@ -123,6 +123,7 @@ class _HelpScreenState extends State<HelpScreen> {
                 suffixIcon: _query.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.close, color: _kTextSec),
+                        tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _query = '');
@@ -149,13 +150,16 @@ class _HelpScreenState extends State<HelpScreen> {
           ),
 
           // ─── Filter chips (horizontal scroll) ───────────────────────────
+          // Wysokość rzędu = cel dotyku 48 dp (wcześniej 38 dp — w rękawicy
+          // nie do trafienia). Sama „pigułka" jest niższa i wyśrodkowana.
           SizedBox(
-            height: 38,
+            height: kMinTapTarget,
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               scrollDirection: Axis.horizontal,
               children: [
                 _FilterChip(
+                  key: const ValueKey('help-filter-all'),
                   label: context.tr(pl: 'Wszystko', en: 'All'),
                   active: _categoryFilter == null,
                   onTap: () => _toggleCategory(null),
@@ -163,6 +167,7 @@ class _HelpScreenState extends State<HelpScreen> {
                       0, (sum, c) => sum + c.entries.length),
                 ),
                 ...kHelpCategories.map((cat) => _FilterChip(
+                      key: ValueKey('help-filter-${cat.id}'),
                       label: cat.title(lang),
                       active: _categoryFilter == cat.id,
                       onTap: () => _toggleCategory(cat.id),
@@ -276,6 +281,7 @@ class _FilterChip extends StatelessWidget {
   final Color? accent;
 
   const _FilterChip({
+    super.key,
     required this.label,
     required this.active,
     required this.onTap,
@@ -286,11 +292,24 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = accent ?? _kAccent;
+    // Czytnik ekranu: „przycisk, wybrany, <kategoria>, <liczba>". Cały
+    // wiersz 48 dp jest celem dotyku, pigułka ma 38 dp dla wyglądu.
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
+      child: Semantics(
+        button: true,
+        selected: active,
+        label: '$label, $count',
+        excludeSemantics: true,
         onTap: onTap,
+        child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: kMinTapTarget),
+        child: Center(
         child: Container(
+          height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
           decoration: BoxDecoration(
             color: active ? color.withValues(alpha: 0.18) : _kCard,
@@ -306,7 +325,7 @@ class _FilterChip extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                   color: active ? color : _kTextSec,
                 ),
@@ -321,7 +340,7 @@ class _FilterChip extends StatelessWidget {
                 child: Text(
                   '$count',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: active ? color : _kTextMut,
                   ),
@@ -329,6 +348,9 @@ class _FilterChip extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        ),
+        ),
         ),
       ),
     );

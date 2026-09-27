@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cut_list_app/assistant/assistant_history.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/legal/legal_texts.dart';
 import 'package:cut_list_app/screens/home_screen.dart';
@@ -20,6 +21,7 @@ import 'package:cut_list_app/services/blocked_users.dart';
 import 'package:cut_list_app/services/legal_consent.dart';
 import 'package:cut_list_app/services/premium_service.dart';
 import 'package:cut_list_app/services/user_profile.dart';
+import 'package:cut_list_app/widgets/scan_consent_gate.dart';
 
 const _deviceId = '0123456789abcdef0123456789abcdef';
 const _secret = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
@@ -204,6 +206,108 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(_inDialog('We did NOT delete your data on the server'),
         findsOneWidget);
+  });
+
+  testWidgets(
+      'kasuje też zgodę skanera, historię asystenta i ukryte zgłoszenia',
+      (tester) async {
+    // Po „Usuń moje dane" skaner dalej wysyłał zdjęcia bez pytania o zgodę,
+    // a historia asystenta (treść operacji) zostawała na telefonie.
+    SharedPreferences.setMockInitialValues({
+      'user_profile_v1':
+          jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
+      'fitter_device_id': _deviceId,
+      'fitter_install_secret': _secret,
+      ScanConsent.prefsKey: jsonEncode({
+        'version': kLegalVersion,
+        'acceptedAt': '2026-09-25T08:00:00.000',
+      }),
+      'assistant_history_v1': jsonEncode([
+        {
+          'id': 'h1',
+          'kind': 'save_weld_parameter',
+          'summary': 'TIG · SS · t 2 mm · 60 A',
+          'recordId': 'r1',
+          'at': 1790000000000,
+          'byVoice': true,
+          'undone': false,
+        }
+      ]),
+      ReportedMessages.prefsKey: jsonEncode([11, 12]),
+    });
+    UserProfileService.instance.resetForTest();
+    LegalConsent.instance.resetForTest();
+    BlockedUsers.instance.resetForTest();
+    PremiumService.instance.resetForTest();
+    ScanConsent.resetForTest();
+    AssistantHistoryStore.instance.resetForTest();
+    ReportedMessages.instance.resetForTest();
+    // Stan w pamięci jak po użyciu skanera i asystenta w tej sesji.
+    await ScanConsent.load();
+    await AssistantHistoryStore.instance.load();
+    await ReportedMessages.instance.load();
+    expect(ScanConsent.isAccepted, isTrue);
+    expect(AssistantHistoryStore.instance.entries, hasLength(1));
+    expect(ReportedMessages.instance.isReported(11), isTrue);
+
+    backend((_) async => _json(200, {
+          'ok': true,
+          'deleted': {'chat_messages': 0},
+          'premium_retained': false,
+        }));
+    await _openProfile(tester);
+    await tester.tap(find.text('Delete my data'));
+    await _pumpFor(tester, 6);
+    // Okno mówi wprost, że te zgody i historia też znikną.
+    expect(_inDialog('scanner'), findsOneWidget);
+    expect(_inDialog('assistant history'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Delete'));
+    await _pumpFor(tester, 12);
+
+    expect(ScanConsent.isAccepted, isFalse,
+        reason: 'skaner nie może wysyłać zdjęć bez nowej zgody');
+    expect(AssistantHistoryStore.instance.entries, isEmpty);
+    expect(ReportedMessages.instance.isReported(11), isFalse);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(ScanConsent.prefsKey), isNull);
+    expect(prefs.getString('assistant_history_v1'), isNull);
+    expect(prefs.getString(ReportedMessages.prefsKey), isNull);
+
+    // Świeży odczyt z dysku też nie odtwarza zgody.
+    ScanConsent.resetForTest();
+    await ScanConsent.load();
+    expect(ScanConsent.isAccepted, isFalse);
+
+    expect(_inDialog('scanner consent'), findsOneWidget);
+  });
+
+  testWidgets(
+      'instalacja bez kontaktu z serwerem: bez sieci nie straszy, '
+      '„nie było czego usuwać"', (tester) async {
+    // Monter liczył tylko kolana — nigdy nie był na czacie, w skanerze ani w
+    // asystencie. Start aplikacji nie tworzy już identyfikatora, więc nie ma
+    // czego szukać na serwerze i nic nie wychodzi z telefonu.
+    SharedPreferences.setMockInitialValues({
+      'user_profile_v1':
+          jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
+    });
+    UserProfileService.instance.resetForTest();
+    LegalConsent.instance.resetForTest();
+    BlockedUsers.instance.resetForTest();
+    PremiumService.instance.resetForTest();
+    await PremiumService.instance.init(); // jak main.dart przy starcie
+
+    backend((_) async => throw http.ClientException('brak zasięgu'));
+    await _openProfile(tester);
+    await _confirmDelete(tester);
+
+    expect(requests, isEmpty, reason: 'pierwszym kontaktem nie może być DELETE');
+    expect(_inDialog('No connection'), findsNothing);
+    expect(_inDialog('Data deleted'), findsOneWidget);
+    expect(_inDialog('never sent data to the server'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('user_profile_v1'), isNull);
+    expect(prefs.getString('fitter_device_id'), isNull);
   });
 
   testWidgets('429: „spróbuj później" i nic nie znika', (tester) async {

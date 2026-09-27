@@ -15,9 +15,27 @@ import 'legal_screen.dart';
 // ma czatu bez zasad — ale kalkulatory działają dalej. Pokazuje go bramka
 // lib/widgets/community_gate.dart.
 
+/// Po co pytamy o zgodę — od tego zależy, co ekran mówi. Zgoda jest jedna
+/// (LegalConsent, bieżąca wersja zasad), ale użytkownik ma wiedzieć, na co
+/// się zgadza W TYM miejscu: czat publikuje imię i nazwisko, asystent wysyła
+/// treść pytań do Anthropic bez nazwiska. (Skaner ma własne okno zgody na
+/// zdjęcie — `scan_consent_gate.dart`.)
+enum ConsentPurpose {
+  /// Czat: wiadomości publiczne, podpisane imieniem i nazwiskiem.
+  chat,
+
+  /// Asystent AI: treść pytań idzie na serwer i do Anthropic, bez nazwiska.
+  assistant,
+}
+
 class ConsentScreen extends StatefulWidget {
   final VoidCallback onAccepted;
-  const ConsentScreen({super.key, required this.onAccepted});
+  final ConsentPurpose purpose;
+  const ConsentScreen({
+    super.key,
+    required this.onAccepted,
+    this.purpose = ConsentPurpose.chat,
+  });
 
   @override
   State<ConsentScreen> createState() => _ConsentScreenState();
@@ -49,6 +67,41 @@ class _ConsentScreenState extends State<ConsentScreen> {
     // zgody nigdy nie dał (np. wpisał imię w profilu), słyszy, po co ona jest.
     final rulesChanged = LegalConsent.instance.acceptedAt != null &&
         !LegalConsent.instance.isAccepted;
+    final assistant = widget.purpose == ConsentPurpose.assistant;
+    final String lead;
+    if (assistant) {
+      lead = rulesChanged
+          ? context.tr(
+              pl: 'Zmieniliśmy zasady. Zanim zadasz pytanie asystentowi, '
+                  'przeczytaj je i zaakceptuj.',
+              en: 'The rules have changed. Read and accept them before you '
+                  'ask the assistant.',
+            )
+          : context.tr(
+              pl: 'Na to pytanie odpowiada model AI na naszym serwerze. Zanim '
+                  'je wyślesz, przeczytaj zasady i zaakceptuj je. Polecenia '
+                  'rozpoznane na telefonie działają bez tego.',
+              en: 'An AI model on our server answers this question. Read and '
+                  'accept the rules before you send it. Commands recognised '
+                  'on the phone work without this.',
+            );
+    } else {
+      lead = rulesChanged
+          ? context.tr(
+              pl: 'Zmieniliśmy zasady. Zanim napiszesz na czacie, '
+                  'przeczytaj je i zaakceptuj.',
+              en: 'The rules have changed. Read and accept them before '
+                  'you post in chat.',
+            )
+          : context.tr(
+              pl: 'Na czacie piszesz pod własnym nazwiskiem. Zanim '
+                  'napiszesz, przeczytaj zasady i zaakceptuj je. '
+                  'Kalkulatory działają bez tego.',
+              en: 'In chat you post under your own name. Read and '
+                  'accept the rules before you post. The calculators '
+                  'work without this.',
+            );
+    }
     return Scaffold(
       backgroundColor: kBg,
       // Krok otwierany z ekranu głównego — musi dać się z niego wycofać.
@@ -80,27 +133,13 @@ class _ConsentScreenState extends State<ConsentScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              rulesChanged
-                  ? context.tr(
-                      pl: 'Zmieniliśmy zasady. Zanim napiszesz na czacie, '
-                          'przeczytaj je i zaakceptuj.',
-                      en: 'The rules have changed. Read and accept them before '
-                          'you post in chat.',
-                    )
-                  : context.tr(
-                      pl: 'Na czacie piszesz pod własnym nazwiskiem. Zanim '
-                          'napiszesz, przeczytaj zasady i zaakceptuj je. '
-                          'Kalkulatory działają bez tego.',
-                      en: 'In chat you post under your own name. Read and '
-                          'accept the rules before you post. The calculators '
-                          'work without this.',
-                    ),
+              lead,
               textAlign: TextAlign.center,
               style:
                   const TextStyle(color: kTextSec, fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 26),
-            const _Bullets(),
+            _Bullets(purpose: widget.purpose),
             const SizedBox(height: 22),
             _DocButton(
               icon: Icons.description_outlined,
@@ -157,37 +196,80 @@ class _ConsentScreenState extends State<ConsentScreen> {
 /// Trzy zdania, które naprawdę zmieniają zachowanie użytkownika. Nikt nie czyta
 /// regulaminu — ale to przeczyta.
 class _Bullets extends StatelessWidget {
-  const _Bullets();
+  final ConsentPurpose purpose;
+  const _Bullets({required this.purpose});
 
   @override
   Widget build(BuildContext context) {
-    final items = <(IconData, String)>[
-      (
-        Icons.badge_outlined,
-        context.tr(
-          pl: 'Piszesz pod własnym imieniem i nazwiskiem. Nie ma anonimowych ksywek.',
-          en: 'You post under your own first and last name. No anonymous nicknames.',
-        )
-      ),
-      (
-        Icons.block,
-        context.tr(
-          pl: 'Zero tolerancji dla wyzwisk, nękania i treści seksualnych. '
-              'Zgłoszenia rozpatrujemy w 24 godziny.',
-          en: 'Zero tolerance for insults, harassment and sexual content. We review '
-              'reports within 24 hours.',
-        )
-      ),
-      (
-        Icons.engineering_outlined,
-        context.tr(
-          pl: 'Wyniki kalkulatorów sprawdzaj z WPS i normą. Za spoinę odpowiada '
-              'człowiek, nie aplikacja.',
-          en: 'Verify calculator results against your WPS and the standard. A person '
-              'is responsible for the weld, not the app.',
-        )
-      ),
-    ];
+    final items = purpose == ConsentPurpose.assistant
+        ? <(IconData, String)>[
+            (
+              Icons.cloud_upload_outlined,
+              context.tr(
+                pl: 'Treść pytania (i kilka ostatnich wiadomości rozmowy) '
+                    'wysyłamy na nasz serwer, a stamtąd do Anthropic (model '
+                    'Claude), który przygotuje odpowiedź. Nie zapisujemy pytań '
+                    'ani odpowiedzi.',
+                en: 'We send the question (and a few recent messages of the '
+                    'conversation) to our server and on to Anthropic (the '
+                    'Claude model), which prepares the answer. We do not '
+                    'store questions or answers.',
+              )
+            ),
+            (
+              Icons.person_off_outlined,
+              context.tr(
+                pl: 'Nie wysyłamy imienia ani nazwiska — serwer widzi tylko '
+                    'identyfikator instalacji. Nie wpisuj w pytaniach danych '
+                    'osobowych.',
+                en: 'We do not send your name — the server only sees the '
+                    'installation identifier. Do not put personal data in '
+                    'your questions.',
+              )
+            ),
+            (
+              Icons.engineering_outlined,
+              context.tr(
+                pl: 'Odpowiedzi AI mogą zawierać błędy — sprawdzaj je z WPS i '
+                    'normą. Za spoinę odpowiada człowiek, nie aplikacja.',
+                en: 'AI answers can be wrong — check them against your WPS '
+                    'and the standard. A person is responsible for the weld, '
+                    'not the app.',
+              )
+            ),
+          ]
+        : <(IconData, String)>[
+            (
+              Icons.badge_outlined,
+              context.tr(
+                pl: 'Piszesz pod własnym imieniem i nazwiskiem — widzi je każdy '
+                    'użytkownik czatu. Nie ma anonimowych ksywek.',
+                en: 'You post under your own first and last name — every chat '
+                    'user sees it. No anonymous nicknames.',
+              )
+            ),
+            (
+              Icons.block,
+              context.tr(
+                pl: 'Zero tolerancji dla wyzwisk, nękania i treści seksualnych. '
+                    'Zgłoszoną wiadomość od razu ukrywamy u zgłaszającego, a '
+                    'po 3 zgłoszeniach — u wszystkich.',
+                en: 'Zero tolerance for insults, harassment and sexual content. '
+                    'A reported message is hidden for the reporter right away, '
+                    'and after 3 reports — for everyone.',
+              )
+            ),
+            (
+              Icons.engineering_outlined,
+              context.tr(
+                pl: 'Wyniki kalkulatorów sprawdzaj z WPS i normą. Za spoinę '
+                    'odpowiada człowiek, nie aplikacja.',
+                en: 'Verify calculator results against your WPS and the '
+                    'standard. A person is responsible for the weld, not the '
+                    'app.',
+              )
+            ),
+          ];
 
     return Column(
       children: [

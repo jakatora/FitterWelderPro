@@ -14,7 +14,6 @@ import '../theme/app_theme.dart';
 import '../widgets/community_gate.dart';
 import '../widgets/tool_registry.dart';
 import '../widgets/tool_tiles.dart';
-import 'ai_chat_screen.dart';
 import 'chat_screen.dart';
 import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
@@ -90,8 +89,31 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// Animacja „przykrycia" ekranu głównego przez kolejny ekran. Gdy wraca do
+  /// zera (dismissed), ekran główny znów jest na wierzchu — odświeżamy
+  /// liczniki i „Ostatnie projekty". Łapie KAŻDY powrót: z menu montera i
+  /// spawacza, z narzędzi (przypięte, ostatnio używane, wyszukiwarka), z
+  /// profilu — bez dopisywania `.then(_load)` przy każdym wejściu.
+  Animation<double>? _coverAnimation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final cover = ModalRoute.of(context)?.secondaryAnimation;
+    if (!identical(cover, _coverAnimation)) {
+      _coverAnimation?.removeStatusListener(_onCoverStatus);
+      _coverAnimation = cover;
+      _coverAnimation?.addStatusListener(_onCoverStatus);
+    }
+  }
+
+  void _onCoverStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed && mounted) _load();
+  }
+
   @override
   void dispose() {
+    _coverAnimation?.removeStatusListener(_onCoverStatus);
     _profileSub?.cancel();
     _searchCtrl.dispose();
     _searchFocus.dispose();
@@ -235,7 +257,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   onClear: _clearSearch,
                   onSubmitted: (v) {
                     final hits = searchTools(v, lang);
-                    if (hits.isNotEmpty) openTool(context, hits.first.tool);
+                    if (hits.isNotEmpty) {
+                      openTool(context, hits.first.tool);
+                      return;
+                    }
+                    final nav = searchNavEntries(v, lang);
+                    if (nav.isNotEmpty) nav.first.open(context);
                   },
                 ),
               ),
@@ -252,6 +279,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Widget> _searchResults(AppLanguage lang) {
     final hits = searchTools(_query, lang);
+    // Ekrany konta, zasad i pomocy — nie są narzędziami, ale monter ich
+    // szuka („czat", „profil", „usuń dane").
+    final nav = searchNavEntries(_query, lang);
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
@@ -260,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
         ),
       ),
-      if (hits.isEmpty)
+      if (hits.isEmpty && nav.isEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _NoResults(
@@ -268,17 +298,36 @@ class _HomeScreenState extends State<HomeScreen> {
             onHelp: () => _push(const HelpScreen()),
           ),
         )
-      else
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final hit in hits)
-                ToolRow(tool: hit.tool, showSection: true),
-            ],
+      else ...[
+        if (hits.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final hit in hits)
+                  ToolRow(tool: hit.tool, showSection: true),
+              ],
+            ),
           ),
-        ),
+        if (nav.isNotEmpty) ...[
+          if (hits.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: ToolSectionLabel(
+                context.tr(pl: 'Konto i pomoc', en: 'Account and help'),
+                padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [for (final e in nav) _NavRow(entry: e)],
+            ),
+          ),
+        ],
+      ],
     ];
   }
 
@@ -363,11 +412,10 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           // First-time UX: one tap straight into the cut list — the shortest
           // path to value for a brand-new user.
-          child: _TryThis(onTap: () async {
+          // Odświeżenie po powrocie robi _onCoverStatus.
+          child: _TryThis(onTap: () {
             final cutList = toolById('cut_list');
-            if (cutList == null) return;
-            await openTool(context, cutList);
-            if (mounted) _load();
+            if (cutList != null) openTool(context, cutList);
           }),
         )
       else
@@ -381,7 +429,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                             builder: (_) => FitterScreen(projectId: p.id)),
-                      ).then((_) => _load()),
+                      ),
                     ))
                 .toList(),
           ),
@@ -416,12 +464,9 @@ class _HomeScreenState extends State<HomeScreen> {
             pl: 'Zapis głosem, pytania', en: 'Voice notes, questions'),
         accent: _kTeal,
         onTap: () {
+          // Wpis „assistant" w rejestrze jest zawsze dostępny.
           final assistant = toolById('assistant');
-          if (assistant != null) {
-            openTool(context, assistant);
-          } else {
-            _push(const AiChatScreen());
-          }
+          if (assistant != null) openTool(context, assistant);
         },
       ),
       // ── Społeczność — darmowa dla wszystkich ──────────────────────────
@@ -442,9 +487,8 @@ class _HomeScreenState extends State<HomeScreen> {
           accent: _kRed,
           onTap: () => _openBehindGate(const JobsScreen()),
         ),
-      // Skaner stoi za bramką Premium, której nie da się przejść, dopóki
-      // płatności są wyłączone — kafel pokazujemy dopiero, gdy zakup jest
-      // możliwy (kAiScannerReachable → rejestr narzędzi).
+      // Skaner: kafel jest, gdy da się go użyć (kAiScannerReachable →
+      // rejestr narzędzi; dziś darmowy z dziennym limitem).
       if (scanner != null)
         _SectionTile(
           icon: scanner.icon,
@@ -673,6 +717,65 @@ class _NoResults extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── WYNIK: EKRAN KONTA / POMOCY ─────────────────────────────────────────────
+class _NavRow extends StatelessWidget {
+  final NavEntry entry;
+  const _NavRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: kCard,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: kBorder),
+        ),
+        child: InkWell(
+          key: ValueKey('nav-${entry.id}'),
+          onTap: () => entry.open(context),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              child: Row(
+                children: [
+                  Icon(entry.icon, size: 22, color: entry.color),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          entry.title(context),
+                          style: const TextStyle(
+                              color: kText,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          entry.subtitle(context),
+                          style: const TextStyle(
+                              color: kTextSec, fontSize: 12, height: 1.3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, size: 20, color: kTextMut),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

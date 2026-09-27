@@ -29,10 +29,19 @@
          android.permission.CAMERA. Nie dopisuj CAMERA: przy zadeklarowanym
          CAMERA intencja aparatu wymaga zgody i bez niej rzuca wyjątek. -->
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Kopia zapasowa Androida: WŁĄCZONA, ale bez SharedPreferences
+         (identyfikator i sekret instalacji, imię, zgody) — reguły i
+         uzasadnienie w res/xml/backup_rules.xml (Android ≤ 11) oraz
+         res/xml/data_extraction_rules.xml (12+). Projekty i dziennik wracają
+         z kopii systemowej na nowym telefonie; tożsamość na czacie nie
+         klonuje się na drugie urządzenie. Opis w polityce prywatności. -->
     <application
         android:label="Fitter Welder Pro"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name="com.startklaar.fitterwelder.MainActivity"
             android:exported="true"

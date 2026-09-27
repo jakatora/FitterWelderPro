@@ -33,7 +33,9 @@ String _all(LegalDocument d) =>
 void main() {
   test('wersja zasad podniesiona do 3 z datą zmiany (skaner + asystent)', () {
     expect(kLegalVersion, 3);
-    expect(kLegalUpdated, '2026-09-25');
+    // 2026-09-26: doprecyzowania bez ponownej akceptacji (imię na czacie,
+    // kopia Androida, moderacja) — patrz nagłówek legal_texts.dart.
+    expect(kLegalUpdated, '2026-09-26');
   });
 
   testWidgets('polityka PL: skaner rysunków — serwer, Anthropic, bez zapisu',

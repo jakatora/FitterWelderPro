@@ -22,13 +22,23 @@ import '../i18n/app_language.dart';
 // asystent AI (tryby „Wykonaj" / „Odpowiedz", mowa rozpoznawana przez system
 // telefonu). Anthropic (Claude) jako podmiot przetwarzający. Treść zgodna z
 // `backend/src/routes/publicPages.js` z 2026-09-25.
+//
+// Wersja 3, poprawki 2026-09-26 (bez ponownej akceptacji — doprecyzowania,
+// nie nowe przetwarzanie): imię i nazwisko nie są już na liście „nie
+// opuszczają telefonu" (czat je wysyła); opis kopii zapasowej Androida
+// (manifest wyklucza z niej SharedPreferences z tożsamością instalacji);
+// „Usuń moje dane" kasuje też zgodę skanera i historię asystenta; regulamin
+// bez obietnic moderacji, których backend nie realizuje („24 godziny",
+// „odbieramy dostęp") — jest ukrywanie po 3 zgłoszeniach, kolejka moderacji
+// i usuwanie wiadomości autora. Wersję hostowaną (publicPages.js) trzeba
+// zsynchronizować po stronie backendu.
 
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
 /// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
 /// kalkulatory działają dalej.
 const int kLegalVersion = 3;
 
-const String kLegalUpdated = '2026-09-25';
+const String kLegalUpdated = '2026-09-26';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -73,14 +83,37 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           c.tr(pl: 'Co zostaje na Twoim telefonie', en: 'What stays on your phone'),
           c.tr(
             pl: 'Projekty, cut listy, dziennik spoin, zdjęcia numerów wytopu, '
-                'parametry spawania, wyniki kalkulatorów, Twoja lista '
-                'zablokowanych osób oraz imię i nazwisko z profilu. Te dane nie '
-                'opuszczają urządzenia. Usuwają się razem z odinstalowaniem '
-                'aplikacji.',
+                'parametry spawania, wyniki kalkulatorów, historia asystenta i '
+                'Twoja lista zablokowanych osób zostają na telefonie — nie '
+                'wysyłamy ich na nasz serwer. Imię i nazwisko z profilu też '
+                'zapisujemy tylko na telefonie, ale gdy piszesz na czacie, '
+                'wysyłamy je jako podpis Twoich wiadomości na czacie (niżej).\n\n'
+                'Kopia zapasowa. Dane aplikacji znikają z telefonu razem z jej '
+                'odinstalowaniem. Jeśli masz włączoną kopię zapasową Androida '
+                '(Google), system może zapisać projekty, dziennik spoin i '
+                'zdjęcia na Twoim koncie Google i odtworzyć je na nowym '
+                'telefonie — to Twoja kopia, nie mamy do niej dostępu. Imienia '
+                'i nazwiska, zgód, identyfikatora ani sekretu instalacji '
+                'aplikacja do tej kopii nie oddaje: na nowym telefonie zapyta '
+                'o nie od nowa. Na iPhonie dane aplikacji może obejmować kopia '
+                'iCloud albo kopia na komputerze, jeśli ją włączyłeś. Plik z '
+                'kopią (ZIP) możesz też zrobić sam: Profil → „Kopia zapasowa".',
             en: 'Projects, cut lists, weld journal, heat-number photos, welding '
-                'parameters, calculator results, your block list and the name in '
-                'your profile. This data never leaves the device and is removed '
-                'when you uninstall the app.',
+                'parameters, calculator results, the assistant history and your '
+                'block list stay on your phone — we do not send them to our '
+                'server. The name in your profile is also stored only on the '
+                'phone, but when you post in chat we send it as the signature '
+                'of your chat messages (below).\n\n'
+                'Backups. The app data is removed from the phone when you '
+                'uninstall the app. If Android backup (Google) is on, the '
+                'system may save projects, the weld journal and photos to your '
+                'Google account and restore them on a new phone — that is your '
+                'backup and we have no access to it. The app does not put your '
+                'name, consents, installation identifier or secret into that '
+                'backup: on a new phone it asks for them again. On an iPhone '
+                'the app data may be included in an iCloud or computer backup '
+                'if you turned it on. You can also make a backup file (ZIP) '
+                'yourself: Profile → "Back up my data".',
           ),
         ),
         LegalSection(
@@ -224,7 +257,8 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'zgłoszenia, które złożyłeś, i zgłoszenia Twoich wiadomości, '
                 'ogłoszenia, identyfikator i sekret instalacji oraz liczniki '
                 'limitów. Potem z telefonu: imię i nazwisko, zgodę na zasady, '
-                'listę zablokowanych i tożsamość spawacza. Aplikacja pokazuje, '
+                'zgodę na wysyłkę zdjęć do skanera, historię asystenta, listę '
+                'zablokowanych i tożsamość spawacza. Aplikacja pokazuje, '
                 'co usunęła na serwerze, a co na telefonie. Jeśli serwer jest '
                 'niedostępny albo jeszcze nie obsługuje tej funkcji, powie Ci o '
                 'tym.\n\n'
@@ -234,13 +268,16 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'z serwera najpóźniej w ciągu 30 dni i potwierdzimy to '
                 'odpowiedzią.\n\n'
                 'Projekty, cut listy i dziennik spoin są tylko na Twoim '
-                'telefonie — usuniesz je, odinstalowując aplikację.',
+                'telefonie — usuniesz je, odinstalowując aplikację (i z '
+                'systemowej kopii zapasowej, jeśli ją masz).',
             en: 'In the app: Profile → "Delete my data". First we delete from '
                 'the server all your chat messages (name and text), reports you '
                 'made and reports of your messages, your job listings, your '
                 'installation identifier and secret and rate-limit counters. '
-                'Then from the phone: your name, your consent, your block list '
-                'and your welder identity. The app shows what it deleted on the '
+                'Then from the phone: your name, your consent to the rules, your '
+                'consent to send photos to the scanner, the assistant history, '
+                'your block list and your welder identity. The app shows what '
+                'it deleted on the '
                 'server and what on the phone. If the server is unreachable or '
                 'does not support this yet, the app tells you.\n\n'
                 'By e-mail (without the app or with an older version): write to '
@@ -248,7 +285,8 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'with and approximate dates. We delete your data from the '
                 'server within 30 days at the latest and confirm by reply.\n\n'
                 'Projects, cut lists and the weld journal exist only on your '
-                'phone — uninstalling the app removes them.',
+                'phone — uninstalling the app removes them (and deleting the '
+                'system backup, if you have one).',
           ),
         ),
         LegalSection(
@@ -424,26 +462,34 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
           c.tr(
             pl: 'Nie ma zgody na wyzwiska, groźby, nękanie, treści seksualne, '
                 'rasistowskie i dyskryminujące, spam ani reklamę. Nie publikuj '
-                'cudzych danych osobowych. Treści łamiące te zasady usuwamy, a '
-                'ich autorom odbieramy dostęp — bez ostrzeżenia i bez zwrotu '
-                'jakichkolwiek opłat.',
+                'cudzych danych osobowych. Treści łamiące te zasady ukrywamy '
+                'lub usuwamy bez ostrzeżenia, a przy poważnych naruszeniach '
+                'możemy usunąć z serwera wszystkie wiadomości ich autora.',
             en: 'No insults, threats, harassment, sexual, racist or discriminatory '
                 'content, spam or advertising. Do not post other people\'s personal '
-                'data. Content breaking these rules is removed and its authors lose '
-                'access — without warning and without any refund.',
+                'data. Content breaking these rules is hidden or removed without '
+                'warning, and for serious violations we may delete all of its '
+                'author\'s messages from the server.',
           ),
         ),
         LegalSection(
           c.tr(pl: 'Zgłaszanie i blokowanie', en: 'Reporting and blocking'),
           c.tr(
-            pl: 'Przytrzymaj wiadomość, żeby ją zgłosić lub zablokować jej autora. '
-                'Zgłoszenia rozpatrujemy w ciągu 24 godzin i usuwamy treści, które '
-                'łamią regulamin. Blokada działa natychmiast i tylko dla Ciebie — '
-                'nie czekasz na naszą decyzję.',
-            en: 'Long-press a message to report it or block its author. We review '
-                'reports within 24 hours and remove content that breaks these terms. '
-                'A block takes effect immediately and only for you — you do not wait '
-                'for our decision.',
+            pl: 'Stuknij ⋮ przy wiadomości (albo ją przytrzymaj), żeby ją '
+                'zgłosić lub zablokować jej autora. Zgłoszona wiadomość od razu '
+                'znika u Ciebie, a po 3 zgłoszeniach od różnych osób — '
+                'automatycznie u wszystkich. Zgłoszenia trafiają do kolejki '
+                'moderacji; treści, które łamią regulamin, ukrywamy lub '
+                'usuwamy. Czat nie jest moderowany całodobowo. Blokada działa '
+                'natychmiast i tylko dla Ciebie — nie czekasz na naszą decyzję.',
+            en: 'Tap ⋮ next to a message (or long-press it) to report it or '
+                'block its author. A reported message disappears for you right '
+                'away, and after 3 reports from different people it is hidden '
+                'for everyone automatically. Reports go to a moderation queue; '
+                'content that breaks these terms is hidden or removed. The chat '
+                'is not moderated around the clock. A block takes effect '
+                'immediately and only for you — you do not wait for our '
+                'decision.',
           ),
         ),
         LegalSection(
