@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/mitre_bend/mitre_bend_page.dart';
 import '../features/progress/progress_page.dart';
@@ -1367,6 +1368,43 @@ final List<ToolSpec> kToolRegistry = [
       'root concavity',
       'misalignment',
       'imperfections'
+    ],
+  ),
+  ToolSpec(
+    id: 'instruments',
+    group: ToolGroup.inspection,
+    titlePl: 'Przyrządy i kalibracja',
+    titleEn: 'Instruments and calibration',
+    subtitlePl: 'Spawarki, manometry, termometry — terminy, przypomnienia',
+    subtitleEn: 'Welders, gauges, thermometers — due dates, reminders',
+    icon: Icons.speed_outlined,
+    color: const Color(0xFF9CCC65),
+    builder: (_) => const InstrumentRegisterPage(),
+    keywordsPl: const [
+      'kalibracja',
+      'wzorcowanie',
+      'walidacja',
+      'przyrzad',
+      'przyrzady',
+      'manometr',
+      'termometr',
+      'pirometr',
+      'miernik',
+      'swiadectwo',
+      'klucz dynamometryczny',
+      '3834',
+      '60974-14'
+    ],
+    keywordsEn: const [
+      'calibration',
+      'validation',
+      'instrument',
+      'gauge',
+      'thermometer',
+      'meter',
+      'certificate',
+      'torque wrench',
+      '3834'
     ],
   ),
   ToolSpec(

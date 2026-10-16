@@ -125,6 +125,8 @@ void main() {
         'ProgressPage',
         // Ciężar stali — profile, blachy, pręty.
         'SteelWeightPage',
+        // Rejestr przyrządów i kalibracji (v27).
+        'InstrumentRegisterPage',
       };
       expect(targets, expected);
     });

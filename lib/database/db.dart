@@ -76,7 +76,11 @@ class AppDatabase {
   //   w `data_json` (złącza, schemat procesów, KOPIA stawek i cen z chwili
   //   utworzenia — patrz lib/domain/quotes/weld_quote.dart). Tabela nowa
   //   i pusta; nic istniejącego nie jest ruszane.
-  static const int _dbVersion = 26;
+  // v27: rejestr przyrządów i kalibracji `instruments` (spawarki —
+  //   walidacja, manometry, termometry, mierniki, analizatory O₂, klucze
+  //   dynamometryczne) — lib/domain/instruments/instrument.dart. Daty
+  //   `yyyy-MM-dd`, usuwanie miękkie. Tabela nowa i pusta.
+  static const int _dbVersion = 27;
 
   /// The schema version [get] opens the database at.
   ///
@@ -466,6 +470,11 @@ CREATE TABLE IF NOT EXISTS projects (
     // samodzielny. Nic istniejącego nie jest ruszane.
     if (oldVersion < 26) {
       await _createQuoteTables(db);
+    }
+
+    // ---- v27: rejestr przyrządów i kalibracji. Tabela nowa — jak v26.
+    if (oldVersion < 27) {
+      await _createInstrumentTables(db);
     }
 
     // Last, now that every column the indexes reference exists.
@@ -1008,6 +1017,29 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
     await _createIsoScanTable(db);
     await _createQualityTables(db);
     await _createQuoteTables(db);
+    await _createInstrumentTables(db);
+  }
+
+  /// v27: rejestr przyrządów i kalibracji — instrument_dao.dart.
+  static Future<void> _createInstrumentTables(DatabaseExecutor db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS instruments (
+  id TEXT PRIMARY KEY,
+  kind TEXT,
+  name TEXT,
+  serial_no TEXT,
+  location TEXT,
+  last_calibration TEXT,
+  interval_months INTEGER,
+  due_override TEXT,
+  certificate_no TEXT,
+  calibrated_by TEXT,
+  notes TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+''');
   }
 
   /// v26: wyceny spawalnicze — weld_quote_dao.dart. Kwoty w GROSZACH
@@ -1260,6 +1292,8 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
         'CREATE INDEX IF NOT EXISTS idx_wps_versions_wps ON wps_versions(wps_id, valid_from);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_weld_quotes_updated ON weld_quotes(updated_at DESC);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_instruments_kind ON instruments(kind);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {

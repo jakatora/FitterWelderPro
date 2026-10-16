@@ -48,7 +48,22 @@ abstract class ReminderPlatform {
 
 /// Implementacja na `flutter_local_notifications`.
 class LocalNotificationsReminderPlatform implements ReminderPlatform {
-  LocalNotificationsReminderPlatform();
+  LocalNotificationsReminderPlatform({
+    this.channelId = 'welder_qualification_reminders',
+    this.channelName = 'Uprawnienia spawacza / Welder qualifications',
+    this.channelDescription = 'Przypomnienia o ważności i potwierdzeniu '
+        'uprawnień (ISO 9606-1, ASME IX).',
+    this.payloadPrefix = 'welder_certificate',
+  });
+
+  /// Kanał powiadomień (Android) — osobny dla każdego rejestru, żeby
+  /// użytkownik mógł wyciszyć jeden bez drugiego.
+  final String channelId;
+  final String channelName;
+  final String channelDescription;
+
+  /// Prefiks ładunku powiadomienia: `prefiks:id rekordu`.
+  final String payloadPrefix;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -59,7 +74,6 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
   /// wskazywaną tylko napisem, a wtedy powiadomienie po cichu się nie pokaże.
   static const String androidIcon = 'ic_stat_notify';
 
-  static const String _channelId = 'welder_qualification_reminders';
 
   @override
   bool get supported =>
@@ -103,15 +117,14 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
   Future<void> schedule(List<PlannedReminder> reminders) async {
     if (!supported || reminders.isEmpty) return;
     await _ensureInitialized();
-    const details = NotificationDetails(
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        _channelId,
-        'Uprawnienia spawacza / Welder qualifications',
-        channelDescription: 'Przypomnienia o ważności i potwierdzeniu '
-            'uprawnień (ISO 9606-1, ASME IX).',
+        channelId,
+        channelName,
+        channelDescription: channelDescription,
         icon: androidIcon,
       ),
-      iOS: DarwinNotificationDetails(),
+      iOS: const DarwinNotificationDetails(),
     );
     for (final r in reminders) {
       await _plugin.zonedSchedule(
@@ -121,7 +134,7 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
         scheduledDate: tz.TZDateTime.from(r.fireAt, tz.UTC),
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        payload: 'welder_certificate:${r.certificateId}',
+        payload: '$payloadPrefix:${r.certificateId}',
       );
     }
   }
@@ -139,8 +152,15 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
 /// Włącznik przypomnień + przechowywanie identyfikatorów zaplanowanych
 /// powiadomień (żeby umieć je anulować po zmianie rejestru).
 class QualificationReminders {
-  QualificationReminders({ReminderPlatform? platform})
-      : _platform = platform ?? LocalNotificationsReminderPlatform();
+  QualificationReminders({
+    ReminderPlatform? platform,
+    this.enabledKey = enabledPrefsKey,
+    this.idsKey = idsPrefsKey,
+  }) : _platform = platform ?? LocalNotificationsReminderPlatform();
+
+  /// Klucze SharedPreferences tego rejestru (uprawnienia — domyślne).
+  final String enabledKey;
+  final String idsKey;
 
   static QualificationReminders instance = QualificationReminders();
 
@@ -155,7 +175,7 @@ class QualificationReminders {
     if (!supported) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(enabledPrefsKey) ?? false;
+      return prefs.getBool(enabledKey) ?? false;
     } catch (_) {
       return false;
     }
@@ -176,7 +196,7 @@ class QualificationReminders {
     if (!granted) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(enabledPrefsKey, true);
+      await prefs.setBool(enabledKey, true);
     } catch (_) {
       return false;
     }
@@ -188,7 +208,7 @@ class QualificationReminders {
   Future<void> disable() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(enabledPrefsKey, false);
+      await prefs.setBool(enabledKey, false);
     } catch (_) {
       // Anulujemy mimo to.
     }
@@ -205,7 +225,7 @@ class QualificationReminders {
       await _platform.schedule(plan);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
-          idsPrefsKey, [for (final r in plan) r.id.toString()]);
+          idsKey, [for (final r in plan) r.id.toString()]);
     } catch (e) {
       debugPrint('[reminders] reschedule failed: $e');
     }
@@ -214,12 +234,12 @@ class QualificationReminders {
   Future<void> _cancelStored() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final ids = (prefs.getStringList(idsPrefsKey) ?? const <String>[])
+      final ids = (prefs.getStringList(idsKey) ?? const <String>[])
           .map(int.tryParse)
           .whereType<int>()
           .toList();
       if (ids.isNotEmpty) await _platform.cancel(ids);
-      await prefs.remove(idsPrefsKey);
+      await prefs.remove(idsKey);
     } catch (e) {
       debugPrint('[reminders] cancel failed: $e');
     }

@@ -280,6 +280,33 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/iso5817/iso5817_limits_test.dart: zakres grubości t = 3 to jeszcze „0,5 to 3”, t > 3 już „> 3”',
       ]),
   ModuleAuditEntry(
+      id: 'instrument-edit',
+      entryPoint: 'InstrumentEditPage',
+      sourcePath: 'lib/features/instruments/instrument_edit_page.dart',
+      category: AuditCategory.document,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          'Nowy przyrząd: rodzaj „Klucz dynamometryczny”, nazwa, interwał 12 mies. (ISO 6789) — „Zapisz” zwraca rekord do rejestru.',
+      evidence: [
+        'test/features/instruments/instrument_register_test.dart: formularz: nowy przyrząd z rodzajem i datą zwraca rekord',
+      ]),
+  ModuleAuditEntry(
+      id: 'instrument-register',
+      entryPoint: 'InstrumentRegisterPage',
+      sourcePath: 'lib/features/instruments/instrument_register_page.dart',
+      category: AuditCategory.document,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Manometr skalibrowany 2025-01-10 (12 mies.) na 2026-10-17: „po terminie 280 dni”, na górze listy przed termometrem w terminie; „Skalibrowane dziś” zapisuje datę i zeruje licznik po terminie; CSV i PDF rejestru.',
+      evidence: [
+        'test/features/instruments/instrument_register_test.dart: przyrząd po terminie na górze; „skalibrowane dziś” go zieleni',
+        'test/domain/instruments/instrument_test.dart: status: po terminie, ≤ 30 dni, OK, brak daty',
+        'test/domain/instruments/instrument_test.dart: plan przypomnień: 30 i 7 dni przed, tylko przyszłe, unikalne id',
+        'test/domain/instruments/instrument_test.dart: CSV i PDF rejestru',
+      ]),
+  ModuleAuditEntry(
       id: 'iso-notebook',
       entryPoint: 'IsoNotebookScreen',
       sourcePath: 'lib/screens/iso_notebook_screen.dart',
