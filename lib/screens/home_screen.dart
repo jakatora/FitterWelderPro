@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../widgets/community_gate.dart';
 import '../widgets/tool_registry.dart';
 import '../widgets/tool_tiles.dart';
+import '../widgets/whats_new_card.dart';
 import 'chat_screen.dart';
 import 'fitter_menu_screen.dart';
 import 'fitter_screen.dart';
@@ -394,6 +395,9 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: TwoColumnTiles(children: _sectionTiles()),
       ),
+
+      // ── NOWE W APLIKACJI (zamykana raz) ─────────────────────────────────
+      const WhatsNewCard(),
 
       // ── OSTATNIE PROJEKTY ───────────────────────────────────────────────
       _Label(context.tr(pl: 'Ostatnie projekty', en: 'Recent projects')),
