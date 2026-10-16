@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/iso5817/iso5817_page.dart';
 import '../features/pwht/pwht_planner_page.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../features/quotes/hourly_rate_page.dart';
@@ -1152,6 +1153,44 @@ final List<ToolSpec> kToolRegistry = [
       'pqr',
       'wpqr',
       'range'
+    ],
+  ),
+  ToolSpec(
+    id: 'iso5817',
+    group: ToolGroup.inspection,
+    titlePl: 'Odbiór spoin ISO 5817',
+    titleEn: 'Weld acceptance ISO 5817',
+    subtitlePl: 'Limity B / C / D niezgodności VT, ocena pomiaru',
+    subtitleEn: 'B / C / D limits for VT imperfections, measurement check',
+    icon: Icons.fact_check_outlined,
+    color: const Color(0xFF29B6F6),
+    builder: (_) => const Iso5817Page(),
+    keywordsPl: const [
+      '5817',
+      'iso 5817',
+      'odbior',
+      'vt',
+      'kontrola wizualna',
+      'poziom jakosci',
+      'podtopienie',
+      'nadlew',
+      'wklesniecie grani',
+      'przesuniecie krawedzi',
+      'niezgodnosci',
+      'wady spoin'
+    ],
+    keywordsEn: const [
+      '5817',
+      'iso 5817',
+      'visual inspection',
+      'vt',
+      'quality level',
+      'acceptance',
+      'undercut',
+      'excess weld metal',
+      'root concavity',
+      'misalignment',
+      'imperfections'
     ],
   ),
   ToolSpec(

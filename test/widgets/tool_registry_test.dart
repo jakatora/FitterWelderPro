@@ -115,6 +115,8 @@ void main() {
         'FillerSelectorPage',
         // Plan PWHT (ASME B31.3 / B31.1).
         'PwhtPlannerPage',
+        // Odbiór wizualny wg EN ISO 5817.
+        'Iso5817Page',
       };
       expect(targets, expected);
     });

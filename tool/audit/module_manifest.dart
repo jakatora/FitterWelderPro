@@ -265,6 +265,21 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/quotes/hourly_rate_page_test.dart: z wyceny: „Użyj” zwraca stawkę zaokrągloną w górę do 50 gr',
       ]),
   ModuleAuditEntry(
+      id: 'iso5817',
+      entryPoint: 'Iso5817Page',
+      sourcePath: 'lib/features/iso5817/iso5817_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Spoina czołowa t 10 mm, poziom C, podtopienie: 0,4 mm „mieści się w C (limit 0,5 mm)”, 0,8 mm „przekracza C, mieści się w D (limit 1 mm)”, 1,2 mm „niedopuszczalne”; przy t 2 mm limit C 0,2 mm, a B niedopuszczalne; wynik udostępniany tekstem z zastrzeżeniem.',
+      evidence: [
+        'test/features/iso5817/iso5817_page_test.dart: wpisanie t i pomiaru zmienia werdykt (podtopienie 1.7)',
+        'test/features/iso5817/iso5817_page_test.dart: spoina pachwinowa: pozycja z listy, werdykt i protokół do udostępnienia',
+        'test/domain/iso5817/iso5817_limits_test.dart: B ≤ C ≤ D dla każdej pozycji na siatce t, b, a',
+        'test/domain/iso5817/iso5817_limits_test.dart: zakres grubości t = 3 to jeszcze „0,5 to 3”, t > 3 już „> 3”',
+      ]),
+  ModuleAuditEntry(
       id: 'iso-notebook',
       entryPoint: 'IsoNotebookScreen',
       sourcePath: 'lib/screens/iso_notebook_screen.dart',
