@@ -378,7 +378,7 @@ class _QuoteJointPageState extends State<QuoteJointPage> {
         const SizedBox(height: 12),
         FieldPair(
           left: _numField(
-              _od, context.tr(pl: 'Średnica zewn. OD', en: 'Outside dia. OD'),
+              _od, context.tr(pl: 'Średnica OD', en: 'Outside dia.'),
               unit: 'mm', onChanged: (v) {
             _update(_j.copyWith(
                 odMm: v ?? 0, sizeLabel: _matchingLabel(v, _j.wallMm)));
@@ -676,12 +676,13 @@ class _QuoteJointPageState extends State<QuoteJointPage> {
         _numField(
           _prep,
           context.tr(
-              pl: 'Przygotowanie na 1 spoinę (fazowanie, ustawienie, sczepianie)',
-              en: 'Prep per weld (bevel, fit-up, tack)'),
+              pl: 'Przygotowanie 1 spoiny', en: 'Prep per weld'),
           unit: 'min',
           helper: context.tr(
-              pl: 'Puste = automatycznie: ${numText(auto, decimals: 0)} min',
-              en: 'Empty = automatic: ${numText(auto, decimals: 0)} min'),
+              pl: 'Fazowanie, ustawienie, sczepianie. Puste = automatycznie: '
+                  '${numText(auto, decimals: 0)} min',
+              en: 'Bevelling, fit-up, tacking. Empty = automatic: '
+                  '${numText(auto, decimals: 0)} min'),
           onChanged: (v) => _update(_j.copyWith(prepMinutes: () => v)),
         ),
         const SizedBox(height: 12),
@@ -738,13 +739,16 @@ class _QuoteJointPageState extends State<QuoteJointPage> {
           ],
         ),
         const SizedBox(height: 10),
+        // Bez „n × cena”: cena za spoinę jest zaokrąglona do grosza, więc
+        // iloczyn potrafi rozjechać się z sumą o grosz.
         MoneyRow(
           label: context.tr(
-              pl: 'Pozycja netto ($n × ${formatPln(alone.netPerWeldGrosze)})',
-              en: 'Item net ($n × ${formatPln(alone.netPerWeldGrosze)})'),
+              pl: 'Pozycja netto ($n szt.)', en: 'Item net ($n pcs)'),
           hint: context.tr(
-              pl: 'z narzutem i zyskiem, bez NDT i dodatków',
-              en: 'with overhead and profit, without NDT and extras'),
+              pl: '≈ ${formatPln(alone.netPerWeldGrosze)} za spoinę · z narzutem '
+                  'i zyskiem, bez NDT i dodatków',
+              en: '≈ ${formatPln(alone.netPerWeldGrosze)} per weld · with '
+                  'overhead and profit, without NDT and extras'),
           grosze: alone.netGrosze,
           strong: true,
           hot: true,

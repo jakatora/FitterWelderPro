@@ -235,7 +235,7 @@ void main() {
     expect(find.byType(QuoteJointPage), findsOneWidget);
 
     await tester.enterText(
-        find.widgetWithText(TextField, 'Średnica zewn. OD'), '114,3');
+        find.widgetWithText(TextField, 'Średnica OD'), '114,3');
     await tester.enterText(find.widgetWithText(TextField, 'Ścianka t'), '6,02');
     await tester.pump();
     for (var i = 0; i < 3; i++) {
@@ -245,7 +245,7 @@ void main() {
     await tester.scrollUntilVisible(
         find.byKey(const ValueKey('save-joint')), 300,
         scrollable: find.byType(Scrollable).first);
-    expect(find.textContaining('Pozycja netto (4 ×'), findsOneWidget);
+    expect(find.text('Pozycja netto (4 szt.)'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('save-joint')));
     await tester.pumpAndSettle();
 

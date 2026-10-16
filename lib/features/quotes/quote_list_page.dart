@@ -168,7 +168,7 @@ class _QuoteListPageState extends State<QuoteListPage> {
       appBar: AppBar(
         title: Text(_trash
             ? context.tr(pl: 'Kosz wycen', en: 'Quote bin')
-            : context.tr(pl: 'Wyceny spawalnicze', en: 'Welding quotes')),
+            : context.tr(pl: 'Wyceny', en: 'Quotes')),
         actions: [
           HelpButton(help: kHelpQuotes),
           IconButton(
