@@ -13,8 +13,32 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../domain/quotes/hourly_rate.dart';
 import '../domain/quotes/quote_process.dart';
 import '../domain/quotes/weld_quote.dart';
+
+/// Dane kalkulatora „Ile muszę brać za godzinę?" (`hourly_rate_v1`).
+class HourlyRateStore {
+  static const String key = 'hourly_rate_v1';
+
+  const HourlyRateStore();
+
+  Future<HourlyRateInput> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(key);
+    if (raw == null || raw.isEmpty) return const HourlyRateInput();
+    try {
+      return HourlyRateInput.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return const HourlyRateInput();
+    }
+  }
+
+  Future<void> save(HourlyRateInput i) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, jsonEncode(i.toJson()));
+  }
+}
 
 /// Dane wystawcy oferty (nagłówek PDF).
 class QuoteCompany {

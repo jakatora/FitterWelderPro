@@ -34,43 +34,55 @@ class QuoteSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: padding,
-      decoration: BoxDecoration(
+    // Material, nie dekorowany Container: ListTile i przyciski w sekcji
+    // malują atrament kliknięcia na najbliższym Material — pod kolorowym
+    // Containerem byłby niewidoczny (i Flutter zgłasza asercję).
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
         color: kCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorder),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: kBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: padding,
+          child: _body(),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: kTextSec,
-                  ),
+    );
+  }
+
+  Widget _body() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                  color: kTextSec,
                 ),
               ),
-              if (trailing != null) trailing!,
-            ],
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(subtitle!,
-                style: const TextStyle(
-                    fontSize: 12, color: kTextMut, height: 1.35)),
+            ),
+            if (trailing != null) trailing!,
           ],
-          const SizedBox(height: 10),
-          ...children,
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(subtitle!,
+              style:
+                  const TextStyle(fontSize: 12, color: kTextMut, height: 1.35)),
         ],
-      ),
+        const SizedBox(height: 10),
+        ...children,
+      ],
     );
   }
 }

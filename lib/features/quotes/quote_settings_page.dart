@@ -9,6 +9,7 @@ import '../../i18n/app_language.dart';
 import '../../services/quote_settings.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import 'hourly_rate_page.dart';
 import 'quote_widgets.dart';
 
 class QuoteSettingsPage extends StatefulWidget {
@@ -35,6 +36,10 @@ class _QuoteSettingsPageState extends State<QuoteSettingsPage> {
   late final _person = TextEditingController(text: _s.company.person);
   late final _terms = TextEditingController(text: _s.terms);
   bool _dirty = false;
+
+  /// Zmieniany, gdy stawka przychodzi z kalkulatora — pola dostają nowe
+  /// klucze i pokazują nową wartość.
+  int _gen = 0;
 
   @override
   void dispose() {
@@ -92,7 +97,7 @@ class _QuoteSettingsPageState extends State<QuoteSettingsPage> {
   Widget _num(String id, String label, double value, ValueChanged<double> set,
           {String? unit, double max = 1e9}) =>
       QuoteNumberField(
-        key: ValueKey('set-$id'),
+        key: ValueKey('set-$id-$_gen'),
         label: label,
         value: value,
         unit: unit,
@@ -183,6 +188,27 @@ class _QuoteSettingsPageState extends State<QuoteSettingsPage> {
                   right: _num('fitter', context.tr(pl: 'Monter', en: 'Fitter'),
                       _r.fitterRate, (v) => _rates(_r.copyWith(fitterRate: v)),
                       unit: 'zł/h'),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    style: TextButton.styleFrom(
+                        minimumSize: const Size(kMinTapTarget, kMinTapTarget)),
+                    onPressed: () async {
+                      final rate = await Navigator.of(context).push<double>(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const HourlyRatePage(pickMode: true)),
+                      );
+                      if (rate == null || !mounted) return;
+                      _gen++;
+                      _rates(_r.copyWith(welderRate: rate));
+                    },
+                    icon: const Icon(Icons.calculate_outlined, size: 18),
+                    label: Text(context.tr(
+                        pl: 'Policz, ile brać za godzinę',
+                        en: 'Work out what to charge per hour')),
+                  ),
                 ),
               ],
             ),

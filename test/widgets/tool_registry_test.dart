@@ -110,6 +110,7 @@ void main() {
         'AiChatScreen',
         // v26: wyceny spawalnicze.
         'QuoteListPage',
+        'HourlyRatePage',
         // Dobór spoiwa (EN ISO + AWS).
         'FillerSelectorPage',
       };

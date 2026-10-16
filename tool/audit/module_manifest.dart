@@ -252,6 +252,19 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/welder_calculations_audit_test.dart: 2001 bar pokazuje błąd zakresu i nie tworzy wyniku',
       ]),
   ModuleAuditEntry(
+      id: 'hourly-rate',
+      entryPoint: 'HourlyRatePage',
+      sourcePath: 'lib/features/quotes/hourly_rate_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          'Na rękę 9000 zł, koszty firmy, podatek 19% od dochodu, 21 dni × 8 h, 75% fakturowane → stawka minimalna; z wyceny „Użyj… zł/h” wpisuje ją do stawki spawacza.',
+      evidence: [
+        'test/domain/quotes/hourly_rate_test.dart: podatek od dochodu: przychód = koszty + na rękę / (1 − r)',
+        'test/features/quotes/hourly_rate_page_test.dart: z wyceny: „Użyj” zwraca stawkę zaokrągloną w górę do 50 gr',
+      ]),
+  ModuleAuditEntry(
       id: 'iso-notebook',
       entryPoint: 'IsoNotebookScreen',
       sourcePath: 'lib/screens/iso_notebook_screen.dart',

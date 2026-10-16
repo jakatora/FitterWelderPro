@@ -6,16 +6,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../domain/quotes/quote_calculator.dart';
 import '../../domain/quotes/quote_labels.dart';
 import '../../domain/quotes/quote_process.dart';
+import '../../domain/quotes/quote_shopping.dart';
 import '../../domain/quotes/weld_quote.dart';
 import '../../i18n/app_language.dart';
 import '../../services/quote_export.dart';
 import '../../services/quote_settings.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import 'quote_edit_page.dart' show QuoteChanged;
 import 'quote_widgets.dart';
@@ -56,6 +59,122 @@ class QuoteSummaryTab extends StatelessWidget {
     }
   }
 
+  Future<void> _editPack(BuildContext context, QuoteProcess p) async {
+    final c = TextEditingController(text: numText(quote.rates.packKgOf(p)));
+    final v = await showDialog<double>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Opakowanie — ${p.label}', en: 'Pack size — ${p.label}')),
+        content: TextField(
+          key: const ValueKey('pack-size'),
+          controller: c,
+          autofocus: true,
+          keyboardType: numberKeyboard(),
+          inputFormatters: numberInputFormatters(),
+          decoration: const InputDecoration(
+              suffixText: 'kg', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+          FilledButton(
+            onPressed: () {
+              final x = parseDecimal(c.text);
+              if (x != null && x > 0) Navigator.pop(d, x);
+            },
+            child: Text(context.tr(pl: 'Zapisz', en: 'Save')),
+          ),
+        ],
+      ),
+    );
+    c.dispose();
+    if (v == null) return;
+    onChanged(quote.copyWith(
+        rates: quote.rates.copyWith(packKg: {...quote.rates.packKg, p: v})));
+  }
+
+  Widget _shoppingSection(
+      BuildContext context, List<ShoppingItem> items, bool en) {
+    return QuoteSection(
+      title: context.tr(pl: 'Lista zakupów', en: 'Shopping list'),
+      subtitle: context.tr(
+          pl: 'Pełne opakowania z zapasem. Dotknij spoiwa, żeby zmienić opakowanie.',
+          en: 'Full packs with a reserve. Tap a filler to change the pack size.'),
+      children: [
+        for (final i in items)
+          ListTile(
+            key: ValueKey('shop-${i.kind.name}-${i.process?.code ?? ''}'),
+            contentPadding: EdgeInsets.zero,
+            onTap:
+                i.process == null ? null : () => _editPack(context, i.process!),
+            leading: Icon(
+              i.kind == ShoppingKind.filler
+                  ? Icons.inventory_2_outlined
+                  : (i.kind == ShoppingKind.flux
+                      ? Icons.grain
+                      : Icons.propane_tank_outlined),
+              color: kTextSec,
+            ),
+            title: Text(shoppingItemLabel(i, en: en)),
+            subtitle: Text(
+              '${context.tr(pl: 'potrzeba', en: 'needed')} '
+              '${formatQty(i.needed)} ${i.inKg ? 'kg' : 'm³'}'
+              ' · ${context.tr(pl: 'z zapasem', en: 'with reserve')} '
+              '${formatQty(i.withReserve)} ${i.inKg ? 'kg' : 'm³'}',
+              style: const TextStyle(fontSize: 12, color: kTextMut),
+            ),
+            trailing: Text(
+              shoppingItemQty(i, en: en),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800, color: kText, fontSize: 14),
+            ),
+          ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(context.tr(pl: 'Zapas:', en: 'Reserve:'),
+                style: const TextStyle(color: kTextSec)),
+            for (final pct in const [0.0, 10.0, 20.0, 30.0])
+              ChoiceChip(
+                key: ValueKey('reserve-${pct.round()}'),
+                label: Text('${pct.round()}%'),
+                selected: quote.rates.stockReservePct == pct,
+                onSelected: (_) => onChanged(quote.copyWith(
+                    rates: quote.rates.copyWith(stockReservePct: pct))),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const ValueKey('share-shopping'),
+          style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(kMinTapTarget)),
+          onPressed: () async {
+            final text = buildShoppingText(quote: quote, items: items, en: en);
+            if (kIsWeb) {
+              await Clipboard.setData(ClipboardData(text: text));
+              Haptic.copied();
+              return;
+            }
+            try {
+              await Share.share(text, subject: quote.number);
+            } catch (_) {
+              await Clipboard.setData(ClipboardData(text: text));
+            }
+          },
+          icon: const Icon(Icons.shopping_cart_outlined),
+          label: Text(context.tr(
+              pl: 'Wyślij listę zakupów', en: 'Send the shopping list')),
+        ),
+      ],
+    );
+  }
+
   Future<void> _text(BuildContext context) async {
     final en = context.language == AppLanguage.en;
     await beforeExport();
@@ -81,6 +200,7 @@ class QuoteSummaryTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final en = context.language == AppLanguage.en;
     final r = result;
+    final shopping = shoppingList(r, quote.rates);
     final parts = <(String, int, Color)>[
       (context.tr(pl: 'Robocizna', en: 'Labour'), r.labourGrosze, kArc),
       (
@@ -316,6 +436,7 @@ class QuoteSummaryTab extends StatelessWidget {
               ),
           ],
         ),
+        if (shopping.isNotEmpty) _shoppingSection(context, shopping, en),
         QuoteSection(
           title: context.tr(pl: 'Wskaźniki', en: 'Indicators'),
           subtitle: context.tr(

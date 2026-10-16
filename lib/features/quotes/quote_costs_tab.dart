@@ -10,6 +10,7 @@ import '../../services/quote_export.dart' show processesUsed;
 import '../../services/quote_settings.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import 'hourly_rate_page.dart';
 import 'quote_edit_page.dart' show QuoteChanged;
 import 'quote_widgets.dart';
 
@@ -67,6 +68,15 @@ class _QuoteCostsTabState extends State<QuoteCostsTab>
           if (v != null && v >= 0) set(v);
         },
       );
+
+  Future<void> _pickHourlyRate() async {
+    final rate = await Navigator.of(context).push<double>(
+      MaterialPageRoute(builder: (_) => const HourlyRatePage(pickMode: true)),
+    );
+    if (rate == null || !mounted) return;
+    setState(() => _gen++);
+    _rates(r.copyWith(welderRate: rate));
+  }
 
   Future<void> _saveAsMine() async {
     final next = widget.settings
@@ -295,6 +305,19 @@ class _QuoteCostsTabState extends State<QuoteCostsTab>
                   pl: 'Spawacz: czas spawania. Monter: fazowanie, ustawienie, sczepianie.',
                   en: 'Welder: welding time. Fitter: bevelling, fit-up, tacking.'),
               style: const TextStyle(fontSize: 11.5, color: kTextMut),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('calc-hourly-rate'),
+                style: TextButton.styleFrom(
+                    minimumSize: const Size(kMinTapTarget, kMinTapTarget)),
+                onPressed: _pickHourlyRate,
+                icon: const Icon(Icons.calculate_outlined, size: 18),
+                label: Text(context.tr(
+                    pl: 'Policz, ile brać za godzinę',
+                    en: 'Work out what to charge per hour')),
+              ),
             ),
           ],
         ),
@@ -556,13 +579,9 @@ class _QuoteCostsTabState extends State<QuoteCostsTab>
             ),
           ],
         ),
-        Container(
+        Card(
           margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: kCard,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: kBorder),
-          ),
+          clipBehavior: Clip.antiAlias,
           child: ExpansionTile(
             key: const ValueKey('profiles'),
             shape: const Border(),

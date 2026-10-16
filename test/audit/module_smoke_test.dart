@@ -75,6 +75,7 @@ import 'package:cut_list_app/features/qualification/certificate_register_page.da
 import 'package:cut_list_app/features/wps/wps_edit_page.dart';
 import 'package:cut_list_app/features/wps/wps_library_page.dart';
 import 'package:cut_list_app/features/filler/filler_selector_page.dart';
+import 'package:cut_list_app/features/quotes/hourly_rate_page.dart';
 import 'package:cut_list_app/features/quotes/quote_edit_page.dart';
 import 'package:cut_list_app/features/quotes/quote_joint_page.dart';
 import 'package:cut_list_app/features/quotes/quote_list_page.dart';
@@ -206,6 +207,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'WpsLibraryPage' => const WpsLibraryPage(),
       'WpsEditPage' => const WpsEditPage(),
       'QuoteListPage' => const QuoteListPage(),
+      'HourlyRatePage' => const HourlyRatePage(),
       'FillerSelectorPage' => const FillerSelectorPage(),
       'QuoteEditPage' =>
         QuoteEditPage(quote: _smokeQuote, settings: const QuoteSettings()),

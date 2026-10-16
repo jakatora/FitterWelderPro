@@ -243,91 +243,96 @@ class _JointCard extends StatelessWidget {
     final en = context.language == AppLanguage.en;
     final r = result;
     final bad = r == null || !r.isValid;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: kCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: bad ? kFail.withValues(alpha: 0.6) : kBorder),
-      ),
-      child: InkWell(
-        onTap: onEdit,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: kArc.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+    // Ink zamiast dekoracji Containera — fala dotknięcia ma być widoczna.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: kCard,
+          borderRadius: BorderRadius.circular(12),
+          border:
+              Border.all(color: bad ? kFail.withValues(alpha: 0.6) : kBorder),
+        ),
+        child: InkWell(
+          onTap: onEdit,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: kArc.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${joint.count}×',
+                      style: const TextStyle(
+                          color: kArc,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15)),
                 ),
-                child: Text('${joint.count}×',
-                    style: const TextStyle(
-                        color: kArc,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(jointKindShort(joint.kind, en: en),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 15)),
-                    Text(jointSizeLabel(joint, en: en),
-                        style:
-                            const TextStyle(fontSize: 12.5, color: kTextSec)),
-                    if (joint.label.trim().isNotEmpty)
-                      Text(joint.label.trim(),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(jointKindShort(joint.kind, en: en),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15)),
+                      Text(jointSizeLabel(joint, en: en),
                           style:
                               const TextStyle(fontSize: 12.5, color: kTextSec)),
-                    const SizedBox(height: 4),
-                    if (bad)
-                      Text(
-                        (r?.problems ?? joint.problems)
-                            .map((p) => jointProblemText(p, en: en))
-                            .join(' · '),
-                        style: const TextStyle(fontSize: 12, color: kFail),
-                      )
-                    else
-                      Text(
-                        [
-                          r.scheme.label,
-                          joint.position.code,
-                          '${formatQty(r.depositedKg, decimals: 2)} kg',
-                          formatHours(r.weldHours + r.prepHours),
-                        ].join('  ·  '),
-                        style: const TextStyle(fontSize: 12, color: kTextMut),
-                      ),
+                      if (joint.label.trim().isNotEmpty)
+                        Text(joint.label.trim(),
+                            style: const TextStyle(
+                                fontSize: 12.5, color: kTextSec)),
+                      const SizedBox(height: 4),
+                      if (bad)
+                        Text(
+                          (r?.problems ?? joint.problems)
+                              .map((p) => jointProblemText(p, en: en))
+                              .join(' · '),
+                          style: const TextStyle(fontSize: 12, color: kFail),
+                        )
+                      else
+                        Text(
+                          [
+                            r.scheme.label,
+                            joint.position.code,
+                            '${formatQty(r.depositedKg, decimals: 2)} kg',
+                            formatHours(r.weldHours + r.prepHours),
+                          ].join('  ·  '),
+                          style: const TextStyle(fontSize: 12, color: kTextMut),
+                        ),
+                    ],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: context.tr(pl: 'Więcej', en: 'More'),
+                  onSelected: (v) => switch (v) {
+                    'dup' => onDuplicate(),
+                    'del' => onDelete(),
+                    _ => onEdit(),
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                        value: 'edit',
+                        child: Text(context.tr(pl: 'Edytuj', en: 'Edit'))),
+                    PopupMenuItem(
+                        value: 'dup',
+                        child:
+                            Text(context.tr(pl: 'Duplikuj', en: 'Duplicate'))),
+                    PopupMenuItem(
+                        value: 'del',
+                        child: Text(context.tr(pl: 'Usuń', en: 'Delete'))),
                   ],
                 ),
-              ),
-              PopupMenuButton<String>(
-                tooltip: context.tr(pl: 'Więcej', en: 'More'),
-                onSelected: (v) => switch (v) {
-                  'dup' => onDuplicate(),
-                  'del' => onDelete(),
-                  _ => onEdit(),
-                },
-                itemBuilder: (_) => [
-                  PopupMenuItem(
-                      value: 'edit',
-                      child: Text(context.tr(pl: 'Edytuj', en: 'Edit'))),
-                  PopupMenuItem(
-                      value: 'dup',
-                      child: Text(context.tr(pl: 'Duplikuj', en: 'Duplicate'))),
-                  PopupMenuItem(
-                      value: 'del',
-                      child: Text(context.tr(pl: 'Usuń', en: 'Delete'))),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

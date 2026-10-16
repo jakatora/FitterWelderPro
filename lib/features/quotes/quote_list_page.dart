@@ -375,111 +375,114 @@ class _QuoteCard extends StatelessWidget {
     String two(int v) => v.toString().padLeft(2, '0');
     final date = '${two(d.day)}.${two(d.month)}.${d.year}';
     final color = _statusColor(quote.status);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: kCard,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kBorder),
-      ),
-      child: InkWell(
-        onTap: trash ? null : onOpen,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            quote.number.isEmpty ? '—' : quote.number,
-                            style: const TextStyle(
-                                fontSize: 12,
-                                color: kTextMut,
-                                fontWeight: FontWeight.w700),
+    // Ink zamiast dekoracji Containera — fala dotknięcia ma być widoczna.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: kCard,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: kBorder),
+        ),
+        child: InkWell(
+          onTap: trash ? null : onOpen,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              quote.number.isEmpty ? '—' : quote.number,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: kTextMut,
+                                  fontWeight: FontWeight.w700),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              en ? quote.status.labelEn : quote.status.labelPl,
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: color,
+                                  fontWeight: FontWeight.w800),
+                            ),
                           ),
-                          child: Text(
-                            en ? quote.status.labelEn : quote.status.labelPl,
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: color,
-                                fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      quote.title.trim().isEmpty
-                          ? context.tr(
-                              pl: 'Wycena bez nazwy', en: 'Untitled quote')
-                          : quote.title.trim(),
-                      style: const TextStyle(
-                          fontSize: 15.5, fontWeight: FontWeight.w700),
-                    ),
-                    if (quote.client.trim().isNotEmpty)
-                      Text(quote.client.trim(),
-                          style:
-                              const TextStyle(fontSize: 13, color: kTextSec)),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${formatPln(r.netGrosze)} ${context.tr(pl: 'netto', en: 'net')}'
-                      '  ·  ${r.weldCount} ${context.tr(pl: 'spoin', en: 'welds')}'
-                      '  ·  $date',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: kText,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        quote.title.trim().isEmpty
+                            ? context.tr(
+                                pl: 'Wycena bez nazwy', en: 'Untitled quote')
+                            : quote.title.trim(),
+                        style: const TextStyle(
+                            fontSize: 15.5, fontWeight: FontWeight.w700),
+                      ),
+                      if (quote.client.trim().isNotEmpty)
+                        Text(quote.client.trim(),
+                            style:
+                                const TextStyle(fontSize: 13, color: kTextSec)),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${formatPln(r.netGrosze)} ${context.tr(pl: 'netto', en: 'net')}'
+                        '  ·  ${r.weldCount} ${context.tr(pl: 'spoin', en: 'welds')}'
+                        '  ·  $date',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: kText,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              if (trash)
-                TextButton(
-                  onPressed: onRestore,
-                  child: Text(context.tr(pl: 'Przywróć', en: 'Restore')),
-                )
-              else
-                PopupMenuButton<String>(
-                  tooltip: context.tr(pl: 'Więcej', en: 'More'),
-                  onSelected: (v) => switch (v) {
-                    'dup' => onDuplicate(),
-                    'del' => onDelete(),
-                    _ => onOpen(),
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                        value: 'open',
-                        child: Text(context.tr(pl: 'Otwórz', en: 'Open'))),
-                    PopupMenuItem(
-                        value: 'dup',
-                        child: Text(context.tr(
-                            pl: 'Duplikuj (nowa oferta)',
-                            en: 'Duplicate (new quote)'))),
-                    PopupMenuItem(
-                        value: 'del',
-                        child: Text(
-                            context.tr(pl: 'Do kosza', en: 'Move to bin'))),
-                  ],
-                ),
-            ],
+                if (trash)
+                  TextButton(
+                    onPressed: onRestore,
+                    child: Text(context.tr(pl: 'Przywróć', en: 'Restore')),
+                  )
+                else
+                  PopupMenuButton<String>(
+                    tooltip: context.tr(pl: 'Więcej', en: 'More'),
+                    onSelected: (v) => switch (v) {
+                      'dup' => onDuplicate(),
+                      'del' => onDelete(),
+                      _ => onOpen(),
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                          value: 'open',
+                          child: Text(context.tr(pl: 'Otwórz', en: 'Open'))),
+                      PopupMenuItem(
+                          value: 'dup',
+                          child: Text(context.tr(
+                              pl: 'Duplikuj (nowa oferta)',
+                              en: 'Duplicate (new quote)'))),
+                      PopupMenuItem(
+                          value: 'del',
+                          child: Text(
+                              context.tr(pl: 'Do kosza', en: 'Move to bin'))),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ),
       ),

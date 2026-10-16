@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 69
+Moduły: 70
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 21 |
+| passed | 22 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -61,6 +61,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `help` | HelpScreen | lib/screens/help_screen.dart | document | low | unverified | Wyszukanie hasła TIG pokazuje odpowiednią pomoc. | Brak dowodu scenariusza |
 | `home` | HomeScreen | lib/screens/home_screen.dart | start | medium | unverified | Użytkownik otwiera ekran startowy i przechodzi do dostępnego modułu. | Brak dowodu scenariusza |
 | `hydrotest` | HydrotestScreen | lib/screens/hydrotest_screen.dart | fitter | safetyCritical | passed | Ciśnienie projektowe powyżej zakresu ekranu jest odrzucane bez wyniku ciśnienia testowego. | test/audit/welder_calculations_audit_test.dart: 2001 bar pokazuje błąd zakresu i nie tworzy wyniku |
+| `hourly-rate` | HourlyRatePage | lib/features/quotes/hourly_rate_page.dart | project | medium | passed | Na rękę 9000 zł, koszty firmy, podatek 19% od dochodu, 21 dni × 8 h, 75% fakturowane → stawka minimalna; z wyceny „Użyj… zł/h” wpisuje ją do stawki spawacza. | test/domain/quotes/hourly_rate_test.dart: podatek od dochodu: przychód = koszty + na rękę / (1 − r)<br>test/features/quotes/hourly_rate_page_test.dart: z wyceny: „Użyj” zwraca stawkę zaokrągloną w górę do 50 gr |
 | `iso-notebook` | IsoNotebookScreen | lib/screens/iso_notebook_screen.dart | document | high | unverified | Użytkownik otwiera zapisany notatnik ISO projektu. | Brak dowodu scenariusza |
 | `iso-scanner` | IsoScannerScreen | lib/screens/iso_scanner_screen.dart | ai | high | unverified | Użytkownik wybiera obraz ISO i widzi bezpieczny stan funkcji skanowania. | Brak dowodu scenariusza |
 | `job-add` | JobAddScreen | lib/screens/job_add_screen.dart | social | medium | unverified | Użytkownik wprowadza ofertę pracy z tytułem i lokalizacją. | Brak dowodu scenariusza |

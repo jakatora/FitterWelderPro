@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/qualification/certificate_register_page.dart';
+import '../features/quotes/hourly_rate_page.dart';
 import '../features/quotes/quote_list_page.dart';
 import '../features/wps/wps_library_page.dart';
 import '../i18n/app_language.dart';
@@ -1237,6 +1238,41 @@ final List<ToolSpec> kToolRegistry = [
       'dia-inch',
       'di',
       'offer'
+    ],
+  ),
+  ToolSpec(
+    id: 'hourly_rate',
+    group: ToolGroup.costing,
+    titlePl: 'Ile brać za godzinę',
+    titleEn: 'What to charge per hour',
+    subtitlePl: 'Minimalna stawka z kosztów firmy, podatku i godzin',
+    subtitleEn: 'Minimum rate from business costs, tax and hours',
+    icon: Icons.price_check_outlined,
+    color: const Color(0xFFE8C14B),
+    builder: (_) => const HourlyRatePage(),
+    keywordsPl: const [
+      'stawka',
+      'godzinowa',
+      'ile brac',
+      'za godzine',
+      'dniowka',
+      'zus',
+      'podatek',
+      'ryczalt',
+      'dzialalnosc',
+      'b2b',
+      'zarobek',
+      'na reke'
+    ],
+    keywordsEn: const [
+      'hourly rate',
+      'rate',
+      'day rate',
+      'charge',
+      'tax',
+      'self-employed',
+      'contractor',
+      'income'
     ],
   ),
 ];

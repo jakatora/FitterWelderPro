@@ -137,6 +137,18 @@ enum QuoteSite {
   }
 }
 
+/// Typowe opakowania spoiwa, kg: pręty TIG w tubie 5 kg, elektrody w paczce
+/// ~5 kg, drut MAG/FCAW na szpuli 15 kg, aluminium 7 kg, SAW 25 kg. Do
+/// zmiany w liście zakupów.
+const Map<QuoteProcess, double> kDefaultPackKg = {
+  QuoteProcess.tig: 5,
+  QuoteProcess.mma: 5,
+  QuoteProcess.mag: 15,
+  QuoteProcess.fcaw: 15,
+  QuoteProcess.mig: 7,
+  QuoteProcess.saw: 25,
+};
+
 /// Stawka VAT oferty.
 enum QuoteVat {
   vat23('23', 0.23, '23%'),
@@ -507,6 +519,11 @@ class QuoteRates {
   /// Rynkowa stawka za cal-średnicę (zł/DI) do porównania — 0 = brak.
   final double marketDiRate;
 
+  /// Lista zakupów: kg spoiwa w opakowaniu per proces (brak klucza =
+  /// [kDefaultPackKg]) i zapas ponad wyliczone zużycie, %.
+  final Map<QuoteProcess, double> packKg;
+  final double stockReservePct;
+
   const QuoteRates({
     this.welderRate = 90,
     this.fitterRate = 75,
@@ -525,6 +542,8 @@ class QuoteRates {
     this.purgeLengthMm = 400,
     this.purgeTargetPpm = 100,
     this.marketDiRate = 0,
+    this.packKg = const {},
+    this.stockReservePct = 10,
   });
 
   /// Stawki startowe dla materiału: ceny spoiw z [kDefaultFillerPrices],
@@ -542,6 +561,8 @@ class QuoteRates {
       profiles[p] ?? kDefaultProcessProfiles[p]!;
 
   double fillerPriceOf(QuoteProcess p) => fillerPrices[p] ?? 0;
+
+  double packKgOf(QuoteProcess p) => packKg[p] ?? kDefaultPackKg[p]!;
 
   NdtRate ndtOf(NdtMethod m) => ndt[m] ?? const NdtRate();
 
@@ -570,6 +591,8 @@ class QuoteRates {
     double? purgeLengthMm,
     double? purgeTargetPpm,
     double? marketDiRate,
+    Map<QuoteProcess, double>? packKg,
+    double? stockReservePct,
   }) =>
       QuoteRates(
         welderRate: welderRate ?? this.welderRate,
@@ -589,6 +612,8 @@ class QuoteRates {
         purgeLengthMm: purgeLengthMm ?? this.purgeLengthMm,
         purgeTargetPpm: purgeTargetPpm ?? this.purgeTargetPpm,
         marketDiRate: marketDiRate ?? this.marketDiRate,
+        packKg: packKg ?? this.packKg,
+        stockReservePct: stockReservePct ?? this.stockReservePct,
       );
 
   Map<String, Object?> toJson() => {
@@ -613,6 +638,8 @@ class QuoteRates {
         'purgeLen': purgeLengthMm,
         'purgePpm': purgeTargetPpm,
         'diRate': marketDiRate,
+        'packs': {for (final e in packKg.entries) e.key.code: e.value},
+        'stock': stockReservePct,
       };
 
   static QuoteRates fromJson(Object? raw) {
@@ -645,6 +672,17 @@ class QuoteRates {
             ProcessProfile.fromJson(e.value, kDefaultProcessProfiles[p]!);
       }
     }
+    final packs = <QuoteProcess, double>{};
+    final pk = raw['packs'];
+    if (pk is Map) {
+      for (final e in pk.entries) {
+        final p = QuoteProcess.fromCode(e.key as String?);
+        final v = e.value;
+        if (p != null && v is num && v.isFinite && v > 0) {
+          packs[p] = v.toDouble();
+        }
+      }
+    }
     return QuoteRates(
       welderRate: _num(raw['welder'], d.welderRate),
       fitterRate: _num(raw['fitter'], d.fitterRate),
@@ -663,6 +701,8 @@ class QuoteRates {
       purgeLengthMm: _num(raw['purgeLen'], d.purgeLengthMm),
       purgeTargetPpm: _num(raw['purgePpm'], d.purgeTargetPpm),
       marketDiRate: _num(raw['diRate'], d.marketDiRate),
+      packKg: packs,
+      stockReservePct: _num(raw['stock'], d.stockReservePct),
     );
   }
 }
