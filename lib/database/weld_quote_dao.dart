@@ -2,6 +2,7 @@
 /// kopia zapasowa je obejmuje. Usuwanie miękkie (kosz z przywracaniem).
 library;
 
+import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import 'package:uuid/uuid.dart';
 
 import '../domain/quotes/quote_calculator.dart';
@@ -47,8 +48,9 @@ class WeldQuoteDao {
     final saved = q.copyWith(updatedAt: _clock());
     final r = computeQuote(saved);
     final row = saved.toRow(netGrosze: r.netGrosze, grossGrosze: r.grossGrosze);
-    final n = await db.update(table, row, where: 'id = ?', whereArgs: [q.id]);
-    if (n == 0) await db.insert(table, row);
+    // Jedna instrukcja zamiast UPDATE + INSERT — dwa zapisy tej samej nowej
+    // wyceny nie wpadną na siebie (UNIQUE na id).
+    await db.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
     return saved;
   }
 

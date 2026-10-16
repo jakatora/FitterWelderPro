@@ -15,7 +15,9 @@ import 'package:cut_list_app/domain/quotes/quote_calculator.dart';
 import 'package:cut_list_app/domain/quotes/quote_process.dart';
 import 'package:cut_list_app/domain/quotes/weld_geometry.dart';
 import 'package:cut_list_app/domain/quotes/weld_quote.dart';
+import 'package:cut_list_app/features/quotes/quote_edit_page.dart';
 import 'package:cut_list_app/features/quotes/quote_joint_page.dart';
+import 'package:cut_list_app/features/quotes/quote_widgets.dart';
 import 'package:cut_list_app/features/quotes/quote_list_page.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/services/quote_export.dart';
@@ -300,5 +302,71 @@ void main() {
     final rows = (await tester.runAsync(() => WeldQuoteDao().listAll()))!;
     expect(rows, isEmpty);
     expect(find.text('Ile kosztuje ta robota?'), findsOneWidget);
+  });
+
+  testWidgets(
+      'zapisana wycena: usunięcie jedynej spoiny (bez tytułu) trafia do bazy',
+      (tester) async {
+    final saved = _sample(id: 'clear-me').copyWith(title: '', client: '');
+    await tester.runAsync(() async {
+      final db = await AppDatabase.get();
+      await db.delete('weld_quotes');
+      await WeldQuoteDao().save(saved.copyWith(joints: [saved.joints.first]));
+    });
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: QuoteEditPage(
+          quote: saved.copyWith(joints: [saved.joints.first], extras: const []),
+          settings: const QuoteSettings(),
+          saveDelay: const Duration(milliseconds: 100),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Więcej'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Usuń').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    await _settle(tester);
+    final rows = (await tester.runAsync(() => WeldQuoteDao().listAll()))!;
+    expect(rows.single.joints, isEmpty);
+    // Usunięcie pozycji zostawia wycenę z „Cofnij" — tu sprawdzamy bazę.
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('pole liczbowe pokazuje wartość zmienioną z zewnątrz',
+      (tester) async {
+    var value = 32.0;
+    late StateSetter setOuter;
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(builder: (context, setState) {
+            setOuter = setState;
+            return QuoteNumberField(
+              label: 'TIG 141',
+              value: value,
+              unit: 'zł/kg',
+              onChanged: (_) {},
+            );
+          }),
+        ),
+      ),
+    ));
+    expect(find.text('32'), findsOneWidget);
+    // Zmiana materiału podmienia cenę spoiwa w modelu.
+    setOuter(() => value = 115);
+    await tester.pump();
+    expect(find.text('115'), findsOneWidget);
+    // Puste pole = błąd, a nie cicha stara wartość.
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pump();
+    expect(find.text('Wpisz wartość'), findsOneWidget);
   });
 }

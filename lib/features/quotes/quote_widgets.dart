@@ -87,9 +87,11 @@ class QuoteSection extends StatelessWidget {
   }
 }
 
-/// Pole liczbowe trzymające własny kontroler. Wartość z zewnątrz nie
-/// nadpisuje tego, co monter właśnie pisze — żeby wymusić odświeżenie
-/// (np. „Przywróć domyślne"), zmień `key`.
+/// Pole liczbowe trzymające własny kontroler. Wartość zmieniona z zewnątrz
+/// (np. zmiana materiału podmienia ceny spoiw) trafia do pola, gdy monter
+/// w nim nie pisze — pole nigdy nie pokazuje innej liczby niż ta, z której
+/// liczy się cena. Puste pole to błąd (cena liczy się dalej z poprzedniej
+/// wartości), chyba że [allowEmpty].
 class QuoteNumberField extends StatefulWidget {
   final String label;
   final double? value;
@@ -99,6 +101,9 @@ class QuoteNumberField extends StatefulWidget {
   final bool decimal;
   final int decimals;
   final String? Function(double? v)? validate;
+
+  /// Puste pole jest dozwolone (np. opcjonalna stawka rynkowa).
+  final bool allowEmpty;
 
   const QuoteNumberField({
     super.key,
@@ -110,6 +115,7 @@ class QuoteNumberField extends StatefulWidget {
     this.decimal = true,
     this.decimals = 2,
     this.validate,
+    this.allowEmpty = false,
   });
 
   @override
@@ -119,9 +125,35 @@ class QuoteNumberField extends StatefulWidget {
 class _QuoteNumberFieldState extends State<QuoteNumberField> {
   late final TextEditingController _c = TextEditingController(
       text: numText(widget.value, decimals: widget.decimals));
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Po zejściu z pustego pola wraca liczba, z której naprawdę liczymy.
+    _focus.addListener(() {
+      if (!_focus.hasFocus && !widget.allowEmpty && _c.text.trim().isEmpty) {
+        setState(
+            () => _c.text = numText(widget.value, decimals: widget.decimals));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(QuoteNumberField old) {
+    super.didUpdateWidget(old);
+    if (widget.value != old.value && !_focus.hasFocus) {
+      final shown = parseDecimal(_c.text);
+      final v = widget.value;
+      if (shown == null || v == null || (shown - v).abs() > 1e-9) {
+        _c.text = numText(v, decimals: widget.decimals);
+      }
+    }
+  }
 
   @override
   void dispose() {
+    _focus.dispose();
     _c.dispose();
     super.dispose();
   }
@@ -129,11 +161,17 @@ class _QuoteNumberFieldState extends State<QuoteNumberField> {
   @override
   Widget build(BuildContext context) {
     final parsed = parseDecimal(_c.text);
-    final error = _c.text.trim().isNotEmpty && parsed == null
-        ? context.tr(pl: 'Wpisz liczbę', en: 'Enter a number')
-        : widget.validate?.call(parsed);
+    final empty = _c.text.trim().isEmpty;
+    final error = empty
+        ? (widget.allowEmpty
+            ? null
+            : context.tr(pl: 'Wpisz wartość', en: 'Enter a value'))
+        : parsed == null
+            ? context.tr(pl: 'Wpisz liczbę', en: 'Enter a number')
+            : widget.validate?.call(parsed);
     return TextField(
       controller: _c,
+      focusNode: _focus,
       keyboardType: numberKeyboard(decimal: widget.decimal),
       inputFormatters: numberInputFormatters(decimal: widget.decimal),
       onChanged: (t) {

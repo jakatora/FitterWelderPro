@@ -207,7 +207,12 @@ class _QuoteJointPageState extends State<QuoteJointPage> {
     if (k == JointKind.branch) {
       j = j.copyWith(angleDeg: 45, rootFaceMm: 1.5, gapMm: 2.5);
     } else if (k == JointKind.pipeButt || k == JointKind.plateButt) {
-      if (_j.kind == JointKind.branch) {
+      // Z rodzaju bez rowka V (króciec ½V 45°, pachwina) wracamy na typową
+      // fazę 30° — inaczej po drodze króciec → pachwina → doczołowa
+      // zostałby kąt 45° fazy króćca.
+      final wasButt =
+          _j.kind == JointKind.pipeButt || _j.kind == JointKind.plateButt;
+      if (!wasButt) {
         j = j.copyWith(angleDeg: 60, rootFaceMm: 1.5, gapMm: 2.5);
       }
     }

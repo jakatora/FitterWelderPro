@@ -184,6 +184,10 @@ double? _numOrNull(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
 
 String _str(Object? v) => v is String ? v : '';
 
+/// Bez rzutowania `as String?`: poprawny JSON ze złym typem pola (np. po
+/// ręcznej edycji kopii) nie może wywrócić odczytu całej listy wycen.
+String? _strOrNull(Object? v) => v is String ? v : null;
+
 /// Jedna pozycja złącza w wycenie: „12 × spoina doczołowa DN100 Sch40".
 class QuoteJoint {
   final String id;
@@ -302,14 +306,35 @@ class QuoteJoint {
       } else if (kind.onPipe && odMm > 0 && 2 * wallMm >= odMm) {
         out.add(JointProblem.wallVsOd);
       }
-      if (rootFaceMm < 0 || (wallMm > 0 && rootFaceMm > wallMm)) {
+      // Rowek I nie ma progu (pole jest ukryte) — nie wolno blokować zapisu
+      // wartością, której spawacz nie widzi.
+      final usesRootFace =
+          kind == JointKind.branch || groove != GrooveType.square;
+      if (usesRootFace &&
+          (rootFaceMm < 0 || (wallMm > 0 && rootFaceMm > wallMm))) {
         out.add(JointProblem.rootFace);
       }
       if (gapMm < 0) out.add(JointProblem.gap);
-      if (angleDeg < 0 || angleDeg > 120) out.add(JointProblem.angle);
+      // Króciec: kąt JEDNEJ fazy (tg β → ∞ przy 90°); rowek V/X: kąt
+      // całkowity rowka.
+      final maxAngle = kind == JointKind.branch ? 80.0 : 120.0;
+      if (angleDeg < 0 || angleDeg > maxAngle) out.add(JointProblem.angle);
     }
     if (kind.hasLength && !(lengthM > 0)) out.add(JointProblem.length);
     if (prepMinutes != null && prepMinutes! < 0) out.add(JointProblem.prep);
+    // Górne granice — literówka „114300” zamiast „114,3” nie może dać
+    // absurdalnej ceny bez ostrzeżenia.
+    if (count > 100000 ||
+        odMm > 5000 ||
+        headerOdMm > 5000 ||
+        wallMm > 300 ||
+        throatMm > 100 ||
+        gapMm > 50 ||
+        rootFaceMm > 100 ||
+        lengthM > 10000 ||
+        (prepMinutes ?? 0) > 6000) {
+      out.add(JointProblem.outOfRange);
+    }
     return out;
   }
 
@@ -337,7 +362,7 @@ class QuoteJoint {
 
   static QuoteJoint fromJson(Map<String, Object?> j) => QuoteJoint(
         id: _str(j['id']),
-        kind: JointKind.fromCode(j['kind'] as String?),
+        kind: JointKind.fromCode(_strOrNull(j['kind'])),
         label: _str(j['label']),
         sizeLabel: _str(j['size']),
         odMm: _num(j['od'], 0),
@@ -345,13 +370,13 @@ class QuoteJoint {
         throatMm: _num(j['a'], 0),
         lengthM: _num(j['len'], 0),
         count: (j['n'] is num) ? (j['n'] as num).toInt() : 1,
-        groove: GrooveType.fromCode(j['groove'] as String?),
+        groove: GrooveType.fromCode(_strOrNull(j['groove'])),
         angleDeg: _num(j['angle'], 60),
         rootFaceMm: _num(j['c'], 1.5),
         gapMm: _num(j['b'], 2.5),
         headerOdMm: _num(j['header'], 0),
-        position: WeldPosition.fromCode(j['pos'] as String?),
-        scheme: WeldScheme.fromCode(j['scheme'] as String?),
+        position: WeldPosition.fromCode(_strOrNull(j['pos'])),
+        scheme: WeldScheme.fromCode(_strOrNull(j['scheme'])),
         prepMinutes: _numOrNull(j['prep']),
       );
 }
@@ -367,6 +392,9 @@ enum JointProblem {
   gap,
   angle,
   prep,
+
+  /// Wymiar albo liczba poza rozsądnym zakresem (literówka?).
+  outOfRange,
 }
 
 /// Dodatkowa pozycja kosztorysu: dojazd, wynajem agregatu, materiał rur,
@@ -649,7 +677,7 @@ class QuoteRates {
     final fr = raw['filler'];
     if (fr is Map) {
       for (final e in fr.entries) {
-        final p = QuoteProcess.fromCode(e.key as String?);
+        final p = QuoteProcess.fromCode(_strOrNull(e.key));
         if (p != null && e.value is num && (e.value as num).isFinite) {
           filler[p] = (e.value as num).toDouble();
         }
@@ -666,7 +694,7 @@ class QuoteRates {
     final pr = raw['profiles'];
     if (pr is Map) {
       for (final e in pr.entries) {
-        final p = QuoteProcess.fromCode(e.key as String?);
+        final p = QuoteProcess.fromCode(_strOrNull(e.key));
         if (p == null) continue;
         profiles[p] =
             ProcessProfile.fromJson(e.value, kDefaultProcessProfiles[p]!);
@@ -676,7 +704,7 @@ class QuoteRates {
     final pk = raw['packs'];
     if (pk is Map) {
       for (final e in pk.entries) {
-        final p = QuoteProcess.fromCode(e.key as String?);
+        final p = QuoteProcess.fromCode(_strOrNull(e.key));
         final v = e.value;
         if (p != null && v is num && v.isFinite && v > 0) {
           packs[p] = v.toDouble();
@@ -695,7 +723,7 @@ class QuoteRates {
       cylinderM3: _num(raw['cyl'], d.cylinderM3),
       overheadPct: _num(raw['overhead'], d.overheadPct),
       marginPct: _num(raw['margin'], d.marginPct),
-      vat: QuoteVat.fromCode(raw['vat'] as String?),
+      vat: QuoteVat.fromCode(_strOrNull(raw['vat'])),
       ndt: ndt,
       profiles: profiles,
       purgeLengthMm: _num(raw['purgeLen'], d.purgeLengthMm),
@@ -888,14 +916,14 @@ class WeldQuote {
       number: _str(r['number']),
       title: _str(r['title']),
       client: _str(r['client']),
-      status: QuoteStatus.fromCode(r['status'] as String?),
+      status: QuoteStatus.fromCode(_strOrNull(r['status'])),
       notes: _str(data['notes']),
       validityDays:
           (data['validity'] is num) ? (data['validity'] as num).toInt() : 30,
-      material: QuoteMaterial.fromCode(data['material'] as String?),
-      scheme: WeldScheme.fromCode(data['scheme'] as String?) ??
+      material: QuoteMaterial.fromCode(_strOrNull(data['material'])),
+      scheme: WeldScheme.fromCode(_strOrNull(data['scheme'])) ??
           const WeldScheme(root: QuoteProcess.tig, fill: QuoteProcess.mma),
-      site: QuoteSite.fromCode(data['site'] as String?),
+      site: QuoteSite.fromCode(_strOrNull(data['site'])),
       purge: data['purge'] == true,
       crew: (data['crew'] is num)
           ? (data['crew'] as num).toInt().clamp(1, 99)

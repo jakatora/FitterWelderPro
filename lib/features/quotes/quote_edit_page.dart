@@ -4,6 +4,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 
 import '../../database/weld_quote_dao.dart';
@@ -34,6 +35,11 @@ class QuoteEditPage extends StatefulWidget {
   final WeldQuoteDao? dao;
   final Duration saveDelay;
 
+  /// Wycena dopiero utworzona (jeszcze nie ma jej w bazie). Tylko taką
+  /// wolno pominąć przy zapisie, gdy jest pusta — zapisanej wyceny, z której
+  /// usunięto wszystko, nie wolno zostawić w bazie w starej postaci.
+  final bool isNew;
+
   const QuoteEditPage({
     super.key,
     required this.quote,
@@ -41,6 +47,7 @@ class QuoteEditPage extends StatefulWidget {
     this.initialTab = 1,
     this.dao,
     this.saveDelay = const Duration(milliseconds: 600),
+    this.isNew = false,
   });
 
   @override
@@ -58,6 +65,11 @@ class _QuoteEditPageState extends State<QuoteEditPage>
   bool _dirty = false;
   bool _saving = false;
   bool _saveFailed = false;
+  late bool _persisted = !widget.isNew;
+
+  /// Zapisy idą po kolei — dwa równoległe `save` nowej wyceny mogłyby
+  /// wpaść na siebie między UPDATE a INSERT.
+  Future<void> _queue = Future.value();
 
   @override
   void initState() {
@@ -70,7 +82,8 @@ class _QuoteEditPageState extends State<QuoteEditPage>
   @override
   void dispose() {
     _saveTimer?.cancel();
-    if (_dirty) unawaited(_saveNow());
+    // Bez setState — element już schodzi ze sceny.
+    if (_dirty) unawaited(_enqueueSave(silent: true));
     _tabs.dispose();
     super.dispose();
   }
@@ -91,28 +104,68 @@ class _QuoteEditPageState extends State<QuoteEditPage>
     _saveTimer = Timer(widget.saveDelay, () => unawaited(_saveNow()));
   }
 
-  Future<void> _saveNow() async {
+  /// Zmiana liczona od AKTUALNEGO stanu (np. „Cofnij" z SnackBara, który
+  /// trzyma stary obiekt wyceny).
+  void _update(WeldQuote Function(WeldQuote current) f) => _change(f(_q));
+
+  Future<void> _saveNow() => _enqueueSave(silent: false);
+
+  Future<void> _enqueueSave({required bool silent}) {
     _saveTimer?.cancel();
-    if (!_dirty || !_worthSaving) return;
+    final next = _queue.then((_) => _doSave(silent: silent));
+    _queue = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> _doSave({required bool silent}) async {
+    if (!_dirty) return;
+    if (!_persisted && !_worthSaving) return;
     _dirty = false;
-    if (mounted) setState(() => _saving = true);
+    final snapshot = _q;
+    if (!silent && mounted) setState(() => _saving = true);
     var failed = false;
     try {
-      await _dao.save(_q);
+      await _dao.save(snapshot);
+      _persisted = true;
     } catch (_) {
       failed = true;
       _dirty = true;
     }
-    if (!mounted) return;
+    if (silent || !mounted) return;
     setState(() {
       _saving = false;
       _saveFailed = failed;
     });
   }
 
+  /// `true` = można wyjść. Gdy zapis się nie udał — pytamy, zamiast
+  /// po cichu zgubić wycenę.
   Future<bool> _onWillPop() async {
     await _saveNow();
-    return true;
+    if (!_saveFailed || !mounted) return true;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Wycena nie została zapisana', en: 'The quote was not saved')),
+        content: Text(context.tr(
+            pl: 'Zapis do pamięci telefonu się nie udał. Wyjście teraz '
+                'oznacza utratę ostatnich zmian.',
+            en: 'Saving to the phone failed. Leaving now loses the latest '
+                'changes.')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: Text(context.tr(pl: 'Zostań', en: 'Stay'))),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: kFail),
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(context.tr(pl: 'Wyjdź bez zapisu', en: 'Leave unsaved'))),
+        ],
+      ),
+    );
+    if (leave == true) _dirty = false;
+    return leave == true;
   }
 
   void _settingsChanged(QuoteSettings s) => setState(() => _settings = s);
@@ -124,8 +177,8 @@ class _QuoteEditPageState extends State<QuoteEditPage>
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        await _onWillPop();
-        if (context.mounted) Navigator.of(context).pop(true);
+        final leave = await _onWillPop();
+        if (leave && context.mounted) Navigator.of(context).pop(true);
       },
       child: Scaffold(
         appBar: AppBar(
@@ -145,7 +198,7 @@ class _QuoteEditPageState extends State<QuoteEditPage>
                     context.tr(pl: 'nie zapisano!', en: 'not saved!')
                   else if (_saving)
                     context.tr(pl: 'zapisywanie…', en: 'saving…')
-                  else if (!_worthSaving)
+                  else if (!_persisted && !_worthSaving)
                     context.tr(
                         pl: 'dodaj spoinę, żeby zapisać',
                         en: 'add a weld to save'),
@@ -180,6 +233,7 @@ class _QuoteEditPageState extends State<QuoteEditPage>
               quote: _q,
               result: result,
               onChanged: _change,
+              onUpdate: _update,
               onOpenDetails: () => _tabs.animateTo(0),
             ),
             QuoteCostsTab(
@@ -193,6 +247,7 @@ class _QuoteEditPageState extends State<QuoteEditPage>
               result: result,
               settings: _settings,
               onChanged: _change,
+              onUpdate: _update,
               beforeExport: _saveNow,
             ),
           ],
@@ -314,15 +369,42 @@ class _DetailsTabState extends State<_DetailsTab>
 
   WeldQuote get q => widget.quote;
 
-  void _material(QuoteMaterial m) {
+  Future<void> _material(QuoteMaterial m) async {
     if (m == q.material) return;
     // Ceny spoiw idą za materiałem (nierdzewka ≠ czarna); reszta stawek
-    // zostaje taka, jak w tej wycenie.
+    // zostaje taka, jak w tej wycenie. Jeżeli ceny w wycenie były
+    // poprawiane ręcznie — najpierw pytamy, bo zostaną nadpisane.
+    final standard = widget.settings.ratesFor(q.material).fillerPrices;
+    final customized = !mapEquals(q.rates.fillerPrices, standard);
+    if (customized) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(context.tr(
+              pl: 'Zmienić materiał na: ${m.labelPl}?',
+              en: 'Change the material to: ${m.labelEn}?')),
+          content: Text(context.tr(
+              pl: 'Ceny spoiw w tej wycenie były zmieniane ręcznie. Zostaną '
+                  'zastąpione cenami dla nowego materiału.',
+              en: 'Filler prices in this quote were changed by hand. They will '
+                  'be replaced with the prices for the new material.')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d, false),
+                child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+            FilledButton(
+                onPressed: () => Navigator.pop(d, true),
+                child: Text(context.tr(pl: 'Zmień', en: 'Change'))),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
     final prices = widget.settings.ratesFor(m).fillerPrices;
-    widget.onChanged(q.copyWith(
+    widget.onChanged(widget.quote.copyWith(
       material: m,
       purge: m.purgeByDefault,
-      rates: q.rates.copyWith(fillerPrices: prices),
+      rates: widget.quote.rates.copyWith(fillerPrices: prices),
     ));
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()

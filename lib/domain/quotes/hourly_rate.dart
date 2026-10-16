@@ -187,9 +187,13 @@ class HourlyRateResult {
     required this.breakEvenRate,
     required this.recommendedRate,
     this.problem,
+    this.hoursPerDay = 8,
   });
 
-  double get dayRate => recommendedRate * 8;
+  /// Godzin w dniu pracy (z danych wejściowych) — do dniówki.
+  final double hoursPerDay;
+
+  double get dayRate => recommendedRate * hoursPerDay;
 }
 
 enum HourlyRateProblem { noHours, taxTooHigh, negative }
@@ -207,6 +211,7 @@ HourlyRateResult computeHourlyRate(HourlyRateInput i) {
         breakEvenRate: 0,
         recommendedRate: 0,
         problem: p,
+        hoursPerDay: i.hoursPerDay,
       );
   if (i.netIncome < 0 ||
       fixed < 0 ||
@@ -235,5 +240,6 @@ HourlyRateResult computeHourlyRate(HourlyRateInput i) {
     tax: tax,
     breakEvenRate: base,
     recommendedRate: base * (1 + i.reservePct / 100),
+    hoursPerDay: i.hoursPerDay,
   );
 }

@@ -18,6 +18,11 @@ class QuoteScopeTab extends StatelessWidget {
   final WeldQuote quote;
   final QuoteResult result;
   final QuoteChanged onChanged;
+
+  /// Zmiana liczona od AKTUALNEJ wyceny — dla akcji, które wracają po
+  /// czasie (okno pozycji, „Cofnij" w SnackBarze), a ten widżet trzyma
+  /// wycenę z chwili zbudowania.
+  final void Function(WeldQuote Function(WeldQuote current)) onUpdate;
   final VoidCallback onOpenDetails;
 
   const QuoteScopeTab({
@@ -25,6 +30,7 @@ class QuoteScopeTab extends StatelessWidget {
     required this.quote,
     required this.result,
     required this.onChanged,
+    required this.onUpdate,
     required this.onOpenDetails,
   });
 
@@ -33,14 +39,16 @@ class QuoteScopeTab extends StatelessWidget {
       MaterialPageRoute(builder: (_) => QuoteJointPage(quote: quote, joint: j)),
     );
     if (saved == null) return;
-    final list = [...quote.joints];
-    final i = list.indexWhere((x) => x.id == saved.id);
-    if (i >= 0) {
-      list[i] = saved;
-    } else {
-      list.add(saved);
-    }
-    onChanged(quote.copyWith(joints: list));
+    onUpdate((cur) {
+      final list = [...cur.joints];
+      final i = list.indexWhere((x) => x.id == saved.id);
+      if (i >= 0) {
+        list[i] = saved;
+      } else {
+        list.add(saved);
+      }
+      return cur.copyWith(joints: list);
+    });
   }
 
   void _duplicate(QuoteJoint j) {
@@ -51,9 +59,9 @@ class QuoteScopeTab extends StatelessWidget {
   }
 
   void _removeJoint(BuildContext context, QuoteJoint j) {
-    final before = quote.joints;
-    onChanged(
-        quote.copyWith(joints: before.where((x) => x.id != j.id).toList()));
+    final index = quote.joints.indexWhere((x) => x.id == j.id);
+    onUpdate((cur) =>
+        cur.copyWith(joints: cur.joints.where((x) => x.id != j.id).toList()));
     Haptic.tap();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -61,7 +69,14 @@ class QuoteScopeTab extends StatelessWidget {
         content: Text(context.tr(pl: 'Usunięto pozycję.', en: 'Item removed.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
-          onPressed: () => onChanged(quote.copyWith(joints: before)),
+          // Wraca tylko ta pozycja — inne zmiany zrobione po usunięciu
+          // zostają.
+          onPressed: () => onUpdate((cur) {
+            if (cur.joints.any((x) => x.id == j.id)) return cur;
+            final list = [...cur.joints];
+            list.insert(index.clamp(0, list.length), j);
+            return cur.copyWith(joints: list);
+          }),
         ),
       ));
   }
@@ -72,18 +87,20 @@ class QuoteScopeTab extends StatelessWidget {
       builder: (_) => _ExtraDialog(extra: e),
     );
     if (saved == null) return;
-    final list = [...quote.extras];
-    final i = list.indexWhere((x) => x.id == saved.id);
-    if (i >= 0) {
-      list[i] = saved;
-    } else {
-      list.add(saved);
-    }
-    onChanged(quote.copyWith(extras: list));
+    onUpdate((cur) {
+      final list = [...cur.extras];
+      final i = list.indexWhere((x) => x.id == saved.id);
+      if (i >= 0) {
+        list[i] = saved;
+      } else {
+        list.add(saved);
+      }
+      return cur.copyWith(extras: list);
+    });
   }
 
-  void _removeExtra(QuoteExtra e) => onChanged(
-      quote.copyWith(extras: quote.extras.where((x) => x.id != e.id).toList()));
+  void _removeExtra(QuoteExtra e) => onUpdate((cur) =>
+      cur.copyWith(extras: cur.extras.where((x) => x.id != e.id).toList()));
 
   @override
   Widget build(BuildContext context) {

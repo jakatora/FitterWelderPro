@@ -99,7 +99,9 @@ String buildQuoteShareText({
 class QuoteExport {
   const QuoteExport._();
 
-  static Future<void> sharePdf({
+  /// Zwraca wynik arkusza udostępniania — `dismissed` = użytkownik nic
+  /// nie wysłał.
+  static Future<ShareResult> sharePdf({
     required WeldQuote quote,
     required QuoteSettings settings,
     required bool internal,
@@ -123,13 +125,13 @@ class QuoteExport {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles(
+    return Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: name.replaceAll('.pdf', '').replaceAll('_', ' '),
     );
   }
 
-  static Future<void> shareText({
+  static Future<ShareResult> shareText({
     required WeldQuote quote,
     required QuoteSettings settings,
     required bool en,
@@ -160,9 +162,10 @@ class QuoteExport {
     );
     String t(String pl, String eng) => en ? eng : pl;
     final c = settings.company;
-    final created = DateTime.fromMillisecondsSinceEpoch(quote.createdAt > 0
-        ? quote.createdAt
-        : generatedAt.millisecondsSinceEpoch);
+    // Data oferty = dzień wystawienia (wygenerowania PDF), nie założenia
+    // wyceny — poprawiona i wysłana po 20 dniach oferta nie może być
+    // „ważna jeszcze 10 dni".
+    final created = generatedAt;
     final validUntil = created.add(Duration(days: quote.validityDays));
     final valid = result.joints.where((j) => j.isValid).toList();
 

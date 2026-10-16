@@ -82,10 +82,14 @@ class _QuoteListPageState extends State<QuoteListPage> {
     }).toList();
   }
 
-  Future<void> _open(WeldQuote q, {int tab = 1}) async {
+  Future<void> _open(WeldQuote q, {int tab = 1, bool isNew = false}) async {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => QuoteEditPage(
-          quote: q, settings: _settings, initialTab: tab, dao: _dao),
+          quote: q,
+          settings: _settings,
+          initialTab: tab,
+          dao: _dao,
+          isNew: isNew),
     ));
     await _load();
   }
@@ -112,7 +116,7 @@ class _QuoteListPageState extends State<QuoteListPage> {
       updatedAt: now.millisecondsSinceEpoch,
     );
     if (!mounted) return;
-    await _open(q);
+    await _open(q, isNew: true);
   }
 
   Future<void> _duplicate(WeldQuote q) async {

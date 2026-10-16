@@ -70,10 +70,15 @@ String jointProblemText(JointProblem p, {required bool en}) => switch (p) {
           : 'Próg między 0 a grubością ścianki',
       JointProblem.gap =>
         en ? 'Gap cannot be negative' : 'Szczelina nie może być ujemna',
-      JointProblem.angle => en ? 'Angle 0–120°' : 'Kąt 0–120°',
+      JointProblem.angle => en
+          ? 'Groove angle 0–120° (branch bevel 0–80°)'
+          : 'Kąt rowka 0–120° (faza króćca 0–80°)',
       JointProblem.prep => en
           ? 'Prep time cannot be negative'
           : 'Czas przygotowania nie może być ujemny',
+      JointProblem.outOfRange => en
+          ? 'A value is far outside the usual range — typo?'
+          : 'Wartość daleko poza zakresem — literówka?',
     };
 
 String costKindLabel(QuoteCostKind k, {required bool en}) => switch (k) {

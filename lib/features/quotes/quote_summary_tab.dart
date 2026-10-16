@@ -29,6 +29,9 @@ class QuoteSummaryTab extends StatelessWidget {
   final QuoteSettings settings;
   final QuoteChanged onChanged;
 
+  /// Zmiana od aktualnej wyceny (po powrocie z arkusza udostępniania).
+  final void Function(WeldQuote Function(WeldQuote current))? onUpdate;
+
   /// Zapis przed wysłaniem — oferta w PDF ma być tym, co jest w bazie.
   final Future<void> Function() beforeExport;
 
@@ -39,17 +42,61 @@ class QuoteSummaryTab extends StatelessWidget {
     required this.settings,
     required this.onChanged,
     required this.beforeExport,
+    this.onUpdate,
   });
+
+  /// Wycena pusta albo z pozycjami, które się nie liczą — klient dostałby
+  /// cenę bez części zakresu. Pytamy, zanim cokolwiek wyjdzie z telefonu.
+  Future<bool> _confirmSend(BuildContext context) async {
+    final empty = quote.joints.isEmpty && quote.extras.isEmpty;
+    final bad = result.invalidJointCount;
+    if (!empty && bad == 0) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(context.tr(pl: 'Wysłać mimo to?', en: 'Send anyway?')),
+        content: Text(empty
+            ? context.tr(
+                pl: 'Wycena jest pusta — cena wynosi 0 zł.',
+                en: 'The quote is empty — the price is 0 zł.')
+            : context.tr(
+                pl: 'Pozycje z błędem ($bad) nie są liczone i nie trafią na '
+                    'ofertę — cena jest bez nich.',
+                en: 'Items with errors ($bad) are not counted and will not '
+                    'appear on the quote — the price excludes them.')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: Text(context.tr(pl: 'Popraw', en: 'Fix it'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(context.tr(pl: 'Wyślij', en: 'Send'))),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  void _markSent(ShareResult res) {
+    if (res.status == ShareResultStatus.dismissed) return;
+    final update = onUpdate;
+    if (update != null) {
+      update((cur) => cur.status == QuoteStatus.draft
+          ? cur.copyWith(status: QuoteStatus.sent)
+          : cur);
+    } else if (quote.status == QuoteStatus.draft) {
+      onChanged(quote.copyWith(status: QuoteStatus.sent));
+    }
+  }
 
   Future<void> _pdf(BuildContext context, {required bool internal}) async {
     final en = context.language == AppLanguage.en;
+    if (!internal && !await _confirmSend(context)) return;
     await beforeExport();
     try {
-      await QuoteExport.sharePdf(
+      final res = await QuoteExport.sharePdf(
           quote: quote, settings: settings, internal: internal, en: en);
-      if (!internal && quote.status == QuoteStatus.draft) {
-        onChanged(quote.copyWith(status: QuoteStatus.sent));
-      }
+      if (!internal) _markSent(res);
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -91,8 +138,14 @@ class QuoteSummaryTab extends StatelessWidget {
     );
     c.dispose();
     if (v == null) return;
-    onChanged(quote.copyWith(
-        rates: quote.rates.copyWith(packKg: {...quote.rates.packKg, p: v})));
+    WeldQuote apply(WeldQuote cur) => cur.copyWith(
+        rates: cur.rates.copyWith(packKg: {...cur.rates.packKg, p: v}));
+    final update = onUpdate;
+    if (update != null) {
+      update(apply);
+    } else {
+      onChanged(apply(quote));
+    }
   }
 
   Widget _shoppingSection(
@@ -177,6 +230,7 @@ class QuoteSummaryTab extends StatelessWidget {
 
   Future<void> _text(BuildContext context) async {
     final en = context.language == AppLanguage.en;
+    if (!await _confirmSend(context)) return;
     await beforeExport();
     final text = buildQuoteShareText(
         quote: quote, result: result, settings: settings, en: en);
@@ -190,7 +244,8 @@ class QuoteSummaryTab extends StatelessWidget {
       return;
     }
     try {
-      await QuoteExport.shareText(quote: quote, settings: settings, en: en);
+      _markSent(await QuoteExport.shareText(
+          quote: quote, settings: settings, en: en));
     } catch (_) {
       await Clipboard.setData(ClipboardData(text: text));
     }

@@ -187,7 +187,7 @@ class QuoteSettings {
         if (m == null || e.value is! Map) continue;
         final prices = <QuoteProcess, double>{};
         for (final p in (e.value as Map).entries) {
-          final proc = QuoteProcess.fromCode(p.key as String?);
+          final proc = QuoteProcess.fromCode(_s(p.key));
           if (proc != null && p.value is num && (p.value as num).isFinite) {
             prices[proc] = (p.value as num).toDouble();
           }
@@ -199,16 +199,18 @@ class QuoteSettings {
       baseRates: QuoteRates.fromJson(raw['rates']),
       fillerPrices: filler,
       company: QuoteCompany.fromJson(raw['company']),
-      material: QuoteMaterial.fromCode(raw['material'] as String?),
-      scheme: WeldScheme.fromCode(raw['scheme'] as String?) ??
+      material: QuoteMaterial.fromCode(_s(raw['material'])),
+      scheme: WeldScheme.fromCode(_s(raw['scheme'])) ??
           const WeldScheme(root: QuoteProcess.tig, fill: QuoteProcess.mma),
-      site: QuoteSite.fromCode(raw['site'] as String?),
+      site: QuoteSite.fromCode(_s(raw['site'])),
       validityDays:
           raw['validity'] is num ? (raw['validity'] as num).toInt() : 30,
       terms: raw['terms'] is String ? raw['terms'] as String : '',
     );
   }
 }
+
+String? _s(Object? v) => v is String ? v : null;
 
 class QuoteSettingsStore {
   static const String key = 'quote_settings_v1';

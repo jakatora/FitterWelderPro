@@ -562,6 +562,7 @@ class _QuoteCostsTabState extends State<QuoteCostsTab>
             const SizedBox(height: 12),
             QuoteNumberField(
               key: _k('di-rate'),
+              allowEmpty: true,
               label: context.tr(
                   pl: 'Rynkowa stawka za cal-średnicę (opcjonalnie)',
                   en: 'Market rate per dia-inch (optional)'),
