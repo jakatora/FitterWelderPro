@@ -335,6 +335,21 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Projekt z odcinkami wyświetla listę materiałową z ilościami.'),
   ModuleAuditEntry(
+      id: 'mitre-bend',
+      entryPoint: 'MitreBendPage',
+      sourcePath: 'lib/features/mitre_bend/mitre_bend_page.dart',
+      category: AuditCategory.fitter,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          'DN150 (Ø168,3), 90°, 3 spoiny, R = 1,5D: cięcie 15°, segment pełny oś 135,3 / gardło 90,2 / grzbiet 180,4 mm; 4 spoiny → 11,25°; R ≤ D/2 i za krótki odcinek przy jednym cięciu — komunikat bez wyniku; szablon 1:1 w kaflach A4.',
+      evidence: [
+        'test/domain/fitter/mitre_bend_test.dart: pełny segment: oś 2R·tg β, gardło i grzbiet ± D·tg β',
+        'test/features/mitre_bend/mitre_bend_page_test.dart: domyślnie DN150, 90°, 3 spoiny → cięcie 15°',
+        'test/features/mitre_bend/mitre_bend_page_test.dart: za mały promień — komunikat, bez wyniku',
+        'test/features/mitre_bend/mitre_bend_page_test.dart: szablon PDF: kafle i podziałki, DN600 mieści się w limicie',
+      ]),
+  ModuleAuditEntry(
       id: 'new-cut-list-project',
       entryPoint: 'NewCutListProjectScreen',
       sourcePath: 'lib/screens/new_cut_list_project_screen.dart',

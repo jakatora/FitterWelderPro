@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/iso5817/iso5817_page.dart';
+import '../features/mitre_bend/mitre_bend_page.dart';
 import '../features/pwht/pwht_planner_page.dart';
 import '../features/weld_symbols/weld_symbols_page.dart';
 import '../features/qualification/certificate_register_page.dart';
@@ -413,6 +414,39 @@ final List<ToolSpec> kToolRegistry = [
     builder: (_) => const FitterToolsScreen(initialTab: 4),
     keywordsPl: const ['redukcja', 'skracanie', 'zwezka', 'srednica', 'dociac'],
     keywordsEn: const ['reducer', 'trim', 'concentric', 'outlet'],
+  ),
+
+  ToolSpec(
+    id: 'mitre_bend',
+    group: ToolGroup.elbowsFittings,
+    // „Segmentowe kolana”, nie „Kolano segmentowe”: na zapytanie „kolano”
+    // pierwsze mają zostać „Wymiary kolan” (najczęstsza potrzeba).
+    titlePl: 'Segmentowe kolana',
+    titleEn: 'Mitred bends',
+    subtitlePl: 'Kolano z segmentów rury: kąt cięcia, długości, szablon 1:1',
+    subtitleEn: 'Segments from pipe: cut angle, lengths, 1:1 template',
+    icon: Icons.turn_right,
+    color: const Color(0xFFFFB74D),
+    builder: (_) => const MitreBendPage(),
+    keywordsPl: const [
+      'segmentowe',
+      'kolano segmentowe',
+      'lobster',
+      'segment',
+      'segmenty',
+      'ciecie ukosne',
+      'kolano z rury',
+      'szablon kolana'
+    ],
+    keywordsEn: const [
+      'mitred bend',
+      'mitered bend',
+      'miter',
+      'mitre',
+      'lobster back',
+      'segmented elbow',
+      'gored elbow'
+    ],
   ),
 
   // ── Monter · Odgałęzienia i siodła ───────────────────────────────────────

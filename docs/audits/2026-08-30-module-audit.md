@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 73
+Moduły: 74
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 25 |
+| passed | 26 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -69,6 +69,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `jobs` | JobsScreen | lib/screens/jobs_screen.dart | social | medium | unverified | Użytkownik przegląda listę ofert pracy. | test/audit/module_smoke_test.dart: Ponów wykonuje drugie wywołanie Jobs i pokazuje zwróconą ofertę |
 | `legal` | LegalScreen | lib/screens/legal_screen.dart | document | medium | unverified | Użytkownik otwiera politykę prywatności w aplikacji. | test/audit/module_smoke_test.dart: LegalScreen renderuje politykę prywatności przy skali 1,3 |
 | `material-list` | MaterialListScreen | lib/screens/material_list_screen.dart | project | high | unverified | Projekt z odcinkami wyświetla listę materiałową z ilościami. | Brak dowodu scenariusza |
+| `mitre-bend` | MitreBendPage | lib/features/mitre_bend/mitre_bend_page.dart | fitter | medium | passed | DN150 (Ø168,3), 90°, 3 spoiny, R = 1,5D: cięcie 15°, segment pełny oś 135,3 / gardło 90,2 / grzbiet 180,4 mm; 4 spoiny → 11,25°; R ≤ D/2 i za krótki odcinek przy jednym cięciu — komunikat bez wyniku; szablon 1:1 w kaflach A4. | test/domain/fitter/mitre_bend_test.dart: pełny segment: oś 2R·tg β, gardło i grzbiet ± D·tg β<br>test/features/mitre_bend/mitre_bend_page_test.dart: domyślnie DN150, 90°, 3 spoiny → cięcie 15°<br>test/features/mitre_bend/mitre_bend_page_test.dart: za mały promień — komunikat, bez wyniku<br>test/features/mitre_bend/mitre_bend_page_test.dart: szablon PDF: kafle i podziałki, DN600 mieści się w limicie |
 | `new-cut-list-project` | NewCutListProjectScreen | lib/screens/new_cut_list_project_screen.dart | project | medium | unverified | Użytkownik zakłada projekt listy cięcia z nazwą. | Brak dowodu scenariusza |
 | `new-project` | NewProjectScreen | lib/screens/new_project_screen.dart | project | medium | unverified | Użytkownik tworzy nowy projekt spawalniczy. | Brak dowodu scenariusza |
 | `onboarding-name` | OnboardingNameScreen | lib/screens/onboarding_name_screen.dart | start | low | unverified | Nowy użytkownik zapisuje swoje imię w onboardingu. | Brak dowodu scenariusza |
