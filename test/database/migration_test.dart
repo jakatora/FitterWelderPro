@@ -434,6 +434,20 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'updated_at',
     'deleted_at',
   ],
+  // v26: wyceny spawalnicze — nagłówek + treść w JSON, kwoty w groszach.
+  'weld_quotes': <String>[
+    'id',
+    'number',
+    'title',
+    'client',
+    'status',
+    'data_json',
+    'net_grosze',
+    'gross_grosze',
+    'created_at',
+    'updated_at',
+    'deleted_at',
+  ],
 };
 
 // ── Legacy schemas ────────────────────────────────────────────────────────

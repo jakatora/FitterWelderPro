@@ -108,6 +108,8 @@ void main() {
         'CertificateRegisterPage', 'WpsLibraryPage',
         // Asystent (spec §6) — nowe wejście, nie dawny kafel.
         'AiChatScreen',
+        // v26: wyceny spawalnicze.
+        'QuoteListPage',
       };
       expect(targets, expected);
     });

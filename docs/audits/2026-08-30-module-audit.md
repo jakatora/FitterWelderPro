@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 64
+Moduły: 68
 
 | Status | Liczba |
 |---|---:|
-| unverified | 46 |
-| passed | 17 |
+| unverified | 47 |
+| passed | 20 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -80,6 +80,10 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `project-components` | ProjectComponentsScreen | lib/screens/project_components_screen.dart | project | high | unverified | Projekt wyświetla przypisane komponenty i ich numery wytopu. | Brak dowodu scenariusza |
 | `projects` | ProjectsScreen | lib/screens/projects_screen.dart | project | medium | passed | Edycja przeżywa ponowne otwarcie, a usunięcie i Cofnij atomowo obejmują projekt, segmenty, zdjęcia i numery wytopów. | test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy<br>test/audit/data_integrity_audit_test.dart: usunięcie projektu atomowo usuwa tylko jego dane zależne<br>test/audit/data_integrity_audit_test.dart: błąd ograniczenia cofa niepełne usunięcie projektu<br>test/audit/data_integrity_audit_test.dart: snapshot Cofnij odtwarza projekt i wszystkie zależności<br>test/audit/data_integrity_audit_test.dart: ProjectsScreen deleguje usunięcie i Cofnij wyłącznie do atomowego API |
 | `quick-converter` | QuickConverterScreen | lib/screens/quick_converter_screen.dart | fitter | medium | unverified | 25,4 mm konwertuje się na 1 cal. | Brak dowodu scenariusza |
+| `quote-edit` | QuoteEditPage | lib/features/quotes/quote_edit_page.dart | project | high | passed | Nowa wycena: spoina DN100 (Ø114,3 × 6,02) × 4 trafia do listy pozycji i paska sumy, zapisuje się sama w weld_quotes i otwiera zakładkę Wynik z ofertą PDF. | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/features/quotes/quote_flow_test.dart: pusta wycena nie zapisuje się przy wyjściu<br>test/domain/quotes/quote_calculator_test.dart: składniki sumują się dokładnie do netto i brutto |
+| `quote-joint` | QuoteJointPage | lib/features/quotes/quote_joint_page.dart | project | high | passed | Pozycja wpisana ręcznie (OD, ścianka, liczba przyciskiem +) pokazuje podgląd kosztu pozycji i wraca do wyceny po „Dodaj do wyceny". | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/domain/quotes/quote_calculator_test.dart: DN100 Sch 40, V 60°: ~0,11 kg stopiwa stali węglowej na spoinę |
+| `quote-list` | QuoteListPage | lib/features/quotes/quote_list_page.dart | project | high | passed | Lista wycen: pusta pokazuje zachętę, nowa wycena dostaje numer WYC/rok/nnn, zapisana wraca jako karta z kwotą i liczbą spoin; kosz z przywracaniem. | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/features/quotes/quote_flow_test.dart: DAO: zapis z sumami, kosz, numeracja, duplikat |
+| `quote-settings` | QuoteSettingsPage | lib/features/quotes/quote_settings_page.dart | project | medium | unverified | Zapis „moich stawek" i danych firmy — nowa wycena startuje z tymi stawkami, zapisane wyceny się nie zmieniają. | test/features/quotes/quote_flow_test.dart: moje stawki: zapis i odczyt, ceny spoiw per materiał |
 | `register` | RegisterScreen | lib/screens/register_screen.dart | account | high | unverified | Użytkownik podaje poprawny e-mail i hasło do rejestracji. | Brak dowodu scenariusza |
 | `rolling-offset` | RollingOffsetScreen | lib/screens/rolling_offset_screen.dart | fitter | high | unverified | Dwa przesunięcia osi wyliczają długość rozwinięcia. | Brak dowodu scenariusza |
 | `saddle-cut` | SaddleCutScreen | lib/screens/saddle_cut_screen.dart | fitter | safetyCritical | unverified | Rura odgałęźna 60 mm na kolektorze 114 mm wylicza profil siodła. | Brak dowodu scenariusza |
@@ -185,6 +189,7 @@ zmienić status. Nie kupować ani nie publikować w ramach testu.
 - [unverified] `new-cut-list-project`: Użytkownik zakłada projekt listy cięcia z nazwą. (ryzyko: medium).
 - [unverified] `new-project`: Użytkownik tworzy nowy projekt spawalniczy. (ryzyko: medium).
 - [unverified] `quick-converter`: 25,4 mm konwertuje się na 1 cal. (ryzyko: medium).
+- [unverified] `quote-settings`: Zapis „moich stawek" i danych firmy — nowa wycena startuje z tymi stawkami, zapisane wyceny się nie zmieniają. (ryzyko: medium).
 - [unverified] `welder-identity-setup`: Spawacz zapisuje identyfikator do podpisywania parametrów. (ryzyko: medium).
 - [unverified] `welder-pipes`: Użytkownik otwiera narzędzia spawalnicze dla rur. (ryzyko: medium).
 - [unverified] `welder-tanks`: Użytkownik otwiera narzędzia spawalnicze dla zbiorników. (ryzyko: medium).

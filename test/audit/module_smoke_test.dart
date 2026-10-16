@@ -74,6 +74,13 @@ import 'package:cut_list_app/features/qualification/certificate_edit_page.dart';
 import 'package:cut_list_app/features/qualification/certificate_register_page.dart';
 import 'package:cut_list_app/features/wps/wps_edit_page.dart';
 import 'package:cut_list_app/features/wps/wps_library_page.dart';
+import 'package:cut_list_app/features/quotes/quote_edit_page.dart';
+import 'package:cut_list_app/features/quotes/quote_joint_page.dart';
+import 'package:cut_list_app/features/quotes/quote_list_page.dart';
+import 'package:cut_list_app/features/quotes/quote_settings_page.dart';
+import 'package:cut_list_app/domain/quotes/weld_geometry.dart';
+import 'package:cut_list_app/domain/quotes/weld_quote.dart';
+import 'package:cut_list_app/services/quote_settings.dart';
 import 'package:cut_list_app/modules/welder_pipe/ui/welder_pipe_param_edit_screen.dart';
 import 'package:cut_list_app/modules/welder_pipe/ui/welder_pipe_params_list_screen.dart';
 import 'package:cut_list_app/modules/welder_tandem/ui/tandem_calculator_screen.dart';
@@ -84,6 +91,18 @@ import 'package:cut_list_app/modules/welder_tandem/ui/tandem_my_params_screen.da
 import '../../tool/audit/module_manifest.dart';
 
 const _projectId = 'audit-smoke-project';
+
+const _smokeQuote = WeldQuote(
+  id: 'audit-smoke-quote',
+  number: 'WYC/2026/001',
+  title: 'Kolektor DN100',
+  joints: [
+    QuoteJoint(
+        id: 'j1', kind: JointKind.pipeButt, odMm: 114.3, wallMm: 6.02, count: 12),
+  ],
+  createdAt: 0,
+  updatedAt: 0,
+);
 
 class _OfflineHttpOverrides extends HttpOverrides {
   @override
@@ -185,6 +204,12 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'CertificateEditPage' => const CertificateEditPage(),
       'WpsLibraryPage' => const WpsLibraryPage(),
       'WpsEditPage' => const WpsEditPage(),
+      'QuoteListPage' => const QuoteListPage(),
+      'QuoteEditPage' =>
+        QuoteEditPage(quote: _smokeQuote, settings: const QuoteSettings()),
+      'QuoteJointPage' => QuoteJointPage(quote: _smokeQuote),
+      'QuoteSettingsPage' =>
+        const QuoteSettingsPage(settings: QuoteSettings()),
       _ => throw ArgumentError.value(entryPoint, 'entryPoint'),
     };
 

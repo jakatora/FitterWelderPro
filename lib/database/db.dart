@@ -71,7 +71,12 @@ class AppDatabase {
   //     obowiązywania; każda istniejąca WPS dostaje wersję 1 „od zawsze";
   //   • `passivation_records` — rejestr trawienia / pasywacji.
   //   Wszystkie nowe kolumny NULL, bez domyślnych — stary wiersz ich nie ma.
-  static const int _dbVersion = 25;
+  // v26: wyceny spawalnicze `weld_quotes` — nagłówek (numer, przedmiot,
+  //   klient, status, sumy netto/brutto w groszach do listy) i treść wyceny
+  //   w `data_json` (złącza, schemat procesów, KOPIA stawek i cen z chwili
+  //   utworzenia — patrz lib/domain/quotes/weld_quote.dart). Tabela nowa
+  //   i pusta; nic istniejącego nie jest ruszane.
+  static const int _dbVersion = 26;
 
   /// The schema version [get] opens the database at.
   ///
@@ -454,6 +459,13 @@ CREATE TABLE IF NOT EXISTS projects (
     // danych. Idempotentne — ponowne przejście nie dubluje wpisów.
     if (oldVersion < 25) {
       await migrateV25(db);
+    }
+
+    // ---- v26: wyceny spawalnicze. Tabela nowa — self-heal na początku już
+    // ją utworzył; jawnie jeszcze raz (idempotentnie), żeby krok wersji był
+    // samodzielny. Nic istniejącego nie jest ruszane.
+    if (oldVersion < 26) {
+      await _createQuoteTables(db);
     }
 
     // Last, now that every column the indexes reference exists.
@@ -995,6 +1007,28 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
     await _createQualificationTables(db);
     await _createIsoScanTable(db);
     await _createQualityTables(db);
+    await _createQuoteTables(db);
+  }
+
+  /// v26: wyceny spawalnicze — weld_quote_dao.dart. Kwoty w GROSZACH
+  /// (INTEGER), żeby lista ofert sumowała się co do grosza; treść wyceny
+  /// (złącza, stawki, pozycje dodatkowe) jako JSON w `data_json`.
+  static Future<void> _createQuoteTables(DatabaseExecutor db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS weld_quotes (
+  id TEXT PRIMARY KEY,
+  number TEXT,
+  title TEXT,
+  client TEXT,
+  status TEXT,
+  data_json TEXT NOT NULL,
+  net_grosze INTEGER,
+  gross_grosze INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+''');
   }
 
   /// weld_journal columns added in v25: the WPS picked from the library.
@@ -1224,6 +1258,8 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
         'CREATE INDEX IF NOT EXISTS idx_coupon_history_coupon ON weld_coupon_history(coupon_id, at);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_wps_versions_wps ON wps_versions(wps_id, valid_from);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_weld_quotes_updated ON weld_quotes(updated_at DESC);');
   }
 
   static Future<void> _seedApprovedData(Database db) async {

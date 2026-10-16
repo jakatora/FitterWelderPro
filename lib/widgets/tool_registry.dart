@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../features/qualification/certificate_register_page.dart';
+import '../features/quotes/quote_list_page.dart';
 import '../features/wps/wps_library_page.dart';
 import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
@@ -85,7 +86,8 @@ enum ToolGroup {
   inspection(
       ToolSection.welder, 'Kontrola i dokumentacja', 'Inspection and records'),
   stainlessFinish(
-      ToolSection.welder, 'Wykończenie nierdzewki', 'Stainless finishing');
+      ToolSection.welder, 'Wykończenie nierdzewki', 'Stainless finishing'),
+  costing(ToolSection.welder, 'Wyceny i koszty', 'Quotes and costs');
 
   const ToolGroup(this.section, this.titlePl, this.titleEn);
 
@@ -1145,6 +1147,48 @@ final List<ToolSpec> kToolRegistry = [
     builder: (_) => const PassivationScreen(),
     keywordsPl: const ['trawienie', 'pasywacja', 'pasta', 'kwas', 'nierdzewka'],
     keywordsEn: const ['pickling', 'passivation', 'paste', 'acid', 'stainless'],
+  ),
+
+  // ── Spawacz · Wyceny i koszty ────────────────────────────────────────────
+  ToolSpec(
+    id: 'weld_quotes',
+    group: ToolGroup.costing,
+    titlePl: 'Wyceny spawalnicze',
+    titleEn: 'Welding quotes',
+    subtitlePl: 'Koszt roboty: godziny, spoiwo, gaz, NDT → oferta PDF',
+    subtitleEn: 'Job cost: hours, filler, gas, NDT → PDF quote',
+    icon: Icons.request_quote_outlined,
+    color: const Color(0xFF35C88B),
+    builder: (_) => const QuoteListPage(),
+    keywordsPl: const [
+      'wycena',
+      'wyceny',
+      'oferta',
+      'kosztorys',
+      'koszt',
+      'cena',
+      'stawka',
+      'roboczogodziny',
+      'zuzycie spoiwa',
+      'ile kosztuje',
+      'cal srednica',
+      'di',
+      'faktura',
+      'vat'
+    ],
+    keywordsEn: const [
+      'quote',
+      'quotation',
+      'estimate',
+      'cost',
+      'price',
+      'rate',
+      'man-hours',
+      'filler consumption',
+      'dia-inch',
+      'di',
+      'offer'
+    ],
   ),
 ];
 

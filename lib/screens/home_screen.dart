@@ -469,6 +469,18 @@ class _HomeScreenState extends State<HomeScreen> {
           if (assistant != null) openTool(context, assistant);
         },
       ),
+      // ── Wyceny — koszt roboty i oferta PDF, offline ───────────────────
+      _SectionTile(
+        icon: Icons.request_quote_outlined,
+        title: context.tr(pl: 'WYCENY', en: 'QUOTES'),
+        subtitle: context.tr(
+            pl: 'Koszt roboty, oferta PDF', en: 'Job cost, PDF quote'),
+        accent: kPass,
+        onTap: () {
+          final quotes = toolById('weld_quotes');
+          if (quotes != null) openTool(context, quotes);
+        },
+      ),
       // ── Społeczność — darmowa dla wszystkich ──────────────────────────
       if (kCommunityEnabled)
         _SectionTile(

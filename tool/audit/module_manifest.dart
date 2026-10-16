@@ -432,6 +432,58 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: '25,4 mm konwertuje się na 1 cal.'),
   ModuleAuditEntry(
+      id: 'quote-edit',
+      entryPoint: 'QuoteEditPage',
+      sourcePath: 'lib/features/quotes/quote_edit_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Nowa wycena: spoina DN100 (Ø114,3 × 6,02) × 4 trafia do listy pozycji i paska sumy, zapisuje się sama w weld_quotes i otwiera zakładkę Wynik z ofertą PDF.',
+      evidence: [
+        'test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista',
+        'test/features/quotes/quote_flow_test.dart: pusta wycena nie zapisuje się przy wyjściu',
+        'test/domain/quotes/quote_calculator_test.dart: składniki sumują się dokładnie do netto i brutto',
+      ]),
+  ModuleAuditEntry(
+      id: 'quote-joint',
+      entryPoint: 'QuoteJointPage',
+      sourcePath: 'lib/features/quotes/quote_joint_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Pozycja wpisana ręcznie (OD, ścianka, liczba przyciskiem +) pokazuje podgląd kosztu pozycji i wraca do wyceny po „Dodaj do wyceny".',
+      evidence: [
+        'test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista',
+        'test/domain/quotes/quote_calculator_test.dart: DN100 Sch 40, V 60°: ~0,11 kg stopiwa stali węglowej na spoinę',
+      ]),
+  ModuleAuditEntry(
+      id: 'quote-list',
+      entryPoint: 'QuoteListPage',
+      sourcePath: 'lib/features/quotes/quote_list_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Lista wycen: pusta pokazuje zachętę, nowa wycena dostaje numer WYC/rok/nnn, zapisana wraca jako karta z kwotą i liczbą spoin; kosz z przywracaniem.',
+      evidence: [
+        'test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista',
+        'test/features/quotes/quote_flow_test.dart: DAO: zapis z sumami, kosz, numeracja, duplikat',
+      ]),
+  ModuleAuditEntry(
+      id: 'quote-settings',
+      entryPoint: 'QuoteSettingsPage',
+      sourcePath: 'lib/features/quotes/quote_settings_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.medium,
+      status: AuditStatus.unverified,
+      scenario:
+          'Zapis „moich stawek" i danych firmy — nowa wycena startuje z tymi stawkami, zapisane wyceny się nie zmieniają.',
+      evidence: [
+        'test/features/quotes/quote_flow_test.dart: moje stawki: zapis i odczyt, ceny spoiw per materiał',
+      ]),
+  ModuleAuditEntry(
       id: 'register',
       entryPoint: 'RegisterScreen',
       sourcePath: 'lib/screens/register_screen.dart',
