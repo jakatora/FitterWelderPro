@@ -117,6 +117,8 @@ void main() {
         'PwhtPlannerPage',
         // Odbiór wizualny wg EN ISO 5817.
         'Iso5817Page',
+        // Symbole spawalnicze (ISO 2553 / AWS A2.4).
+        'WeldSymbolsPage',
       };
       expect(targets, expected);
     });

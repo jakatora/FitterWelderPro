@@ -6,6 +6,7 @@ import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/pwht/pwht_planner_page.dart';
+import '../features/weld_symbols/weld_symbols_page.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../features/quotes/hourly_rate_page.dart';
 import '../features/quotes/quote_list_page.dart';
@@ -1153,6 +1154,46 @@ final List<ToolSpec> kToolRegistry = [
       'pqr',
       'wpqr',
       'range'
+    ],
+  ),
+  ToolSpec(
+    id: 'weld_symbols',
+    group: ToolGroup.inspection,
+    titlePl: 'Symbole spawalnicze',
+    titleEn: 'Welding symbols',
+    subtitlePl: 'Czytnik rysunku: strona, rowek, a/z, n × l (e)',
+    subtitleEn: 'Drawing reader: side, groove, a/z, n × l (e)',
+    icon: Icons.architecture,
+    color: const Color(0xFF26C6DA),
+    builder: (_) => const WeldSymbolsPage(),
+    keywordsPl: const [
+      'symbol',
+      'symbole',
+      'oznaczenie spoin',
+      'rysunek',
+      'iso 2553',
+      'pachwina',
+      'strona strzalki',
+      'linia przerywana',
+      'grubosc obliczeniowa',
+      'przerywana',
+      'montazowa',
+      'dookola'
+    ],
+    keywordsEn: const [
+      'weld symbol',
+      'welding symbols',
+      'drawing',
+      'iso 2553',
+      'aws a2.4',
+      'arrow side',
+      'other side',
+      'fillet',
+      'throat',
+      'leg',
+      'intermittent',
+      'field weld',
+      'all around'
     ],
   ),
   ToolSpec(

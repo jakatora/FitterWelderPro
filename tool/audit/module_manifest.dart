@@ -646,6 +646,23 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Aktywny filtr ekranu przekazuje dokładnie ten sam zbiór do integracji CSV i PDF.'),
   ModuleAuditEntry(
+      id: 'weld-symbols',
+      entryPoint: 'WeldSymbolsPage',
+      sourcePath: 'lib/features/weld_symbols/weld_symbols_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Czytnik: pachwina a5 na linii ciągłej (system A), przerywana 3 × 50 (100), kółko i chorągiewka daje „Spoina pachwinowa a5 po stronie strzałki, przerywana 3 × 50 (100), dookoła, montażowa.” z ostrzeżeniem o kółku przy spoinie nieciągłej; symbol na linii przerywanej = strona przeciwna; V bez liczby = pełny przetop; z7 → a 4,95.',
+      evidence: [
+        'test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: wybór elementów zmienia zdanie (przykład z rysunku)',
+        'test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: spoina czołowa — liczba to głębokość wtopienia',
+        'test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: system B — etykiety „pod / nad linią”, to samo zdanie',
+        'test/features/weld_symbols/weld_symbols_page_test.dart: wymiary: przelicznik a5 → z 7,07, z7 → a 4,95',
+        'test/features/weld_symbols/weld_symbols_page_test.dart: wszystkie zakładki renderują się na telefonie, tekst ×1.3',
+        'test/domain/weld_symbols/weld_symbol_description_test.dart: zdanie po ludzku przykład z rysunku — PL',
+      ]),
+  ModuleAuditEntry(
       id: 'welder-identity-setup',
       entryPoint: 'WelderIdentitySetupScreen',
       sourcePath: 'lib/screens/welder_identity_setup_screen.dart',
