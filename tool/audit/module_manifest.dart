@@ -452,6 +452,22 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/data_integrity_audit_test.dart: ProjectsScreen deleguje usunięcie i Cofnij wyłącznie do atomowego API',
       ]),
   ModuleAuditEntry(
+      id: 'pwht-planner',
+      entryPoint: 'PwhtPlannerPage',
+      sourcePath: 'lib/features/pwht/pwht_planner_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'ASME B31.3, P-No 4, grubość 25 mm: PWHT wymagane (> 16 mm), 650–705 °C, min. 1 h 00 min, maks. 335 °C/h powyżej 315 °C, pasmo 75 mm; P91 6 mm — wymagane; P-No 8 — tabela nie wymaga.',
+      evidence: [
+        'test/features/pwht/pwht_planner_page_test.dart: P-No 4, 25 mm: PWHT wymagane, odczyty i wykres',
+        'test/features/pwht/pwht_planner_page_test.dart: P91 cienka ścianka: nadal wymagane',
+        'test/features/pwht/pwht_planner_page_test.dart: austenityczna P-No 8: tabela nie wymaga, bez odczytów',
+        'test/features/pwht/pwht_planner_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień',
+        'test/domain/pwht/pwht_plan_test.dart: czy PWHT wymagane — B31.3 Tab. 331.1.3: P-No 4 i 5A: ≤ 16 mm warunkowo (C ≤ 0,15 %), > 16 mm wymagane',
+      ]),
+  ModuleAuditEntry(
       id: 'quick-converter',
       entryPoint: 'QuickConverterScreen',
       sourcePath: 'lib/screens/quick_converter_screen.dart',

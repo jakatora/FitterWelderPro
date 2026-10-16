@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 70
+Moduły: 71
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 22 |
+| passed | 23 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -81,6 +81,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `profile` | ProfileScreen | lib/screens/profile_screen.dart | account | medium | passed | Istniejący user_profile_v1 odtwarza polskie imię i nazwisko bez utraty znaków. | test/audit/data_integrity_audit_test.dart: UserProfileService odczytuje istniejący user_profile_v1 |
 | `project-components` | ProjectComponentsScreen | lib/screens/project_components_screen.dart | project | high | unverified | Projekt wyświetla przypisane komponenty i ich numery wytopu. | Brak dowodu scenariusza |
 | `projects` | ProjectsScreen | lib/screens/projects_screen.dart | project | medium | passed | Edycja przeżywa ponowne otwarcie, a usunięcie i Cofnij atomowo obejmują projekt, segmenty, zdjęcia i numery wytopów. | test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy<br>test/audit/data_integrity_audit_test.dart: usunięcie projektu atomowo usuwa tylko jego dane zależne<br>test/audit/data_integrity_audit_test.dart: błąd ograniczenia cofa niepełne usunięcie projektu<br>test/audit/data_integrity_audit_test.dart: snapshot Cofnij odtwarza projekt i wszystkie zależności<br>test/audit/data_integrity_audit_test.dart: ProjectsScreen deleguje usunięcie i Cofnij wyłącznie do atomowego API |
+| `pwht-planner` | PwhtPlannerPage | lib/features/pwht/pwht_planner_page.dart | welder | safetyCritical | passed | ASME B31.3, P-No 4, grubość 25 mm: PWHT wymagane (> 16 mm), 650–705 °C, min. 1 h 00 min, maks. 335 °C/h powyżej 315 °C, pasmo 75 mm; P91 6 mm — wymagane; P-No 8 — tabela nie wymaga. | test/features/pwht/pwht_planner_page_test.dart: P-No 4, 25 mm: PWHT wymagane, odczyty i wykres<br>test/features/pwht/pwht_planner_page_test.dart: P91 cienka ścianka: nadal wymagane<br>test/features/pwht/pwht_planner_page_test.dart: austenityczna P-No 8: tabela nie wymaga, bez odczytów<br>test/features/pwht/pwht_planner_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień<br>test/domain/pwht/pwht_plan_test.dart: czy PWHT wymagane — B31.3 Tab. 331.1.3: P-No 4 i 5A: ≤ 16 mm warunkowo (C ≤ 0,15 %), > 16 mm wymagane |
 | `quick-converter` | QuickConverterScreen | lib/screens/quick_converter_screen.dart | fitter | medium | unverified | 25,4 mm konwertuje się na 1 cal. | Brak dowodu scenariusza |
 | `quote-edit` | QuoteEditPage | lib/features/quotes/quote_edit_page.dart | project | high | passed | Nowa wycena: spoina DN100 (Ø114,3 × 6,02) × 4 trafia do listy pozycji i paska sumy, zapisuje się sama w weld_quotes i otwiera zakładkę Wynik z ofertą PDF. | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/features/quotes/quote_flow_test.dart: pusta wycena nie zapisuje się przy wyjściu<br>test/domain/quotes/quote_calculator_test.dart: składniki sumują się dokładnie do netto i brutto |
 | `quote-joint` | QuoteJointPage | lib/features/quotes/quote_joint_page.dart | project | high | passed | Pozycja wpisana ręcznie (OD, ścianka, liczba przyciskiem +) pokazuje podgląd kosztu pozycji i wraca do wyceny po „Dodaj do wyceny". | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/domain/quotes/quote_calculator_test.dart: DN100 Sch 40, V 60°: ~0,11 kg stopiwa stali węglowej na spoinę |

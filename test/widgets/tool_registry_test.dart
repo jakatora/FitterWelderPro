@@ -113,6 +113,8 @@ void main() {
         'HourlyRatePage',
         // Dobór spoiwa (EN ISO + AWS).
         'FillerSelectorPage',
+        // Plan PWHT (ASME B31.3 / B31.1).
+        'PwhtPlannerPage',
       };
       expect(targets, expected);
     });

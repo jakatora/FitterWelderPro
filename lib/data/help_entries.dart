@@ -490,16 +490,20 @@ List<HelpCategory> kHelpCategories = [
           'How to perform P91 PWHT correctly?',
         ),
         answer: _bi(
-          'P91 PWHT: 730-760°C × 1 h per inch (25 mm) wall thickness, min 1 h. '
-          'Ramp rate ≤222°C/h. Cool ≤278°C/h kontrolowane. '
-          'NIE przekraczaj 770°C — re-austenization, utrata wszystkich PWHT benefits, re-weld. '
-          'Type IV crack zone: fine-grained HAZ — uniform T critical w całym HAZ. '
-          'Recording thermocouples on weld + 3× cardinal positions, retain charts dla audit.',
-          'P91 PWHT: 730-760°C × 1 h per inch (25 mm) wall, min 1 h. '
-          'Ramp rate ≤222°C/h. Cool ≤278°C/h controlled. '
-          'NEVER exceed 770°C — re-austenization, all PWHT benefits lost, re-weld required. '
-          'Type IV crack zone: fine-grained HAZ — uniform T critical across HAZ. '
-          'Recording thermocouples on weld + 3× cardinal positions, retain charts for audit.',
+          'P91 (P-No 15E) wg ASME B31.3 (wyd. 2014+) i B31.1-2022: 705–775 °C, '
+          '1 h na 25 mm grubości, min. 30 min (powyżej 125 mm: 5 h + 15 min na każde kolejne 25 mm). '
+          'Nagrzewanie i chłodzenie powyżej 315 °C: maks. 335 °C/h podzielone przez połowę grubości w calach (nie więcej niż 335 °C/h). '
+          'Specyfikacje projektów często zawężają zakres do 730–760 °C — wiąże WPS i procedura PWHT. '
+          'Górnej granicy nie przekraczaj: powyżej 800 °C spoina do wycięcia (reaustenityzacja). '
+          'Strefa pęknięć typu IV (drobnoziarnista SWC) — równomierna temperatura w całej strefie, termopary i wykres do dokumentacji. '
+          'Cały cykl policzysz w narzędziu „Obróbka cieplna po spawaniu".',
+          'P91 (P-No 15E) per ASME B31.3 (2014+) and B31.1-2022: 705–775 °C, '
+          '1 h per 25 mm of thickness, min 30 min (above 125 mm: 5 h + 15 min for each further 25 mm). '
+          'Heating and cooling above 315 °C: max 335 °C/h divided by half the thickness in inches (not more than 335 °C/h). '
+          'Project specifications often narrow the range to 730–760 °C — the WPS and PWHT procedure govern. '
+          'Never exceed the upper limit: above 800 °C the weld is cut out (re-austenitisation). '
+          'Type IV cracking zone (fine-grained HAZ) — uniform temperature across it, thermocouples and a chart for the records. '
+          'Plan the whole cycle in the "Post-weld heat treatment" tool.',
         ),
         tags: ['pwht', 'p91', 'creep', 'type-iv', 'heat-treatment'],
       ),

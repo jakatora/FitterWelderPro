@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/pwht/pwht_planner_page.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../features/quotes/hourly_rate_page.dart';
 import '../features/quotes/quote_list_page.dart';
@@ -1012,6 +1013,40 @@ final List<ToolSpec> kToolRegistry = [
       'timer',
       'pressure',
       'argon'
+    ],
+  ),
+
+  ToolSpec(
+    id: 'pwht_planner',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Obróbka cieplna po spawaniu',
+    titleEn: 'Post-weld heat treatment',
+    subtitlePl: 'Plan PWHT: czy wymagane, temperatura, czas, szybkości, wykres',
+    subtitleEn: 'PWHT plan: required or not, temperature, hold, rates, chart',
+    icon: Icons.thermostat_outlined,
+    color: const Color(0xFFEF5350),
+    builder: (_) => const PwhtPlannerPage(),
+    keywordsPl: const [
+      'pwht',
+      'obrobka cieplna',
+      'wyzarzanie',
+      'odprezanie',
+      'wygrzewanie',
+      'temperatura wytrzymania',
+      'czas wytrzymania',
+      'szybkosc grzania',
+      'p91',
+      'cr-mo'
+    ],
+    keywordsEn: const [
+      'pwht',
+      'post weld heat treatment',
+      'heat treatment',
+      'stress relief',
+      'soak',
+      'holding time',
+      'ramp rate',
+      'p91'
     ],
   ),
 

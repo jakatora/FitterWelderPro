@@ -272,7 +272,8 @@ class AiChatService {
     if (lower.contains('preheat') && lower.contains('p91')) {
       // P1-37: dual units — temp °C/°F, PWHT hold time per mm + per inch wall.
       reply = 'P91 preheat 200-300°C / 390-570°F (wymagany), interpass ≤350°C / ≤660°F, '
-          'PWHT 730-760°C / 1345-1400°F × 2.4 min/mm wall (≈1 h per 25 mm / per inch). '
+          'PWHT wg B31.3 (2014+): 705-775°C / 1300-1425°F (projekty często zawężają do 730-760°C), '
+          '1 h na 25 mm ścianki, min. 30 min — plan cyklu w „Obróbka cieplna po spawaniu”. '
           'Filler: ER90S-B9 / E9015-B9 (low-H). NIE używać B3 filler — creep mismatch. '
           'Pełen tekst: Iteration 75 w bazie wiedzy.';
       citations = ['Iteration 75 — P91/P22 alloy welding'];
