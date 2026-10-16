@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../features/filler/filler_selector_page.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../features/quotes/quote_list_page.dart';
 import '../features/wps/wps_library_page.dart';
@@ -859,6 +860,54 @@ final List<ToolSpec> kToolRegistry = [
       'wl15'
     ],
     keywordsEn: const ['tungsten', 'electrode', 'tig', 'grinding'],
+  ),
+  ToolSpec(
+    id: 'filler_selector',
+    group: ToolGroup.weldParams,
+    titlePl: 'Dobór spoiwa',
+    titleEn: 'Filler metal selector',
+    subtitlePl: 'Spoiwo EN ISO i AWS, gaz, formowanie',
+    subtitleEn: 'EN ISO and AWS filler, gas, purge',
+    icon: Icons.merge_type,
+    color: const Color(0xFF8D6E63),
+    builder: (_) => const FillerSelectorPage(),
+    keywordsPl: const [
+      'spoiwo',
+      'drut',
+      'pret',
+      'elektroda',
+      'dobor spoiwa',
+      '309l',
+      '308l',
+      '316l',
+      '2209',
+      'roznoimienne',
+      'nierdzewka',
+      'czarna',
+      'p91',
+      'aluminium',
+      'gaz oslonowy',
+      'formowanie',
+      'schaeffler',
+      'rozcienczenie'
+    ],
+    keywordsEn: const [
+      'filler',
+      'filler metal',
+      'wire',
+      'rod',
+      'electrode',
+      'consumable',
+      '309l',
+      'dissimilar',
+      'stainless',
+      'p91',
+      'aluminium',
+      'shielding gas',
+      'purge',
+      'schaeffler',
+      'dilution'
+    ],
   ),
   // Asystent: pytania (serwer, po zgodzie) i zapis parametrów głosem (offline).
   // Bez `needsAccount` — tryb „Wykonaj" działa bez sieci i bez zgody; zgodę na

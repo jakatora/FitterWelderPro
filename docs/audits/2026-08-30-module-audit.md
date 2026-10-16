@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 68
+Moduły: 69
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 20 |
+| passed | 21 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -51,6 +51,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `cut-list-summary` | CutListSummaryScreen | lib/screens/cut_list_summary_screen.dart | project | high | unverified | Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia. | Brak dowodu scenariusza |
 | `dn-mm` | DnMmScreen | lib/screens/dn_mm_screen.dart | fitter | medium | unverified | DN 100 zwraca odpowiadającą wartość w milimetrach. | Brak dowodu scenariusza |
 | `elbow-takeout` | ElbowTakeoutScreen | lib/screens/elbow_takeout_screen.dart | fitter | high | passed | Dane kolana 90 stopni LR DN 100 zawierają take-out 152 mm. | test/audit/fitter_calculations_audit_test.dart: kolano 90° LR DN100 ma take-out 152 mm |
+| `filler-selector` | FillerSelectorPage | lib/features/filler/filler_selector_page.dart | welder | high | passed | Stal węglowa + 304L, TIG → ER309L / W 23 12 L, formowanie wymagane, ostrzeżenie o spoiwie niklowym powyżej ok. 315–370 °C; aluminium + stal → „Nie spawa się łukowo”. | test/features/filler/filler_selector_page_test.dart: węglowa + 304L → 309L; MMA bez gazu, formowanie wymagane<br>test/features/filler/filler_selector_page_test.dart: aluminium + stal → nie spawa się łukowo<br>test/domain/filler/filler_selector_test.dart: symetria: A + B == B + A<br>test/audit/module_smoke_test.dart: FillerSelectorPage renderuje przy skali tekstu 1,3 |
 | `fitter-menu` | FitterMenuScreen | lib/screens/fitter_menu_screen.dart | fitter | low | unverified | Użytkownik otwiera menu narzędzi montera. | test/audit/module_smoke_test.dart: FitterMenuScreen renderuje przy skali tekstu 1,3 |
 | `fitter` | FitterScreen | lib/screens/fitter_screen.dart | fitter | low | unverified | Użytkownik otwiera główny ekran montera. | test/audit/module_smoke_test.dart: FitterScreen renderuje z istniejącym projektem przy skali 1,3 |
 | `fitter-tools` | FitterToolsScreen | lib/screens/fitter_tools_screen.dart | fitter | low | unverified | Użytkownik wybiera kalkulator z zestawu narzędzi montera. | Brak dowodu scenariusza |

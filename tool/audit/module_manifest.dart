@@ -146,6 +146,21 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/fitter_calculations_audit_test.dart: kolano 90° LR DN100 ma take-out 152 mm',
       ]),
   ModuleAuditEntry(
+      id: 'filler-selector',
+      entryPoint: 'FillerSelectorPage',
+      sourcePath: 'lib/features/filler/filler_selector_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Stal węglowa + 304L, TIG → ER309L / W 23 12 L, formowanie wymagane, ostrzeżenie o spoiwie niklowym powyżej ok. 315–370 °C; aluminium + stal → „Nie spawa się łukowo”.',
+      evidence: [
+        'test/features/filler/filler_selector_page_test.dart: węglowa + 304L → 309L; MMA bez gazu, formowanie wymagane',
+        'test/features/filler/filler_selector_page_test.dart: aluminium + stal → nie spawa się łukowo',
+        'test/domain/filler/filler_selector_test.dart: symetria: A + B == B + A',
+        'test/audit/module_smoke_test.dart: FillerSelectorPage renderuje przy skali tekstu 1,3',
+      ]),
+  ModuleAuditEntry(
       id: 'fitter-menu',
       entryPoint: 'FitterMenuScreen',
       sourcePath: 'lib/screens/fitter_menu_screen.dart',
