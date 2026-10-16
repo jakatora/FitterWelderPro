@@ -3,15 +3,18 @@
 ///
 /// Liczby w tabelach przepisane MASZYNOWO ze źródła (skrypt czytał tabele
 /// HTML / JSON i wypisywał wiersze — bez ręcznego przepisywania) i
-/// porównane z drugim, niezależnym źródłem. Źródło każdej serii — w
-/// komentarzu nad tabelą. Masy nominalne dla gęstości 7850 kg/m³ (podstawa
-/// tablic EN 10365 / EN 10056-1 / EN 10219-2); rzeczywista masa wyrobu
-/// mieści się w tolerancji normy wyrobu.
+/// porównane z drugim, niezależnym źródłem; wiersze, które ma tylko jedno
+/// źródło (np. grubości kątowników tylko z programu ArcelorMittal), są
+/// sprawdzone wzorem pola przekroju z normy (test spójności z geometrią).
+/// Źródło każdej serii — w komentarzu nad tabelą. Masy nominalne dla
+/// gęstości 7850 kg/m³ (podstawa tablic EN 10365 / EN 10056-1 /
+/// EN 10219-2); rzeczywista masa wyrobu mieści się w tolerancji normy.
 ///
-/// Serie POMINIĘTE (brak pewnych danych w dwóch źródłach): teowniki T
-/// (EN 10055), HEAA / IPE A / IPE O, kątowniki 250 i 300 poza 250×250×28
-/// i ×35, profile zamknięte gorącowalcowane EN 10210 (wybrano zimnogięte
-/// EN 10219, które dominują w hurtowniach).
+/// POMINIĘTE: teowniki T (EN 10055) — brak drugiego źródła; HEAA / IPE A /
+/// IPE O / HL / HD — poza zakresem modułu; kątowniki 250×250 (poza ×28 i
+/// ×35) i 300×300 — rzadkie, tylko jedno źródło; profile zamknięte
+/// gorącowalcowane EN 10210 (wybrano zimnogięte EN 10219, które dominują
+/// w hurtowniach; własny wymiar liczy wzór EN 10219-2).
 library;
 
 import 'dart:math' as math;
@@ -141,9 +144,13 @@ class SteelSection {
 //   malowania), https://eurocodeapplied.com/design/en1993/ipe-hea-heb-hem-design-properties
 //   (pobrane 2026-10-17).
 // Źródło 2 (sprawdzenie): ArcelorMittal Sections — dane BIM (h, b, tw, tf,
-//   r1, G, A) z generatora https://sections.arcelormittal.com/design_aid/BIM/EN
-//   (eksport JSON). Wszystkie 90 wierszy zgodne co do h, b, tw, tf, r, masy
-//   i pola przekroju. Dodatkowo test: masa = A(geometria)·7850 w ±0,5 %.
+//   r1, G, A; pole „manufacturer: ArcelorMittal", odnośnik
+//   https://sections.arcelormittal.com/design_aid/BIM/EN). Eksport JSON
+//   generatora tabel BIM ArcelorMittal, pobrany z jego serwera testowego
+//   https://test.hybrid.pl/arcelormittal/orangebook_gen/ (tabele ipe, he,
+//   upn, upe, eq_leg, uneq_leg; 2026-10-17) — dalej „dane BIM AM".
+//   Wszystkie 90 wierszy zgodne co do h, b, tw, tf, r, masy i pola
+//   przekroju. Dodatkowo test: masa = A(geometria)·7850 w ±0,5 %.
 // Kolumny: nazwa, kg/m, h, b, tw, tf, r, powierzchnia m²/m.
 
 const List<SteelSection> kIpe = [
@@ -251,14 +258,17 @@ const List<SteelSection> kHem = [
 // ─── Ceowniki UPN (półki zbieżne) ───────────────────────────────────────────
 //
 // Norma: EN 10365:2017 (wymiary DIN 1026-1, tolerancje EN 10279).
-// Masy i wymiary: ArcelorMittal Sections — dane BIM (eksport JSON, jw.);
+// Masy i wymiary: dane BIM AM (jw.);
 //   sprawdzone z: STAD „Technical data of sections UPN"
 //   (https://www.stad.fr/downloads/pdf/stad-technical-data-of-sections-upn.pdf)
 //   i Kocaer Steel „UPN Channel" (DIN 1026-1). UPN 80: 8,65 kg/m wg katalogu
 //   ArcelorMittal (A = 11,02 cm²; BIM zaokrągla do 8,6). r1 = tf (DIN 1026-1).
 // Powierzchnia AL [m²/m]: katalog ArcelorMittal „Fers U normaux européens /
-//   European standard channels" (Sales programme, kolumna AL, UPN 80–400).
-//   Dla UPN 50 i 65 źródło nie podaje — pole puste.
+//   European standard channels" (Sales programme, kolumny AL i AG, UPN
+//   80–400), kopia: https://fr.slideshare.net/slideshow/euro-upn/8056906 —
+//   AL/G ≈ AG w każdym wierszu. Zgodne z obwodem z geometrii w ±2,5 %
+//   (przybliżenie bez zbieżności półek). Dla UPN 50 i 65 źródło nie
+//   podaje — pole puste.
 //   UWAGA: ArcelorMittal Orange Book (wersja UK) podaje dla UPN mniejsze
 //   „surface area" (np. UPN 200: 0,599) — niezgodne z obwodem przekroju
 //   (≈ 0,66 m²/m z geometrii), więc NIE użyte.
@@ -287,7 +297,7 @@ const List<SteelSection> kUpn = [
 // ─── Ceowniki UPE (półki równoległe) ────────────────────────────────────────
 //
 // Norma: EN 10365:2017 (dawniej DIN 1026-2).
-// Masy i wymiary: ArcelorMittal Sections — dane BIM (eksport JSON, jw.);
+// Masy i wymiary: dane BIM AM (jw., przy IPE/HE);
 //   sprawdzone z: STAD „Technical data of sections UPE"
 //   (https://www.stad.fr/downloads/pdf/stad-technical-data-of-sections-upe.pdf)
 //   — zgodne, poza zaokrągleniem UPE 140 (14,4) i UPE 400 (72,1).
@@ -316,7 +326,7 @@ const List<SteelSection> kUpe = [
 //   BS EN 10056-1:2017, masa [kg/m], r1, r2,
 //   https://www.steelforlifebluebook.co.uk/l-equal/ec3-ukna/section-properties-dimensions-properties
 //   (oznaczone w komentarzu BB).
-// Źródło 2: ArcelorMittal Sections — dane BIM (AM). Wiersze w obu źródłach
+// Źródło 2: dane BIM AM (jw., przy IPE/HE; oznaczone AM). Wiersze w obu źródłach
 //   (BB+AM) zgodne (L 200×200×18: BB 54,3 / AM 54,2 — przyjęto BB).
 //   Wiersze tylko AM (grubości z programu ArcelorMittal): r2 = r1/2 jak
 //   we wszystkich wierszach EN 10056-1 w Blue Book.
@@ -454,7 +464,7 @@ const List<SteelSection> kAngleEqual = [
 // Źródło 1: SCI / Steel for Life „Blue Book" — Unequal leg angles (L),
 //   BS EN 10056-1:2017,
 //   https://www.steelforlifebluebook.co.uk/l-unequal/ec3-ukna/section-properties-dimensions-properties
-// Źródło 2: ArcelorMittal Sections — dane BIM (L 120×80, 200×100, 250×90);
+// Źródło 2: dane BIM AM (L 120×80, 200×100, 250×90);
 //   wspólne wiersze zgodne (L 200×100×15: BB 33,8 / AM 33,7 — przyjęto BB).
 // Dodatkowo test: masa = A(geometria)·7850 w ±1 %.
 
