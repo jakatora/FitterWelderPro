@@ -206,8 +206,10 @@ bool isCrMoComposition({required double cr, required double mo}) =>
 int _smtsKsi(double mpa) => (mpa / 6.894757).round();
 
 /// Minimalna temperatura podgrzewania wg ASME B31.3 wydań ≥ 2014
-/// (Tab. 330.1.1), ujednoliconych z ASME B31.1 — wartości przepisane
-/// z ASME B31.1-2022 Table 131.4.1-1 „Preheat Temperatures”:
+/// (Tab. 330.1.1; sprawdzone w tekście wydań 2020 i 2024). Układ tabeli
+/// jest wspólny z ASME B31.1-2022 Table 131.4.1-1, ale B31.1 podaje dla
+/// P-No 5A (SMTS > 60 ksi), 5B, 6 i 15E 205 °C (400 °F), a B31.3 — 200 °C.
+/// Funkcja liczy wg B31.3:
 ///
 ///   P-No 1:  t ≤ 25 mm → 10 °C; t > 25 mm i C ≤ 0,30 % → 10 °C;
 ///            t > 25 mm i C > 0,30 % → 95 °C
