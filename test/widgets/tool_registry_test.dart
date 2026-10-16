@@ -123,6 +123,8 @@ void main() {
         'MitreBendPage',
         // Postęp robót z dziennika spoin.
         'ProgressPage',
+        // Ciężar stali — profile, blachy, pręty.
+        'SteelWeightPage',
       };
       expect(targets, expected);
     });

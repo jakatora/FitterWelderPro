@@ -7,6 +7,7 @@ import '../features/filler/filler_selector_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/mitre_bend/mitre_bend_page.dart';
 import '../features/progress/progress_page.dart';
+import '../features/steel_weight/steel_weight_page.dart';
 import '../features/pwht/pwht_planner_page.dart';
 import '../features/weld_symbols/weld_symbols_page.dart';
 import '../features/qualification/certificate_register_page.dart';
@@ -705,6 +706,60 @@ final List<ToolSpec> kToolRegistry = [
       'transport'
     ],
     keywordsEn: const ['weight', 'mass', 'kg', 'pipe', 'lift'],
+  ),
+  // Po „Ciężar rury”: przy remisie w wyszukiwarce („ciężar”, „weight”)
+  // pierwsza ma zostać rura.
+  ToolSpec(
+    id: 'steel_weight',
+    group: ToolGroup.tables,
+    titlePl: 'Ciężar stali — profile',
+    titleEn: 'Steel weight — sections',
+    subtitlePl: 'IPE, HEB, UPN, kątowniki, blachy · lista i koszt',
+    subtitleEn: 'IPE, HEB, UPN, angles, plates · list and cost',
+    icon: Icons.view_in_ar_outlined,
+    color: const Color(0xFF546E7A),
+    builder: (_) => const SteelWeightPage(),
+    keywordsPl: const [
+      'stal',
+      'profil',
+      'profile',
+      'belka',
+      'dwuteownik',
+      'ipe',
+      'hea',
+      'heb',
+      'hem',
+      'ceownik',
+      'upn',
+      'upe',
+      'katownik',
+      'plaskownik',
+      'pret',
+      'blacha',
+      'zamkniety',
+      'masa stali',
+      'lista materialowa',
+      'zamowienie stali',
+      'tonaz',
+      'malowanie',
+      'dzwig'
+    ],
+    keywordsEn: const [
+      'steel',
+      'beam',
+      'section',
+      'channel',
+      'angle',
+      'flat bar',
+      'round bar',
+      'plate',
+      'shs',
+      'rhs',
+      'hollow section',
+      'material list',
+      'tonnage',
+      'paint area'
+    ],
   ),
   ToolSpec(
     id: 'sanitary_tube',

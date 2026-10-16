@@ -624,6 +624,24 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy',
       ]),
   ModuleAuditEntry(
+      id: 'steel-weight',
+      entryPoint: 'SteelWeightPage',
+      sourcePath: 'lib/features/steel_weight/steel_weight_page.dart',
+      category: AuditCategory.fitter,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'HEB 200 × 6000 mm waży 367,8 kg (61,3 kg/m, EN 10365); IPE 240 × 12 m = 368,4 kg; HEB 200 × 2 szt. dodane do listy zapisuje się, z zapasem 5 % daje 772,4 kg, a przy 5,20 zł/kg koszt z zapasem 4 016,38 zł.',
+      evidence: [
+        'test/features/steel_weight/steel_weight_page_test.dart: wybór profilu i długości zmienia masę',
+        'test/features/steel_weight/steel_weight_page_test.dart: dodanie do listy: zapis, suma z zapasem 5 % i koszt',
+        'test/features/steel_weight/steel_weight_page_test.dart: lista wczytuje się z pamięci; edycja pozycji zmienia sumę',
+        'test/features/steel_weight/steel_weight_page_test.dart: profil zamknięty: tabela EN 10219-2 i własny wymiar',
+        'test/features/steel_weight/steel_weight_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień',
+        'test/domain/steel_weight/steel_weight_test.dart: tabele — spójność z geometrią (wyłapuje literówki): IPE / HEA / HEB / HEM: masa = A(h, b, tw, tf, r)·7850 w ±0,5 %',
+        'test/domain/steel_weight/steel_weight_test.dart: lista materiałowa: zapas 5 %: masa i koszt w groszach',
+      ]),
+  ModuleAuditEntry(
       id: 'support-config',
       entryPoint: 'SupportConfigScreen',
       sourcePath: 'lib/screens/support_config_screen.dart',

@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 75
+Moduły: 76
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 27 |
+| passed | 28 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -96,6 +96,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `sanitary-tube` | SanitaryTubeScreen | lib/screens/sanitary_tube_screen.dart | fitter | high | unverified | Rura sanitarna 38 mm zwraca średnicę i grubość ścianki. | Brak dowodu scenariusza |
 | `scan-review` | ScanReviewScreen | lib/screens/scan_review_screen.dart | document | high | unverified | Użytkownik przegląda wynik rozpoznania ISO przed zapisem projektu. | Brak dowodu scenariusza |
 | `segment-builder` | SegmentBuilderScreen | lib/screens/segment_builder_screen.dart | project | high | passed | Zapisany CUT 896 mm oraz poprawiona wartość ISO segmentu przeżywają ponowne otwarcie bazy. | test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy |
+| `steel-weight` | SteelWeightPage | lib/features/steel_weight/steel_weight_page.dart | fitter | high | passed | HEB 200 × 6000 mm waży 367,8 kg (61,3 kg/m, EN 10365); IPE 240 × 12 m = 368,4 kg; HEB 200 × 2 szt. dodane do listy zapisuje się, z zapasem 5 % daje 772,4 kg, a przy 5,20 zł/kg koszt z zapasem 4 016,38 zł. | test/features/steel_weight/steel_weight_page_test.dart: wybór profilu i długości zmienia masę<br>test/features/steel_weight/steel_weight_page_test.dart: dodanie do listy: zapis, suma z zapasem 5 % i koszt<br>test/features/steel_weight/steel_weight_page_test.dart: lista wczytuje się z pamięci; edycja pozycji zmienia sumę<br>test/features/steel_weight/steel_weight_page_test.dart: profil zamknięty: tabela EN 10219-2 i własny wymiar<br>test/features/steel_weight/steel_weight_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień<br>test/domain/steel_weight/steel_weight_test.dart: tabele — spójność z geometrią (wyłapuje literówki): IPE / HEA / HEB / HEM: masa = A(h, b, tw, tf, r)·7850 w ±0,5 %<br>test/domain/steel_weight/steel_weight_test.dart: lista materiałowa: zapas 5 %: masa i koszt w groszach |
 | `support-config` | SupportConfigScreen | lib/screens/support_config_screen.dart | fitter | high | unverified | Średnica i medium zwracają maksymalny rozstaw podpór. | Brak dowodu scenariusza |
 | `tungsten` | TungstenScreen | lib/screens/tungsten_screen.dart | welder | high | passed | Dobór wolframu DC zwraca elektrodę pokrywającą prądy od 15 do 400 A sprawdzone co 0,5 A. | test/audit/welder_calculations_audit_test.dart: pasma wolframu pokrywają 15-400 A co 0,5 A bez luk |
 | `tutor` | TutorScreen | lib/screens/tutor_screen.dart | document | low | unverified | Użytkownik otwiera lekcję z instrukcją użycia modułu. | Brak dowodu scenariusza |

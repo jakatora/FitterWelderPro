@@ -80,6 +80,7 @@ import 'package:cut_list_app/features/iso5817/iso5817_page.dart';
 import 'package:cut_list_app/features/weld_symbols/weld_symbols_page.dart';
 import 'package:cut_list_app/features/mitre_bend/mitre_bend_page.dart';
 import 'package:cut_list_app/features/progress/progress_page.dart';
+import 'package:cut_list_app/features/steel_weight/steel_weight_page.dart';
 import 'package:cut_list_app/features/quotes/hourly_rate_page.dart';
 import 'package:cut_list_app/features/quotes/quote_edit_page.dart';
 import 'package:cut_list_app/features/quotes/quote_joint_page.dart';
@@ -219,6 +220,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'WeldSymbolsPage' => const WeldSymbolsPage(),
       'MitreBendPage' => const MitreBendPage(),
       'ProgressPage' => const ProgressPage(),
+      'SteelWeightPage' => const SteelWeightPage(),
       'QuoteEditPage' =>
         QuoteEditPage(quote: _smokeQuote, settings: const QuoteSettings()),
       'QuoteJointPage' => QuoteJointPage(quote: _smokeQuote),
