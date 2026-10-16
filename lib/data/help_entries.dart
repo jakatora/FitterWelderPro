@@ -1253,4 +1253,117 @@ List<HelpCategory> kHelpCategories = [
       ),
     ],
   ),
+
+  // ════════════════════════════════════════════════════════════════════════
+  // WYCENY I KOSZTY — narzędzia „Wyceny spawalnicze” i „Ile brać za godzinę”
+  // ════════════════════════════════════════════════════════════════════════
+  HelpCategory(
+    id: 'quotes-costs',
+    title: _bi('Wyceny i koszty', 'Quotes and costs'),
+    subtitle: _bi('Cena roboty, DI, spoiwo, stawka', 'Job price, DI, filler, rate'),
+    icon: Icons.request_quote_outlined,
+    accentArgb: 0xFF35C88B,
+    entries: [
+      HelpEntry(
+        id: 'quote-dia-inch',
+        question: _bi(
+          'Co to jest cal-średnica (DI) i jak z niej liczyć cenę?',
+          'What is a diameter-inch (DI) and how do I price with it?',
+        ),
+        answer: _bi(
+          'Cal-średnica (dia-inch, DI) = rozmiar rury NPS w calach × liczba spoin. 10 spoin DN100 (4") = 40 DI, '
+          '4 spoiny DN150 (6") = 24 DI. Firmy rurociągowe rozliczają spawanie w zł/DI, bo DI rośnie razem '
+          'z ilością pracy. Uwaga: zwykła stawka DI zakłada typowe ścianki (STD/Sch 40) — grubsze ścianki, '
+          'nierdzewka, P91 czy pozycja 6G to dużo więcej stopiwa i czasu. W „Wycenach spawalniczych” zobaczysz '
+          'Twoją cenę netto na DI i porównasz ją ze stawką rynkową.',
+          'Diameter-inch (DI) = pipe size NPS in inches × number of welds. 10 welds DN100 (4") = 40 DI, '
+          '4 welds DN150 (6") = 24 DI. Piping contractors price welding per DI because DI grows with the amount '
+          'of work. Note: a plain DI rate assumes typical walls (STD/Sch 40) — thicker walls, stainless, P91 or '
+          '6G mean far more weld metal and time. "Welding quotes" shows your net price per DI and compares it '
+          'with the market rate.',
+        ),
+        tags: ['di', 'dia-inch', 'cal', 'cal-srednica', 'wycena', 'cena', 'stawka', 'quote'],
+      ),
+      HelpEntry(
+        id: 'quote-filler-per-weld',
+        question: _bi(
+          'Ile spoiwa i czasu idzie na jedną spoinę rury?',
+          'How much filler and time does one pipe weld take?',
+        ),
+        answer: _bi(
+          'Masa stopiwa = pole przekroju rowka × długość spoiny × gęstość. Przykład: DN100 Sch 40 (Ø114,3 × 6,02), '
+          'rowek V 60°, stal węglowa — ok. 0,11 kg stopiwa; DN150 STD (7,11 mm) — ok. 0,21 kg. Kupić trzeba więcej: '
+          'elektrody MMA zostawiają ogarki i żużel (uzysk ok. 60%), pręty TIG ok. 95%, drut MAG ok. 92%. '
+          'Czas łuku = stopiwo ÷ wydajność stapiania (TIG ok. 0,5 kg/h, MMA ok. 1 kg/h), a czas spawania to czas '
+          'łuku podzielony przez współczynnik jarzenia (ok. 30–40%) i wydłużony w pozycjach wymuszonych. '
+          'Wszystko to liczy narzędzie „Wyceny spawalnicze” — z listą zakupów w pełnych paczkach.',
+          'Weld metal mass = groove cross-section × weld length × density. Example: DN100 Sch 40 (Ø114.3 × 6.02), '
+          '60° V groove, carbon steel — about 0.11 kg; DN150 STD (7.11 mm) — about 0.21 kg. You buy more: '
+          'MMA electrodes leave stubs and slag (about 60% efficiency), TIG rods about 95%, MAG wire about 92%. '
+          'Arc time = deposit ÷ deposition rate (TIG about 0.5 kg/h, MMA about 1 kg/h); welding time is arc time '
+          'divided by the arc duty (about 30–40%) and stretched in difficult positions. '
+          '"Welding quotes" works all of this out — with a shopping list in full packs.',
+        ),
+        tags: ['spoiwo', 'stopiwo', 'elektrody', 'drut', 'zuzycie', 'filler', 'consumption', 'czas', 'kg'],
+      ),
+      HelpEntry(
+        id: 'quote-duty-cycle',
+        question: _bi(
+          'Co to jest współczynnik jarzenia łuku i czemu wycena „z łuku” jest za niska?',
+          'What is arc duty and why is pricing "from arc time" too low?',
+        ),
+        answer: _bi(
+          'Łuk pali się tylko przez część czasu spawania: resztę zjada czyszczenie między ściegami, wymiana '
+          'elektrody, szlifowanie zakończeń, kontrola temperatury międzyściegowej. Przy MMA łuk to zwykle ok. 30% '
+          'czasu, przy TIG 30–40%, przy MAG/FCAW 40% i więcej. Do tego dochodzi przygotowanie: fazowanie, ustawienie, '
+          'sczepianie — często tyle samo co spawanie. Wycena tylko z czasu łuku zaniża robociznę 3–4 razy. '
+          'Zmierz na swojej brygadzie i popraw „Założenia procesów” w wycenie.',
+          'The arc burns only part of the welding time: the rest goes to cleaning between passes, changing '
+          'electrodes, grinding stops and starts, checking interpass temperature. With MMA the arc is usually about '
+          '30% of the time, TIG 30–40%, MAG/FCAW 40% and more. Then there is prep: bevelling, fit-up, tacking — often '
+          'as long as the welding. Pricing from arc time alone undercuts labour 3–4 times. '
+          'Measure it on your crew and adjust "Process assumptions" in the quote.',
+        ),
+        tags: ['jarzenie', 'duty cycle', 'arc time', 'czas luku', 'robocizna', 'wycena', 'labour'],
+      ),
+      HelpEntry(
+        id: 'quote-hourly-rate',
+        question: _bi(
+          'Ile brać za godzinę na własnej działalności?',
+          'What should I charge per hour when self-employed?',
+        ),
+        answer: _bi(
+          'Stawka musi pokryć: to, co chcesz mieć na rękę, koszty firmy (ZUS, składka zdrowotna, księgowość, auto, '
+          'sprzęt do wymiany, OC, BHP) i podatek — a dzieli się ją tylko przez godziny, które naprawdę zafakturujesz. '
+          'Dojazdy, przestoje, papiery, urlop i przerwy między zleceniami to zwykle 25–40% czasu bez zapłaty. '
+          'Narzędzie „Ile brać za godzinę” liczy stawkę minimalną i dniówkę, a z wyceny wpisuje ją jednym dotknięciem. '
+          'Stawkę podatku (zwłaszcza ryczałtu dla Twojego PKD) i ZUS potwierdź z księgowym.',
+          'Your rate must cover what you want to take home, business costs (social and health contributions, '
+          'accounting, van, equipment to replace, liability insurance, PPE) and tax — divided only by the hours you '
+          'actually bill. Travel, downtime, paperwork, holidays and gaps between jobs are usually 25–40% of unpaid '
+          'time. "What to charge per hour" works out the minimum rate and day rate, and fills it into a quote with '
+          'one tap. Confirm the tax rate and contributions with your accountant.',
+        ),
+        tags: ['stawka', 'godzina', 'zus', 'podatek', 'ryczalt', 'b2b', 'dzialalnosc', 'rate', 'hourly'],
+      ),
+      HelpEntry(
+        id: 'quote-client-vs-internal',
+        question: _bi(
+          'Co wysłać klientowi, a co zostawić dla siebie?',
+          'What do I send the client and what do I keep?',
+        ),
+        answer: _bi(
+          '„Oferta PDF dla klienta” zawiera zakres (pozycje i ilości), cenę netto, VAT, brutto, termin realizacji '
+          'i warunki — bez stawek godzinowych, narzutu, zysku i założeń. „Kosztorys wewnętrzny” ma wszystko: '
+          'każdy składnik kosztu, godziny, kilogramy, butle i założenia procesów — do Twojej kontroli albo dla szefa. '
+          'Wycena pamięta stawki z dnia utworzenia, więc wysłana oferta nie zmieni się po podwyżce cen.',
+          '"Client quote PDF" holds the scope (items and quantities), net price, VAT, gross, lead time and terms — '
+          'without hourly rates, overhead, profit and assumptions. "Internal cost estimate" has everything: every '
+          'cost element, hours, kilograms, cylinders and process assumptions — for you or your boss. '
+          'A quote keeps the rates from the day it was created, so a sent quote does not change after a price rise.',
+        ),
+        tags: ['oferta', 'pdf', 'klient', 'kosztorys', 'narzut', 'zysk', 'quote', 'client'],
+      ),
+    ],
+  ),
 ];
