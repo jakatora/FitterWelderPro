@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 74
+Moduły: 75
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 26 |
+| passed | 27 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -100,6 +100,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `tungsten` | TungstenScreen | lib/screens/tungsten_screen.dart | welder | high | passed | Dobór wolframu DC zwraca elektrodę pokrywającą prądy od 15 do 400 A sprawdzone co 0,5 A. | test/audit/welder_calculations_audit_test.dart: pasma wolframu pokrywają 15-400 A co 0,5 A bez luk |
 | `tutor` | TutorScreen | lib/screens/tutor_screen.dart | document | low | unverified | Użytkownik otwiera lekcję z instrukcją użycia modułu. | Brak dowodu scenariusza |
 | `weld-journal` | WeldJournalScreen | lib/screens/weld_journal_screen.dart | welder | high | unverified | Aktywny filtr ekranu przekazuje dokładnie ten sam zbiór do integracji CSV i PDF. | Brak dowodu scenariusza |
+| `work-progress` | ProgressPage | lib/features/progress/progress_page.dart | project | medium | passed | Spoiny Blok 4 wpisane przez DAO: dziś 6 DI, ten tydzień 14 DI, warsztat 6 DI, pakiet TP-02 6 DI; JK-12 10 DI i AB-03 4 DI, brygada 4 spoiny (spoina z dwoma spawaczami liczona raz); zakres 40 DI → 35% i koniec 2026-10-22, zapamiętany per projekt; pusty dziennik otwiera WeldJournalScreen jednym dotknięciem; raport tekstem i PDF. | test/features/progress/progress_page_test.dart: spoiny z dziennika: DI dziś i w tygodniu, warsztat/obiekt, pakiet, spawacze bez podwójnego liczenia<br>test/features/progress/progress_page_test.dart: prognoza: zakres DI zapamiętany per projekt, % i data końca przy obecnym tempie<br>test/features/progress/progress_page_test.dart: pusty dziennik: zachęta i jedno dotknięcie do dziennika spoin<br>test/features/progress/progress_page_test.dart: raport tekstem: idzie do udostępniania, a bez niego do schowka<br>test/features/progress/progress_page_test.dart: PDF raportu tygodniowego renderuje się (PL i EN)<br>test/domain/progress/weld_progress_test.dart: spoina z dwoma spawaczami: u obu, ale suma brygady liczy ją raz<br>test/domain/progress/weld_progress_test.dart: spawacz i brygada: odrzucone ÷ zbadane RT/UT, R1 i R2+<br>test/domain/progress/progress_forecast_test.dart: dziś z wpisami → liczenie od jutra, weekend pominięty |
 | `weld-symbols` | WeldSymbolsPage | lib/features/weld_symbols/weld_symbols_page.dart | welder | high | passed | Czytnik: pachwina a5 na linii ciągłej (system A), przerywana 3 × 50 (100), kółko i chorągiewka daje „Spoina pachwinowa a5 po stronie strzałki, przerywana 3 × 50 (100), dookoła, montażowa.” z ostrzeżeniem o kółku przy spoinie nieciągłej; symbol na linii przerywanej = strona przeciwna; V bez liczby = pełny przetop; z7 → a 4,95. | test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: wybór elementów zmienia zdanie (przykład z rysunku)<br>test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: spoina czołowa — liczba to głębokość wtopienia<br>test/features/weld_symbols/weld_symbols_page_test.dart: czytnik: system B — etykiety „pod / nad linią”, to samo zdanie<br>test/features/weld_symbols/weld_symbols_page_test.dart: wymiary: przelicznik a5 → z 7,07, z7 → a 4,95<br>test/features/weld_symbols/weld_symbols_page_test.dart: wszystkie zakładki renderują się na telefonie, tekst ×1.3<br>test/domain/weld_symbols/weld_symbol_description_test.dart: zdanie po ludzku przykład z rysunku — PL |
 | `welder-identity-setup` | WelderIdentitySetupScreen | lib/screens/welder_identity_setup_screen.dart | account | medium | unverified | Spawacz zapisuje identyfikator do podpisywania parametrów. | Brak dowodu scenariusza |
 | `welder-menu` | WelderMenuScreen | lib/screens/welder_menu_screen.dart | welder | low | unverified | Użytkownik otwiera menu modułów spawacza. | test/audit/module_smoke_test.dart: WelderMenuScreen renderuje przy skali tekstu 1,3 |

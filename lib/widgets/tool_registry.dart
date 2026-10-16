@@ -6,6 +6,7 @@ import '../config/feature_flags.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/mitre_bend/mitre_bend_page.dart';
+import '../features/progress/progress_page.dart';
 import '../features/pwht/pwht_planner_page.dart';
 import '../features/weld_symbols/weld_symbols_page.dart';
 import '../features/qualification/certificate_register_page.dart';
@@ -1188,6 +1189,51 @@ final List<ToolSpec> kToolRegistry = [
       'pqr',
       'wpqr',
       'range'
+    ],
+  ),
+  ToolSpec(
+    id: 'work_progress',
+    group: ToolGroup.inspection,
+    titlePl: 'Postęp robót',
+    titleEn: 'Work progress',
+    subtitlePl: 'Ile zrobione dziś, DI, spawacze, naprawy, kiedy koniec pakietu',
+    subtitleEn: 'Done today, dia-inches, welders, repairs, package finish date',
+    icon: Icons.insights_outlined,
+    color: const Color(0xFF4A9EFF),
+    builder: (_) => const ProgressPage(),
+    keywordsPl: const [
+      'postep',
+      'postep robot',
+      'wydajnosc',
+      'tempo',
+      'ile zrobione',
+      'cal srednica',
+      'di',
+      'prognoza',
+      'termin',
+      'pakiet',
+      'brygada',
+      'brygadzista',
+      'naprawy',
+      'odsetek napraw',
+      'raport dzienny',
+      'raport tygodniowy'
+    ],
+    keywordsEn: const [
+      'progress',
+      'work progress',
+      'productivity',
+      'output',
+      'dia-inch',
+      'di',
+      'forecast',
+      'deadline',
+      'test package',
+      'crew',
+      'foreman',
+      'repair rate',
+      'daily report',
+      'weekly report'
     ],
   ),
   ToolSpec(

@@ -661,6 +661,25 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Aktywny filtr ekranu przekazuje dokładnie ten sam zbiór do integracji CSV i PDF.'),
   ModuleAuditEntry(
+      id: 'work-progress',
+      entryPoint: 'ProgressPage',
+      sourcePath: 'lib/features/progress/progress_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          'Spoiny Blok 4 wpisane przez DAO: dziś 6 DI, ten tydzień 14 DI, warsztat 6 DI, pakiet TP-02 6 DI; JK-12 10 DI i AB-03 4 DI, brygada 4 spoiny (spoina z dwoma spawaczami liczona raz); zakres 40 DI → 35% i koniec 2026-10-22, zapamiętany per projekt; pusty dziennik otwiera WeldJournalScreen jednym dotknięciem; raport tekstem i PDF.',
+      evidence: [
+        'test/features/progress/progress_page_test.dart: spoiny z dziennika: DI dziś i w tygodniu, warsztat/obiekt, pakiet, spawacze bez podwójnego liczenia',
+        'test/features/progress/progress_page_test.dart: prognoza: zakres DI zapamiętany per projekt, % i data końca przy obecnym tempie',
+        'test/features/progress/progress_page_test.dart: pusty dziennik: zachęta i jedno dotknięcie do dziennika spoin',
+        'test/features/progress/progress_page_test.dart: raport tekstem: idzie do udostępniania, a bez niego do schowka',
+        'test/features/progress/progress_page_test.dart: PDF raportu tygodniowego renderuje się (PL i EN)',
+        'test/domain/progress/weld_progress_test.dart: spoina z dwoma spawaczami: u obu, ale suma brygady liczy ją raz',
+        'test/domain/progress/weld_progress_test.dart: spawacz i brygada: odrzucone ÷ zbadane RT/UT, R1 i R2+',
+        'test/domain/progress/progress_forecast_test.dart: dziś z wpisami → liczenie od jutra, weekend pominięty',
+      ]),
+  ModuleAuditEntry(
       id: 'weld-symbols',
       entryPoint: 'WeldSymbolsPage',
       sourcePath: 'lib/features/weld_symbols/weld_symbols_page.dart',

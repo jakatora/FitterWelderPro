@@ -121,6 +121,8 @@ void main() {
         'WeldSymbolsPage',
         // Kolano segmentowe (lobster back).
         'MitreBendPage',
+        // Postęp robót z dziennika spoin.
+        'ProgressPage',
       };
       expect(targets, expected);
     });
