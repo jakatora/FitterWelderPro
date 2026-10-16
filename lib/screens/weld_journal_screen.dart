@@ -39,6 +39,7 @@ import '../domain/weld_journal/weld_filter.dart';
 import '../domain/weld_journal/weld_journal_settings.dart';
 import '../domain/weld_journal/weld_numbering.dart';
 import '../domain/weld_journal/weld_stats.dart';
+import '../features/progress/progress_page.dart';
 import '../i18n/app_language.dart';
 import '../services/weld_journal_export.dart';
 import '../services/welder_identity.dart';
@@ -307,9 +308,15 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
             onSelected: (v) => switch (v) {
               'new' => _newWeld(),
               'settings' => _openProjectSettings(),
+              'progress' => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ProgressPage())),
               _ => null,
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                  value: 'progress',
+                  child: Text(_tr('Postęp robót (DI, spawacze, prognoza)',
+                      'Work progress (DI, welders, forecast)'))),
               PopupMenuItem(
                   value: 'new',
                   child: Text(_tr('Nowa spoina (pusta)', 'New weld (blank)'))),
