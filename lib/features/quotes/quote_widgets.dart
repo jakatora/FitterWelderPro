@@ -261,13 +261,22 @@ class MoneyRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: strong ? 16 : 14,
-                fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
-                color: hot ? kArc : kText,
-                fontFeatures: const [FontFeature.tabularFigures()],
+            // Duża kwota przy wąskim ekranie i większej czcionce nie może
+            // wyjść poza wiersz: do połowy szerokości, w razie potrzeby
+            // pomniejszona (kwoty nie łamiemy w środku liczby).
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: strong ? 16 : 14,
+                    fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+                    color: hot ? kArc : kText,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
               ),
             ),
           ],
