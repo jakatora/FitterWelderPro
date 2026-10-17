@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
 import '../features/cooling_time/cooling_time_page.dart';
+import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/flange_check/flange_check_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -872,6 +874,44 @@ final List<ToolSpec> kToolRegistry = [
       'nm'
     ],
   ),
+  ToolSpec(
+    id: 'flange_check',
+    group: ToolGroup.supportsFlanges,
+    titlePl: 'Odbiór połączenia kołnierzowego',
+    titleEn: 'Flange joint check',
+    subtitlePl: 'Osiowość wg PCC-1, lista montażu, protokół PDF',
+    subtitleEn: 'PCC-1 alignment, assembly checklist, PDF record',
+    icon: Icons.adjust,
+    color: const Color(0xFF81C784),
+    builder: (_) => const FlangeCheckPage(),
+    keywordsPl: const [
+      'kolnierz',
+      'kolnierze',
+      'flansza',
+      'odbior kolnierza',
+      'osiowosc',
+      'osiowanie',
+      'rownoleglosc',
+      'szczelina',
+      'uszczelka',
+      'pcc-1',
+      'protokol',
+      'montaz kolnierzy',
+      'skrecanie kolnierzy'
+    ],
+    keywordsEn: const [
+      'flange',
+      'flange joint',
+      'flange alignment',
+      'pcc-1',
+      'gasket',
+      'bolt up',
+      'high low',
+      'parallelism',
+      'joint assembly',
+      'checklist'
+    ],
+  ),
 
   // ── Spawacz · Parametry spawania ─────────────────────────────────────────
   ToolSpec(
@@ -1231,6 +1271,61 @@ final List<ToolSpec> kToolRegistry = [
       'lel',
       'gas test',
       'fire'
+    ],
+  ),
+  ToolSpec(
+    id: 'electrode_exposure',
+    group: ToolGroup.inspection,
+    titlePl: 'Elektrody zasadowe: czas i suszenie',
+    titleEn: 'Low-hydrogen electrodes: exposure',
+    subtitlePl: 'Limit AWS D1.1 po wyjęciu z piecyka, suszenie, dziennik QC',
+    subtitleEn: 'AWS D1.1 exposure limit, re-drying, QC log',
+    icon: Icons.hourglass_bottom,
+    color: const Color(0xFFBCAAA4),
+    builder: (_) => const ElectrodeExposurePage(),
+    keywordsPl: const [
+      'elektroda',
+      'elektrody',
+      'zasadowe',
+      'niskowodorowe',
+      'e7018',
+      '7018',
+      'h4r',
+      'suszenie',
+      'piecyk',
+      'termos',
+      'kolczan',
+      'wilgoc',
+      'wodor',
+      'pekniecia zimne',
+      'czas na powietrzu',
+      'vacpac',
+      'sahara',
+      'aws d1.1',
+      'en iso 2560',
+      'mma',
+      '111'
+    ],
+    keywordsEn: const [
+      'low hydrogen',
+      'electrode',
+      'stick',
+      'smaw',
+      'e7018',
+      'h4r',
+      'rebake',
+      're-dry',
+      'redry',
+      'holding oven',
+      'rod oven',
+      'quiver',
+      'atmospheric exposure',
+      'moisture',
+      'hydrogen cracking',
+      'vacpac',
+      'sahara readypack',
+      'aws d1.1',
+      'table 7.1'
     ],
   ),
   ToolSpec(

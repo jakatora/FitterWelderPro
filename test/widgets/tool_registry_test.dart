@@ -131,6 +131,10 @@ void main() {
         'CoolingTimePage',
         // Prace pożarowo niebezpieczne (zezwolenie, DGW).
         'HotWorkPage',
+        // Elektrody zasadowe: czas na powietrzu i suszenie.
+        'ElectrodeExposurePage',
+        // Odbiór połączenia kołnierzowego (PCC-1).
+        'FlangeCheckPage',
       };
       expect(targets, expected);
     });
