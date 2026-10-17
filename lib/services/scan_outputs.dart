@@ -122,6 +122,45 @@ ScanReviewGate evaluateReview({
 // Weld map
 // ─────────────────────────────────────────────────────────────────────────
 
+/// [scan] with an id on every drawing segment that came without one —
+/// `seg_1`, `seg_2`… not colliding with the ids it already has. The planner,
+/// the weld map and the fitter's answers are keyed by segment id, so every
+/// reader of a reading starts from this (the review screen and the quote
+/// import alike).
+AiScanResult scanWithSegmentIds(AiScanResult scan) {
+  final used =
+      scan.segments.map((s) => s.id).where((id) => id.isNotEmpty).toSet();
+  var n = 0;
+  var changed = false;
+  final segments = scan.segments.map((s) {
+    if (s.id.isNotEmpty) return s;
+    changed = true;
+    String candidate;
+    do {
+      n++;
+      candidate = 'seg_$n';
+    } while (used.contains(candidate));
+    used.add(candidate);
+    return s.copyWith(id: candidate);
+  }).toList();
+
+  if (!changed) return scan;
+  return scan.copyWith(segments: segments);
+}
+
+/// The weld map of a stored reading as the review screen first builds it,
+/// before any answer of the fitter: [scanWithSegmentIds] → [planFromScan]
+/// (sizes read off the drawing, nothing typed in) → [buildWeldMap]. For
+/// readers that reuse a scan without the review screen — the quote import —
+/// so a weld (its number, type, size, shop / field) means the same thing
+/// everywhere. The runs come along: they say which size sits where.
+({List<PlannedWeld> welds, List<PlannedSegment> segments}) weldMapOfScan(
+    AiScanResult scan) {
+  final s = scanWithSegmentIds(scan);
+  final plan = planFromScan(s);
+  return (welds: buildWeldMap(s, plan.segments), segments: plan.segments);
+}
+
 enum WeldSource {
   /// Marked on the drawing (a dot / FW symbol, with or without a number).
   drawing,

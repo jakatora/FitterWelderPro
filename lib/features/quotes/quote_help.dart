@@ -19,6 +19,8 @@ const ScreenHelp kHelpQuotes = ScreenHelp(
   stepsPl: [
     HelpStep('1️⃣',
         'Spoiny: dodaj pozycje — rodzaj złącza, DN i Sch z tabeli (albo wymiary ręcznie), liczba, pozycja spawania.'),
+    HelpStep('📥',
+        '„Importuj spoiny" bierze spoiny z zapisanego skanu izometryku albo z dziennika spoin (projekt, pakiet testowy). Podgląd grupuje je po rodzaju, wymiarze i pozycji — odznacz, co nie wchodzi. Spoin bez OD albo ścianki nic nie zgaduje: są pokazane jako pominięte.'),
     HelpStep('🔥',
         'Metoda: grań TIG + wypełnienie MMA/FCAW/MAG albo jeden proces. Grań to ~3 mm od dna rowka.'),
     HelpStep('💰',
@@ -35,6 +37,8 @@ const ScreenHelp kHelpQuotes = ScreenHelp(
   stepsEn: [
     HelpStep('1️⃣',
         'Welds: add items — joint type, DN and schedule from the table (or type the dimensions), count, welding position.'),
+    HelpStep('📥',
+        '"Import welds" takes the welds of a stored isometric scan or of the weld journal (project, test package). The preview groups them by type, size and position — untick what is not in the job. Welds without an OD or wall are never guessed: they are shown as skipped.'),
     HelpStep('🔥',
         'Method: TIG root + MMA/FCAW/MAG fill, or a single process. The root is ~3 mm from the groove bottom.'),
     HelpStep('💰',

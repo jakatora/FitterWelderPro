@@ -158,7 +158,11 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
   @override
   void initState() {
     super.initState();
-    _scan = _withSegmentIds(widget.scan);
+    // Every segment gets an id up front: the planner falls back to a
+    // positional id for an unnamed one, and a positional id cannot be
+    // matched back onto the scan once the route has been reordered — a
+    // correction would land on the wrong pipe.
+    _scan = scanWithSegmentIds(widget.scan);
 
     final first = planFromScan(
       _scan,
@@ -414,32 +418,6 @@ class _ScanReviewScreenState extends State<ScanReviewScreen> {
     List<AiComponent>? components,
   }) =>
       _scan.copyWith(segments: segments, components: components);
-
-  /// Gives every segment an id.
-  ///
-  /// The planner falls back to a positional id for an unnamed segment, and a
-  /// positional id cannot be matched back onto the scan once the route has
-  /// been reordered — a correction would land on the wrong pipe. Naming them
-  /// up front keeps the mapping exact.
-  AiScanResult _withSegmentIds(AiScanResult scan) {
-    final used = scan.segments.map((s) => s.id).where((id) => id.isNotEmpty).toSet();
-    var n = 0;
-    var changed = false;
-    final segments = scan.segments.map((s) {
-      if (s.id.isNotEmpty) return s;
-      changed = true;
-      String candidate;
-      do {
-        n++;
-        candidate = 'seg_$n';
-      } while (used.contains(candidate));
-      used.add(candidate);
-      return s.copyWith(id: candidate);
-    }).toList();
-
-    if (!changed) return scan;
-    return scan.copyWith(segments: segments);
-  }
 
   // ── Save ────────────────────────────────────────────────────────────────
 
