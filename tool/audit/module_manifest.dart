@@ -333,7 +333,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Przelicznik ISO 18265 tab. A.1: 250 HV = 22,2 HRC = 238 HB = 99,5 HRB, Rm ≈ 800 MPa. Limit NACE MR0175/ISO 15156-2:2020 250 HV: 22 HRC ≈ 248,8 HV → OK, werdykt zielony; 250,04 HV → przekroczony, max „250,1 HV”; seria 240 HV + 260 HV + 21 HRC → czerwony (1 z 3); 15 HRC (tablica od 20,3) → poza zakresem, nie zielony; 260 wpisane jako HRC → błędna wartość. Preset EN ISO 15614-1 gr. 1–2 bez obróbki 380 HV10 → 300 HV OK; preset 22 HRC → 300 HV ≈ 29,8 HRC przekroczony. Własny limit pusty / 0 / „1,2,3” → brak werdyktu; 230 HB → 240 HV ≈ 228,0 HB OK. Stal nierdzewna: 20 HRC przy limicie w HV → bez oceny.',
+          'Przelicznik ISO 18265 tab. A.1: 250 HV = 22,2 HRC = 238 HB = 99,5 HRB, Rm ≈ 800 MPa. Limit NACE MR0175/ISO 15156-2:2020 250 HV: 22 HRC ≈ 248,8 HV → OK, werdykt zielony; 250,04 HV → przekroczony, max „250,1 HV”; seria 240 HV + 260 HV + 21 HRC → czerwony (1 z 3); 15 HRC (tablica od 20,3) → poza zakresem, nie zielony; 260 wpisane jako HRC → błędna wartość. Preset EN ISO 15614-1:2004+A2:2012 gr. 1–2 bez obróbki 380 HV10 → 300 HV OK; gr. 4–5 po obróbce: 330 HV → przekroczony przy 320 HV10 (wyd. 2004+A2:2012), OK przy 350 HV10 (wyd. 2017, źródło wtórne); preset 22 HRC → 300 HV ≈ 29,8 HRC przekroczony. Własny limit pusty / 0 / „1,2,3” → brak werdyktu; 230 HB → 240 HV ≈ 228,0 HB OK; własny limit 300 HB przeżywa wybór presetu i restart. Stal nierdzewna: 240 HV z presetem NACE → BRAK OCENY (preset dla stali węglowych/niskostopowych); z własnym limitem 250 HV → OK; 20 HRC przy limicie w HV → bez oceny.',
       evidence: [
         'test/domain/welding/hardness_test.dart: wiersze kontrolne dokładnie jak w tablicy',
         'test/domain/welding/hardness_test.dart: bez ekstrapolacji — poza tablicą null',
@@ -349,6 +349,11 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/hardness/hardness_page_test.dart: własny limit: pusty albo 0 → brak werdyktu, nigdy zielony',
         'test/features/hardness/hardness_page_test.dart: stal nierdzewna: bez przeliczeń, inna skala bez oceny',
         'test/features/hardness/hardness_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez overflow',
+        'test/domain/welding/hardness_test.dart: wydanie w tytule i źródle; wyd. 2004 nie jako 2017',
+        'test/domain/welding/hardness_test.dart: preset dla stali węglowych przy nierdzewnej → brak oceny',
+        'test/features/hardness/hardness_page_test.dart: EN ISO 15614-1 gr. 4–5 po OC: 330 HV — 2004 przekroczony, 2017 OK',
+        'test/features/hardness/hardness_page_test.dart: nierdzewna + preset dla stali węglowych → BRAK OCENY z powodem',
+        'test/features/hardness/hardness_page_test.dart: własny limit przeżywa preset i restart; pusty tekst go nie kasuje',
       ]),
   ModuleAuditEntry(
       id: 'heat-input',
