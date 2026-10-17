@@ -25,6 +25,7 @@ void main() {
         filler: Iso9606Filler.coveringBasic,
         thicknessMm: 9),
     fm: Iso9606FmGroup.fm1,
+    parentGroup: '1.1',
     diameterMm: 168.3,
     position: Iso6947Position.hL045,
     backing: Iso9606Backing.ssNb,

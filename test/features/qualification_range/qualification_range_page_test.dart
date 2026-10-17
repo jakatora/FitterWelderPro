@@ -121,6 +121,8 @@ Future<void> _fillPipe141(WidgetTester tester, {String d = '60,3'}) async {
   await _tap(tester, 'qr-p1-141');
   await _enter(tester, 'qr-s1', '3');
   await _tap(tester, 'qr-fm-FM1');
+  // 141 obejmuje 142 (bez spoiwa) — tylko na grupie z próby (§5.6 uwaga).
+  await _enter(tester, 'qr-parent', '1.1');
   await _tap(tester, 'qr-back-ssNb');
 }
 
@@ -133,6 +135,8 @@ void main() {
     expect(find.text('EN ISO 9606-1 141 T BW FM1 S s3 D60,3 PH ss nb'),
         findsOneWidget);
     expect(_value(tester, 'process-0'), '141 (S), 142 (nm), 143 (M), 145 (S)');
+    await _reveal(tester, 'qr-value-parent');
+    expect(_value(tester, 'parent'), 'tylko grupa 1.1 (ISO/TR 15608)');
     await _reveal(tester, 'qr-value-positions');
     expect(_value(tester, 'thickness'), '3–6 mm');
     expect(_value(tester, 'diameter'), '≥ 30,15 mm');
@@ -160,8 +164,16 @@ void main() {
     expect(find.textContaining('Grubość próbki: wpisz liczbę większą od 0.'),
         findsOneWidget);
     expect(find.textContaining('NaN'), findsNothing);
-    // Pusta średnica.
+    // Pusta grupa materiału przy 141 (obejmuje 142 — §5.6 uwaga).
     await _enter(tester, 'qr-s1', '3');
+    await _enter(tester, 'qr-parent', '');
+    expect(_key('qr-result'), findsNothing);
+    await _reveal(tester, 'qr-problems');
+    expect(find.textContaining('Podaj grupę materiału rodzimego próby'),
+        findsOneWidget);
+    await _enter(tester, 'qr-parent', '1.1');
+    expect(_key('qr-problems'), findsNothing);
+    // Pusta średnica.
     await _enter(tester, 'qr-d', '');
     expect(_key('qr-result'), findsNothing);
     await _reveal(tester, 'qr-problems');
@@ -220,6 +232,7 @@ void main() {
     await _tap(tester, 'qr-p1-141');
     await _enter(tester, 'qr-s1', '3');
     await _tap(tester, 'qr-fm-FM1');
+    await _enter(tester, 'qr-parent', '1.1');
     await _tap(tester, 'qr-back-ssNb');
     await _reveal(tester, 'qr-value-positions');
     expect(_value(tester, 'positions'), 'PA, PC, PE');
@@ -288,6 +301,7 @@ void main() {
       await _tap(tester, 'qr-f2-otherCored');
       await _enter(tester, 'qr-s2', '12');
       await _tap(tester, 'qr-fm-FM5');
+      await _enter(tester, 'qr-parent', '8.1');
       await _tap(tester, 'qr-back-ssGb');
       await _tap(tester, 'qr-layers-threeOrMore');
       await _tap(tester, 'qr-supplementary');
@@ -295,6 +309,12 @@ void main() {
       await _reveal(tester, 'qr-save');
       await _reveal(tester, 'qr-disclaimer');
       expect(tester.takeException(), isNull, reason: lang.name);
+      // Dialog ograniczeń (długa lista) też mieści się na wąskim ekranie.
+      await _tap(tester, 'qr-save');
+      expect(_key('qr-limits-dialog'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: lang.name);
+      await tester.tap(_key('qr-limits-cancel'));
+      await tester.pumpAndSettle();
       // FW na rurze z pozycją PH.
       await _tap(tester, 'qr-type-fw');
       await _tap(tester, 'qr-pos-PH');
@@ -308,6 +328,9 @@ void main() {
   testWidgets('cele dotyku ≥ 48 dp', (tester) async {
     await _pump(tester);
     await _fillPipe141(tester);
+    await _reveal(tester, 'qr-parent');
+    expect(tester.getSize(_key('qr-parent')).height,
+        greaterThanOrEqualTo(kMinTapTarget));
     await _tap(tester, 'qr-p1-135');
     final keys = [
       'qr-product-plate',
@@ -389,16 +412,32 @@ void main() {
       await _fillPipe141(tester);
       await _tap(tester, 'qr-save');
 
+      // Najpierw obowiązkowy dialog: czego rejestr nie sprawdzi.
+      expect(_key('qr-limits-dialog'), findsOneWidget);
+      expect(find.byType(CertificateEditPage), findsNothing);
+      expect(
+          find.text('• grań: tylko ss nb, ss mb, bs, ss gb, ss fb (NIE ci) — '
+              'tab. 11'),
+          findsOneWidget);
+      expect(
+          find.textContaining('142 (bez spoiwa): tylko na grupie 1.1 — NIE '
+              'wpisany do procesów rejestru'),
+          findsOneWidget);
+      await tester.tap(_key('qr-limits-ok'));
+      await tester.pumpAndSettle();
+
       // Nowy certyfikat (nie edycja istniejącego) z wypełnionym zakresem.
       expect(find.byType(CertificateEditPage), findsOneWidget);
       expect(find.text('Nowy certyfikat'), findsOneWidget);
       String text(String label) =>
           tester.widget<TextField>(field(label)).controller!.text;
-      expect(text('Proces(y)'), '141, 142, 143, 145');
+      expect(text('Proces(y)'), '141, 143, 145');
       expect(text('Grubość od'), '3');
       expect(text('Średnica D od'), '30,15');
       expect(text('Pozycje (zakres)'), 'PA, PE, PF, PH');
-      expect(text('Spoiwo / typ'), 'FM1, FM2 · 141: S, M, bez spoiwa (nm)');
+      expect(text('Spoiwo / typ'), 'FM1, FM2 · 141: S · 143: M · 145: S');
+      expect(text('Uwagi'),
+          startsWith('OGRANICZENIA — rejestr ich nie sprawdza:\n• grań: tylko '));
 
       // Szkic to praca do stracenia — wyjście pyta.
       await tester.tap(find.byTooltip('Wstecz'));
@@ -419,17 +458,48 @@ void main() {
       final c = all!.single;
       expect(c.id, isNotEmpty);
       expect(c.certNo, 'PL-141-7');
-      expect(c.processes, '141, 142, 143, 145');
+      expect(c.processes, '141, 143, 145');
       expect(c.thicknessMinMm, 3);
       expect(c.thicknessMaxMm, 6);
       expect(c.diameterMinMm, 30.15);
       expect(c.diameterMaxMm, isNull);
       expect(c.positions, 'PA, PE, PF, PH');
       expect(c.jointKinds, {WeldJointKind.bw});
+      expect(c.notes, startsWith('OGRANICZENIA — rejestr ich nie sprawdza:'));
       expect(c.notes, contains('EN ISO 9606-1 141 T BW FM1 S s3 D60,3 PH ss nb'));
       // Z powrotem na ekranie zakresu, z potwierdzeniem.
       expect(find.byType(QualificationRangePage), findsOneWidget);
       expect(find.text('Zapisano w rejestrze uprawnień.'), findsOneWidget);
+    });
+
+    testWidgets('dialog ograniczeń jest obowiązkowy: Anuluj — bez formularza',
+        (tester) async {
+      await _pump(tester, size: const Size(900, 2600));
+      // 135 na blasze, natrysk, ss mb — ograniczenia, których rejestr nie
+      // sprawdzi.
+      await _tap(tester, 'qr-pos-PA');
+      await _tap(tester, 'qr-p1-135');
+      await _tap(tester, 'qr-tr1-other');
+      await _enter(tester, 'qr-s1', '8');
+      await _tap(tester, 'qr-fm-FM1');
+      await _tap(tester, 'qr-back-ssMb');
+      await _tap(tester, 'qr-save');
+      expect(_key('qr-limits-dialog'), findsOneWidget);
+      expect(
+          find.text('• grań: tylko ss mb, bs (NIE ss nb, ss gb, ss fb) — '
+              'tab. 11'),
+          findsOneWidget);
+      expect(find.textContaining('NIE zwarciowe przenoszenie metalu'),
+          findsOneWidget);
+      // Tap obok dialogu go nie zamyka.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(_key('qr-limits-dialog'), findsOneWidget);
+      await tester.tap(_key('qr-limits-cancel'));
+      await tester.pumpAndSettle();
+      expect(_key('qr-limits-dialog'), findsNothing);
+      expect(find.byType(CertificateEditPage), findsNothing);
+      expect(find.byType(QualificationRangePage), findsOneWidget);
     });
   });
 }

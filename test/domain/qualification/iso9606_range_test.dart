@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/qualification/iso9606_range.dart';
 import 'package:cut_list_app/domain/qualification/weld_process.dart';
+import 'package:cut_list_app/domain/qualification/welder_certificate.dart';
 import 'package:cut_list_app/domain/wps/weld_range_check.dart';
 
 const _p = Iso9606Process.values;
@@ -40,7 +41,9 @@ Iso9606Sample _bw({
   bool supplementary = false,
   bool companion = false,
   Iso9606GasDirection? gas,
-  String parent = '',
+  // 141 / 311 / 15 obejmują spawanie bez spoiwa → grupa materiału z próby
+  // jest wymagana (§5.6 uwaga).
+  String parent = '1.1',
 }) =>
     Iso9606Sample(
       product: product,
@@ -114,6 +117,24 @@ void main() {
       expect(iso9606ButtThickness(4, oxyacetylene: true),
           const MmRange(3, 6));
       expect(iso9606ButtThickness(12, oxyacetylene: true), const MmRange(3));
+    });
+
+    test('311 s ≥ 12: wiersz tab. 6 bez przypisu 311 → ≥ 3 i notka', () {
+      // Tekst normy: „s ≥ 12^e,f → ≥ 3^f”; 1,5·s to przypisy c, d tylko
+      // wierszy s < 3 i 3 ≤ s < 12.
+      expect(iso9606ButtThickness(11.99, oxyacetylene: true),
+          const MmRange(3, 17.985));
+      final r = _range(_bw(
+          first: _proc(Iso9606Process.p311, 12),
+          gas: Iso9606GasDirection.leftward));
+      expect(_line(r, 'thickness'), '≥ 3 mm');
+      expect(r.notes.any((n) => n.pl.startsWith('311: tab. 6 ogranicza')),
+          isTrue);
+      final thin = _range(_bw(
+          first: _proc(Iso9606Process.p311, 8),
+          gas: Iso9606GasDirection.leftward));
+      expect(_line(thin, 'thickness'), '3–12 mm');
+      expect(thin.notes.any((n) => n.pl.startsWith('311: tab. 6')), isFalse);
     });
 
     test('s ≥ 12 wymaga min. 3 warstw (przypis e) — inaczej brak wyniku', () {
@@ -228,11 +249,54 @@ void main() {
       expect(r.processes.single.processes[Iso9606Process.p143],
           [Iso9606Filler.metalCored]);
       expect(_line(r, 'filler-0'), 'S, M, bez spoiwa (nm)');
+      // §5.6 uwaga: bez spoiwa tylko na grupie materiału z próby.
+      expect(_line(r, 'parent'), 'tylko grupa 1.1 (ISO/TR 15608)');
+      expect(_line(r, 'parent-filler'), 'grupy 1–11 (ISO/TR 15608)');
       final auto = _range(_bw(
           first: _proc(Iso9606Process.p142, 2), parent: '8.1'));
       expect(auto.processes.single.processes.keys, [Iso9606Process.p142]);
       expect(auto.parentGroup, '8.1');
       expect(auto.fmGroups, isEmpty);
+    });
+
+    test('§5.6: próba ze spoiwem obejmująca 142 wymaga grupy materiału z próby',
+        () {
+      // 141 / 143 / 145 → 142 (§5.2), 311 i 15 ze spoiwem → bez spoiwa (§5.6).
+      for (final p in [
+        _proc(Iso9606Process.p141, 3),
+        _proc(Iso9606Process.p143, 3),
+        _proc(Iso9606Process.p145, 3),
+        _proc(Iso9606Process.p15, 3),
+      ]) {
+        expect(evaluateIso9606(_bw(first: p, parent: '')).problems,
+            [Iso9606Problem.parentGroup],
+            reason: p.process!.code);
+      }
+      expect(
+          evaluateIso9606(_bw(
+                  first: _proc(Iso9606Process.p311, 3),
+                  gas: Iso9606GasDirection.leftward,
+                  parent: ''))
+              .problems,
+          [Iso9606Problem.parentGroup]);
+      // Procesy bez spawania bez spoiwa — grupa niepotrzebna.
+      for (final p in [
+        _proc(Iso9606Process.p111, 3),
+        _proc(Iso9606Process.p135, 3),
+        _proc(Iso9606Process.p121, 3),
+      ]) {
+        expect(evaluateIso9606(_bw(first: p, parent: '')).problems, isEmpty,
+            reason: p.process!.code);
+      }
+      // Z grupą: 142 objęty, ale tylko na niej — linia i notka.
+      final r = _range(_bw(parent: '8.1', fm: Iso9606FmGroup.fm5));
+      expect(r.processes.single.processes.keys, contains(Iso9606Process.p142));
+      expect(_line(r, 'parent'), 'tylko grupa 8.1 (ISO/TR 15608)');
+      expect(
+          r.notes.any((n) => n.pl.startsWith(
+              'Spawanie bez spoiwa (142) — objęte (§5.2, §5.6), ale tylko na '
+              'grupie materiału z próby: 8.1')),
+          isTrue);
     });
 
     test('135 ↔ 138; 121 S → 121, 125; 125 B → bez 121; 136, 111 osobno', () {
@@ -269,6 +333,38 @@ void main() {
               filler: Iso9606Filler.solid,
               thicknessMm: 8)));
       expect(missing.problems, [Iso9606Problem.transfer]);
+    });
+
+    test('siatki tab. 4, 5, 12 i §5.2 (przenoszenie) jak w tekście normy', () {
+      const ar = Iso9606Filler.coveringRutile;
+      const cb = Iso9606Filler.coveringBasic;
+      const cc = Iso9606Filler.coveringCellulosic;
+      const s = Iso9606Filler.solid;
+      const m = Iso9606Filler.metalCored;
+      const b = Iso9606Filler.basicCored;
+      const r = Iso9606Filler.otherCored;
+      const nm = Iso9606Filler.none;
+      // Tab. 4 (wiersz → kolumny ●) + §5.6 (ze spoiwem → też bez spoiwa).
+      expect(kIso9606FillerRange[ar], {ar, nm});
+      expect(kIso9606FillerRange[cb], {ar, cb, nm});
+      expect(kIso9606FillerRange[cc], {cc, nm});
+      // Tab. 5.
+      expect(kIso9606FillerRange[s], {s, m, nm});
+      expect(kIso9606FillerRange[m], {s, m, nm});
+      expect(kIso9606FillerRange[b], {b, r, nm});
+      expect(kIso9606FillerRange[r], {r, nm});
+      expect(kIso9606FillerRange[nm], {nm});
+      // Tab. 12.
+      expect(kIso9606LayerRange[Iso9606FilletLayers.sl],
+          {Iso9606FilletLayers.sl});
+      expect(kIso9606LayerRange[Iso9606FilletLayers.ml],
+          {Iso9606FilletLayers.sl, Iso9606FilletLayers.ml});
+      // §5.2: zwarciowe dotyczy 131, 135 i 138 — nie 136.
+      expect(
+          Iso9606Process.values
+              .where((p) => p.hasTransferMode)
+              .map((p) => p.code),
+          ['131', '135', '138']);
     });
 
     test('ISO 9606-1 §4.2 — 14 procesów', () {
@@ -383,6 +479,7 @@ void main() {
             filler: Iso9606Filler.solid,
             thicknessMm: 3),
         fm: Iso9606FmGroup.fm1,
+        parentGroup: '1.1',
         position: Iso6947Position.pb,
       ));
       expect(e.problems, [Iso9606Problem.filletLayers]);
@@ -503,6 +600,30 @@ void main() {
       final pg = _range(_bw(position: Iso6947Position.pg));
       expect(pg.rotatingPipePositions, isEmpty);
       expect(_line(pg, 'product'), isNot(contains('obracane')));
+    });
+
+    test('§5.3 c: obracane D ≥ 75 tylko PA, PB, PC, PD ∩ zakres (tab. 9 / 10)',
+        () {
+      // Tekst normy: „…rotating pipes D ≥ 75 mm for welding positions PA, PB,
+      // PC, and PD; in accordance with Tables 9 and 10”.
+      List<String> rot(Iso9606Sample s) =>
+          _pos(_range(s).rotatingPipePositions!);
+      // Interpretacja 2016: BW PA → PA; FW PB → PA, PB.
+      expect(rot(_bw(position: Iso6947Position.pa)), ['PA']);
+      expect(rot(_fw(position: Iso6947Position.pb)), ['PA', 'PB']);
+      // FW PD / PE: zakres PA–PE, ale PE nie ma na liście §5.3 c.
+      expect(rot(_fw(position: Iso6947Position.pd)), ['PA', 'PB', 'PC', 'PD']);
+      expect(rot(_fw(position: Iso6947Position.pe)), ['PA', 'PB', 'PC', 'PD']);
+      // BW PE: PA, PC, PE → bez PE.
+      expect(rot(_bw(position: Iso6947Position.pe)), ['PA', 'PC']);
+      // Rura — pole nie dotyczy.
+      expect(
+          _range(_bw(
+                  product: Iso9606Product.pipe,
+                  d: 60.3,
+                  position: Iso6947Position.pa))
+              .rotatingPipePositions,
+          isNull);
     });
 
     test('rura bez średnicy, z nieczytelną albo za cienką ścianką → komunikat',
@@ -633,7 +754,9 @@ void main() {
               .problems,
           [Iso9606Problem.filler]);
       expect(
-          evaluateIso9606(_bw(first: _proc(Iso9606Process.p142, 2))).problems,
+          evaluateIso9606(
+                  _bw(first: _proc(Iso9606Process.p142, 2), parent: ''))
+              .problems,
           [Iso9606Problem.parentGroup]);
       expect(
           evaluateIso9606(
@@ -688,19 +811,28 @@ void main() {
   });
 
   group('szkic certyfikatu do rejestru', () {
-    List<WeldCheckField> scopeIssues(
-            WelderCoverage c) =>
-        c.certificates.single.issues
-            .where((i) => i.field != WeldCheckField.validity &&
-                i.field != WeldCheckField.continuity)
-            .map((i) => i.field)
-            .toList();
+    List<WeldCheckField> scopeIssues(WelderCoverage c) => c
+        .certificates.single.issues
+        .where((i) =>
+            i.field != WeldCheckField.validity &&
+            i.field != WeldCheckField.continuity)
+        .map((i) => i.field)
+        .toList();
+
+    WelderCoverage check(WelderCertificate c, WeldParameters w) =>
+        checkWelderCoverage(
+            weld: w, weldDate: DateTime(2026, 10, 17), certificates: [c]);
+
+    List<String> limitsPl(Iso9606Range r) =>
+        iso9606RegisterLimits(r).map((l) => l.pl).toList();
 
     test('141 T BW PH: pola i kontrola spoiny z rejestru', () {
       final r = _range(_bw(
           product: Iso9606Product.pipe, d: 60.3, position: Iso6947Position.ph));
       final c = iso9606CertificateDraft(r, en: false).certificate!;
-      expect(c.processes, '141, 142, 143, 145');
+      // 142 z próby ze spoiwem — tylko na grupie 1.1, której rejestr przy
+      // spoiwie nie sprawdza → nie trafia do procesów rejestru.
+      expect(c.processes, '141, 143, 145');
       expect(c.thicknessMinMm, 3);
       expect(c.thicknessMaxMm, 6);
       expect(c.diameterMinMm, 30.15);
@@ -708,36 +840,108 @@ void main() {
       expect(c.positions, 'PA, PE, PF, PH');
       expect(c.jointKinds, {WeldJointKind.bw});
       expect(c.materialGroup, '');
-      expect(c.filler, 'FM1, FM2 · 141: S, M, bez spoiwa (nm)');
+      expect(c.filler, 'FM1, FM2 · 141: S · 143: M · 145: S');
+      expect(c.notes, startsWith('OGRANICZENIA — rejestr ich nie sprawdza:\n'));
       expect(c.notes, contains('EN ISO 9606-1 141 T BW FM1 S s3 D60,3 PH ss nb'));
 
-      WelderCoverage check(WeldParameters w) => checkWelderCoverage(
-          weld: w, weldDate: DateTime(2026, 10, 17), certificates: [c]);
       // W zakresie.
       expect(
-          scopeIssues(check(const WeldParameters(
-              process: '141',
-              thicknessMm: 5,
-              outsideDiameterMm: 60.3,
-              position: 'PH',
-              jointKind: WeldJointKind.bw))),
+          scopeIssues(check(
+              c,
+              const WeldParameters(
+                  process: '141',
+                  thicknessMm: 5,
+                  outsideDiameterMm: 60.3,
+                  position: 'PH',
+                  jointKind: WeldJointKind.bw))),
           isEmpty);
-      // Poza: proces, grubość, średnica, pozycja, FW.
-      expect(scopeIssues(check(const WeldParameters(process: '135'))),
+      // Poza: proces (także 142 bez grupy), grubość, średnica, pozycja, FW.
+      expect(scopeIssues(check(c, const WeldParameters(process: '135'))),
           [WeldCheckField.process]);
-      expect(scopeIssues(check(const WeldParameters(thicknessMm: 6.5))),
+      expect(scopeIssues(check(c, const WeldParameters(process: '142'))),
+          [WeldCheckField.process]);
+      expect(scopeIssues(check(c, const WeldParameters(thicknessMm: 6.5))),
           [WeldCheckField.thickness]);
-      expect(scopeIssues(check(const WeldParameters(outsideDiameterMm: 30))),
+      expect(
+          scopeIssues(check(c, const WeldParameters(outsideDiameterMm: 30))),
           [WeldCheckField.diameter]);
-      expect(scopeIssues(check(const WeldParameters(position: 'PC'))),
+      expect(scopeIssues(check(c, const WeldParameters(position: 'PC'))),
           [WeldCheckField.position]);
       expect(
           scopeIssues(
-              check(const WeldParameters(jointKind: WeldJointKind.fw))),
+              check(c, const WeldParameters(jointKind: WeldJointKind.fw))),
           [WeldCheckField.jointKind]);
     });
 
-    test('dwa procesy → grubość jako część wspólna (3–6), oba procesy', () {
+    test('ograniczenia, których rejestr nie sprawdza — dialog i początek notatki',
+        () {
+      // 135 ss mb, natrysk, rura D 20 (nie obejmuje blach).
+      final r = _range(_bw(
+        product: Iso9606Product.pipe,
+        d: 20,
+        position: Iso6947Position.pa,
+        first: _proc(Iso9606Process.p135, 3,
+            transfer: Iso9606Transfer.other),
+        backing: Iso9606Backing.ssMb,
+      ));
+      final limits = limitsPl(r);
+      expect(limits, contains('grań: tylko ss mb, bs (NIE ss nb, ss gb, ss fb) — tab. 11'));
+      expect(limits,
+          contains('NIE zwarciowe przenoszenie metalu (dip) — próba bez zwarciowego, §5.2'));
+      expect(limits, contains('tylko rury D 20–40 mm (NIE blachy) — §5.3 a'));
+      expect(limits.any((l) => l.startsWith('spoiwo tylko z grup FM1, FM2')),
+          isTrue);
+      final draft = iso9606CertificateDraft(r, en: false);
+      expect(draft.limits.map((l) => l.pl), limits);
+      final c = draft.certificate!;
+      final head = c.notes.split('\n').take(limits.length + 1).toList();
+      expect(head.first, 'OGRANICZENIA — rejestr ich nie sprawdza:');
+      expect(head.skip(1), [for (final l in limits) '• $l']);
+      // EN — ten sam blok po angielsku.
+      final en = iso9606CertificateDraft(r, en: true).certificate!;
+      expect(en.notes, startsWith('LIMITATIONS — not checked by the register:\n'));
+      expect(en.notes, contains('• root: only ss mb, bs (NOT ss nb, ss gb, ss fb)'));
+
+      // Kontrola rejestru NIE widzi podkładki, przenoszenia ani blachy —
+      // spoina na blasze (bez średnicy) przechodzi; dlatego ograniczenia
+      // muszą stać w notatce.
+      expect(
+          scopeIssues(check(
+              c,
+              const WeldParameters(
+                  process: '135',
+                  thicknessMm: 4,
+                  jointKind: WeldJointKind.bw,
+                  position: 'PA'))),
+          isEmpty);
+    });
+
+    test('typ otuliny, grań ss nb, odgałęzienia, sl, 311 — w ograniczeniach', () {
+      final mma = limitsPl(_range(_bw(
+          first: _proc(Iso9606Process.p111, 10,
+              filler: Iso9606Filler.coveringBasic))));
+      expect(mma, contains('111: tylko A, RA, RB, RC, RR, R, B (NIE C) — tab. 4'));
+      expect(mma.any((l) => l.startsWith('grań bez podkładki (ss nb) tylko tym typem')),
+          isTrue);
+      expect(mma, contains('NIE odgałęzienia (tylko z próby czołowej na rurze) — §5.4 a, c'));
+      // 141 ss nb: ci nie wynika z ss nb (tab. 11).
+      final tig = limitsPl(_range(_bw()));
+      expect(tig, contains('grań: tylko ss nb, ss mb, bs, ss gb, ss fb (NIE ci) — tab. 11'));
+      expect(tig, contains('143: tylko M (NIE B, R, P, V, W, Y, Z) — tab. 5'));
+      expect(tig, contains('142 (bez spoiwa): tylko na grupie 1.1 — NIE wpisany do '
+          'procesów rejestru (rejestr nie sprawdzi grupy) — §5.6 uwaga'));
+      final fw = limitsPl(_range(_fw()));
+      expect(fw, contains('spoiny pachwinowe tylko jednowarstwowe (sl), NIE '
+          'wielowarstwowe (ml) — tab. 12'));
+      final gas = limitsPl(_range(_bw(
+          first: _proc(Iso9606Process.p311, 2),
+          gas: Iso9606GasDirection.leftward)));
+      expect(gas, contains('311: tylko lw (NIE rw) — §5.9'));
+      expect(gas, contains('311 bez spoiwa: tylko na grupie 1.1 — §5.6 uwaga'));
+    });
+
+    test('dwa procesy → do rejestru tylko proces 1; 111 sam nie przechodzi kontroli',
+        () {
       final r = _range(_bw(
         product: Iso9606Product.pipe,
         d: 168.3,
@@ -746,21 +950,34 @@ void main() {
         second: _proc(Iso9606Process.p111, 9,
             filler: Iso9606Filler.coveringBasic),
       ));
-      final c = iso9606CertificateDraft(r, en: false).certificate!;
+      expect(iso9606RegisterProcesses(r).map((p) => p.code), ['141', '143', '145']);
+      final draft = iso9606CertificateDraft(r, en: false);
+      final c = draft.certificate!;
+      expect(c.processes, '141, 143, 145');
       expect(c.thicknessMinMm, 3);
       expect(c.thicknessMaxMm, 6);
-      expect(c.processes, '111, 141, 142, 143, 145');
-      expect(c.notes, contains('część wspólna'));
+      expect(c.notes, contains('Rejestr: procesy i grubość tylko procesu 1 (141).'));
+      expect(
+          draft.limits.any((l) => l.pl.startsWith(
+              '111: tylko jako wypełnienie na grani 141 (złącze s₁ + s₂ 3–24 mm')),
+          isTrue);
+      // Proces 2 nie poszerza kontroli: ani sam, ani w złączu.
+      expect(scopeIssues(check(c, const WeldParameters(process: '111'))),
+          [WeldCheckField.process]);
+      expect(scopeIssues(check(c, const WeldParameters(process: '141 + 111'))),
+          [WeldCheckField.process]);
+      expect(scopeIssues(check(c, const WeldParameters(process: '141'))),
+          isEmpty);
     });
 
-    test('brak części wspólnej → nie zapisuje (komunikat)', () {
-      // 141 s 1 → 1–3; 111 s 20 → ≥ 3: część wspólna to tylko 3 mm (OK);
-      // 311 s 1 → 1–1,5; 111 s 20 → ≥ 3: pusto.
+    test('brak części wspólnej BW i FW → nie zapisuje (komunikat)', () {
+      // 311 s 1 → 1–1,5; dodatkowa FW z t = 21 → ≥ 3: pusto.
       final r = _range(_bw(
         first: _proc(Iso9606Process.p311, 1),
         second: _proc(Iso9606Process.p111, 20,
             filler: Iso9606Filler.coveringBasic),
         gas: Iso9606GasDirection.rightward,
+        supplementary: true,
       ));
       final d = iso9606CertificateDraft(r, en: false);
       expect(d.certificate, isNull);
@@ -790,11 +1007,18 @@ void main() {
       expect(c.notes, contains('D ≥ 500 mm'));
     });
 
-    test('bez spoiwa → grupa materiału z próby, bez FM', () {
+    test('bez spoiwa → grupa materiału z próby w rejestrze, bez FM', () {
       final r = _range(_bw(first: _proc(Iso9606Process.p142, 2), parent: '8.1'));
       final c = iso9606CertificateDraft(r, en: false).certificate!;
+      expect(c.processes, '142');
       expect(c.materialGroup, '8.1');
       expect(c.filler, '142: bez spoiwa (nm)');
+      // Grupę rejestr sprawdza — nie trzeba jej w ograniczeniach.
+      expect(limitsPl(r).where((l) => l.contains('§5.6')), isEmpty);
+      expect(
+          scopeIssues(check(
+              c, const WeldParameters(process: '142', materialGroup: '1.1'))),
+          [WeldCheckField.materialGroup]);
     });
   });
 }
