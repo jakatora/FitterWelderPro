@@ -58,7 +58,9 @@ String electrodeEventLabel(BatchEvent e, ElectrodeBatch b, {required bool en}) {
       en ? 'Scrapped (exposed $exp)' : 'Złom (na powietrzu $exp)',
     BatchEventKind.limitChanged => en
         ? 'Limit changed to ${formatSpan(Duration(minutes: e.value ?? 0))}'
-        : 'Zmieniono limit na ${formatSpan(Duration(minutes: e.value ?? 0))}',
+            '${e.exceeded ? ' (batch was over its limit)' : ''}'
+        : 'Zmieniono limit na ${formatSpan(Duration(minutes: e.value ?? 0))}'
+            '${e.exceeded ? ' (partia była przekroczona)' : ''}',
   };
 }
 
@@ -73,10 +75,17 @@ String electrodeStatusLine(ElectrodeBatch b, DateTime now, {required bool en}) {
   final s = b.stateAt(now);
   final label = electrodeStateLabel(s, en: en);
   final left = b.remainingAt(now);
+  // Bez `!`: partia z niespójnego zapisu nie może wywalić dziennika.
+  final end = b.deadline;
+  final until = end == null
+      ? ''
+      : en
+          ? ' (until ${formatHm(end)})'
+          : ' (do ${formatHm(end)})';
   return switch (s) {
     ExposureState.ok || ExposureState.endingSoon => en
-        ? '$label — ${formatSpan(left)} left (until ${formatHm(b.deadline!)})'
-        : '$label — zostało ${formatSpan(left)} (do ${formatHm(b.deadline!)})',
+        ? '$label — ${formatSpan(left)} left$until'
+        : '$label — zostało ${formatSpan(left)}$until',
     ExposureState.exceeded => en
         ? '$label — over by ${formatSpan(left)}'
         : '$label — o ${formatSpan(left)}',

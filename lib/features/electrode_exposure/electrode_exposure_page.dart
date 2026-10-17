@@ -122,6 +122,10 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
           now: widget.now(), english: _en);
 
   Future<void> _commit(List<ElectrodeBatch> next) async {
+    // Po zamknięciu ekranu (np. „Cofnij” w snackbarze, który żyje dalej
+    // w ScaffoldMessengerze aplikacji) — żadnego setState; cofnięcie po
+    // wyjściu idzie przez [_undoBatch] wprost na zapisie.
+    if (!mounted) return;
     setState(() => _batches = next);
     try {
       await widget.store.save(next);
@@ -157,32 +161,64 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
     unawaited(Haptic.saved());
     await _commit([..._batches, batch]);
     if (!mounted) return;
+    final end = batch.deadline ?? batch.takenOutAt.add(batch.limit);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Start odliczania: ${batch.label(en: false)} — limit do '
-                  '${formatHm(batch.deadline!)}.',
+                  '${formatHm(end)}.',
               en: 'Countdown started: ${batch.label(en: true)} — limit until '
-                  '${formatHm(batch.deadline!)}.'))));
+                  '${formatHm(end)}.'))));
   }
 
   Future<void> _replace(ElectrodeBatch next, {String? undoText}) async {
-    final before = _batches;
+    final previous = _batches.where((b) => b.id == next.id).firstOrNull;
     await _commit([
       for (final b in _batches) b.id == next.id ? next : b,
     ]);
     unawaited(Haptic.saved());
-    if (undoText == null || !mounted) return;
+    if (undoText == null || previous == null || !mounted) return;
+    _showUndo(undoText, previous);
+  }
+
+  /// Snackbar „Cofnij” dla JEDNEJ partii — przywraca tylko ją, w bieżącej
+  /// liście (zmiany innych partii zrobione w międzyczasie zostają).
+  void _showUndo(String text, ElectrodeBatch previous) {
+    final undo = _undoBatch(previous);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(undoText),
+        content: Text(text),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
-          onPressed: () => unawaited(_commit(before)),
+          onPressed: () => unawaited(undo()),
         ),
       ));
+  }
+
+  /// Cofnięcie przygotowane z góry: zależności zebrane teraz, bo snackbar
+  /// może zostać kliknięty już po zamknięciu ekranu.
+  Future<void> Function() _undoBatch(ElectrodeBatch previous) {
+    final store = widget.store;
+    final reminders = _reminders;
+    final now = widget.now;
+    final english = _en;
+    return () async {
+      if (mounted) {
+        await _commit(restoreBatch(_batches, previous));
+        return;
+      }
+      try {
+        final next = restoreBatch(await store.load(), previous);
+        await store.save(next);
+        await rescheduleElectrodeReminders(reminders, next,
+            now: now(), english: english);
+      } catch (_) {
+        // Cofnięcie po wyjściu z ekranu to wygoda — błąd nie może wywalić
+        // aplikacji.
+      }
+    };
   }
 
   Future<void> _toOven(ElectrodeBatch b) =>
@@ -253,33 +289,41 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
       );
 
   Future<void> _delete(ElectrodeBatch b) async {
-    final before = _batches;
+    final previous = _batches.where((x) => x.id == b.id).firstOrNull ?? b;
     await _commit([
       for (final x in _batches)
         if (x.id != b.id) x
     ]);
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(context.tr(
-            pl: 'Usunięto partię z dziennika.', en: 'Batch removed from log.')),
-        action: SnackBarAction(
-          label: context.tr(pl: 'Cofnij', en: 'Undo'),
-          onPressed: () => unawaited(_commit(before)),
-        ),
-      ));
+    _showUndo(
+        context.tr(
+            pl: 'Usunięto partię z dziennika.', en: 'Batch removed from log.'),
+        previous);
   }
 
   Future<void> _editLimit(ElectrodeBatch b) async {
     final result = await showDialog<(int, int)>(
       context: context,
-      builder: (_) => _LimitDialog(batch: b),
+      builder: (_) =>
+          _LimitDialog(batch: b, canRaise: b.canRaiseLimitAt(widget.now())),
     );
     if (result == null || !mounted) return;
     final (minutes, maxRedries) = result;
-    await _replace(
-        b.withLimit(minutes, widget.now()).withMaxRedries(maxRedries));
+    // Bieżąca wersja partii (mogła się zmienić, gdy dialog był otwarty).
+    final current = _batches.where((x) => x.id == b.id).firstOrNull;
+    if (current == null) return;
+    try {
+      await _replace(
+          current.withLimit(minutes, widget.now()).withMaxRedries(maxRedries));
+    } on StateError {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(context.tr(
+              pl: 'Partia jest przekroczona — limit można tylko obniżyć. '
+                  'Zostaje ponowne suszenie albo złom.',
+              en: 'The batch is over its limit — the limit can only be '
+                  'lowered. Re-dry or scrap.'))));
+    }
   }
 
   Future<void> _toggleReminders(bool on) async {
@@ -395,7 +439,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
           style: const TextStyle(fontSize: 12.5, color: kTextSec, height: 1.4),
         ),
         const SizedBox(height: 8),
-        if (_reminders.supported)
+        if (_reminders.supported) ...[
           Material(
             color: Colors.transparent,
             child: SwitchListTile(
@@ -408,8 +452,22 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
                   pl: 'Przypomnienia przed końcem limitu i w chwili końca',
                   en: 'Reminders before the limit ends and when it ends')),
             ),
-          )
-        else if (!kIsWeb)
+          ),
+          // Android planuje bez SCHEDULE_EXACT_ALARM (inexactAllowWhileIdle):
+          // w trybie oszczędzania baterii powiadomienie bywa spóźnione.
+          Text(
+            context.tr(
+                pl: 'Telefon może dostarczyć przypomnienie kilka minut '
+                    'później (oszczędzanie baterii). Liczy się licznik na '
+                    'ekranie. Przy limitach do 1 h przypominamy też w połowie '
+                    'czasu.',
+                en: 'The phone may deliver a reminder a few minutes late '
+                    '(battery saving). The timer on screen is what counts. '
+                    'For limits up to 1 h we also remind you halfway.'),
+            key: const ValueKey('electrode-reminder-note'),
+            style: const TextStyle(fontSize: 12, color: kTextMut, height: 1.35),
+          ),
+        ] else if (!kIsWeb)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
@@ -615,13 +673,18 @@ class _BatchCard extends StatelessWidget {
     final state = b.stateAt(now);
     final color = electrodeStateColor(state);
     final left = b.remainingAt(now);
+    // Bez `!` — zapis z niespójnym stanem (naprawiany w fromJson) i tak nie
+    // może wywalić ekranu.
+    final ovenSince = b.ovenSince ?? now;
+    final start = b.exposureStart ?? b.takenOutAt;
+    final end = b.deadline ?? start.add(b.limit - b.priorExposure);
     final headline = switch (state) {
       ExposureState.exceeded => context.tr(
           pl: 'PRZEKROCZONO o ${formatSpan(left)}',
           en: 'OVER by ${formatSpan(left)}'),
       ExposureState.inOven => context.tr(
-          pl: 'W piecyku od ${formatHm(b.ovenSince!)}',
-          en: 'In the oven since ${formatHm(b.ovenSince!)}'),
+          pl: 'W piecyku od ${formatHm(ovenSince)}',
+          en: 'In the oven since ${formatHm(ovenSince)}'),
       _ => context.tr(
           pl: 'zostało ${formatSpan(left)}', en: '${formatSpan(left)} left'),
     };
@@ -637,10 +700,10 @@ class _BatchCard extends StatelessWidget {
           en: 'Exposed ${formatSpan(b.exposureAt(now))} · limit '
               '${formatSpan(b.limit)}'),
       _ => context.tr(
-          pl: 'Start ${formatHm(b.exposureStart!)} · limit '
-              '${formatSpan(b.limit)} · koniec ${formatHm(b.deadline!)}',
-          en: 'Start ${formatHm(b.exposureStart!)} · limit '
-              '${formatSpan(b.limit)} · ends ${formatHm(b.deadline!)}'),
+          pl: 'Start ${formatHm(start)} · limit '
+              '${formatSpan(b.limit)} · koniec ${formatHm(end)}',
+          en: 'Start ${formatHm(start)} · limit '
+              '${formatSpan(b.limit)} · ends ${formatHm(end)}'),
     };
     final reset = b.resetRemainingAt(now);
 
@@ -970,8 +1033,12 @@ int? _parseHours(String text) {
 }
 
 class _LimitDialog extends StatefulWidget {
-  const _LimitDialog({required this.batch});
+  const _LimitDialog({required this.batch, required this.canRaise});
   final ElectrodeBatch batch;
+
+  /// `false` — partia przekroczona: wolno tylko obniżyć limit
+  /// ([ElectrodeBatch.canRaiseLimitAt]).
+  final bool canRaise;
 
   @override
   State<_LimitDialog> createState() => _LimitDialogState();
@@ -1004,13 +1071,32 @@ class _LimitDialogState extends State<_LimitDialog> {
   Widget build(BuildContext context) {
     final minutes = _parseHours(_hours.text);
     final redries = int.tryParse(_redries.text.trim());
-    final ok = minutes != null && redries != null && redries >= 0;
+    final raiseBlocked = !widget.canRaise &&
+        minutes != null &&
+        minutes > widget.batch.limitMinutes;
+    final ok =
+        minutes != null && !raiseBlocked && redries != null && redries >= 0;
+    final tableMinutes =
+        defaultLimitMinutes(widget.batch.electrode, widget.batch.source);
     return AlertDialog(
       title: Text(context.tr(pl: 'Limit partii', en: 'Batch limit')),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (!widget.canRaise)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  context.tr(
+                      pl: 'Partia jest przekroczona — limit można tylko '
+                          'obniżyć. Zostaje ponowne suszenie albo złom.',
+                      en: 'The batch is over its limit — the limit can only '
+                          'be lowered. Re-dry or scrap.'),
+                  key: const ValueKey('electrode-limit-locked'),
+                  style: const TextStyle(fontSize: 12.5, color: kFail),
+                ),
+              ),
             TextField(
               key: const ValueKey('electrode-limit-edit'),
               controller: _hours,
@@ -1022,11 +1108,19 @@ class _LimitDialogState extends State<_LimitDialog> {
                     pl: 'Czas na powietrzu', en: 'Atmospheric exposure'),
                 suffixText: 'h',
                 helperText: context.tr(
-                    pl: 'Z tabeli: ${formatSpan(Duration(minutes: defaultLimitMinutes(widget.batch.electrode, widget.batch.source)))}',
-                    en: 'Table: ${formatSpan(Duration(minutes: defaultLimitMinutes(widget.batch.electrode, widget.batch.source)))}'),
+                    pl: 'Z tabeli: ${formatSpan(Duration(minutes: tableMinutes))}',
+                    en: 'Table: ${formatSpan(Duration(minutes: tableMinutes))}'),
+                errorMaxLines: 3,
                 errorText: minutes == null
                     ? context.tr(pl: 'Podaj 0,1–168 h', en: 'Enter 0.1–168 h')
-                    : null,
+                    : raiseBlocked
+                        ? context.tr(
+                            pl: 'Nie więcej niż '
+                                '${formatSpan(widget.batch.limit)} — partia '
+                                'przekroczona.',
+                            en: 'No more than ${formatSpan(widget.batch.limit)} '
+                                '— the batch is over its limit.')
+                        : null,
                 border: const OutlineInputBorder(),
               ),
             ),
@@ -1136,10 +1230,9 @@ class _TakeOutPageState extends State<_TakeOutPage> {
       ),
     );
     if (picked == null || !mounted) return;
-    final now = widget.now();
-    var at = DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
-    // Godzina „z przyszłości” to wczoraj (nocna zmiana).
-    if (at.isAfter(now)) at = at.subtract(const Duration(days: 1));
+    // Godzina „z przyszłości” to wczoraj (nocna zmiana) — kalendarzowo,
+    // bez odejmowania 24 h (doba zmiany czasu).
+    final at = resolvePickedTime(widget.now(), picked.hour, picked.minute);
     setState(() => _at = at);
   }
 

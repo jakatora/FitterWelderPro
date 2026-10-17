@@ -332,12 +332,17 @@ class BatchEvent {
   /// `redried`: numer suszenia; `limitChanged`: nowy limit [min].
   final int? value;
 
+  /// `limitChanged`: partia była już przekroczona w chwili zmiany (wolno
+  /// wtedy tylko obniżyć limit).
+  final bool exceeded;
+
   const BatchEvent({
     required this.kind,
     required this.at,
     this.exposure = Duration.zero,
     this.reset = false,
     this.value,
+    this.exceeded = false,
   });
 
   Map<String, Object?> toJson() => {
@@ -346,15 +351,22 @@ class BatchEvent {
         'exp': exposure.inSeconds,
         if (reset) 'reset': true,
         if (value != null) 'v': value,
+        if (exceeded) 'x': true,
       };
 
-  static BatchEvent fromJson(Map<String, Object?> j) => BatchEvent(
-        kind: BatchEventKind.values.byName(j['k']! as String),
-        at: DateTime.fromMillisecondsSinceEpoch((j['at']! as num).toInt()),
-        exposure: Duration(seconds: (j['exp'] as num?)?.toInt() ?? 0),
-        reset: j['reset'] == true,
-        value: (j['v'] as num?)?.toInt(),
-      );
+  /// Rzuca przy nieznanym rodzaju albo braku pól — wywołujący pomija
+  /// wtedy TYLKO ten wpis.
+  static BatchEvent fromJson(Map<String, Object?> j) {
+    final seconds = (j['exp'] as num?)?.toInt() ?? 0;
+    return BatchEvent(
+      kind: BatchEventKind.values.byName(j['k']! as String),
+      at: DateTime.fromMillisecondsSinceEpoch((j['at']! as num).toInt()),
+      exposure: Duration(seconds: seconds < 0 ? 0 : seconds),
+      reset: j['reset'] == true,
+      value: (j['v'] as num?)?.toInt(),
+      exceeded: j['x'] == true,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -363,10 +375,11 @@ class BatchEvent {
       other.at == at &&
       other.exposure == exposure &&
       other.reset == reset &&
-      other.value == value;
+      other.value == value &&
+      other.exceeded == exceeded;
 
   @override
-  int get hashCode => Object.hash(kind, at, exposure, reset, value);
+  int get hashCode => Object.hash(kind, at, exposure, reset, value, exceeded);
 }
 
 /// Stan partii w danej chwili.
@@ -642,17 +655,31 @@ class ElectrodeBatch {
     );
   }
 
+  /// Czy w chwili [now] wolno podnieść limit. Po przekroczeniu — nie:
+  /// wyższy limit „ożywiłby” partię (stan OK, a po 4 h w piecyku reset),
+  /// a po przekroczeniu zostaje tylko suszenie albo złom (AWS D1.1
+  /// 7.3.2.2 / 7.3.2.4). Obniżyć wolno zawsze.
+  bool canRaiseLimitAt(DateTime now) => !isClosed && !exceededAt(now);
+
   /// Zmiana limitu (WPS / producent ostrzejszy) — z wpisem w dzienniku.
+  /// Rzuca [StateError] przy próbie podniesienia limitu partii
+  /// przekroczonej (patrz [canRaiseLimitAt]).
   ElectrodeBatch withLimit(int minutes, DateTime at) {
     final m = minutes.clamp(1, 7 * 24 * 60);
     if (m == limitMinutes) return this;
+    final wasExceeded = exceededAt(at);
+    if (m > limitMinutes && !canRaiseLimitAt(at)) {
+      throw StateError(
+          'Partia $id jest przekroczona — limit można tylko obniżyć.');
+    }
     return _copy(
       limitMinutes: m,
       event: BatchEvent(
           kind: BatchEventKind.limitChanged,
           at: at,
           exposure: exposureAt(at),
-          value: m),
+          value: m,
+          exceeded: wasExceeded),
     );
   }
 
@@ -679,12 +706,64 @@ class ElectrodeBatch {
         'ev': [for (final e in events) e.toJson()],
       };
 
-  /// Rzuca przy niepoprawnych danych — [decodeBatches] pomija taki wpis.
-  static ElectrodeBatch fromJson(Map<String, Object?> j) {
+  /// Odczyt z naprawą. Rzuca tylko przy braku pól, bez których partii nie
+  /// da się pokazać (id, klasa, limit, godzina wyjęcia) — [decodeBatches]
+  /// pomija wtedy wpis. Uszkodzone pojedyncze zdarzenia (np. nieznany
+  /// rodzaj z nowszej wersji) są pomijane pojedynczo, a niespójny stan
+  /// normalizowany ostrożnie (licznik raczej biegnie, niż stoi). Każda
+  /// strata lub naprawa woła [onLoss] — magazyn zachowuje wtedy kopię
+  /// surowego zapisu.
+  static ElectrodeBatch fromJson(Map<String, Object?> j,
+      {void Function()? onLoss}) {
     DateTime? time(Object? v) => v == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch((v as num).toInt());
+    void loss() => onLoss?.call();
+
     final how = j['how'] as String?;
+    final closure = how == null ? null : BatchClosure.values.byName(how);
+    final takenOutAt = time(j['out'])!;
+
+    final events = <BatchEvent>[];
+    final rawEvents = j['ev'];
+    if (rawEvents is List) {
+      for (final e in rawEvents) {
+        try {
+          events.add(BatchEvent.fromJson((e as Map).cast<String, Object?>()));
+        } catch (_) {
+          loss();
+        }
+      }
+    } else if (rawEvents != null) {
+      loss();
+    }
+
+    var start = time(j['start']);
+    var oven = time(j['oven']);
+    var closedAt = time(j['closed']);
+    if (closure != null) {
+      // Zamknięta: licznik stoi na stałe.
+      if (start != null || oven != null) loss();
+      start = null;
+      oven = null;
+      if (closedAt == null) {
+        loss();
+        closedAt = events.isEmpty ? takenOutAt : events.last.at;
+      }
+    } else if (start == null && oven == null) {
+      // Otwarta bez stanu — liczymy od ostatniego znanego wpisu.
+      loss();
+      start = events.isEmpty ? takenOutAt : events.last.at;
+    } else if (start != null && oven != null) {
+      // Jednocześnie „na powietrzu” i „w piecyku” — bezpieczniej: biegnie.
+      loss();
+      oven = null;
+    }
+
+    final priorSeconds = (j['prior'] as num?)?.toInt() ?? 0;
+    if (priorSeconds < 0) loss();
+    final redries = (j['r'] as num?)?.toInt() ?? 0;
+
     return ElectrodeBatch(
       id: j['id']! as String,
       electrode: ElectrodeClass.values.byName(j['cls']! as String),
@@ -693,18 +772,15 @@ class ElectrodeBatch {
       quantity: j['qty'] as String? ?? '',
       location: j['loc'] as String? ?? '',
       limitMinutes: (j['lim']! as num).toInt().clamp(1, 7 * 24 * 60),
-      maxRedries: (j['maxR'] as num?)?.toInt() ?? 1,
-      redryCount: (j['r'] as num?)?.toInt() ?? 0,
-      takenOutAt: time(j['out'])!,
-      exposureStart: time(j['start']),
-      priorExposure: Duration(seconds: (j['prior'] as num?)?.toInt() ?? 0),
-      ovenSince: time(j['oven']),
-      closedAt: time(j['closed']),
-      closure: how == null ? null : BatchClosure.values.byName(how),
-      events: [
-        for (final e in (j['ev'] as List? ?? const []))
-          BatchEvent.fromJson((e as Map).cast<String, Object?>()),
-      ],
+      maxRedries: ((j['maxR'] as num?)?.toInt() ?? 1).clamp(0, 99),
+      redryCount: redries < 0 ? 0 : redries,
+      takenOutAt: takenOutAt,
+      exposureStart: start,
+      priorExposure: Duration(seconds: priorSeconds < 0 ? 0 : priorSeconds),
+      ovenSince: oven,
+      closedAt: closedAt,
+      closure: closure,
+      events: events,
     );
   }
 }
@@ -721,31 +797,93 @@ String encodeBatches(List<ElectrodeBatch> batches) => jsonEncode({
       'batches': [for (final b in batches) b.toJson()]
     });
 
-/// Odporny odczyt: uszkodzony JSON → pusta lista; uszkodzony wpis →
-/// pominięty, reszta zostaje.
-List<ElectrodeBatch> decodeBatches(String? raw) {
-  if (raw == null || raw.trim().isEmpty) return [];
+/// Klucz kopii surowego zapisu, którego nie dało się odczytać bez strat —
+/// zapisywany raz, zanim pierwszy zapis nadpisze [kElectrodeBatchesPrefsKey]
+/// (dziennik QC nie może zniknąć po cichu).
+const String kElectrodeBatchesCorruptPrefsKey = 'electrode_batches_v1_corrupt';
+
+/// Wynik odczytu: partie + czy coś po drodze stracono albo naprawiono.
+class BatchDecodeResult {
+  final List<ElectrodeBatch> batches;
+
+  /// `true` — surowy zapis trzeba zachować (uszkodzony JSON, pominięta
+  /// partia lub zdarzenie, naprawiony stan).
+  final bool lossy;
+
+  const BatchDecodeResult(this.batches, {required this.lossy});
+}
+
+/// Odporny odczyt ze zgłoszeniem strat: uszkodzony JSON → pusta lista;
+/// uszkodzona partia → pominięta, reszta zostaje; uszkodzone zdarzenie →
+/// pominięte tylko ono.
+BatchDecodeResult decodeBatchesDetailed(String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return const BatchDecodeResult([], lossy: false);
+  }
   Object? root;
   try {
     root = jsonDecode(raw);
   } on FormatException {
-    return [];
+    return const BatchDecodeResult([], lossy: true);
   }
-  final list = switch (root) {
-    {'batches': final List l} => l,
-    final List l => l,
-    _ => const <Object?>[],
-  };
+  final List<Object?> list;
+  switch (root) {
+    case {'batches': final List l}:
+      list = l;
+    case final List l:
+      list = l;
+    default:
+      return const BatchDecodeResult([], lossy: true);
+  }
+  var lossy = false;
   final out = <ElectrodeBatch>[];
   for (final item in list) {
-    if (item is! Map) continue;
+    if (item is! Map) {
+      lossy = true;
+      continue;
+    }
     try {
-      out.add(ElectrodeBatch.fromJson(item.cast<String, Object?>()));
+      out.add(ElectrodeBatch.fromJson(item.cast<String, Object?>(),
+          onLoss: () => lossy = true));
     } catch (_) {
       // Wpis z nieznaną klasą albo bez wymaganych pól — pomijamy.
+      lossy = true;
     }
   }
+  return BatchDecodeResult(out, lossy: lossy);
+}
+
+/// Jak [decodeBatchesDetailed], same partie.
+List<ElectrodeBatch> decodeBatches(String? raw) =>
+    decodeBatchesDetailed(raw).batches;
+
+/// Cofnięcie zmiany JEDNEJ partii: [previous] zastępuje partię o tym samym
+/// id w BIEŻĄCEJ liście (zmiany innych partii zostają); partia usunięta
+/// wraca na koniec listy.
+List<ElectrodeBatch> restoreBatch(
+    List<ElectrodeBatch> current, ElectrodeBatch previous) {
+  final out = <ElectrodeBatch>[];
+  var found = false;
+  for (final b in current) {
+    if (b.id == previous.id) {
+      out.add(previous);
+      found = true;
+    } else {
+      out.add(b);
+    }
+  }
+  if (!found) out.add(previous);
   return out;
+}
+
+/// Godzina wybrana w zegarze („o której wyjąłeś”) jako chwila: dziś,
+/// a gdy wypada po [now] — wczoraj. Wczoraj liczone KALENDARZOWO
+/// (`day - 1`), nie jako 24 h: w dobie zmiany czasu (23 h / 25 h)
+/// odejmowanie 24 h przesunęłoby godzinę i zaniżyło czas na powietrzu.
+DateTime resolvePickedTime(DateTime now, int hour, int minute) {
+  final today = DateTime(now.year, now.month, now.day, hour, minute);
+  if (!today.isAfter(now)) return today;
+  return DateTime(now.year, now.month, now.day - 1, hour, minute);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -798,9 +936,28 @@ List<ElectrodeBatch> batchesForLog(
   return out;
 }
 
-/// Przypomnienia dla partii na powietrzu: [warnLeadMinutes] przed końcem
-/// i w chwili końca — tylko przyszłe. Identyfikatory stabilne (ta sama
-/// partia i wyprzedzenie → to samo id), więc przeplanowanie nadpisuje.
+/// Limit, od którego w dół dokładamy przypomnienie w połowie limitu [min].
+const int kHalfwayReminderMaxLimitMinutes = 60;
+
+/// Chwile przypomnień partii jako „minuty przed końcem”, malejąco:
+/// połowa limitu (tylko limity ≤ [kHalfwayReminderMaxLimitMinutes] —
+/// Android w trybie Doze może spóźnić powiadomienie o kilka minut, a przy
+/// 30 min limitu ostrzeżenie [warnLeadMinutes] to tylko 10 min zapasu),
+/// potem [warnLeadMinutes] i 0 (koniec).
+List<int> reminderLeadsFor(int limitMinutes) {
+  final lead = warnLeadMinutes(limitMinutes);
+  final half = limitMinutes ~/ 2;
+  return [
+    if (limitMinutes <= kHalfwayReminderMaxLimitMinutes && half > lead) half,
+    lead,
+    0,
+  ];
+}
+
+/// Przypomnienia dla partii na powietrzu: w połowie krótkiego limitu,
+/// [warnLeadMinutes] przed końcem i w chwili końca — tylko przyszłe.
+/// Identyfikatory stabilne (ta sama partia i wyprzedzenie → to samo id),
+/// więc przeplanowanie nadpisuje.
 List<PlannedReminder> planElectrodeReminders(
   Iterable<ElectrodeBatch> batches, {
   required DateTime now,
@@ -811,9 +968,8 @@ List<PlannedReminder> planElectrodeReminders(
   for (final b in batches) {
     final end = b.deadline;
     if (end == null || !b.isExposed) continue;
-    final lead = warnLeadMinutes(b.limitMinutes);
     final name = b.label(en: english);
-    for (final minutesBefore in [lead, 0]) {
+    for (final minutesBefore in reminderLeadsFor(b.limitMinutes)) {
       final fireAt = end.subtract(Duration(minutes: minutesBefore));
       if (!fireAt.isAfter(now)) continue;
       out.add(PlannedReminder(
@@ -827,9 +983,13 @@ List<PlannedReminder> planElectrodeReminders(
             ? (english
                 ? 'Electrodes: exposure limit reached'
                 : 'Elektrody: koniec czasu na powietrzu')
-            : (english
-                ? 'Electrodes: $minutesBefore min left'
-                : 'Elektrody: zostało $minutesBefore min'),
+            : minutesBefore > warnLeadMinutes(b.limitMinutes)
+                ? (english
+                    ? 'Electrodes: half the limit used — $minutesBefore min left'
+                    : 'Elektrody: połowa limitu — zostało $minutesBefore min')
+                : (english
+                    ? 'Electrodes: $minutesBefore min left'
+                    : 'Elektrody: zostało $minutesBefore min'),
         body: minutesBefore == 0
             ? (english
                 ? '$name — return to re-drying or scrap. Do not weld with them.'
