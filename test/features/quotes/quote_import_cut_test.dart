@@ -212,6 +212,35 @@ Future<List<QuoteJoint>> _savedJoints(WidgetTester tester) async {
 
 const _bw60 = ValueKey('import-group-PIPE_BUTT|60.30|3.91|0.00|PA');
 
+/// Do danych z [_seed]: projekt „Uszkodzony" (najnowszy) z wierszem odcinka,
+/// którego `Segment.fromRow` nie odczyta (tekst w `cut_mm`), wpis biblioteki,
+/// którego nie odczyta `LibraryComponent.fromRow` (tekst w `diameter_mm`),
+/// i projekt „Na złym wpisie" z kolanem na tym wpisie.
+Future<void> _seedBroken() async {
+  await _seed();
+  final db = await AppDatabase.get();
+  final projects = ProjectDao();
+  await projects.insert(_project('p2', 'Uszkodzony',
+      updatedAt: DateTime(2026, 10, 17, 7, 30).millisecondsSinceEpoch));
+  await projects.insert(_project('p3', 'Na złym wpisie',
+      updatedAt: DateTime(2026, 9, 1, 12).millisecondsSinceEpoch));
+  await db.insert('segments', {..._seg('p2', 1, end: 'e90'), 'cut_mm': 'abc'});
+  await db.insert('component_library', {
+    'id': 'bad',
+    'material_group': 'CS',
+    'type': 'ELB90',
+    'diameter_mm': 'x',
+    'wall_thickness_mm': 6.02,
+    'axis_mm': 152.4,
+    'created_at': 0,
+    'updated_at': 0,
+  });
+  await SegmentDao().insert({
+    ..._seg('p3', 1, end: 'bad'),
+    'end_kind': 'axial',
+  });
+}
+
 void main() {
   useTestDatabase();
 
@@ -243,6 +272,82 @@ void main() {
     final after = await db.query('projects', where: 'id = ?', whereArgs: ['p1']);
     expect(after.single['updated_at'],
         DateTime(2026, 10, 16, 14, 5).millisecondsSinceEpoch);
+  });
+
+  test('baza: uszkodzony wiersz odcinka psuje tylko swój projekt, '
+      'nieczytelny wpis biblioteki = usunięty; reszta liczy się jak zwykle',
+      () async {
+    await _seedBroken();
+    // Same DAO nie przeżyłyby tych wierszy — tym bardziej odczyt naraz.
+    await expectLater(SegmentDao().listForProject('p2'), throwsA(anything));
+    await expectLater(ComponentLibraryDao().listAll(), throwsA(anything));
+
+    final list = await loadCutProjectsForImport();
+    expect([for (final p in list) (p.project.id, p.readError)], [
+      ('p2', true),
+      ('p1', false),
+      ('p0', false),
+      ('p3', false),
+    ]);
+    expect(list.first.segments, isEmpty);
+
+    // p1: biblioteka doczytana wpis po wpisie — te same spoiny co bez awarii.
+    final p1 = list[1];
+    expect(p1.library.keys.toSet(), {'fl', 'e90', 'tee', 'red'});
+    final plan = planQuoteImport(importWeldsFromCutProject(p1).welds,
+        defaultPosition: WeldPosition.pa);
+    expect((plan.weldCount, plan.skippedCount), (7, 2));
+
+    // p3: kolano na nieczytelnym wpisie — jak wpis usunięty (osiowe w
+    // bibliotece to kolana / trójniki → doczołowa); wolnego końca nie liczymy,
+    // bo typu nie ma.
+    final p3 = planQuoteImport(importWeldsFromCutProject(list.last).welds,
+        defaultPosition: WeldPosition.pa);
+    expect(p3.groups.single.count, 1);
+    expect(p3.groups.single.kindAssumedCount, 0);
+    expect(p3.skipped, isEmpty);
+  });
+
+  testWidgets(
+      'lista: projekt z uszkodzonym odcinkiem nieaktywny z komunikatem, '
+      'pozostałe działają', (tester) async {
+    await tester.runAsync(_seedBroken);
+    await _openEditor(tester, _quote(QuoteSite.shop));
+    await tester.tap(find.byKey(const ValueKey('import-joints')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('import-source-cut')));
+    await tester.pump();
+    // Więcej zapytań niż zwykle (biblioteka doczytywana wpis po wpisie) —
+    // czekamy, aż zniknie wskaźnik ładowania.
+    for (var i = 0;
+        i < 40 && find.byType(CircularProgressIndicator).evaluate().isNotEmpty;
+        i++) {
+      await _settle(tester);
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Nie udało się odczytać projektów CUT'),
+        findsNothing);
+    expect(find.text('Uszkodzony'), findsOneWidget);
+    expect(
+        find.text('17.10.2026 07:30  ·  uszkodzone dane odcinków — nie do '
+            'importu'),
+        findsOneWidget);
+    final broken = find.byKey(const ValueKey('import-cut-p2'));
+    expect(tester.widget<ListTile>(broken).enabled, isFalse);
+    await tester.tap(broken);
+    await tester.pumpAndSettle();
+    expect(find.text('Projekty CUT'), findsOneWidget);
+
+    expect(
+        find.text('16.10.2026 14:05  ·  spoiny: 7  ·  do sprawdzenia: 2'),
+        findsOneWidget);
+    expect(find.text('01.09.2026 12:00  ·  spoiny: 1'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('import-cut-p1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Podgląd importu'), findsOneWidget);
+    expect(find.textContaining('Zaznaczone: 2 z 2 pozycji (7 z 7 spoin)'),
+        findsOneWidget);
   });
 
   testWidgets(
@@ -286,6 +391,7 @@ void main() {
     expect(find.byKey(const ValueKey('import-cut-assumptions')),
         findsOneWidget);
     expect(find.textContaining('trójnik to 3 spoiny'), findsOneWidget);
+    expect(find.textContaining('ten licznik może być zawyżony'), findsOneWidget);
     // Pozycja z wyceny jako założenie, numery spoin z odcinków.
     expect(find.text('PA / 1G  ·  przyjęta z wyceny (brak w danych)'),
         findsNWidgets(2));
@@ -358,6 +464,7 @@ void main() {
     expect(find.text('Import preview'), findsOneWidget);
     expect(find.textContaining('To check — flanges: 2'), findsOneWidget);
     expect(find.text('How welds are counted'.toUpperCase()), findsOneWidget);
+    expect(find.textContaining('that count may be too high'), findsOneWidget);
     expect(find.textContaining('Welds: S01 end, S02 start'), findsOneWidget);
     // Field quote → PF taken from the quote.
     expect(find.text('PF·PH / 5G  ·  from the quote (not in the data)'),

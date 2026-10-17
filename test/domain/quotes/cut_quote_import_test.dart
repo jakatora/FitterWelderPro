@@ -205,6 +205,21 @@ void main() {
           {'ELB45 Ø114.3', 'ELB90 Ø114.3'});
     });
 
+    test('dwie różne kształtki wprost do siebie (kolano 90° → kolano 45°, '
+        'bez rury): model nie odróżnia jednej spoiny od dwóch z czymś spoza '
+        'projektu — oba wolne końce do sprawdzenia (licznik może być '
+        'zawyżony), do ceny nic', () {
+      final plan = _plan([
+        _seg(1, end: 'e90'),
+        _seg(2, start: 'e45'),
+      ]);
+      expect(plan.groups.single.count, 2); // spoiny z rurą S01 i S02
+      expect(_reasons(plan),
+          [ImportSkipReason.openPort, ImportSkipReason.openPort]);
+      expect([for (final s in plan.skipped) s.weld.ref],
+          ['ELB90 Ø114.3', 'ELB45 Ø114.3']);
+    });
+
     test('ta sama kształtka na końcach odcinków nie po kolei = dwie sztuki '
         '(reguła zestawienia materiałów) — wolne końce tylko do sprawdzenia',
         () {
@@ -215,6 +230,61 @@ void main() {
       ]);
       expect(plan.groups.single.count, 2);
       expect(plan.skippedFor(ImportSkipReason.openPort), 2);
+    });
+  });
+
+  group('typ wpisu zapisany inną wielkością liter / ze spacją', () {
+    // Te same trasy na wpisach „ tee", „Elb90", „reducer ", „Flange",
+    // „valve" — spoiny, wolne końce i opisy jak dla typów wielkimi literami.
+    final mixed = {
+      for (final c in [
+        _lib('e90', 'Elb90'),
+        _lib('e45', 'elb45'),
+        _lib('tee', ' tee'),
+        _lib('red', 'reducer ', out: 60.3),
+        _lib('fl', 'Flange'),
+        _lib('vlv', 'valve'),
+      ])
+        c.id: c,
+    };
+
+    List<(ImportSkipReason?, String, String, double?)> describe(
+            Map<String, LibraryComponent> library, List<Segment> segs) =>
+        [
+          for (final w in importWeldsFromCutProject(
+                  CutImportProject(
+                      project: _project(), segments: segs, library: library),
+                  options: const CutImportOptions(
+                      flanges: CutEndJoint.fillet, valves: CutEndJoint.butt))
+              .welds)
+            (w.skip, w.ref, w.jointType, w.odMm),
+        ];
+
+    final routes = <String, List<Segment>>{
+      'trójnik bez odgałęzienia': [_seg(1, end: 'tee'), _seg(2, start: 'tee')],
+      'trójnik z odgałęzieniem': [
+        _seg(1, end: 'tee'),
+        _seg(2, start: 'tee'),
+        _seg(3, start: 'tee'),
+      ],
+      'kolano bez drugiego odcinka': [_seg(1, end: 'e90')],
+      'redukcja bez drugiego odcinka': [_seg(1, end: 'red')],
+      'kolano 90° → kolano 45°': [_seg(1, end: 'e90'), _seg(2, start: 'e45')],
+      'kołnierz i zawór': [_seg(1, start: 'fl', end: 'vlv')],
+    };
+    for (final r in routes.entries) {
+      test(r.key, () {
+        expect(describe(mixed, r.value), describe(_library, r.value));
+      });
+    }
+
+    test('wolne końce widziane mimo małych liter (wcześniej gubione)', () {
+      final welds = describe(mixed, [_seg(1, end: 'tee'), _seg(2, start: 'tee')]);
+      expect(welds.where((w) => w.$1 == ImportSkipReason.openPort),
+          [(ImportSkipReason.openPort, 'TEE Ø114.3', 'BW', 114.3)]);
+      final red = describe(mixed, [_seg(1, end: 'red')]);
+      expect(red.last, (ImportSkipReason.openPort, 'REDUCER Ø114.3→60.3', 'BW',
+          null));
     });
   });
 

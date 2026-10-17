@@ -52,12 +52,15 @@ class _ScanItem {
 }
 
 /// Projekt CUT na liście: spoiny do wyceny i do sprawdzenia przy typach
-/// kołnierzy / zaworów jeszcze niewybranych.
+/// kołnierzy / zaworów jeszcze niewybranych. [broken] — uszkodzone dane
+/// (odcinki nie do odczytu albo nie do policzenia): na liście, nieaktywny.
 class _CutItem {
   final CutImportProject data;
   final int weldCount;
   final int checkCount;
-  const _CutItem(this.data, this.weldCount, this.checkCount);
+  final bool broken;
+  const _CutItem(this.data, this.weldCount, this.checkCount,
+      {this.broken = false});
 }
 
 /// Wartość listy pakietów „wszystkie" (null w liście rozwijanej bywa
@@ -276,12 +279,19 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
       _stainless || cutProjectIsStainless(p.project);
 
   _CutItem _cutItem(CutImportProject p) {
-    final plan = planQuoteImport(importWeldsFromCutProject(p).welds,
-        defaultPosition: _defaultPosition, stainless: _cutStainless(p));
-    return _CutItem(p, plan.weldCount, plan.skippedCount);
+    if (p.readError) return _CutItem(p, 0, 0, broken: true);
+    try {
+      final plan = planQuoteImport(importWeldsFromCutProject(p).welds,
+          defaultPosition: _defaultPosition, stainless: _cutStainless(p));
+      return _CutItem(p, plan.weldCount, plan.skippedCount);
+    } catch (_) {
+      // Dane, których nie da się policzyć — na liście, ale nie do otwarcia.
+      return _CutItem(p, 0, 0, broken: true);
+    }
   }
 
   void _pickCut(_CutItem item) {
+    if (item.broken) return;
     setState(() {
       _cut = item;
       _flanges = CutEndJoint.unknown;
@@ -542,13 +552,17 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
       key: ValueKey('import-cut-${p.id}'),
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 10,
-      enabled: !empty,
+      enabled: !empty && !item.broken,
       leading: const Icon(Icons.content_cut, color: kArc),
       title: Text(title),
       subtitle: Text(
         [
           _date(p.updatedAt),
-          if (empty)
+          if (item.broken)
+            context.tr(
+                pl: 'uszkodzone dane odcinków — nie do importu',
+                en: 'damaged pipe-piece data — cannot be imported')
+          else if (empty)
             context.tr(pl: 'brak odcinków', en: 'no pipe pieces')
           else ...[
             context.tr(
@@ -733,6 +747,16 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
           en: 'Flange: WN — butt weld, SO / SW — fillet weld, lap-joint / '
               'threaded — no weld. Valve: BW — butt weld, SW — fillet weld, '
               'flanged / threaded — no weld. Not picked — to check.'),
+      context.tr(
+          pl: 'Koniec kształtki bez odcinka rury po drugiej stronie — do '
+              'sprawdzenia, nie do ceny. Dwie różne kształtki spawane wprost '
+              'do siebie (np. kolano 90° → kolano 45°) projekt pokazuje jako '
+              'dwa wolne końce, choć to jedna spoina — ten licznik może być '
+              'zawyżony.',
+          en: 'A fitting end with no pipe piece on the other side — to check, '
+              'not priced. Two different fittings welded straight together '
+              '(e.g. 90° elbow → 45° elbow) show up as two free ends though '
+              'it is one weld — that count may be too high.'),
       context.tr(
           pl: 'Odcinek dłuższy niż sztanga — doczołowa rura–rura na każdy '
               'podział z listy cięć.',
@@ -1062,13 +1086,16 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
                     '${openPorts.length}. Kształtka ma tam spoinę, ale po '
                     'drugiej stronie nie ma odcinka rury w projekcie (spoina '
                     'kształtka–kształtka albo poza projektem) — dodaj ją '
-                    'ręcznie, jeśli wchodzi. Kształtki: '
-                    '${_countedList(openPorts)}.',
+                    'ręcznie, jeśli wchodzi. Dwie kształtki spawane wprost do '
+                    'siebie to jedna spoina, a dwa wolne końce — licznik może '
+                    'być zawyżony. Kształtki: ${_countedList(openPorts)}.',
                 en: 'To check — free fitting ends: ${openPorts.length}. The '
                     'fitting has a weld there, but no pipe piece on the other '
                     'side in the project (fitting-to-fitting or outside the '
-                    'project) — add it by hand if it is part of the job. '
-                    'Fittings: ${_countedList(openPorts)}.'),
+                    'project) — add it by hand if it is part of the job. Two '
+                    'fittings welded straight together are one weld but two '
+                    'free ends — the count may be too high. Fittings: '
+                    '${_countedList(openPorts)}.'),
           ),
         for (final g in plan.groups)
           _GroupTile(
