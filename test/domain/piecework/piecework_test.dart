@@ -77,6 +77,18 @@ void main() {
       expect(r.approxWelds, 0);
     });
 
+    test('„≈" przy przybliżonym DI: jeden helper dla ekranu, tekstu i PDF', () {
+      final approx = run([cs('a', od: '57'), cs('b')]);
+      expect(pieceworkDiText(approx, en: false), '≈ 4,24 DI');
+      expect(pieceworkDiText(approx, en: true), '≈ 4.24 DI');
+      expect(pieceworkDiText(run([cs('b')]), en: false), '2 DI');
+      expect(diNumberText(57 / 25.4, en: false, approx: true), '≈ 2,24');
+      final text = buildPieceworkText(
+          PieceworkReport(result: approx, generatedAt: DateTime(2026, 10, 17)),
+          en: false);
+      expect(text, contains('Spoiny: 2 spoiny · ≈ 4,24 DI'));
+    });
+
     test('OD spoza tabeli: DI = OD / 25,4, oznaczone ≈ i wliczone', () {
       final r = run([cs('a', od: '57')]);
       expect(r.lines.single.diApprox, isTrue);
@@ -308,6 +320,104 @@ void main() {
       expect(crew.totalGrosze, 27000);
     });
 
+    test('podział 1/n bez gubienia groszy: 10,00 zł ÷ 3 i 1,01 zł ÷ 2', () {
+      expect([for (var i = 0; i < 3; i++) splitGrosze(1000, i, 3)],
+          [333, 333, 334]);
+      expect([splitGrosze(101, 0, 2), splitGrosze(101, 1, 2)], [50, 51]);
+      const perWeld = PieceworkMode.weld;
+      final three = [cs('w', welder: 'CC-3', rootWelder: 'aa-1')
+          .copyWith(capWelder: 'BB-2')];
+      // Kolejność podziału: stemple alfabetycznie, nie pole spoiny.
+      final ten = [
+        for (final s in ['AA-1', 'BB-2', 'CC-3'])
+          run(three,
+                  rates: const PieceworkRates(mode: perWeld, rateGrosze: 1000),
+                  welder: s)
+              .totalGrosze,
+      ];
+      expect(ten, [333, 333, 334]);
+      final two = [cs('w', welder: 'JK-12', rootWelder: 'AB-03')];
+      final oneOhOne = [
+        for (final s in ['AB-03', 'JK-12'])
+          run(two,
+                  rates: const PieceworkRates(mode: perWeld, rateGrosze: 101),
+                  welder: s)
+              .totalGrosze,
+      ];
+      expect(oneOhOne, [50, 51]);
+      expect(oneOhOne.reduce((a, b) => a + b), 101);
+    });
+
+    test('suma udziałów wszystkich stempli = kwota spoiny w widoku brygady, '
+        'także z dopłatami, potrąceniem i naprawami', () {
+      final welds = <String, List<WeldEntry>>{
+        '3 stemple, 316L': [
+          oct('a').copyWith(rootWelder: 'AB-03', capWelder: 'ZZ-9'),
+        ],
+        '2 stemple, 6G, ≈DI, naprawa R1': [
+          oct('b', material: 'P235GH').copyWith(
+              od: '57',
+              rootWelder: 'AB-03',
+              position: '6G',
+              repairs: [repair('b', 1)]),
+        ],
+        '3 stemple, P91, Sch 80, NOK': [
+          oct('c', material: 'P91').copyWith(
+              od: '114.3',
+              t: '8.56',
+              status: 'NOK',
+              rootWelder: 'AB-03',
+              capWelder: 'XY-1'),
+        ],
+      };
+      for (final rate in const [1, 2, 99, 100, 101, 1000, 4501, 12345]) {
+        for (final mode in PieceworkMode.values) {
+          final rates = PieceworkRates(
+            mode: mode,
+            rateGrosze: rate,
+            stainlessBp: 2000,
+            otherMaterialBp: 3333,
+            pos6gBp: 1250,
+            wallRule: WallRule.sch80,
+            wallBp: 1500,
+            rejectBp: 3333,
+            repairPaid: true,
+            repairBp: 5000,
+          );
+          for (final e in welds.entries) {
+            final crew = run(e.value, rates: rates, welder: null);
+            final parts = [
+              for (final s in pieceworkStamps(e.value))
+                run(e.value, rates: rates, welder: s),
+            ];
+            final why = '${e.key}, ${mode.name}, $rate gr';
+            int sum(int Function(PieceworkResult r) f) =>
+                parts.fold(0, (s, r) => s + f(r));
+            expect(sum((r) => r.totalGrosze), crew.totalGrosze, reason: why);
+            expect(sum((r) => r.baseGrosze), crew.baseGrosze, reason: why);
+            expect(sum((r) => r.materialGrosze), crew.materialGrosze,
+                reason: why);
+            expect(sum((r) => r.positionGrosze), crew.positionGrosze,
+                reason: why);
+            expect(sum((r) => r.wallGrosze), crew.wallGrosze, reason: why);
+            expect(sum((r) => r.deductionGrosze), crew.deductionGrosze,
+                reason: why);
+            expect(sum((r) => r.repairPayGrosze), crew.repairPayGrosze,
+                reason: why);
+          }
+        }
+      }
+      // +20% przy 3 stemplach, 10,00 zł/szt.: 1000 + 200 → 400 = 133+133+134.
+      final ss = welds['3 stemple, 316L']!;
+      const r20 = PieceworkRates(
+          mode: PieceworkMode.weld, rateGrosze: 1000, stainlessBp: 2000);
+      expect([
+        for (final s in ['AB-03', 'JK-12', 'ZZ-9'])
+          run(ss, rates: r20, welder: s).materialGrosze,
+      ], [66, 67, 67]);
+      expect(run(ss, rates: r20, welder: null).totalGrosze, 1200);
+    });
+
     test('spoiny bez stempla: brygada je liczy, spawacz dostaje uwagę', () {
       final welds = [
         cs('a'),
@@ -362,6 +472,43 @@ void main() {
       expect(crew.totalGrosze, 72000);
       expect(pieceworkNotes(crew, en: false),
           contains(startsWith('Minimum dzienne liczy się tylko')));
+    });
+  });
+
+  group('minimum dzienne', () {
+    test('dzień z pominiętą spoiną (bez OD) nie dostaje dopłaty do minimum',
+        () {
+      const rates = PieceworkRates(rateGrosze: 4500, minDayGrosze: 50000);
+      final welds = [
+        cs('a', date: '2026-10-13'),
+        cs('noOd', date: '2026-10-13', od: ''),
+        cs('b', date: '2026-10-14'),
+        cs('onlySkipped', date: '2026-10-15', od: ''),
+      ];
+      final r = run(welds, rates: rates);
+      expect([for (final d in r.days) d.topUpGrosze], [0, 41000]);
+      expect(r.days.first.skippedWelds, 1);
+      expect(r.totalGrosze, 9000 + 9000 + 41000);
+      expect(r.minDayBlockedDays,
+          [DateTime(2026, 10, 13), DateTime(2026, 10, 15)]);
+      final notes = pieceworkNotes(r, en: false);
+      expect(
+          notes,
+          containsAll([
+            'Dzień 2026-10-13 ma pominięte spoiny — minimum dzienne nie '
+                'naliczone, uzupełnij OD.',
+            'Dzień 2026-10-15 ma pominięte spoiny — minimum dzienne nie '
+                'naliczone, uzupełnij OD.',
+          ]));
+      // Po uzupełnieniu OD dzień 13 ma 18 000 gr i dostaje dopłatę.
+      final fixed = run([
+        for (final w in welds) w.od.isEmpty ? w.copyWith(od: '60.3') : w,
+      ], rates: rates);
+      expect(fixed.minDayBlockedDays, isEmpty);
+      expect([for (final d in fixed.days) d.topUpGrosze], [32000, 41000, 41000]);
+      // Bez minimum — bez uwag o dniach.
+      expect(run(welds).minDayBlockedDays, isEmpty);
+      expect(run(welds, rates: rates, welder: null).minDayBlockedDays, isEmpty);
     });
   });
 
@@ -435,6 +582,43 @@ void main() {
       expect(r.undatedWelds, 2);
       expect(pieceworkNotes(r, en: false),
           contains('2 spoiny bez poprawnej daty — poza każdym okresem.'));
+    });
+
+    test('spoiny z datą w przyszłości: uwaga zamiast cichego pominięcia', () {
+      final welds = [
+        cs('now', date: '2026-10-14'),
+        cs('soon', date: '2026-10-20'),
+        cs('typo', date: '2026-11-02'),
+      ];
+      final today = DateTime(2026, 10, 14);
+      PieceworkResult at(PieceworkPeriod p,
+              {DateTime? from, DateTime? to, DateTime? day}) =>
+          computePiecework(
+            entries: welds,
+            rates: di45,
+            range: pieceworkRange(p, DateTime(2026, 10, 14, 15),
+                customFrom: from, customTo: to),
+            welder: 'JK-12',
+            today: day ?? today,
+          );
+      final month = at(PieceworkPeriod.month);
+      expect(month.welds, 1);
+      expect(month.futureWelds, 2);
+      expect(
+          pieceworkNotes(month, en: false),
+          contains('2 spoiny z datą po końcu okresu (w przyszłości) — poza tą '
+              'kwotą. Sprawdź datę w dzienniku.'));
+      expect(pieceworkNotes(month, en: true),
+          contains(startsWith('2 welds dated after the end of the period')));
+      // Poprzedni miesiąc: spoina z dziś jest po okresie, ale nie w przyszłości.
+      expect(at(PieceworkPeriod.lastMonth).futureWelds, 2);
+      // Własny zakres obejmujący 20.10 — ta spoina się liczy.
+      final custom = at(PieceworkPeriod.custom,
+          from: DateTime(2026, 10, 1), to: DateTime(2026, 10, 31));
+      expect(custom.welds, 2);
+      expect(custom.futureWelds, 1);
+      // Bez „dziś" nic nie jest liczone jako przyszłość (stare wywołania).
+      expect(run(welds).futureWelds, 0);
     });
 
     test('kolejność: po dniu, w dniu jak w dzienniku', () {

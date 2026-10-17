@@ -6,20 +6,24 @@
 /// * **Spoina** — nieusunięty wpis dziennika z poprawną datą w okresie. Data
 ///   to dzień z dziennika (`RRRR-MM-DD`, dzień kalendarzowy czasu lokalnego).
 ///   Status nie ma znaczenia — PENDING też jest zespawana (jak w „Postępie
-///   robót"). Wpis bez poprawnej daty nie należy do żadnego okresu.
+///   robót"). Wpis bez poprawnej daty nie należy do żadnego okresu; wpis
+///   z datą w przyszłości (po końcu okresu i po dziś) też nie — oba trafiają
+///   do uwag.
 /// * **DI** — [weldDiameterInches] z „Postępu robót": NPS w calach z OD przez
 ///   tabelę B36.10M/B36.19M; OD spoza tabeli → OD / 25,4, oznaczone „≈"
 ///   (wliczone, ale wymienione w uwagach). Spoina bez OD w trybie „za DI" jest
 ///   POMIJANA — lista „uzupełnij wymiar", kwota jej nie zawiera. W trybie „za
 ///   spoinę" wymiar nie jest potrzebny.
-/// * **Spawacz** — stemple spoiny (spawacz, grań, lico). Spoina z kilkoma
-///   spawaczami: każdy dostaje 1/n jej wartości (jak DI w „Postępie robót").
-///   „Cała brygada" liczy każdą spoinę raz, w całości.
-/// * **Podstawa** spoiny = DI × stawka zł/DI (albo stawka za spoinę) ÷ n,
+/// * **Podstawa** spoiny = DI × stawka zł/DI (albo stawka za spoinę),
 ///   zaokrąglona do grosza.
 /// * **Dopłaty** — procent od PODSTAWY spoiny; sumują się, nie mnożą:
 ///   materiał (nierdzewna / inne), pozycja (2G / 5G / 6G), gruba ścianka.
 ///   Każda zaokrąglana do grosza osobno.
+/// * **Spawacz** — stemple spoiny (spawacz, grań, lico). Spoina z kilkoma
+///   spawaczami: KAŻDY składnik całej spoiny (podstawa, dopłaty, potrącenie,
+///   naprawy) dzielony metodą największej reszty ([splitGrosze]) — suma
+///   udziałów = kwota spoiny w widoku brygady co do grosza. „Cała brygada"
+///   liczy każdą spoinę raz, w całości.
 /// * **Odrzucona spoina** — ma naprawę (R1, R2…) albo teraz status NOK lub
 ///   wynik NOK któregokolwiek badania (VT, PT, MT, RT, UT). Potrącenie = X %
 ///   wartości spoiny (podstawa + dopłaty); 100 % = spoina za 0 zł.
@@ -27,10 +31,12 @@
 ///   Potrącenie i naprawy liczą się w okresie SPOINY (data z dziennika), nie
 ///   w dniu naprawy.
 /// * **Minimum dzienne** — tylko dla jednego spawacza: dzień z policzonymi
-///   spoinami, który dał mniej, jest dopłacany do minimum.
+///   spoinami, który dał mniej, jest dopłacany do minimum — chyba że tego
+///   dnia są spoiny pominięte (bez OD): wtedy dopłaty nie ma, dopóki wymiar
+///   nie zostanie uzupełniony (uwaga z datą dnia).
 /// * **Grosze** — każda kwota to `int` w groszach; zaokrąglenie połówek od
-///   zera na każdej spoinie i każdej dopłacie; suma = suma spoin (bez
-///   drugiego zaokrąglania).
+///   zera na każdej spoinie i każdej dopłacie, podział między spawaczy bez
+///   gubienia groszy; suma = suma spoin (bez drugiego zaokrąglania).
 ///
 /// Czysty Dart.
 library;
@@ -706,12 +712,17 @@ class PieceworkDay {
   /// Dopłata do minimum dziennego.
   final int topUpGrosze;
 
+  /// Spoiny tego dnia pominięte (bez OD) — dzień nie dostaje dopłaty do
+  /// minimum, dopóki wymiar nie zostanie uzupełniony.
+  final int skippedWelds;
+
   const PieceworkDay({
     required this.day,
     required this.welds,
     required this.di,
     required this.netGrosze,
     required this.topUpGrosze,
+    this.skippedWelds = 0,
   });
 }
 
@@ -739,6 +750,14 @@ class PieceworkResult {
   /// mogą być jego niezapłaconą pracą.
   final int unstampedWelds;
 
+  /// Spoiny spawacza z datą po końcu okresu i po dziś (w przyszłości) —
+  /// poza okresem, wymienione w uwagach.
+  final int futureWelds;
+
+  /// Dni z pominiętymi spoinami (bez OD), w których minimum dzienne NIE
+  /// zostało naliczone; puste, gdy minimum nie obowiązuje.
+  final List<DateTime> minDayBlockedDays;
+
   /// Minimum dzienne nie liczy się dla brygady.
   bool get minDayApplies => welder != null && rates.minDayGrosze != null;
 
@@ -751,6 +770,8 @@ class PieceworkResult {
     required this.days,
     required this.undatedWelds,
     this.unstampedWelds = 0,
+    this.futureWelds = 0,
+    this.minDayBlockedDays = const [],
   });
 
   bool get isCrew => welder == null;
@@ -807,19 +828,49 @@ class PieceworkResult {
       daysWorked == 0 ? null : divRoundHalf(totalGrosze, daysWorked);
 }
 
+/// Część [i] (0…n−1) kwoty [total] dzielonej na [n] — metoda największej
+/// reszty na liczbach całkowitych: `T·(i+1) ~/ n − T·i ~/ n`. Części sumują
+/// się DOKŁADNIE do [total] (10,00 zł / 3 = 3,33 + 3,33 + 3,34).
+int splitGrosze(int total, int i, int n) {
+  assert(n >= 1 && i >= 0 && i < n);
+  return total * (i + 1) ~/ n - total * i ~/ n;
+}
+
+/// Kwoty CAŁEJ spoiny (jak w widoku brygady), zanim zostaną rozdzielone
+/// między spawaczy.
+class _WeldAmounts {
+  final int base, material, position, wall, deduction, repairPay;
+  const _WeldAmounts(this.base, this.material, this.position, this.wall,
+      this.deduction, this.repairPay);
+}
+
 /// Akord za okres [range] dla spawacza [welder] (null — cała brygada).
+///
+/// Składniki liczone są dla całej spoiny (podstawa, każda dopłata,
+/// potrącenie, naprawy), a dopiero potem każdy rozdzielany między stemple
+/// spoiny przez [splitGrosze] — suma udziałów wszystkich spawaczy = kwota
+/// tej spoiny w widoku brygady, co do grosza. Kolejność stempli przy
+/// podziale: alfabetycznie (bez wielkości liter), niezależnie od tego, czy
+/// stempel stoi w polu spawacza, grani czy lica.
+///
+/// [today] — dzień „dziś" (lokalny): spoiny wybranego spawacza z datą po
+/// końcu okresu i po dziś liczone są jako „w przyszłości" (literówka w dacie
+/// albo wpis z wyprzedzeniem) i trafiają do uwag.
 PieceworkResult computePiecework({
   required Iterable<WeldEntry> entries,
   required PieceworkRates rates,
   required DayRange range,
   String? welder,
+  DateTime? today,
 }) {
   final key = welder?.trim().toLowerCase() ?? '';
   final crew = key.isEmpty;
+  final todayDay = today == null ? null : dayOnly(today);
   final lines = <(int, PieceworkLine)>[];
   final skipped = <WeldEntry>[];
   var undated = 0;
   var unstamped = 0;
+  var future = 0;
   var index = 0;
 
   for (final e in entries) {
@@ -837,49 +888,46 @@ PieceworkResult computePiecework({
       undated++;
       continue;
     }
-    if (!range.contains(day)) continue;
+    if (!range.contains(day)) {
+      if (todayDay != null &&
+          day.isAfter(range.to) &&
+          day.isAfter(todayDay)) {
+        future++;
+      }
+      continue;
+    }
     final d = weldDiameterInches(e);
     if (rates.mode == PieceworkMode.di && d == null) {
       skipped.add(e);
       continue;
     }
-    final split = crew ? 1 : stamps.length;
-    final base = switch (rates.mode) {
-      PieceworkMode.di => roundGrosze(d!.inches * rates.rateGrosze / split),
-      PieceworkMode.weld => roundGrosze(rates.rateGrosze / split),
-    };
+    final whole = _wholeWeld(e, rates, d?.inches);
     final material = pieceworkMaterialOf(e.material);
-    final position = payPositionOf(e.position);
     final thick = pieceworkThickWall(e,
         rule: rates.wallRule, wallMm: rates.wallMm, material: material);
-    final matG = pctOfGrosze(base, rates.materialBp(material));
-    final posG = pctOfGrosze(base, rates.positionBp(position));
-    final wallG = rates.wallRule != WallRule.none && thick == true
-        ? pctOfGrosze(base, rates.wallBp)
-        : 0;
-    final value = base + matG + posG + wallG;
-    final rejected = pieceworkRejected(e);
-    final repairs = e.repairs.length;
+    final n = crew ? 1 : stamps.length;
+    final order = [for (final s in stamps) s.toLowerCase()]..sort();
+    final i = crew ? 0 : order.indexOf(key);
+    int part(int total) => splitGrosze(total, i, n);
     lines.add((
       index,
       PieceworkLine(
         weld: e,
         day: day,
-        splitBetween: split,
+        splitBetween: n,
         weldDi: d?.inches,
         diApprox: d?.approx ?? false,
         material: material,
-        position: position,
+        position: payPositionOf(e.position),
         thickWall: rates.wallRule == WallRule.none ? false : thick,
-        rejected: rejected,
-        repairs: repairs,
-        baseGrosze: base,
-        materialGrosze: matG,
-        positionGrosze: posG,
-        wallGrosze: wallG,
-        deductionGrosze: rejected ? pctOfGrosze(value, rates.rejectBp) : 0,
-        repairPayGrosze:
-            rates.repairPaid ? repairs * pctOfGrosze(value, rates.repairBp) : 0,
+        rejected: pieceworkRejected(e),
+        repairs: e.repairs.length,
+        baseGrosze: part(whole.base),
+        materialGrosze: part(whole.material),
+        positionGrosze: part(whole.position),
+        wallGrosze: part(whole.wall),
+        deductionGrosze: part(whole.deduction),
+        repairPayGrosze: part(whole.repairPay),
       ),
     ));
   }
@@ -894,16 +942,27 @@ PieceworkResult computePiecework({
   for (final l in sorted) {
     byDay.putIfAbsent(l.day, () => []).add(l);
   }
+  final skippedByDay = <DateTime, int>{};
+  for (final e in skipped) {
+    final d = parseIsoDay(e.date)!;
+    skippedByDay[d] = (skippedByDay[d] ?? 0) + 1;
+  }
   final min = crew ? null : rates.minDayGrosze;
   final days = <PieceworkDay>[];
   for (final e in byDay.entries) {
     final net = e.value.fold(0, (s, l) => s + l.netGrosze);
+    final skippedToday = skippedByDay[e.key] ?? 0;
     days.add(PieceworkDay(
       day: e.key,
       welds: e.value.length,
       di: e.value.fold(0.0, (s, l) => s + l.diShare),
       netGrosze: net,
-      topUpGrosze: min != null && net < min ? min - net : 0,
+      // Dzień z pominiętą spoiną (bez OD) nie dostaje dopłaty do minimum:
+      // dopłata „za" niepoliczoną spoinę zawyżyłaby kwotę przed
+      // uzupełnieniem wymiaru.
+      topUpGrosze:
+          min != null && skippedToday == 0 && net < min ? min - net : 0,
+      skippedWelds: skippedToday,
     ));
   }
   days.sort((a, b) => a.day.compareTo(b.day));
@@ -917,6 +976,37 @@ PieceworkResult computePiecework({
     days: days,
     undatedWelds: undated,
     unstampedWelds: unstamped,
+    futureWelds: future,
+    minDayBlockedDays: min == null
+        ? const []
+        : (skippedByDay.keys.toList()..sort()),
+  );
+}
+
+/// Składniki całej spoiny: podstawa (DI × stawka albo stawka za spoinę),
+/// dopłaty od podstawy, potrącenie i naprawy od wartości.
+_WeldAmounts _wholeWeld(WeldEntry e, PieceworkRates rates, double? inches) {
+  final base = switch (rates.mode) {
+    PieceworkMode.di => roundGrosze(inches! * rates.rateGrosze),
+    PieceworkMode.weld => rates.rateGrosze,
+  };
+  final material = pieceworkMaterialOf(e.material);
+  final thick = pieceworkThickWall(e,
+      rule: rates.wallRule, wallMm: rates.wallMm, material: material);
+  final matG = pctOfGrosze(base, rates.materialBp(material));
+  final posG = pctOfGrosze(base, rates.positionBp(payPositionOf(e.position)));
+  final wallG = rates.wallRule != WallRule.none && thick == true
+      ? pctOfGrosze(base, rates.wallBp)
+      : 0;
+  final value = base + matG + posG + wallG;
+  final rejected = pieceworkRejected(e);
+  return _WeldAmounts(
+    base,
+    matG,
+    posG,
+    wallG,
+    rejected ? pctOfGrosze(value, rates.rejectBp) : 0,
+    rates.repairPaid ? e.repairs.length * pctOfGrosze(value, rates.repairBp) : 0,
   );
 }
 
@@ -1041,8 +1131,17 @@ String repairsCount(int n, {required bool en}) {
   return '$n napraw';
 }
 
+/// Liczba DI z „≈", gdy choć jedna spoina miała OD spoza tabeli NPS:
+/// „≈ 2,24". Jedno źródło dla ekranu, tekstu i PDF.
+String diNumberText(double di, {required bool en, bool approx = false}) =>
+    '${approx ? '≈ ' : ''}${progressNum(di, en: en, decimals: 2)}';
+
 String _diText(double di, {required bool en, bool approx = false}) =>
-    '${approx ? '≈ ' : ''}${progressNum(di, en: en, decimals: 2)} DI';
+    '${diNumberText(di, en: en, approx: approx)} DI';
+
+/// DI wyniku z jednostką: „≈ 8,24 DI" / „6 DI".
+String pieceworkDiText(PieceworkResult r, {required bool en}) =>
+    _diText(r.di, en: en, approx: r.approxWelds > 0);
 
 /// Wiersz rozbicia kwoty.
 class PieceworkRow {
@@ -1064,8 +1163,8 @@ List<PieceworkRow> pieceworkRows(PieceworkResult r, {required bool en}) {
   String welds(int n) => weldsCount(n, en: en);
   final baseLabel = switch (rates.mode) {
     PieceworkMode.di => en
-        ? 'Base: ${_diText(r.di, en: en, approx: r.approxWelds > 0)} × $rate'
-        : 'Podstawa: ${_diText(r.di, en: en, approx: r.approxWelds > 0)} × $rate',
+        ? 'Base: ${pieceworkDiText(r, en: en)} × $rate'
+        : 'Podstawa: ${pieceworkDiText(r, en: en)} × $rate',
     PieceworkMode.weld => r.sharedWelds == 0
         ? (en ? 'Base: ${welds(r.welds)} × $rate' : 'Podstawa: ${welds(r.welds)} × $rate')
         : (en
@@ -1180,10 +1279,20 @@ List<String> pieceworkNotes(PieceworkResult r, {required bool en}) {
         ? 'The daily minimum applies to one welder only — pick a welder.'
         : 'Minimum dzienne liczy się tylko dla jednego spawacza — wybierz spawacza.');
   }
+  if (r.futureWelds > 0) {
+    out.add(en
+        ? '${welds(r.futureWelds)} dated after the end of the period (in the future) — not in this amount. Check the date in the journal.'
+        : '${welds(r.futureWelds)} z datą po końcu okresu (w przyszłości) — poza tą kwotą. Sprawdź datę w dzienniku.');
+  }
+  for (final d in r.minDayBlockedDays) {
+    out.add(en
+        ? 'Day ${isoDate(d)} has skipped welds — daily minimum not added, fill in the OD.'
+        : 'Dzień ${isoDate(d)} ma pominięte spoiny — minimum dzienne nie naliczone, uzupełnij OD.');
+  }
   if (r.unstampedWelds > 0) {
     out.add(en
         ? '${welds(r.unstampedWelds)} in this period without any welder stamp — assigned to nobody, not in this amount. Check the journal.'
-        : '${welds(r.unstampedWelds)} w tym okresie bez stempla spawacza — nieprzypisane nikomu, nie ma ich w tej kwocie. Sprawdź dziennik.');
+        : '${welds(r.unstampedWelds)} w tym okresie bez stempla spawacza — poza tą kwotą. Sprawdź dziennik.');
   }
   if (r.undatedWelds > 0) {
     out.add(en
@@ -1263,7 +1372,7 @@ String buildPieceworkText(PieceworkReport report, {required bool en}) {
     ..writeln('${en ? 'Welder' : 'Spawacz'}: ${report.welderText(en: en)}')
     ..writeln('${en ? 'Rate' : 'Stawka'}: ${pieceworkRateText(r.rates, en: en)}')
     ..writeln('${en ? 'Welds' : 'Spoiny'}: ${weldsCount(r.welds, en: en)} · '
-        '${_diText(r.di, en: en, approx: r.approxWelds > 0)} · '
+        '${pieceworkDiText(r, en: en)} · '
         '${en ? 'days with entries' : 'dni z wpisami'}: ${r.daysWorked}')
     ..writeln();
   for (final row in pieceworkRows(r, en: en)) {

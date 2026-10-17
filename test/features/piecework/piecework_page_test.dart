@@ -299,6 +299,18 @@ void main() {
     expect(_key('piecework-hourly-compare'), findsNothing);
   });
 
+  testWidgets('spoina z datą w przyszłości: uwaga na ekranie, poza kwotą',
+      (tester) async {
+    await _pump(tester,
+        welds: [..._welds(), _w('f1', 'JK-12', '2026-10-20')],
+        prefs: _saved(_rates));
+    expect(_total('324,00${nb}zł'), findsOneWidget);
+    expect(
+        find.text('1 spoina z datą po końcu okresu (w przyszłości) — poza tą '
+            'kwotą. Sprawdź datę w dzienniku.'),
+        findsOneWidget);
+  });
+
   testWidgets('EN: texts and numbers in English', (tester) async {
     await _pump(tester,
         welds: _welds(), prefs: _saved(_rates), lang: AppLanguage.en);
@@ -444,6 +456,26 @@ void main() {
             .rates
             .rateGrosze,
         4500);
+  });
+
+  test('PDF: „≈" przy przybliżonym DI w faktach i w tabeli spoin', () {
+    final result = computePiecework(
+      entries: [
+        _w('x', 'JK-12', '2026-10-14', od: '57'),
+        _w('y', 'JK-12', '2026-10-14'),
+      ],
+      rates: _rates,
+      range: pieceworkRange(PieceworkPeriod.today, _clock()),
+      welder: 'JK-12',
+    );
+    final report = PieceworkReport(result: result, generatedAt: _clock());
+    expect(PieceworkExport.factRows(report, en: false),
+        contains(('Spoiny', '2 · ≈ 4,24 DI')));
+    expect(PieceworkExport.factRows(report, en: true),
+        contains(('Welds', '2 · ≈ 4.24 DI')));
+    expect(PieceworkExport.weldCells(result.lines.first, en: false)[3],
+        '≈ 2,24');
+    expect(PieceworkExport.weldCells(result.lines.last, en: false)[3], '2');
   });
 
   test('PDF zestawienia renderuje się (PL i EN), także pusty okres', () async {
