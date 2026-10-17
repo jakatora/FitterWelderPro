@@ -67,6 +67,7 @@ import '../weld_journal/weld_dates.dart' show isoDate;
 import '../weld_journal/weld_entry.dart';
 import '../weld_journal/weld_ndt.dart';
 import '../weld_journal/weld_numbering.dart' show compareWeldNos;
+import '../weld_journal/weld_repair.dart';
 import '../weld_journal/weld_stats.dart';
 
 /// 100 % w setnych częściach procenta.
@@ -84,12 +85,16 @@ int ndtRequiredCount(int welds, int bp) {
   return (welds * b + kNdtFullBp - 1) ~/ kNdtFullBp;
 }
 
-/// Procent (0–100) na setne części procenta; null dla pustego, NaN,
-/// nieskończoności i wartości spoza 0–100 — reguła z takim procentem nie
-/// może istnieć.
+/// Procent (0–100) na setne części procenta, zawsze W GÓRĘ („0,004" →
+/// 0,01 %, „5,004" → 5,01 %): wymaganie z wpisanej wartości nigdy nie
+/// spada — w szczególności dodatni procent nie staje się regułą 0 %.
+/// Tolerancja 1e-6 tylko na szum liczb zmiennoprzecinkowych (0,07 · 100 =
+/// 7,000000000000001 → 7). Null dla pustego, NaN, nieskończoności i
+/// wartości spoza 0–100 — reguła z takim procentem nie może istnieć.
 int? ndtBpFromPct(double? pct) {
   if (pct == null || !pct.isFinite || pct < 0 || pct > 100) return null;
-  return (pct * 100).round();
+  final bp = (pct * 100 - 1e-6).ceil();
+  return bp < 0 ? 0 : (bp > kNdtFullBp ? kNdtFullBp : bp);
 }
 
 /// Rodzaj spoiny z dziennika jako kod [WeldJointType] albo null, gdy pusty
@@ -362,10 +367,13 @@ String ndtPresetNote(String preset, {required bool en}) => switch (preset) {
               '(M341.4). Sprawdź specyfikację i wydanie normy.',
       NdtPreset.rt100 => en
           ? 'Every butt weld radiographed (e.g. a specification for severe '
-              'service). Add VT and PT/MT rules if the specification requires '
-              'them.'
+              'service). Fillet, socket and branch welds need a rule of their '
+              'own (VT, PT/MT — or 0 % if nothing is required), otherwise '
+              'their line is not ready.'
           : 'Każda spoina doczołowa prześwietlona (np. specyfikacja dla cięższej '
-              'usługi). Dodaj reguły VT i PT/MT, jeśli wymaga ich specyfikacja.',
+              'usługi). Spoiny pachwinowe, mufowe i odgałęzienia potrzebują '
+              'własnej reguły (VT, PT/MT — albo 0 %, gdy nic nie jest '
+              'wymagane), inaczej ich linia nie jest gotowa.',
       NdtPreset.rt10vt100 => en
           ? 'A common project specification: RT 10 % of the butt welds of each '
               'welder on each line, VT of every weld.'
@@ -418,8 +426,15 @@ class NdtRuleSetDecode {
   /// Reguły odrzucone jako nieczytelne.
   final int dropped;
 
+  /// Odczyt się nie udał (wyjątek magazynu) — nie wiadomo, co jest
+  /// zapisane, więc nic nie wolno nadpisać, dopóki odczyt się nie uda.
+  final bool readFailed;
+
   const NdtRuleSetDecode(this.set,
-      {this.intact = true, this.saved = true, this.dropped = 0});
+      {this.intact = true,
+      this.saved = true,
+      this.dropped = 0,
+      this.readFailed = false});
 }
 
 /// Odczyt zapisu reguł. Nieczytelny JSON, zła wersja albo choć jedna
@@ -570,6 +585,17 @@ class NdtGroup {
   /// Propozycja do zlecenia teraz (nowe spoiny + wybrane już dla innej grupy).
   final List<WeldEntry> proposal;
 
+  /// Spoiny, które zamkną braki grupy: zlecone (do liczby braków), potem
+  /// propozycja. `missing == pending.length + shortfall`.
+  final List<WeldEntry> pending;
+
+  /// Braki, dla których nie ma żadnej spoiny do wybrania.
+  final int shortfall;
+
+  /// Spoiny, przez które zabrakło kandydatów (np. zakres „dod." przy
+  /// regule poniżej 100 % — nie liczą się do podstawy, a wyboru nie zmienią).
+  final List<WeldEntry> stuck;
+
   const NdtGroup({
     required this.ruleIndex,
     required this.rule,
@@ -584,6 +610,9 @@ class NdtGroup {
     required this.progressive,
     required this.openRepairs,
     required this.proposal,
+    required this.pending,
+    required this.shortfall,
+    required this.stuck,
   });
 
   NdtMethod get method => rule.method;
@@ -623,7 +652,14 @@ enum NdtBlocker {
   unassigned,
   noJointType,
   noMaterial,
+
+  /// Spoiny, do których nie stosuje się żadna reguła — brak wymagań to nie
+  /// „zero do zbadania". Świadome „nie wymagam" = reguła 0 %.
+  uncovered,
   openDefects,
+
+  /// Bieżące NOK bez zakresu badania (do uzupełnienia w dzienniku).
+  unclassifiedRejects,
   repairsAwaiting,
   awaitingResults,
   incompleteGroups,
@@ -644,12 +680,17 @@ class NdtLine {
   /// Co blokuje — tylko pozycje z liczbą > 0.
   final Map<NdtBlocker, int> blockers;
 
-  /// Spoiny, do których nie stosuje się żadna reguła (informacja).
+  /// Spoiny, do których nie stosuje się żadna reguła (też blokada).
   final int uncovered;
 
-  /// Odrzucenia bez zakresu badania (weld_stats) — nie wiadomo, czy były
-  /// losowe; nie liczą się do §341.3.4 (informacja dla inspektora).
-  final int rejectsNoScope;
+  /// Odrzucenia sprzed naprawy bez zakresu badania, przyjęte jako losowe
+  /// (§341.3.4 — 2 dodatkowe): zakresu w rekordzie naprawy nie da się
+  /// uzupełnić w dzienniku.
+  final int assumedRandomRejects;
+
+  /// Odrzucenia bez zakresu przyjęte jako wymagane, bo reguła 100 % tej
+  /// metody obejmuje spoinę (bez §341.3.4).
+  final int assumedRequiredRejects;
 
   /// Dodatkowe §341.3.4 do wykonania per metoda (partia spawaczy linii).
   final Map<NdtMethod, int> progressiveByMethod;
@@ -661,19 +702,31 @@ class NdtLine {
     required this.groups,
     required this.blockers,
     required this.uncovered,
-    required this.rejectsNoScope,
+    required this.assumedRandomRejects,
+    required this.assumedRequiredRejects,
     required this.progressiveByMethod,
   });
 
   bool get ready => blockers.isEmpty;
   int get completeGroups => groups.where((g) => g.isComplete).length;
+
+  /// Badania bez wyniku potrzebne grupom linii — każda para (metoda,
+  /// spoina) raz (spoina wspólna dwóch spawaczy, dwie reguły tej samej
+  /// metody), plus braki bez spoiny do wybrania.
   int get missing => blockers[NdtBlocker.missing] ?? 0;
   int get progressive => blockers[NdtBlocker.progressive] ?? 0;
   String get key => '${_key(project)}|${_key(line)}';
 }
 
 /// Brak danych na spoinie.
-enum NdtWeldIssue { noWelder, noJointType, noMaterial, noLine }
+enum NdtWeldIssue {
+  noWelder,
+  noJointType,
+  noMaterial,
+  noLine,
+  uncovered,
+  unclassifiedReject,
+}
 
 class NdtIssueWeld {
   final WeldEntry weld;
@@ -721,9 +774,14 @@ class NdtPlan {
   int get toOrderCount =>
       toOrder.values.fold(0, (s, list) => s + list.length);
 
-  /// Dodatkowe §341.3.4 do wykonania: grupa → liczba (grupy z > 0).
+  /// Dodatkowe §341.3.4 do wykonania: grupy z liczbą > 0.
   List<NdtGroup> get progressiveGroups =>
       [for (final g in groups) if (g.progressive > 0) g];
+
+  /// Grupy, którym brakuje badań, a nie ma spoin do wybrania (bez grup
+  /// „nieprzypisane" — te mają własną blokadę).
+  List<NdtGroup> get shortfalls =>
+      [for (final g in groups) if (g.shortfall > 0 && !g.unassigned) g];
 
   Map<NdtMethod, List<NdtOrderItem>> _byMethod(
       List<WeldEntry> Function(NdtGroup g) pick) {
@@ -761,11 +819,74 @@ class _Acc {
 bool _base(NdtRule r, WeldNdt n) =>
     n.scope != NdtScope.progressive || r.isFull;
 
+/// Spoina może być wybrana do badania metodą: bez wyniku i bez zakresu.
+/// Sam numer raportu albo data (bez wyniku) nie wykluczają.
+bool _candidate(WeldNdt n) => !n.hasResult && n.scope.isEmpty;
+
+// ─── Odrzucenia bez zakresu ───────────────────────────────────────────────
+//
+// weld_stats nie liczy NOK bez zakresu do §341.3.4 („nie wiadomo, czy był
+// losowy"). Bieżący zakres da się ustawić w dzienniku — do tego czasu linia
+// jest zablokowana. Zakresu w rekordzie naprawy (prevNdt) już nie — wtedy,
+// żeby linia nie była zablokowana na zawsze, przyjmujemy wersję
+// bezpieczniejszą: odrzucenie losowe (2 dodatkowe §341.3.4), chyba że reguła
+// 100 % tej metody obejmuje spoinę (wtedy badanie było wymagane). Liczby
+// §341.3.4 nadal liczy weld_stats — na kopii spoin z tak uzupełnionym
+// zakresem.
+
+/// Zakres przyjęty dla NOK bez zakresu metodą [m] na spoinie [e].
+String _assumedScope(NdtMethod m, WeldEntry e, List<NdtRule> rules) =>
+    rules.any((r) =>
+            r.method == m && r.isFull && ndtRuleFit(r, e) == NdtFit.applies)
+        ? NdtScope.required
+        : NdtScope.selected;
+
+bool _unscopedReject(WeldNdt n) => n.isRejected && n.scope.isEmpty;
+
+Map<NdtMethod, WeldNdt> _withAssumedScope(
+        Map<NdtMethod, WeldNdt> ndt, WeldEntry e, List<NdtRule> rules) =>
+    ndt.values.any(_unscopedReject)
+        ? {
+            for (final x in ndt.entries)
+              x.key: _unscopedReject(x.value)
+                  ? x.value.copyWith(scope: _assumedScope(x.key, e, rules))
+                  : x.value,
+          }
+        : ndt;
+
+/// Kopia spoiny dla weld_stats: NOK bez zakresu (bieżące i sprzed napraw)
+/// z przyjętym zakresem.
+WeldEntry _statsView(WeldEntry e, List<NdtRule> rules) {
+  final hasPrev =
+      e.repairs.any((r) => r.prevNdt.values.any(_unscopedReject));
+  if (!hasPrev && !e.ndt.values.any(_unscopedReject)) return e;
+  return e.copyWith(
+    ndt: _withAssumedScope(e.ndt, e, rules),
+    repairs: [
+      for (final r in e.repairs)
+        r.prevNdt.values.any(_unscopedReject)
+            ? WeldRepair(
+                id: r.id,
+                weldId: r.weldId,
+                seq: r.seq,
+                date: r.date,
+                reason: r.reason,
+                prevStatus: r.prevStatus,
+                prevNdt: _withAssumedScope(r.prevNdt, e, rules),
+                prevAcceptance: r.prevAcceptance,
+                byStamp: r.byStamp,
+                createdAt: r.createdAt,
+              )
+            : r,
+    ],
+  );
+}
+
 /// Plan dla nieusuniętych spoin [entries] (opcjonalnie tylko projektu
 /// [project] — porównanie bez wielkości liter) według [rules].
 ///
-/// [rulesIntact] = false (uszkodzony zapis reguł) blokuje gotowość każdej
-/// linii. [round] — „losuj ponownie".
+/// [rulesIntact] = false (uszkodzony albo nieodczytany zapis reguł) blokuje
+/// gotowość każdej linii. [round] — „losuj ponownie".
 NdtPlan computeNdtPlan(
   Iterable<WeldEntry> entries, {
   required List<NdtRule> rules,
@@ -780,6 +901,7 @@ NdtPlan computeNdtPlan(
   ];
   final valid = [for (final r in rules) if (r.isValid) r];
   final intact = rulesIntact && valid.length == rules.length;
+  final statsLive = [for (final e in live) _statsView(e, valid)];
 
   // ── Dodatkowe §341.3.4 z weld_stats, na partii spawacza ──
   final lotPerLine = {
@@ -790,7 +912,7 @@ NdtPlan computeNdtPlan(
   WeldJournalStats lotStats(String projectKey, String? lineKey) =>
       statsCache.putIfAbsent(
         '$projectKey\u0000${lineKey ?? '\u0001'}',
-        () => computeWeldJournalStats(live.where((e) =>
+        () => computeWeldJournalStats(statsLive.where((e) =>
             _key(e.projectName) == projectKey &&
             (lineKey == null || _key(weldLineKey(e)) == lineKey))),
       );
@@ -896,21 +1018,20 @@ NdtPlan computeNdtPlan(
         : welderKeys(welds).fold<int>(
             0, (s, w) => s + progressiveFor(m, a.projectKey, a.lineKey, w));
 
-    // Propozycja: brakujące minus już zlecone, z preferencją spoin nie
-    // badanych innymi metodami. Spoiny bez spawacza (reguła na spawacza)
-    // nie dostają propozycji — najpierw trzeba je przypisać.
+    // Braki zamykają najpierw zlecone spoiny, potem propozycja: spoiny bez
+    // wyniku i bez zakresu, z preferencją nie badanych innymi metodami.
+    // Spoiny bez spawacza (reguła na spawacza) nie dostają propozycji —
+    // najpierw trzeba je przypisać.
     final missing = required > examined ? required - examined : 0;
-    final toOrder = missing > ordered.length ? missing - ordered.length : 0;
+    final orderedUsed = ordered.take(missing).toList();
+    final toOrder = missing - orderedUsed.length;
     final unassigned = a.welderKey != null && a.welderKey!.isEmpty;
     final proposal = <WeldEntry>[];
     if (toOrder > 0 && !unassigned) {
       final taken = proposed[m] ??= <String>{};
-      final covered = [
-        for (final e in welds)
-          if (taken.contains(e.id)) e
-      ];
-      proposal.addAll(covered);
-      final need = toOrder - covered.length;
+      proposal.addAll(
+          welds.where((e) => taken.contains(e.id)).take(toOrder));
+      final need = toOrder - proposal.length;
       if (need > 0) {
         final seed = '${a.projectKey}|${a.lineKey ?? any}|'
             '${a.welderKey ?? any}|${m.code}|$round';
@@ -923,7 +1044,7 @@ NdtPlan computeNdtPlan(
 
         final candidates = [
           for (final e in welds)
-            if (!taken.contains(e.id) && e.ndtOf(m).isEmpty) e
+            if (!taken.contains(e.id) && _candidate(e.ndtOf(m))) e
         ]..sort((x, y) {
             final t = tier(x).compareTo(tier(y));
             if (t != 0) return t;
@@ -937,6 +1058,16 @@ NdtPlan computeNdtPlan(
         proposal.addAll(picks);
       }
     }
+    final shortfall = toOrder - proposal.length;
+    final stuck = shortfall > 0 && !unassigned
+        ? [
+            for (final e in welds)
+              if (!(e.ndtOf(m).hasResult && _base(r, e.ndtOf(m))) &&
+                  !(e.ndtOf(m).isAwaiting && _base(r, e.ndtOf(m))) &&
+                  !_candidate(e.ndtOf(m)))
+                e
+          ]
+        : const <WeldEntry>[];
 
     groups.add(NdtGroup(
       ruleIndex: a.ruleIndex,
@@ -952,6 +1083,9 @@ NdtPlan computeNdtPlan(
       progressive: progressive,
       openRepairs: open,
       proposal: List.unmodifiable(proposal),
+      pending: List.unmodifiable([...orderedUsed, ...proposal]),
+      shortfall: shortfall,
+      stuck: List.unmodifiable(stuck),
     ));
   }
 
@@ -982,21 +1116,46 @@ NdtPlan computeNdtPlan(
 
     var unassigned = 0, noJoint = 0, noMaterial = 0, uncovered = 0;
     var openDefects = 0, repairsAwaiting = 0, awaitingResults = 0;
+    var unclassified = 0, assumedRandom = 0, assumedRequired = 0;
     for (final e in welds) {
       final fits = [for (final r in valid) ndtRuleFit(r, e)];
+      final isUncovered =
+          fits.isNotEmpty && fits.every((f) => f == NdtFit.outside);
+      // Bieżące NOK bez zakresu: do ustawienia w dzienniku, chyba że
+      // reguła 100 % tej metody i tak wymaga badania tej spoiny.
+      var unclassifiedHere = false;
+      for (final x in e.ndt.entries) {
+        if (!_unscopedReject(x.value)) continue;
+        if (_assumedScope(x.key, e, valid) == NdtScope.required) {
+          assumedRequired++;
+        } else {
+          unclassifiedHere = true;
+        }
+      }
+      for (final rep in e.repairs) {
+        for (final x in rep.prevNdt.entries) {
+          if (!_unscopedReject(x.value)) continue;
+          if (_assumedScope(x.key, e, valid) == NdtScope.required) {
+            assumedRequired++;
+          } else {
+            assumedRandom++;
+          }
+        }
+      }
       final weldIssues = <NdtWeldIssue>[
         if (e.stamps.isEmpty) NdtWeldIssue.noWelder,
         if (fits.contains(NdtFit.unknownJoint)) NdtWeldIssue.noJointType,
         if (fits.contains(NdtFit.unknownMaterial)) NdtWeldIssue.noMaterial,
         if (lKey.isEmpty) NdtWeldIssue.noLine,
+        if (isUncovered) NdtWeldIssue.uncovered,
+        if (unclassifiedHere) NdtWeldIssue.unclassifiedReject,
       ];
       if (weldIssues.isNotEmpty) issues.add(NdtIssueWeld(e, weldIssues));
       if (e.stamps.isEmpty) unassigned++;
       if (fits.contains(NdtFit.unknownJoint)) noJoint++;
       if (fits.contains(NdtFit.unknownMaterial)) noMaterial++;
-      if (fits.isNotEmpty && fits.every((f) => f == NdtFit.outside)) {
-        uncovered++;
-      }
+      if (isUncovered) uncovered++;
+      if (unclassifiedHere) unclassified++;
       if (ndtOpenDefect(e)) {
         openDefects++;
       } else if (ndtRepairAwaiting(e)) {
@@ -1032,6 +1191,18 @@ NdtPlan computeNdtPlan(
     }
     final progressive = progByMethod.values.fold(0, (s, n) => s + n);
 
+    // Braki: każda para (metoda, spoina) raz — spoina wspólna dwóch
+    // spawaczy i spoina w dwóch regułach tej samej metody to jedno badanie
+    // (tak samo liczy lista zleceń) — plus braki bez spoiny do wybrania.
+    final pendingPairs = <String>{};
+    var shortfall = 0;
+    for (final g in touching) {
+      for (final w in g.pending) {
+        pendingPairs.add('${g.method.code}|${w.id}');
+      }
+      shortfall += g.shortfall;
+    }
+
     final blockers = <NdtBlocker, int>{};
     void add(NdtBlocker b, int n) {
       if (n > 0) blockers[b] = n;
@@ -1043,12 +1214,14 @@ NdtPlan computeNdtPlan(
     add(NdtBlocker.unassigned, unassigned);
     add(NdtBlocker.noJointType, noJoint);
     add(NdtBlocker.noMaterial, noMaterial);
+    add(NdtBlocker.uncovered, uncovered);
     add(NdtBlocker.openDefects, openDefects);
+    add(NdtBlocker.unclassifiedRejects, unclassified);
     add(NdtBlocker.repairsAwaiting, repairsAwaiting);
     add(NdtBlocker.awaitingResults, awaitingResults);
     add(NdtBlocker.incompleteGroups,
         touching.where((g) => !g.isComplete).length);
-    add(NdtBlocker.missing, touching.fold(0, (s, g) => s + g.missing));
+    add(NdtBlocker.missing, pendingPairs.length + shortfall);
     add(NdtBlocker.progressive, progressive);
 
     lines.add(NdtLine(
@@ -1058,7 +1231,8 @@ NdtPlan computeNdtPlan(
       groups: List.unmodifiable(touching),
       blockers: Map.unmodifiable(blockers),
       uncovered: uncovered,
-      rejectsNoScope: lotStats(pKey, lKey).total.rejectsNoScope,
+      assumedRandomRejects: assumedRandom,
+      assumedRequiredRejects: assumedRequired,
       progressiveByMethod: Map.unmodifiable(progByMethod),
     ));
   }
@@ -1208,8 +1382,8 @@ String ndtBlockerText(NdtBlocker b, NdtLine l, {required bool en}) {
   final n = l.blockers[b] ?? 0;
   return switch (b) {
     NdtBlocker.rulesDamaged => en
-        ? 'The saved rules were damaged — check and confirm the rules'
-        : 'Zapisane reguły były uszkodzone — sprawdź i potwierdź reguły',
+        ? 'The saved rules are unreadable — check and confirm the rules'
+        : 'Zapisane reguły są nieczytelne — sprawdź i potwierdź reguły',
     NdtBlocker.noRules => en
         ? 'No examination rules — pick a preset or add a rule'
         : 'Brak reguł badań — wybierz preset albo dodaj regułę',
@@ -1225,9 +1399,19 @@ String ndtBlockerText(NdtBlocker b, NdtLine l, {required bool en}) {
     NdtBlocker.noMaterial => en
         ? 'Welds with no material (a rule depends on it): $n'
         : 'Spoiny bez materiału (reguła od niego zależy): $n',
+    NdtBlocker.uncovered => en
+        ? 'Welds no rule covers: $n — add a rule for them (0 % too, if '
+            'the specification requires nothing)'
+        : 'Spoiny poza regułami: $n — dodaj regułę dla tych spoin (także '
+            '0 %, jeśli specyfikacja nic nie wymaga)',
     NdtBlocker.openDefects => en
         ? 'Rejected welds not repaired yet (NOK): $n'
         : 'Spoiny odrzucone, jeszcze bez naprawy (NOK): $n',
+    NdtBlocker.unclassifiedRejects => en
+        ? 'Rejects with no examination scope: $n — set the scope '
+            '(req. / sel. / add.) in the journal'
+        : 'Odrzucenia bez zakresu badania: $n — ustaw zakres '
+            '(wym. / wyb. / dod.) w dzienniku',
     NdtBlocker.repairsAwaiting => en
         ? 'Repairs awaiting re-examination: $n'
         : 'Naprawy czekają na ponowne badanie: $n',
@@ -1251,7 +1435,56 @@ String ndtIssueText(NdtWeldIssue i, {required bool en}) => switch (i) {
       NdtWeldIssue.noJointType => en ? 'no joint type' : 'bez rodzaju spoiny',
       NdtWeldIssue.noMaterial => en ? 'no material' : 'bez materiału',
       NdtWeldIssue.noLine => en ? 'no line / ISO' : 'bez linii i ISO',
+      NdtWeldIssue.uncovered => en ? 'no rule covers it' : 'poza regułami',
+      NdtWeldIssue.unclassifiedReject =>
+        en ? 'NOK with no examination scope' : 'NOK bez zakresu badania',
     };
+
+/// „W-3 · L-12 · JK-12 · BW — bez spawacza, poza regułami" (ekran, tekst,
+/// PDF).
+String ndtIssueLine(NdtIssueWeld i, {required bool en}) =>
+    '${ndtWeldLabel(i.weld, en: en)} — '
+    '${i.issues.map((x) => ndtIssueText(x, en: en)).join(', ')}';
+
+/// Grupa, której brakuje badań, a nie ma spoin do wybrania.
+String ndtShortfallText(NdtGroup g, {required bool en}) {
+  final nos = [
+    for (final w in g.stuck) w.weldNo.trim().isEmpty ? '?' : w.weldNo.trim()
+  ].join(', ');
+  final head = en
+      ? '${ndtGroupTitle(g, en: true)}: ${g.shortfall} missing and no weld '
+          'left to pick'
+      : '${ndtGroupTitle(g, en: false)}: brakuje ${g.shortfall}, a nie ma '
+          'spoin do wybrania';
+  if (nos.isEmpty) return head;
+  return en
+      ? '$head — blocked by $nos (scope "add." does not count towards the %; '
+          'change the scope in the journal)'
+      : '$head — blokują: $nos (zakres „dod." nie liczy się do %; zmień '
+          'zakres w dzienniku)';
+}
+
+/// Uwagi linii, które nie blokują (ekran, tekst, PDF).
+List<String> ndtLineNotes(NdtLine l, {required bool en}) => [
+      if (l.assumedRandomRejects > 0)
+        en
+            ? 'Rejects before a repair with no examination scope: '
+                '${l.assumedRandomRejects} — taken as random (2 additional '
+                'of the same welder by the same method, §341.3.4); the scope '
+                'in a repair record cannot be filled in any more.'
+            : 'Odrzucenia sprzed naprawy bez zakresu badania: '
+                '${l.assumedRandomRejects} — przyjęte jako losowe (2 '
+                'dodatkowe tego spawacza tą metodą, §341.3.4); zakresu w '
+                'rekordzie naprawy nie da się już uzupełnić.',
+      if (l.assumedRequiredRejects > 0)
+        en
+            ? 'Rejects with no examination scope: '
+                '${l.assumedRequiredRejects} — taken as required, a 100 % rule '
+                'of that method covers the weld (no §341.3.4 additional).'
+            : 'Odrzucenia bez zakresu badania: ${l.assumedRequiredRejects} — '
+                'przyjęte jako wymagane, bo reguła 100 % tej metody obejmuje '
+                'spoinę (bez dodatkowych §341.3.4).',
+    ];
 
 /// „W-3 · L-12 · ISO-1201 · JK-12/AB-03 · BW".
 String ndtWeldLabel(WeldEntry e, {required bool en}) {
@@ -1281,6 +1514,19 @@ String ndtOrderReason(NdtOrderItem i, {required bool en}) {
   ].join(' · ');
 }
 
+/// Powód przy spoinie zleconej wcześniej: „zlecone, bez wyniku · losowo
+/// 10 % · JK-12 · L-12" albo „ponowne badanie po naprawie R1 · …".
+String ndtOrderedReason(NdtOrderItem i, {required bool en}) {
+  final reps = i.weld.repairs;
+  final seq = reps.fold<int>(0, (m, r) => r.seq > m ? r.seq : m);
+  final head = reps.isEmpty
+      ? (en ? 'ordered, no result' : 'zlecone, bez wyniku')
+      : (en
+          ? 're-examination after repair R$seq'
+          : 'ponowne badanie po naprawie R$seq');
+  return '$head · ${ndtOrderReason(i, en: en)}';
+}
+
 /// Definicje pod planem (ekran, tekst, PDF).
 List<String> ndtDefinitions({required bool en}) => en
     ? const [
@@ -1293,7 +1539,13 @@ List<String> ndtDefinitions({required bool en}) => en
             'welder by the same method, minus samples marked "additional"; the '
             'inspector picks them.',
         '"Ready" only with complete data: every weld has a welder, joint type '
-            'and line, no open repairs, no result pending, every group complete.',
+            'and line and is covered by a rule (0 % too), no open repairs, no '
+            'result pending, every group complete.',
+        '"Missing" counts each examination once — a weld shared by two '
+            'welders or by two rules of the same method is one examination.',
+        'A reject with no examination scope: set the scope in the journal; '
+            'before a repair it can no longer be set — then it counts as random '
+            '(2 additional, §341.3.4) unless a 100 % rule covers the weld.',
       ]
     : const [
         'Wymagane = spoiny × %, zawsze w górę (5 % z 1 spoiny = 1, z 21 = 2).',
@@ -1305,8 +1557,13 @@ List<String> ndtDefinitions({required bool en}) => en
             'spawacza tą samą metodą, minus oznaczone jako „dod."; wybiera '
             'inspektor.',
         '„Gotowa" tylko przy komplecie danych: każda spoina ma spawacza, rodzaj '
-            'i linię, brak otwartych napraw i badań bez wyniku, wszystkie grupy '
-            'kompletne.',
+            'i linię i jest objęta regułą (także 0 %), brak otwartych napraw i '
+            'badań bez wyniku, wszystkie grupy kompletne.',
+        '„Brakuje" liczy każde badanie raz — spoina wspólna dwóch spawaczy albo '
+            'dwóch reguł tej samej metody to jedno badanie.',
+        'Odrzucenie bez zakresu badania: ustaw zakres w dzienniku; sprzed '
+            'naprawy nie da się go już ustawić — wtedy liczy się jak losowe '
+            '(2 dodatkowe, §341.3.4), chyba że spoinę obejmuje reguła 100 %.',
       ];
 
 // ─── Zlecenie badań (tekst i PDF) ────────────────────────────────────────
@@ -1358,8 +1615,8 @@ String buildNdtOrderText(NdtOrderReport r, {required bool en}) {
   }
   if (!plan.rulesIntact) {
     b.writeln(en
-        ? '! The saved rules were damaged — the plan is not final.'
-        : '! Zapisane reguły były uszkodzone — plan nie jest ostateczny.');
+        ? '! The saved rules are unreadable — the plan is not final.'
+        : '! Zapisane reguły są nieczytelne — plan nie jest ostateczny.');
   }
 
   final toOrder = plan.toOrder;
@@ -1392,7 +1649,8 @@ String buildNdtOrderText(NdtOrderReport r, {required bool en}) {
           : 'Zlecone wcześniej, bez wyniku:');
     for (final m in NdtMethod.values) {
       for (final i in ordered[m] ?? const <NdtOrderItem>[]) {
-        b.writeln('• ${m.code}: ${ndtWeldLabel(i.weld, en: en)}');
+        b.writeln('• ${m.code}: ${ndtWeldLabel(i.weld, en: en)} '
+            '(${ndtOrderedReason(i, en: en)})');
       }
     }
   }
@@ -1427,6 +1685,24 @@ String buildNdtOrderText(NdtOrderReport r, {required bool en}) {
             ].join('; ')}';
       b.writeln('• ${ndtLineName(l.line, en: en)}: '
           '${ndtVerdictText(l, en: en)}$why');
+      for (final n in ndtLineNotes(l, en: en)) {
+        b.writeln('  – $n');
+      }
+    }
+  }
+
+  final shortfalls = plan.shortfalls;
+  if (plan.issues.isNotEmpty || shortfalls.isNotEmpty) {
+    b
+      ..writeln()
+      ..writeln(en
+          ? 'Missing data (fill in the weld journal):'
+          : 'Brak danych (uzupełnij w dzienniku spoin):');
+    for (final g in shortfalls) {
+      b.writeln('• ${ndtShortfallText(g, en: en)}');
+    }
+    for (final i in plan.issues) {
+      b.writeln('• ${ndtIssueLine(i, en: en)}');
     }
   }
   b

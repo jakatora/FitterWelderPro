@@ -3,6 +3,7 @@
 // zlecenia; preset B31.3; uszkodzone reguły; EN; 320×640 przy tekście 1,3;
 // cele dotyku; udostępnianie przez wstrzyknięte funkcje; PDF.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -61,6 +62,34 @@ List<WeldEntry> _welds() => [
 Map<String, Object> _saved(String preset, {String project = 'Blok 4'}) =>
     {NdtPlanStore.keyFor(project): NdtRuleSet.fromPreset(preset).encode()};
 
+/// Magazyn reguł w pamięci: błędy odczytu na żądanie, zapis przez [saveImpl].
+class _FakeStore extends NdtPlanStore {
+  _FakeStore({this.failReads = 0, this.stored, this.saveImpl});
+
+  int failReads;
+  NdtRuleSet? stored;
+  final Future<void> Function(NdtRuleSet set)? saveImpl;
+  final List<NdtRuleSet> saved = [];
+
+  @override
+  Future<NdtRuleSetDecode> load(String project) async {
+    if (failReads > 0) {
+      failReads--;
+      return const NdtRuleSetDecode(NdtRuleSet(),
+          intact: false, readFailed: true);
+    }
+    final s = stored;
+    return s == null ? decodeNdtRuleSet(null) : NdtRuleSetDecode(s);
+  }
+
+  @override
+  Future<void> save(String project, NdtRuleSet set) async {
+    saved.add(set);
+    if (saveImpl != null) await saveImpl!(set);
+    stored = set;
+  }
+}
+
 Future<void> _noText(String text, String subject) async {}
 Future<void> _noPdf(NdtOrderReport report, bool english) async {}
 
@@ -74,6 +103,7 @@ Future<void> _pump(
   Map<String, double?> targets = const {},
   NdtShareText shareText = _noText,
   NdtSharePdf sharePdf = _noPdf,
+  NdtPlanStore store = const NdtPlanStore(),
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -82,6 +112,7 @@ Future<void> _pump(
   final page = welds == null
       ? NdtPlanPage(
           clock: _clock,
+          store: store,
           shareText: shareText,
           sharePdf: sharePdf,
         )
@@ -90,6 +121,7 @@ Future<void> _pump(
           loadWelds: () async => welds,
           loadTargets: () async => targets,
           loadLastProject: () async => '',
+          store: store,
           shareText: shareText,
           sharePdf: sharePdf,
         );
@@ -159,7 +191,58 @@ void main() {
     expect(find.text('• Naprawy czekają na ponowne badanie: 1'),
         findsOneWidget);
     expect(_key('ndt-ordered-RT-a1'), findsOneWidget);
+    // Powód przy zleconej — ten sam co w tekście i PDF.
+    expect(
+        find.text('   ponowne badanie po naprawie R1 · losowo 10$nb% · '
+            'AB-03 · L-12'),
+        findsOneWidget);
     expect(find.text('Gotowe: 0 z 2 linii'), findsOneWidget);
+  });
+
+  testWidgets('N5: błąd odczytu reguł — komunikat, edycja zablokowana, nic '
+      'nie jest zapisane do udanego ponownego odczytu', (tester) async {
+    final store = _FakeStore(
+        failReads: 1, stored: NdtRuleSet.fromPreset(NdtPreset.rt10vt100));
+    await _pump(tester, welds: _welds(), store: store);
+    expect(_key('ndt-rules-read-failed'), findsOneWidget);
+    expect(_key('ndt-rules-damaged'), findsNothing);
+    expect(_verdict(tester, _l12), 'Niegotowa do próby ciśnieniowej');
+    expect(tester.widget<ButtonStyleButton>(_key('ndt-rule-add')).enabled,
+        isFalse);
+    await _tap(tester, 'ndt-preset-${NdtPreset.b313}');
+    expect(store.saved, isEmpty);
+
+    await _tap(tester, 'ndt-rules-retry');
+    expect(_key('ndt-rules-read-failed'), findsNothing);
+    expect(_verdict(tester, _l12), 'Gotowa do próby ciśnieniowej');
+    expect(store.saved, isEmpty);
+    await _tap(tester, 'ndt-preset-${NdtPreset.b313}');
+    expect(store.saved.single, NdtRuleSet.fromPreset(NdtPreset.b313));
+  });
+
+  testWidgets('N5: zapisy reguł po kolei; błąd zapisu → komunikat',
+      (tester) async {
+    final first = Completer<void>();
+    var calls = 0;
+    final store = _FakeStore(saveImpl: (s) async {
+      calls++;
+      if (calls == 1) await first.future;
+      if (calls == 3) throw StateError('disk full');
+    });
+    await _pump(tester, welds: _welds(), store: store);
+    await _tap(tester, 'ndt-preset-${NdtPreset.b313}');
+    await _tap(tester, 'ndt-preset-${NdtPreset.rt100}');
+    // Drugi zapis czeka, aż skończy się pierwszy.
+    expect(store.saved.map((s) => s.preset), [NdtPreset.b313]);
+    first.complete();
+    await tester.pumpAndSettle();
+    expect(store.saved.map((s) => s.preset),
+        [NdtPreset.b313, NdtPreset.rt100]);
+    expect(store.stored!.preset, NdtPreset.rt100);
+
+    await _tap(tester, 'ndt-preset-${NdtPreset.rt10vt100}');
+    expect(find.text('Nie udało się zapisać reguł na telefonie.'),
+        findsOneWidget);
   });
 
   testWidgets('reguły → wynik: bez reguł nic nie jest gotowe; dodana reguła '
@@ -509,6 +592,27 @@ void main() {
       final first = plan.toOrder[NdtMethod.rt]!.single;
       expect(NdtPlanExport.orderCells(1, first, en: en)[6], 'RT');
     }
+
+    // N6: zlecone wcześniej z tym samym powodem co ekran i tekst; PDF z
+    // brakami danych, brakami bez kandydatów i uwagami linii się renderuje.
+    final withOrdered = computeNdtPlan([
+      ..._welds(),
+      _w('o1', line: 'L-12', ndt: {NdtMethod.rt: ndtOf(NdtScope.selected)}),
+      _w('x1', line: 'L-16', ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive, NdtResult.ok)}),
+    ], rules: NdtRuleSet.fromPreset(NdtPreset.rt10vt100).rules, project: 'Blok 4');
+    final o = withOrdered.ordered[NdtMethod.rt]!.single;
+    expect(NdtPlanExport.orderCells(1, o, en: false, ordered: true)[7],
+        'zlecone, bez wyniku · losowo 10$nb% · JK-12 · L-12');
+    expect(NdtPlanExport.orderCells(1, o, en: false, ordered: true)[7],
+        ndtOrderedReason(o, en: false));
+    expect(withOrdered.shortfalls, isNotEmpty);
+    final doc = NdtPlanExport.buildPdfDocument(
+      report: NdtOrderReport(
+          project: 'Blok 4', plan: withOrdered, generatedAt: _clock()),
+      en: false,
+      font: font('Roboto-Regular.ttf'),
+    );
+    expect(String.fromCharCodes((await doc.save()).take(5)), '%PDF-');
     final empty = NdtPlanExport.buildPdfDocument(
       report: NdtOrderReport(
         project: '',

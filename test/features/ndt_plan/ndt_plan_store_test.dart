@@ -50,6 +50,23 @@ void main() {
     expect(prefs.getString(NdtPlanStore.corruptKeyFor('Blok 4')), raw);
   });
 
+  test('N5: błąd odczytu to nie uszkodzenie — readFailed, zapis rzuca', () async {
+    final failing = NdtPlanStore(prefs: () async => throw StateError('io'));
+    final load = await failing.load('Blok 4');
+    expect(load.readFailed, isTrue);
+    expect(load.intact, isFalse);
+    expect(load.set.rules, isEmpty);
+    await expectLater(
+        failing.save('Blok 4', NdtRuleSet.fromPreset(NdtPreset.rt100)),
+        throwsStateError);
+    // Zwykły uszkodzony zapis nie jest błędem odczytu.
+    SharedPreferences.setMockInitialValues(
+        {NdtPlanStore.keyFor('Blok 4'): 'zepsute'});
+    final damaged = await store.load('Blok 4');
+    expect(damaged.intact, isFalse);
+    expect(damaged.readFailed, isFalse);
+  });
+
   test('reguła spoza zakresu w zapisie = uszkodzony; wartość nie-tekst też',
       () async {
     SharedPreferences.setMockInitialValues({

@@ -6,6 +6,11 @@
 /// spoza zakresu) NIE ginie przy następnym zapisie: zanim [NdtPlanStore.save]
 /// go nadpisze, surowa wartość trafia pod [NdtPlanStore.corruptKeyFor] —
 /// tylko raz, istniejąca kopia nie jest nadpisywana (jak w akordzie).
+///
+/// Błąd ODCZYTU (wyjątek magazynu) to co innego niż uszkodzony zapis: nie
+/// wiadomo, co jest zapisane — load zwraca `readFailed`, a ekran nie
+/// zapisuje niczego, dopóki ponowny odczyt się nie uda (inaczej nienaruszone
+/// reguły zostałyby nadpisane bez kopii).
 library;
 
 import 'dart:convert';
@@ -15,11 +20,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/ndt/ndt_plan.dart';
 
+/// Dostęp do SharedPreferences — wstrzykiwany w testach (np. błąd odczytu).
+typedef NdtPrefsGetter = Future<SharedPreferences> Function();
+
 class NdtPlanStore {
   static const String prefix = 'ndt_plan.rules_v1.';
   static const String corruptPrefix = 'ndt_plan.rules_v1_corrupt.';
 
-  const NdtPlanStore();
+  final NdtPrefsGetter prefs;
+
+  const NdtPlanStore({this.prefs = SharedPreferences.getInstance});
 
   /// Klucz projektu: nazwa bez spacji na brzegach, małymi literami (jak
   /// ustawienia projektu w dzienniku).
@@ -30,11 +40,11 @@ class NdtPlanStore {
       '$corruptPrefix${projectKey(project)}';
 
   /// Nigdy nie rzuca: brak zapisu = brak reguł (`saved == false`);
-  /// nieczytelny = `intact == false`.
+  /// nieczytelny = `intact == false`; wyjątek odczytu = `readFailed`.
   Future<NdtRuleSetDecode> load(String project) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.get(keyFor(project));
+      final p = await prefs();
+      final raw = p.get(keyFor(project));
       if (raw == null) return decodeNdtRuleSet(null);
       if (raw is! String) {
         return const NdtRuleSetDecode(NdtRuleSet(), intact: false);
@@ -42,14 +52,16 @@ class NdtPlanStore {
       return decodeNdtRuleSet(raw);
     } catch (e) {
       debugPrint('[ndt_plan] read rules failed: $e');
-      return const NdtRuleSetDecode(NdtRuleSet(), intact: false);
+      return const NdtRuleSetDecode(NdtRuleSet(),
+          intact: false, readFailed: true);
     }
   }
 
+  /// Rzuca, gdy zapis się nie uda — ekran pokazuje komunikat.
   Future<void> save(String project, NdtRuleSet set) async {
-    final prefs = await SharedPreferences.getInstance();
-    await _backupIfDamaged(prefs, project);
-    final ok = await prefs.setString(keyFor(project), set.encode());
+    final p = await prefs();
+    await _backupIfDamaged(p, project);
+    final ok = await p.setString(keyFor(project), set.encode());
     if (!ok) throw StateError('SharedPreferences.setString failed');
   }
 
