@@ -143,6 +143,8 @@ void main() {
         'GlossaryPage',
         // Nośność spoiny pachwinowej (EN 1993-1-8).
         'FilletStrengthPage',
+        // Twardość: przelicznik ISO 18265 i limity.
+        'HardnessPage',
       };
       expect(targets, expected);
     });

@@ -10,6 +10,7 @@ import '../features/filler/filler_selector_page.dart';
 import '../features/fillet_strength/fillet_strength_page.dart';
 import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
+import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
@@ -1421,6 +1422,60 @@ final List<ToolSpec> kToolRegistry = [
       'ambient temperature',
       'field welding',
       'aws d1.1'
+    ],
+  ),
+  ToolSpec(
+    id: 'hardness',
+    group: ToolGroup.inspection,
+    titlePl: 'Twardość: przelicznik i limity',
+    titleEn: 'Hardness: converter and limits',
+    subtitlePl: 'HV, HB, HRC, HRB wg ISO 18265; limity NACE, ISO 15614-1, B31.3',
+    subtitleEn: 'HV, HB, HRC, HRB per ISO 18265; NACE, ISO 15614-1, B31.3 limits',
+    icon: Icons.diamond_outlined,
+    color: const Color(0xFF90A4AE),
+    builder: (_) => const HardnessPage(),
+    keywordsPl: const [
+      'twardosc',
+      'twardosci',
+      'hv',
+      'hv10',
+      'hb',
+      'hbw',
+      'hrc',
+      'hrb',
+      'vickers',
+      'brinell',
+      'rockwell',
+      'leeb',
+      'uci',
+      'przelicznik twardosci',
+      'nace',
+      'mr0175',
+      '15156',
+      'h2s',
+      'srodowisko kwasne',
+      '15614',
+      'wpqr',
+      'pwht',
+      'swc',
+      '18265'
+    ],
+    keywordsEn: const [
+      'hardness',
+      'hardness conversion',
+      'vickers',
+      'brinell',
+      'rockwell',
+      'leeb',
+      'sour service',
+      'nace',
+      'iso 15156',
+      'iso 15614',
+      'pqr',
+      'pwht',
+      'haz',
+      'astm e140',
+      'iso 18265'
     ],
   ),
   ToolSpec(
