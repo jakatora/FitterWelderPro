@@ -15,7 +15,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../domain/piecework/piecework.dart';
-import '../domain/progress/progress_report.dart' show progressNum;
 import '../domain/quotes/quote_calculator.dart' show formatPln;
 import '../domain/weld_journal/weld_dates.dart';
 
@@ -67,6 +66,56 @@ class PieceworkExport {
       subject: subject(report, en: english),
     );
   }
+
+  /// Wiersze tabeli „Pozycja / Wartość" na początku PDF.
+  static List<(String, String)> factRows(PieceworkReport report,
+      {required bool en}) {
+    final r = report.result;
+    return [
+      (en ? 'Welder' : 'Spawacz', report.welderText(en: en)),
+      (en ? 'Rate' : 'Stawka', pieceworkRateText(r.rates, en: en)),
+      (en ? 'Welds' : 'Spoiny', '${r.welds} · ${pieceworkDiText(r, en: en)}'),
+      (en ? 'Days with entries' : 'Dni z wpisami', '${r.daysWorked}'),
+      if (r.perDayGrosze != null)
+        (en ? 'Average per day' : 'Średnio na dzień', formatPln(r.perDayGrosze!)),
+      if (report.perHourGrosze != null)
+        (
+          en ? 'Per hour' : 'Na godzinę',
+          '${formatPln(report.perHourGrosze!)} · ${hoursText(report, en: en)}'
+        ),
+    ];
+  }
+
+  static String _material(PieceworkMaterial m, {required bool en}) =>
+      switch (m) {
+        PieceworkMaterial.carbon => en ? 'CS' : 'węgl.',
+        PieceworkMaterial.stainless => en ? 'SS' : 'nierdz.',
+        PieceworkMaterial.other => en ? 'other' : 'inne',
+        PieceworkMaterial.unknown => '?',
+      };
+
+  /// Komórki wiersza tabeli „spoina po spoinie": spoina, data, linia, DI
+  /// (z „≈" i „÷n" dla spoiny wspólnej), materiał, pozycja, wartość,
+  /// potrącenie / naprawy, do zapłaty.
+  static List<String> weldCells(PieceworkLine l, {required bool en}) => [
+        l.weld.weldNo,
+        l.weld.date,
+        l.weld.pipeName,
+        l.weldDi == null
+            ? '—'
+            : '${diNumberText(l.weldDi!, en: en, approx: l.diApprox)}'
+                '${l.splitBetween > 1 ? ' ÷${l.splitBetween}' : ''}',
+        _material(l.material, en: en),
+        payPositionLabel(l.position),
+        formatPln(l.valueGrosze, withUnit: false),
+        [
+          if (l.deductionGrosze != 0)
+            formatPln(-l.deductionGrosze, withUnit: false),
+          if (l.repairPayGrosze != 0)
+            '+${formatPln(l.repairPayGrosze, withUnit: false)}',
+        ].join(' '),
+        formatPln(l.netGrosze, withUnit: false),
+      ];
 
   static pw.Document buildPdfDocument({
     required PieceworkReport report,
@@ -135,31 +184,9 @@ class PieceworkExport {
           ],
         );
 
-    final facts = <(String, String)>[
-      (en ? 'Welder' : 'Spawacz', report.welderText(en: en)),
-      (en ? 'Rate' : 'Stawka', pieceworkRateText(r.rates, en: en)),
-      (
-        en ? 'Welds' : 'Spoiny',
-        '${r.welds} · ${progressNum(r.di, en: en, decimals: 2)} DI'
-      ),
-      (en ? 'Days with entries' : 'Dni z wpisami', '${r.daysWorked}'),
-      if (r.perDayGrosze != null)
-        (en ? 'Average per day' : 'Średnio na dzień', formatPln(r.perDayGrosze!)),
-      if (report.perHourGrosze != null)
-        (
-          en ? 'Per hour' : 'Na godzinę',
-          '${formatPln(report.perHourGrosze!)} · ${hoursText(report, en: en)}'
-        ),
-    ];
+    final facts = factRows(report, en: en);
     final cmp = hourlyCompareText(report, en: en);
     final notes = pieceworkNotes(r, en: en);
-
-    String material(PieceworkMaterial m) => switch (m) {
-          PieceworkMaterial.carbon => en ? 'CS' : 'węgl.',
-          PieceworkMaterial.stainless => en ? 'SS' : 'nierdz.',
-          PieceworkMaterial.other => en ? 'other' : 'inne',
-          PieceworkMaterial.unknown => '?',
-        };
 
     doc.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -268,27 +295,8 @@ class PieceworkExport {
               en ? 'To pay' : 'Do zapłaty',
             ],
             [
-              for (final l in r.lines)
-                [
-                  l.weld.weldNo,
-                  l.weld.date,
-                  l.weld.pipeName,
-                  l.weldDi == null
-                      ? '—'
-                      : '${l.diApprox ? '≈' : ''}'
-                          '${progressNum(l.weldDi!, en: en, decimals: 2)}'
-                          '${l.splitBetween > 1 ? ' ÷${l.splitBetween}' : ''}',
-                  material(l.material),
-                  payPositionLabel(l.position),
-                  formatPln(l.valueGrosze, withUnit: false),
-                  [
-                    if (l.deductionGrosze != 0)
-                      formatPln(-l.deductionGrosze, withUnit: false),
-                    if (l.repairPayGrosze != 0)
-                      '+${formatPln(l.repairPayGrosze, withUnit: false)}',
-                  ].join(' '),
-                  formatPln(l.netGrosze, withUnit: false),
-                ],
+              for (final l in r.lines) weldCells(l, en: en),
+
             ],
             rightAligned: const {3, 6, 7, 8},
           ),
@@ -308,7 +316,9 @@ class PieceworkExport {
                   isoDate(d.day),
                   '${d.welds}',
                   formatPln(d.netGrosze),
-                  d.topUpGrosze == 0 ? '—' : formatPln(d.topUpGrosze),
+                  d.skippedWelds > 0
+                      ? (en ? 'skipped welds — fill in OD' : 'pominięte — uzupełnij OD')
+                      : (d.topUpGrosze == 0 ? '—' : formatPln(d.topUpGrosze)),
                 ],
             ],
             rightAligned: const {1, 2, 3},

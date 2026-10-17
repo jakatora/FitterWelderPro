@@ -200,6 +200,7 @@ class _PieceworkPageState extends State<PieceworkPage> {
       range: pieceworkRange(_period, _now,
           customFrom: _customFrom, customTo: _customTo),
       welder: _welder,
+      today: dayOnly(_now.toLocal()),
     );
     return PieceworkReport(
       result: result,
@@ -424,9 +425,7 @@ class _PieceworkPageState extends State<PieceworkPage> {
           key: const ValueKey('piecework-total'),
           label: _tr('Akord brutto', 'Piecework, gross'),
           value: formatPln(r.totalGrosze),
-          unit: '${weldsCount(r.welds, en: en)} · '
-              '${r.approxWelds > 0 ? '≈ ' : ''}'
-              '${progressNum(r.di, en: en, decimals: 2)} DI',
+          unit: '${weldsCount(r.welds, en: en)} · ${pieceworkDiText(r, en: en)}',
         ),
         const SizedBox(height: 12),
         for (final row in pieceworkRows(r, en: en))
