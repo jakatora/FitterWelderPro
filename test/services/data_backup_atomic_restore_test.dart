@@ -418,6 +418,13 @@ void main() {
       expect(weld.weldNo, 'W-$version');
       expect(weld.welder, 'JK-12');
       expect(weld.wpsRef, version >= 18 ? 'WPS-141-01' : '');
+      // v28: stara kopia nie ma grani / przenoszenia / wyrobu — NULL.
+      final weldRow = (await db.query('weld_journal')).single;
+      for (final c in AppDatabase.kWeldJournalV28Columns.keys) {
+        expect(weldRow.containsKey(c), isTrue, reason: c);
+        expect(weldRow[c], isNull, reason: c);
+      }
+      expect(weld.rootBacking, isEmpty);
       expect((await db.query('weld_coupons')).single['welder'], 'JK-12');
     });
   }

@@ -21,12 +21,19 @@
 ///  • odebrana spoina ma zablokowane pola wykonawcze; odblokowanie wymaga
 ///    uzasadnienia, które trafia do historii;
 ///  • WPS wybrana z biblioteki jest zapamiętana w spoinie (`wps_id`).
+///
+/// v28: sekcja „Szczegóły do kontroli uprawnień” (domyślnie zwinięta) —
+/// prowadzenie grani, przenoszenie metalu (tylko MIG/MAG) i wyrób rura /
+/// blacha. Bez nich ograniczenia z próby ISO 9606-1 zawsze dawały „nie da
+/// się porównać”. Wyrób „rura” ustawia się sam po wpisaniu OD, dopóki
+/// spawacz go nie zmieni.
 library;
 
 import 'package:flutter/material.dart';
 
 import '../../database/coupon_dao.dart';
 import '../../database/weld_journal_dao.dart';
+import '../../domain/qualification/weld_process.dart';
 import '../../domain/weld_journal/coupon_entry.dart';
 import '../../domain/weld_journal/weld_compliance.dart';
 import '../../domain/weld_journal/weld_consistency.dart';
@@ -177,6 +184,21 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   late String? _projectId = _e.projectId;
   late String? _couponId = _e.couponId;
 
+  /// v28 — dane do ograniczeń z próby ISO 9606-1 (puste = nie podano).
+  late String _rootBacking = _e.rootBacking;
+  late String _transfer = _e.metalTransfer;
+  late String _productForm = _e.productForm;
+
+  /// Wyrób ustawiony automatycznie z OD — zmiana OD może go jeszcze zmienić.
+  bool _productAuto = false;
+
+  /// Spawacz sam wybrał wyrób — OD już go nie zmienia.
+  bool _productTouched = false;
+
+  /// Przenoszenie metalu ma sens tylko przy MIG/MAG (ISO 9606-1 §5.2).
+  bool get _isMigMag =>
+      processFamiliesIn(_method).contains(WeldProcessFamily.gmaw);
+
   /// Convention of the heat input value — stored as a suffix of the text
   /// ("1,25 EN"), see weld_compliance.dart.
   late HeatInputStandard? _hiMethod = _hiInitial.method;
@@ -259,6 +281,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   void initState() {
     super.initState();
     _initialSnapshot = _snapshot();
+    _od.addListener(_onOdChanged);
     // Sections open when they hold data (or, for a new weld, the ones a
     // welder fills on every joint).
     final e = _e;
@@ -297,6 +320,21 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       _runCardCheck();
     }
     _loadCoupon(_e.couponId, initial: true);
+  }
+
+  /// Wpisane OD → wyrób „rura” (T); OD wyczyszczone → z powrotem „nie
+  /// podano”. Tylko dopóki wyrób nie pochodzi z zapisanej spoiny ani
+  /// z wyboru spawacza.
+  void _onOdChanged() {
+    if (_productTouched) return;
+    if (_productForm.isNotEmpty && !_productAuto) return;
+    final want =
+        productFormOfWeld(_od.text) == null ? '' : WeldProductKind.pipe;
+    if (want == _productForm) return;
+    setState(() {
+      _productForm = want;
+      _productAuto = want.isNotEmpty;
+    });
   }
 
   Future<void> _loadCoupon(String? id, {bool initial = false}) async {
@@ -488,6 +526,11 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         preheatC: _preheat.text.trim(),
         interpassC: _interpass.text.trim(),
         heatInput: joinHeatInput(_heatInput.text, _hiMethod),
+        rootBacking: _rootBacking,
+        // Ukryte przy innym procesie — nie zostawiamy w spoinie TIG
+        // „zwarciowego” po zmianie procesu.
+        metalTransfer: _isMigMag ? _transfer : '',
+        productForm: _productForm,
         welder: _welder.text.trim(),
         rootWelder: _root.text.trim(),
         capWelder: _cap.text.trim(),
@@ -665,7 +708,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       if (!saveAnyway) {
         setState(() {
           _check = compliance;
-          _open.addAll(['joint', 'process', 'welders']);
+          _open.addAll(['joint', 'process', 'welders', 'quals']);
         });
         return;
       }
@@ -1214,6 +1257,9 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
                     _text(_fitter, 'Monter (fit-up)', 'Fitter (fit-up)'),
                   ],
                 ),
+
+                // ── Szczegóły do kontroli uprawnień (v28) ─────────────────────────
+                _qualificationDetails(context, e),
               ],
             ),
           ),
@@ -1352,6 +1398,124 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
             ],
           ),
         ],
+      ],
+    );
+  }
+
+  /// Prowadzenie grani, przenoszenie metalu (MIG/MAG) i wyrób — porównywane
+  /// z ograniczeniami z próby ISO 9606-1 zapisanymi w uprawnieniu.
+  Widget _qualificationDetails(BuildContext context, WeldEntry e) {
+    final notGiven = context.tr(pl: 'nie podano', en: 'not given');
+    final rootHint = switch (_rootBacking) {
+      WeldRootBacking.nb => context.tr(
+          pl: 'jednostronnie bez podkładki', en: 'single side, no backing'),
+      WeldRootBacking.mb => context.tr(
+          pl: 'jednostronnie na podkładce', en: 'single side, material backing'),
+      WeldRootBacking.bs => context.tr(
+          pl: 'dwustronnie (podpawanie / żłobienie)',
+          en: 'both sides (back weld / gouging)'),
+      WeldRootBacking.gb => context.tr(
+          pl: 'jednostronnie z gazem formującym',
+          en: 'single side, gas backing (purge)'),
+      WeldRootBacking.ci =>
+        context.tr(pl: 'wkładka topliwa', en: 'consumable insert'),
+      WeldRootBacking.fb =>
+        context.tr(pl: 'podkładka topnikowa', en: 'flux backing'),
+      _ => '',
+    };
+    return WjSection(
+      key: const ValueKey('weld-quals-section'),
+      title: context.tr(
+          pl: 'Szczegóły do kontroli uprawnień',
+          en: 'Details for the qualification check'),
+      icon: Icons.rule,
+      expanded: _open.contains('quals'),
+      onToggle: () => _toggle('quals'),
+      badge: [
+        WeldRootBacking.label(e.rootBacking),
+        switch (e.metalTransfer) {
+          WeldMetalTransfer.dip => 'dip',
+          WeldMetalTransfer.other => context.tr(pl: 'inne', en: 'other'),
+          _ => '',
+        },
+        switch (e.productForm) {
+          WeldProductKind.pipe => context.tr(pl: 'rura', en: 'pipe'),
+          WeldProductKind.plate => context.tr(pl: 'blacha', en: 'plate'),
+          _ => '',
+        },
+      ].where((s) => s.isNotEmpty).join(' · '),
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            context.tr(
+                pl: 'Porównywane z ograniczeniami z próby ISO 9606-1 '
+                    'zapisanymi w uprawnieniu spawacza. „Nie podano” = nie da '
+                    'się porównać.',
+                en: 'Compared with the ISO 9606-1 test piece limitations '
+                    "saved in the welder's qualification. \"Not given\" = "
+                    'cannot compare.'),
+            style: const TextStyle(fontSize: 11, color: kTextMut),
+          ),
+        ),
+        _label(context.tr(
+            pl: 'Prowadzenie grani — spoiny czołowe (tab. 11)',
+            en: 'Root / backing — butt welds (Table 11)')),
+        _chips<String>([
+          ('', notGiven, kTextSec),
+          for (final code in WeldRootBacking.values)
+            (code, WeldRootBacking.label(code), kArc),
+          // Wartość spoza listy (import, ręczna edycja bazy) — widoczna,
+          // nie przepisywana po cichu.
+          if (_rootBacking.isNotEmpty &&
+              !WeldRootBacking.values.contains(_rootBacking))
+            (_rootBacking, _rootBacking, kTextSec),
+        ], _rootBacking, (v) => _rootBacking = v),
+        if (rootHint.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(rootHint,
+                key: const ValueKey('weld-root-hint'),
+                style: const TextStyle(fontSize: 11, color: kTextSec)),
+          ),
+        if (_isMigMag) ...[
+          _label(context.tr(
+              pl: 'Przenoszenie metalu — MIG/MAG (§5.2)',
+              en: 'Metal transfer — MIG/MAG (cl. 5.2)')),
+          _chips<String>([
+            ('', notGiven, kTextSec),
+            (
+              WeldMetalTransfer.dip,
+              context.tr(pl: 'zwarciowe (dip)', en: 'dip (short-circuit)'),
+              kArc
+            ),
+            (
+              WeldMetalTransfer.other,
+              context.tr(pl: 'inne (natrysk, puls)', en: 'other (spray, pulse)'),
+              kArc
+            ),
+          ], _transfer, (v) => _transfer = v),
+        ],
+        _label(context.tr(pl: 'Wyrób (§5.3)', en: 'Product (cl. 5.3)')),
+        _chips<String>([
+          ('', notGiven, kTextSec),
+          (WeldProductKind.pipe, context.tr(pl: 'rura (T)', en: 'pipe (T)'),
+              kArc),
+          (WeldProductKind.plate,
+              context.tr(pl: 'blacha (P)', en: 'plate (P)'), kArc),
+        ], _productForm, (v) {
+          _productForm = v;
+          _productTouched = true;
+          _productAuto = false;
+        }),
+        if (_productAuto)
+          Text(
+            context.tr(
+                pl: 'Ustawione z OD — możesz zmienić.',
+                en: 'Set from OD — you can change it.'),
+            key: const ValueKey('weld-product-auto'),
+            style: const TextStyle(fontSize: 11, color: kTextSec),
+          ),
       ],
     );
   }

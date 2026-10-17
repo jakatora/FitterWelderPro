@@ -69,8 +69,8 @@ WeldCompliance _assess(WeldEntry e, WelderCertificate c) =>
     );
 
 void main() {
-  test('weldParametersOf: rura z OD, FM z oznaczenia spoiwa, BR; grani '
-      'i przenoszenia dziennik nie zna', () {
+  test('weldParametersOf: rura z OD, FM z oznaczenia spoiwa, BR; grań '
+      'i przenoszenie „nie podano” → puste', () {
     final p = weldParametersOf(
         _entry(filler: 'ER316LSi', joint: 'BR', od: '60,3'));
     expect(p.productForm, WeldProductForm.pipe);
@@ -130,5 +130,125 @@ void main() {
         _entry(od: '', t: '6', method: 'MIG/MAG', position: 'PA', joint: 'BW'),
         c);
     expect(bw.welderNotQualified, isFalse);
+  });
+
+  // ── v28: grań, przenoszenie metalu i wyrób z karty spoiny ──────────────
+
+  group('v28 — szczegóły do kontroli uprawnień', () {
+    /// Certyfikat z ręcznie wpisaną linią ograniczeń, bez innych zawężeń
+    /// zakresu (procesy 141 i 135, wszystkie pozycje), ważny w dniu spoiny.
+    WelderCertificate limitsCert(String line) => WelderCertificate(
+          id: 'c-lim',
+          standard: QualificationStandard.iso9606_1,
+          certNo: 'LIM-1',
+          testDate: DateTime(2026, 9, 1),
+          expiryDate: DateTime(2029, 9, 1),
+          processes: '141, 135',
+          positions: 'wszystkie',
+          notes: 'Uwagi egzaminatora\n$line',
+          createdAt: 0,
+          updatedAt: 0,
+        );
+
+    List<RangeIssue> issuesOf(WeldCompliance c) =>
+        c.welders.single.coverage.certificates.single.issues;
+
+    test('weldParametersOf bierze grań, przenoszenie i wyrób z wpisu; '
+        'wybrany wyrób wygrywa z OD', () {
+      final p = weldParametersOf(_entry(method: 'MIG/MAG').copyWith(
+        rootBacking: WeldRootBacking.nb,
+        metalTransfer: WeldMetalTransfer.dip,
+        productForm: WeldProductKind.plate,
+      ));
+      expect(p.root, RootCondition.nb);
+      expect(p.dipTransfer, isTrue);
+      expect(p.productForm, WeldProductForm.plate,
+          reason: 'jawny wybór „blacha” mimo wpisanego OD');
+      final q = weldParametersOf(_entry(od: '').copyWith(
+          metalTransfer: WeldMetalTransfer.other,
+          productForm: WeldProductKind.pipe));
+      expect(q.dipTransfer, isFalse);
+      expect(q.productForm, WeldProductForm.pipe);
+      expect(rootConditionOfWeld('ss mb'), RootCondition.mb);
+      expect(rootConditionOfWeld('xx'), isNull);
+      expect(dipTransferOfWeld(''), isNull);
+      expect(productFormOfWeld('', form: 'p'), WeldProductForm.plate);
+    });
+
+    test('spoina ss nb przy uprawnieniu root=mb,bs → poza zakresem z powodem',
+        () {
+      final c = limitsCert('[ISO9606 v1] root=mb,bs');
+      final res = _assess(
+          _entry().copyWith(rootBacking: WeldRootBacking.nb), c);
+      expect(res.welderNotQualified, isTrue);
+      final issue = issuesOf(res)
+          .singleWhere((i) => i.field == WeldCheckField.rootBacking);
+      expect(issue.severity, RangeIssueSeverity.outOfRange);
+      expect(issue.actual, 'ss nb');
+      expect(issue.allowed, 'ss mb, bs');
+      final lines = res.warningLines(en: false).join('\n');
+      expect(lines,
+          contains('Prowadzenie grani: ss nb — poza zakresem (ss mb, bs).'));
+      expect(lines, contains('ISO 9606-1 tab. 11'));
+      expect(res.warningLines(en: true).join('\n'),
+          contains('Root / backing: ss nb — out of range (ss mb, bs).'));
+
+      // Ta sama spoina z granią na podkładce — objęta, bez „nie da się”.
+      final ok =
+          _assess(_entry().copyWith(rootBacking: WeldRootBacking.mb), c);
+      expect(ok.welderNotQualified, isFalse);
+      expect(issuesOf(ok), isEmpty);
+    });
+
+    test('„nie podano” → nie da się porównać, nigdy poza zakresem', () {
+      final c = limitsCert('[ISO9606 v1] root=mb,bs; dip=0; plates=0');
+      final res = _assess(
+          _entry(od: '', method: 'MIG/MAG', position: 'PA'), c);
+      expect(res.welderNotQualified, isFalse);
+      final issues = issuesOf(res);
+      expect(issues.where((i) => i.severity == RangeIssueSeverity.outOfRange),
+          isEmpty);
+      final unknown =
+          issues.singleWhere((i) => i.field == WeldCheckField.testLimits);
+      expect(unknown.severity, RangeIssueSeverity.cannotCompare);
+      expect(unknown.actual, 'root, dip, P/T');
+    });
+
+    test('plates=0 i wyrób blacha → poza zakresem; rura → objęta', () {
+      final c = limitsCert('[ISO9606 v1] plates=0');
+      final plate = _assess(
+          _entry(od: '').copyWith(productForm: WeldProductKind.plate), c);
+      expect(plate.welderNotQualified, isTrue);
+      final issue = issuesOf(plate)
+          .singleWhere((i) => i.field == WeldCheckField.productForm);
+      expect(issue.severity, RangeIssueSeverity.outOfRange);
+      expect(plate.warningLines(en: false).join('\n'),
+          contains('Wyrób (P blacha / T rura): P — poza zakresem (T).'));
+
+      final pipe = _assess(
+          _entry(od: '').copyWith(productForm: WeldProductKind.pipe), c);
+      expect(pipe.welderNotQualified, isFalse);
+      expect(issuesOf(pipe), isEmpty);
+    });
+
+    test('dip=0: MIG/MAG zwarciowe → poza zakresem; inne → objęta; TIG — '
+        'przenoszenie nie dotyczy', () {
+      final c = limitsCert('[ISO9606 v1] dip=0');
+      final dip = _assess(
+          _entry(method: 'MIG/MAG')
+              .copyWith(metalTransfer: WeldMetalTransfer.dip),
+          c);
+      expect(dip.welderNotQualified, isTrue);
+      expect(
+          issuesOf(dip).single.field, WeldCheckField.metalTransfer);
+      final other = _assess(
+          _entry(method: 'MIG/MAG')
+              .copyWith(metalTransfer: WeldMetalTransfer.other),
+          c);
+      expect(other.welderNotQualified, isFalse);
+      expect(issuesOf(other), isEmpty);
+      final tig = _assess(_entry(method: 'TIG'), c);
+      expect(issuesOf(tig), isEmpty);
+    });
   });
 }

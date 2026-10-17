@@ -61,6 +61,33 @@ void main() {
     expect(next.fillerBatch, 'B-778');
   });
 
+  test('v28: następna spoina i zapamiętane wartości niosą grań, '
+      'przenoszenie i wyrób', () async {
+    final mag = prev.copyWith(
+      method: 'MIG/MAG',
+      rootBacking: WeldRootBacking.mb,
+      metalTransfer: WeldMetalTransfer.other,
+      productForm: WeldProductKind.pipe,
+    );
+    final next = nextWeldFrom(mag,
+        id: 'w2', weldNo: 'SP-001-W006', date: '2026-09-24', stamp: 'JK-12');
+    expect(next.rootBacking, 'mb');
+    expect(next.metalTransfer, 'other');
+    expect(next.productForm, 'T');
+
+    await saveWeldDefaults(WeldEntryDefaults.fromEntry(mag));
+    final e = newWeldFromDefaults(await loadWeldDefaults(),
+        id: 'n1', weldNo: 'W-001', date: '2026-09-24', stamp: 'JK-12');
+    expect(e.rootBacking, 'mb');
+    expect(e.metalTransfer, 'other');
+    expect(e.productForm, 'T');
+
+    // Zapis sprzed v28 (bez tych kluczy) — puste, nie wyjątek.
+    final old = WeldEntryDefaults.fromJson(const {'material': '316L'});
+    expect(old.rootBacking, isEmpty);
+    expect(old.productForm, isEmpty);
+  });
+
   test('następna spoina NIE kopiuje wyniku, NDT, wytopów ani odbioru', () {
     final next = nextWeldFrom(prev,
         id: 'w2', weldNo: 'SP-001-W006', date: '2026-09-24', stamp: 'JK-12');

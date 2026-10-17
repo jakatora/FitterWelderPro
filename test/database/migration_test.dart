@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:cut_list_app/database/db.dart';
+import 'package:cut_list_app/domain/weld_journal/weld_compliance.dart';
+import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 
 /// Every table and column the shipping schema is expected to have once a
 /// database has been migrated to [AppDatabase.schemaVersion].
@@ -218,6 +220,10 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
     'ndt_ut_date',
     // v25: WPS picked from the library.
     'wps_id',
+    // v28: prowadzenie grani, przenoszenie metalu, wyrób (ISO 9606-1).
+    'root_backing',
+    'metal_transfer',
+    'product_form',
   ],
   // v20: who changed what on a weld, when, from what to what.
   'weld_journal_history': <String>[
@@ -871,6 +877,25 @@ CREATE TABLE weld_repairs (
 ''');
 }
 
+/// v27 as shipped: the whole current schema except the v28 journal columns.
+///
+/// weld_journal goes in FIRST, in its v27 shape (every column of the
+/// expected schema but the v28 ones); [AppDatabase.createSchema] then adds
+/// every other table and index and — CREATE TABLE IF NOT EXISTS — leaves
+/// that journal alone. So the only difference to a fresh install is exactly
+/// what the v28 step has to add.
+Future<void> _buildV27(Database db) async {
+  const integer = {'pwht_required', 'deleted_at'};
+  final columns = _expectedSchema['weld_journal']!
+      .where((c) => c != 'id')
+      .where((c) => !AppDatabase.kWeldJournalV28Columns.containsKey(c))
+      .map((c) => '  $c ${integer.contains(c) ? 'INTEGER' : 'TEXT'}')
+      .join(',\n');
+  await db.execute('CREATE TABLE weld_journal (\n  id TEXT PRIMARY KEY,\n'
+      '$columns\n);');
+  await AppDatabase.createSchema(db);
+}
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -956,6 +981,7 @@ void main() {
     19: _buildV19,
     21: _buildV21,
     22: _buildV22,
+    27: _buildV27,
   }.entries) {
     test('v${start.key} -> current: every table and column is present', () async {
       final db = await migrateFrom(start.key, start.value);
@@ -988,7 +1014,8 @@ void main() {
       17: _buildV17WithScreenTables,
       19: _buildV19,
       21: _buildV21,
-    22: _buildV22,
+      22: _buildV22,
+      27: _buildV27,
     }.entries) {
       final migrated = await migrateFrom(start.key, start.value);
       addTearDown(migrated.close);
@@ -1680,6 +1707,109 @@ CREATE TABLE component_library (
     await AppDatabase.migrateV25(db);
     expect(await db.query('welder_cert_confirmations'), hasLength(1));
     expect(await db.query('wps_versions'), hasLength(1));
+  });
+
+  test(
+      'v27 -> v28: każda spoina zostaje, grań / przenoszenie / wyrób '
+      'dochodzą puste (NULL)', () async {
+    final db = await migrateFrom(
+      27,
+      _buildV27,
+      seedData: (legacy) async {
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w1',
+          'weld_no': 'W-27',
+          'project_name': 'Blok 4',
+          'od': '60,3',
+          't': '3,9',
+          'method': 'MIG/MAG',
+          'welder': 'JK-12',
+          'date': '2026-10-01',
+          'status': 'OK',
+          'joint_type': 'BW',
+          'wps_ref': 'WPS-135-01',
+          'wps_id': 'wps-1',
+          'ndt_rt_result': 'OK',
+          'pwht_required': 0,
+        });
+        await legacy.insert('weld_journal', <String, Object?>{
+          'id': 'w2',
+          'weld_no': 'W-28',
+          'deleted_at': 5,
+        });
+      },
+    );
+    addTearDown(db.close);
+    expect(await db.getVersion(), AppDatabase.schemaVersion);
+    expect(AppDatabase.schemaVersion, greaterThanOrEqualTo(28));
+
+    final rows = await db.query('weld_journal', orderBy: 'id');
+    expect(rows.map((r) => r['id']), ['w1', 'w2'], reason: 'nic nie ginie');
+    final w1 = rows.first;
+    expect(w1['weld_no'], 'W-27');
+    expect(w1['wps_id'], 'wps-1');
+    expect(w1['ndt_rt_result'], 'OK');
+    expect(w1['pwht_required'], 0);
+    expect(rows.last['deleted_at'], 5);
+    for (final r in rows) {
+      for (final c in AppDatabase.kWeldJournalV28Columns.keys) {
+        expect(r.containsKey(c), isTrue, reason: '$c po migracji');
+        expect(r[c], isNull, reason: 'stara spoina nie podaje $c');
+      }
+    }
+
+    // „Nie podano” = brak danych: kontrola nie dostaje grani ani
+    // przenoszenia; wyrób jak przed v28 — rura z OD.
+    final entry = WeldEntry.fromRow(w1);
+    expect(entry.rootBacking, isEmpty);
+    expect(entry.metalTransfer, isEmpty);
+    expect(entry.productForm, isEmpty);
+    final p = weldParametersOf(entry);
+    expect(p.root, isNull);
+    expect(p.dipTransfer, isNull);
+    expect(p.productForm?.code, 'T');
+
+    // Ponowne przejście kroku nic nie psuje.
+    await AppDatabase.migrate(db, 27, AppDatabase.schemaVersion);
+    expect(await db.query('weld_journal'), hasLength(2));
+  });
+
+  test('świeża instalacja v28: dziennik ma kolumny grani, przenoszenia '
+      'i wyrobu, zapis i odczyt przez WeldEntry', () async {
+    final db = await databaseFactoryFfi.openDatabase(
+      '${tmp.path}/fresh_v28.db',
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: (db, _) => AppDatabase.createSchema(db),
+      ),
+    );
+    addTearDown(db.close);
+    expect(await columnsOf(db, 'weld_journal'),
+        containsAll(AppDatabase.kWeldJournalV28Columns.keys));
+
+    const e = WeldEntry(
+      id: 'w1',
+      weldNo: 'W-1',
+      projectName: 'P',
+      pipeName: 'L',
+      material: '',
+      od: '',
+      t: '10',
+      method: 'MIG/MAG',
+      welder: 'JK-12',
+      date: '2026-10-17',
+      notes: '',
+      status: WeldStatus.pending,
+      rootBacking: WeldRootBacking.nb,
+      metalTransfer: WeldMetalTransfer.dip,
+      productForm: WeldProductKind.plate,
+    );
+    await db.insert('weld_journal', e.toRow());
+    final row = (await db.query('weld_journal')).single;
+    expect(row['root_backing'], 'nb');
+    expect(row['metal_transfer'], 'dip');
+    expect(row['product_form'], 'P');
+    expect(WeldEntry.fromRow(row).toRow(), e.toRow());
   });
 
   test('the approved seed data lands on every upgrade path', () async {

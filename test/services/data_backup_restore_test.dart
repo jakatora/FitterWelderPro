@@ -442,6 +442,64 @@ void main() {
     expect(segment['spool_id'], 'SP02');
   });
 
+  test(
+      'v28: grań, przenoszenie metalu i wyrób spoiny jadą z kopią na nowy '
+      'telefon', () async {
+    final v28 = _weld().copyWith(
+      method: 'MIG/MAG',
+      rootBacking: WeldRootBacking.bs,
+      metalTransfer: WeldMetalTransfer.dip,
+      productForm: WeldProductKind.plate,
+    );
+    await WeldJournalDao().insert(v28);
+
+    final carried = await backupAndCarry();
+    await _useCurrentPhone(phoneB);
+    await AppDatabase.get();
+    final report = await DataBackup.restore(carried.path);
+    expect(report.skippedTables, isEmpty);
+    expect(report.droppedColumns, isEmpty);
+
+    final back = (await WeldJournalDao().getById(v28.id))!;
+    expect(back.rootBacking, 'bs');
+    expect(back.metalTransfer, 'dip');
+    expect(back.productForm, 'P');
+    expect(back.toRow(), v28.toRow());
+  });
+
+  test(
+      'kopia sprzed v28 (dziennik bez kolumn grani / przenoszenia / wyrobu) '
+      'wczytuje się — pola puste, nic nie ginie', () async {
+    final live = await AppDatabase.get();
+    final oldRow = _weld().toRow()
+      ..removeWhere(
+          (k, _) => AppDatabase.kWeldJournalV28Columns.containsKey(k));
+    expect(oldRow.keys, isNot(contains('root_backing')));
+
+    final result = await restoreTablesInto(
+      live,
+      <String, List<Map<String, Object?>>>{
+        'weld_journal': [oldRow],
+      },
+      heatPhotosDir: phoneA.heatPhotos.path,
+      restoredPhotoNames: const <String>{},
+      ensureKnownTables: AppDatabase.ensureTables,
+    );
+    expect(result.rowsWritten, 1);
+    expect(result.droppedColumns, isEmpty);
+
+    final row = (await live.query('weld_journal')).single;
+    for (final c in AppDatabase.kWeldJournalV28Columns.keys) {
+      expect(row[c], isNull, reason: c);
+    }
+    final weld = (await WeldJournalDao().getById(_weld().id))!;
+    expect(weld.weldNo, 'W-017');
+    expect(weld.wpsRef, 'WPS-141-01');
+    expect(weld.rootBacking, isEmpty);
+    expect(weld.metalTransfer, isEmpty);
+    expect(weld.productForm, isEmpty);
+  });
+
   test('kolumna z danymi, której ta wersja nie zna, jest zgłaszana', () async {
     final live = await databaseFactory.openDatabase(
       p.join(sandbox.path, 'narrow-live.db'),
