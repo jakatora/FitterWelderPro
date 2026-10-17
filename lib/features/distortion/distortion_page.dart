@@ -106,7 +106,7 @@ class _DistortionPageState extends State<DistortionPage> {
         buttWelds: _val(_buttCount),
         shrinkagePerButtMm: _measuredMode
             ? _val(_measured)
-            : (s?.shrinkageRoundedMm ?? double.nan),
+            : (s?.shrinkageAllowanceMm ?? double.nan),
         filletWelds: _val(_filletCount),
       );
 
@@ -344,6 +344,9 @@ class _DistortionPageState extends State<DistortionPage> {
   Widget _shrinkSection(
       List<ShrinkageProblem> problems, ButtShrinkageResult? r) {
     final halfV = _groove == ButtGroove.halfV;
+    final warnings = r == null
+        ? const <ShrinkageWarning>[]
+        : shrinkageWarnings(r.input);
     return QuoteSection(
       title: context.tr(
           pl: 'Skurcz poprzeczny spoiny czołowej',
@@ -406,8 +409,10 @@ class _DistortionPageState extends State<DistortionPage> {
               label: context.tr(
                   pl: 'Skurcz poprzeczny — szacunek',
                   en: 'Transverse shrinkage — estimate'),
-              value: _f(r.shrinkageRoundedMm, 1),
-              unit: context.tr(pl: 'mm na spoinę', en: 'mm per weld'),
+              value: _f(r.shrinkageAllowanceMm, 1),
+              unit: context.tr(
+                  pl: 'mm na spoinę · w górę do 0,1',
+                  en: 'mm per weld · up to 0.1'),
             ),
           ),
           const SizedBox(height: 10),
@@ -418,8 +423,26 @@ class _DistortionPageState extends State<DistortionPage> {
               context.tr(
                   pl: 'Średnia szerokość A_w/t', en: 'Mean width A_w/t'),
               '${_f(r.meanWidthMm, 2)} mm'),
-          _kv('${_n(kSeAreaCoef)} · A_w/t', '${_f(r.areaTermMm, 2)} mm'),
-          _kv('${_n(kSeGapCoef)} · d', '${_f(r.gapTermMm, 2)} mm'),
+          _kv('${_n(kSeAreaCoef)} · A_w/t', '${_f(r.areaTermMm, 3)} mm'),
+          _kv('${_n(kSeGapCoef)} · d', '${_f(r.gapTermMm, 3)} mm'),
+          _kv(
+              context.tr(
+                  pl: 'S przed zaokrągleniem', en: 'S before rounding'),
+              '${_f(r.shrinkageMm, 3)} mm',
+              key: const ValueKey('dist-shrinkage-raw')),
+          if (warnings.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            KeyedSubtree(
+              key: const ValueKey('dist-shrink-warnings'),
+              child: QuoteNotice(
+                color: kWarn,
+                icon: Icons.warning_amber_rounded,
+                text: warnings
+                    .map((w) => shrinkageWarningText(w, en: _en))
+                    .join('\n'),
+              ),
+            ),
+          ],
         ],
         _note(shrinkageFormulaNote(en: _en),
             key: const ValueKey('dist-formula')),
@@ -435,8 +458,8 @@ class _DistortionPageState extends State<DistortionPage> {
     final estimateLabel = shrink == null
         ? context.tr(pl: 'Szacunek (brak)', en: 'Estimate (none)')
         : context.tr(
-            pl: 'Szacunek ${_f(shrink.shrinkageRoundedMm, 1)} mm',
-            en: 'Estimate ${_f(shrink.shrinkageRoundedMm, 1)} mm');
+            pl: 'Szacunek ${_f(shrink.shrinkageAllowanceMm, 1)} mm',
+            en: 'Estimate ${_f(shrink.shrinkageAllowanceMm, 1)} mm');
     final fillet = _n(kTwiFilletTransverseMm);
     return QuoteSection(
       title: context.tr(
@@ -525,23 +548,23 @@ class _DistortionPageState extends State<DistortionPage> {
             _kv(
                 context.tr(
                     pl: 'Spoiny czołowe ${r.buttWelds} × '
-                        '${_n(r.input.shrinkagePerButtMm)} mm',
+                        '${_n(r.perButtMm)} mm',
                     en: 'Butt welds ${r.buttWelds} × '
-                        '${_n(r.input.shrinkagePerButtMm)} mm'),
-                '${_f(r.buttShrinkageMm, 1)} mm'),
+                        '${_n(r.perButtMm)} mm'),
+                '${_n(r.buttShrinkageMm)} mm'),
           if (r.filletWelds > 0)
             _kv(
                 context.tr(
                     pl: 'Spoiny pachwinowe ${r.filletWelds} × $fillet mm',
                     en: 'Fillet welds ${r.filletWelds} × $fillet mm'),
-                '${_f(r.filletShrinkageMm, 1)} mm'),
+                '${_n(r.filletShrinkageMm)} mm'),
           _kv(context.tr(pl: 'Suma skurczu', en: 'Total shrinkage'),
-              '${_f(r.totalShrinkageMm, 1)} mm',
+              '${_n(r.totalShrinkageMm)} mm',
               key: const ValueKey('dist-total')),
           _kv(
               context.tr(
                   pl: 'Dodane przez zaokrąglenie', en: 'Added by rounding'),
-              '+${_f(r.roundingAddMm, 1)} mm'),
+              '+${_n(r.roundingAddMm)} mm'),
           _note(context.tr(
               pl: 'Zaokrąglamy W GÓRĘ: element za długi po spawaniu '
                   'dotniesz, za krótki trzeba by dospawać — drożej i z kolejną '

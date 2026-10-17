@@ -54,6 +54,12 @@
 /// wtórne podają różne postaci i współczynniki, a tekstu pierwotnego nie
 /// udało się sprawdzić.
 ///
+/// Zaokrąglenia — zawsze na korzyść naddatku: skurcz na spoinę w górę do
+/// 0,1 mm (szacunek) albo 0,01 mm (pomiar), wymiar przed spawaniem w górę
+/// do 0,5 mm. Ostrzeżenia „poza zakresem wzoru” (rowek prawie I, cienka
+/// blacha) mają progi przyjęte w aplikacji — patrz [kNearlySquareOpenRatio],
+/// [kThinPlateMm].
+///
 /// Każdy wynik to SZACUNEK — rzeczywisty skurcz zależy od sztywności,
 /// kolejności spawania i energii liniowej; sprawdź na próbie.
 ///
@@ -82,6 +88,17 @@ const double kTwiFilletTransverseMm = 0.8;
 
 /// Krok zaokrąglenia wymiaru przed spawaniem [mm] — w górę.
 const double kPreWeldStepMm = 0.5;
+
+// ─── Progi ostrzeżeń (PRZYJĘTE W APLIKACJI, nie ze źródła) ───────────────
+
+/// Rowek „prawie I”: gdy ukosowana część grubości (t − c)/t jest mniejsza
+/// niż ten ułamek, pole rowka to głównie b·t, a nie stopiwo — poza
+/// zakresem wzoru. Próg przyjęty w aplikacji.
+const double kNearlySquareOpenRatio = 0.2;
+
+/// Blacha cieńsza niż ten próg [mm] — poza typowym zakresem wzoru dla
+/// spoin wielościegowych z ukosowaniem. Próg przyjęty w aplikacji.
+const double kThinPlateMm = 3;
 
 // ─── Zakresy pól (granice wpisu, nie dane techniczne) ────────────────────
 
@@ -199,12 +216,16 @@ class ButtShrinkageResult {
   /// 0,05·d [mm].
   double get gapTermMm => kSeGapCoef * input.gapMm;
 
-  /// Szacowany skurcz poprzeczny jednej spoiny [mm].
+  /// Szacowany skurcz poprzeczny jednej spoiny [mm] — wartość surowa.
   double get shrinkageMm => areaTermMm + gapTermMm;
 
-  /// Skurcz zaokrąglony do 0,1 mm — ta liczba stoi na ekranie i idzie do
-  /// łańcucha wymiarowego, żeby „n × S” zgadzało się z tym, co widać.
-  double get shrinkageRoundedMm => roundToTenth(shrinkageMm);
+  /// Skurcz zaokrąglony W GÓRĘ do 0,1 mm — ta liczba stoi na ekranie
+  /// i idzie do łańcucha wymiarowego. W górę, bo zaokrąglenie do
+  /// najbliższej (1,334 → 1,3) zaniżało naddatek: przy 3 spoinach
+  /// 1000 + 3 × 1,3 = 1003,9 → 1004,0, a z wartości surowej potrzeba
+  /// 1004,003 → 1004,5. Jedna liczba na ekranie i w rachunku, więc
+  /// „n × S” zgadza się z tym, co widać.
+  double get shrinkageAllowanceMm => ceilToTenth(shrinkageMm);
 }
 
 /// null, gdy dane mają problem (nigdy NaN ani ∞).
@@ -215,8 +236,32 @@ ButtShrinkageResult? computeButtShrinkage(ButtShrinkageInput i) {
   return ButtShrinkageResult(input: i, areaMm2: area);
 }
 
-/// Zaokrąglenie do 0,1 (połówki w górę).
-double roundToTenth(double v) => (v * 10).round() / 10;
+/// Ostrzeżenie (nie błąd): wynik jest, ale dane leżą poza zakresem wzoru.
+enum ShrinkageWarning {
+  /// Rowek prawie bez ukosowania: (t − c)/t < [kNearlySquareOpenRatio].
+  nearlySquare,
+
+  /// Blacha cieńsza niż [kThinPlateMm].
+  thinPlate,
+}
+
+/// Ostrzeżenia dla poprawnych danych (przy problemach — pusta lista, bo
+/// wtedy i tak nie ma wyniku).
+List<ShrinkageWarning> shrinkageWarnings(ButtShrinkageInput i) {
+  if (shrinkageProblems(i).isNotEmpty) return const [];
+  final t = i.thicknessMm;
+  return [
+    if ((t - i.rootFaceMm) / t < kNearlySquareOpenRatio)
+      ShrinkageWarning.nearlySquare,
+    if (t < kThinPlateMm) ShrinkageWarning.thinPlate,
+  ];
+}
+
+/// W górę do 0,1. Tolerancja chroni przed „1,3000000001 → 1,4”.
+double ceilToTenth(double v) => ((v * 10) - 1e-6).ceilToDouble() / 10;
+
+/// W górę do 0,01 (z tą samą tolerancją).
+double ceilToHundredth(double v) => ((v * 100) - 1e-6).ceilToDouble() / 100;
 
 // ─── Wymiar przed spawaniem (łańcuch wymiarowy) ──────────────────────────
 
@@ -290,9 +335,13 @@ class PreWeldResult {
   int get buttWelds => input.buttWelds.round();
   int get filletWelds => input.filletWelds.round();
 
+  /// Skurcz jednej spoiny czołowej użyty w rachunku [mm]: wpis W GÓRĘ do
+  /// 0,01 mm. Rachunek w tekście („2 × 1,24 = 2,48”) zgadza się wtedy co
+  /// do cyfry, a naddatek nigdy nie jest mniejszy niż z wpisu.
+  double get perButtMm => buttWelds == 0 ? 0 : ceilToHundredth(input.shrinkagePerButtMm);
+
   /// Σ skurczu spoin czołowych [mm].
-  double get buttShrinkageMm =>
-      buttWelds == 0 ? 0 : buttWelds * input.shrinkagePerButtMm;
+  double get buttShrinkageMm => buttWelds == 0 ? 0 : buttWelds * perButtMm;
 
   /// Σ skurczu spoin pachwinowych [mm] (TWI 0,8 mm na spoinę).
   double get filletShrinkageMm => filletWelds * kTwiFilletTransverseMm;
@@ -469,8 +518,34 @@ String twiLongitudinalNote({required bool en}) {
           '3 m spoiny, pachwinowa ok. $f mm na 3 m.';
 }
 
+/// Treść ostrzeżenia „poza zakresem wzoru” — ekran i tekst do udostępnienia.
+String shrinkageWarningText(ShrinkageWarning w, {required bool en}) {
+  final pct = distNum(kNearlySquareOpenRatio * 100, en: en);
+  final thin = distNum(kThinPlateMm, en: en);
+  return switch (w) {
+    ShrinkageWarning.nearlySquare => en
+        ? 'Almost no bevel: (t − c)/t < $pct % — the groove is practically a '
+            'square (I) joint and the formula is outside its range. Treat the '
+            'result as a rough guide and measure on a trial (threshold set '
+            'in the app).'
+        : 'Prawie bez ukosowania: (t − c)/t < $pct % — rowek to praktycznie '
+            'złącze I, poza zakresem wzoru. Traktuj wynik orientacyjnie '
+            'i zmierz na próbie (próg przyjęty w aplikacji).',
+    ShrinkageWarning.thinPlate => en
+        ? 'Thin plate: t < $thin mm — outside the usual range of the formula '
+            '(bevelled multi-run butt welds); buckling usually matters more '
+            'here. Measure on a trial (threshold set in the app).'
+        : 'Cienka blacha: t < $thin mm — poza typowym zakresem wzoru '
+            '(spoiny wielościegowe z ukosowaniem); tu zwykle ważniejsze jest '
+            'falowanie. Zmierz na próbie (próg przyjęty w aplikacji).',
+  };
+}
+
 /// Tekst do udostępnienia: szacunek, wymiar przed spawaniem, sytuacja
 /// i środki. Każda część opcjonalna — brak wyniku to brak sekcji, nie zero.
+/// Liczby łańcucha (skurcz na spoinę, sumy) z tą samą precyzją co rachunek
+/// (do 0,01 mm, bez zbędnych zer), więc „n × S = suma” zgadza się co do
+/// cyfry.
 String distortionShareText({
   required bool en,
   ButtShrinkageResult? shrinkage,
@@ -502,8 +577,16 @@ String distortionShareText({
       ..writeln('A_w = ${f1(shrinkage.areaMm2)} mm², '
           'A_w/t = ${distFixed(shrinkage.meanWidthMm, 2, en: en)} mm')
       ..writeln(en
-          ? 'S ≈ ${f1(shrinkage.shrinkageRoundedMm)} mm per weld'
-          : 'S ≈ ${f1(shrinkage.shrinkageRoundedMm)} mm na spoinę')
+          ? 'S = ${distFixed(shrinkage.shrinkageMm, 3, en: en)} mm → '
+              '${f1(shrinkage.shrinkageAllowanceMm)} mm per weld '
+              '(rounded up to 0.1 mm)'
+          : 'S = ${distFixed(shrinkage.shrinkageMm, 3, en: en)} mm → '
+              '${f1(shrinkage.shrinkageAllowanceMm)} mm na spoinę '
+              '(w górę do 0,1 mm)');
+    for (final w in shrinkageWarnings(i)) {
+      b.writeln('! ${shrinkageWarningText(w, en: en)}');
+    }
+    b
       ..writeln(shrinkageFormulaNote(en: en))
       ..writeln(twiButtNote(en: en));
   }
@@ -516,26 +599,28 @@ String distortionShareText({
           ? 'Final dimension ${n(p.input.finalLengthMm)} mm'
           : 'Wymiar końcowy ${n(p.input.finalLengthMm)} mm');
     if (p.buttWelds > 0) {
+      final roundedUp = p.perButtMm - p.input.shrinkagePerButtMm > 1e-9;
       final src = measuredShrinkage
           ? (en ? 'measured' : 'pomiar')
           : (en ? 'estimate' : 'szacunek');
+      final up = roundedUp ? (en ? ', up to 0.01 mm' : ', w górę do 0,01 mm') : '';
       b.writeln(en
-          ? 'Butt welds: ${p.buttWelds} × ${n(p.input.shrinkagePerButtMm)} mm '
-              '($src) = ${f1(p.buttShrinkageMm)} mm'
-          : 'Spoiny czołowe: ${p.buttWelds} × ${n(p.input.shrinkagePerButtMm)} mm '
-              '($src) = ${f1(p.buttShrinkageMm)} mm');
+          ? 'Butt welds: ${p.buttWelds} × ${n(p.perButtMm)} mm '
+              '($src$up) = ${n(p.buttShrinkageMm)} mm'
+          : 'Spoiny czołowe: ${p.buttWelds} × ${n(p.perButtMm)} mm '
+              '($src$up) = ${n(p.buttShrinkageMm)} mm');
     }
     if (p.filletWelds > 0) {
       b.writeln(en
           ? 'Fillet welds: ${p.filletWelds} × ${n(kTwiFilletTransverseMm)} mm '
-              '(TWI) = ${f1(p.filletShrinkageMm)} mm'
+              '(TWI) = ${n(p.filletShrinkageMm)} mm'
           : 'Spoiny pachwinowe: ${p.filletWelds} × ${n(kTwiFilletTransverseMm)} mm '
-              '(TWI) = ${f1(p.filletShrinkageMm)} mm');
+              '(TWI) = ${n(p.filletShrinkageMm)} mm');
     }
     b
       ..writeln(en
-          ? 'Total shrinkage ${f1(p.totalShrinkageMm)} mm'
-          : 'Suma skurczu ${f1(p.totalShrinkageMm)} mm')
+          ? 'Total shrinkage ${n(p.totalShrinkageMm)} mm'
+          : 'Suma skurczu ${n(p.totalShrinkageMm)} mm')
       ..writeln(en
           ? 'Set up before welding: ${f1(p.preWeldLengthMm)} mm '
               '(rounded UP to 0.5 mm — better to trim than to add weld)'
