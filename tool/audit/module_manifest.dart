@@ -1126,6 +1126,24 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/welding/weather_conditions_test.dart: -17,85 °C przy progu -17,8 °C: tekst nie odwraca relacji',
       ]),
   ModuleAuditEntry(
+      id: 'weld-defects',
+      entryPoint: 'WeldDefectsPage',
+      sourcePath: 'lib/features/weld_defects/weld_defects_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          '„5011” → Podtopienie → 135/138 MAG: przyczyny w kolejności sprawdzania (przy PC przyczyna górnego brzegu na początku), naprawa z „Do wycięcia” i BHP, ISO 5817 poz. 1.7, 1.8 → Iso5817Page; wtrącenie wolframu tylko TIG, bez ISO 5817; porowatość MAG (przepływ gazu) ≠ MMA (wilgotne elektrody) ≠ SAW (wilgotny topnik); 131 → aluminium; dane: przyczyna dla każdej wady × proces × materiał × pozycja, te same liczby PL/EN, nazwy jak w tabeli ISO 5817 / słowniku, każda przyczyna ze źródłem.',
+      evidence: [
+        'test/features/weld_defects/weld_defects_page_test.dart: „5011” → podtopienie → MAG: przyczyny, naprawa, lista i ISO 5817',
+        'test/features/weld_defects/weld_defects_page_test.dart: 320 × 640, czcionka 1,3 — bez przepełnień',
+        'test/domain/defects/defect_advice_test.dart: porowatość: MAG ma przepływ gazu, MMA wilgotne elektrody, SAW wilgotny topnik — przyczyny nie mieszają się',
+        'test/domain/defects/defect_advice_test.dart: wybrana pozycja: przyczyny typowe dla niej idą na początek',
+        'test/data/weld_defects_test.dart: każda wada ma ≥ 1 przyczynę dla każdego swojego procesu, materiału i pozycji',
+        'test/data/weld_defects_test.dart: te same liczby w PL i EN',
+        'test/data/weld_defects_test.dart: nazwy PL / EN wspólnych numerów zgodne z tabelą ISO 5817 i słownikiem',
+      ]),
+  ModuleAuditEntry(
       id: 'welder-identity-setup',
       entryPoint: 'WelderIdentitySetupScreen',
       sourcePath: 'lib/screens/welder_identity_setup_screen.dart',

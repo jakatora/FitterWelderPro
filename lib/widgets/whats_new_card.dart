@@ -28,6 +28,7 @@ const List<String> kWhatsNewToolIds = [
   'iso5817',
   'weld_symbols',
   'work_progress',
+  'weld_defects',
   'ndt_plan',
   'qualification_range',
   'weather_check',

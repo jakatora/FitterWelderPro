@@ -13,9 +13,9 @@
 //    widziano. Rozbieżności: wikiweld podaje krócej 2017 „Por”, 502 „Nadlew
 //    spoiny”, 504 „Wyciek”, 505 „Niewłaściwy brzeg”, 511 „Niezupełne
 //    wypełnienie rowka”, 2025 „Otwarte wgłębienie w kraterze” — zostają nazwy
-//    z tabeli ISO 5817 w repo (spójność ekranów). 401: tabela ISO 5817 ma
-//    „Przyklejenie (brak przetopienia)”, słownik i wikiweld „Przyklejenie
-//    (brak wtopienia)” — tu to drugie (przetop to 402).
+//    z tabeli ISO 5817 w repo (spójność ekranów). 401: „Przyklejenie (brak
+//    wtopienia)” jak w słowniku, wikiweld i — po poprawce — w tabeli ISO 5817
+//    (wcześniej tam „brak przetopienia”, a przetop to 402).
 //  • Każda przyczyna ma źródło ([kDefectSources]). Liczba trafia do tekstu
 //    tylko ze źródła i z nazwą źródła w tekście; gdy źródła się różnią —
 //    zakres / obie wartości i „wiążąca jest karta spoiwa / WPS”. Bez źródła —

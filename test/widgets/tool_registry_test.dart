@@ -157,6 +157,8 @@ void main() {
         'QualificationRangePage',
         // Odkształcenia i skurcz spawalniczy.
         'DistortionPage',
+        // Wady spoin: przyczyny i naprawa.
+        'WeldDefectsPage',
       };
       expect(targets, expected);
     });

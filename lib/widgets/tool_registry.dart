@@ -18,6 +18,7 @@ import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
+import '../features/weld_defects/weld_defects_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -1553,6 +1554,53 @@ final List<ToolSpec> kToolRegistry = [
       'ambient temperature',
       'field welding',
       'aws d1.1'
+    ],
+  ),
+  ToolSpec(
+    id: 'weld_defects',
+    group: ToolGroup.inspection,
+    titlePl: 'Wady spoin: przyczyny i naprawa',
+    titleEn: 'Weld defects: causes and repair',
+    subtitlePl: 'Co robisz źle i jak naprawić — ISO 6520-1, MMA/MAG/TIG',
+    subtitleEn: 'What went wrong and how to fix it — ISO 6520-1, MMA/MAG/TIG',
+    icon: Icons.troubleshoot,
+    color: const Color(0xFFF06292),
+    builder: (_) => const WeldDefectsPage(),
+    keywordsPl: const [
+      'wady',
+      'wada',
+      'niezgodnosci',
+      'porowatosc',
+      'pory',
+      'pecherze',
+      'podtopienie',
+      'przyklejenie',
+      'brak przetopu',
+      'pekniecie',
+      'zuzel',
+      'wtracenie',
+      'rozprysk',
+      'nawis',
+      'zwis',
+      'przepalenie',
+      'cukrowanie',
+      'naprawa spoiny',
+      'przyczyny',
+      '6520'
+    ],
+    keywordsEn: const [
+      'defects',
+      'weld defects',
+      'imperfections',
+      'porosity',
+      'undercut',
+      'lack of fusion',
+      'crack',
+      'slag',
+      'spatter',
+      'troubleshooting',
+      'repair',
+      'causes'
     ],
   ),
   ToolSpec(

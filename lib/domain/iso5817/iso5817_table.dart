@@ -392,7 +392,7 @@ const List<Iso5817Item> kIso5817Items = [
     id: '1.5',
     no: '1.5',
     codes: [401],
-    namePl: 'Przyklejenie (brak przetopienia)',
+    namePl: 'Przyklejenie (brak wtopienia)',
     nameEn: 'Lack of fusion (incomplete fusion)',
     kinds: _both,
     measure: Iso5817Measure.presence,
