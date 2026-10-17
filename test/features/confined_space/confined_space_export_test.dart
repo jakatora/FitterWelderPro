@@ -83,6 +83,21 @@ void main() {
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
   });
 
+  test('bez progów, odczyt ponad twardą granicę, pomiar z innego dnia', () async {
+    final r = _filled.copyWith(limits: const CsLimits({}), measurements: [
+      CsMeasurement(
+        id: 'y',
+        time: '23:50',
+        at: DateTime(2026, 10, 16, 23, 50).millisecondsSinceEpoch,
+        values: const {CsGas.co: CsQty(500, CsUnit.ppm)},
+      ),
+    ]);
+    for (final en in [false, true]) {
+      final bytes = await _render(r, english: en);
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    }
+  });
+
   test('nazwa pliku z datą pracy; indeks ₂ zamieniany w PDF', () {
     expect(confinedSpaceFileName(_filled, english: false),
         'Przestrzen_zamknieta_protokol_2026-10-17.pdf');

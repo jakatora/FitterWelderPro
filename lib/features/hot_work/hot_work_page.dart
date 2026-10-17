@@ -27,6 +27,7 @@ class HotWorkPage extends StatefulWidget {
     this.newId,
     this.shareText = hotWorkDefaultShareText,
     this.sharePdf = hotWorkDefaultSharePdf,
+    this.pickTime = hotWorkDefaultPickTime,
   });
 
   final HotWorkStore store;
@@ -36,6 +37,7 @@ class HotWorkPage extends StatefulWidget {
   final String Function()? newId;
   final HotWorkShareText shareText;
   final HotWorkSharePdf sharePdf;
+  final HotWorkPickTime pickTime;
 
   @override
   State<HotWorkPage> createState() => _HotWorkPageState();
@@ -47,19 +49,39 @@ class _HotWorkPageState extends State<HotWorkPage> {
   List<HotWorkPermit>? _items;
   bool _loadFailed = false;
 
+  /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
+  late final HotWorkStore _store = widget.store.withClock(widget.now);
+
+  /// Ostatni odczyt coś odrzucił (baner do końca wizyty na ekranie).
+  HotWorkLoad? _damage;
+
+  /// Co minutę przelicz stan — pomiar starzeje się bez dotykania ekranu
+  /// (zielony nie może wisieć po upływie ważności pomiaru).
+  Timer? _tick;
+
   @override
   void initState() {
     super.initState();
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
     unawaited(_reload());
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
   }
 
   Future<void> _reload() async {
     try {
-      final items = await widget.store.load();
+      final load = await _store.loadReport();
       if (!mounted) return;
       setState(() {
-        _items = items;
+        _items = load.permits;
         _loadFailed = false;
+        if (load.damaged) _damage = load;
       });
     } catch (e) {
       debugPrint('[hot_work] load failed: $e');
@@ -73,27 +95,49 @@ class _HotWorkPageState extends State<HotWorkPage> {
 
   String _id() => widget.newId?.call() ?? const Uuid().v4();
 
+  /// Historia pełna — nowego protokołu nie da się zapisać; mówimy to od
+  /// razu, zamiast otwierać formularz, który się nie zapisze.
+  bool _refuseWhenFull() {
+    if ((_items?.length ?? 0) < HotWorkStore.maxEntries) return false;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        key: const ValueKey('hw-store-full'),
+        content: Text(context.tr(
+          pl: 'Historia pełna (${HotWorkStore.maxEntries} protokołów) — '
+              'udostępnij i usuń stare protokoły, żeby dodać nowy.',
+          en: 'History full (${HotWorkStore.maxEntries} records) — share and '
+              'delete old records to add a new one.',
+        )),
+      ));
+    return true;
+  }
+
   Future<void> _open(HotWorkPermit permit) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => HotWorkEditPage(
         initial: permit,
-        store: widget.store,
+        store: _store,
         now: widget.now,
         shareText: widget.shareText,
         sharePdf: widget.sharePdf,
+        pickTime: widget.pickTime,
       ),
     ));
     await _reload();
   }
 
-  Future<void> _new() =>
-      _open(HotWorkPermit.blank(id: _id(), now: widget.now()));
+  Future<void> _new() async {
+    if (_refuseWhenFull()) return;
+    await _open(HotWorkPermit.blank(id: _id(), now: widget.now()));
+  }
 
   /// „Jak wczoraj”: dane organizacyjne zostają, zaznaczenia i pomiary — nie.
   Future<void> _duplicate(HotWorkPermit source) async {
+    if (_refuseWhenFull()) return;
     final copy = source.duplicateFor(newId: _id(), now: widget.now());
     try {
-      await widget.store.upsert(copy);
+      await _store.upsert(copy);
     } catch (e) {
       // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[hot_work] duplicate save failed: $e');
@@ -133,7 +177,7 @@ class _HotWorkPageState extends State<HotWorkPage> {
       ),
     );
     if (ok != true || !mounted) return;
-    await widget.store.delete(permit.id);
+    await _store.delete(permit.id);
     await _reload();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -143,8 +187,8 @@ class _HotWorkPageState extends State<HotWorkPage> {
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
-            await widget.store.upsert(permit);
-            await _reload();
+            await _store.upsert(permit);
+            if (mounted) await _reload();
           },
         ),
       ));
@@ -172,6 +216,41 @@ class _HotWorkPageState extends State<HotWorkPage> {
         padding: EdgeInsets.fromLTRB(
             12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (items != null && items.length >= HotWorkStore.warnAt)
+            QuoteNotice(
+              key: const ValueKey('hw-store-warn'),
+              color: items.length >= HotWorkStore.maxEntries ? kFail : kWarn,
+              icon: Icons.inventory_2_outlined,
+              text: context.tr(
+                pl: 'Historia: ${items.length}/${HotWorkStore.maxEntries} '
+                    'protokołów. Przy pełnej nowego protokołu nie da się '
+                    'zapisać — udostępnij (PDF) i usuń stare.',
+                en: 'History: ${items.length}/${HotWorkStore.maxEntries} '
+                    'records. When full, a new record cannot be saved — share '
+                    '(PDF) and delete old ones.',
+              ),
+            ),
+          if (_damage != null)
+            QuoteNotice(
+              key: const ValueKey('hw-load-damaged'),
+              color: kFail,
+              icon: Icons.report_gmailerrorred_outlined,
+              text: _damage!.unreadable
+                  ? context.tr(
+                      pl: 'Zapisanej historii nie da się odczytać — kopia '
+                          'surowego zapisu została w telefonie.',
+                      en: 'The saved history could not be read — a raw copy '
+                          'is kept on the phone.')
+                  : context.tr(
+                      pl: 'Część zapisu była nieczytelna: pominięto '
+                          '${_damage!.droppedPermits} protokołów i '
+                          '${_damage!.droppedMeasurements} pomiarów. Kopia '
+                          'surowego zapisu została w telefonie.',
+                      en: 'Part of the saved data was unreadable: '
+                          '${_damage!.droppedPermits} record(s) and '
+                          '${_damage!.droppedMeasurements} reading(s) '
+                          'skipped. A raw copy is kept on the phone.'),
+            ),
           QuoteNotice(
             icon: Icons.gavel_outlined,
             text: hotWorkDisclaimer(en: en),
@@ -239,6 +318,7 @@ class _HotWorkPageState extends State<HotWorkPage> {
                 for (final (i, p) in items.indexed)
                   _HistoryTile(
                     key: ValueKey('hw-item-$i'),
+                    now: widget.now(),
                     index: i,
                     permit: p,
                     title: _titleOf(p),
@@ -266,6 +346,7 @@ class _HistoryTile extends StatelessWidget {
     required this.en,
     required this.onOpen,
     required this.onAction,
+    required this.now,
   });
 
   final int index;
@@ -275,9 +356,12 @@ class _HistoryTile extends StatelessWidget {
   final VoidCallback onOpen;
   final Future<void> Function(_ItemAction a) onAction;
 
+  /// Chwila oceny (wiek pomiaru, data protokołu).
+  final DateTime now;
+
   @override
   Widget build(BuildContext context) {
-    final a = permit.assess();
+    final a = permit.assess(now: now);
     final color = hotWorkReadinessColor(a);
     final types = [
       for (final t in HotWorkType.values)
@@ -308,15 +392,7 @@ class _HistoryTile extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 8, 0, 8),
               child: Row(
                 children: [
-                  Icon(
-                    a.readiness == HotWorkReadiness.overLimit
-                        ? Icons.dangerous_outlined
-                        : a.readyToStart
-                            ? Icons.verified_outlined
-                            : Icons.pending_actions_outlined,
-                    color: color,
-                    size: 26,
-                  ),
+                  Icon(hotWorkReadinessIcon(a), color: color, size: 26),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

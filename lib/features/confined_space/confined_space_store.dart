@@ -3,12 +3,15 @@
 //
 // Odporność (wzór: prace pożarowe, rejestr międzyściegowy):
 // * odczyt przez `prefs.get` — inny typ pod kluczem nie wywraca ekranu;
-// * nieczytelny zapis ALBO pominięte protokoły / pomiary → kopia surowego
-//   tekstu PRZED pierwszym nadpisaniem i flaga dla banera na ekranie
-//   (odrzucony pomiar nie znika po cichu);
+// * nieczytelny zapis ALBO pominięte protokoły / pomiary (także pomiary
+//   z przyszłości względem zegara) → kopia surowego tekstu PRZED pierwszym
+//   nadpisaniem i flaga dla banera na ekranie (nic nie znika po cichu);
 // * operacje szeregowane — odczyt po zapisie zawsze widzi ten zapis;
 // * [update] działa na zapisanym protokole — „Cofnij” po zamknięciu ekranu
-//   nie zależy od tego, czy ekran jeszcze istnieje.
+//   nie zależy od tego, czy ekran jeszcze istnieje;
+// * historia ma limit [ConfinedSpaceStore.maxEntries] — przy pełnej NOWY
+//   protokół jest odrzucany ([ConfinedSpaceStoreFull]), stare nigdy nie
+//   wypadają po cichu; od [ConfinedSpaceStore.warnAt] ekran ostrzega.
 
 import 'dart:convert';
 
@@ -40,6 +43,15 @@ class ConfinedSpaceLoad {
       unreadable || droppedRecords > 0 || droppedMeasurements > 0;
 }
 
+/// Historia pełna — nowego protokołu nie zapisano (stare nie wypadają po
+/// cichu: to dowody dla nadzoru).
+class ConfinedSpaceStoreFull implements Exception {
+  const ConfinedSpaceStoreFull();
+  @override
+  String toString() =>
+      'ConfinedSpaceStoreFull(${ConfinedSpaceStore.maxEntries})';
+}
+
 class ConfinedSpaceStore {
   static const String key = 'confined_space_records_v1';
 
@@ -49,10 +61,21 @@ class ConfinedSpaceStore {
   /// Kopia późniejszego, innego nieczytelnego zapisu (ostatnia).
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
-  /// Tyle ostatnich protokołów trzymamy w historii (najstarsze wypadają).
-  static const int maxEntries = 60;
+  /// Tyle protokołów mieści historia; od [warnAt] (90 %) ekran ostrzega.
+  static const int maxEntries = 200;
+  static const int warnAt = 180;
 
-  const ConfinedSpaceStore();
+  /// Zegar do odrzucania pomiarów „z przyszłości” przy odczycie; `null` =
+  /// zegar systemowy. Ekrany podają swój (wstrzykiwany w testach).
+  final DateTime Function()? clock;
+
+  const ConfinedSpaceStore({this.clock});
+
+  /// Ten sam magazyn z zegarem [c], jeśli nie ma własnego.
+  ConfinedSpaceStore withClock(DateTime Function() c) =>
+      clock == null ? ConfinedSpaceStore(clock: c) : this;
+
+  DateTime _now() => (clock ?? DateTime.now)();
 
   static Future<void>? _tail;
   static int _inFlight = 0;
@@ -67,6 +90,10 @@ class ConfinedSpaceStore {
     return result;
   }
 
+  /// Rośnie po każdym zapisie — lista odświeża się np. po „Cofnij”
+  /// wykonanym już po zamknięciu ekranu protokołu.
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+
   /// Protokoły od najnowszego (data, potem czas zapisu).
   Future<ConfinedSpaceLoad> load() => _serial(_loadNow);
 
@@ -79,7 +106,8 @@ class ConfinedSpaceStore {
         return const ConfinedSpaceLoad([]);
       }
       if (raw is! String) throw const FormatException('not a string');
-      final parsed = confinedSpaceRecordsFromJson(jsonDecode(raw));
+      final parsed =
+          confinedSpaceRecordsFromJson(jsonDecode(raw), now: _now());
       if (parsed.damaged) await _backup(prefs, raw);
       return ConfinedSpaceLoad(
         sortConfinedSpaceRecords(parsed.records),
@@ -104,38 +132,31 @@ class ConfinedSpaceStore {
     }
   }
 
-  /// [keepId] — protokół właśnie zapisywany nie wypada przy przycinaniu
-  /// historii, nawet jeśli ma najstarszą datę.
-  Future<void> _write(List<ConfinedSpaceRecord> list, {String? keepId}) async {
+  /// Zapis całej listy — bez przycinania (limit pilnuje [_upsertNow]).
+  Future<void> _write(List<ConfinedSpaceRecord> list) async {
     final prefs = await SharedPreferences.getInstance();
-    final sorted = sortConfinedSpaceRecords(list);
-    var kept =
-        sorted.length > maxEntries ? sorted.sublist(0, maxEntries) : sorted;
-    if (keepId != null && !kept.any((r) => r.id == keepId)) {
-      final saved = sorted.where((r) => r.id == keepId);
-      if (saved.isNotEmpty) {
-        kept = [...kept.sublist(0, kept.length - 1), saved.first];
-      }
-    }
-    final ok = await prefs.setString(
-        key, jsonEncode(confinedSpaceRecordsToJson(kept)));
+    final ok = await prefs.setString(key,
+        jsonEncode(confinedSpaceRecordsToJson(sortConfinedSpaceRecords(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
     changes.value++;
   }
 
-  /// Rośnie po każdym zapisie — lista odświeża się np. po „Cofnij”
-  /// wykonanym już po zamknięciu ekranu protokołu.
-  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
-
   Future<void> _upsertNow(ConfinedSpaceRecord record) async {
-    final list = [...(await _loadNow()).records]
-      ..removeWhere((r) => r.id == record.id);
-    if (!record.isBlank) list.add(record);
-    await _write(list, keepId: record.id);
+    final list = [...(await _loadNow()).records];
+    final existed = list.any((r) => r.id == record.id);
+    list.removeWhere((r) => r.id == record.id);
+    if (!record.isBlank) {
+      if (!existed && list.length >= maxEntries) {
+        throw const ConfinedSpaceStoreFull();
+      }
+      list.add(record);
+    }
+    await _write(list);
   }
 
   /// Zapisuje (nowy albo zmieniony) protokół. Pusty protokół (nic nie
-  /// wpisano) nie trafia do historii — a jeśli był zapisany, znika.
+  /// wpisano) nie trafia do historii — a jeśli był zapisany, znika. Nowy
+  /// protokół przy pełnej historii → [ConfinedSpaceStoreFull].
   Future<void> upsert(ConfinedSpaceRecord record) =>
       _serial(() => _upsertNow(record));
 

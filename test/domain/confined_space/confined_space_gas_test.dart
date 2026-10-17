@@ -57,6 +57,18 @@ void main() {
       expect(_state(CsGas.o2, 20.9, null, onlyMax), CsReadingState.noLimit);
       expect(_state(CsGas.o2, 24, null, onlyMax), CsReadingState.high);
     });
+
+    test('brak progu przy niebezpiecznym odczycie — STOP wg twardej granicy',
+        () {
+      const none = CsLimits({});
+      expect(_state(CsGas.o2, 5, null, none), CsReadingState.low);
+      expect(_state(CsGas.o2, 25, null, none), CsReadingState.high);
+      expect(_state(CsGas.co, 500, null, none), CsReadingState.high);
+      expect(_state(CsGas.co, 20, null, none), CsReadingState.noLimit);
+      expect(_state(CsGas.lel, 50, null, none), CsReadingState.high);
+      expect(_state(CsGas.h2s, 7.01, CsUnit.mgM3, none), CsReadingState.high);
+      expect(_state(CsGas.h2s, 7, CsUnit.mgM3, none), CsReadingState.noLimit);
+    });
   });
 
   group('jednostki i przeliczenie', () {
@@ -173,6 +185,29 @@ void main() {
           CsMeasurement.fromJson({'time': '10:30', 'at': 5, 'place': ''}),
           isNull);
       expect(CsMeasurement.fromJson('x'), isNull);
+    });
+
+    test('pomiar z przyszłości odrzucony; chwila wpisu i identyfikator w JSON',
+        () {
+      final now = DateTime(2026, 10, 17, 14);
+      final m = CsMeasurement(
+        id: 'm1',
+        time: '14:05',
+        at: DateTime(2026, 10, 17, 14, 5).millisecondsSinceEpoch,
+        enteredAt: DateTime(2026, 10, 17, 14).millisecondsSinceEpoch,
+        values: const {CsGas.o2: CsQty(20.9, CsUnit.pctVol)},
+      );
+      // 14:05 przy 14:00 mieści się w zapasie 5 min.
+      expect(CsMeasurement.fromJson(m.toJson(), now: now), m);
+      final far = {
+        ...m.toJson(),
+        'at': DateTime(2026, 10, 17, 14, 6).millisecondsSinceEpoch,
+      };
+      expect(CsMeasurement.fromJson(far, now: now), isNull);
+      // Bez zegara (np. test domeny) — bez kontroli przyszłości.
+      expect(CsMeasurement.fromJson(far), isNotNull);
+      expect(m.entered, m.enteredAt);
+      expect(const CsMeasurement(time: '', at: 5, values: {}).entered, 5);
     });
   });
 }

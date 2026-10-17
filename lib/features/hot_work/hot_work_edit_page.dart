@@ -38,11 +38,30 @@ Future<void> hotWorkDefaultShareText(String text, String subject) async {
 Future<void> hotWorkDefaultSharePdf(HotWorkPermit permit, bool english) =>
     HotWorkExport.sharePdf(permit, english: english);
 
-/// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte.
+/// Wybór godziny — wstrzykiwany w testach (domyślnie zegar Material).
+typedef HotWorkPickTime = Future<TimeOfDay?> Function(
+    BuildContext context, TimeOfDay initial);
+
+Future<TimeOfDay?> hotWorkDefaultPickTime(
+        BuildContext context, TimeOfDay initial) =>
+    showTimePicker(context: context, initialTime: initial);
+
+/// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte
+/// DZIŚ; protokół z innego dnia — szary (nigdy zielony).
 Color hotWorkReadinessColor(HotWorkAssessment a) {
   if (a.readiness == HotWorkReadiness.overLimit) return kFail;
-  if (a.readyToStart) return kPass;
+  if (a.otherDay) return kTextSec;
+  if (a.readyToStart || a.closed) return kPass;
   return kWarn;
+}
+
+IconData hotWorkReadinessIcon(HotWorkAssessment a) {
+  if (a.readiness == HotWorkReadiness.overLimit) {
+    return Icons.dangerous_outlined;
+  }
+  if (a.otherDay) return Icons.history;
+  if (a.readyToStart || a.closed) return Icons.verified_outlined;
+  return Icons.pending_actions_outlined;
 }
 
 class HotWorkEditPage extends StatefulWidget {
@@ -53,6 +72,7 @@ class HotWorkEditPage extends StatefulWidget {
     this.now = DateTime.now,
     this.shareText = hotWorkDefaultShareText,
     this.sharePdf = hotWorkDefaultSharePdf,
+    this.pickTime = hotWorkDefaultPickTime,
   });
 
   final HotWorkPermit initial;
@@ -60,6 +80,7 @@ class HotWorkEditPage extends StatefulWidget {
   final DateTime Function() now;
   final HotWorkShareText shareText;
   final HotWorkSharePdf sharePdf;
+  final HotWorkPickTime pickTime;
 
   @override
   State<HotWorkEditPage> createState() => _HotWorkEditPageState();
@@ -68,6 +89,15 @@ class HotWorkEditPage extends StatefulWidget {
 class _HotWorkEditPageState extends State<HotWorkEditPage> {
   late HotWorkPermit _p = widget.initial;
   bool _busy = false;
+
+  /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
+  late final HotWorkStore _store = widget.store.withClock(widget.now);
+
+  late final _maxAge = TextEditingController(
+      text: _p.measurementMaxAgeMin?.toString() ?? '');
+
+  /// Ocena teraz (wiek pomiaru, data protokołu).
+  HotWorkAssessment _assess() => _p.assess(now: widget.now());
 
   static bool get _enNow => AppLanguageController.isEnglish;
 
@@ -91,8 +121,21 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   /// Godzina nowego pomiaru wybrana ręcznie; `null` = chwila dodania.
   String? _measTime;
 
+  /// Co minutę przelicz stan — pomiar starzeje się bez dotykania ekranu
+  /// (zielony nie może wisieć po upływie ważności pomiaru).
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void dispose() {
+    _tick?.cancel();
     for (final c in [
       _permitNo,
       _location,
@@ -106,6 +149,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       _watchMin,
       _measDgw,
       _measNote,
+      _maxAge,
     ]) {
       c.dispose();
     }
@@ -118,9 +162,9 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     setState(() => _p = change(_p)
         .copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _p;
-    unawaited(widget.store.upsert(snapshot).catchError((Object e) {
+    unawaited(_store.upsert(snapshot).catchError((Object e) {
       debugPrint('[hot_work] save failed: $e');
-      _reportSaveFailure();
+      _reportSaveFailure(full: e is HotWorkStoreFull);
     }));
   }
 
@@ -128,26 +172,34 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
 
   /// Raz na ekran: protokół bezpieczeństwa, który się nie zapisuje, nie może
   /// tego robić po cichu.
-  void _reportSaveFailure() {
+  void _reportSaveFailure({bool full = false}) {
     if (!mounted || _saveFailureShown) return;
     _saveFailureShown = true;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      key: const ValueKey('hw-save-failed'),
-      content: Text(context.tr(
-        pl: 'Nie udało się zapisać protokołu w telefonie — udostępnij go '
-            '(tekst/PDF), żeby nie przepadł.',
-        en: 'Could not save the record on this phone — share it '
-            '(text/PDF) so it is not lost.',
-      )),
+      key: ValueKey(full ? 'hw-store-full' : 'hw-save-failed'),
+      content: Text(full
+          ? context.tr(
+              pl: 'Historia pełna (${HotWorkStore.maxEntries} protokołów) — '
+                  'ten protokół NIE jest zapisany. Udostępnij go (tekst/PDF) '
+                  'i usuń stare protokoły z historii.',
+              en: 'History full (${HotWorkStore.maxEntries} records) — this '
+                  'record is NOT saved. Share it (text/PDF) and delete old '
+                  'records from the history.')
+          : context.tr(
+              pl: 'Nie udało się zapisać protokołu w telefonie — udostępnij '
+                  'go (tekst/PDF), żeby nie przepadł.',
+              en: 'Could not save the record on this phone — share it '
+                  '(text/PDF) so it is not lost.',
+            )),
     ));
   }
 
   void _toggle(HotWorkCheck c) {
-    final wasReady = _p.assess().readyToStart;
+    final wasReady = _assess().readyToStart;
     final willCheck = !_p.isChecked(c);
     _set((p) => p.toggleChecked(c.id));
     if (willCheck) unawaited(Haptic.tap());
-    if (!wasReady && _p.assess().readyToStart) unawaited(Haptic.saved());
+    if (!wasReady && _assess().readyToStart) unawaited(Haptic.saved());
   }
 
   void _toggleNa(HotWorkCheck c) => _set((p) => p.toggleNa(c.id));
@@ -185,19 +237,108 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
         : null;
   }
 
-  void _addMeasurement() {
+  /// Ważność 1…30 min (dłużej niż przyjęta w aplikacji nie wolno).
+  static int? _parseMaxAge(String raw) {
+    final v = int.tryParse(raw.trim());
+    return v != null && hotWorkMaxAgeValid(v) ? v : null;
+  }
+
+  /// Puste pole — wartość przyjęta w aplikacji; poprawne — zapis; błędne —
+  /// NIE zmienia zapisanej wartości.
+  void _onMaxAgeText(String raw) {
+    if (raw.trim().isEmpty) {
+      _set((p) => p.copyWith(measurementMaxAgeMin: null));
+      return;
+    }
+    final v = _parseMaxAge(raw);
+    if (v == null) {
+      setState(() {});
+      return;
+    }
+    if (v == _p.measurementMaxAgeMin) return;
+    _set((p) => p.copyWith(measurementMaxAgeMin: v));
+  }
+
+  String? _maxAgeError(bool en) {
+    final raw = _maxAge.text;
+    if (raw.trim().isEmpty || _parseMaxAge(raw) != null) return null;
+    final keep = _p.effectiveMaxAgeMin;
+    return en
+        ? 'Enter 1–$kHotWorkMeasurementMaxAgeMin — it can only be shortened. '
+            'Still in force: $keep min.'
+        : 'Wpisz 1–$kHotWorkMeasurementMaxAgeMin — można tylko skrócić. '
+            'Obowiązuje nadal: $keep min.';
+  }
+
+  /// Ręcznie wpisana godzina, która wypada wczoraj — pytanie, czy to na
+  /// pewno wczoraj. `true` = potwierdzone.
+  Future<bool> _confirmYesterday(String time, DateTime at) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
+        content: Text(context.tr(
+          pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
+              'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
+          en: '$time is later than now, so the reading would be from '
+              'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          FilledButton(
+            key: const ValueKey('hw-yesterday-confirm'),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text(context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _addMeasurement() async {
     final v = _pct(_measDgw.text);
     if (v == null) return;
-    final now = widget.now();
+    var now = widget.now();
     final time = _measTime ?? hotWorkTime(now);
+    if (_measTime != null) {
+      final at = hotWorkMeasurementAt(time, now);
+      // Godzina z przyszłości (w zapasie 5 min funkcji) — nie wolno: taki
+      // wpis przykryłby prawdziwe, późniejsze pomiary.
+      if (at.isAfter(now)) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            key: const ValueKey('hw-meas-future'),
+            content: Text(context.tr(
+              pl: 'Godzina pomiaru $time jest późniejsza niż teraz '
+                  '(${hotWorkTime(now)}) — wpisz godzinę, o której '
+                  'zmierzono.',
+              en: 'The reading time $time is later than now '
+                  '(${hotWorkTime(now)}) — enter the time it was measured.',
+            )),
+          ));
+        return;
+      }
+      if (hotWorkDate(at) != hotWorkDate(now)) {
+        if (!await _confirmYesterday(time, at)) return;
+        if (!mounted) return;
+        now = widget.now();
+      }
+    }
     final at = _measTime == null ? now : hotWorkMeasurementAt(time, now);
     final m = HotWorkMeasurement(
       time: time,
       at: at.millisecondsSinceEpoch,
+      enteredAt: now.millisecondsSinceEpoch,
       dgwPct: v,
       note: _measNote.text.trim(),
     );
-    final latestBefore = _p.assess().lastMeasurement;
+    final latestBefore = _assess().latestMeasurement;
     _set((p) => p.copyWith(
         measurements: hotWorkMeasurementsChrono([...p.measurements, m])));
     _measDgw.clear();
@@ -206,7 +347,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     unawaited(Haptic.tap());
     // Zaległy pomiar nie zmienia stanu — mówimy to wprost, żeby nikt nie
     // myślał, że „0 %” dopisane później zdjęło STOP.
-    if (latestBefore != null && !identical(_p.assess().lastMeasurement, m)) {
+    if (latestBefore != null &&
+        !identical(_assess().latestMeasurement, m)) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
@@ -263,7 +405,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       final m = int.tryParse(parts[1]);
       if (h != null && m != null) initial = TimeOfDay(hour: h, minute: m);
     }
-    final picked = await showTimePicker(context: context, initialTime: initial);
+    final picked = await widget.pickTime(context, initial);
     if (picked == null) return null;
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(picked.hour)}:${two(picked.minute)}';
@@ -274,8 +416,8 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   Future<void> _shareText() async {
     final en = context.language == AppLanguage.en;
     unawaited(Haptic.tap());
-    await widget.shareText(
-        hotWorkProtocolText(_p, en: en), hotWorkSubject(english: en));
+    await widget.shareText(hotWorkProtocolText(_p, en: en, now: widget.now()),
+        hotWorkSubject(english: en));
   }
 
   Future<void> _sharePdf() async {
@@ -303,7 +445,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   @override
   Widget build(BuildContext context) {
     final en = context.language == AppLanguage.en;
-    final a = _p.assess();
+    final a = _assess();
     final today = hotWorkDate(widget.now());
     return Scaffold(
       appBar: AppBar(
@@ -346,6 +488,20 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
                 en: 'Record dated ${_p.date}. For new work use “Same as '
                     'yesterday” on the list — ticks and gas readings never '
                     'carry over to another day.',
+              ),
+            ),
+          if (_p.droppedOnLoad > 0)
+            QuoteNotice(
+              key: const ValueKey('hw-damaged-notice'),
+              color: kFail,
+              icon: Icons.report_gmailerrorred_outlined,
+              text: context.tr(
+                pl: 'W zapisie tego protokołu było ${_p.droppedOnLoad} '
+                    'nieczytelnych pomiarów — pominięto je, kopia surowego '
+                    'zapisu została w telefonie. Zmierz ponownie.',
+                en: '${_p.droppedOnLoad} unreadable reading(s) in this record '
+                    'were skipped — a raw copy is kept on the phone. Test '
+                    'again.',
               ),
             ),
           QuoteNotice(
@@ -603,15 +759,38 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
                   color: kWarn, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: TextField(
+            key: const ValueKey('hw-maxage'),
+            controller: _maxAge,
+            keyboardType: numberKeyboard(decimal: false),
+            inputFormatters: numberInputFormatters(decimal: false),
+            decoration: InputDecoration(
+              labelText: context.tr(
+                  pl: 'Pomiar ważny przez', en: 'Gas test valid for'),
+              suffixText: 'min',
+              hintText: '$kHotWorkMeasurementMaxAgeMin',
+              helperText: context.tr(
+                  pl: 'Puste = $kHotWorkMeasurementMaxAgeMin min (wartość '
+                      'przyjęta w aplikacji). Starszy pomiar = brak pomiaru.',
+                  en: 'Empty = $kHotWorkMeasurementMaxAgeMin min (value '
+                      'adopted by the app). An older reading counts as none.'),
+              helperMaxLines: 3,
+              errorText: _maxAgeError(en),
+              errorMaxLines: 3,
+            ),
+            onChanged: _onMaxAgeText,
+          ),
+        ),
         for (final (i, m) in _p.measurements.indexed)
           _MeasurementRow(
             key: ValueKey('hw-meas-$i'),
-            text: hotWorkMeasurementLine(m, limit, en: en),
-            color: limit == null
-                ? kTextSec
-                : hotWorkMeasurementOk(m.dgwPct, limit)
-                    ? kPass
-                    : kFail,
+            text: hotWorkMeasurementLine(m, limit, en: en, recordDate: _p.date),
+            color: hotWorkMeasurementOk(
+                    m.dgwPct, limit ?? kHotWorkDefaultDgwLimitPct)
+                ? (limit == null ? kTextSec : kPass)
+                : kFail,
             deleteKey: ValueKey('hw-meas-del-$i'),
             deleteTooltip: context.tr(pl: 'Usuń pomiar', en: 'Remove reading'),
             onDelete: () => _removeMeasurement(i),
@@ -743,7 +922,15 @@ class _StatusCard extends StatelessWidget {
     final blockers = [
       if (a.overLimit)
         en ? 'gas reading above the limit' : 'pomiar przekracza limit',
+      if (a.otherDay)
+        en
+            ? 'record dated ${a.recordDate} — out of date'
+            : 'protokół z dnia ${a.recordDate} — nieaktualny',
       if (a.measurementMissing) en ? 'no gas reading' : 'brak pomiaru atmosfery',
+      if (!a.measurementMissing && a.measurementStale && !a.overLimit)
+        en
+            ? 'gas test out of date (over ${a.maxAgeMin} min)'
+            : 'pomiar nieaktualny (ponad ${a.maxAgeMin} min)',
       if (a.limitMissing)
         en ? 'no permitted % LEL' : 'brak dopuszczalnego % DGW',
       if (a.openBefore.isNotEmpty)
@@ -751,11 +938,7 @@ class _StatusCard extends StatelessWidget {
             ? '${a.openBefore.length} item(s) before start'
             : 'do odhaczenia przed rozpoczęciem: ${a.openBefore.length}',
     ];
-    final icon = a.readiness == HotWorkReadiness.overLimit
-        ? Icons.dangerous_outlined
-        : a.readyToStart
-            ? Icons.verified_outlined
-            : Icons.pending_actions_outlined;
+    final icon = hotWorkReadinessIcon(a);
     return Material(
       key: const ValueKey('hw-status'),
       color: color.withValues(alpha: 0.10),
