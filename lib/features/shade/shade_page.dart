@@ -3,9 +3,12 @@
 // wg ANSI Z49.1 / OSHA. Tabele, źródła i rozbieżności:
 // domain/welding/shade_number.dart.
 //
-// Zasady ekranu: puste pole to komunikat, nie wynik; na granicy przedziału
-// wyższy stopień; poza tabelą — nie zgadujemy w dół (najniższy przedział
-// albo „co najmniej”) i ostrzegamy. „Bezpiecznie”: zacznij od ciemniejszego
+// Zasady ekranu: puste pole to komunikat, nie wynik; liczba ponad limit
+// wejścia (np. > 2000 A) to błąd pola; na granicy przedziału wyższy
+// stopień — poza przepływem gazu wg EN 169, gdzie norma jawnie daje granicę
+// przedziałowi niższemu („q ≤ 70 → 4”, zapis „70 < q ≤ 200 l/h”); poza
+// tabelą — nie zgadujemy w dół (najniższy przedział albo „co najmniej”)
+// i ostrzegamy. „Bezpiecznie”: zacznij od ciemniejszego
 // z obu źródeł i rozjaśniaj, ale nie poniżej minimum OSHA ani EN 169 − 1.
 // Bez zapisu i bez bazy.
 
@@ -295,9 +298,23 @@ class _ShadePageState extends State<ShadePage> {
                 'line). ANSI/OSHA — by material thickness.'),
       };
 
+  /// Błąd pola: nie liczba / ≤ 0 albo ponad limit wejścia.
+  String? _fieldError(List<ShadeProblem> problems, ShadeProblem invalid,
+      ShadeProblem tooHigh, double max, String unit) {
+    if (problems.contains(invalid)) {
+      return context.tr(
+          pl: 'Wpisz liczbę większą od 0.',
+          en: 'Enter a number greater than 0.');
+    }
+    if (problems.contains(tooHigh)) {
+      return context.tr(
+          pl: 'Za dużo — najwyżej ${_v(max)} $unit. Sprawdź wpisaną liczbę.',
+          en: 'Too high — at most ${_v(max)} $unit. Check the number.');
+    }
+    return null;
+  }
+
   Widget _inputSection(List<ShadeProblem> problems) {
-    final notNumber = context.tr(
-        pl: 'Wpisz liczbę większą od 0.', en: 'Enter a number greater than 0.');
     if (!_process.isGas) {
       final cutting = _process == ShadeProcess.plasmaCutting ||
           _process == ShadeProcess.arcGouging;
@@ -313,9 +330,8 @@ class _ShadePageState extends State<ShadePage> {
                 : context.tr(pl: 'Prąd spawania I', en: 'Welding current I'),
             key: const ValueKey('shade-current'),
             unit: 'A',
-            error: problems.contains(ShadeProblem.currentInvalid)
-                ? notNumber
-                : null,
+            error: _fieldError(problems, ShadeProblem.currentInvalid,
+                ShadeProblem.currentTooHigh, kShadeMaxCurrentA, 'A'),
           ),
         ],
       );
@@ -338,7 +354,8 @@ class _ShadePageState extends State<ShadePage> {
           helper: context.tr(
               pl: 'Z tabeli producenta palnika dla tej nasadki.',
               en: 'From the torch maker\'s table for this tip.'),
-          error: problems.contains(ShadeProblem.flowInvalid) ? notNumber : null,
+          error: _fieldError(problems, ShadeProblem.flowInvalid,
+              ShadeProblem.flowTooHigh, kShadeMaxFlowLh, 'l/h'),
         ),
         const SizedBox(height: 12),
         _field(
@@ -348,9 +365,8 @@ class _ShadePageState extends State<ShadePage> {
               en: 'Material thickness (ANSI/OSHA)'),
           key: const ValueKey('shade-thickness'),
           unit: 'mm',
-          error: problems.contains(ShadeProblem.thicknessInvalid)
-              ? notNumber
-              : null,
+          error: _fieldError(problems, ShadeProblem.thicknessInvalid,
+              ShadeProblem.thicknessTooHigh, kShadeMaxThicknessMm, 'mm'),
         ),
       ],
     );
@@ -438,11 +454,20 @@ class _ShadePageState extends State<ShadePage> {
     ));
     return QuoteSection(
       title: context.tr(pl: 'Stopień zaciemnienia', en: 'Shade number'),
-      subtitle: context.tr(
-          pl: 'Gdy źródła się różnią — ciemniej. Na granicy przedziału — '
-              'wyższy stopień.',
-          en: 'When the sources differ — darker. On a band boundary — the '
-              'higher shade.'),
+      // Zasada granicy zależy od tabeli: wykres EN 169 i ANSI — wyższy
+      // stopień; przepływ gazu wg EN 169 — granica w przedziale niższym.
+      subtitle: [
+        context.tr(
+            pl: 'Gdy źródła się różnią — ciemniej.',
+            en: 'When the sources differ — darker.'),
+        shadeBoundaryRule(en169Table(a.process), en: _en),
+        if (a.process.isGas)
+          context.tr(
+              pl: 'Grubość wg ANSI/OSHA: na granicy przedziału — wyższy '
+                  'stopień.',
+              en: 'Thickness per ANSI/OSHA: on a band boundary — the higher '
+                  'shade.'),
+      ].join(' '),
       children: children,
     );
   }
@@ -574,11 +599,14 @@ class _ShadePageState extends State<ShadePage> {
         title: context.tr(
             pl: 'Tabela EN 169 — ${_process.label(en: false)}',
             en: 'EN 169 table — ${_process.label(en: true)}'),
-        subtitle: context.tr(
-            pl: 'Cały zakres procesu — przy zakupie filtra albo przyłbicy '
-                'sprawdź, czy ma potrzebne stopnie.',
-            en: 'The whole range of the process — when buying a filter or '
-                'helmet check that it has the shades you need.'),
+        subtitle: [
+          context.tr(
+              pl: 'Cały zakres procesu — przy zakupie filtra albo przyłbicy '
+                  'sprawdź, czy ma potrzebne stopnie.',
+              en: 'The whole range of the process — when buying a filter or '
+                  'helmet check that it has the shades you need.'),
+          shadeBoundaryRule(t, en: _en),
+        ].join(' '),
         children: rows,
       ),
     );
