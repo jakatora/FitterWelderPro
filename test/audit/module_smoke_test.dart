@@ -88,6 +88,7 @@ import 'package:cut_list_app/features/fillet_strength/fillet_strength_page.dart'
 import 'package:cut_list_app/features/flange_check/flange_check_page.dart';
 import 'package:cut_list_app/features/glossary/glossary_page.dart';
 import 'package:cut_list_app/features/hardness/hardness_page.dart';
+import 'package:cut_list_app/features/piecework/piecework_page.dart';
 import 'package:cut_list_app/features/weather_check/weather_check_page.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_permit.dart';
 import 'package:cut_list_app/features/hot_work/hot_work_edit_page.dart';
@@ -244,6 +245,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'GlossaryPage' => const GlossaryPage(),
       'FilletStrengthPage' => const FilletStrengthPage(),
       'HardnessPage' => const HardnessPage(),
+      'PieceworkPage' => const PieceworkPage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

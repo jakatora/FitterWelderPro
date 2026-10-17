@@ -624,6 +624,28 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/welder_calculations_audit_test.dart: passivation jest oznaczone jako przewodnik nienormatywny',
       ]),
   ModuleAuditEntry(
+      id: 'piecework',
+      entryPoint: 'PieceworkPage',
+      sourcePath: 'lib/features/piecework/piecework_page.dart',
+      category: AuditCategory.project,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Spoiny JK-12 z dziennika: 2" 316L 6G + 4" PH przy 45 zł/DI, nierdzewna +20%, 5G +10%, 6G +20% → 324,00 zł za październik (dziś 126,00 zł, poprzedni miesiąc 270,00 zł, brygada 414,00 zł); przez DAO naprawa R1 z potrąceniem 50% i naprawą płatną 25% → 274,50 zł; spoina bez OD (W-15) pominięta i wymieniona; 4 h → 81,00 zł/h wobec 95,00 zł/h z „Ile brać za godzinę”; tekst i PDF przez wstrzyknięte udostępnianie.',
+      evidence: [
+        'test/features/piecework/piecework_page_test.dart: dziennik z bazy (DAO): naprawa R1 potrąca, spoina bez OD pominięta, kwota w groszach',
+        'test/features/piecework/piecework_page_test.dart: stawki → wynik: wpisana stawka i dopłata liczą kwotę i się zapisują',
+        'test/features/piecework/piecework_page_test.dart: zmiana okresu: miesiąc → dziś → tydzień → poprzedni miesiąc',
+        'test/features/piecework/piecework_page_test.dart: spoiny bez wymiaru widoczne jako pominięte, kwota ich nie zawiera',
+        'test/features/piecework/piecework_page_test.dart: udostępnianie tekstem i PDF przez wstrzyknięte funkcje',
+        'test/features/piecework/piecework_page_test.dart: cele dotyku ≥ 48 dp',
+        'test/domain/piecework/piecework_test.dart: dopłaty sumują się od podstawy: nierdzewka, pozycja, Sch 80+',
+        'test/domain/piecework/piecework_test.dart: potrącenie za odrzuconą spoinę i naprawa płatna osobno za każdą R',
+        'test/domain/piecework/piecework_test.dart: spoiny bez wymiaru pominięte w trybie DI: lista, kwota ich nie zawiera',
+        'test/domain/piecework/piecework_test.dart: granice dni: 23:59 i 00:00, zegar UTC na czas lokalny, zmiana czasu',
+        'test/features/piecework/piecework_store_test.dart: uszkodzony zapis: kopia surowego tekstu przed nadpisaniem, tylko raz',
+      ]),
+  ModuleAuditEntry(
       id: 'pipe-route-calculator',
       entryPoint: 'PipeRouteCalculatorScreen',
       sourcePath: 'lib/screens/pipe_route_calculator_screen.dart',

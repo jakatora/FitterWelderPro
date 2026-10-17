@@ -145,6 +145,8 @@ void main() {
         'FilletStrengthPage',
         // Twardość: przelicznik ISO 18265 i limity.
         'HardnessPage',
+        // Akord: zarobek z dziennika spoin.
+        'PieceworkPage',
       };
       expect(targets, expected);
     });

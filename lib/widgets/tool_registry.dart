@@ -12,6 +12,7 @@ import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
 import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
+import '../features/piecework/piecework_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -1963,6 +1964,50 @@ final List<ToolSpec> kToolRegistry = [
       'self-employed',
       'contractor',
       'income'
+    ],
+  ),
+  ToolSpec(
+    id: 'piecework',
+    group: ToolGroup.costing,
+    titlePl: 'Akord: ile zarobiłem',
+    titleEn: 'Piecework: what I earned',
+    subtitlePl:
+        'Zarobek z dziennika spoin: zł/DI lub za spoinę, dopłaty, naprawy',
+    subtitleEn:
+        'Earnings from the weld journal: per DI or per weld, surcharges, repairs',
+    icon: Icons.payments_outlined,
+    color: const Color(0xFF43A047),
+    builder: (_) => const PieceworkPage(),
+    keywordsPl: const [
+      'akord',
+      'akordowo',
+      'ile zarobilem',
+      'zarobek',
+      'wyplata',
+      'rozliczenie',
+      'stawka za cal',
+      'cal srednica',
+      'di',
+      'za spoine',
+      'doplata',
+      'potracenie',
+      'naprawy',
+      'dniowka'
+    ],
+    keywordsEn: const [
+      'piecework',
+      'piece rate',
+      'earnings',
+      'pay',
+      'payslip',
+      'settlement',
+      'per inch',
+      'dia-inch',
+      'di',
+      'per weld',
+      'surcharge',
+      'deduction',
+      'repair'
     ],
   ),
 ];

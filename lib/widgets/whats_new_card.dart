@@ -19,6 +19,7 @@ const String kWhatsNewSeenKey = 'whats_new_seen_2026_10';
 const List<String> kWhatsNewToolIds = [
   'weld_quotes',
   'hourly_rate',
+  'piecework',
   'filler_selector',
   'pwht_planner',
   'cooling_time',
