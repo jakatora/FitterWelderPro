@@ -116,6 +116,12 @@ class _InterpassPageState extends State<InterpassPage> {
     }
   }
 
+  /// Odświeżenie po zmianie zapisu z zamkniętego ekranu spoiny (np. „Cofnij”
+  /// w snackbarze, który wisi już nad listą).
+  Future<void> _reloadIfMounted() async {
+    if (mounted) await _reload();
+  }
+
   String _id() => widget.newId?.call() ?? const Uuid().v4();
 
   Future<void> _open(InterpassWeld weld) async {
@@ -128,6 +134,7 @@ class _InterpassPageState extends State<InterpassPage> {
         shareText: widget.shareText,
         sharePdf: widget.sharePdf,
         loadWelds: widget.loadWelds,
+        onStoreChanged: _reloadIfMounted,
       ),
     ));
     await _reload();

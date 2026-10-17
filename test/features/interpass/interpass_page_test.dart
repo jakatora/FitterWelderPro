@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/domain/welding/interpass_log.dart';
+import 'package:cut_list_app/domain/welding/interpass_text.dart';
 import 'package:cut_list_app/features/interpass/interpass_page.dart';
 import 'package:cut_list_app/features/interpass/interpass_store.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -19,10 +20,18 @@ import 'package:cut_list_app/theme/app_theme.dart';
 
 final _now = DateTime(2026, 10, 17, 7, 30);
 
+/// Zegar domyślny testów: start 07:30, każdy dodany pomiar przesuwa go
+/// o 5 min (sąsiednie ściegi muszą być odległe o co najmniej 1 min).
+DateTime _clock = _now;
+
 class _Spy {
   final List<(String, String)> texts = [];
   final List<(InterpassWeld, bool, InterpassUnit)> pdfs = [];
-  Future<void> text(String t, String subject) async => texts.add((t, subject));
+  Future<void> text(String t, String subject) async {
+    texts.add((t, subject));
+    _lastShared = t;
+  }
+
   Future<void> pdf(InterpassWeld w, bool en, InterpassUnit u) async =>
       pdfs.add((w, en, u));
 }
@@ -67,7 +76,7 @@ Future<_Spy> _pump(
         child: child!,
       ),
       home: InterpassPage(
-        now: now ?? () => _now,
+        now: now ?? () => _clock,
         newId: () => 'ip-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
@@ -139,6 +148,7 @@ Future<void> _addReading(WidgetTester tester, String temp,
   if (pass != null) await _enter(tester, 'ip-m-pass', pass);
   await _enter(tester, 'ip-m-temp', temp);
   await _tapKey(tester, 'ip-m-add');
+  _clock = _clock.add(const Duration(minutes: 5));
 }
 
 /// Nowa spoina z limitami 100 / 250 °C i liczbą ściegów [passes].
@@ -155,8 +165,213 @@ Future<void> _back(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Jedyna zapisana spoina.
+Future<InterpassWeld> _savedWeld() async =>
+    (await const InterpassStore().load()).welds.single;
+
+/// Protokół tekstowy otwartej spoiny (przez wstrzykniętą funkcję).
+Future<String?> _shareTextOf(WidgetTester tester) async {
+  _lastShared = null;
+  await _tapKey(tester, 'ip-share-text');
+  return _lastShared;
+}
+
+/// Ostatni tekst przekazany do wstrzykniętego udostępniania.
+String? _lastShared;
+
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    _clock = _now;
+  });
+
+  testWidgets('zły tekst w polu limitu nie kasuje zapisanego limitu',
+      (tester) async {
+    await _pump(tester);
+    await _newWeld(tester);
+    await _addReading(tester, '120');
+    await _addReading(tester, '300');
+    expect(await _status(tester), startsWith('POZA LIMITEM — ścieg 2'));
+    final saved = await _savedWeld();
+    final protocolBefore = (await _shareTextOf(tester))!;
+
+    // „2500” (poza zakresem) i „-” — limit 250 °C zostaje, pomiar czerwony.
+    for (final bad in ['2500', '-']) {
+      await _enter(tester, 'ip-f-intMax', bad);
+      expect(find.text('Wpisz -60…1000 °C — zapisany limit bez zmian: 250 °C'),
+          findsOneWidget,
+          reason: bad);
+      expect(await _status(tester), startsWith('POZA LIMITEM — ścieg 2'));
+      expect(_statusColor(tester), kFail);
+      expect((await _savedWeld()).limits, saved.limits);
+    }
+    // Protokół też bez zmian (dalej czerwony, z limitem 250 °C).
+    final protocolAfter = (await _shareTextOf(tester))!;
+    expect(protocolAfter, contains('Maks. międzyściegowa: ≤ 250 °C'));
+    expect(protocolAfter, contains('POWYŻEJ MAKS.'));
+    expect(protocolAfter.split('\n').where((l) => l.contains('≤ 250 °C')),
+        protocolBefore.split('\n').where((l) => l.contains('≤ 250 °C')));
+
+    // Liczba ściegów: „0” nie kasuje zapisanych 2.
+    await _enter(tester, 'ip-f-passes', '0');
+    expect(find.text('Wpisz 1–999 — zapisane bez zmian: 2'), findsOneWidget);
+    expect((await _savedWeld()).passCount, 2);
+
+    // Dopiero puste pole kasuje limit — wtedy „brak limitu z WPS”.
+    await _enter(tester, 'ip-f-intMax', '');
+    expect((await _savedWeld()).limits.interpassMax, isNull);
+    expect(await _head(tester, 1), 'Ścieg 2 · 300 °C · brak limitu z WPS');
+  });
+
+  testWidgets('400 °F wpisane w °F zostaje 400 °F w polu, tekście i PDF',
+      (tester) async {
+    final spy = await _pump(tester);
+    await _tapKey(tester, 'ip-new');
+    await _tapKey(tester, 'ip-unit-f');
+    await _enter(tester, 'ip-f-weldNo', 'S-F');
+    await _enter(tester, 'ip-f-preMin', '375');
+    await _enter(tester, 'ip-f-intMax', '400');
+    await _enter(tester, 'ip-f-passes', '1');
+    await _addReading(tester, '400');
+    expect(await _head(tester, 0), 'Ścieg 1 · 400 °F · OK');
+
+    // W °C — przeliczone; z powrotem w °F — dokładnie wpisane liczby.
+    await _tapKey(tester, 'ip-unit-c');
+    expect(_field(tester, 'ip-f-intMax'), '204,444');
+    expect(
+        await _head(tester, 0), 'Ścieg 1 · 204,444 °C (wpisano 400 °F) · OK');
+    await _tapKey(tester, 'ip-unit-f');
+    expect(_field(tester, 'ip-f-preMin'), '375');
+    expect(_field(tester, 'ip-f-intMax'), '400');
+
+    await _tapKey(tester, 'ip-share-text');
+    final text = spy.texts.single.$1;
+    expect(text, contains('Min. podgrzanie: ≥ 375 °F'));
+    expect(text, contains('Maks. międzyściegowa: ≤ 400 °F'));
+    expect(text, isNot(contains('399,99')));
+    expect(text, isNot(contains('375,01')));
+    await _tapKey(tester, 'ip-share-pdf-btn');
+    final (weld, _, unit) = spy.pdfs.single;
+    expect(unit, InterpassUnit.f);
+    expect(interpassReadingRows(weld, unit, en: false).single[2], '400 °F');
+    expect(interpassWeldLines(weld, unit, en: false)[4].value, '≤ 400 °F');
+  });
+
+  testWidgets('„Cofnij” po usunięciu pomiaru działa także po zamknięciu ekranu',
+      (tester) async {
+    await _pump(tester);
+    await _newWeld(tester);
+    await _addReading(tester, '120');
+    await _addReading(tester, '200');
+    expect(await _status(tester), startsWith('Wszystkie ściegi (2)'));
+    await _tapKey(tester, 'ip-r-del-1');
+    expect((await _savedWeld()).readings, hasLength(1));
+    // Ekran spoiny zamknięty — snackbar wisi nad listą.
+    await _back(tester);
+    expect(find.byKey(const ValueKey('ip-removed')), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('ip-item-status-0')))
+            .data,
+        'Brak pomiaru');
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    final w = await _savedWeld();
+    expect(w.readings.map((r) => r.tempC), [120, 200]);
+    // Lista odświeżona.
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('ip-item-status-0')))
+            .data,
+        'OK — w limitach');
+  });
+
+  testWidgets('pominięty uszkodzony pomiar: baner, brak zieleni, potwierdzenie',
+      (tester) async {
+    final good = InterpassWeld(
+      id: 'lost',
+      weldNo: 'S-L',
+      limits: InterpassLimits.celsius(preheatMinC: 100, interpassMaxC: 250),
+      passCount: 2,
+      readings: [
+        InterpassReading(
+            pass: 1,
+            temp: const InterpassTemp.c(120),
+            at: _now.millisecondsSinceEpoch,
+            recordedAt: _now.millisecondsSinceEpoch),
+        InterpassReading(
+            pass: 2,
+            temp: const InterpassTemp.c(230),
+            at: _now.millisecondsSinceEpoch + 600000,
+            recordedAt: _now.millisecondsSinceEpoch + 600000),
+      ],
+      createdAt: 1,
+      updatedAt: 2,
+    ).toJson();
+    final raw = jsonEncode({
+      'v': 2,
+      'welds': [
+        {
+          ...good,
+          'readings': [
+            ...(good['readings'] as List),
+            // Najpóźniejszy, gorący pomiar — nieczytelny.
+            {
+              'pass': 2,
+              'temp': {'v': 290, 'u': 'c'},
+              'bound': '?'
+            },
+          ],
+        },
+      ],
+    });
+    SharedPreferences.setMockInitialValues({InterpassStore.key: raw});
+    await _pump(tester);
+    expect(find.byKey(const ValueKey('ip-corrupt')), findsOneWidget);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('ip-item-status-0')))
+            .data,
+        'Pominięte pomiary — sprawdź');
+    await _tapKey(tester, 'ip-open-0');
+    expect(await _status(tester),
+        startsWith('Przy odczycie zapisu pominięto uszkodzone pomiary: 1'));
+    expect(_statusColor(tester), kWarn);
+    await _tapKey(tester, 'ip-lost-confirm');
+    expect(await _status(tester), startsWith('Wszystkie ściegi (2)'));
+    final w = await _savedWeld();
+    expect(w.lostReadings, 0);
+    expect(w.lostConfirmed, 1);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(InterpassStore.corruptBackupKey), raw);
+  });
+
+  testWidgets(
+      'pusta min. międzyściegowa: podpowiedź i „ustaw = min. podgrzania”',
+      (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'ip-new');
+    await _enter(tester, 'ip-f-preMin', '150');
+    await _enter(tester, 'ip-f-intMax', '250');
+    await _enter(tester, 'ip-f-passes', '2');
+    final field = await _show(tester, 'ip-f-intMin');
+    expect(
+        find.descendant(
+            of: field, matching: find.textContaining('NIE jest kontrolowany')),
+        findsOneWidget);
+    await _addReading(tester, '160');
+    await _addReading(tester, '60');
+    // Zachowanie bez zmian — OK — ale wyraźna podpowiedź w statusie.
+    expect(await _status(tester), startsWith('Wszystkie ściegi (2)'));
+    final note = await _show(tester, 'ip-status-nomin');
+    expect(tester.widget<Text>(note).data,
+        startsWith('Ścieg 2: poniżej min. podgrzania 150 °C — NIE oceniany'));
+    await _tapKey(tester, 'ip-intmin-from-preheat');
+    expect(_field(tester, 'ip-f-intMin'), '150');
+    expect(await _status(tester), startsWith('POZA LIMITEM — ścieg 2'));
+    expect(find.byKey(const ValueKey('ip-intmin-from-preheat')), findsNothing);
+    expect((await _savedWeld()).limits.interpassMinC, 150);
+  });
 
   testWidgets('ustawienia → pomiary → werdykt; równość z limitem = OK',
       (tester) async {
@@ -248,7 +463,8 @@ void main() {
     await _tapKey(tester, 'ip-unit-f');
     expect(_field(tester, 'ip-f-preMin'), '212');
     expect(_field(tester, 'ip-f-intMax'), '482');
-    expect(await _head(tester, 1), 'Ścieg 2 · 500 °F · POWYŻEJ MAKS.');
+    expect(await _head(tester, 1),
+        'Ścieg 2 · 500 °F (wpisano 260 °C) · POWYŻEJ MAKS.');
     expect(await _status(tester), statusC);
     expect(_statusColor(tester), kFail);
     expect(prefs.getString(InterpassStore.key), before);
@@ -264,7 +480,7 @@ void main() {
     // Z powrotem w °C — te same liczby co wpisane.
     await _tapKey(tester, 'ip-unit-c');
     expect(_field(tester, 'ip-f-intMax'), '250');
-    expect(await _head(tester, 2), 'Ścieg 2 · 250 °C · OK');
+    expect(await _head(tester, 2), 'Ścieg 2 · 250 °C (wpisano 482 °F) · OK');
 
     // Lista spoin pamięta jednostkę; ponowne otwarcie — pola w °F.
     await _tapKey(tester, 'ip-unit-f');
@@ -388,14 +604,14 @@ void main() {
       description: 'Rafineria — instalacja hydroodsiarczania, rurociąg '
           'parowy P91 Ø273 × 25, estakada E-4, strona ssawna pompy P-101',
       wpsRef: 'WPS-P91-141/111-0091 rev C (kwalifikacja PQR-77)',
-      limits: const InterpassLimits(
+      limits: InterpassLimits.celsius(
           preheatMinC: 200, interpassMaxC: 300, interpassMinC: 200),
       method: InterpassMethod.crayon,
       passCount: 12,
       readings: [
         InterpassReading(
             pass: 1,
-            tempC: 200,
+            temp: InterpassTemp.entered(392, InterpassUnit.f),
             bound: InterpassBound.atLeast,
             method: InterpassMethod.crayon,
             at: _now.millisecondsSinceEpoch,
@@ -404,7 +620,7 @@ void main() {
                 '2 min na 25 mm'),
         InterpassReading(
             pass: 2,
-            tempC: 321.25,
+            temp: const InterpassTemp.c(321.25),
             at: _now.millisecondsSinceEpoch + 60000,
             recordedAt: _now.millisecondsSinceEpoch + 60000),
       ],
@@ -434,6 +650,16 @@ void main() {
     await _back(tester);
     await _tapKey(tester, 'ip-new');
     expect(tester.takeException(), isNull);
+    // Pusta min. międzyściegowa: długa podpowiedź, przycisk i błąd pola.
+    await _enter(tester, 'ip-f-preMin', '150');
+    await _enter(tester, 'ip-f-intMax', '2500');
+    await _show(tester, 'ip-intmin-from-preheat');
+    expect(tester.takeException(), isNull);
+    expect(
+        tester
+            .getSize(find.byKey(const ValueKey('ip-intmin-from-preheat')))
+            .height,
+        greaterThanOrEqualTo(kMinTapTarget));
   });
 
   testWidgets('cele dotyku ≥ 48 dp (rękawica), „Dodaj pomiar” duży',

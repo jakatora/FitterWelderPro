@@ -90,6 +90,8 @@ class InterpassExport {
     );
     final stamp = '${interpassDate(generatedAt)} ${interpassTime(generatedAt)}';
     final a = weld.assess();
+    final rows = interpassReadingRows(weld, unit, en: en);
+    final minNote = interpassMinUnsetNote(a, unit, en: en);
     final status = a.status;
     final statusColor = status == InterpassWeldStatus.outOfLimits
         ? _kFail
@@ -228,30 +230,29 @@ class InterpassExport {
                   cell(en ? 'Notes' : 'Uwagi', head: true),
                 ],
               ),
-              for (final r in a.chrono)
+              // Te same wiersze co w protokole tekstowym (test PDF je czyta).
+              for (final (i, row) in rows.indexed)
                 pw.TableRow(children: [
-                  cell('${r.pass}'),
-                  cell(interpassDateTime(r.at)),
-                  cell(interpassReadingValue(r, unit, en: en)),
-                  cell(r.method.short(en: en)),
-                  cell(interpassCheckLabel(a.checkOf(r), en: en),
-                      head: a.isDecisive(r), color: checkColor(r)),
-                  cell([
-                    if (r.note.trim().isNotEmpty) r.note.trim(),
-                    interpassReadingFlags(r, a, en: en),
-                  ].where((s) => s.isNotEmpty).join(' ')),
+                  for (final (j, text) in row.indexed)
+                    j == 4
+                        ? cell(text,
+                            head: a.isDecisive(a.chrono[i]),
+                            color: checkColor(a.chrono[i]))
+                        : cell(text),
                 ]),
             ],
           ),
-        if (unit == InterpassUnit.f)
+        if (minNote != null)
           pw.Padding(
             padding: const pw.EdgeInsets.only(top: 4),
-            child: pw.Text(
-                en
-                    ? 'Values are stored in °C and shown here in °F.'
-                    : 'Wartości zapisane w °C, tu pokazane w °F.',
-                style: pw.TextStyle(fontSize: 7.5, color: _kInkMuted)),
+            child: pw.Text(minNote,
+                style: pw.TextStyle(fontSize: 8, color: _kInk)),
           ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 4),
+          child: pw.Text(interpassUnitNote(unit, en: en),
+              style: pw.TextStyle(fontSize: 7.5, color: _kInkMuted)),
+        ),
         heading(en ? 'Rules' : 'Zasady'),
         for (final t in [
           interpassPassRule(en: en),

@@ -23,9 +23,6 @@ import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'interpass_page.dart';
 import 'interpass_store.dart';
 
-/// Wartość „bez zmian” w [_InterpassWeldPageState._setLimit].
-const Object _keep = Object();
-
 class InterpassWeldPage extends StatefulWidget {
   const InterpassWeldPage({
     super.key,
@@ -36,6 +33,7 @@ class InterpassWeldPage extends StatefulWidget {
     this.shareText = interpassDefaultShareText,
     this.sharePdf = interpassDefaultSharePdf,
     this.loadWelds = interpassDefaultJournalWelds,
+    this.onStoreChanged,
   });
 
   final InterpassWeld initial;
@@ -45,6 +43,10 @@ class InterpassWeldPage extends StatefulWidget {
   final InterpassShareText shareText;
   final InterpassSharePdf sharePdf;
   final InterpassJournalSource loadWelds;
+
+  /// Wołane po zmianie zapisu, gdy ekranu już nie ma (np. „Cofnij” kliknięte
+  /// na liście spoin) — lista się odświeża.
+  final Future<void> Function()? onStoreChanged;
 
   @override
   State<InterpassWeldPage> createState() => _InterpassWeldPageState();
@@ -62,11 +64,11 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
   late final _desc = TextEditingController(text: _w.description);
   late final _wps = TextEditingController(text: _w.wpsRef);
   late final _preMin =
-      TextEditingController(text: _tempText(_w.limits.preheatMinC));
+      TextEditingController(text: _tempText(_w.limits.preheatMin));
   late final _intMax =
-      TextEditingController(text: _tempText(_w.limits.interpassMaxC));
+      TextEditingController(text: _tempText(_w.limits.interpassMax));
   late final _intMin =
-      TextEditingController(text: _tempText(_w.limits.interpassMinC));
+      TextEditingController(text: _tempText(_w.limits.interpassMin));
   late final _passes =
       TextEditingController(text: _w.passCount?.toString() ?? '');
   late final _mPass = TextEditingController(text: '${_w.nextPass}');
@@ -101,17 +103,18 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
 
   // ── Liczby i jednostki ─────────────────────────────────────────────────
 
-  String _tempText(double? c) => c == null
-      ? ''
-      : formatInterpassNumber(interpassFromC(c, _unit), en: _enNow);
+  /// Liczba do pola: wpisana w tej jednostce — dokładnie tak, jak wpisana
+  /// (400 °F zostaje „400”); w innej — przeliczona.
+  String _tempText(InterpassTemp? t) =>
+      t == null ? '' : formatInterpassTempNumber(t, _unit, en: _enNow);
 
-  /// Liczba z pola w bieżącej jednostce → °C albo `null` (puste / zła /
-  /// poza zakresem).
-  double? _parseC(String raw) {
+  /// Liczba z pola w bieżącej jednostce albo `null` (puste / zła / poza
+  /// zakresem).
+  InterpassTemp? _parseTemp(String raw) {
     final v = parseDecimal(raw);
     if (v == null) return null;
-    final c = interpassToC(v, _unit);
-    return interpassTempValid(c) ? c : null;
+    final t = InterpassTemp.entered(v, _unit);
+    return t.valid ? t : null;
   }
 
   String _range() {
@@ -122,8 +125,23 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
   }
 
   String? _tempError(String raw) {
-    if (raw.trim().isEmpty || _parseC(raw) != null) return null;
+    if (raw.trim().isEmpty || _parseTemp(raw) != null) return null;
     return context.tr(pl: 'Wpisz ${_range()}', en: 'Enter ${_range()}');
+  }
+
+  /// Błąd pola limitu: zły tekst NIE kasuje zapisanego limitu — mówimy, co
+  /// zostało zapisane.
+  String? _limitError(String raw, InterpassTemp? saved) {
+    final e = _tempError(raw);
+    if (e == null) return null;
+    if (saved == null) {
+      return context.tr(
+          pl: '$e — limit niezapisany', en: '$e — limit not saved');
+    }
+    final s = formatInterpassTemp(saved, _unit, en: _enNow);
+    return context.tr(
+        pl: '$e — zapisany limit bez zmian: $s',
+        en: '$e — saved limit unchanged: $s');
   }
 
   static int? _passNo(String raw) {
@@ -137,16 +155,25 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
         pl: 'Wpisz 1–$kInterpassMaxPass', en: 'Enter 1–$kInterpassMaxPass');
   }
 
-  /// Przełączenie jednostki: pola przepisane z zapisanych wartości °C —
-  /// dane i werdykt bez zmian. Wpisywany pomiar przeliczony.
+  String? _passCountError(String raw) {
+    final e = _passError(raw);
+    final saved = _w.passCount;
+    if (e == null || saved == null) return e;
+    return context.tr(
+        pl: '$e — zapisane bez zmian: $saved',
+        en: '$e — saved value unchanged: $saved');
+  }
+
+  /// Przełączenie jednostki: pola przepisane z zapisanych wartości — dane
+  /// i werdykt bez zmian. Wpisywany pomiar przeliczony.
   void _setUnit(InterpassUnit u) {
     if (u == _unit) return;
-    final typed = _parseC(_mTemp.text);
+    final typed = _parseTemp(_mTemp.text);
     setState(() {
       _unit = u;
-      _preMin.text = _tempText(_w.limits.preheatMinC);
-      _intMax.text = _tempText(_w.limits.interpassMaxC);
-      _intMin.text = _tempText(_w.limits.interpassMinC);
+      _preMin.text = _tempText(_w.limits.preheatMin);
+      _intMax.text = _tempText(_w.limits.interpassMax);
+      _intMin.text = _tempText(_w.limits.interpassMin);
       if (typed != null) _mTemp.text = _tempText(typed);
     });
     unawaited(widget.store.saveUnit(u).catchError((Object e) {
@@ -190,25 +217,49 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
     ));
   }
 
-  void _setLimit({
-    Object? preheatMin = _keep,
-    Object? interpassMax = _keep,
-    Object? interpassMin = _keep,
-  }) {
-    final l = _w.limits;
-    _set((w) => w.copyWith(
-          limits: InterpassLimits(
-            preheatMinC: identical(preheatMin, _keep)
-                ? l.preheatMinC
-                : preheatMin as double?,
-            interpassMaxC: identical(interpassMax, _keep)
-                ? l.interpassMaxC
-                : interpassMax as double?,
-            interpassMinC: identical(interpassMin, _keep)
-                ? l.interpassMinC
-                : interpassMin as double?,
-          ),
-        ));
+  /// Zmiana tekstu pola limitu: puste pole kasuje limit, poprawna liczba go
+  /// zapisuje, a niepusty ZŁY tekst („2500”, „-”) niczego nie zmienia —
+  /// zapisany limit zostaje (pole pokazuje błąd). Inaczej literówka
+  /// zamieniałaby czerwony pomiar w „brak limitu”.
+  void _limitChanged(
+      String text, InterpassLimits Function(InterpassTemp? t) apply) {
+    if (text.trim().isEmpty) {
+      _set((w) => w.copyWith(limits: apply(null)));
+      return;
+    }
+    final t = _parseTemp(text);
+    if (t == null) {
+      setState(() {}); // tylko komunikat błędu
+      return;
+    }
+    _set((w) => w.copyWith(limits: apply(t)));
+  }
+
+  /// Liczba ściegów — te same zasady co przy limitach.
+  void _passCountChanged(String text) {
+    if (text.trim().isEmpty) {
+      _set((w) => w.copyWith(passCount: null));
+      return;
+    }
+    final n = _passNo(text);
+    if (n == null) {
+      setState(() {});
+      return;
+    }
+    _set((w) => w.copyWith(passCount: n));
+  }
+
+  /// „Ustaw = min. podgrzania”: min. międzyściegowa równa podgrzaniu (ta sama
+  /// wpisana wartość i jednostka).
+  void _interpassMinFromPreheat() {
+    final pre = _w.limits.preheatMin;
+    if (pre == null) return;
+    _set((w) => w.copyWith(limits: w.limits.copyWith(interpassMin: pre)));
+    setState(() => _intMin.text = _tempText(pre));
+  }
+
+  void _confirmLost() {
+    _set((w) => w.confirmLostReadings());
   }
 
   // ── Nowy pomiar ────────────────────────────────────────────────────────
@@ -225,20 +276,20 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
 
   bool get _canAdd =>
       _passNo(_mPass.text) != null &&
-      _parseC(_mTemp.text) != null &&
+      _parseTemp(_mTemp.text) != null &&
       (!_crayon || _mMelted != null) &&
       !_atFuture;
 
   void _addReading() {
     final pass = _passNo(_mPass.text);
-    final t = _parseC(_mTemp.text);
+    final t = _parseTemp(_mTemp.text);
     if (pass == null || t == null || (_crayon && _mMelted == null)) return;
     final now = widget.now();
     final at = _resolvedAt(now);
     if (interpassAtInFuture(at, now)) return;
     final r = InterpassReading(
       pass: pass,
-      tempC: t,
+      temp: t,
       bound: !_crayon
           ? InterpassBound.exact
           : _mMelted!
@@ -290,19 +341,47 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
     if (index < 0 || index >= chrono.length) return;
     final removed = chrono[index];
     _set((w) => w.removeReadingAt(index));
+    final undo = _undoRemoval(removed, index);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
+        key: const ValueKey('ip-removed'),
         content:
             Text(context.tr(pl: 'Pomiar usunięty.', en: 'Reading removed.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
-          onPressed: () {
-            if (!mounted) return;
-            _set((w) => w.addReading(removed));
-          },
+          onPressed: () => unawaited(undo()),
         ),
       ));
+  }
+
+  /// „Cofnij” przygotowane z góry: snackbar żyje dalej po zamknięciu ekranu
+  /// (wisi na liście spoin), więc zależności zbieramy teraz. Ekran otwarty —
+  /// zmiana w stanie i zapis; zamknięty — wprost w zapisie, potem lista się
+  /// odświeża. Pomiar wraca na dawne miejsce (ważne przy tej samej chwili).
+  Future<void> Function() _undoRemoval(InterpassReading removed, int index) {
+    final store = widget.store;
+    final id = _w.id;
+    final now = widget.now;
+    final refresh = widget.onStoreChanged;
+    return () async {
+      if (mounted) {
+        _set((w) => w.restoreReadingAt(removed, index));
+        return;
+      }
+      try {
+        await store.update(
+            id,
+            (w) => w
+                .restoreReadingAt(removed, index)
+                .copyWith(updatedAt: now().millisecondsSinceEpoch));
+        await refresh?.call();
+      } catch (e) {
+        // Cofnięcie po wyjściu z ekranu to wygoda — błąd nie może wywalić
+        // aplikacji.
+        debugPrint('[interpass] undo after close failed: $e');
+      }
+    };
   }
 
   Future<void> _pickDate() async {
@@ -454,7 +533,12 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
         padding: EdgeInsets.fromLTRB(
             12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
-          _StatusCard(assessment: a, en: en),
+          _StatusCard(
+            assessment: a,
+            en: en,
+            unit: _unit,
+            onConfirmLost: _confirmLost,
+          ),
           const SizedBox(height: 10),
           _unitToggle(),
           const SizedBox(height: 12),
@@ -557,8 +641,13 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
     );
   }
 
-  Widget _tempField(String key, TextEditingController c, String label,
-      String helper, ValueChanged<double?> onValue) {
+  Widget _tempField(
+      String key,
+      TextEditingController c,
+      String label,
+      String helper,
+      InterpassTemp? saved,
+      InterpassLimits Function(InterpassTemp? t) apply) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
@@ -570,16 +659,18 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
           labelText: label,
           suffixText: _unit.symbol,
           helperText: helper,
-          helperMaxLines: 3,
-          errorText: _tempError(c.text),
-          errorMaxLines: 2,
+          helperMaxLines: 4,
+          errorText: _limitError(c.text, saved),
+          errorMaxLines: 3,
         ),
-        onChanged: (t) => onValue(_parseC(t)),
+        onChanged: (t) => _limitChanged(t, apply),
       ),
     );
   }
 
   Widget _limitsSection(bool en) {
+    final l = _w.limits;
+    final minUnset = l.interpassMinUnset;
     return QuoteSection(
       key: const ValueKey('ip-limits'),
       title: context.tr(pl: 'Limity z WPS', en: 'WPS limits'),
@@ -592,7 +683,8 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
           context.tr(
               pl: 'Wg WPS. Ocenia pomiar przed ściegiem 1.',
               en: 'Per the WPS. Judges the reading before pass 1.'),
-          (v) => _setLimit(preheatMin: v),
+          l.preheatMin,
+          (t) => _w.limits.copyWith(preheatMin: t),
         ),
         _tempField(
           'intMax',
@@ -602,7 +694,8 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
           context.tr(
               pl: 'Wg WPS. Ocenia pomiary przed ściegiem 2 i dalej.',
               en: 'Per the WPS. Judges readings before pass 2 onwards.'),
-          (v) => _setLimit(interpassMax: v),
+          l.interpassMax,
+          (t) => _w.limits.copyWith(interpassMax: t),
         ),
         _tempField(
           'intMin',
@@ -610,11 +703,34 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
           context.tr(
               pl: 'Min. międzyściegowa (opcjonalnie)',
               en: 'Minimum interpass (optional)'),
-          context.tr(
-              pl: 'Tylko jeśli WPS ją podaje (np. P91 — wg WPS).',
-              en: 'Only if the WPS gives one (e.g. P91 — per the WPS).'),
-          (v) => _setLimit(interpassMin: v),
+          minUnset
+              ? context.tr(
+                  pl: 'Puste = spadek poniżej podgrzania między ściegami NIE '
+                      'jest kontrolowany (np. 60 °C przy podgrzaniu 150 °C '
+                      'da OK). Wpisz, jeśli WPS ją podaje (np. P91).',
+                  en: 'Empty = a drop below the preheat between runs is NOT '
+                      'checked (e.g. 60 °C with a 150 °C preheat shows OK). '
+                      'Enter it if the WPS gives one (e.g. P91).')
+              : context.tr(
+                  pl: 'Tylko jeśli WPS ją podaje (np. P91 — wg WPS).',
+                  en: 'Only if the WPS gives one (e.g. P91 — per the WPS).'),
+          l.interpassMin,
+          (t) => _w.limits.copyWith(interpassMin: t),
         ),
+        if (minUnset)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: OutlinedButton.icon(
+              key: const ValueKey('ip-intmin-from-preheat'),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, kMinTapTarget)),
+              onPressed: _interpassMinFromPreheat,
+              icon: const Icon(Icons.south_outlined),
+              label: Text(context.tr(
+                  pl: 'Ustaw min. międzyściegową = min. podgrzania',
+                  en: 'Set minimum interpass = minimum preheat')),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: TextField(
@@ -631,9 +747,10 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
                   en: 'Without it the verdict cannot turn green — nobody '
                       'can tell whether every pass has a reading.'),
               helperMaxLines: 3,
-              errorText: _passError(_passes.text),
+              errorText: _passCountError(_passes.text),
+              errorMaxLines: 2,
             ),
-            onChanged: (t) => _set((w) => w.copyWith(passCount: _passNo(t))),
+            onChanged: _passCountChanged,
           ),
         ),
         Text(
@@ -943,10 +1060,17 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
 // ── Widżety ───────────────────────────────────────────────────────────────
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.assessment, required this.en});
+  const _StatusCard({
+    required this.assessment,
+    required this.en,
+    required this.unit,
+    required this.onConfirmLost,
+  });
 
   final InterpassAssessment assessment;
   final bool en;
+  final InterpassUnit unit;
+  final VoidCallback onConfirmLost;
 
   @override
   Widget build(BuildContext context) {
@@ -954,6 +1078,7 @@ class _StatusCard extends StatelessWidget {
     final color = interpassStatusColor(a);
     final blockers = interpassBlockers(a, en: en);
     final superseded = a.supersededOutOfLimits.length;
+    final minNote = interpassMinUnsetNote(a, unit, en: en);
     final icon = a.status == InterpassWeldStatus.outOfLimits
         ? Icons.dangerous_outlined
         : a.ok
@@ -1007,6 +1132,35 @@ class _StatusCard extends StatelessWidget {
                       key: const ValueKey('ip-status-superseded'),
                       style: const TextStyle(
                           color: kTextSec, fontSize: 12.5, height: 1.3),
+                    ),
+                  ],
+                  if (minNote != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      minNote,
+                      key: const ValueKey('ip-status-nomin'),
+                      style: TextStyle(
+                          color: a.belowPreheatUnchecked.isEmpty
+                              ? kTextSec
+                              : kWarn,
+                          fontSize: 12.5,
+                          height: 1.3,
+                          fontWeight: a.belowPreheatUnchecked.isEmpty
+                              ? null
+                              : FontWeight.w700),
+                    ),
+                  ],
+                  if (a.lostReadings > 0) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const ValueKey('ip-lost-confirm'),
+                      style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, kMinTapTarget)),
+                      onPressed: onConfirmLost,
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: Text(en
+                          ? 'Checked against the paper record — confirm'
+                          : 'Sprawdzone z zapisem papierowym — potwierdzam'),
                     ),
                   ],
                 ],
