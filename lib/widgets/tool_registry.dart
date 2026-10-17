@@ -8,6 +8,7 @@ import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/flange_check/flange_check_page.dart';
 import '../features/hot_work/hot_work_page.dart';
+import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/mitre_bend/mitre_bend_page.dart';
@@ -1240,6 +1241,53 @@ final List<ToolSpec> kToolRegistry = [
       'sprawdzenie'
     ],
     keywordsEn: const ['checklist', 'check', 'pre-weld', 'inspection'],
+  ),
+  ToolSpec(
+    id: 'weather_check',
+    group: ToolGroup.inspection,
+    titlePl: 'Warunki do spawania',
+    titleEn: 'Welding conditions',
+    subtitlePl: 'Mróz, wiatr, deszcz, punkt rosy — czy wolno spawać',
+    subtitleEn: 'Frost, wind, rain, dew point — OK to weld?',
+    icon: Icons.wb_cloudy_outlined,
+    color: const Color(0xFF78909C),
+    builder: (_) => const WeatherCheckPage(),
+    keywordsPl: const [
+      'pogoda',
+      'wiatr',
+      'deszcz',
+      'snieg',
+      'mroz',
+      'zima',
+      'punkt rosy',
+      'rosa',
+      'wilgoc',
+      'wilgotnosc',
+      'kondensacja',
+      'namiot',
+      'oslona',
+      'beaufort',
+      'temperatura otoczenia',
+      'spawanie w terenie',
+      'aws d1.1'
+    ],
+    keywordsEn: const [
+      'weather',
+      'wind',
+      'rain',
+      'snow',
+      'cold weather',
+      'frost',
+      'dew point',
+      'humidity',
+      'condensation',
+      'shelter',
+      'windbreak',
+      'beaufort',
+      'ambient temperature',
+      'field welding',
+      'aws d1.1'
+    ],
   ),
   ToolSpec(
     id: 'hot_work',

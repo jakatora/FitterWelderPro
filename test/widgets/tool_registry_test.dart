@@ -135,6 +135,8 @@ void main() {
         'ElectrodeExposurePage',
         // Odbiór połączenia kołnierzowego (PCC-1).
         'FlangeCheckPage',
+        // Warunki do spawania (pogoda, punkt rosy).
+        'WeatherCheckPage',
       };
       expect(targets, expected);
     });
