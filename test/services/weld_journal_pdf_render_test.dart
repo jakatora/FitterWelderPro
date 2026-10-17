@@ -173,6 +173,59 @@ void main() {
     expect(doc.document.pdfPageList.pages.length, greaterThanOrEqualTo(3));
   });
 
+  group('v28: wyrób, prowadzenie grani, przenoszenie metalu', () {
+    test('linia w komórce złącza: tylko podane pola, kody jak na certyfikacie',
+        () {
+      expect(
+          weldJournalIsoDetails(const WeldJournalRecord(
+              weldNo: 'W', productForm: 'T', rootBacking: 'nb',
+              metalTransfer: 'dip')),
+          'T · ss nb · dip');
+      expect(
+          weldJournalIsoDetails(const WeldJournalRecord(
+              weldNo: 'W', productForm: 'P', metalTransfer: 'other')),
+          'P · inne/other');
+      expect(
+          weldJournalIsoDetails(
+              const WeldJournalRecord(weldNo: 'W', rootBacking: 'bs')),
+          'bs');
+      // Nic nie podano (stary wpis) → nic nie dopisujemy do wydruku.
+      expect(weldJournalIsoDetails(const WeldJournalRecord(weldNo: 'W')), '');
+      expect(weldJournalIsoDetails(_rec(0)), '');
+    });
+
+    test('PDF z polami v28 i bez nich renderuje się', () async {
+      final withIso = [
+        for (var i = 0; i < 6; i++)
+          WeldJournalRecord(
+            weldNo: 'W-00$i',
+            status: 'OK',
+            jointType: 'BW',
+            shopField: 'SHOP',
+            position: 'PH',
+            method: i.isEven ? 'MIG/MAG' : 'TIG',
+            productForm: i.isEven ? 'T' : 'P',
+            rootBacking: ['nb', 'mb', 'bs', 'gb', 'ci', 'fb'][i],
+            metalTransfer: i.isEven ? (i == 2 ? 'other' : 'dip') : '',
+          ),
+      ];
+      for (final records in [
+        withIso,
+        [...withIso, _rec(1)], // mieszany: nowe i stare wpisy
+        [_rec(1), _rec(2)], // bez pól v28 — wydruk jak dawniej
+      ]) {
+        final doc = await WeldJournalExport.buildPdfDocument(
+          records: records,
+          font: _font('Roboto-Regular.ttf'),
+          boldFont: _font('Roboto-Bold.ttf'),
+          header: header,
+          generatedAt: DateTime(2026, 10, 17),
+        );
+        expect(String.fromCharCodes((await doc.save()).take(5)), '%PDF-');
+      }
+    });
+  });
+
   test('pusta selekcja daje dokument z informacją, nie wyjątek', () async {
     final doc = await WeldJournalExport.buildPdfDocument(
       records: const [],

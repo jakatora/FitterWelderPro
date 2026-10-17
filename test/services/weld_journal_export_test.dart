@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
 import 'package:cut_list_app/services/weld_journal_export.dart';
 
@@ -148,7 +149,102 @@ void main() {
         'Odbiór — data / Acceptance date',
         'Usunięta / Deleted',
         'Uwagi QC / QC remarks',
+        // v28 — dopisane na końcu, nic przed nimi się nie przesuwa.
+        'Prowadzenie grani / Root backing',
+        'Przenoszenie metalu / Metal transfer',
+        'Wyrób / Product form',
       ]);
+    });
+
+    test('v28: grań, przenoszenie i wyrób to trzy ostatnie kolumny', () {
+      final h = weldJournalCsvHeaders;
+      expect(h.sublist(h.length - 3), [
+        'Prowadzenie grani / Root backing',
+        'Przenoszenie metalu / Metal transfer',
+        'Wyrób / Product form',
+      ]);
+      // Kolumna sprzed v28 (ostatnia z v25) stoi tam, gdzie stała.
+      expect(h.indexOf('Uwagi QC / QC remarks'), h.length - 4);
+    });
+
+    test('v28: wartości czytelne — kody ISO 9606-1 jak w edytorze', () {
+      String cellsOf(WeldJournalRecord r, String header) =>
+          _rows(buildWeldJournalCsv([r]))[1]
+              .split(';')[weldJournalCsvHeaders.indexOf(header)];
+
+      const grain = 'Prowadzenie grani / Root backing';
+      const transfer = 'Przenoszenie metalu / Metal transfer';
+      const product = 'Wyrób / Product form';
+      final labels = {
+        'nb': 'ss nb',
+        'mb': 'ss mb',
+        'bs': 'bs',
+        'gb': 'ss gb',
+        'ci': 'ci',
+        'fb': 'ss fb',
+      };
+      for (final MapEntry(:key, :value) in labels.entries) {
+        expect(cellsOf(WeldJournalRecord(weldNo: 'W', rootBacking: key), grain),
+            value,
+            reason: key);
+      }
+      expect(
+          cellsOf(const WeldJournalRecord(weldNo: 'W', metalTransfer: 'dip'),
+              transfer),
+          'zwarciowe / dip');
+      expect(
+          cellsOf(const WeldJournalRecord(weldNo: 'W', metalTransfer: 'other'),
+              transfer),
+          'inne / other');
+      expect(
+          cellsOf(const WeldJournalRecord(weldNo: 'W', productForm: 'T'),
+              product),
+          'rura (T) / pipe (T)');
+      expect(
+          cellsOf(const WeldJournalRecord(weldNo: 'W', productForm: 'P'),
+              product),
+          'blacha (P) / plate (P)');
+      // Kod spoza listy (ręczna edycja bazy) wychodzi tak, jak zapisany.
+      expect(
+          cellsOf(const WeldJournalRecord(weldNo: 'W', rootBacking: 'xx'),
+              grain),
+          'xx');
+    });
+
+    test('v28: nie podano (NULL w bazie) → puste komórki', () {
+      final cells = _rows(buildWeldJournalCsv([_rec()]))[1].split(';');
+      expect(cells.length, weldJournalCsvHeaders.length);
+      expect(cells.sublist(cells.length - 3), ['', '', '']);
+    });
+
+    test('v28: pola z WeldEntry trafiają do rekordu eksportu', () {
+      // Wiersz z bazy z NULL-ami (stary wpis) i z wypełnionymi polami.
+      Map<String, Object?> row(Map<String, Object?> extra) => {
+            'id': 'u1',
+            'weld_no': 'W-010',
+            'status': 'OK',
+            ...extra,
+          };
+      final old = weldJournalRecordOf(WeldEntry.fromRow(row(const {
+        'root_backing': null,
+        'metal_transfer': null,
+        'product_form': null,
+      })));
+      expect([old.rootBacking, old.metalTransfer, old.productForm],
+          ['', '', '']);
+
+      final filled = weldJournalRecordOf(WeldEntry.fromRow(row(const {
+        'method': 'MIG/MAG',
+        'root_backing': 'gb',
+        'metal_transfer': 'dip',
+        'product_form': 'T',
+      })));
+      final cells = _rows(buildWeldJournalCsv([filled]))[1].split(';');
+      expect(cells.sublist(cells.length - 3),
+          ['ss gb', 'zwarciowe / dip', 'rura (T) / pipe (T)']);
+      // Wcześniejsze kolumny bez zmian: nr spoiny pierwszy, status na miejscu.
+      expect(cells.first, 'W-010');
+      expect(cells[weldJournalCsvHeaders.indexOf('Status')], 'OK');
     });
 
     test('v20 values land under their headers', () {
