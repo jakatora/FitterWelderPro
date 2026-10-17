@@ -644,6 +644,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/piecework/piecework_test.dart: spoiny bez wymiaru pominięte w trybie DI: lista, kwota ich nie zawiera',
         'test/domain/piecework/piecework_test.dart: granice dni: 23:59 i 00:00, zegar UTC na czas lokalny, zmiana czasu',
         'test/features/piecework/piecework_store_test.dart: uszkodzony zapis: kopia surowego tekstu przed nadpisaniem, tylko raz',
+        'test/domain/piecework/piecework_test.dart: suma udziałów wszystkich stempli = kwota spoiny w widoku brygady, także z dopłatami, potrąceniem i naprawami',
+        'test/domain/piecework/piecework_test.dart: spoiny z datą w przyszłości: uwaga zamiast cichego pominięcia',
+        'test/domain/piecework/piecework_test.dart: dzień z pominiętą spoiną (bez OD) nie dostaje dopłaty do minimum',
       ]),
   ModuleAuditEntry(
       id: 'pipe-route-calculator',
