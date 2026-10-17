@@ -22,6 +22,8 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Prace pożarowo niebezpieczne | Spawacz → Kontrola i dokumentacja | checklista stanowiska (rozp. MSWiA § 36, BHP spawalnicze), pomiar % DGW (próg 0–10 %), dozór, protokół PDF; „jak wczoraj” |
 | Elektrody zasadowe: czas i suszenie | Spawacz → Kontrola i dokumentacja | limit na powietrzu wg AWS D1.1 Tab. 7.1, piecyk, ponowne suszenie, przypomnienia, dziennik QC (PDF) |
 | Odbiór połączenia kołnierzowego | Monter → Podpory i kołnierze | osiowość, równoległość, otwory i szczelina wg ASME PCC-1 zał. E, lista montażu, protokół PDF |
+| Warunki do spawania | Spawacz → Kontrola i dokumentacja | mróz, wiatr (AWS D1.1: 8 km/h dla metod gazowych), opad, punkt rosy i szronu; werdykt, warunki do odhaczenia, historia, PDF |
+| Rozwinięcie stożka i przejść | Monter → Kolana i kształtki | stożek ścięty, mimośrodowy, kwadrat–koło: wymiary do trasowania, podział na części, tabela rzędnych, szablon 1:1 A4/A3 |
 
 Plus: karta „Nowe w aplikacji” na ekranie głównym, kategoria „Wyceny i koszty”
 w Pomocy, poprawiony wpis pomocy o PWHT P91 (wg B31.3 2014+).
