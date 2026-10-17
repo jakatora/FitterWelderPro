@@ -97,6 +97,20 @@ class WeldJournalRecord {
   final String preheatC;
   final String interpassC;
   final String heatInput;
+
+  // ---- v28 — ograniczenia z próby ISO 9606-1, surowe kody jak w bazie
+  // (pusty = nie podano). Czytelną postać robią CSV ([weldRootBackingLabel],
+  // kolumny na końcu) i PDF ([weldJournalIsoDetails]).
+
+  /// [WeldRootBacking] code (`nb`, `mb`, `bs`, `gb`, `ci`, `fb`).
+  final String rootBacking;
+
+  /// [WeldMetalTransfer] code (`dip` / `other`), MIG/MAG only.
+  final String metalTransfer;
+
+  /// [WeldProductKind] code (`T` pipe / `P` plate).
+  final String productForm;
+
   final Map<NdtMethod, WeldNdt> ndt;
 
   /// One summary line per repair, R1 first (`WeldRepair.summary()`).
@@ -153,6 +167,9 @@ class WeldJournalRecord {
     this.preheatC = '',
     this.interpassC = '',
     this.heatInput = '',
+    this.rootBacking = '',
+    this.metalTransfer = '',
+    this.productForm = '',
     this.ndt = const {},
     this.repairs = const [],
     this.pwhtRequired,
@@ -209,6 +226,9 @@ WeldJournalRecord weldJournalRecordOf(
       preheatC: e.preheatC,
       interpassC: e.interpassC,
       heatInput: e.heatInput,
+      rootBacking: e.rootBacking,
+      metalTransfer: e.metalTransfer,
+      productForm: e.productForm,
       ndt: compactNdt(e.ndt),
       repairs: [for (final r in e.repairs) r.summary()],
       pwhtRequired: e.pwhtRequired,
@@ -313,9 +333,48 @@ class _CsvColumn {
 
 String _yesNo(bool? v) => v == null ? '' : (v ? 'TAK / YES' : 'NIE / NO');
 
+/// v28: prowadzenie grani tak, jak na certyfikacie i w edytorze (`ss nb`,
+/// `ss mb`, `bs`, `ss gb`, `ci`, `ss fb`). Kod spoza listy (ręczna edycja
+/// bazy) wychodzi dokładnie tak, jak jest zapisany — eksport nie przepisuje
+/// danych po cichu. `''` = nie podano.
+String weldRootBackingLabel(String code) {
+  final c = code.trim();
+  return WeldRootBacking.values.contains(c) ? WeldRootBacking.label(c) : c;
+}
+
+/// CSV value of the metal transfer, bilingual like `TAK / YES`.
+String _csvMetalTransfer(String code) => switch (code.trim()) {
+      WeldMetalTransfer.dip => 'zwarciowe / dip',
+      WeldMetalTransfer.other => 'inne / other',
+      final c => c,
+    };
+
+/// CSV value of the product form, bilingual like `TAK / YES`.
+String _csvProductForm(String code) => switch (code.trim()) {
+      WeldProductKind.pipe => 'rura (T) / pipe (T)',
+      WeldProductKind.plate => 'blacha (P) / plate (P)',
+      final c => c,
+    };
+
+/// v28 line of the PDF "Złącze / Joint" cell: product form, root / backing
+/// and — MIG/MAG only — metal transfer, as the compact ISO 9606-1 tokens an
+/// inspector knows from the welder's certificate, e.g. `T · ss nb · dip`.
+///
+/// Only what was given is printed; `''` when none of the three is set, so a
+/// weld from before v28 prints exactly as it did.
+String weldJournalIsoDetails(WeldJournalRecord r) => [
+      r.productForm.trim(),
+      weldRootBackingLabel(r.rootBacking),
+      switch (r.metalTransfer.trim()) {
+        WeldMetalTransfer.other => 'inne/other',
+        final c => c,
+      },
+    ].where((s) => s.isNotEmpty).join(' · ');
+
 /// Column definition. The first 18 columns are the pre-v20 export in its
 /// original order — spreadsheets built on an older export read them by
-/// position, so they never move. Everything added in v20 is appended.
+/// position, so they never move. Everything added later is appended at the
+/// end (v20, v25, v28) — never inserted in between.
 final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Nr spoiny / Weld no.', (r) => r.weldNo),
   _CsvColumn('Projekt / Project', (r) => r.projectName),
@@ -368,6 +427,12 @@ final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Usunięta / Deleted', (r) => r.deleted ? 'TAK / YES' : ''),
   // ---- v25
   _CsvColumn('Uwagi QC / QC remarks', (r) => r.qcRemarks.join(' | ')),
+  // ---- v28 — ograniczenia z próby ISO 9606-1; puste = nie podano.
+  _CsvColumn('Prowadzenie grani / Root backing',
+      (r) => weldRootBackingLabel(r.rootBacking)),
+  _CsvColumn('Przenoszenie metalu / Metal transfer',
+      (r) => _csvMetalTransfer(r.metalTransfer)),
+  _CsvColumn('Wyrób / Product form', (r) => _csvProductForm(r.productForm)),
 ];
 
 /// Header labels in export order. Exposed so a test can pin the order down —
@@ -793,7 +858,9 @@ class WeldJournalExport {
           ],
         ],
         pw.SizedBox(height: 10),
-        _legend(),
+        _legend(
+            isoDetails:
+                records.any((r) => weldJournalIsoDetails(r).isNotEmpty)),
         pw.SizedBox(height: 10),
         _signatures(),
       ],
@@ -982,14 +1049,18 @@ class WeldJournalExport {
             _cell(_join(r.isoDrawing, r.isoRev, ' rev. ')),
             _cell(_join(r.pipeName, r.spool, ' · ')),
             _cell([
-              r.jointType,
-              switch (r.shopField) {
-                'SHOP' => 'W/S',
-                'FIELD' => 'M/F',
-                _ => '',
-              },
-              r.position,
-            ].where((s) => s.isNotEmpty).join(' · ')),
+              [
+                r.jointType,
+                switch (r.shopField) {
+                  'SHOP' => 'W/S',
+                  'FIELD' => 'M/F',
+                  _ => '',
+                },
+                r.position,
+              ].where((s) => s.isNotEmpty).join(' · '),
+              // v28: wyrób · grań · przenoszenie — tylko gdy podane.
+              weldJournalIsoDetails(r),
+            ].where((s) => s.isNotEmpty).join('\n')),
             _cell(_join(r.material, _join(r.od, r.t, ' x '), ' · ')),
             _cell(_join(r.heatNo1, r.heatNo2, ' / ')),
             _cell([
@@ -1182,7 +1253,9 @@ class WeldJournalExport {
       );
 
   // ── Legend ────────────────────────────────────────────────────────────────
-  static pw.Widget _legend() {
+  /// [isoDetails]: some weld prints the v28 line in the joint cell — only
+  /// then is its key added, so an older journal keeps its legend unchanged.
+  static pw.Widget _legend({bool isoDetails = false}) {
     pw.Widget item(String code, String text, PdfColor color) => pw.Padding(
           padding: const pw.EdgeInsets.only(right: 12, bottom: 2),
           child: pw.RichText(
@@ -1229,6 +1302,13 @@ class WeldJournalExport {
                 'repair: date, cause, state before repair', _kInk),
             item('W/S · M/F', 'warsztat / montaż — shop / field', _kInk),
             item('HI', 'energia liniowa kJ/mm / heat input kJ/mm', _kInk),
+            if (isoDetails)
+              item(
+                  'T/P · ss nb · dip',
+                  'ISO 9606-1: wyrób rura/blacha, prowadzenie grani, '
+                      'przenoszenie metalu zwarciowe/inne / product pipe/plate, '
+                      'root backing, dip/other metal transfer',
+                  _kInk),
           ]),
         ],
       ),
