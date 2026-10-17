@@ -850,6 +850,10 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/qualification/iso9606_range_test.dart: §5.6: próba ze spoiwem obejmująca 142 wymaga grupy materiału z próby',
         'test/domain/qualification/iso9606_range_test.dart: 311 s ≥ 12: wiersz tab. 6 bez przypisu 311 → ≥ 3 i notka',
         'test/features/qualification_range/qualification_range_page_test.dart: dialog ograniczeń jest obowiązkowy: Anuluj — bez formularza',
+        'test/domain/wps/iso9606_test_limits_check_test.dart: fm (tab. 3): FM5 przy fm=FM1,FM2 → poza zakresem',
+        'test/domain/wps/iso9606_test_limits_check_test.dart: plates (§5.3 a): blacha przy plates=0 → poza zakresem',
+        'test/domain/qualification/iso9606_limits_test.dart: uszkodzona linia → „uszkodzona”, bez częściowego odczytu',
+        'test/domain/weld_journal/weld_compliance_iso9606_test.dart: certyfikat z próbki: spoiwo nierdzewne przy FM1 → nieobjęta, z powodem w ostrzeżeniu',
       ]),
   ModuleAuditEntry(
       id: 'quick-converter',

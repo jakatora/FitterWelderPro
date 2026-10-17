@@ -52,6 +52,12 @@ Rozszerzenia istniejących ekranów:
 - **Próba ciśnieniowa → manometr z rejestru przyrządów** — numer i termin
   kalibracji wpisują się z rejestru; przyrządy po terminie są oznaczone
   w wyborze.
+- **Dziennik spoin → kontrola uprawnień** — uprawnienie zapisane z modułu
+  „Zakres uprawnień z próbki” niesie ograniczenia z próby (linia
+  `[ISO9606 v1]` w uwagach: prowadzenie grani, przenoszenie zwarciowe,
+  blachy, grupy FM, odgałęzienia…). Kontrola spoiny oznacza „poza zakresem”
+  z powodem i punktem normy, gdy spoina ma dane (np. spoiwo nierdzewne przy
+  FM1); brak danych = „nie da się porównać”, nigdy fałszywe „poza zakresem”.
 - **Gaz, formowanie i timer → „Na ile starczy tej butli?”** — z pojemności
   wodnej, ciśnienia na manometrze i przepływu: litry, minuty łuku, liczba
   spoin (rezerwa ciśnienia i pre/post-flow uwzględnione).
