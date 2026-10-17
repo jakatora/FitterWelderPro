@@ -199,9 +199,9 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.high,
       status: AuditStatus.passed,
       scenario:
-          'Rowek V 60°, t 10, d 2, c 1,5: A_w = 61,7 mm², A_w/t = 6,17 mm, S = 0,2·A_w/t + 0,05·d = 1,334 → 1,3 mm; t 20 → 2,5 mm, rowek X → 1,5 mm; łańcuch 1000 + 2 × 1,3 = 1002,6 → 1003,0 mm (w górę do 0,5); pomiar 1,8 + 2 pachwiny × 0,8 (TWI) → 1005,5 mm; kołnierz w skos → 4 sczepy 12-3-6-9, odcinki naprzeciwległe, kontrola po sczepieniu + przycisk do odbioru kołnierzy; prostowanie płomieniem stal węglowa ok. 600–650 °C.',
+          'Rowek V 60°, t 10, d 2, c 1,5: A_w = 61,7 mm², A_w/t = 6,17 mm, S = 0,2·A_w/t + 0,05·d = 1,334 → w górę do 0,1 → 1,4 mm; t 20 → 2,5 mm, rowek X → 1,5 mm; łańcuch 1000 + 2 × 1,4 = 1002,8 → 1003,0 mm (w górę do 0,5); 3 spoiny: 1000 + 3 × 1,4 = 1004,2 → 1004,5 (z wartości surowej potrzeba 1004,003; zaokrąglenie do najbliższej dawało 1004,0); pomiar 1,8 + 2 pachwiny × 0,8 (TWI) → 1005,5 mm; pomiar 1,234 → 2 × 1,24 = 2,48 mm; c 9,9 przy t 10 lub t < 3 mm → ostrzeżenie „poza zakresem wzoru” (progi przyjęte w aplikacji); pachwina 8 zamiast 6 mm → 64 : 36, +78 %; kołnierz w skos → 4 sczepy 12-3-6-9, odcinki naprzeciwległe, kontrola po sczepieniu + przycisk do odbioru kołnierzy; prostowanie płomieniem stal węglowa ok. 600–650 °C, aluminium i ocynk tylko wg WPS z ostrzeżeniem BHP.',
       evidence: [
-        'test/features/distortion/distortion_page_test.dart: domyślnie: skurcz 1,3 mm i wymiar przed spawaniem 1003,0',
+        'test/features/distortion/distortion_page_test.dart: domyślnie: skurcz 1,4 mm (w górę) i wymiar przed spawaniem 1003,0',
         'test/features/distortion/distortion_page_test.dart: puste pole to komunikat, nie wynik',
         'test/features/distortion/distortion_page_test.dart: mój pomiar zamiast szacunku; pachwiny wg TWI',
         'test/features/distortion/distortion_page_test.dart: wybór sytuacji zmienia listę środków',
@@ -212,6 +212,11 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/welding/distortion_test.dart: zaokrąglenie W GÓRĘ — nigdy mniej niż wymiar z naddatkiem',
         'test/data/distortion_tips_test.dart: każda sytuacja ma co najmniej 3 środki, każdy z „dlaczego”',
         'test/data/distortion_tips_test.dart: PL i EN mają te same liczby; bez emoji',
+        'test/domain/welding/distortion_test.dart: skurcz do łańcucha w górę do 0,1 — do najbliższej dawało za mały wymiar',
+        'test/domain/welding/distortion_test.dart: rowek prawie I i cienka blacha → ostrzeżenie, wynik zostaje',
+        'test/features/distortion/distortion_page_test.dart: trzy spoiny: naddatek ze skurczu w górę — 1004,5, nie 1004,0',
+        'test/data/distortion_tips_test.dart: nadmiar pachwiny: przekrój rośnie z kwadratem nogi (8 vs 6 mm)',
+        'test/data/distortion_tips_test.dart: prostowanie płomieniem: aluminium, ocynk i powłoki, BHP',
       ]),
   ModuleAuditEntry(
       id: 'dn-mm',
