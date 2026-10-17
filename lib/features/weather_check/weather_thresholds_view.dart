@@ -1,6 +1,15 @@
 // Ustawienia progów „Warunków do spawania”: wartości z norm (domyślne,
 // konserwatywne) albo ze specyfikacji projektu. Zwraca nowe progi przez
 // Navigator.pop; zapis robi ekran główny.
+//
+// Zasady:
+//  • pole pokazuje wartość z pełną precyzją (do 4 miejsc, bez zbędnych zer),
+//    a NIEEDYTOWANE pole oddaje dokładnie tę samą liczbę, którą dostało —
+//    otwarcie i „Zapisz” niczego nie zaokrąglają (2,26 nie staje się 2,3);
+//  • walidacja zakresu i krzyżowa (podgrzanie ≥ próg „zimnej” stali,
+//    minimum materiału ≥ minimum przy złączu, silny wiatr ≥ limit gazowy)
+//    blokuje zapis z błędem przy polu;
+//  • próg łagodniejszy od domyślnego (z norm) dostaje ostrzeżenie przy polu.
 
 import 'package:flutter/material.dart';
 
@@ -19,125 +28,36 @@ class WeatherThresholdsView extends StatefulWidget {
   State<WeatherThresholdsView> createState() => _WeatherThresholdsViewState();
 }
 
-/// Opis jednego pola progu.
-class _Spec {
-  const _Spec({
-    required this.id,
-    required this.labelPl,
-    required this.labelEn,
-    required this.unit,
-    required this.def,
-    required this.get,
-    required this.basis,
-    required this.valid,
-    this.signed = false,
-  });
+WeatherBasis _basis(String field) => switch (field) {
+      ThresholdField.minAmbientC => kBasisAwsAmbient,
+      ThresholdField.coldBaseMetalC ||
+      ThresholdField.coldPreheatC =>
+        kBasisAwsColdPreheat,
+      ThresholdField.minMaterialC => kBasisB313MinTemp,
+      ThresholdField.dewMarginK => kBasisIso8502,
+      ThresholdField.maxWindGasMs => kBasisAwsWindGas,
+      _ => kBasisHighWind,
+    };
 
-  final String id;
-  final String labelPl;
-  final String labelEn;
-  final String unit;
-  final double def;
-  final double Function(WeatherThresholds) get;
-  final WeatherBasis basis;
-  final bool Function(double) valid;
-  final bool signed;
-}
-
-bool _temp(double v) => v >= -60 && v <= 400;
-bool _wind(double v) => v > 0 && v <= 60;
-
-final List<_Spec> _specs = [
-  _Spec(
-    id: 'minAmbientC',
-    labelPl: 'Min. temperatura przy złączu',
-    labelEn: 'Min. temperature at the joint',
-    unit: '°C',
-    def: WeatherThresholds.kDefaultMinAmbientC,
-    get: (t) => t.minAmbientC,
-    basis: kBasisAwsAmbient,
-    valid: _temp,
-    signed: true,
-  ),
-  _Spec(
-    id: 'coldBaseMetalC',
-    labelPl: 'Stal węglowa: „zimna” poniżej',
-    labelEn: 'Carbon steel: “cold” below',
-    unit: '°C',
-    def: WeatherThresholds.kDefaultColdBaseMetalC,
-    get: (t) => t.coldBaseMetalC,
-    basis: kBasisAwsColdPreheat,
-    valid: _temp,
-    signed: true,
-  ),
-  _Spec(
-    id: 'coldPreheatC',
-    labelPl: 'Zimną stal węglową podgrzać do',
-    labelEn: 'Preheat cold carbon steel to',
-    unit: '°C',
-    def: WeatherThresholds.kDefaultColdPreheatC,
-    get: (t) => t.coldPreheatC,
-    basis: kBasisAwsColdPreheat,
-    valid: _temp,
-    signed: true,
-  ),
-  _Spec(
-    id: 'minMaterialC',
-    labelPl: 'Min. temperatura materiału (każdy)',
-    labelEn: 'Min. base metal temperature (any)',
-    unit: '°C',
-    def: WeatherThresholds.kDefaultMinMaterialC,
-    get: (t) => t.minMaterialC,
-    basis: kBasisB313MinTemp,
-    valid: _temp,
-    signed: true,
-  ),
-  _Spec(
-    id: 'dewMarginK',
-    labelPl: 'Zapas nad punktem rosy',
-    labelEn: 'Margin above dew point',
-    unit: 'K',
-    def: WeatherThresholds.kDefaultDewMarginK,
-    get: (t) => t.dewMarginK,
-    basis: kBasisIso8502,
-    valid: (v) => v >= 0 && v <= 30,
-  ),
-  _Spec(
-    id: 'maxWindGasMs',
-    labelPl: 'Maks. wiatr — procesy gazowe',
-    labelEn: 'Max. wind — gas-shielded processes',
-    unit: 'm/s',
-    def: WeatherThresholds.kDefaultMaxWindGasMs,
-    get: (t) => t.maxWindGasMs,
-    basis: kBasisAwsWindGas,
-    valid: _wind,
-  ),
-  _Spec(
-    id: 'maxWindAnyMs',
-    labelPl: 'Silny wiatr — każdy proces',
-    labelEn: 'Strong wind — any process',
-    unit: 'm/s',
-    def: WeatherThresholds.kDefaultMaxWindAnyMs,
-    get: (t) => t.maxWindAnyMs,
-    basis: kBasisHighWind,
-    valid: _wind,
-  ),
-];
+bool _signed(String field) => thresholdUnit(field) == '°C';
 
 class _WeatherThresholdsViewState extends State<WeatherThresholdsView> {
+  /// Wartości progów (dokładne double). Pole edytowane nadpisuje swoją
+  /// wartość; nieedytowane zostają bit w bit takie jak [WeatherThresholdsView.initial].
+  late final Map<String, double?> _values = {
+    for (final f in ThresholdField.all) f: widget.initial.valueOf(f),
+  };
+
   late final Map<String, TextEditingController> _c = {
-    for (final s in _specs)
-      s.id: TextEditingController(text: _text(s.get(widget.initial))),
+    for (final f in ThresholdField.all)
+      f: TextEditingController(text: _text(widget.initial.valueOf(f))),
   };
 
   bool get _en => context.language == AppLanguage.en;
 
-  String _text(double v) {
-    var s =
-        weatherNum(v, decimals: 1, english: AppLanguageController.isEnglish);
-    if (s.endsWith(',0') || s.endsWith('.0')) s = s.substring(0, s.length - 2);
-    return s;
-  }
+  /// Pełna precyzja (do 4 miejsc) bez zbędnych zer.
+  static String _text(double v) => weatherNumAuto(v,
+      maxDecimals: 4, english: AppLanguageController.isEnglish);
 
   @override
   void dispose() {
@@ -147,29 +67,34 @@ class _WeatherThresholdsViewState extends State<WeatherThresholdsView> {
     super.dispose();
   }
 
-  double? _value(_Spec s) {
-    final v = parseDecimal(_c[s.id]!.text);
-    return v != null && s.valid(v) ? v : null;
+  /// Progi z bieżących wartości (null, gdy któreś pole puste / nie liczba).
+  WeatherThresholds? get _composed {
+    if (_values.values.any((v) => v == null)) return null;
+    return WeatherThresholds.defaults
+        .withValues({for (final e in _values.entries) e.key: e.value!});
+  }
+
+  Map<String, ThresholdIssue> get _issues {
+    final t = _composed;
+    return t == null ? const {} : validateWeatherThresholds(t);
   }
 
   WeatherThresholds? get _result {
-    final v = {for (final s in _specs) s.id: _value(s)};
-    if (v.values.any((x) => x == null)) return null;
-    return WeatherThresholds(
-      minAmbientC: v['minAmbientC']!,
-      coldBaseMetalC: v['coldBaseMetalC']!,
-      coldPreheatC: v['coldPreheatC']!,
-      minMaterialC: v['minMaterialC']!,
-      dewMarginK: v['dewMarginK']!,
-      maxWindGasMs: v['maxWindGasMs']!,
-      maxWindAnyMs: v['maxWindAnyMs']!,
-    );
+    final t = _composed;
+    if (t == null || validateWeatherThresholds(t).isNotEmpty) return null;
+    return t;
+  }
+
+  void _edited(String field) {
+    setState(() => _values[field] = parseDecimal(_c[field]!.text));
   }
 
   void _restore() {
     setState(() {
-      for (final s in _specs) {
-        _c[s.id]!.text = _text(s.def);
+      for (final f in ThresholdField.all) {
+        final d = WeatherThresholds.defaults.valueOf(f);
+        _values[f] = d;
+        _c[f]!.text = _text(d);
       }
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -182,6 +107,9 @@ class _WeatherThresholdsViewState extends State<WeatherThresholdsView> {
   @override
   Widget build(BuildContext context) {
     final result = _result;
+    final issues = _issues;
+    final looser =
+        _composed == null ? const <String>[] : looserThanDefaults(_composed!);
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(pl: 'Ustawienia progów', en: 'Thresholds')),
@@ -196,14 +124,17 @@ class _WeatherThresholdsViewState extends State<WeatherThresholdsView> {
                 pl: 'Domyślne progi to najostrzejsze wartości z norm opisanych '
                     'przy polach. Zmień je, jeśli specyfikacja projektu lub '
                     'WPS mówi inaczej — każdy zapis i PDF pokaże, że progi '
-                    'różnią się od domyślnych.',
+                    'różnią się od domyślnych, a progi łagodniejsze od norm '
+                    'dają przy werdykcie twarde ostrzeżenie.',
                 en: 'The defaults are the strictest values from the codes '
                     'quoted under each field. Change them if the project '
                     'specification or WPS says otherwise — every saved check '
                     'and PDF will show that the thresholds differ from the '
-                    'defaults.'),
+                    'defaults, and thresholds looser than the codes put a hard '
+                    'warning on the verdict.'),
           ),
-          for (final s in _specs) _field(s),
+          for (final f in ThresholdField.all)
+            _field(f, issues[f], looser.contains(f)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -231,39 +162,59 @@ class _WeatherThresholdsViewState extends State<WeatherThresholdsView> {
     );
   }
 
-  Widget _field(_Spec s) {
-    final c = _c[s.id]!;
+  String _issueText(ThresholdIssue i) => switch (i) {
+        ThresholdIssue.outOfRange =>
+          context.tr(pl: 'Wartość spoza zakresu', en: 'Out of range'),
+        ThresholdIssue.preheatBelowColdThreshold => context.tr(
+            pl: 'Nie niżej niż próg „zimnej” stali',
+            en: 'Not below the “cold” steel threshold'),
+        ThresholdIssue.materialBelowAmbient => context.tr(
+            pl: 'Nie niżej niż min. temperatura przy złączu',
+            en: 'Not below the min. temperature at the joint'),
+        ThresholdIssue.strongWindBelowGas => context.tr(
+            pl: 'Nie mniej niż limit dla procesów gazowych',
+            en: 'Not below the gas-shielded limit'),
+      };
+
+  Widget _field(String f, ThresholdIssue? issue, bool looser) {
+    final c = _c[f]!;
     final raw = c.text.trim();
-    final v = parseDecimal(raw);
+    final v = _values[f];
     final error = raw.isEmpty
         ? context.tr(pl: 'Wpisz wartość', en: 'Enter a value')
         : v == null
             ? context.tr(pl: 'Wpisz liczbę', en: 'Enter a number')
-            : !s.valid(v)
-                ? context.tr(pl: 'Wartość spoza zakresu', en: 'Out of range')
+            : issue != null
+                ? _issueText(issue)
                 : null;
-    final extra = s.id == 'maxWindGasMs' || s.id == 'maxWindAnyMs'
-        ? (v == null
-            ? ''
-            : ' = ${weatherNum(msToKmh(v), decimals: 0, english: _en)} km/h')
+    final def = WeatherThresholds.defaults.valueOf(f);
+    final unit = thresholdUnit(f);
+    final kmh = unit == 'm/s'
+        ? ' ≈ ${weatherNumAuto(floorTo(msToKmh(v ?? def), 1), maxDecimals: 1, english: _en)} km/h'
+        : '';
+    final looserNote = looser
+        ? context.tr(
+            pl: ' · ŁAGODNIEJ niż norma!', en: ' · LOOSER than the code!')
         : '';
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
-        key: ValueKey('wx-th-${s.id}'),
+        key: ValueKey('wx-th-$f'),
         controller: c,
-        keyboardType: numberKeyboard(signed: s.signed),
-        inputFormatters: numberInputFormatters(signed: s.signed),
-        onChanged: (_) => setState(() {}),
+        keyboardType: numberKeyboard(signed: _signed(f)),
+        inputFormatters: numberInputFormatters(signed: _signed(f)),
+        onChanged: (_) => _edited(f),
         decoration: InputDecoration(
-          labelText: _en ? s.labelEn : s.labelPl,
-          suffixText: s.unit,
+          labelText: thresholdLabel(f, english: _en),
+          suffixText: unit,
           errorText: error,
+          errorMaxLines: 3,
           helperText: '${context.tr(pl: 'Domyślnie', en: 'Default')} '
-              '${weatherNum(s.def, decimals: s.def == s.def.roundToDouble() ? 0 : 1, english: _en)} '
-              '${s.unit}$extra · ${s.basis.text(_en)}',
-          helperMaxLines: 6,
-          helperStyle: const TextStyle(fontSize: 12, color: kTextMut),
+              '${weatherNumAuto(def, english: _en)} $unit$kmh$looserNote · '
+              '${_basis(f).text(_en)}',
+          helperMaxLines: 7,
+          helperStyle:
+              TextStyle(fontSize: 12, color: looser ? kFail : kTextMut),
           isDense: true,
           border: const OutlineInputBorder(),
         ),

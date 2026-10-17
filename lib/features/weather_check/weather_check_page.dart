@@ -69,7 +69,16 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   WeatherProcess _process = WeatherProcess.mma111;
   WeatherShelter _shelter = WeatherShelter.none;
   WeatherMaterial _material = WeatherMaterial.carbonSteel;
+  SurfaceState _surfaceState = SurfaceState.unchecked;
   WeatherThresholds _thresholds = WeatherThresholds.defaults;
+
+  /// Zapisane progi były uszkodzone i część zastąpiono domyślnymi.
+  bool _thresholdsRepaired = false;
+
+  /// Wiatr KANONICZNIE w m/s, pełna precyzja. Pole tekstowe tylko go
+  /// pokazuje w wybranej jednostce — przełączenie jednostki ani wybór
+  /// z Beauforta nie zaokrągla wartości, z której liczy się werdykt.
+  double? _windMs;
 
   /// Stopień Beauforta wybrany z opisu (null — wpisano liczbę).
   BeaufortLevel? _beaufort;
@@ -78,6 +87,10 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   /// odhaczony dla innych liczb nie przechodzi na nowe.
   final Set<String> _checked = {};
   int _historyCount = 0;
+
+  /// Ile wpisów historii pominięto przy odczycie (uszkodzone); -1 — cały
+  /// zapis nieczytelny.
+  int _historySkipped = 0;
   bool _busyPdf = false;
   final _resultKey = GlobalKey();
 
@@ -96,18 +109,30 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   }
 
   Future<void> _load() async {
-    WeatherThresholds t;
+    var t = WeatherThresholds.defaults;
+    var repaired = false;
     var count = 0;
+    var skipped = 0;
     try {
-      t = await widget.store.loadThresholds();
-      count = (await widget.store.loadHistory()).length;
+      final th = await widget.store.loadThresholdsDetailed();
+      t = th.thresholds;
+      repaired = th.repaired;
     } catch (_) {
-      t = WeatherThresholds.defaults;
+      repaired = true;
+    }
+    try {
+      final h = await widget.store.loadHistoryDetailed();
+      count = h.records.length;
+      skipped = h.unreadable ? -1 : h.skipped;
+    } catch (_) {
+      skipped = -1;
     }
     if (!mounted) return;
     setState(() {
       _thresholds = t;
+      _thresholdsRepaired = repaired;
       _historyCount = count;
+      _historySkipped = skipped;
     });
   }
 
@@ -118,12 +143,13 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   String _n(double v, [int decimals = 1]) =>
       weatherNum(v, decimals: decimals, english: _en);
 
-  /// Liczba do pola: bez „,0” na końcu.
-  String _fieldText(double v) {
-    var s = weatherNum(v, decimals: 1, english: _en);
-    if (s.endsWith(',0') || s.endsWith('.0')) s = s.substring(0, s.length - 2);
-    return s;
-  }
+  /// Wartość wpisana / próg — z precyzją pola (do 2 miejsc, bez zer).
+  String _v(double v) => weatherNumAuto(v, english: _en);
+
+  /// Wiatr do pola: do 2 miejsc, zaokrąglony W GÓRĘ — pokazana prędkość
+  /// nigdy nie jest mniejsza od tej, z której liczy się werdykt.
+  String _windField(double ms) =>
+      weatherNumAuto(ceilTo(windFromMs(ms, _windUnit), 2), english: _en);
 
   double? _parse(TextEditingController c) {
     final t = c.text.trim();
@@ -145,8 +171,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
     final ambient = _parse(_ambient);
     final rh = _parse(_rh);
     final surface = _parse(_surface);
-    final windRaw = _parse(_wind);
-    final wind = windRaw == null ? null : windToMs(windRaw, _windUnit);
+    final wind = _windMs;
     final wps = _parse(_wps);
     final problems = <String>[
       for (final p in validateWeatherFields(
@@ -179,6 +204,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
         shelter: _shelter,
         material: _material,
         wpsPreheatC: wps,
+        surfaceState: _surfaceState,
       ),
     );
   }
@@ -194,7 +220,8 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
             pl: 'Podaj wilgotność względną (higrometr, prognoza).',
             en: 'Enter the relative humidity (hygrometer, forecast).'),
         WeatherInputProblem.rhOutOfRange => context.tr(
-            pl: 'Wilgotność: od 1 do 100 %.', en: 'Humidity: 1 to 100 %.'),
+            pl: 'Wilgotność: większa od 0 i najwyżej 100 %.',
+            en: 'Humidity: above 0 and at most 100 %.'),
         WeatherInputProblem.surfaceOutOfRange => context.tr(
             pl: 'Temperatura powierzchni: od -60 do 400 °C.',
             en: 'Surface temperature: -60 to 400 °C.'),
@@ -211,17 +238,12 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
 
   WeatherCheckRecord _record(WeatherAssessment a) {
     final now = _now();
-    return WeatherCheckRecord(
+    return WeatherCheckRecord.fromAssessment(
       id: now.microsecondsSinceEpoch.toString(),
       takenAt: now,
       place: _place.text.trim(),
-      input: a.input,
-      thresholds: _thresholds,
-      verdict: a.verdict,
-      checked: {
-        for (final f in a.conditions)
-          if (_checked.contains(f.code)) f.code,
-      },
+      assessment: a,
+      checked: _checked,
     );
   }
 
@@ -230,22 +252,42 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   Future<void> _save(WeatherAssessment a) async {
     final r = _record(a);
     unawaited(Haptic.saved());
-    var ok = true;
+    ({List<WeatherCheckRecord> records, int dropped})? res;
     try {
-      final list = await widget.store.add(r);
-      if (mounted) setState(() => _historyCount = list.length);
+      res = await widget.store.add(r);
     } catch (e) {
       debugPrint('[weather] save failed: $e');
-      ok = false;
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok
-          ? context.tr(pl: 'Zapisano w historii.', en: 'Saved to history.')
-          : context.tr(
-              pl: 'Nie udało się zapisać pomiaru.',
-              en: 'Could not save the check.')),
-    ));
+    const max = WeatherCheckStore.maxRecords;
+    final String message;
+    if (res == null) {
+      message = context.tr(
+          pl: 'Nie udało się zapisać pomiaru.',
+          en: 'Could not save the check.');
+    } else {
+      final n = res.records.length;
+      setState(() {
+        _historyCount = n;
+        // Uszkodzony zapis został skopiowany (…_corrupt) i nadpisany.
+        _historySkipped = 0;
+      });
+      message = res.dropped > 0
+          ? context.tr(
+              pl: 'Zapisano. Usunięto najstarsze wpisy ponad limit $max: '
+                  '${res.dropped}.',
+              en: 'Saved. Oldest entries over the $max limit removed: '
+                  '${res.dropped}.')
+          : n >= WeatherCheckStore.warnRecords
+              ? context.tr(
+                  pl: 'Zapisano. Historia: $n z $max — po przekroczeniu '
+                      'najstarsze wpisy będą usuwane; udostępnij starsze.',
+                  en: 'Saved. History: $n of $max — beyond that the oldest '
+                      'entries are removed; share older ones.')
+              : context.tr(pl: 'Zapisano w historii.', en: 'Saved to history.');
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _shareText(WeatherAssessment a) async {
@@ -284,10 +326,24 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
       _thresholds = t;
       _checked.clear();
     });
+    var saved = true;
     try {
       await widget.store.saveThresholds(t);
     } catch (e) {
       debugPrint('[weather] thresholds save failed: $e');
+      saved = false;
+    }
+    if (!mounted) return;
+    if (saved) {
+      setState(() => _thresholdsRepaired = false);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(context.tr(
+            pl: 'Nie udało się zapisać progów — obowiązują tylko do '
+                'zamknięcia ekranu.',
+            en: 'Could not save the thresholds — they apply only until this '
+                'screen is closed.')),
+      ));
     }
   }
 
@@ -300,19 +356,34 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
             )));
     if (!mounted) return;
     try {
-      final n = (await widget.store.loadHistory()).length;
-      if (mounted) setState(() => _historyCount = n);
+      final h = await widget.store.loadHistoryDetailed();
+      if (mounted) {
+        setState(() {
+          _historyCount = h.records.length;
+          _historySkipped = h.unreadable ? -1 : h.skipped;
+        });
+      }
     } catch (_) {}
   }
 
-  void _setUnit(WindUnit u) {
-    if (u == _windUnit) return;
+  /// Wpisany tekst → kanoniczne m/s (pełna precyzja).
+  void _windTyped() {
     final v = _parse(_wind);
     setState(() {
-      if (v != null) {
-        _wind.text = _fieldText(windFromMs(windToMs(v, _windUnit), u));
-      }
+      _windMs = v == null ? null : windToMs(v, _windUnit);
+      _beaufort = null;
+      _checked.clear();
+    });
+  }
+
+  /// Zmiana jednostki tylko PRZERYSOWUJE pole — [_windMs] zostaje bez zmian,
+  /// więc werdykt nie zależy od wyświetlanej jednostki.
+  void _setUnit(WindUnit u) {
+    if (u == _windUnit) return;
+    setState(() {
       _windUnit = u;
+      final ms = _windMs;
+      if (ms != null) _wind.text = _windField(ms);
     });
   }
 
@@ -320,7 +391,8 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
     unawaited(Haptic.tap());
     setState(() {
       _beaufort = b;
-      _wind.text = _fieldText(windFromMs(b.maxMs, _windUnit));
+      _windMs = b.maxMs;
+      _wind.text = _windField(b.maxMs);
       _checked.clear();
     });
   }
@@ -373,6 +445,28 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (_thresholdsRepaired)
+              QuoteNotice(
+                key: const ValueKey('wx-thresholds-repaired'),
+                color: kFail,
+                icon: Icons.report_problem_outlined,
+                text: context.tr(
+                    pl: 'Zapisane progi były uszkodzone — nieczytelne wartości '
+                        'zastąpiono domyślnymi (z norm). Jeśli projekt ma '
+                        'własne progi, wpisz je ponownie w „Ustawieniach '
+                        'progów”.',
+                    en: 'The saved thresholds were damaged — unreadable values '
+                        'were replaced with the defaults (code values). If the '
+                        'project has its own thresholds, enter them again in '
+                        '“Thresholds”.'),
+              ),
+            if (_historySkipped != 0)
+              QuoteNotice(
+                key: const ValueKey('wx-history-damaged'),
+                color: kFail,
+                icon: Icons.report_problem_outlined,
+                text: _historyDamagedText(_historySkipped),
+              ),
             if (!_thresholds.isDefault) _customThresholdsNotice(),
             _measureSection(),
             _windSection(),
@@ -408,6 +502,22 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
     );
   }
 
+  String _historyDamagedText(int skipped) => skipped < 0
+      ? context.tr(
+          pl: 'Zapis historii pomiarów jest nieczytelny — nie da się go '
+              'pokazać. Przy następnym zapisie jego kopia trafi pod '
+              '„${WeatherCheckStore.corruptHistoryKey}”.',
+          en: 'The saved check history is unreadable and cannot be shown. On '
+              'the next save a copy is kept under '
+              '“${WeatherCheckStore.corruptHistoryKey}”.')
+      : context.tr(
+          pl: 'Historia: $skipped uszkodzonych wpisów pominięto. Przy '
+              'następnym zapisie kopia całego zapisu trafi pod '
+              '„${WeatherCheckStore.corruptHistoryKey}”.',
+          en: 'History: $skipped damaged entries skipped. On the next save a '
+              'copy of the whole record is kept under '
+              '“${WeatherCheckStore.corruptHistoryKey}”.');
+
   void _scrollToResult() {
     final ctx = _resultKey.currentContext;
     if (ctx == null) return;
@@ -442,6 +552,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
                 weatherVerdictText(a.verdict, english: _en)
               ),
           };
+    final looser = a != null && a.looserThresholds.isNotEmpty;
     return Material(
       key: const ValueKey('wx-bar'),
       color: kCard,
@@ -457,17 +568,37 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
               Expanded(
                 child: Semantics(
                   liveRegion: true,
-                  child: Text(
-                    text,
-                    key:
-                        a == null ? null : ValueKey('wx-bar-${a.verdict.name}'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: a == null ? kTextSec : color,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        height: 1.25),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        text,
+                        key: a == null
+                            ? null
+                            : ValueKey('wx-bar-${a.verdict.name}'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: a == null ? kTextSec : color,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            height: 1.25),
+                      ),
+                      if (looser)
+                        Text(
+                          context.tr(
+                              pl: 'Progi łagodniejsze niż normy!',
+                              en: 'Thresholds looser than the codes!'),
+                          key: const ValueKey('wx-bar-looser'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: kFail,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -590,13 +721,38 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
               en: 'Contact thermometer at the joint. Empty = air temperature '
                   'is assumed.'),
         ),
+        _label(context.tr(
+            pl: 'Stan powierzchni złącza (oglądnij i dotknij)',
+            en: 'Joint surface (look and touch)')),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final s in SurfaceState.values)
+              _chip(
+                key: ValueKey('wx-surface-state-${s.name}'),
+                label: s.label(_en),
+                selected: _surfaceState == s,
+                onTap: () => setState(() {
+                  _surfaceState = s;
+                  _checked.clear();
+                }),
+              ),
+          ],
+        ),
+        _caption(context.tr(
+            pl: 'Po deszczu, przy rosie albo z lodem na rurze złącze bywa '
+                'mokre mimo braku opadu — AWS D1.1 zabrania spawania na '
+                'mokrych powierzchniach.',
+            en: 'After rain, with dew or ice on the pipe the joint can be wet '
+                'with no precipitation — AWS D1.1 forbids welding on wet '
+                'surfaces.')),
       ],
     );
   }
 
   Widget _windSection() {
-    final v = _parse(_wind);
-    final ms = v == null ? null : windToMs(v, _windUnit);
+    final ms = _windMs;
     return QuoteSection(
       title:
           context.tr(pl: 'Wiatr przy stanowisku', en: 'Wind at the workplace'),
@@ -620,16 +776,12 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
           context.tr(pl: 'Prędkość wiatru', en: 'Wind speed'),
           key: const ValueKey('wx-wind'),
           unit: windUnitLabel(_windUnit),
-          onChanged: () => setState(() {
-            _beaufort = null;
-            _checked.clear();
-          }),
+          onChanged: _windTyped,
         ),
         if (ms != null)
           _caption(
-            '${_windUnit == WindUnit.ms ? '= ${_n(msToKmh(ms), 0)} km/h' : '= ${_n(ms)} m/s'}'
-            ' · ${beaufortFor(ms).force}° Beaufort — '
-            '${_en ? beaufortFor(ms).nameEn : beaufortFor(ms).namePl}'
+            '${_windUnit == WindUnit.ms ? '= ${weatherNumAuto(ceilTo(msToKmh(ms), 1), maxDecimals: 1, english: _en)} km/h' : '= ${weatherNumAuto(ceilTo(ms, 2), english: _en)} m/s'}'
+            ' · ${beaufortText(ms, english: _en)}'
             '${_beaufort == null ? '' : context.tr(pl: ' (górna granica stopnia — strona bezpieczna)', en: ' (upper bound of the force — safe side)')}',
             key: const ValueKey('wx-wind-caption'),
           ),
@@ -662,7 +814,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
                 ),
                 title: Text(_en ? b.signsEn : b.signsPl),
                 subtitle: Text(
-                    '${_en ? b.nameEn : b.namePl} · ${_n(b.minMs)}–${_n(b.maxMs)} m/s'),
+                    '${_en ? b.nameEn : b.namePl} · ${_v(b.minMs)}–${_v(b.maxMs)} m/s'),
                 onTap: () => _pickBeaufort(b),
               ),
           ],
@@ -884,6 +1036,13 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
       title: context.tr(pl: 'Wynik', en: 'Result'),
       children: [
         _verdictBanner(a),
+        if (weatherLooserWarning(a.thresholds, english: _en) case final w?)
+          QuoteNotice(
+            key: const ValueKey('wx-looser-warning'),
+            color: kFail,
+            icon: Icons.gpp_maybe_outlined,
+            text: w,
+          ),
         if (a.surfaceAssumed)
           QuoteNotice(
             key: const ValueKey('wx-surface-assumed'),
@@ -891,10 +1050,10 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
             icon: Icons.thermostat,
             text: context.tr(
                 pl: 'Założenie: temperatura powierzchni = temperatura '
-                    'powietrza (${_n(a.surfaceC)} °C) — brak pomiaru '
+                    'powietrza (${_v(a.surfaceC)} °C) — brak pomiaru '
                     'termometrem kontaktowym.',
                 en: 'Assumption: surface temperature = air temperature '
-                    '(${_n(a.surfaceC)} °C) — no contact thermometer '
+                    '(${_v(a.surfaceC)} °C) — no contact thermometer '
                     'reading.'),
           ),
         Readout(
@@ -902,8 +1061,8 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
           label: context.tr(pl: 'Punkt rosy', en: 'Dew point'),
           value: _n(a.dewPointC),
           unit: context.tr(
-              pl: '°C · zapas ${_n(a.marginK)} K',
-              en: '°C · margin ${_n(a.marginK)} K'),
+              pl: '°C · zapas ${weatherMarginText(a, english: false)} K',
+              en: '°C · margin ${weatherMarginText(a, english: true)} K'),
           hot: true,
         ),
         const SizedBox(height: 10),
@@ -917,35 +1076,35 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
                     pl: 'Powierzchnia (założona)', en: 'Surface (assumed)')
                 : context.tr(
                     pl: 'Powierzchnia (pomiar)', en: 'Surface (measured)'),
-            '${_n(a.surfaceC)} °C'),
+            '${_v(a.surfaceC)} °C'),
         _kv(
             context.tr(
                 pl: 'Zapas nad punktem ${frost != null ? 'szronu' : 'rosy'}',
                 en: 'Margin above ${frost != null ? 'frost' : 'dew'} point'),
-            '${_n(a.marginK)} K',
+            '${weatherMarginText(a, english: _en)} K',
             key: const ValueKey('wx-margin')),
         _kv(
             context.tr(
                 pl: 'Min. temperatura materiału',
                 en: 'Min. base metal temperature'),
-            '${_n(a.requiredMaterialC, 0)} °C',
+            '${weatherNumMin(a.requiredMaterialC, english: _en)} °C',
             key: const ValueKey('wx-required')),
         _kv(
             context.tr(
                 pl: 'Złącze utrzymuj co najmniej',
                 en: 'Keep the joint at least at'),
-            '${_n(a.targetSurfaceC)} °C',
+            '${weatherNumMin(a.targetSurfaceC, english: _en)} °C',
             key: const ValueKey('wx-target')),
         _caption(context.tr(
             pl: 'Punkt rosy: wzór Magnusa, stałe Alduchov–Eskridge (1996) za '
                 'Lawrence (2005); poniżej 0 °C także punkt szronu (Buck 1996) '
                 '— liczy się wyższy. Zapas ≥ '
-                '${_n(_thresholds.dewMarginK, 0)} K — dobra praktyka '
+                '${_v(_thresholds.dewMarginK)} K — dobra praktyka '
                 'z ISO 8502-4 (malowanie), nie wymóg norm spawalniczych.',
             en: 'Dew point: Magnus formula, Alduchov–Eskridge (1996) '
                 'constants after Lawrence (2005); below 0 °C also the frost '
                 'point (Buck 1996) — the higher one counts. Margin ≥ '
-                '${_n(_thresholds.dewMarginK, 0)} K — good practice from '
+                '${_v(_thresholds.dewMarginK)} K — good practice from '
                 'ISO 8502-4 (coating), not a welding-code requirement.')),
       ],
     );

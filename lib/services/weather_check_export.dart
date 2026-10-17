@@ -23,6 +23,9 @@ import '../domain/welding/weather_conditions.dart';
 String _tr(bool en, String pl, String eng) => en ? eng : pl;
 String _n(double v, bool en, [int d = 1]) =>
     weatherNum(v, decimals: d, english: en);
+
+/// Wartość wpisana / próg — z precyzją pola (do 2 miejsc, bez zbędnych zer).
+String _v(double v, bool en) => weatherNumAuto(v, english: en);
 String _two(int v) => v.toString().padLeft(2, '0');
 
 /// `2026-10-17 07:05`.
@@ -48,14 +51,20 @@ String weatherDisclaimer({required bool english}) => _tr(
         'Code requirements are summarised with edition and clause; the code '
         'named in the contract governs.');
 
+/// Zapas nad punktem rosy z tą samą precyzją co w tekście warunku (tyle
+/// miejsc, żeby relacja do wymaganego zapasu była widoczna).
+String weatherMarginText(WeatherAssessment a, {required bool english}) =>
+    weatherPair(a.marginK, a.thresholds.dewMarginK, english: english).$1;
+
 /// Wiatr: w jednostce wpisanej przez spawacza, druga w nawiasie, stopień
-/// Beauforta.
+/// Beauforta. Prędkości zaokrąglone W GÓRĘ (m/s do 2 miejsc, km/h do 1) —
+/// raport nigdy nie zaniża wiatru.
 String weatherWindText(WeatherInput i, {required bool english}) {
-  final ms = '${_n(i.windMs, english)} m/s';
-  final kmh = '${_n(msToKmh(i.windMs), english, 0)} km/h';
-  final b = beaufortFor(i.windMs);
+  final ms = '${weatherNumAuto(ceilTo(i.windMs, 2), english: english)} m/s';
+  final kmh =
+      '${weatherNumAuto(ceilTo(msToKmh(i.windMs), 1), maxDecimals: 1, english: english)} km/h';
   final first = i.windUnit == WindUnit.ms ? '$ms ($kmh)' : '$kmh ($ms)';
-  return '$first · ${b.force}° Beaufort — ${english ? b.nameEn : b.namePl}';
+  return '$first · ${beaufortText(i.windMs, english: english)}';
 }
 
 /// Wiersze „pomiar” (etykieta, wartość).
@@ -66,17 +75,21 @@ List<(String, String)> weatherInputRows(WeatherAssessment a,
   return [
     (
       _tr(en, 'Temperatura powietrza', 'Air temperature'),
-      '${_n(i.ambientC, en)} °C'
+      '${_v(i.ambientC, en)} °C'
     ),
     (
       _tr(en, 'Wilgotność względna', 'Relative humidity'),
-      '${_n(i.rhPct, en, 0)} %'
+      '${_v(i.rhPct, en)} %'
     ),
     (
       _tr(en, 'Temperatura powierzchni', 'Surface temperature'),
       a.surfaceAssumed
-          ? '${_n(a.surfaceC, en)} °C — ${_tr(en, 'założenie: = powietrze (brak pomiaru)', 'assumed: = air (not measured)')}'
-          : '${_n(a.surfaceC, en)} °C — ${_tr(en, 'pomiar kontaktowy', 'contact measurement')}'
+          ? '${_v(a.surfaceC, en)} °C — ${_tr(en, 'założenie: = powietrze (brak pomiaru)', 'assumed: = air (not measured)')}'
+          : '${_v(a.surfaceC, en)} °C — ${_tr(en, 'pomiar kontaktowy', 'contact measurement')}'
+    ),
+    (
+      _tr(en, 'Stan powierzchni złącza', 'Joint surface'),
+      i.surfaceState.label(en)
     ),
     (_tr(en, 'Wiatr', 'Wind'), weatherWindText(i, english: en)),
     (_tr(en, 'Opad', 'Precipitation'), i.precipitation.label(en)),
@@ -85,12 +98,12 @@ List<(String, String)> weatherInputRows(WeatherAssessment a,
     (_tr(en, 'Materiał', 'Material'), i.material.label(en)),
     (
       _tr(en, 'Podgrzewanie z WPS', 'Preheat from WPS'),
-      i.wpsPreheatC == null ? '—' : '${_n(i.wpsPreheatC!, en, 0)} °C'
+      i.wpsPreheatC == null ? '—' : '${_v(i.wpsPreheatC!, en)} °C'
     ),
   ];
 }
 
-/// Wiersze „wyniki”.
+/// Wiersze „wyniki”. Temperatury do osiągnięcia — w górę ([weatherNumMin]).
 List<(String, String)> weatherResultRows(WeatherAssessment a,
     {required bool english}) {
   final en = english;
@@ -100,15 +113,15 @@ List<(String, String)> weatherResultRows(WeatherAssessment a,
       (_tr(en, 'Punkt szronu', 'Frost point'), '${_n(a.frostPointC!, en)} °C'),
     (
       _tr(en, 'Zapas powierzchni nad punktem rosy', 'Surface above dew point'),
-      '${_n(a.marginK, en)} K'
+      '${weatherMarginText(a, english: en)} K'
     ),
     (
       _tr(en, 'Min. temperatura materiału', 'Min. base metal temperature'),
-      '${_n(a.requiredMaterialC, en, 0)} °C'
+      '${weatherNumMin(a.requiredMaterialC, english: en)} °C'
     ),
     (
       _tr(en, 'Złącze utrzymywać co najmniej', 'Keep the joint at least at'),
-      '${_n(a.targetSurfaceC, en)} °C'
+      '${weatherNumMin(a.targetSurfaceC, english: en)} °C'
     ),
   ];
 }
@@ -125,6 +138,10 @@ String weatherCheckText(WeatherCheckRecord r, {required bool english}) {
   }
   b.writeln(
       '${_tr(en, 'Werdykt', 'Verdict')}: ${weatherVerdictText(r.verdict, english: en).toUpperCase()}');
+  final looser = weatherLooserWarning(r.thresholds, english: en);
+  if (looser != null) b.writeln('!!! $looser');
+  final mismatch = weatherRulesMismatchText(r, english: en);
+  if (mismatch != null) b.writeln('! $mismatch');
   if (a == null) {
     b
       ..writeln()
@@ -197,33 +214,19 @@ String weatherCheckText(WeatherCheckRecord r, {required bool english}) {
   return b.toString().trimRight();
 }
 
-/// Progi jako wiersze (do raportu, gdy różnią się od domyślnych).
+/// Progi jako wiersze (do raportu, gdy różnią się od domyślnych) — z tą
+/// samą precyzją co w polach ustawień (do 4 miejsc, bez zbędnych zer).
 List<(String, String)> weatherThresholdRows(WeatherThresholds t,
     {required bool english}) {
-  final en = english;
+  final looser = looserThanDefaults(t);
   return [
-    (
-      _tr(en, 'Min. temperatura przy złączu', 'Min. temperature at the joint'),
-      '${_n(t.minAmbientC, en, 0)} °C'
-    ),
-    (
-      _tr(en, 'Mróz: stal węglowa poniżej / podgrzać do',
-          'Cold: carbon steel below / preheat to'),
-      '${_n(t.coldBaseMetalC, en, 0)} °C / ${_n(t.coldPreheatC, en, 0)} °C'
-    ),
-    (
-      _tr(en, 'Min. temperatura materiału', 'Min. base metal temperature'),
-      '${_n(t.minMaterialC, en, 0)} °C'
-    ),
-    (
-      _tr(en, 'Zapas nad punktem rosy', 'Margin above dew point'),
-      '${_n(t.dewMarginK, en)} K'
-    ),
-    (
-      _tr(en, 'Wiatr — procesy gazowe', 'Wind — gas-shielded'),
-      '${_n(t.maxWindGasMs, en)} m/s'
-    ),
-    (_tr(en, 'Silny wiatr', 'Strong wind'), '${_n(t.maxWindAnyMs, en)} m/s'),
+    for (final f in ThresholdField.all)
+      (
+        thresholdLabel(f, english: english),
+        '${weatherNumAuto(t.valueOf(f), maxDecimals: 4, english: english)} '
+            '${thresholdUnit(f)}'
+            '${looser.contains(f) ? _tr(english, ' (łagodniej niż norma)', ' (looser than the code)') : ''}'
+      ),
   ];
 }
 
@@ -412,6 +415,25 @@ class WeatherCheckExport {
                 color: verdictInk),
           ),
         ),
+        for (final note in [
+          weatherLooserWarning(record.thresholds, english: en),
+          weatherRulesMismatchText(record, english: en),
+        ])
+          if (note != null)
+            pw.Container(
+              width: double.infinity,
+              margin: const pw.EdgeInsets.only(top: 6),
+              padding: const pw.EdgeInsets.all(6),
+              decoration: pw.BoxDecoration(
+                color: _kWarnFill,
+                border: pw.Border.all(color: _kNokInk, width: 1),
+              ),
+              child: pw.Text(note,
+                  style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _kNokInk)),
+            ),
         if (a != null) ...[
           heading(_tr(en, 'Pomiar', 'Measurement')),
           table(weatherInputRows(a, english: en)),

@@ -90,18 +90,64 @@ void main() {
     expect(pl, startsWith('WARUNKI DO SPAWANIA\n2026-10-17 06:40'));
     expect(pl, contains('Miejsce: Zbiornik T-101, pas 3 — spoina pionowa'));
     expect(pl, contains('Werdykt: MOŻNA SPAWAĆ PO SPEŁNIENIU WARUNKÓW'));
-    // Wpisane w km/h: 6 m/s = 22 km/h pierwsze.
-    expect(pl, contains('Wiatr: 22 km/h (6,0 m/s) · 4° Beaufort'));
+    // Wpisane w km/h: 6 m/s = 21,6 km/h pierwsze.
+    expect(pl, contains('Wiatr: 21,6 km/h (6 m/s) · 4° Beaufort'));
     expect(pl, contains('[x] Opad (śnieg)'));
     expect(pl, contains('[ ] '));
     expect(pl, contains('Progi zmienione względem domyślnych'));
-    expect(pl, contains('Wiatr — procesy gazowe: 3,0 m/s'));
+    expect(pl, contains('wiatr — procesy gazowe: 3 m/s (łagodniej niż norma)'));
+    // Próg łagodniejszy od normy → twarde ostrzeżenie zaraz pod werdyktem.
+    expect(pl, contains('!!! UWAGA: progi łagodniejsze niż wartości z norm'));
+    expect(pl, contains('Stan powierzchni złącza: nie sprawdzono'));
     expect(pl, contains(weatherDisclaimer(english: false)));
 
     final en = weatherCheckText(r, english: true);
     expect(en, contains('Verdict: WELD ONLY ONCE THE CONDITIONS ARE MET'));
     expect(en, contains('Location: Zbiornik T-101'));
+    expect(en, contains('!!! WARNING: thresholds looser than the code'));
     expect(en, contains(weatherDisclaimer(english: true)));
+  });
+
+  test('raport: precyzja jak w polach (WPS 65,4 °C, próg 2,26 m/s) (W3)', () {
+    final r = _record(
+      input: const WeatherInput(
+          ambientC: -17.85,
+          rhPct: 62.5,
+          windMs: 1,
+          surfaceState: SurfaceState.dry,
+          wpsPreheatC: 65.4),
+      thresholds: const WeatherThresholds(maxWindGasMs: 2.26),
+    );
+    final pl = weatherCheckText(r, english: false);
+    expect(pl, contains('Temperatura powietrza: -17,85 °C'));
+    expect(pl, contains('Wilgotność względna: 62,5 %'));
+    expect(pl, contains('Podgrzewanie z WPS: 65,4 °C'));
+    expect(pl, contains('Min. temperatura materiału: 65,4 °C'));
+    expect(pl, contains('≥ 65,4 °C przed spawaniem'));
+    expect(pl, contains('wiatr — procesy gazowe: 2,26 m/s'));
+  });
+
+  test('wpis zapisany inną wersją reguł → ostrzeżenie w tekście i PDF (W7)',
+      () async {
+    const input = WeatherInput(
+        ambientC: 15, rhPct: 50, windMs: 1, surfaceState: SurfaceState.dry);
+    final old = WeatherCheckRecord(
+      id: 'old',
+      takenAt: DateTime(2026, 10, 1, 8),
+      input: input,
+      verdict: WeatherVerdict.go,
+      rulesVersion: 1,
+    );
+    final pl = weatherCheckText(old, english: false);
+    expect(pl, contains('! Szczegóły odtworzone inną wersją reguł'));
+    expect(pl, contains('wiąże zapisany werdykt: Można spawać'));
+    final doc = await WeatherCheckExport.buildPdfDocument(
+      record: old,
+      english: false,
+      font: _font('Roboto-Regular.ttf'),
+      generatedAt: DateTime(2026, 10, 17),
+    );
+    expect(String.fromCharCodes((await doc.save()).take(5)), '%PDF-');
   });
 
   test('nazwa pliku z datą i godziną', () {

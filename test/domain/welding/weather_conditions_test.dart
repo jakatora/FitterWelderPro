@@ -25,6 +25,9 @@ WeatherInput _in({
   WeatherShelter shelter = WeatherShelter.none,
   WeatherMaterial material = WeatherMaterial.carbonSteel,
   double? wpsPreheatC,
+  // Testy werdyktu zakładają złącze sprawdzone i suche; „nie sprawdzono”
+  // ma osobne testy (grupa „stan powierzchni”).
+  SurfaceState surfaceState = SurfaceState.dry,
 }) =>
     WeatherInput(
       ambientC: ambientC,
@@ -36,6 +39,7 @@ WeatherInput _in({
       shelter: shelter,
       material: material,
       wpsPreheatC: wpsPreheatC,
+      surfaceState: surfaceState,
     );
 
 WeatherAssessment _a(WeatherInput i,
@@ -468,5 +472,254 @@ void main() {
     expect(weatherNum(-0.04), '0,0');
     expect(weatherNum(-3.25, decimals: 2), '-3,25');
     expect(weatherNum(2.5, english: true), '2.5');
+  });
+
+  // ── Poprawki z przeglądu (W2–W7) ───────────────────────────────────────
+
+  group('stan powierzchni złącza (W2)', () {
+    test('nie sprawdzono → nigdy czyste „Można spawać”, tylko warunek', () {
+      final a = _a(_in(surfaceState: SurfaceState.unchecked));
+      expect(a.verdict, WeatherVerdict.conditional);
+      expect(a.conditions.single.code, WeatherCode.surfaceState);
+      expect(a.conditions.single.textPl,
+          contains('suche, bez wody, szronu, lodu i śniegu'));
+      // Domyślny stan wejścia to „nie sprawdzono”.
+      expect(
+          const WeatherInput(ambientC: 15, rhPct: 50, windMs: 1).surfaceState,
+          SurfaceState.unchecked);
+    });
+
+    test(
+        'mokra / oblodzona: bez namiotu STOP (parawan też), w namiocie warunek',
+        () {
+      for (final s in [SurfaceState.wet, SurfaceState.frozen]) {
+        final open = _a(_in(surfaceState: s));
+        expect(open.verdict, WeatherVerdict.noGo, reason: s.name);
+        expect(open.stops.single.code, WeatherCode.surfaceState);
+        expect(
+            _a(_in(surfaceState: s, shelter: WeatherShelter.windbreak)).verdict,
+            WeatherVerdict.noGo,
+            reason: s.name);
+        final tent =
+            _a(_in(surfaceState: s, shelter: WeatherShelter.enclosure));
+        expect(tent.verdict, WeatherVerdict.conditional, reason: s.name);
+        expect(tent.conditions.single.code, WeatherCode.surfaceState);
+        expect(tent.conditions.single.textPl, contains('osusz / ogrzej'));
+        expect(tent.recommendations.map((f) => f.code),
+            contains(WeatherCode.recHeatZone));
+      }
+    });
+
+    test('stary zapis bez pola → „nie sprawdzono”', () {
+      final json = _in().toJson()..remove('surfaceState');
+      expect(WeatherInput.fromJson(json).surfaceState, SurfaceState.unchecked);
+    });
+  });
+
+  group('precyzja liczb w tekstach (W3)', () {
+    test('zaokrąglenia kierunkowe i pary porównań', () {
+      expect(ceilTo(5 * 3.6, 2), 18); // 18,000000000000004 → 18
+      expect(ceilTo(2.2014, 2), 2.21);
+      expect(floorTo(7.92, 1), 7.9);
+      expect(weatherNumMin(65.4), '65,4');
+      expect(weatherNumMin(20.001), '20,01');
+      expect(weatherNumMax(2.269), '2,26');
+      expect(weatherNumAuto(21), '21');
+      expect(weatherNumAuto(-17.8), '-17,8');
+      expect(weatherPair(-17.85, -17.8), ('-17,85', '-17,8'));
+      expect(weatherPair(2.2001, 2.2), ('2,2001', '2,2'));
+      expect(weatherPair(2.96, 3), ('2,96', '3'));
+      expect(weatherPair(2.5, 3), ('2,5', '3'));
+    });
+
+    test('-17,85 °C przy progu -17,8 °C: tekst nie odwraca relacji', () {
+      final a = _a(_in(ambientC: -17.85, rhPct: 60),
+          const WeatherThresholds(minAmbientC: -17.8));
+      final f = a.stops.single;
+      expect(f.code, WeatherCode.ambient);
+      expect(f.textPl, contains('-17,85 °C jest poniżej -17,8 °C'));
+    });
+
+    test('WPS 65,4 °C → „≥ 65,4 °C”, nie „≥ 65 °C”', () {
+      final a = _a(_in(wpsPreheatC: 65.4));
+      final f = a.conditions.single;
+      expect(f.code, WeatherCode.materialTemp);
+      expect(f.textPl, contains('≥ 65,4 °C'));
+    });
+
+    test('zapas rosy 2,5 K w progach → tekst „2,5 K”, nie „3 K”', () {
+      // 20 °C / 50 %: Td 9,26 °C; powierzchnia 11 → zapas 1,74 K < 2,5 K.
+      final a = _a(_in(ambientC: 20, rhPct: 50, surfaceC: 11),
+          const WeatherThresholds(dewMarginK: 2.5));
+      final f = a.conditions.single;
+      expect(f.code, WeatherCode.condensation);
+      expect(f.textPl, contains('(< 2,5 K)'));
+      // Docelowa temperatura w górę: 9,261 + 2,5 = 11,761 → 11,77.
+      expect(f.textPl, contains('≥ 11,77 °C'));
+    });
+
+    test('wiatr 8 km/h przy limicie 2,2 m/s: „2,22 > 2,2”, limit ≈ 7,9 km/h',
+        () {
+      final a = _a(_in(windMs: kmhToMs(8), process: WeatherProcess.mag135));
+      final f = a.stops.single;
+      expect(f.textPl, contains('2,22 m/s (8 km/h) > 2,2 m/s'));
+      expect(f.basisText(false), contains('≈ 7,9 km/h'));
+    });
+  });
+
+  group('historia: uszkodzenia (W4)', () {
+    test('liczy pominięte wpisy i rozpoznaje nieczytelny zapis', () {
+      final good = WeatherCheckRecord(
+        id: 'ok',
+        takenAt: DateTime(2026, 10, 1),
+        input: _in(),
+        verdict: WeatherVerdict.go,
+      ).toJson();
+      final d = decodeWeatherHistoryDetailed(jsonEncode([
+        1,
+        {'id': 'x'},
+        good
+      ]));
+      expect(d.records.map((r) => r.id), ['ok']);
+      expect(d.skipped, 2);
+      expect(d.unreadable, isFalse);
+      expect(d.damaged, isTrue);
+      expect(decodeWeatherHistoryDetailed('{zły').unreadable, isTrue);
+      expect(decodeWeatherHistoryDetailed('{"a":1}').unreadable, isTrue);
+      expect(decodeWeatherHistoryDetailed(42).unreadable, isTrue);
+      expect(decodeWeatherHistoryDetailed(null).damaged, isFalse);
+      expect(decodeWeatherHistoryDetailed('').damaged, isFalse);
+    });
+  });
+
+  group('progi: naprawa i walidacja (W5, W6)', () {
+    test('uszkodzone progi → flaga „naprawiono”', () {
+      expect(decodeWeatherThresholdsDetailed(null).repaired, isFalse);
+      expect(decodeWeatherThresholdsDetailed('').repaired, isFalse);
+      expect(
+          decodeWeatherThresholdsDetailed(
+                  encodeWeatherThresholds(const WeatherThresholds()))
+              .repaired,
+          isFalse);
+      expect(decodeWeatherThresholdsDetailed('[[[').repaired, isTrue);
+      expect(decodeWeatherThresholdsDetailed('[1]').repaired, isTrue);
+      final partly = decodeWeatherThresholdsDetailed(jsonEncode({
+        ...const WeatherThresholds(minMaterialC: 15).toJson()
+      }..['dewMarginK'] = 'trzy'));
+      expect(partly.repaired, isTrue);
+      expect(partly.thresholds.minMaterialC, 15);
+      expect(
+          partly.thresholds.dewMarginK, WeatherThresholds.kDefaultDewMarginK);
+      final missing =
+          decodeWeatherThresholdsDetailed(jsonEncode({'maxWindGasMs': 2}));
+      expect(missing.repaired, isTrue);
+      expect(missing.thresholds.maxWindGasMs, 2);
+    });
+
+    test('walidacja krzyżowa progów', () {
+      expect(validateWeatherThresholds(WeatherThresholds.defaults), isEmpty);
+      expect(
+          validateWeatherThresholds(
+              const WeatherThresholds(coldBaseMetalC: 5, coldPreheatC: 4)),
+          {
+            ThresholdField.coldPreheatC:
+                ThresholdIssue.preheatBelowColdThreshold
+          });
+      expect(
+          validateWeatherThresholds(
+              const WeatherThresholds(minAmbientC: 0, minMaterialC: -5)),
+          {ThresholdField.minMaterialC: ThresholdIssue.materialBelowAmbient});
+      expect(
+          validateWeatherThresholds(
+              const WeatherThresholds(maxWindGasMs: 5, maxWindAnyMs: 4)),
+          {ThresholdField.maxWindAnyMs: ThresholdIssue.strongWindBelowGas});
+      expect(validateWeatherThresholds(const WeatherThresholds(dewMarginK: 40)),
+          {ThresholdField.dewMarginK: ThresholdIssue.outOfRange});
+    });
+
+    test('progi łagodniejsze od norm → twarde ostrzeżenie', () {
+      expect(looserThanDefaults(WeatherThresholds.defaults), isEmpty);
+      // Ostrzejsze — bez ostrzeżenia.
+      expect(
+          looserThanDefaults(
+              const WeatherThresholds(maxWindGasMs: 1.5, minMaterialC: 15)),
+          isEmpty);
+      const loose = WeatherThresholds(maxWindGasMs: 5, minMaterialC: 5);
+      expect(looserThanDefaults(loose),
+          [ThresholdField.minMaterialC, ThresholdField.maxWindGasMs]);
+      final w = weatherLooserWarning(loose, english: false)!;
+      expect(w, startsWith('UWAGA: progi łagodniejsze niż wartości z norm'));
+      expect(w, contains('wiatr — procesy gazowe 5 m/s (norma 2,2)'));
+      expect(weatherLooserWarning(WeatherThresholds.defaults, english: false),
+          isNull);
+      final a = _a(_in(windMs: 4, process: WeatherProcess.mag135), loose);
+      expect(a.verdict, WeatherVerdict.go);
+      expect(a.looserThresholds, isNotEmpty);
+    });
+  });
+
+  group('wersja reguł w historii (W7)', () {
+    test('nowy wpis: wersja i kody z chwili zapisu, bez rozbieżności', () {
+      final a = _a(_in(precipitation: Precipitation.rain, wpsPreheatC: 50));
+      final r = WeatherCheckRecord.fromAssessment(
+          id: '1',
+          takenAt: DateTime(2026, 10, 17),
+          assessment: a,
+          checked: {WeatherCode.materialTemp, 'obcy'});
+      expect(r.rulesVersion, kWeatherRulesVersion);
+      expect(r.stopCodes, [WeatherCode.precipitation]);
+      expect(r.conditionCodes, [WeatherCode.materialTemp]);
+      expect(r.checked, {WeatherCode.materialTemp});
+      expect(r.rulesMismatch, isFalse);
+      final back = decodeWeatherHistory(encodeWeatherHistory([r])).single;
+      expect(back.rulesVersion, kWeatherRulesVersion);
+      expect(back.stopCodes, r.stopCodes);
+      expect(back.conditionCodes, r.conditionCodes);
+      expect(back.rulesMismatch, isFalse);
+      expect(weatherRulesMismatchText(back, english: false), isNull);
+    });
+
+    test('stary wpis (bez wersji) albo inne kody → „odtworzone inną wersją”',
+        () {
+      final json = WeatherCheckRecord(
+        id: 'old',
+        takenAt: DateTime(2026, 10, 1),
+        input: _in(),
+        verdict: WeatherVerdict.go,
+      ).toJson()
+        ..remove('rulesVersion');
+      final old = WeatherCheckRecord.fromJson(json);
+      expect(old.rulesVersion, 1);
+      expect(old.rulesMismatch, isTrue);
+      expect(weatherRulesMismatchText(old, english: false),
+          contains('odtworzone inną wersją reguł'));
+      // Bieżąca wersja, ale zapisane kody różne od odtworzonych.
+      final diff = WeatherCheckRecord(
+        id: 'd',
+        takenAt: DateTime(2026, 10, 1),
+        input: _in(),
+        verdict: WeatherVerdict.go,
+        stopCodes: const [WeatherCode.windGas],
+        conditionCodes: const [],
+      );
+      expect(diff.rulesMismatch, isTrue);
+      // Inny werdykt niż odtworzony.
+      expect(
+          WeatherCheckRecord(
+            id: 'v',
+            takenAt: DateTime(2026, 10, 1),
+            input: _in(),
+            verdict: WeatherVerdict.noGo,
+          ).rulesMismatch,
+          isTrue);
+    });
+  });
+
+  test('Beaufort powyżej 17,1 m/s → „8°+”, nie „7°” (drobne)', () {
+    expect(
+        beaufortText(17.1, english: false), '7° Beaufort — bardzo silny wiatr');
+    expect(
+        beaufortText(20, english: false), '8°+ Beaufort — wichura i silniej');
+    expect(beaufortText(20, english: true), '8°+ Beaufort — gale or stronger');
   });
 }
