@@ -234,7 +234,8 @@ void main() {
 
   testWidgets('pomiar powyżej progu z zezwolenia — STOP; nowy pomiar zdejmuje',
       (tester) async {
-    await _pump(tester);
+    var clock = _now;
+    await _pump(tester, now: () => clock);
     await _tapKey(tester, 'hw-new');
     await _tickAllBefore(tester);
     await _enter(tester, 'hw-limit', '5');
@@ -243,7 +244,9 @@ void main() {
     expect(await _status(tester), startsWith('STOP — ostatni pomiar 7 % DGW'));
     expect(find.byIcon(Icons.dangerous_outlined), findsOneWidget);
 
-    // Po przewietrzeniu: 0 % — decyduje ostatni pomiar.
+    // Po przewietrzeniu (minutę później — w tej samej minucie decyduje
+    // gorszy): 0 % — decyduje ostatni pomiar.
+    clock = _now.add(const Duration(minutes: 1));
     await _enter(tester, 'hw-meas-dgw', '0');
     await _tapKey(tester, 'hw-meas-add');
     expect(await _status(tester), startsWith('Stanowisko przygotowane'));
@@ -455,6 +458,79 @@ void main() {
         find.text('Wpisz 0–10 — przepis nie pozwala na więcej niż 10 % DGW'),
         findsOneWidget);
     expect(await _status(tester), isNot(startsWith('Stanowisko przygotowane')));
+  });
+
+  testWidgets('usunięty pomiar: „Cofnij” po zamknięciu ekranu przez magazyn',
+      (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'hw-new');
+    // Tylko pomiar — po usunięciu protokół jest pusty i wypada z historii.
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect((await const HotWorkStore().load()).single.measurements,
+        hasLength(1));
+    await _tapKey(tester, 'hw-meas-del-0');
+    await _back(tester);
+    expect(find.byKey(const ValueKey('hw-empty')), findsOneWidget);
+    expect(await const HotWorkStore().load(), isEmpty);
+
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    final restored = (await const HotWorkStore().load()).single;
+    expect(restored.id, 'hw-1');
+    expect(restored.measurements.single.time, '07:30');
+    expect(find.text('HISTORIA (1)'), findsOneWidget);
+  });
+
+  testWidgets('„Cofnij” usunięcia protokołu działa także przy pełnej historii',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: jsonEncode(hotWorkPermitsToJson([
+        for (var i = 0; i < HotWorkStore.maxEntries; i++)
+          HotWorkPermit.fromJson({..._yesterday().toJson(), 'id': 'p$i'})!,
+      ])),
+    });
+    await _pump(tester);
+    await _tapKey(tester, 'hw-menu-0');
+    await tester.tap(find.byKey(const ValueKey('hw-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('hw-delete-confirm')));
+    await tester.pumpAndSettle();
+    final deleted = {
+      for (var i = 0; i < HotWorkStore.maxEntries; i++) 'p$i'
+    }.difference((await const HotWorkStore().load()).map((p) => p.id).toSet())
+        .single;
+    // W międzyczasie historia znów doszła do 200.
+    await const HotWorkStore().upsert(
+        HotWorkPermit.fromJson({..._yesterday().toJson(), 'id': 'inny'})!);
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    final ids =
+        (await const HotWorkStore().load()).map((p) => p.id).toSet();
+    expect(ids, contains(deleted));
+    expect(ids, hasLength(HotWorkStore.maxEntries + 1));
+  });
+
+  testWidgets('remis w tej samej minucie — decyduje gorszy, z komunikatem',
+      (tester) async {
+    var clock = DateTime(2026, 10, 17, 14, 5, 10);
+    await _pump(tester, now: () => clock);
+    await _tapKey(tester, 'hw-new');
+    await _tickAllBefore(tester);
+    await _enter(tester, 'hw-meas-dgw', '15');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('STOP'));
+    clock = DateTime(2026, 10, 17, 14, 5, 40);
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(find.byKey(const ValueKey('hw-meas-tie')), findsOneWidget);
+    expect(await _status(tester), startsWith('STOP — ostatni pomiar 15 % DGW'));
+    await _show(tester, 'hw-tie');
+    // Minutę później — nowy pomiar decyduje.
+    clock = DateTime(2026, 10, 17, 14, 6, 5);
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('Stanowisko przygotowane'));
   });
 
   test('uszkodzona historia: kopia surowego zapisu przed nadpisaniem',

@@ -776,6 +776,35 @@ void main() {
     expect((await _load()).records, hasLength(ConfinedSpaceStore.maxEntries));
   });
 
+  testWidgets('„Cofnij” usunięcia protokołu działa także przy pełnej historii',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson([
+        for (var i = 0; i < ConfinedSpaceStore.maxEntries; i++)
+          ConfinedSpaceRecord.fromJson(
+              {..._yesterday().toJson(), 'id': 'p$i'})!,
+      ])),
+    });
+    await _pump(tester);
+    await _tapKey(tester, 'cs-menu-0');
+    await tester.tap(find.byKey(const ValueKey('cs-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cs-delete-confirm')));
+    await tester.pumpAndSettle();
+    final deleted = {
+      for (var i = 0; i < ConfinedSpaceStore.maxEntries; i++) 'p$i'
+    }.difference((await _load()).records.map((r) => r.id).toSet()).single;
+    // W międzyczasie historia znów doszła do 200.
+    await const ConfinedSpaceStore().upsert(ConfinedSpaceRecord.fromJson(
+        {..._yesterday().toJson(), 'id': 'inny'})!);
+    expect((await _load()).records, hasLength(ConfinedSpaceStore.maxEntries));
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    final ids = (await _load()).records.map((r) => r.id).toSet();
+    expect(ids, contains(deleted));
+    expect(ids, hasLength(ConfinedSpaceStore.maxEntries + 1));
+  });
+
   test('nieczytelna historia: pusta lista, flaga i kopia przed nadpisaniem',
       () async {
     SharedPreferences.setMockInitialValues(

@@ -261,10 +261,13 @@ CsGasVerdict csGasVerdict(
   // wpis nie może przykryć świeżego alarmu.
   var enteredLater = false;
   if (!state.stop) {
-    final lastEntered =
-        latest.map((m) => m.entered).reduce((a, b) => a > b ? a : b);
+    // Chwila wpisu z przyszłości (przestawiony zegar) nie liczy się — inaczej
+    // dobry pomiar z „jutrzejszym” wpisem wyłączyłby tę blokadę.
+    final lastEntered = latest
+        .map((m) => m.enteredAsOf(now))
+        .reduce((a, b) => a > b ? a : b);
     for (final m in withGas) {
-      if (m.entered <= lastEntered) continue;
+      if (m.enteredAsOf(now) <= lastEntered) continue;
       final s = csReadingState(gas, m[gas]!, limits);
       if (!s.stop) continue;
       if (!enteredLater || _worse(gas, m, s, decisive, state)) {

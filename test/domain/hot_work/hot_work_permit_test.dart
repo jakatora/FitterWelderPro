@@ -292,13 +292,40 @@ void main() {
       expect(p.measurementsChrono.map((m) => m.time), ['09:00', '10:30']);
     });
 
-    test('ta sama chwila — decyduje później dopisany', () {
+    test('ta sama minuta — decyduje gorszy, remis zgłoszony', () {
+      final now = DateTime(2026, 10, 17, 14, 6);
+      int ms(int s) => DateTime(2026, 10, 17, 14, 5, s).millisecondsSinceEpoch;
+      // STOP o 14:05:10, potem OK o 14:05:40 — ta sama minuta: STOP.
       final p = _allBefore(_blank()).copyWith(measurements: [
-        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 15),
-        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 0),
+        HotWorkMeasurement(time: '14:05', at: ms(10), dgwPct: 15),
+        HotWorkMeasurement(time: '14:05', at: ms(40), dgwPct: 0),
       ]);
-      expect(p.assess(now: DateTime(2026, 10, 17, 10, 35)).readiness,
-          HotWorkReadiness.ready);
+      final a = p.assess(now: now);
+      expect(a.readiness, HotWorkReadiness.overLimit);
+      expect(a.tie, isTrue);
+      expect(a.lastMeasurement!.dgwPct, 15);
+      expect(hotWorkTieText(a, en: false),
+          startsWith('Różne wyniki z tej samej minuty (14:05)'));
+      expect(hotWorkProtocolText(p, en: false, now: now),
+          contains('! Różne wyniki z tej samej minuty'));
+      // Kolejność wpisów nie zmienia wyniku; ten sam wynik to nie remis.
+      final reversed = p.copyWith(measurements: p.measurements.reversed.toList());
+      expect(reversed.assess(now: now).readiness, HotWorkReadiness.overLimit);
+      final same = p.copyWith(measurements: [
+        HotWorkMeasurement(time: '14:05', at: ms(10), dgwPct: 0),
+        HotWorkMeasurement(time: '14:05', at: ms(40), dgwPct: 0),
+      ]);
+      expect(same.assess(now: now).tie, isFalse);
+      expect(same.assess(now: now).readiness, HotWorkReadiness.ready);
+      // Minutę później — nowy pomiar decyduje.
+      final later = p.copyWith(measurements: [
+        ...p.measurements,
+        HotWorkMeasurement(
+            time: '14:06',
+            at: DateTime(2026, 10, 17, 14, 6).millisecondsSinceEpoch,
+            dgwPct: 0),
+      ]);
+      expect(later.assess(now: now).readiness, HotWorkReadiness.ready);
     });
 
     test('stary zapis bez chwili pomiaru — kolejność wpisów', () {
@@ -477,5 +504,43 @@ void main() {
       expect(back.measurementMaxAgeMin, 15);
       expect(q.duplicateFor(newId: 'n', now: _now).measurementMaxAgeMin, 15);
     });
+  });
+
+  test('chwila wpisu z przyszłości (zegar +1 h) nie omija blokady wpisu '
+      'późniejszego', () {
+    int at(int h, int m) => DateTime(2026, 10, 17, h, m).millisecondsSinceEpoch;
+    final now = DateTime(2026, 10, 17, 14, 6);
+    // Zegar telefonu +1 h: dobry pomiar z ręczną godziną 13:50 wpisany
+    // „o 15:00”. Zegar wraca; o 14:05 wpisany zaległy alarm z 13:45.
+    final p = _allBefore(_blank()).copyWith(measurements: [
+      HotWorkMeasurement(
+          id: 'ok', time: '13:50', at: at(13, 50), enteredAt: at(15, 0),
+          dgwPct: 0),
+      HotWorkMeasurement(
+          id: 'alarm', time: '13:45', at: at(13, 45), enteredAt: at(14, 5),
+          dgwPct: 15),
+    ]);
+    final a = p.assess(now: now);
+    expect(a.readiness, HotWorkReadiness.overLimit);
+    expect(a.enteredLater, isTrue);
+    // Odczyt zapisu: chwila wpisu z przyszłości jest nieważna (null), nie
+    // przycięta do „teraz”.
+    final back = HotWorkPermit.fromJson(
+        jsonDecode(jsonEncode(p.toJson())), now: now)!;
+    final ok = back.measurements.firstWhere((m) => m.id == 'ok');
+    expect(ok.enteredAt, isNull);
+    expect(ok.enteredAsOf(now), at(13, 50));
+    expect(back.assess(now: now).readiness, HotWorkReadiness.overLimit);
+  });
+
+  test('usuwanie i przywracanie pomiaru po identyfikatorze', () {
+    const a = HotWorkMeasurement(id: 'a', time: '07:20', dgwPct: 0);
+    const b = HotWorkMeasurement(id: 'b', time: '07:20', dgwPct: 0);
+    final p = _blank().copyWith(measurements: const [a, b]);
+    final removed = p.removeMeasurement(b);
+    expect(removed.measurements.map((m) => m.id), ['a']);
+    final back = removed.restoreMeasurement(b);
+    expect(back.measurements.map((m) => m.id), ['a', 'b']);
+    expect(back.restoreMeasurement(b).measurements, hasLength(2));
   });
 }

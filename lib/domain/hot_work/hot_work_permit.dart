@@ -60,6 +60,10 @@ enum HotWorkType {
 
 /// Jeden pomiar stężenia gazów / par palnych (eksplozymetr).
 class HotWorkMeasurement {
+  /// Identyfikator pomiaru (usuwanie i „Cofnij” po identyfikatorze — dwa
+  /// identyczne wyniki to dwa pomiary). Pusty w starszych zapisach.
+  final String id;
+
   /// Godzina pomiaru `HH:mm`.
   final String time;
 
@@ -81,6 +85,7 @@ class HotWorkMeasurement {
   final String note;
 
   const HotWorkMeasurement({
+    this.id = '',
     required this.time,
     this.at,
     this.enteredAt,
@@ -88,7 +93,17 @@ class HotWorkMeasurement {
     this.note = '',
   });
 
+  /// Chwila wpisania ważna względem [now]: wpis „z przyszłości” (dalej niż
+  /// [kHotWorkFutureSlack]) — zegar był przestawiony — jest nieważny
+  /// i zostaje chwila pomiaru [at]. Bez przycinania do „teraz”.
+  int? enteredAsOf(DateTime now) {
+    final e = enteredAt;
+    if (e == null) return at;
+    return e > now.add(kHotWorkFutureSlack).millisecondsSinceEpoch ? at : e;
+  }
+
   Map<String, Object?> toJson() => {
+        if (id.isNotEmpty) 'id': id,
         'time': time,
         if (at != null) 'at': at,
         if (enteredAt != null) 'entered': enteredAt,
@@ -112,10 +127,18 @@ class HotWorkMeasurement {
     }
     final entered = raw['entered'];
     return HotWorkMeasurement(
+      id: _s(raw['id']),
       time: _s(raw['time']),
       at: atMs,
-      enteredAt:
-          entered is num && entered.isFinite ? entered.toInt() : null,
+      // Chwila wpisu z przyszłości (przestawiony zegar) jest nieważna —
+      // zostaje chwila pomiaru; NIE przycinamy jej do „teraz”.
+      enteredAt: entered is num &&
+              entered.isFinite &&
+              (now == null ||
+                  entered <=
+                      now.add(kHotWorkFutureSlack).millisecondsSinceEpoch)
+          ? entered.toInt()
+          : null,
       dgwPct: v.toDouble(),
       note: _s(raw['note']),
     );
@@ -124,6 +147,7 @@ class HotWorkMeasurement {
   @override
   bool operator ==(Object other) =>
       other is HotWorkMeasurement &&
+      other.id == id &&
       other.time == time &&
       other.at == at &&
       other.enteredAt == enteredAt &&
@@ -131,7 +155,7 @@ class HotWorkMeasurement {
       other.note == note;
 
   @override
-  int get hashCode => Object.hash(time, at, enteredAt, dgwPct, note);
+  int get hashCode => Object.hash(id, time, at, enteredAt, dgwPct, note);
 }
 
 /// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: ostatnie takie
@@ -257,6 +281,10 @@ class HotWorkAssessment {
   /// Decyduje pomiar ponad próg wpisany później niż najpóźniejszy.
   final bool enteredLater;
 
+  /// Różne wyniki z tej samej (najpóźniejszej) minuty — kolejność nie
+  /// rozstrzyga, decyduje gorszy (jak w module przestrzeni zamkniętej).
+  final bool tie;
+
   /// Data protokołu i „dziś” w chwili oceny (`YYYY-MM-DD`).
   final String recordDate;
   final String today;
@@ -273,6 +301,7 @@ class HotWorkAssessment {
     this.latestMeasurement,
     this.measurementStale = false,
     this.enteredLater = false,
+    this.tie = false,
     this.recordDate = '',
     this.today = '',
     this.maxAgeMin = kHotWorkMeasurementMaxAgeMin,
@@ -459,16 +488,38 @@ class HotWorkPermit {
     final validLimit = limit != null && hotWorkLimitValid(limit) ? limit : null;
     final effLimit = validLimit ?? kHotWorkDefaultDgwLimitPct;
     final latest = chrono.isEmpty ? null : chrono.last;
-    var decisive = latest;
+    // Najpóźniejsza MINUTA (tyle widać na ekranie): kilka wyników z tej
+    // samej minuty to remis — decyduje gorszy (wyższy % DGW), nie
+    // milisekunda wpisu. Stare zapisy bez chwili — ostatni wpis.
+    final List<HotWorkMeasurement> group;
+    if (latest == null) {
+      group = const [];
+    } else if (chrono.every((m) => m.at != null)) {
+      final minute = latest.at! ~/ 60000;
+      group = [for (final m in chrono) if (m.at! ~/ 60000 == minute) m];
+    } else {
+      group = [latest];
+    }
+    var decisive = group.isEmpty
+        ? null
+        : group.reduce((a, b) => b.dgwPct > a.dgwPct ? b : a);
+    final tie = {for (final m in group) m.dgwPct}.length > 1;
     var enteredLater = false;
-    if (latest != null &&
-        hotWorkMeasurementOk(latest.dgwPct, effLimit)) {
+    if (decisive != null &&
+        hotWorkMeasurementOk(decisive.dgwPct, effLimit)) {
       // Pomiar ponad próg wpisany PÓŹNIEJ niż najpóźniejszy w czasie — np.
       // o 14:00 wpis z godziną 14:05 (0 %), o 14:02 prawdziwy wynik 15 %.
-      final lastEntered = latest.enteredAt ?? latest.at;
+      // Chwila wpisu z przyszłości (przestawiony zegar) się nie liczy.
+      int? lastEntered;
+      for (final m in group) {
+        final e = m.enteredAsOf(now);
+        if (e != null && (lastEntered == null || e > lastEntered)) {
+          lastEntered = e;
+        }
+      }
       if (lastEntered != null) {
         for (final m in measurements) {
-          final e = m.enteredAt;
+          final e = m.enteredAsOf(now);
           if (e == null || e <= lastEntered) continue;
           if (hotWorkMeasurementOk(m.dgwPct, effLimit)) continue;
           if (!enteredLater || m.dgwPct > decisive!.dgwPct) {
@@ -495,10 +546,34 @@ class HotWorkPermit {
       limitPct: validLimit,
       measurementStale: stale,
       enteredLater: enteredLater,
+      tie: tie,
       recordDate: date,
       today: hotWorkDate(now),
       maxAgeMin: effectiveMaxAgeMin,
     );
+  }
+
+  /// Dopisuje pomiar (lista w kolejności czasu).
+  HotWorkPermit addMeasurement(HotWorkMeasurement m) => copyWith(
+      measurements: hotWorkMeasurementsChrono([...measurements, m]));
+
+  /// Usuwa pomiar po identyfikatorze (stare zapisy bez niego — po
+  /// tożsamości obiektu).
+  HotWorkPermit removeMeasurement(HotWorkMeasurement m) {
+    final i = m.id.isEmpty
+        ? measurements.indexWhere((x) => identical(x, m))
+        : measurements.indexWhere((x) => x.id == m.id);
+    if (i < 0) return this;
+    return copyWith(measurements: [...measurements]..removeAt(i));
+  }
+
+  /// Przywraca usunięty pomiar („Cofnij”) po identyfikatorze; jeśli już
+  /// jest — bez zmian (cofnięcie dwa razy nie dubluje).
+  HotWorkPermit restoreMeasurement(HotWorkMeasurement m) {
+    final present = m.id.isEmpty
+        ? measurements.contains(m)
+        : measurements.any((x) => x.id == m.id);
+    return present ? this : addMeasurement(m);
   }
 
   /// Przełącza „sprawdzone”; odhaczenie zdejmuje „n/d”.

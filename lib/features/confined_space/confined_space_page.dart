@@ -201,7 +201,11 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           // Zapis przez magazyn — działa także po opuszczeniu ekranu.
           onPressed: () async {
-            await store.upsert(record);
+            try {
+              await store.restore(record);
+            } catch (e) {
+              debugPrint('[confined_space] undo delete failed: $e');
+            }
             if (mounted) await _reload();
           },
         ),
