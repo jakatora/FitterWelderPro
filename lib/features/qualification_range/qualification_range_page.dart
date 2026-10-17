@@ -5,9 +5,12 @@
 // lib/domain/qualification/iso9606_range.dart.
 //
 // Puste albo nieczytelne pole to komunikat „czego brakuje”, nie wynik.
-// „Zapisz jako uprawnienie” otwiera formularz rejestru (CertificateEditPage)
-// ze szkicem — część wspólna zakresów, bo rejestr ma jeden zakres na
-// certyfikat. Udostępnianie (tekst, PDF) wstrzykiwane w testach.
+// „Zapisz jako uprawnienie” najpierw pokazuje OBOWIĄZKOWY dialog z tym, czego
+// kontrola spoiny z rejestru nie sprawdzi (grań, przenoszenie metalu, blacha
+// / rura, FM, otulina, proces 2…), dopiero po „Rozumiem — zapisz” otwiera
+// formularz rejestru (CertificateEditPage) ze szkicem — w polach tylko to,
+// czego kontrola nie poszerzy, ograniczenia na początku notatki.
+// Udostępnianie (tekst, PDF) wstrzykiwane w testach.
 
 import 'dart:async';
 
@@ -187,6 +190,58 @@ class _QualificationRangePageState extends State<QualificationRangePage> {
       _snack(iso9606DraftProblemText(problem, en: _en));
       return;
     }
+    // Obowiązkowo: czego rejestr nie sprawdza. Bez „Rozumiem” — bez zapisu.
+    final understood = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        key: const ValueKey('qr-limits-dialog'),
+        title: Text(ctx.tr(
+            pl: 'Czego rejestr nie sprawdzi',
+            en: 'What the register will not check')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                ctx.tr(
+                    pl: 'Kontrola spoiny z rejestru porówna proces, grubość, '
+                        'średnicę, pozycje i BW/FW. Tych ograniczeń tej próbki '
+                        'NIE sprawdzi — trafią na początek notatki certyfikatu:',
+                    en: 'The weld check against the register compares '
+                        'process, thickness, diameter, positions and BW/FW. '
+                        'It will NOT check these limitations of this test '
+                        'piece — they go to the top of the certificate notes:'),
+                style: const TextStyle(fontSize: 13, height: 1.35),
+              ),
+              const SizedBox(height: 10),
+              for (final (i, l) in draft.limits.indexed)
+                Padding(
+                  key: ValueKey('qr-limit-$i'),
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• ${l.text(en: _en)}',
+                      style: const TextStyle(fontSize: 13, height: 1.35)),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('qr-limits-cancel'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(ctx.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          FilledButton(
+            key: const ValueKey('qr-limits-ok'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(ctx.tr(
+                pl: 'Rozumiem — zapisz', en: 'Understood — save')),
+          ),
+        ],
+      ),
+    );
+    if (understood != true || !mounted) return;
     final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => CertificateEditPage(initial: draft.certificate),
     ));
@@ -526,7 +581,9 @@ class _QualificationRangePageState extends State<QualificationRangePage> {
   Widget _fillerSection(Iso9606Sample sample) {
     final fillers = [for (final p in sample.processes) p.filler];
     final allNone = fillers.every((f) => f == Iso9606Filler.none);
-    final anyNone = fillers.any((f) => f == Iso9606Filler.none);
+    // Pole także przy próbie ze spoiwem, która obejmuje spawanie bez spoiwa
+    // (141 → 142, 311, 15) — §5.6 uwaga.
+    final needsParent = iso9606NeedsParentGroup(sample);
     return QuoteSection(
       title: context.tr(pl: 'Spoiwo i materiał', en: 'Filler and material'),
       children: [
@@ -540,7 +597,7 @@ class _QualificationRangePageState extends State<QualificationRangePage> {
           ]),
           if (_fm != null) _caption(_en ? _fm!.nameEn : _fm!.namePl),
         ],
-        if (anyNone) ...[
+        if (needsParent) ...[
           const SizedBox(height: 12),
           TextField(
             key: const ValueKey('qr-parent'),
@@ -548,12 +605,20 @@ class _QualificationRangePageState extends State<QualificationRangePage> {
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               labelText: context.tr(
-                  pl: 'Grupa materiału rodzimego (ISO/TR 15608)',
-                  en: 'Parent material group (ISO/TR 15608)'),
-              helperText: context.tr(
-                  pl: 'np. 1.1, 8.1 — bez spoiwa tylko ta grupa (§5.6).',
-                  en: 'e.g. 1.1, 8.1 — without filler only this group '
-                      '(cl. 5.6).'),
+                  pl: 'Grupa materiału rodzimego próby (ISO/TR 15608)',
+                  en: 'Test parent material group (ISO/TR 15608)'),
+              helperText: allNone
+                  ? context.tr(
+                      pl: 'np. 1.1, 8.1 — bez spoiwa tylko ta grupa (§5.6).',
+                      en: 'e.g. 1.1, 8.1 — without filler only this group '
+                          '(cl. 5.6).')
+                  : context.tr(
+                      pl: 'np. 1.1, 8.1 — jak na certyfikacie (§5.1). '
+                          'Spawanie bez spoiwa (142…) tylko na tej grupie '
+                          '(§5.6).',
+                      en: 'e.g. 1.1, 8.1 — as on the certificate (cl. 5.1). '
+                          'Welding without filler (142…) only on this group '
+                          '(cl. 5.6).'),
               helperMaxLines: 3,
               isDense: true,
               border: const OutlineInputBorder(),

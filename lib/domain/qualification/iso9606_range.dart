@@ -58,8 +58,21 @@
 //  • puste / nieczytelne pole → problem (czego brakuje), nie wynik;
 //  • granice dokładnie wg tabel (s = 3, s = 12, D = 25, t = 3);
 //  • liczby do wyświetlenia: minimum W GÓRĘ, maksimum W DÓŁ do 0,01 mm;
-//  • szkic certyfikatu do rejestru (jeden zakres grubości / pozycji na
-//    certyfikat) bierze CZĘŚĆ WSPÓLNĄ zakresów procesów i rodzajów spoin.
+//  • szkic certyfikatu do rejestru wpisuje tylko to, czego kontrola spoiny
+//    nie poszerzy (proces 1 bez procesu 2, bez 142 z próby ze spoiwem;
+//    część wspólna BW / FW); czego rejestr nie sprawdza (grań, przenoszenie,
+//    blacha / rura, FM, otulina, proces 2…) — obowiązkowy dialog
+//    i blok OGRANICZENIA na początku notatki ([iso9606RegisterLimits]).
+//
+// __ROZSTRZYGNIĘTE Z TEKSTU NORMY__
+//  • §5.2 + §5.6: 141 / 143 / 145 obejmują 142, a spawanie ze spoiwem —
+//    spawanie bez spoiwa; uwaga do §5.6: dla 142 i 311 bez spoiwa zakresem
+//    jest grupa materiału rodzimego z próby → spawanie bez spoiwa objęte
+//    tylko na tej grupie (wymagana przy próbie, która je obejmuje);
+//  • tab. 6: 311 „s do 1,5s” i „3 do 1,5s” to przypisy c, d wierszy s < 3
+//    i 3 ≤ s < 12; wiersz s ≥ 12 ma tylko przypisy e, f → „≥ 3” także 311;
+//  • §5.3 c: blacha obejmuje rury obracane D ≥ 75 w PA, PB, PC i PD
+//    „zgodnie z tab. 9 i 10” → część wspólna z zakresem pozycji.
 //
 // ASME IX (QW-451/452, QW-461.9) — świadomie poza modułem.
 
@@ -757,10 +770,12 @@ String iso9606ProblemText(Iso9606Problem p, {required bool en}) {
     Iso9606Problem.fm => t('Wybierz grupę spoiwa FM (tab. 2).',
         'Choose the filler material group FM (Table 2).'),
     Iso9606Problem.parentGroup => t(
-        'Bez spoiwa zakres to grupa materiału z próby — wpisz ją '
-            '(ISO/TR 15608, np. 1.1 albo 8.1) — §5.6.',
-        'Without filler the range is the parent material group of the test '
-            '— enter it (ISO/TR 15608, e.g. 1.1 or 8.1) — cl. 5.6.'),
+        'Podaj grupę materiału rodzimego próby (ISO/TR 15608, np. 1.1 albo '
+            '8.1) — spawanie bez spoiwa (142, 311 / 15 bez spoiwa) jest '
+            'objęte tylko na tej grupie (§5.6 uwaga).',
+        'Enter the parent material group of the test piece (ISO/TR 15608, '
+            'e.g. 1.1 or 8.1) — welding without filler (142, 311 / 15 '
+            'without filler) is covered only on that group (cl. 5.6 note).'),
     Iso9606Problem.parentGroupInvalid => t(
         'Grupa materiału: format ISO/TR 15608, np. 1, 1.1, 8.1, 11.',
         'Parent material group: ISO/TR 15608 format, e.g. 1, 1.1, 8.1, 11.'),
@@ -914,6 +929,31 @@ class Iso9606Evaluation {
 
 final RegExp _kParentGroup = RegExp(r'^\d{1,2}(\.\d{1,2})?$');
 
+/// Czy proces próbki (z wybranym, pasującym spoiwem) obejmuje spawanie BEZ
+/// spoiwa: próba bez spoiwa (142, 311 / 15 „nm”) albo ze spoiwem, gdy §5.2
+/// obejmuje proces bez spoiwa (141 / 143 / 145 → 142) lub sam proces może
+/// spawać bez spoiwa (311, 15) — §5.6: „ze spoiwem obejmuje bez spoiwa”.
+bool _coversNoFiller(Iso9606ProcessInput p) {
+  final proc = p.process;
+  final f = p.filler;
+  if (proc == null || f == null || !proc.fillers.contains(f)) return false;
+  if (!kIso9606FillerRange[f]!.contains(Iso9606Filler.none)) return false;
+  return iso9606ProcessCandidates(proc)
+      .any((c) => c.fillers.contains(Iso9606Filler.none));
+}
+
+/// Czy potrzebna grupa materiału rodzimego próby (ISO/TR 15608).
+///
+/// EN ISO 9606-1 §5.6 UWAGA: „dla procesów 142 i 311 (bez spoiwa) grupa
+/// materiału rodzimego użyta w próbie jest grupą, na którą spawacz ma
+/// uprawnienie”. §5.2: 141 / 143 / 145 obejmują 142; §5.6: spawanie ze
+/// spoiwem obejmuje spawanie bez spoiwa. Uwaga nie zastrzega, że dotyczy
+/// tylko próby bez spoiwa — więc spawanie bez spoiwa (142, 311 / 15 „nm”)
+/// objęte z próby ze spoiwem też liczymy tylko na grupie z próby, a bez
+/// podanej grupy nie ma wyniku (nie zgadujemy szerzej).
+bool iso9606NeedsParentGroup(Iso9606Sample s) =>
+    s.processes.any(_coversNoFiller);
+
 bool _bad(double? v) => v != null && (!v.isFinite || v <= 0 || v >= 1000);
 
 List<T> _ordered<T extends Enum>(Iterable<T> items, List<T> order) =>
@@ -998,13 +1038,13 @@ Iso9606Evaluation evaluateIso9606(Iso9606Sample s) {
 
   // Spoiwo: FM, chyba że wszystkie procesy są bez spoiwa (także zanim
   // wybrano spoiwo — od razu widać, czego brakuje); grupa materiału, gdy
-  // któryś jest bez spoiwa.
+  // próba obejmuje spawanie bez spoiwa (§5.6 uwaga — patrz
+  // [iso9606NeedsParentGroup]).
   final fillers = [for (final p in s.processes) p.filler];
   final allNone = fillers.every((f) => f == Iso9606Filler.none);
-  final anyNone = fillers.any((f) => f == Iso9606Filler.none);
   if (!allNone && s.fm == null) problems.add(Iso9606Problem.fm);
   final parent = s.parentGroup.trim();
-  if (anyNone) {
+  if (iso9606NeedsParentGroup(s)) {
     if (parent.isEmpty) {
       problems.add(Iso9606Problem.parentGroup);
     } else if (!_kParentGroup.hasMatch(parent)) {
@@ -1144,6 +1184,18 @@ Iso9606Range _compute(Iso9606Sample s) {
           'at least 3 layers). The old EN 287-1 gave ≥ 5 mm and some '
           'training material still says so — the certificate is binding.',
       check: true,
+    ));
+  }
+  if (s.isButt &&
+      s.processes.any((p) =>
+          p.process == Iso9606Process.p311 && p.thicknessMm! >= 12)) {
+    notes.add(const Iso9606Note(
+      '311: tab. 6 ogranicza zakres do 1,5·s tylko przypisami c i d '
+          '(wiersze s < 12). Wiersz s ≥ 12 ma tylko przypisy e, f — „≥ 3 mm” '
+          'także dla 311.',
+      '311: Table 6 limits the range to 1.5·s only by notes c and d (rows '
+          's < 12). The s ≥ 12 row has only notes e, f — "≥ 3 mm" for 311 '
+          'too.',
     ));
   }
 
@@ -1324,8 +1376,21 @@ Iso9606Range _compute(Iso9606Sample s) {
   final fms = s.fm == null || !withFiller
       ? const <Iso9606FmGroup>[]
       : _ordered(kIso9606FmRange[s.fm!]!, Iso9606FmGroup.values);
-  final anyNone = s.processes.any((p) => p.filler == Iso9606Filler.none);
-  final parent = anyNone ? s.parentGroup.trim() : null;
+  final needsParent = iso9606NeedsParentGroup(s);
+  final parent = needsParent ? s.parentGroup.trim() : null;
+  if (needsParent && withFiller) {
+    final noFiller = <String>{
+      for (final r in ranges)
+        for (final e in r.processes.entries)
+          if (e.value.contains(Iso9606Filler.none)) e.key.code,
+    }.join(', ');
+    notes.add(Iso9606Note(
+      'Spawanie bez spoiwa ($noFiller) — objęte (§5.2, §5.6), ale tylko na '
+          'grupie materiału z próby: $parent (§5.6 uwaga).',
+      'Welding without filler ($noFiller) — covered (cl. 5.2, 5.6), but only '
+          'on the parent material group of the test: $parent (cl. 5.6 note).',
+    ));
+  }
   if (fms.isNotEmpty) {
     notes.add(const Iso9606Note(
       'Spoiwem z objętych grup FM — na materiałach rodzimych grup 1–11 '
@@ -1515,12 +1580,20 @@ List<Iso9606Line> iso9606Lines(Iso9606Range r, {required bool en}) {
       t('§5.5, tab. 3', 'cl. 5.5, Table 3'),
     ));
   }
+  if (r.fmGroups.isNotEmpty) {
+    lines.add(Iso9606Line(
+      'parent-filler',
+      t('Materiał rodzimy (ze spoiwem)', 'Parent material (with filler)'),
+      t('grupy 1–11 (ISO/TR 15608)', 'groups 1–11 (ISO/TR 15608)'),
+      t('§5.5.2', 'cl. 5.5.2'),
+    ));
+  }
   if (r.parentGroup != null) {
     lines.add(Iso9606Line(
       'parent',
       t('Materiał rodzimy (bez spoiwa)', 'Parent material (no filler)'),
-      t('grupa ${r.parentGroup} (ISO/TR 15608)',
-          'group ${r.parentGroup} (ISO/TR 15608)'),
+      t('tylko grupa ${r.parentGroup} (ISO/TR 15608)',
+          'group ${r.parentGroup} only (ISO/TR 15608)'),
       t('§5.6 uwaga', 'cl. 5.6 note'),
     ));
   }
@@ -1707,11 +1780,26 @@ String iso9606ShareText(Iso9606Range r, {required bool en}) {
 }
 
 // ─── Szkic certyfikatu do rejestru ──────────────────────────────────────────
+//
+// Rejestr uprawnień (WelderCertificate + kontrola spoiny w
+// lib/domain/wps/weld_range_check.dart) sprawdza tylko: proces (numery ISO
+// 4063), grupę materiałową (dosłownie), jeden zakres grubości, jeden zakres
+// średnic, pozycje i BW/FW. NIE zna: prowadzenia grani (tab. 11), rodzaju
+// przenoszenia metalu, blachy vs rury (spoina na blasze nie ma średnicy),
+// grup FM i typu otuliny / rdzenia, techniki sl / ml, kierunku 311,
+// odgałęzień ani złącza dwuprocesowego. Dlatego:
+//  • do rejestru idzie tylko to, co nie POSZERZA kontroli — proces 1 (grań
+//    albo jedyny) z kandydatami §5.2; proces 2 złącza dwuprocesowego NIE
+//    (sam jest objęty tylko na grani / podkładce, a rejestr przepuściłby go
+//    także w grani bez podkładki); 142 z próby ze spoiwem NIE (tylko na
+//    grupie materiału z próby, a rejestr przy spoiwie grupy nie sprawdza);
+//  • reszta to OGRANICZENIA — obowiązkowy dialog przed zapisem i wyraźny
+//    blok na początku notatki certyfikatu ([iso9606RegisterLimits]).
 
 /// Dlaczego szkicu nie da się zapisać do rejestru (jeden zakres na
 /// certyfikat).
 enum Iso9606DraftProblem {
-  /// Zakresy grubości procesów / rodzajów spoin nie mają części wspólnej.
+  /// Zakresy grubości BW i FW nie mają części wspólnej.
   thicknessNoOverlap,
 
   /// Pozycje BW i FW nie mają części wspólnej.
@@ -1721,12 +1809,12 @@ enum Iso9606DraftProblem {
 String iso9606DraftProblemText(Iso9606DraftProblem p, {required bool en}) =>
     switch (p) {
       Iso9606DraftProblem.thicknessNoOverlap => en
-          ? 'The thickness ranges of the processes / weld types do not overlap '
-              '— the register keeps one range per certificate. Enter each '
-              'process as a separate test piece.'
-          : 'Zakresy grubości procesów / rodzajów spoin się nie pokrywają — '
-              'rejestr trzyma jeden zakres na certyfikat. Wpisz każdy proces '
-              'jako osobną próbkę.',
+          ? 'The butt and fillet thickness ranges do not overlap — the '
+              'register keeps one range per certificate. Save the butt test '
+              'without the supplementary fillet test.'
+          : 'Zakresy grubości spoin czołowych i pachwinowych się nie '
+              'pokrywają — rejestr trzyma jeden zakres na certyfikat. Zapisz '
+              'próbkę czołową bez dodatkowej pachwinowej.',
       Iso9606DraftProblem.positionsNoOverlap => en
           ? 'The BW and FW positions do not overlap — save the butt test '
               'without the supplementary fillet test.'
@@ -1734,28 +1822,239 @@ String iso9606DraftProblemText(Iso9606DraftProblem p, {required bool en}) =>
               'dodatkowej pachwinowej.',
     };
 
+/// Procesy wpisywane do rejestru: proces 1 próbki (grań albo jedyny) z
+/// kandydatami §5.2 — bez procesów objętych WYŁĄCZNIE bez spoiwa, gdy próbę
+/// spawano ze spoiwem (142 z próby 141: tylko na grupie materiału z próby,
+/// której rejestr przy spoiwie nie sprawdza). Proces 2 złącza
+/// dwuprocesowego — nigdy (patrz komentarz sekcji).
+List<Iso9606Process> iso9606RegisterProcesses(Iso9606Range r) {
+  final first = r.processes.first;
+  final testNoFiller = first.filler == Iso9606Filler.none;
+  return [
+    for (final p in Iso9606Process.values)
+      if (first.processes.containsKey(p) &&
+          (testNoFiller ||
+              first.processes[p]!.any((f) => f != Iso9606Filler.none)))
+        p,
+  ];
+}
+
+String _list(Iterable<String> items) => items.join(', ');
+
+/// Ograniczenia tej próbki, których kontrola spoiny z rejestru NIE sprawdza.
+/// Pokazywane w obowiązkowym dialogu przed zapisem i na początku notatki
+/// certyfikatu. Kolejność: od tego, co najczęściej przepuściłaby kontrola.
+List<Iso9606Note> iso9606RegisterLimits(Iso9606Range r) {
+  final s = r.sample;
+  final first = r.processes.first;
+  final register = iso9606RegisterProcesses(r);
+  final out = <Iso9606Note>[];
+
+  // Prowadzenie grani (tab. 11) — rejestr nie wie, czy spoina ma podkładkę.
+  if (s.isButt) {
+    final applicable = [
+      for (final b in Iso9606Backing.values)
+        if (b.appliesTo(first.tested)) b,
+    ];
+    final missing = [
+      for (final b in applicable)
+        if (!first.backings.contains(b)) b.code,
+    ];
+    if (missing.isNotEmpty) {
+      final ok = _list(first.backings.map((b) => b.code));
+      out.add(Iso9606Note(
+        'grań: tylko $ok (NIE ${_list(missing)}) — tab. 11',
+        'root: only $ok (NOT ${_list(missing)}) — Table 11',
+      ));
+    }
+    if (s.backing == Iso9606Backing.ssNb &&
+        (first.filler.isCovering || first.filler.isCored)) {
+      out.add(Iso9606Note(
+        'grań bez podkładki (ss nb) tylko tym typem otuliny / rdzenia, '
+            'którym spawano grań próby (${first.filler.code}) — tab. 4 / 5, '
+            'przypis b',
+        'root without backing (ss nb) only with the covering / core type '
+            'used for the test root (${first.filler.code}) — Tables 4 / 5, '
+            'note b',
+      ));
+    }
+  }
+
+  // Przenoszenie metalu (§5.2).
+  if (first.transfer == Iso9606Transfer.other) {
+    out.add(const Iso9606Note(
+      'NIE zwarciowe przenoszenie metalu (dip) — próba bez zwarciowego, §5.2',
+      'NOT dip (short-circuit) transfer — test without dip, cl. 5.2',
+    ));
+  }
+
+  // Wyrób (§5.3 a) — spoina na blasze nie ma średnicy, więc rejestr jej nie
+  // zatrzyma.
+  if (s.isPipe && !r.coversPlates) {
+    out.add(Iso9606Note(
+      'tylko rury D ${iso9606RangeText(r.diameter!, en: false)} (NIE '
+          'blachy) — §5.3 a',
+      'pipes only D ${iso9606RangeText(r.diameter!, en: true)} (NOT plates) '
+          '— cl. 5.3 a',
+    ));
+  }
+
+  // Złącze dwuprocesowe (tab. 1).
+  if (r.processes.length > 1) {
+    final p1 = first.tested.code;
+    final second = r.processes[1];
+    final p2 = second.tested.code;
+    out.add(Iso9606Note(
+      '$p2: tylko jako wypełnienie na grani $p1 (złącze s₁ + s₂ '
+          '${iso9606RangeText(r.jointThickness!, en: false)}, $p1 tylko '
+          'w grani) albo sam na podkładce / dwustronnie (ss mb, bs; '
+          '${iso9606RangeText(second.thickness, en: false)}) — NIE wpisany '
+          'do procesów rejestru; spoiny $p1 + $p2 kontrola oznaczy jako '
+          'proces spoza zakresu — tab. 1',
+      '$p2: only as fill on a $p1 root (joint s₁ + s₂ '
+          '${iso9606RangeText(r.jointThickness!, en: true)}, $p1 in the root '
+          'only) or alone on backing / both sides (ss mb, bs; '
+          '${iso9606RangeText(second.thickness, en: true)}) — NOT entered '
+          'in the register processes; the check will flag $p1 + $p2 welds '
+          'as out of range — Table 1',
+    ));
+  }
+
+  // Grupy FM i materiał rodzimy (§5.5).
+  if (r.fmGroups.isNotEmpty) {
+    final fm = _list(r.fmGroups.map((g) => g.code));
+    out.add(Iso9606Note(
+      'spoiwo tylko z grup $fm (tab. 3), materiał rodzimy grup 1–11 '
+          'ISO/TR 15608 (§5.5.2)',
+      'filler only from groups $fm (Table 3), parent material of groups '
+          '1–11 ISO/TR 15608 (cl. 5.5.2)',
+    ));
+  }
+
+  // Typ otuliny / rdzenia (tab. 4 / 5).
+  for (final p in register) {
+    final types = first.processes[p]!;
+    final excluded = [
+      for (final f in p.fillers)
+        if (!types.contains(f)) f,
+    ];
+    if (excluded.isEmpty) continue;
+    String names(List<Iso9606Filler> l, bool en) => l
+        .map((f) => f == Iso9606Filler.none
+            ? (en ? 'no filler' : 'bez spoiwa')
+            : f.code)
+        .join(', ');
+    out.add(Iso9606Note(
+      '${p.code}: tylko ${names(types, false)} (NIE ${names(excluded, false)}) '
+          '— ${types.first.isCovering ? 'tab. 4' : 'tab. 5'}',
+      '${p.code}: only ${names(types, true)} (NOT ${names(excluded, true)}) '
+          '— ${types.first.isCovering ? 'Table 4' : 'Table 5'}',
+    ));
+  }
+
+  // Spawanie bez spoiwa — tylko grupa materiału z próby (§5.6 uwaga).
+  if (r.parentGroup != null && first.filler != Iso9606Filler.none) {
+    final g = r.parentGroup!;
+    final noFiller = [
+      for (final e in first.processes.entries)
+        if (e.value.contains(Iso9606Filler.none)) e.key,
+    ];
+    final left = [
+      for (final p in noFiller)
+        if (!register.contains(p)) p.code,
+    ];
+    final kept = [
+      for (final p in noFiller)
+        if (register.contains(p)) p.code,
+    ];
+    if (left.isNotEmpty) {
+      out.add(Iso9606Note(
+        '${_list(left)} (bez spoiwa): tylko na grupie $g — NIE wpisany do '
+            'procesów rejestru (rejestr nie sprawdzi grupy) — §5.6 uwaga',
+        '${_list(left)} (no filler): only on group $g — NOT entered in the '
+            'register processes (the register cannot check the group) — '
+            'cl. 5.6 note',
+      ));
+    }
+    if (kept.isNotEmpty) {
+      out.add(Iso9606Note(
+        '${_list(kept)} bez spoiwa: tylko na grupie $g — §5.6 uwaga',
+        '${_list(kept)} without filler: only on group $g — cl. 5.6 note',
+      ));
+    }
+  }
+
+  // Odgałęzienia (§5.4 a, c).
+  if (s.isButt) {
+    out.add(s.isPipe
+        ? const Iso9606Note(
+            'odgałęzienia tylko pod kątem ≥ 60°, zakres wg średnicy '
+                'odgałęzienia — §5.4 c',
+            'branch joints only at ≥ 60°, range by the branch outside '
+                'diameter — cl. 5.4 c',
+          )
+        : const Iso9606Note(
+            'NIE odgałęzienia (tylko z próby czołowej na rurze) — §5.4 a, c',
+            'NOT branch joints (only from a butt test on pipe) — cl. 5.4 a, '
+                'c',
+          ));
+  }
+
+  // Technika spoin pachwinowych (tab. 12).
+  final layers = r.filletLayers;
+  if (layers != null && !layers.contains(Iso9606FilletLayers.ml)) {
+    out.add(const Iso9606Note(
+      'spoiny pachwinowe tylko jednowarstwowe (sl), NIE wielowarstwowe (ml) '
+          '— tab. 12',
+      'fillet welds single layer only (sl), NOT multi-layer (ml) — Table 12',
+    ));
+  }
+
+  // Kierunek spawania 311 (§5.9).
+  final gas = s.gasDirection;
+  if (gas != null && register.contains(Iso9606Process.p311)) {
+    final other = gas == Iso9606GasDirection.leftward
+        ? Iso9606GasDirection.rightward
+        : Iso9606GasDirection.leftward;
+    out.add(Iso9606Note(
+      '311: tylko ${gas.code} (NIE ${other.code}) — §5.9',
+      '311: ${gas.code} only (NOT ${other.code}) — cl. 5.9',
+    ));
+  }
+  return out;
+}
+
+/// Nagłówek bloku ograniczeń w notatce certyfikatu.
+String iso9606LimitsHeader({required bool en}) => en
+    ? 'LIMITATIONS — not checked by the register:'
+    : 'OGRANICZENIA — rejestr ich nie sprawdza:';
+
 /// Szkic certyfikatu do rejestru albo powód, dla którego się nie da.
 class Iso9606Draft {
   final WelderCertificate? certificate;
   final Iso9606DraftProblem? problem;
 
-  const Iso9606Draft._(this.certificate, this.problem);
+  /// Ograniczenia, których rejestr nie sprawdza — do obowiązkowego dialogu
+  /// przed zapisem; te same stoją na początku notatki [certificate].
+  final List<Iso9606Note> limits;
+
+  const Iso9606Draft._(this.certificate, this.problem, this.limits);
 }
 
-/// Szkic certyfikatu. Rejestr ma JEDEN zakres grubości, średnic i pozycji
-/// na certyfikat, więc bierzemy część wspólną (procesy osobno i razem, BW
-/// i FW) — kontrola spoiny z rejestru nie przepuści spoiny spoza zakresu.
-/// Pełny zakres trafia do uwag. Grupa materiałowa (ISO/TR 15608): pusta przy
-/// spoiwie (spoiwa FM obejmują grupy 1–11, a rejestr porównuje grupy
-/// dosłownie — FM idą do pola „spoiwo”), grupa z próby przy spawaniu bez
-/// spoiwa. Próba na blasze: rury tylko D ≥ 500 mm (rejestr nie rozróżnia rur
-/// obracanych).
+/// Szkic certyfikatu. Do pól, które sprawdza kontrola spoiny, idzie tylko to,
+/// czego nie da się poszerzyć: procesy z [iso9606RegisterProcesses], grubość
+/// procesu 1 (część wspólna z FW przy dodatkowej próbce), pozycje (część
+/// wspólna BW i FW), średnica z tab. 7 albo — przy próbie na blasze — tylko
+/// rury D ≥ 500 mm (rejestr nie rozróżnia rur obracanych). Grupa
+/// materiałowa: grupa z próby przy spawaniu bez spoiwa, pusta przy spoiwie
+/// (FM obejmują grupy 1–11, rejestr porównuje grupy dosłownie — FM idą do
+/// pola „spoiwo” i do ograniczeń). Notatka zaczyna się blokiem
+/// OGRANICZENIA ([iso9606RegisterLimits]), potem pełny zakres.
 Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
   final s = r.sample;
-  var thickness = r.thickness;
-  for (final p in r.processes) {
-    thickness = thickness.intersect(p.thickness);
-  }
+  final first = r.processes.first;
+  final limits = iso9606RegisterLimits(r);
+  var thickness = first.thickness;
   var positions = r.positions;
   if (r.filletThickness != null) {
     thickness = thickness.intersect(r.filletThickness!);
@@ -1764,14 +2063,15 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
         if (r.filletPositions!.contains(p)) p,
     ];
     if (positions.isEmpty) {
-      return const Iso9606Draft._(null, Iso9606DraftProblem.positionsNoOverlap);
+      return Iso9606Draft._(
+          null, Iso9606DraftProblem.positionsNoOverlap, limits);
     }
   }
   final tMin = iso9606RoundMin(thickness.min);
   final tMax =
       thickness.max == null ? null : iso9606RoundMax(thickness.max!);
   if (tMax != null && tMax < tMin) {
-    return const Iso9606Draft._(null, Iso9606DraftProblem.thicknessNoOverlap);
+    return Iso9606Draft._(null, Iso9606DraftProblem.thicknessNoOverlap, limits);
   }
   final double dMin;
   double? dMax;
@@ -1781,21 +2081,22 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
   } else {
     dMin = 500;
   }
-  final processes = <Iso9606Process>{
-    for (final p in r.processes) ...p.processes.keys,
-  };
+  final register = iso9606RegisterProcesses(r);
   // „15” nie jest trzycyfrowym numerem ISO 4063 — „PAW” pozwala rejestrowi
   // rozpoznać rodzinę procesu.
-  final processText = [
-    for (final p in Iso9606Process.values)
-      if (processes.contains(p)) p == Iso9606Process.p15 ? '15 PAW' : p.code,
-  ].join(', ');
+  final processText = _list(register
+      .map((p) => p == Iso9606Process.p15 ? '15 PAW' : p.code));
   final fillerParts = <String>[
-    if (r.fmGroups.isNotEmpty) r.fmGroups.map((g) => g.code).join(', '),
-    for (final p in r.processes)
-      '${p.tested.code}: ${iso9606QualifiedFillers(p).map((f) => _fillerText(f, en: en)).join(', ')}',
+    if (r.fmGroups.isNotEmpty) _list(r.fmGroups.map((g) => g.code)),
+    for (final p in register)
+      '${p.code}: ${_list(first.processes[p]!.map((f) => _fillerText(f, en: en)))}',
   ];
-  final notes = StringBuffer()
+  final notes = StringBuffer()..writeln(iso9606LimitsHeader(en: en));
+  for (final l in limits) {
+    notes.writeln('• ${l.text(en: en)}');
+  }
+  notes
+    ..writeln()
     ..writeln(en
         ? 'Range from the test piece (Fitter Welder Pro, EN ISO 9606-1:2017) '
             '— check against the certificate.'
@@ -1805,12 +2106,19 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
   for (final l in iso9606Lines(r, en: en)) {
     notes.writeln('${l.label}: ${l.value} [${l.clause}]');
   }
-  if (r.processes.length > 1 || r.filletThickness != null) {
+  if (r.processes.length > 1) {
     notes.writeln(en
-        ? 'Register: thickness / positions as the common part (one range per '
-            'certificate).'
-        : 'Rejestr: grubość / pozycje jako część wspólna (jeden zakres na '
-            'certyfikat).');
+        ? 'Register: processes and thickness of process 1 '
+            '(${first.tested.code}) only.'
+        : 'Rejestr: procesy i grubość tylko procesu 1 '
+            '(${first.tested.code}).');
+  }
+  if (r.filletThickness != null) {
+    notes.writeln(en
+        ? 'Register: thickness / positions as the common part of BW and FW '
+            '(one range per certificate).'
+        : 'Rejestr: grubość / pozycje jako część wspólna BW i FW (jeden '
+            'zakres na certyfikat).');
   }
   if (r.diameter == null) {
     notes.writeln(en
@@ -1823,7 +2131,8 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
     id: '',
     standard: QualificationStandard.iso9606_1,
     processes: processText,
-    materialGroup: r.parentGroup ?? '',
+    materialGroup:
+        first.filler == Iso9606Filler.none ? (r.parentGroup ?? '') : '',
     thicknessMinMm: tMin,
     thicknessMaxMm: tMax,
     diameterMinMm: dMin,
@@ -1838,5 +2147,5 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
     createdAt: 0,
     updatedAt: 0,
   );
-  return Iso9606Draft._(certificate, null);
+  return Iso9606Draft._(certificate, null, limits);
 }
