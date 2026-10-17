@@ -998,6 +998,8 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/tube_bending/tube_bending_page_test.dart: domyślnie 3 gięcia: cięcie 686 mm, znaczniki 112 / 318 / 544',
         'test/features/tube_bending/tube_bending_page_test.dart: nakładające się łuki i za krótka prosta → ostrzeżenia',
         'test/features/tube_bending/tube_bending_page_test.dart: wąski ekran 320 × 640, tekst × 1,3 — bez przepełnień',
+        'test/features/tube_bending/tube_bending_page_test.dart: przełączanie mm ↔ cale nie zmienia danych: ten sam wynik i ten sam zapis',
+        'test/features/tube_bending/tube_bending_page_test.dart: edycja przed końcem odczytu: zapisana, nie nadpisana odczytem',
       ]),
   ModuleAuditEntry(
       id: 'tungsten',
