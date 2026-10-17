@@ -5,6 +5,8 @@
 // Wartość calowa w normie nie jest dokładnym przeliczeniem metrycznej:
 // 1/16" = 1,5875 mm > 1,5 mm — protokół ocenia się w jednostce pomiaru.
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/flange/flange_check.dart';
@@ -394,7 +396,9 @@ void main() {
       }
     });
 
-    test('zepsuty wpis pomijany, reszta zostaje; złe pola → domyślne', () {
+    test(
+        'zepsuty wpis pomijany, reszta zostaje; złe tolerancje → nieważne, '
+        'nie PCC-1', () {
       final raw = '{"v":1,"checks":['
           '{"id":""},'
           '{"noId":true},'
@@ -413,7 +417,145 @@ void main() {
       expect(c.measurements.force, isNull);
       expect(c.checked, {FlangeChecklistItem.faces});
       expect(c.unit, LengthUnit.mm);
-      expect(c.tolerances.isPcc1, isTrue);
+      expect(c.tolerances.isPcc1, isFalse);
+      expect(c.tolerances.isValid, isFalse);
+      expect(c.problems, contains(FlangeDataProblem.tolerances));
+      expect(c.evaluate().verdict, ProtocolVerdict.incomplete);
+      expect(decodeFlangeChecksReport(raw).intact, isFalse);
+    });
+
+    test(
+        'nienaruszony zapis → intact; poprawione pole albo pominięty wpis → nie',
+        () {
+      final good = encodeFlangeChecks([_allOk(), _allOk().copyWith(id: 'y')]);
+      expect(decodeFlangeChecksReport(good).intact, isTrue);
+      expect(decodeFlangeChecksReport(null).intact, isTrue);
+      final json = jsonDecode(good) as Map<String, dynamic>;
+      ((json['checks'] as List)[0] as Map)['unit'] = 'furlong';
+      final fixed = decodeFlangeChecksReport(jsonEncode(json));
+      expect(fixed.checks, hasLength(2));
+      expect(fixed.intact, isFalse);
+      (json['checks'] as List).add({'noId': true});
+      expect(decodeFlangeChecksReport(jsonEncode(json)).intact, isFalse);
+      expect(decodeFlangeChecksReport('{').intact, isFalse);
+    });
+  });
+
+  group('B1: zmiana jednostki nie zmienia werdyktu po cichu', () {
+    test('1,55 mm „poza” → cale: pomiary wyczyszczone, nie zielony', () {
+      final mm = _allOk().copyWith(
+          measurements:
+              _allOk().measurements.copyWith(centerlineMm: () => 1.55));
+      expect(mm.evaluate().verdict, ProtocolVerdict.rejected);
+      // Bez czyszczenia ta sama liczba w calach (granica 1,5875 mm) przeszłaby.
+      expect(mm.copyWith(unit: LengthUnit.inch).evaluate().verdict,
+          ProtocolVerdict.accepted);
+      final inch = mm.withUnit(LengthUnit.inch);
+      expect(inch.unit, LengthUnit.inch);
+      expect(inch.measurements.hasLengthReadings, isFalse);
+      expect(inch.measurements.force, AlignmentForce.light);
+      expect(inch.measurements.gapPointCount, 4);
+      expect(inch.joint.gasketThicknessMm, 4.5);
+      expect(inch.evaluate().verdict, ProtocolVerdict.incomplete);
+    });
+
+    test('ta sama jednostka albo brak pomiarów — nic nie ginie', () {
+      final c = _allOk();
+      expect(identical(c.withUnit(LengthUnit.mm), c), isTrue);
+      final empty = _check(force: AlignmentForce.heavy);
+      expect(empty.measurements.hasLengthReadings, isFalse);
+      expect(empty.withUnit(LengthUnit.inch).measurements.force,
+          AlignmentForce.heavy);
+    });
+  });
+
+  group('B2: 8 → 4 punkty', () {
+    test('odczyty z 45/135/225/315° są zgłaszane jako tracone', () {
+      const m = FlangeMeasurements(gapsMm: [1, 2, 3, null, 5, 6, 7, 8]);
+      expect(m.readingsLostBy(4), [(45.0, 2.0), (225.0, 6.0), (315.0, 8.0)]);
+      expect(m.readingsLostBy(8), isEmpty);
+      const four = FlangeMeasurements(gapsMm: [1, 2, 3, 4]);
+      expect(four.readingsLostBy(8), isEmpty);
+      const evenOnly =
+          FlangeMeasurements(gapsMm: [1, null, 3, null, 5, null, 7, null]);
+      expect(evenOnly.readingsLostBy(4), isEmpty);
+    });
+  });
+
+  group('B3: górne granice i tolerancje luźniejsze niż PCC-1', () {
+    test('granica do 10 mm (≈ 0,39"), współczynnik do 10', () {
+      expect(DualLimit.entered(10, LengthUnit.mm).isValid, isTrue);
+      expect(DualLimit.entered(10.01, LengthUnit.mm).isValid, isFalse);
+      expect(DualLimit.entered(0.39, LengthUnit.inch).isValid, isTrue);
+      expect(DualLimit.entered(0.4, LengthUnit.inch).isValid, isFalse);
+      expect(FlangeTolerances.pcc1.copyWith(gapFactor: 10).isValid, isTrue);
+      expect(FlangeTolerances.pcc1.copyWith(gapFactor: 10.5).isValid, isFalse);
+    });
+
+    test('literówka 15 zamiast 1,5 mm — nie zielony', () {
+      final c = _allOk().copyWith(
+          tolerances: FlangeTolerances.pcc1
+              .copyWith(centerline: DualLimit.entered(15, LengthUnit.mm)));
+      expect(c.problems, contains(FlangeDataProblem.tolerances));
+      expect(c.evaluate().verdict, ProtocolVerdict.incomplete);
+      final factor = _allOk()
+          .copyWith(tolerances: FlangeTolerances.pcc1.copyWith(gapFactor: 100));
+      expect(factor.evaluate().verdict, ProtocolVerdict.incomplete);
+    });
+
+    test('luźniejsze niż PCC-1 — w jednostce protokołu', () {
+      final t = FlangeTolerances.pcc1.copyWith(
+          centerline: DualLimit.entered(1.6, LengthUnit.mm), gapFactor: 3);
+      expect(t.looserThanPcc1(LengthUnit.mm),
+          [FlangeCriterion.centerline, FlangeCriterion.spacing]);
+      final inch = FlangeTolerances.pcc1
+          .copyWith(centerline: DualLimit.entered(1 / 16, LengthUnit.inch));
+      expect(inch.looserThanPcc1(LengthUnit.inch), isEmpty);
+      expect(inch.looserThanPcc1(LengthUnit.mm), [FlangeCriterion.centerline]);
+      final strict = FlangeTolerances.pcc1
+          .copyWith(parallelism: DualLimit.entered(0.5, LengthUnit.mm));
+      expect(strict.looserThanPcc1(LengthUnit.mm), isEmpty);
+      expect(FlangeTolerances.pcc1.looserThanPcc1(LengthUnit.inch), isEmpty);
+      final c = _allOk().copyWith(tolerances: t);
+      expect(c.evaluate().verdict, ProtocolVerdict.accepted);
+      expect(c.evaluate().looserThanPcc1, hasLength(2));
+    });
+  });
+
+  group('B4: uszkodzone tolerancje w zapisie', () {
+    test(
+        'ostrzejsza tolerancja zakładu z uszkodzonym polem nie staje się PCC-1',
+        () {
+      final strict = _allOk().copyWith(
+          tolerances: FlangeTolerances.pcc1
+              .copyWith(centerline: DualLimit.entered(0.8, LengthUnit.mm)));
+      final json = strict.toJson();
+      final tol =
+          Map<String, Object?>.of(json['tolerances']! as Map<String, Object?>);
+      tol['centerline'] = 'zepsute';
+      json['tolerances'] = tol;
+      final back = FlangeCheck.fromJson(jsonDecode(jsonEncode(json)))!;
+      expect(back.tolerances.centerline, DualLimit.broken);
+      expect(back.tolerances.isPcc1, isFalse);
+      expect(back.evaluate().of(FlangeCriterion.centerline).verdict,
+          CheckVerdict.missing);
+      expect(back.problems, [FlangeDataProblem.tolerances]);
+      expect(back.evaluate().verdict, ProtocolVerdict.incomplete);
+    });
+
+    test('brak tolerancji w zapisie → nieważne; liczba spoza zakresu zostaje',
+        () {
+      final none = FlangeTolerances.fromJson(null);
+      expect(none.isValid, isFalse);
+      expect(none.gapFactor, 0);
+      final big = FlangeTolerances.fromJson({
+        'centerline': {'mm': 15, 'in': 15 / 25.4},
+        'parallelism': kPcc1Parallelism.toJson(),
+        'rotation': kPcc1Rotation.toJson(),
+        'gapFactor': 2,
+      });
+      expect(big.centerline.mm, 15);
+      expect(big.isValid, isFalse);
     });
   });
 }

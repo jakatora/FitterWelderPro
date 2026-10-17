@@ -118,4 +118,61 @@ void main() {
       expect(bytes.length, greaterThan(1000));
     }
   });
+
+  test('tolerancje luźniejsze niż PCC-1 — ostrzeżenie w tekście', () {
+    final c = _protocol().copyWith(
+        tolerances: FlangeTolerances.pcc1
+            .copyWith(centerline: DualLimit.entered(2, LengthUnit.mm)));
+    final t = buildFlangeCheckText(c, en: false);
+    expect(
+        t,
+        contains(
+            'UWAGA: tolerancje luźniejsze niż PCC-1 (Przesunięcie osi (high/low)).'));
+    expect(buildFlangeCheckText(_protocol(), en: false),
+        isNot(contains('luźniejsze')));
+    expect(buildFlangeCheckText(c, en: true),
+        contains('WARNING: tolerances looser than PCC-1'));
+  });
+
+  test('uszkodzone tolerancje — tekst mówi o nieważnych, granica „?”', () {
+    final c = _protocol().copyWith(tolerances: FlangeTolerances.fromJson(null));
+    final t = buildFlangeCheckText(c, en: false);
+    expect(t, contains('! Tolerancje nieważne'));
+    expect(t, contains('1,2 mm ≤ ? (tolerancja nieważna) — Brak pomiaru'));
+  });
+
+  test('PDF z bardzo długimi uwagami (5000 znaków) — kilka stron, bez wyjątku',
+      () async {
+    final words = List.generate(800, (i) => 'słowo$i').join(' ');
+    final longNotes = '${words.substring(0, 5000)}\n'
+        '${'X' * 5000}\n'
+        '${List.filled(60, 'krótka linia').join('\n')}';
+    final c = _protocol().copyWith(
+        notes: longNotes,
+        joint: _protocol().joint.copyWith(location: 'L' * 5000),
+        tolerances: FlangeTolerances.pcc1
+            .copyWith(centerline: DualLimit.entered(2, LengthUnit.mm)));
+    final doc = buildFlangeCheckPdf(
+      c,
+      font: pw.Font.ttf(_font('Roboto-Regular.ttf')),
+      boldFont: pw.Font.ttf(_font('Roboto-Bold.ttf')),
+      en: false,
+      generatedAt: DateTime(2026, 10, 17, 9, 30),
+    );
+    final bytes = await doc.save();
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    expect(doc.document.pdfPageList.pages.length, greaterThan(1));
+  });
+
+  test('PDF: uwagi ponad limit są przycinane z dopiskiem', () async {
+    final c = _protocol().copyWith(notes: 'a ' * 15000);
+    final doc = buildFlangeCheckPdf(
+      c,
+      font: pw.Font.ttf(_font('Roboto-Regular.ttf')),
+      en: false,
+      generatedAt: DateTime(2026, 10, 17),
+    );
+    final bytes = await doc.save();
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
 }
