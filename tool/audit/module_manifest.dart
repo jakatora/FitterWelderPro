@@ -608,7 +608,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Blok 4 z presetem 10 % RT + 100 % VT: L-12 (JK-12 10 spoin, AB-03 2, VT OK wszystkich, RT j1 i a1) gotowa do próby, grupy kompletne 3/3, brakuje 0; L-14 (JK-12 5 spoin, k5 bez VT, u1 bez spawacza) niegotowa — nieprzypisane 1, grupy niekompletne 3 z 3, brakuje 3; zlecenie: RT 1 spoina z k1–k5 (wybór powtarzalny, inny w rundzie 2) + VT k5; 5 % z 1/19/20/21 spoin = 1/1/1/2; spoina wspólna JK-12/AB-03 liczy się obu; odrzucona próbka RT → 2 dodatkowe §341.3.4 z weld_stats, dwie „dod.” OK zamykają; naprawa R1 przez DAO blokuje linię do ponownego badania; uszkodzone reguły — żadna linia gotowa do potwierdzenia; tekst i PDF przez wstrzyknięte udostępnianie.',
+          'Blok 4 z presetem 10 % RT + 100 % VT: L-12 (JK-12 10 spoin, AB-03 2, VT OK wszystkich, RT j1 i a1) gotowa do próby, grupy kompletne 3/3, brakuje 0; L-14 (JK-12 5 spoin, k5 bez VT, u1 bez spawacza) niegotowa — nieprzypisane 1, grupy niekompletne 3 z 3, brakuje 3; zlecenie: RT 1 spoina z k1–k5 (wybór powtarzalny, inny w rundzie 2) + VT k5; 5 % z 1/19/20/21 spoin = 1/1/1/2; spoina wspólna JK-12/AB-03 liczy się obu; odrzucona próbka RT → 2 dodatkowe §341.3.4 z weld_stats, dwie „dod.” OK zamykają; naprawa R1 przez DAO blokuje linię do ponownego badania; uszkodzone reguły — żadna linia gotowa do potwierdzenia; tekst i PDF przez wstrzyknięte udostępnianie; linia z samymi FW przy regule BW — niegotowa (spoiny poza regułami, reguła 0 % je pokrywa); NOK bez zakresu sprzed naprawy liczony jak losowy (2 dodatkowe §341.3.4).',
       evidence: [
         'test/features/ndt_plan/ndt_plan_page_test.dart: dziennik z bazy (DAO): naprawa czeka na badanie, linia niegotowa; reguły z zapisu',
         'test/features/ndt_plan/ndt_plan_page_test.dart: reguły → wynik: bez reguł nic nie jest gotowe; dodana reguła liczy grupy i się zapisuje',
@@ -623,6 +623,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/ndt/ndt_plan_test.dart: gotowa linia: liczby obok werdyktu się z nim zgadzają',
         'test/domain/ndt/ndt_plan_test.dart: te same dane = ta sama lista, niezależnie od kolejności wpisów',
         'test/features/ndt_plan/ndt_plan_store_test.dart: uszkodzony zapis: kopia surowego tekstu przed nadpisaniem, tylko raz',
+        'test/domain/ndt/ndt_plan_test.dart: N1: linia z samymi FW przy regule BW → niegotowa (spoiny poza regułami)',
+        'test/domain/ndt/ndt_plan_test.dart: N2: NOK bez zakresu sprzed naprawy liczy się jak losowe — 2 dodatkowe',
+        'test/features/ndt_plan/ndt_plan_page_test.dart: N5: błąd odczytu reguł — komunikat, edycja zablokowana, nic nie jest zapisane do udanego ponownego odczytu',
       ]),
   ModuleAuditEntry(
       id: 'new-cut-list-project',
