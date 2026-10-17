@@ -378,6 +378,9 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
   final _pressureCtrl = TextEditingController(text: '200');
   final _reserveCtrl = TextEditingController();
 
+  /// Odczyt manometru na butli, z której spawacz teraz spawa.
+  final _nowCtrl = TextEditingController();
+
   double? _totalL;
   double? _gasPerCylinderL;
   double? _bottles;
@@ -390,7 +393,7 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
   @override
   void dispose() {
-    for (final c in [_nCtrl, _tCtrl, _torchCtrl, _preCtrl, _postCtrl, _purgeCtrl, _purgeTCtrl, _waterCtrl, _pressureCtrl, _reserveCtrl]) {
+    for (final c in [_nCtrl, _tCtrl, _torchCtrl, _preCtrl, _postCtrl, _purgeCtrl, _purgeTCtrl, _waterCtrl, _pressureCtrl, _reserveCtrl, _nowCtrl]) {
       c.dispose();
     }
     super.dispose();
@@ -514,9 +517,59 @@ class _GasConsumptionTabState extends State<_GasConsumptionTab> {
           )),
         ]),
         if (_error != null) _ErrBox(_error!),
+        _SecLabel(_tr('Na ile starczy tej butli?', 'How long will this cylinder last?')),
+        _NumField(
+          ctrl: _nowCtrl,
+          label: _tr('Manometr butli teraz', 'Cylinder gauge now'),
+          hint: '60',
+          unit: 'bar',
+          helper: _tr('Pojemność, rezerwa i przepływ palnika — z pól powyżej.',
+                      'Capacity, reserve and torch flow — from the fields above.'),
+          onChanged: () => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        ..._remainingCard(),
         const _Disclaimer(),
       ],
     );
+  }
+
+  List<Widget> _remainingCard() {
+    final now = _num(_nowCtrl);
+    if (now == null) return const [];
+    final r = cylinderRemaining(
+      waterCapacityL: _num(_waterCtrl) ?? 50,
+      currentPressureBar: now,
+      torchLpm: _num(_torchCtrl) ?? 10,
+      reserveBar: _num(_reserveCtrl) ?? 0,
+      weldMinutes: _num(_tCtrl),
+      preFlowS: _num(_preCtrl) ?? 5,
+      postFlowS: _num(_postCtrl) ?? 10,
+    );
+    if (r == null) {
+      return [
+        _ErrBox(_tr('Ciśnienie musi być wyższe niż rezerwa, a przepływ > 0.',
+            'The pressure must be above the reserve and the flow > 0.')),
+      ];
+    }
+    final h = r.flowMinutes ~/ 60;
+    final m = (r.flowMinutes % 60).round();
+    final time = h > 0 ? '$h h $m min' : '$m min';
+    return [
+      _ResultCard(rows: [
+        _RRow(_tr('Czas łuku do rezerwy', 'Arc time to the reserve'), time, primary: true),
+        _RRow(_tr('Gaz do rezerwy', 'Gas to the reserve'), '${r.gasL.toStringAsFixed(0)} L'),
+        if (r.welds != null)
+          _RRow(_tr('Spoin (przy czasie na spoinę z góry)', 'Welds (at the time per weld above)'),
+              '≈ ${r.welds!.floor()}', color: _kOrange),
+        _NoteText(_tr(
+          'Gaz doskonały — wynik lekko zachowawczy. Nie licz do zera: przy niskim ciśnieniu '
+          'reduktor przestaje trzymać przepływ.',
+          'Ideal gas — slightly conservative. Do not count to zero: at low pressure the '
+          'regulator stops holding the flow.',
+        )),
+      ]),
+    ];
   }
 }
 

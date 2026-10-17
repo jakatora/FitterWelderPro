@@ -84,6 +84,34 @@ double? usableCylinderGasL({
   return waterCapacityL * (fillPressureBar - reserveBar);
 }
 
+/// Na ile starczy butli, z której manometr pokazuje [currentPressureBar]:
+/// gaz do rezerwy, minuty przepływu palnika i — gdy podano czas spoiny —
+/// liczba spoin (pre-/post-flow doliczone do każdej). `null` = złe dane.
+({double gasL, double flowMinutes, double? welds})? cylinderRemaining({
+  required double waterCapacityL,
+  required double currentPressureBar,
+  required double torchLpm,
+  double reserveBar = 0,
+  double? weldMinutes,
+  double preFlowS = 0,
+  double postFlowS = 0,
+}) {
+  if (!torchLpm.isFinite || torchLpm <= 0) return null;
+  final gas = usableCylinderGasL(
+    waterCapacityL: waterCapacityL,
+    fillPressureBar: currentPressureBar,
+    reserveBar: reserveBar,
+  );
+  if (gas == null) return null;
+  final minutes = gas / torchLpm;
+  double? welds;
+  if (weldMinutes != null && weldMinutes.isFinite && weldMinutes > 0) {
+    final perWeld = weldMinutes + (preFlowS.clamp(0, 600) + postFlowS.clamp(0, 600)) / 60;
+    welds = minutes / perWeld;
+  }
+  return (gasL: gas, flowMinutes: minutes, welds: welds);
+}
+
 /// Liczba butli (ułamkowa) potrzebna na [totalGasL].
 double? cylindersNeeded({
   required double totalGasL,
