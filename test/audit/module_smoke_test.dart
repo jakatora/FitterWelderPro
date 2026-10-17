@@ -102,6 +102,9 @@ import 'package:cut_list_app/features/weather_check/weather_check_page.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_permit.dart';
 import 'package:cut_list_app/features/hot_work/hot_work_edit_page.dart';
 import 'package:cut_list_app/features/hot_work/hot_work_page.dart';
+import 'package:cut_list_app/domain/welding/interpass_log.dart';
+import 'package:cut_list_app/features/interpass/interpass_page.dart';
+import 'package:cut_list_app/features/interpass/interpass_weld_page.dart';
 import 'package:cut_list_app/features/instruments/instrument_edit_page.dart';
 import 'package:cut_list_app/features/instruments/instrument_register_page.dart';
 import 'package:cut_list_app/features/quotes/hourly_rate_page.dart';
@@ -264,6 +267,10 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'PowerSourcePage' => const PowerSourcePage(),
       'WelderExamPage' => const WelderExamPage(),
       'ShadePage' => const ShadePage(),
+      'InterpassPage' => const InterpassPage(),
+      'InterpassWeldPage' => InterpassWeldPage(
+          initial: InterpassWeld.blank(
+              id: 'smoke-interpass', now: DateTime(2026, 10, 18, 7))),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

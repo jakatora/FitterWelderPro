@@ -14,6 +14,7 @@ import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
 import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
+import '../features/interpass/interpass_page.dart';
 import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/power_source/power_source_page.dart';
@@ -1590,6 +1591,40 @@ final List<ToolSpec> kToolRegistry = [
       'sprawdzenie'
     ],
     keywordsEn: const ['checklist', 'check', 'pre-weld', 'inspection'],
+  ),
+  ToolSpec(
+    id: 'interpass',
+    group: ToolGroup.inspection,
+    titlePl: 'Temperatura podgrzania i międzyściegowa',
+    titleEn: 'Interpass temperature log',
+    subtitlePl: 'Pomiar przed każdym ściegiem vs WPS, protokół PDF dla QC',
+    subtitleEn: 'Reading before every run vs WPS, PDF record for QC',
+    icon: Icons.device_thermostat,
+    color: const Color(0xFFFF5722),
+    builder: (_) => const InterpassPage(),
+    keywordsPl: const [
+      'miedzysciegowa',
+      'temperatura miedzysciegowa',
+      'podgrzanie',
+      'kontrola podgrzewania',
+      'pomiar temperatury',
+      'termometr',
+      'kredka',
+      'tempilstik',
+      'pirometr',
+      'p91',
+      '13916',
+      'protokol qc'
+    ],
+    keywordsEn: const [
+      'interpass',
+      'interpass temperature',
+      'preheat log',
+      'preheat check',
+      'temperature crayon',
+      'pyrometer',
+      'contact thermometer'
+    ],
   ),
   ToolSpec(
     id: 'weather_check',

@@ -165,6 +165,8 @@ void main() {
         'WelderExamPage',
         // Filtr przyłbicy: stopień zaciemnienia.
         'ShadePage',
+        // Temperatura podgrzania i międzyściegowa.
+        'InterpassPage',
       };
       expect(targets, expected);
     });
