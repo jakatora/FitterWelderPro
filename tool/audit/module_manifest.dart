@@ -1179,7 +1179,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.medium,
       status: AuditStatus.passed,
       scenario:
-          'Szybka sesja 10 pytań z 10 kategorii, 5 dobrych → „5 / 10”, 50 %, statystyki per kategoria, 5 pytań do powtórki i wynik w historii; „135” → Spawanie MAG drutem litym (ISO 4063); „pionowa z dołu do góry” → PF; próba BW na rurze w PH → PA, PE, PF, PH (tab. 9); s = 8 mm → 3–16 mm; D = 60,3 → ≥ 30,15 mm; E7018 → 4 h (AWS D1.1 tab. 7.1); najostrzejszy poziom ISO 5817 → B; dobra odpowiedź zdejmuje pytanie z powtórek; ten sam seed → te same pytania; uszkodzony JSON → komunikat i kopia przed nadpisaniem; EN; 320×640 przy tekście ×1,3 bez przepełnień; cele ≥ 48 dp; zastrzeżenie „nie są oficjalnymi pytaniami egzaminacyjnymi”.',
+          'Szybka sesja 10 pytań z 10 kategorii, 5 dobrych → „5 / 10”, 50 %, statystyki per kategoria, 5 pytań do powtórki i wynik w historii; „135” → Spawanie MAG drutem litym (ISO 4063); „pionowa z dołu do góry” → PF; próba BW na rurze w PH → PA, PE, PF, PH (tab. 9); s = 8 mm → 3–16 mm; D = 60,3 → ≥ 30,15 mm; E7018 → 4 h (AWS D1.1 tab. 7.1); najostrzejszy poziom ISO 5817 → B; dobra odpowiedź zdejmuje pytanie z powtórek; ten sam seed → te same pytania; uszkodzony JSON → komunikat i kopia przed nadpisaniem; EN; 320×640 przy tekście ×1,3 bez przepełnień; cele ≥ 48 dp; zastrzeżenie „nie są oficjalnymi pytaniami egzaminacyjnymi”; próba 125 drutem zasadowym B nie obejmuje 121 (tylko M → 121); pytania ISO 5817 z wydaniem 2014, bez pozycji zmienionych w 2023; 199 / 200 → 99 %; w sesji jedno pytanie na temat.',
       evidence: [
         'test/domain/exam/exam_questions_test.dart: każde pytanie: ≥ 3 różne odpowiedzi, dokładnie jedna poprawna, treść i źródło (PL i EN)',
         'test/domain/exam/exam_questions_test.dart: dystraktory z tej samej kategorii danych',
@@ -1191,6 +1191,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/welder_exam/welder_exam_page_test.dart: szybka sesja 10 pytań do końca: wynik i zapis statystyk',
         'test/features/welder_exam/welder_exam_page_test.dart: pytania, które mi nie wychodzą: po błędach sesja z błędnych',
         'test/features/welder_exam/welder_exam_page_test.dart: cele dotyku ≥ 48 dp',
+        'test/domain/exam/exam_questions_test.dart: §5.2: tylko procesy objęte bez warunku dla typu spoiwa z próby (po filtrze tab. 4 i 5) — 125 B nie obejmuje 121, 141 S nie daje 143',
+        'test/domain/exam/exam_questions_test.dart: jeden temat na sesję: pytania nie zdradzają sobie odpowiedzi',
+        'test/domain/exam/exam_session_test.dart: procent wyniku w dół: 199 / 200 → 99 %, 100 % tylko przy komplecie',
       ]),
   ModuleAuditEntry(
       id: 'welder-identity-setup',
