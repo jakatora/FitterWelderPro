@@ -18,9 +18,22 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Przyrządy i kalibracja | Spawacz → Kontrola i dokumentacja | terminy kalibracji/walidacji, przypomnienia, rejestr PDF/CSV |
 | Segmentowe kolana | Monter → Kolana i kształtki | kolano z segmentów rury: kąt cięcia, długości, szablon 1:1 |
 | Ciężar stali — profile | Monter → Tabele i przeliczniki | IPE/HEA/HEB/UPN, kątowniki, profile zamknięte, blachy; lista i koszt |
+| Czas stygnięcia t8/5 | Spawacz → Kalkulatory | EN 1011-2 zał. D: t8/5 z Q, T0 i grubości (2D/3D), okno stali, odwrotnie: zakres Q dla okna |
 
 Plus: karta „Nowe w aplikacji” na ekranie głównym, kategoria „Wyceny i koszty”
 w Pomocy, poprawiony wpis pomocy o PWHT P91 (wg B31.3 2014+).
+
+Rozszerzenia istniejących ekranów:
+
+- **Wycena → Zakres → Importuj spoiny** — pozycje wyceny z zapisanego skanu
+  izometryku albo z dziennika spoin (grupowanie po rodzaju, wymiarze
+  i pozycji; spoiny bez wymiaru pomijane z powodem, nie zgadywane).
+- **Próba ciśnieniowa → manometr z rejestru przyrządów** — numer i termin
+  kalibracji wpisują się z rejestru; przyrządy po terminie są oznaczone
+  w wyborze.
+- **Gaz, formowanie i timer → „Na ile starczy tej butli?”** — z pojemności
+  wodnej, ciśnienia na manometrze i przepływu: litry, minuty łuku, liczba
+  spoin (rezerwa ciśnienia i pre/post-flow uwzględnione).
 
 ## Baza danych
 

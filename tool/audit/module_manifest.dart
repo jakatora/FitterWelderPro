@@ -259,6 +259,40 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Użytkownik otwiera ekran startowy i przechodzi do dostępnego modułu.'),
   ModuleAuditEntry(
+      id: 'hot-work',
+      entryPoint: 'HotWorkPage',
+      sourcePath: 'lib/features/hot_work/hot_work_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Nowy protokół trafia do historii (SharedPreferences); „jak wczoraj” kopiuje miejsce, osoby, godziny i próg DGW, ale nie zaznaczenia, pomiary ani nr zezwolenia; pusty protokół nie jest zapisywany; usunięcie można cofnąć.',
+      evidence: [
+        'test/features/hot_work/hot_work_page_test.dart: nowy protokół: odhaczenie punktów, pomiar, zapis i historia',
+        'test/features/hot_work/hot_work_page_test.dart: jak wczoraj: kopia danych bez zaznaczeń i pomiarów',
+        'test/features/hot_work/hot_work_page_test.dart: menu pozycji: duplikat i usunięcie z cofnięciem',
+        'test/features/hot_work/hot_work_page_test.dart: pusty protokół nie trafia do historii',
+        'test/features/hot_work/hot_work_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień',
+      ]),
+  ModuleAuditEntry(
+      id: 'hot-work-edit',
+      entryPoint: 'HotWorkEditPage',
+      sourcePath: 'lib/features/hot_work/hot_work_edit_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; tekst i PDF protokołu udostępniane.',
+      evidence: [
+        'test/features/hot_work/hot_work_page_test.dart: wszystkie punkty odhaczone, brak pomiaru — nie zielony',
+        'test/features/hot_work/hot_work_page_test.dart: pomiar powyżej progu z zezwolenia — STOP; nowy pomiar zdejmuje',
+        'test/features/hot_work/hot_work_page_test.dart: udostępnianie: tekst protokołu i PDF',
+        'test/features/hot_work/hot_work_page_test.dart: cele dotyku ≥ 48 dp (rękawica)',
+        'test/domain/hot_work/hot_work_permit_test.dart: ocena gotowości wszystko odhaczone, ale brak pomiaru — NIE zielony stan',
+        'test/domain/hot_work/hot_work_checklist_test.dart: każda liczba w punkcie ma źródło, PL i EN mają te same liczby',
+        'test/features/hot_work/hot_work_export_test.dart: wypełniony protokół — PL i EN',
+      ]),
+  ModuleAuditEntry(
       id: 'hydrotest',
       entryPoint: 'HydrotestScreen',
       sourcePath: 'lib/screens/hydrotest_screen.dart',

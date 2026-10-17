@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/hot_work/hot_work_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
 import '../features/mitre_bend/mitre_bend_page.dart';
@@ -1199,6 +1200,38 @@ final List<ToolSpec> kToolRegistry = [
       'sprawdzenie'
     ],
     keywordsEn: const ['checklist', 'check', 'pre-weld', 'inspection'],
+  ),
+  ToolSpec(
+    id: 'hot_work',
+    group: ToolGroup.inspection,
+    titlePl: 'Prace pożarowo niebezpieczne',
+    titleEn: 'Hot work permit',
+    subtitlePl: 'Zezwolenie, checklista stanowiska, pomiar DGW, protokół PDF',
+    subtitleEn: 'Permit, work area checklist, LEL gas test, PDF record',
+    icon: Icons.fire_extinguisher,
+    color: const Color(0xFFFF7043),
+    builder: (_) => const HotWorkPage(),
+    keywordsPl: const [
+      'prace pozarowe',
+      'pozarowo niebezpieczne',
+      'zezwolenie',
+      'pozar',
+      'ogien',
+      'iskry',
+      'dgw',
+      'eksplozymetr',
+      'dozor',
+      'gasnica',
+      'checklista pozarowa'
+    ],
+    keywordsEn: const [
+      'hot work',
+      'permit',
+      'fire watch',
+      'lel',
+      'gas test',
+      'fire'
+    ],
   ),
   ToolSpec(
     id: 'weld_journal',

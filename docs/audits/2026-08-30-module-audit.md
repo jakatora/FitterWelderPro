@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 79
+Moduły: 81
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 31 |
+| passed | 33 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -61,6 +61,8 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `heat-tint` | HeatTintScreen | lib/screens/heat_tint_screen.dart | welder | high | passed | Ekran oznacza wartości O2 jako orientacyjne, a specyfikację projektu lub WPS jako wiążące. | test/audit/welder_calculations_audit_test.dart: heat tint jest oznaczony jako porada orientacyjna z wiążącym WPS |
 | `help` | HelpScreen | lib/screens/help_screen.dart | document | low | unverified | Wyszukanie hasła TIG pokazuje odpowiednią pomoc. | Brak dowodu scenariusza |
 | `home` | HomeScreen | lib/screens/home_screen.dart | start | medium | unverified | Użytkownik otwiera ekran startowy i przechodzi do dostępnego modułu. | Brak dowodu scenariusza |
+| `hot-work` | HotWorkPage | lib/features/hot_work/hot_work_page.dart | welder | safetyCritical | passed | Nowy protokół trafia do historii (SharedPreferences); „jak wczoraj” kopiuje miejsce, osoby, godziny i próg DGW, ale nie zaznaczenia, pomiary ani nr zezwolenia; pusty protokół nie jest zapisywany; usunięcie można cofnąć. | test/features/hot_work/hot_work_page_test.dart: nowy protokół: odhaczenie punktów, pomiar, zapis i historia<br>test/features/hot_work/hot_work_page_test.dart: jak wczoraj: kopia danych bez zaznaczeń i pomiarów<br>test/features/hot_work/hot_work_page_test.dart: menu pozycji: duplikat i usunięcie z cofnięciem<br>test/features/hot_work/hot_work_page_test.dart: pusty protokół nie trafia do historii<br>test/features/hot_work/hot_work_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień |
+| `hot-work-edit` | HotWorkEditPage | lib/features/hot_work/hot_work_edit_page.dart | welder | safetyCritical | passed | Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; tekst i PDF protokołu udostępniane. | test/features/hot_work/hot_work_page_test.dart: wszystkie punkty odhaczone, brak pomiaru — nie zielony<br>test/features/hot_work/hot_work_page_test.dart: pomiar powyżej progu z zezwolenia — STOP; nowy pomiar zdejmuje<br>test/features/hot_work/hot_work_page_test.dart: udostępnianie: tekst protokołu i PDF<br>test/features/hot_work/hot_work_page_test.dart: cele dotyku ≥ 48 dp (rękawica)<br>test/domain/hot_work/hot_work_permit_test.dart: ocena gotowości wszystko odhaczone, ale brak pomiaru — NIE zielony stan<br>test/domain/hot_work/hot_work_checklist_test.dart: każda liczba w punkcie ma źródło, PL i EN mają te same liczby<br>test/features/hot_work/hot_work_export_test.dart: wypełniony protokół — PL i EN |
 | `hydrotest` | HydrotestScreen | lib/screens/hydrotest_screen.dart | fitter | safetyCritical | passed | Ciśnienie projektowe powyżej zakresu ekranu jest odrzucane bez wyniku ciśnienia testowego. | test/audit/welder_calculations_audit_test.dart: 2001 bar pokazuje błąd zakresu i nie tworzy wyniku |
 | `hourly-rate` | HourlyRatePage | lib/features/quotes/hourly_rate_page.dart | project | medium | passed | Na rękę 9000 zł, koszty firmy, podatek 19% od dochodu, 21 dni × 8 h, 75% fakturowane → stawka minimalna; z wyceny „Użyj… zł/h” wpisuje ją do stawki spawacza. | test/domain/quotes/hourly_rate_test.dart: podatek od dochodu: przychód = koszty + na rękę / (1 − r)<br>test/features/quotes/hourly_rate_page_test.dart: z wyceny: „Użyj” zwraca stawkę zaokrągloną w górę do 50 gr |
 | `iso5817` | Iso5817Page | lib/features/iso5817/iso5817_page.dart | welder | safetyCritical | passed | Spoina czołowa t 10 mm, poziom C, podtopienie: 0,4 mm „mieści się w C (limit 0,5 mm)”, 0,8 mm „przekracza C, mieści się w D (limit 1 mm)”, 1,2 mm „niedopuszczalne”; przy t 2 mm limit C 0,2 mm, a B niedopuszczalne; wynik udostępniany tekstem z zastrzeżeniem. | test/features/iso5817/iso5817_page_test.dart: wpisanie t i pomiaru zmienia werdykt (podtopienie 1.7)<br>test/features/iso5817/iso5817_page_test.dart: spoina pachwinowa: pozycja z listy, werdykt i protokół do udostępnienia<br>test/domain/iso5817/iso5817_limits_test.dart: B ≤ C ≤ D dla każdej pozycji na siatce t, b, a<br>test/domain/iso5817/iso5817_limits_test.dart: zakres grubości t = 3 to jeszcze „0,5 to 3”, t > 3 już „> 3” |

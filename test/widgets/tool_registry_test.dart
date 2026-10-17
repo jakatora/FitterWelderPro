@@ -129,6 +129,8 @@ void main() {
         'InstrumentRegisterPage',
         // Czas stygnięcia t8/5 (EN 1011-2 zał. D).
         'CoolingTimePage',
+        // Prace pożarowo niebezpieczne (zezwolenie, DGW).
+        'HotWorkPage',
       };
       expect(targets, expected);
     });
