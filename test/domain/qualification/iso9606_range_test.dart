@@ -11,6 +11,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cut_list_app/domain/qualification/iso9606_limits.dart';
 import 'package:cut_list_app/domain/qualification/iso9606_range.dart';
 import 'package:cut_list_app/domain/qualification/weld_process.dart';
 import 'package:cut_list_app/domain/qualification/welder_certificate.dart';
@@ -811,11 +812,19 @@ void main() {
   });
 
   group('szkic certyfikatu do rejestru', () {
+    // Tylko „poza zakresem” (bez ważności i ciągłości — szkic nie ma dat).
     List<WeldCheckField> scopeIssues(WelderCoverage c) => c
         .certificates.single.issues
         .where((i) =>
+            i.severity == RangeIssueSeverity.outOfRange &&
             i.field != WeldCheckField.validity &&
             i.field != WeldCheckField.continuity)
+        .map((i) => i.field)
+        .toList();
+
+    List<WeldCheckField> cannotCompare(WelderCoverage c) => c
+        .certificates.single.issues
+        .where((i) => i.severity == RangeIssueSeverity.cannotCompare)
         .map((i) => i.field)
         .toList();
 
@@ -841,7 +850,7 @@ void main() {
       expect(c.jointKinds, {WeldJointKind.bw});
       expect(c.materialGroup, '');
       expect(c.filler, 'FM1, FM2 · 141: S · 143: M · 145: S');
-      expect(c.notes, startsWith('OGRANICZENIA — rejestr ich nie sprawdza:\n'));
+      expect(c.notes, startsWith('OGRANICZENIA z próby — kontrola spoiny sprawdza je tylko, gdy spoina ma te dane:\n'));
       expect(c.notes, contains('EN ISO 9606-1 141 T BW FM1 S s3 D60,3 PH ss nb'));
 
       // W zakresie.
@@ -871,6 +880,17 @@ void main() {
           scopeIssues(
               check(c, const WeldParameters(jointKind: WeldJointKind.fw))),
           [WeldCheckField.jointKind]);
+      // Linia dla programu: kontrola pilnuje też grupy spoiwa i grani.
+      expect(
+          c.notes,
+          contains('[ISO9606 v1] root=nb,mb,bs,gb,fb; plates=1; fm=FM1,FM2; '
+              'nofiller=1.1; branch=60'));
+      expect(scopeIssues(check(c, const WeldParameters(fillerGroup: 'FM5'))),
+          [WeldCheckField.fillerGroup]);
+      expect(
+          scopeIssues(
+              check(c, const WeldParameters(root: RootCondition.ci))),
+          [WeldCheckField.rootBacking]);
     });
 
     test('ograniczenia, których rejestr nie sprawdza — dialog i początek notatki',
@@ -895,25 +915,48 @@ void main() {
       expect(draft.limits.map((l) => l.pl), limits);
       final c = draft.certificate!;
       final head = c.notes.split('\n').take(limits.length + 1).toList();
-      expect(head.first, 'OGRANICZENIA — rejestr ich nie sprawdza:');
+      expect(head.first, 'OGRANICZENIA z próby — kontrola spoiny sprawdza je tylko, gdy spoina ma te dane:');
       expect(head.skip(1), [for (final l in limits) '• $l']);
       // EN — ten sam blok po angielsku.
       final en = iso9606CertificateDraft(r, en: true).certificate!;
-      expect(en.notes, startsWith('LIMITATIONS — not checked by the register:\n'));
+      expect(en.notes, startsWith('LIMITATIONS from the test — the weld check enforces them only when the weld has the data:\n'));
       expect(en.notes, contains('• root: only ss mb, bs (NOT ss nb, ss gb, ss fb)'));
 
-      // Kontrola rejestru NIE widzi podkładki, przenoszenia ani blachy —
-      // spoina na blasze (bez średnicy) przechodzi; dlatego ograniczenia
-      // muszą stać w notatce.
+      // Pod blokiem — linia dla programu; kontrola spoiny ją czyta.
       expect(
-          scopeIssues(check(
-              c,
-              const WeldParameters(
-                  process: '135',
-                  thicknessMm: 4,
-                  jointKind: WeldJointKind.bw,
-                  position: 'PA'))),
-          isEmpty);
+          c.notes,
+          contains('\n[ISO9606 v1] root=mb,bs; dip=0; plates=0; fm=FM1,FM2; '
+              'branch=60\n'));
+      // Spoina bez tych danych: „nie da się porównać”, nadal objęta.
+      final noData = check(
+          c,
+          const WeldParameters(
+              process: '135',
+              thicknessMm: 4,
+              jointKind: WeldJointKind.bw,
+              position: 'PA'));
+      expect(scopeIssues(noData), isEmpty);
+      expect(cannotCompare(noData), [WeldCheckField.testLimits]);
+      expect(noData.covered, isTrue);
+      // Z danymi: ss nb, zwarciowe, blacha → trzy razy „poza zakresem”.
+      final bad = check(
+          c,
+          const WeldParameters(
+              process: '135',
+              thicknessMm: 4,
+              jointKind: WeldJointKind.bw,
+              position: 'PA',
+              root: RootCondition.nb,
+              dipTransfer: true,
+              productForm: WeldProductForm.plate,
+              fillerGroup: 'FM1',
+              branch: false));
+      expect(scopeIssues(bad), [
+        WeldCheckField.rootBacking,
+        WeldCheckField.metalTransfer,
+        WeldCheckField.productForm,
+      ]);
+      expect(bad.covered, isFalse);
     });
 
     test('typ otuliny, grań ss nb, odgałęzienia, sl, 311 — w ograniczeniach', () {

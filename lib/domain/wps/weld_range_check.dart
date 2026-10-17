@@ -22,12 +22,17 @@
 //    PH/PJ wg ISO 6947:2011, a PF/PG w starszym zapisie EN 287), wynik to
 //    „nie da się porównać", nigdy fałszywe „poza zakresem";
 //  • grubość spoiny porównujemy z zakresem grubości; ISO 9606-1 dla BW mówi
-//    o grubości stopiwa s, co przy spoinie jednym procesem jest tym samym.
+//    o grubości stopiwa s, co przy spoinie jednym procesem jest tym samym;
+//  • ograniczenia z próby ISO 9606-1, których pola certyfikatu nie mają
+//    (prowadzenie grani, przenoszenie metalu, blacha / rura, grupa FM,
+//    odgałęzienia), czytamy z linii `[ISO9606 v1]` w uwagach certyfikatu
+//    ([checkIso9606TestLimits]) — porównanie tylko, gdy spoina ma dane.
 //
 // Jak to wpiąć w dziennik spoin — patrz dokumentacja [checkWeldAgainstWps]
 // i lib/services/welder_qualification_service.dart (`checkWeld`).
 
 import '../qualification/certificate_status.dart';
+import '../qualification/iso9606_limits.dart';
 import '../qualification/qualification_dates.dart';
 import '../qualification/weld_process.dart';
 import '../qualification/welder_certificate.dart';
@@ -70,6 +75,26 @@ class WeldParameters {
   final double? preheatC;
   final double? interpassC;
 
+  // ---- Do ograniczeń z próby ISO 9606-1 (linia `[ISO9606 v1]` w uwagach
+  // certyfikatu — patrz qualification/iso9606_limits.dart). `null` = spoina
+  // nie ma tej informacji → „nie da się porównać”, nigdy „poza zakresem”.
+
+  /// Prowadzenie grani spoiny czołowej (ss nb, ss mb, bs, …).
+  final RootCondition? root;
+
+  /// Przenoszenie metalu (131 / 135 / 138): `true` zwarciowe (dip), `false`
+  /// inne (natryskowe, pulsujące, kroplowe).
+  final bool? dipTransfer;
+
+  /// Wyrób: blacha (P) albo rura (T).
+  final WeldProductForm? productForm;
+
+  /// Grupa spoiwa wg ISO 9606-1 tab. 2 (`'FM1'`…`'FM6'`).
+  final String? fillerGroup;
+
+  /// Spoina odgałęzienia (BR).
+  final bool? branch;
+
   const WeldParameters({
     this.thicknessMm,
     this.outsideDiameterMm,
@@ -84,6 +109,11 @@ class WeldParameters {
     this.travelMmPerMin,
     this.preheatC,
     this.interpassC,
+    this.root,
+    this.dipTransfer,
+    this.productForm,
+    this.fillerGroup,
+    this.branch,
   });
 
   /// Liczba z tekstu dziennika („60,3", „2.0 mm") albo `null`.
@@ -112,6 +142,27 @@ enum WeldCheckField {
 
   /// Ciągłość 6-miesięczna uprawnienia.
   continuity,
+
+  // ---- Ograniczenia z próby ISO 9606-1 (linia `[ISO9606 v1]` w uwagach).
+
+  /// Prowadzenie grani (tab. 11).
+  rootBacking,
+
+  /// Przenoszenie metalu (§5.2).
+  metalTransfer,
+
+  /// Blacha / rura (§5.3).
+  productForm,
+
+  /// Grupa spoiwa FM (tab. 3).
+  fillerGroup,
+
+  /// Odgałęzienie (§5.4).
+  branch,
+
+  /// Ograniczeń z próby nie da się porównać (brak danych spoiny albo
+  /// uszkodzona linia w uwagach).
+  testLimits,
 }
 
 enum RangeIssueSeverity {
@@ -145,11 +196,18 @@ class RangeIssue {
   /// Co ma spoina.
   final String actual;
 
+  /// Powód / podstawa do dopisania za komunikatem (np. punkt normy);
+  /// `null` = bez dopisku.
+  final String? reasonPl;
+  final String? reasonEn;
+
   const RangeIssue({
     required this.field,
     required this.allowed,
     required this.actual,
     this.severity = RangeIssueSeverity.outOfRange,
+    this.reasonPl,
+    this.reasonEn,
   });
 
   String get _namePl => switch (field) {
@@ -164,6 +222,12 @@ class RangeIssue {
         WeldCheckField.interpass => 'Temperatura międzyściegowa',
         WeldCheckField.validity => 'Ważność uprawnienia',
         WeldCheckField.continuity => 'Ciągłość 6 mies.',
+        WeldCheckField.rootBacking => 'Prowadzenie grani',
+        WeldCheckField.metalTransfer => 'Przenoszenie metalu',
+        WeldCheckField.productForm => 'Wyrób (P blacha / T rura)',
+        WeldCheckField.fillerGroup => 'Grupa spoiwa',
+        WeldCheckField.branch => 'Odgałęzienie',
+        WeldCheckField.testLimits => 'Ograniczenia z próby',
       };
 
   String get _nameEn => switch (field) {
@@ -178,15 +242,23 @@ class RangeIssue {
         WeldCheckField.interpass => 'Interpass temperature',
         WeldCheckField.validity => 'Qualification validity',
         WeldCheckField.continuity => '6-month continuity',
+        WeldCheckField.rootBacking => 'Root / backing',
+        WeldCheckField.metalTransfer => 'Metal transfer',
+        WeldCheckField.productForm => 'Product (P plate / T pipe)',
+        WeldCheckField.fillerGroup => 'Filler group',
+        WeldCheckField.branch => 'Branch joint',
+        WeldCheckField.testLimits => 'Test piece limitations',
       };
 
-  String get messagePl => severity == RangeIssueSeverity.outOfRange
-      ? '$_namePl: $actual — poza zakresem ($allowed).'
-      : '$_namePl: nie da się porównać — $actual ($allowed).';
+  String get messagePl => (severity == RangeIssueSeverity.outOfRange
+          ? '$_namePl: $actual — poza zakresem ($allowed).'
+          : '$_namePl: nie da się porównać — $actual ($allowed).') +
+      (reasonPl == null ? '' : ' $reasonPl');
 
-  String get messageEn => severity == RangeIssueSeverity.outOfRange
-      ? '$_nameEn: $actual — out of range ($allowed).'
-      : '$_nameEn: cannot compare — $actual ($allowed).';
+  String get messageEn => (severity == RangeIssueSeverity.outOfRange
+          ? '$_nameEn: $actual — out of range ($allowed).'
+          : '$_nameEn: cannot compare — $actual ($allowed).') +
+      (reasonEn == null ? '' : ' $reasonEn');
 
   @override
   String toString() => 'RangeIssue(${field.name}: $actual vs $allowed)';
@@ -553,6 +625,186 @@ List<RangeIssue> checkWeldAgainstWps(WeldParameters weld, WpsRecord wps) {
   return out;
 }
 
+// ─── Ograniczenia z próby ISO 9606-1 (linia w uwagach certyfikatu) ─────────
+
+/// Porównuje spoinę [weld] z ograniczeniami z linii `[ISO9606 v1]` w uwagach
+/// certyfikatu [notes] (zapisuje ją „Zakres uprawnień z próbki”; format
+/// w qualification/iso9606_limits.dart) i dopisuje niezgodności do [out].
+///
+///  • brak linii → nic (certyfikat bez ograniczeń z próby);
+///  • linia uszkodzona / z nowszej wersji → jedno „nie da się porównać”;
+///  • ograniczenie naruszone, gdy spoina MA dane → „poza zakresem” z powodem
+///    (spoina ss nb przy „root=mb,bs”, blacha przy „plates=0”, spoiwo FM5
+///    przy „fm=FM1,FM2”, zwarciowe przy „dip=0”, odgałęzienie przy
+///    „branch=0”);
+///  • spoina BEZ danych do ograniczenia, które jej dotyczy → jedno zbiorcze
+///    „nie da się porównać” z listą brakujących danych — nigdy fałszywe
+///    „poza zakresem”.
+/// `nofiller` i `proc2` nie są tu porównywane: 142 z próby ze spoiwem
+/// i proces wypełnienia nie trafiają do procesów rejestru, więc taką spoinę
+/// zatrzymuje już porównanie procesu.
+void checkIso9606TestLimits(
+    WeldParameters weld, String notes, List<RangeIssue> out) {
+  final parsed = parseIso9606Limits(notes);
+  switch (parsed.status) {
+    case Iso9606LimitsStatus.absent:
+      return;
+    case Iso9606LimitsStatus.damaged:
+      out.add(const RangeIssue(
+        field: WeldCheckField.testLimits,
+        severity: RangeIssueSeverity.cannotCompare,
+        allowed: kIso9606LimitsTag,
+        actual: '[ISO9606 …]',
+        reasonPl: 'Linia ograniczeń w uwagach certyfikatu jest uszkodzona '
+            'albo z nowszej wersji — ograniczeń z próby nie sprawdzono.',
+        reasonEn: 'The limitations line in the certificate notes is damaged '
+            'or from a newer version — the test piece limitations were not '
+            'checked.',
+      ));
+      return;
+    case Iso9606LimitsStatus.ok:
+      break;
+  }
+  final l = parsed.limits!;
+  final families = processFamiliesIn(weld.process);
+  final kind = weld.jointKind;
+  final missing = <String>[];
+  final missingLimits = <String>[];
+  void unknown(String what, String limit) {
+    missing.add(what);
+    missingLimits.add(limit);
+  }
+
+  // Prowadzenie grani (tab. 11) — tylko spoiny czołowe.
+  final root = l.root;
+  if (root != null &&
+      root.length < RootCondition.values.length &&
+      kind != WeldJointKind.fw) {
+    final allowed = [
+      for (final r in RootCondition.values)
+        if (root.contains(r)) r,
+    ];
+    final r = weld.root;
+    if (r == null) {
+      unknown('root', 'root=${allowed.map((r) => r.code).join(',')}');
+    } else if (!root.contains(r)) {
+      out.add(RangeIssue(
+        field: WeldCheckField.rootBacking,
+        allowed: allowed.map((r) => r.label).join(', '),
+        actual: r.label,
+        reasonPl: 'Takie prowadzenie grani obejmuje próba (ISO 9606-1 '
+            'tab. 11).',
+        reasonEn: 'These root conditions are covered by the test (ISO 9606-1 '
+            'Table 11).',
+      ));
+    }
+  }
+
+  // Przenoszenie metalu (§5.2) — dotyczy MIG/MAG (131 / 135 / 138).
+  if (l.dip == false &&
+      (families.isEmpty || families.contains(WeldProcessFamily.gmaw))) {
+    final dip = weld.dipTransfer;
+    if (dip == null) {
+      unknown('dip', 'dip=0');
+    } else if (dip) {
+      out.add(const RangeIssue(
+        field: WeldCheckField.metalTransfer,
+        allowed: '≠ dip',
+        actual: 'dip',
+        reasonPl: 'Próba bez zwarciowego przenoszenia metalu go nie obejmuje '
+            '(ISO 9606-1 §5.2).',
+        reasonEn: 'A test without dip (short-circuit) transfer does not cover '
+            'it (ISO 9606-1 cl. 5.2).',
+      ));
+    }
+  }
+
+  // Blacha / rura (§5.3 a).
+  if (l.plates == false) {
+    final p = weld.productForm;
+    if (p == null) {
+      unknown('P/T', 'plates=0');
+    } else if (p == WeldProductForm.plate) {
+      out.add(const RangeIssue(
+        field: WeldCheckField.productForm,
+        allowed: 'T',
+        actual: 'P',
+        reasonPl: 'Próba na rurze D ≤ 25 mm nie obejmuje blach (ISO 9606-1 '
+            '§5.3 a).',
+        reasonEn: 'A test on pipe D ≤ 25 mm does not cover plates (ISO 9606-1 '
+            'cl. 5.3 a).',
+      ));
+    }
+  }
+
+  // Grupa spoiwa (tab. 3).
+  final fm = l.fm;
+  if (fm != null) {
+    final allowed = (fm.toList()..sort()).join(', ');
+    final g = weld.fillerGroup?.trim().toUpperCase();
+    if (g == null || g.isEmpty) {
+      unknown('FM', 'fm=${allowed.replaceAll(' ', '')}');
+    } else if (!fm.contains(g)) {
+      out.add(RangeIssue(
+        field: WeldCheckField.fillerGroup,
+        allowed: allowed,
+        actual: g,
+        reasonPl: 'Grupy spoiw objęte próbą (ISO 9606-1 tab. 3).',
+        reasonEn: 'Filler groups covered by the test (ISO 9606-1 Table 3).',
+      ));
+    }
+  }
+
+  // Odgałęzienia (§5.4 a, c).
+  final branch = l.branch;
+  if (branch != null) {
+    final br = weld.branch;
+    if (br == null) {
+      unknown('BR', 'branch=$branch');
+    } else if (br) {
+      if (branch == 0) {
+        out.add(const RangeIssue(
+          field: WeldCheckField.branch,
+          allowed: 'branch=0',
+          actual: 'BR',
+          reasonPl: 'Próba czołowa na blasze nie obejmuje odgałęzień '
+              '(ISO 9606-1 §5.4 a, c).',
+          reasonEn: 'A butt test on plate does not cover branch joints '
+              '(ISO 9606-1 cl. 5.4 a, c).',
+        ));
+      } else {
+        // Kąta odgałęzienia spoina nie podaje.
+        unknown('BR ≥ 60°', 'branch=60');
+      }
+    }
+  }
+
+  // Technika spoin pachwinowych (tab. 12) i kierunek 311 (§5.9) — spoina
+  // nie ma takich pól.
+  final layers = l.layers;
+  if (layers != null && !layers.contains('ml') && kind != WeldJointKind.bw) {
+    unknown('sl/ml', 'layers=sl');
+  }
+  final dir = l.direction;
+  if (dir != null &&
+      (families.isEmpty || families.contains(WeldProcessFamily.ofw))) {
+    unknown('lw/rw', 'dir=$dir');
+  }
+
+  if (missing.isNotEmpty) {
+    out.add(RangeIssue(
+      field: WeldCheckField.testLimits,
+      severity: RangeIssueSeverity.cannotCompare,
+      allowed: missingLimits.join('; '),
+      actual: missing.join(', '),
+      reasonPl: 'Spoina nie ma tych danych — sprawdź z blokiem OGRANICZENIA '
+          'w uwagach certyfikatu.',
+      reasonEn: 'The weld has no such data — check against the LIMITATIONS '
+          'block in the certificate notes.',
+    ));
+  }
+}
+
 // ─── Uprawnienia spawacza ───────────────────────────────────────────────────
 
 /// Jeden certyfikat oceniony dla konkretnej spoiny.
@@ -662,6 +914,9 @@ WelderCoverage checkWelderCoverage({
           ? kIso9606MutualProcesses
           : const <int, Set<int>>{},
     );
+    // Ograniczenia z próby z uwag certyfikatu (tylko gdy jest linia
+    // `[ISO9606 v1]`).
+    checkIso9606TestLimits(weld, c.notes, issues);
     out.add(CertificateCoverage(evaluation, issues));
   }
   return WelderCoverage(out);

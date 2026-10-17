@@ -76,6 +76,7 @@
 //
 // ASME IX (QW-451/452, QW-461.9) — świadomie poza modułem.
 
+import 'iso9606_limits.dart';
 import 'weld_process.dart';
 import 'welder_certificate.dart';
 
@@ -1793,8 +1794,12 @@ String iso9606ShareText(Iso9606Range r, {required bool en}) {
 //    (sam jest objęty tylko na grani / podkładce, a rejestr przepuściłby go
 //    także w grani bez podkładki); 142 z próby ze spoiwem NIE (tylko na
 //    grupie materiału z próby, a rejestr przy spoiwie grupy nie sprawdza);
-//  • reszta to OGRANICZENIA — obowiązkowy dialog przed zapisem i wyraźny
-//    blok na początku notatki certyfikatu ([iso9606RegisterLimits]).
+//  • reszta to OGRANICZENIA — obowiązkowy dialog przed zapisem, wyraźny
+//    blok na początku notatki certyfikatu ([iso9606RegisterLimits]) i pod
+//    nim linia dla programu `[ISO9606 v1] …` ([iso9606TestLimits],
+//    format w iso9606_limits.dart): kontrola spoiny porównuje z nią
+//    prowadzenie grani, przenoszenie metalu, blachę / rurę, grupę FM
+//    i odgałęzienia — tylko gdy spoina ma te dane.
 
 /// Dlaczego szkicu nie da się zapisać do rejestru (jeden zakres na
 /// certyfikat).
@@ -2026,8 +2031,47 @@ List<Iso9606Note> iso9606RegisterLimits(Iso9606Range r) {
 
 /// Nagłówek bloku ograniczeń w notatce certyfikatu.
 String iso9606LimitsHeader({required bool en}) => en
-    ? 'LIMITATIONS — not checked by the register:'
-    : 'OGRANICZENIA — rejestr ich nie sprawdza:';
+    ? 'LIMITATIONS from the test — the weld check enforces them only when the '
+        'weld has the data:'
+    : 'OGRANICZENIA z próby — kontrola spoiny sprawdza je tylko, gdy spoina '
+        'ma te dane:';
+
+RootCondition _rootOf(Iso9606Backing b) => switch (b) {
+      Iso9606Backing.ssNb => RootCondition.nb,
+      Iso9606Backing.ssMb => RootCondition.mb,
+      Iso9606Backing.bs => RootCondition.bs,
+      Iso9606Backing.ssGb => RootCondition.gb,
+      Iso9606Backing.ci => RootCondition.ci,
+      Iso9606Backing.ssFb => RootCondition.fb,
+    };
+
+/// Ograniczenia z próby do linii `[ISO9606 v1]` w uwagach certyfikatu —
+/// czyta je kontrola spoiny (weld_range_check.dart). Dotyczą procesu 1 (to
+/// on jest w procesach rejestru).
+Iso9606Limits iso9606TestLimits(Iso9606Range r) {
+  final s = r.sample;
+  final first = r.processes.first;
+  final register = iso9606RegisterProcesses(r);
+  return Iso9606Limits(
+    root: s.isButt ? {for (final b in first.backings) _rootOf(b)} : null,
+    dip: first.tested.hasTransferMode
+        ? first.transfer == Iso9606Transfer.dip
+        : null,
+    plates: r.coversPlates,
+    fm: r.fmGroups.isEmpty ? null : {for (final g in r.fmGroups) g.code},
+    noFillerGroup: r.parentGroup,
+    proc2: [
+      for (final p in r.processes.skip(1)) p.tested.code,
+    ],
+    branch: s.isButt ? (s.isPipe ? 60 : 0) : null,
+    layers: r.filletLayers == null
+        ? null
+        : {for (final l in r.filletLayers!) l.code},
+    direction: s.gasDirection != null && register.contains(Iso9606Process.p311)
+        ? s.gasDirection!.code
+        : null,
+  );
+}
 
 /// Szkic certyfikatu do rejestru albo powód, dla którego się nie da.
 class Iso9606Draft {
@@ -2095,7 +2139,9 @@ Iso9606Draft iso9606CertificateDraft(Iso9606Range r, {required bool en}) {
   for (final l in limits) {
     notes.writeln('• ${l.text(en: en)}');
   }
+  // Ta sama treść dla programu — kontrola spoiny (weld_range_check.dart).
   notes
+    ..writeln(iso9606TestLimits(r).encode())
     ..writeln()
     ..writeln(en
         ? 'Range from the test piece (Fitter Welder Pro, EN ISO 9606-1:2017) '

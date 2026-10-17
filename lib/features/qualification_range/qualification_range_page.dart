@@ -207,12 +207,20 @@ class _QualificationRangePageState extends State<QualificationRangePage> {
               Text(
                 ctx.tr(
                     pl: 'Kontrola spoiny z rejestru porówna proces, grubość, '
-                        'średnicę, pozycje i BW/FW. Tych ograniczeń tej próbki '
-                        'NIE sprawdzi — trafią na początek notatki certyfikatu:',
+                        'średnicę, pozycje i BW/FW. Poniższe ograniczenia '
+                        'trafią na początek notatki certyfikatu; kontrola '
+                        'sprawdzi je tylko, gdy spoina ma te dane (dziennik '
+                        'zna dziś grupę spoiwa z oznaczenia, rurę z OD '
+                        'i odgałęzienie — prowadzenia grani i przenoszenia '
+                        'metalu nie zapisuje):',
                     en: 'The weld check against the register compares '
                         'process, thickness, diameter, positions and BW/FW. '
-                        'It will NOT check these limitations of this test '
-                        'piece — they go to the top of the certificate notes:'),
+                        'The limitations below go to the top of the '
+                        'certificate notes; the check enforces them only when '
+                        'the weld has the data (the journal knows the filler '
+                        'group from its designation, pipe from the OD and '
+                        'branch joints — it does not record the root '
+                        'condition or metal transfer):'),
                 style: const TextStyle(fontSize: 13, height: 1.35),
               ),
               const SizedBox(height: 10),

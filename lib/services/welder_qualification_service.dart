@@ -339,14 +339,16 @@ class WelderQualificationService {
   /// domyślnie stempel z tożsamości. Uprawnienia oceniane na [weldDate] —
   /// z ciągłością ASME liczoną ze spoin tego spawacza do tego dnia.
   ///
+  /// Parametry spoiny z wpisu dziennika daje `weldParametersOf`
+  /// (lib/domain/weld_journal/weld_compliance.dart) — razem z danymi do
+  /// ograniczeń z próby ISO 9606-1 (wyrób z OD, grupa FM z oznaczenia
+  /// spoiwa, odgałęzienie BR); dziennik na liście liczy to samo przez
+  /// `assessWeldCompliance`.
+  ///
   /// Przykład (zapis spoiny w dzienniku):
   /// ```dart
   /// final report = await WelderQualificationService.instance.checkWeld(
-  ///   weld: WeldParameters(
-  ///     thicknessMm: WeldParameters.parseNumber(entry.t),
-  ///     outsideDiameterMm: WeldParameters.parseNumber(entry.od),
-  ///     process: entry.method,
-  ///   ),
+  ///   weld: weldParametersOf(entry),
   ///   weldDate: parseFlexibleDate(entry.date) ?? DateTime.now(),
   ///   wpsNo: entry.wpsRef,
   ///   welderStamp: entry.welder,
