@@ -6,6 +6,8 @@
 // Zegar wstrzykiwany: E7018 wyjęte 07:00 → limit 4 h (AWS D1.1 Tab. 7.1)
 // → koniec 11:00, ostrzeżenie od 10:30.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -494,5 +496,153 @@ void main() {
     checkAll();
     await tapKey(tester, 'electrode-add');
     checkAll();
+  });
+
+  // ── Regresje z przeglądu kodu (A1, A3–A6) ─────────────────────────────
+
+  TextButton saveButton(WidgetTester tester) => tester
+      .widget<TextButton>(find.byKey(const ValueKey('electrode-limit-save')));
+
+  testWidgets('A1: przekroczonej partii nie da się ożywić podniesieniem limitu',
+      (tester) async {
+    // E8018-X: 2 h → o 09:30 przekroczona o 30 min.
+    await seed([_seed('b1', c: ElectrodeClass.e8018X)]);
+    clock.now = at(9, 30);
+    await pump(tester);
+    expect(_state('b1', ExposureState.exceeded), findsOneWidget);
+
+    await tapKey(tester, 'electrode-more-b1');
+    await tester.tap(find.text('Zmień limit / suszenia'));
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('electrode-limit-locked')), findsOneWidget);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('electrode-limit-edit')), '168');
+    await tester.pump();
+    expect(find.textContaining('partia przekroczona'), findsOneWidget);
+    expect(saveButton(tester).onPressed, isNull);
+
+    // Obniżyć wolno — partia zostaje przekroczona, wpis to odnotowuje.
+    await tester.enterText(
+        find.byKey(const ValueKey('electrode-limit-edit')), '1');
+    await tester.pump();
+    expect(saveButton(tester).onPressed, isNotNull);
+    await tapKey(tester, 'electrode-limit-save');
+    expect(_state('b1', ExposureState.exceeded), findsOneWidget);
+    expect(_remaining(tester, 'b1'), 'PRZEKROCZONO o 1 h 30 min');
+    // Ani piecyka, ani „OK” — tylko suszenie albo złom.
+    expect(find.byKey(const ValueKey('electrode-oven-b1')), findsNothing);
+
+    await tapKey(tester, 'electrode-tab-log');
+    expect(
+        find.text('Zmieniono limit na 1 h 00 min (partia była przekroczona)'),
+        findsOneWidget);
+  });
+
+  testWidgets('A3: „Cofnij” przywraca tylko jedną partię', (tester) async {
+    await seed([_seed('a'), _seed('b')]);
+    clock.now = at(9);
+    await pump(tester);
+
+    await tapKey(tester, 'electrode-scrap-a');
+    expect(find.byKey(const ValueKey('electrode-card-a')), findsNothing);
+    // W międzyczasie inna partia idzie do piecyka (snackbar „Cofnij” A
+    // dalej wisi).
+    await tapKey(tester, 'electrode-oven-b');
+    expect(_state('b', ExposureState.inOven), findsOneWidget);
+
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    expect(_state('a', ExposureState.ok), findsOneWidget);
+    expect(_state('b', ExposureState.inOven), findsOneWidget,
+        reason: 'cofnięcie A nie rusza B');
+    final prefs = await SharedPreferences.getInstance();
+    final saved = decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey));
+    expect(saved.firstWhere((x) => x.id == 'a').isClosed, isFalse);
+    expect(saved.firstWhere((x) => x.id == 'b').isInOven, isTrue);
+  });
+
+  testWidgets('A3: „Cofnij” po wyjściu z ekranu — bez setState po dispose',
+      (tester) async {
+    await seed([_seed('a'), _seed('b')]);
+    clock.now = at(9);
+    tester.view.physicalSize = const Size(1200, 2580);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ElectrodeExposurePage(
+                        now: clock.call, reminders: reminders))),
+                child: const Text('otwórz'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('otwórz'));
+    await tester.pumpAndSettle();
+
+    await tapKey(tester, 'electrode-scrap-a');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(ElectrodeExposurePage), findsNothing);
+
+    // Snackbar żyje dalej w ScaffoldMessengerze aplikacji.
+    await tester.tap(find.text('Cofnij'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final prefs = await SharedPreferences.getInstance();
+    final saved = decodeBatches(prefs.getString(kElectrodeBatchesPrefsKey));
+    expect(saved.map((x) => x.id), ['a', 'b']);
+    expect(saved.firstWhere((x) => x.id == 'a').isClosed, isFalse);
+  });
+
+  testWidgets(
+      'A4/A5: niespójny zapis i nieznane zdarzenie nie wywalają '
+      'ekranu, kopia zostaje', (tester) async {
+    final open = _seed('bez-stanu').toJson()..remove('start');
+    final withUnknown = _seed('nowsza').toJson();
+    withUnknown['ev'] = [
+      ...(withUnknown['ev']! as List),
+      {'k': 'zdarzenieZNowszejWersji', 'at': at(8).millisecondsSinceEpoch},
+    ];
+    final raw = jsonEncode({
+      'v': 1,
+      'batches': [open, withUnknown]
+    });
+    SharedPreferences.setMockInitialValues({kElectrodeBatchesPrefsKey: raw});
+    clock.now = at(10);
+    await pump(tester);
+    expect(tester.takeException(), isNull);
+    expect(
+        find.byKey(const ValueKey('electrode-card-bez-stanu')), findsOneWidget);
+    expect(_remaining(tester, 'bez-stanu'), 'zostało 1 h 00 min');
+    expect(_remaining(tester, 'nowsza'), 'zostało 1 h 00 min');
+
+    await tapKey(tester, 'electrode-tab-log');
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('electrode-log-nowsza')), findsOneWidget);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kElectrodeBatchesCorruptPrefsKey), raw);
+  });
+
+  testWidgets('A6: krótki limit — przypomnienie w połowie i nota o opóźnieniu',
+      (tester) async {
+    await seed([_seed('s', c: ElectrodeClass.e11018X)], remindersOn: true);
+    clock.now = at(7, 5);
+    await pump(tester);
+    expect(platform.scheduled.last, [at(7, 15), at(7, 20), at(7, 30)]);
+    expect(
+        find.byKey(const ValueKey('electrode-reminder-note')), findsOneWidget);
+    expect(find.textContaining('kilka minut później'), findsOneWidget);
   });
 }

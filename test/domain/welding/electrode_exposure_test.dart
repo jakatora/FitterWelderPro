@@ -303,7 +303,12 @@ void main() {
           'tekst',
         ],
       });
-      expect(decodeBatches(raw).map((b) => b.id), ['b1']);
+      // b8: zła historia → partia zostaje (bez wpisów), reszta śmieci
+      // pominięta; odczyt zgłasza stratę (magazyn zachowa kopię).
+      final r = decodeBatchesDetailed(raw);
+      expect(r.batches.map((b) => b.id), ['b1', 'b8']);
+      expect(r.batches[1].events, isEmpty);
+      expect(r.lossy, isTrue);
     });
   });
 
@@ -387,5 +392,175 @@ void main() {
     expect(formatDiameter(4, en: true), '4.0');
     expect(
         batch(ElectrodeClass.e7018).label(en: false), 'E7018 · Ø3,2 · 40 szt.');
+  });
+
+  // ── Regresje z przeglądu kodu (A1–A6) ─────────────────────────────────
+
+  group('przekroczona partia nie wraca do życia (A1)', () {
+    test('podniesienie limitu przekroczonej partii rzuca; obniżenie wolno', () {
+      // E8018-X: 2 h → przekroczona o 09:30.
+      final b = batch(ElectrodeClass.e8018X);
+      expect(b.stateAt(at(9, 30)), ExposureState.exceeded);
+      expect(b.canRaiseLimitAt(at(9, 30)), isFalse);
+      expect(() => b.withLimit(168 * 60, at(9, 30)), throwsStateError);
+      expect(() => b.withLimit(121, at(9, 30)), throwsStateError);
+      final lower = b.withLimit(60, at(9, 30));
+      expect(lower.limitMinutes, 60);
+      expect(lower.events.last.exceeded, isTrue);
+      expect(lower.stateAt(at(9, 30)), ExposureState.exceeded);
+    });
+
+    test('obejście przez piecyk: przekroczona, 4 h w piecyku — bez resetu', () {
+      final b = batch(ElectrodeClass.e8018X).returnToOven(at(9, 30));
+      expect(b.canRaiseLimitAt(at(10)), isFalse,
+          reason: 'w piecyku nadal przekroczona');
+      expect(() => b.withLimit(168 * 60, at(10)), throwsStateError);
+      final out = b.takeOutAgain(at(13, 30));
+      expect(out.events.last.reset, isFalse);
+      expect(out.stateAt(at(13, 30)), ExposureState.exceeded);
+    });
+
+    test('nieprzekroczoną partię wolno przestawić w górę', () {
+      final b = batch(ElectrodeClass.e8018X);
+      expect(b.canRaiseLimitAt(at(8)), isTrue);
+      final up = b.withLimit(240, at(8));
+      expect(up.limitMinutes, 240);
+      expect(up.events.last.exceeded, isFalse);
+      expect(up.stateAt(at(10)), ExposureState.ok);
+      // Wpis „przekroczona” przechodzi przez JSON.
+      final low = batch(ElectrodeClass.e8018X).withLimit(60, at(9, 30));
+      expect(decodeBatches(encodeBatches([low])).single.events.last.exceeded,
+          isTrue);
+    });
+  });
+
+  group('godzina z zegara (A2)', () {
+    test('godzina po „teraz” to wczoraj — kalendarzowo, także w dobie 25 h',
+        () {
+      // 25.10.2026 — w Polsce koniec czasu letniego (doba 25 h). 23:45
+      // z wczoraj nie może zamienić się w dzisiejszą 00:45.
+      expect(resolvePickedTime(DateTime(2026, 10, 25, 23, 30), 23, 45),
+          DateTime(2026, 10, 24, 23, 45));
+      // 29.03.2026 — doba 23 h.
+      expect(resolvePickedTime(DateTime(2026, 3, 29, 1, 30), 23, 15),
+          DateTime(2026, 3, 28, 23, 15));
+      // Przełom miesiąca i roku.
+      expect(resolvePickedTime(DateTime(2027, 1, 1, 0, 10), 22, 0),
+          DateTime(2026, 12, 31, 22));
+    });
+
+    test('godzina wcześniejsza albo równa „teraz” to dziś', () {
+      expect(resolvePickedTime(at(10), 7, 0), at(7));
+      expect(resolvePickedTime(at(10), 10, 0), at(10));
+    });
+  });
+
+  group('cofnięcie jednej partii (A3)', () {
+    test('restoreBatch przywraca tylko tę partię, zmiany innych zostają', () {
+      final a = batch(ElectrodeClass.e7018, id: 'a');
+      final b = batch(ElectrodeClass.e7018, id: 'b');
+      final aScrapped = a.close(at(9), BatchClosure.scrapped);
+      final bOven = b.returnToOven(at(9, 5));
+      final restored = restoreBatch([aScrapped, bOven], a);
+      expect(restored.map((x) => x.id), ['a', 'b']);
+      expect(restored[0].isClosed, isFalse);
+      expect(restored[1].isInOven, isTrue, reason: 'zmiana B zostaje');
+    });
+
+    test('usunięta partia wraca na koniec listy', () {
+      final a = batch(ElectrodeClass.e7018, id: 'a');
+      final b = batch(ElectrodeClass.e7018, id: 'b');
+      expect(restoreBatch([b], a).map((x) => x.id), ['b', 'a']);
+    });
+  });
+
+  group('odczyt ze stratą (A4)', () {
+    test('nieznany rodzaj zdarzenia — pomijane tylko zdarzenie', () {
+      final good = batch(ElectrodeClass.e7018).returnToOven(at(9)).toJson();
+      final events = [...(good['ev']! as List)];
+      events.insert(
+          1, {'k': 'wymyslonyRodzaj', 'at': at(8).millisecondsSinceEpoch});
+      events.add({'k': 'consumed'}); // bez godziny
+      final raw = jsonEncode({
+        'v': 1,
+        'batches': [
+          {...good, 'ev': events}
+        ],
+      });
+      final r = decodeBatchesDetailed(raw);
+      expect(r.lossy, isTrue);
+      expect(r.batches.single.events.map((e) => e.kind),
+          [BatchEventKind.takenOut, BatchEventKind.returnedToOven]);
+      expect(r.batches.single.isInOven, isTrue);
+    });
+
+    test('poprawny zapis — bez straty; uszkodzony — ze stratą', () {
+      final ok = encodeBatches([batch(ElectrodeClass.e7018)]);
+      expect(decodeBatchesDetailed(ok).lossy, isFalse);
+      expect(decodeBatchesDetailed(null).lossy, isFalse);
+      expect(decodeBatchesDetailed('{"v":1,"batches":[]}').lossy, isFalse);
+      for (final raw in ['{', 'null', '5', '{"batches": 5}', '[1]']) {
+        expect(decodeBatchesDetailed(raw).lossy, isTrue, reason: raw);
+      }
+    });
+  });
+
+  group('spójność zapisu (A5)', () {
+    Map<String, Object?> base() => batch(ElectrodeClass.e7018).toJson();
+
+    test('otwarta bez start i piecyka — licznik biegnie od ostatniego wpisu',
+        () {
+      final j = base()..remove('start');
+      var lossy = false;
+      final b = ElectrodeBatch.fromJson(j, onLoss: () => lossy = true);
+      expect(lossy, isTrue);
+      expect(b.isExposed, isTrue);
+      expect(b.exposureStart, at(7));
+      expect(b.deadline, at(11));
+      expect(b.stateAt(at(11, 1)), ExposureState.exceeded);
+    });
+
+    test(
+        'start i piecyk naraz — biegnie; ujemny prior → 0; zamknięta czyszczona',
+        () {
+      final both = ElectrodeBatch.fromJson({
+        ...base(),
+        'oven': at(8).millisecondsSinceEpoch,
+        'prior': -3600,
+      });
+      expect(both.isInOven, isFalse);
+      expect(both.isExposed, isTrue);
+      expect(both.priorExposure, Duration.zero);
+
+      final closed = ElectrodeBatch.fromJson({...base(), 'how': 'consumed'});
+      expect(closed.isClosed, isTrue);
+      expect(closed.exposureStart, isNull);
+      expect(closed.closedAt, at(7));
+      expect(closed.stateAt(at(12)), ExposureState.consumed);
+    });
+  });
+
+  group('przypomnienie w połowie krótkiego limitu (A6)', () {
+    test('wyprzedzenia: ≤ 60 min z połową, dłuższe bez', () {
+      expect(reminderLeadsFor(30), [15, 10, 0]);
+      expect(reminderLeadsFor(60), [30, 15, 0]);
+      expect(reminderLeadsFor(20), [10, 0]);
+      expect(reminderLeadsFor(120), [30, 0]);
+      expect(reminderLeadsFor(240), [30, 0]);
+    });
+
+    test('E11018-X 30 min: 07:15 połowa, 07:20, 07:30; E9018-X 1 h', () {
+      final short = planElectrodeReminders(
+          [batch(ElectrodeClass.e11018X, id: 's')],
+          now: at(7), english: false);
+      expect(short.map((r) => r.fireAt), [at(7, 15), at(7, 20), at(7, 30)]);
+      expect(short.first.title, 'Elektrody: połowa limitu — zostało 15 min');
+      expect(short.map((r) => r.id).toSet(), hasLength(3));
+      final hour = planElectrodeReminders(
+          [batch(ElectrodeClass.e9018X, id: 'h')],
+          now: at(7), english: true);
+      expect(hour.map((r) => r.fireAt), [at(7, 30), at(7, 45), at(8)]);
+      expect(hour.first.title, 'Electrodes: half the limit used — 30 min left');
+    });
   });
 }
