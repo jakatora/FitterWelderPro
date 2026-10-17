@@ -7,6 +7,7 @@ import '../features/cone_layout/cone_layout_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
+import '../features/fillet_strength/fillet_strength_page.dart';
 import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
 import '../features/hot_work/hot_work_page.dart';
@@ -1278,6 +1279,44 @@ final List<ToolSpec> kToolRegistry = [
       'holding time',
       'ramp rate',
       'p91'
+    ],
+  ),
+  ToolSpec(
+    id: 'fillet_strength',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Nośność spoiny pachwinowej',
+    titleEn: 'Fillet weld resistance',
+    subtitlePl: 'EN 1993-1-8: ile udźwignie spoina, jakie a wystarczy',
+    subtitleEn: 'EN 1993-1-8: weld capacity and the throat a you need',
+    icon: Icons.fitness_center,
+    color: const Color(0xFFD4E157),
+    builder: (_) => const FilletStrengthPage(),
+    keywordsPl: const [
+      'nosnosc spoiny',
+      'spoina pachwinowa',
+      'pachwinowa',
+      'grubosc a',
+      'wymagane a',
+      'wspornik',
+      'ucho',
+      'podpora',
+      'eurokod 3',
+      'en 1993-1-8',
+      'udzwig',
+      'wytrzymalosc spoiny',
+      'obciazenie spoiny'
+    ],
+    keywordsEn: const [
+      'fillet weld',
+      'weld strength',
+      'weld capacity',
+      'weld resistance',
+      'throat size',
+      'bracket',
+      'lifting lug',
+      'eurocode 3',
+      'en 1993-1-8',
+      'directional method'
     ],
   ),
   ToolSpec(

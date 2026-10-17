@@ -141,6 +141,8 @@ void main() {
         'ConeLayoutPage',
         // Słownik spawalniczy PL/EN/DE/NL/NO.
         'GlossaryPage',
+        // Nośność spoiny pachwinowej (EN 1993-1-8).
+        'FilletStrengthPage',
       };
       expect(targets, expected);
     });

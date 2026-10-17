@@ -22,6 +22,7 @@ const List<String> kWhatsNewToolIds = [
   'filler_selector',
   'pwht_planner',
   'cooling_time',
+  'fillet_strength',
   'iso5817',
   'weld_symbols',
   'work_progress',

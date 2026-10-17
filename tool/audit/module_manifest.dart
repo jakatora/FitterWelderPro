@@ -211,6 +211,27 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/electrode_exposure/electrode_exposure_page_test.dart: A4/A5: niespójny zapis i nieznane zdarzenie nie wywalają ekranu, kopia zostaje',
       ]),
   ModuleAuditEntry(
+      id: 'fillet-strength',
+      entryPoint: 'FilletStrengthPage',
+      sourcePath: 'lib/features/fillet_strength/fillet_strength_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'S235, a 4, 2 × l 100, metoda uproszczona: l_eff = 92 mm, fvw,d = 207,8 MPa, F_w,Rd = 152,9 kN; F_Ed 100 kN → 65,4 %, zielony; 160 kN → 104,6 %, czerwony, wymagane a ≥ 4,3 mm (a5); 153 kN → 100,1 %, nie „100 %”; kierunkowa w poprzek 187,3 kN (√(3/2) × uproszczona); obwodowa rura D 60,3 → 157,4 kN; z 5,65 → a 3,99 mm.',
+      evidence: [
+        'test/features/fillet_strength/fillet_strength_page_test.dart: dane → wynik; siła poniżej nośności → zielony',
+        'test/features/fillet_strength/fillet_strength_page_test.dart: wykorzystanie > 100 % → czerwony; wymagane a w górę',
+        'test/features/fillet_strength/fillet_strength_page_test.dart: siła tuż ponad nośnością nie wygląda na „100 %”',
+        'test/features/fillet_strength/fillet_strength_page_test.dart: spoina obwodowa rury: l = π·D, metoda kierunkowa osiowo',
+        'test/features/fillet_strength/fillet_strength_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez przepełnień',
+        'test/domain/welding/fillet_weld_strength_test.dart: S235, a 4, l 100: l_eff = l − 2a = 92 mm, Fw,Rd = 76,49 kN',
+        'test/domain/welding/fillet_weld_strength_test.dart: w poprzek (90°): 93,68 kN = √(3/2) × uproszczona',
+        'test/domain/welding/fillet_weld_strength_test.dart: odwrotnie spójne: wymagane a daje F_Rd ≥ F_Ed, o 0,1 mm mniej — nie',
+        'test/domain/welding/fillet_weld_strength_test.dart: l_eff < max(30 mm; 6a) (4.5.1) — brak wyniku',
+        'test/domain/welding/fillet_weld_strength_test.dart: wykorzystanie w górę: 100,04 % → 100,1 %, nie „100 %”',
+      ]),
+  ModuleAuditEntry(
       id: 'flange-check',
       entryPoint: 'FlangeCheckPage',
       sourcePath: 'lib/features/flange_check/flange_check_page.dart',
