@@ -332,10 +332,27 @@ const _rMark = DefectStep(
       'Mark the defect and its extent (length, depth), note the weld number.'),
 );
 
+// Usuwanie wady: żłobienie łukowo-powietrzne tylko na stali węglowej /
+// niskostopowej — zostawia warstwę nawęgloną (TWI JK 12), na nierdzewce
+// i aluminium tylko obróbka mechaniczna.
 const _rRemove = DefectStep(
   'remove',
-  Tx('Usuń wadę szlifowaniem albo żłobieniem do zdrowego metalu (TWI).',
-      'Remove the defect by grinding or gouging down to sound metal (TWI).'),
+  Tx('Stal węglowa / niskostopowa: usuń wadę szlifowaniem albo żłobieniem '
+          'łukowo-powietrznym do zdrowego metalu (TWI).',
+      'Carbon / low-alloy steel: remove the defect by grinding or air carbon '
+          'arc gouging down to sound metal (TWI).'),
+  materials: {_cs},
+);
+
+const _rRemoveMech = DefectStep(
+  'remove-mech',
+  Tx('Nierdzewka, aluminium: usuń wadę tylko mechanicznie (szlifowanie, '
+          'frezowanie) narzędziem do tego materiału — bez żłobienia '
+          'łukowo-powietrznego (warstwa nawęglona — TWI).',
+      'Stainless, aluminium: remove the defect only mechanically (grinding, '
+          'milling) with a tool kept for that material — no air carbon arc '
+          'gouging (carburised layer — TWI).'),
+  materials: {_ss, _al},
 );
 
 const _rGouge = DefectStep(
@@ -346,7 +363,7 @@ const _rGouge = DefectStep(
       'After air carbon arc gouging grind the walls — a carburised layer '
           'remains (hard, crack-prone); in higher-strength steels always '
           'grind (TWI).'),
-  processes: _dc,
+  materials: {_cs},
 );
 
 const _rConfirm = DefectStep(
@@ -502,14 +519,25 @@ const List<Tx> _safetyStandard = [_sGrind, _sGouge, _sPt, _sPreheat];
 
 // ── Wady ────────────────────────────────────────────────────────────────────
 
+// Pęknięcia poprzeczne / liczne / na dużej części długości lub grubości to
+// zwykle błąd systemowy (podgrzewanie, wodór, WPS), nie pojedyncza wada —
+// wymóg z przeglądu: wycięcie całego złącza i przegląd technologii. Zakresu
+// PT / MT sąsiedztwa nie znaleziono w źródłach — „wg specyfikacji”.
 const _cutCrack = Tx(
-  'Pęknięcie wraca po naprawie albo limit napraw ze specyfikacji jest '
-      'wyczerpany — wycięcie złącza. API 1104: nieudana naprawa pęknięcia = '
-      'wycięcie; rurociągi wg 49 CFR 192.245: pęknięcie dłuższe niż 8 % '
-      'długości spoiny = wycięcie.',
-  'The crack returns after repair or the repair limit in the specification '
-      'is used up — cut the joint out. API 1104: a failed crack repair = cut '
-      'out; pipelines per 49 CFR 192.245: a crack longer than 8 % of the weld '
+  'Pęknięcia poprzeczne (102), liczne albo na dużej części długości lub '
+      'grubości spoiny — wycięcie całego złącza i przegląd WPS, podgrzewania '
+      'i wodoru (błąd systemowy, nie pojedyncza naprawa); sprawdź PT / MT '
+      'sąsiedztwo i spoiny z tej samej zmiany w zakresie wg specyfikacji. '
+      'Także gdy pęknięcie wraca po naprawie albo limit napraw jest wyczerpany. '
+      'API 1104: nieudana naprawa pęknięcia = wycięcie; rurociągi wg 49 CFR '
+      '192.245: pęknięcie dłuższe niż 8 % długości spoiny = wycięcie.',
+  'Transverse cracks (102), many cracks or cracks over much of the weld '
+      'length or thickness — cut the whole joint out and review the WPS, '
+      'preheat and hydrogen (a systematic fault, not a single repair); check '
+      'the surroundings and welds from the same shift by PT / MT to the extent '
+      'set by the specification. Also when the crack returns after repair or '
+      'the repair limit is used up. API 1104: a failed crack repair = cut out; '
+      'pipelines per 49 CFR 192.245: a crack longer than 8 % of the weld '
       'length = cut out.',
 );
 
@@ -577,27 +605,58 @@ const _crackCold = WeldDefect(
       sources: ['twi-hydrogen'],
     ),
     DefectCause(
-      id: 'cold-wet-consumable',
-      processes: _slagging,
+      id: 'cold-wet-electrode',
+      processes: {_mma},
       rank: 2,
-      cause: Tx(
-          'Wodór ze spoiwa: zawilgocone elektrody zasadowe, drut proszkowy '
-              'albo topnik',
-          'Hydrogen from consumables: damp basic electrodes, flux-cored wire '
-              'or flux'),
+      cause: Tx('Wodór z zawilgoconych elektrod zasadowych',
+          'Hydrogen from damp basic electrodes'),
       check: Tx(
-          'Elektrody z piecyka i w limicie czasu na powietrzu? Topnik '
-              'suszony? Klasa wodoru spoiwa (np. H5, H10) zgodna z WPS?',
-          'Electrodes from the oven and within the exposure limit? Flux '
-              'dried? Consumable hydrogen class (e.g. H5, H10) as in the WPS?'),
+          'Elektrody z piecyka i w limicie czasu na powietrzu? Klasa wodoru '
+              'elektrody zgodna z WPS?',
+          'Electrodes from the oven and within the exposure limit? Electrode '
+              'hydrogen class as in the WPS?'),
       fix: Tx(
-          'Spoiwa niskowodorowe, suszenie elektrod i topników wg producenta '
-              '(TWI); czas na powietrzu — moduł „Elektrody zasadowe: czas i '
-              'suszenie”.',
-          'Low-hydrogen consumables, electrodes and fluxes dried per the '
-              'manufacturer (TWI); exposure time — the “Low-hydrogen '
-              'electrodes: exposure” tool.'),
+          'Elektrody niskowodorowe suszone wg producenta (TWI); czas na '
+              'powietrzu — moduł „Elektrody zasadowe: czas i suszenie”.',
+          'Low-hydrogen electrodes dried per the manufacturer (TWI); exposure '
+              'time — the “Low-hydrogen electrodes: exposure” tool.'),
       sources: ['twi-hydrogen', 'oerlikon-storage'],
+    ),
+    DefectCause(
+      id: 'cold-wet-flux',
+      processes: {_saw},
+      rank: 2,
+      cause: Tx('Wodór z wilgotnego topnika', 'Hydrogen from damp flux'),
+      check: Tx(
+          'Topnik suszony wg karty i trzymany w podgrzewanym zasobniku? Topnik '
+              'z odzysku bez suszenia? Klasa wodoru zestawu drut + topnik '
+              'zgodna z WPS?',
+          'Flux dried per the data sheet and kept in a heated hopper? Recycled '
+              'flux used without drying? Hydrogen class of the wire + flux as '
+              'in the WPS?'),
+      fix: Tx(
+          'Susz topnik wg producenta (TWI) i trzymaj go w podgrzewanym '
+              'zasobniku; sprężone powietrze w obiegu odzysku suche (TWI).',
+          'Dry the flux per the manufacturer (TWI) and keep it in a heated '
+              'hopper; compressed air in the recovery system dry (TWI).'),
+      sources: ['twi-hydrogen', 'twi-saw-porosity'],
+    ),
+    DefectCause(
+      id: 'cold-wet-wire',
+      processes: {_fcg, _fcs},
+      rank: 2,
+      cause: Tx('Wodór z zawilgoconego drutu proszkowego',
+          'Hydrogen from damp flux-cored wire'),
+      check: Tx(
+          'Szpula przechowywana w opakowaniu, bez rdzy? Klasa wodoru drutu '
+              'zgodna z WPS?',
+          'Spool kept packed, no rust? Wire hydrogen class as in the WPS?'),
+      fix: Tx(
+          'Drut niskowodorowy wg WPS (TWI); po pracy szpula do opakowania, '
+              'drut chroniony przed atmosferą (Lincoln).',
+          'Low-hydrogen wire per the WPS (TWI); after work the spool goes back '
+              'into its pack, wire protected from the atmosphere (Lincoln).'),
+      sources: ['twi-hydrogen', 'lincoln-innershield'],
     ),
     DefectCause(
       id: 'cold-surface',
@@ -657,6 +716,7 @@ const _crackCold = WeldDefect(
     _rMark,
     _rCrackBeyond,
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rGroove,
@@ -675,10 +735,22 @@ const _crackCold = WeldDefect(
           'Preheat temperature measured on both sides of the groove'),
     ),
     DefectStep(
-      'consumable-dry',
-      Tx('Elektrody / drut / topnik suche, w limicie czasu',
-          'Electrodes / wire / flux dry, within the time limit'),
-      processes: _slagging,
+      'electrodes-dry',
+      Tx('Elektrody z piecyka, w limicie czasu na powietrzu',
+          'Electrodes from the oven, within the exposure limit'),
+      processes: {_mma},
+    ),
+    DefectStep(
+      'flux-dry',
+      Tx('Topnik suszony, z podgrzewanego zasobnika',
+          'Flux dried, from a heated hopper'),
+      processes: {_saw},
+    ),
+    DefectStep(
+      'wire-dry',
+      Tx('Drut proszkowy suchy, szpula bez rdzy',
+          'Flux-cored wire dry, spool free of rust'),
+      processes: {_fcg, _fcs},
     ),
     DefectStep(
       'groove-dry',
@@ -837,6 +909,7 @@ const _crackHot = WeldDefect(
     _rMark,
     _rCrackBeyond,
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rGroove,
@@ -972,7 +1045,9 @@ const _crackCrater = WeldDefect(
   repair: [
     _rCauseFirst,
     _rMark,
+    _rCrackBeyond,
     _rRemove,
+    _rRemoveMech,
     _rConfirm,
     _rGroove,
     _rPreheat,
@@ -1443,6 +1518,7 @@ const _porosity = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rGroove,
@@ -1614,6 +1690,7 @@ const _shrinkage = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rConfirm,
     _rPreheat,
     _rWeld,
@@ -1731,13 +1808,16 @@ const _slag = WeldDefect(
               'the edges (TWI).'),
       sources: ['twi-slag'],
     ),
+    // Lincoln Innershield i Hobart „self-shielded FCAW” dotyczą drutów
+    // samoosłonowych (114) — dla 136 osobna przyczyna niżej.
     DefectCause(
       id: 'slag-fcaw',
-      processes: {_fcg, _fcs},
+      processes: {_fcs},
       rank: 2,
       cause: Tx(
-          'Za wąski rowek albo żużel wyprzedza jeziorko (drut proszkowy)',
-          'Groove too narrow or slag running ahead of the pool (flux-cored)'),
+          'Za wąski rowek albo żużel wyprzedza jeziorko (drut samoosłonowy)',
+          'Groove too narrow or slag running ahead of the pool (self-shielded '
+              'wire)'),
       check: Tx('Rowek wąski? Spawasz za wolno albo pchając?',
           'Narrow groove? Welding too slowly or pushing?'),
       fix: Tx(
@@ -1748,6 +1828,30 @@ const _slag = WeldDefect(
               '20–30°, never push, a little faster; Hobart: drag angle 15–45° '
               '(PA, PB, PE), 5–15° vertical up.'),
       sources: ['lincoln-innershield', 'hobart-fcaw-s'],
+    ),
+    // 136: źródła o technice ciągnięcia / pchania dla drutów w osłonie gazu
+    // (rutylowych) nie znaleziono — Miller podaje „zawsze ciągnięcie” bez
+    // rozróżnienia drutów; zostaje „wg karty drutu”.
+    DefectCause(
+      id: 'slag-fcg-angle',
+      processes: {_fcg},
+      rank: 2,
+      cause: Tx(
+          'Kąt palnika i technika niezgodne z kartą drutu (drut proszkowy '
+              'w osłonie gazu)',
+          'Torch angle and technique not as in the wire data sheet '
+              '(gas-shielded flux-cored wire)'),
+      check: Tx(
+          'Technika (ciągnięcie / pchanie, pion w górę) i kąt jak w karcie '
+              'drutu i WPS?',
+          'Technique (drag / push, vertical up) and angle as in the wire data '
+              'sheet and the WPS?'),
+      fix: Tx(
+          'Ustaw kąt i technikę wg karty drutu — zły kąt i technika sprzyjają '
+              'wtrąceniom żużla (TWI).',
+          'Set the angle and technique per the wire data sheet — a wrong angle '
+              'and technique promote slag inclusions (TWI).'),
+      sources: ['twi-slag'],
     ),
     DefectCause(
       id: 'slag-fast',
@@ -1777,6 +1881,7 @@ const _slag = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rGroove,
@@ -1812,7 +1917,13 @@ const _slag = WeldDefect(
     DefectStep(
       'drag-angle',
       Tx('Kąt ciągnięty, bez pchania', 'Drag angle, no pushing'),
-      processes: {_fcg, _fcs},
+      processes: {_fcs},
+    ),
+    DefectStep(
+      'fcg-angle',
+      Tx('Kąt palnika i technika wg karty drutu',
+          'Torch angle and technique per the wire data sheet'),
+      processes: {_fcg},
     ),
   ],
   repairSources: [..._repairSourcesStandard, 'twi-slag'],
@@ -1916,6 +2027,7 @@ const _oxide = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rConfirm,
     _rGroove,
     _rPreheat,
@@ -2068,6 +2180,7 @@ const _tungsten = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rConfirm,
     _rGroove,
     _rPreheat,
@@ -2253,8 +2366,8 @@ const _lackOfFusion = WeldDefect(
       sources: ['twi-lof'],
     ),
     DefectCause(
-      id: 'lof-arc-blow',
-      processes: _dc,
+      id: 'lof-arc-blow-mma',
+      processes: {_mma},
       rank: 4,
       cause: Tx('Dmuch magnetyczny — łuk odchyla się przy DC',
           'Magnetic arc blow — the arc deflects on DC'),
@@ -2264,12 +2377,31 @@ const _lackOfFusion = WeldDefect(
           'Does the arc swing sideways, especially at joint ends and near the '
               'earth? Is the part magnetised?'),
       fix: Tx(
-          'TWI: krótki łuk, mniejszy prąd, w MMA spawaj w kierunku masy, kilka '
+          'TWI: krótki łuk, mniejszy prąd, spawaj w kierunku masy, kilka '
               'zacisków masy, owiń przewód wokół elementu, rozmagnesuj; AC '
               'zamiast DC tylko jeśli dopuszcza WPS.',
-          'TWI: short arc, lower current, in MMA weld towards the earth, '
-              'several earth clamps, wrap the cable around the part, '
-              'demagnetise; AC instead of DC only if the WPS allows it.'),
+          'TWI: short arc, lower current, weld towards the earth, several '
+              'earth clamps, wrap the cable around the part, demagnetise; AC '
+              'instead of DC only if the WPS allows it.'),
+      sources: ['twi-arc-blow'],
+    ),
+    // MAG / FCAW / TIG / SAW: bez rady „AC zamiast DC” (źródło dotyczy MMA).
+    DefectCause(
+      id: 'lof-arc-blow',
+      processes: {_mag, _fcg, _fcs, _tig, _saw},
+      rank: 4,
+      cause: Tx('Dmuch magnetyczny — łuk odchyla się przy DC',
+          'Magnetic arc blow — the arc deflects on DC'),
+      check: Tx(
+          'Łuk ucieka na bok, zwłaszcza przy końcach złącza i przy masie? '
+              'Element namagnesowany?',
+          'Does the arc swing sideways, especially at joint ends and near the '
+              'earth? Is the part magnetised?'),
+      fix: Tx(
+          'TWI: krótki łuk, mniejszy prąd, kilka zacisków masy lub masa '
+              'w innym miejscu, owiń przewód wokół elementu, rozmagnesuj.',
+          'TWI: short arc, lower current, several earth clamps or the earth in '
+              'another place, wrap the cable around the part, demagnetise.'),
       sources: ['twi-arc-blow'],
     ),
   ],
@@ -2277,6 +2409,7 @@ const _lackOfFusion = WeldDefect(
     _rCauseFirst,
     _rMark,
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rGroove,
@@ -2375,8 +2508,8 @@ const _lackOfPenetration = WeldDefect(
       sources: ['twi-root'],
     ),
     DefectCause(
-      id: 'lop-arc-blow',
-      processes: _dc,
+      id: 'lop-arc-blow-mma',
+      processes: {_mma},
       rank: 3,
       cause: Tx('Dmuch magnetyczny odchyla łuk od grani',
           'Magnetic arc blow deflects the arc from the root'),
@@ -2384,9 +2517,25 @@ const _lackOfPenetration = WeldDefect(
           'Does the arc swing sideways on DC, especially at joint ends?'),
       fix: Tx(
           'TWI: krótki łuk, mniejszy prąd, przenieś masę lub kilka zacisków, '
-              'rozmagnesuj; AC tylko jeśli dopuszcza WPS.',
+              'rozmagnesuj; AC zamiast DC tylko jeśli dopuszcza WPS.',
           'TWI: short arc, lower current, move the earth or use several '
-              'clamps, demagnetise; AC only if the WPS allows it.'),
+              'clamps, demagnetise; AC instead of DC only if the WPS allows '
+              'it.'),
+      sources: ['twi-arc-blow'],
+    ),
+    DefectCause(
+      id: 'lop-arc-blow',
+      processes: {_mag, _fcg, _fcs, _tig, _saw},
+      rank: 3,
+      cause: Tx('Dmuch magnetyczny odchyla łuk od grani',
+          'Magnetic arc blow deflects the arc from the root'),
+      check: Tx('Łuk ucieka na bok przy DC, zwłaszcza przy końcach złącza?',
+          'Does the arc swing sideways on DC, especially at joint ends?'),
+      fix: Tx(
+          'TWI: krótki łuk, mniejszy prąd, przenieś masę lub kilka zacisków, '
+              'rozmagnesuj.',
+          'TWI: short arc, lower current, move the earth or use several '
+              'clamps, demagnetise.'),
       sources: ['twi-arc-blow'],
     ),
   ],
@@ -3470,6 +3619,7 @@ const _rootConcavity = WeldDefect(
               'repair by excavating from the face.'),
     ),
     _rRemove,
+    _rRemoveMech,
     _rGouge,
     _rConfirm,
     _rWeld,
@@ -4008,17 +4158,28 @@ const _spatter = WeldDefect(
       sources: ['kemppi-defects'],
     ),
     DefectCause(
-      id: 'sp-arc-blow',
-      processes: {_mma, _mag, _fcg, _fcs},
+      id: 'sp-arc-blow-mma',
+      processes: {_mma},
       rank: 4,
       cause: Tx('Dmuch magnetyczny', 'Magnetic arc blow'),
       check: Tx('Łuk odchyla się, rozprysk po jednej stronie?',
           'Arc deflecting, spatter on one side?'),
       fix: Tx(
-          'Przenieś zacisk masy, pochyl elektrodę przeciw dmuchowi, przy MMA AC '
-              'jeśli dopuszcza WPS, rozmagnesuj (Kemppi, TWI).',
-          'Move the earth clamp, tilt the electrode against the blow, AC for '
-              'MMA if the WPS allows it, demagnetise (Kemppi, TWI).'),
+          'Przenieś zacisk masy, pochyl elektrodę przeciw dmuchowi, AC zamiast '
+              'DC jeśli dopuszcza WPS, rozmagnesuj (Kemppi, TWI).',
+          'Move the earth clamp, tilt the electrode against the blow, AC '
+              'instead of DC if the WPS allows it, demagnetise (Kemppi, TWI).'),
+      sources: ['kemppi-defects', 'twi-arc-blow'],
+    ),
+    DefectCause(
+      id: 'sp-arc-blow',
+      processes: {_mag, _fcg, _fcs},
+      rank: 4,
+      cause: Tx('Dmuch magnetyczny', 'Magnetic arc blow'),
+      check: Tx('Łuk odchyla się, rozprysk po jednej stronie?',
+          'Arc deflecting, spatter on one side?'),
+      fix: Tx('Przenieś zacisk masy, rozmagnesuj (Kemppi, TWI).',
+          'Move the earth clamp, demagnetise (Kemppi, TWI).'),
       sources: ['kemppi-defects', 'twi-arc-blow'],
     ),
   ],

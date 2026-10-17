@@ -305,6 +305,141 @@ void main() {
     expect(crack.cutOut.pl, contains('API 1104'));
   });
 
+  test('pęknięcia: „do wycięcia” — 102, całe złącze, przegląd WPS / '
+      'podgrzewania / wodoru, PT / MT wg specyfikacji; usuwanie za końce', () {
+    final cracks = [
+      for (final d in kWeldDefects)
+        if (d.group == DefectGroup.cracks) d
+    ];
+    expect(cracks.map((d) => d.id),
+        containsAll(['crack_cold', 'crack_hot', 'crack_crater']));
+    for (final d in cracks) {
+      for (final s in [d.cutOut.pl, d.cutOut.en]) {
+        expect(s, contains('102'), reason: d.id);
+        expect(s, contains('PT / MT'), reason: d.id);
+      }
+      expect(d.cutOut.pl, contains('wycięcie całego złącza'), reason: d.id);
+      expect(d.cutOut.pl, contains('przegląd WPS, podgrzewania i wodoru'),
+          reason: d.id);
+      expect(d.cutOut.pl, contains('wg specyfikacji'), reason: d.id);
+      expect(d.cutOut.en, contains('cut the whole joint out'), reason: d.id);
+      final repair = [for (final s in d.repair) s.id];
+      expect(repair, containsAll(['crack-beyond', 'confirm', 'limit']),
+          reason: d.id);
+      // Usunięcie za końce pęknięcia — przed szlifowaniem / żłobieniem.
+      expect(repair.indexOf('crack-beyond'), lessThan(repair.indexOf('confirm')),
+          reason: d.id);
+    }
+  });
+
+  test('„kąt ciągnięty, nigdy pchanie” tylko dla drutu samoosłonowego 114; '
+      'dla 136 — wg karty drutu', () {
+    final pushRule = RegExp(r'nigdy pchanie|bez pchania|never push|no pushing');
+    for (final d in kWeldDefects) {
+      for (final c in d.causes) {
+        final text = '${c.cause.pl} ${c.check.pl} ${c.fix.pl} ${c.fix.en}';
+        if (pushRule.hasMatch(text)) {
+          expect(c.processes, {DefectProcess.fcaw114},
+              reason: '${d.id}/${c.id}');
+        }
+      }
+      for (final s in d.checklist) {
+        if (pushRule.hasMatch('${s.text.pl} ${s.text.en}')) {
+          expect(s.processes, {DefectProcess.fcaw114},
+              reason: '${d.id}/${s.id}');
+        }
+      }
+    }
+    final slag136 = defectAdvice(weldDefectById('slag')!, DefectProcess.fcaw136)!;
+    final ids = slag136.causes.map((c) => c.id);
+    expect(ids, contains('slag-fcg-angle'));
+    expect(ids, isNot(contains('slag-fcaw')));
+    final angle = slag136.causes.firstWhere((c) => c.id == 'slag-fcg-angle');
+    expect(angle.fix.pl, contains('wg karty drutu'));
+    expect(slag136.checklist.map((s) => s.id), contains('fcg-angle'));
+    expect(slag136.checklist.map((s) => s.id), isNot(contains('drag-angle')));
+    final slag114 = defectAdvice(weldDefectById('slag')!, DefectProcess.fcaw114)!;
+    expect(slag114.causes.map((c) => c.id), contains('slag-fcaw'));
+    expect(slag114.checklist.map((s) => s.id), contains('drag-angle'));
+  });
+
+  test('żłobienie łukowo-powietrzne tylko na stali węglowej / niskostopowej',
+      () {
+    for (final d in kWeldDefects) {
+      for (final s in d.repair) {
+        final mentions = s.text.pl.contains('żłobien');
+        if (mentions && !s.text.pl.contains('bez żłobienia')) {
+          expect(s.materials, {DefectMaterial.carbon},
+              reason: '${d.id}/${s.id}');
+        }
+      }
+      for (final p in d.processes) {
+        for (final m in d.materialsFor(p)) {
+          final ids = [
+            for (final s in defectAdvice(d, p, material: m)!.repair) s.id
+          ];
+          if (m == DefectMaterial.carbon) {
+            expect(ids, isNot(contains('remove-mech')), reason: d.id);
+          } else {
+            expect(ids, isNot(contains('remove')), reason: '${d.id}/$m');
+            expect(ids, isNot(contains('gouge')), reason: '${d.id}/$m');
+            if (d.repair.any((s) => s.id == 'remove')) {
+              expect(ids, contains('remove-mech'), reason: '${d.id}/$m');
+            }
+          }
+        }
+      }
+    }
+  });
+
+  test('„AC zamiast DC” przy dmuchu magnetycznym tylko dla MMA', () {
+    var mma = 0;
+    for (final d in kWeldDefects) {
+      for (final c in d.causes) {
+        final pl = c.fix.pl.contains('AC zamiast DC');
+        final en = c.fix.en.contains('AC instead of DC');
+        expect(pl, en, reason: '${d.id}/${c.id}');
+        if (pl) {
+          mma++;
+          expect(c.processes, {DefectProcess.mma111},
+              reason: '${d.id}/${c.id}');
+        }
+        if (c.id.contains('arc-blow') && !c.processes.contains(DefectProcess.mma111)) {
+          expect(RegExp(r'\bAC\b').hasMatch(c.fix.pl), isFalse,
+              reason: '${d.id}/${c.id}');
+        }
+      }
+    }
+    expect(mma, 3, reason: 'przyklejenie, brak przetopu, rozprysk');
+    // MAG nadal dostaje przyczynę dmuchu — bez AC.
+    final lof = defectAdvice(
+        weldDefectById('lack_of_fusion')!, DefectProcess.mag135)!;
+    expect(lof.causes.map((c) => c.id), contains('lof-arc-blow'));
+  });
+
+  test('pęknięcia wodorowe: SAW mówi o topniku, FCAW o drucie, MMA '
+      'o elektrodach', () {
+    final d = weldDefectById('crack_cold')!;
+    String all(DefectAdvice a) => [
+          for (final c in a.causes) '${c.cause.pl} ${c.check.pl}',
+          for (final s in a.checklist) s.text.pl,
+        ].join(' ');
+    final saw = defectAdvice(d, DefectProcess.saw121)!;
+    expect(saw.causes.map((c) => c.id), contains('cold-wet-flux'));
+    expect(all(saw), contains('topnik'));
+    expect(all(saw).toLowerCase(), isNot(contains('elektrod')));
+    for (final p in [DefectProcess.fcaw136, DefectProcess.fcaw114]) {
+      final a = defectAdvice(d, p)!;
+      expect(a.causes.map((c) => c.id), contains('cold-wet-wire'));
+      expect(all(a), contains('drut'));
+      expect(all(a).toLowerCase(), isNot(contains('elektrod')));
+      expect(all(a).toLowerCase(), isNot(contains('topnik')));
+    }
+    final mma = defectAdvice(d, DefectProcess.mma111)!;
+    expect(mma.causes.map((c) => c.id), contains('cold-wet-electrode'));
+    expect(all(mma).toLowerCase(), isNot(contains('topnik')));
+  });
+
   test('przyczyny „przepływu gazu” tylko dla procesów z gazem z butli', () {
     for (final d in kWeldDefects) {
       for (final c in d.causes) {
