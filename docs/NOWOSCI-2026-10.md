@@ -35,8 +35,11 @@ niezgodności w odbiorze ISO 5817 wg PN-EN ISO 6520-1 (509 „zwis”, nie „wy
 Rozszerzenia istniejących ekranów:
 
 - **Wycena → Zakres → Importuj spoiny** — pozycje wyceny z zapisanego skanu
-  izometryku albo z dziennika spoin (grupowanie po rodzaju, wymiarze
-  i pozycji; spoiny bez wymiaru pomijane z powodem, nie zgadywane).
+  izometryku, z dziennika spoin albo z projektu CUT (lista cięć: spoina na
+  każdym końcu odcinka przy kształtce, podziały sztangi; typ kołnierzy
+  i zaworów wybierany w podglądzie). Grupowanie po rodzaju, wymiarze
+  i pozycji; spoiny bez wymiaru albo niepewne trafiają do „do sprawdzenia”
+  z powodem, nie są zgadywane.
 - **Próba ciśnieniowa → manometr z rejestru przyrządów** — numer i termin
   kalibracji wpisują się z rejestru; przyrządy po terminie są oznaczone
   w wyborze.
