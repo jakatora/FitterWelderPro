@@ -127,6 +127,8 @@ void main() {
         'SteelWeightPage',
         // Rejestr przyrządów i kalibracji (v27).
         'InstrumentRegisterPage',
+        // Czas stygnięcia t8/5 (EN 1011-2 zał. D).
+        'CoolingTimePage',
       };
       expect(targets, expected);
     });

@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 78
+Moduły: 79
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 30 |
+| passed | 31 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -47,6 +47,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `chat` | ChatScreen | lib/screens/chat_screen.dart | social | medium | unverified | Zalogowany użytkownik otwiera rozmowę i widzi historię wiadomości. | test/audit/module_smoke_test.dart: Ponów wykonuje drugie wywołanie Chat i pokazuje zwrócony pokój |
 | `component-library` | ComponentLibraryScreen | lib/screens/component_library_screen.dart | project | medium | unverified | Użytkownik filtruje bibliotekę komponentów po średnicy 100 mm. | Brak dowodu scenariusza |
 | `consent` | ConsentScreen | lib/screens/consent_screen.dart | account | high | unverified | Użytkownik akceptuje wymagane zgody przed użyciem aplikacji. | Brak dowodu scenariusza |
+| `cooling-time` | CoolingTimePage | lib/features/cooling_time/cooling_time_page.dart | welder | safetyCritical | passed | Q 1,0 kJ/mm, T0 100 °C, d 20 mm, ścieg wypełniający czołowej (F3 0,9): przepływ 3D, t8/5 = 6,0 s, w oknie 5–15 s; T0 20 °C → 4,8 s, za krótko; d 10 mm → 2D, 10,2 s; okno max 8 s → za długo. Przykład MIGAL (30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 °C) → 2D, 18,16 s; dla okna 5–15 s przy T0 100 °C Q = 0,836–2,023 kJ/mm. | test/features/cooling_time/cooling_time_page_test.dart: zmiana T0, grubości i okna zmienia wynik i werdykt<br>test/features/cooling_time/cooling_time_page_test.dart: złącze teowe w 2D: wynik jako przedział<br>test/features/cooling_time/cooling_time_page_test.dart: Q z U, I, v i procesu — przez heat_input.dart<br>test/features/cooling_time/cooling_time_page_test.dart: wąski ekran, tekst ×1,3, wersja EN — bez wyjątków<br>test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: MIGAL 2D: 30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 → 18,16 s<br>test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: Rontescu 2008: TIG 15 V, 153 A, 140 mm/min, d 10, T0 200 → ~10 s<br>test/domain/welding/cooling_time_test.dart: wzory zał. D: grubość przejściowa d_t: Q 1, T0 20 °C → 14,66 mm<br>test/domain/welding/cooling_time_test.dart: rozwiązanie odwrotne: Q z rozwiązania trafia w okno — dla każdego rodzaju spoiny |
 | `coupon-log` | CouponLogScreen | lib/screens/coupon_log_screen.dart | account | medium | unverified | Użytkownik widzi historię wykorzystanych kuponów. | Brak dowodu scenariusza |
 | `cut-list-summary` | CutListSummaryScreen | lib/screens/cut_list_summary_screen.dart | project | high | unverified | Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia. | Brak dowodu scenariusza |
 | `dn-mm` | DnMmScreen | lib/screens/dn_mm_screen.dart | fitter | medium | unverified | DN 100 zwraca odpowiadającą wartość w milimetrach. | Brak dowodu scenariusza |

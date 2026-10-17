@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../features/cooling_time/cooling_time_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -1140,6 +1141,42 @@ final List<ToolSpec> kToolRegistry = [
       'holding time',
       'ramp rate',
       'p91'
+    ],
+  ),
+  ToolSpec(
+    id: 'cooling_time',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Czas stygnięcia t8/5',
+    titleEn: 'Cooling time t8/5',
+    subtitlePl: 'EN 1011-2 zał. D: okno t8/5, energia Q i podgrzewanie',
+    subtitleEn: 'EN 1011-2 Annex D: t8/5 window, energy Q and preheat',
+    icon: Icons.ac_unit,
+    color: const Color(0xFF4FC3F7),
+    builder: (_) => const CoolingTimePage(),
+    keywordsPl: const [
+      't8/5',
+      't85',
+      'czas stygniecia',
+      'stygniecie',
+      'chlodzenie',
+      'swc',
+      'strefa wplywu ciepla',
+      'stal wysokowytrzymala',
+      's690',
+      's960',
+      'strenx',
+      'dillimax',
+      'en 1011-2'
+    ],
+    keywordsEn: const [
+      't8/5',
+      'cooling time',
+      'cooling rate',
+      'haz',
+      'high strength steel',
+      'quenched and tempered',
+      'tmcp',
+      'en 1011-2'
     ],
   ),
 

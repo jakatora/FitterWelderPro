@@ -110,6 +110,25 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Użytkownik akceptuje wymagane zgody przed użyciem aplikacji.'),
   ModuleAuditEntry(
+      id: 'cooling-time',
+      entryPoint: 'CoolingTimePage',
+      sourcePath: 'lib/features/cooling_time/cooling_time_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Q 1,0 kJ/mm, T0 100 °C, d 20 mm, ścieg wypełniający czołowej (F3 0,9): przepływ 3D, t8/5 = 6,0 s, w oknie 5–15 s; T0 20 °C → 4,8 s, za krótko; d 10 mm → 2D, 10,2 s; okno max 8 s → za długo. Przykład MIGAL (30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 °C) → 2D, 18,16 s; dla okna 5–15 s przy T0 100 °C Q = 0,836–2,023 kJ/mm.',
+      evidence: [
+        'test/features/cooling_time/cooling_time_page_test.dart: zmiana T0, grubości i okna zmienia wynik i werdykt',
+        'test/features/cooling_time/cooling_time_page_test.dart: złącze teowe w 2D: wynik jako przedział',
+        'test/features/cooling_time/cooling_time_page_test.dart: Q z U, I, v i procesu — przez heat_input.dart',
+        'test/features/cooling_time/cooling_time_page_test.dart: wąski ekran, tekst ×1,3, wersja EN — bez wyjątków',
+        'test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: MIGAL 2D: 30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 → 18,16 s',
+        'test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: Rontescu 2008: TIG 15 V, 153 A, 140 mm/min, d 10, T0 200 → ~10 s',
+        'test/domain/welding/cooling_time_test.dart: wzory zał. D: grubość przejściowa d_t: Q 1, T0 20 °C → 14,66 mm',
+        'test/domain/welding/cooling_time_test.dart: rozwiązanie odwrotne: Q z rozwiązania trafia w okno — dla każdego rodzaju spoiny',
+      ]),
+  ModuleAuditEntry(
       id: 'coupon-log',
       entryPoint: 'CouponLogScreen',
       sourcePath: 'lib/screens/coupon_log_screen.dart',
