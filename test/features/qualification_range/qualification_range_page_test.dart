@@ -437,7 +437,7 @@ void main() {
       expect(text('Pozycje (zakres)'), 'PA, PE, PF, PH');
       expect(text('Spoiwo / typ'), 'FM1, FM2 · 141: S · 143: M · 145: S');
       expect(text('Uwagi'),
-          startsWith('OGRANICZENIA — rejestr ich nie sprawdza:\n• grań: tylko '));
+          startsWith('OGRANICZENIA z próby — kontrola spoiny sprawdza je tylko, gdy spoina ma te dane:\n• grań: tylko '));
 
       // Szkic to praca do stracenia — wyjście pyta.
       await tester.tap(find.byTooltip('Wstecz'));
@@ -465,7 +465,7 @@ void main() {
       expect(c.diameterMaxMm, isNull);
       expect(c.positions, 'PA, PE, PF, PH');
       expect(c.jointKinds, {WeldJointKind.bw});
-      expect(c.notes, startsWith('OGRANICZENIA — rejestr ich nie sprawdza:'));
+      expect(c.notes, startsWith('OGRANICZENIA z próby — kontrola spoiny sprawdza je tylko, gdy spoina ma te dane:'));
       expect(c.notes, contains('EN ISO 9606-1 141 T BW FM1 S s3 D60,3 PH ss nb'));
       // Z powrotem na ekranie zakresu, z potwierdzeniem.
       expect(find.byType(QualificationRangePage), findsOneWidget);

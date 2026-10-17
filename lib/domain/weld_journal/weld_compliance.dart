@@ -24,6 +24,8 @@
 library;
 
 import '../qualification/certificate_status.dart';
+import '../qualification/filler_fm_group.dart';
+import '../qualification/iso9606_limits.dart';
 import '../qualification/journal_welds.dart';
 import '../qualification/qualification_dates.dart';
 import '../qualification/weld_process.dart';
@@ -100,8 +102,33 @@ String? _nonEmpty(String s) {
   return t.isEmpty ? null : t;
 }
 
+/// Wyrób z pola „OD”: wpisana średnica > 0 → rura. Pusta średnica NIE
+/// znaczy „blacha” (dziennik jest rurowy, OD bywa po prostu niewpisane) —
+/// wtedy `null`, czyli „nie wiadomo”.
+WeldProductForm? productFormOfWeld(String od) {
+  final d = WeldParameters.parseNumber(od);
+  return d != null && d > 0 ? WeldProductForm.pipe : null;
+}
+
+/// Odgałęzienie z typu złącza: BR → tak; BW / FW / SW → nie; puste → `null`.
+bool? branchOfWeld(String jointType) =>
+    switch (jointType.trim().toUpperCase()) {
+      WeldJointType.branch => true,
+      WeldJointType.butt ||
+      WeldJointType.fillet ||
+      WeldJointType.socket =>
+        false,
+      _ => null,
+    };
+
 /// Parametry spoiny z wpisu dziennika — do [checkWeldAgainstWps] i
 /// [checkWelderCoverage].
+///
+/// Do ograniczeń z próby ISO 9606-1 dziennik daje: wyrób (rura, gdy jest
+/// OD), grupę spoiwa FM z oznaczenia spoiwa ([fmGroupOfFillerClass], tylko
+/// jednoznaczne oznaczenia) i odgałęzienie (typ złącza BR). Prowadzenia
+/// grani ani rodzaju przenoszenia metalu dziennik nie zapisuje — te pola
+/// zostają puste („nie da się porównać”).
 WeldParameters weldParametersOf(WeldEntry e) {
   final hi = splitHeatInput(e.heatInput);
   return WeldParameters(
@@ -115,6 +142,9 @@ WeldParameters weldParametersOf(WeldEntry e) {
     heatInputMethod: hi.method,
     preheatC: WeldParameters.parseNumber(e.preheatC),
     interpassC: WeldParameters.parseNumber(e.interpassC),
+    productForm: productFormOfWeld(e.od),
+    fillerGroup: fmGroupOfFillerClass(e.fillerClass),
+    branch: branchOfWeld(e.jointType),
   );
 }
 
