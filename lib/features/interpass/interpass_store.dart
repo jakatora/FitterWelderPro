@@ -36,6 +36,15 @@ class InterpassStore {
   /// Kopia nieczytelnego zapisu — zanim pierwszy zapis go nadpisze.
   static const String corruptBackupKey = '${key}_corrupt';
 
+  /// Wszystkie miejsca na kopie (maks. 3): kolejna, INNA nieczytelna treść
+  /// trafia do następnego wolnego; przy komplecie zastępuje tylko ostatnią
+  /// (pierwsza — najstarsza uszkodzona treść — zostaje zawsze).
+  static const List<String> corruptBackupKeys = [
+    corruptBackupKey,
+    '${key}_corrupt_2',
+    '${key}_corrupt_3',
+  ];
+
   /// Jednostka wyświetlania (`c` / `f`) — osobno od danych.
   static const String unitKey = 'interpass_unit_v1';
 
@@ -71,7 +80,9 @@ class InterpassStore {
       }
       if (raw is! String) throw const FormatException('not a string');
       final parsed = interpassLogFromJson(jsonDecode(raw));
-      if (parsed.dropped > 0) {
+      // Pominięte spoiny, pomiary albo nieczytelne pola — pierwszy zapis
+      // usunąłby je na stałe, więc najpierw kopia surowego tekstu.
+      if (parsed.lossy) {
         await _backup(prefs, raw);
         return InterpassLoad(sortInterpassWelds(parsed.welds), corrupt: true);
       }
@@ -82,10 +93,20 @@ class InterpassStore {
     }
   }
 
-  /// Tylko pierwsza kopia — kolejne odczyty jej nie nadpisują.
+  /// Kopia surowego tekstu: ta sama treść — bez nowej kopii; inna — do
+  /// następnego wolnego miejsca, a przy komplecie zamiast ostatniej.
   static Future<void> _backup(SharedPreferences prefs, Object raw) async {
-    if (prefs.containsKey(corruptBackupKey)) return;
-    await prefs.setString(corruptBackupKey, raw.toString());
+    final text = raw.toString();
+    String? free;
+    for (final k in corruptBackupKeys) {
+      final saved = prefs.get(k);
+      if (saved == null) {
+        free ??= k;
+      } else if (saved.toString() == text) {
+        return;
+      }
+    }
+    await prefs.setString(free ?? corruptBackupKeys.last, text);
   }
 
   Future<void> _write(List<InterpassWeld> list) async {
@@ -109,6 +130,19 @@ class InterpassStore {
           list.add(weld);
         }
         await _write(list);
+      });
+
+  /// Zmienia zapisaną spoinę [id] (np. „Cofnij” po zamknięciu jej ekranu).
+  /// `false`, gdy spoiny już nie ma.
+  Future<bool> update(
+          String id, InterpassWeld Function(InterpassWeld w) change) =>
+      _serial(() async {
+        final list = [...(await _loadNow()).welds];
+        final i = list.indexWhere((w) => w.id == id);
+        if (i < 0) return false;
+        list[i] = change(list[i]);
+        await _write(list);
+        return true;
       });
 
   Future<void> delete(String id) => _serial(() async {

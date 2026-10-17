@@ -189,10 +189,11 @@ const List<InterpassSource> kInterpassSources = [
 
 // ── Ocena i stan ──────────────────────────────────────────────────────────
 
-/// Wartość odczytu: „180 °C”, kredka „≥ 150 °C” / „< 250 °C”.
+/// Wartość odczytu: „180 °C”, kredka „≥ 150 °C” / „< 250 °C”; wpisana
+/// w innej jednostce — z wpisaną wartością: „204,444 °C (wpisano 400 °F)”.
 String interpassReadingValue(InterpassReading r, InterpassUnit unit,
     {required bool en}) {
-  final t = formatInterpassTemp(r.tempC, unit, en: en);
+  final t = formatInterpassTempFull(r.temp, unit, en: en);
   return switch (r.bound) {
     InterpassBound.exact => t,
     InterpassBound.atLeast => '≥ $t',
@@ -205,12 +206,16 @@ String interpassCheckLabel(InterpassCheck c, {required bool en}) => switch (c) {
       InterpassCheck.ok => 'OK',
       InterpassCheck.low => en ? 'BELOW MIN' : 'PONIŻEJ MIN.',
       InterpassCheck.high => en ? 'ABOVE MAX' : 'POWYŻEJ MAKS.',
-      InterpassCheck.unconfirmed =>
-        en ? 'not confirmed (crayon)' : 'niepotwierdzony (kredka)',
+      InterpassCheck.unconfirmed => en
+          ? 'not conclusive — use a thermometer'
+          : 'nie rozstrzyga — użyj termometru',
       InterpassCheck.noLimit => en ? 'no WPS limit' : 'brak limitu z WPS',
     };
 
 String _passes(List<int> p) => p.join(', ');
+
+/// Odstęp [kInterpassMinPassGap] słownie (PL i EN tak samo).
+String _gap() => '${kInterpassMinPassGap.inMinutes} min';
 
 /// Główny komunikat werdyktu spoiny.
 String interpassStatusText(InterpassAssessment a, {required bool en}) {
@@ -223,6 +228,16 @@ String interpassStatusText(InterpassAssessment a, {required bool en}) {
           : 'POZA LIMITEM — ścieg ${_passes(a.failedPasses)}: pomiar przed '
               'ściegiem poza limitem z WPS. Nie spawaj dalej; odczekaj / '
               'dogrzej i zmierz ponownie.';
+    case InterpassWeldStatus.lostReadings:
+      return en
+          ? '${a.lostReadings} damaged reading(s) were dropped when the '
+              'saved data was read (a raw copy is kept). Check them against '
+              'the paper record and confirm — until then the verdict '
+              'cannot turn green.'
+          : 'Przy odczycie zapisu pominięto uszkodzone pomiary: '
+              '${a.lostReadings} (surowa kopia zachowana). Sprawdź je z '
+              'zapisem papierowym i potwierdź — do tego czasu werdykt nie '
+              'będzie zielony.';
     case InterpassWeldStatus.limitsConflict:
       return en
           ? 'Limits contradict each other (a minimum above the maximum '
@@ -254,19 +269,21 @@ String interpassStatusText(InterpassAssessment a, {required bool en}) {
     case InterpassWeldStatus.orderConflict:
       return en
           ? 'Reading times do not follow the pass numbers (pass '
-              '${_passes(a.orderConflictPasses)} measured after the next '
-              'pass) — check the times / numbers.'
+              '${_passes(a.orderConflictPasses)}: the next pass was measured '
+              'earlier, at the same time or less than ${_gap()} '
+              'later — the app’s accepted minimum) — check the times / '
+              'numbers.'
           : 'Godziny pomiarów nie zgadzają się z numerami ściegów (ścieg '
-              '${_passes(a.orderConflictPasses)} zmierzony po następnym) — '
+              '${_passes(a.orderConflictPasses)}: następny zmierzony '
+              'wcześniej, w tej samej chwili albo mniej niż '
+              '${_gap()} później — przyjęte w aplikacji minimum) — '
               'sprawdź godziny / numery.';
     case InterpassWeldStatus.unconfirmed:
       return en
-          ? 'Crayon does not confirm the limit for pass '
-              '${_passes(a.unconfirmedPasses)} — use a stick rated at the '
-              'limit or a thermometer.'
-          : 'Kredka nie potwierdza limitu dla ściegu '
-              '${_passes(a.unconfirmedPasses)} — użyj kredki o progu równym '
-              'limitowi albo termometru.';
+          ? 'Crayon is not conclusive for pass '
+              '${_passes(a.unconfirmedPasses)} — use a thermometer.'
+          : 'Kredka nie rozstrzyga limitu dla ściegu '
+              '${_passes(a.unconfirmedPasses)} — użyj termometru.';
     case InterpassWeldStatus.noLimit:
       return en
           ? 'No WPS limit for pass ${_passes(a.noLimitPasses)} — the '
@@ -287,6 +304,8 @@ String interpassStatusText(InterpassAssessment a, {required bool en}) {
 String interpassStatusShort(InterpassAssessment a, {required bool en}) =>
     switch (a.status) {
       InterpassWeldStatus.outOfLimits => en ? 'OUT OF LIMITS' : 'POZA LIMITEM',
+      InterpassWeldStatus.lostReadings =>
+        en ? 'Dropped readings — check' : 'Pominięte pomiary — sprawdź',
       InterpassWeldStatus.limitsConflict =>
         en ? 'Limits contradict' : 'Sprzeczne limity',
       InterpassWeldStatus.noReadings => en ? 'No readings' : 'Brak pomiarów',
@@ -310,6 +329,10 @@ List<String> interpassBlockers(InterpassAssessment a, {required bool en}) => [
         en
             ? 'out of limits: pass ${_passes(a.failedPasses)}'
             : 'poza limitem: ścieg ${_passes(a.failedPasses)}',
+      if (a.lostReadings > 0)
+        en
+            ? 'dropped readings to check: ${a.lostReadings}'
+            : 'pominięte pomiary do sprawdzenia: ${a.lostReadings}',
       if (a.limits.conflict) en ? 'limits contradict' : 'sprzeczne limity',
       if (a.chrono.isEmpty) en ? 'no readings' : 'brak pomiarów',
       if (a.missingPasses.isNotEmpty)
@@ -377,11 +400,37 @@ class InterpassLine {
 
 String _orDash(String s) => s.trim().isEmpty ? '—' : s.trim();
 
-String _limit(double? c, InterpassUnit unit, String prefix,
+String _limit(InterpassTemp? t, InterpassUnit unit, String prefix,
         {required bool en}) =>
-    c == null
+    t == null
         ? (en ? '— (not entered / per WPS)' : '— (nie wpisano / wg WPS)')
-        : '$prefix ${formatInterpassTemp(c, unit, en: en)}';
+        : '$prefix ${formatInterpassTempFull(t, unit, en: en)}';
+
+/// Podpowiedź przy pustej min. międzyściegowej (gdy jest min. podgrzania):
+/// spadek temperatury między ściegami poniżej podgrzania NIE jest
+/// kontrolowany. `null`, gdy nie dotyczy.
+String? interpassMinUnsetNote(InterpassAssessment a, InterpassUnit unit,
+    {required bool en}) {
+  final pre = a.limits.preheatMin;
+  if (!a.limits.interpassMinUnset || pre == null) return null;
+  final preText = formatInterpassTemp(pre, unit, en: en);
+  final below = a.belowPreheatUnchecked;
+  if (below.isNotEmpty) {
+    return en
+        ? 'Pass ${_passes(below)}: below the minimum preheat $preText — NOT '
+            'judged, because the minimum interpass is empty. If the WPS '
+            'requires the preheat to be maintained, set the minimum '
+            'interpass.'
+        : 'Ścieg ${_passes(below)}: poniżej min. podgrzania $preText — NIE '
+            'oceniany, bo min. międzyściegowa jest pusta. Jeśli WPS wymaga '
+            'utrzymania podgrzania, ustaw min. międzyściegową.';
+  }
+  return en
+      ? 'Minimum interpass is empty — a drop below the preheat ($preText) '
+          'between runs is not checked.'
+      : 'Min. międzyściegowa pusta — spadek poniżej podgrzania ($preText) '
+          'między ściegami nie jest kontrolowany.';
+}
 
 /// Dane spoiny w kolejności protokołu.
 List<InterpassLine> interpassWeldLines(InterpassWeld w, InterpassUnit unit,
@@ -392,20 +441,67 @@ List<InterpassLine> interpassWeldLines(InterpassWeld w, InterpassUnit unit,
     InterpassLine(en ? 'Description' : 'Opis', _orDash(w.description)),
     InterpassLine('WPS', _orDash(w.wpsRef)),
     InterpassLine(en ? 'Minimum preheat' : 'Min. podgrzanie',
-        _limit(l.preheatMinC, unit, '≥', en: en)),
+        _limit(l.preheatMin, unit, '≥', en: en)),
     InterpassLine(en ? 'Maximum interpass' : 'Maks. międzyściegowa',
-        _limit(l.interpassMaxC, unit, '≤', en: en)),
+        _limit(l.interpassMax, unit, '≤', en: en)),
     InterpassLine(
         en ? 'Minimum interpass' : 'Min. międzyściegowa',
-        l.interpassMinC == null
-            ? (en ? '— (not set)' : '— (nie ustawiono)')
-            : '≥ ${formatInterpassTemp(l.interpassMinC!, unit, en: en)}'),
+        l.interpassMin != null
+            ? '≥ ${formatInterpassTempFull(l.interpassMin!, unit, en: en)}'
+            : l.interpassMinUnset
+                ? (en
+                    ? '— (not set — a drop below the preheat is not checked)'
+                    : '— (nie ustawiono — spadek poniżej podgrzania nie jest '
+                        'kontrolowany)')
+                : (en ? '— (not set)' : '— (nie ustawiono)')),
     InterpassLine(
         en ? 'Measuring method' : 'Metoda pomiaru', w.method.label(en: en)),
     InterpassLine(en ? 'Number of passes' : 'Liczba ściegów',
         w.passCount?.toString() ?? '—'),
+    if (w.lostReadings > 0 || w.lostConfirmed > 0)
+      InterpassLine(
+          en ? 'Dropped damaged readings' : 'Pominięte uszkodzone pomiary',
+          [
+            if (w.lostReadings > 0)
+              en
+                  ? '${w.lostReadings} — not checked yet'
+                  : '${w.lostReadings} — jeszcze niesprawdzone',
+            if (w.lostConfirmed > 0)
+              en
+                  ? '${w.lostConfirmed} — checked and confirmed by the user'
+                  : '${w.lostConfirmed} — sprawdzone i potwierdzone przez '
+                      'użytkownika',
+          ].join('; ')),
   ];
 }
+
+/// Wiersze tabeli pomiarów w PDF (te same, co w tekście): ścieg, chwila,
+/// temperatura, metoda, ocena, uwagi.
+List<List<String>> interpassReadingRows(InterpassWeld w, InterpassUnit unit,
+    {required bool en}) {
+  final a = w.assess();
+  return [
+    for (final r in a.chrono)
+      [
+        '${r.pass}',
+        interpassDateTime(r.at),
+        interpassReadingValue(r, unit, en: en),
+        r.method.short(en: en),
+        interpassCheckLabel(a.checkOf(r), en: en),
+        [
+          if (r.note.trim().isNotEmpty) r.note.trim(),
+          interpassReadingFlags(r, a, en: en),
+        ].where((s) => s.isNotEmpty).join(' '),
+      ],
+  ];
+}
+
+/// Jak czytać jednostki w protokole.
+String interpassUnitNote(InterpassUnit unit, {required bool en}) => en
+    ? 'Shown in ${unit.symbol}; a value entered in the other unit also '
+        'shows what was entered. The verdict uses °C.'
+    : 'Pokazane w ${unit.symbol}; wartość wpisana w innej jednostce ma '
+        'obok wpisaną liczbę. Werdykt liczony w °C.';
 
 /// Protokół tekstowy do udostępnienia (komunikator, e-mail).
 String interpassProtocolText(InterpassWeld w, InterpassUnit unit,
@@ -432,14 +528,15 @@ String interpassProtocolText(InterpassWeld w, InterpassUnit unit,
       b.writeln('- ${interpassReadingLine(r, a, unit, en: en)}');
     }
   }
-  if (unit == InterpassUnit.f) {
+  final minNote = interpassMinUnsetNote(a, unit, en: en);
+  if (minNote != null) {
     b
       ..writeln()
-      ..writeln(en
-          ? 'Values are stored in °C and shown here in °F.'
-          : 'Wartości zapisane w °C, tu pokazane w °F.');
+      ..writeln(minNote);
   }
   b
+    ..writeln()
+    ..writeln(interpassUnitNote(unit, en: en))
     ..writeln()
     ..writeln(interpassPassRule(en: en))
     ..writeln(interpassBoundaryNote(en: en))

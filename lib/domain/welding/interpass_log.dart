@@ -16,11 +16,17 @@
 ///   zmienia oceny (lekcja z modułu prac pożarowych);
 /// * kredka termometryczna mówi tylko „osiągnięto / nie osiągnięto progu” —
 ///   gdy próg nie rozstrzyga limitu, pomiar jest „niepotwierdzony”;
+/// * decydujące pomiary sąsiednich ściegów muszą być odległe o co najmniej
+///   [kInterpassMinPassGap] (próg PRZYJĘTY w aplikacji, nie z normy) —
+///   ściegu nie da się położyć w kilka sekund;
 /// * zielony werdykt spoiny tylko, gdy wpisano liczbę ściegów, każdy ścieg
 ///   ma pomiar przed rozpoczęciem, czasy idą zgodnie z numerami ściegów,
-///   limity są spójne i każdy decydujący pomiar jest OK;
-/// * wartość kanoniczna w °C (zaokrąglona do 0,01 °C); °F to wyłącznie
-///   wyświetlanie — przełączenie jednostki nie zmienia danych ani werdyktu.
+///   limity są spójne, każdy decydujący pomiar jest OK i żaden zapisany
+///   pomiar nie przepadł przy odczycie bez potwierdzenia użytkownika;
+/// * temperatura zapisuje się tak, jak ją wpisano (liczba + jednostka) oraz
+///   w °C do werdyktu — °F/°C to wyświetlanie; przełączenie jednostki nie
+///   zmienia danych ani werdyktu, a 400 °F wpisane w °F zawsze pokazuje się
+///   jako 400 °F (bez artefaktów przeliczenia).
 ///
 /// Aplikacja NIE podaje „typowych” temperatur — limity wpisuje się z WPS.
 ///
@@ -28,8 +34,8 @@
 /// warstwa ekranu).
 library;
 
-/// Tolerancja porównań — wyłącznie szum liczb zmiennoprzecinkowych, nie
-/// „luz” na limicie (wartości są w °C z dokładnością 0,01).
+/// Tolerancja porównań w °C — wyłącznie szum liczb zmiennoprzecinkowych,
+/// nie „luz” na limicie.
 const double kInterpassEpsC = 1e-6;
 
 /// Zakres temperatur, które aplikacja przyjmuje (°C). Ujemne — stal na
@@ -47,6 +53,12 @@ const Duration kInterpassBackdateAfter = Duration(minutes: 10);
 /// Zapas na różnicę zegarów: chwila pomiaru może być do 5 min „w
 /// przyszłości” (jak w module prac pożarowych).
 const Duration kInterpassFutureSlack = Duration(minutes: 5);
+
+/// Najmniejszy odstęp między decydującymi pomiarami SĄSIEDNICH ściegów.
+/// Próg PRZYJĘTY w aplikacji (nie z normy): pomiar przed ściegiem n+1
+/// wcześniej niż minutę po pomiarze przed ściegiem n oznacza błąd godziny
+/// albo numeru — ściegu nie da się położyć w kilka sekund.
+const Duration kInterpassMinPassGap = Duration(minutes: 1);
 
 // ── Jednostki ─────────────────────────────────────────────────────────────
 
@@ -68,14 +80,10 @@ enum InterpassUnit {
 double interpassCToF(double c) => c * 9 / 5 + 32;
 double interpassFToC(double f) => (f - 32) * 5 / 9;
 
-/// Wartość kanoniczna: °C zaokrąglone do 0,01.
-double interpassRoundC(double c) => (c * 100).roundToDouble() / 100;
+/// Rozdzielczość wpisu: 0,01 w jednostce wpisu.
+double interpassRoundEntry(double v) => (v * 100).roundToDouble() / 100;
 
-/// Liczba wpisana w jednostce [unit] → kanoniczne °C.
-double interpassToC(double value, InterpassUnit unit) =>
-    interpassRoundC(unit == InterpassUnit.f ? interpassFToC(value) : value);
-
-/// Kanoniczne °C → liczba do wyświetlenia w jednostce [unit].
+/// Kanoniczne °C → liczba w jednostce [unit].
 double interpassFromC(double c, InterpassUnit unit) =>
     unit == InterpassUnit.f ? interpassCToF(c) : c;
 
@@ -83,18 +91,105 @@ double interpassFromC(double c, InterpassUnit unit) =>
 bool interpassTempValid(double c) =>
     c.isFinite && c >= kInterpassMinTempC && c <= kInterpassMaxTempC;
 
-/// `250` → „250”, `121.11` → „121,11” (PL) / „121.11” (EN); do 2 miejsc,
-/// bez zbędnych zer — wartość tuż ponad limitem nie może wyglądać jak limit.
-String formatInterpassNumber(double v, {required bool en}) {
-  var s = v.toStringAsFixed(2);
+/// Temperatura tak, jak ją wpisano (liczba + jednostka), i w °C do werdyktu.
+///
+/// °C liczy się zawsze z wpisanej liczby (pełna dokładność, bez zaokrąglania
+/// do 0,01 °C — inaczej 399,99 °F i 400 °F dawałyby to samo °C).
+class InterpassTemp {
+  /// Wartość w °C — do werdyktu.
+  final double c;
+
+  /// Liczba tak, jak ją wpisano (zaokrąglona do 0,01), w jednostce [unit].
+  final double value;
+  final InterpassUnit unit;
+
+  /// Wpis w °C.
+  const InterpassTemp.c(this.c)
+      : value = c,
+        unit = InterpassUnit.c;
+
+  const InterpassTemp._(this.c, this.value, this.unit);
+
+  /// Liczba [v] wpisana w jednostce [unit].
+  factory InterpassTemp.entered(double v, InterpassUnit unit) {
+    final r = interpassRoundEntry(v);
+    return InterpassTemp._(
+        unit == InterpassUnit.f ? interpassFToC(r) : r, r, unit);
+  }
+
+  /// Liczba w jednostce [u]: dokładnie wpisana, gdy [u] to jednostka wpisu.
+  double inUnit(InterpassUnit u) => u == unit ? value : interpassFromC(c, u);
+
+  bool get valid => interpassTempValid(c);
+
+  Map<String, Object?> toJson() => {'c': c, 'v': value, 'u': unit.name};
+
+  /// Zapis `{"v": 400, "u": "f"}` albo (starszy) sama liczba °C; `null`,
+  /// gdy nieczytelny albo poza zakresem.
+  static InterpassTemp? fromJson(Object? raw) {
+    InterpassTemp? t;
+    if (raw is num) {
+      t = InterpassTemp.c(raw.toDouble());
+    } else if (raw is Map) {
+      final v = raw['v'];
+      final u = InterpassUnit.byName(raw['u']);
+      if (v is num && v.isFinite && u != null) {
+        t = InterpassTemp.entered(v.toDouble(), u);
+      }
+    }
+    return t != null && t.valid ? t : null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is InterpassTemp &&
+      other.c == c &&
+      other.value == value &&
+      other.unit == unit;
+
+  @override
+  int get hashCode => Object.hash(c, value, unit);
+
+  @override
+  String toString() => 'InterpassTemp($value ${unit.symbol})';
+}
+
+/// Liczba wpisana w jednostce [unit] → °C (do werdyktu).
+double interpassToC(double value, InterpassUnit unit) =>
+    InterpassTemp.entered(value, unit).c;
+
+/// `250` → „250”, `121.11` → „121,11” (PL) / „121.11” (EN); do [decimals]
+/// miejsc, bez zbędnych zer.
+String formatInterpassNumber(double v, {required bool en, int decimals = 2}) {
+  var s = v.toStringAsFixed(decimals);
   if (s.contains('.')) s = s.replaceFirst(RegExp(r'\.?0+$'), '');
   if (s == '-0') s = '0';
   return en ? s : s.replaceAll('.', ',');
 }
 
+/// Liczba temperatury w jednostce [unit] do pola i tekstu: wpisana — do
+/// 0,01; przeliczona — do 0,001 (przeliczenie z wpisu 0,01 °C na °F jest
+/// dokładne do 0,001, a przeliczona wartość nigdy nie wygląda jak inna
+/// wpisana, chyba że jest jej równa — wtedy werdykt na granicy też widać).
+String formatInterpassTempNumber(InterpassTemp t, InterpassUnit unit,
+        {required bool en}) =>
+    formatInterpassNumber(t.inUnit(unit),
+        en: en, decimals: unit == t.unit ? 2 : 3);
+
 /// „250 °C” / „482 °F”.
-String formatInterpassTemp(double c, InterpassUnit unit, {required bool en}) =>
-    '${formatInterpassNumber(interpassFromC(c, unit), en: en)} ${unit.symbol}';
+String formatInterpassTemp(InterpassTemp t, InterpassUnit unit,
+        {required bool en}) =>
+    '${formatInterpassTempNumber(t, unit, en: en)} ${unit.symbol}';
+
+/// Jak [formatInterpassTemp], a gdy jednostka wpisu jest inna — z wpisaną
+/// wartością: „204,444 °C (wpisano 400 °F)”.
+String formatInterpassTempFull(InterpassTemp t, InterpassUnit unit,
+    {required bool en}) {
+  final shown = formatInterpassTemp(t, unit, en: en);
+  if (t.unit == unit) return shown;
+  return '$shown (${en ? 'entered' : 'wpisano'} '
+      '${formatInterpassTemp(t, t.unit, en: en)})';
+}
 
 // ── Metoda i odczyt ───────────────────────────────────────────────────────
 
@@ -149,8 +244,8 @@ class InterpassReading {
   /// czyli podgrzanie).
   final int pass;
 
-  /// Temperatura (°C, kanoniczna) — dla kredki: jej próg.
-  final double tempC;
+  /// Temperatura (dla kredki: jej próg) — jak wpisana i w °C.
+  final InterpassTemp temp;
   final InterpassBound bound;
   final InterpassMethod method;
 
@@ -163,7 +258,7 @@ class InterpassReading {
 
   const InterpassReading({
     required this.pass,
-    required this.tempC,
+    required this.temp,
     this.bound = InterpassBound.exact,
     this.method = InterpassMethod.contact,
     required this.at,
@@ -171,13 +266,16 @@ class InterpassReading {
     this.note = '',
   });
 
+  /// °C do werdyktu.
+  double get tempC => temp.c;
+
   /// Pomiar wpisany później niż został wykonany (o ponad 10 min).
   bool get backdated =>
       recordedAt - at > kInterpassBackdateAfter.inMilliseconds;
 
   Map<String, Object?> toJson() => {
         'pass': pass,
-        'tempC': tempC,
+        'temp': temp.toJson(),
         'bound': bound.name,
         'method': method.name,
         'at': at,
@@ -191,7 +289,7 @@ class InterpassReading {
   static InterpassReading? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final pass = raw['pass'];
-    final t = raw['tempC'];
+    final temp = InterpassTemp.fromJson(raw['temp'] ?? raw['tempC']);
     final at = raw['at'];
     final rec = raw['recordedAt'];
     final bound = InterpassBound.byName(raw['bound']);
@@ -200,12 +298,12 @@ class InterpassReading {
       return null;
     }
     if (pass < 1 || pass > kInterpassMaxPass) return null;
-    if (t is! num || !interpassTempValid(t.toDouble())) return null;
+    if (temp == null) return null;
     if (at is! num || !at.isFinite) return null;
     if (bound == null || method == null) return null;
     return InterpassReading(
       pass: pass.toInt(),
-      tempC: interpassRoundC(t.toDouble()),
+      temp: temp,
       bound: bound,
       method: method,
       at: at.toInt(),
@@ -218,7 +316,7 @@ class InterpassReading {
   bool operator ==(Object other) =>
       other is InterpassReading &&
       other.pass == pass &&
-      other.tempC == tempC &&
+      other.temp == temp &&
       other.bound == bound &&
       other.method == method &&
       other.at == at &&
@@ -227,27 +325,45 @@ class InterpassReading {
 
   @override
   int get hashCode =>
-      Object.hash(pass, tempC, bound, method, at, recordedAt, note);
+      Object.hash(pass, temp, bound, method, at, recordedAt, note);
 }
 
 // ── Limity i ocena pomiaru ────────────────────────────────────────────────
 
-/// Limity z WPS (°C, kanoniczne); `null` = WPS nie podaje / nie wpisano.
+/// Limity z WPS; `null` = WPS nie podaje / nie wpisano.
 class InterpassLimits {
-  final double? preheatMinC;
-  final double? interpassMaxC;
+  final InterpassTemp? preheatMin;
+  final InterpassTemp? interpassMax;
 
   /// Opcjonalna minimalna międzyściegowa (np. P91 — wg WPS).
-  final double? interpassMinC;
+  final InterpassTemp? interpassMin;
 
   const InterpassLimits({
-    this.preheatMinC,
-    this.interpassMaxC,
-    this.interpassMinC,
+    this.preheatMin,
+    this.interpassMax,
+    this.interpassMin,
   });
 
+  /// Limity podane w °C (wygodne w testach i przy starszym zapisie).
+  factory InterpassLimits.celsius({
+    double? preheatMinC,
+    double? interpassMaxC,
+    double? interpassMinC,
+  }) =>
+      InterpassLimits(
+        preheatMin: preheatMinC == null ? null : InterpassTemp.c(preheatMinC),
+        interpassMax:
+            interpassMaxC == null ? null : InterpassTemp.c(interpassMaxC),
+        interpassMin:
+            interpassMinC == null ? null : InterpassTemp.c(interpassMinC),
+      );
+
+  double? get preheatMinC => preheatMin?.c;
+  double? get interpassMaxC => interpassMax?.c;
+  double? get interpassMinC => interpassMin?.c;
+
   bool get isEmpty =>
-      preheatMinC == null && interpassMaxC == null && interpassMinC == null;
+      preheatMin == null && interpassMax == null && interpassMin == null;
 
   /// Sprzeczne limity (literówka): min. międzyściegowa albo min. podgrzanie
   /// wyżej niż maks. międzyściegowa.
@@ -260,15 +376,36 @@ class InterpassLimits {
         (minP != null && minP > max + kInterpassEpsC);
   }
 
+  /// Min. podgrzanie jest, a min. międzyściegowej nie ma — spadek
+  /// temperatury między ściegami poniżej podgrzania NIE jest kontrolowany.
+  bool get interpassMinUnset => preheatMin != null && interpassMin == null;
+
+  InterpassLimits copyWith({
+    Object? preheatMin = _keep,
+    Object? interpassMax = _keep,
+    Object? interpassMin = _keep,
+  }) =>
+      InterpassLimits(
+        preheatMin: identical(preheatMin, _keep)
+            ? this.preheatMin
+            : preheatMin as InterpassTemp?,
+        interpassMax: identical(interpassMax, _keep)
+            ? this.interpassMax
+            : interpassMax as InterpassTemp?,
+        interpassMin: identical(interpassMin, _keep)
+            ? this.interpassMin
+            : interpassMin as InterpassTemp?,
+      );
+
   @override
   bool operator ==(Object other) =>
       other is InterpassLimits &&
-      other.preheatMinC == preheatMinC &&
-      other.interpassMaxC == interpassMaxC &&
-      other.interpassMinC == interpassMinC;
+      other.preheatMin == preheatMin &&
+      other.interpassMax == interpassMax &&
+      other.interpassMin == interpassMin;
 
   @override
-  int get hashCode => Object.hash(preheatMinC, interpassMaxC, interpassMinC);
+  int get hashCode => Object.hash(preheatMin, interpassMax, interpassMin);
 }
 
 /// Pomiar przed ściegiem 1 to podgrzanie, przed kolejnymi — międzyściegowa.
@@ -363,25 +500,29 @@ InterpassCheck interpassCheck(InterpassReading r, InterpassLimits limits) {
 
 // ── Czas pomiaru ──────────────────────────────────────────────────────────
 
-/// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: ostatnie takie
-/// wystąpienie nie później niż 5 min po [now]. Godzina „z przyszłości” to
-/// wczoraj — np. 23:50 wpisane o 00:12 (zmiana nocna). Zła godzina → [now].
-/// Te same zasady co `hotWorkMeasurementAt` (prace pożarowe).
+/// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: NAJPÓŹNIEJSZE takie
+/// wystąpienie nie później niż 5 min po [now]. Przykłady: 23:50 wpisane
+/// o 00:12 → wczoraj 23:50 (zmiana nocna); 00:03 wpisane o 23:58 → jutro
+/// 00:03 (+5 min, w zapasie na różnicę zegarów), nie doba wstecz. Zła
+/// godzina → [now].
 DateTime interpassReadingAt(String hhmm, DateTime now) {
   final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(hhmm.trim());
   if (m == null) return now;
   final h = int.parse(m.group(1)!);
   final min = int.parse(m.group(2)!);
   if (h > 23 || min > 59) return now;
-  final today = DateTime(now.year, now.month, now.day, h, min);
-  return today.isAfter(now.add(kInterpassFutureSlack))
-      ? DateTime(now.year, now.month, now.day - 1, h, min)
-      : today;
+  final limit = now.add(kInterpassFutureSlack);
+  for (final dayOffset in const [1, 0, -1]) {
+    final candidate =
+        DateTime(now.year, now.month, now.day + dayOffset, h, min);
+    if (!candidate.isAfter(limit)) return candidate;
+  }
+  return now; // nieosiągalne — wczoraj zawsze jest przed [limit]
 }
 
 /// Chwila nowego pomiaru z wyborów na ekranie: nic → [now]; sama godzina →
-/// najbliższe wcześniejsze wystąpienie ([interpassReadingAt]); data (z
-/// godziną albo bez — wtedy godzina z [now]) → dokładnie ta chwila.
+/// najbliższe wystąpienie ([interpassReadingAt]); data (z godziną albo bez —
+/// wtedy godzina z [now]) → dokładnie ta chwila.
 DateTime interpassResolveAt({
   DateTime? date,
   String? hhmm,
@@ -425,6 +566,10 @@ enum InterpassWeldStatus {
   /// Decydujący pomiar któregoś ściegu poza limitem — czerwony.
   outOfLimits,
 
+  /// Przy odczycie zapisu pominięto uszkodzone pomiary — dopóki użytkownik
+  /// nie potwierdzi, że sprawdził, spoina nie może być zielona.
+  lostReadings,
+
   /// Limity sprzeczne (min. > maks.) — literówka w ustawieniach.
   limitsConflict,
 
@@ -440,7 +585,8 @@ enum InterpassWeldStatus {
   /// Nie wpisano liczby ściegów — nie wiadomo, czy każdy ma pomiar.
   passCountMissing,
 
-  /// Czasy pomiarów nie idą zgodnie z numerami ściegów.
+  /// Czasy pomiarów nie idą zgodnie z numerami ściegów (albo są bliżej niż
+  /// [kInterpassMinPassGap]).
   orderConflict,
 
   /// Kredka nie rozstrzyga limitu.
@@ -457,6 +603,9 @@ class InterpassAssessment {
   final InterpassLimits limits;
   final int? passCount;
 
+  /// Pomiary pominięte przy odczycie, jeszcze niepotwierdzone.
+  final int lostReadings;
+
   /// Wszystkie pomiary od najwcześniejszego.
   final List<InterpassReading> chrono;
 
@@ -470,14 +619,20 @@ class InterpassAssessment {
   final List<int> unconfirmedPasses;
   final List<int> noLimitPasses;
 
-  /// Ściegi, których decydujący pomiar jest PÓŹNIEJSZY niż pomiar
-  /// następnego ściegu.
+  /// Ściegi, których decydujący pomiar NIE jest co najmniej
+  /// [kInterpassMinPassGap] przed pomiarem następnego ściegu (później, w tej
+  /// samej chwili albo kilka sekund wcześniej).
   final List<int> orderConflictPasses;
   final List<int> passesBeyondCount;
+
+  /// Ściegi ≥ 2, których decydujący pomiar jest poniżej min. podgrzania, gdy
+  /// min. międzyściegowa jest pusta — NIE oceniane (podpowiedź, nie błąd).
+  final List<int> belowPreheatUnchecked;
 
   const InterpassAssessment._({
     required this.limits,
     required this.passCount,
+    required this.lostReadings,
     required this.chrono,
     required this.decisive,
     required this.lastPass,
@@ -487,12 +642,14 @@ class InterpassAssessment {
     required this.noLimitPasses,
     required this.orderConflictPasses,
     required this.passesBeyondCount,
+    required this.belowPreheatUnchecked,
   });
 
   factory InterpassAssessment.of({
     required List<InterpassReading> readings,
     required InterpassLimits limits,
     int? passCount,
+    int lostReadings = 0,
   }) {
     final chrono = interpassChrono(readings);
     final decisive = <int, InterpassReading>{};
@@ -519,13 +676,22 @@ class InterpassAssessment {
           break;
       }
     }
+    final gap = kInterpassMinPassGap.inMilliseconds;
     final order = <int>[
       for (var i = 0; i + 1 < passes.length; i++)
-        if (decisive[passes[i]]!.at > decisive[passes[i + 1]]!.at) passes[i],
+        if (decisive[passes[i + 1]]!.at - decisive[passes[i]]!.at < gap)
+          passes[i],
+    ];
+    final preMin = limits.preheatMinC;
+    final below = <int>[
+      if (limits.interpassMinUnset && preMin != null)
+        for (final p in passes)
+          if (p >= 2 && _vsMin(decisive[p]!, preMin) == InterpassCheck.low) p,
     ];
     return InterpassAssessment._(
       limits: limits,
       passCount: count,
+      lostReadings: lostReadings < 0 ? 0 : lostReadings,
       chrono: chrono,
       decisive: Map.unmodifiable(decisive),
       lastPass: last,
@@ -539,6 +705,7 @@ class InterpassAssessment {
       orderConflictPasses: List.unmodifiable(order),
       passesBeyondCount: List.unmodifiable(
           [if (count != null) ...passes.where((p) => p > count)]),
+      belowPreheatUnchecked: List.unmodifiable(below),
     );
   }
 
@@ -560,6 +727,7 @@ class InterpassAssessment {
 
   InterpassWeldStatus get status {
     if (failedPasses.isNotEmpty) return InterpassWeldStatus.outOfLimits;
+    if (lostReadings > 0) return InterpassWeldStatus.lostReadings;
     if (limits.conflict) return InterpassWeldStatus.limitsConflict;
     if (chrono.isEmpty) return InterpassWeldStatus.noReadings;
     if (missingPasses.isNotEmpty) return InterpassWeldStatus.missingPasses;
@@ -607,6 +775,13 @@ class InterpassWeld {
 
   /// Pomiary w kolejności czasu.
   final List<InterpassReading> readings;
+
+  /// Pomiary pominięte przy odczycie (uszkodzony zapis), jeszcze NIE
+  /// potwierdzone przez użytkownika — blokują zielony werdykt.
+  final int lostReadings;
+
+  /// Pominięte pomiary, których brak użytkownik potwierdził (do protokołu).
+  final int lostConfirmed;
   final int createdAt;
   final int updatedAt;
 
@@ -620,6 +795,8 @@ class InterpassWeld {
     this.method = InterpassMethod.contact,
     this.passCount,
     this.readings = const [],
+    this.lostReadings = 0,
+    this.lostConfirmed = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -639,12 +816,17 @@ class InterpassWeld {
       journalWeldId.isEmpty &&
       limits.isEmpty &&
       passCount == null &&
-      readings.isEmpty;
+      readings.isEmpty &&
+      lostReadings == 0 &&
+      lostConfirmed == 0;
 
   List<InterpassReading> get readingsChrono => interpassChrono(readings);
 
   InterpassAssessment assess() => InterpassAssessment.of(
-      readings: readings, limits: limits, passCount: passCount);
+      readings: readings,
+      limits: limits,
+      passCount: passCount,
+      lostReadings: lostReadings);
 
   /// Dopisuje pomiar — lista zostaje w kolejności czasu.
   InterpassWeld addReading(InterpassReading r) =>
@@ -658,9 +840,23 @@ class InterpassWeld {
     return copyWith(readings: list);
   }
 
+  /// Przywraca usunięty pomiar na jego dawne miejsce [index] listy w
+  /// kolejności czasu — przy tej samej chwili kolejność wpisów (a więc
+  /// i to, który pomiar decyduje) jest taka jak przed usunięciem.
+  InterpassWeld restoreReadingAt(InterpassReading r, int index) {
+    final list = [...readingsChrono];
+    list.insert(index.clamp(0, list.length), r);
+    return copyWith(readings: interpassChrono(list));
+  }
+
+  /// Użytkownik potwierdził, że sprawdził pominięte pomiary.
+  InterpassWeld confirmLostReadings() =>
+      copyWith(lostReadings: 0, lostConfirmed: lostConfirmed + lostReadings);
+
   /// Numer ściegu podpowiadany dla nowego pomiaru: 1 bez pomiarów; ten sam
   /// ścieg, gdy ostatni (w czasie) pomiar nie jest OK (ponowny pomiar po
-  /// odczekaniu / dogrzaniu); w pozostałych przypadkach następny.
+  /// odczekaniu / dogrzaniu); w pozostałych przypadkach następny — ale nie
+  /// dalej niż wpisana liczba ściegów.
   int get nextPass {
     final chrono = readingsChrono;
     if (chrono.isEmpty) return 1;
@@ -669,7 +865,11 @@ class InterpassWeld {
     final again = check == InterpassCheck.low ||
         check == InterpassCheck.high ||
         check == InterpassCheck.unconfirmed;
-    final next = again ? last.pass : last.pass + 1;
+    var next = again ? last.pass : last.pass + 1;
+    final count = passCount;
+    if (count != null && next > count) {
+      next = count > last.pass ? count : last.pass;
+    }
     return next > kInterpassMaxPass ? kInterpassMaxPass : next;
   }
 
@@ -682,6 +882,8 @@ class InterpassWeld {
     InterpassMethod? method,
     Object? passCount = _keep,
     List<InterpassReading>? readings,
+    int? lostReadings,
+    int? lostConfirmed,
     int? updatedAt,
   }) =>
       InterpassWeld(
@@ -695,6 +897,8 @@ class InterpassWeld {
         passCount:
             identical(passCount, _keep) ? this.passCount : passCount as int?,
         readings: readings ?? this.readings,
+        lostReadings: lostReadings ?? this.lostReadings,
+        lostConfirmed: lostConfirmed ?? this.lostConfirmed,
         createdAt: createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -705,88 +909,126 @@ class InterpassWeld {
         'description': description,
         'wpsRef': wpsRef,
         'journalWeldId': journalWeldId,
-        'preheatMinC': limits.preheatMinC,
-        'interpassMaxC': limits.interpassMaxC,
-        'interpassMinC': limits.interpassMinC,
+        'preheatMin': limits.preheatMin?.toJson(),
+        'interpassMax': limits.interpassMax?.toJson(),
+        'interpassMin': limits.interpassMin?.toJson(),
         'method': method.name,
         'passCount': passCount,
         'readings': [for (final r in readingsChrono) r.toJson()],
+        'lostReadings': lostReadings,
+        'lostConfirmed': lostConfirmed,
         'createdAt': createdAt,
         'updatedAt': updatedAt,
       };
 
-  /// Odczyt z JSON; `null` dla wpisu bez identyfikatora. Uszkodzone pomiary
-  /// są pomijane, limity spoza zakresu — traktowane jak niewpisane.
-  static InterpassWeld? fromJson(Object? raw) {
-    if (raw is! Map) return null;
+  /// Odczyt z JSON; `null` dla wpisu bez identyfikatora.
+  static InterpassWeld? fromJson(Object? raw) => parse(raw).weld;
+
+  /// Odczyt z JSON z liczeniem szkód: pominięte pomiary trafiają do
+  /// [lostReadings] (blokują zieleń do potwierdzenia), a [damage] mówi
+  /// warstwie zapisu, że trzeba zachować kopię surowego tekstu (pominięte
+  /// pomiary + nieczytelne limity / liczba ściegów, które stały się puste).
+  static ({InterpassWeld? weld, int damage}) parse(Object? raw) {
+    if (raw is! Map) return (weld: null, damage: 1);
     final id = _s(raw['id']);
-    if (id.isEmpty) return null;
+    if (id.isEmpty) return (weld: null, damage: 1);
+    var damage = 0;
+    InterpassTemp? limit(String key, String legacyKey) {
+      final v = raw.containsKey(key) ? raw[key] : raw[legacyKey];
+      if (v == null) return null;
+      final t = InterpassTemp.fromJson(v);
+      if (t == null) damage++;
+      return t;
+    }
+
     final count = raw['passCount'];
-    return InterpassWeld(
+    final validCount = count is num &&
+        count.isFinite &&
+        count == count.roundToDouble() &&
+        count >= 1 &&
+        count <= kInterpassMaxPass;
+    if (count != null && !validCount) damage++;
+    final rawReadings = raw['readings'];
+    final readings = <InterpassReading>[];
+    var dropped = 0;
+    if (rawReadings != null && rawReadings is! List) dropped++;
+    for (final r in _list(rawReadings)) {
+      final reading = InterpassReading.fromJson(r);
+      if (reading == null) {
+        dropped++;
+      } else {
+        readings.add(reading);
+      }
+    }
+    final storedLost = raw['lostReadings'];
+    final storedConfirmed = raw['lostConfirmed'];
+    final weld = InterpassWeld(
       id: id,
       weldNo: _s(raw['weldNo']),
       description: _s(raw['description']),
       wpsRef: _s(raw['wpsRef']),
       journalWeldId: _s(raw['journalWeldId']),
       limits: InterpassLimits(
-        preheatMinC: _temp(raw['preheatMinC']),
-        interpassMaxC: _temp(raw['interpassMaxC']),
-        interpassMinC: _temp(raw['interpassMinC']),
+        preheatMin: limit('preheatMin', 'preheatMinC'),
+        interpassMax: limit('interpassMax', 'interpassMaxC'),
+        interpassMin: limit('interpassMin', 'interpassMinC'),
       ),
       method: InterpassMethod.byName(raw['method']) ?? InterpassMethod.contact,
-      passCount: count is num &&
-              count.isFinite &&
-              count == count.roundToDouble() &&
-              count >= 1 &&
-              count <= kInterpassMaxPass
-          ? count.toInt()
-          : null,
-      readings: interpassChrono([
-        for (final r in _list(raw['readings']))
-          if (InterpassReading.fromJson(r) != null)
-            InterpassReading.fromJson(r)!,
-      ]),
+      passCount: validCount ? count.toInt() : null,
+      readings: interpassChrono(readings),
+      lostReadings: _count(storedLost) + dropped,
+      lostConfirmed: _count(storedConfirmed),
       createdAt: _i(raw['createdAt']),
       updatedAt: _i(raw['updatedAt']),
     );
+    return (weld: weld, damage: damage + dropped);
   }
 }
 
-/// Wersja formatu zapisu.
-const int kInterpassLogVersion = 1;
+/// Wersja formatu zapisu (1 — temperatury jako liczby °C; 2 — temperatura
+/// jak wpisana + °C, pominięte pomiary). Odczyt rozumie obie.
+const int kInterpassLogVersion = 2;
 
-/// Cały rejestr do JSON: `{"v": 1, "welds": [...]}`.
+/// Cały rejestr do JSON: `{"v": 2, "welds": [...]}`.
 Map<String, Object?> interpassLogToJson(List<InterpassWeld> welds) => {
       'v': kInterpassLogVersion,
       'welds': [for (final w in welds) w.toJson()],
     };
 
-/// Wynik odczytu rejestru: spoiny i liczba pominiętych (uszkodzonych)
-/// wpisów.
+/// Wynik odczytu rejestru: spoiny, liczba pominiętych (uszkodzonych) spoin
+/// i liczba szkód wewnątrz spoin (pominięte pomiary, nieczytelne pola).
 class InterpassLogParse {
   final List<InterpassWeld> welds;
   final int dropped;
-  const InterpassLogParse(this.welds, this.dropped);
+  final int damaged;
+  const InterpassLogParse(this.welds, this.dropped, [this.damaged = 0]);
+
+  /// Coś przepadło — warstwa zapisu robi kopię surowego tekstu.
+  bool get lossy => dropped > 0 || damaged > 0;
 }
 
 /// Odczyt rejestru. [FormatException], gdy całość jest nieczytelna (nie
 /// mapa, brak listy spoin); pojedyncze uszkodzone spoiny są pomijane
-/// i liczone w [InterpassLogParse.dropped].
+/// i liczone w [InterpassLogParse.dropped], szkody wewnątrz spoin —
+/// w [InterpassLogParse.damaged].
 InterpassLogParse interpassLogFromJson(Object? raw) {
   if (raw is! Map) throw const FormatException('interpass log: not a map');
   final list = raw['welds'];
   if (list is! List) throw const FormatException('interpass log: no welds');
   final welds = <InterpassWeld>[];
   var dropped = 0;
+  var damaged = 0;
   for (final e in list) {
-    final w = InterpassWeld.fromJson(e);
+    final p = InterpassWeld.parse(e);
+    final w = p.weld;
     if (w == null) {
       dropped++;
     } else {
       welds.add(w);
+      damaged += p.damage;
     }
   }
-  return InterpassLogParse(welds, dropped);
+  return InterpassLogParse(welds, dropped, damaged);
 }
 
 /// Najnowsze na górze (ostatnia zmiana).
@@ -808,7 +1050,5 @@ String interpassTime(DateTime d) => '${_two(d.hour)}:${_two(d.minute)}';
 String _two(int v) => v.toString().padLeft(2, '0');
 String _s(Object? v) => v is String ? v : '';
 int _i(Object? v) => v is num && v.isFinite ? v.toInt() : 0;
+int _count(Object? v) => v is num && v.isFinite && v > 0 ? v.toInt() : 0;
 List<Object?> _list(Object? v) => v is List ? v : const [];
-double? _temp(Object? v) => v is num && interpassTempValid(v.toDouble())
-    ? interpassRoundC(v.toDouble())
-    : null;
