@@ -167,6 +167,8 @@ void main() {
         'ShadePage',
         // Temperatura podgrzania i międzyściegowa.
         'InterpassPage',
+        // Przestrzeń zamknięta: wejście i spawanie.
+        'ConfinedSpacePage',
       };
       expect(targets, expected);
     });

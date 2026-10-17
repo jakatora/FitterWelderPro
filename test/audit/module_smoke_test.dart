@@ -83,6 +83,9 @@ import 'package:cut_list_app/features/progress/progress_page.dart';
 import 'package:cut_list_app/features/steel_weight/steel_weight_page.dart';
 import 'package:cut_list_app/features/bolt_kit/bolt_kit_page.dart';
 import 'package:cut_list_app/features/cone_layout/cone_layout_page.dart';
+import 'package:cut_list_app/domain/confined_space/confined_space_record.dart';
+import 'package:cut_list_app/features/confined_space/confined_space_edit_page.dart';
+import 'package:cut_list_app/features/confined_space/confined_space_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/distortion/distortion_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
@@ -268,6 +271,10 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'WelderExamPage' => const WelderExamPage(),
       'ShadePage' => const ShadePage(),
       'InterpassPage' => const InterpassPage(),
+      'ConfinedSpacePage' => const ConfinedSpacePage(),
+      'ConfinedSpaceEditPage' => ConfinedSpaceEditPage(
+          initial: ConfinedSpaceRecord.blank(
+              id: 'smoke-confined', now: DateTime(2026, 10, 18, 7))),
       'InterpassWeldPage' => InterpassWeldPage(
           initial: InterpassWeld.blank(
               id: 'smoke-interpass', now: DateTime(2026, 10, 18, 7))),

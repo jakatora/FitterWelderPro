@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../features/bolt_kit/bolt_kit_page.dart';
 import '../features/cone_layout/cone_layout_page.dart';
+import '../features/confined_space/confined_space_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/distortion/distortion_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
@@ -1851,6 +1852,49 @@ final List<ToolSpec> kToolRegistry = [
       'lel',
       'gas test',
       'fire'
+    ],
+  ),
+  ToolSpec(
+    id: 'confined_space',
+    group: ToolGroup.inspection,
+    titlePl: 'Przestrzeń zamknięta: wejście i spawanie',
+    titleEn: 'Confined space: entry and welding',
+    subtitlePl: 'Zbiornik, studzienka: lista, pomiar O₂/DGW/CO/H₂S, PDF',
+    subtitleEn: 'Tank, manhole: checklist, O₂/LEL/CO/H₂S readings, PDF',
+    icon: Icons.air,
+    color: const Color(0xFF80DEEA),
+    builder: (_) => const ConfinedSpacePage(),
+    keywordsPl: const [
+      'przestrzen zamknieta',
+      'zbiornik',
+      'wejscie do zbiornika',
+      'praca w zbiorniku',
+      'studzienka',
+      'wlaz',
+      'tlen',
+      'niedotlenienie',
+      'argon',
+      'asekuracja',
+      'asekurujacy',
+      'szelki',
+      'detektor gazow',
+      'pomiar atmosfery',
+      'siarkowodor',
+      'tlenek wegla'
+    ],
+    keywordsEn: const [
+      'confined space',
+      'tank entry',
+      'vessel entry',
+      'manhole',
+      'oxygen',
+      'oxygen deficiency',
+      'argon',
+      'attendant',
+      'gas detector',
+      'h2s',
+      'carbon monoxide',
+      'permit space'
     ],
   ),
   ToolSpec(
