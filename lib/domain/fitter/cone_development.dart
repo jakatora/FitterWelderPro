@@ -5,11 +5,27 @@
 /// przejście kwadrat–koło (transition_development.dart).
 ///
 /// ── Oś obojętna ────────────────────────────────────────────────────────────
-/// Rozwinięcie liczy się po średnicy średniej (oś obojętna w połowie
-/// grubości): zewnętrzna → D − t, wewnętrzna → D + t, średnia → D.
-/// (Konwencja warsztatowa; dla stożka średnica w płaszczyźnie końca leży
-/// dokładniej o t/(2·cos α) od powierzchni — przy α ≤ 30° różnica < 0,16·t
-/// na średnicy, w granicy tolerancji zwijania).
+/// Rozwinięcie liczy się po powierzchni środkowej blachy (oś obojętna
+/// w połowie grubości t, mierzonej prostopadle do ścianki). Średnice są
+/// wymiarowane w płaszczyźnie końca (poziomo), a ścianka stożka jest
+/// pochylona o α od pionu, więc w tej płaszczyźnie powierzchnia środkowa leży
+/// o t/(2·cos α) od powierzchni zewnętrznej/wewnętrznej:
+///   zewnętrzna → Dm = D − t/cos α,  wewnętrzna → Dm = D + t/cos α,
+///   średnia → Dm = D.
+/// Kąt α nie zależy od t: tg α = ((D − d)/2)/H z wymiarów odniesienia
+/// (powierzchnie zewnętrzna, środkowa i wewnętrzna są równoległe, więc
+/// różnica promieni i tworząca między płaszczyznami końców są te same).
+/// Przy α = 45° pominięcie 1/cos α dawało błąd średnicy 0,41·t, przy 60° — t.
+/// Stożek pełny (d = 0): kąt z powierzchni odniesienia, wierzchołek
+/// rozwinięcia na powierzchni środkowej (R = (Dm/2)/sin α).
+/// Stożek mimośrodowy: pochylenie ścianki β(φ) zmienia się po obwodzie
+/// (tg β = ((D − d)/2 − e·cos φ)/H), więc przesunięcie t/(2·cos β(φ)) też;
+/// przybliżamy koła średnie przesunięciem uśrednionym po obwodzie:
+/// Dm = D ∓ t·⟨1/cos β⟩ — zachowuje obwód (w pierwszym rzędzie), dla e = 0
+/// dokładnie jak stożek współosiowy. Przejście kwadrat–koło liczy
+/// wymiar ∓ t (ścianki o różnym pochyleniu), a przy pochyleniu > 30°
+/// ekran ostrzega o różnicy t/2·(1/cos β − 1) — patrz
+/// TransitionResult.maxWallSlopeDeg.
 ///
 /// ── Stożek ścięty współosiowy ──────────────────────────────────────────────
 /// Dm, dm — średnice średnie, H — wysokość, s = (Dm − dm)/2 — wysięg tworzącej
@@ -18,9 +34,12 @@
 ///   r = (dm/2)·L/s                      promień łuku wewnętrznego, R − r = L
 ///   θ = 360°·(Dm/2)/R = 360°·sin α       kąt wycinka
 ///   długości łuków: R·θ = π·Dm, r·θ = π·dm (obwody).
-///   cięciwa 2ρ·sin(θ/2), strzałka ρ·(1 − cos(θ/2)).
+///   cięciwa 2ρ·sin(θ/2), strzałka ρ·(1 − cos(θ/2)) = 2ρ·sin²(θ/4),
+///   przekątna kontrolna² = (R − r)² + 4Rr·sin²(θ/2) (postaci bez
+///   odejmowania bliskich liczb — smukły stożek, d → D, R rzędu 10⁵ mm).
 /// Rzędne od cięciwy (trasowanie bez cyrkla): dla punktu x od końca cięciwy
-/// c = 2ρ·sin(θ/2): y = √(ρ² − (x − c/2)²) − ρ·cos(θ/2).
+/// c = 2ρ·sin(θ/2): y = √(ρ² − (x − c/2)²) − ρ·cos(θ/2)
+///                    = x·(c − x) / (√(ρ² − (x − c/2)²) + ρ·cos(θ/2)).
 ///
 /// ── Stożek mimośrodowy (ukośny) ────────────────────────────────────────────
 /// Koło dolne Dm (środek 0,0,0), górne dm (środek e,0,H), płaszczyzny
@@ -30,7 +49,8 @@
 /// pod kątem ψ(φ) = ∫ |(P − V) × P'| / |P − V|² dφ (dokładny kąt rozwinięcia
 /// powierzchni stożkowej, całka Simpsona). Dzięki temu cięciwy NA BLASZE
 /// w tabeli są dokładne — klasyczna triangulacja cięciwami z rzutu skraca
-/// obwód (np. o ~0,9 % przy 12 podziałach).
+/// obwód: suma cięciw N·D·sin(π/N) to π·D·sin(π/N)/(π/N), czyli o ~1,14 %
+/// mniej przy 12 podziałach (0,29 % przy 24).
 ///
 /// Czysty Dart.
 library;
@@ -59,10 +79,15 @@ class V3 {
 /// Jak wymiarowane są średnice (i boki prostokąta przejścia).
 enum DiameterRef { outside, inside, mean }
 
-/// Wymiar po osi obojętnej z wymiaru odniesienia [v] i grubości [t].
-double neutralDim(double v, double t, DiameterRef ref) => switch (ref) {
-      DiameterRef.outside => v - t,
-      DiameterRef.inside => v + t,
+/// Wymiar po osi obojętnej z wymiaru odniesienia [v] i grubości [t]
+/// (mierzonej prostopadle do ścianki). [wallFactor] = 1/cos pochylenia
+/// ścianki od pionu (1 — ścianka pionowa, np. walczak albo przybliżenie
+/// dla przejścia kwadrat–koło).
+double neutralDim(double v, double t, DiameterRef ref,
+        {double wallFactor = 1}) =>
+    switch (ref) {
+      DiameterRef.outside => v - t * wallFactor,
+      DiameterRef.inside => v + t * wallFactor,
       DiameterRef.mean => v,
     };
 
@@ -216,11 +241,15 @@ enum ConeProblem {
   /// Tworząca krótsza niż różnica promieni — stożek nie istnieje.
   slantTooShort,
 
-  /// t < 0 albo t ≥ min(D, d)/2 (dla d = 0: D/2).
+  /// t < 0, t ≥ min(D, d)/2 (dla d = 0: D/2) albo średnica po osi
+  /// obojętnej (D ∓ t/cos α) wychodzi ≤ 0 (bardzo stromy stożek).
   thickness,
   parts,
   allowance,
 }
+
+/// Liczby części do wyboru (chipy na ekranie; zalecenie tylko z tej listy).
+const kConePartOptions = [1, 2, 3, 4, 6, 8, 12];
 
 class ConeInput {
   /// Średnica duża, mm (wg [ref]).
@@ -256,9 +285,43 @@ class ConeInput {
     this.allowanceMm = 0,
   });
 
-  double get meanLargeMm => neutralDim(largeDiaMm, thicknessMm, ref);
-  double get meanSmallMm =>
-      smallDiaMm == 0 ? 0 : neutralDim(smallDiaMm, thicknessMm, ref);
+  /// Kąt połówkowy α (rad, od osi) z wymiarów odniesienia — nie zależy od
+  /// grubości (powierzchnie blachy są równoległe). Null, gdy dane są błędne.
+  double? get halfAngleRad {
+    if (!(largeDiaMm.isFinite && largeDiaMm > 0)) return null;
+    if (!(smallDiaMm.isFinite && smallDiaMm >= 0) || smallDiaMm >= largeDiaMm) {
+      return null;
+    }
+    final run = (largeDiaMm - smallDiaMm) / 2;
+    switch (mode) {
+      case ConeSizeMode.height:
+        if (!(heightMm.isFinite && heightMm > 0)) return null;
+        return math.atan2(run, heightMm);
+      case ConeSizeMode.halfAngle:
+        if (!(halfAngleDeg.isFinite && halfAngleDeg > 0 && halfAngleDeg < 90)) {
+          return null;
+        }
+        return halfAngleDeg * _deg;
+      case ConeSizeMode.slant:
+        if (!(slantMm.isFinite && slantMm > run)) return null;
+        return math.asin(run / slantMm);
+    }
+  }
+
+  /// 1/cos α — tyle razy grubość t „rośnie” w płaszczyźnie końca stożka.
+  double get wallFactor {
+    final a = halfAngleRad;
+    return a == null ? 1 : 1 / math.cos(a);
+  }
+
+  /// Dm = D ∓ t/cos α (wymiar zewnętrzny / wewnętrzny), mm.
+  double get meanLargeMm =>
+      neutralDim(largeDiaMm, thicknessMm, ref, wallFactor: wallFactor);
+
+  /// dm = d ∓ t/cos α; 0 dla stożka pełnego.
+  double get meanSmallMm => smallDiaMm == 0
+      ? 0
+      : neutralDim(smallDiaMm, thicknessMm, ref, wallFactor: wallFactor);
 
   List<ConeProblem> get problems {
     final out = <ConeProblem>[];
@@ -270,11 +333,17 @@ class ConeInput {
     } else if (dOk && smallDiaMm >= largeDiaMm) {
       out.add(ConeProblem.smallNotLess);
     }
-    final tOk = thicknessMm.isFinite &&
+    var tOk = thicknessMm.isFinite &&
         thicknessMm >= 0 &&
         (!dOk ||
             !sOk ||
             thicknessMm < (smallDiaMm > 0 ? smallDiaMm : largeDiaMm) / 2);
+    // Stromy stożek: t/cos α może „zjeść” średnicę po osi obojętnej.
+    if (tOk &&
+        halfAngleRad != null &&
+        (!(meanLargeMm > 0) || (smallDiaMm > 0 && !(meanSmallMm > 0)))) {
+      tOk = false;
+    }
     if (!tOk) out.add(ConeProblem.thickness);
     switch (mode) {
       case ConeSizeMode.height:
@@ -288,8 +357,10 @@ class ConeInput {
       case ConeSizeMode.slant:
         if (!(slantMm.isFinite && slantMm > 0 && slantMm <= 100000)) {
           out.add(ConeProblem.slant);
-        } else if (out.isEmpty &&
-            slantMm <= (meanLargeMm - meanSmallMm) / 2 + 1e-9) {
+        } else if (dOk &&
+            sOk &&
+            smallDiaMm < largeDiaMm &&
+            slantMm <= (largeDiaMm - smallDiaMm) / 2 + 1e-9) {
           out.add(ConeProblem.slantTooShort);
         }
     }
@@ -330,25 +401,39 @@ class ConeSector {
   double get innerArcMm => innerRadiusMm * angleDeg * _deg;
   double get outerChordMm => 2 * outerRadiusMm * math.sin(_half);
   double get innerChordMm => 2 * innerRadiusMm * math.sin(_half);
-  double get outerSagittaMm => outerRadiusMm * (1 - math.cos(_half));
-  double get innerSagittaMm => innerRadiusMm * (1 - math.cos(_half));
+
+  /// Strzałka ρ·(1 − cos(θ/2)) w postaci 2ρ·sin²(θ/4) — bez odejmowania
+  /// bliskich liczb przy wielkim ρ i małym θ.
+  double _sagitta(double rho) {
+    final s = math.sin(_half / 2);
+    return 2 * rho * s * s;
+  }
+
+  double get outerSagittaMm => _sagitta(outerRadiusMm);
+  double get innerSagittaMm => _sagitta(innerRadiusMm);
 
   /// Przekątna kontrolna: koniec łuku zewnętrznego → przeciwny koniec
   /// łuku wewnętrznego (do sprawdzenia trasowania).
+  /// √(R² + r² − 2Rr·cos θ) = √((R − r)² + 4Rr·sin²(θ/2)) — postać stabilna.
   double get diagonalMm {
     final rr = outerRadiusMm, r = innerRadiusMm;
-    return math.sqrt(
-        math.max(0, rr * rr + r * r - 2 * rr * r * math.cos(angleDeg * _deg)));
+    final s = math.sin(_half);
+    return math.sqrt((rr - r) * (rr - r) + 4 * rr * r * s * s);
   }
 
   /// Odległość cięciwy wewnętrznej od zewnętrznej (wzdłuż osi symetrii).
   double get chordGapMm => (outerRadiusMm - innerRadiusMm) * math.cos(_half);
 
-  /// Punkt (ρ, β) w układzie wierzchołka: oś symetrii w dół, β od osi.
-  static Pt _polar(double rho, double beta) =>
-      Pt(rho * math.sin(beta), -rho * math.cos(beta));
+  /// Punkt (ρ, β) — β od osi symetrii; układ z początkiem w środku łuku
+  /// zewnętrznego (β = 0, ρ = R), Y w stronę wierzchołka (0, R):
+  /// y = R − ρ·cos β = (R − ρ) + 2ρ·sin²(β/2) — bez utraty dokładności przy
+  /// R rzędu 10⁵ mm (smukły stożek).
+  Pt _polar(double rho, double beta) {
+    final s = math.sin(beta / 2);
+    return Pt(rho * math.sin(beta), (outerRadiusMm - rho) + 2 * rho * s * s);
+  }
 
-  /// Kandydaci do prostokąta opisanego (układ wierzchołka).
+  /// Kandydaci do prostokąta opisanego.
   List<Pt> _extremes() {
     final h = _half;
     final rr = outerRadiusMm, r = innerRadiusMm;
@@ -360,7 +445,7 @@ class ConeSector {
         _polar(rr, -math.pi / 2),
         _polar(rr, math.pi / 2)
       ],
-      if (r > 0) ...[_polar(r, -h), _polar(r, h)] else const Pt(0, 0),
+      if (r > 0) ...[_polar(r, -h), _polar(r, h)] else _polar(0, 0),
       ..._allowanceRaw(),
     ];
     return pts;
@@ -421,15 +506,17 @@ class ConeSector {
     xs.add(c);
     if (!xs.any((x) => (x - c / 2).abs() < 1e-6)) xs.add(c / 2);
     xs.sort();
-    return [
-      for (final x in xs)
-        ChordOffset(
-            x,
-            math.max(
-                0,
-                math.sqrt(math.max(0, rho * rho - (x - c / 2) * (x - c / 2))) -
-                    base)),
-    ];
+    // y = √(ρ² − u²) − ρ·cos(θ/2), u = x − c/2. Bez odejmowania bliskich
+    // liczb: ρ²·sin²(θ/2) − u² = (c/2)² − u² = x·(c − x), więc
+    // y = x·(c − x) / (√(ρ² − u²) + ρ·cos(θ/2)).
+    double y(double x) {
+      final u = (x - c / 2).abs();
+      final den = math.sqrt(math.max(0, (rho - u) * (rho + u))) + base;
+      if (den <= 0) return 0;
+      return math.max(0, x * (c - x) / den);
+    }
+
+    return [for (final x in xs) ChordOffset(x, y(x))];
   }
 
   /// Szablon w układzie arkusza: obrys, tworzące co θ/[generators],
@@ -446,7 +533,7 @@ class ConeSector {
         for (var i = steps; i >= 0; i--)
           map(_polar(innerRadiusMm, -h + 2 * h * i / steps))
       else
-        map(const Pt(0, 0)),
+        map(_polar(0, 0)),
     ];
     final lines = <List<Pt>>[
       for (var i = 1; i < generators; i++)
@@ -467,9 +554,15 @@ class ConeSector {
 
 class ConeResult {
   final ConeInput input;
+
+  /// Średnice po osi obojętnej Dm, dm (D ∓ t/cos α), mm.
   final double meanLargeMm;
   final double meanSmallMm;
+
+  /// Wysokość między płaszczyznami końców (wg wymiarów odniesienia), mm.
   final double heightMm;
+
+  /// Tworząca rozwinięcia R − r, mm.
   final double slantMm;
   final double halfAngleDeg;
 
@@ -531,10 +624,12 @@ class ConeResult {
   /// Wycinek prawie płaski — źle się zwija, lepiej dzielić.
   bool get nearlyFlat => sectorAngleDeg > 300;
 
-  /// Najmniejsza liczba części (≤ 12), przy której część mieści się na
-  /// arkuszu [sheetA] × [sheetB]; przy θ > 300° co najmniej 2. Null — żadna.
+  /// Najmniejsza liczba części z [kConePartOptions] (tylko te są do wyboru
+  /// na ekranie), przy której część mieści się na arkuszu [sheetA] ×
+  /// [sheetB]; przy θ > 300° co najmniej 2. Null — żadna.
   int? recommendedParts(double sheetA, double sheetB) {
-    for (var n = nearlyFlat ? 2 : 1; n <= 12; n++) {
+    for (final n in kConePartOptions) {
+      if (nearlyFlat && n < 2) continue;
       if (sectorFor(n).fitsSheet(sheetA, sheetB)) return n;
     }
     return null;
@@ -544,32 +639,30 @@ class ConeResult {
 /// Liczy rozwinięcie; `null`, gdy dane są błędne (patrz [ConeInput.problems]).
 ConeResult? computeCone(ConeInput i) {
   if (i.problems.isNotEmpty) return null;
+  final a = i.halfAngleRad!;
   final dl = i.meanLargeMm;
   final ds = i.meanSmallMm;
-  final run = (dl - ds) / 2;
-  double h, l;
-  switch (i.mode) {
-    case ConeSizeMode.height:
-      h = i.heightMm;
-      l = math.sqrt(h * h + run * run);
-    case ConeSizeMode.halfAngle:
-      final a = i.halfAngleDeg * _deg;
-      h = run / math.tan(a);
-      l = run / math.sin(a);
-    case ConeSizeMode.slant:
-      l = i.slantMm;
-      h = math.sqrt(math.max(0, l * l - run * run));
-  }
-  final sinA = run / l;
-  final rr = dl / 2 * l / run;
-  final r = ds / 2 * l / run;
+  // Wysięg i wysokość z wymiarów odniesienia (nie zależą od t).
+  final run = (i.largeDiaMm - i.smallDiaMm) / 2;
+  final h = switch (i.mode) {
+    ConeSizeMode.height => i.heightMm,
+    ConeSizeMode.halfAngle => run / math.tan(a),
+    ConeSizeMode.slant =>
+      math.sqrt(math.max(0, (i.slantMm - run) * (i.slantMm + run))),
+  };
+  final sinA = math.sin(a);
+  final rr = dl / 2 / sinA;
+  final r = ds / 2 / sinA;
   return ConeResult(
     input: i,
     meanLargeMm: dl,
     meanSmallMm: ds,
     heightMm: h,
-    slantMm: l,
-    halfAngleDeg: math.asin(sinA.clamp(0.0, 1.0)) / _deg,
+    // Tworząca po osi obojętnej = R − r (dla d > 0 równa tworzącej
+    // z wymiarów odniesienia; dla stożka pełnego — od wierzchołka osi
+    // obojętnej).
+    slantMm: rr - r,
+    halfAngleDeg: a / _deg,
     outerRadiusMm: rr,
     innerRadiusMm: r,
     sectorAngleDeg: 360 * sinA,
@@ -629,9 +722,41 @@ class EccentricConeInput {
     this.seamOnShortSide = true,
   });
 
-  double get meanLargeMm => neutralDim(largeDiaMm, thicknessMm, ref);
-  double get meanSmallMm =>
-      smallDiaMm == 0 ? 0 : neutralDim(smallDiaMm, thicknessMm, ref);
+  /// ⟨1/cos β⟩ — średnia po obwodzie z 1/cos pochylenia ścianki od pionu,
+  /// tg β(φ) = ((D − d)/2 − e·cos φ)/H (wymiary odniesienia, nie zależą
+  /// od t). Dla e = 0 równe 1/cos α stożka współosiowego. Przesunięcie
+  /// powierzchni środkowej w płaszczyźnie końca to t/(2·cos β(φ)) — nie
+  /// jest stałe, więc koła średnie przybliżamy przesunięciem uśrednionym
+  /// (zachowuje obwód w pierwszym rzędzie; środek koła przesuwa się
+  /// pomijalnie, o ułamek t).
+  double get wallFactor {
+    if (!(largeDiaMm.isFinite &&
+        smallDiaMm.isFinite &&
+        heightMm.isFinite &&
+        heightMm > 0)) {
+      return 1;
+    }
+    final dr = (largeDiaMm - smallDiaMm) / 2;
+    final e = verticalSide ? dr : offsetMm;
+    if (!e.isFinite) return 1;
+    // Funkcja okresowa i gładka — metoda trapezów jest tu bardzo dokładna.
+    const n = 720;
+    var s = 0.0;
+    for (var j = 0; j < n; j++) {
+      final tb = (dr - e * math.cos(2 * math.pi * j / n)) / heightMm;
+      s += math.sqrt(1 + tb * tb);
+    }
+    return s / n;
+  }
+
+  /// Dm = D ∓ t·⟨1/cos β⟩, mm.
+  double get meanLargeMm =>
+      neutralDim(largeDiaMm, thicknessMm, ref, wallFactor: wallFactor);
+
+  /// dm = d ∓ t·⟨1/cos β⟩; 0 dla stożka pełnego.
+  double get meanSmallMm => smallDiaMm == 0
+      ? 0
+      : neutralDim(smallDiaMm, thicknessMm, ref, wallFactor: wallFactor);
 
   /// Przesunięcie użyte do obliczeń, mm.
   double get effectiveOffsetMm =>
@@ -654,13 +779,18 @@ class EccentricConeInput {
         !(offsetMm.isFinite && offsetMm >= 0 && offsetMm <= 100000)) {
       out.add(EccentricProblem.offset);
     }
-    if (!(thicknessMm.isFinite &&
+    var tOk = thicknessMm.isFinite &&
         thicknessMm >= 0 &&
         (!dOk ||
             !sOk ||
-            thicknessMm < (smallDiaMm > 0 ? smallDiaMm : largeDiaMm) / 2))) {
-      out.add(EccentricProblem.thickness);
+            thicknessMm < (smallDiaMm > 0 ? smallDiaMm : largeDiaMm) / 2);
+    if (tOk &&
+        dOk &&
+        sOk &&
+        (!(meanLargeMm > 0) || (smallDiaMm > 0 && !(meanSmallMm > 0)))) {
+      tOk = false;
     }
+    if (!tOk) out.add(EccentricProblem.thickness);
     if (!kConeDivisions.contains(divisions)) {
       out.add(EccentricProblem.divisions);
     }
@@ -807,10 +937,15 @@ EccentricConeResult? computeEccentricCone(EccentricConeInput i) {
     final b = a + densify;
     final dpsi = psis[b] - psis[a];
     final rho2 = rhos[b];
-    final chord = math.sqrt(
-        math.max(0, rho * rho + rho2 * rho2 - 2 * rho * rho2 * math.cos(dpsi)));
-    final diag = math.sqrt(math.max(0,
-        k * k * rho * rho + rho2 * rho2 - 2 * k * rho * rho2 * math.cos(dpsi)));
+    // Twierdzenie cosinusów w postaci stabilnej (wierzchołek daleko,
+    // gdy d → D): a² + b² − 2ab·cos ψ = (a − b)² + 4ab·sin²(ψ/2).
+    double side(double a, double b) {
+      final s = math.sin(dpsi / 2);
+      return math.sqrt((a - b) * (a - b) + 4 * a * b * s * s);
+    }
+
+    final chord = side(rho, rho2);
+    final diag = side(k * rho, rho2);
     rows.add(EccentricRow(
       index: j + 1,
       phiDeg: 360.0 * j / n,

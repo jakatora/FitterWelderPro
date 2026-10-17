@@ -72,21 +72,23 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
-  testWidgets('lej D 600 / d 200 zewn., t 4, H 400 → R 666,3; H 300 → 537,2',
+  testWidgets('lej D 600 / d 200 zewn., t 4, H 400 → R 665,8; H 300 → 536,5',
       (tester) async {
     await _pump(tester);
-    // Dm 596, dm 196, Δr 200, L 447,21, sin α = 0,4472 → R = 298/sin α.
-    expect(_readout('cone-R', '666,3'), findsOneWidget);
-    expect(_in('cone-r', '219,1 mm'), findsOneWidget);
+    // Δr 200, cos α = 0,8944, t/cos α = 4,472 → Dm 595,53, dm 195,53;
+    // sin α = 0,4472 → R = (Dm/2)/sin α = 665,82.
+    expect(_readout('cone-R', '665,8'), findsOneWidget);
+    expect(_in('cone-r', '218,6 mm'), findsOneWidget);
     expect(_in('cone-theta', '161°'), findsOneWidget);
-    expect(_in('cone-whole-rect', '1314,4 × 630,2 mm'), findsOneWidget);
+    expect(_in('cone-whole-rect', '1313,4 × 629,7 mm'), findsOneWidget);
+    expect(find.textContaining('zewn. − t/cos α'), findsOneWidget);
     await _enter(tester, 'cone-H', '300');
-    // L = √(300² + 200²) = 360,56, R = 298·L/200 = 537,23.
-    expect(_readout('cone-R', '537,2'), findsOneWidget);
-    // Kątem: α 30° → R = 298 / sin 30° = 596.
+    // tg α = 200/300, t/cos α = 4,807 → Dm 595,19; R = 536,50.
+    expect(_readout('cone-R', '536,5'), findsOneWidget);
+    // Kątem: α 30° → Dm = 600 − 4/cos 30° = 595,38, R = Dm/2/sin 30° = Dm.
     await _tap(tester, 'cone-mode-angle');
     await _enter(tester, 'cone-alpha', '30');
-    expect(_readout('cone-R', '596'), findsOneWidget);
+    expect(_readout('cone-R', '595,4'), findsOneWidget);
     // Wymiary średnie: Dm = 600 → R = 600.
     await _tap(tester, 'cone-ref-mean');
     expect(_readout('cone-R', '600'), findsOneWidget);
@@ -116,7 +118,7 @@ void main() {
 
   testWidgets('podział na części i dopasowanie do arkusza', (tester) async {
     await _pump(tester);
-    // 1314 × 630 mieści się na 1500 × 3000.
+    // 1313 × 630 mieści się na 1500 × 3000.
     expect(
         _in('cone-fit', 'Każda część mieści się na arkuszu.'), findsOneWidget);
     await _enter(tester, 'cone-sheet-w', '1000');
@@ -125,12 +127,31 @@ void main() {
     expect(find.textContaining('zalecany podział: 2 cz.'), findsOneWidget);
     await _tap(tester, 'cone-parts-2');
     expect(_in('cone-part-angle', '80,5°'), findsOneWidget);
-    // Połówka: 2R·sin 40,25° × (R − r·cos 40,25°) = 861,1 × 499,1.
-    expect(_in('cone-part-rect', 'Prostokąt części: 861,1 × 499,1 mm'),
+    // Połówka: 2R·sin 40,25° × (R − r·cos 40,25°) = 860,4 × 499,0.
+    expect(_in('cone-part-rect', 'Prostokąt części: 860,4 × 499 mm'),
         findsOneWidget);
     expect(find.byKey(const ValueKey('cone-fit-notice')), findsNothing);
     expect(
         _in('cone-fit', 'Każda część mieści się na arkuszu.'), findsOneWidget);
+  });
+
+  testWidgets('zalecany podział tylko z dostępnych chipów (6, nie 5)',
+      (tester) async {
+    await _pump(tester);
+    // Arkusz 320 × 460: 4 części (458 × 461) się nie mieszczą, 6 (309 × 453)
+    // tak — zalecenie musi mieć swój chip.
+    await _enter(tester, 'cone-sheet-w', '320');
+    await _enter(tester, 'cone-sheet-l', '460');
+    expect(find.textContaining('zalecany podział: 6 cz.'), findsOneWidget);
+    for (final n in [1, 2, 3, 4, 6, 8, 12]) {
+      expect(find.byKey(ValueKey('cone-parts-$n')), findsOneWidget,
+          reason: '$n');
+    }
+    expect(find.byKey(const ValueKey('cone-parts-5')), findsNothing);
+    await _tap(tester, 'cone-parts-6');
+    expect(find.byKey(const ValueKey('cone-fit-notice')), findsNothing);
+    await _tap(tester, 'cone-parts-12');
+    expect(_in('cone-part-angle', '13,42°'), findsOneWidget);
   });
 
   testWidgets('przełączanie kształtów: mimośrodowy i kwadrat–koło',
@@ -153,13 +174,21 @@ void main() {
     expect(_in('tr-lines', '427,2'), findsWidgets);
     // Krawędzie: 2·(596 + 396) = 1984, π·296 = 929,9.
     expect(_in('tr-edges', '1984 / 929,9 mm'), findsOneWidget);
+    // Najstromiej: naroże (298, 198), tg β = (√(298² + 198²) − 148)/400.
+    expect(_in('tr-slope', '27,7°'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tr-slope-note')), findsNothing);
+    await _enter(tester, 'tr-H', '300');
+    // β 35,0° → oś obojętna dalej o t/2·(1/cos β − 1) = 0,44 mm na stronę.
+    expect(find.byKey(const ValueKey('tr-slope-note')), findsOneWidget);
+    expect(find.textContaining('0,44 mm na stronę'), findsOneWidget);
+    await _enter(tester, 'tr-H', '400');
     // Cztery części: druga to lustro pierwszej.
     await _tap(tester, 'cone-tparts-4');
     await _tap(tester, 'cone-view-part-2');
     expect(find.textContaining('lustrzanym'), findsOneWidget);
     // Powrót do stożka zachowuje dane.
     await _tap(tester, 'cone-shape-concentric');
-    expect(_readout('cone-R', '666,3'), findsOneWidget);
+    expect(_readout('cone-R', '665,8'), findsOneWidget);
   });
 
   testWidgets('cale: pola i wyniki przeliczone, powrót do mm', (tester) async {
@@ -171,8 +200,8 @@ void main() {
             .controller!
             .text,
         '23,622');
-    // 666,35 mm = 26,23 in.
-    expect(_readout('cone-R', '26,23'), findsOneWidget);
+    // 665,83 mm = 26,21 in.
+    expect(_readout('cone-R', '26,21'), findsOneWidget);
     await _tap(tester, 'cone-unit-mm');
     expect(
         tester
@@ -180,13 +209,13 @@ void main() {
             .controller!
             .text,
         '600');
-    expect(_readout('cone-R', '666,3'), findsOneWidget);
+    expect(_readout('cone-R', '665,8'), findsOneWidget);
   });
 
   testWidgets('po angielsku', (tester) async {
     await _pump(tester, language: AppLanguage.en);
     expect(find.text('Cone & transition layout'), findsOneWidget);
-    expect(_readout('cone-R', '666.3'), findsOneWidget);
+    expect(_readout('cone-R', '665.8'), findsOneWidget);
     expect(find.text('OUTER RADIUS R'), findsOneWidget);
     await _enter(tester, 'cone-d', '1200');
     expect(
@@ -219,11 +248,30 @@ void main() {
     await _tap(tester, 'cone-show-ordinates');
     expect(find.byKey(const ValueKey('cone-ord-outer')), findsOneWidget);
     await _tap(tester, 'cone-step-500');
-    // Cięciwa 1314,4 co 500: 0, 500, 1000, środek 657,2 (strzałka 556,4)
+    // Cięciwa 1313,4 co 500: 0, 500, 1000, środek 656,7 (strzałka 555,9)
     // i koniec.
-    expect(_in('cone-ord-outer', '657,2'), findsOneWidget);
-    expect(_in('cone-ord-outer', '556,4'), findsOneWidget);
-    expect(_in('cone-ord-outer', '1314,4'), findsOneWidget);
+    expect(_in('cone-ord-outer', '656,7'), findsOneWidget);
+    expect(_in('cone-ord-outer', '555,9'), findsOneWidget);
+    expect(_in('cone-ord-outer', '1313,4'), findsOneWidget);
+  });
+
+  testWidgets('ponad 300 rzędnych: komunikat na ekranie i adnotacja w tekście',
+      (tester) async {
+    final spy = await _pump(tester);
+    // Stożek Ø6000 / Ø5900, H 2000: cięciwa ≈ 18,7 m — co 50 mm ponad 300.
+    await _enter(tester, 'cone-D', '6000');
+    await _enter(tester, 'cone-d', '5900');
+    await _enter(tester, 'cone-H', '2000');
+    await _tap(tester, 'cone-step-50');
+    expect(find.byKey(const ValueKey('cone-ord-too-many')), findsOneWidget);
+    await _tap(tester, 'cone-share-text');
+    expect(spy.texts.last.$1, contains('Tabela rzędnych pominięta'));
+    // Większy krok — tabela wraca, adnotacji nie ma.
+    await _tap(tester, 'cone-step-500');
+    expect(find.byKey(const ValueKey('cone-ord-too-many')), findsNothing);
+    await _tap(tester, 'cone-share-text');
+    expect(spy.texts.last.$1, isNot(contains('Tabela rzędnych pominięta')));
+    expect(spy.texts.last.$1, contains('Rzędne łuku zewnętrznego od cięciwy'));
   });
 
   testWidgets('udostępnianie tekstu i PDF przez wstrzyknięte funkcje',
@@ -233,8 +281,9 @@ void main() {
     expect(spy.texts, hasLength(1));
     final (text, subject) = spy.texts.single;
     expect(subject, 'Rozwinięcie blachy — wymiary');
-    expect(text, contains('R 666,3 mm · r 219,1 mm · θ 161°'));
-    expect(text, contains('Dm 596 / dm 196 mm'));
+    expect(text, contains('R 665,8 mm · r 218,6 mm · θ 161°'));
+    expect(text, contains('Dm 595,5 / dm 195,5 mm'));
+    expect(text, contains('zewn. − t/cos α'));
 
     await _tap(tester, 'cone-paper-a3');
     await _tap(tester, 'cone-pdf');
@@ -244,8 +293,11 @@ void main() {
     expect(en, isFalse);
     expect(spec.paper, TemplatePaper.a3);
     expect(spec.shapes, hasLength(1));
-    expect(spec.shapes.single.widthMm, closeTo(1314.41, 0.01));
+    expect(spec.shapes.single.widthMm, closeTo(1313.37, 0.01));
     expect(spec.sheetCount, greaterThan(1));
+    // Rzędne od cięciwy w PDF (wycinek 161° ≤ 180°), bez adnotacji.
+    expect(spec.tables, isNotEmpty);
+    expect(spec.instructions.where((s) => s.contains('Tabel')), isEmpty);
 
     // Prawdziwy PDF z tej specyfikacji.
     pw.Font font(String f) => pw.Font.ttf(
@@ -323,6 +375,8 @@ void main() {
       'cone-ref-mean',
       'cone-parts-1',
       'cone-parts-6',
+      'cone-parts-8',
+      'cone-parts-12',
       'cone-show-ordinates',
       'cone-paper-a4',
       'cone-paper-a3',

@@ -219,6 +219,44 @@ void main() {
     expect(p.bottomEdgeMm, closeTo(2 * (600 + 400), 1e-9));
   });
 
+  test(
+      'pochylenie ścianek: kwadrat 34,44°, prostokąt 27,67° / przy H 300 34,96°',
+      () {
+    // Kwadrat 600, Ø300, H 400 (średnie): najstromiej wachlarz naroża pod
+    // 45°: tg β = (300·√2 − 150)/400.
+    final sq = computeTransition(const TransitionInput(
+        sideAMm: 600, sideBMm: 600, diameterMm: 300, heightMm: 400))!;
+    expect(
+        sq.maxWallSlopeDeg,
+        closeTo(
+            math.atan((300 * math.sqrt2 - 150) / 400) * 180 / math.pi, 1e-6));
+    // Wymiary średnie — oś obojętna podana wprost, bez ostrzeżenia.
+    expect(sq.steepWalls, isFalse);
+    expect(sq.neutralShiftErrorMm, 0);
+    // Prostokąt 600 × 400 zewn., t 4 → 596 × 396, Ø296: naroże (298, 198),
+    // tg β = (√(298² + 198²) − 148)/H.
+    final rect = computeTransition(const TransitionInput(
+        sideAMm: 600,
+        sideBMm: 400,
+        diameterMm: 300,
+        heightMm: 400,
+        thicknessMm: 4,
+        ref: DiameterRef.outside))!;
+    expect(rect.maxWallSlopeDeg, closeTo(27.6750, 0.01));
+    expect(rect.steepWalls, isFalse);
+    final low = computeTransition(const TransitionInput(
+        sideAMm: 600,
+        sideBMm: 400,
+        diameterMm: 300,
+        heightMm: 300,
+        thicknessMm: 4,
+        ref: DiameterRef.outside))!;
+    expect(low.maxWallSlopeDeg, closeTo(34.9641, 0.01));
+    expect(low.steepWalls, isTrue);
+    // t/2·(1/cos β − 1) = 0,4405 mm na stronę.
+    expect(low.neutralShiftErrorMm, closeTo(0.4405, 1e-3));
+  });
+
   test('przesunięcie: wynik skończony, koło wystające sygnalizowane', () {
     const i = TransitionInput(
         sideAMm: 600,

@@ -511,9 +511,22 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-              context.tr(
-                  pl: 'Rozwinięcie liczone po osi obojętnej: zewn. − t, wewn. + t.',
-                  en: 'Developed on the neutral axis: outside − t, inside + t.'),
+              key: const ValueKey('cone-neutral-hint'),
+              switch (_shape) {
+                ConeShape.concentric => context.tr(
+                    pl: 'Rozwinięcie po osi obojętnej: zewn. − t/cos α, wewn. + t/cos α '
+                        '(t prostopadle do ścianki, α — pochylenie ścianki od pionu).',
+                    en: 'Developed on the neutral axis: outside − t/cos α, inside + t/cos α '
+                        '(t square to the wall, α — wall slope from vertical).'),
+                ConeShape.eccentric => context.tr(
+                    pl: 'Rozwinięcie po osi obojętnej: zewn. − t·⟨1/cos β⟩, wewn. + t·⟨1/cos β⟩ '
+                        '(β — pochylenie ścianki, uśrednione po obwodzie).',
+                    en: 'Developed on the neutral axis: outside − t·⟨1/cos β⟩, inside + t·⟨1/cos β⟩ '
+                        '(β — wall slope, averaged round the circumference).'),
+                ConeShape.transition => context.tr(
+                    pl: 'Rozwinięcie po osi obojętnej: zewn. − t, wewn. + t.',
+                    en: 'Developed on the neutral axis: outside − t, inside + t.'),
+              },
               style: const TextStyle(fontSize: 12, color: kTextMut)),
         ),
       ];
@@ -793,7 +806,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
           ),
           _caption(context.tr(pl: 'Liczba części', en: 'Number of parts')),
           _chips<int>([
-            for (final n in const [1, 2, 3, 4, 6]) (n, 'cone-parts-$n', '$n'),
+            for (final n in kConePartOptions) (n, 'cone-parts-$n', '$n'),
           ], _coneParts, (v) => _coneParts = v),
           const SizedBox(height: 10),
           _numField(
@@ -917,6 +930,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
             context.tr(
                 pl: 'Pas przerywany wzdłuż krawędzi — naddatek ${_lenU(input.allowanceMm)} na zakład.',
                 en: 'Dashed strip along the edge — ${_lenU(input.allowanceMm)} seam allowance.'),
+          if (_ordinatesSkipped(part) case final skipped?) skipped,
         ],
         note: _neutralNote(),
         shapes: shapes,
@@ -1026,13 +1040,41 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
         DiameterRef.mean => context.tr(pl: 'średnie', en: 'mean'),
       };
 
-  String _neutralNote() => context.tr(
-      pl: 'Rozwinięcie po osi obojętnej (średnica średnia: zewn. − t, wewn. + t). '
-          'Bez naddatku na ukosowanie i szczelinę spoiny, chyba że podano. '
-          'Przed cięciem sprawdź przekątne i długości łuków taśmą.',
-      en: 'Developed on the neutral axis (mean diameter: outside − t, inside + t). '
-          'No bevel or root-gap allowance unless given. '
-          'Check diagonals and arc lengths with a tape before cutting.');
+  String _neutralNote() {
+    final rule = switch (_shape) {
+      ConeShape.concentric => context.tr(
+          pl: 'zewn. − t/cos α, wewn. + t/cos α',
+          en: 'outside − t/cos α, inside + t/cos α'),
+      ConeShape.eccentric => context.tr(
+          pl: 'zewn. − t·⟨1/cos β⟩, wewn. + t·⟨1/cos β⟩, β uśrednione po obwodzie',
+          en: 'outside − t·⟨1/cos β⟩, inside + t·⟨1/cos β⟩, β averaged round the circumference'),
+      ConeShape.transition =>
+        context.tr(pl: 'zewn. − t, wewn. + t', en: 'outside − t, inside + t'),
+    };
+    return context.tr(
+        pl: 'Rozwinięcie po osi obojętnej (wymiar średni: $rule). '
+            'Bez naddatku na ukosowanie i szczelinę spoiny, chyba że podano. '
+            'Przed cięciem sprawdź przekątne i długości łuków taśmą.',
+        en: 'Developed on the neutral axis (mean size: $rule). '
+            'No bevel or root-gap allowance unless given. '
+            'Check diagonals and arc lengths with a tape before cutting.');
+  }
+
+  /// Dlaczego w PDF / tekście nie ma tabeli rzędnych (null — jest).
+  String? _ordinatesSkipped(ConeSector part) {
+    if (!part.chordOffsetsPossible) {
+      return context.tr(
+          pl: 'Tabeli rzędnych od cięciwy brak: część ma ponad 180° — podziel stożek na więcej części.',
+          en: 'No chord offset table: the part spans over 180° — split the cone into more parts.');
+    }
+    final n = part.chordOffsets(outer: true, stepMm: _step).length;
+    if (n > 300) {
+      return context.tr(
+          pl: 'Tabela rzędnych pominięta: przy kroku ${_lenU(_step)} wyszłoby $n punktów (limit 300) — wybierz na ekranie większy krok.',
+          en: 'Offset table left out: a ${_lenU(_step)} step would give $n points (limit 300) — pick a larger step on screen.');
+    }
+    return null;
+  }
 
   List<String> _coneSummary(ConeResult r) {
     final i = r.input;
@@ -1063,12 +1105,19 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
       ..._coneSummary(r),
     ];
     final part = r.part;
-    if (withOrdinates && part.chordOffsetsPossible) {
-      for (final t in _ordinateTables(r, part)) {
+    if (withOrdinates) {
+      final skipped = _ordinatesSkipped(part);
+      if (skipped != null) {
         lines
           ..add('')
-          ..add(t.title)
-          ..addAll([for (final row in t.rows) '  x ${row[0]} → y ${row[1]}']);
+          ..add(skipped);
+      } else {
+        for (final t in _ordinateTables(r, part)) {
+          lines
+            ..add('')
+            ..add(t.title)
+            ..addAll([for (final row in t.rows) '  x ${row[0]} → y ${row[1]}']);
+        }
       }
     }
     lines
@@ -1468,8 +1517,27 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
                   en: 'Rectangle / circle edge on the plate'),
               '${_len(r.bottomEdgeMm)} / ${_len(r.topEdgeMm)} $_u',
               key: const ValueKey('tr-edges')),
+          _kv(
+              context.tr(
+                  pl: 'Największe pochylenie ścianki od pionu',
+                  en: 'Steepest wall slope from vertical'),
+              _deg(r.maxWallSlopeDeg, d: 1),
+              key: const ValueKey('tr-slope')),
         ],
       ),
+      if (r.steepWalls)
+        QuoteNotice(
+          key: const ValueKey('tr-slope-note'),
+          text: context.tr(
+              pl: 'Ścianki pochylone do ${_deg(r.maxWallSlopeDeg, d: 1)} od pionu. Program liczy wymiar ∓ t, '
+                  'a przy pochylonej ściance oś obojętna w płaszczyźnie podstawy leży o t/(2·cos β) od powierzchni — '
+                  'różnica do ${_lenU(r.neutralShiftErrorMm, d: _inch ? 3 : 2)} na stronę. Przy grubej blasze '
+                  'uwzględnij to przy trasowaniu (albo podaj wymiary średnie).',
+              en: 'Walls slope up to ${_deg(r.maxWallSlopeDeg, d: 1)} from vertical. The tool uses size ∓ t, '
+                  'but on a sloping wall the neutral axis in the base plane lies t/(2·cos β) from the surface — '
+                  'up to ${_lenU(r.neutralShiftErrorMm, d: _inch ? 3 : 2)} per side. With thick plate allow '
+                  'for it when marking (or enter mean sizes).'),
+        ),
       if (input.circleOverhangs)
         QuoteNotice(
           key: const ValueKey('tr-overhang'),
@@ -1547,6 +1615,12 @@ class _ConeLayoutPageState extends State<ConeLayoutPage> {
             '${context.tr(pl: 'wysokość', en: 'height')} ${_len(s.heightMm)} $_u',
       for (final (p, x) in r.parts.indexed)
         '${_partName(p)}: ${_len(x.pattern.widthMm)} × ${_len(x.pattern.heightMm)} $_u${sameNote(x)}',
+      if (r.steepWalls)
+        context.tr(
+            pl: 'Uwaga: ścianki pochylone do ${_deg(r.maxWallSlopeDeg, d: 1)} — oś obojętna w podstawie '
+                'przesunięta o t/(2·cos β), różnica do ${_lenU(r.neutralShiftErrorMm, d: _inch ? 3 : 2)} na stronę względem ∓ t.',
+            en: 'Note: walls slope up to ${_deg(r.maxWallSlopeDeg, d: 1)} — the neutral axis in the base '
+                'shifts by t/(2·cos β), up to ${_lenU(r.neutralShiftErrorMm, d: _inch ? 3 : 2)} per side more than ∓ t.'),
     ];
     final tables = [
       for (final (p, x) in r.parts.indexed)

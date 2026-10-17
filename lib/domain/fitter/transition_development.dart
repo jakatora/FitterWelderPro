@@ -187,6 +187,11 @@ class TransitionResult {
   final List<TransitionPart> parts;
   final List<TransitionSide> sides;
 
+  /// Największe pochylenie ścianki od pionu (trójkąty i wachlarze), °.
+  /// tg β(φ) = |K·u − c·u − D/2| / H, u = (cos φ, sin φ), K — naroże
+  /// wachlarza nad φ, c — środek koła w rzucie.
+  final double maxWallSlopeDeg;
+
   const TransitionResult({
     required this.input,
     required this.meanAMm,
@@ -194,6 +199,7 @@ class TransitionResult {
     required this.meanDMm,
     required this.parts,
     required this.sides,
+    this.maxWallSlopeDeg = 0,
   });
 
   double get bottomEdgeMm => parts.fold(0.0, (s, p) => s + p.bottomEdgeMm);
@@ -201,6 +207,22 @@ class TransitionResult {
 
   /// Cięciwa podziału koła w rzucie (stała) — klasyczna triangulacja.
   double get planChordMm => meanDMm * math.sin(math.pi / input.divisions);
+
+  /// Przejście liczy wymiar ∓ t (jak dla ścianki pionowej). Przy ściance
+  /// pochylonej o β oś obojętna w płaszczyźnie podstawy leży o t/(2·cos β)
+  /// od powierzchni — tyle maksymalnie (na stronę) różni się to od t/2, mm.
+  double get neutralShiftErrorMm => input.ref == DiameterRef.mean
+      ? 0
+      : input.thicknessMm /
+          2 *
+          (1 / math.cos(maxWallSlopeDeg * math.pi / 180) - 1);
+
+  /// Warto ostrzec: ścianka pochylona ponad 30° i blacha liczona od
+  /// powierzchni (nie po średniej).
+  bool get steepWalls =>
+      maxWallSlopeDeg > 30 &&
+      input.thicknessMm > 0 &&
+      input.ref != DiameterRef.mean;
 }
 
 class _Rung {
@@ -349,6 +371,20 @@ TransitionResult? computeTransition(TransitionInput i) {
       ),
   ];
 
+  // Pochylenie ścianki: płaszczyzna styczna wzdłuż tworzącej K → C(φ)
+  // zawiera styczną do koła, więc jej nachylenie od pionu mierzy się
+  // w kierunku u = (cos φ, sin φ): tg β = |(K − C(φ))·u| / H. Ćwiartka s
+  // należy do naroża s (A nad 0–90° itd.); końce ćwiartek to trójkąty boków.
+  var maxSlope = 0.0;
+  for (var s = 0; s < 4; s++) {
+    for (var j = 0; j <= 90; j++) {
+      final phi = (s * 90 + j) * math.pi / 180;
+      final ux = math.cos(phi), uy = math.sin(phi);
+      final run = (k[s].x - ex) * ux + (k[s].y - ey) * uy - rc;
+      maxSlope = math.max(maxSlope, math.atan2(run.abs(), h));
+    }
+  }
+
   return TransitionResult(
     input: i,
     meanAMm: i.meanAMm,
@@ -356,6 +392,7 @@ TransitionResult? computeTransition(TransitionInput i) {
     meanDMm: i.meanDMm,
     parts: out,
     sides: sides,
+    maxWallSlopeDeg: maxSlope * 180 / math.pi,
   );
 }
 

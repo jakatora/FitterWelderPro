@@ -3,8 +3,10 @@
 // i zgodność metody wierzchołkowej/triangulacji (stożek mimośrodowy z e = 0)
 // ze wzorem analitycznym.
 //
-// Wartości oczekiwane policzone niezależnie (Python, wzory z nagłówka
-// lib/domain/fitter/cone_development.dart).
+// Wartości oczekiwane policzone niezależnie (Python: oś obojętna wyznaczona
+// geometrycznie — linia tworzącej powierzchni odniesienia przesunięta o t/2
+// wzdłuż normalnej i przecięta z płaszczyznami końców; dalej wzory
+// z nagłówka lib/domain/fitter/cone_development.dart).
 
 import 'dart:math' as math;
 
@@ -12,11 +14,31 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/fitter/cone_development.dart';
 
+/// Niezależnie od domeny: średnice osi obojętnej w płaszczyznach z = 0 i H —
+/// tworząca powierzchni odniesienia (D/2, 0) → (d/2, H) przesunięta o t/2
+/// wzdłuż normalnej w głąb blachy.
+(double, double) neutralByGeometry(
+    double d1, double d2, double h, double t, DiameterRef ref) {
+  final ux0 = d2 / 2 - d1 / 2, uz0 = h;
+  final l = math.sqrt(ux0 * ux0 + uz0 * uz0);
+  final ux = ux0 / l, uz = uz0 / l;
+  // Normalna na zewnątrz (+r): (uz, −ux).
+  final s = switch (ref) {
+    DiameterRef.outside => -1.0,
+    DiameterRef.inside => 1.0,
+    DiameterRef.mean => 0.0,
+  };
+  final qx = d1 / 2 + s * uz * t / 2, qz = s * -ux * t / 2;
+  double at(double z) => qx + (z - qz) / uz * ux;
+  return (2 * at(0), 2 * at(h));
+}
+
 void main() {
   const eps = 1e-6;
 
   group('stożek ścięty współosiowy — wzory', () {
-    // D 1000 / d 400 zewn., t 6, H 600 → Dm 994, dm 394, Δr 300.
+    // D 1000 / d 400 zewn., t 6, H 600: Δr 300, cos α = 0,8944,
+    // t/cos α = 6,7082 → Dm 993,2918, dm 393,2918.
     final r = computeCone(const ConeInput(
       largeDiaMm: 1000,
       smallDiaMm: 400,
@@ -25,23 +47,109 @@ void main() {
       ref: DiameterRef.outside,
     ))!;
 
-    test('D 1000 / d 400 zewn., t 6, H 600 → R 1111,33, r 440,51, θ 161,00°',
+    test('D 1000 / d 400 zewn., t 6, H 600 → R 1110,53, r 439,71, θ 161,00°',
         () {
-      expect(r.meanLargeMm, 994);
-      expect(r.meanSmallMm, 394);
+      expect(r.meanLargeMm, closeTo(993.2918, 1e-4));
+      expect(r.meanSmallMm, closeTo(393.2918, 1e-4));
       expect(r.slantMm, closeTo(670.8204, 1e-4));
       expect(r.halfAngleDeg, closeTo(26.5651, 1e-4));
-      expect(r.outerRadiusMm, closeTo(1111.3258, 1e-4));
-      expect(r.innerRadiusMm, closeTo(440.5054, 1e-4));
+      expect(r.outerRadiusMm, closeTo(1110.5340, 1e-4));
+      expect(r.innerRadiusMm, closeTo(439.7136, 1e-4));
       expect(r.sectorAngleDeg, closeTo(160.9969, 1e-4));
       final w = r.whole;
-      expect(w.outerChordMm, closeTo(2192.1593, 1e-4));
-      expect(w.innerChordMm, closeTo(868.9243, 1e-4));
-      expect(w.outerSagittaMm, closeTo(927.8744, 1e-4));
-      expect(w.innerSagittaMm, closeTo(367.7893, 1e-4));
-      expect(w.diagonalMm, closeTo(1534.5424, 1e-4));
-      expect(w.widthMm, closeTo(2192.1593, 1e-4));
-      expect(w.heightMm, closeTo(1038.6096, 1e-4));
+      expect(w.outerChordMm, closeTo(2190.5974, 1e-4));
+      expect(w.innerChordMm, closeTo(867.3624, 1e-4));
+      expect(w.outerSagittaMm, closeTo(927.2133, 1e-4));
+      expect(w.innerSagittaMm, closeTo(367.1282, 1e-4));
+      expect(w.diagonalMm, closeTo(1532.9846, 1e-4));
+      expect(w.widthMm, closeTo(2190.5974, 1e-4));
+      expect(w.heightMm, closeTo(1037.9486, 1e-4));
+    });
+
+    test(
+        'oś obojętna t/cos α = przesunięcie geometryczne o t/2 wzdłuż normalnej',
+        () {
+      for (final (d1, d2, h, t, ref) in const [
+        (1000.0, 400.0, 600.0, 6.0, DiameterRef.outside),
+        (1000.0, 400.0, 600.0, 10.0, DiameterRef.inside),
+        (500.0, 100.0, 200.0, 10.0, DiameterRef.outside),
+        (2500.0, 300.0, 150.0, 12.0, DiameterRef.inside),
+        (800.0, 750.0, 3000.0, 20.0, DiameterRef.outside),
+      ]) {
+        final i = ConeInput(
+            largeDiaMm: d1,
+            smallDiaMm: d2,
+            heightMm: h,
+            thicknessMm: t,
+            ref: ref);
+        final (gl, gs) = neutralByGeometry(d1, d2, h, t, ref);
+        expect(i.meanLargeMm, closeTo(gl, 1e-9), reason: '$d1/$d2/$h');
+        expect(i.meanSmallMm, closeTo(gs, 1e-9), reason: '$d1/$d2/$h');
+      }
+    });
+
+    test('α 45°, t 10: Dm = D − 10·√2 — 13,01 mm obwodu więcej niż przy D − t',
+        () {
+      final c = computeCone(const ConeInput(
+          largeDiaMm: 500,
+          smallDiaMm: 100,
+          heightMm: 200,
+          thicknessMm: 10,
+          ref: DiameterRef.outside))!;
+      expect(c.halfAngleDeg, closeTo(45, eps));
+      expect(c.meanLargeMm, closeTo(485.8579, 1e-4));
+      expect(c.meanSmallMm, closeTo(85.8579, 1e-4));
+      expect(math.pi * 490 - c.outerArcMm, closeTo(13.0129, 1e-4));
+      // α 60°: t/cos α = 2t.
+      final c60 = computeCone(ConeInput(
+          largeDiaMm: 500,
+          smallDiaMm: 100,
+          heightMm: 200 / math.tan(math.pi / 3),
+          thicknessMm: 10,
+          ref: DiameterRef.outside))!;
+      expect(c60.meanLargeMm, closeTo(480, 1e-9));
+      // Ten sam stożek kątem i tworzącą — te same średnice obliczeniowe.
+      final byAngle = computeCone(const ConeInput(
+          largeDiaMm: 500,
+          smallDiaMm: 100,
+          mode: ConeSizeMode.halfAngle,
+          halfAngleDeg: 45,
+          thicknessMm: 10,
+          ref: DiameterRef.outside))!;
+      final bySlant = computeCone(ConeInput(
+          largeDiaMm: 500,
+          smallDiaMm: 100,
+          mode: ConeSizeMode.slant,
+          slantMm: 200 * math.sqrt2,
+          thicknessMm: 10,
+          ref: DiameterRef.outside))!;
+      expect(byAngle.outerRadiusMm, closeTo(c.outerRadiusMm, 1e-9));
+      expect(bySlant.outerRadiusMm, closeTo(c.outerRadiusMm, 1e-9));
+      expect(bySlant.heightMm, closeTo(200, 1e-9));
+    });
+
+    test('stromy stożek: t/cos α „zjada” średnicę małą — komunikat grubości',
+        () {
+      // α 85°: t/cos α = 11,47·t; przy t 20 dm < 0, choć t < d/2.
+      const steep = ConeInput(
+          largeDiaMm: 600,
+          smallDiaMm: 200,
+          mode: ConeSizeMode.halfAngle,
+          halfAngleDeg: 85,
+          thicknessMm: 20,
+          ref: DiameterRef.outside);
+      expect(steep.problems, contains(ConeProblem.thickness));
+      expect(computeCone(steep), isNull);
+      // Ta sama blacha wymiarowana po średniej — bez problemu.
+      expect(
+          const ConeInput(
+                  largeDiaMm: 600,
+                  smallDiaMm: 200,
+                  mode: ConeSizeMode.halfAngle,
+                  halfAngleDeg: 85,
+                  thicknessMm: 20)
+              .problems,
+          isEmpty);
     });
 
     test('niezmienniki: łuki = obwody średnie, R − r = tworząca = √(H² + Δr²)',
@@ -71,15 +179,15 @@ void main() {
       }
     });
 
-    test('wymiar wewnętrzny: Dm = D + t', () {
+    test('wymiar wewnętrzny: Dm = D + t/cos α (1011,18 / 411,18)', () {
       final c = computeCone(const ConeInput(
           largeDiaMm: 1000,
-          smallDiaMm: 500,
-          heightMm: 400,
+          smallDiaMm: 400,
+          heightMm: 600,
           thicknessMm: 10,
           ref: DiameterRef.inside))!;
-      expect(c.meanLargeMm, 1010);
-      expect(c.meanSmallMm, 510);
+      expect(c.meanLargeMm, closeTo(1011.1803, 1e-4));
+      expect(c.meanSmallMm, closeTo(411.1803, 1e-4));
     });
 
     test(
@@ -159,22 +267,43 @@ void main() {
       parts: 2,
     ))!;
 
-    test('2 części: θ/2, łuk połowy obwodu, prostokąt 1436,09 × 775,11', () {
+    test('2 części: θ/2, łuk połowy obwodu, prostokąt 1435,06 × 774,93', () {
       final p = c.part;
       expect(p.angleDeg, closeTo(c.sectorAngleDeg / 2, eps));
-      expect(p.outerArcMm, closeTo(1561.3715, 1e-4));
-      expect(p.outerArcMm * 2, closeTo(math.pi * 994, eps));
-      expect(p.innerArcMm * 2, closeTo(math.pi * 394, eps));
-      expect(p.widthMm, closeTo(1436.0855, 1e-4));
-      expect(p.heightMm, closeTo(775.1139, 1e-4));
+      expect(p.outerArcMm, closeTo(1560.2591, 1e-4));
+      expect(p.outerArcMm * 2, closeTo(math.pi * c.meanLargeMm, eps));
+      expect(p.innerArcMm * 2, closeTo(math.pi * c.meanSmallMm, eps));
+      expect(p.widthMm, closeTo(1435.0623, 1e-4));
+      expect(p.heightMm, closeTo(774.9264, 1e-4));
+      expect(p.outerSagittaMm, closeTo(262.9287, 1e-4));
+      expect(p.diagonalMm, closeTo(1124.9074, 1e-4));
     });
 
     test('zalecany podział wg arkusza', () {
-      // 1 część 2192 × 1039 mieści się obrócona na 1500 × 3000.
+      // 1 część 2191 × 1038 mieści się obrócona na 1500 × 3000.
       expect(c.recommendedParts(1500, 3000), 1);
-      // Na 1000 × 2000 dopiero połówki (1436 × 775).
+      // Na 1000 × 2000 dopiero połówki (1435 × 775).
       expect(c.recommendedParts(1000, 2000), 2);
       expect(c.recommendedParts(100, 100), isNull);
+    });
+
+    test('zalecenie tylko z liczb części dostępnych na ekranie (bez 5, 7…)',
+        () {
+      // Arkusz dobrany tak, że pierwsza mieszcząca się byłaby 5 części.
+      final s4 = c.sectorFor(4), s5 = c.sectorFor(5), s6 = c.sectorFor(6);
+      final a = s5.widthMm + 1, b = s5.heightMm + 1;
+      expect(s4.fitsSheet(a, b), isFalse);
+      expect(s5.fitsSheet(a, b), isTrue);
+      expect(s6.fitsSheet(a, b), isTrue);
+      expect(kConePartOptions, isNot(contains(5)));
+      expect(c.recommendedParts(a, b), 6);
+      // Dla dowolnego arkusza zalecenie (jeśli jest) należy do listy.
+      for (var w = 100.0; w <= 3000; w += 50) {
+        for (var h = 100.0; h <= 3000; h += 150) {
+          final n = c.recommendedParts(w, h);
+          if (n != null) expect(kConePartOptions, contains(n));
+        }
+      }
     });
 
     test('prawie płaski (θ > 300°) — co najmniej 2 części', () {
@@ -232,6 +361,38 @@ void main() {
                   c.outerRadiusMm *
                       math.cos(c.sectorAngleDeg / 2 * math.pi / 180),
               1e-6));
+    });
+
+    test(
+        'd → D (R ≈ 10¹⁰ mm): strzałka, rzędne, przekątna i prostokąt stabilne',
+        () {
+      // D 1000, d 999,9999, H 1000: Δr 5·10⁻⁵, θ ≈ 3,14·10⁻⁷ rad.
+      // Odniesienie: szeregi Taylora (niezależne od wzorów domeny).
+      final c = computeCone(const ConeInput(
+          largeDiaMm: 1000, smallDiaMm: 999.9999, heightMm: 1000))!;
+      final w = c.whole;
+      final th = c.sectorAngleDeg * math.pi / 180;
+      final rr = c.outerRadiusMm, r = c.innerRadiusMm;
+      // strzałka = R·(1 − cos(θ/2)) ≈ R·θ²/8·(1 − θ²/48)
+      final sag = rr * th * th / 8 * (1 - th * th / 48);
+      expect(sag, closeTo(1.2337e-4, 1e-8));
+      expect(w.outerSagittaMm, closeTo(sag, sag * 1e-9));
+      // Wzór naiwny traci tu ok. 0,1 % — stabilny nie.
+      final naive = rr * (1 - math.cos(th / 2));
+      expect((naive - sag).abs(), greaterThan(sag * 1e-5));
+      // Rzędna w środku cięciwy = strzałka.
+      final o = w.chordOffsets(outer: true, stepMm: 100);
+      final mid =
+          o.firstWhere((p) => (p.xMm - w.outerChordMm / 2).abs() < 1e-6);
+      expect(mid.yMm, closeTo(sag, sag * 1e-6));
+      // przekątna² = L² + 4Rr·sin²(θ/2) ≈ L² + Rr·θ²·(1 − θ²/12)
+      final l = rr - r;
+      expect(
+          w.diagonalMm,
+          closeTo(
+              math.sqrt(l * l + rr * r * th * th * (1 - th * th / 12)), 1e-6));
+      // Wysokość prostokąta = R − r·cos(θ/2) ≈ L + r·θ²/8.
+      expect(w.heightMm, closeTo(l + r * th * th / 8, 1e-6));
     });
   });
 
@@ -352,6 +513,75 @@ void main() {
       // Prostokąt blachy jak ze wzoru (próbkowanie łuku co ~0,4°).
       expect(e.parts.single.widthMm, closeTo(c.whole.widthMm, 0.05));
       expect(e.parts.single.heightMm, closeTo(c.whole.heightMm, 0.05));
+      // Z grubością (zewn., t 10): ⟨1/cos β⟩ = 1/cos α — te same średnice.
+      final ct = computeCone(const ConeInput(
+          largeDiaMm: 1000,
+          smallDiaMm: 400,
+          heightMm: 600,
+          thicknessMm: 10,
+          ref: DiameterRef.outside))!;
+      final et = computeEccentricCone(const EccentricConeInput(
+          largeDiaMm: 1000,
+          smallDiaMm: 400,
+          heightMm: 600,
+          thicknessMm: 10,
+          ref: DiameterRef.outside,
+          divisions: 48))!;
+      expect(et.meanLargeMm, closeTo(ct.meanLargeMm, 1e-9));
+      expect(et.meanSmallMm, closeTo(ct.meanSmallMm, 1e-9));
+      expect(et.developedAngleDeg, closeTo(ct.sectorAngleDeg, 1e-6));
+      expect(et.apexDistancesMm.first, closeTo(ct.outerRadiusMm, 1e-6));
+    });
+
+    test('d → D: cięciwy na blasze stabilne (wierzchołek 10¹⁰ mm dalej)', () {
+      final c = computeCone(const ConeInput(
+          largeDiaMm: 1000, smallDiaMm: 999.9999, heightMm: 1000))!;
+      final e = computeEccentricCone(const EccentricConeInput(
+          largeDiaMm: 1000,
+          smallDiaMm: 999.9999,
+          heightMm: 1000,
+          divisions: 24))!;
+      final chord = 2 *
+          c.outerRadiusMm *
+          math.sin(c.sectorAngleDeg / 24 / 2 * math.pi / 180);
+      expect(chord, closeTo(130.9, 0.1));
+      for (final row in e.rows.take(24)) {
+        expect(row.bottomChordMm, closeTo(chord, chord * 1e-9));
+        // Przekątna j' → j+1: √(L² + Rr·(θ/N)²) w przybliżeniu.
+        expect(row.diagonalMm!, greaterThan(row.generatorMm));
+      }
+      expect(e.bottomEdgeMm, closeTo(math.pi * 1000, math.pi * 1000 * 1e-4));
+    });
+
+    test('oś obojętna stożka mimośrodowego: ⟨1/cos β⟩ zachowuje obwód', () {
+      // D 800, d 400, H 300, e 150, t 12 zewn.: β od 9,5° do 49,4°.
+      const i = EccentricConeInput(
+          largeDiaMm: 800,
+          smallDiaMm: 400,
+          heightMm: 300,
+          offsetMm: 150,
+          thicknessMm: 12,
+          ref: DiameterRef.outside);
+      final f = i.wallFactor;
+      expect(f, closeTo(1.238374732, 1e-8));
+      expect(f, greaterThan(1 / math.cos(math.atan(50 / 300))));
+      expect(f, lessThan(1 / math.cos(math.atan(350 / 300))));
+      expect(i.meanLargeMm, closeTo(785.1395, 1e-4));
+      // Rzeczywista krzywa osi obojętnej w podstawie: r(φ) = 400 − 6/cos β(φ);
+      // jej długość ≈ π·Dm (różnica rzędu 0,01 mm na 2466 mm).
+      const n = 20000;
+      Pt at(int j) {
+        final p = 2 * math.pi * j / n;
+        final tb = (200 - 150 * math.cos(p)) / 300;
+        final r = 400 - 6 * math.sqrt(1 + tb * tb);
+        return Pt(r * math.cos(p), r * math.sin(p));
+      }
+
+      var len = 0.0;
+      for (var j = 0; j < n; j++) {
+        len += at(j).distanceTo(at(j + 1));
+      }
+      expect(len, closeTo(math.pi * i.meanLargeMm, 0.05));
     });
 
     test('krawędzie na blasze = obwody kół, zbieżność cięciw przy N → duże',
@@ -365,8 +595,9 @@ void main() {
           ref: DiameterRef.outside,
           divisions: 24);
       final e = computeEccentricCone(i)!;
-      expect(e.bottomEdgeMm, closeTo(math.pi * 795, math.pi * 795 * 1e-4));
-      expect(e.topEdgeMm, closeTo(math.pi * 395, math.pi * 395 * 1e-4));
+      final dm1 = e.meanLargeMm, dm2 = e.meanSmallMm;
+      expect(e.bottomEdgeMm, closeTo(math.pi * dm1, math.pi * dm1 * 1e-4));
+      expect(e.topEdgeMm, closeTo(math.pi * dm2, math.pi * dm2 * 1e-4));
       double chordSum(int n) {
         final r = computeEccentricCone(EccentricConeInput(
             largeDiaMm: 800,
@@ -379,8 +610,8 @@ void main() {
         return r.rows.fold(0.0, (s, row) => s + (row.bottomChordMm ?? 0));
       }
 
-      final err12 = math.pi * 795 - chordSum(12);
-      final err48 = math.pi * 795 - chordSum(48);
+      final err12 = math.pi * dm1 - chordSum(12);
+      final err48 = math.pi * dm1 - chordSum(48);
       expect(err12, greaterThan(0));
       expect(err48, greaterThan(0));
       expect(err48, lessThan(err12 / 10));
