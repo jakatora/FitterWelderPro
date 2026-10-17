@@ -9,7 +9,10 @@
 //  • F_Ed 100 kN → 65,37 % → „65,4 %”, zielony;
 //    F_Ed 160 kN → 104,59 % → „104,6 %”, czerwony; wymagane a:
 //    2·207,8461·a(100 − 2a) = 160 000 → a = 4,2022 → „≥ 4,3”, a5;
-//  • z: 4·√2 = 5,657 → „5,65” (w dół) → a = 3,995 → 152,805 kN → „152,8”;
+//  • a ↔ z: pole pokazuje z = 4·√2 = 5,657 → „5,65” (w dół), ale liczy się
+//    dalej z wpisanego a = 4 → „152,9”; a 3: 207,8461·3·188 = 117,225 kN →
+//    „117,2”; z wpisane 5,66 → a = 4,0022 → 207,8461·4,0022·183,9912 =
+//    153,051 kN → „153,0”;
 //  • obwodowa D 60,3, a 4: π·60,3 = 189,438 mm → 157,496 kN → „157,4”;
 //  • kierunkowa w poprzek: 360/√2 · 736 = 187,355 kN → „187,3”.
 
@@ -146,24 +149,139 @@ void main() {
     await _pump(tester);
     await _tap(tester, 'fillet-force-variable');
     await _enter(tester, 'fillet-force', '80');
-    // 1,5 · 80 = 120 kN → 78,45 % → „78,5 %”.
-    expect(find.text('F_Ed = 1,5 × 80 kN = 120,00 kN'), findsOneWidget);
+    // 1,5 · 80 = 120 kN → 78,45 % → „78,5 %”. F_Ed tymi samymi cyframi co
+    // przy werdykcie i w tekście do udostępnienia.
+    expect(find.text('F_Ed = 1,5 × 80 kN = 120,0 kN'), findsOneWidget);
+    expect(find.textContaining('F_Ed 120,0 kN ≤ F_Rd'), findsOneWidget);
     expect(find.textContaining('wykorzystanie 78,5 %'), findsOneWidget);
   });
 
-  testWidgets('z ↔ a: przeliczenie w dół, wynik z a = z/√2', (tester) async {
+  // Regresja z przeglądu: przełączanie a ↔ z nadpisywało pole liczbą
+  // zaokrągloną w dół i liczyło z niej (a 4 → z 5,65 → a 3,99 → …; a 3 po
+  // jednym obiegu dawało 2,99 i błąd „a < 3 mm”).
+  testWidgets('a ↔ z: przełączanie nie zmienia wpisanej wartości (a 4, a 3)',
+      (tester) async {
+    await _pump(tester);
+    for (var k = 0; k < 5; k++) {
+      await _tap(tester, 'fillet-size-z');
+      expect(find.widgetWithText(TextField, '5,65'), findsOneWidget);
+      expect(find.textContaining('a = z/√2 = 4,00 mm'), findsOneWidget);
+      expect(_readout(tester, 'fillet-result'), '152,9');
+      await _tap(tester, 'fillet-size-a');
+      expect(find.widgetWithText(TextField, '4'), findsOneWidget);
+      expect(find.textContaining('z = a·√2 = 5,65 mm'), findsOneWidget);
+      expect(_readout(tester, 'fillet-result'), '152,9');
+    }
+    await _enter(tester, 'fillet-size', '3');
+    for (var k = 0; k < 5; k++) {
+      await _tap(tester, 'fillet-size-z');
+      expect(find.widgetWithText(TextField, '4,24'), findsOneWidget);
+      expect(_key('fillet-problems'), findsNothing);
+      expect(_readout(tester, 'fillet-result'), '117,2');
+      await _tap(tester, 'fillet-size-a');
+      expect(find.widgetWithText(TextField, '3'), findsOneWidget);
+      expect(_key('fillet-problems'), findsNothing);
+      expect(_readout(tester, 'fillet-result'), '117,2');
+    }
+  });
+
+  testWidgets('z wpisane ręcznie: a = z/√2; przełączenie nie nadpisuje wartości',
+      (tester) async {
     await _pump(tester);
     await _tap(tester, 'fillet-size-z');
-    expect(find.widgetWithText(TextField, '5,65'), findsOneWidget);
-    expect(find.textContaining('a = z/√2 = 3,99 mm'), findsOneWidget);
-    expect(_readout(tester, 'fillet-result'), '152,8');
+    await _enter(tester, 'fillet-size', '5,66');
+    expect(find.textContaining('a = z/√2 = 4,00 mm'), findsOneWidget);
+    expect(_readout(tester, 'fillet-result'), '153,0');
+    // Pole a pokazuje „4” (w dół), ale liczy się dalej a = 4,0022 z z 5,66.
     await _tap(tester, 'fillet-size-a');
-    expect(find.widgetWithText(TextField, '3,99'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '4'), findsOneWidget);
+    expect(_readout(tester, 'fillet-result'), '153,0');
+    // Dopiero edycja pola zmienia wartość źródłową.
+    await _enter(tester, 'fillet-size', '4,0');
+    expect(_readout(tester, 'fillet-result'), '152,9');
     // z = 4,2 → a = 2,97 < 3 mm: komunikat zamiast wyniku.
     await _tap(tester, 'fillet-size-z');
     await _enter(tester, 'fillet-size', '4,2');
     expect(_key('fillet-result'), findsNothing);
     expect(find.textContaining('a = 2,96 mm — mniej niż 3 mm'), findsOneWidget);
+  });
+
+  // Regresja z przeglądu: ekran zaokrąglał w dół, tekst do udostępnienia do
+  // najbliższej (S275 fvw,d 233,657: „233,6” vs „233,7”; tak samo l_eff,
+  // π·D, βLw).
+  testWidgets('te same dane — te same liczby na ekranie i w tekście',
+      (tester) async {
+    final spy = _ShareSpy();
+    await _pump(tester, spy: spy);
+    String kv(String k) => tester.widget<Text>(_key(k)).data!;
+    String verdictText() {
+      final f = find.descendant(
+          of: find.byWidgetPredicate((w) =>
+              w.key == const ValueKey('fillet-verdict-ok') ||
+              w.key == const ValueKey('fillet-verdict-fail')),
+          matching: find.byType(QuoteNotice));
+      return tester.widget<QuoteNotice>(f).text;
+    }
+
+    void sameNumbers(String text, List<String> kvKeys) {
+      for (final k in kvKeys) {
+        expect(text, contains(kv(k)), reason: k);
+      }
+      expect(text, contains('F_w,Rd = ${_readout(tester, 'fillet-result')} kN'));
+      final v = verdictText();
+      final pct = RegExp(r'wykorzystanie ([\d,]+) %').firstMatch(v)!.group(1);
+      final ed = RegExp(r'F_Ed ([\d,]+) kN').firstMatch(v)!.group(1);
+      final rd = RegExp(r'F_Rd ([\d,]+) kN').firstMatch(v)!.group(1);
+      expect(text, contains('Wykorzystanie $pct %'));
+      expect(text, contains('F_Ed = $ed kN'));
+      expect(rd, _readout(tester, 'fillet-result'));
+      expect(
+          text, contains('Wymagane a ${_readout(tester, 'fillet-required')} mm'));
+    }
+
+    // S275, a 3,37, 2 × l 640, uproszczona, F_Ed 900 kN.
+    await _tap(tester, 'fillet-steel-s275');
+    await _enter(tester, 'fillet-size', '3,37');
+    await _enter(tester, 'fillet-length', '640');
+    await _enter(tester, 'fillet-force', '900');
+    expect(find.textContaining('l_eff = l − 2a = 633,2 mm'), findsOneWidget);
+    await _reveal(tester, 'fillet-kv-beta');
+    expect(kv('fillet-kv-strength'), '233,6 MPa');
+    expect(kv('fillet-kv-leff'), '1266,5 mm');
+    expect(kv('fillet-kv-beta'), '0,946');
+    await _reveal(tester, 'fillet-required');
+    await _tap(tester, 'fillet-share');
+    var text = spy.calls.last.$1;
+    expect(text, contains('l_eff = l − 2a = 633,2 mm'));
+    await _reveal(tester, 'fillet-kv-beta');
+    sameNumbers(text, [
+      'fillet-kv-strength',
+      'fillet-kv-leff',
+      'fillet-kv-area',
+      'fillet-kv-beta',
+    ]);
+    expect(text, isNot(contains('233,7')));
+
+    // Rura D 60,35 (π·D = 189,595 → „189,5”), kierunkowa: 286,170 → „286,1”.
+    await _tap(tester, 'fillet-layout-circumferential');
+    await _enter(tester, 'fillet-tube', '60,35');
+    await _tap(tester, 'fillet-method-directional');
+    await _reveal(tester, 'fillet-kv-simplified');
+    expect(kv('fillet-kv-strength'), '286,1 MPa');
+    expect(kv('fillet-kv-leff'), '189,5 mm');
+    await _reveal(tester, 'fillet-required');
+    await _tap(tester, 'fillet-share');
+    text = spy.calls.last.$1;
+    expect(text, contains('l = π·D = 189,5 mm'));
+    await _reveal(tester, 'fillet-kv-simplified');
+    sameNumbers(text, [
+      'fillet-kv-strength',
+      'fillet-kv-simplified',
+      'fillet-kv-leff',
+      'fillet-kv-area',
+    ]);
+    expect(text, isNot(contains('189,6')));
+    expect(text, isNot(contains('286,2')));
   });
 
   testWidgets('spoina obwodowa rury: l = π·D, metoda kierunkowa osiowo',

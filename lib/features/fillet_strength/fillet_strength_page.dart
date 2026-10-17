@@ -78,9 +78,15 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
   /// Liczba z pola; puste albo nieczytelne → NaN (domena zgłosi problem).
   double _val(TextEditingController c) => parseDecimal(c.text) ?? double.nan;
 
-  double get _throatMm {
-    final x = _val(_size);
-    return _legMode ? x / math.sqrt2 : x;
+  /// Grubość obliczeniowa a [mm] — WARTOŚĆ ŹRÓDŁOWA wymiaru spoiny. Zmienia
+  /// ją tylko edycja pola ([_onSizeChanged]); przełączenie a ↔ z zmienia
+  /// wyłącznie to, co pole pokazuje, więc a 4 zostaje 4 po dowolnej liczbie
+  /// przełączeń. NaN — pole puste albo nieczytelne.
+  double _throatMm = 4;
+
+  void _onSizeChanged(String text) {
+    final x = parseDecimal(text) ?? double.nan;
+    setState(() => _throatMm = _legMode ? x / math.sqrt2 : x);
   }
 
   double get _angleDeg => switch (_direction) {
@@ -101,14 +107,14 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
         angleDeg: _angleDeg,
       );
 
-  /// Przełączenie a ↔ z: przeliczona liczba W DÓŁ do 0,01 mm, żeby zmiana
-  /// trybu nigdy nie powiększyła spoiny. Wołane wewnątrz setState.
+  /// Przełączenie a ↔ z: pole pokazuje wartość źródłową w nowym trybie
+  /// (W DÓŁ do 0,01 mm), ale [_throatMm] się nie zmienia — zaokrąglenie
+  /// pola nie wraca do obliczeń, dopóki użytkownik go nie edytuje.
+  /// Programowa zmiana tekstu nie woła onChanged. Wołane wewnątrz setState.
   void _setLegMode(bool leg) {
     if (leg == _legMode) return;
-    final x = parseDecimal(_size.text);
-    if (x != null && x > 0) {
-      final converted = leg ? x * math.sqrt2 : x / math.sqrt2;
-      _size.text = _v(floorTo(converted, 2));
+    if (_throatMm.isFinite && _throatMm > 0) {
+      _size.text = sizeFieldText(_throatMm, leg: leg, en: _en);
     }
     _legMode = leg;
   }
@@ -240,6 +246,10 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
     final forceEmpty = forceText.isEmpty;
     final forceValid = forceParsed != null && forceParsed > 0;
     final fEd = forceValid ? designForceKn(forceParsed, _forceKind) : null;
+    // Liczby wyniku — te same na ekranie i w tekście do udostępnienia.
+    final figures = result == null
+        ? null
+        : FilletFigures(result, en: _en, designForceKn: fEd);
 
     return Scaffold(
       appBar: AppBar(
@@ -254,7 +264,11 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
           _materialSection(),
           _weldSection(input),
           _methodSection(),
-          _forceSection(forceEmpty: forceEmpty, forceValid: forceValid, fEd: fEd),
+          _forceSection(
+              forceEmpty: forceEmpty,
+              forceValid: forceValid,
+              fEd: fEd,
+              figures: figures),
           if (problems.isNotEmpty)
             KeyedSubtree(
               key: const ValueKey('fillet-problems'),
@@ -264,9 +278,9 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
                 text: problems.map((p) => _problemText(p, input)).join('\n'),
               ),
             ),
-          if (result != null) _resultSection(result, fEd),
-          if (geometryOk && fEd != null) _requiredSection(input, fEd),
-          if (result != null) ..._warnings(result),
+          if (figures != null) _resultSection(figures),
+          if (geometryOk && fEd != null) _requiredSection(input, fEd, figures),
+          if (figures != null) ..._warnings(figures),
           if (result != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -300,13 +314,17 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
   }
 
   Widget _field(TextEditingController c, String label,
-          {required Key key, String? unit, String? helper, String? error}) =>
+          {required Key key,
+          String? unit,
+          String? helper,
+          String? error,
+          ValueChanged<String>? onChanged}) =>
       TextField(
         key: key,
         controller: c,
         keyboardType: numberKeyboard(),
         inputFormatters: numberInputFormatters(),
-        onChanged: (_) => setState(() {}),
+        onChanged: onChanged ?? (_) => setState(() {}),
         decoration: InputDecoration(
           labelText: label,
           suffixText: unit,
@@ -386,17 +404,14 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
   }
 
   Widget _weldSection(FilletWeldInput input) {
-    final x = parseDecimal(_size.text);
-    String? conversion;
-    if (x != null && x > 0) {
-      conversion = _legMode
-          ? context.tr(
-              pl: 'a = z/√2 = ${formatThroat(x / math.sqrt2, en: _en)} mm',
-              en: 'a = z/√2 = ${formatThroat(x / math.sqrt2, en: _en)} mm')
-          : context.tr(
-              pl: 'z = a·√2 = ${_n(floorTo(x * math.sqrt2, 2), 2)} mm',
-              en: 'z = a·√2 = ${_n(floorTo(x * math.sqrt2, 2), 2)} mm');
-    }
+    // Z wartości źródłowej, nie z tekstu pola — te same liczby co w wyniku
+    // i w tekście do udostępnienia.
+    final a = _throatMm;
+    final conversion = a.isFinite && a > 0
+        ? (_legMode
+            ? 'a = z/√2 = ${formatThroat(a, en: _en)} mm'
+            : 'z = a·√2 = ${formatLeg(a, en: _en)} mm')
+        : null;
     final leff = _layout == WeldLayout.linear
         ? input.lengthMm - 2 * input.throatMm
         : math.pi * input.tubeOdMm;
@@ -420,6 +435,7 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
                   pl: 'Grubość obliczeniowa a', en: 'Throat thickness a'),
           key: const ValueKey('fillet-size'),
           unit: 'mm',
+          onChanged: _onSizeChanged,
         ),
         _caption(
           [
@@ -469,10 +485,10 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
                 () => _welds = 4),
           ]),
           _caption(context.tr(
-              pl: 'l_eff = l − 2a${leffOk ? ' = ${_n(floorTo(leff, 1), 1)} mm' : ''} '
+              pl: 'l_eff = l − 2a${leffOk ? ' = ${formatDown(leff, 1, en: _en)} mm' : ''} '
                   'na każdą spoinę (EN 1993-1-8 p. 4.5.1) — na końcach spoina nie '
                   'ma pełnego przekroju. Min. max(30 mm; 6a).',
-              en: 'l_eff = l − 2a${leffOk ? ' = ${_n(floorTo(leff, 1), 1)} mm' : ''} '
+              en: 'l_eff = l − 2a${leffOk ? ' = ${formatDown(leff, 1, en: _en)} mm' : ''} '
                   'per weld (EN 1993-1-8 cl. 4.5.1) — the ends are not full size. '
                   'Min. max(30 mm; 6a).')),
         ] else ...[
@@ -485,10 +501,10 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
           ),
           _caption(
             context.tr(
-                pl: 'l = π·D${leffOk ? ' = ${_n(floorTo(leff, 1), 1)} mm' : ''}. '
+                pl: 'l = π·D${leffOk ? ' = ${formatDown(leff, 1, en: _en)} mm' : ''}. '
                     'Spoina zamknięta, bez końców — bez odejmowania 2a, jeśli '
                     'początek i koniec są zachodzące, pełnego przekroju.',
-                en: 'l = π·D${leffOk ? ' = ${_n(floorTo(leff, 1), 1)} mm' : ''}. '
+                en: 'l = π·D${leffOk ? ' = ${formatDown(leff, 1, en: _en)} mm' : ''}. '
                     'A closed weld with no ends — no 2a deduction if the start and '
                     'stop overlap at full size.'),
             key: const ValueKey('fillet-tube-caption'),
@@ -572,7 +588,10 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
   }
 
   Widget _forceSection(
-      {required bool forceEmpty, required bool forceValid, double? fEd}) {
+      {required bool forceEmpty,
+      required bool forceValid,
+      double? fEd,
+      FilletFigures? figures}) {
     final error = forceEmpty || forceValid
         ? null
         : context.tr(
@@ -617,7 +636,7 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
         if (fEd != null && _forceKind != ForceKind.design)
           _caption(
               'F_Ed = ${_v(_forceKind.gammaF)} × ${_v(parseDecimal(_force.text)!)} kN = '
-              '${_n(ceilTo(fEd, 2), 2)} kN',
+              '${_fedText(fEd, figures)} kN',
               key: const ValueKey('fillet-fed')),
         _caption(context.tr(
             pl: 'F_Ed z obliczeń/projektu ma już współczynniki. Jeśli znasz tylko '
@@ -632,24 +651,15 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
     );
   }
 
+  /// F_Ed do pokazania: z [FilletFigures] (te same cyfry co przy werdykcie
+  /// i w tekście), a bez wyniku — W GÓRĘ do 0,1 kN.
+  String _fedText(double fEd, FilletFigures? figures) =>
+      figures?.designForce ?? formatUp(fEd, 1, en: _en);
+
   // ── Wynik ──────────────────────────────────────────────────────────────
 
-  Widget _resultSection(FilletWeldResult r, double? fEd) {
-    final check =
-        fEd == null ? null : FilletCheck(designForceKn: fEd, resistanceKn: r.resistanceKn);
-    final fmt = check == null
-        ? (decimals: 1, conservative: true)
-        : forcePairFormat(check.designForceKn, check.resistanceKn);
-    String rd(double v) => _n(
-        fmt.conservative
-            ? floorTo(v, fmt.decimals)
-            : double.parse(v.toStringAsFixed(fmt.decimals)),
-        fmt.decimals);
-    String ed(double v) => _n(
-        fmt.conservative
-            ? ceilTo(v, fmt.decimals)
-            : double.parse(v.toStringAsFixed(fmt.decimals)),
-        fmt.decimals);
+  Widget _resultSection(FilletFigures f) {
+    final r = f.result;
     final i = r.input;
     final directional = i.method == FilletMethod.directional;
     return QuoteSection(
@@ -658,51 +668,56 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
         Readout(
           key: const ValueKey('fillet-result'),
           label: 'F_w,Rd',
-          value: rd(r.resistanceKn),
+          value: f.resistance,
           unit: directional
               ? context.tr(
-                  pl: 'kN · kierunkowa, ${_v(i.effectiveAngleDeg)}°',
-                  en: 'kN · directional, ${_v(i.effectiveAngleDeg)}°')
+                  pl: 'kN · kierunkowa, ${f.angle}°',
+                  en: 'kN · directional, ${f.angle}°')
               : context.tr(pl: 'kN · uproszczona', en: 'kN · simplified'),
           hot: true,
         ),
         const SizedBox(height: 12),
-        if (check != null) _verdict(check, rd, ed),
+        if (f.check != null) _verdict(f),
         _kv(
             directional
                 ? context.tr(
                     pl: 'Wytrzymałość na mm² przekroju',
                     en: 'Strength per mm² of throat')
                 : 'fvw,d',
-            '${_n(floorTo(r.strengthMpa, 1), 1)} MPa'),
+            '${f.strength} MPa',
+            valueKey: 'fillet-kv-strength'),
         if (directional)
           _kv(
               context.tr(
                   pl: 'Uproszczona dla porównania',
                   en: 'Simplified, for comparison'),
-              '${_n(floorTo(r.simplifiedResistanceKn, 1), 1)} kN'),
-        _kv(
-            i.layout == WeldLayout.linear
-                ? context.tr(
-                    pl: 'Σ l_eff (${i.welds} × ${_n(floorTo(r.effectiveLengthPerWeldMm, 1), 1)})',
-                    en: 'Σ l_eff (${i.welds} × ${_n(floorTo(r.effectiveLengthPerWeldMm, 1), 1)})')
-                : 'l = π·D',
-            '${_n(floorTo(r.totalEffectiveLengthMm, 1), 1)} mm'),
+              '${f.simplifiedResistance} kN',
+              valueKey: 'fillet-kv-simplified'),
+        if (i.layout == WeldLayout.linear)
+          _kv(
+              context.tr(
+                  pl: 'Σ l_eff (${i.welds} × ${f.effectiveLengthPerWeld})',
+                  en: 'Σ l_eff (${i.welds} × ${f.effectiveLengthPerWeld})'),
+              '${f.totalEffectiveLength} mm',
+              valueKey: 'fillet-kv-leff')
+        else
+          _kv('l = π·D', '${f.weldLength} mm', valueKey: 'fillet-kv-leff'),
         _kv(context.tr(pl: 'Przekrój obliczeniowy a·Σl', en: 'Throat area a·Σl'),
-            '${_n(floorTo(r.throatAreaMm2, 0), 0)} mm²'),
+            '${f.throatArea} mm²',
+            valueKey: 'fillet-kv-area'),
         if (r.longJointApplied)
           _kv(context.tr(pl: 'βLw (p. 4.11)', en: 'βLw (cl. 4.11)'),
-              _n(floorTo(r.longJointFactor, 3), 3)),
+              f.longJointFactor,
+              valueKey: 'fillet-kv-beta'),
       ],
     );
   }
 
-  Widget _verdict(FilletCheck c, String Function(double) rd,
-      String Function(double) ed) {
-    final pct = c.shownPercent;
-    final p = pct == null ? '—' : _n(pct, 1);
-    final e = ed(c.designForceKn);
-    final r = rd(c.resistanceKn);
+  Widget _verdict(FilletFigures f) {
+    final c = f.check!;
+    final p = f.utilisation;
+    final e = f.designForce;
+    final r = f.resistance;
     final text = c.ok
         ? context.tr(
             pl: 'Wystarczy — wykorzystanie $p % (F_Ed $e kN ≤ F_Rd $r kN).',
@@ -722,15 +737,17 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
     );
   }
 
-  Widget _requiredSection(FilletWeldInput input, double fEd) {
+  Widget _requiredSection(
+      FilletWeldInput input, double fEd, FilletFigures? figures) {
     final req = requiredThroat(input, fEd);
     if (req == null) return const SizedBox.shrink();
+    final rf = requiredThroatFigures(req, en: _en);
     final children = <Widget>[];
     switch (req.status) {
       case ThroatStatus.found:
       case ThroatStatus.minimum:
-        final a = '≥ ${_n(req.shownMm!, 1)}';
-        final z = '≥ ${_n(req.shownLegMm!, 1)}';
+        final a = '≥ ${rf!.throat}';
+        final z = '≥ ${rf.leg}';
         children.add(Readout(
           key: const ValueKey('fillet-required'),
           label: _legMode
@@ -740,10 +757,11 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
           unit: _legMode ? 'mm · a $a mm' : 'mm · z $z mm',
         ));
         children.add(const SizedBox(height: 10));
-        if (req.wholeMm != null) {
+        if (rf.whole != null) {
           children.add(_kv(
               context.tr(pl: 'Przyjmij (całe mm)', en: 'Use (whole mm)'),
-              'a${req.wholeMm} · z ≥ ${_n(req.wholeLegMm!, 1)} mm'));
+              'a${rf.whole} · z ≥ ${rf.wholeLeg} mm',
+              valueKey: 'fillet-kv-whole'));
         } else {
           children.add(_caption(context.tr(
               pl: 'Całe a w górę nie mieści się w warunku l_eff ≥ 6a — wydłuż '
@@ -757,6 +775,7 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
               en: 'The code minimum governs: a = 3 mm (EN 1993-1-8 cl. 4.5.2).')));
         }
       case ThroatStatus.needsLongerWeld:
+        final aMax = formatDown(req.maxMm!, 1, en: _en);
         children.add(KeyedSubtree(
           key: const ValueKey('fillet-required-none'),
           child: QuoteNotice(
@@ -764,11 +783,11 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
             icon: Icons.straighten,
             text: context.tr(
                 pl: 'Nawet największe a dla tej długości '
-                    '(${_n(floorTo(req.maxMm!, 1), 1)} mm, warunek l_eff ≥ 6a) '
+                    '($aMax mm, warunek l_eff ≥ 6a) '
                     'nie wystarczy. Wydłuż spoinę, dodaj spoiny albo weź '
                     'większy element.',
                 en: 'Even the largest a for this length '
-                    '(${_n(floorTo(req.maxMm!, 1), 1)} mm, l_eff ≥ 6a) is not '
+                    '($aMax mm, l_eff ≥ 6a) is not '
                     'enough. Lengthen the weld, add welds or use a larger part.'),
           ),
         ));
@@ -784,18 +803,20 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
           ),
         ));
     }
+    final fed = _fedText(fEd, figures);
     return QuoteSection(
       title: context.tr(pl: 'Jaka spoina wystarczy', en: 'What weld is enough'),
       subtitle: context.tr(
-          pl: 'Dla F_Ed ${_n(ceilTo(fEd, 2), 2)} kN, tej długości i metody. '
+          pl: 'Dla F_Ed $fed kN, tej długości i metody. '
               'Wymiar zaokrąglony w górę.',
-          en: 'For F_Ed ${_n(ceilTo(fEd, 2), 2)} kN, this length and method. '
+          en: 'For F_Ed $fed kN, this length and method. '
               'Size rounded up.'),
       children: children,
     );
   }
 
-  List<Widget> _warnings(FilletWeldResult r) {
+  List<Widget> _warnings(FilletFigures f) {
+    final r = f.result;
     final i = r.input;
     return [
       if (i.layout == WeldLayout.linear && i.welds == 1)
@@ -819,11 +840,11 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
           child: QuoteNotice(
             text: context.tr(
                 pl: 'Spoina dłuższa niż 150·a: nośność zmniejszona '
-                    'βLw = 1,2 − 0,2·l/(150a) = ${_n(floorTo(r.longJointFactor, 3), 3)} '
+                    'βLw = 1,2 − 0,2·l/(150a) = ${f.longJointFactor} '
                     '(EN 1993-1-8 p. 4.11 — połączenia zakładkowe; zastosowane '
                     'zachowawczo).',
                 en: 'Weld longer than 150·a: resistance reduced by '
-                    'βLw = 1.2 − 0.2·l/(150a) = ${_n(floorTo(r.longJointFactor, 3), 3)} '
+                    'βLw = 1.2 − 0.2·l/(150a) = ${f.longJointFactor} '
                     '(EN 1993-1-8 cl. 4.11 — lap joints; applied '
                     'conservatively).'),
           ),
@@ -831,7 +852,7 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
     ];
   }
 
-  Widget _kv(String k, String v) => CopyOnLongPress(
+  Widget _kv(String k, String v, {String? valueKey}) => CopyOnLongPress(
         value: v,
         label: k,
         child: Padding(
@@ -845,6 +866,7 @@ class _FilletStrengthPageState extends State<FilletStrengthPage> {
               const SizedBox(width: 8),
               Flexible(
                 child: Text(v,
+                    key: valueKey == null ? null : ValueKey(valueKey),
                     textAlign: TextAlign.right,
                     style: const TextStyle(
                         fontSize: 15,
