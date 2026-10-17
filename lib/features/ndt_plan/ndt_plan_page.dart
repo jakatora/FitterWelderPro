@@ -76,6 +76,18 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
   NdtRuleSet _set = const NdtRuleSet();
   bool _rulesIntact = true;
   int _rulesDropped = 0;
+
+  /// Odczyt reguł się nie udał — do udanego ponownego odczytu nic nie
+  /// zapisujemy (nie wiadomo, co jest na telefonie).
+  bool _readFailed = false;
+
+  /// Reguły projektu właśnie się wczytują (zmiana projektu) — edycja
+  /// poczeka, żeby stare reguły nie trafiły do nowego projektu.
+  bool _rulesLoading = false;
+
+  /// Zapisy po kolei: późniejsza zmiana nigdy nie zostanie nadpisana
+  /// wcześniejszą, która skończyła się później.
+  Future<void> _saveChain = Future<void>.value();
   Map<String, double?> _targets = const {};
   int _round = 0;
   int _ruleSeq = 0;
@@ -147,30 +159,70 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
     _set = d.set;
     _rulesIntact = d.intact;
     _rulesDropped = d.dropped;
+    _readFailed = d.readFailed;
+    _rulesLoading = false;
     _round = 0;
   }
 
   Future<void> _changeProject(String p) async {
     if (p.toLowerCase() == _project.toLowerCase()) return;
-    setState(() => _project = p);
+    setState(() {
+      _project = p;
+      _rulesLoading = true;
+    });
     final rules = await widget.store.load(p);
     if (!mounted || _project != p) return;
     setState(() => _applyLoad(rules));
   }
 
+  /// Ponowny odczyt reguł bieżącego projektu (po błędzie odczytu).
+  Future<void> _retryRules() async {
+    final p = _project;
+    setState(() => _rulesLoading = true);
+    final rules = await widget.store.load(p);
+    if (!mounted || _project != p) return;
+    setState(() => _applyLoad(rules));
+    if (rules.readFailed) {
+      _snack(_tr('Nadal nie udało się odczytać reguł.',
+          'Still could not read the rules.'));
+    }
+  }
+
+  /// Komunikat od razu — bez kolejki za wcześniejszym „Cofnij".
+  void _snack(String text) => ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(SnackBar(content: Text(text)));
+
+  bool get _canEdit => !_readFailed && !_rulesLoading;
+
   void _setRules(NdtRuleSet s) {
+    if (!_canEdit) {
+      _snack(_tr('Najpierw trzeba odczytać zapisane reguły.',
+          'The saved rules have to be read first.'));
+      return;
+    }
     final project = _project;
     setState(() {
       _set = s;
       _rulesIntact = true;
       _rulesDropped = 0;
     });
-    unawaited(widget.store.save(project, s).catchError(
-        (Object e) => debugPrint('[ndt_plan] save rules failed: $e')));
+    _saveChain = _saveChain.then((_) async {
+      try {
+        await widget.store.save(project, s);
+      } catch (e) {
+        debugPrint('[ndt_plan] save rules failed: $e');
+        if (mounted) {
+          _snack(_tr('Nie udało się zapisać reguł na telefonie.',
+              'Could not save the rules on the phone.'));
+        }
+      }
+    });
   }
 
   void _applyPreset(String preset) {
     final before = _set;
+    if (!_canEdit) return _setRules(before);
     if (preset == NdtPreset.custom) {
       _setRules(NdtRuleSet(rules: before.rules));
       return;
@@ -184,7 +236,7 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
   void _undoSnack(NdtRuleSet before, String text) {
     final messenger = ScaffoldMessenger.of(context);
     messenger
-      ..hideCurrentSnackBar()
+      ..clearSnackBars()
       ..showSnackBar(SnackBar(
         content: Text(text),
         action: SnackBarAction(
@@ -234,6 +286,7 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
 
   void _deleteRule(NdtRule rule) {
     final before = _set;
+    if (!_canEdit) return _setRules(before);
     _setRules(NdtRuleSet(
         rules: [for (final r in before.rules) if (r.id != rule.id) r]));
     _undoSnack(before, _tr('Usunięto regułę.', 'Rule deleted.'));
@@ -249,7 +302,7 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
   NdtPlan _plan() => computeNdtPlan(
         _all,
         rules: _set.rules,
-        rulesIntact: _rulesIntact,
+        rulesIntact: _rulesIntact && !_rulesLoading,
         project: _project,
         round: _round,
       );
@@ -395,7 +448,8 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
         _rulesSection(en),
         _linesSection(plan, en),
         _orderSection(plan, report, en),
-        if (plan.issues.isNotEmpty) _issuesSection(plan, en),
+        if (plan.issues.isNotEmpty || plan.shortfalls.isNotEmpty)
+          _issuesSection(plan, en),
         Text(
           ndtDefinitions(en: en).map((d) => '• $d').join('\n'),
           style: const TextStyle(fontSize: 11.5, color: kTextMut, height: 1.4),
@@ -480,7 +534,29 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
           'From the project specification. Required = welds × %, always '
               'rounded up.'),
       children: [
-        if (!_rulesIntact) ...[
+        if (_readFailed) ...[
+          QuoteNotice(
+            key: const ValueKey('ndt-rules-read-failed'),
+            color: kFail,
+            icon: Icons.report_problem_outlined,
+            text: _tr(
+                'Nie udało się odczytać zapisanych reguł tego projektu. Nic '
+                    'nie zapiszę, dopóki odczyt się nie uda — żeby nie nadpisać '
+                    'reguł, których nie widać. Żadna linia nie jest gotowa.',
+                'Could not read the saved rules of this project. Nothing is '
+                    'saved until the read succeeds — so rules you cannot see '
+                    'are not overwritten. No line is ready.'),
+          ),
+          OutlinedButton.icon(
+            key: const ValueKey('ndt-rules-retry'),
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(kMinTapTarget)),
+            onPressed: _rulesLoading ? null : () => unawaited(_retryRules()),
+            icon: const Icon(Icons.refresh),
+            label: Text(_tr('Odczytaj reguły ponownie', 'Read the rules again')),
+          ),
+          const SizedBox(height: 12),
+        ] else if (!_rulesIntact) ...[
           QuoteNotice(
             key: const ValueKey('ndt-rules-damaged'),
             color: kFail,
@@ -521,7 +597,7 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
                 label: Text(ndtPresetChip(p, en: en)),
                 selected: s.preset == p &&
                     (s.rules.isNotEmpty || p == NdtPreset.custom),
-                onSelected: (_) => _applyPreset(p),
+                onSelected: _canEdit ? (_) => _applyPreset(p) : null,
               ),
           ],
         ),
@@ -553,7 +629,7 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
           key: const ValueKey('ndt-rule-add'),
           style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(kMinTapTarget)),
-          onPressed: () => unawaited(_editRule(null)),
+          onPressed: _canEdit ? () => unawaited(_editRule(null)) : null,
           icon: const Icon(Icons.add),
           label: Text(_tr('Dodaj regułę', 'Add a rule')),
         ),
@@ -591,13 +667,13 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
                   key: ValueKey('ndt-rule-edit-${r.id}'),
                   tooltip: _tr('Zmień regułę', 'Edit the rule'),
                   icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => unawaited(_editRule(r)),
+                  onPressed: _canEdit ? () => unawaited(_editRule(r)) : null,
                 ),
                 IconButton(
                   key: ValueKey('ndt-rule-delete-${r.id}'),
                   tooltip: _tr('Usuń regułę', 'Delete the rule'),
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteRule(r),
+                  onPressed: _canEdit ? () => _deleteRule(r) : null,
                 ),
               ],
             ),
@@ -690,10 +766,17 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
               'Ordered earlier, no result yet')),
           for (final m in NdtMethod.values)
             for (final i in ordered[m] ?? const <NdtOrderItem>[])
-              Text(
-                '• ${m.code}: ${ndtWeldLabel(i.weld, en: en)}',
+              Padding(
                 key: ValueKey('ndt-ordered-${m.code}-${i.weld.id}'),
-                style: itemStyle,
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('• ${m.code}: ${ndtWeldLabel(i.weld, en: en)}',
+                        style: itemStyle),
+                    Text('   ${ndtOrderedReason(i, en: en)}', style: subStyle),
+                  ],
+                ),
               ),
         ],
         if (prog.isNotEmpty) ...[
@@ -764,12 +847,20 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
           'Te spoiny blokują gotowość swojej linii — uzupełnij je w dzienniku.',
           'These welds block their line — fill them in the journal.'),
       children: [
+        for (final g in plan.shortfalls)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              '• ${ndtShortfallText(g, en: en)}',
+              key: ValueKey('ndt-shortfall-${g.key}'),
+              style: const TextStyle(fontSize: 13, color: kWarn),
+            ),
+          ),
         for (final i in list.take(shown))
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
-              '• ${ndtWeldLabel(i.weld, en: en)} — '
-              '${i.issues.map((x) => ndtIssueText(x, en: en)).join(', ')}',
+              '• ${ndtIssueLine(i, en: en)}',
               key: ValueKey('ndt-issue-${i.weld.id}'),
               style: const TextStyle(fontSize: 13, color: kText),
             ),
@@ -852,30 +943,13 @@ class _LineCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 12.5, color: kWarn),
               ),
             ),
-          if (l.uncovered > 0)
+          for (final (i, n) in ndtLineNotes(l, en: en).indexed)
             Padding(
               padding: const EdgeInsets.only(top: 3),
               child: Text(
-                context.tr(
-                    pl: 'Żadna reguła nie obejmuje: ${weldsCount(l.uncovered, en: false)} '
-                        '(rodzaj / materiał) — sprawdź, czy specyfikacja ich nie wymaga.',
-                    en: 'No rule covers ${weldsCount(l.uncovered, en: true)} '
-                        '(type / material) — check the specification does not '
-                        'require them.'),
+                n,
+                key: ValueKey('ndt-note-${l.key}-$i'),
                 style: small,
-              ),
-            ),
-          if (l.rejectsNoScope > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(
-                context.tr(
-                    pl: 'Odrzucenia bez zakresu badania: ${l.rejectsNoScope} — nie '
-                        'wiadomo, czy były losowe (§341.3.4 ich nie liczy); sprawdź.',
-                    en: 'Rejects with no examination scope: ${l.rejectsNoScope} — '
-                        'unknown whether random (§341.3.4 does not count them); '
-                        'check.'),
-                style: const TextStyle(fontSize: 12.5, color: kWarn),
               ),
             ),
           if (l.groups.isNotEmpty) ...[
@@ -978,6 +1052,16 @@ class _RuleEditorState extends State<_RuleEditor> {
         ? tr('Wpisz procent', 'Enter a percentage')
         : (_bp == null ? tr('Od 0 do 100 %', 'From 0 to 100 %') : null);
     final result = _result;
+    // Więcej niż dwa miejsca po przecinku — procent liczony w górę do
+    // 0,01 % (nigdy w dół: „0,004" to nie 0 %).
+    final typed = parseDecimal(_pct.text);
+    final bp = _bp;
+    final rounded = bp != null && typed != null && (typed * 100 - bp).abs() > 1e-6;
+    final pctHelper = rounded
+        ? tr('Liczone jako ${ndtPctText(bp, en: false)} (w górę do 0,01 %).',
+            'Counted as ${ndtPctText(bp, en: true)} (rounded up to 0.01 %).')
+        : tr('0–100; wymagane = spoiny × %, w górę.',
+            '0–100; required = welds × %, rounded up.');
     Widget label(String t) => Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 6),
           child: Text(t,
@@ -1025,8 +1109,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                 labelText: tr('Procent spoin do zbadania',
                     'Percentage of welds to examine'),
                 suffixText: '%',
-                helperText: tr('0–100; wymagane = spoiny × %, w górę.',
-                    '0–100; required = welds × %, rounded up.'),
+                helperText: pctHelper,
                 helperMaxLines: 2,
                 errorText: pctError,
                 errorMaxLines: 2,

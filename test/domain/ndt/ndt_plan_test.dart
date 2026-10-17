@@ -685,6 +685,221 @@ void main() {
     });
   });
 
+  group('poprawki z przeglądu', () {
+    test('N1: linia z samymi FW przy regule BW → niegotowa (spoiny poza regułami)',
+        () {
+      final welds = [
+        bw('f1', line: 'L-7', joint: WeldJointType.fillet),
+        bw('s1', line: 'L-7', joint: WeldJointType.socket),
+      ];
+      final p = computeNdtPlan(welds, rules: [rule(NdtMethod.rt, 10)]);
+      final l = lineOf(p, 'L-7');
+      expect(l.groups, isEmpty);
+      expect(l.ready, isFalse);
+      expect(l.blockers, {NdtBlocker.uncovered: 2});
+      expect(ndtBlockerText(NdtBlocker.uncovered, l, en: false),
+          contains('dodaj regułę dla tych spoin (także 0 %'));
+      expect(p.issues.map((i) => i.issues),
+          everyElement([NdtWeldIssue.uncovered]));
+    });
+
+    test('N1: reguła 0 % to świadome „nie wymagam" — pokrywa spoiny', () {
+      final p = computeNdtPlan([
+        bw('f1', line: 'L-7', joint: WeldJointType.fillet),
+        bw('s1', line: 'L-7', joint: WeldJointType.socket),
+      ], rules: [
+        rule(NdtMethod.rt, 10, id: 'rt'),
+        rule(NdtMethod.pt, 0,
+            joints: [WeldJointType.fillet, WeldJointType.socket],
+            perWelder: false,
+            id: 'pt0'),
+      ]);
+      final l = lineOf(p, 'L-7');
+      expect(l.uncovered, 0);
+      expect(l.ready, isTrue);
+      expect(only(p).required, 0);
+    });
+
+    test('N2: bieżące NOK bez zakresu blokuje, dopóki zakres nie jest ustawiony',
+        () {
+      final p = computeNdtPlan([
+        bw('a', ndt: {NdtMethod.rt: ndtOf(NdtScope.none, NdtResult.nok)}),
+      ], rules: [
+        rule(NdtMethod.rt, 10)
+      ]);
+      final l = lineOf(p, 'L-12');
+      expect(l.blockers[NdtBlocker.unclassifiedRejects], 1);
+      expect(p.issues.single.issues, [NdtWeldIssue.unclassifiedReject]);
+    });
+
+    test('N2: NOK bez zakresu sprzed naprawy liczy się jak losowe — 2 dodatkowe',
+        () {
+      final base = [
+        bw('b',
+            ndt: {NdtMethod.rt: rtSelOk},
+            repairs: [
+              repair('b', prevNdt: {
+                NdtMethod.rt: ndtOf(NdtScope.none, NdtResult.nok)
+              })
+            ]),
+        ...many(9, prefix: 'c'),
+      ];
+      // weld_stats nie liczy go do §341.3.4 („nie wiadomo")…
+      expect(computeWeldJournalStats(base).byWelder.single.toExamine, 0);
+      // …a plan przyjmuje wersję bezpieczniejszą.
+      final p = computeNdtPlan(base, rules: [rule(NdtMethod.rt, 10)]);
+      final l = lineOf(p, 'L-12');
+      expect(only(p).progressive, 2);
+      expect(l.blockers[NdtBlocker.progressive], 2);
+      expect(l.blockers.containsKey(NdtBlocker.unclassifiedRejects), isFalse);
+      expect(l.assumedRandomRejects, 1);
+      expect(ndtLineNotes(l, en: false).single,
+          contains('przyjęte jako losowe (2 dodatkowe'));
+
+      // Dwa „dod." OK zamykają — linia gotowa, uwaga zostaje.
+      final done = computeNdtPlan([
+        base.first,
+        bw('c1', ndt: {NdtMethod.rt: addOk}),
+        bw('c2', ndt: {NdtMethod.rt: addOk}),
+        ...base.skip(3),
+      ], rules: [
+        rule(NdtMethod.rt, 10)
+      ]);
+      expect(lineOf(done, 'L-12').ready, isTrue);
+      expect(lineOf(done, 'L-12').assumedRandomRejects, 1);
+    });
+
+    test('N2: przy regule 100 % tej metody NOK bez zakresu = wymagane, bez §341.3.4',
+        () {
+      final p = computeNdtPlan([
+        bw('v',
+            ndt: {NdtMethod.vt: vtOk},
+            repairs: [
+              repair('v', prevNdt: {
+                NdtMethod.vt: ndtOf(NdtScope.none, NdtResult.nok)
+              })
+            ]),
+      ], rules: [
+        rule(NdtMethod.vt, 100,
+            joints: WeldJointType.values, perWelder: false)
+      ]);
+      final l = lineOf(p, 'L-12');
+      expect(l.progressive, 0);
+      expect(l.assumedRequiredRejects, 1);
+      expect(l.ready, isTrue);
+    });
+
+    test('N3: sam numer raportu bez wyniku nie wyklucza spoiny z propozycji', () {
+      final p = computeNdtPlan([
+        bw('w4', ndt: {NdtMethod.vt: vtOk}),
+        bw('w5', ndt: {NdtMethod.vt: const WeldNdt(reportNo: 'VT-17')}),
+      ], rules: [
+        rule(NdtMethod.vt, 100, joints: WeldJointType.values, perWelder: false)
+      ]);
+      expect(only(p).missing, 1);
+      expect(p.toOrder[NdtMethod.vt]!.single.weld.id, 'w5');
+      expect(p.shortfalls, isEmpty);
+    });
+
+    test('N3: brakuje, a nie ma kandydatów → ostrzeżenie z numerami spoin', () {
+      final p = computeNdtPlan([
+        bw('w1', ndt: {NdtMethod.rt: addOk}),
+        bw('w2', ndt: {NdtMethod.rt: ndtOf(NdtScope.progressive)}),
+      ], rules: [
+        rule(NdtMethod.rt, 50)
+      ]);
+      final g = only(p);
+      expect(g.missing, 1);
+      expect(g.proposal, isEmpty);
+      expect(g.shortfall, 1);
+      expect(g.stuck.map((w) => w.id), ['w1', 'w2']);
+      expect(p.shortfalls, [g]);
+      expect(ndtShortfallText(g, en: false),
+          'RT 50$nb% BW · L-12 · JK-12: brakuje 1, a nie ma spoin do wybrania '
+          '— blokują: w1, w2 (zakres „dod." nie liczy się do %; zmień zakres '
+          'w dzienniku)');
+      expect(lineOf(p, 'L-12').missing, 1);
+    });
+
+    test('N4: braki linii raz na badanie — spoina wspólna i dwie reguły tej '
+        'samej metody', () {
+      final shared = computeNdtPlan([
+        bw('s1', welder: 'JK-12', root: 'AB-03'),
+        bw('j1'),
+        bw('j2'),
+        bw('j3'),
+      ], rules: [
+        rule(NdtMethod.rt, 25)
+      ]);
+      expect(shared.groups.fold<int>(0, (s, g) => s + g.missing), 2);
+      expect(lineOf(shared, 'L-12').missing, 1);
+      expect(shared.toOrderCount, 1);
+
+      final twoRules = computeNdtPlan(many(10), rules: [
+        rule(NdtMethod.rt, 10, id: 'a'),
+        rule(NdtMethod.rt, 10, perWelder: false, id: 'b'),
+      ]);
+      expect(twoRules.groups.map((g) => g.missing), [1, 1]);
+      expect(lineOf(twoRules, 'L-12').missing, 1);
+      expect(twoRules.toOrderCount, 1);
+    });
+
+    test('N7: procent zawsze w górę do 0,01 % — dodatni nigdy nie daje 0 %', () {
+      expect(ndtBpFromPct(0.004), 1);
+      expect(ndtBpFromPct(5.004), 501);
+      expect(ndtBpFromPct(0.07), 7);
+      expect(ndtBpFromPct(0.29), 29);
+      expect(ndtBpFromPct(12.5), 1250);
+      expect(ndtBpFromPct(99.999), kNdtFullBp);
+      final d = decodeNdtRuleSet(jsonEncode({
+        'v': 1,
+        'rules': [
+          {'id': 'a', 'method': 'RT', 'pct': 0.004, 'joints': ['BW']}
+        ],
+      }));
+      expect(d.set.rules.single.bp, 1);
+      expect(d.set.rules.single.requiredFor(1), 1);
+    });
+
+    test('N6: tekst ma uwagi linii, brak danych, braki bez kandydatów i powód '
+        'zleconych', () {
+      final plan = computeNdtPlan([
+        bw('a', ndt: {NdtMethod.rt: sel}),
+        ...many(9, prefix: 'c'),
+        bw('r',
+            line: 'L-14',
+            ndt: {NdtMethod.rt: sel},
+            repairs: [
+              repair('r', prevNdt: {
+                NdtMethod.rt: ndtOf(NdtScope.none, NdtResult.nok)
+              })
+            ]),
+        bw('f', line: 'L-14', joint: WeldJointType.fillet),
+        bw('x1', line: 'L-16', ndt: {NdtMethod.rt: addOk}),
+      ], rules: [
+        rule(NdtMethod.rt, 10)
+      ]);
+      final text = buildNdtOrderText(
+          NdtOrderReport(
+              project: 'Blok 4',
+              plan: plan,
+              generatedAt: DateTime(2026, 10, 17)),
+          en: false);
+      expect(text,
+          contains('• RT: a · L-12 · JK-12 · BW (zlecone, bez wyniku · '
+              'losowo 10$nb% · JK-12 · L-12)'));
+      expect(text,
+          contains('• RT: r · L-14 · JK-12 · BW (ponowne badanie po naprawie '
+              'R1 · losowo 10$nb% · JK-12 · L-14)'));
+      expect(text, contains('  – Odrzucenia sprzed naprawy bez zakresu badania: 1'));
+      expect(text, contains('Brak danych (uzupełnij w dzienniku spoin):'));
+      expect(text, contains('• f · L-14 · JK-12 · FW — poza regułami'));
+      expect(text, contains('• RT 10$nb% BW · L-16 · JK-12: brakuje 1, a nie ma '
+          'spoin do wybrania — blokują: x1'));
+      expect(text, contains('Spoiny poza regułami: 1'));
+    });
+  });
+
   test('teksty: zlecenie tekstem z listą, dodatkowymi i gotowością', () {
     final welds = [
       ...many(10),

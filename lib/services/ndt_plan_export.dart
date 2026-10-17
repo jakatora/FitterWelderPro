@@ -66,8 +66,11 @@ class NdtPlanExport {
   }
 
   /// Wiersz tabeli zlecenia: Lp., spoina, linia, ISO, spawacz, rodzaj,
-  /// metoda, powód.
-  static List<String> orderCells(int no, NdtOrderItem i, {required bool en}) {
+  /// metoda, powód. [ordered] — spoina zlecona wcześniej (powód jak na
+  /// ekranie i w tekście: „zlecone, bez wyniku · …" / „ponowne badanie po
+  /// naprawie R1 · …").
+  static List<String> orderCells(int no, NdtOrderItem i,
+      {required bool en, bool ordered = false}) {
     final e = i.weld;
     return [
       '$no',
@@ -77,7 +80,7 @@ class NdtPlanExport {
       e.stamps.isEmpty ? (en ? 'no welder' : 'bez spawacza') : e.stamps.join('/'),
       ndtJointOf(e) ?? '',
       i.method.code,
-      ndtOrderReason(i, en: en),
+      ordered ? ndtOrderedReason(i, en: en) : ndtOrderReason(i, en: en),
     ];
   }
 
@@ -159,7 +162,8 @@ class NdtPlanExport {
     final orderedRows = <List<String>>[];
     for (final m in NdtMethod.values) {
       for (final i in ordered[m] ?? const <NdtOrderItem>[]) {
-        orderedRows.add(orderCells(orderedRows.length + 1, i, en: en));
+        orderedRows.add(
+            orderCells(orderedRows.length + 1, i, en: en, ordered: true));
       }
     }
     final orderHeaders = [
@@ -224,8 +228,8 @@ class NdtPlanExport {
         if (!plan.rulesIntact)
           text(
               en
-                  ? 'The saved rules were damaged — the plan is not final.'
-                  : 'Zapisane reguły były uszkodzone — plan nie jest ostateczny.',
+                  ? 'The saved rules are unreadable — the plan is not final.'
+                  : 'Zapisane reguły są nieczytelne — plan nie jest ostateczny.',
               size: 8.5,
               strong: true),
         heading(en ? 'To order' : 'Do zlecenia'),
@@ -271,7 +275,7 @@ class NdtPlanExport {
               en ? 'Line' : 'Linia',
               en ? 'Verdict' : 'Werdykt',
               en ? 'Numbers' : 'Liczby',
-              en ? 'Blocking' : 'Blokuje',
+              en ? 'Blocking / notes' : 'Blokuje / uwagi',
             ],
             [
               for (final l in plan.lines)
@@ -281,7 +285,8 @@ class NdtPlanExport {
                   ndtLineNumbers(l, en: en),
                   [
                     for (final k in l.blockers.keys)
-                      ndtBlockerText(k, l, en: en)
+                      ndtBlockerText(k, l, en: en),
+                    ...ndtLineNotes(l, en: en),
                   ].join('; '),
                 ]
             ],
@@ -289,6 +294,15 @@ class NdtPlanExport {
               for (final l in plan.lines) l.ready ? _kPassFill : _kWarnFill
             ],
           ),
+        ],
+        if (plan.issues.isNotEmpty || plan.shortfalls.isNotEmpty) ...[
+          heading(en
+              ? 'Missing data (fill in the weld journal)'
+              : 'Brak danych (uzupełnij w dzienniku spoin)'),
+          for (final g in plan.shortfalls)
+            text('• ${ndtShortfallText(g, en: en)}', size: 8),
+          for (final i in plan.issues)
+            text('• ${ndtIssueLine(i, en: en)}', size: 8),
         ],
         heading(en ? 'Groups' : 'Grupy'),
         if (plan.groups.isEmpty)
