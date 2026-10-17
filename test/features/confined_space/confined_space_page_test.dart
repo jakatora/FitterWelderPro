@@ -35,6 +35,7 @@ Future<_Spy> _pump(
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
   DateTime Function()? now,
+  TimeOfDay? Function()? pickTime,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -55,6 +56,8 @@ Future<_Spy> _pump(
         newId: () => 'cs-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
+        pickTime: (_, initial) async =>
+            pickTime == null ? initial : pickTime(),
       ),
     ),
   ));
@@ -361,6 +364,11 @@ void main() {
     expect((await _load()).records.single.limits[CsBound.lelMax], isNull);
     await _fullReading(tester);
     expect(await _status(tester), startsWith('Wpisz próg z pozwolenia dla: DGW'));
+    // Pusty próg nie łagodzi: 50 % DGW to STOP wg granicy 10 % DGW.
+    await _reading(tester, lel: '50');
+    expect(await _status(tester),
+        startsWith('STOP — Gazy palne 50 % DGW o 07:30 — powyżej progu 10 % '
+            'DGW (granica twarda'));
   });
 
   testWidgets('mg/m³: odczyt i próg tak, jak wpisano; werdykt w ppm',
@@ -370,14 +378,32 @@ void main() {
     await _tickAllBefore(tester);
     await _tapKey(tester, 'cs-meas-unit-co');
     await _tapKey(tester, 'cs-meas-unit-h2s');
+    // Podgląd przeliczenia pod polem w mg/m³.
+    await _enter(tester, 'cs-meas-h2s', '7');
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('cs-meas-h2s')),
+            matching: find.text('≈ 4,94 ppm')),
+        findsOneWidget);
+    // Próg H₂S (7 mg/m³) ma ten sam podgląd.
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('cs-limit-h2sMax')),
+            matching: find.text('≈ 4,94 ppm')),
+        findsOneWidget);
     await _reading(tester, o2: '20,9', lel: '0', co: '23', h2s: '7');
     final row = await _row(tester, 0);
     expect(row, contains('CO 23 mg/m³ (OK)'));
     expect(row, contains('H₂S 7 mg/m³ (OK)'));
     expect(await _status(tester), startsWith('Przygotowane'));
 
-    // 5 ppm H₂S > 7 mg/m³ (≈ 4,94 ppm) — STOP.
-    await _tapKey(tester, 'cs-meas-unit-h2s');
+    // Po dodaniu jednostka wraca do ppm — 5 ppm H₂S > 7 mg/m³ (≈ 4,94 ppm)
+    // — STOP.
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('cs-meas-unit-h2s')),
+            matching: find.text('ppm')),
+        findsOneWidget);
     await _reading(tester, h2s: '5');
     expect(await _row(tester, 1), contains('H₂S 5 ppm (POWYŻEJ PROGU)'));
     expect(await _status(tester), startsWith('STOP — H₂S 5 ppm'));
@@ -445,7 +471,7 @@ void main() {
         tester
             .widget<Text>(find.byKey(const ValueKey('cs-item-status-0')))
             .data,
-        'Zamknięte');
+        'Zamknięte · nieaktualne');
 
     await _tapKey(tester, 'cs-dup-last');
     expect(find.byKey(const ValueKey('cs-old-notice')), findsNothing);
@@ -621,6 +647,135 @@ void main() {
     }
   });
 
+  testWidgets('pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
+      (tester) async {
+    var clock = DateTime(2026, 10, 17, 7, 30);
+    await _pump(tester, now: () => clock);
+    await _tapKey(tester, 'cs-new');
+    await _tickAllBefore(tester);
+    await _fullReading(tester);
+    expect(await _status(tester), startsWith('Przygotowane'));
+
+    // 31 min później, bez dotykania ekranu — stan przelicza się sam.
+    clock = DateTime(2026, 10, 17, 8, 1);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+    expect(await _status(tester),
+        startsWith('Pomiar nieaktualny: O₂ z 07:30, DGW z 07:30'));
+    expect(find.byIcon(Icons.verified_outlined), findsNothing);
+    await _back(tester);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('cs-item-status-0')))
+            .data,
+        'Pomiar nieaktualny');
+
+    // Następny dzień — protokół nieaktualny, nawet ze świeżym pomiarem.
+    clock = DateTime(2026, 10, 18, 7, 0);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('cs-item-status-0')))
+            .data,
+        'Nieaktualne');
+    await _tapKey(tester, 'cs-open-0');
+    await _fullReading(tester);
+    expect(await _status(tester),
+        startsWith('Protokół z dnia 2026-10-17 — nieaktualny'));
+    expect(find.byKey(const ValueKey('cs-old-notice')), findsOneWidget);
+    // Pomiar z innego dnia niż data protokołu — z datą.
+    expect(await _row(tester, 1), startsWith('2026-10-18 07:00'));
+  });
+
+  testWidgets('ręczna godzina: z przyszłości odrzucona; STOP wpisany później '
+      'blokuje zieleń', (tester) async {
+    var clock = DateTime(2026, 10, 17, 14, 0);
+    TimeOfDay? picked;
+    await _pump(tester, now: () => clock, pickTime: () => picked);
+    await _tapKey(tester, 'cs-new');
+    await _tickAllBefore(tester);
+
+    // 14:05 przy zegarze 14:00 — odrzucone, nic nie zapisano.
+    picked = const TimeOfDay(hour: 14, minute: 5);
+    await _tapKey(tester, 'cs-meas-time');
+    await _fullReading(tester);
+    expect(find.byKey(const ValueKey('cs-meas-future')), findsOneWidget);
+    await _show(tester, 'cs-meas-empty');
+
+    // 13:58 — przyjęte (pola zostały wypełnione).
+    picked = const TimeOfDay(hour: 13, minute: 58);
+    await _tapKey(tester, 'cs-meas-time');
+    await _tapKey(tester, 'cs-meas-add');
+    expect(await _status(tester), startsWith('Przygotowane'));
+
+    // O 14:03 wpisany zaległy pomiar z 13:55 z alarmem O₂ 17 % — wpis
+    // późniejszy niż decydujący blokuje zieleń.
+    clock = DateTime(2026, 10, 17, 14, 3);
+    picked = const TimeOfDay(hour: 13, minute: 55);
+    await _tapKey(tester, 'cs-meas-time');
+    await _reading(tester, o2: '17');
+    expect(await _status(tester),
+        startsWith('STOP — tlen 17 % o 13:55 (wpisany po odczycie z 13:58)'));
+    final saved = (await _load()).records.single;
+    expect(saved.measurements.map((m) => m.enteredAt), [
+      DateTime(2026, 10, 17, 14, 3).millisecondsSinceEpoch,
+      DateTime(2026, 10, 17, 14, 0).millisecondsSinceEpoch,
+    ]);
+  });
+
+  testWidgets('ręczna godzina z wczoraj wymaga potwierdzenia', (tester) async {
+    final clock = DateTime(2026, 10, 18, 0, 12);
+    TimeOfDay? picked = const TimeOfDay(hour: 23, minute: 50);
+    await _pump(tester, now: () => clock, pickTime: () => picked);
+    await _tapKey(tester, 'cs-new');
+    await _tapKey(tester, 'cs-meas-time');
+    await _fullReading(tester);
+    expect(find.text('Pomiar wczoraj?'), findsOneWidget);
+    await tester.tap(find.text('Anuluj'));
+    await tester.pumpAndSettle();
+    await _show(tester, 'cs-meas-empty');
+
+    await _tapKey(tester, 'cs-meas-add');
+    await tester.tap(find.byKey(const ValueKey('cs-yesterday-confirm')));
+    await tester.pumpAndSettle();
+    expect(await _row(tester, 0), startsWith('2026-10-17 23:50'));
+    expect((await _load()).records.single.measurements.single.at,
+        DateTime(2026, 10, 17, 23, 50).millisecondsSinceEpoch);
+  });
+
+  testWidgets('historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+      (tester) async {
+    List<ConfinedSpaceRecord> many(int n) => [
+          for (var i = 0; i < n; i++)
+            ConfinedSpaceRecord.fromJson(
+                {..._yesterday().toJson(), 'id': 'p$i'})!,
+        ];
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson(
+          many(ConfinedSpaceStore.warnAt))),
+    });
+    await _pump(tester);
+    await _show(tester, 'cs-store-warn');
+    expect(find.textContaining('Historia: 180/200'), findsOneWidget);
+
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson(
+          many(ConfinedSpaceStore.maxEntries))),
+    });
+    await tester.pumpWidget(const SizedBox());
+    await _pump(tester);
+    await _tapKey(tester, 'cs-new');
+    expect(find.byKey(const ValueKey('cs-store-full')), findsOneWidget);
+    expect(find.text('Protokół wejścia'), findsNothing);
+    // Magazyn też nie przyjmie nowego — stare nie wypadają po cichu.
+    await expectLater(
+        const ConfinedSpaceStore().upsert(ConfinedSpaceRecord.fromJson(
+            {..._yesterday().toJson(), 'id': 'nowy'})!),
+        throwsA(isA<ConfinedSpaceStoreFull>()));
+    expect((await _load()).records, hasLength(ConfinedSpaceStore.maxEntries));
+  });
+
   test('nieczytelna historia: pusta lista, flaga i kopia przed nadpisaniem',
       () async {
     SharedPreferences.setMockInitialValues(
@@ -636,19 +791,26 @@ void main() {
     expect((await store.load()).damaged, isFalse);
   });
 
-  test('pełna historia: zapisywany protokół z najstarszą datą nie wypada',
-      () async {
+  test('pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
+      'wypada', () async {
+    SharedPreferences.setMockInitialValues({
+      ConfinedSpaceStore.key: jsonEncode(confinedSpaceRecordsToJson([
+        for (var i = 0; i < ConfinedSpaceStore.maxEntries; i++)
+          ConfinedSpaceRecord.fromJson(
+              {..._yesterday().toJson(), 'id': 'p$i', 'date': '2020-01-01'})!,
+      ])),
+    });
     const store = ConfinedSpaceStore();
-    for (var i = 0; i < ConfinedSpaceStore.maxEntries; i++) {
-      await store.upsert(ConfinedSpaceRecord.fromJson(
-          {..._yesterday().toJson(), 'id': 'p$i'})!);
-    }
-    expect((await store.load()).records,
-        hasLength(ConfinedSpaceStore.maxEntries));
-    final oldest = ConfinedSpaceRecord.fromJson(
-        {..._yesterday().toJson(), 'id': 'najstarszy', 'date': '2020-01-01'})!;
-    await store.upsert(oldest);
-    expect((await store.load()).records.map((r) => r.id),
-        contains('najstarszy'));
+    final first = (await store.load()).records.first;
+    await store.upsert(first.copyWith(notes: 'zmiana'));
+    expect((await store.load()).records.firstWhere((r) => r.id == first.id)
+        .notes, 'zmiana');
+    await expectLater(
+        store.upsert(ConfinedSpaceRecord.fromJson(
+            {..._yesterday().toJson(), 'id': 'nowy'})!),
+        throwsA(isA<ConfinedSpaceStoreFull>()));
+    final ids = (await store.load()).records.map((r) => r.id).toSet();
+    expect(ids, hasLength(ConfinedSpaceStore.maxEntries));
+    expect(ids, isNot(contains('nowy')));
   });
 }

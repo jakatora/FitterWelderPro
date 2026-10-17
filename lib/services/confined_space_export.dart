@@ -83,7 +83,8 @@ class ConfinedSpaceExport {
     final stamp = '${generatedAt.year}-${two(generatedAt.month)}-'
         '${two(generatedAt.day)} ${two(generatedAt.hour)}:'
         '${two(generatedAt.minute)}';
-    final a = r.assess();
+    // Stan w chwili wydruku: wiek pomiarów i data protokołu.
+    final a = r.assess(now: generatedAt);
     final statusColor = a.readiness == CsReadiness.stop ? _kFail : _kInk;
 
     pw.Widget cell(String t,
@@ -229,7 +230,8 @@ class ConfinedSpaceExport {
               fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: statusColor),
         ),
         for (final v in a.stops.skip(1))
-          _pdfText('STOP — ${csStopText(v, r.limits, en: en)}',
+          _pdfText(
+              'STOP — ${csStopText(v, r.limits, en: en, recordDate: r.date)}',
               style: pw.TextStyle(fontSize: 8.5, color: _kFail)),
         for (final v in a.ties)
           _pdfText(csTieText(v, en: en),
@@ -244,7 +246,7 @@ class ConfinedSpaceExport {
           pw.Table(
             border: pw.TableBorder.all(color: _kRule, width: 0.5),
             columnWidths: const {
-              0: pw.FixedColumnWidth(40),
+              0: pw.FixedColumnWidth(52),
               1: pw.FlexColumnWidth(1.4),
               2: pw.FlexColumnWidth(),
               3: pw.FlexColumnWidth(),
@@ -263,7 +265,7 @@ class ConfinedSpaceExport {
               ),
               for (final m in r.measurementsChrono)
                 pw.TableRow(children: [
-                  cell(m.time.isEmpty ? '—' : m.time),
+                  cell(csMeasurementTime(m, r.date)),
                   cell(m.place.trim().isEmpty ? '—' : m.place.trim()),
                   for (final g in CsGas.values) readingCell(m, g),
                 ]),

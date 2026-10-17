@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_checklist.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_permit.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_sources.dart';
+import 'package:cut_list_app/domain/hot_work/hot_work_text.dart';
 
 final _now = DateTime(2026, 10, 17, 7, 30);
 
@@ -52,8 +53,8 @@ void main() {
       expect(p.dgwLimitPct, kHotWorkDefaultDgwLimitPct);
       expect(p.date, '2026-10-17');
       expect(p.isBlank, isTrue);
-      expect(p.assess().readiness, HotWorkReadiness.noMeasurement);
-      expect(p.assess().readyToStart, isFalse);
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.noMeasurement);
+      expect(p.assess(now: _now).readyToStart, isFalse);
     });
 
     test('wszystko odhaczone, ale brak pomiaru — NIE zielony stan', () {
@@ -62,7 +63,7 @@ void main() {
         ...p.checked,
         for (final c in kHotWorkChecks) c.id,
       });
-      final a = p.assess();
+      final a = p.assess(now: _now);
       expect(a.openBefore, isEmpty);
       expect(a.openDuring, isEmpty);
       expect(a.openAfter, isEmpty);
@@ -76,7 +77,7 @@ void main() {
       final p = _allBefore(_blank()).copyWith(measurements: const [
         HotWorkMeasurement(time: '07:20', dgwPct: 0),
       ]);
-      final a = p.assess();
+      final a = p.assess(now: _now);
       expect(a.readiness, HotWorkReadiness.ready);
       expect(a.readyToStart, isTrue);
       // „Zamknięte” dopiero po punktach „w trakcie” i „po zakończeniu”.
@@ -84,15 +85,15 @@ void main() {
       final closed = p.copyWith(checked: {
         for (final c in kHotWorkChecks) c.id,
       });
-      expect(closed.assess().closed, isTrue);
+      expect(closed.assess(now: _now).closed, isTrue);
     });
 
     test('pomiar bez punktów — niekompletne', () {
       final p = _blank().copyWith(measurements: const [
         HotWorkMeasurement(time: '07:20', dgwPct: 0),
       ]);
-      expect(p.assess().readiness, HotWorkReadiness.incomplete);
-      expect(p.assess().openBefore.length,
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.incomplete);
+      expect(p.assess(now: _now).openBefore.length,
           hotWorkChecksIn(HotWorkPhase.before).length);
     });
 
@@ -100,8 +101,8 @@ void main() {
       final p = _allBefore(_blank()).copyWith(measurements: const [
         HotWorkMeasurement(time: '07:20', dgwPct: 12),
       ]);
-      expect(p.assess().readiness, HotWorkReadiness.overLimit);
-      expect(p.assess().readyToStart, isFalse);
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.overLimit);
+      expect(p.assess(now: _now).readyToStart, isFalse);
     });
 
     test('decyduje ostatni pomiar (po przewietrzeniu)', () {
@@ -109,12 +110,12 @@ void main() {
         HotWorkMeasurement(time: '07:00', dgwPct: 15),
         HotWorkMeasurement(time: '07:25', dgwPct: 0),
       ]);
-      expect(p.assess().readiness, HotWorkReadiness.ready);
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.ready);
       final worse = p.copyWith(measurements: [
         ...p.measurements,
         const HotWorkMeasurement(time: '09:00', dgwPct: 11),
       ]);
-      expect(worse.assess().readiness, HotWorkReadiness.overLimit);
+      expect(worse.assess(now: _now).readiness, HotWorkReadiness.overLimit);
     });
 
     test('próg „nieprzekraczający” (§ 36 ust. 2): równy przechodzi, 0 % '
@@ -131,8 +132,8 @@ void main() {
         dgwLimitPct: null,
         measurements: const [HotWorkMeasurement(time: '07:20', dgwPct: 0)],
       );
-      expect(p.assess().readiness, HotWorkReadiness.noLimit);
-      expect(p.assess().readyToStart, isFalse);
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.noLimit);
+      expect(p.assess(now: _now).readyToStart, isFalse);
     });
   });
 
@@ -156,7 +157,7 @@ void main() {
     test('„n/d” przy punkcie podstawowym (np. z zapisu) nie zwalnia go', () {
       final p = _blank().copyWith(na: {'ext-ready'});
       expect(p.isNa(hotWorkCheckById('ext-ready')!), isFalse);
-      expect(p.assess().openBefore.map((c) => c.id), contains('ext-ready'));
+      expect(p.assess(now: _now).openBefore.map((c) => c.id), contains('ext-ready'));
     });
 
     test('punkty „n/d” zaliczają się do gotowości', () {
@@ -172,7 +173,7 @@ void main() {
         na: naAll,
         measurements: const [HotWorkMeasurement(time: '07:20', dgwPct: 0)],
       );
-      expect(p.assess().readyToStart, isTrue);
+      expect(p.assess(now: _now).readyToStart, isTrue);
     });
   });
 
@@ -261,7 +262,7 @@ void main() {
       expect(copy.measurements, isEmpty);
       expect(copy.permitNo, isEmpty);
       expect(copy.notes, isEmpty);
-      expect(copy.assess().readiness, HotWorkReadiness.noMeasurement);
+      expect(copy.assess(now: _now).readiness, HotWorkReadiness.noMeasurement);
       expect(copy.isBlank, isFalse);
     });
   });
@@ -285,7 +286,7 @@ void main() {
         HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 15),
         HotWorkMeasurement(time: '09:00', at: t0900, dgwPct: 0),
       ]);
-      final a = p.assess();
+      final a = p.assess(now: _now);
       expect(a.lastMeasurement!.time, '10:30');
       expect(a.readiness, HotWorkReadiness.overLimit);
       expect(p.measurementsChrono.map((m) => m.time), ['09:00', '10:30']);
@@ -296,7 +297,8 @@ void main() {
         HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 15),
         HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 0),
       ]);
-      expect(p.assess().readiness, HotWorkReadiness.ready);
+      expect(p.assess(now: DateTime(2026, 10, 17, 10, 35)).readiness,
+          HotWorkReadiness.ready);
     });
 
     test('stary zapis bez chwili pomiaru — kolejność wpisów', () {
@@ -304,7 +306,7 @@ void main() {
         HotWorkMeasurement(time: '10:30', dgwPct: 0),
         HotWorkMeasurement(time: '09:00', dgwPct: 15),
       ]);
-      expect(p.assess().readiness, HotWorkReadiness.overLimit);
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.overLimit);
     });
 
     test('godzina pomiaru: dziś, a „z przyszłości” to wczoraj (zmiana nocna)',
@@ -346,9 +348,134 @@ void main() {
         dgwLimitPct: 100.0,
         measurements: [HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 40)],
       );
-      expect(p.assess().readiness, HotWorkReadiness.noLimit);
+      // Próg spoza zakresu = brak progu, a 40 % DGW i tak przekracza 10 %
+      // DGW z przepisu — STOP, nie „brak limitu”.
+      expect(p.assess(now: _now).readiness, HotWorkReadiness.overLimit);
       final json = p.toJson()..['dgwLimit'] = 50;
       expect(HotWorkPermit.fromJson(json)!.dgwLimitPct, isNull);
+    });
+  });
+
+  group('wiek pomiaru, data protokołu, wpis późniejszy (przegląd 2026-10-18)',
+      () {
+    int at(int h, int m, [int day = 17]) =>
+        DateTime(2026, 10, day, h, m).millisecondsSinceEpoch;
+    DateTime t(int h, int m, [int day = 17]) => DateTime(2026, 10, day, h, m);
+
+    test('pomiar starszy niż ważność = brak pomiaru (domyślnie 30 min)', () {
+      final p = _allBefore(_blank()).copyWith(measurements: [
+        HotWorkMeasurement(time: '07:00', at: at(7, 0), dgwPct: 0),
+      ]);
+      expect(p.assess(now: t(7, 30)).readiness, HotWorkReadiness.ready);
+      final late = p.assess(now: t(7, 31));
+      expect(late.readiness, HotWorkReadiness.noMeasurement);
+      expect(late.measurementStale, isTrue);
+      expect(hotWorkReadinessText(late, en: false),
+          'Pomiar nieaktualny (z 07:00, ważny 30 min) — zmierz ponownie.');
+      // Krótsza ważność z zezwolenia; dłuższa niż 30 min — nie.
+      final strict = p.copyWith(measurementMaxAgeMin: 10);
+      expect(strict.assess(now: t(7, 11)).readiness,
+          HotWorkReadiness.noMeasurement);
+      expect(hotWorkMaxAgeValid(31), isFalse);
+      expect(p.copyWith(measurementMaxAgeMin: 90).effectiveMaxAgeMin, 30);
+      // Stary zapis bez chwili — wiek z godziny na dzień protokołu.
+      final legacy = _allBefore(_blank()).copyWith(measurements: const [
+        HotWorkMeasurement(time: '06:00', dgwPct: 0),
+      ]);
+      expect(legacy.assess(now: t(7, 30)).readiness,
+          HotWorkReadiness.noMeasurement);
+    });
+
+    test('protokół z innego dnia nigdy nie jest zielony', () {
+      final p = _allBefore(_blank()).copyWith(measurements: [
+        HotWorkMeasurement(time: '07:20', at: at(7, 20), dgwPct: 0),
+      ]);
+      final tomorrow = t(7, 25, 18);
+      final fresh = p.copyWith(measurements: [
+        ...p.measurements,
+        HotWorkMeasurement(time: '07:24', at: at(7, 24, 18), dgwPct: 0),
+      ]);
+      expect(fresh.assess(now: tomorrow).readiness, HotWorkReadiness.otherDay);
+      // STOP z innego dnia nadal STOP.
+      final stop = p.copyWith(measurements: [
+        HotWorkMeasurement(time: '07:25', at: at(7, 25), dgwPct: 15),
+      ]);
+      expect(stop.assess(now: tomorrow).readiness, HotWorkReadiness.overLimit);
+      // Zamknięty protokół z wczoraj — zamknięty, ale nieaktualny.
+      final closed =
+          p.copyWith(checked: {for (final c in kHotWorkChecks) c.id});
+      expect(closed.assess(now: t(9, 0)).closed, isTrue);
+      expect(hotWorkReadinessShort(closed.assess(now: tomorrow), en: false),
+          'Zamknięte · nieaktualne');
+      expect(hotWorkReadinessShort(p.assess(now: tomorrow), en: false),
+          'Nieaktualne');
+    });
+
+    test('pomiar ponad próg wpisany później niż najpóźniejszy blokuje zieleń',
+        () {
+      // O 14:00 wpis z godziną 14:05 (0 %), o 14:02 prawdziwy wynik 15 %.
+      final p = _allBefore(_blank()).copyWith(measurements: [
+        HotWorkMeasurement(
+            time: '14:05', at: at(14, 5), enteredAt: at(14, 0), dgwPct: 0),
+        HotWorkMeasurement(
+            time: '14:02', at: at(14, 2), enteredAt: at(14, 2), dgwPct: 15),
+      ]);
+      final a = p.assess(now: t(14, 3));
+      expect(a.readiness, HotWorkReadiness.overLimit);
+      expect(a.enteredLater, isTrue);
+      expect(a.lastMeasurement!.dgwPct, 15);
+      expect(hotWorkReadinessText(a, en: false),
+          startsWith('STOP — pomiar 15 % DGW wpisany po pomiarze z 14:05'));
+      // Nowy pomiar wpisany po alarmie zdejmuje blokadę.
+      final after = p.copyWith(measurements: [
+        ...p.measurements,
+        HotWorkMeasurement(
+            time: '14:10', at: at(14, 10), enteredAt: at(14, 10), dgwPct: 0),
+      ]);
+      expect(after.assess(now: t(14, 11)).readiness, HotWorkReadiness.ready);
+    });
+
+    test('bez progu z zezwolenia: ponad 10 % DGW — STOP, w granicy — brak '
+        'limitu', () {
+      final p = _allBefore(_blank()).copyWith(dgwLimitPct: null);
+      final over = p.copyWith(measurements: [
+        HotWorkMeasurement(time: '07:20', at: at(7, 20), dgwPct: 50),
+      ]);
+      expect(over.assess(now: _now).readiness, HotWorkReadiness.overLimit);
+      expect(hotWorkReadinessText(over.assess(now: _now), en: false),
+          contains('(granica przepisu, brak limitu z zezwolenia)'));
+      final within = p.copyWith(measurements: [
+        HotWorkMeasurement(time: '07:20', at: at(7, 20), dgwPct: 5),
+      ]);
+      expect(within.assess(now: _now).readiness, HotWorkReadiness.noLimit);
+    });
+
+    test('odczyt zapisu: pomiar z przyszłości i uszkodzony — pominięte '
+        'i policzone', () {
+      final p = _blank().copyWith(measurements: [
+        HotWorkMeasurement(time: '07:20', at: at(7, 20), dgwPct: 0),
+        HotWorkMeasurement(time: '09:00', at: at(9, 0), dgwPct: 0),
+      ]);
+      final json = p.toJson();
+      (json['measurements'] as List).add({'time': '07:25', 'dgw': -2});
+      final parsed = hotWorkPermitsParse(
+          jsonDecode(jsonEncode([json, 'śmieć'])),
+          now: _now);
+      expect(parsed.permits.single.measurements.map((m) => m.time),
+          ['07:20']);
+      expect(parsed.permits.single.droppedOnLoad, 2);
+      expect(parsed.droppedMeasurements, 2);
+      expect(parsed.droppedPermits, 1);
+      expect(parsed.damaged, isTrue);
+      // Chwila wpisu i ważność przechodzą przez JSON.
+      final q = _blank().copyWith(measurementMaxAgeMin: 15, measurements: [
+        HotWorkMeasurement(
+            time: '07:20', at: at(7, 20), enteredAt: at(7, 21), dgwPct: 1),
+      ]);
+      final back = HotWorkPermit.fromJson(jsonDecode(jsonEncode(q.toJson())))!;
+      expect(back.measurements.single.enteredAt, at(7, 21));
+      expect(back.measurementMaxAgeMin, 15);
+      expect(q.duplicateFor(newId: 'n', now: _now).measurementMaxAgeMin, 15);
     });
   });
 }

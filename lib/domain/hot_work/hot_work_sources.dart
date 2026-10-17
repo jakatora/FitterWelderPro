@@ -34,6 +34,18 @@ library;
 /// wymagać mniej (spotykane 0–5 % DGW), więc pole jest edytowalne.
 const double kHotWorkDefaultDgwLimitPct = 10;
 
+/// Ważność pomiaru atmosfery (min) — WARTOŚĆ PRZYJĘTA W APLIKACJI, nie
+/// z przepisu (rozp. MSWiA § 36 i FM Global nie podają czasu; FM Global —
+/// pomiar przed pracą i w razie potrzeby w trakcie). Pomiar starszy = brak
+/// pomiaru („nieaktualny — zmierz ponownie”). Zakład może wymagać częściej
+/// — wolno tylko skrócić. Ta sama wartość co w module przestrzeni
+/// zamkniętej.
+const int kHotWorkMeasurementMaxAgeMin = 30;
+
+/// Zapas na różnicę zegarów: chwila pomiaru może być najwyżej tyle po
+/// „teraz”. Pomiar z dalszej przyszłości jest odrzucany przy odczycie.
+const Duration kHotWorkFutureSlack = Duration(minutes: 5);
+
 class HotWorkSource {
   final String pl;
   final String en;
@@ -96,8 +108,12 @@ const List<HotWorkSource> kHotWorkSources = [
   ),
   HotWorkSource(
     'Progi w instrukcjach zakładów bywają ostrzejsze niż przepis: 0 %, '
-        '5 % albo 10 % DGW. Obowiązuje wartość z zezwolenia.',
+        '5 % albo 10 % DGW. Obowiązuje wartość z zezwolenia. Pomiar jest '
+        'ważny 30 min — to wartość przyjęta w aplikacji (przepis nie podaje '
+        'czasu); można ją tylko skrócić.',
     'Site procedures are often stricter than the regulation: 0 %, 5 % or '
-        '10 % LEL. The permit value applies.',
+        '10 % LEL. The permit value applies. A reading is valid for 30 min — '
+        'a value adopted by the app (the regulation gives no time); it can '
+        'only be shortened.',
   ),
 ];

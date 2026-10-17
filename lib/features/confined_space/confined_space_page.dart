@@ -27,6 +27,7 @@ class ConfinedSpacePage extends StatefulWidget {
     this.newId,
     this.shareText = confinedSpaceDefaultShareText,
     this.sharePdf = confinedSpaceDefaultSharePdf,
+    this.pickTime = confinedSpaceDefaultPickTime,
   });
 
   final ConfinedSpaceStore store;
@@ -36,6 +37,7 @@ class ConfinedSpacePage extends StatefulWidget {
   final String Function()? newId;
   final ConfinedSpaceShareText shareText;
   final ConfinedSpaceSharePdf sharePdf;
+  final ConfinedSpacePickTime pickTime;
 
   @override
   State<ConfinedSpacePage> createState() => _ConfinedSpacePageState();
@@ -47,18 +49,29 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
   List<ConfinedSpaceRecord>? _items;
   bool _loadFailed = false;
 
+  /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
+  late final ConfinedSpaceStore _store = widget.store.withClock(widget.now);
+
   /// Ostatni odczyt coś odrzucił (baner do końca wizyty na ekranie).
   ConfinedSpaceLoad? _damage;
+
+  /// Co minutę przelicz stan — pomiar starzeje się bez dotykania ekranu
+  /// (zielony nie może wisieć po upływie ważności pomiaru).
+  Timer? _tick;
 
   @override
   void initState() {
     super.initState();
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
     ConfinedSpaceStore.changes.addListener(_onStoreChanged);
     unawaited(_reload());
   }
 
   @override
   void dispose() {
+    _tick?.cancel();
     ConfinedSpaceStore.changes.removeListener(_onStoreChanged);
     super.dispose();
   }
@@ -73,7 +86,7 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
 
   Future<void> _reload() async {
     try {
-      final load = await widget.store.load();
+      final load = await _store.load();
       if (!mounted) return;
       setState(() {
         _items = load.records;
@@ -92,28 +105,50 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
 
   String _id() => widget.newId?.call() ?? const Uuid().v4();
 
+  /// Historia pełna — nowego protokołu nie da się zapisać; mówimy to od
+  /// razu, zamiast otwierać formularz, który się nie zapisze.
+  bool _refuseWhenFull() {
+    if ((_items?.length ?? 0) < ConfinedSpaceStore.maxEntries) return false;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        key: const ValueKey('cs-store-full'),
+        content: Text(context.tr(
+          pl: 'Historia pełna (${ConfinedSpaceStore.maxEntries} protokołów) '
+              '— udostępnij i usuń stare protokoły, żeby dodać nowy.',
+          en: 'History full (${ConfinedSpaceStore.maxEntries} records) — '
+              'share and delete old records to add a new one.',
+        )),
+      ));
+    return true;
+  }
+
   Future<void> _open(ConfinedSpaceRecord record) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ConfinedSpaceEditPage(
         initial: record,
-        store: widget.store,
+        store: _store,
         now: widget.now,
         shareText: widget.shareText,
         sharePdf: widget.sharePdf,
+        pickTime: widget.pickTime,
       ),
     ));
     await _reload();
   }
 
-  Future<void> _new() =>
-      _open(ConfinedSpaceRecord.blank(id: _id(), now: widget.now()));
+  Future<void> _new() async {
+    if (_refuseWhenFull()) return;
+    await _open(ConfinedSpaceRecord.blank(id: _id(), now: widget.now()));
+  }
 
-  /// „Jak wczoraj”: dane organizacyjne i progi zostają, pomiary
-  /// i odhaczenia — nie.
+  /// „Jak wczoraj”: dane organizacyjne i progi zostają, pomiary,
+  /// odhaczenia i wyłączone gazy — nie.
   Future<void> _duplicate(ConfinedSpaceRecord source) async {
+    if (_refuseWhenFull()) return;
     final copy = source.duplicateFor(newId: _id(), now: widget.now());
     try {
-      await widget.store.upsert(copy);
+      await _store.upsert(copy);
     } catch (e) {
       // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[confined_space] duplicate save failed: $e');
@@ -153,10 +188,10 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
       ),
     );
     if (ok != true || !mounted) return;
-    await widget.store.delete(record.id);
+    await _store.delete(record.id);
     await _reload();
     if (!mounted) return;
-    final store = widget.store;
+    final store = _store;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -197,6 +232,22 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
         padding: EdgeInsets.fromLTRB(
             12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (items != null && items.length >= ConfinedSpaceStore.warnAt)
+            QuoteNotice(
+              key: const ValueKey('cs-store-warn'),
+              color: items.length >= ConfinedSpaceStore.maxEntries
+                  ? kFail
+                  : kWarn,
+              icon: Icons.inventory_2_outlined,
+              text: context.tr(
+                pl: 'Historia: ${items.length}/${ConfinedSpaceStore.maxEntries} '
+                    'protokołów. Przy pełnej nowego protokołu nie da się '
+                    'zapisać — udostępnij (PDF) i usuń stare.',
+                en: 'History: ${items.length}/${ConfinedSpaceStore.maxEntries} '
+                    'records. When full, a new record cannot be saved — share '
+                    '(PDF) and delete old ones.',
+              ),
+            ),
           if (damage != null)
             QuoteNotice(
               key: const ValueKey('cs-load-damaged'),
@@ -289,6 +340,7 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
                 for (final (i, r) in items.indexed)
                   _HistoryTile(
                     key: ValueKey('cs-item-$i'),
+                    now: widget.now(),
                     index: i,
                     record: r,
                     title: _titleOf(r),
@@ -316,6 +368,7 @@ class _HistoryTile extends StatelessWidget {
     required this.en,
     required this.onOpen,
     required this.onAction,
+    required this.now,
   });
 
   final int index;
@@ -325,9 +378,12 @@ class _HistoryTile extends StatelessWidget {
   final VoidCallback onOpen;
   final Future<void> Function(_ItemAction a) onAction;
 
+  /// Chwila oceny (wiek pomiarów, data protokołu).
+  final DateTime now;
+
   @override
   Widget build(BuildContext context) {
-    final a = record.assess();
+    final a = record.assess(now: now);
     final color = confinedSpaceReadinessColor(a);
     final processes = [
       for (final p in CsProcess.values)

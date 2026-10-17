@@ -65,6 +65,20 @@ void main() {
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
   });
 
+  test('bez limitu, wynik ponad 10 %, pomiar z innego dnia — renderuje się',
+      () async {
+    final p = _filled.copyWith(dgwLimitPct: null, measurements: [
+      HotWorkMeasurement(
+          time: '23:50',
+          at: DateTime(2026, 10, 16, 23, 50).millisecondsSinceEpoch,
+          dgwPct: 40),
+    ]);
+    for (final en in [false, true]) {
+      final bytes = await _render(p, english: en);
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    }
+  });
+
   test('nazwa pliku z datą pracy', () {
     expect(hotWorkFileName(_filled, english: false),
         'Prace_pozarowe_protokol_2026-10-17.pdf');
