@@ -135,4 +135,22 @@ void main() {
     expect(CoolingTimePainter.qTop(2.0), 5);
     expect(CoolingTimePainter.tTop(6, 15), 25);
   });
+
+  testWidgets('nieczytelna granica okna — werdykt „złe okno”, nie zielony',
+      (tester) async {
+    await pump(tester);
+    expect(verdict(T85Verdict.inWindow), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('cool-wmin')), '5,5,5');
+    await tester.pump();
+    expect(verdict(T85Verdict.invalidWindow), findsOneWidget);
+    expect(verdict(T85Verdict.inWindow), findsNothing);
+  });
+
+  testWidgets('werdykt przy granicy podaje wynik z 2 miejscami', (tester) async {
+    await pump(tester);
+    await tester.enterText(find.byKey(const ValueKey('cool-t0')), '20');
+    await tester.pump();
+    expect(verdict(T85Verdict.tooShort), findsOneWidget);
+    expect(find.textContaining('4,76 s, poniżej 5,0 s'), findsOneWidget);
+  });
 }

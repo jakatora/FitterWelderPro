@@ -176,7 +176,7 @@ String hotWorkProtocolText(HotWorkPermit p, {required bool en}) {
   if (p.measurements.isEmpty) {
     b.writeln(en ? '— no reading —' : '— brak pomiaru —');
   } else {
-    for (final m in p.measurements) {
+    for (final m in p.measurementsChrono) {
       b.writeln('- ${hotWorkMeasurementLine(m, p.dgwLimitPct, en: en)}');
     }
   }

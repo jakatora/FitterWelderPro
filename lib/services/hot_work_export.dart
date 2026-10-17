@@ -238,7 +238,7 @@ class HotWorkExport {
                   cell(en ? 'Assessment' : 'Ocena', head: true),
                 ],
               ),
-              for (final m in permit.measurements)
+              for (final m in permit.measurementsChrono)
                 pw.TableRow(children: [
                   cell(m.time.isEmpty ? '—' : m.time),
                   cell(hotWorkDgw(m.dgwPct, en: en)),

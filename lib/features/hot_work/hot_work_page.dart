@@ -92,7 +92,12 @@ class _HotWorkPageState extends State<HotWorkPage> {
   /// „Jak wczoraj”: dane organizacyjne zostają, zaznaczenia i pomiary — nie.
   Future<void> _duplicate(HotWorkPermit source) async {
     final copy = source.duplicateFor(newId: _id(), now: widget.now());
-    await widget.store.upsert(copy);
+    try {
+      await widget.store.upsert(copy);
+    } catch (e) {
+      // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
+      debugPrint('[hot_work] duplicate save failed: $e');
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()

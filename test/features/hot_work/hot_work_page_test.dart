@@ -31,6 +31,7 @@ Future<_Spy> _pump(
   AppLanguage language = AppLanguage.pl,
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
+  DateTime Function()? now,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -47,7 +48,7 @@ Future<_Spy> _pump(
         child: child!,
       ),
       home: HotWorkPage(
-        now: () => _now,
+        now: now ?? () => _now,
         newId: () => 'hw-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
@@ -412,5 +413,69 @@ void main() {
       expect(tester.getSize(f).height, greaterThanOrEqualTo(kMinTapTarget),
           reason: k);
     }
+  });
+
+  testWidgets('zaległy pomiar 0 % po 15 % — nadal STOP i ostrzeżenie',
+      (tester) async {
+    var clock = DateTime(2026, 10, 17, 10, 30);
+    await _pump(tester, now: () => clock);
+    await _tapKey(tester, 'hw-new');
+    await _tickAllBefore(tester);
+    await _enter(tester, 'hw-meas-dgw', '15');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('STOP'));
+
+    // Pomiar wpisany z chwilą wcześniejszą niż ostatni (tu: zegar 09:00 —
+    // ta sama ścieżka co ręcznie wybrana godzina wstecz).
+    clock = DateTime(2026, 10, 17, 9, 0);
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(find.byKey(const ValueKey('hw-meas-backdated')), findsOneWidget);
+    expect(await _status(tester), startsWith('STOP'));
+    // Lista w kolejności czasu: 09:00 nad 10:30.
+    final row0 = await _show(tester, 'hw-meas-0');
+    expect(
+        find.descendant(of: row0, matching: find.textContaining('09:00')),
+        findsOneWidget);
+  });
+
+  testWidgets('próg powyżej 10 % DGW — błąd pola i brak zielonego',
+      (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'hw-new');
+    await _tickAllBefore(tester);
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('Stanowisko przygotowane'));
+    await _enter(tester, 'hw-limit', '100');
+    expect(
+        find.text('Wpisz 0–10 — przepis nie pozwala na więcej niż 10 % DGW'),
+        findsOneWidget);
+    expect(await _status(tester), isNot(startsWith('Stanowisko przygotowane')));
+  });
+
+  test('uszkodzona historia: kopia surowego zapisu przed nadpisaniem',
+      () async {
+    SharedPreferences.setMockInitialValues({HotWorkStore.key: '[{"id": "x"'});
+    const store = HotWorkStore();
+    expect(await store.load(), isEmpty);
+    await store.upsert(_yesterday());
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(HotWorkStore.corruptBackupKey), '[{"id": "x"');
+    expect((await store.load()).single.id, 'old');
+  });
+
+  test('pełna historia: zapisywany protokół z najstarszą datą nie wypada',
+      () async {
+    const store = HotWorkStore();
+    for (var i = 0; i < HotWorkStore.maxEntries; i++) {
+      await store.upsert(HotWorkPermit.fromJson(
+          {..._yesterday().toJson(), 'id': 'p$i'})!);
+    }
+    expect(await store.load(), hasLength(HotWorkStore.maxEntries));
+    final oldest = HotWorkPermit.fromJson(
+        {..._yesterday().toJson(), 'id': 'najstarszy', 'date': '2020-01-01'})!;
+    await store.upsert(oldest);
+    expect((await store.load()).map((p) => p.id), contains('najstarszy'));
   });
 }

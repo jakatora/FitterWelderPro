@@ -463,4 +463,22 @@ void main() {
             volts: 28, amps: 250, efficiency: 0.8, heatInputKjMm: 0),
         isNull);
   });
+
+  test('dane poza fizyką: Q przepełniające liczbę i T0 poniżej 0 K → null',
+      () {
+    expect(
+        coolingTime(
+            heatInputKjMm: 1e160,
+            preheatC: 20,
+            thicknessMm: 10,
+            shape: WeldShape.values.first),
+        isNull);
+    expect(
+        coolingTime(
+            heatInputKjMm: 1,
+            preheatC: -300,
+            thicknessMm: 10,
+            shape: WeldShape.values.first),
+        isNull);
+  });
 }

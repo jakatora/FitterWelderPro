@@ -84,7 +84,7 @@ enum WeldShape {
 const double _t0Pole = 500;
 
 bool _validQ(double q) => q.isFinite && q > 0;
-bool _validT0(double t0) => t0.isFinite && t0 < _t0Pole;
+bool _validT0(double t0) => t0.isFinite && t0 > -273.15 && t0 < _t0Pole;
 bool _validD(double d) => d.isFinite && d > 0;
 bool _validF(double f) => f.isFinite && f > 0;
 
@@ -246,6 +246,9 @@ CoolingTimeResult? coolingTime({
       preheatC: preheatC,
       thicknessMm: thicknessMm,
       f2: shape.f2Max)!;
+  // Absurdalnie duże Q (≈1e154) przepełnia Q² do ∞ — wynik „Infinity” na
+  // ekranie byłby gorszy niż brak wyniku.
+  if (![dt, t3, t2min, t2max].every((v) => v.isFinite)) return null;
   final flow = thicknessMm < dt ? HeatFlow.twoD : HeatFlow.threeD;
   return CoolingTimeResult(
     heatInputKjMm: heatInputKjMm,

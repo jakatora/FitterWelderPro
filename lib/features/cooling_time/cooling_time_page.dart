@@ -66,6 +66,9 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
     return parseDecimal(t);
   }
 
+  double? _parseWindow(TextEditingController c) =>
+      c.text.trim().isEmpty ? null : (parseDecimal(c.text.trim()) ?? double.nan);
+
   /// Q [kJ/mm] wg EN 1011-1 (z k). Z parametrów — przez heat_input.dart.
   double? get _heatInput {
     if (!_fromParams) return _parse(_q);
@@ -134,8 +137,10 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
     final q = _heatInput;
     final t0 = _parse(_t0);
     final d = _parse(_d);
-    final wMin = _parse(_wMin);
-    final wMax = _parse(_wMax);
+    // Niepusta, ale nieczytelna granica okna („5,5,5”) to błąd wpisu —
+    // NaN daje werdykt „złe okno”, a nie po cichu „brak granicy”.
+    final wMin = _parseWindow(_wMin);
+    final wMax = _parseWindow(_wMax);
 
     final problems = <String>[
       if (q == null || q <= 0)
@@ -407,6 +412,11 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
       T85Verdict v, CoolingTimeResult r, double? wMin, double? wMax) {
     final lo = wMin == null ? '—' : _n(wMin);
     final hi = wMax == null ? '—' : _n(wMax);
+    // Przy granicy wynik z 1 miejscem („5,0 s”) wyglądałby jak sprzeczność
+    // z werdyktem „poniżej 5,0 s” — w werdykcie 2 miejsca.
+    final t2 = (r.t85MaxS - r.t85MinS).abs() < 0.005
+        ? _n(r.t85MinS, 2)
+        : '${_n(r.t85MinS, 2)}–${_n(r.t85MaxS, 2)}';
     final (Color color, IconData icon, String text) = switch (v) {
       T85Verdict.notSet => (
           kTextSec,
@@ -421,8 +431,8 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
           kFail,
           Icons.error_outline,
           context.tr(
-              pl: 'Okno t8/5: granice > 0, min nie większe niż max.',
-              en: 't8/5 window: limits > 0, min not above max.'),
+              pl: 'Okno t8/5: wpisz liczby > 0, min nie większe niż max.',
+              en: 't8/5 window: enter numbers > 0, min not above max.'),
         ),
       T85Verdict.inWindow => (
           kPass,
@@ -435,18 +445,18 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
           kFail,
           Icons.ac_unit,
           context.tr(
-              pl: 'Za krótko — poniżej $lo s. Stygnie za szybko: '
+              pl: 'Za krótko — $t2 s, poniżej $lo s. Stygnie za szybko: '
                   'ryzyko twardej, kruchej SWC. Zwiększ Q albo T0.',
-              en: 'Too short — below $lo s. Cools too fast: risk of '
+              en: 'Too short — $t2 s, below $lo s. Cools too fast: risk of '
                   'a hard, brittle HAZ. Raise Q or T0.'),
         ),
       T85Verdict.tooLong => (
           kFail,
           Icons.local_fire_department_outlined,
           context.tr(
-              pl: 'Za długo — powyżej $hi s. Stygnie za wolno: '
+              pl: 'Za długo — $t2 s, powyżej $hi s. Stygnie za wolno: '
                   'spadek udarności i wytrzymałości SWC. Zmniejsz Q albo T0.',
-              en: 'Too long — above $hi s. Cools too slowly: loss of '
+              en: 'Too long — $t2 s, above $hi s. Cools too slowly: loss of '
                   'HAZ toughness and strength. Lower Q or T0.'),
         ),
       T85Verdict.partly => (

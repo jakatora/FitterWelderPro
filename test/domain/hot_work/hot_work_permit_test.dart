@@ -274,4 +274,71 @@ void main() {
     expect(formatHotWorkNumber(10, en: false), '10');
     expect(hotWorkTime(DateTime(2026, 1, 2, 7, 5)), '07:05');
   });
+
+  group('pomiary w czasie i próg (przegląd 2026-10-17)', () {
+    final t1030 = DateTime(2026, 10, 17, 10, 30).millisecondsSinceEpoch;
+    final t0900 = DateTime(2026, 10, 17, 9, 0).millisecondsSinceEpoch;
+
+    test('zaległy pomiar 0 % z 09:00 dopisany po 15 % z 10:30 — nadal STOP',
+        () {
+      final p = _allBefore(_blank()).copyWith(measurements: [
+        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 15),
+        HotWorkMeasurement(time: '09:00', at: t0900, dgwPct: 0),
+      ]);
+      final a = p.assess();
+      expect(a.lastMeasurement!.time, '10:30');
+      expect(a.readiness, HotWorkReadiness.overLimit);
+      expect(p.measurementsChrono.map((m) => m.time), ['09:00', '10:30']);
+    });
+
+    test('ta sama chwila — decyduje później dopisany', () {
+      final p = _allBefore(_blank()).copyWith(measurements: [
+        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 15),
+        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 0),
+      ]);
+      expect(p.assess().readiness, HotWorkReadiness.ready);
+    });
+
+    test('stary zapis bez chwili pomiaru — kolejność wpisów', () {
+      final p = _allBefore(_blank()).copyWith(measurements: const [
+        HotWorkMeasurement(time: '10:30', dgwPct: 0),
+        HotWorkMeasurement(time: '09:00', dgwPct: 15),
+      ]);
+      expect(p.assess().readiness, HotWorkReadiness.overLimit);
+    });
+
+    test('godzina pomiaru: dziś, a „z przyszłości” to wczoraj (zmiana nocna)',
+        () {
+      final now = DateTime(2026, 10, 17, 0, 12);
+      expect(hotWorkMeasurementAt('00:10', now), DateTime(2026, 10, 17, 0, 10));
+      expect(hotWorkMeasurementAt('23:50', now), DateTime(2026, 10, 16, 23, 50));
+      // Zapas 5 min na różnicę zegarów.
+      expect(hotWorkMeasurementAt('00:16', now), DateTime(2026, 10, 17, 0, 16));
+      expect(hotWorkMeasurementAt('25:00', now), now);
+      expect(hotWorkMeasurementAt('', now), now);
+    });
+
+    test('chwila pomiaru przechodzi przez JSON', () {
+      final p = _blank().copyWith(measurements: [
+        HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 1.5),
+      ]);
+      final back = HotWorkPermit.fromJson(jsonDecode(jsonEncode(p.toJson())))!;
+      expect(back.measurements.single.at, t1030);
+      expect(back.measurements.single, p.measurements.single);
+    });
+
+    test('próg powyżej 10 % DGW nie daje zielonego stanu', () {
+      expect(hotWorkLimitValid(10), isTrue);
+      expect(hotWorkLimitValid(0), isTrue);
+      expect(hotWorkLimitValid(10.01), isFalse);
+      expect(hotWorkLimitValid(-1), isFalse);
+      final p = _allBefore(_blank()).copyWith(
+        dgwLimitPct: 100.0,
+        measurements: [HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 40)],
+      );
+      expect(p.assess().readiness, HotWorkReadiness.noLimit);
+      final json = p.toJson()..['dgwLimit'] = 50;
+      expect(HotWorkPermit.fromJson(json)!.dgwLimitPct, isNull);
+    });
+  });
 }

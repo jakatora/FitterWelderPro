@@ -53,6 +53,12 @@ class HotWorkMeasurement {
   /// Godzina pomiaru `HH:mm`.
   final String time;
 
+  /// Chwila pomiaru (ms od epoki) — o stanie decyduje pomiar
+  /// NAJPÓŹNIEJSZY w czasie, nie ostatnio dopisany (zaległy pomiar 0 %
+  /// z 09:00 nie może zdjąć STOP-u z pomiaru 15 % z 10:30). `null` tylko
+  /// w zapisach sprzed tego pola — wtedy liczy się kolejność wpisów.
+  final int? at;
+
   /// Wynik w % DGW (dolnej granicy wybuchowości, ang. % LEL).
   final double dgwPct;
 
@@ -61,12 +67,14 @@ class HotWorkMeasurement {
 
   const HotWorkMeasurement({
     required this.time,
+    this.at,
     required this.dgwPct,
     this.note = '',
   });
 
   Map<String, Object?> toJson() => {
         'time': time,
+        if (at != null) 'at': at,
         'dgw': dgwPct,
         'note': note,
       };
@@ -76,8 +84,10 @@ class HotWorkMeasurement {
     if (raw is! Map) return null;
     final v = raw['dgw'];
     if (v is! num || !v.isFinite || v < 0) return null;
+    final at = raw['at'];
     return HotWorkMeasurement(
       time: _s(raw['time']),
+      at: at is num && at.isFinite ? at.toInt() : null,
       dgwPct: v.toDouble(),
       note: _s(raw['note']),
     );
@@ -87,12 +97,48 @@ class HotWorkMeasurement {
   bool operator ==(Object other) =>
       other is HotWorkMeasurement &&
       other.time == time &&
+      other.at == at &&
       other.dgwPct == dgwPct &&
       other.note == note;
 
   @override
-  int get hashCode => Object.hash(time, dgwPct, note);
+  int get hashCode => Object.hash(time, at, dgwPct, note);
 }
+
+/// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: ostatnie takie
+/// wystąpienie nie później niż 5 min po [now] (zapas na różnicę zegarów).
+/// Godzina „z przyszłości” to wczoraj — np. 23:50 wpisane o 00:12 (zmiana
+/// nocna). Zła godzina → [now].
+DateTime hotWorkMeasurementAt(String hhmm, DateTime now) {
+  final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(hhmm.trim());
+  if (m == null) return now;
+  final h = int.parse(m.group(1)!);
+  final min = int.parse(m.group(2)!);
+  if (h > 23 || min > 59) return now;
+  final today = DateTime(now.year, now.month, now.day, h, min);
+  return today.isAfter(now.add(const Duration(minutes: 5)))
+      ? DateTime(now.year, now.month, now.day - 1, h, min)
+      : today;
+}
+
+/// Pomiary w kolejności czasu (stabilnie). Gdy któryś nie ma chwili
+/// pomiaru (stary zapis), zostaje kolejność wpisów.
+List<HotWorkMeasurement> hotWorkMeasurementsChrono(
+    List<HotWorkMeasurement> list) {
+  if (list.any((m) => m.at == null)) return List.unmodifiable(list);
+  final indexed = [...list.indexed]..sort((a, b) {
+      final byAt = a.$2.at!.compareTo(b.$2.at!);
+      return byAt != 0 ? byAt : a.$1.compareTo(b.$1);
+    });
+  return List.unmodifiable([for (final (_, m) in indexed) m]);
+}
+
+/// Dopuszczalne % DGW, które aplikacja przyjmuje: 0–10. Przepis
+/// (rozp. MSWiA § 36 ust. 2) nie pozwala na więcej niż 10 % DGW, a zakład
+/// może wymagać mniej; wyższa wartość to literówka („100” zamiast „10”)
+/// i nie może dawać zielonego stanu.
+bool hotWorkLimitValid(double v) =>
+    v.isFinite && v >= 0 && v <= kHotWorkDefaultDgwLimitPct;
 
 /// Wynik oceny gotowości — co jeszcze blokuje zielony stan.
 enum HotWorkReadiness {
@@ -126,7 +172,7 @@ class HotWorkAssessment {
   final List<HotWorkCheck> openDuring;
   final List<HotWorkCheck> openAfter;
 
-  /// Ostatni (najpóźniej dopisany) pomiar albo `null`.
+  /// Najpóźniejszy w czasie pomiar albo `null`.
   final HotWorkMeasurement? lastMeasurement;
   final double? limitPct;
 
@@ -267,17 +313,23 @@ class HotWorkPermit {
 
   bool isSettled(HotWorkCheck c) => isChecked(c) || isNa(c);
 
+  /// Pomiary od najwcześniejszego do najpóźniejszego.
+  List<HotWorkMeasurement> get measurementsChrono =>
+      hotWorkMeasurementsChrono(measurements);
+
   HotWorkAssessment assess() {
     List<HotWorkCheck> open(HotWorkPhase p) => [
           for (final c in hotWorkChecksIn(p))
             if (!isSettled(c)) c,
         ];
+    final chrono = measurementsChrono;
+    final limit = dgwLimitPct;
     return HotWorkAssessment(
       openBefore: open(HotWorkPhase.before),
       openDuring: open(HotWorkPhase.during),
       openAfter: open(HotWorkPhase.after),
-      lastMeasurement: measurements.isEmpty ? null : measurements.last,
-      limitPct: dgwLimitPct,
+      lastMeasurement: chrono.isEmpty ? null : chrono.last,
+      limitPct: limit != null && hotWorkLimitValid(limit) ? limit : null,
     );
   }
 
@@ -430,7 +482,7 @@ class HotWorkPermit {
       securedBy: _s(raw['securedBy']),
       fireWatch: _s(raw['fireWatch']),
       issuer: _s(raw['issuer']),
-      dgwLimitPct: limit is num && limit.isFinite && limit >= 0
+      dgwLimitPct: limit is num && hotWorkLimitValid(limit.toDouble())
           ? limit.toDouble()
           : null,
       measurements: [

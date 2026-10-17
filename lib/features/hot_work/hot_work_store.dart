@@ -35,23 +35,43 @@ class HotWorkStore {
   /// Protokoły od najnowszego (data, potem czas zapisu).
   Future<List<HotWorkPermit>> load() => _serial(_loadNow);
 
+  /// Kopia nieczytelnej historii — zanim pierwszy zapis ją nadpisze.
+  static const String corruptBackupKey = '${key}_corrupt';
+
   Future<List<HotWorkPermit>> _loadNow() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(key);
-    if (raw == null || raw.isEmpty) return const [];
+    Object? raw;
     try {
+      raw = prefs.get(key);
+      if (raw == null || (raw is String && raw.isEmpty)) return const [];
+      if (raw is! String) throw const FormatException('not a string');
       return sortHotWorkPermits(hotWorkPermitsFromJson(jsonDecode(raw)));
-    } on FormatException {
+    } catch (_) {
+      // Uszkodzony zapis: historia pusta, ale surowy tekst zostaje w kopii
+      // (tylko pierwsza — kolejne odczyty jej nie nadpisują).
+      if (raw != null && !prefs.containsKey(corruptBackupKey)) {
+        await prefs.setString(corruptBackupKey, raw.toString());
+      }
       return const [];
     }
   }
 
-  Future<void> _write(List<HotWorkPermit> list) async {
+  /// [keepId] — protokół właśnie zapisywany nie wypada przy przycinaniu
+  /// historii, nawet jeśli ma najstarszą datę.
+  Future<void> _write(List<HotWorkPermit> list, {String? keepId}) async {
     final prefs = await SharedPreferences.getInstance();
     final sorted = sortHotWorkPermits(list);
-    final kept =
+    var kept =
         sorted.length > maxEntries ? sorted.sublist(0, maxEntries) : sorted;
-    await prefs.setString(key, jsonEncode(hotWorkPermitsToJson(kept)));
+    if (keepId != null && !kept.any((p) => p.id == keepId)) {
+      final saved = sorted.where((p) => p.id == keepId);
+      if (saved.isNotEmpty) {
+        kept = [...kept.sublist(0, kept.length - 1), saved.first];
+      }
+    }
+    final ok =
+        await prefs.setString(key, jsonEncode(hotWorkPermitsToJson(kept)));
+    if (!ok) throw StateError('SharedPreferences.setString($key) failed');
   }
 
   /// Zapisuje (nowy albo zmieniony) protokół. Pusty protokół (nic nie
@@ -60,7 +80,7 @@ class HotWorkStore {
         final list = [...await _loadNow()]
           ..removeWhere((p) => p.id == permit.id);
         if (!permit.isBlank) list.add(permit);
-        await _write(list);
+        await _write(list, keepId: permit.id);
       });
 
   Future<void> delete(String id) => _serial(() async {

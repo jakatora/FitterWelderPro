@@ -120,7 +120,26 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     final snapshot = _p;
     unawaited(widget.store.upsert(snapshot).catchError((Object e) {
       debugPrint('[hot_work] save failed: $e');
+      _reportSaveFailure();
     }));
+  }
+
+  bool _saveFailureShown = false;
+
+  /// Raz na ekran: protokół bezpieczeństwa, który się nie zapisuje, nie może
+  /// tego robić po cichu.
+  void _reportSaveFailure() {
+    if (!mounted || _saveFailureShown) return;
+    _saveFailureShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      key: const ValueKey('hw-save-failed'),
+      content: Text(context.tr(
+        pl: 'Nie udało się zapisać protokołu w telefonie — udostępnij go '
+            '(tekst/PDF), żeby nie przepadł.',
+        en: 'Could not save the record on this phone — share it '
+            '(text/PDF) so it is not lost.',
+      )),
+    ));
   }
 
   void _toggle(HotWorkCheck c) {
@@ -149,19 +168,57 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
         : null;
   }
 
+  /// Dopuszczalne % DGW: 0–10 (więcej przepis nie pozwala — zob.
+  /// [hotWorkLimitValid]); poza zakresem `null`, czyli „brak progu”.
+  static double? _limitPct(String raw) {
+    final v = parseDecimal(raw);
+    if (v == null || !hotWorkLimitValid(v)) return null;
+    return v;
+  }
+
+  String? _limitError(String raw) {
+    if (raw.trim().isEmpty) return null;
+    return _limitPct(raw) == null
+        ? context.tr(
+            pl: 'Wpisz 0–10 — przepis nie pozwala na więcej niż 10 % DGW',
+            en: 'Enter 0–10 — the regulation allows no more than 10 % LEL')
+        : null;
+  }
+
   void _addMeasurement() {
     final v = _pct(_measDgw.text);
     if (v == null) return;
+    final now = widget.now();
+    final time = _measTime ?? hotWorkTime(now);
+    final at = _measTime == null ? now : hotWorkMeasurementAt(time, now);
     final m = HotWorkMeasurement(
-      time: _measTime ?? hotWorkTime(widget.now()),
+      time: time,
+      at: at.millisecondsSinceEpoch,
       dgwPct: v,
       note: _measNote.text.trim(),
     );
-    _set((p) => p.copyWith(measurements: [...p.measurements, m]));
+    final latestBefore = _p.assess().lastMeasurement;
+    _set((p) => p.copyWith(
+        measurements: hotWorkMeasurementsChrono([...p.measurements, m])));
     _measDgw.clear();
     _measNote.clear();
     setState(() => _measTime = null);
     unawaited(Haptic.tap());
+    // Zaległy pomiar nie zmienia stanu — mówimy to wprost, żeby nikt nie
+    // myślał, że „0 %” dopisane później zdjęło STOP.
+    if (latestBefore != null && !identical(_p.assess().lastMeasurement, m)) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          key: const ValueKey('hw-meas-backdated'),
+          content: Text(context.tr(
+            pl: 'Pomiar z $time jest wcześniejszy niż ostatni '
+                '(${latestBefore.time}) — stan ocenia najpóźniejszy pomiar.',
+            en: 'The $time reading is earlier than the latest one '
+                '(${latestBefore.time}) — the status uses the latest reading.',
+          )),
+        ));
+    }
   }
 
   void _removeMeasurement(int index) {
@@ -527,9 +584,10 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
                     'not above 10 % LEL (§ 36(2)); sites may require less '
                     '(0–5 %).'),
             helperMaxLines: 4,
-            errorText: _pctError(_limit.text),
+            errorText: _limitError(_limit.text),
           ),
-          onChanged: (t) => _set((p) => p.copyWith(dgwLimitPct: _pct(t))),
+          onChanged: (t) =>
+              _set((p) => p.copyWith(dgwLimitPct: _limitPct(t))),
         ),
         const SizedBox(height: 12),
         if (_p.measurements.isEmpty)
