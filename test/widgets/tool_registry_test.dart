@@ -161,6 +161,8 @@ void main() {
         'WeldDefectsPage',
         // Spawarka: cykl pracy i przewody.
         'PowerSourcePage',
+        // Egzamin spawacza: pytania z danych aplikacji.
+        'WelderExamPage',
       };
       expect(targets, expected);
     });

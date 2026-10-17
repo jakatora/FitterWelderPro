@@ -1172,6 +1172,27 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/data/weld_defects_test.dart: nazwy PL / EN wspólnych numerów zgodne z tabelą ISO 5817 i słownikiem',
       ]),
   ModuleAuditEntry(
+      id: 'welder-exam',
+      entryPoint: 'WelderExamPage',
+      sourcePath: 'lib/features/welder_exam/welder_exam_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          'Szybka sesja 10 pytań z 10 kategorii, 5 dobrych → „5 / 10”, 50 %, statystyki per kategoria, 5 pytań do powtórki i wynik w historii; „135” → Spawanie MAG drutem litym (ISO 4063); „pionowa z dołu do góry” → PF; próba BW na rurze w PH → PA, PE, PF, PH (tab. 9); s = 8 mm → 3–16 mm; D = 60,3 → ≥ 30,15 mm; E7018 → 4 h (AWS D1.1 tab. 7.1); najostrzejszy poziom ISO 5817 → B; dobra odpowiedź zdejmuje pytanie z powtórek; ten sam seed → te same pytania; uszkodzony JSON → komunikat i kopia przed nadpisaniem; EN; 320×640 przy tekście ×1,3 bez przepełnień; cele ≥ 48 dp; zastrzeżenie „nie są oficjalnymi pytaniami egzaminacyjnymi”.',
+      evidence: [
+        'test/domain/exam/exam_questions_test.dart: każde pytanie: ≥ 3 różne odpowiedzi, dokładnie jedna poprawna, treść i źródło (PL i EN)',
+        'test/domain/exam/exam_questions_test.dart: dystraktory z tej samej kategorii danych',
+        'test/domain/exam/exam_questions_test.dart: pomijane niejednoznaczne: s ≥ 12, reguły słowne ISO 5817, spokrewnione niezgodności, elektrody o tym samym limicie, spoiwo z uzasadnienia, synonimy',
+        'test/domain/exam/exam_questions_test.dart: ten sam seed → te same pytania i ta sama kolejność odpowiedzi',
+        'test/domain/exam/exam_session_test.dart: statystyki: licznik kategorii i lista powtórek (źle → dopisane, dobrze → usunięte)',
+        'test/features/welder_exam/welder_exam_store_test.dart: uszkodzony JSON: pusty stan z flagą, kopia przed nadpisaniem — tylko raz',
+        'test/features/welder_exam/welder_exam_page_test.dart: start: zastrzeżenie „nie są oficjalnymi pytaniami” i kategorie z liczbą pytań',
+        'test/features/welder_exam/welder_exam_page_test.dart: szybka sesja 10 pytań do końca: wynik i zapis statystyk',
+        'test/features/welder_exam/welder_exam_page_test.dart: pytania, które mi nie wychodzą: po błędach sesja z błędnych',
+        'test/features/welder_exam/welder_exam_page_test.dart: cele dotyku ≥ 48 dp',
+      ]),
+  ModuleAuditEntry(
       id: 'welder-identity-setup',
       entryPoint: 'WelderIdentitySetupScreen',
       sourcePath: 'lib/screens/welder_identity_setup_screen.dart',

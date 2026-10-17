@@ -20,6 +20,7 @@ import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weld_defects/weld_defects_page.dart';
+import '../features/welder_exam/welder_exam_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -1865,6 +1866,38 @@ final List<ToolSpec> kToolRegistry = [
   ),
   // Uprawnienia SPAWACZA (EN ISO 9606-1 / ASME WPQ) — nie „WPQR", który jest
   // kwalifikacją procedury i należy do WPS (następny wpis).
+  ToolSpec(
+    id: 'welder_exam',
+    group: ToolGroup.inspection,
+    titlePl: 'Egzamin spawacza: pytania',
+    titleEn: 'Welder exam: questions',
+    subtitlePl:
+        'Ćwiczenia offline: procesy, pozycje, niezgodności, zakres 9606-1',
+    subtitleEn:
+        'Offline practice: processes, positions, imperfections, 9606-1 range',
+    icon: Icons.quiz_outlined,
+    color: const Color(0xFF7CB342),
+    builder: (_) => const WelderExamPage(),
+    keywordsPl: const [
+      'egzamin spawacza',
+      'pytania',
+      'test wiedzy',
+      'quiz',
+      'nauka',
+      'teoria',
+      'odnowienie uprawnien',
+      'powtorka'
+    ],
+    keywordsEn: const [
+      'welder exam',
+      'exam questions',
+      'quiz',
+      'practice',
+      'theory',
+      'renewal',
+      'revision'
+    ],
+  ),
   ToolSpec(
     id: 'qualification_range',
     group: ToolGroup.inspection,

@@ -32,6 +32,7 @@ const List<String> kWhatsNewToolIds = [
   'weld_defects',
   'ndt_plan',
   'qualification_range',
+  'welder_exam',
   'weather_check',
   'hot_work',
   'electrode_exposure',
