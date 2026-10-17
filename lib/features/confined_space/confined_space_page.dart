@@ -1,0 +1,416 @@
+// Przestrzeń zamknięta: wejście i spawanie — nowy protokół, „jak wczoraj”
+// (kopia danych bez pomiarów i odhaczeń) i historia ostatnich protokołów
+// (SharedPreferences, bez zmian schematu bazy).
+//
+// MODUŁ BEZPIECZEŃSTWA: aplikacja jest listą pomocniczą — wiążą przepisy,
+// instrukcja zakładu i pisemne pozwolenie (zastrzeżenie na górze ekranu).
+// Uszkodzony zapis nie znika po cichu: baner + kopia surowego tekstu.
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../domain/confined_space/confined_space_record.dart';
+import '../../domain/confined_space/confined_space_text.dart';
+import '../../i18n/app_language.dart';
+import '../../theme/app_theme.dart';
+import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
+import 'confined_space_edit_page.dart';
+import 'confined_space_store.dart';
+
+class ConfinedSpacePage extends StatefulWidget {
+  const ConfinedSpacePage({
+    super.key,
+    this.store = const ConfinedSpaceStore(),
+    this.now = DateTime.now,
+    this.newId,
+    this.shareText = confinedSpaceDefaultShareText,
+    this.sharePdf = confinedSpaceDefaultSharePdf,
+  });
+
+  final ConfinedSpaceStore store;
+  final DateTime Function() now;
+
+  /// Identyfikator nowego protokołu — wstrzykiwany w testach.
+  final String Function()? newId;
+  final ConfinedSpaceShareText shareText;
+  final ConfinedSpaceSharePdf sharePdf;
+
+  @override
+  State<ConfinedSpacePage> createState() => _ConfinedSpacePageState();
+}
+
+enum _ItemAction { duplicate, delete }
+
+class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
+  List<ConfinedSpaceRecord>? _items;
+  bool _loadFailed = false;
+
+  /// Ostatni odczyt coś odrzucił (baner do końca wizyty na ekranie).
+  ConfinedSpaceLoad? _damage;
+
+  @override
+  void initState() {
+    super.initState();
+    ConfinedSpaceStore.changes.addListener(_onStoreChanged);
+    unawaited(_reload());
+  }
+
+  @override
+  void dispose() {
+    ConfinedSpaceStore.changes.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
+  /// Zapis spoza tego ekranu (np. „Cofnij” po zamknięciu protokołu) —
+  /// odśwież listę, gdy jest na wierzchu (w trakcie edycji nie trzeba:
+  /// powrót i tak przeładowuje).
+  void _onStoreChanged() {
+    if (!mounted) return;
+    if (ModalRoute.of(context)?.isCurrent ?? true) unawaited(_reload());
+  }
+
+  Future<void> _reload() async {
+    try {
+      final load = await widget.store.load();
+      if (!mounted) return;
+      setState(() {
+        _items = load.records;
+        _loadFailed = false;
+        if (load.damaged) _damage = load;
+      });
+    } catch (e) {
+      debugPrint('[confined_space] load failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _items = const [];
+        _loadFailed = true;
+      });
+    }
+  }
+
+  String _id() => widget.newId?.call() ?? const Uuid().v4();
+
+  Future<void> _open(ConfinedSpaceRecord record) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ConfinedSpaceEditPage(
+        initial: record,
+        store: widget.store,
+        now: widget.now,
+        shareText: widget.shareText,
+        sharePdf: widget.sharePdf,
+      ),
+    ));
+    await _reload();
+  }
+
+  Future<void> _new() =>
+      _open(ConfinedSpaceRecord.blank(id: _id(), now: widget.now()));
+
+  /// „Jak wczoraj”: dane organizacyjne i progi zostają, pomiary
+  /// i odhaczenia — nie.
+  Future<void> _duplicate(ConfinedSpaceRecord source) async {
+    final copy = source.duplicateFor(newId: _id(), now: widget.now());
+    try {
+      await widget.store.upsert(copy);
+    } catch (e) {
+      // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
+      debugPrint('[confined_space] duplicate save failed: $e');
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(context.tr(
+          pl: 'Kopia na dziś — pomiary atmosfery i listę wykonaj od nowa.',
+          en: 'Copy for today — redo the gas readings and the checklist.',
+        )),
+      ));
+    await _open(copy);
+  }
+
+  Future<void> _delete(ConfinedSpaceRecord record) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(
+            context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
+        content: Text(_titleOf(record)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          FilledButton(
+            key: const ValueKey('cs-delete-confirm'),
+            style: FilledButton.styleFrom(
+                backgroundColor: kFail, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await widget.store.delete(record.id);
+    await _reload();
+    if (!mounted) return;
+    final store = widget.store;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content:
+            Text(context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.')),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Cofnij', en: 'Undo'),
+          // Zapis przez magazyn — działa także po opuszczeniu ekranu.
+          onPressed: () async {
+            await store.upsert(record);
+            if (mounted) await _reload();
+          },
+        ),
+      ));
+  }
+
+  String _titleOf(ConfinedSpaceRecord r) {
+    final location = r.location.trim();
+    if (location.isNotEmpty) return location;
+    final description = r.description.trim();
+    if (description.isNotEmpty) return description;
+    return context.tr(pl: '(bez nazwy przestrzeni)', en: '(no space name)');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final en = context.language == AppLanguage.en;
+    final items = _items;
+    final damage = _damage;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(context.tr(
+            pl: 'Przestrzeń zamknięta: wejście i spawanie',
+            en: 'Confined space: entry and welding')),
+      ),
+      body: ListView(
+        key: const ValueKey('cs-list'),
+        padding: EdgeInsets.fromLTRB(
+            12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
+        children: [
+          if (damage != null)
+            QuoteNotice(
+              key: const ValueKey('cs-load-damaged'),
+              color: kFail,
+              icon: Icons.report_gmailerrorred_outlined,
+              text: damage.unreadable
+                  ? context.tr(
+                      pl: 'Zapisanej historii nie da się odczytać — kopia '
+                          'surowego zapisu została w telefonie.',
+                      en: 'The saved history could not be read — a raw copy '
+                          'is kept on the phone.')
+                  : context.tr(
+                      pl: 'Część zapisu była nieczytelna: pominięto '
+                          '${damage.droppedRecords} protokołów i '
+                          '${damage.droppedMeasurements} pomiarów. Kopia '
+                          'surowego zapisu została w telefonie.',
+                      en: 'Part of the saved data was unreadable: '
+                          '${damage.droppedRecords} record(s) and '
+                          '${damage.droppedMeasurements} reading(s) skipped. '
+                          'A raw copy is kept on the phone.'),
+            ),
+          QuoteNotice(
+            icon: Icons.gavel_outlined,
+            text: confinedSpaceDisclaimer(en: en),
+          ),
+          QuoteSection(
+            title: context.tr(pl: 'Nowe wejście', en: 'New entry'),
+            subtitle: context.tr(
+              pl: 'Lista przed wejściem, pomiary O₂, gazów palnych, CO i H₂S '
+                  'z godziną, ostrzeżenia dla spawacza (argon!) i protokół PDF '
+                  'dla nadzoru.',
+              en: 'Pre-entry checklist, O₂, flammable, CO and H₂S readings '
+                  'with time, warnings for the welder (argon!) and a PDF '
+                  'record for the supervisor.',
+            ),
+            children: [
+              FilledButton.icon(
+                key: const ValueKey('cs-new'),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, kMinTapTarget)),
+                onPressed: _new,
+                icon: const Icon(Icons.add),
+                label:
+                    Text(context.tr(pl: 'Nowy protokół', en: 'New record')),
+              ),
+              if (items != null && items.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  key: const ValueKey('cs-dup-last'),
+                  style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, kMinTapTarget)),
+                  onPressed: () => _duplicate(items.first),
+                  icon: const Icon(Icons.copy_all_outlined),
+                  label: Text(
+                    context.tr(
+                      pl: 'Jak wczoraj — kopia: ${_titleOf(items.first)}',
+                      en: 'Same as yesterday — copy: '
+                          '${_titleOf(items.first)}',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          QuoteSection(
+            title: context.tr(
+                pl: 'Historia (${items?.length ?? 0})',
+                en: 'History (${items?.length ?? 0})'),
+            children: [
+              if (items == null)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (items.isEmpty)
+                Text(
+                  _loadFailed
+                      ? context.tr(
+                          pl: 'Nie udało się wczytać historii.',
+                          en: 'Could not load the history.')
+                      : context.tr(
+                          pl: 'Brak zapisanych protokołów.',
+                          en: 'No saved records yet.'),
+                  key: const ValueKey('cs-empty'),
+                  style: const TextStyle(color: kTextSec, fontSize: 13.5),
+                )
+              else
+                for (final (i, r) in items.indexed)
+                  _HistoryTile(
+                    key: ValueKey('cs-item-$i'),
+                    index: i,
+                    record: r,
+                    title: _titleOf(r),
+                    en: en,
+                    onOpen: () => _open(r),
+                    onAction: (a) => switch (a) {
+                      _ItemAction.duplicate => _duplicate(r),
+                      _ItemAction.delete => _delete(r),
+                    },
+                  ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryTile extends StatelessWidget {
+  const _HistoryTile({
+    super.key,
+    required this.index,
+    required this.record,
+    required this.title,
+    required this.en,
+    required this.onOpen,
+    required this.onAction,
+  });
+
+  final int index;
+  final ConfinedSpaceRecord record;
+  final String title;
+  final bool en;
+  final VoidCallback onOpen;
+  final Future<void> Function(_ItemAction a) onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = record.assess();
+    final color = confinedSpaceReadinessColor(a);
+    final processes = [
+      for (final p in CsProcess.values)
+        if (record.processes.contains(p)) p.label(en: en),
+    ].join(', ');
+    final sub = [
+      record.date,
+      if (confinedSpaceHours(record) != '—') confinedSpaceHours(record),
+      if (processes.isNotEmpty) processes,
+      if (record.permitNo.trim().isNotEmpty)
+        '${en ? 'no.' : 'nr'} ${record.permitNo.trim()}',
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: kBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: kBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('cs-open-$index'),
+          onTap: onOpen,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 0, 8),
+              child: Row(
+                children: [
+                  Icon(confinedSpaceReadinessIcon(a), color: color, size: 26),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: kText,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 2),
+                        Text(sub,
+                            style: const TextStyle(
+                                color: kTextSec, fontSize: 12.5)),
+                        const SizedBox(height: 2),
+                        Text(confinedSpaceReadinessShort(a, en: en),
+                            key: ValueKey('cs-item-status-$index'),
+                            style: TextStyle(
+                                color: color,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<_ItemAction>(
+                    key: ValueKey('cs-menu-$index'),
+                    tooltip: en ? 'More' : 'Więcej',
+                    icon: const Icon(Icons.more_vert, color: kTextSec),
+                    onSelected: onAction,
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        key: const ValueKey('cs-menu-dup'),
+                        value: _ItemAction.duplicate,
+                        child: Text(en
+                            ? 'Same as yesterday (copy for today)'
+                            : 'Jak wczoraj (kopia na dziś)'),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('cs-menu-del'),
+                        value: _ItemAction.delete,
+                        child: Text(en ? 'Delete' : 'Usuń'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
