@@ -31,6 +31,7 @@ const List<String> kWhatsNewToolIds = [
   'instruments',
   'flange_check',
   'mitre_bend',
+  'cone_layout',
   'steel_weight',
 ];
 

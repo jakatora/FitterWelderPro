@@ -137,6 +137,8 @@ void main() {
         'FlangeCheckPage',
         // Warunki do spawania (pogoda, punkt rosy).
         'WeatherCheckPage',
+        // Rozwinięcie stożka i przejść (szablon 1:1).
+        'ConeLayoutPage',
       };
       expect(targets, expected);
     });

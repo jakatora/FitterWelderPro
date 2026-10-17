@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 84
+Moduły: 85
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 36 |
+| passed | 37 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -47,6 +47,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `chat` | ChatScreen | lib/screens/chat_screen.dart | social | medium | unverified | Zalogowany użytkownik otwiera rozmowę i widzi historię wiadomości. | test/audit/module_smoke_test.dart: Ponów wykonuje drugie wywołanie Chat i pokazuje zwrócony pokój |
 | `component-library` | ComponentLibraryScreen | lib/screens/component_library_screen.dart | project | medium | unverified | Użytkownik filtruje bibliotekę komponentów po średnicy 100 mm. | Brak dowodu scenariusza |
 | `consent` | ConsentScreen | lib/screens/consent_screen.dart | account | high | unverified | Użytkownik akceptuje wymagane zgody przed użyciem aplikacji. | Brak dowodu scenariusza |
+| `cone-layout` | ConeLayoutPage | lib/features/cone_layout/cone_layout_page.dart | fitter | medium | passed | Lej D 600 / d 200 zewn., t 4, H 400: Dm 596 / dm 196, R 666,3, r 219,1, θ 161°, blacha 1314,4 × 630,2 mm; H 300 → R 537,2; 2 części → θ 80,5°, 861,1 × 499,1 mm; d ≥ D, puste H, t ≥ d/2 — komunikat bez wyniku; stożek mimośrodowy z tworzącą pionową: e 200, tworzące 400 / 565,7; kwadrat–koło 600×400/Ø300/H400: szew M3–9 427,2, krawędzie 1984 / 929,9 mm; R ≈ 19,9 m → tabela rzędnych, PDF zablokowany; szablon 1:1 w kaflach A4/A3. | test/domain/fitter/cone_development_test.dart: D 1000 / d 400 zewn., t 6, H 600 → R 1111,33, r 440,51, θ 161,00°<br>test/domain/fitter/cone_development_test.dart: niezmienniki: łuki = obwody średnie, R − r = tworząca = √(H² + Δr²)<br>test/domain/fitter/cone_development_test.dart: e = 0 daje to samo co wzór analityczny<br>test/domain/fitter/transition_development_test.dart: niezmienniki: krawędź prostokąta = 2(A + B), krawędź kołowa = π·D<br>test/features/cone_layout/cone_layout_page_test.dart: lej D 600 / d 200 zewn., t 4, H 400 → R 666,3; H 300 → 537,2<br>test/features/cone_layout/cone_layout_page_test.dart: błędne wejście → komunikat, bez wyniku i bez PDF<br>test/features/cone_layout/cone_layout_page_test.dart: udostępnianie tekstu i PDF przez wstrzyknięte funkcje |
 | `cooling-time` | CoolingTimePage | lib/features/cooling_time/cooling_time_page.dart | welder | safetyCritical | passed | Q 1,0 kJ/mm, T0 100 °C, d 20 mm, ścieg wypełniający czołowej (F3 0,9): przepływ 3D, t8/5 = 6,0 s, w oknie 5–15 s; T0 20 °C → 4,8 s, za krótko; d 10 mm → 2D, 10,2 s; okno max 8 s → za długo. Przykład MIGAL (30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 °C) → 2D, 18,16 s; dla okna 5–15 s przy T0 100 °C Q = 0,836–2,023 kJ/mm. | test/features/cooling_time/cooling_time_page_test.dart: zmiana T0, grubości i okna zmienia wynik i werdykt<br>test/features/cooling_time/cooling_time_page_test.dart: złącze teowe w 2D: wynik jako przedział<br>test/features/cooling_time/cooling_time_page_test.dart: Q z U, I, v i procesu — przez heat_input.dart<br>test/features/cooling_time/cooling_time_page_test.dart: wąski ekran, tekst ×1,3, wersja EN — bez wyjątków<br>test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: MIGAL 2D: 30 V, 450 A, 350 mm/min, MAG, d 20, T0 150 → 18,16 s<br>test/domain/welding/cooling_time_test.dart: przykłady ze źródeł: Rontescu 2008: TIG 15 V, 153 A, 140 mm/min, d 10, T0 200 → ~10 s<br>test/domain/welding/cooling_time_test.dart: wzory zał. D: grubość przejściowa d_t: Q 1, T0 20 °C → 14,66 mm<br>test/domain/welding/cooling_time_test.dart: rozwiązanie odwrotne: Q z rozwiązania trafia w okno — dla każdego rodzaju spoiny |
 | `coupon-log` | CouponLogScreen | lib/screens/coupon_log_screen.dart | account | medium | unverified | Użytkownik widzi historię wykorzystanych kuponów. | Brak dowodu scenariusza |
 | `cut-list-summary` | CutListSummaryScreen | lib/screens/cut_list_summary_screen.dart | project | high | unverified | Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia. | Brak dowodu scenariusza |

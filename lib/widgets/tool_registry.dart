@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../features/cone_layout/cone_layout_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
@@ -454,6 +455,50 @@ final List<ToolSpec> kToolRegistry = [
       'lobster back',
       'segmented elbow',
       'gored elbow'
+    ],
+  ),
+  ToolSpec(
+    id: 'cone_layout',
+    group: ToolGroup.elbowsFittings,
+    titlePl: 'Rozwinięcie stożka i przejść',
+    titleEn: 'Cone & transition layout',
+    subtitlePl:
+        'Lej, stożek, kwadrat–koło: wymiary do trasowania, szablon 1:1',
+    subtitleEn: 'Cones, hoppers, square to round: layout data, 1:1 template',
+    icon: Icons.filter_alt_outlined,
+    color: const Color(0xFF4DB6AC),
+    builder: (_) => const ConeLayoutPage(),
+    keywordsPl: const [
+      'stozek',
+      'stozek sciety',
+      'lej',
+      'rozwiniecie',
+      'rozwiniecie blachy',
+      'kwadrat kolo',
+      'przejscie kwadrat kolo',
+      'przejscie',
+      'mimosrodowy',
+      'triangulacja',
+      'trasowanie',
+      'kotlarz',
+      'zbiornik',
+      'kanal',
+      'szablon stozka'
+    ],
+    keywordsEn: const [
+      'cone',
+      'frustum',
+      'cone layout',
+      'flat pattern',
+      'development',
+      'square to round',
+      'transition',
+      'eccentric cone',
+      'hopper',
+      'funnel',
+      'triangulation',
+      'sheet metal',
+      'boilermaker'
     ],
   ),
 

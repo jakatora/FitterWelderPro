@@ -81,6 +81,7 @@ import 'package:cut_list_app/features/weld_symbols/weld_symbols_page.dart';
 import 'package:cut_list_app/features/mitre_bend/mitre_bend_page.dart';
 import 'package:cut_list_app/features/progress/progress_page.dart';
 import 'package:cut_list_app/features/steel_weight/steel_weight_page.dart';
+import 'package:cut_list_app/features/cone_layout/cone_layout_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
 import 'package:cut_list_app/features/flange_check/flange_check_page.dart';
@@ -236,6 +237,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'ElectrodeExposurePage' => const ElectrodeExposurePage(),
       'FlangeCheckPage' => const FlangeCheckPage(),
       'WeatherCheckPage' => const WeatherCheckPage(),
+      'ConeLayoutPage' => const ConeLayoutPage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),
