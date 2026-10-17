@@ -254,7 +254,7 @@ void main() {
       expect(_st('1.13', _b, t: 6, b: 10), Iso5817LimitStatus.notPermitted);
     });
 
-    test('1.14 wyciek / niepełne wypełnienie 509/511', () {
+    test('1.14 zwis / niepełne wypełnienie 509/511', () {
       expect(_v('1.14', _d, t: 2), 0.5);
       expect(_v('1.14', _c, t: 2), 0.2);
       expect(_st('1.14', _b, t: 2), Iso5817LimitStatus.notPermitted);

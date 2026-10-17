@@ -85,6 +85,7 @@ import 'package:cut_list_app/features/cone_layout/cone_layout_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
 import 'package:cut_list_app/features/flange_check/flange_check_page.dart';
+import 'package:cut_list_app/features/glossary/glossary_page.dart';
 import 'package:cut_list_app/features/weather_check/weather_check_page.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_permit.dart';
 import 'package:cut_list_app/features/hot_work/hot_work_edit_page.dart';
@@ -238,6 +239,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'FlangeCheckPage' => const FlangeCheckPage(),
       'WeatherCheckPage' => const WeatherCheckPage(),
       'ConeLayoutPage' => const ConeLayoutPage(),
+      'GlossaryPage' => const GlossaryPage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

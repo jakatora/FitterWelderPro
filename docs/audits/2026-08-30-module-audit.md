@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 85
+Moduły: 86
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 37 |
+| passed | 38 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -59,6 +59,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `fitter-menu` | FitterMenuScreen | lib/screens/fitter_menu_screen.dart | fitter | low | unverified | Użytkownik otwiera menu narzędzi montera. | test/audit/module_smoke_test.dart: FitterMenuScreen renderuje przy skali tekstu 1,3 |
 | `fitter` | FitterScreen | lib/screens/fitter_screen.dart | fitter | low | unverified | Użytkownik otwiera główny ekran montera. | test/audit/module_smoke_test.dart: FitterScreen renderuje z istniejącym projektem przy skali 1,3 |
 | `fitter-tools` | FitterToolsScreen | lib/screens/fitter_tools_screen.dart | fitter | low | unverified | Użytkownik wybiera kalkulator z zestawu narzędzi montera. | Brak dowodu scenariusza |
+| `glossary` | GlossaryPage | lib/features/glossary/glossary_page.dart | fitter | medium | passed | „podtopienie ciagle” → 5011 z DE „Durchlaufende Einbrandkerbe”; „uberkopfposition” i „ueberkopfposition” → PE; „rorledning”/„roerledning” → NO „Rørledning”; „135” → MAG drutem litym; język docelowy NO zostaje po ponownym otwarciu; gwiazdka + filtr ulubionych; kopiowanie DE/NL do schowka; „pokaż rozmówcy” obraca napis o 180° i zmienia język; 320×640 przy tekście ×1,3 bez przepełnień. | test/features/glossary/glossary_page_test.dart: szukanie po PL: „podtopienie” daje 5011 z tłumaczeniem DE<br>test/features/glossary/glossary_page_test.dart: DE z umlautem wpisany bez umlautu (u i ue) oraz ß jako ss<br>test/features/glossary/glossary_page_test.dart: NO z ø: wpisane z ø, bez ø i jako oe<br>test/features/glossary/glossary_page_test.dart: po numerze ISO: 5011, 135, 141<br>test/features/glossary/glossary_page_test.dart: zmiana języka docelowego jest zapamiętana<br>test/features/glossary/glossary_page_test.dart: kopiowanie tłumaczenia do schowka<br>test/features/glossary/glossary_page_test.dart: tryb „pokaż rozmówcy”: duży napis, obrót, zmiana języka<br>test/features/glossary/glossary_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków i przepełnień<br>test/data/welding_glossary_test.dart: kontrolne tłumaczenia: 5011 podtopienie ciągłe |
 | `heat-input` | HeatInputScreen | lib/screens/heat_input_screen.dart | welder | safetyCritical | passed | 12 V, 100 A, 100 mm/min, GTAW wyświetla 0,43 kJ/mm; prędkość 0 i -1 jest odrzucana. | test/audit/welder_calculations_audit_test.dart: GTAW 0,432 kJ/mm (0,43 w UI) oraz odrzucenie prędkości 0 i -1 |
 | `heat-photos` | HeatPhotosScreen | lib/screens/heat_photos_screen.dart | project | medium | unverified | Użytkownik dodaje zdjęcie numeru wytopu do komponentu. | Brak dowodu scenariusza |
 | `heat-tint` | HeatTintScreen | lib/screens/heat_tint_screen.dart | welder | high | passed | Ekran oznacza wartości O2 jako orientacyjne, a specyfikację projektu lub WPS jako wiążące. | test/audit/welder_calculations_audit_test.dart: heat tint jest oznaczony jako porada orientacyjna z wiążącym WPS |

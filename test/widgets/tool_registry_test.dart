@@ -139,6 +139,8 @@ void main() {
         'WeatherCheckPage',
         // Rozwinięcie stożka i przejść (szablon 1:1).
         'ConeLayoutPage',
+        // Słownik spawalniczy PL/EN/DE/NL/NO.
+        'GlossaryPage',
       };
       expect(targets, expected);
     });

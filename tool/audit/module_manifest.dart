@@ -282,6 +282,26 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Użytkownik wybiera kalkulator z zestawu narzędzi montera.'),
   ModuleAuditEntry(
+      id: 'glossary',
+      entryPoint: 'GlossaryPage',
+      sourcePath: 'lib/features/glossary/glossary_page.dart',
+      category: AuditCategory.fitter,
+      risk: AuditRisk.medium,
+      status: AuditStatus.passed,
+      scenario:
+          '„podtopienie ciagle” → 5011 z DE „Durchlaufende Einbrandkerbe”; „uberkopfposition” i „ueberkopfposition” → PE; „rorledning”/„roerledning” → NO „Rørledning”; „135” → MAG drutem litym; język docelowy NO zostaje po ponownym otwarciu; gwiazdka + filtr ulubionych; kopiowanie DE/NL do schowka; „pokaż rozmówcy” obraca napis o 180° i zmienia język; 320×640 przy tekście ×1,3 bez przepełnień.',
+      evidence: [
+        'test/features/glossary/glossary_page_test.dart: szukanie po PL: „podtopienie” daje 5011 z tłumaczeniem DE',
+        'test/features/glossary/glossary_page_test.dart: DE z umlautem wpisany bez umlautu (u i ue) oraz ß jako ss',
+        'test/features/glossary/glossary_page_test.dart: NO z ø: wpisane z ø, bez ø i jako oe',
+        'test/features/glossary/glossary_page_test.dart: po numerze ISO: 5011, 135, 141',
+        'test/features/glossary/glossary_page_test.dart: zmiana języka docelowego jest zapamiętana',
+        'test/features/glossary/glossary_page_test.dart: kopiowanie tłumaczenia do schowka',
+        'test/features/glossary/glossary_page_test.dart: tryb „pokaż rozmówcy”: duży napis, obrót, zmiana języka',
+        'test/features/glossary/glossary_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków i przepełnień',
+        'test/data/welding_glossary_test.dart: kontrolne tłumaczenia: 5011 podtopienie ciągłe',
+      ]),
+  ModuleAuditEntry(
       id: 'heat-input',
       entryPoint: 'HeatInputScreen',
       sourcePath: 'lib/screens/heat_input_screen.dart',

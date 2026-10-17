@@ -8,6 +8,7 @@ import '../features/cooling_time/cooling_time_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/flange_check/flange_check_page.dart';
+import '../features/glossary/glossary_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
@@ -866,6 +867,55 @@ final List<ToolSpec> kToolRegistry = [
       'psi',
       'mpa',
       'fahrenheit'
+    ],
+  ),
+  ToolSpec(
+    id: 'glossary',
+    group: ToolGroup.tables,
+    titlePl: 'Słownik spawalniczy',
+    titleEn: 'Welding dictionary',
+    subtitlePl:
+        'PL · EN · DE · NL · NO: terminy, niezgodności ISO 6520, zwroty na budowę',
+    subtitleEn:
+        'PL · EN · DE · NL · NO: terms, ISO 6520 imperfections, site phrases',
+    icon: Icons.translate,
+    color: const Color(0xFF7986CB),
+    builder: (_) => const GlossaryPage(),
+    keywordsPl: const [
+      'slownik',
+      'slownik spawalniczy',
+      'tlumacz',
+      'tlumaczenie',
+      'jezyki',
+      'niemiecki',
+      'holenderski',
+      'niderlandzki',
+      'norweski',
+      'angielski',
+      'rozmowki',
+      'zwroty',
+      'za granica',
+      'niemcy',
+      'holandia',
+      'belgia',
+      'norwegia',
+      'nazwy niezgodnosci',
+      'iso 6520',
+      'iso 4063'
+    ],
+    keywordsEn: const [
+      'dictionary',
+      'glossary',
+      'translate',
+      'translation',
+      'german',
+      'dutch',
+      'norwegian',
+      'phrases',
+      'abroad',
+      'terminology',
+      'iso 6520',
+      'iso 4063'
     ],
   ),
 
