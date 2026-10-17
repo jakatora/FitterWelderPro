@@ -17,6 +17,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../domain/hot_work/hot_work_checklist.dart';
 import '../domain/hot_work/hot_work_permit.dart';
+import '../domain/hot_work/hot_work_sources.dart';
 import '../domain/hot_work/hot_work_text.dart';
 
 /// `Zezwolenie_prace_pozarowe_2026-10-17.pdf` (data pracy z protokołu).
@@ -81,7 +82,8 @@ class HotWorkExport {
     final stamp = '${generatedAt.year}-${two(generatedAt.month)}-'
         '${two(generatedAt.day)} ${two(generatedAt.hour)}:'
         '${two(generatedAt.minute)}';
-    final a = permit.assess();
+    // Stan w chwili wydruku: wiek pomiaru i data protokołu.
+    final a = permit.assess(now: generatedAt);
     final statusColor = a.readiness == HotWorkReadiness.overLimit
         ? _kFail
         : _kInk;
@@ -240,7 +242,7 @@ class HotWorkExport {
               ),
               for (final m in permit.measurementsChrono)
                 pw.TableRow(children: [
-                  cell(m.time.isEmpty ? '—' : m.time),
+                  cell(hotWorkMeasurementTime(m, permit.date)),
                   cell(hotWorkDgw(m.dgwPct, en: en)),
                   cell(m.note.trim().isEmpty ? '—' : m.note.trim()),
                   _verdictCell(m, permit.dgwLimitPct, en: en, cell: cell),
@@ -312,6 +314,13 @@ class HotWorkExport {
               {bool head, PdfColor? color, double size})
           cell}) {
     if (limit == null) {
+      // Bez limitu z zezwolenia — ponad 10 % DGW z przepisu i tak POWYŻEJ.
+      if (!hotWorkMeasurementOk(m.dgwPct, kHotWorkDefaultDgwLimitPct)) {
+        return cell(
+            en ? 'ABOVE THE REGULATION LIMIT' : 'POWYŻEJ LIMITU Z PRZEPISU',
+            head: true,
+            color: _kFail);
+      }
       return cell(en ? 'no limit entered' : 'brak limitu');
     }
     final ok = hotWorkMeasurementOk(m.dgwPct, limit);

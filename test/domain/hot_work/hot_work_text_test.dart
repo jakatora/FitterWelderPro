@@ -38,6 +38,7 @@ void main() {
         HotWorkMeasurement(time: '09:15', dgwPct: 12.5),
       ]),
       en: false,
+      now: DateTime(2026, 10, 17, 9, 20),
     );
     expect(text,
         startsWith('PRACE POŻAROWO NIEBEZPIECZNE — PROTOKÓŁ PRZYGOTOWANIA'));
@@ -66,7 +67,8 @@ void main() {
   });
 
   test('brak pomiaru — tekst mówi to wprost', () {
-    final text = hotWorkProtocolText(_permit(), en: false);
+    final text = hotWorkProtocolText(_permit(),
+        en: false, now: DateTime(2026, 10, 17, 9, 20));
     expect(text, contains('— brak pomiaru —'));
     expect(text, contains('STAN: Brak pomiaru atmosfery'));
   });
@@ -77,6 +79,7 @@ void main() {
         HotWorkMeasurement(time: '06:50', dgwPct: 1.5),
       ]),
       en: true,
+      now: DateTime(2026, 10, 17, 7),
     );
     expect(text, startsWith('HOT WORK — WORK AREA PREPARATION RECORD'));
     expect(text, contains('Type of work: Welding, Cutting'));
@@ -88,7 +91,8 @@ void main() {
   });
 
   test('krótkie etykiety stanu', () {
-    HotWorkAssessment a(HotWorkPermit p) => p.assess();
+    HotWorkAssessment a(HotWorkPermit p) =>
+        p.assess(now: DateTime(2026, 10, 17, 7, 5));
     expect(hotWorkReadinessShort(a(_permit()), en: false), 'Brak pomiaru');
     final ready = _permit(measurements: const [
       HotWorkMeasurement(time: '07:00', dgwPct: 0),
@@ -102,5 +106,29 @@ void main() {
       for (final c in kHotWorkChecks) c.id,
     });
     expect(hotWorkReadinessShort(a(closed), en: true), 'Closed');
+  });
+
+  test('pomiar z innego dnia z datą; bez limitu ponad 10 % — POWYŻEJ', () {
+    final p = _permit(measurements: [
+      HotWorkMeasurement(
+          time: '23:50',
+          at: DateTime(2026, 10, 16, 23, 50).millisecondsSinceEpoch,
+          dgwPct: 0),
+    ]);
+    final text =
+        hotWorkProtocolText(p, en: false, now: DateTime(2026, 10, 17, 7));
+    expect(text, contains('- 2026-10-16 23:50 — 0 % DGW (OK)'));
+    expect(text, contains('STAN: Pomiar nieaktualny (z 2026-10-16 23:50'));
+    expect(text, contains('Ważność pomiaru: 30 min — przyjęta w aplikacji'));
+    expect(
+        hotWorkMeasurementLine(
+            const HotWorkMeasurement(time: '07:00', dgwPct: 50), null,
+            en: false),
+        '07:00 — 50 % DGW (POWYŻEJ LIMITU Z PRZEPISU)');
+    expect(
+        hotWorkMeasurementLine(
+            const HotWorkMeasurement(time: '07:00', dgwPct: 5), null,
+            en: false),
+        '07:00 — 5 % DGW');
   });
 }
