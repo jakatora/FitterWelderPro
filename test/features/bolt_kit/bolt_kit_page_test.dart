@@ -17,6 +17,19 @@ import 'package:cut_list_app/theme/app_theme.dart';
 
 Future<void> _noShare(BoltKitOrder o, BoltKitShareFormat f, bool en) async {}
 
+/// Magazyn, którego pierwszy odczyt rzuca (chwilowy błąd platformy).
+class _FlakyStore extends BoltKitStore {
+  _FlakyStore();
+
+  var reads = 0;
+
+  @override
+  Future<Object?> readRaw() async {
+    if (reads++ == 0) throw StateError('kanał platformy niedostępny');
+    return super.readRaw();
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage lang = AppLanguage.pl,
@@ -25,6 +38,7 @@ Future<void> _pump(
   Map<String, Object> prefs = const {},
   BoltKitShareFn share = _noShare,
   BoltKitTorqueFn? openTorque,
+  BoltKitStore store = const BoltKitStore(),
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -39,7 +53,7 @@ Future<void> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: BoltKitPage(share: share, openTorque: openTorque),
+      home: BoltKitPage(share: share, openTorque: openTorque, store: store),
     ),
   ));
   await tester.pumpAndSettle();
@@ -324,6 +338,57 @@ void main() {
     await _tap(tester, 'bk-tab-kit');
     expect(_key('bk-damaged'), findsOneWidget);
     expect(_key('bk-kit-empty'), findsOneWidget);
+  });
+
+  testWidgets(
+      'chwilowy błąd odczytu — komunikat, pierwszy zapis zachowuje starą '
+      'listę w kopii', (tester) async {
+    final original = _saved([_a, _b], spare: 5);
+    await _pump(tester,
+        prefs: {BoltKitStore.key: original}, store: _FlakyStore());
+    expect(find.text('Komplet (0)'), findsOneWidget);
+    await _tap(tester, 'bk-tab-kit');
+    expect(_key('bk-damaged'), findsOneWidget);
+    expect(find.textContaining('Nie udało się odczytać zapisanej listy'),
+        findsOneWidget);
+
+    await _tap(tester, 'bk-tab-length');
+    await _tap(tester, 'bk-add');
+    await _drainSnackBars(tester);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BoltKitStore.corruptKey), original);
+    final saved = decodeBoltKitReport(prefs.getString(BoltKitStore.key));
+    expect(saved.state.joints.single.dn, 100);
+
+    // Drugi zapis — normalny, kopia bez zmian, bez komunikatu o blokadzie.
+    await _tap(tester, 'bk-tab-kit');
+    final id = saved.state.joints.single.id;
+    await _tap(tester, 'bk-j-plus-$id');
+    expect(find.textContaining('zapis wstrzymany'), findsNothing);
+    expect(prefs.getString(BoltKitStore.corruptKey), original);
+    expect(
+        decodeBoltKitReport(prefs.getString(BoltKitStore.key))
+            .state
+            .joints
+            .single
+            .count,
+        2);
+  });
+
+  testWidgets('błąd odczytu i zajęta kopia — zapis wstrzymany z komunikatem',
+      (tester) async {
+    final original = _saved([_a]);
+    await _pump(tester,
+        prefs: {
+          BoltKitStore.key: original,
+          BoltKitStore.corruptKey: 'starsza kopia',
+        },
+        store: _FlakyStore());
+    await _tap(tester, 'bk-add');
+    expect(find.textContaining('zapis wstrzymany'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(BoltKitStore.key), original);
+    await _drainSnackBars(tester);
   });
 
   testWidgets('„Moment śrub” otwiera istniejący kalkulator z podpowiedzią',
