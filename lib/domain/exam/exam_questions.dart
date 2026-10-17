@@ -22,7 +22,17 @@
 //   • niezgodności spokrewnione w ISO 6520-1 (grupa „x00” i jej podtypy,
 //     numer będący przedrostkiem drugiego) nie są dla siebie dystraktorami;
 //   • ISO 5817: pozycje z regułą słowną („zależy od zastosowania”,
-//     „dopuszczalna miejscowo”) — bez pytania o poziomy;
+//     „dopuszczalna miejscowo”) i pozycje zmienione w wydaniu 2023
+//     (`note2023*`) — bez pytania o poziomy; treść podaje wydanie 2014,
+//     a przy limitach tylko dla niezgodności krótkich — „(niezgodność
+//     krótka)”;
+//   • EN ISO 9606-1 §5.2: tylko procesy objęte BEZ WARUNKU dla typu spoiwa
+//     próby (po filtrze tab. 4 i 5, przez evaluateIso9606); objęte
+//     częściowo (np. 143 z próby 141 drutem litym) — ani odpowiedź, ani
+//     dystraktor;
+//   • elektrody: w odpowiedziach kod z opisem klasy, tylko jedna klasa
+//     z pytanym limitem, bez klas o pokrewnym oznaczeniu (E7018 / E7018-1 /
+//     E7018 H4R);
 //   • EN ISO 9606-1: s ≥ 12 mm (notka „sprawdź” w domenie — EN 287-1 dawała
 //     ≥ 5 mm, część materiałów szkoleniowych nadal tak podaje);
 //   • definicje: dystraktor, którego nazwa pojawia się w definicji (albo
@@ -34,7 +44,9 @@
 //   • za mało (< 2) bezpiecznych dystraktorów → pytania nie ma.
 //
 // Losowanie jest deterministyczne: ten sam seed → te same pytania, ta sama
-// kolejność odpowiedzi (testy, powtarzalne sesje).
+// kolejność odpowiedzi (testy, powtarzalne sesje). Sesja bierze najwyżej
+// jedno pytanie z tematu ([ExamItem.topic]) — pytania o tę samą rzecz nie
+// zdradzają sobie odpowiedzi.
 
 import 'dart:math';
 
@@ -99,10 +111,16 @@ class ExamItem {
     required this.explanation,
     required this.source,
     this.glyph,
-  });
+    String? topic,
+  }) : topic = topic ?? id;
 
   /// Trwały identyfikator, niezależny od języka (statystyki, powtórki).
   final String id;
+
+  /// Temat: pytania o tę samą rzecz (np. proces 135 — nazwa, numer,
+  /// rodzina; termin — definicja, skrót, tłumaczenie) zdradzałyby sobie
+  /// odpowiedzi, więc sesja bierze najwyżej jedno pytanie z tematu.
+  final String topic;
   final ExamCategory category;
   final String prompt;
   final String answer;
@@ -188,6 +206,9 @@ ExamQuestion examQuestionFrom(ExamItem item, Random rnd) {
 /// • [category] — nauka jednej kategorii;
 /// • bez obu — szybka sesja: kategorie po kolei w wylosowanej kolejności,
 ///   żeby 10 pytań objęło możliwie wiele kategorii.
+///
+/// W każdym trybie najwyżej jedno pytanie z jednego tematu
+/// ([ExamItem.topic]) — pytania nie podpowiadają sobie odpowiedzi.
 List<ExamQuestion> drawExamQuestions({
   required int seed,
   required bool en,
@@ -198,19 +219,25 @@ List<ExamQuestion> drawExamQuestions({
   final rnd = Random(seed);
   final all = examItems(en: en);
   final picked = <ExamItem>[];
+  final topics = <String>{};
+  void fill(List<ExamItem> pool) {
+    for (final i in pool) {
+      if (picked.length >= count) break;
+      if (topics.add(i.topic)) picked.add(i);
+    }
+  }
+
   if (onlyIds != null) {
     final wanted = onlyIds.toSet();
-    final pool = [
+    fill([
       for (final i in all)
         if (wanted.contains(i.id)) i,
-    ]..shuffle(rnd);
-    picked.addAll(pool.take(count));
+    ]..shuffle(rnd));
   } else if (category != null) {
-    final pool = [
+    fill([
       for (final i in all)
         if (i.category == category) i,
-    ]..shuffle(rnd);
-    picked.addAll(pool.take(count));
+    ]..shuffle(rnd));
   } else {
     final byCategory = <ExamCategory, List<ExamItem>>{};
     for (final i in all) {
@@ -220,21 +247,32 @@ List<ExamQuestion> drawExamQuestions({
       list.shuffle(rnd);
     }
     final order = byCategory.keys.toList()..shuffle(rnd);
-    for (var round = 0; picked.length < count; round++) {
+    final cursor = {for (final c in order) c: 0};
+    while (picked.length < count) {
       var added = false;
       for (final c in order) {
         if (picked.length >= count) break;
         final list = byCategory[c]!;
-        if (round < list.length) {
-          picked.add(list[round]);
-          added = true;
+        var at = cursor[c]!;
+        while (at < list.length && !topics.add(list[at].topic)) {
+          at++;
         }
+        if (at < list.length) {
+          picked.add(list[at]);
+          added = true;
+          at++;
+        }
+        cursor[c] = at;
       }
       if (!added) break;
     }
   }
   return [for (final i in picked) examQuestionFrom(i, rnd)];
 }
+
+/// Liczba tematów w kategorii — tyle pytań może mieć sesja nauki.
+int examTopicCount(ExamCategory category, {required bool en}) =>
+    {for (final i in examItemsIn(category, en: en)) i.topic}.length;
 
 // ─── Wspólne pomocnicze ─────────────────────────────────────────────────────
 
@@ -397,6 +435,83 @@ Iso9606Range? examIso9606Range(
 
 String _codes(Iterable<Iso6947Position> p) => p.map((e) => e.code).join(', ');
 
+/// Wydanie EN ISO 9606-1, z którego tabel liczy domena (iso9606_range.dart:
+/// EN ISO 9606-1:2017 = ISO 9606-1:2012 + Cor 1:2012 + Cor 2:2013; tak też
+/// podpisuje wynik [iso9606Disclaimer]).
+const String kExamIso9606Edition = 'EN ISO 9606-1:2017';
+
+/// Nazwa typu spoiwa wg EN ISO 9606-1 §4.3.2 (tab. 4 i 5) — te same opisy
+/// co na ekranie „Zakres uprawnień z próbki”.
+String examIso9606FillerName(Iso9606Filler f, {required bool en}) =>
+    switch (f) {
+      Iso9606Filler.coveringRutile =>
+        en ? 'covering A, RA, RB, RC, RR, R' : 'otulina A, RA, RB, RC, RR, R',
+      Iso9606Filler.coveringBasic =>
+        en ? 'basic covering B' : 'otulina zasadowa B',
+      Iso9606Filler.coveringCellulosic =>
+        en ? 'cellulosic covering C' : 'otulina celulozowa C',
+      Iso9606Filler.solid =>
+        en ? 'solid wire / rod (S)' : 'drut / pręt lity (S)',
+      Iso9606Filler.metalCored => en
+          ? 'metal-cored wire / rod (M)'
+          : 'drut / pręt z rdzeniem metalicznym (M)',
+      Iso9606Filler.basicCored => en
+          ? 'basic flux-cored wire / rod (B)'
+          : 'drut / pręt proszkowy zasadowy (B)',
+      Iso9606Filler.otherCored => en
+          ? 'flux-cored wire / rod R, P, V, W, Y or Z'
+          : 'drut / pręt proszkowy R, P, V, W, Y albo Z',
+      Iso9606Filler.none => en ? 'no filler (nm)' : 'bez spoiwa (nm)',
+    };
+
+/// Zakres procesów z próby procesem [process] i spoiwem [filler] — przez
+/// [evaluateIso9606], czyli §5.2 PO filtrze typu spoiwa (tab. 4 i 5).
+/// Klucze: objęte procesy, wartości: objęte typy spoiwa. `null`, gdy próbka
+/// jest niepoprawna (np. spoiwo, którym proces nie spawa).
+Map<Iso9606Process, List<Iso9606Filler>>? examIso9606Processes(
+    Iso9606Process process, Iso9606Filler filler) {
+  final eval = evaluateIso9606(Iso9606Sample(
+    first: Iso9606ProcessInput(
+      process: process,
+      filler: filler,
+      transfer: process.hasTransferMode ? Iso9606Transfer.dip : null,
+      thicknessMm: 10,
+    ),
+    fm: Iso9606FmGroup.fm1,
+    parentGroup: '1.1',
+    position: Iso6947Position.pa,
+    backing: Iso9606Backing.ssNb,
+    gasDirection:
+        process == Iso9606Process.p311 ? Iso9606GasDirection.leftward : null,
+  ));
+  return eval.range?.processes.first.processes;
+}
+
+/// Odpowiedź w pytaniu o klasę elektrod: kod z opisem klasy.
+String examElectrodeOption(ElectrodeClass c, {required bool en}) =>
+    '${c.code} — ${c.desc(en: en)}';
+
+/// Klasy o pokrewnym oznaczeniu (kod jednej jest przedrostkiem kodu drugiej
+/// albo pojawia się w jej opisie, np. „E7018-1” w „np. E7018-1 H4R”) — nie
+/// są dla siebie dystraktorami.
+bool examElectrodesRelated(ElectrodeClass a, ElectrodeClass b) =>
+    a.code.startsWith(b.code) ||
+    b.code.startsWith(a.code) ||
+    a.descPl.contains(b.code) ||
+    a.descEn.contains(b.code) ||
+    b.descPl.contains(a.code) ||
+    b.descEn.contains(a.code);
+
+/// Czy reguła ISO 5817 dla któregoś poziomu dotyczy tylko niezgodności
+/// krótkich (rozdz. 3.3 / 3.4).
+bool iso5817ShortOnly(Iso5817Item item, Iso5817Range range) =>
+    Iso5817Level.values.any((l) => iso5817RuleFor(item, l, range).shortOnly);
+
+/// Pozycja ISO 5817:2014, którą wydanie 2023 zmieniło (`note2023*`) —
+/// bez pytania (odpowiedź zależałaby od wydania).
+bool iso5817ChangedIn2023(Iso5817Item item) =>
+    item.note2023Pl.isNotEmpty || item.note2023En.isNotEmpty;
+
 // ─── Budowanie pytań ────────────────────────────────────────────────────────
 
 class _ExamBuilder {
@@ -428,6 +543,7 @@ class _ExamBuilder {
     required String explanation,
     required String source,
     WeldKind? glyph,
+    String? topic,
   }) {
     if (answer.trim().isEmpty) return;
     final seen = <String>{examAnswerKey(answer)};
@@ -446,8 +562,13 @@ class _ExamBuilder {
       explanation: explanation,
       source: source,
       glyph: glyph,
+      topic: topic,
     ));
   }
+
+  /// Temat pytań o jeden termin słownika (nazwa, numer, definicja, skrót,
+  /// tłumaczenie).
+  static String _termTopic(GlossaryTerm t) => 'term:${t.id}';
 
   List<ExamItem> build() {
     _processes();
@@ -496,6 +617,7 @@ class _ExamBuilder {
         pool: others.map(_name),
         explanation: _withDef('$n — $name.', g),
         source: 'ISO 4063',
+        topic: _termTopic(g),
       );
       _add(
         id: 'proc.num.${g.id}',
@@ -506,6 +628,7 @@ class _ExamBuilder {
         pool: others.map((o) => o.iso4063!),
         explanation: _withDef('$n — $name.', g),
         source: 'ISO 4063',
+        topic: _termTopic(g),
       );
       final number = int.tryParse(n);
       final family = number == null ? null : familyOfIso4063(number);
@@ -522,6 +645,7 @@ class _ExamBuilder {
           ],
           explanation: '$n → ${family.asmeCode}.',
           source: 'ISO 4063 · ASME IX',
+          topic: _termTopic(g),
         );
       }
     }
@@ -550,6 +674,7 @@ class _ExamBuilder {
         pool: others.map(_name),
         explanation: _withDef('$n — $name.', g),
         source: 'ISO 6520-1',
+        topic: _termTopic(g),
       );
       _add(
         id: 'imp.num.${g.id}',
@@ -560,6 +685,7 @@ class _ExamBuilder {
         pool: others.map((o) => o.iso6520!),
         explanation: _withDef('$n — $name.', g),
         source: 'ISO 6520-1',
+        topic: _termTopic(g),
       );
     }
   }
@@ -590,6 +716,7 @@ class _ExamBuilder {
         pool: others.map((o) => glossaryPositionCodes(o)!.iso),
         explanation: _withDef(head, g),
         source: 'ISO 6947',
+        topic: _termTopic(g),
       );
       _add(
         id: 'pos.name.${g.id}',
@@ -600,6 +727,7 @@ class _ExamBuilder {
         pool: others.map(_name),
         explanation: _withDef(head, g),
         source: 'ISO 6947',
+        topic: _termTopic(g),
       );
       _add(
         id: 'pos.asme.${g.id}',
@@ -610,6 +738,7 @@ class _ExamBuilder {
         pool: others.map((o) => glossaryPositionCodes(o)!.asme),
         explanation: head,
         source: 'ISO 6947 · ASME IX',
+        topic: _termTopic(g),
       );
     }
   }
@@ -653,9 +782,9 @@ class _ExamBuilder {
             id: 'q.pos.${type.code}.${product.code}.${pos.code}',
             category: ExamCategory.qualification,
             prompt: t(
-                'EN ISO 9606-1: próba $weld $where w pozycji ${pos.code}$single. '
+                '$kExamIso9606Edition: próba $weld $where w pozycji ${pos.code}$single. '
                     'Jakie pozycje obejmuje uprawnienie?',
-                'EN ISO 9606-1: $weld test $where in position ${pos.code}'
+                '$kExamIso9606Edition: $weld test $where in position ${pos.code}'
                     '$single. Which positions does the qualification cover?'),
             answer: answer,
             pool: [
@@ -667,7 +796,7 @@ class _ExamBuilder {
                   '$answer.',
               ...notes,
             ].join(' '),
-            source: 'EN ISO 9606-1 $table',
+            source: '$kExamIso9606Edition $table',
           );
         }
       }
@@ -682,10 +811,10 @@ class _ExamBuilder {
         id: 'q.s.${_num(s)}',
         category: ExamCategory.qualification,
         prompt: t(
-            'EN ISO 9606-1: spoina czołowa, jeden proces (inny niż 311), '
+            '$kExamIso9606Edition: spoina czołowa, jeden proces (inny niż 311), '
                 'grubość stopiwa próbki s = $v mm. Jaki zakres grubości '
                 'obejmuje uprawnienie?',
-            'EN ISO 9606-1: butt weld, single process (not 311), deposited '
+            '$kExamIso9606Edition: butt weld, single process (not 311), deposited '
                 'thickness of the test piece s = $v mm. What thickness range '
                 'does the qualification cover?'),
         answer: buttRange(s),
@@ -694,7 +823,7 @@ class _ExamBuilder {
             if (o != s) buttRange(o),
         ],
         explanation: 's = $v mm → ${buttRange(s)}.',
-        source: 'EN ISO 9606-1 ${t('tab. 6', 'Table 6')}',
+        source: '$kExamIso9606Edition ${t('tab. 6', 'Table 6')}',
       );
     }
 
@@ -707,9 +836,9 @@ class _ExamBuilder {
         id: 'q.t.${_num(tt)}',
         category: ExamCategory.qualification,
         prompt: t(
-            'EN ISO 9606-1: spoina pachwinowa, grubość materiału próbki '
+            '$kExamIso9606Edition: spoina pachwinowa, grubość materiału próbki '
                 't = $v mm. Jaki zakres grubości obejmuje uprawnienie?',
-            'EN ISO 9606-1: fillet weld, test piece material thickness '
+            '$kExamIso9606Edition: fillet weld, test piece material thickness '
                 't = $v mm. What thickness range does the qualification '
                 'cover?'),
         answer: fillet(tt),
@@ -718,7 +847,7 @@ class _ExamBuilder {
             if (o != tt) fillet(o),
         ],
         explanation: 't = $v mm → ${fillet(tt)}.',
-        source: 'EN ISO 9606-1 ${t('tab. 8', 'Table 8')}',
+        source: '$kExamIso9606Edition ${t('tab. 8', 'Table 8')}',
       );
     }
 
@@ -730,9 +859,9 @@ class _ExamBuilder {
         id: 'q.d.${_num(d)}',
         category: ExamCategory.qualification,
         prompt: t(
-            'EN ISO 9606-1: próba na rurze o średnicy zewnętrznej D = $v mm. '
+            '$kExamIso9606Edition: próba na rurze o średnicy zewnętrznej D = $v mm. '
                 'Jaki zakres średnic obejmuje uprawnienie?',
-            'EN ISO 9606-1: pipe test piece with outside diameter '
+            '$kExamIso9606Edition: pipe test piece with outside diameter '
                 'D = $v mm. What diameter range does the qualification '
                 'cover?'),
         answer: dia(d),
@@ -741,39 +870,62 @@ class _ExamBuilder {
             if (o != d) dia(o),
         ],
         explanation: 'D = $v mm → ${dia(d)}.',
-        source: 'EN ISO 9606-1 ${t('tab. 7', 'Table 7')}',
+        source: '$kExamIso9606Edition ${t('tab. 7', 'Table 7')}',
       );
     }
 
-    // Procesy (§5.2): próba procesem p obejmuje też c.
+    // Procesy (§5.2 PO filtrze typu spoiwa z tab. 4 i 5): próba procesem p
+    // spoiwem f obejmuje też proces c — tylko gdy c jest objęty KAŻDYM swoim
+    // typem spoiwa (bez warunku). Proces objęty częściowo (np. 143 z próby
+    // 141 drutem litym — tylko rdzeń metaliczny M) nie jest ani odpowiedzią,
+    // ani dystraktorem.
     for (final p in Iso9606Process.values) {
-      final covered = iso9606ProcessCandidates(p);
-      final ordered = [
-        for (final x in Iso9606Process.values)
-          if (covered.contains(x)) x.code,
-      ].join(', ');
-      for (final c in Iso9606Process.values) {
-        if (c == p || !covered.contains(c)) continue;
+      for (final f in p.fillers) {
+        final covered = examIso9606Processes(p, f);
+        if (covered == null) continue;
         final pName = en ? p.nameEn : p.namePl;
-        _add(
-          id: 'q.proc.${p.number}.${c.number}',
-          category: ExamCategory.qualification,
-          prompt: t(
-              'EN ISO 9606-1 §5.2: uprawnienie z próby procesem ${p.number} '
-                  '($pName) obejmuje także proces:',
-              'EN ISO 9606-1 cl. 5.2: a qualification from a test with '
-                  'process ${p.number} ($pName) also covers process:'),
-          answer: c.code,
-          pool: [
-            for (final x in Iso9606Process.values)
-              if (!covered.contains(x)) x.code,
-          ],
-          explanation: t(
-              '§5.2: ${p.number} → $ordered (typ spoiwa wg tab. 4 i 5).',
-              'Cl. 5.2: ${p.number} → $ordered (filler type per Tables 4 '
-                  'and 5).'),
-          source: 'EN ISO 9606-1 ${t('§5.2', 'cl. 5.2')}',
-        );
+        final fName = examIso9606FillerName(f, en: en);
+        final summary = [
+          for (final e in covered.entries)
+            '${e.key.code} (${e.value.map((x) => x.code).join(', ')})',
+        ].join('; ');
+        for (final c in Iso9606Process.values) {
+          final types = covered[c];
+          if (c == p || types == null) continue;
+          if (!c.fillers.every(types.contains)) continue;
+          final noFiller = c.fillers.every((x) => x == Iso9606Filler.none);
+          _add(
+            id: 'q.proc.${p.number}.${f.name}.${c.number}',
+            category: ExamCategory.qualification,
+            prompt: t(
+                '$kExamIso9606Edition §5.2: uprawnienie z próby procesem '
+                    '${p.number} ($pName), typ spoiwa: $fName, obejmuje '
+                    'także proces:',
+                '$kExamIso9606Edition cl. 5.2: a qualification from a test '
+                    'with process ${p.number} ($pName), filler type: $fName, '
+                    'also covers process:'),
+            answer: c.code,
+            pool: [
+              for (final x in Iso9606Process.values)
+                if (!covered.containsKey(x)) x.code,
+            ],
+            explanation: [
+              t(
+                  '§5.2 i tab. 4 / 5: ${p.number} (${f.code}) → $summary.',
+                  'Cl. 5.2 and Tables 4 / 5: ${p.number} (${f.code}) → '
+                      '$summary.'),
+              if (noFiller)
+                t(
+                    'Spawanie bez spoiwa — tylko na grupie materiału rodzimego '
+                        'z próby (§5.6 uwaga).',
+                    'Welding without filler — only on the parent material '
+                        'group of the test (cl. 5.6 note).'),
+            ].join(' '),
+            source: '$kExamIso9606Edition ${t('§5.2, tab. 4 i 5', 'cl. 5.2, '
+                'Tables 4 and 5')}',
+            topic: 'q.proc.${p.number}.${f.name}',
+          );
+        }
       }
     }
 
@@ -788,9 +940,9 @@ class _ExamBuilder {
         id: 'q.fm.${g.code}',
         category: ExamCategory.qualification,
         prompt: t(
-            'EN ISO 9606-1 tab. 3: próba spoiwem z grupy ${g.code} ($desc) '
+            '$kExamIso9606Edition tab. 3: próba spoiwem z grupy ${g.code} ($desc) '
                 'obejmuje grupy spoiw:',
-            'EN ISO 9606-1 Table 3: a test with filler group ${g.code} '
+            '$kExamIso9606Edition Table 3: a test with filler group ${g.code} '
                 '($desc) covers filler groups:'),
         answer: fmSet(g),
         pool: [
@@ -798,7 +950,7 @@ class _ExamBuilder {
             if (o != g) fmSet(o),
         ],
         explanation: '${g.code} → ${fmSet(g)}.',
-        source: 'EN ISO 9606-1 ${t('tab. 3', 'Table 3')}',
+        source: '$kExamIso9606Edition ${t('tab. 3', 'Table 3')}',
       );
     }
   }
@@ -816,32 +968,37 @@ class _ExamBuilder {
     _add(
       id: 'q5817.strict',
       category: ExamCategory.quality,
-      prompt: t('Który poziom jakości wg EN ISO 5817 jest najostrzejszy?',
-          'Which EN ISO 5817 quality level is the most stringent?'),
+      prompt: t('Który poziom jakości wg $kIso5817Edition jest najostrzejszy?',
+          'Which $kIso5817Edition quality level is the most stringent?'),
       answer: strictest.letter,
       pool: [
         for (final l in byStrictness)
           if (l != strictest) l.letter,
       ],
       explanation: explanation,
-      source: 'EN ISO 5817',
+      source: kIso5817Edition,
+      topic: 'q5817.order',
     );
     _add(
       id: 'q5817.mild',
       category: ExamCategory.quality,
-      prompt: t('Który poziom jakości wg EN ISO 5817 jest najłagodniejszy?',
-          'Which EN ISO 5817 quality level is the least stringent?'),
+      prompt: t(
+          'Który poziom jakości wg $kIso5817Edition jest najłagodniejszy?',
+          'Which $kIso5817Edition quality level is the least stringent?'),
       answer: mildest.letter,
       pool: [
         for (final l in byStrictness)
           if (l != mildest) l.letter,
       ],
       explanation: explanation,
-      source: 'EN ISO 5817',
+      source: kIso5817Edition,
+      topic: 'q5817.order',
     );
 
     final options = _levelOptions(en);
     for (final item in kIso5817Items) {
+      // Wydanie 2023 zmieniło tę pozycję — odpowiedź zależałaby od wydania.
+      if (iso5817ChangedIn2023(item)) continue;
       final ranges = item.splitsThickness
           ? [Iso5817Range.thin, Iso5817Range.thick]
           : [Iso5817Range.thick];
@@ -864,6 +1021,12 @@ class _ExamBuilder {
             : range == Iso5817Range.thin
                 ? t(', 0,5 ≤ t ≤ 3 mm', ', 0.5 ≤ t ≤ 3 mm')
                 : ', t > 3 mm';
+        // Limit tylko dla niezgodności krótkich (rozdz. 3.3 / 3.4) — pytanie
+        // dotyczy niezgodności krótkiej (długa bywa dopuszczalna na mniejszej
+        // liczbie poziomów).
+        final short = iso5817ShortOnly(item, range)
+            ? t(' (niezgodność krótka)', ' (short imperfection)')
+            : '';
         final name = en ? item.nameEn : item.namePl;
         final rules = [
           for (final level in [Iso5817Level.d, Iso5817Level.c, Iso5817Level.b])
@@ -873,11 +1036,11 @@ class _ExamBuilder {
           id: 'q5817.lv.${item.id}.${item.splitsThickness ? range.name : 'all'}',
           category: ExamCategory.quality,
           prompt: t(
-              'EN ISO 5817, poz. ${item.no}: „$name” (ISO 6520-1: '
+              '$kIso5817Edition, poz. ${item.no}: „$name”$short (ISO 6520-1: '
                   '${item.codes.join(', ')})$kind$thickness. Na których '
                   'poziomach jakości ta niezgodność jest dopuszczalna '
                   '(w granicach limitu)?',
-              'EN ISO 5817, item ${item.no}: “$name” (ISO 6520-1: '
+              '$kIso5817Edition, item ${item.no}: “$name”$short (ISO 6520-1: '
                   '${item.codes.join(', ')})$kind$thickness. At which quality '
                   'levels is this imperfection permitted (within the limit)?'),
           answer: answer,
@@ -887,6 +1050,7 @@ class _ExamBuilder {
           ],
           explanation: '$rules.',
           source: '$kIso5817Edition ${t('tab. 1', 'Table 1')}',
+          topic: 'q5817.lv.${item.id}',
         );
       }
     }
@@ -938,6 +1102,7 @@ class _ExamBuilder {
           ],
           explanation: '${t('System', 'System')} $label: $rule.',
           source: 'EN ISO 2553:2019',
+          topic: 'sym.side.${system.name}',
         );
       }
     }
@@ -975,22 +1140,31 @@ class _ExamBuilder {
         ],
         explanation: explanation,
         source: 'AWS D1.1:2020 ${t('tab. 7.1', 'Table 7.1')}',
+        topic: 'el:${c.limitMinutes}',
       );
+      // „Która z poniższych”: wśród odpowiedzi jest tylko jedna klasa z tym
+      // limitem; klasy o pokrewnym oznaczeniu (E7018 / E7018-1 / E7018 H4R…)
+      // nie są dystraktorami; odpowiedzi pokazują opis klasy.
       _add(
         id: 'el.class.${c.name}',
         category: ExamCategory.consumables,
         prompt: t(
-            'Dla której klasy elektrod AWS D1.1 (tab. 7.1, kolumna A) podaje '
-                'limit czasu poza piecykiem równy $limit?',
-            'For which electrode class does AWS D1.1 (Table 7.1, column A) '
-                'give an out-of-oven limit of exactly $limit?'),
-        answer: c.code,
+            'Która z poniższych klas elektrod ma wg AWS D1.1 (tab. 7.1, '
+                'kolumna A) limit czasu poza piecykiem równy $limit?',
+            'Which of the following electrode classes has an out-of-oven '
+                'limit of $limit per AWS D1.1 (Table 7.1, column A)?'),
+        answer: examElectrodeOption(c, en: en),
         pool: [
           for (final o in aws)
-            if (o.limitMinutes != c.limitMinutes) o.code,
+            if (o.limitMinutes != c.limitMinutes &&
+                !examElectrodesRelated(o, c))
+              examElectrodeOption(o, en: en),
         ],
         explanation: explanation,
         source: 'AWS D1.1:2020 ${t('tab. 7.1', 'Table 7.1')}',
+        // Ten sam temat co pytanie o limit — zdradzałyby sobie odpowiedź;
+        // pytania o ten sam limit mają też tę samą treść.
+        topic: 'el:${c.limitMinutes}',
       );
     }
 
@@ -1009,6 +1183,7 @@ class _ExamBuilder {
         ],
         explanation: '${g.code} = $desc.',
         source: 'EN ISO 14175:2008 ${t('tab. 3', 'Table 3')}',
+        topic: 'gas:${g.code}',
       );
       _add(
         id: 'gas.code.${g.code}',
@@ -1022,6 +1197,7 @@ class _ExamBuilder {
         ],
         explanation: '${g.code} = $desc.',
         source: 'EN ISO 14175:2008 ${t('tab. 3', 'Table 3')}',
+        topic: 'gas:${g.code}',
       );
     }
 
@@ -1135,6 +1311,7 @@ class _ExamBuilder {
         pool: others.map(_name),
         explanation: '$name: ${_def(g)}',
         source: t('Słownik spawalniczy aplikacji', 'App welding glossary'),
+        topic: _termTopic(g),
       );
     }
   }
@@ -1175,6 +1352,7 @@ class _ExamBuilder {
             other == null ? '$code — $name.' : '$code — $name (ang. $other).',
             g),
         source: t('Słownik spawalniczy aplikacji', 'App welding glossary'),
+        topic: _termTopic(g),
       );
     }
   }
@@ -1232,6 +1410,7 @@ class _ExamBuilder {
           pool: pool,
           explanation: '$from — $translations.',
           source: t('Słownik spawalniczy aplikacji', 'App welding glossary'),
+          topic: _termTopic(g),
         );
       }
     }

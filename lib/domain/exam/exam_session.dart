@@ -124,9 +124,14 @@ class ExamCategoryStat {
   final int answered;
   final int correct;
 
-  /// Odsetek dobrych (0–100) albo `null`, gdy bez odpowiedzi.
-  int? get percent => answered == 0 ? null : (correct * 100 / answered).round();
+  /// Odsetek dobrych (0–100, w dół) albo `null`, gdy bez odpowiedzi.
+  int? get percent => answered == 0 ? null : examPercent(correct, answered);
 }
+
+/// Odsetek dobrych odpowiedzi zaokrąglony W DÓŁ — 199 / 200 to 99 %, nie
+/// 100 % (100 % tylko przy komplecie).
+int examPercent(int correct, int total) =>
+    total <= 0 ? 0 : (correct * 100) ~/ total;
 
 /// Wynik zakończonej sesji.
 class ExamSessionRecord {

@@ -60,6 +60,30 @@ String _positionsFromDomain(
   return eval.range!.positions.map((p) => p.code).join(', ');
 }
 
+/// Procesy objęte próbą (§5.2 po filtrze tab. 4 / 5) — liczone w teście
+/// NIEZALEŻNĄ próbką (spoina pachwinowa na blasze w PB) przez
+/// evaluateIso9606.
+Map<Iso9606Process, List<Iso9606Filler>> _coveredFromDomain(
+    Iso9606Process process, Iso9606Filler filler) {
+  final eval = evaluateIso9606(Iso9606Sample(
+    weldType: Iso9606WeldType.fw,
+    first: Iso9606ProcessInput(
+      process: process,
+      filler: filler,
+      transfer: process.hasTransferMode ? Iso9606Transfer.dip : null,
+      thicknessMm: 5,
+    ),
+    fm: Iso9606FmGroup.fm5,
+    parentGroup: '8.1',
+    position: Iso6947Position.pb,
+    filletLayers: Iso9606FilletLayers.ml,
+    gasDirection:
+        process == Iso9606Process.p311 ? Iso9606GasDirection.rightward : null,
+  ));
+  expect(eval.ok, isTrue, reason: '${process.code} ${filler.name}');
+  return eval.range!.processes.first.processes;
+}
+
 Iso9606WeldType _type(String code) =>
     Iso9606WeldType.values.firstWhere((t) => t.code == code);
 Iso9606Product _product(String code) =>
@@ -157,8 +181,8 @@ void main() {
               reason: i.id);
         }
         expect(_item('q.pos.BW.T.PH').answer, 'PA, PE, PF, PH');
-        expect(_item('q.pos.BW.T.PH').source, 'EN ISO 9606-1 tab. 9');
-        expect(_item('q.pos.FW.P.PB').source, 'EN ISO 9606-1 tab. 10');
+        expect(_item('q.pos.BW.T.PH').source, 'EN ISO 9606-1:2017 tab. 9');
+        expect(_item('q.pos.FW.P.PB').source, 'EN ISO 9606-1:2017 tab. 10');
       });
 
       test(
@@ -192,15 +216,22 @@ void main() {
           final parts = i.id.split('.');
           final tested = Iso9606Process.values
               .firstWhere((p) => p.number == int.parse(parts[2]));
-          final covered = iso9606ProcessCandidates(tested);
-          expect(i.answer, parts[3]);
-          expect(covered.map((p) => p.code), contains(i.answer));
+          final filler =
+              Iso9606Filler.values.firstWhere((f) => f.name == parts[3]);
+          final covered = _coveredFromDomain(tested, filler);
+          final answer = Iso9606Process.values
+              .firstWhere((p) => p.number == int.parse(parts[4]));
+          expect(i.answer, answer.code);
+          // Odpowiedź: proces objęty KAŻDYM swoim typem spoiwa.
+          expect(answer.fillers.every(covered[answer]!.contains), isTrue,
+              reason: i.id);
+          // Dystraktory: procesy w ogóle nieobjęte.
           for (final d in i.distractors) {
-            expect(covered.map((p) => p.code), isNot(contains(d)),
+            expect(covered.keys.map((p) => p.code), isNot(contains(d)),
                 reason: '${i.id}: $d');
           }
         }
-        expect(_item('q.proc.135.138').answer, '138');
+        expect(_item('q.proc.135.solid.138').answer, '138');
         for (final g in Iso9606FmGroup.values) {
           final i = _item('q.fm.${g.code}', en: en);
           final expected = [
@@ -297,7 +328,8 @@ void main() {
         for (final i in _items('el.class.', en: en)) {
           final c = ElectrodeClass.values
               .firstWhere((x) => x.name == i.id.substring('el.class.'.length));
-          expect(i.answer, c.code);
+          expect(i.answer, '${c.code} — ${c.desc(en: en)}');
+          expect(i.prompt, contains(examDuration(c.limitMinutes)));
         }
         expect(_item('el.limit.e7018', en: en).answer, '4 h');
         expect(_item('el.limit.e7018R', en: en).answer, '9 h');
@@ -489,7 +521,8 @@ void main() {
         final c = ElectrodeClass.values
             .firstWhere((x) => x.name == i.id.substring('el.class.'.length));
         for (final d in i.distractors) {
-          final other = ElectrodeClass.values.firstWhere((x) => x.code == d);
+          final other = ElectrodeClass.values
+              .firstWhere((x) => examElectrodeOption(x, en: en) == d);
           expect(other.limitMinutes, isNot(c.limitMinutes), reason: i.id);
         }
       }
@@ -628,7 +661,7 @@ void main() {
       for (final c in ExamCategory.values) {
         final qs = drawExamQuestions(seed: 3, en: false, category: c);
         expect(qs.length,
-            examItemsIn(c, en: false).length.clamp(0, kExamSessionLength));
+            examTopicCount(c, en: false).clamp(0, kExamSessionLength));
         expect(qs.every((q) => q.category == c), isTrue, reason: c.name);
         expect(qs.map((q) => q.id).toSet().length, qs.length);
       }
@@ -638,6 +671,179 @@ void main() {
       final ids = ['proc.name.p135', 'q.pos.BW.T.PH', 'nie-ma-takiego'];
       final qs = drawExamQuestions(seed: 5, en: false, onlyIds: ids);
       expect(qs.map((q) => q.id).toSet(), {'proc.name.p135', 'q.pos.BW.T.PH'});
+    });
+
+    test('jeden temat na sesję: pytania nie zdradzają sobie odpowiedzi', () {
+      // Pytania o tę samą rzecz mają wspólny temat.
+      String topic(String id) => _item(id).topic;
+      expect(topic('proc.name.p135'), topic('proc.num.p135'));
+      expect(topic('proc.name.p135'), topic('proc.family.135'));
+      expect(topic('proc.name.p135'), topic('vocab.de.p135'));
+      expect(topic('imp.name.i5011'), topic('imp.num.i5011'));
+      expect(topic('imp.name.i5011'), topic('def.i5011'));
+      expect(topic('pos.code.pos_pf'), topic('pos.name.pos_pf'));
+      expect(topic('pos.code.pos_pf'), topic('pos.asme.pos_pf'));
+      expect(topic('abbr.t_vt'), topic('vocab.en.t_vt'));
+      expect(topic('abbr.t_vt'), topic('def.t_vt'));
+      expect(topic('el.limit.e7018'), topic('el.class.e7018'));
+      expect(topic('el.class.e7018'), topic('el.class.e7018dash1'));
+      expect(topic('gas.sym.M21'), topic('gas.code.M21'));
+      expect(topic('q5817.strict'), topic('q5817.mild'));
+      expect(topic('q.proc.141.solid.142'), topic('q.proc.141.solid.145'));
+      expect(topic('proc.name.p135'), isNot(topic('proc.name.p136')));
+
+      for (final en in [false, true]) {
+        for (var seed = 0; seed < 40; seed++) {
+          final sessions = [
+            drawExamQuestions(seed: seed, en: en),
+            for (final c in ExamCategory.values)
+              drawExamQuestions(seed: seed, en: en, category: c),
+            drawExamQuestions(seed: seed, en: en, onlyIds: [
+              'proc.name.p135',
+              'proc.num.p135',
+              'proc.family.135',
+              'imp.num.i5011',
+            ]),
+          ];
+          for (final s in sessions) {
+            final topics = s.map((q) => q.item.topic).toList();
+            expect(topics.toSet().length, topics.length,
+                reason: 'seed $seed: ${s.map((q) => q.id)}');
+          }
+        }
+      }
+      // Kategoria „Procesy”: 10 pytań o 10 różnych procesów.
+      final procs = drawExamQuestions(
+          seed: 9, en: false, category: ExamCategory.processes);
+      expect(procs.length, kExamSessionLength);
+      expect(procs.map((q) => q.item.topic).toSet().length, kExamSessionLength);
+    });
+  });
+
+  group('poprawki z przeglądu', () {
+    test(
+        '§5.2: tylko procesy objęte bez warunku dla typu spoiwa z próby (po '
+        'filtrze tab. 4 i 5) — 125 B nie obejmuje 121, 141 S nie daje 143', () {
+      for (final en in [false, true]) {
+        // 121 spawa tylko drutem litym — próba 125 drutem proszkowym
+        // zasadowym go nie obejmuje (ani jako odpowiedź, ani jako pytanie).
+        expect(
+            _coveredFromDomain(Iso9606Process.p125, Iso9606Filler.basicCored)
+                .containsKey(Iso9606Process.p121),
+            isFalse);
+        expect(
+            examItems(en: en).where((i) =>
+                i.id.startsWith('q.proc.125.basicCored.') ||
+                i.id.startsWith('q.proc.125.otherCored.')),
+            isEmpty);
+        // Rdzeń metaliczny M obejmuje 121 (tab. 5: M → S).
+        expect(_item('q.proc.125.metalCored.121', en: en).answer, '121');
+        // 143 z próby 141 drutem litym tylko z rdzeniem metalicznym — nie
+        // pytamy i nie dajemy jako dystraktora.
+        expect(examItemById('q.proc.141.solid.143', en: en), isNull);
+        expect(_item('q.proc.141.solid.142', en: en).distractors,
+            isNot(contains('143')));
+        // 143 drutem zasadowym nie obejmuje 141 ani 145.
+        expect(examItemById('q.proc.143.basicCored.141', en: en), isNull);
+        expect(examItemById('q.proc.143.basicCored.145', en: en), isNull);
+        expect(_item('q.proc.143.basicCored.142', en: en).answer, '142');
+        for (final i in _items('q.proc.', en: en)) {
+          final filler = Iso9606Filler.values
+              .firstWhere((f) => f.name == i.id.split('.')[3]);
+          expect(i.prompt, contains(examIso9606FillerName(filler, en: en)),
+              reason: i.id);
+        }
+      }
+      expect(_item('q.proc.141.solid.142').prompt,
+          contains('typ spoiwa: drut / pręt lity (S)'));
+      expect(_item('q.proc.141.solid.142').explanation,
+          contains('tylko na grupie materiału rodzimego z próby'));
+    });
+
+    test(
+        'ISO 5817: wydanie 2014 w treści, bez pozycji zmienionych w 2023, '
+        '„niezgodność krótka” przy limitach tylko dla krótkich', () {
+      for (final en in [false, true]) {
+        final levels = _items('q5817.', en: en);
+        expect(levels, isNotEmpty);
+        for (final i in levels) {
+          expect(i.prompt, contains('EN ISO 5817:2014'), reason: i.id);
+        }
+        for (final item in kIso5817Items) {
+          final asked = _items('q5817.lv.${item.id}.', en: en);
+          if (iso5817ChangedIn2023(item)) {
+            expect(asked, isEmpty, reason: item.id);
+          }
+          for (final i in asked) {
+            final rangeName = i.id.split('.').last;
+            final range =
+                rangeName == 'thin' ? Iso5817Range.thin : Iso5817Range.thick;
+            final short = Iso5817Level.values
+                .any((l) => iso5817RuleFor(item, l, range).shortOnly);
+            expect(
+                i.prompt.contains(
+                    en ? '(short imperfection)' : '(niezgodność krótka)'),
+                short,
+                reason: i.id);
+          }
+        }
+      }
+      // 1.3 (por powierzchniowy) i 1.4 mają różnice w wydaniu 2023 — bez
+      // pytań; 1.6 i 1.7 (t ≤ 3) — tylko niezgodności krótkie.
+      expect(examItemById('q5817.lv.1.3-butt.thick', en: false), isNull);
+      expect(examItemById('q5817.lv.1.4.thin', en: false), isNull);
+      expect(
+          _item('q5817.lv.1.6.all').prompt, contains('(niezgodność krótka)'));
+      expect(
+          _item('q5817.lv.1.7.thin').prompt, contains('(niezgodność krótka)'));
+      expect(_item('q5817.lv.1.7.thick').prompt,
+          isNot(contains('(niezgodność krótka)')));
+    });
+
+    test(
+        'elektrody: opis klasy w odpowiedziach, bez klas o pokrewnym '
+        'oznaczeniu, jedna klasa z danym limitem wśród odpowiedzi', () {
+      for (final en in [false, true]) {
+        for (final i in _items('el.class.', en: en)) {
+          final c = ElectrodeClass.values
+              .firstWhere((x) => x.name == i.id.substring('el.class.'.length));
+          expect(i.prompt,
+              contains(en ? 'Which of the following' : 'Która z poniższych'));
+          expect(i.answer, contains(c.desc(en: en)));
+          for (final d in i.distractors) {
+            final o = ElectrodeClass.values
+                .firstWhere((x) => examElectrodeOption(x, en: en) == d);
+            expect(o.limitMinutes, isNot(c.limitMinutes), reason: i.id);
+            expect(examElectrodesRelated(o, c), isFalse, reason: '${i.id}: $d');
+          }
+        }
+        // Pytanie o 9 h (E7018 H4R, „np. E7018-1 H4R” w opisie) — bez
+        // E7018-1 i E7018 wśród odpowiedzi.
+        final r = _item('el.class.e7018R', en: en);
+        expect(r.distractors.where((d) => d.startsWith('E7018-1 ')), isEmpty);
+        expect(r.distractors.where((d) => d.startsWith('E7018 — ')), isEmpty);
+      }
+    });
+
+    test('ISO 9606-1: wydanie EN ISO 9606-1:2017 w treści i źródle', () {
+      for (final en in [false, true]) {
+        final items = [
+          for (final p in [
+            'q.pos.',
+            'q.s.',
+            'q.t.',
+            'q.d.',
+            'q.proc.',
+            'q.fm.'
+          ])
+            ..._items(p, en: en),
+        ];
+        expect(items.length, greaterThan(60));
+        for (final i in items) {
+          expect(i.prompt, contains('EN ISO 9606-1:2017'), reason: i.id);
+          expect(i.source, startsWith('EN ISO 9606-1:2017'), reason: i.id);
+        }
+      }
     });
   });
 }
