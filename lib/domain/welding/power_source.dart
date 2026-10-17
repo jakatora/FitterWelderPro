@@ -398,16 +398,19 @@ DutyCycleResult? computeDutyCycle(DutyCycleInput i) {
         estimateBasis = p;
       }
     }
+    // Szacunek obcięty do 100 % — z nim porównujemy tabliczkę: gdy oba dają
+    // 100 %, podstawą jest tabliczka (np. 130 A / 100 % przy 100 A), nie
+    // szacunek 140 % z 200 A / 35 %.
+    final capped = math.min(est, kMaxDutyPct);
     // Gwarancja z tabliczki: najmniejszy prąd ≥ I₂.
     final guarantee = plate.firstWhere((p) => p.currentA >= i2 - _eps);
-    if (guarantee.dutyPct >= est - _eps) {
-      duty = guarantee.dutyPct;
+    if (guarantee.dutyPct >= capped - _eps) {
+      duty = math.min(guarantee.dutyPct, kMaxDutyPct);
       plateBasis = guarantee;
       estimateBasis = null;
     } else {
-      duty = est;
+      duty = capped;
     }
-    duty = math.min(duty, kMaxDutyPct);
   }
   if (duty != null && !duty.isFinite) return null;
   if (!i100.isFinite || i100 <= 0) return null;

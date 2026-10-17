@@ -143,6 +143,32 @@ void main() {
     });
 
     test(
+        'szacunek ponad 100 % i tabliczka 100 %: podstawą tabliczka, nie '
+        'szacunek', () {
+      // 100 A: szacunki 140 / 153,6 / 169 % → obcięte 100 %; tabliczka
+      // 130 A / 100 % daje to samo — podstawą jest tabliczka.
+      expect(dutyFromPoint(const PlatePoint(200, 35), 100), closeTo(140, 1e-9));
+      final r = computeDutyCycle(_duty(_plate3, 100))!;
+      expect(r.dutyPct, 100);
+      expect(r.fromPlate, isTrue);
+      expect(r.plateBasis, const PlatePoint(130, 100));
+      expect(r.estimateBasis, isNull);
+      expect(r.weldMinutes, 10);
+      expect(r.restMinutes, 0);
+      final pl = powerSourceShareText(en: false, duty: r);
+      expect(pl, contains('(z tabliczki: 130 A / 100 %)'));
+      expect(pl, isNot(contains('szacunek z')));
+      final en = powerSourceShareText(en: true, duty: r);
+      expect(en, contains('(from the plate: 130 A / 100 %)'));
+      // Sam punkt 200 A / 35 % — tabliczka nie gwarantuje 100 %, więc
+      // 100 % zostaje szacunkiem (obciętym).
+      final single = computeDutyCycle(_duty([(200, 35)], 100))!;
+      expect(single.dutyPct, 100);
+      expect(single.fromPlate, isFalse);
+      expect(single.estimateBasis, const PlatePoint(200, 35));
+    });
+
+    test(
         'siatka: wynik między gwarancją tabliczki a szacunkiem, maks. 100 %, '
         'minuty sumują się do 10', () {
       for (final plate in [

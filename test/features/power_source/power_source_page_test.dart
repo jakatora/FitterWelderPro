@@ -125,6 +125,23 @@ void main() {
   });
 
   testWidgets(
+      '100 A: podstawa „tabliczka 130 A / 100 %” na ekranie i w tekście, '
+      'nie szacunek', (tester) async {
+    final spy = _ShareSpy();
+    await _pump(tester, spy: spy);
+    await _enter(tester, 'ps-current', '100');
+    expect(_in('ps-duty', '100'), findsOneWidget);
+    expect(_in('ps-weld-min', '10,0 min'), findsOneWidget);
+    expect(_in('ps-rest-min', '0,0 min'), findsOneWidget);
+    expect(_in('ps-duty-basis', 'tabliczka 130 A / 100 %'), findsOneWidget);
+    expect(find.textContaining('szacunek z'), findsNothing);
+    await _tap(tester, 'ps-share');
+    final (text, _) = spy.calls.single;
+    expect(text, contains('(z tabliczki: 130 A / 100 %)'));
+    expect(text, isNot(contains('szacunek z')));
+  });
+
+  testWidgets(
       'sam punkt 200 A / 35 %: praca ciągła 118 A; 250 A — poza '
       'zakresem źródła', (tester) async {
     await _pump(tester);
