@@ -204,6 +204,8 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/welding/electrode_exposure_test.dart: piecyk-przechowalnik: wyjęte po równo 4 h — limit od nowa',
         'test/domain/welding/electrode_exposure_test.dart: ponowne suszenie: suszenie zeruje licznik i liczy suszenia; AWS max 1',
         'test/domain/welding/electrode_exposure_test.dart: zapis JSON: uszkodzony JSON — pusta lista, bez wyjątku',
+        'test/features/electrode_exposure/electrode_exposure_page_test.dart: A1: przekroczonej partii nie da się ożywić podniesieniem limitu',
+        'test/features/electrode_exposure/electrode_exposure_page_test.dart: A4/A5: niespójny zapis i nieznane zdarzenie nie wywalają ekranu, kopia zostaje',
       ]),
   ModuleAuditEntry(
       id: 'flange-check',
@@ -230,6 +232,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/flange_check/flange_check_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków (pl)',
         'test/features/flange_check/flange_check_page_test.dart: cele dotyku ≥ 48 dp',
         'test/services/flange_check_export_test.dart: PDF renderuje się z polskimi fontami',
+        'test/features/flange_check/flange_check_page_test.dart: B1: zmiana jednostki przy pomiarach pyta i czyści — werdykt nie zielenieje po cichu',
+        'test/features/flange_check/flange_check_page_test.dart: B3: literówka 15 zamiast 1,5 — błąd pola i brak zieleni; luźniejsze niż PCC-1 — ostrzeżenie',
+        'test/features/flange_check/flange_check_page_test.dart: B4: uszkodzone tolerancje w zapisie — Niekompletny z komunikatem, nie PCC-1',
       ]),
   ModuleAuditEntry(
       id: 'filler-selector',
