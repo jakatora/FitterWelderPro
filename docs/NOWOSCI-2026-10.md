@@ -110,7 +110,7 @@ Wyceny spawalnicze: policz koszt roboty z wymiarów spoin — robocizna, spoiwo,
 gaz, prąd, badania NDT, narzut, zysk i VAT — i wyślij klientowi ofertę PDF.
 
 Nowe narzędzia:
-• Ile brać za godzinę
+• Ile brać za godzinę i akord: ile zarobiłem z dziennika spoin
 • Dobór spoiwa (EN ISO i AWS) i plan PWHT wg ASME B31.3
 • Odbiór spoin wg ISO 5817 i czytnik symboli spawalniczych
 • Czas stygnięcia t8/5 (EN 1011-2) i nośność spoiny pachwinowej (EN 1993-1-8)
@@ -118,7 +118,8 @@ Nowe narzędzia:
 • Elektrody zasadowe: czas na powietrzu, suszenie i przypomnienia
 • Warunki do spawania: mróz, wiatr, opad, punkt rosy
 • Prace pożarowo niebezpieczne: checklista, pomiar DGW, protokół PDF
-• Odbiór połączenia kołnierzowego wg ASME PCC-1
+• Odbiór połączenia kołnierzowego wg ASME PCC-1 i komplet śrub z długością szpilek wg B16.5
+• Plan badań NDT: ile spoin zbadać na spawacza i linię, gotowość do próby ciśnieniowej
 • Rozwinięcie stożka i przejścia kwadrat–koło z szablonem 1:1
 • Kolano segmentowe, ciężar profili stalowych, postęp robót
 • Rejestr przyrządów i kalibracji
@@ -132,7 +133,7 @@ Welding quotes: work out the job cost from the weld sizes — labour, filler,
 gas, power, NDT, overhead, profit and VAT — and send the client a PDF quote.
 
 New tools:
-• Hourly rate calculator
+• Hourly rate calculator and piecework earnings from the weld journal
 • Filler metal selector (EN ISO and AWS) and PWHT plan per ASME B31.3
 • ISO 5817 weld acceptance and welding symbol reader
 • t8/5 cooling time (EN 1011-2) and fillet weld resistance (EN 1993-1-8)
@@ -140,7 +141,8 @@ New tools:
 • Low-hydrogen electrodes: exposure time, re-drying and reminders
 • Welding conditions: frost, wind, rain, dew point
 • Hot work permit: checklist, gas test, PDF record
-• Flange joint check per ASME PCC-1
+• Flange joint check per ASME PCC-1 and stud bolt kit with B16.5 stud lengths
+• NDT plan: welds to examine per welder and line, pressure test readiness
 • Cone and square-to-round layout with a 1:1 template
 • Mitred bends, steel section weights, work progress
 • Instrument and calibration register
