@@ -5,7 +5,9 @@
 //
 // Liczby (jak w test/domain/welding/distortion_test.dart):
 //  • domyślnie V 60°, t 10, d 2, c 1,5: A_w 61,71 → „61,7 mm²”,
-//    S 1,334 → „1,3”; łańcuch 1000 + 2 × 1,3 = 1002,6 → „1003,0”;
+//    S 1,334 → w górę do 0,1 → „1,4”; łańcuch 1000 + 2 × 1,4 = 1002,8 →
+//    „1003,0” (+0,2); 3 spoiny: 1000 + 3 × 1,4 = 1004,2 → „1004,5”
+//    (z wartości surowej trzeba 1004,003 — „1004,0” byłoby za mało);
 //  • t 20: A_w 237,60, S 2,476 → „2,5”; rowek X: 138,80, S 1,488 → „1,5”;
 //  • pomiar 1,8: 1000 + 3,6 = 1003,6 → „1004,0”;
 //  • pomiar 1,8 + pachwiny 2 × 0,8: 3,6 + 1,6 = 5,2 → 1005,2 → „1005,5”.
@@ -101,17 +103,19 @@ Future<void> _scrollTop(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('domyślnie: skurcz 1,3 mm i wymiar przed spawaniem 1003,0',
-      (tester) async {
+  testWidgets('domyślnie: skurcz 1,4 mm (w górę) i wymiar przed spawaniem '
+      '1003,0', (tester) async {
     await _pump(tester);
-    expect(_in('dist-shrinkage', '1,3'), findsOneWidget);
+    expect(_in('dist-shrinkage', '1,4'), findsOneWidget);
+    expect(_in('dist-shrinkage-raw', '1,334 mm'), findsOneWidget);
     expect(_in('dist-shrinkage', 'SKURCZ POPRZECZNY — SZACUNEK'),
         findsOneWidget);
     expect(_in('dist-area', '61,7 mm²'), findsOneWidget);
     await _reveal(tester, 'dist-preweld');
     expect(_in('dist-preweld', '1003,0'), findsOneWidget);
-    expect(_in('dist-total', '2,6 mm'), findsOneWidget);
-    expect(find.text('+0,4 mm'), findsOneWidget);
+    expect(_in('dist-total', '2,8 mm'), findsOneWidget);
+    expect(find.text('+0,2 mm'), findsOneWidget);
+    expect(_key('dist-shrink-warnings'), findsNothing);
     await _reveal(tester, 'dist-disclaimer');
     expect(
         find.descendant(
@@ -134,6 +138,34 @@ void main() {
     await _tap(tester, 'dist-groove-halfV');
     expect(_key('dist-bevel'), findsOneWidget);
     expect(_key('dist-angle'), findsNothing);
+  });
+
+  testWidgets('trzy spoiny: naddatek ze skurczu w górę — 1004,5, nie 1004,0',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'dist-butt-count', '3');
+    await _reveal(tester, 'dist-preweld');
+    expect(_in('dist-total', '4,2 mm'), findsOneWidget);
+    expect(_in('dist-preweld', '1004,5'), findsOneWidget);
+  });
+
+  testWidgets('rowek prawie I i cienka blacha — ostrzeżenie, wynik zostaje',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'dist-rootface', '9,9');
+    await _reveal(tester, 'dist-shrink-warnings');
+    expect(find.textContaining('Prawie bez ukosowania'), findsOneWidget);
+    expect(find.textContaining('próg przyjęty w aplikacji'), findsOneWidget);
+    expect(_key('dist-shrinkage'), findsOneWidget);
+    expect(_key('dist-shrink-problems'), findsNothing);
+    await _enter(tester, 'dist-t', '2,5');
+    await _enter(tester, 'dist-rootface', '0,5');
+    await _reveal(tester, 'dist-shrink-warnings');
+    expect(find.textContaining('Cienka blacha'), findsOneWidget);
+    expect(find.textContaining('Prawie bez ukosowania'), findsNothing);
+    await _enter(tester, 'dist-t', '10');
+    await _enter(tester, 'dist-rootface', '1,5');
+    expect(_key('dist-shrink-warnings'), findsNothing);
   });
 
   testWidgets('puste pole to komunikat, nie wynik', (tester) async {
@@ -159,6 +191,12 @@ void main() {
     expect(_in('dist-preweld', '1004,0'), findsOneWidget);
     await _enter(tester, 'dist-measured', '1.8');
     expect(_in('dist-preweld', '1004,0'), findsOneWidget);
+    // Wpis z 3 miejscami: w rachunku w górę do 0,01, liczby się zgadzają.
+    await _enter(tester, 'dist-measured', '1,234');
+    await _reveal(tester, 'dist-total');
+    expect(find.text('Spoiny czołowe 2 × 1,24 mm'), findsOneWidget);
+    expect(_in('dist-total', '2,48 mm'), findsOneWidget);
+    await _enter(tester, 'dist-measured', '1,8');
     await _enter(tester, 'dist-fillet-count', '2');
     await _reveal(tester, 'dist-preweld');
     expect(_in('dist-total', '5,2 mm'), findsOneWidget);
@@ -208,7 +246,7 @@ void main() {
       (tester) async {
     await _pump(tester, language: AppLanguage.en);
     expect(find.text('Welding distortion'), findsOneWidget);
-    expect(_in('dist-shrinkage', '1.3'), findsOneWidget);
+    expect(_in('dist-shrinkage', '1.4'), findsOneWidget);
     expect(_in('dist-area', '61.7 mm²'), findsOneWidget);
     await _reveal(tester, 'dist-preweld');
     expect(_in('dist-preweld', '1003.0'), findsOneWidget);
@@ -227,7 +265,7 @@ void main() {
     expect(spy.calls, hasLength(1));
     final (text, subject) = spy.calls.single;
     expect(subject, 'Odkształcenia spawalnicze');
-    expect(text, contains('S ≈ 1,3 mm na spoinę'));
+    expect(text, contains('S = 1,334 mm → 1,4 mm na spoinę'));
     expect(text, contains('1003,0 mm'));
     expect(text, contains('Sytuacja: Blachy doczołowo'));
     expect(text, contains('Ustawienie wstępne'));
@@ -252,6 +290,9 @@ void main() {
           language: lang, size: const Size(320, 640), textScale: 1.3);
       expect(tester.takeException(), isNull);
       await _tap(tester, 'dist-groove-halfV');
+      await _enter(tester, 'dist-rootface', '9,9');
+      await _reveal(tester, 'dist-shrink-warnings');
+      expect(tester.takeException(), isNull);
       await _tap(tester, 'dist-src-measured');
       await _enter(tester, 'dist-measured', '2');
       await _enter(tester, 'dist-fillet-count', '3');

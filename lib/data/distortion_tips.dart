@@ -10,6 +10,18 @@
 /// * Lincoln Electric, Welding How-Tos „Weld Distortion”.
 /// * Lake Washington Institute of Technology, „Pipe Welding” (2024,
 ///   CC BY-NC 4.0), rozdz. 6 „Tack Welds”.
+/// * R. A. Hay, C. H. Holtyn, „The Effect of Thermal Fabrication Practices
+///   on Aluminum”, Naval Engineers Journal 92 (5), 1980 — aluminium nie
+///   zmienia barwy aż do stopienia; kontrola temperatury chroni własności
+///   mechaniczne i odporność na korozję (sprawdzone 2026-10-17).
+/// * TWI FAQ „What is metal fume fever?” — powłoki rozpoznać przed
+///   spawaniem / cięciem, cynk usunąć z zapasem, odciąg dymów, w razie
+///   potrzeby aparat oddechowy (sprawdzone 2026-10-17).
+///
+/// Nadmiar pachwiny: TWI JK34 pisze, że noga 8 mm zamiast 6 mm to „57 %”
+/// więcej stopiwa — to niezgodne z geometrią (przekrój ~ noga², 64 : 36 =
+/// 1,78). Na ekranie stosunek geometryczny (+78 %, ok. 1,8 raza), jak
+/// w module wad spoin.
 ///
 /// Czego celowo NIE ma, bo źródła nie podają liczb: kąta ustawienia
 /// wstępnego (TWI i Lincoln: wyznaczyć na spoinie próbnej), rozstawu
@@ -38,6 +50,9 @@ const String _lincoln = 'Lincoln Electric: Weld Distortion (Welding How-Tos)';
 const String _lwtech =
     'Lake Washington Institute of Technology: Pipe Welding (2024), '
     'ch. 6 Tack Welds';
+const String _aluminium = 'Hay, Holtyn: The Effect of Thermal Fabrication '
+    'Practices on Aluminum, Naval Engineers Journal 92(5), 1980';
+const String _twiFumeFever = 'TWI FAQ: What is metal fume fever?';
 
 const Set<DistortionElement> _allElements = {
   DistortionElement.plateButt,
@@ -299,13 +314,15 @@ const List<DistortionMeasure> kDistortionMeasures = [
     titleEn: 'Less weld metal in the joint',
     howPl: 'Na grubych blachach rowek X zamiast V (często połowa przekroju), '
         'mniejszy kąt rowka i szczelina — o ile grań da się dobrze '
-        'przetopić. Nie przewymiarowuj pachwin: noga 8 zamiast 6 mm to '
-        '57 % więcej stopiwa. Porównaj rowki w kalkulatorze skurczu.',
+        'przetopić. Nie przewymiarowuj pachwin: przekrój rośnie z kwadratem '
+        'nogi, więc noga 8 zamiast 6 mm to 64 : 36 — ok. 1,8 raza tyle '
+        'stopiwa (+78 %). Porównaj rowki w kalkulatorze skurczu.',
     howEn: 'On thick plate a double-V instead of a single-V (often half the '
         'cross-section), a smaller groove angle and gap — as long as the '
-        'root can still be fused properly. Do not over-weld fillets: a leg '
-        'of 8 instead of 6 mm is 57 % more weld metal. Compare the grooves '
-        'in the shrinkage calculator.',
+        'root can still be fused properly. Do not over-weld fillets: the '
+        'cross-section grows with the square of the leg, so a leg of 8 '
+        'instead of 6 mm is 64 : 36 — about 1.8 times the weld metal '
+        '(+78 %). Compare the grooves in the shrinkage calculator.',
     whyPl: 'Skurcz rośnie z ilością stopiwa. Wypukły nadmiar nie dodaje '
         'wytrzymałości, a dokłada skurczu.',
     whyEn: 'Shrinkage grows with the amount of weld metal. Excess convexity '
@@ -628,7 +645,16 @@ const List<DistortionMeasure> kDistortionMeasures = [
         'blachy, podstawa 1/6 długości klina (typowo ok. 5 mm prostowania na '
         '3 m). Po przerwaniu grzania odczekaj do pełnego ostygnięcia. Stal '
         'nierdzewna, Cr-Mo, stale ulepszane cieplnie: tylko wg WPS i za '
-        'zgodą — bez zgody nie prostuj płomieniem.',
+        'zgodą — bez zgody nie prostuj płomieniem. Aluminium: temperatury '
+        'wyżej dotyczą stali — aluminium aż do stopienia nie zmienia barwy, '
+        'więc żaru nie zobaczysz; tylko wg WPS i z kontrolą temperatury '
+        '(termokredki), bo przegrzanie obniża wytrzymałość i odporność na '
+        'korozję. Ocynk, farba, inne powłoki: przed grzaniem rozpoznaj '
+        'powłokę i usuń ją z zapasem wokół miejsca grzania — dymy cynku '
+        '(gorączka metaliczna) i powłok są toksyczne. BHP: odciąg dymów przy '
+        'źródle, a gdy nie wystarcza — ochrona dróg oddechowych z '
+        'doprowadzeniem powietrza; prace pożarowo niebezpieczne wg zezwolenia '
+        'zakładu, gaśnica pod ręką.',
     howEn: 'Carbon and C-Mn steel: heat locally to no more than about '
         '600–650 °C (dull red heat). Spots — buckling of thin sheet on a '
         'stiff frame: heat the convex side, from the centre of the buckle '
@@ -638,13 +664,25 @@ const List<DistortionMeasure> kDistortionMeasures = [
         'straightening in 3 m). If heating is interrupted, let the metal '
         'cool fully before restarting. Stainless, Cr-Mo, quenched and '
         'tempered steels: only per the WPS and with approval — without '
-        'approval do not flame straighten.',
+        'approval do not flame straighten. Aluminium: the temperatures above '
+        'are for steel — aluminium shows no colour change right up to '
+        'melting, so you will not see any glow; only per the WPS and with '
+        'temperature control (temperature-indicating crayons), because '
+        'overheating lowers its strength and corrosion resistance. '
+        'Galvanizing, paint, other coatings: identify the coating before '
+        'heating and remove it well clear of the heated spot — zinc fume '
+        '(metal fume fever) and coating fumes are toxic. Safety: fume '
+        'extraction at the source, and where that is not enough, '
+        'air-supplied respiratory protection; hot work under the site '
+        'permit, an extinguisher at hand.',
     whyPl: 'Nagrzany obszar ma niską granicę plastyczności i spęcza się na '
         'zimnym otoczeniu, a stygnąc kurczy się i ściąga element. Za wysoka '
-        'temperatura zmienia strukturę stali.',
+        'temperatura zmienia strukturę metalu, a palnik odparowuje powłoki '
+        'tak samo jak przy spawaniu i cięciu.',
     whyEn: 'The heated area has a low yield strength and is upset by the cold '
         'surroundings; as it cools it shrinks and pulls the part back. Too '
-        'high a temperature changes the steel’s structure.',
+        'high a temperature changes the metal’s structure, and the torch '
+        'vaporises coatings just as welding and cutting do.',
     elements: {
       DistortionElement.plateButt,
       DistortionElement.teeFillet,
@@ -656,7 +694,7 @@ const List<DistortionMeasure> kDistortionMeasures = [
       DistortionKind.bowing,
       DistortionKind.buckling,
     },
-    source: _twi37,
+    source: '$_twi37; $_aluminium; $_twiFumeFever',
     correction: true,
   ),
 ];

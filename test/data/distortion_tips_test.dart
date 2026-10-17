@@ -89,7 +89,6 @@ void main() {
     expect(tacks.howPl, contains('5–10 %'));
     expect(tacks.source, contains('Pipe Welding'));
     final metal = _byId('less-metal');
-    expect(metal.howPl, contains('57 %'));
     expect(metal.source, contains('Job Knowledge 34'));
     final flame = _byId('flame');
     expect(flame.correction, isTrue);
@@ -102,6 +101,43 @@ void main() {
     expect(longi.howPl, contains('3 mm na 3 m'));
     expect(longi.howPl, contains('0,8 mm na 3 m'));
     expect(longi.howEn, contains('0.8 mm per 3 m'));
+  });
+
+  test('nadmiar pachwiny: przekrój rośnie z kwadratem nogi (8 vs 6 mm)', () {
+    // Pole pachwiny ~ noga²: 8² / 6² = 64 / 36 = 1,78 → +78 %, ok. 1,8 raza.
+    const ratio = 8 * 8 / (6 * 6);
+    expect(ratio, closeTo(1.78, 0.005));
+    expect(((ratio - 1) * 100).round(), 78);
+    final metal = _byId('less-metal');
+    for (final s in [metal.howPl, metal.howEn]) {
+      expect(s, contains('64 : 36'));
+      expect(s, contains('+78 %'));
+      expect(s, isNot(contains('57')));
+    }
+    expect(metal.howPl, contains('ok. 1,8 raza'));
+    expect(metal.howEn, contains('about 1.8 times'));
+  });
+
+  test('prostowanie płomieniem: aluminium, ocynk i powłoki, BHP', () {
+    final flame = _byId('flame');
+    expect(flame.howPl, contains('Aluminium'));
+    expect(flame.howPl, contains('nie zmienia barwy'));
+    expect(flame.howPl, contains('termokredki'));
+    expect(flame.howPl, contains('Ocynk'));
+    expect(flame.howPl, contains('gorączka metaliczna'));
+    expect(flame.howPl, contains('BHP'));
+    expect(flame.howPl, contains('odciąg dymów'));
+    expect(flame.howPl, contains('ochrona dróg oddechowych'));
+    expect(flame.howEn, contains('Aluminium'));
+    expect(flame.howEn, contains('no colour change'));
+    expect(flame.howEn, contains('Galvanizing'));
+    expect(flame.howEn, contains('metal fume fever'));
+    expect(flame.howEn, contains('fume extraction'));
+    expect(flame.howEn, contains('air-supplied respiratory protection'));
+    expect(flame.source, contains('Naval Engineers Journal'));
+    expect(flame.source, contains('metal fume fever'));
+    // Temperatury nadal tylko dla stali węglowej / C-Mn.
+    expect(_numbers(flame.howPl).where((n) => n.length >= 3), {'600', '650'});
   });
 
   test('ustawienie wstępne bez wymyślonego kąta', () {
