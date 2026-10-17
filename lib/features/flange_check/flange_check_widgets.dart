@@ -99,6 +99,39 @@ class FlangeVerdictBanner extends StatelessWidget {
                 if (v == ProtocolVerdict.incomplete)
                   Text(missingSummary(evaluation, en: en),
                       style: const TextStyle(fontSize: 12, color: kTextMut)),
+                // Błędne dane (np. tolerancje uszkodzone w zapisie) — wprost,
+                // nie tylko jako licznik.
+                for (final p in evaluation.problems)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(problemLabel(p, en: en),
+                        key: ValueKey('flange-problem-${p.name}'),
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            color: kFail,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                if (looserWarning(evaluation.looserThanPcc1, en: en)
+                    case final warning?)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: kWarn, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(warning,
+                              key: const ValueKey('flange-looser'),
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: kWarn,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

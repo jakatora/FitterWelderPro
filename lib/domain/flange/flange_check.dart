@@ -35,6 +35,15 @@ const int kMaxBolts = 64;
 /// Dozwolone liczby punktów pomiaru szczeliny po obwodzie.
 const List<int> kGapPointCounts = [4, 8];
 
+/// Górna granica własnej tolerancji (oś, równoległość, otwory): 10 mm
+/// (≈ 0,39"). PCC-1 to 0,8–3 mm; wszystko powyżej 10 mm to literówka
+/// („15” zamiast „1,5”), a nie specyfikacja zakładu.
+const double kMaxLimitMm = 10;
+
+/// Górna granica współczynnika „szczelina ≤ k × grubość uszczelki”
+/// (PCC-1: 2).
+const double kMaxGapFactor = 10;
+
 /// Od tej średnicy podpowiadamy 8 punktów pomiaru szczeliny zamiast 4.
 /// To praktyka (przy dużym obwodzie 4 punkty łatwo „przegapiają” klin),
 /// nie wymóg PCC-1 — monter może zawsze wybrać sam.
@@ -81,17 +90,30 @@ class DualLimit {
   /// Granica w mm dla protokołu mierzonego w jednostce [u].
   double limitMm(LengthUnit u) => u == LengthUnit.mm ? mm : inch * kMmPerInch;
 
-  bool get isValid => mm.isFinite && inch.isFinite && mm > 0 && inch > 0;
+  /// Granica dodatnia i nie większa niż [kMaxLimitMm] w obu układach —
+  /// literówka „15” zamiast „1,5” nie może dać zielonego protokołu.
+  bool get isValid =>
+      mm.isFinite &&
+      inch.isFinite &&
+      mm > 0 &&
+      inch > 0 &&
+      mm <= kMaxLimitMm + _kEpsMm &&
+      inch * kMmPerInch <= kMaxLimitMm + _kEpsMm;
+
+  /// Znacznik pola tolerancji, którego nie dało się odczytać z zapisu —
+  /// nieważny (werdykt „Niekompletny”), nigdy cicho zastąpiony PCC-1.
+  static const DualLimit broken = DualLimit(0, 0);
 
   Map<String, Object?> toJson() => {'mm': mm, 'in': inch};
 
+  /// `null`, gdy w zapisie nie ma dwóch skończonych liczb. Liczby spoza
+  /// zakresu zostają (ekran pokaże je z błędem) — [isValid] je odrzuca.
   static DualLimit? fromJson(Object? json) {
     if (json is! Map) return null;
     final mm = _num(json['mm']);
     final inch = _num(json['in']);
     if (mm == null || inch == null) return null;
-    final l = DualLimit(mm, inch);
-    return l.isValid ? l : null;
+    return DualLimit(mm, inch);
   }
 
   @override
@@ -135,12 +157,30 @@ class FlangeTolerances {
 
   bool get isPcc1 => this == pcc1;
 
+  bool get gapFactorValid =>
+      gapFactor.isFinite && gapFactor > 0 && gapFactor <= kMaxGapFactor;
+
   bool get isValid =>
       centerline.isValid &&
       parallelism.isValid &&
       rotation.isValid &&
-      gapFactor.isFinite &&
-      gapFactor > 0;
+      gapFactorValid;
+
+  /// Kryteria, dla których granica jest LUŹNIEJSZA niż PCC-1 w układzie [u]
+  /// (porównanie w jednostce protokołu: 1/16" w calach to dokładnie PCC-1,
+  /// ta sama granica w protokole mm — 1,5875 > 1,5 — już luźniejsza).
+  /// Takie tolerancje nie blokują werdyktu, ale protokół musi to mówić.
+  List<FlangeCriterion> looserThanPcc1(LengthUnit u) {
+    bool looser(DualLimit l, DualLimit ref) =>
+        l.isValid && l.limitMm(u) > ref.limitMm(u) + _kEpsMm;
+    return [
+      if (looser(centerline, pcc1.centerline)) FlangeCriterion.centerline,
+      if (looser(parallelism, pcc1.parallelism)) FlangeCriterion.parallelism,
+      if (looser(rotation, pcc1.rotation)) FlangeCriterion.rotation,
+      if (gapFactorValid && gapFactor > pcc1.gapFactor + 1e-9)
+        FlangeCriterion.spacing,
+    ];
+  }
 
   FlangeTolerances copyWith({
     DualLimit? centerline,
@@ -162,15 +202,17 @@ class FlangeTolerances {
         'gapFactor': gapFactor,
       };
 
-  /// Brakujące lub zepsute pole → wartość PCC-1 (nigdy wyjątek).
+  /// Brakujące lub zepsute pole → [DualLimit.broken] / współczynnik 0, czyli
+  /// tolerancje NIEWAŻNE i werdykt „Niekompletny”. Bez cichego PCC-1: zakład
+  /// z ostrzejszą specyfikacją nie może po uszkodzeniu zapisu dostać
+  /// łagodniejszej granicy bez śladu. Nigdy wyjątek.
   static FlangeTolerances fromJson(Object? json) {
-    if (json is! Map) return pcc1;
-    final factor = _num(json['gapFactor']);
+    final m = json is Map ? json : const {};
     return FlangeTolerances(
-      centerline: DualLimit.fromJson(json['centerline']) ?? pcc1.centerline,
-      parallelism: DualLimit.fromJson(json['parallelism']) ?? pcc1.parallelism,
-      rotation: DualLimit.fromJson(json['rotation']) ?? pcc1.rotation,
-      gapFactor: factor != null && factor > 0 ? factor : pcc1.gapFactor,
+      centerline: DualLimit.fromJson(m['centerline']) ?? DualLimit.broken,
+      parallelism: DualLimit.fromJson(m['parallelism']) ?? DualLimit.broken,
+      rotation: DualLimit.fromJson(m['rotation']) ?? DualLimit.broken,
+      gapFactor: _num(m['gapFactor']) ?? 0,
     );
   }
 
@@ -385,6 +427,32 @@ class FlangeMeasurements {
 
   bool get allGapsEntered => gapsMm.every((g) => g != null);
 
+  /// Jest choć jeden pomiar długości (przesunięcia, szczelina). Zależą od
+  /// nich werdykty liczone w jednostce protokołu — patrz
+  /// [FlangeCheck.withUnit].
+  bool get hasLengthReadings =>
+      centerlineMm != null ||
+      rotationMm != null ||
+      gapsMm.any((g) => g != null);
+
+  /// Pomiary długości usunięte; liczba punktów i ocena siły zostają.
+  FlangeMeasurements withoutLengths() => FlangeMeasurements(
+      gapsMm: List<double?>.filled(gapPointCount, null), force: force);
+
+  /// Odczyty szczeliny, które przepadną przy przejściu na [points] punktów:
+  /// (kąt w stopniach, wartość w mm). 8 → 4 gubi 45°, 135°, 225°, 315°;
+  /// 4 → 8 niczego nie gubi.
+  List<(double, double)> readingsLostBy(int points) {
+    final n = _validPoints(points);
+    if (n >= gapPointCount) return const [];
+    final step = 360 / n;
+    return [
+      for (final (i, g) in gapsMm.indexed)
+        if (g != null && !_isMultiple(gapPointAngle(i, gapPointCount), step))
+          (gapPointAngle(i, gapPointCount), g)
+    ];
+  }
+
   FlangeMeasurements copyWith({
     double? Function()? centerlineMm,
     double? Function()? rotationMm,
@@ -451,6 +519,11 @@ class FlangeMeasurements {
 }
 
 int _validPoints(int n) => n <= 4 ? 4 : 8;
+
+bool _isMultiple(double angle, double step) {
+  final k = angle / step;
+  return (k - k.round()).abs() < 1e-9;
+}
 
 /// Kąt punktu pomiaru szczeliny w stopniach (0° = góra).
 double gapPointAngle(int index, int count) => 360 / count * index;
@@ -524,10 +597,15 @@ class FlangeEvaluation {
   final Set<FlangeChecklistItem> checked;
   final List<FlangeDataProblem> problems;
 
+  /// Kryteria z tolerancją luźniejszą niż PCC-1 — ostrzeżenie na banerze,
+  /// w tekście i w PDF (nie blokuje werdyktu: to decyzja zakładu).
+  final List<FlangeCriterion> looserThanPcc1;
+
   const FlangeEvaluation({
     required this.criteria,
     required this.checked,
     required this.problems,
+    this.looserThanPcc1 = const [],
   });
 
   CriterionResult of(FlangeCriterion c) =>
@@ -669,8 +747,18 @@ class FlangeCheck {
       ],
       checked: checked,
       problems: problems,
+      looserThanPcc1: tol.looserThanPcc1(unit),
     );
   }
+
+  /// Protokół w jednostce [u]. Zmiana jednostki CZYŚCI pomiary długości:
+  /// granice PCC-1 w mm i calach nie są dokładnym przeliczeniem (1/16" =
+  /// 1,5875 mm > 1,5 mm), więc te same liczby oceniane w drugim układzie
+  /// mogłyby zmienić werdykt — np. 1,55 mm „poza” stałoby się „OK” po samym
+  /// kliknięciu „cale”. Ekran pyta o zgodę, zanim to wywoła.
+  FlangeCheck withUnit(LengthUnit u) => u == unit
+      ? this
+      : copyWith(unit: u, measurements: measurements.withoutLengths());
 
   /// Nowy protokół „jak poprzedni”: te same dane połączenia, jednostka
   /// i tolerancje; numer w oznaczeniu +1; BEZ pomiarów, odhaczeń i uwag.
@@ -744,22 +832,64 @@ String encodeFlangeChecks(List<FlangeCheck> checks) => jsonEncode({
 
 /// JSON → lista protokołów. Nigdy nie rzuca: pusty, uszkodzony albo obcy
 /// JSON daje pustą listę; pojedynczy zepsuty wpis jest pomijany.
-List<FlangeCheck> decodeFlangeChecks(String? raw) {
-  if (raw == null || raw.trim().isEmpty) return [];
+List<FlangeCheck> decodeFlangeChecks(String? raw) =>
+    decodeFlangeChecksReport(raw).checks;
+
+/// Wynik odczytu historii: protokoły i to, czy zapis był NIENARUSZONY.
+class FlangeChecksDecoded {
+  final List<FlangeCheck> checks;
+
+  /// `false`, gdy cokolwiek z zapisu przepadło albo zostało poprawione przy
+  /// odczycie (nieczytelny JSON, pominięty wpis, pole z wartością domyślną).
+  /// Wtedy nadpisanie kasowałoby dane — magazyn najpierw robi kopię.
+  final bool intact;
+
+  const FlangeChecksDecoded(this.checks, {required this.intact});
+}
+
+FlangeChecksDecoded decodeFlangeChecksReport(String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return const FlangeChecksDecoded([], intact: true);
+  }
   try {
     final json = jsonDecode(raw);
     final list = json is Map ? json['checks'] : json;
-    if (list is! List) return [];
+    if (list is! List) return const FlangeChecksDecoded([], intact: false);
+    var intact = json is Map && json['v'] == 1;
     final out = <FlangeCheck>[];
     final ids = <String>{};
     for (final e in list) {
       final c = FlangeCheck.fromJson(e);
-      if (c != null && ids.add(c.id)) out.add(c);
+      if (c != null && ids.add(c.id)) {
+        out.add(c);
+        // Wpis odczytany bez strat zapisuje się z powrotem identycznie.
+        if (!_jsonEquals(c.toJson(), e)) intact = false;
+      } else {
+        intact = false;
+      }
     }
-    return out;
+    return FlangeChecksDecoded(out, intact: intact);
   } catch (_) {
-    return [];
+    return const FlangeChecksDecoded([], intact: false);
   }
+}
+
+bool _jsonEquals(Object? a, Object? b) {
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final k in a.keys) {
+      if (!b.containsKey(k) || !_jsonEquals(a[k], b[k])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_jsonEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 /// Następne oznaczenie: ostatnia liczba +1 z zachowaniem zer wiodących.

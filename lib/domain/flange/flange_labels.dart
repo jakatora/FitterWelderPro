@@ -143,9 +143,24 @@ String problemLabel(FlangeDataProblem p, {required bool en}) => switch (p) {
           'Gasket thickness must be greater than zero.'),
       FlangeDataProblem.tolerances => _t(
           en,
-          'Tolerancje muszą być większe od zera.',
-          'Tolerances must be greater than zero.'),
+          'Tolerancje nieważne: wartość spoza zakresu (granica 0–'
+              '${fmtNum(kMaxLimitMm, en: en)} mm, współczynnik 0–'
+              '${fmtNum(kMaxGapFactor, en: en)}) albo uszkodzona w zapisie. '
+              'Popraw je albo przywróć PCC-1.',
+          'Tolerances invalid: out of range (limit 0–'
+              '${fmtNum(kMaxLimitMm, en: en)} mm, factor 0–'
+              '${fmtNum(kMaxGapFactor, en: en)}) or damaged in storage. '
+              'Correct them or restore PCC-1.'),
     };
+
+/// „UWAGA: tolerancje luźniejsze niż PCC-1 (przesunięcie osi, …).” albo
+/// `null`, gdy żadna nie jest luźniejsza.
+String? looserWarning(List<FlangeCriterion> looser, {required bool en}) {
+  if (looser.isEmpty) return null;
+  final names = looser.map((c) => criterionTitle(c, en: en)).join(', ');
+  return _t(en, 'UWAGA: tolerancje luźniejsze niż PCC-1 ($names).',
+      'WARNING: tolerances looser than PCC-1 ($names).');
+}
 
 /// Co brakuje do zielonego: „brak 2 pomiarów · 3 punkty listy”.
 String missingSummary(FlangeEvaluation e, {required bool en}) {
@@ -172,10 +187,13 @@ String criterionValueLine(FlangeCheck check, CriterionResult r,
   }
   final value = r.valueMm == null ? '—' : formatLength(r.valueMm!, u, en: en);
   final tol = check.tolerances;
+  String lim(DualLimit l) => l.isValid
+      ? formatLimit(l, u, en: en)
+      : _t(en, '? (tolerancja nieważna)', '? (invalid tolerance)');
   final limit = switch (r.criterion) {
-    FlangeCriterion.centerline => formatLimit(tol.centerline, u, en: en),
-    FlangeCriterion.parallelism => formatLimit(tol.parallelism, u, en: en),
-    FlangeCriterion.rotation => formatLimit(tol.rotation, u, en: en),
+    FlangeCriterion.centerline => lim(tol.centerline),
+    FlangeCriterion.parallelism => lim(tol.parallelism),
+    FlangeCriterion.rotation => lim(tol.rotation),
     FlangeCriterion.spacing => _spacingLimit(check, en: en),
     FlangeCriterion.force => '',
   };
@@ -183,6 +201,9 @@ String criterionValueLine(FlangeCheck check, CriterionResult r,
 }
 
 String _spacingLimit(FlangeCheck check, {required bool en}) {
+  if (!check.tolerances.gapFactorValid) {
+    return _t(en, '? (współczynnik nieważny)', '? (invalid factor)');
+  }
   final factor = fmtNum(check.tolerances.gapFactor, en: en);
   final t = check.joint.gasketThicknessMm;
   if (t == null || t <= 0) {

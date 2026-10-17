@@ -57,6 +57,10 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   bool _sharing = false;
   String _profileName = '';
 
+  /// Zapis historii był uszkodzony (kopia trafi pod
+  /// [FlangeCheckStore.corruptKey] przed pierwszym nadpisaniem).
+  bool _historyDamaged = false;
+
   final _tag = TextEditingController();
   final _rating = TextEditingController();
   final _gasketType = TextEditingController();
@@ -114,7 +118,10 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       joint: FlangeJoint(date: _todayIso, fitter: _profileName),
       measurements: FlangeMeasurements.empty(),
       unit: latest?.unit ?? LengthUnit.mm,
-      tolerances: latest?.tolerances ?? FlangeTolerances.pcc1,
+      // Nieważnych (np. uszkodzonych w zapisie) tolerancji nie przenosimy.
+      tolerances: latest != null && latest.tolerances.isValid
+          ? latest.tolerances
+          : FlangeTolerances.pcc1,
       createdAt: now,
       updatedAt: now,
     );
@@ -135,7 +142,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _load() async {
-    final history = await widget.store.load();
+    final loaded = await widget.store.loadWithStatus();
     var name = '';
     try {
       name = (await UserProfileService.instance.get())?.fullName ?? '';
@@ -144,7 +151,8 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     }
     if (!mounted) return;
     setState(() {
-      _history = history;
+      _history = loaded.checks;
+      _historyDamaged = loaded.damaged;
       _profileName = name;
       _loading = false;
       if (!_dirty) {
@@ -200,13 +208,18 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     final t = _draft.tolerances;
     final u = _draft.unit;
     final en = AppLanguageController.isEnglish;
-    String lim(DualLimit l) =>
-        l.isValid ? fmtNum(l.inUnit(u), decimals: 4, en: en) : '';
+    // Wartość spoza zakresu też widać (z błędem pola); uszkodzona — puste.
+    String lim(DualLimit l) {
+      final v = l.inUnit(u);
+      return v.isFinite && v > 0 ? fmtNum(v, decimals: 4, en: en) : '';
+    }
+
     _tolCenter.text = lim(t.centerline);
     _tolPar.text = lim(t.parallelism);
     _tolRot.text = lim(t.rotation);
-    _tolFactor.text =
-        t.gapFactor > 0 ? fmtNum(t.gapFactor, decimals: 2, en: en) : '';
+    _tolFactor.text = t.gapFactor.isFinite && t.gapFactor > 0
+        ? fmtNum(t.gapFactor, decimals: 2, en: en)
+        : '';
   }
 
   void _update(FlangeCheck next) => setState(() {
@@ -224,16 +237,58 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     return v == null ? null : unitToMm(v, _draft.unit);
   }
 
-  void _setUnit(LengthUnit u) {
+  /// Zmiana mm ↔ cale. Przy wpisanych pomiarach — tylko za zgodą i z ich
+  /// wyczyszczeniem ([FlangeCheck.withUnit]): granice w obu układach nie są
+  /// dokładnym przeliczeniem, więc samo przełączenie nie może zmienić
+  /// werdyktu (np. 1,55 mm „poza” → 0,061" „OK”).
+  Future<void> _setUnit(LengthUnit u) async {
     if (u == _draft.unit) return;
+    if (_draft.measurements.hasLengthReadings) {
+      final ok = await _confirm(
+        title: context.tr(pl: 'Zmienić jednostkę?', en: 'Change the unit?'),
+        body: context.tr(
+            pl: 'Wpisane pomiary (przesunięcia i szczelina) zostaną usunięte — '
+                'zmierz i wpisz je ponownie w nowej jednostce. Granice PCC-1 '
+                'w mm i calach nie są dokładnym przeliczeniem, więc ten sam '
+                'odczyt mógłby dostać inny werdykt.',
+            en: 'The entered measurements (offsets and gap) will be cleared — '
+                'measure and enter them again in the new unit. PCC-1 limits in '
+                'mm and inches are not exact conversions, so the same reading '
+                'could get a different verdict.'),
+        confirmLabel: context.tr(pl: 'Zmień i wyczyść', en: 'Change and clear'),
+        confirmKey: const ValueKey('flange-unit-confirm'),
+      );
+      if (!ok || !mounted) return;
+    }
     setState(() {
-      _draft = _draft.copyWith(unit: u);
+      _draft = _draft.withUnit(u);
       _dirty = true;
       _bindLengths();
     });
   }
 
-  void _setGapPoints(int n) {
+  /// 8 → 4 punkty usuwa odczyty z 45°, 135°… — tylko za zgodą.
+  Future<void> _setGapPoints(int n) async {
+    final lost = _draft.measurements.readingsLostBy(n);
+    if (lost.isNotEmpty) {
+      final en = _en;
+      final list = lost
+          .map((r) => '${fmtNum(r.$1, decimals: 0, en: en)}° '
+              '(${formatLength(r.$2, _draft.unit, en: en)})')
+          .join(', ');
+      final ok = await _confirm(
+        title:
+            context.tr(pl: 'Przejść na $n punkty?', en: 'Switch to $n points?'),
+        body: context.tr(
+            pl: 'Te odczyty szczeliny zostaną usunięte: $list. Mogą one '
+                'decydować o werdykcie.',
+            en: 'These gap readings will be deleted: $list. They may decide '
+                'the verdict.'),
+        confirmLabel: context.tr(pl: 'Usuń odczyty', en: 'Delete readings'),
+        confirmKey: const ValueKey('flange-points-confirm'),
+      );
+      if (!ok || !mounted) return;
+    }
     setState(() {
       _draft =
           _draft.copyWith(measurements: _draft.measurements.withGapPoints(n));
@@ -304,9 +359,11 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       ..showSnackBar(SnackBar(content: Text(text), action: action));
   }
 
-  Future<bool> _persist() async {
+  /// Zapis [list] — `false` (z komunikatem) przy błędzie. Stan ekranu
+  /// zmieniamy dopiero po udanym zapisie.
+  Future<bool> _persist(List<FlangeCheck> list) async {
     try {
-      await widget.store.save(_history);
+      await widget.store.save(list);
       return true;
     } catch (_) {
       if (mounted) {
@@ -328,45 +385,65 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
           en: 'Enter the joint tag (line / flange no.).'));
       return;
     }
-    final saved = _draft.copyWith(updatedAt: _now.millisecondsSinceEpoch);
+    final before = _draft;
+    final saved = before.copyWith(updatedAt: _now.millisecondsSinceEpoch);
+    final next = [..._history];
+    final i = next.indexWhere((c) => c.id == saved.id);
+    if (i >= 0) {
+      next[i] = saved;
+    } else {
+      next.insert(0, saved);
+    }
+    // Nieudany zapis: protokół zostaje „niezapisany” — wyjście nadal pyta.
+    if (!await _persist(next) || !mounted) return;
     setState(() {
-      final i = _history.indexWhere((c) => c.id == saved.id);
-      if (i >= 0) {
-        _history[i] = saved;
-      } else {
-        _history.insert(0, saved);
-      }
-      _draft = saved;
-      _dirty = false;
+      _history = next;
       _tagError = false;
+      // Zmiany wpisane w trakcie zapisu zostają niezapisane.
+      if (identical(_draft, before)) {
+        _draft = saved;
+        _dirty = false;
+      }
     });
-    if (!await _persist() || !mounted) return;
     Haptic.saved();
     _snack(context.tr(pl: 'Zapisano protokół.', en: 'Protocol saved.'));
   }
 
-  Future<bool> _confirmDiscard() async {
-    if (!_dirty) return true;
+  Future<bool> _confirm({
+    required String title,
+    required String body,
+    required String confirmLabel,
+    required Key confirmKey,
+  }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title:
-            Text(context.tr(pl: 'Niezapisane zmiany', en: 'Unsaved changes')),
-        content: Text(context.tr(
-            pl: 'Protokół nie jest zapisany. Odrzucić zmiany?',
-            en: 'The protocol is not saved. Discard the changes?')),
+        title: Text(title),
+        content: Text(body),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
               child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
           TextButton(
-              key: const ValueKey('flange-discard'),
+              key: confirmKey,
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(context.tr(pl: 'Odrzuć', en: 'Discard'))),
+              child: Text(confirmLabel)),
         ],
       ),
     );
     return ok ?? false;
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (!_dirty) return true;
+    return _confirm(
+      title: context.tr(pl: 'Niezapisane zmiany', en: 'Unsaved changes'),
+      body: context.tr(
+          pl: 'Protokół nie jest zapisany. Odrzucić zmiany?',
+          en: 'The protocol is not saved. Discard the changes?'),
+      confirmLabel: context.tr(pl: 'Odrzuć', en: 'Discard'),
+      confirmKey: const ValueKey('flange-discard'),
+    );
   }
 
   Future<void> _openDraft(FlangeCheck next) async {
@@ -410,28 +487,29 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   Future<void> _delete(FlangeCheck c) async {
     final index = _history.indexWhere((h) => h.id == c.id);
     if (index < 0) return;
+    final next = [..._history]..removeAt(index);
+    if (!await _persist(next) || !mounted) return;
     setState(() {
-      _history.removeAt(index);
+      _history = next;
       if (_draft.id == c.id) _dirty = true;
     });
-    await _persist();
-    if (!mounted) return;
     _snack(
       context.tr(pl: 'Usunięto protokół.', en: 'Protocol deleted.'),
       action: SnackBarAction(
         label: context.tr(pl: 'Cofnij', en: 'Undo'),
-        onPressed: () {
-          if (!mounted) return;
-          setState(() {
-            if (_history.every((h) => h.id != c.id)) {
-              _history.insert(index.clamp(0, _history.length), c);
-            }
-            if (_draft.id == c.id) _dirty = false;
-          });
-          unawaited(_persist());
-        },
+        onPressed: () => unawaited(_undoDelete(c, index)),
       ),
     );
+  }
+
+  Future<void> _undoDelete(FlangeCheck c, int index) async {
+    if (!mounted || _history.any((h) => h.id == c.id)) return;
+    final restored = [..._history]..insert(index.clamp(0, _history.length), c);
+    if (!await _persist(restored) || !mounted) return;
+    setState(() {
+      _history = restored;
+      if (_draft.id == c.id) _dirty = false;
+    });
   }
 
   Future<void> _share(FlangeCheck c, FlangeShareFormat f) async {
@@ -755,7 +833,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
                     key: const ValueKey('flange-unit-inch'))),
           ],
           selected: {u},
-          onSelectionChanged: (s) => _setUnit(s.first),
+          onSelectionChanged: (s) => unawaited(_setUnit(s.first)),
         ),
         const SizedBox(height: 14),
         CriterionTile(
@@ -801,7 +879,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
                       key: ValueKey('flange-points-$n'))),
           ],
           selected: {m.gapPointCount},
-          onSelectionChanged: (s) => _setGapPoints(s.first),
+          onSelectionChanged: (s) => unawaited(_setGapPoints(s.first)),
         ),
         Padding(
           padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -883,9 +961,42 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       _update(_draft.copyWith(tolerances: apply(DualLimit.entered(value, u))));
     }
 
+    final maxText = u == LengthUnit.mm
+        ? '${fmtNum(kMaxLimitMm, en: en)} mm'
+        : '${fmtNum(kMaxLimitMm / kMmPerInch, en: en)}"';
     String? err(DualLimit l) => l.isValid
         ? null
-        : context.tr(pl: 'Wpisz wartość > 0', en: 'Enter a value > 0');
+        : context.tr(
+            pl: 'Wpisz wartość większą od 0, najwyżej $maxText',
+            en: 'Enter a value above 0, at most $maxText');
+    String lim(DualLimit l) => l.isValid ? formatLimit(l, u, en: en) : '?';
+    final looser = t.looserThanPcc1(u);
+    final (titleText, titleColor) = t.isPcc1
+        ? (
+            context.tr(
+                pl: '$kPcc1Edition zał. E', en: '$kPcc1Edition Appendix E'),
+            kText
+          )
+        : !t.isValid
+            ? (
+                context.tr(
+                    pl: 'Nieważne — popraw albo przywróć PCC-1',
+                    en: 'Invalid — correct or restore PCC-1'),
+                kFail
+              )
+            : looser.isNotEmpty
+                ? (
+                    context.tr(
+                        pl: 'Własne — luźniejsze niż PCC-1',
+                        en: 'Custom — looser than PCC-1'),
+                    kFail
+                  )
+                : (
+                    context.tr(
+                        pl: 'Własne (specyfikacja zakładu)',
+                        en: 'Custom (plant specification)'),
+                    kWarn
+                  );
     return QuoteSection(
       title: context.tr(pl: 'Tolerancje', en: 'Tolerances'),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
@@ -896,23 +1007,16 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
           collapsedShape: const Border(),
           tilePadding: EdgeInsets.zero,
           title: Text(
-            t.isPcc1
-                ? context.tr(
-                    pl: '$kPcc1Edition zał. E', en: '$kPcc1Edition Appendix E')
-                : context.tr(
-                    pl: 'Własne (specyfikacja zakładu)',
-                    en: 'Custom (plant specification)'),
+            titleText,
             key: const ValueKey('flange-tol-title'),
             style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-                color: t.isPcc1 ? kText : kWarn),
+                fontSize: 14.5, fontWeight: FontWeight.w700, color: titleColor),
           ),
           subtitle: Text(
-            '${formatLimit(t.centerline, u, en: en)} · '
-            '${formatLimit(t.parallelism, u, en: en)} · '
-            '${formatLimit(t.rotation, u, en: en)} · '
-            '${fmtNum(t.gapFactor, en: en)} × ${context.tr(pl: 'uszczelka', en: 'gasket')}',
+            '${lim(t.centerline)} · ${lim(t.parallelism)} · '
+            '${lim(t.rotation)} · '
+            '${t.gapFactorValid ? fmtNum(t.gapFactor, en: en) : '?'} × '
+            '${context.tr(pl: 'uszczelka', en: 'gasket')}',
             style: const TextStyle(fontSize: 12, color: kTextSec),
           ),
           childrenPadding: const EdgeInsets.only(bottom: 12),
@@ -972,10 +1076,13 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
                   en: 'Largest gap ≤ … × gasket thickness'),
               key: const ValueKey('flange-tol-factor'),
               unit: '×',
-              error: t.gapFactor > 0
+              error: t.gapFactorValid
                   ? null
                   : context.tr(
-                      pl: 'Wpisz wartość > 0', en: 'Enter a value > 0'),
+                      pl: 'Wpisz wartość większą od 0, najwyżej '
+                          '${fmtNum(kMaxGapFactor, en: en)}',
+                      en: 'Enter a value above 0, at most '
+                          '${fmtNum(kMaxGapFactor, en: en)}'),
               onChanged: (v) => _update(_draft.copyWith(
                   tolerances: _draft.tolerances
                       .copyWith(gapFactor: parseDecimal(v) ?? 0))),
@@ -1128,6 +1235,19 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       key: const ValueKey('flange-history-list'),
       padding: _pagePadding,
       children: [
+        if (_historyDamaged)
+          QuoteNotice(
+            key: const ValueKey('flange-history-damaged'),
+            color: kFail,
+            icon: Icons.report_problem_outlined,
+            text: context.tr(
+                pl: 'Zapisana historia była częściowo nieczytelna — pokazano to, '
+                    'co dało się odczytać. Przed następnym zapisem aplikacja '
+                    'zachowa kopię surowych danych.',
+                en: 'The saved history was partly unreadable — showing what '
+                    'could be read. Before the next save the app keeps a copy '
+                    'of the raw data.'),
+          ),
         if (sorted.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 24),

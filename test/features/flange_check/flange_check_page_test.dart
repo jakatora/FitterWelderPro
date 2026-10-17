@@ -2,6 +2,8 @@
 // historii, duplikat, usunięcie z cofnięciem, cale, tolerancje zakładu,
 // udostępnianie przez wstrzykniętą funkcję, wąski ekran i cele dotyku.
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +18,15 @@ import 'package:cut_list_app/theme/app_theme.dart';
 
 Future<void> _noShare(FlangeCheck c, FlangeShareFormat f, bool en) async {}
 
+/// Magazyn, którego zapis zawsze się nie udaje (pełna pamięć itp.).
+class _FailingStore extends FlangeCheckStore {
+  const _FailingStore();
+
+  @override
+  Future<void> save(List<FlangeCheck> checks) async =>
+      throw StateError('brak miejsca');
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage lang = AppLanguage.pl,
@@ -23,6 +34,7 @@ Future<void> _pump(
   double textScale = 1.0,
   Map<String, Object> prefs = const {},
   FlangeShareFn share = _noShare,
+  FlangeCheckStore store = const FlangeCheckStore(),
 }) async {
   SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -37,8 +49,8 @@ Future<void> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home:
-          FlangeCheckPage(share: share, clock: () => DateTime(2026, 10, 17, 8)),
+      home: FlangeCheckPage(
+          share: share, store: store, clock: () => DateTime(2026, 10, 17, 8)),
     ),
   ));
   await tester.pumpAndSettle();
@@ -267,16 +279,200 @@ void main() {
     expect(find.textContaining('No saved protocols yet'), findsOneWidget);
   });
 
-  testWidgets('cale: 1/16" na granicy, po powrocie do mm — 1,59 i poza',
+  testWidgets('cale: bez pomiarów zmiana bez pytania, 1/16" na granicy',
       (tester) async {
     await _pump(tester);
     await _tap(tester, 'flange-unit-inch');
+    expect(find.text('Zmienić jednostkę?'), findsNothing);
     await _enter(tester, 'flange-centerline', '0,0625');
     expect(_pill('centerline', 'OK'), findsOneWidget);
     expect(find.text('0,0625" ≤ 1/16" (1,5 mm)'), findsOneWidget);
-    await _tap(tester, 'flange-unit-mm');
-    expect(_field(tester, 'flange-centerline'), '1,59');
+  });
+
+  testWidgets(
+      'B1: zmiana jednostki przy pomiarach pyta i czyści — werdykt nie '
+      'zielenieje po cichu', (tester) async {
+    await _pump(tester);
+    await _tickAll(tester);
+    await _measureAllOk(tester);
+    expect(_verdict(tester), 'Zgodny — można skręcać');
+    // 1,55 mm: poza w mm; ta sama liczba w calach (granica 1/16" = 1,5875 mm)
+    // przeszłaby, gdyby przełączenie zostawiło wartość.
+    await _enter(tester, 'flange-centerline', '1,55');
+    expect(_verdict(tester), 'Niezgodny — popraw osiowanie');
+
+    await _tap(tester, 'flange-unit-inch');
+    expect(find.text('Zmienić jednostkę?'), findsOneWidget);
+    await tester.tap(find.text('Anuluj'));
+    await tester.pumpAndSettle();
+    expect(_field(tester, 'flange-centerline'), '1,55');
     expect(_pill('centerline', 'Poza tolerancją'), findsOneWidget);
+    expect(_verdict(tester), 'Niezgodny — popraw osiowanie');
+
+    await _tap(tester, 'flange-unit-inch');
+    await _tap(tester, 'flange-unit-confirm');
+    expect(_field(tester, 'flange-centerline'), '');
+    expect(_field(tester, 'flange-gap-0'), '');
+    expect(_pill('centerline', 'Brak pomiaru'), findsOneWidget);
+    expect(_verdict(tester), 'Niekompletny');
+    // Grubość uszczelki zostaje (w calach), ocena siły też.
+    expect(_field(tester, 'flange-gasket-t'), '0,1772');
+    expect(_pill('force', 'OK'), findsOneWidget);
+  });
+
+  testWidgets('B2: 8 → 4 punkty z odczytami z 45° pyta i dopiero wtedy usuwa',
+      (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'flange-points-8');
+    const gaps = ['3', '2,1', '3', '3', '3', '3', '3', '3'];
+    for (var i = 0; i < gaps.length; i++) {
+      await _enter(tester, 'flange-gap-$i', gaps[i]);
+    }
+    expect(_pill('parallelism', 'Poza tolerancją'), findsOneWidget);
+
+    await _tap(tester, 'flange-points-4');
+    expect(find.text('Przejść na 4 punkty?'), findsOneWidget);
+    expect(find.textContaining('45° (2,1 mm)'), findsOneWidget);
+    await tester.tap(find.text('Anuluj'));
+    await tester.pumpAndSettle();
+    expect(_key('flange-gap-7'), findsOneWidget);
+    expect(_pill('parallelism', 'Poza tolerancją'), findsOneWidget);
+
+    await _tap(tester, 'flange-points-4');
+    await _tap(tester, 'flange-points-confirm');
+    expect(_key('flange-gap-4'), findsNothing);
+    expect(_field(tester, 'flange-gap-1'), '3');
+    expect(_pill('parallelism', 'OK'), findsOneWidget);
+  });
+
+  testWidgets('B2: 8 → 4 z odczytami tylko w 0/90/180/270° — bez pytania',
+      (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'flange-points-8');
+    await _enter(tester, 'flange-gap-2', '3');
+    await _tap(tester, 'flange-points-4');
+    expect(find.text('Przejść na 4 punkty?'), findsNothing);
+    expect(_field(tester, 'flange-gap-1'), '3');
+  });
+
+  testWidgets(
+      'B3: literówka 15 zamiast 1,5 — błąd pola i brak zieleni; luźniejsze '
+      'niż PCC-1 — ostrzeżenie', (tester) async {
+    await _pump(tester);
+    await _tickAll(tester);
+    await _measureAllOk(tester);
+    expect(_verdict(tester), 'Zgodny — można skręcać');
+    expect(_key('flange-looser'), findsNothing);
+
+    await _tap(tester, 'flange-tol-tile');
+    await _enter(tester, 'flange-tol-centerline', '15');
+    expect(find.text('Wpisz wartość większą od 0, najwyżej 10 mm'),
+        findsOneWidget);
+    expect(_verdict(tester), 'Niekompletny');
+    expect(_key('flange-problem-tolerances'), findsOneWidget);
+
+    await _enter(tester, 'flange-tol-centerline', '1,6');
+    expect(_verdict(tester), 'Zgodny — można skręcać');
+    expect(
+        tester.widget<Text>(_key('flange-looser')).data,
+        'UWAGA: tolerancje luźniejsze niż PCC-1 '
+        '(Przesunięcie osi (high/low)).');
+    expect(find.text('Własne — luźniejsze niż PCC-1'), findsOneWidget);
+
+    await _enter(tester, 'flange-tol-centerline', '1,5');
+    await _enter(tester, 'flange-tol-factor', '100');
+    expect(
+        find.text('Wpisz wartość większą od 0, najwyżej 10'), findsOneWidget);
+    expect(_verdict(tester), 'Niekompletny');
+  });
+
+  testWidgets(
+      'B4: uszkodzone tolerancje w zapisie — Niekompletny z komunikatem, '
+      'nie PCC-1', (tester) async {
+    final strict = _saved('a', 'F-1', 1).copyWith(
+      tolerances: FlangeTolerances.pcc1
+          .copyWith(centerline: DualLimit.entered(0.8, LengthUnit.mm)),
+      checked: FlangeChecklistItem.values.toSet(),
+    );
+    final json = strict.toJson();
+    json['tolerances'] = {
+      ...(json['tolerances']! as Map<String, Object?>),
+      'centerline': 'zepsute',
+    };
+    await _pump(tester, prefs: {
+      FlangeCheckStore.key: jsonEncode({
+        'v': 1,
+        'checks': [json]
+      }),
+    });
+    // Nowy protokół nie dziedziczy nieważnych tolerancji.
+    expect(find.text('ASME PCC-1-2019 zał. E'), findsOneWidget);
+
+    await _tap(tester, 'flange-tab-history');
+    await tester.tap(find.text('F-1'));
+    await tester.pumpAndSettle();
+    expect(_verdict(tester), 'Niekompletny');
+    expect(_key('flange-problem-tolerances'), findsOneWidget);
+    expect(find.text('Nieważne — popraw albo przywróć PCC-1'), findsOneWidget);
+    expect(_pill('centerline', 'Brak pomiaru'), findsOneWidget);
+  });
+
+  testWidgets('B5: nieudany zapis — protokół zostaje niezapisany, wyjście pyta',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(800, 6000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const FlangeCheckPage(
+                        share: _noShare, store: _FailingStore()))),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await _enter(tester, 'flange-tag', 'X-1');
+    await _tap(tester, 'flange-save');
+    expect(find.text('Nie udało się zapisać na telefonie.'), findsOneWidget);
+    expect(find.text('Historia (0)'), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Niezapisane zmiany'), findsOneWidget);
+    await tester.tap(find.text('Anuluj'));
+    await tester.pumpAndSettle();
+    expect(find.byType(FlangeCheckPage), findsOneWidget);
+    await _drainSnackBars(tester);
+  });
+
+  testWidgets('B6: uszkodzona historia — komunikat i kopia przed nadpisaniem',
+      (tester) async {
+    const raw = '{"v":1,"checks":[{';
+    await _pump(tester, prefs: {FlangeCheckStore.key: raw});
+    await _tap(tester, 'flange-tab-history');
+    expect(_key('flange-history-damaged'), findsOneWidget);
+    await _tap(tester, 'flange-tab-check');
+    await _enter(tester, 'flange-tag', 'N-1');
+    await _tap(tester, 'flange-save');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(FlangeCheckStore.corruptKey), raw);
+    expect(
+        decodeFlangeChecks(prefs.getString(FlangeCheckStore.key))
+            .single
+            .joint
+            .tag,
+        'N-1');
+    await _drainSnackBars(tester);
   });
 
   testWidgets('tolerancje zakładu i „przywróć PCC-1”', (tester) async {

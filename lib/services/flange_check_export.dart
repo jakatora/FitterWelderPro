@@ -96,6 +96,8 @@ String buildFlangeCheckText(FlangeCheck c, {required bool en}) {
   if (e.verdict == ProtocolVerdict.incomplete) {
     buf.writeln('(${missingSummary(e, en: en)})');
   }
+  final looser = looserWarning(e.looserThanPcc1, en: en);
+  if (looser != null) buf.writeln(looser);
   buf.writeln();
   for (final (k, v) in flangeJointRows(c, en: en)) {
     if (v.trim().isNotEmpty) buf.writeln('$k: $v');
@@ -166,7 +168,29 @@ PdfColor _checkInk(CheckVerdict v) => switch (v) {
       CheckVerdict.missing => _kInkMuted,
     };
 
-/// Jednostronicowy protokół A4 do podpisu.
+/// Najdłuższy tekst pola danych połączenia w PDF (wiersz tabeli nie dzieli
+/// się między strony — przesadnie długi wpis zablokowałby cały dokument).
+const int kPdfFieldMaxChars = 300;
+
+/// Najdłuższe uwagi w PDF; dłuższe są przycinane z dopiskiem (pełna treść
+/// zostaje w aplikacji i w udostępnianym tekście).
+const int kPdfNotesMaxChars = 20000;
+
+String _clip(String s, int max, {required bool en}) => s.length <= max
+    ? s
+    : '${s.substring(0, max)}… ${_t(en, '(skrócono — pełna treść w aplikacji)', '(shortened — full text in the app)')}';
+
+/// Słowo dłuższe niż linia strony (np. wklejony numer bez spacji) łamane
+/// co [width] znaków — inaczej nie zmieści się w szerokości kolumny.
+String _breakLongWords(String s, {int width = 60}) => s.replaceAllMapped(
+    RegExp('\\S{${width + 1},}'),
+    (m) => [
+          for (var i = 0; i < m[0]!.length; i += width)
+            m[0]!.substring(i, (i + width).clamp(0, m[0]!.length))
+        ].join(' '));
+
+/// Protokół A4 do podpisu. [pw.MultiPage]: długie uwagi przechodzą na
+/// kolejne strony zamiast wywracać dokument („won't fit”).
 pw.Document buildFlangeCheckPdf(
   FlangeCheck c, {
   required pw.Font font,
@@ -188,6 +212,8 @@ pw.Document buildFlangeCheckPdf(
   final body = pw.TextStyle(fontSize: 9.5, color: _kInk);
   final head =
       pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: _kInk);
+  final looser = looserWarning(e.looserThanPcc1, en: en);
+  final notes = _clip(c.notes.trim(), kPdfNotesMaxChars, en: en);
 
   pw.Widget cell(String s, {pw.TextStyle? style}) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
@@ -204,159 +230,187 @@ pw.Document buildFlangeCheckPdf(
                 letterSpacing: 0.8)),
       );
 
-  doc.addPage(pw.Page(
+  pw.Widget signature(String label) => pw.Expanded(
+          child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+            pw.Container(height: 0.6, color: _kInk),
+            pw.SizedBox(height: 2),
+            pw.Text(label, style: small),
+          ]));
+
+  doc.addPage(pw.MultiPage(
     pageFormat: PdfPageFormat.a4,
     margin: const pw.EdgeInsets.all(32),
-    build: (_) => pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-      children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.only(bottom: 6),
-          decoration: pw.BoxDecoration(
-            border:
-                pw.Border(bottom: pw.BorderSide(color: _kAccent, width: 1.5)),
-          ),
-          child: pw.Text(
-              _t(en, 'PROTOKÓŁ ODBIORU POŁĄCZENIA KOŁNIERZOWEGO',
-                  'FLANGE JOINT ASSEMBLY CHECK'),
-              style: pw.TextStyle(
-                  fontSize: 14, fontWeight: pw.FontWeight.bold, color: _kInk)),
+    maxPages: 60,
+    header: (ctx) => ctx.pageNumber == 1
+        ? pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 8),
+            padding: const pw.EdgeInsets.only(bottom: 6),
+            decoration: pw.BoxDecoration(
+              border:
+                  pw.Border(bottom: pw.BorderSide(color: _kAccent, width: 1.5)),
+            ),
+            child: pw.Text(
+                _t(en, 'PROTOKÓŁ ODBIORU POŁĄCZENIA KOŁNIERZOWEGO',
+                    'FLANGE JOINT ASSEMBLY CHECK'),
+                style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _kInk)),
+          )
+        : pw.Padding(
+            padding: const pw.EdgeInsets.only(bottom: 8),
+            child: pw.Text(
+                '${_t(en, 'Protokół odbioru kołnierza', 'Flange joint check')} '
+                '${_clip(c.joint.tag.trim(), 60, en: en)}',
+                style: small)),
+    footer: (ctx) => pw.Padding(
+      padding: const pw.EdgeInsets.only(top: 6),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+              '${_tolerancesNote(c, en: en)} ${_unitNote(c, en: en)} '
+              '${_t(en, 'Granice w mm i calach jak w normie (nie są dokładnym przeliczeniem); ocena w jednostce pomiaru.', 'Limits in mm and inches as in the standard (not exact conversions); judged in the unit measured.')}',
+              style: small),
+          pw.SizedBox(height: 2),
+          pw.Text(
+              'Fitter Welder Pro  ·  $stamp  ·  '
+              '${_t(en, 'Strona', 'Page')} ${ctx.pageNumber} / ${ctx.pagesCount}',
+              style: small),
+        ],
+      ),
+    ),
+    build: (_) => [
+      pw.Container(
+        padding: const pw.EdgeInsets.all(8),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: _verdictInk(e.verdict), width: 1.2),
         ),
-        pw.SizedBox(height: 8),
-        pw.Container(
-          padding: const pw.EdgeInsets.all(8),
-          decoration: pw.BoxDecoration(
-            border: pw.Border.all(color: _verdictInk(e.verdict), width: 1.2),
-          ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+                '${_t(en, 'Werdykt', 'Verdict')}: '
+                '${protocolVerdictLabel(e.verdict, en: en)}',
+                style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                    color: _verdictInk(e.verdict))),
+            if (e.verdict == ProtocolVerdict.incomplete)
+              pw.Text(missingSummary(e, en: en), style: small),
+            if (looser != null)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 3),
+                child: pw.Text(looser,
+                    style: pw.TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _kNokInk)),
+              ),
+          ],
+        ),
+      ),
+      section(_t(en, 'Dane połączenia', 'Joint data')),
+      pw.Table(
+        border: pw.TableBorder.all(color: _kRule, width: 0.5),
+        columnWidths: const {
+          0: pw.FixedColumnWidth(120),
+          1: pw.FlexColumnWidth(),
+        },
+        children: [
+          for (final (k, v) in flangeJointRows(c, en: en))
+            pw.TableRow(children: [
+              cell(k, style: head),
+              cell(v.trim().isEmpty
+                  ? '—'
+                  : _breakLongWords(
+                      _clip(v.trim(), kPdfFieldMaxChars, en: en))),
+            ]),
+        ],
+      ),
+      section(_t(en, 'Osiowanie', 'Alignment')),
+      pw.Table(
+        border: pw.TableBorder.all(color: _kRule, width: 0.5),
+        columnWidths: const {
+          0: pw.FlexColumnWidth(1.4),
+          1: pw.FlexColumnWidth(1.6),
+          2: pw.FixedColumnWidth(80),
+        },
+        children: [
+          pw.TableRow(
+            decoration: pw.BoxDecoration(color: _kHeadFill),
             children: [
-              pw.Text(
-                  '${_t(en, 'Werdykt', 'Verdict')}: '
-                  '${protocolVerdictLabel(e.verdict, en: en)}',
-                  style: pw.TextStyle(
-                      fontSize: 12,
-                      fontWeight: pw.FontWeight.bold,
-                      color: _verdictInk(e.verdict))),
-              if (e.verdict == ProtocolVerdict.incomplete)
-                pw.Text(missingSummary(e, en: en), style: small),
+              cell(_t(en, 'Kryterium', 'Criterion'), style: head),
+              cell(_t(en, 'Pomiar ≤ granica', 'Measured ≤ limit'), style: head),
+              cell(_t(en, 'Wynik', 'Result'), style: head),
             ],
           ),
-        ),
-        section(_t(en, 'Dane połączenia', 'Joint data')),
-        pw.Table(
-          border: pw.TableBorder.all(color: _kRule, width: 0.5),
-          columnWidths: const {
-            0: pw.FixedColumnWidth(120),
-            1: pw.FlexColumnWidth(),
-          },
-          children: [
-            for (final (k, v) in flangeJointRows(c, en: en))
-              pw.TableRow(children: [
-                cell(k, style: head),
-                cell(v.trim().isEmpty ? '—' : v),
-              ]),
-          ],
-        ),
-        section(_t(en, 'Osiowanie', 'Alignment')),
-        pw.Table(
-          border: pw.TableBorder.all(color: _kRule, width: 0.5),
-          columnWidths: const {
-            0: pw.FlexColumnWidth(1.4),
-            1: pw.FlexColumnWidth(1.6),
-            2: pw.FixedColumnWidth(80),
-          },
-          children: [
-            pw.TableRow(
-              decoration: pw.BoxDecoration(color: _kHeadFill),
-              children: [
-                cell(_t(en, 'Kryterium', 'Criterion'), style: head),
-                cell(_t(en, 'Pomiar ≤ granica', 'Measured ≤ limit'),
-                    style: head),
-                cell(_t(en, 'Wynik', 'Result'), style: head),
-              ],
-            ),
-            for (final r in e.criteria)
-              pw.TableRow(children: [
-                cell(criterionTitle(r.criterion, en: en)),
-                cell(criterionValueLine(c, r, en: en)),
-                cell(checkVerdictLabel(r.verdict, en: en),
-                    style: pw.TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: pw.FontWeight.bold,
-                        color: _checkInk(r.verdict))),
-              ]),
-          ],
-        ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-            '${_t(en, 'Szczelina', 'Gap')} '
-            '(${c.measurements.gapPointCount} ${_t(en, 'pkt', 'pts')}, '
-            '${c.unit == LengthUnit.mm ? 'mm' : 'in'}): '
-            '${flangeGapReadings(c, en: en)}',
-            style: small),
-        section(_t(en, 'Montaż', 'Assembly')),
-        pw.Table(
-          border: pw.TableBorder.all(color: _kRule, width: 0.5),
-          columnWidths: const {
-            0: pw.FixedColumnWidth(36),
-            1: pw.FlexColumnWidth(),
-          },
-          children: [
-            for (final i in FlangeChecklistItem.values)
-              pw.TableRow(children: [
-                cell(c.checked.contains(i) ? _t(en, 'TAK', 'YES') : '—',
-                    style: pw.TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: pw.FontWeight.bold,
-                        color: c.checked.contains(i) ? _kOkInk : _kNokInk)),
-                cell(checklistTitle(i, en: en)),
-              ]),
-          ],
-        ),
-        for (final p in e.problems)
-          pw.Padding(
-            padding: const pw.EdgeInsets.only(top: 4),
-            child: pw.Text('! ${problemLabel(p, en: en)}',
-                style: pw.TextStyle(fontSize: 9, color: _kNokInk)),
-          ),
-        if (c.notes.trim().isNotEmpty) ...[
-          section(_t(en, 'Uwagi', 'Notes')),
-          pw.Text(c.notes.trim(), style: body),
+          for (final r in e.criteria)
+            pw.TableRow(children: [
+              cell(criterionTitle(r.criterion, en: en)),
+              cell(criterionValueLine(c, r, en: en)),
+              cell(checkVerdictLabel(r.verdict, en: en),
+                  style: pw.TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: pw.FontWeight.bold,
+                      color: _checkInk(r.verdict))),
+            ]),
         ],
-        pw.SizedBox(height: 24),
-        pw.Row(children: [
-          pw.Expanded(
-              child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                pw.Container(height: 0.6, color: _kInk),
-                pw.SizedBox(height: 2),
-                pw.Text(_t(en, 'Monter', 'Fitter'), style: small),
-              ])),
-          pw.SizedBox(width: 32),
-          pw.Expanded(
-              child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                pw.Container(height: 0.6, color: _kInk),
-                pw.SizedBox(height: 2),
-                pw.Text(_t(en, 'Inspektor QC', 'QC inspector'), style: small),
-              ])),
-        ]),
-        pw.Spacer(),
-        pw.Text(
-            '${_tolerancesNote(c, en: en)} ${_unitNote(c, en: en)} '
-            '${_t(en, 'Granice w mm i calach jak w normie (nie są dokładnym przeliczeniem); ocena w jednostce pomiaru.', 'Limits in mm and inches as in the standard (not exact conversions); judged in the unit measured.')}',
-            style: small),
-        pw.SizedBox(height: 2),
-        pw.Text('Fitter Welder Pro  ·  $stamp', style: small),
+      ),
+      pw.SizedBox(height: 4),
+      pw.Text(
+          '${_t(en, 'Szczelina', 'Gap')} '
+          '(${c.measurements.gapPointCount} ${_t(en, 'pkt', 'pts')}, '
+          '${c.unit == LengthUnit.mm ? 'mm' : 'in'}): '
+          '${flangeGapReadings(c, en: en)}',
+          style: small),
+      section(_t(en, 'Montaż', 'Assembly')),
+      pw.Table(
+        border: pw.TableBorder.all(color: _kRule, width: 0.5),
+        columnWidths: const {
+          0: pw.FixedColumnWidth(36),
+          1: pw.FlexColumnWidth(),
+        },
+        children: [
+          for (final i in FlangeChecklistItem.values)
+            pw.TableRow(children: [
+              cell(c.checked.contains(i) ? _t(en, 'TAK', 'YES') : '—',
+                  style: pw.TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: pw.FontWeight.bold,
+                      color: c.checked.contains(i) ? _kOkInk : _kNokInk)),
+              cell(checklistTitle(i, en: en)),
+            ]),
+        ],
+      ),
+      for (final p in e.problems)
+        pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 4),
+          child: pw.Text('! ${problemLabel(p, en: en)}',
+              style: pw.TextStyle(fontSize: 9, color: _kNokInk)),
+        ),
+      if (notes.isNotEmpty) ...[
+        section(_t(en, 'Uwagi', 'Notes')),
+        // Akapit po akapicie; TextOverflow.span — tylko wtedy pw.Text dzieli
+        // się między strony MultiPage (inaczej „won't fit”).
+        for (final para in notes.split('\n')) ...[
+          pw.Text(_breakLongWords(para),
+              style: body, overflow: pw.TextOverflow.span),
+          pw.SizedBox(height: 3),
+        ],
       ],
-    ),
+      pw.SizedBox(height: 28),
+      pw.Row(children: [
+        signature(_t(en, 'Monter', 'Fitter')),
+        pw.SizedBox(width: 32),
+        signature(_t(en, 'Inspektor QC', 'QC inspector')),
+      ]),
+    ],
   ));
   return doc;
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // PLATFORM HALF
 // ═══════════════════════════════════════════════════════════════════════════
