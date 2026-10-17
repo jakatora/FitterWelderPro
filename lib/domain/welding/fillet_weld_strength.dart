@@ -652,10 +652,129 @@ String formatInput(double v, {required bool en, int maxDecimals = 2}) {
   return en ? s : s.replaceAll('.', ',');
 }
 
+/// [v] W DÓŁ do [decimals] miejsc — wielkości po stronie nośności
+/// (wytrzymałość, długość, pole przekroju, βLw, F_Rd, wymiar spoiny).
+String formatDown(double v, int decimals, {required bool en}) =>
+    formatFixed(floorTo(v, decimals), decimals, en: en);
+
+/// [v] W GÓRĘ do [decimals] miejsc — obciążenie, wykorzystanie, wymagany
+/// wymiar.
+String formatUp(double v, int decimals, {required bool en}) =>
+    formatFixed(ceilTo(v, decimals), decimals, en: en);
+
 /// Grubość a do pokazania: W DÓŁ do 0,01 mm — nigdy nie zawyża spoiny
 /// (z = 4,24 → a = 2,99, a nie „3,00” obok komunikatu „a < 3 mm”).
 String formatThroat(double a, {required bool en}) =>
-    formatFixed(floorTo(a, 2), 2, en: en);
+    formatDown(a, 2, en: en);
+
+/// Bok z = a·√2 do pokazania: W DÓŁ do 0,01 mm (ścianki pod kątem prostym).
+String formatLeg(double a, {required bool en}) =>
+    formatDown(a * math.sqrt2, 2, en: en);
+
+/// Tekst pola wymiaru spoiny dla wartości źródłowej a [mm]: grubość a albo
+/// bok z, W DÓŁ do 0,01 mm, bez zbędnych zer („4”, „5,65”). Tylko do
+/// wyświetlenia — obliczenia biorą wartość źródłową, nie ten tekst.
+String sizeFieldText(double a, {required bool leg, required bool en}) =>
+    formatInput(floorTo(leg ? a * math.sqrt2 : a, 2), en: en);
+
+/// Liczby wyniku do pokazania — JEDNO źródło dla ekranu i tekstu do
+/// udostępnienia, więc oba pokazują identyczne liczby. Strona nośności
+/// (wytrzymałość, długości, pole, βLw, F_Rd) W DÓŁ; F_Ed, wykorzystanie
+/// i wymagane wymiary W GÓRĘ; para F_Ed / F_Rd wg [forcePairFormat].
+class FilletFigures {
+  FilletFigures(this.result, {required this.en, this.designForceKn})
+      : check = designForceKn == null
+            ? null
+            : FilletCheck(
+                designForceKn: designForceKn,
+                resistanceKn: result.resistanceKn);
+
+  final FilletWeldResult result;
+  final bool en;
+
+  /// F_Ed [kN]; `null` — bez siły (bez werdyktu).
+  final double? designForceKn;
+
+  /// Werdykt; `null` bez siły.
+  final FilletCheck? check;
+
+  ({int decimals, bool conservative}) get _pair => check == null
+      ? (decimals: 1, conservative: true)
+      : forcePairFormat(check!.designForceKn, check!.resistanceKn);
+
+  String _pairValue(double v, {required bool up}) {
+    final f = _pair;
+    final x = !f.conservative
+        ? double.parse(v.toStringAsFixed(f.decimals))
+        : up
+            ? ceilTo(v, f.decimals)
+            : floorTo(v, f.decimals);
+    return formatFixed(x, f.decimals, en: en);
+  }
+
+  /// F_w,Rd [kN].
+  String get resistance => _pairValue(result.resistanceKn, up: false);
+
+  /// F_Ed [kN]; `null` bez siły.
+  String? get designForce =>
+      check == null ? null : _pairValue(check!.designForceKn, up: true);
+
+  /// Wykorzystanie [%] z 1 miejscem ([FilletCheck.shownPercent]); „—”, gdy
+  /// nie da się policzyć; `null` bez siły.
+  String? get utilisation {
+    if (check == null) return null;
+    final p = check!.shownPercent;
+    return p == null ? '—' : formatFixed(p, 1, en: en);
+  }
+
+  /// Wytrzymałość na mm² przekroju [MPa] (uproszczona: fvw,d).
+  String get strength => formatDown(result.strengthMpa, 1, en: en);
+
+  /// fvw,d [MPa].
+  String get fvwd => formatDown(result.fvwdMpa, 1, en: en);
+
+  /// Ta sama spoina metodą uproszczoną [kN].
+  String get simplifiedResistance =>
+      formatDown(result.simplifiedResistanceKn, 1, en: en);
+
+  /// l_eff jednej spoiny [mm].
+  String get effectiveLengthPerWeld =>
+      formatDown(result.effectiveLengthPerWeldMm, 1, en: en);
+
+  /// Σ l_eff [mm].
+  String get totalEffectiveLength =>
+      formatDown(result.totalEffectiveLengthMm, 1, en: en);
+
+  /// Długość jednej spoiny: l albo π·D [mm].
+  String get weldLength => formatDown(result.weldLengthMm, 1, en: en);
+
+  /// a·Σl_eff [mm²].
+  String get throatArea => formatDown(result.throatAreaMm2, 0, en: en);
+
+  /// βLw.
+  String get longJointFactor => formatDown(result.longJointFactor, 3, en: en);
+
+  /// a [mm].
+  String get throat => formatThroat(result.input.throatMm, en: en);
+
+  /// z = a·√2 [mm].
+  String get leg => formatLeg(result.input.throatMm, en: en);
+
+  /// Kąt siły do osi spoiny [°].
+  String get angle => formatInput(result.input.effectiveAngleDeg, en: en);
+}
+
+/// Wymagane a / z do pokazania — ekran i tekst biorą je stąd.
+({String throat, String leg, String? whole, String? wholeLeg})?
+    requiredThroatFigures(RequiredThroat r, {required bool en}) {
+  if (r.shownMm == null) return null;
+  return (
+    throat: formatFixed(r.shownMm!, 1, en: en),
+    leg: formatFixed(r.shownLegMm!, 1, en: en),
+    whole: r.wholeMm?.toString(),
+    wholeLeg: r.wholeLegMm == null ? null : formatFixed(r.wholeLegMm!, 1, en: en),
+  );
+}
 
 // ── Tekst do udostępnienia ───────────────────────────────────────────────
 
@@ -667,7 +786,8 @@ String filletDisclaimer({required bool en}) => en
     : 'Szacunek wg EN 1993-1-8 dla spoiny; nie sprawdza nośności blach, '
         'śrub, wyboczenia ani zmęczenia; nie zastępuje projektu konstruktora.';
 
-/// Tekst wyniku do wysłania (SMS, komunikator, e-mail).
+/// Tekst wyniku do wysłania (SMS, komunikator, e-mail). Liczby z
+/// [FilletFigures] — te same co na ekranie.
 String filletShareText({
   required FilletWeldResult result,
   required bool en,
@@ -677,76 +797,69 @@ String filletShareText({
 }) {
   String n(double v, int d) => formatFixed(v, d, en: en);
   String tr(String pl, String e) => en ? e : pl;
+  String v(double x) => formatInput(x, en: en);
   final i = result.input;
   final s = i.steel;
   final fEd = forceInput == null ? null : designForceKn(forceInput, forceKind);
-  final check = fEd == null
-      ? null
-      : FilletCheck(designForceKn: fEd, resistanceKn: result.resistanceKn);
-  final fmt = check == null
-      ? (decimals: 1, conservative: true)
-      : forcePairFormat(check.designForceKn, check.resistanceKn);
-  String rd(double v) => n(
-      fmt.conservative
-          ? floorTo(v, fmt.decimals)
-          : double.parse(v.toStringAsFixed(fmt.decimals)),
-      fmt.decimals);
-  String ed(double v) => n(
-      fmt.conservative
-          ? ceilTo(v, fmt.decimals)
-          : double.parse(v.toStringAsFixed(fmt.decimals)),
-      fmt.decimals);
+  final f = FilletFigures(result, en: en, designForceKn: fEd);
 
-  String v(double x) => formatInput(x, en: en);
-  final angle = v(i.effectiveAngleDeg);
   final method = i.method == FilletMethod.simplified
-      ? tr('metoda uproszczona (4.5.3.3), fvw,d = ${n(result.fvwdMpa, 1)} MPa',
-          'simplified method (4.5.3.3), fvw,d = ${n(result.fvwdMpa, 1)} MPa')
-      : tr('metoda kierunkowa (4.5.3.2), siła pod kątem $angle° do osi spoiny',
-          'directional method (4.5.3.2), force at $angle° to the weld axis');
+      ? tr('metoda uproszczona (4.5.3.3), fvw,d = ${f.fvwd} MPa',
+          'simplified method (4.5.3.3), fvw,d = ${f.fvwd} MPa')
+      : tr(
+          'metoda kierunkowa (4.5.3.2), siła pod kątem ${f.angle}° do osi spoiny, '
+              '${f.strength} MPa na mm² przekroju; uproszczona: ${f.simplifiedResistance} kN',
+          'directional method (4.5.3.2), force at ${f.angle}° to the weld axis, '
+              '${f.strength} MPa per mm² of throat; simplified: ${f.simplifiedResistance} kN');
   final geometry = i.layout == WeldLayout.linear
-      ? tr('${i.welds} × l = ${v(i.lengthMm)} mm, l_eff = l − 2a = ${n(result.effectiveLengthPerWeldMm, 1)} mm',
-          '${i.welds} × l = ${v(i.lengthMm)} mm, l_eff = l − 2a = ${n(result.effectiveLengthPerWeldMm, 1)} mm')
-      : tr('spoina obwodowa, rura D = ${v(i.tubeOdMm)} mm, l = π·D = ${n(result.weldLengthMm, 1)} mm',
-          'circumferential weld, tube D = ${v(i.tubeOdMm)} mm, l = π·D = ${n(result.weldLengthMm, 1)} mm');
+      ? tr(
+          '${i.welds} × l = ${v(i.lengthMm)} mm, l_eff = l − 2a = ${f.effectiveLengthPerWeld} mm, '
+              'Σ l_eff = ${f.totalEffectiveLength} mm',
+          '${i.welds} × l = ${v(i.lengthMm)} mm, l_eff = l − 2a = ${f.effectiveLengthPerWeld} mm, '
+              'Σ l_eff = ${f.totalEffectiveLength} mm')
+      : tr('spoina obwodowa, rura D = ${v(i.tubeOdMm)} mm, l = π·D = ${f.weldLength} mm',
+          'circumferential weld, tube D = ${v(i.tubeOdMm)} mm, l = π·D = ${f.weldLength} mm');
   final lines = <String>[
     tr('Nośność spoiny pachwinowej — EN 1993-1-8',
         'Fillet weld resistance — EN 1993-1-8'),
     '${s.label}: fu = ${n(s.fuMpa, 0)} MPa, βw = ${n(s.betaW, 2)}, γM2 = ${n(kWeldGammaM2, 2)}; '
         '${tr('części do ${v(i.maxPartThicknessMm)} mm', 'parts up to ${v(i.maxPartThicknessMm)} mm')}',
-    'a = ${formatThroat(i.throatMm, en: en)} mm'
-        '${legInput ? tr(' (z boku z = ${v(i.throatMm * math.sqrt2)} mm)', ' (from leg z = ${v(i.throatMm * math.sqrt2)} mm)') : ''}',
+    'a = ${f.throat} mm'
+        '${legInput ? tr(' (z boku z = ${f.leg} mm)', ' (from leg z = ${f.leg} mm)') : ''}',
     geometry,
     method,
-    'F_w,Rd = ${rd(result.resistanceKn)} kN'
-        '${result.longJointApplied ? ' (βLw = ${n(result.longJointFactor, 3)}, ${tr('długie połączenie', 'long joint')} 4.11)' : ''}',
+    tr('Przekrój obliczeniowy a·Σl = ${f.throatArea} mm²',
+        'Throat area a·Σl = ${f.throatArea} mm²'),
+    if (result.longJointApplied)
+      tr('βLw = ${f.longJointFactor} (długie połączenie, p. 4.11)',
+          'βLw = ${f.longJointFactor} (long joint, cl. 4.11)'),
+    'F_w,Rd = ${f.resistance} kN',
   ];
+  final check = f.check;
   if (check != null) {
     final gamma = forceKind == ForceKind.design
         ? ''
         : '${v(forceKind.gammaF)} × ${v(forceInput!)} kN = ';
-    final pct = check.shownPercent;
-    lines.add('F_Ed = $gamma${ed(check.designForceKn)} kN');
+    final pct = f.utilisation;
+    lines.add('F_Ed = $gamma${f.designForce} kN');
     lines.add(check.ok
-        ? tr('Wykorzystanie ${pct == null ? '—' : n(pct, 1)} % — spoina wystarczy.',
-            'Utilisation ${pct == null ? '—' : n(pct, 1)} % — the weld is sufficient.')
-        : tr('Wykorzystanie ${pct == null ? '—' : n(pct, 1)} % — SPOINA NIE WYSTARCZY.',
-            'Utilisation ${pct == null ? '—' : n(pct, 1)} % — the weld is NOT sufficient.'));
+        ? tr('Wykorzystanie $pct % — spoina wystarczy.',
+            'Utilisation $pct % — the weld is sufficient.')
+        : tr('Wykorzystanie $pct % — SPOINA NIE WYSTARCZY.',
+            'Utilisation $pct % — the weld is NOT sufficient.'));
     final req = requiredThroat(i, check.designForceKn);
+    final rf = req == null ? null : requiredThroatFigures(req, en: en);
     if (req != null) {
-      switch (req.status) {
-        case ThroatStatus.found:
-        case ThroatStatus.minimum:
-          lines.add(tr(
-              'Wymagane a ≥ ${n(req.shownMm!, 1)} mm (z ≥ ${n(req.shownLegMm!, 1)} mm)'
-                  '${req.wholeMm != null ? ' → a${req.wholeMm}' : ''}',
-              'Required a ≥ ${n(req.shownMm!, 1)} mm (z ≥ ${n(req.shownLegMm!, 1)} mm)'
-                  '${req.wholeMm != null ? ' → a${req.wholeMm}' : ''}'));
-        case ThroatStatus.needsLongerWeld:
-        case ThroatStatus.weldTooShort:
-          lines.add(tr(
-              'Żadne dopuszczalne a nie wystarczy — wydłuż spoinę albo dodaj spoiny.',
-              'No permissible a is enough — make the weld longer or add welds.'));
+      if (rf != null) {
+        final whole = rf.whole == null
+            ? ''
+            : ' → a${rf.whole} (z ≥ ${rf.wholeLeg} mm)';
+        lines.add(tr('Wymagane a ≥ ${rf.throat} mm (z ≥ ${rf.leg} mm)$whole',
+            'Required a ≥ ${rf.throat} mm (z ≥ ${rf.leg} mm)$whole'));
+      } else {
+        lines.add(tr(
+            'Żadne dopuszczalne a nie wystarczy — wydłuż spoinę albo dodaj spoiny.',
+            'No permissible a is enough — make the weld longer or add welds.'));
       }
     }
   }

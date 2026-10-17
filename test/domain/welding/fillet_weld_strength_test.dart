@@ -428,4 +428,82 @@ void main() {
       expect(t, contains(filletDisclaimer(en: true)));
     });
   });
+
+  // Regresja z przeglądu: ekran zaokrąglał w dół, tekst do udostępnienia do
+  // najbliższej (S275 fvw,d 233,657 → „233,6” na ekranie, „233,7” w tekście).
+  // Teraz oba biorą liczby z FilletFigures.
+  group('liczby do pokazania (wspólne dla ekranu i tekstu)', () {
+    // S275: fvw,d = 430 / (√3 · 0,85 · 1,25) = 430 / 1,8403040 = 233,6570.
+    // a 3,37, 2 × l 640: l_eff = 640 − 6,74 = 633,26; Σ = 1266,52;
+    // A = 3,37 · 1266,52 = 4268,17 mm²; 640 > 150·3,37 = 505,5 →
+    // βLw = 1,2 − 0,2·640/505,5 = 0,946785.
+    final linear = FilletWeldInput(
+      steel: WeldSteelGrade.s275,
+      throatMm: 3.37,
+      maxPartThicknessMm: 10,
+      lengthMm: 640,
+      welds: 2,
+    );
+
+    test('S275 fvw,d 233,657 → „233,6”; l_eff, βLw w dół — tak samo w tekście',
+        () {
+      final r = computeFilletWeld(linear)!;
+      final f = FilletFigures(r, en: false, designForceKn: 900);
+      expect(f.fvwd, '233,6');
+      expect(f.strength, '233,6');
+      expect(f.effectiveLengthPerWeld, '633,2');
+      expect(f.totalEffectiveLength, '1266,5');
+      expect(f.throatArea, '4268');
+      expect(f.longJointFactor, '0,946');
+      final t = filletShareText(result: r, en: false, forceInput: 900);
+      for (final s in [
+        'fvw,d = ${f.fvwd} MPa',
+        'l_eff = l − 2a = ${f.effectiveLengthPerWeld} mm',
+        'Σ l_eff = ${f.totalEffectiveLength} mm',
+        'a·Σl = ${f.throatArea} mm²',
+        'βLw = ${f.longJointFactor}',
+        'F_w,Rd = ${f.resistance} kN',
+        'F_Ed = ${f.designForce} kN',
+        'Wykorzystanie ${f.utilisation} %',
+      ]) {
+        expect(t, contains(s));
+      }
+      for (final nearest in ['233,7', '633,3', '0,947']) {
+        expect(t, isNot(contains(nearest)), reason: nearest);
+      }
+    });
+
+    test('obwodowa i kierunkowa: π·D i wytrzymałość w dół, w tekście tak samo',
+        () {
+      // π·60,35 = 189,5951; 90°: 430 / (0,85·1,25·√2) = 286,1703 MPa.
+      final r = computeFilletWeld(FilletWeldInput(
+        steel: WeldSteelGrade.s275,
+        throatMm: 4,
+        maxPartThicknessMm: 10,
+        layout: WeldLayout.circumferential,
+        tubeOdMm: 60.35,
+        method: FilletMethod.directional,
+      ))!;
+      final f = FilletFigures(r, en: false);
+      expect(f.weldLength, '189,5');
+      expect(f.strength, '286,1');
+      final t = filletShareText(result: r, en: false);
+      expect(t, contains('l = π·D = 189,5 mm'));
+      expect(t, contains('286,1 MPa'));
+      expect(t, contains('uproszczona: ${f.simplifiedResistance} kN'));
+      expect(t, contains('F_w,Rd = ${f.resistance} kN'));
+      expect(t, isNot(contains('189,6')));
+      expect(t, isNot(contains('286,2')));
+    });
+
+    test('pole wymiaru: a 4 → z „5,65”, a 3 → „3”, w dół i bez zbędnych zer',
+        () {
+      expect(sizeFieldText(4, leg: true, en: false), '5,65');
+      expect(sizeFieldText(4, leg: false, en: false), '4');
+      expect(sizeFieldText(3, leg: false, en: false), '3');
+      expect(sizeFieldText(3, leg: true, en: true), '4.24');
+      expect(formatLeg(4, en: false), '5,65');
+      expect(formatThroat(4, en: false), '4,00');
+    });
+  });
 }
