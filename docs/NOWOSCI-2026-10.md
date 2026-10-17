@@ -69,8 +69,12 @@ Rozszerzenia istniejących ekranów:
 
 - **v26** — `weld_quotes` (wyceny; kwoty w groszach, treść w JSON).
 - **v27** — `instruments` (rejestr przyrządów).
+- **v28** — trzy puste (NULL) kolumny w `weld_journal`: `root_backing`
+  (ss nb / mb / bs / gb / ci / fb), `metal_transfer` (dip / other),
+  `product_form` (T / P) — sekcja „Szczegóły do kontroli uprawnień”
+  w karcie spoiny; kontrola ograniczeń z próby ISO 9606-1 ma dane.
 
-Obie tabele nowe i puste; migracja niczego nie rusza; obie w kopii zapasowej.
+Tabele v26/v27 nowe i puste, kolumny v28 puste w starych wpisach; migracje niczego nie ruszają; wszystko w kopii zapasowej (stare kopie wczytują się z pustymi polami).
 Test migracji (`test/database/migration_test.dart`) pilnuje kształtu.
 
 ## Testy
