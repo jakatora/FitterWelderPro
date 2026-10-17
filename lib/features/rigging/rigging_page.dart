@@ -56,6 +56,11 @@ class _RiggingPageState extends State<RiggingPage> {
   final _wll = TextEditingController();
   SlingColour? _colour;
 
+  /// 2 / 3–4 cięgna: co podaje zawieszka (`null` — nie wybrano = brak
+  /// werdyktu) i dla jakiego zakresu kąta (WLL zespołu).
+  WllBasis? _wllBasis;
+  TagAngleRange? _tagRange;
+
   /// Nie zapisywane — przed każdym podniesieniem od nowa.
   LabelState _label = LabelState.unknown;
   final Map<String, CheckMark> _marks = {};
@@ -80,8 +85,11 @@ class _RiggingPageState extends State<RiggingPage> {
     super.dispose();
   }
 
-  // ── Zapis ostatnich danych ───────────────────────────────────────────────
+  // ── Zapis ostatnich ustawień ─────────────────────────────────────────────
 
+  /// Wracają tylko ustawienia widoczne od razu na ekranie — żadnych liczb
+  /// (masa, wymiary, kąt, WLL) ani koloru: wczorajsze WLL innego pasa
+  /// i jedno kliknięcie „etykieta czytelna” dałyby fałszywe OK.
   Future<void> _restore() async {
     final loaded = await _store.load();
     if (!mounted || _touched) return;
@@ -91,40 +99,22 @@ class _RiggingPageState extends State<RiggingPage> {
       if (s == null) return;
       _fromPipe = s.fromPipe;
       _unit = s.unit;
-      _mass.text = s.mass;
-      _od.text = s.od;
-      _wall.text = s.wall;
-      _length.text = s.length;
-      _extra.text = s.extra;
       _material = s.material;
       _sling = s.sling;
       _mode = s.mode;
       _chokedLegs = s.chokedLegs;
       _angleKind = s.angleKind;
-      _angle.text = s.angle;
-      _asymmetric = s.asymmetric;
-      _wll.text = s.wll;
-      _colour = s.sling.isTextile ? s.colour : null;
     });
   }
 
   RiggingSavedInputs get _saved => RiggingSavedInputs(
         fromPipe: _fromPipe,
         unit: _unit,
-        mass: _mass.text,
-        od: _od.text,
-        wall: _wall.text,
-        length: _length.text,
-        extra: _extra.text,
         material: _material,
         sling: _sling,
         mode: _mode,
         chokedLegs: _chokedLegs,
         angleKind: _angleKind,
-        angle: _angle.text,
-        asymmetric: _asymmetric,
-        wll: _wll.text,
-        colour: _colour,
       );
 
   /// Zmiana danych kalkulatora: przelicz i zapamiętaj.
@@ -156,6 +146,15 @@ class _RiggingPageState extends State<RiggingPage> {
   bool get _pipeTouched =>
       [_od, _wall, _length, _extra].any((c) => c.text.trim().isNotEmpty);
 
+  /// Pole w kg z zapisem „12,500” — separator tysięcy czy ułamek?
+  bool _ambiguousKg(TextEditingController c, {bool alwaysKg = false}) =>
+      (alwaysKg || _unit == MassUnit.kg) && isAmbiguousThousands(c.text);
+
+  bool get _massAmbiguous =>
+      _fromPipe ? _ambiguousKg(_extra, alwaysKg: true) : _ambiguousKg(_mass);
+
+  bool get _wllAmbiguous => _ambiguousKg(_wll);
+
   double? get _massKg {
     if (_fromPipe) {
       final p = _pipe;
@@ -173,6 +172,7 @@ class _RiggingPageState extends State<RiggingPage> {
 
   RiggingInput get _input => RiggingInput(
         massKg: _massKg,
+        massAmbiguous: _massAmbiguous,
         sling: _sling,
         mode: _mode,
         chokedLegs: _chokedLegs,
@@ -180,17 +180,46 @@ class _RiggingPageState extends State<RiggingPage> {
         angleKind: _angleKind,
         asymmetric: _asymmetric,
         wllKg: _wllKg,
+        wllAmbiguous: _wllAmbiguous,
+        wllBasis: _wllBasis,
+        tagRange: _tagRange,
         label: _label,
       );
 
   // ── Akcje ────────────────────────────────────────────────────────────────
 
-  /// Pole w nowej jednostce — ta sama masa, inny zapis.
+  /// Pole w nowej jednostce — ta sama masa, inny zapis. Niejednoznacznego
+  /// „12,500” w kg nie przeliczamy (12,5 kg → 0,0125 t rozstrzygałoby po
+  /// cichu): zostaje jak jest, w t to 12,5 t = 12 500 kg — nigdy mniej.
   void _convertField(TextEditingController c, MassUnit from, MassUnit to) {
+    if (from == MassUnit.kg && isAmbiguousThousands(c.text)) return;
     final v = parseDecimal(c.text);
     if (v == null) return;
     c.text = numText(fromKg(toKg(v, from), to), decimals: 4);
   }
+
+  /// Zmiana konfiguracji. WLL ZESPOŁU z zawieszki obowiązuje tylko dla tej
+  /// konfiguracji — przy każdej zmianie trybu pole WLL i wybór „co podaje
+  /// zawieszka” są czyszczone (zespół 2,8 t nie jest WLL jednego cięgna).
+  void _setMode(HitchMode m) {
+    if (m == _mode) return;
+    _change(() {
+      if (_wllBasis == WllBasis.assembly) {
+        _wll.clear();
+        _wllBasis = null;
+        _tagRange = null;
+      }
+      _mode = m;
+    });
+  }
+
+  void _setWllBasis(WllBasis b) => _change(() {
+        _wllBasis = _wllBasis == b ? null : b;
+        if (_wllBasis != WllBasis.assembly) _tagRange = null;
+      });
+
+  void _setTagRange(TagAngleRange r) =>
+      _change(() => _tagRange = _tagRange == r ? null : r);
 
   void _setUnit(MassUnit u) {
     if (u == _unit) return;
@@ -212,11 +241,16 @@ class _RiggingPageState extends State<RiggingPage> {
     });
   }
 
+  /// Inne zawiesie = inne WLL, kolor, zawieszka i etykieta — wszystko, co
+  /// opisywało poprzednie, jest czyszczone.
   void _setSling(SlingType s) {
     if (s == _sling) return;
     _change(() {
       _sling = s;
-      if (!s.isTextile) _colour = null;
+      _wll.clear();
+      _colour = null;
+      _wllBasis = null;
+      _tagRange = null;
       // Inna lista pozycji — oceny innego zawiesia nie przechodzą.
       _marks.clear();
       _label = LabelState.unknown;
@@ -350,15 +384,34 @@ class _RiggingPageState extends State<RiggingPage> {
         ),
       );
 
-  /// Błąd pola liczby > 0 (puste = bez błędu — brak to osobny komunikat).
-  String? _positiveError(TextEditingController c) {
+  /// Błąd pola masy / WLL (puste = bez błędu — brak to osobny komunikat):
+  /// niejednoznaczny zapis w kg, nie liczba > 0, ponad 1000 t.
+  /// [alwaysKg] — pole zawsze w kg (dodatki), [allowZero] — 0 dozwolone.
+  String? _massFieldError(
+    TextEditingController c, {
+    bool alwaysKg = false,
+    bool allowZero = false,
+  }) {
+    if (_ambiguousKg(c, alwaysKg: alwaysKg)) return ambiguousKgText(en: _en);
     final v = _num(c);
     if (v == null) return null;
-    if (!v.isFinite || v <= 0) {
-      return context.tr(pl: 'Wpisz liczbę > 0', en: 'Enter a number > 0');
+    if (!v.isFinite || v < 0 || (v == 0 && !allowZero)) {
+      return allowZero
+          ? context.tr(pl: 'Wpisz liczbę ≥ 0', en: 'Enter a number ≥ 0')
+          : context.tr(pl: 'Wpisz liczbę > 0', en: 'Enter a number > 0');
+    }
+    if (toKg(v, alwaysKg ? MassUnit.kg : _unit) > kRiggingMaxKg) {
+      return context.tr(
+          pl: 'Najwyżej 1000 t — sprawdź zera',
+          en: 'At most 1000 t — check the zeros');
     }
     return null;
   }
+
+  /// „Do obliczeń: 12 500 kg (12,5 t)” — jak aplikacja odczytała liczbę.
+  String _forCalc(int kg) => context.tr(
+      pl: 'Do obliczeń: ${massForCalcText(kg, en: false)}',
+      en: 'Used in the calculation: ${massForCalcText(kg, en: true)}');
 
   // ── Budowa ───────────────────────────────────────────────────────────────
 
@@ -384,8 +437,8 @@ class _RiggingPageState extends State<RiggingPage> {
                   en: 'The last calculator data could not be read — defaults '
                       'loaded. Check the data before rating.'),
             ),
-          _loadSection(),
-          _slingSection(),
+          _loadSection(result),
+          _slingSection(result),
           _hitchSection(result),
           _resultSection(result),
           _checklistSection(list),
@@ -399,7 +452,8 @@ class _RiggingPageState extends State<RiggingPage> {
 
   // ── Ładunek ──────────────────────────────────────────────────────────────
 
-  Widget _loadSection() {
+  Widget _loadSection(RiggingResult r) {
+    final massKg = r.massKg;
     return QuoteSection(
       title: context.tr(pl: 'Ładunek', en: 'Load'),
       children: [
@@ -430,7 +484,8 @@ class _RiggingPageState extends State<RiggingPage> {
             controller: _mass,
             label: context.tr(pl: 'Masa ładunku', en: 'Load mass'),
             suffix: unitLabel(_unit),
-            error: _positiveError(_mass),
+            helper: massKg == null ? null : _forCalc(massKg),
+            error: _massFieldError(_mass),
           ),
         _caption(context.tr(
             pl: 'Masę bierz z rysunku, dokumentów albo z wagi hakowej — nie '
@@ -445,7 +500,8 @@ class _RiggingPageState extends State<RiggingPage> {
 
   List<Widget> _pipeFields() {
     final p = _pipe;
-    final m = p.mass;
+    // Niejednoznaczne dodatki („12,500”) — sumy nie pokazujemy wcale.
+    final m = _massAmbiguous ? null : p.mass;
     final problem = _pipeTouched ? p.problem : null;
     return [
       // Szybkie wpisanie OD z tabeli DN — zawsze pokazuje podpowiedź, bo
@@ -512,6 +568,7 @@ class _RiggingPageState extends State<RiggingPage> {
             en: 'Extras (flanges, valves, water)'),
         suffix: 'kg',
         helper: context.tr(pl: 'Puste = 0 kg', en: 'Empty = 0 kg'),
+        error: _massFieldError(_extra, alwaysKg: true, allowZero: true),
       ),
       _label2(
           context.tr(pl: 'Materiał rury [kg/m³]', en: 'Pipe material [kg/m³]')),
@@ -551,10 +608,40 @@ class _RiggingPageState extends State<RiggingPage> {
 
   // ── Zawiesie ─────────────────────────────────────────────────────────────
 
-  Widget _slingSection() {
+  /// Podpowiedź pod polem WLL — co dokładnie wpisać.
+  String _wllHelper(RiggingResult r) {
+    final basis = _mode.isMultiLeg ? _wllBasis : null;
+    final what = !_mode.isMultiLeg
+        ? context.tr(
+            pl: 'WLL podnoszenia prostego z etykiety (jedno cięgno, pionowo)',
+            en: 'Straight-lift WLL from the label (one leg, vertical)')
+        : switch (basis) {
+            null => context.tr(
+                pl: 'Najpierw wybierz wyżej, co podaje zawieszka',
+                en: 'First pick above what the tag gives'),
+            WllBasis.perLeg => context.tr(
+                pl: 'WLL jednego cięgna (pionowo) — mnożone przez współczynnik',
+                en: 'WLL of one leg (vertical) — multiplied by the factor'),
+            WllBasis.assembly => context.tr(
+                pl: 'WLL zespołu z zawieszki dla '
+                    '${_tagRange == null ? 'zakresu kąta' : tagRangeLabel(_tagRange!, en: false)}'
+                    ' — bez mnożenia',
+                en: 'Assembly WLL from the tag for '
+                    '${_tagRange == null ? 'the angle range' : tagRangeLabel(_tagRange!, en: true)}'
+                    ' — not multiplied'),
+          };
+    final w = r.wllKg;
+    return w == null ? what : '$what. ${_forCalc(floorKg(w))}';
+  }
+
+  Widget _slingSection(RiggingResult r) {
     final wll = _wllKg;
     final c = _colour;
-    final match = c != null && wll != null ? colourMatchesWll(c, wll) : null;
+    final assembly = _mode.isMultiLeg && _wllBasis == WllBasis.assembly;
+    // Kolor mówi o WLL jednego pasa / cięgna — z WLL zespołu nie porównujemy.
+    final match = c != null && wll != null && !assembly && !_wllAmbiguous
+        ? colourMatchesWll(c, wll)
+        : null;
     return QuoteSection(
       title: context.tr(pl: 'Zawiesie', en: 'Sling'),
       children: [
@@ -593,22 +680,67 @@ class _RiggingPageState extends State<RiggingPage> {
                       'aside, mark it, report it.'),
             ),
           ),
-        if (_sling.isTextile) ..._colourPicker(match),
+        if (_sling.isTextile) ..._colourPicker(match, assembly: assembly),
+        if (_mode.isMultiLeg) ..._wllBasisPicker(),
         const SizedBox(height: 12),
         _numField(
           key: const ValueKey('rig-wll'),
           controller: _wll,
-          label: context.tr(
-              pl: 'WLL z etykiety (podnoszenie proste)',
-              en: 'WLL from the label (straight lift)'),
+          label: assembly
+              ? context.tr(
+                  pl: 'WLL zespołu z zawieszki',
+                  en: 'Assembly WLL from the tag')
+              : context.tr(
+                  pl: 'WLL z etykiety (podnoszenie proste)',
+                  en: 'WLL from the label (straight lift)'),
           suffix: unitLabel(_unit),
-          error: _positiveError(_wll),
+          helper: _wllHelper(r),
+          error: _massFieldError(_wll),
         ),
       ],
     );
   }
 
-  List<Widget> _colourPicker(bool? match) {
+  /// 2 / 3–4 cięgna: co jest na zawieszce. Fabryczne zawiesie łańcuchowe
+  /// albo linowe podaje WLL ZESPOŁU dla zakresu kąta — mnożenie go jeszcze
+  /// raz przez 1,4 / 2,1 zawyżyłoby nośność.
+  List<Widget> _wllBasisPicker() => [
+        _label2(context.tr(
+            pl: 'Co podaje zawieszka / etykieta?',
+            en: 'What does the tag / label give?')),
+        _chips<WllBasis>(
+          values: WllBasis.values,
+          selected: _wllBasis,
+          label: (b) => wllBasisLabel(b, en: _en),
+          keyOf: (b) => 'rig-wll-basis-${b.name}',
+          onSelected: _setWllBasis,
+        ),
+        if (_wllBasis == WllBasis.assembly) ...[
+          _label2(context.tr(
+              pl: 'Dla jakiego kąta jest ta wartość?',
+              en: 'Which angle is that value for?')),
+          _chips<TagAngleRange>(
+            values: TagAngleRange.values,
+            selected: _tagRange,
+            label: (t) => tagRangeLabel(t, en: _en),
+            keyOf: (t) => 'rig-tag-range-${t.name}',
+            onSelected: _setTagRange,
+          ),
+        ],
+        _caption(
+            context.tr(
+                pl: 'Zawieszka zawiesia łańcuchowego albo linowego zwykle '
+                    'podaje WLL całego zespołu dla zakresu kąta (np. „2,8 t / '
+                    '0–45°”) — wtedy bez mnożenia. Dwa osobne pasy: WLL '
+                    'jednego pasa. Bez wyboru nie ma werdyktu.',
+                en: 'A chain or wire rope sling tag usually gives the WLL of '
+                    'the whole assembly for an angle range (e.g. “2.8 t / '
+                    '0–45°”) — then no multiplying. Two separate slings: the '
+                    'WLL of one sling. No choice, no verdict.'),
+            key: const ValueKey('rig-wll-basis-note')),
+      ];
+
+  List<Widget> _colourPicker(bool? match, {required bool assembly}) {
     final c = _colour;
     return [
       _label2(context.tr(
@@ -631,7 +763,8 @@ class _RiggingPageState extends State<RiggingPage> {
         ),
         onSelected: (s) => _change(() => _colour = _colour == s ? null : s),
       ),
-      if (c != null && c.nominalT != null) ...[
+      // Kolor = WLL jednego pasa / cięgna; do pola WLL ZESPOŁU go nie wpisujemy.
+      if (c != null && c.nominalT != null && !assembly) ...[
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
@@ -645,6 +778,14 @@ class _RiggingPageState extends State<RiggingPage> {
           ),
         ),
       ],
+      if (c != null && c.nominalT != null && assembly)
+        _caption(
+            context.tr(
+                pl: 'Kolor cięgna mówi o WLL jednego cięgna, nie zespołu — WLL '
+                    'zespołu weź z zawieszki.',
+                en: 'A leg’s colour gives the WLL of one leg, not of the '
+                    'assembly — take the assembly WLL from the tag.'),
+            key: const ValueKey('rig-colour-assembly')),
       if (match == false)
         Padding(
           padding: const EdgeInsets.only(top: 10),
@@ -738,7 +879,7 @@ class _RiggingPageState extends State<RiggingPage> {
           selected: _mode,
           label: (m) => hitchModeLabel(m, en: _en),
           keyOf: (m) => 'rig-mode-${m.name}',
-          onSelected: (m) => _change(() => _mode = m),
+          onSelected: _setMode,
         ),
         _caption(_modeHint(_mode), key: const ValueKey('rig-mode-hint')),
         if (_mode.isMultiLeg)
@@ -885,11 +1026,19 @@ class _RiggingPageState extends State<RiggingPage> {
                 : context.tr(
                     pl: 'pas z typoszeregu: ${_n(series)} t',
                     en: 'sling from the series: ${_n(series)} t');
+        final assembly = r.wllBasis == WllBasis.assembly;
+        final pickText = assembly
+            ? context.tr(
+                pl: 'zawiesie o większym WLL zespołu dla tego zakresu kąta',
+                en: 'a sling with a higher assembly WLL for this angle range')
+            : pick;
         return context.tr(
             pl: 'Nośność układu ${_mass2(cap!)} < masa ${_mass2(mass!)}. '
-                'Potrzebne WLL co najmniej ${_kg(need)} — $pick.',
+                'Potrzebne ${_requiredLabel(r, en: false)} co najmniej '
+                '${_kg(need)} — $pickText.',
             en: 'System capacity ${_mass2(cap)} < mass ${_mass2(mass)}. '
-                'Needed WLL at least ${_kg(need)} — $pick.');
+                'Needed ${_requiredLabel(r, en: true)} at least ${_kg(need)} '
+                '— $pickText.');
       case RiggingVerdict.angleNotAllowed:
         final b = r.betaDeg!;
         return context.tr(
@@ -920,11 +1069,23 @@ class _RiggingPageState extends State<RiggingPage> {
         _ => (kFail, Icons.dangerous_outlined),
       };
 
+  /// Jakie WLL jest „potrzebne” — w tej samej podstawie, co wpisane.
+  String _requiredLabel(RiggingResult r, {required bool en}) =>
+      switch (r.wllBasis) {
+        WllBasis.assembly => en ? 'assembly WLL' : 'WLL zespołu',
+        WllBasis.perLeg => en ? 'WLL of one leg' : 'WLL jednego cięgna',
+        null => 'WLL',
+      };
+
   String _factorDetail(RiggingResult r) {
     final f = r.factor!;
     final parts = <String>[
       factorText(f.value, en: _en),
       hitchModeLabel(_mode, en: _en),
+      if (r.wllBasis == WllBasis.assembly)
+        context.tr(
+            pl: 'WLL zespołu z zawieszki, bez mnożenia',
+            en: 'assembly WLL from the tag, not multiplied'),
       if (_mode.isMultiLeg && _chokedLegs)
         context.tr(pl: 'na zadusznik', en: 'choked'),
       if (r.band != null) angleBandLabel(r.band!, en: _en),
@@ -950,6 +1111,14 @@ class _RiggingPageState extends State<RiggingPage> {
             text: '${verdictTitle(r.verdict, en: _en)}\n${_verdictDetail(r)}',
           ),
         ),
+        // Zawsze, jednoznacznie w obu jednostkach — „12,500” nie przejdzie
+        // niezauważone jako 12,5 kg.
+        if (r.massKg != null) ...[
+          _kv(context.tr(pl: 'Masa do obliczeń', en: 'Mass used'),
+              massForCalcText(r.massKg!, en: _en),
+              key: const ValueKey('rig-mass-used')),
+          const SizedBox(height: 8),
+        ],
         if (cap != null) ...[
           Readout(
             key: const ValueKey('rig-capacity'),
@@ -965,14 +1134,12 @@ class _RiggingPageState extends State<RiggingPage> {
           ),
           const SizedBox(height: 8),
         ],
-        if (r.massKg != null)
-          _kv(
-              context.tr(
-                  pl: 'Masa ładunku (w górę)', en: 'Load mass (rounded up)'),
-              _mass2(r.massKg!),
-              key: const ValueKey('rig-mass-used')),
         if (r.wllKg != null && cap != null)
-          _kv('WLL', _mass2(floorKg(r.wllKg!)),
+          _kv(
+              r.wllBasis == null
+                  ? context.tr(pl: 'WLL do obliczeń', en: 'WLL used')
+                  : _requiredLabel(r, en: _en),
+              massForCalcText(floorKg(r.wllKg!), en: _en),
               key: const ValueKey('rig-wll-used')),
         if (r.factor != null)
           _kv(context.tr(pl: 'Współczynnik trybu', en: 'Mode factor'),
@@ -993,8 +1160,10 @@ class _RiggingPageState extends State<RiggingPage> {
         if (r.requiredWllKg != null) ...[
           _kv(
               context.tr(
-                  pl: 'Minimalne WLL dla tego układu',
-                  en: 'Minimum WLL for this set-up'),
+                  pl: 'Minimalne ${_requiredLabel(r, en: false)} dla tego '
+                      'układu',
+                  en: 'Minimum ${_requiredLabel(r, en: true)} for this '
+                      'set-up'),
               _mass2(r.requiredWllKg!),
               key: const ValueKey('rig-required')),
           if (r.suggestedSeriesT != null)

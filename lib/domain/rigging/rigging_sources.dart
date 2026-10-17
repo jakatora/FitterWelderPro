@@ -209,4 +209,22 @@ const List<RiggingSource> kRiggingAdopted = [
     'Rounding: mass up to 1 kg, capacity down to 1 kg; the verdict is '
         'computed in kilograms, whatever unit is shown.',
   ),
+  RiggingSource(
+    'Zawiesie wielocięgnowe z WLL zespołu na zawieszce: wartość bez mnożenia '
+        '(na zadusznik ×0,8), ważna tylko w zakresie kąta z zawieszki — '
+        'wartość dla 0–45° nie obowiązuje przy 45–60°. Przy niesymetrii: '
+        'WLL zespołu podzielone przez współczynnik zespołu (jedno cięgno).',
+    'Multi-leg sling with the assembly WLL on the tag: used without '
+        'multiplying (choked ×0.8), valid only in the tag’s angle range — '
+        'the 0–45° value does not apply at 45–60°. Asymmetric: assembly WLL '
+        'divided by the assembly factor (one leg).',
+  ),
+  RiggingSource(
+    'Masa i WLL ponad 1000 t odrzucane jako literówka. W polach w kg zapis '
+        '„12,500” albo „12.500” (separator tysięcy czy ułamek?) daje brak '
+        'werdyktu — trzeba wpisać 12500 albo podać w t.',
+    'Mass and WLL above 1000 t are rejected as a typo. In kg fields '
+        '“12,500” or “12.500” (thousands separator or decimal?) gives no '
+        'verdict — enter 12500 or use t.',
+  ),
 ];

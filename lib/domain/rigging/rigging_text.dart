@@ -108,6 +108,32 @@ String pipeProblemText(PipeLoadProblem p, {required bool en}) => switch (p) {
       PipeLoadProblem.extra => en
           ? 'Extras: enter ≥ 0 kg or leave empty'
           : 'Dodatki: wpisz ≥ 0 kg albo zostaw puste',
+      PipeLoadProblem.tooHeavy => en
+          ? 'Over 1000 t — check the dimensions (typo?)'
+          : 'Ponad 1000 t — sprawdź wymiary (literówka?)',
+    };
+
+/// Komunikat dla niejednoznacznego zapisu w polu w kg („12,500”).
+String ambiguousKgText({required bool en}) => en
+    ? 'Ambiguous — enter without a thousands separator (e.g. 12500) or in t'
+    : 'Niejednoznaczny zapis — wpisz bez separatora tysięcy (np. 12500) '
+        'albo podaj w t';
+
+/// Masa przyjęta do obliczeń, zawsze w obu jednostkach: „12 500 kg (12,5 t)”.
+String massForCalcText(int kg, {required bool en}) =>
+    '${kgText(kg, en: en)} (${tText(kg, en: en)})';
+
+String wllBasisLabel(WllBasis b, {required bool en}) => switch (b) {
+      WllBasis.perLeg =>
+        en ? 'WLL of one leg (vertical)' : 'WLL jednego cięgna (pionowo)',
+      WllBasis.assembly => en
+          ? 'WLL of the assembly for an angle range'
+          : 'WLL zespołu dla zakresu kąta',
+    };
+
+String tagRangeLabel(TagAngleRange r, {required bool en}) => switch (r) {
+      TagAngleRange.upTo45 => 'β 0–45°',
+      TagAngleRange.upTo60 => en ? 'β 45–60° (up to 60°)' : 'β 45–60° (do 60°)',
     };
 
 String verdictTitle(RiggingVerdict v, {required bool en}) => switch (v) {
@@ -128,11 +154,34 @@ String verdictTitle(RiggingVerdict v, {required bool en}) => switch (v) {
 String issueText(RiggingIssue i, {required bool en}) => switch (i) {
       RiggingIssue.massMissing => en ? 'load mass' : 'masa ładunku',
       RiggingIssue.massInvalid => en
-          ? 'load mass is not a number > 0'
-          : 'masa ładunku nie jest liczbą > 0',
+          ? 'load mass is not a number > 0 and up to 1000 t'
+          : 'masa ładunku nie jest liczbą > 0 i do 1000 t',
+      RiggingIssue.massAmbiguous => en
+          ? 'load mass written ambiguously — enter without a thousands '
+              'separator (e.g. 12500) or in t'
+          : 'niejednoznaczny zapis masy — wpisz bez separatora tysięcy '
+              '(np. 12500) albo podaj w t',
       RiggingIssue.wllMissing => en ? 'WLL from the label' : 'WLL z etykiety',
-      RiggingIssue.wllInvalid =>
-        en ? 'WLL is not a number > 0' : 'WLL nie jest liczbą > 0',
+      RiggingIssue.wllInvalid => en
+          ? 'WLL is not a number > 0 and up to 1000 t'
+          : 'WLL nie jest liczbą > 0 i do 1000 t',
+      RiggingIssue.wllAmbiguous => en
+          ? 'WLL written ambiguously — enter without a thousands separator '
+              '(e.g. 2000) or in t'
+          : 'niejednoznaczny zapis WLL — wpisz bez separatora tysięcy '
+              '(np. 2000) albo podaj w t',
+      RiggingIssue.wllBasisMissing => en
+          ? 'what the tag gives: WLL of one leg or of the assembly'
+          : 'co podaje zawieszka: WLL jednego cięgna czy zespołu',
+      RiggingIssue.tagRangeMissing => en
+          ? 'the angle range the tag WLL is for (0–45° or 45–60°)'
+          : 'zakres kąta, dla którego zawieszka podaje WLL (0–45° czy '
+              '45–60°)',
+      RiggingIssue.angleOutsideTagRange => en
+          ? 'β is outside the tag range 0–45° — take the 45–60° WLL from the '
+              'tag or the WLL of one leg'
+          : 'β poza zakresem z zawieszki 0–45° — weź WLL dla 45–60° '
+              'z zawieszki albo WLL jednego cięgna',
       RiggingIssue.angleMissing => en
           ? 'leg angle (unknown angle = no verdict)'
           : 'kąt cięgien (kąt nieznany = brak werdyktu)',

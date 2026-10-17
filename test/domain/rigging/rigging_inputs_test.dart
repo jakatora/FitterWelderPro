@@ -1,5 +1,6 @@
-// Zapis ostatnich danych kalkulatora zawiesi: JSON tam i z powrotem,
-// uszkodzony zapis → wartości domyślne i flaga, bez wyjątku.
+// Zapis ostatnich ustawień kalkulatora zawiesi: tylko ustawienia (bez
+// liczb, WLL i koloru), JSON tam i z powrotem, stary zapis z WLL
+// ignorowany, uszkodzony zapis → wartości domyślne i flaga, bez wyjątku.
 
 import 'dart:convert';
 
@@ -7,41 +8,69 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/fitter/fitter_calcs.dart';
 import 'package:cut_list_app/domain/rigging/rigging_calc.dart';
-import 'package:cut_list_app/domain/rigging/rigging_colors.dart';
 import 'package:cut_list_app/domain/rigging/rigging_inputs.dart';
 
 const _sample = RiggingSavedInputs(
   fromPipe: true,
   unit: MassUnit.t,
-  mass: '1,6',
-  od: '168,3',
-  wall: '7,11',
-  length: '6',
-  extra: '50',
   material: PipeMaterial.ss316,
   sling: SlingType.chain,
   mode: HitchMode.multiLeg,
   chokedLegs: true,
   angleKind: AngleKind.included,
-  angle: '90',
-  asymmetric: true,
-  wll: '2',
-  colour: SlingColour.green,
 );
 
 void main() {
-  test('zapis i odczyt zwracają te same dane', () {
+  test('zapis i odczyt zwracają te same ustawienia', () {
     final d = decodeRiggingInputs(encodeRiggingInputs(_sample));
     expect(d.intact, isTrue);
     expect(d.inputs.toJson(), _sample.toJson());
   });
 
-  test('bez koloru (null) — poprawny zapis', () {
-    const s = RiggingSavedInputs(mass: '100');
-    final d = decodeRiggingInputs(encodeRiggingInputs(s));
+  test('zapis nie zawiera liczb, WLL ani koloru', () {
+    final keys = _sample.toJson().keys.toSet();
+    for (final k in [
+      'mass',
+      'wll',
+      'colour',
+      'angle',
+      'od',
+      'wall',
+      'length',
+      'extra',
+      'asymmetric',
+      'wllBasis',
+      'label',
+    ]) {
+      expect(keys, isNot(contains(k)), reason: k);
+    }
+  });
+
+  test('stary zapis z WLL 5 t i masą — liczby ignorowane, ustawienia wracają',
+      () {
+    final old = jsonEncode({
+      'v': 1,
+      'fromPipe': false,
+      'unit': 'kg',
+      'mass': '4000',
+      'od': '',
+      'wall': '',
+      'length': '',
+      'extra': '',
+      'material': 'cs',
+      'sling': 'webbing',
+      'mode': 'straight',
+      'chokedLegs': false,
+      'angleKind': 'fromVertical',
+      'angle': '30',
+      'asymmetric': false,
+      'wll': '5000',
+      'colour': 'red',
+    });
+    final d = decodeRiggingInputs(old);
     expect(d.intact, isTrue);
-    expect(d.inputs.colour, isNull);
-    expect(d.inputs.mass, '100');
+    expect(d.inputs.mode, HitchMode.straight);
+    expect(d.inputs.toJson().containsKey('wll'), isFalse);
   });
 
   test('nieczytelny JSON albo nie-obiekt → domyślne i uszkodzony', () {
@@ -57,20 +86,16 @@ void main() {
     final json = _sample.toJson()
       ..['sling'] = 'hemp'
       ..['chokedLegs'] = 'tak'
-      ..['mass'] = 12
-      ..['colour'] = 'pink'
-      ..['wll'] = 'x' * 200;
+      ..['unit'] = 7;
     final d = decodeRiggingInputs(jsonEncode(json));
     expect(d.intact, isFalse);
     expect(d.inputs.sling, SlingType.webbing);
     expect(d.inputs.chokedLegs, isFalse);
-    expect(d.inputs.mass, '');
-    expect(d.inputs.colour, isNull);
-    expect(d.inputs.wll, '');
+    expect(d.inputs.unit, MassUnit.kg);
     // Pola nienaruszone wracają.
     expect(d.inputs.mode, HitchMode.multiLeg);
     expect(d.inputs.angleKind, AngleKind.included);
-    expect(d.inputs.unit, MassUnit.t);
+    expect(d.inputs.material, PipeMaterial.ss316);
   });
 
   test('brakujące pole → uszkodzony', () {

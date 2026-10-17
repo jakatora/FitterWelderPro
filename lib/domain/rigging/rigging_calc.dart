@@ -13,6 +13,12 @@
 ///   • brak masy / WLL / potwierdzenia etykiety → brak werdyktu (nie OK);
 ///   • brak albo nieczytelna etykieta → STOP („nie używać”), bez względu
 ///     na kolor pasa;
+///   • masa / WLL ponad 1000 t → wpis nieczytelny; w polach w kg zapis
+///     „12,500” / „12.500” (separator tysięcy czy ułamek?) → brak werdyktu;
+///   • 2 i 3–4 cięgna: monter wybiera, czy zawieszka podaje WLL jednego
+///     cięgna (× współczynnik), czy WLL zespołu dla zakresu kąta (bez
+///     mnożenia; β musi mieścić się w tym zakresie) — bez wyboru brak
+///     werdyktu;
 ///   • ładunek niesymetryczny → jak jedno cięgno (konserwatywnie);
 ///   • siła w cięgnie T = W / (n · cos β) tylko informacyjnie — werdykt
 ///     wyłącznie z tabeli współczynników.
@@ -248,8 +254,29 @@ int ceilKg(double kg) => _snap(kg).ceil();
 /// Nośność zaokrąglona W DÓŁ do 1 kg.
 int floorKg(double kg) => _snap(kg).floor();
 
+/// Największa masa / WLL przyjmowana z pola: 1000 t. Więcej to literówka
+/// (np. dodatkowe zera), nie zawiesie z placu budowy — wpis nieczytelny.
+/// Chroni też rachunek przed liczbami poza zakresem `int`.
+const double kRiggingMaxKg = 1e6;
+
+/// Czy liczba z pola masy w KILOGRAMACH może mieć separator tysięcy:
+/// 1–3 cyfry (bez zera na początku), przecinek albo kropka i DOKŁADNIE
+/// 3 cyfry — „12,500” / „12.500” to 12,5 kg czy 12 500 kg? Wspólny parser
+/// (decimal_parse.dart) czyta to jako ułamek; moduł zawiesi takiego wpisu
+/// nie zgaduje — brak werdyktu i prośba o zapis jednoznaczny.
+bool isAmbiguousThousands(String text) => RegExp(r'^[1-9]\d{0,2}[.,]\d{3}$')
+    .hasMatch(text.replaceAll(RegExp(r'\s'), ''));
+
 /// Dlaczego masy z rury nie da się policzyć.
-enum PipeLoadProblem { od, wall, length, extra }
+enum PipeLoadProblem {
+  od,
+  wall,
+  length,
+  extra,
+
+  /// Razem ponad [kRiggingMaxKg] — literówka w wymiarach.
+  tooHeavy,
+}
 
 /// Masa ładunku z rury (spool): kg/m z istniejącej domeny ciężaru rur
 /// (`pipeMassKgPerM`, gęstości `kPipeDensityKgM3`) × długość + dodatki
@@ -297,17 +324,78 @@ PipeLoadResult pipeLoadMass({
   if (lengthM == null || !lengthM.isFinite || lengthM <= 0) {
     return const PipeLoadResult.error(PipeLoadProblem.length);
   }
-  if (extraKg == null || !extraKg.isFinite || extraKg < 0) {
+  if (extraKg == null ||
+      !extraKg.isFinite ||
+      extraKg < 0 ||
+      extraKg > kRiggingMaxKg) {
     return const PipeLoadResult.error(PipeLoadProblem.extra);
   }
   final kgPerM = pipeMassKgPerM(odMm, wallMm, kPipeDensityKgM3[material]!);
   final pipeKg = kgPerM * lengthM;
+  final total = pipeKg + extraKg;
+  if (!total.isFinite || total > kRiggingMaxKg) {
+    return const PipeLoadResult.error(PipeLoadProblem.tooHeavy);
+  }
   return PipeLoadResult.ok(PipeLoadMass(
     kgPerM: kgPerM,
     pipeKg: pipeKg,
     extraKg: extraKg,
-    totalKg: ceilKg(pipeKg + extraKg),
+    totalKg: ceilKg(total),
   ));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CO PODAJE ZAWIESZKA ZAWIESIA WIELOCIĘGNOWEGO
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Co jest na zawieszce przy 2 i 3–4 cięgnach. Fabryczne zawiesie
+/// wielocięgnowe (łańcuch, lina) ma na zawieszce WLL ZESPOŁU dla zakresu
+/// kąta — pomnożenie go jeszcze raz przez 1,4 / 2,1 zawyża nośność.
+enum WllBasis {
+  /// WLL jednego cięgna (podnoszenie proste) — mnożone przez współczynnik.
+  perLeg,
+
+  /// WLL zespołu z zawieszki dla zakresu kąta — bez mnożenia.
+  assembly,
+}
+
+/// Zakres kąta, dla którego zawieszka podaje WLL zespołu.
+enum TagAngleRange {
+  /// β 0–45° (45° już NIE — granica idzie do przedziału niekorzystnego).
+  upTo45,
+
+  /// β 45–60° — wartość niższa, ważna dla każdego β do 60°.
+  upTo60;
+
+  /// Przedział tablicy, któremu odpowiada wartość z zawieszki.
+  AngleBand get band =>
+      this == upTo45 ? AngleBand.upTo45 : AngleBand.from45to60;
+
+  /// Czy β z danego przedziału mieści się w zakresie z zawieszki.
+  bool covers(AngleBand b) =>
+      b != AngleBand.over60 && (this == upTo60 || b == AngleBand.upTo45);
+}
+
+/// Mnożnik WLL ZESPOŁU z zawieszki: ×1,0, a cięgna na zadusznik ×0,8
+/// (LEEA 14.5.2.5/.8: zadusznik — 0,8 × SWL dla zakresu kąta).
+ModeFactor assemblyFactor({required bool chokedLegs}) =>
+    ModeFactor(chokedLegs ? 0.8 : 1.0);
+
+/// Niesymetria przy WLL zespołu: jedno cięgno = WLL zespołu podzielone przez
+/// współczynnik zespołu dla zakresu z zawieszki (2 cięgna 1,4 / 1,0; 3–4
+/// cięgna 2,1 / 1,5), × 0,8 przy zaduszniku. Np. zespół 2,8 t (0–45°) →
+/// jedno cięgno 2,0 t → mnożnik 1 / 1,4.
+ModeFactor assemblyAsymmetry(
+  SlingType sling,
+  HitchMode mode,
+  TagAngleRange range, {
+  required bool chokedLegs,
+}) {
+  final perLeg = modeFactor(sling, mode, band: range.band)!;
+  final single = chokedLegs ? 0.8 : 1.0;
+  final sourced = (sling == SlingType.chain && mode.isMultiLeg) ||
+      (sling.isTextile && mode == HitchMode.twoLeg);
+  return ModeFactor(single / perLeg.value, adopted: !sourced);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -373,9 +461,26 @@ enum RiggingVerdict {
 /// Czego brakuje do werdyktu.
 enum RiggingIssue {
   massMissing,
+
+  /// Nie liczba, ≤ 0 albo ponad [kRiggingMaxKg].
   massInvalid,
+
+  /// „12,500” w kg — separator tysięcy czy ułamek? ([isAmbiguousThousands]).
+  massAmbiguous,
   wllMissing,
   wllInvalid,
+  wllAmbiguous,
+
+  /// 2 / 3–4 cięgna: nie wybrano, czy zawieszka podaje WLL cięgna, czy
+  /// zespołu.
+  wllBasisMissing,
+
+  /// WLL zespołu: nie wybrano zakresu kąta z zawieszki.
+  tagRangeMissing,
+
+  /// WLL zespołu podane dla 0–45°, a β jest w 45–60° — ta wartość nie
+  /// obowiązuje.
+  angleOutsideTagRange,
   angleMissing,
   angleInvalid,
   labelUnconfirmed,
@@ -384,10 +489,13 @@ enum RiggingIssue {
 /// Dane wejściowe — już w kilogramach i stopniach.
 ///
 /// [massKg] / [wllKg]: `null` = pole puste; NaN = wpisano, ale
-/// nieczytelne. Kąt: [angleValue] w konwencji [angleKind]; `null` =
-/// puste, NaN = nieczytelne.
+/// nieczytelne. [massAmbiguous] / [wllAmbiguous] — zapis z możliwym
+/// separatorem tysięcy (wartość wtedy pomijana). Kąt: [angleValue]
+/// w konwencji [angleKind]; `null` = puste, NaN = nieczytelne.
+/// [wllBasis] / [tagRange] — tylko dla 2 i 3–4 cięgien.
 class RiggingInput {
   final double? massKg;
+  final bool massAmbiguous;
   final SlingType sling;
   final HitchMode mode;
   final bool chokedLegs;
@@ -395,10 +503,14 @@ class RiggingInput {
   final AngleKind angleKind;
   final bool asymmetric;
   final double? wllKg;
+  final bool wllAmbiguous;
+  final WllBasis? wllBasis;
+  final TagAngleRange? tagRange;
   final LabelState label;
 
   const RiggingInput({
     required this.massKg,
+    this.massAmbiguous = false,
     required this.sling,
     required this.mode,
     this.chokedLegs = false,
@@ -406,31 +518,11 @@ class RiggingInput {
     this.angleKind = AngleKind.fromVertical,
     this.asymmetric = false,
     required this.wllKg,
+    this.wllAmbiguous = false,
+    this.wllBasis,
+    this.tagRange,
     required this.label,
   });
-
-  RiggingInput copyWith({
-    double? massKg,
-    SlingType? sling,
-    HitchMode? mode,
-    bool? chokedLegs,
-    double? angleValue,
-    AngleKind? angleKind,
-    bool? asymmetric,
-    double? wllKg,
-    LabelState? label,
-  }) =>
-      RiggingInput(
-        massKg: massKg ?? this.massKg,
-        sling: sling ?? this.sling,
-        mode: mode ?? this.mode,
-        chokedLegs: chokedLegs ?? this.chokedLegs,
-        angleValue: angleValue ?? this.angleValue,
-        angleKind: angleKind ?? this.angleKind,
-        asymmetric: asymmetric ?? this.asymmetric,
-        wllKg: wllKg ?? this.wllKg,
-        label: label ?? this.label,
-      );
 }
 
 /// Siła w cięgnie z fizyki — TYLKO informacyjnie.
@@ -469,8 +561,12 @@ class RiggingResult {
   /// Masa zaokrąglona w górę [kg].
   final int? massKg;
 
-  /// WLL z etykiety [kg] (pełna precyzja).
+  /// WLL z etykiety [kg] (pełna precyzja) — w podstawie [wllBasis].
   final double? wllKg;
+
+  /// Co oznacza [wllKg] przy 2 / 3–4 cięgnach (`null` — jedno cięgno albo
+  /// nie wybrano).
+  final WllBasis? wllBasis;
 
   /// Nośność układu = WLL × współczynnik, zaokrąglona w dół [kg].
   final int? capacityKg;
@@ -495,6 +591,7 @@ class RiggingResult {
     this.factor,
     this.massKg,
     this.wllKg,
+    this.wllBasis,
     this.capacityKg,
     this.requiredWllKg,
     this.suggestedSeriesT,
@@ -508,19 +605,22 @@ class RiggingResult {
       factor!.value < symmetricFactor!.value;
 }
 
-bool _validPositive(double? v) => v != null && v.isFinite && v > 0;
+/// Liczba > 0 i nie większa niż [kRiggingMaxKg].
+bool _validKg(double? v) =>
+    v != null && v.isFinite && v > 0 && v <= kRiggingMaxKg;
 
 /// Nośność układu [kg] — WLL × współczynnik, w dół do 1 kg.
 int capacityKg(double wllKg, ModeFactor f) => floorKg(wllKg * f.value);
 
 /// Najmniejsze całkowite WLL [kg], dla którego [capacityKg] ≥ [massKg].
+///
+/// Wprost: w = ⌈m / f⌉ i jedna korekta w każdą stronę na szum double
+/// (bez pętli — duża liczba nie może zawiesić ekranu).
 int requiredWllKg(int massKg, ModeFactor f) {
-  var w = (massKg / f.value).ceil();
-  if (w < 1) w = 1;
-  while (floorKg(w * f.value) < massKg) {
+  var w = math.max(1, (massKg / f.value).ceil());
+  if (floorKg(w * f.value) < massKg) {
     w++;
-  }
-  while (w > 1 && floorKg((w - 1) * f.value) >= massKg) {
+  } else if (w > 1 && floorKg((w - 1) * f.value) >= massKg) {
     w--;
   }
   return w;
@@ -566,16 +666,21 @@ LegTension legTension(int massKg, HitchMode mode, double betaDeg) {
 RiggingResult evaluateRigging(RiggingInput input) {
   final issues = <RiggingIssue>[];
 
-  final massRaw = input.massKg;
-  if (massRaw == null) {
+  // Zapis niejednoznaczny ma pierwszeństwo — tej liczby nie używamy wcale.
+  final massRaw = input.massAmbiguous ? null : input.massKg;
+  if (input.massAmbiguous) {
+    issues.add(RiggingIssue.massAmbiguous);
+  } else if (massRaw == null) {
     issues.add(RiggingIssue.massMissing);
-  } else if (!_validPositive(massRaw)) {
+  } else if (!_validKg(massRaw)) {
     issues.add(RiggingIssue.massInvalid);
   }
-  final wllRaw = input.wllKg;
-  if (wllRaw == null) {
+  final wllRaw = input.wllAmbiguous ? null : input.wllKg;
+  if (input.wllAmbiguous) {
+    issues.add(RiggingIssue.wllAmbiguous);
+  } else if (wllRaw == null) {
     issues.add(RiggingIssue.wllMissing);
-  } else if (!_validPositive(wllRaw)) {
+  } else if (!_validKg(wllRaw)) {
     issues.add(RiggingIssue.wllInvalid);
   }
 
@@ -601,23 +706,51 @@ RiggingResult evaluateRigging(RiggingInput input) {
     issues.add(RiggingIssue.labelUnconfirmed);
   }
 
-  final massKg = _validPositive(massRaw) ? ceilKg(massRaw!) : null;
-  final wllKg = _validPositive(wllRaw) ? wllRaw : null;
+  final massKg = _validKg(massRaw) ? ceilKg(massRaw!) : null;
+  final wllKg = _validKg(wllRaw) ? wllRaw : null;
 
-  final sym = modeFactor(input.sling, input.mode,
-      band: band, chokedLegs: input.chokedLegs);
-  final factor = sym == null
-      ? null
-      : input.asymmetric
-          ? applyAsymmetry(sym, input.sling, input.mode,
-              chokedLegs: input.chokedLegs)
-          : sym;
+  // Co znaczy WLL: przy 2 / 3–4 cięgnach musi to powiedzieć monter.
+  final basis = input.mode.isMultiLeg ? input.wllBasis : null;
+  ModeFactor? sym;
+  ModeFactor? factor;
+  if (!input.mode.isMultiLeg || basis == WllBasis.perLeg) {
+    sym = modeFactor(input.sling, input.mode,
+        band: band, chokedLegs: input.chokedLegs);
+    factor = sym == null
+        ? null
+        : input.asymmetric
+            ? applyAsymmetry(sym, input.sling, input.mode,
+                chokedLegs: input.chokedLegs)
+            : sym;
+  } else if (basis == null) {
+    issues.add(RiggingIssue.wllBasisMissing);
+  } else {
+    // WLL zespołu z zawieszki — bez mnożenia, ale tylko w jej zakresie kąta.
+    final range = input.tagRange;
+    if (range == null) {
+      issues.add(RiggingIssue.tagRangeMissing);
+    } else if (band != null && band != AngleBand.over60) {
+      if (!range.covers(band)) {
+        issues.add(RiggingIssue.angleOutsideTagRange);
+      } else {
+        sym = assemblyFactor(chokedLegs: input.chokedLegs);
+        factor = input.asymmetric
+            ? assemblyAsymmetry(input.sling, input.mode, range,
+                chokedLegs: input.chokedLegs)
+            : sym;
+      }
+    }
+  }
 
   final capacity =
       wllKg != null && factor != null ? capacityKg(wllKg, factor) : null;
   final required =
       massKg != null && factor != null ? requiredWllKg(massKg, factor) : null;
-  final series = massKg != null && factor != null && input.sling.isTextile
+  // Typoszereg pasów dotyczy pojedynczego pasa / cięgna, nie zespołu.
+  final series = massKg != null &&
+          factor != null &&
+          input.sling.isTextile &&
+          basis != WllBasis.assembly
       ? suggestedSeriesT(massKg, factor)
       : null;
   final tension = massKg != null &&
@@ -636,6 +769,7 @@ RiggingResult evaluateRigging(RiggingInput input) {
         factor: factor,
         massKg: massKg,
         wllKg: wllKg,
+        wllBasis: basis,
         capacityKg: capacity,
         requiredWllKg: required,
         suggestedSeriesT: series,

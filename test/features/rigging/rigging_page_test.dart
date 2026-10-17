@@ -83,13 +83,25 @@ String _kvValue(WidgetTester tester, String key) {
   return texts.last;
 }
 
-/// Zielony pas 2 t, etykieta czytelna, masa w kg.
-Future<void> _greenSling(WidgetTester tester, String massKg) async {
+/// Zielony pas 2 t, etykieta czytelna, masa w kg. [perLeg] — przy 2 / 3–4
+/// cięgnach: zawieszka podaje WLL jednego cięgna (dwa osobne pasy).
+Future<void> _greenSling(WidgetTester tester, String massKg,
+    {bool perLeg = false}) async {
   await _enter(tester, 'rig-mass', massKg);
   await _tap(tester, 'rig-colour-green');
   await _tap(tester, 'rig-colour-fill');
   await _tap(tester, 'rig-label-readable');
+  if (perLeg) await _tap(tester, 'rig-wll-basis-perLeg');
 }
+
+bool _selected(WidgetTester tester, String key) =>
+    tester.widget<ChoiceChip>(_k(key)).selected;
+
+String _verdictText(WidgetTester tester, RiggingVerdict v) => tester
+    .widgetList<Text>(
+        find.descendant(of: _verdict(v), matching: find.byType(Text)))
+    .map((t) => t.data ?? '')
+    .join('\n');
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -105,7 +117,7 @@ void main() {
   testWidgets('zielony 2 t, spool 1,6 t, 2 cięgna 60° od pionu → OK',
       (tester) async {
     await _pump(tester);
-    await _greenSling(tester, '1600');
+    await _greenSling(tester, '1600', perLeg: true);
     expect(_field(tester, 'rig-wll'), '2000');
     // Bez kąta — brak werdyktu.
     expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
@@ -122,7 +134,7 @@ void main() {
       'kąt wierzchołkowy: przeliczenie wpisu, ten sam werdykt; '
       'α 121° → STOP', (tester) async {
     await _pump(tester);
-    await _greenSling(tester, '2700');
+    await _greenSling(tester, '2700', perLeg: true);
     await _enter(tester, 'rig-angle', '30');
     expect(_verdict(RiggingVerdict.ok), findsOneWidget); // 2000 × 1,4 = 2800
     await _tap(tester, 'rig-angle-kind-included');
@@ -190,7 +202,7 @@ void main() {
 
   testWidgets('ładunek niesymetryczny → jak jedno cięgno', (tester) async {
     await _pump(tester);
-    await _greenSling(tester, '2500');
+    await _greenSling(tester, '2500', perLeg: true);
     await _enter(tester, 'rig-angle', '30');
     expect(_verdict(RiggingVerdict.ok), findsOneWidget);
     await _tap(tester, 'rig-asym');
@@ -248,30 +260,117 @@ void main() {
         reason: 'reset zeruje też potwierdzenie etykiety');
   });
 
-  testWidgets('dane kalkulatora wracają; etykieta i lista — nie',
+  testWidgets('po ponownym otwarciu WLL, masa i kolor są puste → brak werdyktu',
       (tester) async {
+    // Wczoraj: czerwony pas 5 t, 4000 kg prosto — OK.
     await _pump(tester);
-    await _tap(tester, 'rig-sling-chain');
-    await _tap(tester, 'rig-mode-multiLeg');
-    await _enter(tester, 'rig-mass', '3000');
-    await _enter(tester, 'rig-wll', '2000');
-    await _enter(tester, 'rig-angle', '30');
+    await _tap(tester, 'rig-mode-straight');
+    await _enter(tester, 'rig-mass', '4000');
+    await _tap(tester, 'rig-colour-red');
+    await _tap(tester, 'rig-colour-fill');
     await _tap(tester, 'rig-label-readable');
-    await _tap(tester, 'rig-check-ch-wear-ok');
+    await _tap(tester, 'rig-check-tx-cuts-ok');
+    expect(_field(tester, 'rig-wll'), '5000');
     expect(_verdict(RiggingVerdict.ok), findsOneWidget);
 
+    // Dziś: inny pas. Wracają tylko ustawienia, nie liczby ani kolor.
     await tester.pumpWidget(const SizedBox());
     await _pump(tester);
-    expect(_field(tester, 'rig-mass'), '3000');
-    expect(_field(tester, 'rig-wll'), '2000');
-    expect(_field(tester, 'rig-angle'), '30');
-    expect(tester.widget<ChoiceChip>(_k('rig-sling-chain')).selected, isTrue);
-    expect(tester.widget<ChoiceChip>(_k('rig-mode-multiLeg')).selected, isTrue);
-    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget,
-        reason: 'etykietę potwierdza się przy każdym podniesieniu');
-    await _show(tester, 'rig-check-ch-wear-ok');
-    expect(tester.widget<ChoiceChip>(_k('rig-check-ch-wear-ok')).selected,
-        isFalse);
+    expect(_selected(tester, 'rig-mode-straight'), isTrue);
+    expect(_field(tester, 'rig-wll'), '');
+    expect(_field(tester, 'rig-mass'), '');
+    expect(_selected(tester, 'rig-colour-red'), isFalse);
+    expect(_selected(tester, 'rig-check-tx-cuts-ok'), isFalse);
+    // Monter wpisuje masę i klika „etykieta czytelna” — bez WLL nie ma OK.
+    await _enter(tester, 'rig-mass', '900');
+    await _tap(tester, 'rig-label-readable');
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
+    expect(_verdictText(tester, RiggingVerdict.incomplete),
+        contains('WLL z etykiety'));
+  });
+
+  testWidgets('zmiana rodzaju zawiesia czyści WLL, kolor i etykietę',
+      (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'rig-mode-straight');
+    await _greenSling(tester, '1000');
+    expect(find.textContaining('WLL podnoszenia prostego z etykiety'),
+        findsOneWidget);
+    expect(_verdict(RiggingVerdict.ok), findsOneWidget);
+    await _tap(tester, 'rig-sling-roundsling');
+    expect(_field(tester, 'rig-wll'), '');
+    expect(_selected(tester, 'rig-colour-green'), isFalse);
+    expect(_selected(tester, 'rig-label-readable'), isFalse);
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
+  });
+
+  testWidgets('zawieszka 2,8 t zespołu, 2 cięgna β 30° — bez mnożenia',
+      (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'rig-sling-chain'); // domyślnie 2 cięgna
+    await _enter(tester, 'rig-mass', '3000');
+    await _enter(tester, 'rig-wll', '2800');
+    await _enter(tester, 'rig-angle', '30');
+    await _tap(tester, 'rig-label-readable');
+    // Bez wyboru, co podaje zawieszka — brak werdyktu.
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
+    expect(_verdictText(tester, RiggingVerdict.incomplete),
+        contains('co podaje zawieszka'));
+    await _tap(tester, 'rig-wll-basis-assembly');
+    expect(_verdictText(tester, RiggingVerdict.incomplete),
+        contains('zakres kąta'));
+    await _tap(tester, 'rig-tag-range-upTo45');
+    // 2800 kg zespołu < 3000 kg — STOP (nie 2,8 × 1,4 = 3,92 t).
+    expect(_verdict(RiggingVerdict.overload), findsOneWidget);
+    expect(
+        find.descendant(of: _k('rig-capacity'), matching: find.text('2 800')),
+        findsOneWidget);
+    expect(find.textContaining('Potrzebne WLL zespołu co najmniej 3 000 kg'),
+        findsOneWidget);
+    // Ta sama liczba jako WLL jednego cięgna — mnożona.
+    await _tap(tester, 'rig-wll-basis-perLeg');
+    expect(_verdict(RiggingVerdict.ok), findsOneWidget);
+    expect(
+        find.descendant(of: _k('rig-capacity'), matching: find.text('3 920')),
+        findsOneWidget);
+    // Wartość dla 0–45° nie obowiązuje przy β 50°.
+    await _tap(tester, 'rig-wll-basis-assembly');
+    await _tap(tester, 'rig-tag-range-upTo45');
+    await _enter(tester, 'rig-angle', '50');
+    expect(_verdictText(tester, RiggingVerdict.incomplete),
+        contains('poza zakresem z zawieszki'));
+    // Zmiana konfiguracji czyści WLL zespołu (to nie WLL jednego cięgna).
+    await _tap(tester, 'rig-mode-straight');
+    expect(_field(tester, 'rig-wll'), '');
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
+  });
+
+  testWidgets('„12,500” w kg → brak werdyktu; masa do obliczeń jednoznacznie',
+      (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'rig-mode-straight');
+    await _enter(tester, 'rig-wll', '20000');
+    await _tap(tester, 'rig-label-readable');
+    await _enter(tester, 'rig-mass', '12,500');
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
+    expect(_verdictText(tester, RiggingVerdict.incomplete),
+        contains('niejednoznaczny zapis masy'));
+    expect(find.textContaining('Niejednoznaczny zapis — wpisz bez separatora'),
+        findsOneWidget);
+    expect(_k('rig-mass-used'), findsNothing);
+    await _enter(tester, 'rig-mass', '12500');
+    expect(_verdict(RiggingVerdict.ok), findsOneWidget);
+    expect(_kvValue(tester, 'rig-mass-used'), '12 500 kg (12,5 t)');
+    expect(find.text('Do obliczeń: 12 500 kg (12,5 t)'), findsOneWidget);
+    // W tonach „12,500” to jednoznacznie 12,5 t.
+    await _tap(tester, 'rig-unit-t');
+    await _enter(tester, 'rig-mass', '12,500');
+    expect(_verdict(RiggingVerdict.ok), findsOneWidget);
+    expect(_kvValue(tester, 'rig-mass-used'), '12 500 kg (12,5 t)');
+    // Ponad 1000 t — literówka.
+    await _enter(tester, 'rig-mass', '1001');
+    expect(find.text('Najwyżej 1000 t — sprawdź zera'), findsOneWidget);
+    expect(_verdict(RiggingVerdict.incomplete), findsOneWidget);
   });
 
   testWidgets('uszkodzony zapis → wartości domyślne i informacja, bez awarii',
@@ -307,6 +406,9 @@ void main() {
     await _enter(tester, 'rig-pipe-od', '168,3');
     await _enter(tester, 'rig-pipe-wall', '7,11');
     await _enter(tester, 'rig-pipe-length', '12');
+    await _enter(tester, 'rig-pipe-extra', '12,500'); // błąd pola
+    await _tap(tester, 'rig-wll-basis-assembly');
+    await _tap(tester, 'rig-tag-range-upTo60');
     await _tap(tester, 'rig-sling-wireRope');
     await _tap(tester, 'rig-mode-basketAngled');
     await _enter(tester, 'rig-angle', '50');
@@ -333,7 +435,11 @@ void main() {
     await _tap(tester, 'rig-sling-chain');
     await _tap(tester, 'rig-mode-multiLeg');
     await _tap(tester, 'rig-choked-legs');
+    await _tap(tester, 'rig-wll-basis-assembly');
+    await _tap(tester, 'rig-tag-range-upTo45');
+    await _enter(tester, 'rig-wll', '4200');
     await _tap(tester, 'rig-angle-kind-included');
+    await sweep();
     await _tap(tester, 'rig-mode-basketParallel');
     expect(_k('rig-chain-basket'), findsOneWidget);
     await _tap(tester, 'rig-sling-roundsling');
@@ -355,6 +461,7 @@ void main() {
       'rig-label-missing',
       'rig-colour-green',
       'rig-colour-fill',
+      for (final b in WllBasis.values) 'rig-wll-basis-${b.name}',
       'rig-wll',
       for (final m in HitchMode.values) 'rig-mode-${m.name}',
       'rig-choked-legs',
@@ -371,6 +478,15 @@ void main() {
       final size = tester.getSize(_k(k));
       expect(size.height, greaterThanOrEqualTo(kMinTapTarget), reason: k);
       expect(size.width, greaterThanOrEqualTo(kMinTapTarget), reason: k);
+    }
+    // Zakres kąta z zawieszki — widoczny po wyborze „WLL zespołu”.
+    await _tap(tester, 'rig-mode-twoLeg');
+    await _tap(tester, 'rig-wll-basis-assembly');
+    for (final r in TagAngleRange.values) {
+      final k = 'rig-tag-range-${r.name}';
+      await _show(tester, k);
+      expect(tester.getSize(_k(k)).height, greaterThanOrEqualTo(kMinTapTarget),
+          reason: k);
     }
   });
 }

@@ -21,7 +21,7 @@ void main() {
   test('zapis i odczyt', () async {
     SharedPreferences.setMockInitialValues({});
     const s = RiggingSavedInputs(
-        mass: '1600', sling: SlingType.chain, mode: HitchMode.choke);
+        unit: MassUnit.t, sling: SlingType.chain, mode: HitchMode.choke);
     await store.save(s);
     final l = await store.load();
     expect(l.damaged, isFalse);
@@ -39,6 +39,6 @@ void main() {
     SharedPreferences.setMockInitialValues({RiggingStore.key: 42});
     final l = await store.load();
     expect(l.damaged, isTrue);
-    expect(l.inputs!.mass, '');
+    expect(l.inputs!.toJson(), const RiggingSavedInputs().toJson());
   });
 }

@@ -1,14 +1,18 @@
 // Kalkulator zawiesi: współczynniki trybu (EN 1492-1/-2, EN 818-4/-6,
 // EN 13414-1), granice kątów, niesymetria, werdykt, zaokrąglenia,
-// niezależność od jednostki, typoszereg, siła w cięgnie, masa z rury.
+// niezależność od jednostki, typoszereg, siła w cięgnie, masa z rury,
+// WLL cięgna / zespołu z zawieszki, niejednoznaczny zapis „12,500”,
+// limit 1000 t.
 
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/fitter/fitter_calcs.dart';
 import 'package:cut_list_app/domain/rigging/rigging_calc.dart';
 
+/// Domyślnie 2 cięgna z WLL JEDNEGO cięgna (pas 2 t), β 30°.
 RiggingInput _in({
   double? massKg = 1600,
+  bool massAmbiguous = false,
   SlingType sling = SlingType.webbing,
   HitchMode mode = HitchMode.twoLeg,
   bool chokedLegs = false,
@@ -16,10 +20,14 @@ RiggingInput _in({
   AngleKind kind = AngleKind.fromVertical,
   bool asymmetric = false,
   double? wllKg = 2000,
+  bool wllAmbiguous = false,
+  WllBasis? basis = WllBasis.perLeg,
+  TagAngleRange? range,
   LabelState label = LabelState.readable,
 }) =>
     RiggingInput(
       massKg: massKg,
+      massAmbiguous: massAmbiguous,
       sling: sling,
       mode: mode,
       chokedLegs: chokedLegs,
@@ -27,6 +35,9 @@ RiggingInput _in({
       angleKind: kind,
       asymmetric: asymmetric,
       wllKg: wllKg,
+      wllAmbiguous: wllAmbiguous,
+      wllBasis: basis,
+      tagRange: range,
       label: label,
     );
 
@@ -421,6 +432,170 @@ void main() {
       expect(p(60.3, 2, double.nan), PipeLoadProblem.length);
       expect(p(60.3, 2, 1, -1), PipeLoadProblem.extra);
       expect(p(60.3, 2, 1, null), PipeLoadProblem.extra);
+    });
+  });
+
+  group('WLL cięgna czy zespołu (2 / 3–4 cięgna)', () {
+    test('zawieszka 2,8 t zespołu, 2 cięgna β 30° → 2800 kg, nie 3920 kg', () {
+      final asm = evaluateRigging(_in(
+          sling: SlingType.chain,
+          massKg: 2900,
+          wllKg: 2800,
+          basis: WllBasis.assembly,
+          range: TagAngleRange.upTo45));
+      expect(asm.factor, const ModeFactor(1.0));
+      expect(asm.capacityKg, 2800);
+      expect(asm.verdict, RiggingVerdict.overload);
+      expect(asm.wllBasis, WllBasis.assembly);
+      expect(asm.suggestedSeriesT, isNull);
+      // Ta sama liczba jako WLL jednego cięgna — mnożona (2800 × 1,4).
+      final leg = evaluateRigging(_in(
+          sling: SlingType.chain,
+          massKg: 2900,
+          wllKg: 2800,
+          basis: WllBasis.perLeg));
+      expect(leg.capacityKg, 3920);
+      expect(leg.verdict, RiggingVerdict.ok);
+      expect(
+          evaluateRigging(_in(
+                  sling: SlingType.chain,
+                  massKg: 2800,
+                  wllKg: 2800,
+                  basis: WllBasis.assembly,
+                  range: TagAngleRange.upTo45))
+              .verdict,
+          RiggingVerdict.ok);
+    });
+
+    test('bez wyboru, co podaje zawieszka → brak werdyktu, nie OK', () {
+      for (final mode in [HitchMode.twoLeg, HitchMode.multiLeg]) {
+        final r = evaluateRigging(_in(mode: mode, basis: null, massKg: 10));
+        expect(r.verdict, RiggingVerdict.incomplete, reason: '$mode');
+        expect(r.issues, contains(RiggingIssue.wllBasisMissing));
+        expect(r.capacityKg, isNull);
+      }
+      // Tryby jednocięgnowe wyboru nie potrzebują (i go nie używają).
+      final straight = evaluateRigging(_in(
+          mode: HitchMode.straight,
+          basis: WllBasis.assembly,
+          range: TagAngleRange.upTo45));
+      expect(straight.verdict, RiggingVerdict.ok);
+      expect(straight.wllBasis, isNull);
+    });
+
+    test('WLL zespołu tylko w zakresie kąta z zawieszki', () {
+      RiggingResult asm(double beta, TagAngleRange? range) =>
+          evaluateRigging(_in(
+              sling: SlingType.chain,
+              massKg: 100,
+              wllKg: 2800,
+              angle: beta,
+              basis: WllBasis.assembly,
+              range: range));
+      expect(asm(30, null).issues, contains(RiggingIssue.tagRangeMissing));
+      expect(asm(30, null).verdict, RiggingVerdict.incomplete);
+      // 0–45° z zawieszki nie obowiązuje przy 45° i więcej.
+      for (final beta in [45.0, 50.0, 60.0]) {
+        final r = asm(beta, TagAngleRange.upTo45);
+        expect(r.verdict, RiggingVerdict.incomplete, reason: 'β=$beta');
+        expect(r.issues, contains(RiggingIssue.angleOutsideTagRange));
+      }
+      // Wartość 45–60° (niższa) obowiązuje dla każdego β do 60°.
+      expect(asm(30, TagAngleRange.upTo60).verdict, RiggingVerdict.ok);
+      expect(asm(60, TagAngleRange.upTo60).verdict, RiggingVerdict.ok);
+      expect(asm(61, TagAngleRange.upTo60).verdict,
+          RiggingVerdict.angleNotAllowed);
+      expect(asm(44.9, TagAngleRange.upTo45).verdict, RiggingVerdict.ok);
+    });
+
+    test('WLL zespołu: zadusznik ×0,8; niesymetria = jedno cięgno', () {
+      RiggingResult asm({
+        HitchMode mode = HitchMode.twoLeg,
+        double wll = 2800,
+        bool choked = false,
+        bool asym = false,
+      }) =>
+          evaluateRigging(_in(
+              sling: SlingType.chain,
+              mode: mode,
+              massKg: 100,
+              wllKg: wll,
+              chokedLegs: choked,
+              asymmetric: asym,
+              basis: WllBasis.assembly,
+              range: TagAngleRange.upTo45));
+      expect(asm(choked: true).capacityKg, 2240);
+      expect(asm(asym: true).capacityKg, 2000); // 2800 / 1,4
+      expect(asm(asym: true, choked: true).capacityKg, 1600);
+      expect(asm(mode: HitchMode.multiLeg, wll: 4200, asym: true).capacityKg,
+          2000); // 4200 / 2,1
+      expect(asm(asym: true).asymmetryReduced, isTrue);
+    });
+  });
+
+  group('niejednoznaczny zapis i limit 1000 t', () {
+    test('„12,500” / „12.500” w kg — separator tysięcy czy ułamek?', () {
+      for (final s in ['12,500', '12.500', '1,250', '100,000', ' 12,500 ']) {
+        expect(isAmbiguousThousands(s), isTrue, reason: s);
+      }
+      for (final s in [
+        '12,5',
+        '12500',
+        '0,125',
+        '1234,500',
+        '12,5000',
+        '1.234.567',
+        '',
+      ]) {
+        expect(isAmbiguousThousands(s), isFalse, reason: s);
+      }
+    });
+
+    test('niejednoznaczna masa albo WLL → brak werdyktu, liczba pominięta', () {
+      // 12,5 kg zmieściłoby się — ale to może być 12 500 kg.
+      final m = evaluateRigging(_in(massKg: 12.5, massAmbiguous: true));
+      expect(m.verdict, RiggingVerdict.incomplete);
+      expect(m.issues, contains(RiggingIssue.massAmbiguous));
+      expect(m.massKg, isNull);
+      final w = evaluateRigging(_in(wllKg: 2, wllAmbiguous: true));
+      expect(w.verdict, RiggingVerdict.incomplete);
+      expect(w.issues, contains(RiggingIssue.wllAmbiguous));
+    });
+
+    test('masa lub WLL ponad 1000 t → nieczytelne, bez zawieszenia', () {
+      expect(
+          evaluateRigging(
+                  _in(massKg: 1e6, wllKg: 1e6, mode: HitchMode.straight))
+              .verdict,
+          RiggingVerdict.ok);
+      for (final big in [1e6 + 1, 1e12, 1e300]) {
+        final m = evaluateRigging(_in(massKg: big));
+        expect(m.issues, contains(RiggingIssue.massInvalid), reason: '$big');
+        expect(m.verdict, RiggingVerdict.incomplete);
+        final w = evaluateRigging(_in(wllKg: big));
+        expect(w.issues, contains(RiggingIssue.wllInvalid), reason: '$big');
+      }
+      PipeLoadProblem? pipe({double length = 6, double extra = 0}) =>
+          pipeLoadMass(
+                  odMm: 168.3,
+                  wallMm: 7.11,
+                  lengthM: length,
+                  material: PipeMaterial.cs,
+                  extraKg: extra)
+              .problem;
+      expect(pipe(length: 1e9), PipeLoadProblem.tooHeavy);
+      expect(pipe(extra: 2e6), PipeLoadProblem.extra);
+    });
+
+    test('potrzebne WLL wprost: ⌈m / f⌉ z jedną korektą', () {
+      expect(requiredWllKg(1000000, const ModeFactor(0.8)), 1250000);
+      expect(requiredWllKg(2800, const ModeFactor(1.4)), 2000);
+      expect(requiredWllKg(1601, const ModeFactor(0.8)), 2002);
+      // Duża liczba — wynik natychmiast i poprawny.
+      const m = 1 << 40;
+      final w = requiredWllKg(m, const ModeFactor(1.12));
+      expect(capacityKg(w.toDouble(), const ModeFactor(1.12)),
+          greaterThanOrEqualTo(m));
     });
   });
 }
