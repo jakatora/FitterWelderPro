@@ -29,7 +29,13 @@ class CertificateEditPage extends StatefulWidget {
   /// `null` = nowy certyfikat.
   final WelderCertificate? certificate;
 
-  const CertificateEditPage({super.key, this.certificate});
+  /// Szkic NOWEGO certyfikatu (np. zakres wyliczony z próbki): wypełnia
+  /// formularz, ale zapis tworzy nowy wpis (nowe id, bez historii
+  /// potwierdzeń). Ignorowany, gdy podano [certificate]. Wyjście bez zapisu
+  /// pyta, czy porzucić — wypełnione pola to praca do stracenia.
+  final WelderCertificate? initial;
+
+  const CertificateEditPage({super.key, this.certificate, this.initial});
 
   @override
   State<CertificateEditPage> createState() => _CertificateEditPageState();
@@ -67,15 +73,20 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
   @override
   void initState() {
     super.initState();
-    final c = widget.certificate;
+    final existing = widget.certificate;
+    final draft = existing == null ? widget.initial : null;
+    final c = existing ?? draft;
     _standard = c?.standard ?? QualificationStandard.iso9606_1;
     _standardLabel = TextEditingController(text: c?.standardLabel ?? '');
     _certNo = TextEditingController(text: c?.certNo ?? '');
     _examiner = TextEditingController(text: c?.examiner ?? '');
+    final draftStamp = draft?.welderStamp?.trim() ?? '';
     _stamp = TextEditingController(
-        text: c == null
-            ? (WelderIdentityService.instance.current?.stamp ?? '')
-            : (c.welderStamp ?? ''));
+        text: existing == null
+            ? (draftStamp.isNotEmpty
+                ? draftStamp
+                : (WelderIdentityService.instance.current?.stamp ?? ''))
+            : (existing.welderStamp ?? ''));
     _testDate = c?.testDate;
     _expiryDate = c?.expiryDate;
     _confirmedDate = c?.lastConfirmedDate;
@@ -90,8 +101,9 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
     _filler = TextEditingController(text: c?.filler ?? '');
     _notes = TextEditingController(text: c?.notes ?? '');
     _kinds = {...?c?.jointKinds};
-    _photoPath = c?.photoPath;
-    _initialSnapshot = _snapshot();
+    _photoPath = existing?.photoPath;
+    // Szkic: formularz od początku „zmieniony” — wyjście bez zapisu pyta.
+    _initialSnapshot = draft == null ? _snapshot() : '';
   }
 
   String _snapshot() => [
