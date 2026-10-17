@@ -250,6 +250,15 @@ WeldVolumes pipeButtVolumes({
   );
 }
 
+/// Grubość obliczeniowa a pachwiny mufy SW dla ścianki rury [wallMm]:
+/// ASME B31.3 rys. 328.5.2C — noga Cx ≥ 1,09·t → a ≈ 0,77·t, zaokrąglone
+/// w górę do 0,5 mm, min. 3 mm. Jedna reguła dla okna pozycji i importu
+/// spoin.
+double socketWeldThroatMm(double wallMm) {
+  final a = ((0.77 * wallMm) * 2).ceil() / 2;
+  return a < 3 ? 3.0 : a;
+}
+
 /// Spoina pachwinowa obwodowa na rurze (mufa / kołnierz nasuwany).
 WeldVolumes pipeFilletVolumes({
   required double od,

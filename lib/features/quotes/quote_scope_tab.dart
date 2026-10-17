@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
 import '../../widgets/number_field.dart';
 import 'quote_edit_page.dart' show QuoteChanged;
+import 'quote_import_sheet.dart';
 import 'quote_joint_page.dart';
 import 'quote_widgets.dart';
 
@@ -49,6 +50,29 @@ class QuoteScopeTab extends StatelessWidget {
       }
       return cur.copyWith(joints: list);
     });
+  }
+
+  /// Import ze skanu ISO / dziennika spoin. Pozycje dochodzą do AKTUALNEJ
+  /// wyceny (okno wraca po czasie), a „Cofnij" zdejmuje tylko je.
+  Future<void> _import(BuildContext context) async {
+    final added = await showQuoteImport(context, quote: quote);
+    if (added == null || added.isEmpty) return;
+    final ids = {for (final j in added) j.id};
+    onUpdate((cur) => cur.copyWith(joints: [...cur.joints, ...added]));
+    if (!context.mounted) return;
+    final welds = added.fold(0, (a, j) => a + j.count);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(context.tr(
+            pl: 'Dodano pozycji: ${added.length} (spoin: $welds).',
+            en: 'Added items: ${added.length} (welds: $welds).')),
+        action: SnackBarAction(
+          label: context.tr(pl: 'Cofnij', en: 'Undo'),
+          onPressed: () => onUpdate((cur) => cur.copyWith(
+              joints: cur.joints.where((x) => !ids.contains(x.id)).toList())),
+        ),
+      ));
   }
 
   void _duplicate(QuoteJoint j) {
@@ -186,6 +210,17 @@ class QuoteScopeTab extends StatelessWidget {
           label: Text(context.tr(pl: 'Dodaj spoiny', en: 'Add welds'),
               style:
                   const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const ValueKey('import-joints'),
+          style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(kMinTapTarget)),
+          onPressed: () => _import(context),
+          icon: const Icon(Icons.move_to_inbox_outlined),
+          label: Text(context.tr(
+              pl: 'Importuj spoiny (skan ISO, dziennik)',
+              en: 'Import welds (ISO scan, journal)')),
         ),
         const SizedBox(height: 20),
         QuoteSection(

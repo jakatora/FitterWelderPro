@@ -188,8 +188,7 @@ class _QuoteJointPageState extends State<QuoteJointPage> {
     // Mufa SW wg ASME B31.3 rys. 328.5.2C: noga Cx ≥ 1,09·t ścianki rury →
     // grubość obliczeniowa a ≈ 0,77·t; zaokrąglone w górę do 0,5, min. 3.
     if (j.kind == JointKind.pipeFillet && wall != null) {
-      final a = ((0.77 * wall) * 2).ceil() / 2;
-      final throat = a < 3 ? 3.0 : a;
+      final throat = socketWeldThroatMm(wall);
       _setText(_throat, throat);
       j = j.copyWith(throatMm: throat);
     }
