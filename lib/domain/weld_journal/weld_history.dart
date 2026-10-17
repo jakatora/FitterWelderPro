@@ -155,6 +155,9 @@ const Map<String, (String, String)> _labels = {
   'preheat_c': ('Podgrzanie (°C)', 'Preheat (°C)'),
   'interpass_c': ('Międzyściegowa (°C)', 'Interpass (°C)'),
   'heat_input': ('Energia liniowa (kJ/mm)', 'Heat input (kJ/mm)'),
+  'root_backing': ('Prowadzenie grani', 'Root / backing'),
+  'metal_transfer': ('Przenoszenie metalu', 'Metal transfer'),
+  'product_form': ('Wyrób (rura / blacha)', 'Product (pipe / plate)'),
   'coupon_ref': ('Kupon próbny', 'Test coupon'),
   'status': ('Status', 'Status'),
   'exam': ('Uwagi z badań', 'Examination remarks'),
@@ -196,6 +199,22 @@ String weldFieldDisplayValue(String field, String value, {required bool en}) {
   if (value.isEmpty) return '—';
   if (field == 'pwht_required') {
     return value == '1' ? (en ? 'yes' : 'tak') : (en ? 'no' : 'nie');
+  }
+  if (field == 'root_backing') return WeldRootBacking.label(value);
+  if (field == 'metal_transfer') {
+    return switch (value) {
+      WeldMetalTransfer.dip => en ? 'dip (short-circuit)' : 'zwarciowe (dip)',
+      WeldMetalTransfer.other =>
+        en ? 'other (spray, pulse)' : 'inne (natrysk, puls)',
+      _ => value,
+    };
+  }
+  if (field == 'product_form') {
+    return switch (value) {
+      WeldProductKind.pipe => en ? 'pipe (T)' : 'rura (T)',
+      WeldProductKind.plate => en ? 'plate (P)' : 'blacha (P)',
+      _ => value,
+    };
   }
   if (field.startsWith('ndt_') && field.endsWith('_scope')) {
     return switch (value) {

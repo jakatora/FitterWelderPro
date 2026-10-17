@@ -84,6 +84,12 @@ class WeldEntryDefaults {
   final String fillerClass;
   final String fillerBatch;
 
+  /// v28: prowadzenie grani, przenoszenie metalu, wyrób — zwykle te same na
+  /// całym spoolu / linii.
+  final String rootBacking;
+  final String metalTransfer;
+  final String productForm;
+
   /// Id of the last saved weld — what "Następna spoina" copies from.
   final String lastWeldId;
 
@@ -104,6 +110,9 @@ class WeldEntryDefaults {
     this.position = '',
     this.fillerClass = '',
     this.fillerBatch = '',
+    this.rootBacking = '',
+    this.metalTransfer = '',
+    this.productForm = '',
     this.lastWeldId = '',
   });
 
@@ -124,6 +133,9 @@ class WeldEntryDefaults {
         position: e.position,
         fillerClass: e.fillerClass,
         fillerBatch: e.fillerBatch,
+        rootBacking: e.rootBacking,
+        metalTransfer: e.metalTransfer,
+        productForm: e.productForm,
         lastWeldId: e.id,
       );
 
@@ -144,6 +156,9 @@ class WeldEntryDefaults {
         'position': position,
         'fillerClass': fillerClass,
         'fillerBatch': fillerBatch,
+        'rootBacking': rootBacking,
+        'metalTransfer': metalTransfer,
+        'productForm': productForm,
         'lastWeldId': lastWeldId,
       };
 
@@ -166,6 +181,9 @@ class WeldEntryDefaults {
       position: s('position'),
       fillerClass: s('fillerClass'),
       fillerBatch: s('fillerBatch'),
+      rootBacking: s('rootBacking'),
+      metalTransfer: s('metalTransfer'),
+      productForm: s('productForm'),
       lastWeldId: s('lastWeldId'),
     );
   }
@@ -229,6 +247,9 @@ WeldEntry newWeldFromDefaults(
       position: d.position,
       fillerClass: d.fillerClass,
       fillerBatch: d.fillerBatch,
+      rootBacking: d.rootBacking,
+      metalTransfer: d.metalTransfer,
+      productForm: d.productForm,
       welder: stamp,
       fitter: stamp,
       date: date,
@@ -240,7 +261,8 @@ WeldEntry newWeldFromDefaults(
 ///
 /// Copies what stays the same from joint to joint — project, line, drawing,
 /// spool, test package, WPS, material, OD / wall, process, weld type, joint
-/// type, shop/field, position and filler. Starts fresh everything that
+/// type, shop/field, position, filler and (v28) root / backing, metal
+/// transfer and product form. Starts fresh everything that
 /// belongs to THIS joint: number ([weldNo]), date, welder stamp, heat
 /// numbers, measured preheat / interpass / heat input, coupon, NDT, PWHT,
 /// acceptance, notes, status and repairs.
@@ -272,6 +294,9 @@ WeldEntry nextWeldFrom(
       position: prev.position,
       fillerClass: prev.fillerClass,
       fillerBatch: prev.fillerBatch,
+      rootBacking: prev.rootBacking,
+      metalTransfer: prev.metalTransfer,
+      productForm: prev.productForm,
       welder: stamp,
       // The fitter usually stays with the spool; fall back to the owner.
       fitter: prev.fitter.trim().isNotEmpty ? prev.fitter : stamp,

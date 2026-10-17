@@ -102,13 +102,35 @@ String? _nonEmpty(String s) {
   return t.isEmpty ? null : t;
 }
 
-/// Wyrób z pola „OD”: wpisana średnica > 0 → rura. Pusta średnica NIE
-/// znaczy „blacha” (dziennik jest rurowy, OD bywa po prostu niewpisane) —
-/// wtedy `null`, czyli „nie wiadomo”.
-WeldProductForm? productFormOfWeld(String od) {
+/// Wyrób spoiny. Wybrany w karcie spoiny ([form], v28: `T` rura / `P`
+/// blacha) wygrywa. Bez wyboru — z pola „OD”: wpisana średnica > 0 → rura
+/// (tak jak przed v28, więc stare wpisy oceniamy jak dotąd). Pusta średnica
+/// NIE znaczy „blacha” (dziennik jest rurowy, OD bywa po prostu
+/// niewpisane) — wtedy `null`, czyli „nie wiadomo”.
+WeldProductForm? productFormOfWeld(String od, {String form = ''}) {
+  switch (form.trim().toUpperCase()) {
+    case WeldProductKind.pipe:
+      return WeldProductForm.pipe;
+    case WeldProductKind.plate:
+      return WeldProductForm.plate;
+  }
   final d = WeldParameters.parseNumber(od);
   return d != null && d > 0 ? WeldProductForm.pipe : null;
 }
+
+/// Prowadzenie grani z karty spoiny (v28, kody [WeldRootBacking]); puste
+/// albo nieznane → `null` („nie podano” = nie da się porównać).
+RootCondition? rootConditionOfWeld(String code) =>
+    code.trim().isEmpty ? null : RootCondition.parse(code);
+
+/// Przenoszenie metalu z karty spoiny (v28): `dip` → zwarciowe (`true`),
+/// `other` → inne (`false`); puste albo nieznane → `null`.
+bool? dipTransferOfWeld(String code) =>
+    switch (code.trim().toLowerCase()) {
+      WeldMetalTransfer.dip => true,
+      WeldMetalTransfer.other => false,
+      _ => null,
+    };
 
 /// Odgałęzienie z typu złącza: BR → tak; BW / FW / SW → nie; puste → `null`.
 bool? branchOfWeld(String jointType) =>
@@ -124,11 +146,13 @@ bool? branchOfWeld(String jointType) =>
 /// Parametry spoiny z wpisu dziennika — do [checkWeldAgainstWps] i
 /// [checkWelderCoverage].
 ///
-/// Do ograniczeń z próby ISO 9606-1 dziennik daje: wyrób (rura, gdy jest
-/// OD), grupę spoiwa FM z oznaczenia spoiwa ([fmGroupOfFillerClass], tylko
-/// jednoznaczne oznaczenia) i odgałęzienie (typ złącza BR). Prowadzenia
-/// grani ani rodzaju przenoszenia metalu dziennik nie zapisuje — te pola
-/// zostają puste („nie da się porównać”).
+/// Do ograniczeń z próby ISO 9606-1 dziennik daje: prowadzenie grani,
+/// przenoszenie metalu i wyrób z sekcji „Szczegóły do kontroli uprawnień”
+/// (v28; wyrób bez wyboru — rura, gdy jest OD), grupę spoiwa FM
+/// z oznaczenia spoiwa ([fmGroupOfFillerClass], tylko jednoznaczne
+/// oznaczenia) i odgałęzienie (typ złącza BR). „Nie podano” zostaje puste
+/// („nie da się porównać”). Przenoszenie liczy się tylko przy MIG/MAG
+/// (albo nieznanym procesie) — to rozstrzyga już [checkIso9606TestLimits].
 WeldParameters weldParametersOf(WeldEntry e) {
   final hi = splitHeatInput(e.heatInput);
   return WeldParameters(
@@ -142,9 +166,11 @@ WeldParameters weldParametersOf(WeldEntry e) {
     heatInputMethod: hi.method,
     preheatC: WeldParameters.parseNumber(e.preheatC),
     interpassC: WeldParameters.parseNumber(e.interpassC),
-    productForm: productFormOfWeld(e.od),
+    productForm: productFormOfWeld(e.od, form: e.productForm),
     fillerGroup: fmGroupOfFillerClass(e.fillerClass),
     branch: branchOfWeld(e.jointType),
+    root: rootConditionOfWeld(e.rootBacking),
+    dipTransfer: dipTransferOfWeld(e.metalTransfer),
   );
 }
 

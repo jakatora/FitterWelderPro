@@ -43,6 +43,42 @@ const List<String> kWeldPositions = [
   'H-L045', 'J-L045',
 ];
 
+/// Prowadzenie grani spoiny czołowej (ISO 9606-1 tab. 11) — kody jak
+/// `RootCondition.code` w `qualification/iso9606_limits.dart` i w linii
+/// `[ISO9606 v1] root=…` certyfikatu (v28). Pusty tekst = nie podano.
+abstract final class WeldRootBacking {
+  static const String nb = 'nb';
+  static const String mb = 'mb';
+  static const String bs = 'bs';
+  static const String gb = 'gb';
+  static const String ci = 'ci';
+  static const String fb = 'fb';
+  static const List<String> values = [nb, mb, bs, gb, ci, fb];
+
+  /// Oznaczenie jak na certyfikacie (`ss nb`, `bs`, `ci`).
+  static String label(String code) => switch (code) {
+        bs || ci => code,
+        '' => '',
+        _ => 'ss $code',
+      };
+}
+
+/// Przenoszenie metalu przy MIG/MAG (ISO 9606-1 §5.2), v28: zwarciowe
+/// (dip) albo inne (natryskowe, pulsujące, kroplowe). Pusty = nie podano.
+abstract final class WeldMetalTransfer {
+  static const String dip = 'dip';
+  static const String other = 'other';
+  static const List<String> values = [dip, other];
+}
+
+/// Wyrób (ISO 9606-1 §5.3), v28: `T` rura, `P` blacha — kody jak
+/// `WeldProductForm.code`. Pusty = nie podano.
+abstract final class WeldProductKind {
+  static const String pipe = 'T';
+  static const String plate = 'P';
+  static const List<String> values = [pipe, plate];
+}
+
 /// Statuses the journal writes. Older databases may hold other strings;
 /// they are shown and exported as they are, never rewritten.
 abstract final class WeldStatus {
@@ -135,6 +171,19 @@ class WeldEntry {
   /// number typed by hand — then [wpsRef] is matched to the library by text.
   final String? wpsId;
 
+  /// v28 — dane do kontroli ograniczeń z próby ISO 9606-1 (linia
+  /// `[ISO9606 v1]` w uwagach certyfikatu). Pusty tekst = nie podano (w bazie
+  /// NULL) → kontrola „nie da się porównać”, nigdy „poza zakresem”.
+  ///
+  /// [WeldRootBacking] — prowadzenie grani.
+  final String rootBacking;
+
+  /// [WeldMetalTransfer] — przenoszenie metalu (tylko MIG/MAG).
+  final String metalTransfer;
+
+  /// [WeldProductKind] — rura (T) / blacha (P).
+  final String productForm;
+
   /// PWHT required: null = not stated, true / false.
   final bool? pwhtRequired;
   final String pwhtChart;
@@ -192,6 +241,9 @@ class WeldEntry {
     this.preheatC = '',
     this.interpassC = '',
     this.heatInput = '',
+    this.rootBacking = '',
+    this.metalTransfer = '',
+    this.productForm = '',
     this.couponId,
     this.pwhtRequired,
     this.pwhtChart = '',
@@ -273,9 +325,15 @@ class WeldEntry {
         ...ndtToRow(ndt),
         // ---- v25
         'wps_id': wpsId,
+        // ---- v28 — „nie podano” zapisujemy jako NULL, jak stare wiersze.
+        'root_backing': _nullIfEmpty(rootBacking),
+        'metal_transfer': _nullIfEmpty(metalTransfer),
+        'product_form': _nullIfEmpty(productForm),
       };
 
   static String _s(Object? v) => v is String ? v : (v == null ? '' : '$v');
+
+  static String? _nullIfEmpty(String v) => v.trim().isEmpty ? null : v.trim();
 
   static WeldEntry fromRow(Map<String, Object?> r) {
     final pwht = r['pwht_required'];
@@ -316,6 +374,9 @@ class WeldEntry {
       preheatC: _s(r['preheat_c']),
       interpassC: _s(r['interpass_c']),
       heatInput: _s(r['heat_input']),
+      rootBacking: _s(r['root_backing']),
+      metalTransfer: _s(r['metal_transfer']),
+      productForm: _s(r['product_form']),
       couponId: r['coupon_id'] as String?,
       pwhtRequired: pwht is num ? pwht != 0 : null,
       pwhtChart: _s(r['pwht_chart']),
@@ -375,6 +436,9 @@ class WeldEntry {
     String? preheatC,
     String? interpassC,
     String? heatInput,
+    String? rootBacking,
+    String? metalTransfer,
+    String? productForm,
     String? couponRef,
     Object? couponId = _keep,
     String? exam,
@@ -423,6 +487,9 @@ class WeldEntry {
         preheatC: preheatC ?? this.preheatC,
         interpassC: interpassC ?? this.interpassC,
         heatInput: heatInput ?? this.heatInput,
+        rootBacking: rootBacking ?? this.rootBacking,
+        metalTransfer: metalTransfer ?? this.metalTransfer,
+        productForm: productForm ?? this.productForm,
         couponRef: couponRef ?? this.couponRef,
         couponId:
             identical(couponId, _keep) ? this.couponId : couponId as String?,
@@ -474,6 +541,10 @@ final List<String> weldAuditFieldKeys = List.unmodifiable([
   'preheat_c',
   'interpass_c',
   'heat_input',
+  // v28 — dane do kontroli ograniczeń z próby ISO 9606-1.
+  'root_backing',
+  'metal_transfer',
+  'product_form',
   'coupon_ref',
   'status',
   'exam',

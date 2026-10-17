@@ -4,6 +4,7 @@ import 'package:cut_list_app/database/coupon_dao.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/weld_journal_dao.dart';
 import 'package:cut_list_app/domain/weld_journal/coupon_entry.dart';
+import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_history.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_journal_settings.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_ndt.dart';
@@ -182,6 +183,52 @@ void main() {
           isTrue,
           reason: field);
     }
+  });
+
+  test(
+      'v28: grań, przenoszenie i wyrób — zapis, odczyt, historia zmian; '
+      '„nie podano” to NULL', () async {
+    await dao().insert(
+        weld('w1').copyWith(
+          method: 'MIG/MAG',
+          rootBacking: WeldRootBacking.nb,
+          metalTransfer: WeldMetalTransfer.dip,
+          productForm: WeldProductKind.pipe,
+        ),
+        by: 'JK-12');
+    var w = (await dao().getById('w1'))!;
+    expect(w.rootBacking, 'nb');
+    expect(w.metalTransfer, 'dip');
+    expect(w.productForm, 'T');
+    expect((await dao().listAll()).single.rootBacking, 'nb');
+
+    now += 60000;
+    final changes = await dao().update(
+      w.copyWith(rootBacking: WeldRootBacking.mb, productForm: ''),
+      by: 'QC-1',
+    );
+    expect(changes.map((c) => c.field).toSet(),
+        {'root_backing', 'product_form'});
+    final h = await dao().history('w1');
+    final root = h.firstWhere((e) => e.field == 'root_backing');
+    expect(root.oldValue, 'nb');
+    expect(root.newValue, 'mb');
+    expect(root.byStamp, 'QC-1');
+    expect(weldFieldLabel('root_backing', en: false), 'Prowadzenie grani');
+    expect(weldFieldDisplayValue('root_backing', root.newValue, en: false),
+        'ss mb');
+    expect(weldFieldDisplayValue('metal_transfer', 'dip', en: true),
+        'dip (short-circuit)');
+    expect(weldFieldDisplayValue('product_form', 'T', en: false), 'rura (T)');
+
+    w = (await dao().getById('w1'))!;
+    expect(w.rootBacking, 'mb');
+    expect(w.metalTransfer, 'dip');
+    expect(w.productForm, isEmpty);
+    final db = await AppDatabase.get();
+    final row = (await db.query('weld_journal')).single;
+    expect(row['product_form'], isNull,
+        reason: '„nie podano” zapisane jak w starych wierszach — NULL');
   });
 
   test('listAll dołącza naprawy i sortuje numery naturalnie', () async {

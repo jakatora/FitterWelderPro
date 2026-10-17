@@ -80,7 +80,13 @@ class AppDatabase {
   //   walidacja, manometry, termometry, mierniki, analizatory O₂, klucze
   //   dynamometryczne) — lib/domain/instruments/instrument.dart. Daty
   //   `yyyy-MM-dd`, usuwanie miękkie. Tabela nowa i pusta.
-  static const int _dbVersion = 27;
+  // v28: `weld_journal` dostaje dane do kontroli ograniczeń z próby
+  //   ISO 9606-1 (linia `[ISO9606 v1]` w uwagach certyfikatu):
+  //   `root_backing` (prowadzenie grani: nb / mb / bs / gb / ci / fb),
+  //   `metal_transfer` (MIG/MAG: dip / other) i `product_form` (T rura /
+  //   P blacha). TEXT, NULL, bez domyślnych — stara spoina „nie podaje”, więc
+  //   kontrola mówi „nie da się porównać”, nie „poza zakresem”.
+  static const int _dbVersion = 28;
 
   /// The schema version [get] opens the database at.
   ///
@@ -475,6 +481,15 @@ CREATE TABLE IF NOT EXISTS projects (
     // ---- v27: rejestr przyrządów i kalibracji. Tabela nowa — jak v26.
     if (oldVersion < 27) {
       await _createInstrumentTables(db);
+    }
+
+    // ---- v28: grań / przenoszenie metalu / wyrób w dzienniku spoin. Same
+    // kolumny, wszystkie NULL: spoina sprzed v28 ich nie podaje i nie wolno
+    // ich wymyślać (kontrola uprawnień mówi wtedy „nie da się porównać”).
+    if (oldVersion < 28) {
+      for (final c in kWeldJournalV28Columns.entries) {
+        await _ensureColumn(db, 'weld_journal', c.key, c.value);
+      }
     }
 
     // Last, now that every column the indexes reference exists.
@@ -900,7 +915,8 @@ CREATE TABLE IF NOT EXISTS weld_journal (
   exam TEXT,
   wps_ref TEXT,
 ${_columnsDdl(_kWeldJournalV20Columns)},
-${_columnsDdl(kWeldJournalV25Columns)}
+${_columnsDdl(kWeldJournalV25Columns)},
+${_columnsDdl(kWeldJournalV28Columns)}
 );
 ''');
     // v20: change history of the journal — one row per changed field (or per
@@ -1066,6 +1082,15 @@ CREATE TABLE IF NOT EXISTS weld_quotes (
   /// weld_journal columns added in v25: the WPS picked from the library.
   static const Map<String, String> kWeldJournalV25Columns = <String, String>{
     'wps_id': 'TEXT',
+  };
+
+  /// weld_journal columns added in v28: prowadzenie grani, przenoszenie
+  /// metalu (MIG/MAG) i wyrób (rura / blacha) — dane do ograniczeń z próby
+  /// ISO 9606-1 (patrz `WeldEntry.rootBacking` i dalej).
+  static const Map<String, String> kWeldJournalV28Columns = <String, String>{
+    'root_backing': 'TEXT',
+    'metal_transfer': 'TEXT',
+    'product_form': 'TEXT',
   };
 
   /// weld_coupons columns added in v25: soft delete and who accepted the
