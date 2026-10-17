@@ -14,6 +14,11 @@ import '../i18n/app_language.dart';
 //   - Original 21 entries from the legacy help_screen.dart
 //   - 100-iteration piping_knowledge.md research base
 //   - ASME B31.3 / API 1104 / NACE MR0175 / AWS D1.1 hands-on practice
+//   - Wpisy do modułów z fali 2026-10 (t8/5, prace pożarowe, elektrody,
+//     PCC-1, pogoda, stożki, słownik, spoina pachwinowa, twardość, akord,
+//     import do wyceny): liczby i normy WYŁĄCZNIE z kodu domeny tych modułów
+//     (lib/domain/…, komentarze ze źródłami). Zmieniasz moduł — popraw wpis.
+//     Liczby PL i EN muszą być te same (test/data/help_entries_test.dart).
 //
 // Add new entries by appending to the relevant category list — search index
 // rebuilds itself on each query.
@@ -122,12 +127,18 @@ List<HelpCategory> kHelpCategories = [
         answer: _bi(
           'Cold cracking po ostygnięciu wskazuje na hydrogen embrittlement w HAZ — typowe dla wysokowytrzymałych stali (P91, X65+). '
           'Przyczyny: wilgoć w elektrodzie/druciku, brak preheat, za szybkie chłodzenie. '
-          'Rozwiązanie: low-H electrody (E7018-H4) suszone w 230°C 2 h, preheat 150-300°C, slower cool z dehydrogenation hold 200°C × 2-4 h.',
+          'Rozwiązanie: low-H electrody (E7018-H4) z piecyka, z pilnowanym czasem na powietrzu (AWS D1.1: E70XX 4 h), '
+          'po przekroczeniu suszone wg karty producenta (AWS D1.1 dla E7018: 260–430 °C, min. 2 h), '
+          'preheat 150-300°C, slower cool z dehydrogenation hold 200°C × 2-4 h. '
+          'Czas i suszenie elektrod: narzędzie „Elektrody zasadowe: czas i suszenie”.',
           'Cold cracking after cooling = hydrogen embrittlement in HAZ — typical for high-strength steels (P91, X65+). '
           'Causes: moist electrode/wire, no preheat, fast cooling. '
-          'Fix: low-H electrodes (E7018-H4) baked at 230°C × 2 h, preheat 150-300°C, slow cool with dehydrogenation hold 200°C × 2-4 h.',
+          'Fix: low-H electrodes (E7018-H4) from the holding oven, with the exposure time watched (AWS D1.1: E70XX 4 h), '
+          're-dried per the maker’s data sheet once it is exceeded (AWS D1.1 for E7018: 260–430 °C, 2 h min.), '
+          'preheat 150-300°C, slow cool with dehydrogenation hold 200°C × 2-4 h. '
+          'Electrode exposure and re-drying: the "Low-hydrogen electrodes: exposure" tool.',
         ),
-        tags: ['cracks', 'pekanie', 'cold-cracking', 'hydrogen', 'preheat', 'p91', 'haz'],
+        tags: ['cracks', 'pekanie', 'cold-cracking', 'hydrogen', 'preheat', 'p91', 'haz', 'e7018', 'suszenie'],
       ),
       HelpEntry(
         id: 'tig-porosity',
@@ -339,6 +350,60 @@ List<HelpCategory> kHelpCategories = [
         ),
         tags: ['saddle', 'fish-mouth', 'branch', 'tee', 'template', 'coping'],
       ),
+      HelpEntry(
+        id: 'cone-development',
+        question: _bi(
+          'Jak rozwinąć stożek ścięty (lej, redukcję z blachy)?',
+          'How do I lay out a truncated cone (hopper, plate reducer)?',
+        ),
+        answer: _bi(
+          'Rozwinięcie stożka współosiowego to wycinek pierścienia: promień łuku dużego R = (Dm/2)/sin α, łuku małego r, '
+          'a R − r = L (tworząca); kąt wycinka θ = 360°·sin α (α — kąt połówkowy od osi). '
+          'Liczy się po osi obojętnej, czyli w połowie grubości blachy. Ścianka stożka jest pochylona, więc przy średnicy '
+          'zewnętrznej Dm = D − t/cos α, przy wewnętrznej D + t/cos α — pominięcie 1/cos α daje błąd średnicy 0,41·t przy 45° '
+          'i całe t przy 60°. '
+          'Przy R ponad 3000 mm cyrkiel jest za duży — trasuj z tabeli rzędnych od cięciwy. Wycinek ponad 300° źle się zwija — '
+          'dziel na co najmniej 2 części. '
+          'Narzędzie „Rozwinięcie stożka i przejść” dobiera liczbę części (1, 2, 3, 4, 6, 8 albo 12) do arkusza, podaje cięciwę, '
+          'strzałkę i przekątną kontrolną oraz szablon 1:1.',
+          'A concentric cone lays out as a ring sector: large arc radius R = (Dm/2)/sin α, small arc radius r, '
+          'and R − r = L (slant height); sector angle θ = 360°·sin α (α — half-angle from the axis). '
+          'Work on the neutral axis, i.e. mid-thickness. The cone wall is inclined, so from the outside '
+          'diameter Dm = D − t/cos α, from the inside D + t/cos α — dropping the 1/cos α gives a diameter error of 0.41·t at 45° '
+          'and a full t at 60°. '
+          'With R above 3000 mm a trammel is too big — mark out from the table of ordinates off the chord. A sector over 300° rolls badly — '
+          'split it into at least 2 parts. '
+          'The "Cone & transition layout" tool picks the number of parts (1, 2, 3, 4, 6, 8 or 12) for the sheet, gives the chord, '
+          'rise and check diagonal and a 1:1 template.',
+        ),
+        tags: ['stozek', 'cone', 'lej', 'hopper', 'rozwiniecie', 'layout', 'wycinek', 'redukcja', 'blacha', 'plate', 'os obojetna'],
+      ),
+      HelpEntry(
+        id: 'transition-square-round',
+        question: _bi(
+          'Stożek mimośrodowy albo przejście kwadrat–koło — jak trasować?',
+          'Eccentric cone or square-to-round transition — how do I mark it out?',
+        ),
+        answer: _bi(
+          'Triangulacją: aplikacja podaje tabelę linii prawdziwych (tworzących) i cięciw mierzonych NA BLASZE. Klasyczna triangulacja '
+          'z cięciwami z rzutu skraca obwód — o ok. 1,14 % przy 12 podziałach (0,29 % przy 24); tu kąt rozwinięcia jest liczony '
+          'dokładnie, więc obwód się zgadza. Podział obwodu: 12, 16, 24, 32 albo 48. '
+          'Przejście prostokąt–koło to 4 trójkąty płaskie (bok prostokąta + punkt koła) i 4 wycinki stożków ukośnych '
+          'z wierzchołkami w narożach. Części: 1, 2 albo 4; szew w połowie boku albo w narożu; koło może być przesunięte '
+          'względem prostokąta. '
+          'Grubość: przejście liczy wymiar zewnętrzny / wewnętrzny jak dla ścianki pionowej (∓ t); gdy ścianki są pochylone '
+          'ponad 30°, ekran ostrzega o różnicy — wtedy wymiaruj po średniej. Narzędzie „Rozwinięcie stożka i przejść”.',
+          'By triangulation: the app gives a table of true lengths (generators) and of chords measured ON THE PLATE. Classic triangulation '
+          'with chords taken from the plan view shortens the circumference — by about 1.14 % with 12 divisions (0.29 % with 24); here the '
+          'development angle is worked out exactly, so the circumference comes out right. Divisions: 12, 16, 24, 32 or 48. '
+          'A rectangle-to-round transition is 4 flat triangles (a side of the rectangle + a point of the circle) and 4 oblique cone '
+          'sectors with apexes at the corners. Parts: 1, 2 or 4; seam at the middle of a side or at a corner; the circle may be '
+          'offset from the rectangle. '
+          'Thickness: the transition takes the outside / inside size as for a vertical wall (∓ t); where walls slope more than '
+          '30° the screen warns about the difference — then dimension to the mean. The "Cone & transition layout" tool.',
+        ),
+        tags: ['przejscie', 'transition', 'kwadrat kolo', 'square to round', 'mimosrodowy', 'eccentric', 'triangulacja', 'triangulation', 'stozek', 'cone'],
+      ),
     ],
   ),
 
@@ -386,12 +451,14 @@ List<HelpCategory> kHelpCategories = [
         ),
         answer: _bi(
           'Threshold: H₂S partial pressure ≥0.05 psi (0.3 kPa) lub H₂S w wodzie ≥1.45 ppm → wymóg compliance. '
-          'Hardness limit: ≤22 HRC (~250 HV10) dla CS + welds + HAZ. Ni content ≤1% w CS. '
+          'Twardość (ISO 15156-2:2020, tab. A.1): spoina od strony grani, SWC i materiał rodzimy CS ≤ 250 HV (HV10 lub HV5); '
+          '22 HRC to osobny limit dla pomiaru metodą HRC, nie przeliczenie (22 HRC ≈ 248 HV wg ASTM E140). Ni content ≤1% w CS. '
           'PWHT wymagany dla wszystkich CS welds. '
           'Bolts: tylko B7M/L7M (lower hardness vs B7); B16 zabronione. NIGDY high-strength (>1240 MPa). '
           'HIC-tested plate per NACE TM0284 (CLR ≤15%, CTR ≤5%, CSR ≤2%).',
           'Threshold: H₂S partial pressure ≥0.05 psi (0.3 kPa) or H₂S in water ≥1.45 ppm → compliance required. '
-          'Hardness limit: ≤22 HRC (~250 HV10) for CS + welds + HAZ. Ni content ≤1% in CS. '
+          'Hardness (ISO 15156-2:2020, Table A.1): weld root side, HAZ and CS base metal ≤ 250 HV (HV10 or HV5); '
+          '22 HRC is a separate limit for HRC testing, not a conversion (22 HRC ≈ 248 HV per ASTM E140). Ni content ≤1% in CS. '
           'PWHT required for all CS welds. '
           'Bolts: only B7M/L7M (lower hardness vs B7); B16 prohibited. NEVER high-strength (>1240 MPa). '
           'HIC-tested plate per NACE TM0284 (CLR ≤15%, CTR ≤5%, CSR ≤2%).',
@@ -447,6 +514,80 @@ List<HelpCategory> kHelpCategories = [
           'Material: A106 Gr B Sch 80 (corrosion allowance), welded no PWHT. Slope 1:50 to drain. NO pockets, eccentric reducer flat-top.',
         ),
         tags: ['h2so4', 'sulfuric-acid', 'velocity', 'corrosion', 'passivation'],
+      ),
+      HelpEntry(
+        id: 'hardness-sour-limit',
+        question: _bi(
+          'Twardość spoiny w środowisku H₂S: 250 HV czy 22 HRC?',
+          'Weld hardness in sour (H₂S) service: 250 HV or 22 HRC?',
+        ),
+        answer: _bi(
+          'NACE MR0175 / ISO 15156-2:2020, tab. A.1 (stal węglowa, C-Mn, niskostopowa): spoina od strony grani, SWC i materiał '
+          'rodzimy ≤ 250 HV (HV10 lub HV5). Lico nieeksponowane do 275 HV tylko przy spełnieniu wszystkich trzech warunków: zgoda '
+          'użytkownika urządzenia, materiał rodzimy grubszy niż 9 mm, lico nie styka się ze środowiskiem kwaśnym. '
+          '22 HRC to osobny limit dla pomiaru metodą HRC — na spoinach tylko na warunkach 7.3.3.2 (m.in. PWHT w WPS). „248 HV” '
+          'to przeliczenie 22 HRC wg ASTM E140 — dla spoin norma podaje 250 HV, więc nie zamieniaj jednego limitu na drugi przeliczeniem. '
+          'Odkuwki ASTM A105 ≤ 187 HB, kształtki A234 WPB/WPC ≤ 197 HB (A.2.1.3). '
+          'Narzędzie „Twardość: przelicznik i limity” ocenia serię pomiarów: wynik równy limitowi = OK; pomiar pusty albo spoza '
+          'tablicy przeliczeń nigdy nie daje zielonego.',
+          'NACE MR0175 / ISO 15156-2:2020, Table A.1 (carbon, C-Mn and low-alloy steel): weld root side, HAZ and base '
+          'metal ≤ 250 HV (HV10 or HV5). An unexposed weld cap up to 275 HV only when all three conditions are met: the equipment '
+          'user agrees, parent material thicker than 9 mm, the cap is not in contact with the sour environment. '
+          '22 HRC is a separate limit for HRC testing — on welds only under 7.3.3.2 (e.g. PWHT in the WPS). "248 HV" '
+          'is 22 HRC converted per ASTM E140 — for welds the standard gives 250 HV, so do not swap one limit for the other by conversion. '
+          'ASTM A105 forgings ≤ 187 HB, A234 WPB/WPC fittings ≤ 197 HB (A.2.1.3). '
+          'The "Hardness: converter and limits" tool judges a series of readings: a result equal to the limit = OK; an empty reading '
+          'or one outside the conversion table never gives green.',
+        ),
+        tags: ['twardosc', 'hardness', 'hv10', 'hrc', 'nace', 'mr0175', 'iso 15156', 'h2s', 'sour-service', 'kwasne'],
+      ),
+      HelpEntry(
+        id: 'hardness-wpqr-b313',
+        question: _bi(
+          'Jaki limit twardości przy kwalifikowaniu technologii (WPQR) i po PWHT?',
+          'What hardness limit applies to procedure qualification (WPQR) and after PWHT?',
+        ),
+        answer: _bi(
+          'EN ISO 15614-1:2004+A2:2012, tab. 2 (maks. HV10, grupy wg ISO/TR 15608): gr. 1 i 2 — 380 bez obróbki cieplnej, 320 po '
+          'obróbce; gr. 3 — 450 / 380 (stal o min. Re > 890 MPa — wartości ustala się osobno); gr. 4 i 5 — 380 / 320. Wydanie 2017 '
+          'podniosło limit gr. 4 i 5 po obróbce do 350 HV10 — to wg źródła wtórnego, sprawdź w normie z kontraktu; obowiązuje '
+          'wydanie przywołane w kontrakcie. '
+          'ASME B31.3 wyd. 2008–2012, tab. 331.1.1 (twardość po PWHT): P-No 3 i 4 — 225 HB; P-No 5A, 5B, 5C — 241 HB; P-No 6 '
+          '(nierdzewna martenzytyczna) — 241 HB. Wydania 2014 i nowsze tej kolumny nie mają — wtedy twardość po PWHT ocenia się '
+          'wg specyfikacji projektu. '
+          'Wszystkie te limity są w narzędziu „Twardość: przelicznik i limity” z normą, wydaniem i tabelą.',
+          'EN ISO 15614-1:2004+A2:2012, Table 2 (max. HV10, groups per ISO/TR 15608): groups 1 and 2 — 380 not heat-treated, 320 '
+          'heat-treated; group 3 — 450 / 380 (steel with min. yield > 890 MPa — special values apply); groups 4 and 5 — 380 / 320. The 2017 '
+          'edition raised the heat-treated limit for groups 4 and 5 to 350 HV10 — per a secondary source, check the standard named in the '
+          'contract; the edition invoked by the contract governs. '
+          'ASME B31.3 2008–2012 editions, Table 331.1.1 (hardness after PWHT): P-No 3 and 4 — 225 HB; P-No 5A, 5B, 5C — 241 HB; P-No 6 '
+          '(martensitic stainless) — 241 HB. The 2014 and later editions do not have this column — post-PWHT hardness is then judged '
+          'to the project specification. '
+          'All these limits are in the "Hardness: converter and limits" tool with the standard, edition and table.',
+        ),
+        tags: ['twardosc', 'hardness', 'wpqr', 'iso 15614-1', 'hv10', 'pwht', 'b31.3', 'brinell', 'hb', 'kwalifikowanie'],
+      ),
+      HelpEntry(
+        id: 'hardness-conversion',
+        question: _bi(
+          'Czy mogę przeliczyć HRC albo HB na HV?',
+          'Can I convert HRC or HB to HV?',
+        ),
+        answer: _bi(
+          'Tylko dla stali niestopowych i niskostopowych oraz staliwa — wg ISO 18265:2013, tab. A.1, interpolacją między wierszami, '
+          'bez wychodzenia poza tablicę: HV 80–940, HB do 618 (650 HV), HRC od 20,3 (240 HV) do 68,0, HRB 41,0–99,5. '
+          'Poza tym zakresem aplikacja nie podaje wyniku, a pomiar nie jest oceniany. '
+          'Dla stali nierdzewnej i austenitycznej tablica nie obowiązuje — mierz w tej samej skali, w której jest limit. '
+          'Wytrzymałość Rm z twardości (80–650 HV) jest tylko orientacyjna, a ocena po przeliczeniu skali — przybliżona. '
+          'Narzędzie „Twardość: przelicznik i limity”.',
+          'Only for unalloyed and low-alloy steels and cast steel — per ISO 18265:2013, Table A.1, by interpolation between rows, '
+          'never beyond the table: HV 80–940, HB up to 618 (650 HV), HRC from 20.3 (240 HV) to 68.0, HRB 41.0–99.5. '
+          'Outside that range the app gives no result and the reading is not judged. '
+          'For stainless and austenitic steel the table does not apply — measure in the same scale as the limit. '
+          'Tensile strength Rm from hardness (80–650 HV) is only indicative, and a verdict after a scale conversion is approximate. '
+          'The "Hardness: converter and limits" tool.',
+        ),
+        tags: ['przelicznik', 'converter', 'twardosc', 'hardness', 'hrc', 'hv', 'hb', 'hrb', 'iso 18265', 'rm', 'conversion'],
       ),
     ],
   ),
@@ -518,14 +659,187 @@ List<HelpCategory> kHelpCategories = [
           'Przykład: 22 V × 110 A × 60 / (200 mm/min × 1000) = 0.726 kJ/mm. '
           'P91 WPS range: 1.0-2.5 kJ/mm, NIE przekraczaj górnego. '
           'Za wysokie HI = coarse-grain HAZ, low toughness, wider Type IV zone. '
-          'Za niskie HI = fast cooling, hardening, hydrogen cracking risk.',
+          'Za niskie HI = fast cooling, hardening, hydrogen cracking risk. '
+          'To energia łuku (ASME IX, bez sprawności procesu). Energia liniowa wg EN 1011-1 ma sprawność k: '
+          'Q = k × V × I × 60 / (v × 1000) — tej liczby potrzebuje t8/5 (narzędzie „Czas stygnięcia t8/5”).',
           'HI [kJ/mm] = (V × I × 60) / (travel_speed_mm/min × 1000). '
           'Example: 22 V × 110 A × 60 / (200 mm/min × 1000) = 0.726 kJ/mm. '
           'P91 WPS range: 1.0-2.5 kJ/mm, do NOT exceed upper. '
           'Too high HI = coarse-grain HAZ, low toughness, wider Type IV. '
-          'Too low HI = fast cooling, hardening, hydrogen cracking risk.',
+          'Too low HI = fast cooling, hardening, hydrogen cracking risk. '
+          'This is arc energy (ASME IX, no process efficiency). Heat input per EN 1011-1 includes the efficiency k: '
+          'Q = k × V × I × 60 / (v × 1000) — that is the number t8/5 needs (the "Cooling time t8/5" tool).',
         ),
-        tags: ['heat-input', 'wps', 'p91', 'kj-mm', 'formula'],
+        tags: ['heat-input', 'wps', 'p91', 'kj-mm', 'formula', 'energia liniowa', 'en 1011-1'],
+      ),
+      HelpEntry(
+        id: 't85-cooling-time',
+        question: _bi(
+          'Co to jest czas stygnięcia t8/5 i skąd wziąć okno?',
+          'What is the t8/5 cooling time and where does the window come from?',
+        ),
+        answer: _bi(
+          't8/5 to czas, w jakim spoina i SWC stygną od 800 °C do 500 °C. Przy stalach drobnoziarnistych o podwyższonej '
+          'wytrzymałości (S460–S960, QT / TMCP) WPS albo producent stali podaje okno t8/5: za krótko — twarda, krucha SWC; '
+          'za długo — spada udarność i wytrzymałość. '
+          'Przykłady z kart producentów: Strenx 960 E 5–15 s, Strenx 700 E 5–20 s, DILLIMAX 890 5–12 s, DILLIMAX 690 5–20 s — '
+          'producenci zmieniają je między wydaniami, więc sprawdź aktualną kartę swojej stali. '
+          'Narzędzie „Czas stygnięcia t8/5” liczy wg EN 1011-2:2001 zał. D: przepływ 3D dla grubej blachy, 2D dla cienkiej, '
+          'granica to grubość przejściowa d_t. To model uproszczony, szacunek — wiążą WPS/WPQR i zalecenia producenta stali.',
+          't8/5 is the time the weld and HAZ take to cool from 800 °C to 500 °C. For fine-grained higher-strength steels '
+          '(S460–S960, QT / TMCP) the WPS or the steel maker gives a t8/5 window: too short — hard, brittle HAZ; '
+          'too long — toughness and strength drop. '
+          'Examples from steel makers’ leaflets: Strenx 960 E 5–15 s, Strenx 700 E 5–20 s, DILLIMAX 890 5–12 s, DILLIMAX 690 5–20 s — '
+          'makers change them between editions, so check the current sheet for your steel. '
+          'The "Cooling time t8/5" tool works to EN 1011-2:2001 Annex D: 3D flow for thick plate, 2D for thin, '
+          'the boundary being the transition thickness d_t. It is a simplified model, an estimate — the WPS/WPQR and the steel maker’s recommendations are binding.',
+        ),
+        tags: ['t8/5', 't85', 'czas stygniecia', 'cooling time', 'stygniecie', 'swc', 'haz', 'en 1011-2', 'strenx', 'dillimax', 'tmcp'],
+      ),
+      HelpEntry(
+        id: 't85-hit-window',
+        question: _bi(
+          't8/5 wychodzi za krótki albo za długi — co zmienić?',
+          't8/5 comes out too short or too long — what do I change?',
+        ),
+        answer: _bi(
+          'Za krótki (stygnie za szybko) — zwiększ energię liniową Q albo temperaturę podgrzewania / międzyściegową T0. '
+          'Za długi — zmniejsz Q albo T0. Sekcja „Jak trafić w okno” podaje zakres Q, prędkość spawania przy Twoim U i I '
+          'oraz zakres T0 — każdy wiersz zmienia jeden parametr. T0 nie niżej niż minimum podgrzewania z WPS (zimne pęknięcia) '
+          'i nie wyżej niż maks. temperatura międzyściegowa z WPS. '
+          'Q to energia liniowa wg EN 1011-1, ze sprawnością procesu k: Q = k·U·I·60/(v·1000) [kJ/mm] — energia łuku z WPS '
+          'wg ASME IX (bez k) to inna liczba. W cienkiej blasze (przepływ 2D) błąd Q wchodzi do kwadratu. '
+          'Jednościegowa spoina pachwinowa ma współczynnik kształtu F2 jako przedział (narożna 0,67–0,9, teowa 0,45–0,67), '
+          'więc wynik też jest przedziałem — „w oknie” tylko wtedy, gdy mieści się w nim cały.',
+          'Too short (cools too fast) — raise the heat input Q or the preheat / interpass temperature T0. '
+          'Too long — lower Q or T0. The "How to hit the window" section gives the Q range, the travel speed at your U and I '
+          'and the T0 range — each line changes one parameter. T0 not below the WPS minimum preheat (cold cracking) '
+          'and not above the WPS maximum interpass temperature. '
+          'Q is the EN 1011-1 heat input, with the process efficiency k: Q = k·U·I·60/(v·1000) [kJ/mm] — the WPS arc energy '
+          'per ASME IX (no k) is a different number. In thin plate (2D flow) an error in Q is squared. '
+          'A single-run fillet weld has the shape factor F2 as a range (corner 0.67–0.9, T-joint 0.45–0.67), '
+          'so the result is a range too — "within the window" only when all of it fits.',
+        ),
+        tags: ['t8/5', 't85', 'okno', 'window', 'energia liniowa', 'heat input', 'podgrzewanie', 'preheat', 'predkosc spawania', 'travel speed'],
+      ),
+    ],
+  ),
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 5b. POGODA I ELEKTRODY — narzędzia „Warunki do spawania” i „Elektrody
+  // zasadowe: czas i suszenie” (liczby z weather_conditions.dart
+  // i electrode_exposure.dart)
+  // ════════════════════════════════════════════════════════════════════════
+  HelpCategory(
+    id: 'weather-electrodes',
+    title: _bi('Pogoda i elektrody', 'Weather & electrodes'),
+    subtitle: _bi('Mróz, wiatr, rosa, elektrody zasadowe', 'Frost, wind, dew, low-hydrogen rods'),
+    icon: Icons.thermostat,
+    accentArgb: 0xFF4FC3F7,
+    entries: [
+      HelpEntry(
+        id: 'weather-wind-rain-frost',
+        question: _bi(
+          'Czy mogę spawać na wietrze, w deszczu albo na mrozie?',
+          'Can I weld in wind, rain or frost?',
+        ),
+        answer: _bi(
+          'Domyślne progi narzędzia „Warunki do spawania” (z norm; specyfikacja projektu może je zmienić): '
+          'mróz poniżej −18 °C przy złączu — nie spawać bez ogrzewanego namiotu (AWS D1.1:2020 §7.11.2: 0 °F = −17,8 °C); '
+          'deszcz, śnieg, mokre albo oblodzone złącze — tylko pod dachem namiotu, na suchym złączu (parawan nie chroni przed opadem); '
+          'TIG, MIG/MAG, FCAW-G i spawanie gazowe — wiatr przy spoinie najwyżej 2,2 m/s (AWS D1.1 §7.11.1: 5 mph, w SI 8 km/h), '
+          'inaczej osłona albo metoda bez gazu (111, 114); '
+          'silny wiatr powyżej 10,8 m/s (6° Beauforta) — bez zamkniętego namiotu nie spawać. To próg praktyczny aplikacji: '
+          'AWS D1.1, EN 1090-2 §7.5.3 i EN 1011-1 §5.2 wymagają ochrony przed wiatrem, ale nie podają liczby. '
+          'Gorącą spoinę chroń przed deszczem i wiatrem, aż ostygnie. Stan powierzchni złącza oceniasz sam — '
+          '„nie sprawdzono” nigdy nie daje zielonego werdyktu.',
+          'Default thresholds of the "Welding conditions" tool (from the codes; the project specification may change them): '
+          'frost below −18 °C at the joint — no welding without a heated enclosure (AWS D1.1:2020 §7.11.2: 0 °F = −17.8 °C); '
+          'rain, snow, a wet or icy joint — only under the roof of an enclosure, on a dry joint (a windbreak does not keep rain off); '
+          'TIG, MIG/MAG, FCAW-G and oxy-fuel welding — wind at the weld at most 2.2 m/s (AWS D1.1 §7.11.1: 5 mph, 8 km/h in SI), '
+          'otherwise a shelter or a process without gas (111, 114); '
+          'strong wind above 10.8 m/s (Beaufort 6) — no welding without a closed enclosure. This is the app’s practical threshold: '
+          'AWS D1.1, EN 1090-2 §7.5.3 and EN 1011-1 §5.2 require protection from wind but give no number. '
+          'Keep rain and wind off the hot weld until it cools. You judge the joint surface yourself — '
+          '"not checked" never gives a green verdict.',
+        ),
+        tags: ['pogoda', 'weather', 'wiatr', 'wind', 'deszcz', 'rain', 'mroz', 'frost', 'namiot', 'enclosure', 'parawan', 'aws-d1.1', 'beaufort'],
+      ),
+      HelpEntry(
+        id: 'weather-cold-dew-point',
+        question: _bi(
+          'Stal jest zimna albo zaparowana — do ilu stopni podgrzać złącze?',
+          'The steel is cold or damp — how warm must the joint be?',
+        ),
+        answer: _bi(
+          'Narzędzie „Warunki do spawania” bierze najwyższe z wymagań: każdy materiał min. 10 °C (ASME B31.3 tab. 330.1.1); '
+          'stal węglowa i niskostopowa zimniejsza niż 0 °C — podgrzać do ≥ 21 °C i utrzymać w trakcie spawania '
+          '(AWS D1.1:2020 tab. 5.8: poniżej 32 °F podgrzać do 70 °F); minimalne podgrzewanie z WPS, jeśli jest wyższe. '
+          'Rosa: powierzchnia stali co najmniej 3 K ponad punktem rosy (przy ujemnym — ponad punktem szronu), inaczej osusz złącze grzaniem. '
+          'To praktyka z malowania (ISO 8502-4), nie wymóg norm spawalniczych. Punkt rosy aplikacja liczy z temperatury i wilgotności powietrza. '
+          'Mierz stal termometrem kontaktowym — rano i przy bezchmurnym niebie bywa zimniejsza od powietrza. Grzej i sprawdzaj '
+          'po obu stronach złącza w pasie co najmniej 75 mm (ASME B31.3 §330.1.4: większe z 75 mm i 1,5 × grubości).',
+          'The "Welding conditions" tool takes the highest requirement: any material min. 10 °C (ASME B31.3 Table 330.1.1); '
+          'carbon and low-alloy steel colder than 0 °C — preheat to ≥ 21 °C and hold it while welding '
+          '(AWS D1.1:2020 Table 5.8: below 32 °F preheat to 70 °F); the WPS minimum preheat if it is higher. '
+          'Dew: the steel surface at least 3 K above the dew point (when that is below zero — above the frost point), otherwise dry the joint by heating. '
+          'This is coating practice (ISO 8502-4), not a welding-code requirement. The app works out the dew point from air temperature and humidity. '
+          'Measure the steel with a contact thermometer — in the morning and under a clear sky it is often colder than the air. Heat and check '
+          'both sides of the joint over at least 75 mm (ASME B31.3 §330.1.4: the larger of 75 mm and 1.5 × thickness).',
+        ),
+        tags: ['punkt rosy', 'dew point', 'rosa', 'szron', 'kondensacja', 'zimna stal', 'cold steel', 'podgrzewanie', 'preheat', 'wilgotnosc', 'humidity'],
+      ),
+      HelpEntry(
+        id: 'electrode-exposure-limit',
+        question: _bi(
+          'Ile elektrody zasadowe (E7018) mogą leżeć poza piecykiem?',
+          'How long can low-hydrogen electrodes (E7018) stay out of the oven?',
+        ),
+        answer: _bi(
+          'AWS D1.1:2020 tab. 7.1 (kol. A): A5.1 E70XX (E7016, E7018) — 4 h; E70XXR / E70XXHZR (np. E7018-1 H4R) i E7018M — 9 h; '
+          'A5.5: E70XX-X — 4 h, E80XX-X — 2 h, E90XX-X — 1 h, E100XX-X i E110XX-X — 0,5 h. Dłuższe czasy (kol. B) tylko po badaniu wg D1.1. '
+          'Kołczan albo termos NIE zatrzymuje licznika — to też czas na powietrzu. '
+          'EN ISO 2560-A i 18275-A nie podają czasu — obowiązuje karta producenta. Aplikacja przyjmuje ostrożnie limit AWS tej samej '
+          'wytrzymałości (E 38/42/46/50 B: 4 h, E 55: 1 h, E 62/69: 0,5 h) — to założenie, nadpisz je z karty albo WPS. '
+          'Opakowanie próżniowe po otwarciu (wg producentów): Lincoln SAHARA ReadyPack 8 h (12 h przy ≤ 27 °C i ≤ 70 % RH), '
+          'Böhler DRY SYSTEM 9 h, Kobelco ok. 8 h (niektóre produkty 4 h). '
+          'Narzędzie „Elektrody zasadowe: czas i suszenie” liczy czas każdej partii, przypomina przed końcem limitu i prowadzi dziennik QC z PDF.',
+          'AWS D1.1:2020 Table 7.1 (column A): A5.1 E70XX (E7016, E7018) — 4 h; E70XXR / E70XXHZR (e.g. E7018-1 H4R) and E7018M — 9 h; '
+          'A5.5: E70XX-X — 4 h, E80XX-X — 2 h, E90XX-X — 1 h, E100XX-X and E110XX-X — 0.5 h. Longer times (column B) only after testing per D1.1. '
+          'A quiver or rod canister does NOT stop the clock — it is still exposure time. '
+          'EN ISO 2560-A and 18275-A give no time — the maker’s data sheet governs. The app cautiously takes the AWS limit of the same '
+          'strength (E 38/42/46/50 B: 4 h, E 55: 1 h, E 62/69: 0.5 h) — an assumption, override it from the data sheet or the WPS. '
+          'Vacuum pack once opened (per the makers): Lincoln SAHARA ReadyPack 8 h (12 h at ≤ 27 °C and ≤ 70 % RH), '
+          'Böhler DRY SYSTEM 9 h, Kobelco about 8 h (some products 4 h). '
+          'The "Low-hydrogen electrodes: exposure" tool times each batch, reminds you before the limit ends and keeps a QC log with a PDF.',
+        ),
+        tags: ['elektrody', 'electrodes', 'e7018', 'zasadowe', 'niskowodorowe', 'low-hydrogen', 'piecyk', 'oven', 'czas na powietrzu', 'exposure', 'aws-d1.1', 'kolczan'],
+      ),
+      HelpEntry(
+        id: 'electrode-oven-redry',
+        question: _bi(
+          'Elektrody wróciły do piecyka — czas liczy się od nowa? Kiedy suszyć ponownie?',
+          'Electrodes went back into the oven — does the clock restart? When must they be re-dried?',
+        ),
+        answer: _bi(
+          'Piecyk-przechowalnik min. 120 °C. Jeśli elektrody wróciły do niego PRZED końcem limitu i przeleżały co najmniej 4 h — '
+          'limit liczy się od nowa (AWS D1.1:2020 7.3.2.2). Krócej — licznik tylko stoi, a po wyjęciu liczy dalej. '
+          'Po przekroczeniu limitu piecyk-przechowalnik nie pomaga: ponowne suszenie w piecu suszarniczym albo złom. '
+          'Suszenie: AWS A5.1 — 260–430 °C, min. 2 h; AWS A5.5 — 370–430 °C, min. 1 h; EN ISO 2560-A / 18275-A — zwykle '
+          '300–350 °C, 2 h (np. OK 48.00: 350 °C / 2 h), wg karty producenta; AWS D1.5 (mosty) — 230–290 °C, min. 2 h. '
+          'Czas suszenia liczy się od osiągnięcia temperatury. '
+          'AWS D1.1: najwyżej jedno ponowne suszenie; producenci EN zwykle dopuszczają 2–3 — sprawdź kartę. Zamoczone elektrody — tylko złom. '
+          'Liczby z AWS D1.1:2020 — tekstu wydania 2025 nie sprawdzono; WPS i producent mogą być ostrzejsi.',
+          'Holding oven min. 120 °C. If the electrodes went back in BEFORE the limit ran out and stayed there at least 4 h — '
+          'the limit restarts (AWS D1.1:2020 7.3.2.2). Shorter — the clock only pauses and carries on once they are out. '
+          'After the limit is exceeded the holding oven does not help: re-dry in a drying oven or scrap. '
+          'Re-drying: AWS A5.1 — 260–430 °C, 2 h min.; AWS A5.5 — 370–430 °C, 1 h min.; EN ISO 2560-A / 18275-A — typically '
+          '300–350 °C, 2 h (e.g. OK 48.00: 350 °C / 2 h), per the maker’s data sheet; AWS D1.5 (bridges) — 230–290 °C, 2 h min. '
+          'Drying time counts from reaching temperature. '
+          'AWS D1.1: re-dry no more than once; EN makers usually allow 2–3 — check the data sheet. Electrodes that got wet — scrap only. '
+          'Numbers from AWS D1.1:2020 — the 2025 edition text has not been checked; the WPS and the maker may be stricter.',
+        ),
+        tags: ['suszenie', 'redry', 're-dry', 'rebake', 'piecyk', 'holding oven', 'elektrody', 'electrodes', 'e7018', 'aws-d1.1', 'aws-d1.5'],
       ),
     ],
   ),
@@ -634,24 +948,26 @@ List<HelpCategory> kHelpCategories = [
           'How to bolt up flanges: star pattern?',
         ),
         answer: _bi(
-          'ASME PCC-1: star pattern 4 passes: '
-          '1) 25% target torque, '
-          '2) 50%, '
-          '3) 75%, '
-          '4) 100% — wszystkie w gwiazdę. '
-          '5) Final circular pass 100% (kilka śrub się relaxuje przy innych). '
-          '6) Relaxation pass po 20 min - 4 h (re-torque 100%). '
-          'Bez star pattern → uneven gasket compression → blow-out. Use anti-seize (Cu-based dla CS, Ni-based dla SS).',
-          'ASME PCC-1: star pattern 4 passes: '
-          '1) 25% target torque, '
-          '2) 50%, '
-          '3) 75%, '
-          '4) 100% — all in star sequence. '
-          '5) Final circular pass 100% (some bolts relax when others tighten). '
-          '6) Relaxation pass after 20 min - 4 h (re-torque 100%). '
-          'Without star pattern → uneven gasket compression → blow-out. Use anti-seize (Cu-based for CS, Ni-based for SS).',
+          'ASME PCC-1, metoda Legacy (tab. 1) — rundy 1–3 w gwiazdę (na krzyż): '
+          'dociągnięcie wstępne ≤ 20 % momentu docelowego (15–30 N·m), '
+          '1) 20–30 % momentu docelowego, '
+          '2) 50–70 %, '
+          '3) 100 %. '
+          '4) Runda okrężna 100 %, aż nakrętki przestaną się obracać (kilka śrub się relaxuje przy innych). '
+          '5) Po co najmniej 4 h powtórz rundę 4. Po każdej rundzie sprawdź, czy szczelina jest równa. '
+          'Bez star pattern → uneven gasket compression → blow-out. Smar ten sam, który przyjęto do momentu (współczynnik K), '
+          'nigdy na uszczelkę; anti-seize: Cu-based dla CS, Ni-based dla SS. Moment policzysz w narzędziu „Moment śrub”.',
+          'ASME PCC-1, Legacy method (Table 1) — rounds 1–3 in a star (cross) pattern: '
+          'snug-up ≤ 20 % of target torque (15–30 N·m), '
+          '1) 20–30 % of target torque, '
+          '2) 50–70 %, '
+          '3) 100 %. '
+          '4) Circular round at 100 % until the nuts stop turning (some bolts relax when others tighten). '
+          '5) After at least 4 h repeat round 4. After every round check that the gap is even. '
+          'Without star pattern → uneven gasket compression → blow-out. Use the same lubricant the torque was based on (nut factor K), '
+          'never on the gasket; anti-seize: Cu-based for CS, Ni-based for SS. Work out the torque in the "Bolt torque" tool.',
         ),
-        tags: ['torque', 'star-pattern', 'asme-pcc-1', 'flange', 'bolt-up'],
+        tags: ['torque', 'star-pattern', 'asme-pcc-1', 'flange', 'bolt-up', 'legacy', 'rundy'],
       ),
       HelpEntry(
         id: 'gasket-types',
@@ -670,6 +986,84 @@ List<HelpCategory> kHelpCategories = [
           'Kammprofile: solid grooved metal core + facing — premium, for critical service.',
         ),
         tags: ['gasket', 'spiral-wound', 'graphite', 'ptfe', 'kammprofile', 'flange'],
+      ),
+      HelpEntry(
+        id: 'flange-pcc1-alignment',
+        question: _bi(
+          'Jakie tolerancje osiowania kołnierzy przed skręceniem (ASME PCC-1)?',
+          'What flange alignment tolerances apply before bolting up (ASME PCC-1)?',
+        ),
+        answer: _bi(
+          'ASME PCC-1-2019 zał. E (kołnierze w spoczynku, bez ściągania): '
+          'przesunięcie osi (high/low) ≤ 1,5 mm (1/16") — liniał na OD jednego kołnierza, 4 punkty co 90°; '
+          'równoległość — różnica największej i najmniejszej szczeliny ≤ 0,8 mm (1/32"), szczelinomierz na zewnętrznej średnicy '
+          'powierzchni uszczelniającej; otwory — śruba przechodzi przez oba pod kątem prostym, przesunięcie ≤ 3 mm (1/8"); '
+          'szczelina ≤ 2 × grubość uszczelki; siła do zestawienia bez urządzeń < 10 % docelowego obciążenia śrub, żadna śruba > 20 % — '
+          'jeśli trzeba więcej, decyduje inżynier. '
+          'Granice w mm i w calach nie są dokładnym przeliczeniem (1/16" = 1,5875 mm) — oceniaj w układzie, w którym mierzysz. '
+          'PCC-1-2022 przebudował zał. E; źródła podają te same liczby, ale brzmienia limitów siły nie potwierdzono, a zakład '
+          'może mieć ostrzejsze tolerancje. '
+          'Narzędzie „Odbiór połączenia kołnierzowego” daje werdykt i protokół PDF — zielony tylko wtedy, gdy każde kryterium '
+          'jest zmierzone w granicy i lista montażu odhaczona.',
+          'ASME PCC-1-2019 Appendix E (flanges at rest, not pulled together): '
+          'centerline high/low ≤ 1.5 mm (1/16") — straight edge on the OD of one flange, 4 points 90° apart; '
+          'parallelism — difference between the largest and the smallest gap ≤ 0.8 mm (1/32"), feeler gauge at the OD of the '
+          'gasket seating surface; bolt holes — a bolt passes through both at a right angle, offset ≤ 3 mm (1/8"); '
+          'gap ≤ 2 × gasket thickness; force to align without devices < 10 % of the total target bolt load, no bolt > 20 % — '
+          'if more is needed, the engineer decides. '
+          'The mm and inch limits are not an exact conversion (1/16" = 1.5875 mm) — judge in the system you measure in. '
+          'PCC-1-2022 rebuilt Appendix E; sources give the same numbers, but the wording of the force limits is unconfirmed, and '
+          'the site may have tighter tolerances. '
+          'The "Flange joint check" tool gives a verdict and a PDF record — green only when every criterion '
+          'is measured within limits and the assembly checklist is ticked.',
+        ),
+        tags: ['pcc-1', 'asme-pcc-1', 'osiowanie', 'alignment', 'kolnierz', 'flange', 'szczelina', 'gap', 'high-low', 'rownoleglosc', 'parallelism'],
+      ),
+      HelpEntry(
+        id: 'flange-face-damage',
+        question: _bi(
+          'Rysa albo wżer na przylgu kołnierza — da się jeszcze skręcać?',
+          'A scratch or pit on the flange face — can it still be bolted up?',
+        ),
+        answer: _bi(
+          'ASME PCC-1-2019 zał. D, tab. D-2: dopuszczalna głębokość zależy od tego, jak daleko uszkodzenie sięga w poprzek '
+          'szerokości osadzenia uszczelki w (rd — rzut promieniowy uszkodzenia). '
+          'Uszczelki twarde (spiralne, kammprofile, metalowe): rd < w/4 — do 0,76 mm, w/4 ≤ rd < w/2 — do 0,25 mm, '
+          'rd ≥ w/2 — niedopuszczalne. '
+          'Uszczelki miękkie (płaskie niemetalowe, PTFE): rd < w/4 — do 1,27 mm, w/4 ≤ rd < w/2 — do 0,76 mm, '
+          'w/2 ≤ rd < 3w/4 — do 0,13 mm, rd ≥ 3w/4 — niedopuszczalne. '
+          'Płaskość powierzchni (tab. D-1): uszczelki twarde < 0,15 mm, miękkie < 0,25 mm. '
+          'Przed skręceniem przylgi czyste — bez rdzy, farby i resztek starej uszczelki; uszczelka nowa, nigdy używana ponownie.',
+          'ASME PCC-1-2019 Appendix D, Table D-2: the allowed depth depends on how far the damage reaches across '
+          'the gasket seating width w (rd — radial projection of the damage). '
+          'Hard gaskets (spiral wound, kammprofile, metal): rd < w/4 — up to 0.76 mm, w/4 ≤ rd < w/2 — up to 0.25 mm, '
+          'rd ≥ w/2 — not acceptable. '
+          'Soft gaskets (flat non-metallic, PTFE): rd < w/4 — up to 1.27 mm, w/4 ≤ rd < w/2 — up to 0.76 mm, '
+          'w/2 ≤ rd < 3w/4 — up to 0.13 mm, rd ≥ 3w/4 — not acceptable. '
+          'Face flatness (Table D-1): hard gaskets < 0.15 mm, soft < 0.25 mm. '
+          'Before bolting up the faces are clean — no rust, paint or old gasket residue; the gasket is new, never reused.',
+        ),
+        tags: ['przylga', 'flange face', 'rysa', 'scratch', 'wzer', 'pit', 'uszkodzenie', 'damage', 'pcc-1', 'kolnierz', 'flange', 'plaskosc'],
+      ),
+      HelpEntry(
+        id: 'flange-thread-protrusion',
+        question: _bi(
+          'Ile zwojów gwintu ma wystawać nad nakrętką?',
+          'How many threads must stick out past the nut?',
+        ),
+        answer: _bi(
+          'ASME PCC-1 nie podaje liczby zwojów. Wymaga pełnego zaangażowania gwintu na całej wysokości nakrętki '
+          '(PCC-1 para. 8.2; ASME B31.3 335.2.3). W praktyce zwykle wystaje co najmniej 1 pełny zwój, a specyfikacje '
+          'zakładów żądają 1–3 zwojów — sprawdź swoją. '
+          'Przy okazji: śruby i nakrętki w gatunku ze specyfikacji (np. A193 B7 / A194 2H), smar ten sam, który przyjęto '
+          'do obliczenia momentu (współczynnik K), i nigdy na uszczelkę.',
+          'ASME PCC-1 gives no thread count. It requires full thread engagement over the whole nut height '
+          '(PCC-1 para. 8.2; ASME B31.3 335.2.3). In practice at least 1 full thread usually sticks out, and plant '
+          'specifications ask for 1–3 threads — check yours. '
+          'Also: studs and nuts of the specified grade (e.g. A193 B7 / A194 2H), the same lubricant the torque '
+          'was based on (nut factor K), and never on the gasket.',
+        ),
+        tags: ['gwint', 'thread', 'zwoje', 'nakretka', 'nut', 'sruby', 'studs', 'pcc-1', 'kolnierz', 'flange'],
       ),
     ],
   ),
@@ -764,14 +1158,22 @@ List<HelpCategory> kHelpCategories = [
           "What's the 35-foot rule (NFPA 51B)?",
         ),
         answer: _bi(
-          'Wokół miejsca hot work (welding, grinding, cutting) musi być **promień 10.7 m (35 ft) clean of flammables**: '
-          'usuń materiały palne, zakryj fire-resistant blankets, polej wodą podłogę palną, zakryj kratki ściekowe (sparks → vapors w kanalizacji = BLEVE). '
-          'Fire watch 30 min PO zakończeniu pracy (high-risk: 60 min+). Atmospheric test LEL <10%, O₂ 19.5-23.5%, H₂S/CO/NH₃ per spec.',
-          'Within hot work radius **10.7 m (35 ft) clean of flammables**: '
-          'remove combustibles, cover with fire blankets, wet combustible floors, cover drains (sparks → vapors in sewer = BLEVE). '
-          'Fire watch 30 min AFTER work (high-risk: 60 min+). Atmospheric test LEL <10%, O₂ 19.5-23.5%, H₂S/CO/NH₃ per spec.',
+          'Wokół miejsca hot work (welding, grinding, cutting) materiały palne usuwa się w **promieniu 10.7 m (35 ft)** — '
+          'tak OSHA 29 CFR 1910.252; FM Global podaje 11 m w poziomie i co najmniej 5 m w pionie. '
+          'Polski przepis (rozp. MSWiA, § 36) nie podaje odległości — obowiązuje zezwolenie zakładu. '
+          'Usuń materiały palne, zakryj fire-resistant blankets, polej wodą podłogę palną, zakryj kratki ściekowe (sparks → vapors w kanalizacji = BLEVE). '
+          'Fire watch PO zakończeniu pracy: NFPA 51B:2019 — co najmniej 1 h (starsze wydania 30 min), OSHA — co najmniej 30 min, '
+          'w Polsce wg zezwolenia. Atmospheric test: DGW (LEL) ≤ 10 % albo mniej wg zezwolenia, O₂ 19.5-23.5%, H₂S/CO/NH₃ per spec. '
+          'Checklista i protokół: narzędzie „Prace pożarowo niebezpieczne”.',
+          'Within the hot work area (welding, grinding, cutting) combustibles are cleared for a **radius of 10.7 m (35 ft)** — '
+          'that is OSHA 29 CFR 1910.252; FM Global gives 11 m horizontally and at least 5 m vertically. '
+          'The Polish regulation (Ministry of the Interior, § 36) gives no distance — the site permit governs. '
+          'Remove combustibles, cover with fire blankets, wet combustible floors, cover drains (sparks → vapors in sewer = BLEVE). '
+          'Fire watch AFTER work: NFPA 51B:2019 — at least 1 h (older editions 30 min), OSHA — at least 30 min, '
+          'in Poland per the permit. Atmospheric test: LEL ≤ 10 % or less per the permit, O₂ 19.5-23.5%, H₂S/CO/NH₃ per spec. '
+          'Checklist and record: the "Hot work permit" tool.',
         ),
-        tags: ['hot-work', 'nfpa-51b', 'fire-watch', '35-ft', 'permit'],
+        tags: ['hot-work', 'nfpa-51b', 'fire-watch', '35-ft', 'permit', 'osha', 'dozor'],
       ),
       HelpEntry(
         id: 'confined-space-o2-lel',
@@ -830,6 +1232,64 @@ List<HelpCategory> kHelpCategories = [
           'Cost 1.5-3.5k PLN per unit (vs 200-500 PLN standard helmet). OSHA preferred for SS — protective + comfortable.',
         ),
         tags: ['papr', 'cr6', 'hex-chrome', 'fume', 'ss', 'respirator', 'osha'],
+      ),
+      HelpEntry(
+        id: 'hot-work-prep',
+        question: _bi(
+          'Co przygotować przed spawaniem, cięciem albo szlifowaniem w miejscu zagrożonym pożarem?',
+          'What must be ready before welding, cutting or grinding where there is a fire risk?',
+        ),
+        answer: _bi(
+          'W Polsce prace niebezpieczne pod względem pożarowym reguluje rozporządzenie MSWiA z 7 czerwca 2010 '
+          '(t.j. Dz.U. 2023 poz. 822), § 36. Przed pracą: ocena zagrożenia i ustalony sposób zabezpieczenia, wskazane osoby '
+          'odpowiedzialne, pracują tylko osoby upoważnione i zapoznane z zagrożeniami. Przy pracy: zabezpieczone materiały palne '
+          'w miejscu pracy i w rejonach przyległych, sprzęt gaśniczy na miejscu, tylko sprawny sprzęt, kontrola miejsca po zakończeniu. '
+          'Rozporządzenie o BHP przy spawaniu (27 kwietnia 2000): strefa rozprysku także poniżej stanowiska, bezpieczniki przy gazach '
+          'palnych, butle chronione przed nagrzaniem powyżej 35 °C, przewód powrotny przy samej spoinie. '
+          'Przepis NIE podaje odległości w metrach ani czasu dozoru — obowiązuje zezwolenie zakładu. Praktyka: FM Global — materiały '
+          'palne usunięte w promieniu 11 m w poziomie i co najmniej 5 m w pionie; OSHA — 35 ft (10,7 m). '
+          'Narzędzie „Prace pożarowo niebezpieczne” prowadzi przez listę (przed / w trakcie / po), zapisuje pomiar atmosfery '
+          'i daje protokół PDF — to lista pomocnicza, nie zastępuje zezwolenia.',
+          'In Poland hot work is governed by the Regulation of the Minister of the Interior of 7 June 2010 '
+          '(consolidated Dz.U. 2023 item 822), § 36. Before work: hazards assessed and precautions agreed, responsible persons '
+          'named, only authorised workers who were briefed on the hazards. During work: combustibles protected at the work point '
+          'and in adjacent areas, fire-fighting equipment on site, only equipment in good order, the area inspected afterwards. '
+          'The welding health and safety regulation (27 April 2000): spatter zone including below the work point, flashback '
+          'arrestors on fuel gases, cylinders protected from heating above 35 °C, return lead right at the weld. '
+          'The regulation gives NO distances in metres and no watch time — the site permit governs. Practice: FM Global — '
+          'combustibles cleared for 11 m horizontally and at least 5 m vertically; OSHA — 35 ft (10.7 m). '
+          'The "Hot work permit" tool walks you through the checklist (before / during / after), records the gas test '
+          'and gives a PDF record — it is a checklist aid, not a permit.',
+        ),
+        tags: ['hot-work', 'prace pozarowe', 'pozarowo niebezpieczne', 'zezwolenie', 'permit', 'mswia', 'bhp', 'fm global', 'iskry', 'sparks'],
+      ),
+      HelpEntry(
+        id: 'hot-work-lel-watch',
+        question: _bi(
+          'Jaki dopuszczalny % DGW i jak długo dozór po pracy?',
+          'What % LEL is allowed and how long is the fire watch after work?',
+        ),
+        answer: _bi(
+          'Rozp. MSWiA § 36 ust. 2: w pomieszczeniach i przy urządzeniach zagrożonych wybuchem oraz tam, gdzie były łatwo palne '
+          'ciecze lub palne gazy — praca tylko przy stężeniu nieprzekraczającym 10 % DGW (dolnej granicy wybuchowości). '
+          'Zakłady często wymagają mniej (0 % albo 5 % DGW) — obowiązuje wartość z zezwolenia. Aplikacja przyjmuje próg 0–10 %: '
+          'wynik równy progowi przechodzi, wyższy to STOP; liczy się najpóźniejszy w czasie pomiar, a bez wpisanego pomiaru '
+          'nie ma zielonego stanu. '
+          'Czasu dozoru po pracy polski przepis nie podaje — wg zezwolenia. Praktyka: NFPA 51B:2019 — co najmniej 1 h '
+          '(wcześniejsze wydania 30 min) i monitorowanie do kolejnych 3 h; OSHA 1910.252 — co najmniej 30 min; FM Global — '
+          '30 albo 60 min i monitoring do 5 h, wg kategorii pracy. '
+          '„Jak wczoraj” kopiuje miejsce, osoby, próg i czas dozoru, ale nigdy zaznaczeń ani pomiarów — stanowisko sprawdza się na nowo.',
+          'Regulation § 36(2): in rooms and at equipment with an explosion hazard and wherever flammable liquids or gases '
+          'have been — work only at a concentration not above 10 % LEL (lower explosive limit). '
+          'Sites often require less (0 % or 5 % LEL) — the permit value applies. The app accepts a limit of 0–10 %: '
+          'a reading equal to the limit passes, a higher one means STOP; the latest reading in time counts, and without '
+          'an entered reading there is no green status. '
+          'The Polish regulation gives no post-work watch time — per the permit. Practice: NFPA 51B:2019 — at least 1 h '
+          '(earlier editions 30 min) and monitoring for up to 3 more hours; OSHA 1910.252 — at least 30 min; FM Global — '
+          '30 or 60 min and monitoring up to 5 h, by work category. '
+          '"Same as yesterday" copies the location, people, limit and watch time, but never the ticks or readings — the work area is checked anew.',
+        ),
+        tags: ['dgw', 'lel', 'eksplozymetr', 'gas test', 'pomiar atmosfery', 'dozor', 'fire watch', 'hot-work', 'nfpa-51b', 'zezwolenie'],
       ),
     ],
   ),
@@ -901,6 +1361,32 @@ List<HelpCategory> kHelpCategories = [
           '**WPQ (Welder Performance Qualification)** — each welder tested on given WPS. 6G pipe test qualifies ALL positions (best). Continuity: must weld every 6 mo or re-test.',
         ),
         tags: ['wps', 'pqr', 'wpq', 'asme-ix', 'qualification', 'welder'],
+      ),
+      HelpEntry(
+        id: 'glossary-site-languages',
+        question: _bi(
+          'Jak jest „podtopienie” albo „brak przetopu” po niemiecku, niderlandzku czy norwesku?',
+          'What is "undercut" or "lack of penetration" in German, Dutch or Norwegian?',
+        ),
+        answer: _bi(
+          'Narzędzie „Słownik spawalniczy” — PL · EN · DE · NL · NO, działa bez internetu. Wpisz słowo w którymkolwiek z tych '
+          'języków (polskie, niemieckie i norweskie znaki niepotrzebne), numer niezgodności ISO 6520-1 (np. 5011 — podtopienie ciągłe) '
+          'albo numer procesu ISO 4063 (np. 135). '
+          'Wybierz swój język docelowy (DE, NL, NO albo EN) — zostanie zapamiętany. Rozwinięty termin pokazuje wszystkie pięć języków, '
+          'definicję i numer normy; każde tłumaczenie skopiujesz. „Pokaż rozmówcy” wyświetla termin dużym napisem na cały ekran, '
+          'a przycisk albo dwuklik obraca go o 180° — podajesz telefon majstrowi. Ulubione terminy oznaczysz gwiazdką. '
+          'W słowniku są tylko terminy potwierdzone we wszystkich pięciu językach. W Norwegii nazwy niezgodności funkcjonują '
+          'głównie po angielsku i z numerem, a pozycje spawania podaje się kodem („stilling PF”).',
+          'The "Welding dictionary" tool — PL · EN · DE · NL · NO, works offline. Type a word in any of these '
+          'languages (no need for Polish, German or Norwegian characters), an ISO 6520-1 imperfection number (e.g. 5011 — continuous undercut) '
+          'or an ISO 4063 process number (e.g. 135). '
+          'Pick your target language (DE, NL, NO or EN) — it is remembered. An expanded term shows all five languages, '
+          'the definition and the standard number; each translation can be copied. "Show to the other person" displays the term in large '
+          'letters full screen, and a button or double tap turns it 180° — you hand the phone to the foreman. Mark favourite terms with a star. '
+          'The dictionary holds only terms confirmed in all five languages. In Norway imperfection names are used '
+          'mostly in English and by number, and welding positions are given by code ("stilling PF").',
+        ),
+        tags: ['slownik', 'dictionary', 'glossary', 'tlumaczenie', 'translation', 'niemiecki', 'german', 'norweski', 'norwegian', 'niderlandzki', 'dutch', 'iso 6520', 'za granica'],
       ),
     ],
   ),
@@ -1069,6 +1555,56 @@ List<HelpCategory> kHelpCategories = [
           'Velocity limit for water: <3 m/s in industrial lines.',
         ),
         tags: ['water-hammer', 'surge', 'joukowsky', 'transient', 'mitigation'],
+      ),
+      HelpEntry(
+        id: 'fillet-weld-capacity',
+        question: _bi(
+          'Ile udźwignie spoina pachwinowa (wspornik, ucho, podpora)?',
+          'How much load can a fillet weld carry (bracket, lug, support)?',
+        ),
+        answer: _bi(
+          'Wg EN 1993-1-8 (w Polsce PN-EN 1993-1-8:2006 + AC:2009), metoda uproszczona: F_w,Rd = fvw,d · a · Σl_eff, '
+          'gdzie fvw,d = fu / (√3 · βw · γM2), γM2 = 1,25. '
+          'βw: S235 — 0,80, S275 — 0,85, S355 — 0,90, S420 i S460 — 1,0; fu (t ≤ 40 mm): S235 — 360, S275 — 430, S355 — 490, '
+          'S420 — 520, S460 — 540 MPa. Długość efektywna każdej spoiny l_eff = l − 2a (spoina obwodowa rury do blachy: π·D, '
+          'bez odejmowania). '
+          'Metoda kierunkowa: siła w poprzek spoiny daje ok. 1,22 razy więcej niż wzdłuż. Ciężar (obciążenie stałe) mnóż × 1,35, '
+          'obciążenie zmienne × 1,5 — chyba że wpisujesz już siłę obliczeniową. '
+          'Narzędzie „Nośność spoiny pachwinowej” sprawdza TYLKO spoinę — nie blachy, śruby, wyboczenie ani zmęczenie — '
+          'i nie zastępuje projektu konstruktora.',
+          'Per EN 1993-1-8 (in Poland PN-EN 1993-1-8:2006 + AC:2009), simplified method: F_w,Rd = fvw,d · a · Σl_eff, '
+          'where fvw,d = fu / (√3 · βw · γM2), γM2 = 1.25. '
+          'βw: S235 — 0.80, S275 — 0.85, S355 — 0.90, S420 and S460 — 1.0; fu (t ≤ 40 mm): S235 — 360, S275 — 430, S355 — 490, '
+          'S420 — 520, S460 — 540 MPa. Effective length of each weld l_eff = l − 2a (circumferential tube-to-plate weld: π·D, '
+          'nothing deducted). '
+          'Directional method: a force across the weld gives about 1.22 times more than along it. Multiply dead weight (permanent load) × 1.35 '
+          'and variable load × 1.5 — unless you already enter the design force. '
+          'The "Fillet weld resistance" tool checks ONLY the weld — not the plates, bolts, buckling or fatigue — '
+          'and does not replace the structural engineer’s design.',
+        ),
+        tags: ['spoina pachwinowa', 'fillet weld', 'nosnosc', 'resistance', 'capacity', 'eurokod', 'eurocode', 'en 1993-1-8', 'wspornik', 'bracket', 'ucho', 'lug'],
+      ),
+      HelpEntry(
+        id: 'fillet-throat-leg',
+        question: _bi(
+          'Grubość a czy bok z — i jakie a wystarczy?',
+          'Throat a or leg z — and what throat is enough?',
+        ),
+        answer: _bi(
+          'Na rysunku „a” to grubość obliczeniowa spoiny pachwinowej, „z” — długość boku. Dla ścianek pod kątem prostym a = z/√2 '
+          '(z = a·√2); przy innym kącie tak nie przeliczaj. EN 1993-1-8 traktuje jako pachwinowe spoiny przy kącie między ściankami 60°–120°. '
+          'Zasady: a ≥ 3 mm; spoina krótsza niż max(30 mm; 6a) nie przenosi obciążeń; przy spoinie dłuższej niż 150a nośność '
+          'zmniejsza współczynnik βLw (długie połączenia), a od 900a spoina jest za długa dla tej grubości a. '
+          'Wpisz siłę, a narzędzie „Nośność spoiny pachwinowej” poda najmniejsze a (w górę do 0,1 mm i do całego mm) oraz bok z. '
+          'Jeśli nie wystarcza nawet największe a dopuszczalne dla tej długości — potrzebna dłuższa spoina albo więcej spoin.',
+          'On a drawing "a" is the fillet weld throat thickness and "z" the leg length. For walls at a right angle a = z/√2 '
+          '(z = a·√2); at any other angle do not convert like that. EN 1993-1-8 treats welds as fillet welds for an angle between the walls of 60°–120°. '
+          'Rules: a ≥ 3 mm; a weld shorter than max(30 mm; 6a) carries no load; above 150a the long-joint factor βLw '
+          'reduces the resistance, and from 900a the weld is too long for that throat a. '
+          'Enter the force and the "Fillet weld resistance" tool gives the smallest a (rounded up to 0.1 mm and to a whole mm) and the leg z. '
+          'If even the largest a allowed for this length is not enough — you need a longer weld or more welds.',
+        ),
+        tags: ['grubosc a', 'throat', 'bok z', 'leg', 'spoina pachwinowa', 'fillet weld', 'wymiar spoiny', 'weld size'],
       ),
     ],
   ),
@@ -1363,6 +1899,110 @@ List<HelpCategory> kHelpCategories = [
           'A quote keeps the rates from the day it was created, so a sent quote does not change after a price rise.',
         ),
         tags: ['oferta', 'pdf', 'klient', 'kosztorys', 'narzut', 'zysk', 'quote', 'client'],
+      ),
+      HelpEntry(
+        id: 'quote-import-welds',
+        question: _bi(
+          'Jak wziąć do wyceny spoiny ze skanu, dziennika albo projektu CUT?',
+          'How do I bring welds from a scan, the journal or a CUT project into a quote?',
+        ),
+        answer: _bi(
+          'W wycenie dotknij „Importuj spoiny (skan ISO, dziennik)” i wybierz źródło: zapisany odczyt skanera izometryku '
+          '(mapa spoin z rysunku), dziennik spoin (projekt albo pakiet testowy, np. wycena dokończenia pakietu) albo projekt CUT '
+          '(trasa z listy cięć). '
+          'Podgląd grupuje spoiny po rodzaju złącza, wymiarze i pozycji, np. „12 × doczołowa DN100 Sch 40, PF / 5G” — odznacz, '
+          'co nie wchodzi, a pozycję zmienisz przy grupie. Oznaczenia: BW — doczołowa; SW (mufa) i FW — pachwina z a ≈ 0,77 × '
+          'ścianka (w górę do 0,5 mm, min. 3 mm; ASME B31.3 rys. 328.5.2C); BR — króciec nasadzany. Brak oznaczenia — doczołowa, '
+          'brak pozycji — PA w warsztacie, PF na obiekcie; oba pokazane jako założenie.',
+          'In the quote tap "Import welds (ISO scan, journal)" and pick the source: a stored isometric scanner reading '
+          '(the weld map of the drawing), the weld journal (a project or a test package, e.g. a quote to finish a package) or a CUT project '
+          '(a route from the cut list). '
+          'The preview groups the welds by joint type, size and position, e.g. "12 × butt weld DN100 Sch 40, PF / 5G" — untick '
+          'what is not in the job, and change the position on the group. Codes: BW — butt weld; SW (socket) and FW — fillet with a ≈ 0.77 × '
+          'wall (rounded up to 0.5 mm, min. 3 mm; ASME B31.3 Fig. 328.5.2C); BR — set-on branch. No code — butt weld, '
+          'no position — PA in the shop, PF in the field; both are shown as assumptions.',
+        ),
+        tags: ['import', 'importuj spoiny', 'import welds', 'skan', 'scan', 'dziennik', 'journal', 'cut', 'wycena', 'quote', 'spoiny', 'welds'],
+      ),
+      HelpEntry(
+        id: 'quote-import-skipped',
+        question: _bi(
+          'Dlaczego część spoin z importu jest „pominięta” albo „do sprawdzenia”?',
+          'Why are some imported welds "skipped" or "to check"?',
+        ),
+        answer: _bi(
+          'Import nie zgaduje wymiarów: spoina bez OD albo ścianki jest pominięta, tak samo wymiar, z którym wycena byłaby błędna '
+          '(ścianka ≥ promień, literówka typu „114300”). W dzienniku wymiar musi być liczbą („114,3”, „Ø114,3 mm”) — „DN100” to nie '
+          'średnica (DN100 rury higienicznej to Ø104, nie Ø114,3). '
+          'Projekt CUT nie zapisuje, jak kołnierze i zawory łączą się z rurą — wybierz w podglądzie: kołnierz WN / zawór BW — '
+          'doczołowa, SO / SW — pachwinowa, luźny, gwintowany albo kołnierzowy — bez spoiny; „Nie wiem” zostawia je do sprawdzenia. '
+          'Do sprawdzenia trafia też kształtka bez typu i koniec kształtki bez rury po drugiej stronie. '
+          'Spoiny z CUT: na każdym końcu odcinka przy kształtce (rura–kolano–rura to 2, trójnik 3, redukcja 2) i doczołowa rura–rura '
+          'na każdy podział odcinka dłuższego niż sztanga. Końce otwarte są bez spoiny, a olety i króćce nasadzane (BR) nie są '
+          'zapisane w projekcie CUT — dopisz je ręcznie.',
+          'The import never guesses sizes: a weld without an OD or wall is skipped, and so is a size that would make the quote wrong '
+          '(wall ≥ radius, a typo like "114300"). In the journal the size must be a number ("114.3", "Ø114.3 mm") — "DN100" is not a '
+          'diameter (DN100 hygienic tube is Ø104, not Ø114.3). '
+          'A CUT project does not record how flanges and valves join the pipe — pick it in the preview: weld neck flange / BW valve — '
+          'butt weld, SO / SW — fillet weld, lap-joint, threaded or flanged — no weld; "Not sure" leaves them to check. '
+          'A fitting without a type and a fitting end with no pipe on the other side also go to check. '
+          'Welds from CUT: at every end of a pipe piece that meets a fitting (pipe–elbow–pipe is 2, a tee 3, a reducer 2) and a pipe-to-pipe '
+          'butt weld for every split of a piece longer than the stock bar. Open ends have no weld, and olets and set-on branches (BR) are '
+          'not recorded in a CUT project — add them by hand.',
+        ),
+        tags: ['import', 'pominiete', 'skipped', 'do sprawdzenia', 'to check', 'cut', 'kolnierz', 'flange', 'zawor', 'valve', 'wymiar', 'od'],
+      ),
+      HelpEntry(
+        id: 'piecework-di-rate',
+        question: _bi(
+          'Jak sprawdzić, ile zarobiłem na akordzie (zł/DI albo za spoinę)?',
+          'How do I check my piecework pay (per DI or per weld)?',
+        ),
+        answer: _bi(
+          'Narzędzie „Akord: ile zarobiłem” liczy z dziennika spoin — spoina po spoinie, żeby dało się sprawdzić rozliczenie od firmy. '
+          'Stawka: za cal-średnicę (zł/DI) albo za spoinę. DI spoiny = rozmiar NPS w calach z jej OD (tabela B36.10M / B36.19M); '
+          'OD spoza tabeli — OD / 25,4, oznaczone „≈”. Spoina bez OD w trybie DI NIE jest wliczana — trafia na listę pominiętych, '
+          'dopóki nie uzupełnisz wymiaru. '
+          'Dopłaty to procent PODSTAWY spoiny i sumują się, nie mnożą: materiał (nierdzewna, inne), pozycja (2G; 5G — także PF, PG, '
+          'PH, PJ; 6G — także H-L045, J-L045; 1G/PA bez dopłaty), gruba ścianka (od Sch 80 albo od progu w mm). '
+          'Liczy się data spoiny z dziennika, status nie ma znaczenia. Kwoty są przed podatkiem, zaokrąglone do grosza na każdej '
+          'spoinie; zestawienie wyślesz tekstem albo jako PDF.',
+          'The "Piecework: what I earned" tool works from the weld journal — weld by weld, so you can check the company’s settlement. '
+          'Rate: per dia-inch (zł/DI) or per weld. A weld’s DI = NPS size in inches from its OD (B36.10M / B36.19M table); '
+          'an OD outside the table — OD / 25.4, marked "≈". In DI mode a weld without an OD is NOT counted — it goes on the skipped list '
+          'until you fill in the size. '
+          'Surcharges are a percentage of the weld’s BASE and add up, not multiply: material (stainless, other), position (2G; 5G — also PF, PG, '
+          'PH, PJ; 6G — also H-L045, J-L045; 1G/PA no surcharge), heavy wall (from Sch 80 or from a mm threshold). '
+          'The weld date in the journal counts, the status does not. Amounts are before tax, rounded to the grosz on each '
+          'weld; send the summary as text or as a PDF.',
+        ),
+        tags: ['akord', 'piecework', 'zarobek', 'earnings', 'di', 'dia-inch', 'stawka', 'rate', 'doplata', 'surcharge', 'rozliczenie'],
+      ),
+      HelpEntry(
+        id: 'piecework-rejects-split',
+        question: _bi(
+          'Odrzucona spoina, naprawa, dwóch spawaczy — jak to liczy akord?',
+          'Rejected weld, repair, two welders — how does piecework count it?',
+        ),
+        answer: _bi(
+          'Spoina odrzucona = ma naprawę (R1, R2…) albo status NOK lub wynik NOK któregokolwiek badania (VT, PT, MT, RT, UT). '
+          'Potrącenie to ustawiony % wartości spoiny (podstawa + dopłaty) — 100 % oznacza spoinę za 0 zł. Naprawa może być płatna '
+          'osobno: % wartości spoiny za każdy rekord naprawy. Potrącenia i naprawy liczą się w okresie spoiny (data z dziennika), '
+          'nie w dniu naprawy. '
+          'Spoina z kilkoma spawaczami (stemple: spawacz, grań, lico) — każdy składnik dzielony bez gubienia groszy, przy dwóch '
+          'spawaczach po połowie. „Cała brygada” liczy każdą spoinę raz, w całości. '
+          'Minimum dzienne działa tylko dla jednego spawacza: dzień, który dał mniej, jest dopłacany do minimum — chyba że tego dnia '
+          'są spoiny pominięte (bez OD); wtedy najpierw uzupełnij wymiar w dzienniku.',
+          'A rejected weld = it has a repair (R1, R2…) or a NOK status or a NOK result of any test (VT, PT, MT, RT, UT). '
+          'The deduction is the set % of the weld’s value (base + surcharges) — 100 % means the weld pays 0 zł. A repair can be paid '
+          'separately: % of the weld value for every repair record. Deductions and repairs count in the period of the weld (journal date), '
+          'not on the day of the repair. '
+          'A weld with several welders (stamps: welder, root, cap) — every part is split without losing a grosz, with two '
+          'welders half each. "Whole crew" counts every weld once, in full. '
+          'The daily minimum works only for a single welder: a day that paid less is topped up to the minimum — unless that day '
+          'has skipped welds (no OD); then fill in the size in the journal first.',
+        ),
+        tags: ['akord', 'piecework', 'naprawa', 'repair', 'odrzucona', 'rejected', 'potracenie', 'deduction', 'brygada', 'crew', 'minimum dzienne'],
       ),
     ],
   ),
