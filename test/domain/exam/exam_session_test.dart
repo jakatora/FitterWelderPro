@@ -107,6 +107,18 @@ void main() {
     expect(stats.last!.total, 10 + kExamHistoryMax + 2);
   });
 
+  test('procent wyniku w dół: 199 / 200 → 99 %, 100 % tylko przy komplecie',
+      () {
+    expect(examPercent(199, 200), 99);
+    expect(examPercent(200, 200), 100);
+    expect(examPercent(2, 3), 66);
+    expect(examPercent(0, 10), 0);
+    expect(examPercent(0, 0), 0);
+    expect(const ExamCategoryStat(answered: 200, correct: 199).percent, 99);
+    expect(const ExamCategoryStat(answered: 3, correct: 2).percent, 66);
+    expect(const ExamCategoryStat().percent, isNull);
+  });
+
   test('powtórki z błędnych: sesja review losuje tylko pytania z listy', () {
     final s = _play(qs, (i) => i < 7);
     final stats = _record(const ExamStats(), s);

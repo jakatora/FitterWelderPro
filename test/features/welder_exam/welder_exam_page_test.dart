@@ -333,6 +333,27 @@ void main() {
     big('we-home');
   });
 
+  testWidgets('procent na ekranie w dół: 199 / 200 → 99 %, nie 100 %',
+      (tester) async {
+    final stats = const ExamStats(categories: {
+      ExamCategory.processes: ExamCategoryStat(answered: 200, correct: 199),
+    }).withSession(ExamSessionRecord(
+      at: DateTime(2026, 10, 17, 8),
+      mode: ExamMode.category,
+      category: ExamCategory.processes,
+      score: 199,
+      total: 200,
+    ));
+    await _pump(tester, prefs: {WelderExamStore.key: encodeExamStats(stats)});
+    expect(_text(tester, 'we-last'), 'Ostatnia sesja: 199 / 200 (99 %)');
+    expect(
+        find.descendant(
+            of: _key('we-cat-processes'),
+            matching: find.textContaining('99 % dobrych (200 odp.)')),
+        findsOneWidget);
+    expect(find.textContaining('100 %'), findsNothing);
+  });
+
   testWidgets('uszkodzony zapis: komunikat i kopia przed nadpisaniem',
       (tester) async {
     await _pump(tester, prefs: {WelderExamStore.key: '{"v":1,"missed":'});

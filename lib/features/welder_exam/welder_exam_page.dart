@@ -380,8 +380,7 @@ class _WelderExamPageState extends State<WelderExamPage> {
     return 'pytań';
   }
 
-  static int _percent(int score, int total) =>
-      total == 0 ? 0 : (score * 100 / total).round();
+  static int _percent(int score, int total) => examPercent(score, total);
 
   // ── Pytanie ───────────────────────────────────────────────────────────────
 
