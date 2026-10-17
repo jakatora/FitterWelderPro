@@ -163,7 +163,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Odczyt O₂ 20,9 %, 0 % DGW, CO 0 ppm, H₂S 0 ppm o 07:30 przy niepełnej liście → „Atmosfera w progach; do odhaczenia…”, po odhaczeniu punktów „przed wejściem” → „Gotowe” w historii (SharedPreferences confined_space_records_v1); „jak wczoraj” kopiuje osoby i próg 5 % DGW, bez pomiarów, odhaczeń i nr pozwolenia; pusty protokół nie jest zapisywany; usunięcie protokołu i pomiaru można cofnąć, także po zamknięciu ekranu; uszkodzony pomiar w zapisie → baner „pominięto 0 protokołów i 1 pomiarów” i kopia surowego zapisu.',
+          'Odczyt O₂ 20,9 %, 0 % DGW, CO 0 ppm, H₂S 0 ppm o 07:30 przy niepełnej liście → „Atmosfera w progach; do odhaczenia…”, po odhaczeniu punktów „przed wejściem” → „Gotowe” w historii (SharedPreferences confined_space_records_v1); „jak wczoraj” kopiuje osoby i próg 5 % DGW, bez pomiarów, odhaczeń i nr pozwolenia; pusty protokół nie jest zapisywany; usunięcie protokołu i pomiaru można cofnąć, także po zamknięciu ekranu; uszkodzony pomiar w zapisie → baner „pominięto 0 protokołów i 1 pomiarów” i kopia surowego zapisu; pomiar sprzed 30 min albo protokół z wczoraj → bez zieleni, w historii „Zamknięte · nieaktualne”; od 180 protokołów ostrzeżenie, przy 200 nowy odrzucony, stare nie wypadają.',
       evidence: [
         'test/features/confined_space/confined_space_page_test.dart: nowy protokół: odhaczenie → pomiar → werdykt, zapis i historia',
         'test/features/confined_space/confined_space_page_test.dart: jak wczoraj: kopia danych bez pomiarów i odhaczeń',
@@ -172,6 +172,8 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/confined_space/confined_space_page_test.dart: usunięty pomiar: „Cofnij” po zamknięciu ekranu przez magazyn',
         'test/features/confined_space/confined_space_page_test.dart: uszkodzony pomiar w zapisie: baner, kopia surowego zapisu',
         'test/features/confined_space/confined_space_page_test.dart: wąski ekran 320×640, czcionka 1,3: bez przepełnień',
+        'test/features/confined_space/confined_space_page_test.dart: pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
+        'test/features/confined_space/confined_space_page_test.dart: historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
       ]),
   ModuleAuditEntry(
       id: 'confined-space-edit',
@@ -181,7 +183,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Wszystkie punkty odhaczone, odczyt tylko O₂ → „Brak odczytu: DGW, CO, H₂S”; O₂ 18 % → STOP (niedotlenienie), 24 % → STOP (wzbogacenie), 20,9 % o 10:10 → zielony; zaległy pomiar z 09:00 nie zdejmuje STOP-u z 10:30; drugi odczyt O₂ z 10:30 → remis, decyduje gorszy; próg DGW 15 odrzucony (zostaje 5 %), puste pole kasuje próg; O₂ min 18 odrzucone, 20 przyjęte; CO 23 mg/m³ i H₂S 7 mg/m³ pokazane jak wpisane (OK), H₂S 5 ppm → STOP (7 mg/m³ ≈ 4,94 ppm); tekst i PDF udostępniane.',
+          'Wszystkie punkty odhaczone, odczyt tylko O₂ → „Brak odczytu: DGW, CO, H₂S”; O₂ 18 % → STOP (niedotlenienie), 24 % → STOP (wzbogacenie), 20,9 % o 10:10 → zielony; zaległy pomiar z 09:00 nie zdejmuje STOP-u z 10:30; drugi odczyt O₂ z 10:30 → remis, decyduje gorszy; próg DGW 15 odrzucony (zostaje 5 %), puste pole kasuje próg; O₂ min 18 odrzucone, 20 przyjęte; CO 23 mg/m³ i H₂S 7 mg/m³ pokazane jak wpisane (OK), H₂S 5 ppm → STOP (7 mg/m³ ≈ 4,94 ppm, podgląd pod polem, jednostka wraca do ppm); pusty próg i 50 % DGW → STOP (twarda granica 10 %); godzina 14:05 o 14:00 odrzucona; O₂ 17 % z 13:55 wpisany po odczycie z 13:58 → STOP; 23:50 o 00:12 tylko po „Tak, wczoraj”; tekst i PDF udostępniane.',
       evidence: [
         'test/features/confined_space/confined_space_page_test.dart: wszystko odhaczone, odczyt tylko O₂ — brak odczytu ≠ OK',
         'test/features/confined_space/confined_space_page_test.dart: tlen za mało i za dużo — STOP; pomiar po przewietrzeniu zdejmuje',
@@ -194,6 +196,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/confined_space/confined_space_record_test.dart: remis w tej samej minucie: decyduje gorszy i jest zgłoszony',
         'test/domain/confined_space/confined_space_checklist_test.dart: każdy punkt ma źródło, PL i EN mają te same liczby',
         'test/features/confined_space/confined_space_export_test.dart: wypełniony protokół — PL i EN',
+        'test/features/confined_space/confined_space_page_test.dart: ręczna godzina: z przyszłości odrzucona; STOP wpisany później blokuje zieleń',
+        'test/features/confined_space/confined_space_page_test.dart: ręczna godzina z wczoraj wymaga potwierdzenia',
+        'test/domain/confined_space/confined_space_record_test.dart: brak progu: w granicy twardej „brak progu”, ponad — STOP',
       ]),
   ModuleAuditEntry(
       id: 'cooling-time',
@@ -504,13 +509,15 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Nowy protokół trafia do historii (SharedPreferences); „jak wczoraj” kopiuje miejsce, osoby, godziny i próg DGW, ale nie zaznaczenia, pomiary ani nr zezwolenia; pusty protokół nie jest zapisywany; usunięcie można cofnąć.',
+          'Nowy protokół trafia do historii (SharedPreferences); „jak wczoraj” kopiuje miejsce, osoby, godziny i próg DGW, ale nie zaznaczenia, pomiary ani nr zezwolenia; pusty protokół nie jest zapisywany; usunięcie można cofnąć; protokół z wczoraj → „Zamknięte · nieaktualne”; historia do 200 (ostrzeżenie od 180, nowy odrzucony przy pełnej); uszkodzone i przyszłe pomiary w zapisie → baner i kopia.',
       evidence: [
         'test/features/hot_work/hot_work_page_test.dart: nowy protokół: odhaczenie punktów, pomiar, zapis i historia',
         'test/features/hot_work/hot_work_page_test.dart: jak wczoraj: kopia danych bez zaznaczeń i pomiarów',
         'test/features/hot_work/hot_work_page_test.dart: menu pozycji: duplikat i usunięcie z cofnięciem',
         'test/features/hot_work/hot_work_page_test.dart: pusty protokół nie trafia do historii',
         'test/features/hot_work/hot_work_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień',
+        'test/features/hot_work/hot_work_page_test.dart: uszkodzony i przyszły pomiar w zapisie: baner, kopia surowego zapisu',
+        'test/features/hot_work/hot_work_page_test.dart: historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
       ]),
   ModuleAuditEntry(
       id: 'hot-work-edit',
@@ -520,7 +527,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; tekst i PDF protokołu udostępniane.',
+          'Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; pomiar 0 % z 07:30 po 31 min → „Pomiar nieaktualny”; godzina 14:05 o 14:00 odrzucona, z wczoraj po potwierdzeniu; 15 % z 13:55 wpisane po pomiarze z 13:58 → STOP; bez limitu z zezwolenia 40 % DGW → STOP; tekst i PDF protokołu udostępniane.',
       evidence: [
         'test/features/hot_work/hot_work_page_test.dart: wszystkie punkty odhaczone, brak pomiaru — nie zielony',
         'test/features/hot_work/hot_work_page_test.dart: pomiar powyżej progu z zezwolenia — STOP; nowy pomiar zdejmuje',
@@ -529,6 +536,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/hot_work/hot_work_permit_test.dart: ocena gotowości wszystko odhaczone, ale brak pomiaru — NIE zielony stan',
         'test/domain/hot_work/hot_work_checklist_test.dart: każda liczba w punkcie ma źródło, PL i EN mają te same liczby',
         'test/features/hot_work/hot_work_export_test.dart: wypełniony protokół — PL i EN',
+        'test/features/hot_work/hot_work_page_test.dart: pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
+        'test/features/hot_work/hot_work_page_test.dart: ręczna godzina: z przyszłości odrzucona, z wczoraj po potwierdzeniu',
+        'test/domain/hot_work/hot_work_permit_test.dart: pomiar ponad próg wpisany później niż najpóźniejszy blokuje zieleń',
       ]),
   ModuleAuditEntry(
       id: 'hydrotest',

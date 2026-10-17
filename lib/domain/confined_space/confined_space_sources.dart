@@ -107,6 +107,20 @@ const double kCsH2sMolarMass = 34.08;
 /// wpisy ze zaokrągleń; aplikacja liczy CO w ppm i przyjmuje 20 ppm).
 const double kCsMolarVolume = 24.05;
 
+/// Ważność pomiaru atmosfery (min) — WARTOŚĆ PRZYJĘTA W APLIKACJI, nie
+/// z przepisu. Przepis PL (rozp. MPiPS, § 87 ust. 1 pkt 6) każe badać
+/// powietrze „bezpośrednio przed przystąpieniem do pracy”, nie podając
+/// czasu; OSHA 1910.146(d)(5) — badać przed wejściem i w trakcie „w razie
+/// potrzeby”. Pomiar starszy niż ten próg = brak pomiaru („nieaktualny —
+/// zmierz ponownie”). Zakład może wymagać częściej — próg wolno tylko
+/// skrócić.
+const int kCsMeasurementMaxAgeMin = 30;
+
+/// Zapas na różnicę zegarów: chwila pomiaru może być najwyżej tyle po
+/// „teraz” (jak w pracach pożarowych). Pomiar z dalszej przyszłości jest
+/// odrzucany przy odczycie zapisu.
+const Duration kCsFutureSlack = Duration(minutes: 5);
+
 class ConfinedSpaceSource {
   final String pl;
   final String en;
@@ -180,10 +194,14 @@ const List<ConfinedSpaceSource> kConfinedSpaceSources = [
   ConfinedSpaceSource(
     'Progi w aplikacji to górne granice z przepisu albo przyjętej praktyki: '
         'tlen 19,5–23,5 %, do 10 % DGW, CO do 20 ppm, H₂S do 7 mg/m³. Można '
-        'je tylko zaostrzyć — obowiązują wartości z pozwolenia.',
+        'je tylko zaostrzyć — obowiązują wartości z pozwolenia. Pomiar jest '
+        'ważny 30 min — to wartość przyjęta w aplikacji (przepis każe mierzyć '
+        '„bezpośrednio przed” wejściem, bez liczby); można ją tylko skrócić.',
     'Limits in the app are the upper bounds from the regulation or the '
         'adopted practice: oxygen 19.5–23.5 %, up to 10 % LEL, CO up to '
         '20 ppm, H₂S up to 7 mg/m³. They can only be made stricter — the '
-        'permit values apply.',
+        'permit values apply. A reading is valid for 30 min — a value adopted '
+        'by the app (the regulation says “right before” entry, with no '
+        'number); it can only be shortened.',
   ),
 ];

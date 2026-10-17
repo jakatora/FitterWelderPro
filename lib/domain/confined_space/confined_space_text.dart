@@ -4,6 +4,7 @@
 /// Czysty Dart — te same wiersze składają tekst i PDF.
 library;
 
+import '../hot_work/hot_work_permit.dart' show hotWorkDate;
 import 'confined_space_checklist.dart';
 import 'confined_space_gas.dart';
 import 'confined_space_record.dart';
@@ -22,15 +23,26 @@ String confinedSpaceDisclaimer({required bool en}) => en
         'instrukcja zakładu i pozwolenie wydane przez pracodawcę. Progi '
         'gazów, sprzęt i ratunek — zawsze wg pozwolenia.';
 
-/// Próg do tekstu: „19,5 %”, „10 % DGW”, „20 ppm”, „7 mg/m³ (≈ 4,9 ppm)”.
+/// Liczba ppm do „≈”: dwa miejsca po przecinku („≈ 4,94 ppm”), bez
+/// zbędnych zer.
+String _approxPpm(double ppm, {required bool en}) {
+  var s = ppm.toStringAsFixed(2);
+  if (s.contains('.')) s = s.replaceFirst(RegExp(r'\.?0+$'), '');
+  return en ? s : s.replaceAll('.', ',');
+}
+
+/// Podgląd przeliczenia wartości w mg/m³: „≈ 4,94 ppm” (inne jednostki —
+/// `null`).
+String? csPpmPreview(CsGas gas, CsQty q, {required bool en}) =>
+    q.unit == CsUnit.mgM3
+        ? '≈ ${_approxPpm(csCanonical(gas, q), en: en)} ppm'
+        : null;
+
+/// Próg do tekstu: „19,5 %”, „10 % DGW”, „20 ppm”, „7 mg/m³ (≈ 4,94 ppm)”.
 String formatCsLimit(CsBound b, CsQty q, {required bool en}) {
   final s = formatCsQty(b.gas, q, en: en);
-  if (q.unit != CsUnit.mgM3) return s;
-  final ppm = csCanonical(b.gas, q);
-  final approx = en
-      ? ppm.toStringAsFixed(1)
-      : ppm.toStringAsFixed(1).replaceAll('.', ',');
-  return '$s (≈ $approx ppm)';
+  final preview = csPpmPreview(b.gas, q, en: en);
+  return preview == null ? s : '$s ($preview)';
 }
 
 /// Zakres tlenu z progów: „19,5–23,5 %” (brak — kreska).
@@ -45,74 +57,113 @@ String formatCsO2Range(CsLimits l, {required bool en}) {
 /// Próg gazu do tekstu (dla tlenu — zakres).
 String formatCsGasLimit(CsGas gas, CsLimits l, {required bool en}) {
   if (gas == CsGas.o2) return formatCsO2Range(l, en: en);
-  final b = switch (gas) {
-    CsGas.lel => CsBound.lelMax,
-    CsGas.co => CsBound.coMax,
-    _ => CsBound.h2sMax,
-  };
+  final b = csMaxBound(gas)!;
   final q = l[b];
   return q == null ? '—' : '≤ ${formatCsLimit(b, q, en: en)}';
 }
 
-/// Próg bez znaku „≤” (do zdań „poniżej 19,5 %”, „powyżej 20 ppm”).
+/// Próg bez znaku „≤” (do zdań „poniżej 19,5 %”, „powyżej 20 ppm”). Bez
+/// progu z pozwolenia — twarda granica z dopiskiem.
 String _plainLimit(CsBound b, CsLimits l, {required bool en}) {
   final q = l[b];
-  return q == null ? '—' : formatCsLimit(b, q, en: en);
+  if (q != null) return formatCsLimit(b, q, en: en);
+  final hard = formatCsLimit(b, b.hardLimit, en: en);
+  return en ? '$hard (hard limit, no permit limit)' : '$hard (granica '
+      'twarda, brak progu z pozwolenia)';
+}
+
+/// Godzina odczytu do tekstu — z datą, gdy pomiar jest z innego dnia niż
+/// [recordDate] („2026-10-16 23:50”).
+String csMeasurementTime(CsMeasurement m, String recordDate) {
+  final t = m.time.isEmpty ? '—' : m.time;
+  final d = hotWorkDate(DateTime.fromMillisecondsSinceEpoch(m.at));
+  return d == recordDate ? t : '$d $t';
 }
 
 /// Opis jednego zatrzymania (STOP) — dla tlenu osobno za mało / za dużo.
-String csStopText(CsGasVerdict v, CsLimits l, {required bool en}) {
+String csStopText(CsGasVerdict v, CsLimits l,
+    {required bool en, String? recordDate}) {
   final value = formatCsQty(v.gas, v.value!, en: en);
-  final at = v.decisive!.time;
+  final d = v.decisive!;
+  final at = recordDate == null ? d.time : csMeasurementTime(d, recordDate);
+  final later = v.enteredLater
+      ? (en
+          ? ' (entered after the ${v.latest.first.time} reading)'
+          : ' (wpisany po odczycie z ${v.latest.first.time})')
+      : '';
   if (v.gas == CsGas.o2 && v.state == CsReadingState.low) {
     final min = _plainLimit(CsBound.o2Min, l, en: en);
     return en
-        ? 'oxygen $value at $at is below $min — oxygen deficiency (argon, '
-            'CO₂ or nitrogen displace oxygen)'
-        : 'tlen $value o $at — poniżej $min, niedotlenienie (argon, CO₂ '
-            'lub azot wypierają tlen)';
+        ? 'oxygen $value at $at$later is below $min — oxygen deficiency '
+            '(argon, CO₂ or nitrogen displace oxygen)'
+        : 'tlen $value o $at$later — poniżej $min, niedotlenienie (argon, '
+            'CO₂ lub azot wypierają tlen)';
   }
   if (v.gas == CsGas.o2) {
     final max = _plainLimit(CsBound.o2Max, l, en: en);
     return en
-        ? 'oxygen $value at $at is above $max — oxygen enrichment: '
+        ? 'oxygen $value at $at$later is above $max — oxygen enrichment: '
             'clothing ignites from a spark; find the oxygen leak'
-        : 'tlen $value o $at — powyżej $max, wzbogacenie tlenem: odzież '
-            'zapala się od iskry; szukaj nieszczelności tlenu';
+        : 'tlen $value o $at$later — powyżej $max, wzbogacenie tlenem: '
+            'odzież zapala się od iskry; szukaj nieszczelności tlenu';
   }
-  final bound = switch (v.gas) {
-    CsGas.lel => CsBound.lelMax,
-    CsGas.co => CsBound.coMax,
-    _ => CsBound.h2sMax,
-  };
-  final max = _plainLimit(bound, l, en: en);
+  final max = _plainLimit(csMaxBound(v.gas)!, l, en: en);
   final name = v.gas.label(en: en);
   return en
-      ? '$name $value at $at — above the $max limit'
-      : '$name $value o $at — powyżej progu $max';
+      ? '$name $value at $at$later — above the $max limit'
+      : '$name $value o $at$later — powyżej progu $max';
 }
+
+/// Nieaktualne odczyty: „O₂ z 07:00” (z datą, gdy z innego dnia).
+String _staleList(CsAssessment a, {required bool en}) => [
+      for (final v in a.stale)
+        '${v.gas.short(en: en)} ${en ? 'from' : 'z'} '
+            '${csMeasurementTime(v.latest.first, a.recordDate)}',
+    ].join(', ');
 
 /// Główny komunikat stanu.
 String confinedSpaceReadinessText(CsAssessment a, CsLimits l,
     {required bool en}) {
-  if (a.closed) {
+  if (a.closed && !a.otherDay) {
     return en
         ? 'Work closed — exit and close-out ticked.'
         : 'Praca zamknięta — wyjście i zamknięcie odhaczone.';
   }
   switch (a.readiness) {
     case CsReadiness.stop:
-      final first = csStopText(a.stops.first, l, en: en);
+      final first = csStopText(a.stops.first, l,
+          en: en, recordDate: a.recordDate);
       return en
           ? 'STOP — $first. Do not enter / get out; ventilate with air, '
               'remove the source and test again.'
           : 'STOP — $first. Nie wchodzić / wyjść; przewietrzyć powietrzem, '
               'usunąć źródło i zmierzyć ponownie.';
+    case CsReadiness.otherDay:
+      return en
+          ? 'Record dated ${a.recordDate} — out of date, never valid for '
+              'today. For a new entry use “Same as yesterday” and test the '
+              'atmosphere again.'
+          : 'Protokół z dnia ${a.recordDate} — nieaktualny, nie obowiązuje '
+              'dziś. Do nowego wejścia użyj „Jak wczoraj” i zmierz atmosferę '
+              'od nowa.';
     case CsReadiness.noMeasurement:
       final names = [for (final v in a.missing) v.gas.short(en: en)].join(', ');
+      final stale = _staleList(a, en: en);
+      final age = a.maxAgeMin;
+      if (stale.isEmpty) {
+        return en
+            ? 'No reading for: $names — a missing reading is never OK.'
+            : 'Brak odczytu: $names — brak pomiaru to nie „w normie”.';
+      }
+      final staleText = en
+          ? 'reading out of date: $stale (valid $age min) — test again.'
+          : 'pomiar nieaktualny: $stale (ważny $age min) — zmierz ponownie.';
+      if (names.isEmpty) {
+        return staleText[0].toUpperCase() + staleText.substring(1);
+      }
       return en
-          ? 'No reading for: $names — a missing reading is never OK.'
-          : 'Brak odczytu: $names — brak pomiaru to nie „w normie”.';
+          ? 'No reading for: $names; $staleText'
+          : 'Brak odczytu: $names; $staleText';
     case CsReadiness.noLimit:
       final names = [for (final v in a.noLimits) v.gas.short(en: en)].join(', ');
       return en
@@ -134,16 +185,29 @@ String confinedSpaceReadinessText(CsAssessment a, CsLimits l,
   }
 }
 
-/// Krótka etykieta stanu (historia, nagłówek PDF).
+/// Krótka etykieta stanu (historia, nagłówek PDF). Protokół z innego dnia
+/// ma dopisek „nieaktualne”.
 String confinedSpaceReadinessShort(CsAssessment a, {required bool en}) {
-  if (a.closed) return en ? 'Closed' : 'Zamknięte';
-  return switch (a.readiness) {
-    CsReadiness.stop => en ? 'STOP — atmosphere' : 'STOP — atmosfera',
-    CsReadiness.noMeasurement => en ? 'No gas reading' : 'Brak pomiaru',
-    CsReadiness.noLimit => en ? 'No limit' : 'Brak progu',
-    CsReadiness.incomplete => en ? 'Incomplete' : 'Niekompletne',
-    CsReadiness.ready => en ? 'Ready' : 'Gotowe',
-  };
+  final String base;
+  if (a.readiness == CsReadiness.stop) {
+    base = en ? 'STOP — atmosphere' : 'STOP — atmosfera';
+  } else if (a.closed) {
+    base = en ? 'Closed' : 'Zamknięte';
+  } else {
+    base = switch (a.readiness) {
+      CsReadiness.otherDay => en ? 'Out of date' : 'Nieaktualne',
+      CsReadiness.noMeasurement => a.missing.isEmpty
+          ? (en ? 'Reading out of date' : 'Pomiar nieaktualny')
+          : (en ? 'No gas reading' : 'Brak pomiaru'),
+      CsReadiness.noLimit => en ? 'No limit' : 'Brak progu',
+      CsReadiness.incomplete => en ? 'Incomplete' : 'Niekompletne',
+      _ => en ? 'Ready' : 'Gotowe',
+    };
+  }
+  if (!a.otherDay || (a.readiness == CsReadiness.otherDay && !a.closed)) {
+    return base;
+  }
+  return '$base · ${en ? 'out of date' : 'nieaktualne'}';
 }
 
 /// Ostrzeżenie o remisie (kilka różnych odczytów z tej samej minuty).
@@ -341,6 +405,10 @@ List<CsLine> confinedSpaceLimitLines(ConfinedSpaceRecord r,
         '${formatCsGasLimit(g, r.limits, en: en)} — '
         '${r.requiredGases.contains(g) ? (en ? 'required' : 'wymagany') : (en ? 'not required by the permit' : 'niewymagany wg pozwolenia')}',
       ),
+    CsLine(
+      en ? 'Reading valid for' : 'Ważność pomiaru',
+      '${r.effectiveMaxAgeMin} min — ${r.maxAgeMin == null ? (en ? 'adopted in the app' : 'przyjęta w aplikacji') : (en ? 'per permit' : 'wg pozwolenia')}',
+    ),
   ];
 }
 
@@ -372,23 +440,29 @@ String csReadingText(CsGas g, CsQty q, CsLimits l, {required bool en}) {
       : '${g.short(en: en)} $value ($state)';
 }
 
-/// Wiersz pomiaru: „10:30 — dno — O₂ 20,9 % (OK) · 0 % DGW (OK)”.
-String csMeasurementLine(CsMeasurement m, CsLimits l, {required bool en}) {
+/// Wiersz pomiaru: „10:30 — dno — O₂ 20,9 % (OK) · 0 % DGW (OK)”; pomiar
+/// z innego dnia niż [recordDate] — z datą („2026-10-16 23:50 — …”).
+String csMeasurementLine(CsMeasurement m, CsLimits l,
+    {required bool en, String? recordDate}) {
   final readings = [
     for (final g in CsGas.values)
       if (m[g] != null) csReadingText(g, m[g]!, l, en: en),
   ].join(' · ');
   final parts = [
-    m.time.isEmpty ? '—' : m.time,
+    recordDate == null
+        ? (m.time.isEmpty ? '—' : m.time)
+        : csMeasurementTime(m, recordDate),
     if (m.place.trim().isNotEmpty) m.place.trim(),
     readings,
   ];
   return parts.join(' — ');
 }
 
-/// Protokół tekstowy do udostępnienia (komunikator, e-mail).
-String confinedSpaceProtocolText(ConfinedSpaceRecord r, {required bool en}) {
-  final a = r.assess();
+/// Protokół tekstowy do udostępnienia (komunikator, e-mail) — stan
+/// w chwili [now].
+String confinedSpaceProtocolText(ConfinedSpaceRecord r,
+    {required bool en, required DateTime now}) {
+  final a = r.assess(now: now);
   final b = StringBuffer()
     ..writeln(en
         ? 'CONFINED SPACE — ENTRY AND WELDING RECORD'
@@ -405,7 +479,7 @@ String confinedSpaceProtocolText(ConfinedSpaceRecord r, {required bool en}) {
     ..writeln(
         '${en ? 'STATUS' : 'STAN'}: ${confinedSpaceReadinessText(a, r.limits, en: en)}');
   for (final v in a.stops.skip(1)) {
-    b.writeln('STOP — ${csStopText(v, r.limits, en: en)}');
+    b.writeln('STOP — ${csStopText(v, r.limits, en: en, recordDate: r.date)}');
   }
   for (final v in a.ties) {
     b.writeln('! ${csTieText(v, en: en)}');
@@ -423,7 +497,8 @@ String confinedSpaceProtocolText(ConfinedSpaceRecord r, {required bool en}) {
     b.writeln(en ? '— no reading —' : '— brak pomiaru —');
   } else {
     for (final m in r.measurementsChrono) {
-      b.writeln('- ${csMeasurementLine(m, r.limits, en: en)}');
+      b.writeln(
+          '- ${csMeasurementLine(m, r.limits, en: en, recordDate: r.date)}');
     }
   }
   final warnings = confinedSpaceWarnings(r.processes);

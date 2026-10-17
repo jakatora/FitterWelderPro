@@ -53,16 +53,19 @@ Future<void> confinedSpaceDefaultSharePdf(
         ConfinedSpaceRecord record, bool english) =>
     ConfinedSpaceExport.sharePdf(record, english: english);
 
-/// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte.
+/// Kolor stanu: czerwony tylko „STOP”, zielony tylko gotowe / zamknięte
+/// DZIŚ; protokół z innego dnia — szary (nigdy zielony).
 Color confinedSpaceReadinessColor(CsAssessment a) {
   if (a.readiness == CsReadiness.stop) return kFail;
-  if (a.readyToEnter) return kPass;
+  if (a.otherDay) return kTextSec;
+  if (a.readyToEnter || a.closed) return kPass;
   return kWarn;
 }
 
 IconData confinedSpaceReadinessIcon(CsAssessment a) {
   if (a.readiness == CsReadiness.stop) return Icons.dangerous_outlined;
-  if (a.readyToEnter) return Icons.verified_outlined;
+  if (a.otherDay) return Icons.history;
+  if (a.readyToEnter || a.closed) return Icons.verified_outlined;
   return Icons.pending_actions_outlined;
 }
 
@@ -73,6 +76,14 @@ Color csStateColor(CsReadingState? s) => switch (s) {
       _ => kTextSec,
     };
 
+/// Wybór godziny — wstrzykiwany w testach (domyślnie zegar Material).
+typedef ConfinedSpacePickTime = Future<TimeOfDay?> Function(
+    BuildContext context, TimeOfDay initial);
+
+Future<TimeOfDay?> confinedSpaceDefaultPickTime(
+        BuildContext context, TimeOfDay initial) =>
+    showTimePicker(context: context, initialTime: initial);
+
 class ConfinedSpaceEditPage extends StatefulWidget {
   const ConfinedSpaceEditPage({
     super.key,
@@ -81,6 +92,7 @@ class ConfinedSpaceEditPage extends StatefulWidget {
     this.now = DateTime.now,
     this.shareText = confinedSpaceDefaultShareText,
     this.sharePdf = confinedSpaceDefaultSharePdf,
+    this.pickTime = confinedSpaceDefaultPickTime,
   });
 
   final ConfinedSpaceRecord initial;
@@ -88,6 +100,7 @@ class ConfinedSpaceEditPage extends StatefulWidget {
   final DateTime Function() now;
   final ConfinedSpaceShareText shareText;
   final ConfinedSpaceSharePdf sharePdf;
+  final ConfinedSpacePickTime pickTime;
 
   @override
   State<ConfinedSpaceEditPage> createState() => _ConfinedSpaceEditPageState();
@@ -99,6 +112,15 @@ bool _hasUnits(CsBound b) => b.gas.units.length > 1;
 class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   late ConfinedSpaceRecord _r = widget.initial;
   bool _busy = false;
+
+  /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
+  late final ConfinedSpaceStore _store = widget.store.withClock(widget.now);
+
+  /// Licznik do identyfikatorów pomiarów wpisanych w tej samej milisekundzie.
+  int _seq = 0;
+
+  late final _maxAge =
+      TextEditingController(text: _r.maxAgeMin?.toString() ?? '');
 
   static bool get _enNow => AppLanguageController.isEnglish;
 
@@ -136,8 +158,21 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   /// Godzina nowego pomiaru wybrana ręcznie; `null` = chwila dodania.
   String? _measTime;
 
+  /// Co minutę przelicz stan — pomiar starzeje się bez dotykania ekranu
+  /// (zielony nie może wisieć po upływie ważności pomiaru).
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void dispose() {
+    _tick?.cancel();
     for (final c in [
       _permitNo,
       _location,
@@ -149,6 +184,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       _rescue,
       _notes,
       _measPlace,
+      _maxAge,
       ..._limit.values,
       ..._meas.values,
     ]) {
@@ -163,9 +199,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
     setState(() => _r = change(_r)
         .copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _r;
-    unawaited(widget.store.upsert(snapshot).catchError((Object e) {
+    unawaited(_store.upsert(snapshot).catchError((Object e) {
       debugPrint('[confined_space] save failed: $e');
-      _reportSaveFailure();
+      _reportSaveFailure(full: e is ConfinedSpaceStoreFull);
     }));
   }
 
@@ -173,26 +209,37 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
 
   /// Raz na ekran: protokół bezpieczeństwa, który się nie zapisuje, nie może
   /// tego robić po cichu.
-  void _reportSaveFailure() {
+  void _reportSaveFailure({bool full = false}) {
     if (!mounted || _saveFailureShown) return;
     _saveFailureShown = true;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      key: const ValueKey('cs-save-failed'),
-      content: Text(context.tr(
-        pl: 'Nie udało się zapisać protokołu w telefonie — udostępnij go '
-            '(tekst/PDF), żeby nie przepadł.',
-        en: 'Could not save the record on this phone — share it '
-            '(text/PDF) so it is not lost.',
-      )),
+      key: ValueKey(full ? 'cs-store-full' : 'cs-save-failed'),
+      content: Text(full
+          ? context.tr(
+              pl: 'Historia pełna (${ConfinedSpaceStore.maxEntries} '
+                  'protokołów) — ten protokół NIE jest zapisany. Udostępnij '
+                  'go (tekst/PDF) i usuń stare protokoły z historii.',
+              en: 'History full (${ConfinedSpaceStore.maxEntries} records) — '
+                  'this record is NOT saved. Share it (text/PDF) and delete '
+                  'old records from the history.')
+          : context.tr(
+              pl: 'Nie udało się zapisać protokołu w telefonie — udostępnij '
+                  'go (tekst/PDF), żeby nie przepadł.',
+              en: 'Could not save the record on this phone — share it '
+                  '(text/PDF) so it is not lost.',
+            )),
     ));
   }
 
+  /// Ocena teraz (wiek pomiarów, data protokołu).
+  CsAssessment _assess() => _r.assess(now: widget.now());
+
   void _toggle(ConfinedSpaceCheck c) {
-    final wasReady = _r.assess().readyToEnter;
+    final wasReady = _assess().readyToEnter;
     final willCheck = !_r.isChecked(c);
     _set((r) => r.toggleChecked(c.id));
     if (willCheck) unawaited(Haptic.tap());
-    if (!wasReady && _r.assess().readyToEnter) unawaited(Haptic.saved());
+    if (!wasReady && _assess().readyToEnter) unawaited(Haptic.saved());
   }
 
   void _toggleNa(ConfinedSpaceCheck c) => _set((r) => r.toggleNa(c.id));
@@ -310,26 +357,130 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         units[(units.indexOf(_measUnit[g]!) + 1) % units.length]);
   }
 
-  void _addMeasurement() {
+  // ── Ważność pomiaru ────────────────────────────────────────────────────
+
+  /// Ważność 1…30 min (dłużej niż przyjęta w aplikacji nie wolno).
+  static int? _parseMaxAge(String raw) {
+    final v = int.tryParse(raw.trim());
+    return v != null && csMaxAgeValid(v) ? v : null;
+  }
+
+  /// Puste pole — wartość przyjęta w aplikacji; poprawne — zapis; błędne —
+  /// NIE zmienia zapisanej wartości.
+  void _onMaxAgeText(String raw) {
+    if (raw.trim().isEmpty) {
+      _set((r) => r.copyWith(maxAgeMin: null));
+      return;
+    }
+    final v = _parseMaxAge(raw);
+    if (v == null) {
+      setState(() {});
+      return;
+    }
+    if (v == _r.maxAgeMin) return;
+    _set((r) => r.copyWith(maxAgeMin: v));
+  }
+
+  String? _maxAgeError(bool en) {
+    final raw = _maxAge.text;
+    if (raw.trim().isEmpty || _parseMaxAge(raw) != null) return null;
+    final keep = _r.effectiveMaxAgeMin;
+    return en
+        ? 'Enter 1–$kCsMeasurementMaxAgeMin — it can only be shortened. '
+            'Still in force: $keep min.'
+        : 'Wpisz 1–$kCsMeasurementMaxAgeMin — można tylko skrócić. '
+            'Obowiązuje nadal: $keep min.';
+  }
+
+  // ── Dodawanie pomiaru ──────────────────────────────────────────────────
+
+  /// Ręcznie wpisana godzina, która wypada wczoraj — pytanie, czy to na
+  /// pewno wczoraj. `true` = potwierdzone.
+  Future<bool> _confirmYesterday(String time, DateTime at) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(context.tr(
+            pl: 'Pomiar wczoraj?', en: 'Reading from yesterday?')),
+        content: Text(context.tr(
+          pl: 'Godzina $time jest późniejsza niż teraz, więc pomiar byłby '
+              'z wczoraj (${hotWorkDate(at)}). Czy to na pewno wczoraj?',
+          en: '$time is later than now, so the reading would be from '
+              'yesterday (${hotWorkDate(at)}). Is it really from yesterday?',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+          ),
+          FilledButton(
+            key: const ValueKey('cs-yesterday-confirm'),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text(context.tr(pl: 'Tak, wczoraj', en: 'Yes, yesterday')),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  void _snack(String key, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(key: ValueKey(key), content: Text(message)));
+  }
+
+  Future<void> _addMeasurement() async {
     final values = _formValues();
     if (values == null) return;
-    final now = widget.now();
+    var now = widget.now();
     final time = _measTime ?? hotWorkTime(now);
+    if (_measTime != null) {
+      final at = hotWorkMeasurementAt(time, now);
+      // Godzina z przyszłości (w zapasie 5 min funkcji) — nie wolno: taki
+      // wpis przykryłby prawdziwe, późniejsze odczyty.
+      if (at.isAfter(now)) {
+        _snack(
+            'cs-meas-future',
+            context.tr(
+              pl: 'Godzina pomiaru $time jest późniejsza niż teraz '
+                  '(${hotWorkTime(now)}) — wpisz godzinę, o której '
+                  'zmierzono.',
+              en: 'The reading time $time is later than now '
+                  '(${hotWorkTime(now)}) — enter the time it was measured.',
+            ));
+        return;
+      }
+      if (hotWorkDate(at) != hotWorkDate(now)) {
+        if (!await _confirmYesterday(time, at)) return;
+        if (!mounted) return;
+        now = widget.now();
+      }
+    }
     final at = _measTime == null ? now : hotWorkMeasurementAt(time, now);
     final m = CsMeasurement(
+      id: 'm${now.millisecondsSinceEpoch}-${_seq++}',
       time: time,
       at: at.millisecondsSinceEpoch,
+      enteredAt: now.millisecondsSinceEpoch,
       values: values,
       place: _measPlace.text.trim(),
     );
-    final before = _r.assess();
+    final before = _assess();
     _set((r) => r.addMeasurement(m));
     for (final c in _meas.values) {
       c.clear();
     }
     _measPlace.clear();
-    setState(() => _measTime = null);
-    final after = _r.assess();
+    setState(() {
+      _measTime = null;
+      // Jednostka wraca do kanonicznej (ppm) — następny odczyt z detektora
+      // nie trafi po cichu w mg/m³.
+      for (final g in CsGas.values) {
+        _measUnit[g] = g.canonical;
+      }
+    });
+    final after = _assess();
     unawaited(after.readiness == CsReadiness.stop &&
             before.readiness != CsReadiness.stop
         ? Haptic.error()
@@ -341,32 +492,27 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         if (after.verdict(g).tie && after.verdict(g).latest.contains(m))
           after.verdict(g),
     ];
-    String? message;
-    Key? key;
     if (tied.isNotEmpty) {
-      message = csTieText(tied.first, en: context.language == AppLanguage.en);
-      key = const ValueKey('cs-meas-tie');
-    } else {
-      // Zaległy pomiar nie zmienia stanu — żeby nikt nie myślał, że wpisane
-      // później „w normie” zdjęło STOP.
-      for (final g in values.keys) {
-        final latest = before.verdict(g).decisive;
-        if (latest != null && m.minute < latest.minute) {
-          message = context.tr(
-            pl: 'Pomiar z $time jest wcześniejszy niż ostatni '
-                '(${latest.time}) — stan ocenia najpóźniejszy pomiar.',
-            en: 'The $time reading is earlier than the latest one '
-                '(${latest.time}) — the status uses the latest reading.',
-          );
-          key = const ValueKey('cs-meas-backdated');
-          break;
-        }
-      }
+      _snack('cs-meas-tie',
+          csTieText(tied.first, en: context.language == AppLanguage.en));
+      return;
     }
-    if (message != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(key: key, content: Text(message)));
+    // Zaległy pomiar nie zmienia stanu — żeby nikt nie myślał, że wpisane
+    // później „w normie” zdjęło STOP.
+    for (final g in values.keys) {
+      final latest = before.verdict(g).latest;
+      if (latest.isNotEmpty && m.minute < latest.first.minute) {
+        _snack(
+            'cs-meas-backdated',
+            context.tr(
+              pl: 'Pomiar z $time jest wcześniejszy niż ostatni '
+                  '(${latest.first.time}) — stan ocenia najpóźniejszy pomiar.',
+              en: 'The $time reading is earlier than the latest one '
+                  '(${latest.first.time}) — the status uses the latest '
+                  'reading.',
+            ));
+        return;
+      }
     }
   }
 
@@ -375,7 +521,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   void _removeMeasurement(CsMeasurement m) {
     final before = _r;
     _set((r) => r.removeMeasurement(m));
-    final store = widget.store;
+    final store = _store;
     final id = _r.id;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -417,7 +563,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       final m = int.tryParse(parts[1]);
       if (h != null && m != null) initial = TimeOfDay(hour: h, minute: m);
     }
-    final picked = await showTimePicker(context: context, initialTime: initial);
+    final picked = await widget.pickTime(context, initial);
     if (picked == null) return null;
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(picked.hour)}:${two(picked.minute)}';
@@ -428,7 +574,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   Future<void> _shareText() async {
     final en = context.language == AppLanguage.en;
     unawaited(Haptic.tap());
-    await widget.shareText(confinedSpaceProtocolText(_r, en: en),
+    await widget.shareText(
+        confinedSpaceProtocolText(_r, en: en, now: widget.now()),
         confinedSpaceSubject(english: en));
   }
 
@@ -457,7 +604,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
   @override
   Widget build(BuildContext context) {
     final en = context.language == AppLanguage.en;
-    final a = _r.assess();
+    final a = _assess();
     final today = hotWorkDate(widget.now());
     return Scaffold(
       appBar: AppBar(
@@ -773,6 +920,16 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
     );
   }
 
+  String? _limitPreview(CsBound b, bool en) {
+    final q = _parseLimit(b, _limit[b]!.text);
+    return q == null ? null : csPpmPreview(b.gas, q, en: en);
+  }
+
+  String? _readingPreview(CsGas g, bool en) {
+    final q = _parseReading(g, _meas[g]!.text);
+    return q == null ? null : csPpmPreview(g, q, en: en);
+  }
+
   Widget _limitField(CsBound b, String label, bool en) {
     final unit = _limitUnit[b]!;
     final field = TextField(
@@ -783,6 +940,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       decoration: InputDecoration(
         labelText: label,
         suffixText: _hasUnits(b) ? null : unit.label(en: en),
+        // mg/m³ — podgląd przeliczenia, którym liczy się ocena.
+        helperText: _limitPreview(b, en),
         errorText: _limitError(b, en),
         errorMaxLines: 4,
       ),
@@ -814,6 +973,8 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
       decoration: InputDecoration(
         labelText: g.label(en: en),
         suffixText: g.units.length > 1 ? null : unit.label(en: en),
+        // mg/m³ — podgląd przeliczenia, którym liczy się ocena.
+        helperText: _readingPreview(g, en),
         errorText: _readingError(g, en),
       ),
       onChanged: (_) => setState(() {}),
@@ -845,7 +1006,9 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
               'middle and at the bottom. The latest reading of each gas '
               'decides; a missing reading is never OK.'),
       children: [
-        for (final v in a.gases) _GasSummary(verdict: v, limits: limits, en: en),
+        for (final v in a.gases)
+          _GasSummary(
+              verdict: v, limits: limits, recordDate: _r.date, en: en),
         const SizedBox(height: 6),
         _SubHeader(context.tr(
             pl: 'Progi wg pozwolenia (tylko ostrzej niż domyślne)',
@@ -863,6 +1026,30 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
             CsBound.coMax, context.tr(pl: 'CO najwyżej', en: 'CO at most'), en),
         _limitField(CsBound.h2sMax,
             context.tr(pl: 'H₂S najwyżej', en: 'H₂S at most'), en),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: TextField(
+            key: const ValueKey('cs-maxage'),
+            controller: _maxAge,
+            keyboardType: numberKeyboard(decimal: false),
+            inputFormatters: numberInputFormatters(decimal: false),
+            decoration: InputDecoration(
+              labelText: context.tr(
+                  pl: 'Pomiar ważny przez', en: 'Reading valid for'),
+              suffixText: 'min',
+              hintText: '$kCsMeasurementMaxAgeMin',
+              helperText: context.tr(
+                  pl: 'Puste = $kCsMeasurementMaxAgeMin min (wartość '
+                      'przyjęta w aplikacji). Starszy pomiar = brak pomiaru.',
+                  en: 'Empty = $kCsMeasurementMaxAgeMin min (value adopted by '
+                      'the app). An older reading counts as none.'),
+              helperMaxLines: 3,
+              errorText: _maxAgeError(en),
+              errorMaxLines: 3,
+            ),
+            onChanged: _onMaxAgeText,
+          ),
+        ),
         for (final g in [CsGas.co, CsGas.h2s])
           SwitchListTile(
             key: ValueKey('cs-req-${g.name}'),
@@ -900,7 +1087,7 @@ class _ConfinedSpaceEditPageState extends State<ConfinedSpaceEditPage> {
         for (final (i, m) in ms.indexed)
           _MeasurementRow(
             key: ValueKey('cs-meas-$i'),
-            text: csMeasurementLine(m, limits, en: en),
+            text: csMeasurementLine(m, limits, en: en, recordDate: _r.date),
             color: _rowColor(m, limits),
             deleteKey: ValueKey('cs-meas-del-$i'),
             deleteTooltip: context.tr(pl: 'Usuń pomiar', en: 'Remove reading'),
@@ -1041,11 +1228,20 @@ class _StatusCard extends StatelessWidget {
         '${p.label(en: en)}: ${total[p]! - open[p]!}/${total[p]}',
     ].join(' · ');
     final blockers = [
-      for (final v in a.stops) 'STOP — ${csStopText(v, limits, en: en)}',
+      for (final v in a.stops)
+        'STOP — ${csStopText(v, limits, en: en, recordDate: a.recordDate)}',
+      if (a.otherDay)
+        en
+            ? 'record dated ${a.recordDate} — out of date'
+            : 'protokół z dnia ${a.recordDate} — nieaktualny',
       if (a.missing.isNotEmpty)
         en
             ? 'no reading: ${a.missing.map((v) => v.gas.short(en: true)).join(', ')}'
             : 'brak odczytu: ${a.missing.map((v) => v.gas.short(en: false)).join(', ')}',
+      if (a.stale.isNotEmpty)
+        en
+            ? 'reading out of date (over ${a.maxAgeMin} min): ${a.stale.map((v) => v.gas.short(en: true)).join(', ')}'
+            : 'pomiar nieaktualny (ponad ${a.maxAgeMin} min): ${a.stale.map((v) => v.gas.short(en: false)).join(', ')}',
       if (a.noLimits.isNotEmpty)
         en
             ? 'no limit: ${a.noLimits.map((v) => v.gas.short(en: true)).join(', ')}'
@@ -1117,10 +1313,14 @@ class _StatusCard extends StatelessWidget {
 /// Ostatni odczyt jednego gazu: „O₂ — 20,9 % o 10:30 — OK”.
 class _GasSummary extends StatelessWidget {
   const _GasSummary(
-      {required this.verdict, required this.limits, required this.en});
+      {required this.verdict,
+      required this.limits,
+      required this.recordDate,
+      required this.en});
 
   final CsGasVerdict verdict;
   final CsLimits limits;
+  final String recordDate;
   final bool en;
 
   @override
@@ -1135,9 +1335,15 @@ class _GasSummary extends StatelessWidget {
       color = v.isRequired ? kWarn : kTextSec;
     } else {
       final state = csStateLabel(v.state!, v.gas, en: en);
+      final stale = v.stale && !v.stop
+          ? (en ? ' — out of date, test again' : ' — nieaktualny, zmierz ponownie')
+          : '';
       value = '${formatCsQty(v.gas, v.value!, en: en)} '
-          '${en ? 'at' : 'o'} ${v.decisive!.time} — $state';
-      color = csStateColor(v.state);
+          '${en ? 'at' : 'o'} ${csMeasurementTime(v.decisive!, recordDate)} — '
+          '$state$stale';
+      color = stale.isNotEmpty
+          ? (v.isRequired ? kWarn : kTextSec)
+          : csStateColor(v.state);
     }
     return Padding(
       key: ValueKey('cs-gas-${v.gas.name}'),
