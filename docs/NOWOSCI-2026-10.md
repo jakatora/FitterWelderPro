@@ -19,6 +19,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Przyrządy i kalibracja | Spawacz → Kontrola i dokumentacja | terminy kalibracji/walidacji, przypomnienia, rejestr PDF/CSV |
 | Segmentowe kolana | Monter → Kolana i kształtki | kolano z segmentów rury: kąt cięcia, długości, szablon 1:1 |
 | Ciężar stali — profile | Monter → Tabele i przeliczniki | IPE/HEA/HEB/UPN, kątowniki, profile zamknięte, blachy; lista i koszt |
+| Odkształcenia i skurcz spawalniczy | Spawacz → Kalkulatory | szacunek skurczu poprzecznego (Spraragen–Ettinger, pole rowka z geometrii wycen, kontrola z regułą TWI), naddatek przed spawaniem w górę do 0,5 mm, środki zapobiegania dla typu elementu i odkształcenia, prostowanie płomieniem (stal węglowa ok. 600–650 °C) |
 | Czas stygnięcia t8/5 | Spawacz → Kalkulatory | EN 1011-2 zał. D: t8/5 z Q, T0 i grubości (2D/3D), okno stali, odwrotnie: zakres Q dla okna |
 | Prace pożarowo niebezpieczne | Spawacz → Kontrola i dokumentacja | checklista stanowiska (rozp. MSWiA § 36, BHP spawalnicze), pomiar % DGW (próg 0–10 %), dozór, protokół PDF; „jak wczoraj” |
 | Elektrody zasadowe: czas i suszenie | Spawacz → Kontrola i dokumentacja | limit na powietrzu wg AWS D1.1 Tab. 7.1, piecyk, ponowne suszenie, przypomnienia, dziennik QC (PDF) |

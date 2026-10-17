@@ -6,6 +6,7 @@ import '../config/feature_flags.dart';
 import '../features/bolt_kit/bolt_kit_page.dart';
 import '../features/cone_layout/cone_layout_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
+import '../features/distortion/distortion_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/fillet_strength/fillet_strength_page.dart';
@@ -1408,6 +1409,46 @@ final List<ToolSpec> kToolRegistry = [
       'eurocode 3',
       'en 1993-1-8',
       'directional method'
+    ],
+  ),
+  ToolSpec(
+    id: 'distortion',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Odkształcenia i skurcz spawalniczy',
+    titleEn: 'Weld distortion and shrinkage',
+    subtitlePl: 'Ile zostawić na skurcz i jak zapobiec krzywieniu',
+    subtitleEn: 'Shrinkage allowance and how to prevent distortion',
+    icon: Icons.unfold_less,
+    color: const Color(0xFFFF8A65),
+    builder: (_) => const DistortionPage(),
+    keywordsPl: const [
+      'odksztalcenie',
+      'odksztalcenia',
+      'skurcz',
+      'skurcz spoiny',
+      'naddatek na skurcz',
+      'krzywienie',
+      'wykrzywienie',
+      'paczenie',
+      'prostowanie',
+      'prostowanie plomieniem',
+      'sczepy',
+      'ustawienie wstepne',
+      'krok wstecz',
+      'kolnierz w skos'
+    ],
+    keywordsEn: const [
+      'distortion',
+      'shrinkage',
+      'weld shrinkage',
+      'warping',
+      'presetting',
+      'pre-setting',
+      'back-step',
+      'flame straightening',
+      'tack welds',
+      'root gap',
+      'allowance'
     ],
   ),
   ToolSpec(

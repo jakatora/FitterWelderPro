@@ -192,6 +192,28 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Projekt z trzema odcinkami wyświetla podsumowanie listy cięcia.'),
   ModuleAuditEntry(
+      id: 'distortion',
+      entryPoint: 'DistortionPage',
+      sourcePath: 'lib/features/distortion/distortion_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.high,
+      status: AuditStatus.passed,
+      scenario:
+          'Rowek V 60°, t 10, d 2, c 1,5: A_w = 61,7 mm², A_w/t = 6,17 mm, S = 0,2·A_w/t + 0,05·d = 1,334 → 1,3 mm; t 20 → 2,5 mm, rowek X → 1,5 mm; łańcuch 1000 + 2 × 1,3 = 1002,6 → 1003,0 mm (w górę do 0,5); pomiar 1,8 + 2 pachwiny × 0,8 (TWI) → 1005,5 mm; kołnierz w skos → 4 sczepy 12-3-6-9, odcinki naprzeciwległe, kontrola po sczepieniu + przycisk do odbioru kołnierzy; prostowanie płomieniem stal węglowa ok. 600–650 °C.',
+      evidence: [
+        'test/features/distortion/distortion_page_test.dart: domyślnie: skurcz 1,3 mm i wymiar przed spawaniem 1003,0',
+        'test/features/distortion/distortion_page_test.dart: puste pole to komunikat, nie wynik',
+        'test/features/distortion/distortion_page_test.dart: mój pomiar zamiast szacunku; pachwiny wg TWI',
+        'test/features/distortion/distortion_page_test.dart: wybór sytuacji zmienia listę środków',
+        'test/features/distortion/distortion_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez przepełnień',
+        'test/domain/welding/distortion_test.dart: rowek V 60°, t 10: przykład policzony ręcznie',
+        'test/domain/welding/distortion_test.dart: jednostki: te same współczynniki dla mm i cali',
+        'test/domain/welding/distortion_test.dart: rowek V 60°, t 12–20 mm, d 2–3 mm: w zakresie reguły TWI 1,5–3 mm',
+        'test/domain/welding/distortion_test.dart: zaokrąglenie W GÓRĘ — nigdy mniej niż wymiar z naddatkiem',
+        'test/data/distortion_tips_test.dart: każda sytuacja ma co najmniej 3 środki, każdy z „dlaczego”',
+        'test/data/distortion_tips_test.dart: PL i EN mają te same liczby; bez emoji',
+      ]),
+  ModuleAuditEntry(
       id: 'dn-mm',
       entryPoint: 'DnMmScreen',
       sourcePath: 'lib/screens/dn_mm_screen.dart',

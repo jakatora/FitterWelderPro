@@ -84,6 +84,7 @@ import 'package:cut_list_app/features/steel_weight/steel_weight_page.dart';
 import 'package:cut_list_app/features/bolt_kit/bolt_kit_page.dart';
 import 'package:cut_list_app/features/cone_layout/cone_layout_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
+import 'package:cut_list_app/features/distortion/distortion_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
 import 'package:cut_list_app/features/fillet_strength/fillet_strength_page.dart';
 import 'package:cut_list_app/features/flange_check/flange_check_page.dart';
@@ -254,6 +255,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'NdtPlanPage' => const NdtPlanPage(),
       'TubeBendingPage' => const TubeBendingPage(),
       'QualificationRangePage' => const QualificationRangePage(),
+      'DistortionPage' => const DistortionPage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

@@ -155,6 +155,8 @@ void main() {
         'TubeBendingPage',
         // Zakres uprawnień z próbki (EN ISO 9606-1).
         'QualificationRangePage',
+        // Odkształcenia i skurcz spawalniczy.
+        'DistortionPage',
       };
       expect(targets, expected);
     });
