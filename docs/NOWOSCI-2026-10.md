@@ -29,6 +29,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Rozwinięcie stożka i przejść | Monter → Kolana i kształtki | stożek ścięty, mimośrodowy, kwadrat–koło: wymiary do trasowania, podział na części, tabela rzędnych, szablon 1:1 A4/A3 |
 | Słownik spawalniczy | Monter → Tabele i przeliczniki | PL · EN · DE · NL · NO offline: 246 terminów (procesy ISO 4063, niezgodności ISO 6520-1, złącza, pozycje, rury, BHP) + 58 zwrotów na budowę; tryb „pokaż rozmówcy” |
 | Nośność spoiny pachwinowej | Spawacz → Kalkulatory | EN 1993-1-8 (metoda uproszczona i kierunkowa): nośność, wykorzystanie %, wymagane a (w górę), spoina obwodowa rury; szacunek, nie projekt |
+| Zakres uprawnień z próbki | Spawacz → Kontrola i dokumentacja | EN ISO 9606-1: z parametrów próbki zakres grubości (BW/FW), średnic, pozycji, grup FM, spoiw, procesów i szczegółów spoiny z punktem normy; przy niepewności węższy zakres; „Zapisz jako uprawnienie” do rejestru |
 | Plan badań NDT | Spawacz → Kontrola i dokumentacja | z dziennika spoin: wymagane badania na spawacza i linię (ceil, preset B31.3 §341.4.1: RT 5 % losowo + VT 100 %), co zlecić (wybór powtarzalny), dodatkowe §341.3.4, „linia gotowa do próby ciśnieniowej” tylko bez blokad; zlecenie PDF |
 | Twardość: przelicznik i limity | Spawacz → Kontrola i dokumentacja | HV/HB/HRC/HRB wg ISO 18265 tab. A.1 (bez ekstrapolacji), seria pomiarów vs limit: NACE MR0175/ISO 15156-2 (250 HV / 22 HRC), EN ISO 15614-1, ASME B31.3-2008…2012, własny |
 

@@ -801,6 +801,30 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/pwht/pwht_plan_test.dart: czy PWHT wymagane — B31.3 Tab. 331.1.3: P-No 4 i 5A: ≤ 16 mm warunkowo (C ≤ 0,15 %), > 16 mm wymagane',
       ]),
   ModuleAuditEntry(
+      id: 'qualification-range',
+      entryPoint: 'QualificationRangePage',
+      sourcePath:
+          'lib/features/qualification_range/qualification_range_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          '141 T BW FM1 S s3 D60,3 PH ss nb → s 3–6 mm, D ≥ 30,15 mm, pozycje PA, PE, PF, PH, procesy 141 (S), 142 (nm), 143 (M), 145 (S); 141 s₁ 3 + 111 B s₂ 9 → 3–6 / 3–18 / złącze 3–24 mm; s 11,99 → 3–23,98 mm, s 12 bez 3 warstw → komunikat, z 3 warstwami ≥ 3 mm; D 25 → 25–50 bez blach, D 25,1 → ≥ 25; FW t 2,9 → 2,9–5,8; H-L045 → PA, PC, PE, PF, PH, H-L045; zapis do rejestru: 141, 142, 143, 145 / 3–6 mm / D ≥ 30,15 / PA, PE, PF, PH.',
+      evidence: [
+        'test/features/qualification_range/qualification_range_page_test.dart: wpisanie próbki → zakres z punktami normy',
+        'test/features/qualification_range/qualification_range_page_test.dart: brak danych i nieczytelne pole → komunikat, nie wynik',
+        'test/features/qualification_range/qualification_range_page_test.dart: granica s = 12: bez 3 warstw brak wyniku; z 3 warstwami ≥ 3 mm',
+        'test/features/qualification_range/qualification_range_page_test.dart: dwa procesy: 141 grań + 111 wypełnienie — s każdego osobno',
+        'test/features/qualification_range/qualification_range_page_test.dart: „Zapisz jako uprawnienie” → formularz ze szkicem → baza',
+        'test/features/qualification_range/qualification_range_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez przepełnień',
+        'test/domain/qualification/iso9606_range_test.dart: granica s = 12: 11,99 → 3–23,98; 12 → ≥ 3 bez górnej granicy',
+        'test/domain/qualification/iso9606_range_test.dart: D ≤ 25 → D do 2D; granica D = 25 → 25–50',
+        'test/domain/qualification/iso9606_range_test.dart: t < 3 → t do 2t lub 3 (co większe); t ≥ 3 → ≥ 3',
+        'test/domain/qualification/iso9606_range_test.dart: H-L045 obejmuje PA, PC, PE, PF + PH (interpretacja 2014); J-L045 → PG, PJ',
+        'test/domain/qualification/iso9606_range_test.dart: interpretacja 2015: 138 s 3 + 136 s 9 → 3–6, 3–18, razem do 24',
+        'test/domain/qualification/iso9606_range_test.dart: 141 T BW PH: pola i kontrola spoiny z rejestru',
+      ]),
+  ModuleAuditEntry(
       id: 'quick-converter',
       entryPoint: 'QuickConverterScreen',
       sourcePath: 'lib/screens/quick_converter_screen.dart',

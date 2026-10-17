@@ -153,6 +153,8 @@ void main() {
         'NdtPlanPage',
         // Gięcie rurek: długość cięcia i znaczniki.
         'TubeBendingPage',
+        // Zakres uprawnień z próbki (EN ISO 9606-1).
+        'QualificationRangePage',
       };
       expect(targets, expected);
     });

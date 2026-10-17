@@ -15,6 +15,7 @@ import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
+import '../features/qualification_range/qualification_range_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
@@ -1731,6 +1732,36 @@ final List<ToolSpec> kToolRegistry = [
   ),
   // Uprawnienia SPAWACZA (EN ISO 9606-1 / ASME WPQ) — nie „WPQR", który jest
   // kwalifikacją procedury i należy do WPS (następny wpis).
+  ToolSpec(
+    id: 'qualification_range',
+    group: ToolGroup.inspection,
+    titlePl: 'Zakres uprawnień z próbki',
+    titleEn: 'Qualification range from test',
+    subtitlePl: 'ISO 9606-1: grubość, średnica, pozycje, FM z próbki',
+    subtitleEn: 'ISO 9606-1: thickness, diameter, positions from a test piece',
+    icon: Icons.verified_outlined,
+    color: const Color(0xFFFFD54F),
+    builder: (_) => const QualificationRangePage(),
+    keywordsPl: const [
+      'zakres',
+      'uprawnienia z probki',
+      'probka',
+      'zlacze probne',
+      'egzamin',
+      '9606',
+      'pozycja',
+      'grubosc',
+      'srednica'
+    ],
+    keywordsEn: const [
+      'range of qualification',
+      'test piece',
+      'test coupon',
+      'welder test',
+      '9606',
+      'positions'
+    ],
+  ),
   ToolSpec(
     id: 'welder_certificates',
     group: ToolGroup.inspection,
