@@ -195,8 +195,8 @@ void main() {
     await _reading(tester, 0, '300', HardnessScale.hv);
     expect(_verdict(SeriesVerdict.fail), findsOneWidget);
 
-    // EN ISO 15614-1, gr. 1–2 bez obróbki: 380 HV10.
-    await _pickPreset(tester, 'iso15614_g12_aw');
+    // EN ISO 15614-1:2004+A2:2012, gr. 1–2 bez obróbki: 380 HV10.
+    await _pickPreset(tester, 'iso15614_2004_g12_aw');
     expect(find.text('max 380 HV'), findsWidgets);
     expect(_verdict(SeriesVerdict.pass), findsOneWidget);
 
@@ -206,14 +206,104 @@ void main() {
     expect(_detail(tester, 0), contains('300 HV ≈ 29,8 HRC > 22 HRC'));
 
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(HardnessLimitStore.key), startsWith('iso15156_hrc|'));
+    expect(prefs.getString(HardnessLimitStore.presetKey), 'iso15156_hrc');
   });
 
   testWidgets('zapamiętany limit wraca po otwarciu ekranu', (tester) async {
     SharedPreferences.setMockInitialValues(
-        {HardnessLimitStore.key: 'b313_p5_p6|hv|'});
+        {HardnessLimitStore.presetKey: 'b313_p5'});
     await _pump(tester);
     expect(find.text('max 241 HB'), findsOneWidget);
+  });
+
+  testWidgets('własny limit przeżywa preset i restart; pusty tekst go nie kasuje',
+      (tester) async {
+    Future<void> restart() async {
+      await tester.pumpWidget(const SizedBox());
+      await _pump(tester);
+    }
+
+    await _pump(tester);
+    await _pickPreset(tester, kHardnessCustomLimitId);
+    await _enter(tester, 'hard-limit-value', '300');
+    await _tap(tester, 'hard-limit-scale-hb');
+    expect(find.text('max 300 HB'), findsOneWidget);
+    // Przejście na preset i restart.
+    await _pickPreset(tester, 'iso15156_weld');
+    await restart();
+    expect(find.text('max 250 HV'), findsOneWidget);
+    // Własny limit nadal jest — z wartością i skalą.
+    await _pickPreset(tester, kHardnessCustomLimitId);
+    expect(find.text('max 300 HB'), findsOneWidget);
+    expect(
+        tester.widget<TextField>(_k('hard-limit-value')).controller!.text,
+        '300');
+    // Wyczyszczenie pola nie nadpisuje zapisu pustym tekstem.
+    await _enter(tester, 'hard-limit-value', '');
+    expect(_verdict(SeriesVerdict.invalidLimit), findsOneWidget);
+    await restart();
+    expect(find.text('max 300 HB'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(HardnessLimitStore.customKey), 'hb|300');
+  });
+
+  testWidgets('limit z pierwszej wersji zapisu (jeden klucz) też wraca',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {HardnessLimitStore.legacyKey: 'custom|hb|300'});
+    await _pump(tester);
+    expect(find.text('max 300 HB'), findsOneWidget);
+  });
+
+  testWidgets('EN ISO 15614-1 gr. 4–5 po OC: 330 HV — 2004 przekroczony, 2017 OK',
+      (tester) async {
+    await _pump(tester);
+    await _reading(tester, 0, '330', HardnessScale.hv);
+    await _pickPreset(tester, 'iso15614_2004_g45_ht');
+    expect(find.text('max 320 HV'), findsWidgets);
+    expect(find.textContaining('EN ISO 15614-1:2004+A2:2012'), findsWidgets);
+    expect(_verdict(SeriesVerdict.fail), findsOneWidget);
+    await _pickPreset(tester, 'iso15614_2017_g45_ht');
+    expect(find.textContaining('EN ISO 15614-1:2017'), findsWidgets);
+    expect(find.textContaining('Sprawdź w normie z kontraktu'), findsOneWidget);
+    expect(_verdict(SeriesVerdict.pass), findsOneWidget);
+  });
+
+  testWidgets('nierdzewna + preset dla stali węglowych → BRAK OCENY z powodem',
+      (tester) async {
+    final spy = _ShareSpy();
+    await _pump(tester, spy: spy);
+    await _reading(tester, 0, '240', HardnessScale.hv);
+    expect(_verdict(SeriesVerdict.pass), findsOneWidget);
+    await _tap(tester, 'hard-mat-stainless');
+    // Domyślny preset NACE dla stali węglowych, ta sama skala HV.
+    expect(_status(0, ReadingStatus.limitNotForMaterial), findsOneWidget);
+    expect(_verdict(SeriesVerdict.incomplete), findsOneWidget);
+    expect(_verdict(SeriesVerdict.pass), findsNothing);
+    expect(_k('hard-limit-material-mismatch'), findsOneWidget);
+    expect(
+        find.textContaining(
+            'Powód: Preset dotyczy stali węglowych/niskostopowych'),
+        findsOneWidget);
+    await _tap(tester, 'hard-share-text');
+    final (report, _, _) = spy.calls.single;
+    final text = buildHardnessText(report, en: false);
+    expect(text, contains('BRAK OCENY'));
+    expect(text, contains('Powód: Preset dotyczy stali węglowych/niskostopowych '
+        '— wybierz własny limit ze specyfikacji.'));
+    expect(text, isNot(contains('ZGODNE')));
+    final pdf = await buildHardnessPdf(report,
+            font: _font('Roboto-Regular.ttf'),
+            boldFont: _font('Roboto-Bold.ttf'),
+            en: false,
+            generatedAt: DateTime(2026, 10, 17))
+        .save();
+    expect(String.fromCharCodes(pdf.take(5)), '%PDF-');
+    // Własny limit w tej samej skali — ocena działa.
+    await _pickPreset(tester, kHardnessCustomLimitId);
+    await _enter(tester, 'hard-limit-value', '250');
+    expect(_verdict(SeriesVerdict.pass), findsOneWidget);
+    expect(_k('hard-limit-material-mismatch'), findsNothing);
   });
 
   testWidgets('własny limit: pusty albo 0 → brak werdyktu, nigdy zielony',
@@ -241,6 +331,9 @@ void main() {
     await _tap(tester, 'hard-mat-stainless');
     expect(_k('hard-stainless-notice'), findsOneWidget);
     expect(_k('hard-conv-out-hrc'), findsNothing);
+    // Limit ze specyfikacji (presety NACE/15614-1 są dla stali węglowych).
+    await _pickPreset(tester, kHardnessCustomLimitId);
+    await _enter(tester, 'hard-limit-value', '250');
     await _reading(tester, 0, '20', HardnessScale.hrc);
     expect(_status(0, ReadingStatus.notConvertible), findsOneWidget);
     expect(_verdict(SeriesVerdict.incomplete), findsOneWidget);
@@ -283,7 +376,7 @@ void main() {
     // Lista presetów też się mieści.
     await _tap(tester, 'hard-limit-picker');
     expect(tester.takeException(), isNull);
-    await _tap(tester, 'hard-preset-b313_p5_p6');
+    await _tap(tester, 'hard-preset-b313_p5');
     expect(tester.takeException(), isNull);
   });
 
