@@ -92,6 +92,7 @@ import 'package:cut_list_app/features/glossary/glossary_page.dart';
 import 'package:cut_list_app/features/hardness/hardness_page.dart';
 import 'package:cut_list_app/features/ndt_plan/ndt_plan_page.dart';
 import 'package:cut_list_app/features/piecework/piecework_page.dart';
+import 'package:cut_list_app/features/power_source/power_source_page.dart';
 import 'package:cut_list_app/features/qualification_range/qualification_range_page.dart';
 import 'package:cut_list_app/features/tube_bending/tube_bending_page.dart';
 import 'package:cut_list_app/features/weld_defects/weld_defects_page.dart';
@@ -258,6 +259,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'QualificationRangePage' => const QualificationRangePage(),
       'DistortionPage' => const DistortionPage(),
       'WeldDefectsPage' => const WeldDefectsPage(),
+      'PowerSourcePage' => const PowerSourcePage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

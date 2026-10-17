@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 95
+Moduły: 96
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 47 |
+| passed | 48 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -93,6 +93,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `pipe-route-calculator` | PipeRouteCalculatorScreen | lib/screens/pipe_route_calculator_screen.dart | fitter | high | unverified | Trasa z dwoma odcinkami zwraca całkowitą długość rurociągu. | Brak dowodu scenariusza |
 | `pipe-schedule` | PipeScheduleScreen | lib/screens/pipe_schedule_screen.dart | fitter | high | unverified | NPS 2 Schedule 40 pokazuje grubość ścianki i średnicę wewnętrzną. | Brak dowodu scenariusza |
 | `pipe-slope` | PipeSlopeScreen | lib/screens/pipe_slope_screen.dart | fitter | high | passed | Spadek 1 procent na 10 m zwraca różnicę wysokości 100 mm. | test/audit/fitter_calculations_audit_test.dart: spadek 1% na 10 m daje 100 mm |
+| `power-source` | PowerSourcePage | lib/features/power_source/power_source_page.dart | welder | safetyCritical | passed | Tabliczka 200 A / 35 %, 160 A / 60 %, 130 A / 100 % i 150 A: X₂ = 35·(200/150)² = 62,2 → 62 % (w dół), 6,2 min spawania / 3,8 min przerwy na 10 min, praca ciągła 130 A (z tabliczki); sam punkt 200/35 → I₁₀₀ = 200·√0,35 = 118,3 → 118 A; 250 A → poza zakresem źródła, bez szacunku; przewód 35 mm², pętla 25 + 25 m, 200 A: ΔU = 200·50·0,709/1000 = 7,09 → 7,1 V > 4 V, najdłuższa pętla 28 m, obciążalność 243 × 0,96 = 233 A (60 %, okres 10 min, do 30 °C); dobór → 70 mm² (3,5 V, decyduje spadek); 300 A, 2 + 2 m, 100 %, do 40 °C → 70 mm² (308 A, nagrzewanie); puste pole → komunikat, nie wynik; uszkodzony zapis tabliczki → kopia i domyślna tabliczka. | test/domain/welding/power_source_test.dart: 200 A / 35 % przy 150 A: 62 %, 6,2 min spawania, 3,8 min przerwy<br>test/domain/welding/power_source_test.dart: powyżej największego prądu z tabliczki → poza zakresem źródła<br>test/domain/welding/power_source_test.dart: granica I₁₀₀: 118 A → 100 %, 119 A → 98 % (w dół)<br>test/domain/welding/power_source_test.dart: trzy punkty: najmniejszy szacunek, ale nie mniej niż tabliczka<br>test/domain/welding/power_source_test.dart: 200 A, pętla 50 m, 35 mm²: ΔU 7,09 → 7,1 V, powyżej 4 V<br>test/domain/welding/power_source_test.dart: 35 mm², 60 %, do 30 °C: 243 × 0,96 = 233,28 → 233 A<br>test/domain/welding/power_source_test.dart: siatka: dobrany przekrój spełnia oba warunki, mniejszy już nie<br>test/features/power_source/power_source_plate_store_test.dart: uszkodzony JSON: pusta lista i kopia surowego zapisu<br>test/features/power_source/power_source_page_test.dart: przewód 200 A, 50 m, 35 mm²: ΔU 7,1 V za dużo; 70 mm² — OK<br>test/features/power_source/power_source_page_test.dart: dobór przekroju: 70 mm² (spadek); krótko i 100 % — nagrzewanie<br>test/features/power_source/power_source_page_test.dart: puste pole to komunikat, nie wynik<br>test/features/power_source/power_source_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez przepełnień |
 | `pre-weld-checklist` | PreWeldChecklistScreen | lib/screens/pre_weld_checklist_screen.dart | welder | safetyCritical | unverified | Spawacz odhacza komplet warunków przed rozpoczęciem spawania. | Brak dowodu scenariusza |
 | `premium` | PremiumScreen | lib/screens/premium_screen.dart | account | high | unverified | Użytkownik widzi plan premium bez inicjowania płatności. | test/audit/module_smoke_test.dart: PremiumScreen renderuje offline bez uruchomienia płatności |
 | `profile` | ProfileScreen | lib/screens/profile_screen.dart | account | medium | passed | Istniejący user_profile_v1 odtwarza polskie imię i nazwisko bez utraty znaków. | test/audit/data_integrity_audit_test.dart: UserProfileService odczytuje istniejący user_profile_v1 |

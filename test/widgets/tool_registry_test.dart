@@ -159,6 +159,8 @@ void main() {
         'DistortionPage',
         // Wady spoin: przyczyny i naprawa.
         'WeldDefectsPage',
+        // Spawarka: cykl pracy i przewody.
+        'PowerSourcePage',
       };
       expect(targets, expected);
     });

@@ -16,6 +16,7 @@ import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
+import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weld_defects/weld_defects_page.dart';
@@ -1410,6 +1411,49 @@ final List<ToolSpec> kToolRegistry = [
       'eurocode 3',
       'en 1993-1-8',
       'directional method'
+    ],
+  ),
+  ToolSpec(
+    id: 'power_source',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Spawarka: cykl pracy i przewody',
+    titleEn: 'Welder: duty cycle and cables',
+    subtitlePl: 'Ile spawać na 10 min, spadek napięcia, przekrój przewodu',
+    subtitleEn: 'Arc time per 10 min, voltage drop, cable size',
+    icon: Icons.cable,
+    color: const Color(0xFFFFCA28),
+    builder: (_) => const PowerSourcePage(),
+    keywordsPl: const [
+      'cykl pracy',
+      'spawarka',
+      'zrodlo pradu',
+      'tabliczka znamionowa',
+      'przegrzewa',
+      'wylacza sie',
+      'przewod spawalniczy',
+      'kabel spawalniczy',
+      'przewod masowy',
+      'zacisk masy',
+      'spadek napiecia',
+      'przekroj przewodu',
+      'przedluzacz',
+      'h01n2',
+      'obciazalnosc'
+    ],
+    keywordsEn: const [
+      'duty cycle',
+      'welding machine',
+      'power source',
+      'rating plate',
+      'overheating',
+      'thermal overload',
+      'welding cable',
+      'welding lead',
+      'work lead',
+      'ground cable',
+      'voltage drop',
+      'cable size',
+      'h01n2'
     ],
   ),
   ToolSpec(
