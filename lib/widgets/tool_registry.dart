@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../features/bolt_kit/bolt_kit_page.dart';
 import '../features/cone_layout/cone_layout_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
@@ -1009,6 +1010,47 @@ final List<ToolSpec> kToolRegistry = [
       'parallelism',
       'joint assembly',
       'checklist'
+    ],
+  ),
+  ToolSpec(
+    id: 'bolt_kit',
+    group: ToolGroup.supportsFlanges,
+    titlePl: 'Śruby do kołnierzy: długość i komplet',
+    titleEn: 'Flange studs: length and kit',
+    subtitlePl:
+        'Szpilki B16.5 RF/RTJ lub z wymiarów, nakrętki, uszczelki, zamówienie PDF',
+    subtitleEn:
+        'B16.5 RF/RTJ or from dimensions: studs, nuts, gaskets, PDF order',
+    icon: Icons.hardware_outlined,
+    color: const Color(0xFFB0BEC5),
+    builder: (_) => const BoltKitPage(),
+    keywordsPl: const [
+      'szpilka',
+      'szpilki',
+      'sruby do kolnierzy',
+      'dlugosc sruby',
+      'dlugosc szpilki',
+      'nakretka',
+      'nakretki',
+      'uszczelka',
+      'komplet srub',
+      'zamowienie srub',
+      'stud bolt',
+      'b16.5',
+      'rtj',
+      '2h',
+      'b7'
+    ],
+    keywordsEn: const [
+      'stud bolt',
+      'stud length',
+      'bolt length',
+      'flange bolting',
+      'nut',
+      'gasket',
+      'bolt kit',
+      'order',
+      'rtj'
     ],
   ),
 

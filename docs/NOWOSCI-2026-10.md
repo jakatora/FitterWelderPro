@@ -22,6 +22,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Czas stygnięcia t8/5 | Spawacz → Kalkulatory | EN 1011-2 zał. D: t8/5 z Q, T0 i grubości (2D/3D), okno stali, odwrotnie: zakres Q dla okna |
 | Prace pożarowo niebezpieczne | Spawacz → Kontrola i dokumentacja | checklista stanowiska (rozp. MSWiA § 36, BHP spawalnicze), pomiar % DGW (próg 0–10 %), dozór, protokół PDF; „jak wczoraj” |
 | Elektrody zasadowe: czas i suszenie | Spawacz → Kontrola i dokumentacja | limit na powietrzu wg AWS D1.1 Tab. 7.1, piecyk, ponowne suszenie, przypomnienia, dziennik QC (PDF) |
+| Śruby do kołnierzy: długość i komplet | Monter → Podpory i kołnierze | długość szpilek wg ASME B16.5 (RF/RTJ, przy rozbieżnych źródłach dłuższa z notatką) albo z wymiarów (zawsze w górę do typoszeregu), komplet: szpilki, nakrętki, uszczelki, zapas, zamówienie PDF |
 | Odbiór połączenia kołnierzowego | Monter → Podpory i kołnierze | osiowość, równoległość, otwory i szczelina wg ASME PCC-1 zał. E, lista montażu, protokół PDF |
 | Warunki do spawania | Spawacz → Kontrola i dokumentacja | mróz, wiatr (AWS D1.1: 8 km/h dla metod gazowych), opad, punkt rosy i szronu; werdykt, warunki do odhaczenia, historia, PDF |
 | Rozwinięcie stożka i przejść | Monter → Kolana i kształtki | stożek ścięty, mimośrodowy, kwadrat–koło: wymiary do trasowania, podział na części, tabela rzędnych, szablon 1:1 A4/A3 |
@@ -29,8 +30,11 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Nośność spoiny pachwinowej | Spawacz → Kalkulatory | EN 1993-1-8 (metoda uproszczona i kierunkowa): nośność, wykorzystanie %, wymagane a (w górę), spoina obwodowa rury; szacunek, nie projekt |
 | Twardość: przelicznik i limity | Spawacz → Kontrola i dokumentacja | HV/HB/HRC/HRB wg ISO 18265 tab. A.1 (bez ekstrapolacji), seria pomiarów vs limit: NACE MR0175/ISO 15156-2 (250 HV / 22 HRC), EN ISO 15614-1, ASME B31.3-2008…2012, własny |
 
-Plus: karta „Nowe w aplikacji” na ekranie głównym, kategoria „Wyceny i koszty”
-w Pomocy, poprawiony wpis pomocy o PWHT P91 (wg B31.3 2014+), polskie nazwy
+Plus: karta „Nowe w aplikacji” na ekranie głównym, kategorie „Wyceny
+i koszty” oraz „Pogoda i elektrody” w Pomocy (23 nowe wpisy PL/EN do nowych
+modułów, działają też w czacie offline; poprawione stare wpisy o suszeniu
+elektrod, kolejności dokręcania wg PCC-1, dozorze po pracach pożarowych
+i NACE MR0175), poprawiony wpis pomocy o PWHT P91 (wg B31.3 2014+), polskie nazwy
 niezgodności w odbiorze ISO 5817 wg PN-EN ISO 6520-1 (509 „zwis”, nie „wyciek”).
 
 Rozszerzenia istniejących ekranów:

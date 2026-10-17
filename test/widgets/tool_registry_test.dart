@@ -147,6 +147,8 @@ void main() {
         'HardnessPage',
         // Akord: zarobek z dziennika spoin.
         'PieceworkPage',
+        // Śruby do kołnierzy: długość i komplet.
+        'BoltKitPage',
       };
       expect(targets, expected);
     });

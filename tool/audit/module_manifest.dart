@@ -46,6 +46,31 @@ const moduleManifest = <ModuleAuditEntry>[
       scenario:
           'Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji.'),
   ModuleAuditEntry(
+      id: 'bolt-kit',
+      entryPoint: 'BoltKitPage',
+      sourcePath: 'lib/features/bolt_kit/bolt_kit_page.dart',
+      category: AuditCategory.fitter,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'DN100 CL150 RF → 8 × 5/8" × 3-1/2" (88,9 mm); DN150 CL300 RF → 12 × 3/4" × 4-3/4" (120,65 mm), RTJ 5-1/2" + pierścień R45; CL150 DN15 RTJ → komunikat, bez wyniku; CL600 DN200 RTJ → 7-3/4" (dłuższa z rozbieżnych źródeł) z notatką; z wymiarów 24 + 24 + 4,5 + 2 × 18 + 2 × 2,5 = 93,5 → 95 mm (co 10 mm → 100, co 1/4" → 3-3/4"), 115,00 → 115, 115,01 → 120, puste pole → brak wyniku; komplet 4 × DN150 CL300 B7 → 48 szpilek, 96 nakrętek, 4 uszczelki, zapas 10 % → 53 / 106 / 5; uszkodzony JSON → pusta lista z komunikatem i kopią przed nadpisaniem.',
+      evidence: [
+        'test/domain/bolting/stud_length_test.dart: Class 300 DN150 RF: 12 × 3/4" × 4-3/4", RTJ 5-1/2"',
+        'test/domain/bolting/stud_length_test.dart: Class 150 DN15 i DN20 RTJ — brak w B16.5, nie zgadujemy',
+        'test/domain/bolting/stud_length_test.dart: rozbieżne źródła → dłuższa wartość i notatka',
+        'test/domain/bolting/stud_length_test.dart: liczba i średnica szpilek: katalog = źródło tabeli długości',
+        'test/domain/bolting/stud_length_test.dart: granica kroku: 115,00 → 115 (nie 120); 115,01 → 120',
+        'test/domain/bolting/stud_length_test.dart: zaokrąglenie zawsze w górę: siatka wartości, każdy typoszereg',
+        'test/domain/bolting/stud_length_test.dart: puste / nieczytelne pole → brak wyniku z listą pól (nie zero)',
+        'test/domain/bolting/bolt_kit_test.dart: 10 %: 48 → 53, 96 → 106, 4 → 5 (zawsze w górę)',
+        'test/features/bolt_kit/bolt_kit_store_test.dart: uszkodzony zapis: komunikat, kopia przed nadpisaniem — tylko raz',
+        'test/features/bolt_kit/bolt_kit_page_test.dart: wybór DN × Class → długość szpilki z tabeli B16.5',
+        'test/features/bolt_kit/bolt_kit_page_test.dart: tryb z wymiarów: 93,5 mm → 95 mm; puste pole — brak wyniku',
+        'test/features/bolt_kit/bolt_kit_page_test.dart: lista połączeń → zamówienie z zapasem i zapis',
+        'test/features/bolt_kit/bolt_kit_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków (pl)',
+        'test/services/bolt_kit_export_test.dart: PDF renderuje się z polskimi fontami',
+      ]),
+  ModuleAuditEntry(
       id: 'bolt-torque',
       entryPoint: 'BoltTorqueScreen',
       sourcePath: 'lib/screens/bolt_torque_screen.dart',
