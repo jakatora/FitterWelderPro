@@ -47,10 +47,21 @@
 ///     ([ImportSkipReason.openPort]) — co jest po drugiej stronie, nie
 ///     wiadomo. Projekt budowany nie po kolei (sąsiedztwo = kolejność
 ///     odcinków) też trafi tutaj — tylko do sprawdzenia, nie do ceny.
+///     Licznik może być zawyżony: dwie RÓŻNE kształtki spawane wprost do
+///     siebie (kolano 90° → kolano 45°, bez rury) to jedna spoina, a dwa
+///     wolne końce — model nie odróżnia tego od dwóch spoin z czymś spoza
+///     projektu, więc nie łączymy ich na zgadywanie.
 ///  8. Odgałęzienia wspawane bez trójnika (olet, króciec nasadzany — BR):
 ///     spoiny z rurą główną CUT nie zapisuje; import ich nie zna.
 ///  9. Pozycja spawania i warsztat / obiekt — projekt ich nie ma: pozycja
 ///     z wyceny ([defaultImportPosition]), jako założenie.
+///
+/// Typ wpisu biblioteki porównywany po `trim().toUpperCase()` ([_typeOf]).
+/// Odczyt jest odporny na uszkodzone wiersze: odcinki każdego projektu
+/// czytane osobno — projekt, którego odcinków nie da się odczytać, wraca
+/// z [CutImportProject.readError] (lista pokazuje go jako nieaktywny),
+/// a pozostałe działają; wpis biblioteki, którego nie da się odczytać,
+/// jest traktowany jak usunięty (reguły 2 i 4 — nic nie jest zgadywane).
 library;
 
 import '../database/component_library_dao.dart';
@@ -88,10 +99,15 @@ class CutImportProject {
   final List<Segment> segments;
   final Map<String, LibraryComponent> library;
 
+  /// Odcinków projektu nie dało się odczytać (uszkodzony wiersz) —
+  /// [segments] puste, projekt nie do importu.
+  final bool readError;
+
   const CutImportProject({
     required this.project,
     required this.segments,
     this.library = const {},
+    this.readError = false,
   });
 }
 
@@ -130,6 +146,12 @@ class CutProjectWelds {
 /// Typy biblioteki, które są kształtkami do spawania doczołowego.
 const Set<String> _kButtFittings = {'ELB90', 'ELB45', 'TEE', 'REDUCER'};
 
+/// Typ wpisu biblioteki tak, jak go porównujemy — „ tee", „Elb90" to TEE,
+/// ELB90. JEDNO miejsce: rodzaj spoiny, liczba końców sztuki i opis wolnego
+/// końca muszą widzieć ten sam typ, inaczej spoiny i wolne końce by się
+/// rozjechały.
+String _typeOf(LibraryComponent c) => c.type.trim().toUpperCase();
+
 enum _End { open, butt, unmarked, flange, valve, unknownType }
 
 _End _classify(
@@ -137,7 +159,7 @@ _End _classify(
   if (kind == 'logical') return _End.open;
   final comp = libraryId == null ? null : library[libraryId];
   if (comp != null) {
-    final type = comp.type.trim().toUpperCase();
+    final type = _typeOf(comp);
     if (_kButtFittings.contains(type)) return _End.butt;
     if (type == 'FLANGE') return _End.flange;
     if (type == 'VALVE') return _End.valve;
@@ -236,18 +258,30 @@ String _mm(double v) => v.toStringAsFixed(1);
 
 /// „TEE Ø114.3", „REDUCER Ø114.3→60.3" — jak wpis biblioteki na liście CUT.
 String _fittingRef(LibraryComponent c) {
+  final type = _typeOf(c);
   final out = c.diameterOutMm;
-  return c.type == 'REDUCER' && out != null
-      ? '${c.type} Ø${_mm(c.diameterMm)}→${_mm(out)}'
-      : '${c.type} Ø${_mm(c.diameterMm)}';
+  return type == 'REDUCER' && out != null
+      ? '$type Ø${_mm(c.diameterMm)}→${_mm(out)}'
+      : '$type Ø${_mm(c.diameterMm)}';
 }
 
+/// Końce sztuki wpisu [c] — [MaterialListBuilder.portsForType] (reguła
+/// zestawienia materiałów, bez zmian) dla typu znormalizowanego tutaj.
+int _portsOf(LibraryComponent? c) =>
+    MaterialListBuilder.portsForType(c == null ? null : _typeOf(c));
+
 /// Reguła 7: końce sztuk kolan / trójników / redukcji bez odcinka rury.
+///
+/// Dwa wolne końce sąsiednich odcinków na RÓŻNYCH kształtkach (koniec S01 na
+/// kolanie 90°, początek S02 na kolanie 45°) to albo jedna spoina kolano–
+/// kolano, albo dwie spoiny z czymś spoza projektu (nowa gałąź, druga
+/// sztuka, odcinki budowane nie po kolei) — model tego nie rozróżnia, więc
+/// liczone są oba końce; licznik „do sprawdzenia" może być wtedy zawyżony
+/// (mówią o tym założenia w podglądzie). Do ceny nie idzie żaden.
 List<ImportWeld> _openPorts(
     List<Segment> ordered, Map<String, LibraryComponent> library) {
-  int portsOf(FittingKey key) => key.libraryId == null
-      ? 2
-      : MaterialListBuilder.portsForType(library[key.libraryId]?.type);
+  int portsOf(FittingKey key) =>
+      key.libraryId == null ? 2 : _portsOf(library[key.libraryId]);
   final pieces = MaterialListBuilder.countFittings(ordered, portsOf: portsOf);
   // Końce odcinków na wpisie — liczone jak w countFittings (po id wpisu).
   final ends = <String, int>{};
@@ -260,15 +294,14 @@ List<ImportWeld> _openPorts(
   for (final e in pieces.entries) {
     final id = e.key.libraryId;
     final comp = id == null ? null : library[id];
-    if (comp == null || !_kButtFittings.contains(comp.type)) continue;
-    final free =
-        e.value * MaterialListBuilder.portsForType(comp.type) - (ends[id] ?? 0);
+    if (comp == null || !_kButtFittings.contains(_typeOf(comp))) continue;
+    final free = e.value * _portsOf(comp) - (ends[id] ?? 0);
     for (var i = 0; i < free; i++) {
       out.add(ImportWeld(
         ref: _fittingRef(comp),
         jointType: WeldJointType.butt,
         // Który koniec redukcji jest wolny — nie wiadomo.
-        odMm: comp.type == 'REDUCER' ? null : comp.diameterMm,
+        odMm: _typeOf(comp) == 'REDUCER' ? null : comp.diameterMm,
         wallMm: comp.wallThicknessMm,
         skip: ImportSkipReason.openPort,
       ));
@@ -292,22 +325,59 @@ String cutImportLabel(Project p, {required bool english}) {
 
 /// Wszystkie projekty CUT (ostatnio zmieniane pierwsze) z odcinkami
 /// i wpisami biblioteki — tylko odczyt.
+///
+/// Uszkodzony wiersz odcinka psuje tylko swój projekt
+/// ([CutImportProject.readError]), nie całą listę. Uszkodzony wiersz
+/// biblioteki: wpisy czytane wtedy pojedynczo, a ten jeden — jak usunięty.
+/// Błąd samej listy projektów (wiersz `projects`) leci dalej — tej listy nie
+/// ma z czego zbudować.
 Future<List<CutImportProject>> loadCutProjectsForImport({
   ProjectDao? projects,
   SegmentDao? segments,
   ComponentLibraryDao? library,
 }) async {
   final segmentDao = segments ?? SegmentDao();
+  final libraryDao = library ?? ComponentLibraryDao();
   final list = await (projects ?? ProjectDao()).listAll();
-  final entries = {
-    for (final c in await (library ?? ComponentLibraryDao()).listAll()) c.id: c,
-  };
+  final read = <({Project project, List<Segment>? segments})>[];
+  for (final p in list) {
+    List<Segment>? segs;
+    try {
+      segs = await segmentDao.listForProject(p.id);
+    } catch (_) {
+      segs = null;
+    }
+    read.add((project: p, segments: segs));
+  }
+  final entries = <String, LibraryComponent>{};
+  try {
+    for (final c in await libraryDao.listAll()) {
+      entries[c.id] = c;
+    }
+  } catch (_) {
+    entries.clear();
+    final ids = {
+      for (final r in read)
+        for (final s in r.segments ?? const <Segment>[])
+          for (final id in [s.startLibraryId, s.endLibraryId])
+            if (id != null) id,
+    };
+    for (final id in ids) {
+      try {
+        final c = await libraryDao.getById(id);
+        if (c != null) entries[id] = c;
+      } catch (_) {
+        // Nieczytelny wpis = usunięty: reguły 2 i 4, bez zgadywania.
+      }
+    }
+  }
   return [
-    for (final p in list)
+    for (final r in read)
       CutImportProject(
-        project: p,
-        segments: await segmentDao.listForProject(p.id),
+        project: r.project,
+        segments: r.segments ?? const [],
         library: entries,
+        readError: r.segments == null,
       ),
   ];
 }
