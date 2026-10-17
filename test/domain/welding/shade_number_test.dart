@@ -115,11 +115,15 @@ void main() {
       expect(_en(p, 1200).shade, 7);
     });
 
-    test('cięcie tlenowe po przepływie tlenu: 900–8000 l/h → 5, 6, 7', () {
+    test(
+        'cięcie tlenowe po przepływie tlenu: 900–8000 l/h → 5, 6, 7; '
+        'ponad 8000 l/h → 8 (DGUV 112-192)', () {
       const p = ShadeProcess.oxyCutting;
       expect(_en(p, 1500).shade, 5);
       expect(_en(p, 3000).shade, 6);
       expect(_en(p, 6000).shade, 7);
+      expect(_en(p, 10000).shade, 8);
+      expect(_en(p, 10000).range, ShadeRange.within);
     });
   });
 
@@ -255,6 +259,24 @@ void main() {
       expect(_en(ShadeProcess.oxyCutting, 2001).shade, 6);
       expect(_en(ShadeProcess.oxyCutting, 8000).shade, 7);
       expect(_en(ShadeProcess.oxyCutting, 8000).range, ShadeRange.within);
+      expect(_en(ShadeProcess.oxyCutting, 8000.1).shade, 8);
+    });
+
+    test(
+        'opis granicy: wykres i ANSI — wyższy; gaz EN 169 — granica '
+        'w przedziale niższym', () {
+      expect(shadeBoundaryRule(kEn169Mma, en: false),
+          'Na granicy przedziału — wyższy stopień.');
+      expect(shadeBoundaryRule(kAnsiGasWelding, en: false),
+          'Na granicy przedziału — wyższy stopień.');
+      expect(
+          shadeBoundaryRule(kEn169GasWelding, en: false),
+          'Przepływ gazu wg EN 169: granica należy do przedziału niższego '
+          '(q ≤ 70 l/h → 4).');
+      expect(shadeBoundaryRule(kEn169OxyCutting, en: false),
+          contains('(q ≤ 2000 l/h → 5)'));
+      expect(shadeBoundaryRule(kEn169GasWelding, en: true),
+          contains('belongs to the lower band'));
     });
   });
 
@@ -315,17 +337,24 @@ void main() {
       expect(_ansi(ShadeProcess.arcGouging, 1001).range, ShadeRange.above);
     });
 
-    test('cięcie tlenowe 500 l/h → poniżej: 5; 9000 l/h → co najmniej 7', () {
+    test(
+        'cięcie tlenowe 500 l/h → poniżej: 5; 10 000 l/h → 8 (DGUV), '
+        'nie „≥ 7”', () {
       final lo = _en(ShadeProcess.oxyCutting, 500);
       expect(lo.range, ShadeRange.below);
       expect(lo.shade, 5);
-      final hi = _en(ShadeProcess.oxyCutting, 9000);
-      expect(hi.range, ShadeRange.above);
-      expect(formatShade(hi), '≥ 7');
+      final a = computeShade(const ShadeInput(
+          process: ShadeProcess.oxyCutting, gasFlowLh: 10000))!;
+      expect(a.en!.range, ShadeRange.within);
+      expect(formatShade(a.en!), '8');
+      expect(a.startShade, 8);
+      expect(a.floorShade, 7);
+      expect(a.outsideTable, isFalse);
     });
 
     test('tabele bez górnej granicy nigdy nie są „powyżej”', () {
       expect(_en(ShadeProcess.gasWelding, 1e6).range, ShadeRange.within);
+      expect(_en(ShadeProcess.oxyCutting, 1e5).range, ShadeRange.within);
       expect(_ansi(ShadeProcess.oxyCutting, 1e4).range, ShadeRange.within);
     });
   });
@@ -443,6 +472,34 @@ void main() {
       expect(computeShade(badBoth), isNull);
     });
 
+    test('ponad limit wejścia → błąd pola, brak wyniku; na limicie liczy', () {
+      for (final v in [2000.1, 1e308]) {
+        final i = ShadeInput(process: ShadeProcess.arcGouging, currentA: v);
+        expect(shadeProblems(i), [ShadeProblem.currentTooHigh], reason: '$v');
+        expect(computeShade(i), isNull, reason: '$v');
+      }
+      const atLimit =
+          ShadeInput(process: ShadeProcess.arcGouging, currentA: 2000);
+      expect(shadeProblems(atLimit), isEmpty);
+      expect(formatShade(computeShade(atLimit)!.en!), '≥ 15');
+      expect(kShadeMaxCurrentA, 2000);
+
+      const gas = ShadeInput(
+          process: ShadeProcess.oxyCutting,
+          gasFlowLh: 100001,
+          thicknessMm: 2001);
+      expect(shadeProblems(gas),
+          [ShadeProblem.flowTooHigh, ShadeProblem.thicknessTooHigh]);
+      expect(computeShade(gas), isNull);
+      // Zły przepływ nie psuje grubości.
+      const flowOnly = ShadeInput(
+          process: ShadeProcess.oxyCutting, gasFlowLh: 1e308, thicknessMm: 30);
+      expect(shadeProblems(flowOnly), [ShadeProblem.flowTooHigh]);
+      final a = computeShade(flowOnly)!;
+      expect(a.en, isNull);
+      expect(a.ansi!.shade, 4);
+    });
+
     test('proces łukowy ignoruje pola gazowe', () {
       const i = ShadeInput(
           process: ShadeProcess.mma, currentA: 120, gasFlowLh: double.nan);
@@ -492,14 +549,40 @@ void main() {
           formatBand(_en(ShadeProcess.plasmaWelding, 3), en: false), '1,5–6 A');
       expect(
           formatBand(_en(ShadeProcess.plasmaWelding, 3), en: true), '1.5–6 A');
-      expect(
-          formatBand(_en(ShadeProcess.gasWelding, 50), en: false), '≤ 70 l/h');
-      expect(formatBand(_en(ShadeProcess.gasWelding, 900), en: false),
-          '> 800 l/h');
       expect(formatBand(_ansi(ShadeProcess.gasWelding, 20), en: false),
           '≥ 12,7 mm');
+      expect(formatBand(_ansi(ShadeProcess.gasWelding, 8), en: false),
+          '3,2–12,7 mm');
       expect(formatTableRange(kEn169Tig, en: false), '10–350 A');
       expect(formatTableRange(kEn169Mma, en: false), '≤ 600 A');
+    });
+
+    test(
+        'gaz wg EN 169: nierówności pokazują, do którego przedziału należy '
+        'granica', () {
+      String g(double q) =>
+          formatBand(_en(ShadeProcess.gasWelding, q), en: false);
+      String o(double q) =>
+          formatBand(_en(ShadeProcess.oxyCutting, q), en: false);
+      expect(g(50), 'q ≤ 70 l/h');
+      expect(g(70), 'q ≤ 70 l/h');
+      expect(g(70.1), '70 < q ≤ 200 l/h');
+      expect(g(200), '70 < q ≤ 200 l/h');
+      expect(g(500), '200 < q ≤ 800 l/h');
+      expect(g(900), 'q > 800 l/h');
+      expect(o(900), '900 ≤ q ≤ 2000 l/h');
+      expect(o(2001), '2000 < q ≤ 4000 l/h');
+      expect(o(8000), '4000 < q ≤ 8000 l/h');
+      expect(o(10000), 'q > 8000 l/h');
+      expect(o(500), 'q < 900 l/h');
+      expect(formatBand(_en(ShadeProcess.oxyCutting, 1500), en: true),
+          '900 ≤ q ≤ 2000 l/h');
+      expect(formatTableRange(kEn169OxyCutting, en: false), 'q ≥ 900 l/h');
+      // Żaden zapis gazowy EN nie ma „wspólnej” granicy „a–b”.
+      for (final q in <double>[10, 70, 100, 200, 800, 5000]) {
+        expect(g(q), isNot(contains('–')), reason: '$q');
+        expect(o(q), isNot(contains('–')), reason: '$q');
+      }
     });
 
     test('poza tabelą przedział mówi, gdzie leży wartość', () {
@@ -545,7 +628,7 @@ void main() {
       final text = shadeShareText(a, en: false);
       expect(text, contains('Przepływ acetylenu: 150 l/h'));
       expect(text, contains('Grubość: 2,5 mm'));
-      expect(text, contains('EN 169: 5 (70–200 l/h'));
+      expect(text, contains('EN 169: 5 (70 < q ≤ 200 l/h'));
       expect(text, contains('zalecany 4–5'));
     });
   });

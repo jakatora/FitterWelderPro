@@ -205,6 +205,81 @@ void main() {
     expect(_key('shade-en-below'), findsOneWidget);
   });
 
+  testWidgets(
+      'gaz: granica przepływu w przedziale niższym — opis i zapis '
+      '„70 < q ≤ 200 l/h”', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'shade-current', '120');
+    // Proces łukowy: wspólna granica, wyższy stopień.
+    expect(find.textContaining('Na granicy przedziału — wyższy stopień.'),
+        findsWidgets);
+    expect(find.textContaining('granica należy do przedziału niższego'),
+        findsNothing);
+
+    await _tap(tester, 'shade-proc-gasWelding');
+    await _enter(tester, 'shade-flow', '70');
+    expect(_readout(tester, 'shade-en'), '4');
+    expect(
+        tester.widget<Readout>(_key('shade-en')).unit, 'stopień · q ≤ 70 l/h');
+    expect(
+        find.textContaining('Przepływ gazu wg EN 169: granica należy do '
+            'przedziału niższego (q ≤ 70 l/h → 4).'),
+        findsWidgets);
+    expect(find.textContaining('Grubość wg ANSI/OSHA: na granicy'),
+        findsOneWidget);
+
+    await _enter(tester, 'shade-flow', '200');
+    expect(_readout(tester, 'shade-en'), '5');
+    expect(tester.widget<Readout>(_key('shade-en')).unit,
+        'stopień · 70 < q ≤ 200 l/h');
+
+    await _reveal(tester, 'shade-row');
+    for (final band in [
+      'q ≤ 70 l/h',
+      '70 < q ≤ 200 l/h',
+      '200 < q ≤ 800 l/h',
+      'q > 800 l/h'
+    ]) {
+      expect(find.descendant(of: _key('shade-row'), matching: find.text(band)),
+          findsOneWidget,
+          reason: band);
+    }
+
+    // Cięcie tlenowe ponad 8000 l/h → 8 (DGUV 112-192), w tabeli, bez
+    // „co najmniej”.
+    await _tap(tester, 'shade-proc-oxyCutting');
+    await _enter(tester, 'shade-flow', '10000');
+    expect(_readout(tester, 'shade-en'), '8');
+    expect(tester.widget<Readout>(_key('shade-en')).unit,
+        'stopień · q > 8000 l/h');
+    expect(_key('shade-en-above'), findsNothing);
+  });
+
+  testWidgets('za duża liczba → błąd pola, bez wyniku', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'shade-current', '2001');
+    expect(_key('shade-en'), findsNothing);
+    expect(_key('shade-share'), findsNothing);
+    expect(find.text('Za dużo — najwyżej 2000 A. Sprawdź wpisaną liczbę.'),
+        findsOneWidget);
+    await _enter(tester, 'shade-current', '99999999999999999999');
+    expect(_key('shade-en'), findsNothing);
+    expect(find.textContaining('najwyżej 2000 A'), findsOneWidget);
+    await _enter(tester, 'shade-current', '2000');
+    expect(_readout(tester, 'shade-en'), '≥ 14');
+    expect(find.textContaining('najwyżej 2000 A'), findsNothing);
+
+    await _tap(tester, 'shade-proc-oxyCutting');
+    await _enter(tester, 'shade-flow', '100001');
+    await _enter(tester, 'shade-thickness', '30');
+    expect(find.textContaining('najwyżej 100000 l/h'), findsOneWidget);
+    // Grubość dalej liczy ANSI.
+    expect(_readout(tester, 'shade-ansi-main'), '4–5');
+    await _enter(tester, 'shade-thickness', '2001');
+    expect(find.textContaining('najwyżej 2000 mm'), findsOneWidget);
+    expect(_key('shade-ansi-main'), findsNothing);
+  });
+
   testWidgets('wersja EN — te same liczby', (tester) async {
     await _pump(tester, language: AppLanguage.en);
     expect(find.text('Welding filter: shade number'), findsOneWidget);

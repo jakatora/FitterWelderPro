@@ -28,7 +28,9 @@
 //         (przepływ tlenu, l/h): ulotka RS Components (gogle spawalnicze,
 //         tabele i uwagi „następny wyższy lub niższy numer”),
 //         https://static.chipdip.ru/lib/508/DOC027508612.pdf ; ta sama tabela
-//         acetylenu w DGUV Regel 112-192 zał. 2 p. 1,
+//         acetylenu w DGUV Regel 112-192 zał. 2 p. 1, która dla cięcia
+//         tlenowego dopisuje „über 8000 l/h — Schutzstufe 8” (sprawdzone
+//         w tekście strony 2026-10-18),
 //         https://vorschriften.bgn-branchenwissen.de/daten/dguv/112_192/anh2_1.htm
 //  [OSHA] 29 CFR 1910.133(a)(5) — „Filter Lenses for Protection Against
 //         Radiant Energy”, minimalne stopnie (Minimum Protective Shade),
@@ -47,7 +49,8 @@
 //    do niższego przedziału („more than 160-250”) — tu celowo ciemniej.
 //  • Tabele gazowe EN 169 definiują granice jawnie („q ≤ 70”, „70 < q ≤ 200”,
 //    „900 ≤ q ≤ 2000”) — stosujemy je dosłownie
-//    ([ShadeBoundary.upperInclusive]).
+//    ([ShadeBoundary.upperInclusive]): wartość na granicy należy do
+//    przedziału NIŻSZEGO, a [formatBand] zapisuje to wprost („70 < q ≤ 200”).
 //
 // __ROZBIEŻNOŚCI I WYBORY__
 //  • MAG 13 → 14: [D1] na 600 A, [D2] między kreskami 500 i 600 (≈ 550 A).
@@ -61,8 +64,13 @@
 //    jaśniejsze stopnie dla małych przecinarek (< 20 A: 4, 20–40: 5,
 //    40–60: 6, 60–80: 8) — pominięte, bo minimum OSHA (8) jest ciemniejsze.
 //  • Cięcie tlenowe EN 169: 900–8000 l/h. DGUV 112-192 dopisuje „do 900 — 4”
-//    i „ponad 8000 — 8”; tu poniżej 900 l/h najbliższy stopień z tabeli (5)
-//    z ostrzeżeniem — ciemniej niż 4.
+//    i „ponad 8000 — 8”. Ponad 8000 l/h → 8 za DGUV (ciemniej niż „co
+//    najmniej 7”). Poniżej 900 l/h — najbliższy stopień z tabeli EN (5)
+//    z ostrzeżeniem, ciemniej niż 4 z DGUV.
+//
+// __LIMITY WEJŚCIA__ (sensowność, nie tabela): prąd ≤ [kShadeMaxCurrentA],
+// przepływ ≤ [kShadeMaxFlowLh], grubość ≤ [kShadeMaxThicknessMm]. Wyżej —
+// błąd pola zamiast wyniku (np. „1e+308 A”).
 //
 // Poza tabelą: NIE zgadujemy w dół. Za mały prąd → stopień z najniższego
 // przedziału tabeli (dla tak małego prądu tabela nie podaje jaśniejszego),
@@ -376,7 +384,8 @@ const kEn169GasWelding = ShadeTable(
 );
 
 /// Cięcie tlenowe, przepływ tlenu q [l/h]: 900 ≤ q ≤ 2000 → 5;
-/// 2000 < q ≤ 4000 → 6; 4000 < q ≤ 8000 → 7.
+/// 2000 < q ≤ 4000 → 6; 4000 < q ≤ 8000 → 7 (EN 169, [ENG]);
+/// q > 8000 → 8 (DGUV Regel 112-192 zał. 2 p. 1: „über 8000 — 8”).
 const kEn169OxyCutting = ShadeTable(
   unit: ShadeUnit.litresPerHour,
   from: 900,
@@ -385,6 +394,7 @@ const kEn169OxyCutting = ShadeTable(
     ShadeBand(2000, 5),
     ShadeBand(4000, 6),
     ShadeBand(8000, 7),
+    ShadeBand(double.infinity, 8),
   ],
 );
 
@@ -521,24 +531,55 @@ enum ShadeProblem {
 
   /// Grubość nieczytelna albo ≤ 0.
   thicknessInvalid,
+
+  /// Prąd ponad [kShadeMaxCurrentA].
+  currentTooHigh,
+
+  /// Przepływ ponad [kShadeMaxFlowLh].
+  flowTooHigh,
+
+  /// Grubość ponad [kShadeMaxThicknessMm].
+  thicknessTooHigh,
 }
 
-bool _valid(double? v) => v != null && v.isFinite && v > 0;
-bool _invalid(double? v) => v != null && !_valid(v);
+/// Górny limit pola prądu [A] — ponad tym to pomyłka w polu, nie proces
+/// (żłobienie łukowo-powietrzne w tabeli ANSI kończy się na 1000 A).
+const double kShadeMaxCurrentA = 2000;
+
+/// Górny limit pola przepływu gazu [l/h].
+const double kShadeMaxFlowLh = 100000;
+
+/// Górny limit pola grubości [mm].
+const double kShadeMaxThicknessMm = 2000;
+
+bool _valid(double? v, double max) =>
+    v != null && v.isFinite && v > 0 && v <= max;
+
+/// Problem pola: null — puste albo poprawne.
+ShadeProblem? _fieldProblem(
+    double? v, double max, ShadeProblem invalid, ShadeProblem tooHigh) {
+  if (v == null || _valid(v, max)) return null;
+  return v.isFinite && v > max ? tooHigh : invalid;
+}
 
 /// Co nie pozwala policzyć (albo psuje część wyniku). Puste pole ≠ wynik.
 List<ShadeProblem> shadeProblems(ShadeInput i) {
   if (!i.process.isGas) {
     if (i.currentA == null) return const [ShadeProblem.currentMissing];
-    if (_invalid(i.currentA)) return const [ShadeProblem.currentInvalid];
-    return const [];
+    final p = _fieldProblem(i.currentA, kShadeMaxCurrentA,
+        ShadeProblem.currentInvalid, ShadeProblem.currentTooHigh);
+    return p == null ? const [] : [p];
   }
   if (i.gasFlowLh == null && i.thicknessMm == null) {
     return const [ShadeProblem.gasInputMissing];
   }
+  final flow = _fieldProblem(i.gasFlowLh, kShadeMaxFlowLh,
+      ShadeProblem.flowInvalid, ShadeProblem.flowTooHigh);
+  final thickness = _fieldProblem(i.thicknessMm, kShadeMaxThicknessMm,
+      ShadeProblem.thicknessInvalid, ShadeProblem.thicknessTooHigh);
   return [
-    if (_invalid(i.gasFlowLh)) ShadeProblem.flowInvalid,
-    if (_invalid(i.thicknessMm)) ShadeProblem.thicknessInvalid,
+    if (flow != null) flow,
+    if (thickness != null) thickness,
   ];
 }
 
@@ -587,7 +628,7 @@ ShadeAdvice? computeShade(ShadeInput i) {
   final p = i.process;
   if (!p.isGas) {
     final a = i.currentA;
-    if (!_valid(a)) return null;
+    if (!_valid(a, kShadeMaxCurrentA)) return null;
     return ShadeAdvice(
       process: p,
       en: en169Table(p).lookup(a!),
@@ -596,11 +637,13 @@ ShadeAdvice? computeShade(ShadeInput i) {
   }
   final q = i.gasFlowLh;
   final t = i.thicknessMm;
-  if (!_valid(q) && !_valid(t)) return null;
+  final qOk = _valid(q, kShadeMaxFlowLh);
+  final tOk = _valid(t, kShadeMaxThicknessMm);
+  if (!qOk && !tOk) return null;
   return ShadeAdvice(
     process: p,
-    en: _valid(q) ? en169Table(p).lookup(q!) : null,
-    ansi: _valid(t) ? ansiTable(p).lookup(t!) : null,
+    en: qOk ? en169Table(p).lookup(q!) : null,
+    ansi: tOk ? ansiTable(p).lookup(t!) : null,
   );
 }
 
@@ -614,28 +657,65 @@ String formatShadeValue(double v, {required bool en}) {
   return en ? s : s.replaceAll('.', ',');
 }
 
-/// Przedział [l] słownie: „60–160 A”, „< 60 A”, „≤ 70 l/h”, „> 800 l/h”,
-/// „≥ 12,7 mm”. Poza tabelą — gdzie leży wartość: „< 10 A”, „> 350 A”.
+/// Przedział [l] słownie. Tabele z granicą wspólną (wykres EN 169, ANSI):
+/// „60–160 A”, „< 60 A”, „≥ 12,7 mm”. Tabele gazowe EN 169
+/// ([ShadeBoundary.upperInclusive]) — z nierównościami, żeby było widać,
+/// do którego przedziału należy granica: „q ≤ 70 l/h”, „70 < q ≤ 200 l/h”,
+/// „900 ≤ q ≤ 2000 l/h”, „q > 800 l/h”. Poza tabelą — gdzie leży wartość:
+/// „< 10 A”, „> 350 A”, „q < 900 l/h”.
 String formatBand(ShadeLookup l, {required bool en}) {
   final u = l.table.unit.symbol;
   String n(double v) => formatShadeValue(v, en: en);
+  if (l.table.boundary == ShadeBoundary.upperInclusive) {
+    if (l.range == ShadeRange.below) return 'q < ${n(l.table.from)} $u';
+    if (l.range == ShadeRange.above) return 'q > ${n(l.table.to)} $u';
+    if (l.to.isInfinite) return 'q > ${n(l.from)} $u';
+    if (l.isFirstBand) {
+      return l.from == 0
+          ? 'q ≤ ${n(l.to)} $u'
+          : '${n(l.from)} ≤ q ≤ ${n(l.to)} $u';
+    }
+    return '${n(l.from)} < q ≤ ${n(l.to)} $u';
+  }
   if (l.range == ShadeRange.below) return '< ${n(l.table.from)} $u';
   if (l.range == ShadeRange.above) return '> ${n(l.table.to)} $u';
-  final inclusive = l.table.boundary == ShadeBoundary.upperInclusive;
-  if (l.to.isInfinite) return '${inclusive ? '>' : '≥'} ${n(l.from)} $u';
-  if (l.from == 0 && l.isFirstBand) {
-    return '${inclusive ? '≤' : '<'} ${n(l.to)} $u';
-  }
+  if (l.to.isInfinite) return '≥ ${n(l.from)} $u';
+  if (l.from == 0 && l.isFirstBand) return '< ${n(l.to)} $u';
   return '${n(l.from)}–${n(l.to)} $u';
 }
 
-/// Zakres całej tabeli słownie: „10–350 A”, „≤ 600 A”, „> 0 l/h”.
+/// Zakres całej tabeli słownie: „10–350 A”, „≤ 600 A”, a dla tabel gazowych
+/// EN 169 „q ≥ 900 l/h”.
 String formatTableRange(ShadeTable t, {required bool en}) {
   final u = t.unit.symbol;
   String n(double v) => formatShadeValue(v, en: en);
-  if (t.to.isInfinite) return '≥ ${n(t.from)} $u';
-  if (t.from == 0) return '≤ ${n(t.to)} $u';
-  return '${n(t.from)}–${n(t.to)} $u';
+  final q = t.boundary == ShadeBoundary.upperInclusive ? 'q ' : '';
+  if (t.to.isInfinite) {
+    return t.from == 0 ? '$q> 0 $u' : '$q≥ ${n(t.from)} $u';
+  }
+  if (t.from == 0) return '$q≤ ${n(t.to)} $u';
+  return q.isEmpty
+      ? '${n(t.from)}–${n(t.to)} $u'
+      : '${n(t.from)} ≤ q ≤ ${n(t.to)} $u';
+}
+
+/// Jak tabela traktuje wartość równą granicy — zdanie do ekranu.
+/// Wykres EN 169 i ANSI/OSHA: wyższy stopień. Tabele gazowe EN 169: granica
+/// należy do przedziału niższego, z przykładem z tabeli („q ≤ 70 → 4”).
+String shadeBoundaryRule(ShadeTable t, {required bool en}) {
+  if (t.boundary == ShadeBoundary.higherShade) {
+    return en
+        ? 'On a band boundary — the higher shade.'
+        : 'Na granicy przedziału — wyższy stopień.';
+  }
+  final b = t.bands.first;
+  final ex = 'q ≤ ${formatShadeValue(b.upTo, en: en)} ${t.unit.symbol} → '
+      '${b.shade}';
+  return en
+      ? 'Gas flow per EN 169: a boundary value belongs to the lower band '
+          '($ex).'
+      : 'Przepływ gazu wg EN 169: granica należy do przedziału niższego '
+          '($ex).';
 }
 
 /// Stopień do pokazania: „11”, a powyżej tabeli „≥ 13”.
