@@ -10,6 +10,7 @@ import '../../i18n/app_language.dart';
 import '../../services/weather_check_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../quotes/quote_widgets.dart';
 import 'weather_check_store.dart';
 
 class WeatherHistoryView extends StatefulWidget {
@@ -31,6 +32,9 @@ class WeatherHistoryView extends StatefulWidget {
 class _WeatherHistoryViewState extends State<WeatherHistoryView> {
   List<WeatherCheckRecord>? _records;
 
+  /// Pominięte uszkodzone wpisy; -1 — cały zapis nieczytelny.
+  int _skipped = 0;
+
   @override
   void initState() {
     super.initState();
@@ -39,12 +43,21 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
 
   Future<void> _load() async {
     List<WeatherCheckRecord> list;
+    var skipped = 0;
     try {
-      list = await widget.store.loadHistory();
+      final h = await widget.store.loadHistoryDetailed();
+      list = h.records;
+      skipped = h.unreadable ? -1 : h.skipped;
     } catch (_) {
       list = const [];
+      skipped = -1;
     }
-    if (mounted) setState(() => _records = list);
+    if (mounted) {
+      setState(() {
+        _records = list;
+        _skipped = skipped;
+      });
+    }
   }
 
   bool get _en => context.language == AppLanguage.en;
@@ -57,9 +70,10 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
 
   String _summary(WeatherCheckRecord r) {
     final i = r.input;
-    String n(double v, [int d = 1]) => weatherNum(v, decimals: d, english: _en);
-    return '${n(i.ambientC)} °C · RH ${n(i.rhPct, 0)} % · '
-        '${n(i.windMs)} m/s · ${i.process.label(_en)}';
+    String n(double v) => weatherNumAuto(v, english: _en);
+    return '${n(i.ambientC)} °C · RH ${n(i.rhPct)} % · '
+        '${weatherNumAuto(ceilTo(i.windMs, 2), english: _en)} m/s · '
+        '${i.process.label(_en)}';
   }
 
   Future<void> _delete(WeatherCheckRecord r) async {
@@ -87,7 +101,13 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
     unawaited(Haptic.tap());
     try {
       final list = await widget.store.remove(r.id);
-      if (mounted) setState(() => _records = list);
+      if (mounted) {
+        setState(() {
+          _records = list;
+          // Uszkodzony zapis skopiowano (…_corrupt) i nadpisano.
+          _skipped = 0;
+        });
+      }
     } catch (e) {
       debugPrint('[weather] delete failed: $e');
     }
@@ -167,9 +187,47 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
       ),
       body: records == null
           ? const Center(child: CircularProgressIndicator(color: kArc))
-          : records.isEmpty
-              ? Center(
-                  child: Padding(
+          : ListView(
+              key: const ValueKey('wx-history-list'),
+              padding: EdgeInsets.fromLTRB(
+                  12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
+              children: [
+                if (_skipped != 0)
+                  QuoteNotice(
+                    key: const ValueKey('wx-history-skipped'),
+                    color: kFail,
+                    icon: Icons.report_problem_outlined,
+                    text: _skipped < 0
+                        ? context.tr(
+                            pl: 'Zapis historii jest nieczytelny. Przy '
+                                'następnym zapisie jego kopia trafi pod '
+                                '„${WeatherCheckStore.corruptHistoryKey}”.',
+                            en: 'The saved history is unreadable. On the next '
+                                'save a copy is kept under '
+                                '“${WeatherCheckStore.corruptHistoryKey}”.')
+                        : context.tr(
+                            pl: '$_skipped wpisów pominięto (uszkodzone). '
+                                'Przy następnym zapisie kopia całego zapisu '
+                                'trafi pod „${WeatherCheckStore.corruptHistoryKey}”.',
+                            en: '$_skipped entries skipped (damaged). On the '
+                                'next save a copy of the whole record is kept '
+                                'under “${WeatherCheckStore.corruptHistoryKey}”.'),
+                  ),
+                if (records.length >= WeatherCheckStore.warnRecords)
+                  QuoteNotice(
+                    key: const ValueKey('wx-history-limit'),
+                    text: context.tr(
+                        pl: 'Historia: ${records.length} z '
+                            '${WeatherCheckStore.maxRecords} wpisów. Po '
+                            'przekroczeniu limitu najstarsze są usuwane — '
+                            'udostępnij (PDF/tekst) te, które trzeba zachować.',
+                        en: 'History: ${records.length} of '
+                            '${WeatherCheckStore.maxRecords} entries. Beyond '
+                            'the limit the oldest are removed — share (PDF/'
+                            'text) the ones you must keep.'),
+                  ),
+                if (records.isEmpty)
+                  Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text(
                       context.tr(
@@ -181,38 +239,47 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
                       style: const TextStyle(color: kTextSec),
                     ),
                   ),
-                )
-              : ListView.builder(
-                  key: const ValueKey('wx-history-list'),
-                  padding: EdgeInsets.fromLTRB(12, 12, 12,
-                      24 + MediaQuery.viewPaddingOf(context).bottom),
-                  itemCount: records.length,
-                  itemBuilder: (_, i) {
-                    final r = records[i];
-                    final (color, icon) = _look(r.verdict);
-                    return Card(
-                      key: ValueKey('wx-record-${r.id}'),
-                      clipBehavior: Clip.antiAlias,
-                      child: ListTile(
-                        minVerticalPadding: 10,
-                        leading: Icon(icon, color: color),
-                        title: Text(
-                          '${weatherStamp(r.takenAt)}'
-                          '${r.place.isEmpty ? '' : ' · ${r.place}'}',
-                          style: const TextStyle(
-                              color: kText, fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '${weatherVerdictText(r.verdict, english: _en)}\n'
-                          '${_summary(r)}',
-                          style: const TextStyle(color: kTextSec, height: 1.35),
-                        ),
-                        isThreeLine: true,
-                        onTap: () => _open(r),
-                      ),
-                    );
-                  },
-                ),
+                for (final r in records) _tile(r),
+              ],
+            ),
+    );
+  }
+
+  Widget _tile(WeatherCheckRecord r) {
+    final (color, icon) = _look(r.verdict);
+    final mismatch = r.rulesMismatch;
+    return Card(
+      key: ValueKey('wx-record-${r.id}'),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        minVerticalPadding: 10,
+        leading: Icon(icon, color: color),
+        title: Text(
+          '${weatherStamp(r.takenAt)}'
+          '${r.place.isEmpty ? '' : ' · ${r.place}'}',
+          style: const TextStyle(color: kText, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text.rich(
+          TextSpan(children: [
+            TextSpan(
+                text: '${weatherVerdictText(r.verdict, english: _en)}\n'
+                    '${_summary(r)}'),
+            if (mismatch)
+              TextSpan(
+                text: context.tr(
+                    pl: '\nOdtworzone inną wersją reguł — wiąże zapisany '
+                        'werdykt',
+                    en: '\nRebuilt with a different rules version — the saved '
+                        'verdict governs'),
+                style: const TextStyle(color: kWarn),
+              ),
+          ]),
+          key: mismatch ? ValueKey('wx-record-mismatch-${r.id}') : null,
+          style: const TextStyle(color: kTextSec, height: 1.35),
+        ),
+        isThreeLine: true,
+        onTap: () => _open(r),
+      ),
     );
   }
 }

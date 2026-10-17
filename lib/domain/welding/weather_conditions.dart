@@ -93,6 +93,67 @@ String weatherNum(double v, {int decimals = 1, bool english = false}) {
   return english ? s : s.replaceAll('.', ',');
 }
 
+/// Liczba do [maxDecimals] miejsc bez zbędnych zer: 2,50 → „2,5”,
+/// 21,0 → „21”, -17,8 → „-17,8”. Do wartości wpisanych przez spawacza
+/// i progów — pokazuje je z tą samą precyzją, z jaką są w polu.
+String weatherNumAuto(double v, {int maxDecimals = 2, bool english = false}) {
+  var s = weatherNum(v, decimals: maxDecimals, english: true);
+  if (s.contains('.')) {
+    s = s.replaceFirst(RegExp(r'0+$'), '');
+    if (s.endsWith('.')) s = s.substring(0, s.length - 1);
+  }
+  if (s == '-0') s = '0';
+  return english ? s : s.replaceAll('.', ',');
+}
+
+double _pow10(int d) => math.pow(10, d).toDouble();
+
+/// Zaokrąglenie w górę do [decimals] miejsc (tolerancja błędu binarnego:
+/// 5 · 3,6 = 18,000000000000004 zostaje 18).
+double ceilTo(double v, int decimals) {
+  final f = _pow10(decimals);
+  return (v * f - 1e-7).ceilToDouble() / f;
+}
+
+/// Zaokrąglenie w dół do [decimals] miejsc (z tą samą tolerancją).
+double floorTo(double v, int decimals) {
+  final f = _pow10(decimals);
+  return (v * f + 1e-7).floorToDouble() / f;
+}
+
+/// Wymagane MINIMUM (temperatura do osiągnięcia) — w górę, do 2 miejsc:
+/// pokazane minimum nigdy nie jest łagodniejsze od liczonego.
+String weatherNumMin(double v, {bool english = false}) =>
+    weatherNumAuto(ceilTo(v, 2), english: english);
+
+/// Limit GÓRNY (np. wiatr) — w dół, do 2 miejsc.
+String weatherNumMax(double v, {bool english = false}) =>
+    weatherNumAuto(floorTo(v, 2), english: english);
+
+/// Dwie liczby do porównania w tekście („a > b”, „a ≤ b”): tyle miejsc
+/// (od [minDecimals] — domyślnie 2, czyli precyzja pól — do 4), żeby
+/// zaokrąglenie nie odwróciło ani nie zrównało
+/// relacji — nigdy „-17,9 jest poniżej -18” ani „2,2 > 2,2”.
+(String, String) weatherPair(double a, double b,
+    {int minDecimals = 2, bool english = false}) {
+  for (var d = minDecimals; d <= 4; d++) {
+    final f = _pow10(d);
+    final ra = (a * f).roundToDouble();
+    final rb = (b * f).roundToDouble();
+    final same = (a < b && ra < rb) || (a > b && ra > rb) || (a == b);
+    if (same) {
+      return (
+        weatherNumAuto(a, maxDecimals: d, english: english),
+        weatherNumAuto(b, maxDecimals: d, english: english),
+      );
+    }
+  }
+  return (
+    weatherNumAuto(a, maxDecimals: 4, english: english),
+    weatherNumAuto(b, maxDecimals: 4, english: english),
+  );
+}
+
 String _tr(bool en, String pl, String eng) => en ? eng : pl;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -189,12 +250,28 @@ const List<BeaufortLevel> kBeaufortScale = [
       'whole trees move, hard to walk against the wind'),
 ];
 
-/// Stopień Beauforta dla prędkości [ms] (powyżej 7 → ostatni wpis).
+/// Stopień Beauforta dla prędkości [ms] (powyżej 7 → ostatni wpis; do
+/// opisu używaj [beaufortText], które nazywa to „8° i więcej”).
 BeaufortLevel beaufortFor(double ms) {
   for (final l in kBeaufortScale) {
     if (ms < l.maxMs + 0.05) return l;
   }
   return kBeaufortScale.last;
+}
+
+/// Prędkość powyżej skali w aplikacji (7° B kończy się na 17,1 m/s).
+bool beaufortAboveScale(double ms) => ms >= kBeaufortScale.last.maxMs + 0.05;
+
+/// „3° Beaufort — łagodny wiatr”; powyżej 17,1 m/s „8°+ Beaufort — wichura
+/// i silniej” (nie „7°”).
+String beaufortText(double ms, {required bool english}) {
+  if (beaufortAboveScale(ms)) {
+    return english
+        ? '8°+ Beaufort — gale or stronger'
+        : '8°+ Beaufort — wichura i silniej';
+  }
+  final b = beaufortFor(ms);
+  return '${b.force}° Beaufort — ${english ? b.nameEn : b.namePl}';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -345,6 +422,28 @@ extension WeatherShelterText on WeatherShelter {
       };
 }
 
+/// Stan powierzchni złącza oceniony okiem / ręką (AWS D1.1 §7.11.2 zakazuje
+/// spawania na mokrych powierzchniach — tego nie da się wyliczyć z pogody:
+/// po deszczu, przy rosie albo z lodem na rurze opad może być „brak”).
+enum SurfaceState {
+  /// Nie sprawdzono — nigdy nie daje czystego „Można spawać”.
+  unchecked,
+  dry,
+  wet,
+
+  /// Szron, lód, śnieg na złączu.
+  frozen,
+}
+
+extension SurfaceStateText on SurfaceState {
+  String label(bool en) => switch (this) {
+        SurfaceState.unchecked => _tr(en, 'nie sprawdzono', 'not checked'),
+        SurfaceState.dry => _tr(en, 'sucha', 'dry'),
+        SurfaceState.wet => _tr(en, 'wilgotna / mokra', 'damp / wet'),
+        SurfaceState.frozen => _tr(en, 'szron, lód, śnieg', 'frost, ice, snow'),
+      };
+}
+
 enum WeatherMaterial { carbonSteel, stainless, aluminium }
 
 extension WeatherMaterialText on WeatherMaterial {
@@ -387,6 +486,7 @@ class WeatherInput {
     this.shelter = WeatherShelter.none,
     this.material = WeatherMaterial.carbonSteel,
     this.wpsPreheatC,
+    this.surfaceState = SurfaceState.unchecked,
   });
 
   /// Temperatura powietrza [°C].
@@ -412,6 +512,9 @@ class WeatherInput {
   /// Minimalne podgrzewanie z WPS [°C]; `null` = WPS nie wymaga / nie znam.
   final double? wpsPreheatC;
 
+  /// Stan powierzchni złącza (sucha / mokra / oblodzona / nie sprawdzono).
+  final SurfaceState surfaceState;
+
   Map<String, Object?> toJson() => {
         'ambientC': ambientC,
         'rhPct': rhPct,
@@ -423,6 +526,7 @@ class WeatherInput {
         'shelter': shelter.name,
         'material': material.name,
         if (wpsPreheatC != null) 'wpsPreheatC': wpsPreheatC,
+        'surfaceState': surfaceState.name,
       };
 
   /// Rzuca [FormatException], gdy brakuje wymaganej liczby.
@@ -443,6 +547,9 @@ class WeatherInput {
       material: _enumByName(WeatherMaterial.values, json['material'],
           WeatherMaterial.carbonSteel),
       wpsPreheatC: _numOrNull(json['wpsPreheatC']),
+      // Wpisy sprzed tego pola → „nie sprawdzono” (strona bezpieczna).
+      surfaceState: _enumByName(
+          SurfaceState.values, json['surfaceState'], SurfaceState.unchecked),
     );
   }
 }
@@ -587,39 +694,186 @@ class WeatherThresholds {
       };
 
   /// Odporne: brak pola, zły typ albo wartość spoza zakresu → wartość
-  /// domyślna tego pola. Nigdy nie rzuca.
-  factory WeatherThresholds.fromJson(Object? json) {
-    if (json is! Map) return defaults;
-    double pick(String key, double def, bool Function(double) ok) {
-      final v = _numOrNull(json[key]);
-      return v != null && ok(v) ? v : def;
-    }
+  /// domyślna tego pola. Nigdy nie rzuca. Czy coś naprawiono — patrz
+  /// [decodeWeatherThresholdsDetailed].
+  factory WeatherThresholds.fromJson(Object? json) =>
+      _thresholdsFromJson(json).thresholds;
 
-    bool temp(double v) => v >= -60 && v <= 400;
-    return WeatherThresholds(
-      minAmbientC: pick('minAmbientC', kDefaultMinAmbientC, temp),
-      coldBaseMetalC: pick('coldBaseMetalC', kDefaultColdBaseMetalC, temp),
-      coldPreheatC: pick('coldPreheatC', kDefaultColdPreheatC, temp),
-      minMaterialC: pick('minMaterialC', kDefaultMinMaterialC, temp),
-      dewMarginK:
-          pick('dewMarginK', kDefaultDewMarginK, (v) => v >= 0 && v <= 30),
-      maxWindGasMs:
-          pick('maxWindGasMs', kDefaultMaxWindGasMs, (v) => v > 0 && v <= 60),
-      maxWindAnyMs:
-          pick('maxWindAnyMs', kDefaultMaxWindAnyMs, (v) => v > 0 && v <= 60),
-    );
+  /// Wartość progu po kluczu z [ThresholdField].
+  double valueOf(String field) => switch (field) {
+        ThresholdField.minAmbientC => minAmbientC,
+        ThresholdField.coldBaseMetalC => coldBaseMetalC,
+        ThresholdField.coldPreheatC => coldPreheatC,
+        ThresholdField.minMaterialC => minMaterialC,
+        ThresholdField.dewMarginK => dewMarginK,
+        ThresholdField.maxWindGasMs => maxWindGasMs,
+        ThresholdField.maxWindAnyMs => maxWindAnyMs,
+        _ => throw ArgumentError.value(field, 'field'),
+      };
+
+  /// Progi z mapy pole → wartość (brakujące pola — z [this]).
+  WeatherThresholds withValues(Map<String, double> v) => WeatherThresholds(
+        minAmbientC: v[ThresholdField.minAmbientC] ?? minAmbientC,
+        coldBaseMetalC: v[ThresholdField.coldBaseMetalC] ?? coldBaseMetalC,
+        coldPreheatC: v[ThresholdField.coldPreheatC] ?? coldPreheatC,
+        minMaterialC: v[ThresholdField.minMaterialC] ?? minMaterialC,
+        dewMarginK: v[ThresholdField.dewMarginK] ?? dewMarginK,
+        maxWindGasMs: v[ThresholdField.maxWindGasMs] ?? maxWindGasMs,
+        maxWindAnyMs: v[ThresholdField.maxWindAnyMs] ?? maxWindAnyMs,
+      );
+}
+
+/// Klucze progów (JSON i pola ekranu ustawień).
+abstract final class ThresholdField {
+  static const minAmbientC = 'minAmbientC';
+  static const coldBaseMetalC = 'coldBaseMetalC';
+  static const coldPreheatC = 'coldPreheatC';
+  static const minMaterialC = 'minMaterialC';
+  static const dewMarginK = 'dewMarginK';
+  static const maxWindGasMs = 'maxWindGasMs';
+  static const maxWindAnyMs = 'maxWindAnyMs';
+
+  static const all = [
+    minAmbientC,
+    coldBaseMetalC,
+    coldPreheatC,
+    minMaterialC,
+    dewMarginK,
+    maxWindGasMs,
+    maxWindAnyMs,
+  ];
+
+  /// Limity górne (wiatr) — łagodniej = WIĘCEJ. Reszta to minima —
+  /// łagodniej = MNIEJ.
+  static const upperLimits = {maxWindGasMs, maxWindAnyMs};
+}
+
+/// Dopuszczalny zakres pojedynczego progu (ten sam przy odczycie JSON
+/// i na ekranie ustawień).
+bool thresholdInRange(String field, double v) {
+  if (!v.isFinite) return false;
+  return switch (field) {
+    ThresholdField.dewMarginK => v >= 0 && v <= 30,
+    ThresholdField.maxWindGasMs ||
+    ThresholdField.maxWindAnyMs =>
+      v > 0 && v <= 60,
+    _ => v >= -60 && v <= 400,
+  };
+}
+
+({WeatherThresholds thresholds, bool repaired}) _thresholdsFromJson(
+    Object? json) {
+  if (json is! Map) {
+    return (thresholds: WeatherThresholds.defaults, repaired: true);
+  }
+  var repaired = false;
+  final values = <String, double>{};
+  for (final f in ThresholdField.all) {
+    final v = _numOrNull(json[f]);
+    if (v != null && thresholdInRange(f, v)) {
+      values[f] = v;
+    } else {
+      repaired = true;
+    }
+  }
+  return (
+    thresholds: WeatherThresholds.defaults.withValues(values),
+    repaired: repaired,
+  );
+}
+
+/// Progi z zapisanego JSON-a. `repaired` — zapis był uszkodzony (zły JSON,
+/// brak pola, wartość spoza zakresu) i część progów (albo wszystkie)
+/// zastąpiono domyślnymi; ekran MUSI to pokazać — ostrzejsze progi projektu
+/// nie mogą po cichu zamienić się w domyślne. Puste/brak zapisu → domyślne,
+/// bez naprawy.
+({WeatherThresholds thresholds, bool repaired}) decodeWeatherThresholdsDetailed(
+    String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return (thresholds: WeatherThresholds.defaults, repaired: false);
+  }
+  try {
+    return _thresholdsFromJson(jsonDecode(raw));
+  } on FormatException {
+    return (thresholds: WeatherThresholds.defaults, repaired: true);
   }
 }
 
 /// Progi z zapisanego JSON-a; uszkodzony / pusty → domyślne.
-WeatherThresholds decodeWeatherThresholds(String? raw) {
-  if (raw == null || raw.trim().isEmpty) return WeatherThresholds.defaults;
-  try {
-    return WeatherThresholds.fromJson(jsonDecode(raw));
-  } on FormatException {
-    return WeatherThresholds.defaults;
-  }
+WeatherThresholds decodeWeatherThresholds(String? raw) =>
+    decodeWeatherThresholdsDetailed(raw).thresholds;
+
+/// Błędy krzyżowe progów (pole, przy którym pokazać błąd).
+enum ThresholdIssue {
+  /// Wartość spoza zakresu pola.
+  outOfRange,
+
+  /// Podgrzanie zimnej stali niżej niż próg „zimnej” stali.
+  preheatBelowColdThreshold,
+
+  /// Minimum materiału niższe niż minimum temperatury przy złączu.
+  materialBelowAmbient,
+
+  /// Próg silnego wiatru niższy niż limit dla procesów gazowych.
+  strongWindBelowGas,
 }
+
+/// Walidacja progów: pole → problem. Pusta mapa → można zapisać.
+Map<String, ThresholdIssue> validateWeatherThresholds(WeatherThresholds t) {
+  final out = <String, ThresholdIssue>{};
+  for (final f in ThresholdField.all) {
+    if (!thresholdInRange(f, t.valueOf(f))) out[f] = ThresholdIssue.outOfRange;
+  }
+  if (!out.containsKey(ThresholdField.coldPreheatC) &&
+      t.coldPreheatC < t.coldBaseMetalC) {
+    out[ThresholdField.coldPreheatC] = ThresholdIssue.preheatBelowColdThreshold;
+  }
+  if (!out.containsKey(ThresholdField.minMaterialC) &&
+      t.minMaterialC < t.minAmbientC) {
+    out[ThresholdField.minMaterialC] = ThresholdIssue.materialBelowAmbient;
+  }
+  if (!out.containsKey(ThresholdField.maxWindAnyMs) &&
+      t.maxWindAnyMs < t.maxWindGasMs) {
+    out[ThresholdField.maxWindAnyMs] = ThresholdIssue.strongWindBelowGas;
+  }
+  return out;
+}
+
+/// Pola, w których próg jest ŁAGODNIEJSZY niż domyślny (wartości z norm):
+/// minima niższe, limity wiatru wyższe. Werdykt z takimi progami dostaje
+/// twarde ostrzeżenie (ekran, tekst, PDF).
+List<String> looserThanDefaults(WeatherThresholds t) => [
+      for (final f in ThresholdField.all)
+        if (ThresholdField.upperLimits.contains(f)
+            ? t.valueOf(f) > WeatherThresholds.defaults.valueOf(f)
+            : t.valueOf(f) < WeatherThresholds.defaults.valueOf(f))
+          f,
+    ];
+
+/// Nazwa progu do komunikatów (PL/EN).
+String thresholdLabel(String field, {required bool english}) => switch (field) {
+      ThresholdField.minAmbientC => _tr(english, 'min. temperatura przy złączu',
+          'min. temperature at the joint'),
+      ThresholdField.coldBaseMetalC => _tr(
+          english, 'stal węglowa „zimna” poniżej', 'carbon steel “cold” below'),
+      ThresholdField.coldPreheatC => _tr(english,
+          'podgrzanie zimnej stali węglowej', 'preheat of cold carbon steel'),
+      ThresholdField.minMaterialC => _tr(
+          english, 'min. temperatura materiału', 'min. base metal temperature'),
+      ThresholdField.dewMarginK =>
+        _tr(english, 'zapas nad punktem rosy', 'margin above dew point'),
+      ThresholdField.maxWindGasMs =>
+        _tr(english, 'wiatr — procesy gazowe', 'wind — gas-shielded processes'),
+      ThresholdField.maxWindAnyMs => _tr(english, 'silny wiatr', 'strong wind'),
+      _ => field,
+    };
+
+/// Jednostka progu.
+String thresholdUnit(String field) => switch (field) {
+      ThresholdField.dewMarginK => 'K',
+      ThresholdField.maxWindGasMs || ThresholdField.maxWindAnyMs => 'm/s',
+      _ => '°C',
+    };
 
 String encodeWeatherThresholds(WeatherThresholds t) => jsonEncode(t.toJson());
 
@@ -661,9 +915,13 @@ const kBasisAwsWelder = WeatherBasis(
 /// [A1, A2]
 const kBasisAwsWindGas = WeatherBasis(
     'AWS D1.1:2020 §7.11.1 — GMAW, GTAW, EGW, FCAW-G: wiatr przy spoinie '
-        'maks. 5 mph (8 km/h), inaczej osłona',
+        'maks. 5 mph (2,24 m/s; w SI norma pisze 8 km/h), inaczej osłona. '
+        'Domyślny próg aplikacji 2,2 m/s ≈ 7,9 km/h — wpisane 8 km/h '
+        '(2,22 m/s) jest już powyżej',
     'AWS D1.1:2020 §7.11.1 — GMAW, GTAW, EGW, FCAW-G: wind at the weld max. '
-        '5 mph (8 km/h), otherwise a shelter');
+        '5 mph (2.24 m/s; the SI text says 8 km/h), otherwise a shelter. The '
+        'app default 2.2 m/s ≈ 7.9 km/h — an entered 8 km/h (2.22 m/s) is '
+        'already above it');
 
 /// Bez normy — opisane jako próg praktyczny.
 const kBasisFlameWind = WeatherBasis(
@@ -810,6 +1068,7 @@ class WeatherFinding {
 abstract final class WeatherCode {
   static const ambient = 'ambient';
   static const precipitation = 'precipitation';
+  static const surfaceState = 'surface_state';
   static const windHigh = 'wind_high';
   static const windGas = 'wind_gas';
   static const condensation = 'condensation';
@@ -823,6 +1082,13 @@ abstract final class WeatherCode {
   static const recAluminium = 'rec_aluminium';
   static const recWelder = 'rec_welder';
 }
+
+/// Wersja reguł oceny. Podbij przy każdej zmianie progów, punktów albo
+/// logiki werdyktu — wpis historii zapisany inną wersją jest oznaczany jako
+/// „odtworzony inną wersją reguł”.
+///   1 — pierwsze wydanie (2026-10-17),
+///   2 — stan powierzchni złącza, precyzja liczb w tekstach (2026-10-17).
+const int kWeatherRulesVersion = 2;
 
 class WeatherAssessment {
   const WeatherAssessment({
@@ -878,6 +1144,13 @@ class WeatherAssessment {
   List<WeatherFinding> get passed =>
       findings.where((f) => f.severity == FindingSeverity.ok).toList();
 
+  List<String> get stopCodes => [for (final f in stops) f.code];
+  List<String> get conditionCodes => [for (final f in conditions) f.code];
+
+  /// Progi łagodniejsze od domyślnych (z norm) — werdykt dostaje twarde
+  /// ostrzeżenie na ekranie, w tekście i w PDF.
+  List<String> get looserThresholds => looserThanDefaults(thresholds);
+
   WeatherVerdict get verdict {
     if (findings.any((f) => f.severity == FindingSeverity.stop)) {
       return WeatherVerdict.noGo;
@@ -899,8 +1172,34 @@ String weatherVerdictText(WeatherVerdict v, {required bool english}) =>
       WeatherVerdict.noGo => _tr(english, 'Nie spawać', 'Do not weld'),
     };
 
+/// Twarde ostrzeżenie przy progach łagodniejszych od norm (null — brak).
+String? weatherLooserWarning(WeatherThresholds t, {required bool english}) {
+  final fields = looserThanDefaults(t);
+  if (fields.isEmpty) return null;
+  final list = [
+    for (final f in fields)
+      '${thresholdLabel(f, english: english)} '
+          '${weatherNumAuto(t.valueOf(f), english: english)} '
+          '${thresholdUnit(f)} '
+          '(${_tr(english, 'norma', 'code')} '
+          '${weatherNumAuto(WeatherThresholds.defaults.valueOf(f), english: english)})',
+  ].join('; ');
+  return _tr(
+      english,
+      'UWAGA: progi łagodniejsze niż wartości z norm — $list. Werdykt '
+          'obowiązuje tylko, jeśli tak dopuszcza specyfikacja projektu / WPS.',
+      'WARNING: thresholds looser than the code values — $list. The verdict '
+          'holds only if the project specification / WPS allows it.');
+}
+
 /// Ocena warunków. `null`, gdy temperatura powietrza / wilgotność są spoza
 /// zakresu wzoru (−60…60 °C, 0 < RH ≤ 100 %).
+///
+/// Liczby w tekstach: wartości wpisane i progi — z precyzją pola (do 2
+/// miejsc, bez zbędnych zer); porównania („a > b”) — tyle miejsc, żeby
+/// relacja była widoczna ([weatherPair]); temperatury do osiągnięcia —
+/// zaokrąglone w górę ([weatherNumMin]), limity wiatru — w dół
+/// ([weatherNumMax]).
 WeatherAssessment? assessWeather(WeatherInput input,
     [WeatherThresholds t = WeatherThresholds.defaults]) {
   final dew = dewPointC(airC: input.ambientC, rhPct: input.rhPct);
@@ -911,46 +1210,44 @@ WeatherAssessment? assessWeather(WeatherInput input,
   final surface = input.surfaceC ?? input.ambientC;
   final assumed = input.surfaceC == null;
 
-  String n(double v, bool en, [int d = 1]) =>
-      weatherNum(v, decimals: d, english: en);
+  String v(double x, bool en) => weatherNumAuto(x, english: en);
+  String kmh(double ms, bool en) =>
+      weatherNumAuto(msToKmh(ms), maxDecimals: 1, english: en);
   final findings = <WeatherFinding>[];
   final recs = <WeatherFinding>[];
   final enclosure = input.shelter == WeatherShelter.enclosure;
   final w = input.windMs;
 
   // ── 1. Temperatura otoczenia ────────────────────────────────────────────
+  final (ambPl, minPl) = weatherPair(input.ambientC, t.minAmbientC);
+  final (ambEn, minEn) =
+      weatherPair(input.ambientC, t.minAmbientC, english: true);
   if (input.ambientC < t.minAmbientC) {
     findings.add(enclosure
         ? WeatherFinding(
             code: WeatherCode.ambient,
             severity: FindingSeverity.condition,
-            textPl: 'Mróz ${n(input.ambientC, false)} °C: spawaj tylko '
-                'w ogrzewanym namiocie — przy złączu co najmniej '
-                '${n(t.minAmbientC, false, 0)} °C.',
-            textEn: 'Frost ${n(input.ambientC, true)} °C: weld only in a '
-                'heated enclosure — at least ${n(t.minAmbientC, true, 0)} °C '
-                'next to the joint.',
+            textPl: 'Mróz $ambPl °C (poniżej $minPl °C): spawaj tylko '
+                'w ogrzewanym namiocie — przy złączu co najmniej $minPl °C.',
+            textEn: 'Frost $ambEn °C (below $minEn °C): weld only in a heated '
+                'enclosure — at least $minEn °C next to the joint.',
             basis: const [kBasisAwsAmbient],
           )
         : WeatherFinding(
             code: WeatherCode.ambient,
             severity: FindingSeverity.stop,
-            textPl: 'Temperatura ${n(input.ambientC, false)} °C jest poniżej '
-                '${n(t.minAmbientC, false, 0)} °C — bez ogrzewanego namiotu '
-                'nie spawać.',
-            textEn: 'Temperature ${n(input.ambientC, true)} °C is below '
-                '${n(t.minAmbientC, true, 0)} °C — do not weld without a '
-                'heated enclosure.',
+            textPl: 'Temperatura $ambPl °C jest poniżej $minPl °C — bez '
+                'ogrzewanego namiotu nie spawać.',
+            textEn: 'Temperature $ambEn °C is below $minEn °C — do not weld '
+                'without a heated enclosure.',
             basis: const [kBasisAwsAmbient],
           ));
   } else {
     findings.add(WeatherFinding(
       code: WeatherCode.ambient,
       severity: FindingSeverity.ok,
-      textPl: 'Temperatura powietrza ${n(input.ambientC, false)} °C ≥ '
-          '${n(t.minAmbientC, false, 0)} °C.',
-      textEn: 'Air temperature ${n(input.ambientC, true)} °C ≥ '
-          '${n(t.minAmbientC, true, 0)} °C.',
+      textPl: 'Temperatura powietrza $ambPl °C ≥ $minPl °C.',
+      textEn: 'Air temperature $ambEn °C ≥ $minEn °C.',
       basis: const [kBasisAwsAmbient],
     ));
   }
@@ -992,96 +1289,156 @@ WeatherAssessment? assessWeather(WeatherInput input,
     ));
   }
 
-  // ── 3. Wiatr ────────────────────────────────────────────────────────────
-  final wKmhPl = n(msToKmh(w), false, 0);
-  final wKmhEn = n(msToKmh(w), true, 0);
-  final gasPl = '${n(t.maxWindGasMs, false)} m/s '
-      '(${n(msToKmh(t.maxWindGasMs), false, 0)} km/h)';
-  final gasEn = '${n(t.maxWindGasMs, true)} m/s '
-      '(${n(msToKmh(t.maxWindGasMs), true, 0)} km/h)';
+  // ── 3. Stan powierzchni złącza (ocena spawacza) ─────────────────────────
+  final wetOrFrozen = input.surfaceState == SurfaceState.wet ||
+      input.surfaceState == SurfaceState.frozen;
+  final whatPl = input.surfaceState == SurfaceState.frozen
+      ? 'pokryte szronem, lodem lub śniegiem'
+      : 'wilgotne / mokre';
+  final whatEn = input.surfaceState == SurfaceState.frozen
+      ? 'covered with frost, ice or snow'
+      : 'damp / wet';
+  switch (input.surfaceState) {
+    case SurfaceState.unchecked:
+      findings.add(const WeatherFinding(
+        code: WeatherCode.surfaceState,
+        severity: FindingSeverity.condition,
+        textPl: 'Złącze suche, bez wody, szronu, lodu i śniegu — sprawdź '
+            '(stan powierzchni nie został wybrany).',
+        textEn: 'Joint dry, free of water, frost, ice and snow — check it '
+            '(surface condition not selected).',
+        basis: [kBasisAwsWet],
+      ));
+    case SurfaceState.dry:
+      findings.add(const WeatherFinding(
+        code: WeatherCode.surfaceState,
+        severity: FindingSeverity.ok,
+        textPl: 'Złącze suche (ocena spawacza).',
+        textEn: 'Joint dry (welder’s check).',
+        basis: [kBasisAwsWet],
+      ));
+    case SurfaceState.wet || SurfaceState.frozen:
+      findings.add(enclosure
+          ? WeatherFinding(
+              code: WeatherCode.surfaceState,
+              severity: FindingSeverity.condition,
+              textPl: 'Złącze $whatPl: osusz / ogrzej je w namiocie (usuń '
+                  'wodę, szron, lód, śnieg) — spawaj dopiero na suchym.',
+              textEn: 'Joint $whatEn: dry / warm it inside the enclosure '
+                  '(remove water, frost, ice, snow) — weld only when dry.',
+              basis: const [kBasisAwsWet, kBasisDry],
+            )
+          : WeatherFinding(
+              code: WeatherCode.surfaceState,
+              severity: FindingSeverity.stop,
+              textPl: 'Złącze $whatPl — bez namiotu nie spawać. Postaw '
+                  'namiot i osusz / ogrzej złącze.',
+              textEn: 'Joint $whatEn — do not weld without an enclosure. Put '
+                  'up an enclosure and dry / warm the joint.',
+              basis: const [kBasisAwsWet, kBasisEn1090Weather],
+            ));
+  }
+
+  // ── 4. Wiatr ────────────────────────────────────────────────────────────
+  // Limit gazowy pokazywany zaokrąglony W DÓŁ (km/h też): 2,2 m/s ≈ 7,9 km/h.
+  final gasPl = '${weatherNumMax(t.maxWindGasMs)} m/s '
+      '(≈ ${weatherNumAuto(floorTo(msToKmh(t.maxWindGasMs), 1), maxDecimals: 1)} km/h)';
+  final gasEn = '${weatherNumMax(t.maxWindGasMs, english: true)} m/s '
+      '(≈ ${weatherNumAuto(floorTo(msToKmh(t.maxWindGasMs), 1), maxDecimals: 1, english: true)} km/h)';
   final procPl = input.process.label(false);
   final procEn = input.process.label(true);
   final gasBasis = input.process.shield == ShieldKind.flame
       ? kBasisFlameWind
       : kBasisAwsWindGas;
   if (w > t.maxWindAnyMs) {
+    final (wPl, anyPl) = weatherPair(w, t.maxWindAnyMs);
+    final (wEn, anyEn) = weatherPair(w, t.maxWindAnyMs, english: true);
     findings.add(enclosure
         ? WeatherFinding(
             code: WeatherCode.windHigh,
             severity: FindingSeverity.condition,
-            textPl: 'Silny wiatr ${n(w, false)} m/s ($wKmhPl km/h): tylko '
-                'w zamkniętym, zabezpieczonym namiocie'
+            textPl: 'Silny wiatr $wPl m/s (${kmh(w, false)} km/h; próg '
+                '$anyPl m/s): tylko w zamkniętym, zabezpieczonym namiocie'
                 '${input.process.windSensitive ? '; przy spoinie ≤ $gasPl' : ''}.',
-            textEn: 'Strong wind ${n(w, true)} m/s ($wKmhEn km/h): only inside '
-                'a closed, secured enclosure'
+            textEn: 'Strong wind $wEn m/s (${kmh(w, true)} km/h; threshold '
+                '$anyEn m/s): only inside a closed, secured enclosure'
                 '${input.process.windSensitive ? '; at the weld ≤ $gasEn' : ''}.',
             basis: [kBasisHighWind, if (input.process.windSensitive) gasBasis],
           )
         : WeatherFinding(
             code: WeatherCode.windHigh,
             severity: FindingSeverity.stop,
-            textPl: 'Silny wiatr ${n(w, false)} m/s ($wKmhPl km/h) — bez '
-                'zamkniętego namiotu nie spawać.',
-            textEn: 'Strong wind ${n(w, true)} m/s ($wKmhEn km/h) — do not '
-                'weld without a closed enclosure.',
+            textPl: 'Silny wiatr $wPl m/s (${kmh(w, false)} km/h) > $anyPl m/s '
+                '— bez zamkniętego namiotu nie spawać.',
+            textEn: 'Strong wind $wEn m/s (${kmh(w, true)} km/h) > $anyEn m/s '
+                '— do not weld without a closed enclosure.',
             basis: [kBasisHighWind, if (input.process.windSensitive) gasBasis],
           ));
   } else if (input.process.windSensitive && w > t.maxWindGasMs) {
+    final (wPl, limPl) = weatherPair(w, t.maxWindGasMs);
+    final (wEn, limEn) = weatherPair(w, t.maxWindGasMs, english: true);
     findings.add(input.shelter == WeatherShelter.none
         ? WeatherFinding(
             code: WeatherCode.windGas,
             severity: FindingSeverity.stop,
-            textPl: '$procPl: wiatr ${n(w, false)} m/s ($wKmhPl km/h) > '
-                '$gasPl — bez osłony nie spawać. Postaw parawan/namiot albo '
-                'spawaj metodą bez gazu (111, 114).',
-            textEn: '$procEn: wind ${n(w, true)} m/s ($wKmhEn km/h) > $gasEn — '
-                'do not weld without a shelter. Put up a windbreak/enclosure '
-                'or use a process without shielding gas (111, 114).',
+            textPl: '$procPl: wiatr $wPl m/s (${kmh(w, false)} km/h) > '
+                '$limPl m/s — bez osłony nie spawać. Postaw parawan/namiot '
+                'albo spawaj metodą bez gazu (111, 114).',
+            textEn: '$procEn: wind $wEn m/s (${kmh(w, true)} km/h) > '
+                '$limEn m/s — do not weld without a shelter. Put up a '
+                'windbreak/enclosure or use a process without shielding gas '
+                '(111, 114).',
             basis: [gasBasis],
           )
         : WeatherFinding(
             code: WeatherCode.windGas,
             severity: FindingSeverity.condition,
             textPl: 'Osłona musi obniżyć wiatr przy spoinie do ≤ $gasPl '
-                '(teraz ${n(w, false)} m/s) — sprawdź przy jeziorku.',
+                '(teraz $wPl m/s) — sprawdź przy jeziorku.',
             textEn: 'The shelter must bring the wind at the weld down to '
-                '≤ $gasEn (now ${n(w, true)} m/s) — check at the weld pool.',
+                '≤ $gasEn (now $wEn m/s) — check at the weld pool.',
             basis: [gasBasis],
           ));
   } else {
+    final (wPl, limPl) = weatherPair(w, t.maxWindGasMs);
+    final (wEn, limEn) = weatherPair(w, t.maxWindGasMs, english: true);
     findings.add(WeatherFinding(
       code: WeatherCode.windGas,
       severity: FindingSeverity.ok,
       textPl: input.process.windSensitive
-          ? 'Wiatr ${n(w, false)} m/s ≤ $gasPl dla $procPl.'
-          : 'Wiatr ${n(w, false)} m/s — $procPl nie ma osłony gazowej, '
+          ? 'Wiatr $wPl m/s ≤ $limPl m/s dla $procPl.'
+          : 'Wiatr ${v(w, false)} m/s — $procPl nie ma osłony gazowej, '
               'limit $gasPl go nie dotyczy (poniżej progu silnego wiatru '
-              '${n(t.maxWindAnyMs, false)} m/s).',
+              '${weatherNumMax(t.maxWindAnyMs)} m/s).',
       textEn: input.process.windSensitive
-          ? 'Wind ${n(w, true)} m/s ≤ $gasEn for $procEn.'
-          : 'Wind ${n(w, true)} m/s — $procEn has no shielding gas, the '
+          ? 'Wind $wEn m/s ≤ $limEn m/s for $procEn.'
+          : 'Wind ${v(w, true)} m/s — $procEn has no shielding gas, the '
               '$gasEn limit does not apply (below the strong-wind threshold '
-              '${n(t.maxWindAnyMs, true)} m/s).',
+              '${weatherNumMax(t.maxWindAnyMs, english: true)} m/s).',
       basis: [input.process.windSensitive ? gasBasis : kBasisAwsWindGas],
     ));
   }
 
-  // ── 4. Wilgoć: punkt rosy / szronu ──────────────────────────────────────
+  // ── 5. Wilgoć: punkt rosy / szronu ──────────────────────────────────────
   final margin = surface - cond;
   final target = cond + t.dewMarginK;
   final pointPl = frost != null ? 'punkt szronu' : 'punkt rosy';
   final pointEn = frost != null ? 'frost point' : 'dew point';
+  final (mPl, needPl) = weatherPair(margin, t.dewMarginK);
+  final (mEn, needEn) = weatherPair(margin, t.dewMarginK, english: true);
   if (margin <= 0) {
+    final (sPl, cPl) = weatherPair(surface, cond);
+    final (sEn, cEn) = weatherPair(surface, cond, english: true);
     findings.add(WeatherFinding(
       code: WeatherCode.condensation,
       severity: FindingSeverity.condition,
-      textPl: 'Powierzchnia ${n(surface, false)} °C ≤ $pointPl '
-          '${n(cond, false)} °C — na stali jest albo zaraz będzie '
-          '${frost != null ? 'szron' : 'rosa'}. Osusz złącze grzaniem i '
-          'utrzymuj ≥ ${n(target, false)} °C.',
-      textEn: 'Surface ${n(surface, true)} °C ≤ $pointEn ${n(cond, true)} °C '
-          '— ${frost != null ? 'frost' : 'dew'} is or will soon be on the '
-          'steel. Dry the joint by heating and keep it ≥ ${n(target, true)} °C.',
+      textPl: 'Powierzchnia $sPl °C ≤ $pointPl $cPl °C — na stali jest albo '
+          'zaraz będzie ${frost != null ? 'szron' : 'rosa'}. Osusz złącze '
+          'grzaniem i utrzymuj ≥ ${weatherNumMin(target)} °C.',
+      textEn: 'Surface $sEn °C ≤ $pointEn $cEn °C — '
+          '${frost != null ? 'frost' : 'dew'} is or will soon be on the '
+          'steel. Dry the joint by heating and keep it ≥ '
+          '${weatherNumMin(target, english: true)} °C.',
       basis: const [kBasisAwsWet, kBasisDry, kBasisIso8502],
     ));
   } else if (margin < t.dewMarginK) {
@@ -1089,26 +1446,24 @@ WeatherAssessment? assessWeather(WeatherInput input,
       code: WeatherCode.condensation,
       severity: FindingSeverity.condition,
       textPl: 'Zapas nad punktem ${frost != null ? 'szronu' : 'rosy'} tylko '
-          '${n(margin, false)} K (< ${n(t.dewMarginK, false, 0)} K) — ryzyko '
-          'kondensacji. Podgrzej złącze do ≥ ${n(target, false)} °C.',
-      textEn: 'Only ${n(margin, true)} K above the $pointEn '
-          '(< ${n(t.dewMarginK, true, 0)} K) — condensation risk. Warm the '
-          'joint to ≥ ${n(target, true)} °C.',
+          '$mPl K (< $needPl K) — ryzyko kondensacji. Podgrzej złącze do ≥ '
+          '${weatherNumMin(target)} °C.',
+      textEn: 'Only $mEn K above the $pointEn (< $needEn K) — condensation '
+          'risk. Warm the joint to ≥ ${weatherNumMin(target, english: true)} °C.',
       basis: const [kBasisIso8502, kBasisDry],
     ));
   } else {
     findings.add(WeatherFinding(
       code: WeatherCode.condensation,
       severity: FindingSeverity.ok,
-      textPl: 'Zapas nad punktem ${frost != null ? 'szronu' : 'rosy'} '
-          '${n(margin, false)} K ≥ ${n(t.dewMarginK, false, 0)} K.',
-      textEn: '${n(margin, true)} K above the $pointEn '
-          '≥ ${n(t.dewMarginK, true, 0)} K.',
+      textPl: 'Zapas nad punktem ${frost != null ? 'szronu' : 'rosy'} $mPl K '
+          '≥ $needPl K.',
+      textEn: '$mEn K above the $pointEn ≥ $needEn K.',
       basis: const [kBasisIso8502],
     ));
   }
 
-  // ── 5. Temperatura materiału (minimum, mróz, WPS) ───────────────────────
+  // ── 6. Temperatura materiału (minimum, mróz, WPS) ───────────────────────
   var required = t.minMaterialC;
   final reqBasis = <WeatherBasis>[kBasisB313MinTemp];
   final carbon = input.material == WeatherMaterial.carbonSteel;
@@ -1121,24 +1476,25 @@ WeatherAssessment? assessWeather(WeatherInput input,
     required = math.max(required, wps);
     reqBasis.add(kBasisWps);
   }
+  final (surPl, reqPl) = weatherPair(surface, required);
+  final (surEn, reqEn) = weatherPair(surface, required, english: true);
   if (surface < required) {
     findings.add(WeatherFinding(
       code: WeatherCode.materialTemp,
       severity: FindingSeverity.condition,
-      textPl: 'Podgrzej strefę złącza do ≥ ${n(required, false, 0)} °C przed '
-          'spawaniem i utrzymuj ją w trakcie (teraz ${n(surface, false)} °C).',
-      textEn: 'Preheat the joint area to ≥ ${n(required, true, 0)} °C before '
-          'welding and hold it while welding (now ${n(surface, true)} °C).',
+      textPl: 'Podgrzej strefę złącza do ≥ ${weatherNumMin(required)} °C '
+          'przed spawaniem i utrzymuj ją w trakcie (teraz $surPl °C).',
+      textEn: 'Preheat the joint area to ≥ '
+          '${weatherNumMin(required, english: true)} °C before welding and '
+          'hold it while welding (now $surEn °C).',
       basis: reqBasis,
     ));
   } else {
     findings.add(WeatherFinding(
       code: WeatherCode.materialTemp,
       severity: FindingSeverity.ok,
-      textPl: 'Materiał ${n(surface, false)} °C ≥ wymagane '
-          '${n(required, false, 0)} °C.',
-      textEn: 'Base metal ${n(surface, true)} °C ≥ required '
-          '${n(required, true, 0)} °C.',
+      textPl: 'Materiał $surPl °C ≥ wymagane $reqPl °C.',
+      textEn: 'Base metal $surEn °C ≥ required $reqEn °C.',
       basis: reqBasis,
     ));
   }
@@ -1157,10 +1513,11 @@ WeatherAssessment? assessWeather(WeatherInput input,
       basis: [kBasisIso8502Measure],
     ));
   }
-  final heating = findings.any((f) =>
-      f.severity == FindingSeverity.condition &&
-      (f.code == WeatherCode.materialTemp ||
-          f.code == WeatherCode.condensation));
+  final heating = wetOrFrozen ||
+      findings.any((f) =>
+          f.severity == FindingSeverity.condition &&
+          (f.code == WeatherCode.materialTemp ||
+              f.code == WeatherCode.condensation));
   if (heating || wps != null) {
     recs.add(const WeatherFinding(
       code: WeatherCode.recHeatZone,
@@ -1260,8 +1617,11 @@ WeatherAssessment? assessWeather(WeatherInput input,
 // Historia
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Zapisany pomiar: wejście i progi z chwili zapisu (ocena odtwarzana
-/// deterministycznie) plus werdykt zapisany wtedy i odhaczone warunki.
+/// Zapisany pomiar: wejście i progi z chwili zapisu, werdykt i kody STOP /
+/// warunków ustalone WTEDY, wersja reguł i odhaczone warunki. Szczegóły na
+/// ekranie i w raporcie są odtwarzane bieżącym kodem — gdy wersja reguł albo
+/// wynik się różni, wpis jest oznaczany ([rulesMismatch]), a wiąże zapisany
+/// werdykt.
 class WeatherCheckRecord {
   const WeatherCheckRecord({
     required this.id,
@@ -1271,7 +1631,33 @@ class WeatherCheckRecord {
     this.thresholds = WeatherThresholds.defaults,
     required this.verdict,
     this.checked = const {},
+    this.rulesVersion = kWeatherRulesVersion,
+    this.stopCodes,
+    this.conditionCodes,
   });
+
+  /// Wpis z bieżącej oceny (kody i wersja reguł z chwili zapisu).
+  factory WeatherCheckRecord.fromAssessment({
+    required String id,
+    required DateTime takenAt,
+    String place = '',
+    required WeatherAssessment assessment,
+    Set<String> checked = const {},
+  }) =>
+      WeatherCheckRecord(
+        id: id,
+        takenAt: takenAt,
+        place: place,
+        input: assessment.input,
+        thresholds: assessment.thresholds,
+        verdict: assessment.verdict,
+        checked: {
+          for (final c in assessment.conditionCodes)
+            if (checked.contains(c)) c,
+        },
+        stopCodes: assessment.stopCodes,
+        conditionCodes: assessment.conditionCodes,
+      );
 
   final String id;
   final DateTime takenAt;
@@ -1280,13 +1666,35 @@ class WeatherCheckRecord {
   final String place;
   final WeatherInput input;
   final WeatherThresholds thresholds;
+
+  /// Werdykt z chwili zapisu — wiąże, nawet gdy reguły się zmieniły.
   final WeatherVerdict verdict;
 
   /// Kody warunków odhaczonych przez spawacza.
   final Set<String> checked;
 
-  /// Ocena odtworzona z zapisanych danych.
+  /// Wersja reguł, którą liczono werdykt (wpisy bez pola → 1).
+  final int rulesVersion;
+
+  /// Kody STOP i warunków z chwili zapisu (`null` — stary wpis bez nich).
+  final List<String>? stopCodes;
+  final List<String>? conditionCodes;
+
+  /// Ocena odtworzona z zapisanych danych BIEŻĄCYMI regułami.
   WeatherAssessment? get assessment => assessWeather(input, thresholds);
+
+  /// Szczegóły odtworzone inną wersją reguł albo z innym wynikiem niż
+  /// zapisany — ekran, tekst i PDF muszą to powiedzieć.
+  bool get rulesMismatch {
+    if (rulesVersion != kWeatherRulesVersion) return true;
+    final a = assessment;
+    if (a == null || a.verdict != verdict) return true;
+    bool same(List<String>? saved, List<String> now) =>
+        saved == null ||
+        ({...saved}.length == {...now}.length && {...saved}.containsAll(now));
+    return !same(stopCodes, a.stopCodes) ||
+        !same(conditionCodes, a.conditionCodes);
+  }
 
   Map<String, Object?> toJson() => {
         'id': id,
@@ -1296,6 +1704,9 @@ class WeatherCheckRecord {
         'thresholds': thresholds.toJson(),
         'verdict': verdict.name,
         'checked': checked.toList()..sort(),
+        'rulesVersion': rulesVersion,
+        if (stopCodes != null) 'stopCodes': stopCodes,
+        if (conditionCodes != null) 'conditionCodes': conditionCodes,
       };
 
   factory WeatherCheckRecord.fromJson(Object? json) {
@@ -1313,7 +1724,13 @@ class WeatherCheckRecord {
       if (v.name == json['verdict']) verdict = v;
     }
     final thresholds = WeatherThresholds.fromJson(json['thresholds']);
-    final checkedRaw = json['checked'];
+    List<String>? codes(Object? raw) => raw is List
+        ? [
+            for (final c in raw)
+              if (c is String) c
+          ]
+        : null;
+    final version = json['rulesVersion'];
     return WeatherCheckRecord(
       id: id,
       takenAt: date,
@@ -1323,39 +1740,83 @@ class WeatherCheckRecord {
       verdict: verdict ??
           assessWeather(input, thresholds)?.verdict ??
           WeatherVerdict.noGo,
-      checked: {
-        if (checkedRaw is List)
-          for (final c in checkedRaw)
-            if (c is String) c,
-      },
+      checked: {...?codes(json['checked'])},
+      rulesVersion: version is int ? version : 1,
+      stopCodes: codes(json['stopCodes']),
+      conditionCodes: codes(json['conditionCodes']),
     );
   }
+}
+
+/// Opis rozbieżności reguł do raportu (null — brak).
+String? weatherRulesMismatchText(WeatherCheckRecord r,
+    {required bool english}) {
+  if (!r.rulesMismatch) return null;
+  final saved = weatherVerdictText(r.verdict, english: english);
+  return _tr(
+      english,
+      'Szczegóły odtworzone inną wersją reguł (zapis: wersja '
+          '${r.rulesVersion}, teraz $kWeatherRulesVersion) — wiąże zapisany '
+          'werdykt: $saved.',
+      'Details rebuilt with a different rules version (saved: version '
+          '${r.rulesVersion}, now $kWeatherRulesVersion) — the saved verdict '
+          'governs: $saved.');
 }
 
 String encodeWeatherHistory(List<WeatherCheckRecord> records) =>
     jsonEncode([for (final r in records) r.toJson()]);
 
-/// Historia z JSON-a. Uszkodzony JSON → pusta lista; uszkodzony pojedynczy
-/// wpis jest pomijany, reszta zostaje. Nigdy nie rzuca. Najnowsze pierwsze.
-List<WeatherCheckRecord> decodeWeatherHistory(String? raw) {
-  if (raw == null || raw.trim().isEmpty) return const [];
+/// Wynik odczytu historii.
+class WeatherHistoryDecode {
+  const WeatherHistoryDecode({
+    this.records = const [],
+    this.skipped = 0,
+    this.unreadable = false,
+  });
+
+  /// Wpisy czytelne, najnowsze pierwsze.
+  final List<WeatherCheckRecord> records;
+
+  /// Wpisy pominięte, bo były uszkodzone.
+  final int skipped;
+
+  /// Cały zapis nieczytelny (zły JSON albo nie lista).
+  final bool unreadable;
+
+  /// Coś przepadłoby przy nadpisaniu — trzeba zachować kopię surowego tekstu.
+  bool get damaged => unreadable || skipped > 0;
+}
+
+/// Historia z zapisu ([raw] — wartość prosto z SharedPreferences, dowolnego
+/// typu). Nigdy nie rzuca: uszkodzony JSON → [WeatherHistoryDecode.unreadable],
+/// uszkodzony pojedynczy wpis jest pomijany i liczony w
+/// [WeatherHistoryDecode.skipped].
+WeatherHistoryDecode decodeWeatherHistoryDetailed(Object? raw) {
+  if (raw == null) return const WeatherHistoryDecode();
+  if (raw is! String) return const WeatherHistoryDecode(unreadable: true);
+  if (raw.trim().isEmpty) return const WeatherHistoryDecode();
   Object? data;
   try {
     data = jsonDecode(raw);
   } on FormatException {
-    return const [];
+    return const WeatherHistoryDecode(unreadable: true);
   }
-  if (data is! List) return const [];
+  if (data is! List) return const WeatherHistoryDecode(unreadable: true);
   final out = <WeatherCheckRecord>[];
+  var skipped = 0;
   for (final item in data) {
     try {
       out.add(WeatherCheckRecord.fromJson(item));
     } on FormatException {
-      // pomiń uszkodzony wpis
+      skipped++;
     } on TypeError {
-      // pomiń wpis o złym kształcie
+      skipped++;
     }
   }
   out.sort((a, b) => b.takenAt.compareTo(a.takenAt));
-  return out;
+  return WeatherHistoryDecode(records: out, skipped: skipped);
 }
+
+/// Historia z JSON-a (same czytelne wpisy). Nigdy nie rzuca.
+List<WeatherCheckRecord> decodeWeatherHistory(String? raw) =>
+    decodeWeatherHistoryDetailed(raw).records;
