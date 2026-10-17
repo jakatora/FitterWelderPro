@@ -149,6 +149,8 @@ void main() {
         'PieceworkPage',
         // Śruby do kołnierzy: długość i komplet.
         'BoltKitPage',
+        // Plan badań NDT z dziennika spoin.
+        'NdtPlanPage',
       };
       expect(targets, expected);
     });

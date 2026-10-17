@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 90
+Moduły: 91
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 42 |
+| passed | 43 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -82,6 +82,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `legal` | LegalScreen | lib/screens/legal_screen.dart | document | medium | unverified | Użytkownik otwiera politykę prywatności w aplikacji. | test/audit/module_smoke_test.dart: LegalScreen renderuje politykę prywatności przy skali 1,3 |
 | `material-list` | MaterialListScreen | lib/screens/material_list_screen.dart | project | high | unverified | Projekt z odcinkami wyświetla listę materiałową z ilościami. | Brak dowodu scenariusza |
 | `mitre-bend` | MitreBendPage | lib/features/mitre_bend/mitre_bend_page.dart | fitter | medium | passed | DN150 (Ø168,3), 90°, 3 spoiny, R = 1,5D: cięcie 15°, segment pełny oś 135,3 / gardło 90,2 / grzbiet 180,4 mm; 4 spoiny → 11,25°; R ≤ D/2 i za krótki odcinek przy jednym cięciu — komunikat bez wyniku; szablon 1:1 w kaflach A4. | test/domain/fitter/mitre_bend_test.dart: pełny segment: oś 2R·tg β, gardło i grzbiet ± D·tg β<br>test/features/mitre_bend/mitre_bend_page_test.dart: domyślnie DN150, 90°, 3 spoiny → cięcie 15°<br>test/features/mitre_bend/mitre_bend_page_test.dart: za mały promień — komunikat, bez wyniku<br>test/features/mitre_bend/mitre_bend_page_test.dart: szablon PDF: kafle i podziałki, DN600 mieści się w limicie |
+| `ndt-plan` | NdtPlanPage | lib/features/ndt_plan/ndt_plan_page.dart | welder | safetyCritical | passed | Blok 4 z presetem 10 % RT + 100 % VT: L-12 (JK-12 10 spoin, AB-03 2, VT OK wszystkich, RT j1 i a1) gotowa do próby, grupy kompletne 3/3, brakuje 0; L-14 (JK-12 5 spoin, k5 bez VT, u1 bez spawacza) niegotowa — nieprzypisane 1, grupy niekompletne 3 z 3, brakuje 3; zlecenie: RT 1 spoina z k1–k5 (wybór powtarzalny, inny w rundzie 2) + VT k5; 5 % z 1/19/20/21 spoin = 1/1/1/2; spoina wspólna JK-12/AB-03 liczy się obu; odrzucona próbka RT → 2 dodatkowe §341.3.4 z weld_stats, dwie „dod.” OK zamykają; naprawa R1 przez DAO blokuje linię do ponownego badania; uszkodzone reguły — żadna linia gotowa do potwierdzenia; tekst i PDF przez wstrzyknięte udostępnianie. | test/features/ndt_plan/ndt_plan_page_test.dart: dziennik z bazy (DAO): naprawa czeka na badanie, linia niegotowa; reguły z zapisu<br>test/features/ndt_plan/ndt_plan_page_test.dart: reguły → wynik: bez reguł nic nie jest gotowe; dodana reguła liczy grupy i się zapisuje<br>test/features/ndt_plan/ndt_plan_page_test.dart: preset ASME B31.3: RT 5 % na spawacza (partia = projekt) + VT 100 %<br>test/features/ndt_plan/ndt_plan_page_test.dart: gotowość linii: gotowa / niegotowa z powodami i grupami<br>test/features/ndt_plan/ndt_plan_page_test.dart: uszkodzone reguły: komunikat, nic nie jest gotowe, potwierdzenie zapisuje i robi kopię<br>test/domain/ndt/ndt_plan_db_test.dart: z bazy (DAO): naprawa R1 → czeka na ponowne RT i 2 dodatkowe; po badaniach linia gotowa<br>test/domain/ndt/ndt_plan_test.dart: 5 % z 1 / 19 / 20 / 21 spoin = 1 / 1 / 1 / 2<br>test/domain/ndt/ndt_plan_test.dart: procent spoza 0–100, NaN i nieskończoność nie tworzą reguły<br>test/domain/ndt/ndt_plan_test.dart: spoina bez spawacza: osobna grupa „nieprzypisane", linia niegotowa<br>test/domain/ndt/ndt_plan_test.dart: odrzucona bez naprawy → „naprawy otwarte", linia niegotowa<br>test/domain/ndt/ndt_plan_test.dart: gotowa linia: liczby obok werdyktu się z nim zgadzają<br>test/domain/ndt/ndt_plan_test.dart: te same dane = ta sama lista, niezależnie od kolejności wpisów<br>test/features/ndt_plan/ndt_plan_store_test.dart: uszkodzony zapis: kopia surowego tekstu przed nadpisaniem, tylko raz |
 | `new-cut-list-project` | NewCutListProjectScreen | lib/screens/new_cut_list_project_screen.dart | project | medium | unverified | Użytkownik zakłada projekt listy cięcia z nazwą. | Brak dowodu scenariusza |
 | `new-project` | NewProjectScreen | lib/screens/new_project_screen.dart | project | medium | unverified | Użytkownik tworzy nowy projekt spawalniczy. | Brak dowodu scenariusza |
 | `onboarding-name` | OnboardingNameScreen | lib/screens/onboarding_name_screen.dart | start | low | unverified | Nowy użytkownik zapisuje swoje imię w onboardingu. | Brak dowodu scenariusza |

@@ -13,6 +13,7 @@ import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
 import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
+import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
@@ -1465,6 +1466,53 @@ final List<ToolSpec> kToolRegistry = [
       'ambient temperature',
       'field welding',
       'aws d1.1'
+    ],
+  ),
+  ToolSpec(
+    id: 'ndt_plan',
+    group: ToolGroup.inspection,
+    titlePl: 'Plan badań NDT',
+    titleEn: 'NDT plan',
+    subtitlePl:
+        'Ile spoin zbadać na spawacza i linię, co zlecić, gotowość do próby',
+    subtitleEn:
+        'Welds to examine per welder and line, what to order, test readiness',
+    icon: Icons.rule_outlined,
+    color: const Color(0xFF00ACC1),
+    builder: (_) => const NdtPlanPage(),
+    keywordsPl: const [
+      'ndt',
+      'badania nieniszczace',
+      'plan badan',
+      'zlecenie badan',
+      'radiografia',
+      'rentgen',
+      'rt',
+      'ut',
+      'vt',
+      'pt',
+      'mt',
+      'procent badan',
+      'badanie losowe',
+      'wyrywkowe',
+      'proba cisnieniowa',
+      'gotowosc linii',
+      'b31.3',
+      'kontrola jakosci'
+    ],
+    keywordsEn: const [
+      'ndt',
+      'nde',
+      'examination plan',
+      'random radiography',
+      'radiography',
+      'ultrasonic',
+      'spot examination',
+      'progressive sampling',
+      'pressure test readiness',
+      'line readiness',
+      'qc',
+      'b31.3'
     ],
   ),
   ToolSpec(
