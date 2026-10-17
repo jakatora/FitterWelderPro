@@ -65,13 +65,22 @@ class _HotWorkPageState extends State<HotWorkPage> {
     _tick = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
+    HotWorkStore.changes.addListener(_onStoreChanged);
     unawaited(_reload());
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    HotWorkStore.changes.removeListener(_onStoreChanged);
     super.dispose();
+  }
+
+  /// Zapis spoza tego ekranu (np. „Cofnij” po zamknięciu protokołu) —
+  /// odśwież listę, gdy jest na wierzchu.
+  void _onStoreChanged() {
+    if (!mounted) return;
+    if (ModalRoute.of(context)?.isCurrent ?? true) unawaited(_reload());
   }
 
   Future<void> _reload() async {
@@ -187,7 +196,11 @@ class _HotWorkPageState extends State<HotWorkPage> {
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
-            await _store.upsert(permit);
+            try {
+              await _store.restore(permit);
+            } catch (e) {
+              debugPrint('[hot_work] undo delete failed: $e');
+            }
             if (mounted) await _reload();
           },
         ),

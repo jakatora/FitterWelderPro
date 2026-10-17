@@ -313,6 +313,31 @@ void main() {
     });
   });
 
+  group('chwila wpisu z przyszłości', () {
+    test('zegar +1 h przy dobrym pomiarze nie omija blokady STOP wpisanego '
+        'później', () {
+      final now = _t(14, 6);
+      // Zegar telefonu +1 h: dobry pomiar z ręczną godziną 13:50 wpisany
+      // „o 15:00”. Zegar wraca; o 14:05 wpisany zaległy alarm O₂ 17 %
+      // z 13:45 — jego wpis jest wcześniejszy niż „15:00”.
+      final r = _allBefore(_blank())
+          .addMeasurement(_m(13, 50, id: 'ok', entered: _at(15, 0)))
+          .addMeasurement(_m(13, 45, o2: 17, id: 'alarm', entered: _at(14, 5)));
+      final a = r.assess(now: now);
+      expect(a.readiness, CsReadiness.stop);
+      expect(a.verdict(CsGas.o2).enteredLater, isTrue);
+      // Odczyt zapisu: chwila wpisu z przyszłości jest nieważna (null),
+      // nie przycięta do „teraz”; ocena po odczycie — nadal STOP.
+      final back = ConfinedSpaceRecord.fromJson(
+          jsonDecode(jsonEncode(r.toJson())),
+          now: now)!;
+      final ok = back.measurements.firstWhere((m) => m.id == 'ok');
+      expect(ok.enteredAt, isNull);
+      expect(ok.enteredAsOf(now), _at(13, 50));
+      expect(back.assess(now: now).readiness, CsReadiness.stop);
+    });
+  });
+
   group('nie dotyczy', () {
     test('tylko przy punktach, które na to pozwalają', () {
       final r = _blank();

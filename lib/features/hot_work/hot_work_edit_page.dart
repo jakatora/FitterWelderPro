@@ -93,6 +93,9 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   /// Magazyn z zegarem ekranu (pomiary „z przyszłości” przy odczycie).
   late final HotWorkStore _store = widget.store.withClock(widget.now);
 
+  /// Licznik do identyfikatorów pomiarów wpisanych w tej samej milisekundzie.
+  int _seq = 0;
+
   late final _maxAge = TextEditingController(
       text: _p.measurementMaxAgeMin?.toString() ?? '');
 
@@ -332,6 +335,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     }
     final at = _measTime == null ? now : hotWorkMeasurementAt(time, now);
     final m = HotWorkMeasurement(
+      id: 'm${now.millisecondsSinceEpoch}-${_seq++}',
       time: time,
       at: at.millisecondsSinceEpoch,
       enteredAt: now.millisecondsSinceEpoch,
@@ -339,16 +343,29 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
       note: _measNote.text.trim(),
     );
     final latestBefore = _assess().latestMeasurement;
-    _set((p) => p.copyWith(
-        measurements: hotWorkMeasurementsChrono([...p.measurements, m])));
+    _set((p) => p.addMeasurement(m));
     _measDgw.clear();
     _measNote.clear();
     setState(() => _measTime = null);
     unawaited(Haptic.tap());
+    final after = _assess();
+    final minute = m.at! ~/ 60000;
+    // Remis w tej samej minucie — mówimy wprost, że decyduje gorszy.
+    if (after.tie && after.latestMeasurement?.at != null &&
+        after.latestMeasurement!.at! ~/ 60000 == minute) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          key: const ValueKey('hw-meas-tie'),
+          content: Text(
+              hotWorkTieText(after, en: context.language == AppLanguage.en)),
+        ));
+      return;
+    }
     // Zaległy pomiar nie zmienia stanu — mówimy to wprost, żeby nikt nie
     // myślał, że „0 %” dopisane później zdjęło STOP.
     if (latestBefore != null &&
-        !identical(_assess().latestMeasurement, m)) {
+        !identical(after.latestMeasurement, m)) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
@@ -363,10 +380,14 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
     }
   }
 
-  void _removeMeasurement(int index) {
-    final removed = _p.measurements[index];
-    _set((p) => p.copyWith(
-        measurements: [...p.measurements]..removeAt(index)));
+  /// Usunięcie z „Cofnij”. Cofnięcie zapisuje przez magazyn po id
+  /// protokołu i pomiaru — działa także po zamknięciu ekranu; stan ekranu
+  /// poprawia tylko, gdy ekran istnieje.
+  void _removeMeasurement(HotWorkMeasurement removed) {
+    final before = _p;
+    _set((p) => p.removeMeasurement(removed));
+    final store = _store;
+    final id = _p.id;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
@@ -375,10 +396,15 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
-            if (!mounted) return;
-            final list = [..._p.measurements];
-            list.insert(index.clamp(0, list.length), removed);
-            _set((p) => p.copyWith(measurements: list));
+            unawaited(store
+                .update(id, (p) => p.restoreMeasurement(removed),
+                    orElse: before)
+                .catchError((Object e) {
+              debugPrint('[hot_work] undo failed: $e');
+            }));
+            if (mounted) {
+              setState(() => _p = _p.restoreMeasurement(removed));
+            }
           },
         ),
       ));
@@ -793,7 +819,7 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
                 : kFail,
             deleteKey: ValueKey('hw-meas-del-$i'),
             deleteTooltip: context.tr(pl: 'Usuń pomiar', en: 'Remove reading'),
-            onDelete: () => _removeMeasurement(i),
+            onDelete: () => _removeMeasurement(m),
           ),
         const SizedBox(height: 4),
         FieldPair(
@@ -966,6 +992,17 @@ class _StatusCard extends StatelessWidget {
                         height: 1.3,
                         fontWeight: FontWeight.w800),
                   ),
+                  if (a.tie)
+                    Padding(
+                      key: const ValueKey('hw-tie'),
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text('⚠ ${hotWorkTieText(a, en: en)}',
+                          style: const TextStyle(
+                              color: kWarn,
+                              fontSize: 13,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600)),
+                    ),
                   if (blockers.length > 1) ...[
                     const SizedBox(height: 6),
                     for (final b in blockers)

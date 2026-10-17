@@ -12,6 +12,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/hot_work/hot_work_permit.dart';
@@ -136,22 +137,56 @@ class HotWorkStore {
     final ok = await prefs.setString(
         key, jsonEncode(hotWorkPermitsToJson(sortHotWorkPermits(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    changes.value++;
+  }
+
+  /// Rośnie po każdym zapisie — lista odświeża się np. po „Cofnij”
+  /// wykonanym już po zamknięciu ekranu protokołu.
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+
+  /// [allowOverLimit] — cofnięcie (przywrócenie usuniętego), nie nowy
+  /// protokół: wolno ponad limit, inaczej „Cofnij” przy pełnej historii
+  /// skasowałby protokół bez słowa.
+  Future<void> _upsertNow(HotWorkPermit permit,
+      {bool allowOverLimit = false}) async {
+    final list = [...(await _loadNow()).permits];
+    final existed = list.any((p) => p.id == permit.id);
+    list.removeWhere((p) => p.id == permit.id);
+    if (!permit.isBlank) {
+      if (!existed && !allowOverLimit && list.length >= maxEntries) {
+        throw const HotWorkStoreFull();
+      }
+      list.add(permit);
+    }
+    await _write(list);
   }
 
   /// Zapisuje (nowy albo zmieniony) protokół. Pusty protokół (nic nie
   /// wpisano) nie trafia do historii — a jeśli był zapisany, znika. Nowy
   /// protokół przy pełnej historii → [HotWorkStoreFull].
-  Future<void> upsert(HotWorkPermit permit) => _serial(() async {
-        final list = [...(await _loadNow()).permits];
-        final existed = list.any((p) => p.id == permit.id);
-        list.removeWhere((p) => p.id == permit.id);
-        if (!permit.isBlank) {
-          if (!existed && list.length >= maxEntries) {
-            throw const HotWorkStoreFull();
-          }
-          list.add(permit);
-        }
-        await _write(list);
+  Future<void> upsert(HotWorkPermit permit) =>
+      _serial(() => _upsertNow(permit));
+
+  /// „Cofnij” usunięcia protokołu: przywraca go ZAWSZE, także gdy historia
+  /// w międzyczasie doszła do limitu (to cofnięcie, nie nowy protokół).
+  Future<void> restore(HotWorkPermit permit) =>
+      _serial(() => _upsertNow(permit, allowOverLimit: true));
+
+  /// Zmiana ZAPISANEGO protokołu [id] (np. „Cofnij” usunięcia pomiaru po
+  /// zamknięciu ekranu). Gdy protokołu już nie ma (np. zrobił się pusty
+  /// i wypadł), zapisuje [orElse] po zmianie — to cofnięcie, wolno ponad
+  /// limit.
+  Future<void> update(
+    String id,
+    HotWorkPermit Function(HotWorkPermit p) change, {
+    HotWorkPermit? orElse,
+  }) =>
+      _serial(() async {
+        final permits = (await _loadNow()).permits;
+        final current = permits.where((p) => p.id == id);
+        final base = current.isNotEmpty ? current.first : orElse;
+        if (base == null) return;
+        await _upsertNow(change(base), allowOverLimit: current.isEmpty);
       });
 
   Future<void> delete(String id) => _serial(() async {

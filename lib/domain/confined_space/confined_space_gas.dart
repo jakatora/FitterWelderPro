@@ -310,6 +310,15 @@ class CsMeasurement {
   /// Chwila wpisania (stare zapisy — chwila pomiaru).
   int get entered => enteredAt ?? at;
 
+  /// Chwila wpisania ważna względem [now]: wpis „z przyszłości” (dalej niż
+  /// [kCsFutureSlack]) — zegar był przestawiony — jest nieważny i zostaje
+  /// chwila pomiaru [at]. Bez przycinania do „teraz”.
+  int enteredAsOf(DateTime now) {
+    final e = enteredAt;
+    if (e == null) return at;
+    return e > now.add(kCsFutureSlack).millisecondsSinceEpoch ? at : e;
+  }
+
   /// Minuta pomiaru — jednostka porównania „który najpóźniejszy”.
   int get minute => at ~/ 60000;
 
@@ -358,8 +367,15 @@ class CsMeasurement {
       id: raw['id'] is String ? raw['id'] as String : '',
       time: raw['time'] is String ? raw['time'] as String : '',
       at: at.toInt(),
-      enteredAt:
-          entered is num && entered.isFinite ? entered.toInt() : null,
+      // Chwila wpisu z przyszłości (zegar telefonu był przestawiony) jest
+      // nieważna — zostaje chwila pomiaru; NIE przycinamy jej do „teraz”
+      // (przycięta przykryłaby później wpisany alarm).
+      enteredAt: entered is num &&
+              entered.isFinite &&
+              (now == null ||
+                  entered <= now.add(kCsFutureSlack).millisecondsSinceEpoch)
+          ? entered.toInt()
+          : null,
       values: values,
       place: raw['place'] is String ? raw['place'] as String : '',
     );

@@ -141,12 +141,16 @@ class ConfinedSpaceStore {
     changes.value++;
   }
 
-  Future<void> _upsertNow(ConfinedSpaceRecord record) async {
+  /// [allowOverLimit] — cofnięcie (przywrócenie usuniętego), nie nowy
+  /// protokół: wolno ponad limit, inaczej „Cofnij” przy pełnej historii
+  /// skasowałby protokół bez słowa.
+  Future<void> _upsertNow(ConfinedSpaceRecord record,
+      {bool allowOverLimit = false}) async {
     final list = [...(await _loadNow()).records];
     final existed = list.any((r) => r.id == record.id);
     list.removeWhere((r) => r.id == record.id);
     if (!record.isBlank) {
-      if (!existed && list.length >= maxEntries) {
+      if (!existed && !allowOverLimit && list.length >= maxEntries) {
         throw const ConfinedSpaceStoreFull();
       }
       list.add(record);
@@ -159,6 +163,11 @@ class ConfinedSpaceStore {
   /// protokół przy pełnej historii → [ConfinedSpaceStoreFull].
   Future<void> upsert(ConfinedSpaceRecord record) =>
       _serial(() => _upsertNow(record));
+
+  /// „Cofnij” usunięcia protokołu: przywraca go ZAWSZE, także gdy historia
+  /// w międzyczasie doszła do limitu (to cofnięcie, nie nowy protokół).
+  Future<void> restore(ConfinedSpaceRecord record) =>
+      _serial(() => _upsertNow(record, allowOverLimit: true));
 
   /// Zmiana ZAPISANEGO protokołu [id] (np. „Cofnij” usunięcia pomiaru po
   /// zamknięciu ekranu). Gdy protokołu już nie ma (np. zrobił się pusty
@@ -173,7 +182,8 @@ class ConfinedSpaceStore {
         final current = records.where((r) => r.id == id);
         final base = current.isNotEmpty ? current.first : orElse;
         if (base == null) return;
-        await _upsertNow(change(base));
+        // Przywrócenie z [orElse] to cofnięcie — wolno ponad limit.
+        await _upsertNow(change(base), allowOverLimit: current.isEmpty);
       });
 
   Future<void> delete(String id) => _serial(() async {

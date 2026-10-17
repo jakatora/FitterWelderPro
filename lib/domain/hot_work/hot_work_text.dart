@@ -124,6 +124,16 @@ String hotWorkReadinessShort(HotWorkAssessment a, {required bool en}) {
   return '$base · ${en ? 'out of date' : 'nieaktualne'}';
 }
 
+/// Ostrzeżenie o remisie: różne wyniki z tej samej minuty.
+String hotWorkTieText(HotWorkAssessment a, {required bool en}) {
+  final time = a.latestMeasurement?.time ?? '—';
+  return en
+      ? 'Different readings in the same minute ($time) — the worse one '
+          'decides. Delete the wrong one or test again.'
+      : 'Różne wyniki z tej samej minuty ($time) — decyduje gorszy. Usuń '
+          'błędny albo zmierz ponownie.';
+}
+
 /// Wiersz „etykieta — wartość” danych zezwolenia.
 class HotWorkLine {
   final String label;
@@ -230,7 +240,9 @@ String hotWorkProtocolText(HotWorkPermit p,
   }
   b
     ..writeln()
-    ..writeln('${en ? 'STATUS' : 'STAN'}: ${hotWorkReadinessText(a, en: en)}')
+    ..writeln('${en ? 'STATUS' : 'STAN'}: ${hotWorkReadinessText(a, en: en)}');
+  if (a.tie) b.writeln('! ${hotWorkTieText(a, en: en)}');
+  b
     ..writeln()
     ..writeln(en ? 'GAS TEST' : 'POMIAR ATMOSFERY');
   if (p.measurements.isEmpty) {
