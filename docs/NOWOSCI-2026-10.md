@@ -11,6 +11,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Wyceny spawalnicze | ekran główny (kafel WYCENY), Spawacz → Wyceny i koszty | koszt roboty z geometrii spoin: robocizna, spoiwo, gaz, prąd, NDT, narzut, zysk, VAT; oferta PDF dla klienta i kosztorys wewnętrzny; lista zakupów |
 | Ile brać za godzinę | Spawacz → Wyceny i koszty | minimalna stawka z kosztów firmy, podatku i godzin fakturowanych |
 | Akord: ile zarobiłem | Spawacz → Wyceny i koszty | zarobek z dziennika spoin: zł/DI lub za spoinę, dopłaty (nierdzewka, pozycja, Sch 80+), potrącenia za naprawy, okresy, zł/h vs „Ile brać za godzinę”, PDF; spoiny bez OD pominięte z listą |
+| Filtr przyłbicy: stopień zaciemnienia | Spawacz → Parametry spawania | EN 169 (wykres z przedruków DGUV) i ANSI Z49.1 / minimum OSHA dla procesu i prądu (gaz: przepływ / grubość); na granicy wyższy, poza tabelą „co najmniej” z ostrzeżeniem; pomocnik, EN 379. Poprawiony wpis Pomocy o filtrach (był ANSI Z87.1 i jaśniejsze stopnie) |
 | Dobór spoiwa | Spawacz → Parametry spawania | spoiwo EN ISO + AWS, gaz, formowanie; połączenia różnoimienne (309L itd.) |
 | Obróbka cieplna po spawaniu | Spawacz → Kalkulatory | plan PWHT wg ASME B31.3 (2020/2024) i B31.1-2022, wykres cyklu, PDF |
 | Odbiór spoin ISO 5817 | Spawacz → Kontrola i dokumentacja | limity B/C/D niezgodności VT i ocena pomiaru |

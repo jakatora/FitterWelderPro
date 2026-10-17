@@ -18,6 +18,7 @@ import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
+import '../features/shade/shade_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weld_defects/weld_defects_page.dart';
 import '../features/welder_exam/welder_exam_page.dart';
@@ -1169,6 +1170,42 @@ final List<ToolSpec> kToolRegistry = [
     builder: (_) => const OrbitalTigScreen(),
     keywordsPl: const ['orbital', 'orbitalne', 'tig', 'glowica', 'czas'],
     keywordsEn: const ['orbital', 'tig', 'head', 'weld time'],
+  ),
+  ToolSpec(
+    id: 'shade',
+    group: ToolGroup.weldParams,
+    titlePl: 'Filtr przyłbicy: stopień zaciemnienia',
+    titleEn: 'Welding filter: shade number',
+    subtitlePl: 'EN 169 i ANSI/OSHA dla procesu i prądu',
+    subtitleEn: 'EN 169 and ANSI/OSHA by process and current',
+    icon: Icons.visibility_outlined,
+    color: const Color(0xFFAED581),
+    builder: (_) => const ShadePage(),
+    keywordsPl: const [
+      'filtr',
+      'przylbica',
+      'maska spawalnicza',
+      'stopien zaciemnienia',
+      'zaciemnienie',
+      'din',
+      'samosciemniajaca',
+      'szybka',
+      'ochrona oczu',
+      'en 169',
+      'en 379',
+      'bhp'
+    ],
+    keywordsEn: const [
+      'welding filter',
+      'shade',
+      'lens shade',
+      'helmet',
+      'auto darkening',
+      'adf',
+      'eye protection',
+      'ansi z49.1',
+      'osha'
+    ],
   ),
   ToolSpec(
     id: 'tungsten',

@@ -163,6 +163,8 @@ void main() {
         'PowerSourcePage',
         // Egzamin spawacza: pytania z danych aplikacji.
         'WelderExamPage',
+        // Filtr przyłbicy: stopień zaciemnienia.
+        'ShadePage',
       };
       expect(targets, expected);
     });

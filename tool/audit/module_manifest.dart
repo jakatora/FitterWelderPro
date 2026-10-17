@@ -1010,6 +1010,27 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/data_integrity_audit_test.dart: edycja projektu i CUT segmentu przeżywa ponowne otwarcie bazy',
       ]),
   ModuleAuditEntry(
+      id: 'shade',
+      entryPoint: 'ShadePage',
+      sourcePath: 'lib/features/shade/shade_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'MMA 120 A → EN 169: 10 (100–150 A), ANSI SMAW zalecany 10, minimum OSHA 8 → zacznij od 10, nie jaśniej niż 9; MMA 100 A (granica 9/10) → 10; TIG 100 A → EN 10, ANSI 12 → zacznij od 12, nie jaśniej niż 9; TIG 400 A → EN ≥ 13 z ostrzeżeniem, start 14 i uwaga o filtrach do 13; TIG 5 A → 8 z najniższego przedziału z ostrzeżeniem; MIG aluminium 100 A → 10 poniżej tabeli (od 125 A); cięcie plazmowe 40 A → 9, nie jaśniej niż 9; gaz: grubość 8 mm → ANSI 5–6, przepływ 150 l/h → EN 5; acetylen 70 l/h → 4, 70,1 → 5; puste pole → komunikat bez wyniku; 0 → błąd pola.',
+      evidence: [
+        'test/features/shade/shade_page_test.dart: proces + prąd → stopień EN 169 i ANSI/OSHA',
+        'test/features/shade/shade_page_test.dart: zmiana procesu zmienia stopień; granica → wyższy',
+        'test/features/shade/shade_page_test.dart: prąd poza tabelą → „co najmniej” i ostrzeżenie, nie w dół',
+        'test/features/shade/shade_page_test.dart: puste i nieczytelne pole — komunikat zamiast wyniku; przecinek i kropka',
+        'test/features/shade/shade_page_test.dart: gaz: grubość → ANSI, przepływ → EN 169',
+        'test/features/shade/shade_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez przepełnień',
+        'test/domain/welding/shade_number_test.dart: wykres EN 169: wartość na kresce → wyższy stopień',
+        'test/domain/welding/shade_number_test.dart: ANSI/OSHA: 160 A w obu przedziałach „60-160” i „160-250” → wyższy',
+        'test/domain/welding/shade_number_test.dart: TIG 5 A: poniżej tabeli → 8 z najniższego przedziału',
+        'test/domain/welding/shade_number_test.dart: start nigdy nie jaśniejszy niż „nie jaśniej niż” — wszystkie procesy, prądy 1–1200 A',
+      ]),
+  ModuleAuditEntry(
       id: 'steel-weight',
       entryPoint: 'SteelWeightPage',
       sourcePath: 'lib/features/steel_weight/steel_weight_page.dart',

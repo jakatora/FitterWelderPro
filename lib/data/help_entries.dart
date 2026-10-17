@@ -1201,19 +1201,29 @@ List<HelpCategory> kHelpCategories = [
           'Jaki shade na masce dla SMAW/TIG/MIG?',
           'What lens shade for SMAW/TIG/MIG?',
         ),
+        // Wartości jak w lib/domain/welding/shade_number.dart (tabele ANSI
+        // Z49.1 / AWS F2.2 i minimum OSHA 1910.133, EN 169). Wcześniej wpis
+        // powoływał się na ANSI Z87.1 (to norma samych ochron oczu) i podawał
+        // stopnie jaśniejsze od zaleceń.
         answer: _bi(
-          'ANSI Z87.1 shade chart (im więcej, tym ciemniej): '
-          '**SMAW** (stick): shade 10 @ <100 A, 11 @ 100-150 A, 12 @ 150-250 A, 13 @ 250-350 A, 14 @ >350 A. '
-          '**TIG**: 8 @ <30 A, 9-10 @ 30-100 A, 11-12 @ 100-200 A, 13 @ 200-400 A. '
-          '**MIG/FCAW**: 10 @ <100 A, 11-12 @ 100-200 A, 13 @ 200-400 A. '
-          'Aluminum: +1 shade (więcej UV). Carbon arc gouging: 13-14 (very intense).',
-          'ANSI Z87.1 shade chart (higher = darker): '
-          '**SMAW** (stick): shade 10 @ <100 A, 11 @ 100-150 A, 12 @ 150-250 A, 13 @ 250-350 A, 14 @ >350 A. '
-          '**TIG**: 8 @ <30 A, 9-10 @ 30-100 A, 11-12 @ 100-200 A, 13 @ 200-400 A. '
-          '**MIG/FCAW**: 10 @ <100 A, 11-12 @ 100-200 A, 13 @ 200-400 A. '
-          'Aluminum: +1 shade (more UV). Carbon arc gouging: 13-14 (very intense).',
+          'Wg ANSI Z49.1 / AWS F2.2 — stopień zalecany, w nawiasie minimum OSHA 1910.133 (im wyższy, tym ciemniej): '
+          '**MMA**: 60–160 A → 10 (8), 160–250 A → 12 (10), 250–550 A → 14 (11). '
+          '**TIG**: do 50 A → 10 (8), 50–150 A → 12 (8), 150–500 A → 14 (10). '
+          '**MIG/MAG, FCAW**: 60–160 A → 11 (10), 160–250 A → 12 (10), 250–500 A → 14 (10). '
+          '**Żłobienie łukowo-powietrzne** do 500 A → 12 (10). '
+          'Zacznij ciemniej i rozjaśniaj do dobrej widoczności, ale nie poniżej minimum. '
+          'Europejska EN 169 daje zwykle o 1–2 stopnie jaśniej (np. TIG 100 A → 10, MAG 200 A → 11) i rozróżnia MIG na stopach lekkich (aluminium: do 1 stopnia ciemniej niż stal). '
+          'Dobór dla procesu i prądu: narzędzie „Filtr przyłbicy: stopień zaciemnienia”.',
+          'Per ANSI Z49.1 / AWS F2.2 — suggested shade, OSHA 1910.133 minimum in brackets (higher = darker): '
+          '**SMAW**: 60–160 A → 10 (8), 160–250 A → 12 (10), 250–550 A → 14 (11). '
+          '**GTAW (TIG)**: up to 50 A → 10 (8), 50–150 A → 12 (8), 150–500 A → 14 (10). '
+          '**GMAW, FCAW**: 60–160 A → 11 (10), 160–250 A → 12 (10), 250–500 A → 14 (10). '
+          '**Air carbon arc gouging** up to 500 A → 12 (10). '
+          'Start darker and go lighter until you see the weld zone well, but never below the minimum. '
+          'European EN 169 is usually 1–2 shades lighter (e.g. TIG 100 A → 10, MAG 200 A → 11) and treats MIG on light alloys separately (aluminium: up to 1 shade darker than steel). '
+          'Pick by process and current: the “Welding filter: shade number” tool.',
         ),
-        tags: ['shade', 'helmet', 'ansi-z87', 'smaw', 'tig', 'mig', 'ppe'],
+        tags: ['shade', 'helmet', 'ansi-z49', 'en-169', 'smaw', 'tig', 'mig', 'ppe'],
       ),
       HelpEntry(
         id: 'papr-cr6',
