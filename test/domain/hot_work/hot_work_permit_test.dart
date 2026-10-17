@@ -318,6 +318,16 @@ void main() {
       expect(hotWorkMeasurementAt('', now), now);
     });
 
+    test('godzina tuż po północy wpisana przed północą: jutro, nie doba wstecz',
+        () {
+      final now = DateTime(2026, 10, 17, 23, 58);
+      // 00:03 mieści się w zapasie 5 min → jutro 00:03.
+      expect(hotWorkMeasurementAt('00:03', now), DateTime(2026, 10, 18, 0, 3));
+      // 00:04 już poza zapasem → dziś 00:04 (prawie doba wcześniej).
+      expect(hotWorkMeasurementAt('00:04', now), DateTime(2026, 10, 17, 0, 4));
+      expect(hotWorkMeasurementAt('23:50', now), DateTime(2026, 10, 17, 23, 50));
+    });
+
     test('chwila pomiaru przechodzi przez JSON', () {
       final p = _blank().copyWith(measurements: [
         HotWorkMeasurement(time: '10:30', at: t1030, dgwPct: 1.5),

@@ -523,7 +523,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Limity 100 / 250 °C, 2 ściegi: 120 °C przed ściegiem 1 i 250 °C przed ściegiem 2 (równość = OK) — zielony „Wszystkie ściegi (2)”; 260 °C przed ściegiem 2 — POZA LIMITEM (czerwony); przełączenie na °F pokazuje 212 / 482 °F, zapis JSON i werdykt bez zmian; uszkodzony zapis „[zepsute” zachowany w kopii; rejestr 200 spoin odrzuca nową.',
+          'Limity 100 / 250 °C, 2 ściegi: 120 °C przed ściegiem 1 i 250 °C przed ściegiem 2 (równość = OK) — zielony „Wszystkie ściegi (2)”; 260 °C przed ściegiem 2 — POZA LIMITEM (czerwony); przełączenie na °F pokazuje 212 / 482 °F, zapis JSON i werdykt bez zmian; uszkodzony zapis „[zepsute” zachowany w kopii; rejestr 200 spoin odrzuca nową; błędny tekst „2500” w polu maks. nie kasuje limitu 250 °C (pomiar 300 °C dalej czerwony); uszkodzony pomiar w zapisie — kopia, baner, stan „Pominięte pomiary — sprawdź” do potwierdzenia; „Cofnij” po zamknięciu ekranu przywraca pomiar.',
       evidence: [
         'test/features/interpass/interpass_page_test.dart: ustawienia → pomiary → werdykt; równość z limitem = OK',
         'test/features/interpass/interpass_page_test.dart: przełączenie °F nie zmienia danych ani werdyktu',
@@ -532,6 +532,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/interpass/interpass_store_test.dart: uszkodzony JSON: kopia surowego zapisu przed nadpisaniem',
         'test/features/interpass/interpass_store_test.dart: inny typ pod kluczem (liczba, lista) — bez wyjątku, kopia zapisu',
         'test/features/interpass/interpass_store_test.dart: pełny rejestr: nowa spoina odrzucona, istniejąca zapisuje się',
+        'test/features/interpass/interpass_page_test.dart: zły tekst w polu limitu nie kasuje zapisanego limitu',
+        'test/features/interpass/interpass_page_test.dart: „Cofnij” po usunięciu pomiaru działa także po zamknięciu ekranu',
+        'test/features/interpass/interpass_store_test.dart: pominięty uszkodzony pomiar: kopia zapisu, baner i blokada zieleni',
       ]),
   ModuleAuditEntry(
       id: 'interpass-weld',
@@ -541,7 +544,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Przed ściegiem 2 o 8:40 260 °C przy maks. 250 — czerwony, podpowiedź ponownego pomiaru ściegu 2; 240 °C o 8:50 decyduje (zielony), 260 °C zostaje jako zastąpiony; pomiar z 10:00 dopisany po pomiarze z 10:30 — ostrzeżenie i lista wg czasu; kredka 100 °C stopiona = OK, niestopiona = poniżej min.; brak limitu — szary „brak limitu z WPS”; tekst i PDF przez wstrzyknięte funkcje.',
+          'Przed ściegiem 2 o 8:40 260 °C przy maks. 250 — czerwony, podpowiedź ponownego pomiaru ściegu 2; 240 °C o 8:50 decyduje (zielony), 260 °C zostaje jako zastąpiony; pomiar z 10:00 dopisany po pomiarze z 10:30 — ostrzeżenie i lista wg czasu; kredka 100 °C stopiona = OK, niestopiona = poniżej min.; brak limitu — szary „brak limitu z WPS”; tekst i PDF przez wstrzyknięte funkcje; 400 °F wpisane w °F pokazuje się jako 400 °F w polu, tekście i PDF; pomiary ściegów 1 i 2 w odstępie poniżej 1 min — konflikt kolejności; przy pustej min. międzyściegowej 60 °C po podgrzaniu 150 °C — OK z podpowiedzią i przyciskiem „ustaw = min. podgrzania”.',
       evidence: [
         'test/features/interpass/interpass_page_test.dart: przekroczenie maks. → czerwony; ponowny pomiar po odczekaniu',
         'test/features/interpass/interpass_page_test.dart: pomiar wsteczny: lista wg czasu i ostrzeżenie',
@@ -553,6 +556,10 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/welding/interpass_log_test.dart: pomiar wsteczny nie zmienia oceny ściegu — decyduje czas',
         'test/domain/welding/interpass_log_test.dart: zielony tylko gdy każdy ścieg ma pomiar i wszystko w limitach',
         'test/features/interpass/interpass_export_test.dart: wypełniony protokół — PL i EN, °C i °F',
+        'test/features/interpass/interpass_page_test.dart: 400 °F wpisane w °F zostaje 400 °F w polu, tekście i PDF',
+        'test/features/interpass/interpass_page_test.dart: pusta min. międzyściegowa: podpowiedź i „ustaw = min. podgrzania”',
+        'test/domain/welding/interpass_log_test.dart: sąsiednie ściegi: odstęp poniżej 1 min — konflikt, 1 min — granica OK',
+        'test/domain/welding/interpass_log_test.dart: pominięty uszkodzony pomiar: spoina nie jest zielona do potwierdzenia',
       ]),
   ModuleAuditEntry(
       id: 'iso5817',

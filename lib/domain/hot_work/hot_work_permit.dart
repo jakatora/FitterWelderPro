@@ -108,15 +108,20 @@ class HotWorkMeasurement {
 /// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: ostatnie takie
 /// wystąpienie nie później niż 5 min po [now] (zapas na różnicę zegarów).
 /// Godzina „z przyszłości” to wczoraj — np. 23:50 wpisane o 00:12 (zmiana
-/// nocna). Zła godzina → [now].
+/// nocna); godzina tuż po północy wpisana przed północą (00:03 o 23:58)
+/// mieści się w zapasie 5 min — to jutro, nie doba wstecz. Zła godzina →
+/// [now].
 DateTime hotWorkMeasurementAt(String hhmm, DateTime now) {
   final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(hhmm.trim());
   if (m == null) return now;
   final h = int.parse(m.group(1)!);
   final min = int.parse(m.group(2)!);
   if (h > 23 || min > 59) return now;
+  final limit = now.add(const Duration(minutes: 5));
+  final tomorrow = DateTime(now.year, now.month, now.day + 1, h, min);
+  if (!tomorrow.isAfter(limit)) return tomorrow;
   final today = DateTime(now.year, now.month, now.day, h, min);
-  return today.isAfter(now.add(const Duration(minutes: 5)))
+  return today.isAfter(limit)
       ? DateTime(now.year, now.month, now.day - 1, h, min)
       : today;
 }
