@@ -24,6 +24,7 @@ const List<String> kWhatsNewToolIds = [
   'iso5817',
   'weld_symbols',
   'work_progress',
+  'instruments',
   'mitre_bend',
   'steel_weight',
 ];

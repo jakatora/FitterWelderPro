@@ -4,6 +4,8 @@ import 'package:uuid/uuid.dart';
 
 import '../data/pipe_schedules.dart';
 import '../database/hydrotest_dao.dart';
+import '../database/instrument_dao.dart';
+import '../domain/instruments/instrument.dart';
 import '../domain/pressure_test/hydrotest_protocol_meta.dart';
 import '../domain/pressure_test/test_pressure.dart';
 import '../i18n/app_language.dart';
@@ -2130,6 +2132,65 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
     setState(() => ctrl.text = _iso(picked));
   }
 
+  /// Manometr z rejestru przyrządów (v27): wypełnia „nr / świadectwo"
+  /// i termin kalibracji — protokół nazywa konkretny, wzorcowany manometr.
+  Future<void> _pickGaugeFromRegister() async {
+    List<Instrument> gauges;
+    try {
+      gauges = (await InstrumentDao().listAll())
+          .where((i) => i.kind == InstrumentKind.pressureGauge)
+          .toList();
+    } catch (_) {
+      gauges = const [];
+    }
+    if (!mounted) return;
+    final en = AppLanguageController.isEnglish;
+    final today = DateTime.now();
+    final picked = await showModalBottomSheet<Instrument>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: gauges.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                child: Text(_tr(
+                    'W rejestrze przyrządów nie ma manometrów. Dodaj je w '
+                        '„Przyrządy i kalibracja” (menu spawacza).',
+                    'There are no pressure gauges in the instrument register. '
+                        'Add them in "Instruments and calibration" (welder menu).')),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final g in sortForRegister(gauges, today))
+                    ListTile(
+                      key: ValueKey('hydro-gauge-${g.id}'),
+                      title: Text(g.displayName(en: en)),
+                      subtitle: Text(
+                        g.dueDate == null
+                            ? _tr('brak terminu kalibracji', 'no calibration due date')
+                            : '${_tr('kalibracja do', 'calibrated until')} '
+                                '${_iso(g.dueDate!)}'
+                                '${g.statusOn(today) == InstrumentStatus.overdue ? _tr(' — PO TERMINIE', ' — OVERDUE') : ''}',
+                      ),
+                      onTap: () => Navigator.pop(ctx, g),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      final cert = picked.certificateNo.trim();
+      _gaugeCtrl.text = [
+        picked.displayName(en: en),
+        if (cert.isNotEmpty) _tr('św. $cert', 'cert. $cert'),
+      ].join(' / ');
+      final due = picked.dueDate;
+      if (due != null) _calDueCtrl.text = _iso(due);
+    });
+  }
+
   void _submit() {
     if (!_canSave) return;
     Haptic.tap();
@@ -2377,7 +2438,19 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
             _text(_gaugeCtrl,
                 _tr('Manometr (nr / świadectwo)', 'Gauge (no. / certificate)'),
                 hint: _tr('np. M-12 / św. 123/2026', 'e.g. M-12 / cert. 123/2026')),
-            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('hydro-gauge-from-register'),
+                style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48)),
+                onPressed: _pickGaugeFromRegister,
+                icon: const Icon(Icons.speed_outlined, size: 18),
+                label: Text(_tr(
+                    'Z rejestru przyrządów', 'From the instrument register')),
+              ),
+            ),
+            const SizedBox(height: 4),
             Row(children: [
               Expanded(
                 child: _text(
