@@ -40,8 +40,8 @@ class HardnessReport {
     required this.readings,
   });
 
-  HardnessSeriesResult get result =>
-      evaluateHardnessSeries(readings, limit, material: material);
+  HardnessSeriesResult get result => evaluateHardnessSeries(readings, limit,
+      material: material, preset: preset);
 }
 
 /// Funkcja udostępniania wstrzykiwana do ekranu (test podmienia ją, żeby
@@ -74,7 +74,31 @@ String hardnessStatusLabel(ReadingStatus s, {required bool en}) =>
       ReadingStatus.invalid => _t(en, 'Błędna wartość', 'Invalid value'),
       ReadingStatus.blank => _t(en, 'Brak wartości', 'No value'),
       ReadingStatus.noLimit => _t(en, 'Brak limitu', 'No limit'),
+      ReadingStatus.limitNotForMaterial =>
+        _t(en, 'Limit nie dla tego materiału', 'Limit not for this material'),
     };
+
+/// Dlaczego preset nie pasuje do materiału — `null`, gdy pasuje (albo
+/// własny limit). Ten sam tekst na ekranie, w tekście i w PDF.
+String? hardnessPresetMismatchReason(
+    HardnessLimitPreset? preset, HardnessMaterial material,
+    {required bool en}) {
+  if (hardnessPresetFitsMaterial(preset, material)) return null;
+  return switch (preset!.material) {
+    HardnessMaterial.carbonLowAlloy => _t(
+        en,
+        'Preset dotyczy stali węglowych/niskostopowych — wybierz własny limit '
+            'ze specyfikacji.',
+        'The preset is for carbon/low-alloy steels — choose a custom limit '
+            'from the specification.'),
+    HardnessMaterial.stainless => _t(
+        en,
+        'Preset dotyczy stali nierdzewnej — zmień materiał na nierdzewną '
+            'albo wybierz własny limit ze specyfikacji.',
+        'The preset is for stainless steel — switch the material to '
+            'stainless or choose a custom limit from the specification.'),
+  };
+}
 
 String hardnessVerdictTitle(SeriesVerdict v, {required bool en}) =>
     switch (v) {
@@ -155,6 +179,13 @@ String hardnessCheckDetail(ReadingCheck c, HardnessLimit limit,
           'Enter a value or remove the reading');
     case ReadingStatus.noLimit:
       return _t(en, 'Ustaw poprawny limit', 'Set a valid limit');
+    case ReadingStatus.limitNotForMaterial:
+      return _t(
+          en,
+          '${hardnessReadingValueText(r, en: en)} — nie oceniono: preset nie '
+              'dotyczy wybranego materiału',
+          '${hardnessReadingValueText(r, en: en)} — not rated: the preset '
+              'does not apply to the selected material');
   }
 }
 
@@ -210,7 +241,13 @@ String buildHardnessText(HardnessReport report, {required bool en}) {
   final buf = StringBuffer()
     ..writeln(_t(en, 'POMIAR TWARDOŚCI — OCENA', 'HARDNESS TEST — ASSESSMENT'))
     ..writeln('${_t(en, 'Werdykt', 'Verdict')}: '
-        '${hardnessVerdictTitle(res.verdict, en: en)}')
+        '${hardnessVerdictTitle(res.verdict, en: en)}');
+  final mismatch =
+      hardnessPresetMismatchReason(report.preset, report.material, en: en);
+  if (mismatch != null) {
+    buf.writeln('${_t(en, 'Powód', 'Reason')}: $mismatch');
+  }
+  buf
     ..writeln()
     ..writeln('${_t(en, 'Limit', 'Limit')}: '
         '${hardnessLimitText(report.limit, en: en)} — '
@@ -321,6 +358,8 @@ pw.Document buildHardnessPdf(
       : (en ? report.preset!.noteEn : report.preset!.notePl);
   final max = hardnessMaxText(res, en: en);
   final mean = hardnessMeanText(res, en: en);
+  final mismatch =
+      hardnessPresetMismatchReason(report.preset, report.material, en: en);
 
   pw.Widget cell(String s, {pw.TextStyle? style}) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
@@ -391,6 +430,15 @@ pw.Document buildHardnessPdf(
                     fontSize: 12,
                     fontWeight: pw.FontWeight.bold,
                     color: _verdictInk(res.verdict))),
+            if (mismatch != null)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 3),
+                child: pw.Text('${_t(en, 'Powód', 'Reason')}: $mismatch',
+                    style: pw.TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _kWarnInk)),
+              ),
             if (max != null)
               pw.Padding(
                 padding: const pw.EdgeInsets.only(top: 3),

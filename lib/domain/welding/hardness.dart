@@ -310,11 +310,17 @@ class HardnessLimit {
 /// Rodzina norm — do grupowania listy presetów.
 enum HardnessStandard { iso15156, iso15614, asmeB313 }
 
-/// Gotowy limit z dokładnym źródłem.
+/// Gotowy limit z dokładnym źródłem. Tytuł i źródło zawsze podają wydanie
+/// normy — ten sam punkt w różnych wydaniach ma różne liczby (np. EN ISO
+/// 15614-1 gr. 4–5 po obróbce: 320 HV10 w 2004+A2:2012, 350 HV10 w 2017).
 class HardnessLimitPreset {
   final String id;
   final HardnessStandard standard;
   final HardnessLimit limit;
+
+  /// Materiał, którego dotyczy limit. Przy innym materiale wybranym na
+  /// ekranie pomiary nie są oceniane (brak oceny, nigdy zielony).
+  final HardnessMaterial material;
   final String titlePl;
   final String titleEn;
 
@@ -334,6 +340,7 @@ class HardnessLimitPreset {
     required this.titleEn,
     required this.sourcePl,
     required this.sourceEn,
+    this.material = HardnessMaterial.carbonLowAlloy,
     this.notePl = '',
     this.noteEn = '',
   });
@@ -343,16 +350,22 @@ class HardnessLimitPreset {
 const String kHardnessCustomLimitId = 'custom';
 
 const String _iso15156 = 'NACE MR0175/ISO 15156-2:2020';
-const String _iso15614Pl =
-    'EN ISO 15614-1:2017, tabela maks. twardości HV10 (w wyd. 2004+A2:2012 '
-    '— tab. 2)';
-const String _iso15614En =
-    'EN ISO 15614-1:2017, maximum hardness HV10 table (Table 2 in the '
-    '2004+A2:2012 edition)';
+const String _iso15156Title = 'ISO 15156-2:2020';
+const String _iso15614v2004 = 'EN ISO 15614-1:2004+A2:2012';
+const String _iso15614v2004Pl = '$_iso15614v2004, tab. 2 (maks. twardość HV10)';
+const String _iso15614v2004En =
+    '$_iso15614v2004, Table 2 (maximum hardness HV10)';
+const String _iso15614v2004NotePl =
+    'Grupy wg ISO/TR 15608. Wartość z wyd. 2004+A2:2012 — gdy kontrakt '
+    'przywołuje wyd. 2017, sprawdź liczbę w tym wydaniu.';
+const String _iso15614v2004NoteEn =
+    'Groups per ISO/TR 15608. Value from the 2004+A2:2012 edition — when '
+    'the contract invokes the 2017 edition, check the number there.';
+const String _b313 = 'ASME B31.3-2008…2012';
 const String _b313Pl =
-    'ASME B31.3-2008…2012, tab. 331.1.1, kol. „Brinell Hardness, Max.”';
+    '$_b313, tab. 331.1.1, kol. „Brinell Hardness, Max.”';
 const String _b313En =
-    'ASME B31.3-2008…2012, Table 331.1.1, column “Brinell Hardness, Max.”';
+    '$_b313, Table 331.1.1, column “Brinell Hardness, Max.”';
 const String _b313NotePl =
     'Wydania 2014 i nowsze (w tym 2020 i 2022) nie mają tej kolumny ani '
     'wymogu 331.1.7 — twardość po PWHT ocenia się wtedy wg specyfikacji '
@@ -362,29 +375,26 @@ const String _b313NoteEn =
     'column nor the 331.1.7 requirement — post-PWHT hardness is then judged '
     'to the project specification. Use when the project invokes that edition '
     'or these values.';
-const String _iso15614NotePl =
-    'Grupy wg ISO/TR 15608. Wartość jak w wyd. 2004+A2:2012 — sprawdź '
-    'w swoim egzemplarzu wyd. 2017 i w specyfikacji projektu.';
-const String _iso15614NoteEn =
-    'Groups per ISO/TR 15608. Value as in the 2004+A2:2012 edition — check '
-    'your copy of the 2017 edition and the project specification.';
 
 /// Presety limitów (wszystkie: wartość MAKSYMALNA). Weryfikacja 2026-10-17:
 ///  • ISO 15156-2:2020 — tekst normy (wyd. 4, 2020-11): tab. A.1, A.2.1.2,
 ///    A.2.1.3, 7.3.2, 7.3.3.2;
-///  • EN ISO 15614-1 — tab. 2 wyd. 2004+A2:2012 (BS EN ISO 15614-1:2004
-///    +A2:2012); zmiana gr. 4–5 po obróbce 320 → 350 HV10 w wyd. 2017 wg
-///    weldnote.com („ISO 15614-1 (2017) is out: Changes and Updates”);
+///  • EN ISO 15614-1:2004+A2:2012 — tab. 2 (BS EN ISO 15614-1:2004+A2:2012);
+///    wydania 2017 NIE widziano — jedyna znana zmiana (gr. 4–5 po obróbce
+///    320 → 350 HV10) pochodzi ze źródła wtórnego: weldnote.com, „ISO
+///    15614-1 (2017) is out: Changes and Updates”. Dlatego osobny preset
+///    2017, niżej na liście niż ostrzejszy 320 z wyd. 2004;
 ///  • ASME B31.3 — tab. 331.1.1 wyd. 2008 (przedruk), usunięcie w wyd. 2014
 ///    wg komentarza D. Frikkena (Becht, „ASME B31.3 — Substantive Changes
-///    to 2014 Edition”).
+///    to 2014 Edition”). P-No 6 to stal nierdzewna martenzytyczna — osobny
+///    preset dla materiału „nierdzewna”.
 const List<HardnessLimitPreset> kHardnessLimitPresets = [
   HardnessLimitPreset(
     id: 'iso15156_weld',
     standard: HardnessStandard.iso15156,
     limit: HardnessLimit(HardnessScale.hv, 250),
-    titlePl: 'Środowisko H2S — spoina od grani, SWC, materiał rodzimy',
-    titleEn: 'Sour service H2S — weld root side, HAZ, base metal',
+    titlePl: 'H2S ($_iso15156Title) — spoina od grani, SWC, materiał rodzimy',
+    titleEn: 'Sour service ($_iso15156Title) — weld root side, HAZ, base metal',
     sourcePl: '$_iso15156, tab. A.1 (HV10 lub HV5)',
     sourceEn: '$_iso15156, Table A.1 (HV10 or HV5)',
     notePl: 'Stal węglowa, C-Mn i niskostopowa. Równoważnie 70,6 HR15N. '
@@ -398,8 +408,8 @@ const List<HardnessLimitPreset> kHardnessLimitPresets = [
     id: 'iso15156_cap',
     standard: HardnessStandard.iso15156,
     limit: HardnessLimit(HardnessScale.hv, 275),
-    titlePl: 'Środowisko H2S — lico nieeksponowane',
-    titleEn: 'Sour service H2S — unexposed weld cap',
+    titlePl: 'H2S ($_iso15156Title) — lico nieeksponowane',
+    titleEn: 'Sour service ($_iso15156Title) — unexposed weld cap',
     sourcePl: '$_iso15156, tab. A.1, przypis a',
     sourceEn: '$_iso15156, Table A.1, footnote a',
     notePl: 'Tylko gdy spełnione wszystkie trzy: zgoda użytkownika '
@@ -413,8 +423,8 @@ const List<HardnessLimitPreset> kHardnessLimitPresets = [
     id: 'iso15156_hrc',
     standard: HardnessStandard.iso15156,
     limit: HardnessLimit(HardnessScale.hrc, 22),
-    titlePl: 'Środowisko H2S — pomiar HRC (spoina, materiał rodzimy)',
-    titleEn: 'Sour service H2S — HRC test (weld, base metal)',
+    titlePl: 'H2S ($_iso15156Title) — pomiar HRC (spoina, materiał rodzimy)',
+    titleEn: 'Sour service ($_iso15156Title) — HRC test (weld, base metal)',
     sourcePl: '$_iso15156, tab. A.1 (metoda HRC) i A.2.1.2',
     sourceEn: '$_iso15156, Table A.1 (HRC method) and A.2.1.2',
     notePl: 'HRC dla spoin tylko na warunkach 7.3.3.2 (m.in. PWHT w WPS). '
@@ -430,8 +440,8 @@ const List<HardnessLimitPreset> kHardnessLimitPresets = [
     id: 'iso15156_a105',
     standard: HardnessStandard.iso15156,
     limit: HardnessLimit(HardnessScale.hb, 187),
-    titlePl: 'Środowisko H2S — odkuwki ASTM A105',
-    titleEn: 'Sour service H2S — ASTM A105 forgings',
+    titlePl: 'H2S ($_iso15156Title) — odkuwki ASTM A105',
+    titleEn: 'Sour service ($_iso15156Title) — ASTM A105 forgings',
     sourcePl: '$_iso15156, A.2.1.3 a)',
     sourceEn: '$_iso15156, A.2.1.3 a)',
     notePl: 'HBW.',
@@ -441,108 +451,140 @@ const List<HardnessLimitPreset> kHardnessLimitPresets = [
     id: 'iso15156_a234',
     standard: HardnessStandard.iso15156,
     limit: HardnessLimit(HardnessScale.hb, 197),
-    titlePl: 'Środowisko H2S — kształtki ASTM A234 WPB/WPC',
-    titleEn: 'Sour service H2S — ASTM A234 WPB/WPC fittings',
+    titlePl: 'H2S ($_iso15156Title) — kształtki ASTM A234 WPB/WPC',
+    titleEn: 'Sour service ($_iso15156Title) — ASTM A234 WPB/WPC fittings',
     sourcePl: '$_iso15156, A.2.1.3 b)',
     sourceEn: '$_iso15156, A.2.1.3 b)',
     notePl: 'HBW.',
     noteEn: 'HBW.',
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g12_aw',
+    id: 'iso15614_2004_g12_aw',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 380),
-    titlePl: 'WPQR — grupy 1 i 2, bez obróbki cieplnej',
-    titleEn: 'WPQR — groups 1 and 2, not heat-treated',
-    sourcePl: _iso15614Pl,
-    sourceEn: _iso15614En,
-    notePl: _iso15614NotePl,
-    noteEn: _iso15614NoteEn,
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 1 i 2, bez obróbki cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — groups 1 and 2, not heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
+    notePl: _iso15614v2004NotePl,
+    noteEn: _iso15614v2004NoteEn,
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g12_ht',
+    id: 'iso15614_2004_g12_ht',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 320),
-    titlePl: 'WPQR — grupy 1 i 2, po obróbce cieplnej',
-    titleEn: 'WPQR — groups 1 and 2, heat-treated',
-    sourcePl: _iso15614Pl,
-    sourceEn: _iso15614En,
-    notePl: _iso15614NotePl,
-    noteEn: _iso15614NoteEn,
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 1 i 2, po obróbce cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — groups 1 and 2, heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
+    notePl: _iso15614v2004NotePl,
+    noteEn: _iso15614v2004NoteEn,
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g3_aw',
+    id: 'iso15614_2004_g3_aw',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 450),
-    titlePl: 'WPQR — grupa 3, bez obróbki cieplnej',
-    titleEn: 'WPQR — group 3, not heat-treated',
-    sourcePl: _iso15614Pl,
-    sourceEn: _iso15614En,
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 3, bez obróbki cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — group 3, not heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
     notePl: 'Dla stali o min. Re > 890 MPa wartości ustala się osobno. '
-        '$_iso15614NotePl',
+        '$_iso15614v2004NotePl',
     noteEn: 'For steels with min. yield > 890 MPa special values apply. '
-        '$_iso15614NoteEn',
+        '$_iso15614v2004NoteEn',
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g3_ht',
+    id: 'iso15614_2004_g3_ht',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 380),
-    titlePl: 'WPQR — grupa 3, po obróbce cieplnej',
-    titleEn: 'WPQR — group 3, heat-treated',
-    sourcePl: _iso15614Pl,
-    sourceEn: _iso15614En,
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 3, po obróbce cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — group 3, heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
     notePl: 'Dla stali o min. Re > 890 MPa wartości ustala się osobno. '
-        '$_iso15614NotePl',
+        '$_iso15614v2004NotePl',
     noteEn: 'For steels with min. yield > 890 MPa special values apply. '
-        '$_iso15614NoteEn',
+        '$_iso15614v2004NoteEn',
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g45_aw',
+    id: 'iso15614_2004_g45_aw',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 380),
-    titlePl: 'WPQR — grupy 4 i 5, bez obróbki cieplnej',
-    titleEn: 'WPQR — groups 4 and 5, not heat-treated',
-    sourcePl: _iso15614Pl,
-    sourceEn: _iso15614En,
-    notePl: _iso15614NotePl,
-    noteEn: _iso15614NoteEn,
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 4 i 5, bez obróbki cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — groups 4 and 5, not heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
+    notePl: _iso15614v2004NotePl,
+    noteEn: _iso15614v2004NoteEn,
+  ),
+  // Ostrzejszy 320 (2004) przed 350 (2017) — kto nie wie, które wydanie
+  // obowiązuje, trafia najpierw na bezpieczniejszą wartość.
+  HardnessLimitPreset(
+    id: 'iso15614_2004_g45_ht',
+    standard: HardnessStandard.iso15614,
+    limit: HardnessLimit(HardnessScale.hv, 320),
+    titlePl: 'WPQR ($_iso15614v2004) — gr. 4 i 5, po obróbce cieplnej',
+    titleEn: 'WPQR ($_iso15614v2004) — groups 4 and 5, heat-treated',
+    sourcePl: _iso15614v2004Pl,
+    sourceEn: _iso15614v2004En,
+    notePl: 'Grupy wg ISO/TR 15608. W wyd. 2017 ten limit podniesiono do '
+        '350 HV10 — obowiązuje wydanie przywołane w kontrakcie.',
+    noteEn: 'Groups per ISO/TR 15608. The 2017 edition raised this limit to '
+        '350 HV10 — the edition invoked by the contract governs.',
   ),
   HardnessLimitPreset(
-    id: 'iso15614_g45_ht',
+    id: 'iso15614_2017_g45_ht',
     standard: HardnessStandard.iso15614,
     limit: HardnessLimit(HardnessScale.hv, 350),
-    titlePl: 'WPQR — grupy 4 i 5, po obróbce cieplnej',
-    titleEn: 'WPQR — groups 4 and 5, heat-treated',
-    sourcePl: 'EN ISO 15614-1:2017, tabela maks. twardości HV10',
-    sourceEn: 'EN ISO 15614-1:2017, maximum hardness HV10 table',
-    notePl: 'Wyd. 2017 podniosło limit z 320 HV10 (wyd. 2004) do 350 HV10; '
-        'wyższe wartości dopuszczalne, jeśli ustalono je przed próbą. '
-        'Grupy wg ISO/TR 15608.',
-    noteEn: 'The 2017 edition raised the limit from 320 HV10 (2004 edition) '
-        'to 350 HV10; higher values are acceptable if specified before the '
-        'test. Groups per ISO/TR 15608.',
+    titlePl: 'WPQR (EN ISO 15614-1:2017) — gr. 4 i 5, po obróbce cieplnej',
+    titleEn: 'WPQR (EN ISO 15614-1:2017) — groups 4 and 5, heat-treated',
+    sourcePl: 'EN ISO 15614-1:2017, tabela maks. twardości HV10 — wg źródła '
+        'wtórnego (weldnote.com), nie z tekstu normy',
+    sourceEn: 'EN ISO 15614-1:2017, maximum hardness HV10 table — per a '
+        'secondary source (weldnote.com), not the standard text',
+    notePl: 'Sprawdź w normie z kontraktu. Tylko gdy kontrakt przywołuje wyd. '
+        '2017 — w wyd. 2004+A2:2012 limit wynosi 320 HV10. Wyższe wartości '
+        'dopuszczalne, jeśli ustalono je przed próbą. Grupy wg ISO/TR 15608.',
+    noteEn: 'Check the standard named in the contract. Only when the contract '
+        'invokes the 2017 edition — in 2004+A2:2012 the limit is 320 HV10. '
+        'Higher values are acceptable if specified before the test. Groups '
+        'per ISO/TR 15608.',
   ),
   HardnessLimitPreset(
     id: 'b313_p3_p4',
     standard: HardnessStandard.asmeB313,
     limit: HardnessLimit(HardnessScale.hb, 225),
-    titlePl: 'ASME B31.3 po PWHT — P-No 3 i 4',
-    titleEn: 'ASME B31.3 after PWHT — P-No 3 and 4',
+    titlePl: '$_b313 po PWHT — P-No 3 i 4',
+    titleEn: '$_b313 after PWHT — P-No 3 and 4',
     sourcePl: _b313Pl,
     sourceEn: _b313En,
     notePl: _b313NotePl,
     noteEn: _b313NoteEn,
   ),
   HardnessLimitPreset(
-    id: 'b313_p5_p6',
+    id: 'b313_p5',
     standard: HardnessStandard.asmeB313,
     limit: HardnessLimit(HardnessScale.hb, 241),
-    titlePl: 'ASME B31.3 po PWHT — P-No 5A, 5B, 5C i 6',
-    titleEn: 'ASME B31.3 after PWHT — P-No 5A, 5B, 5C and 6',
+    titlePl: '$_b313 po PWHT — P-No 5A, 5B i 5C',
+    titleEn: '$_b313 after PWHT — P-No 5A, 5B and 5C',
     sourcePl: _b313Pl,
     sourceEn: _b313En,
     notePl: _b313NotePl,
     noteEn: _b313NoteEn,
+  ),
+  HardnessLimitPreset(
+    id: 'b313_p6',
+    standard: HardnessStandard.asmeB313,
+    limit: HardnessLimit(HardnessScale.hb, 241),
+    material: HardnessMaterial.stainless,
+    titlePl: '$_b313 po PWHT — P-No 6 (nierdzewna martenzytyczna)',
+    titleEn: '$_b313 after PWHT — P-No 6 (martensitic stainless)',
+    sourcePl: _b313Pl,
+    sourceEn: _b313En,
+    notePl: 'Stal wysokostopowa martenzytyczna (np. 410) — tablica ISO 18265 '
+        'A.1 jej nie obejmuje, więc mierz w HB. $_b313NotePl',
+    noteEn: 'High-alloy martensitic steel (e.g. 410) — ISO 18265 Table A.1 '
+        'does not cover it, so measure in HB. $_b313NoteEn',
   ),
 ];
 
@@ -594,7 +636,17 @@ enum ReadingStatus {
 
   /// Limit nieprawidłowy — nie ma z czym porównać.
   noLimit,
+
+  /// Preset dotyczy innego materiału niż wybrany (np. limit NACE dla stali
+  /// węglowych przy stali nierdzewnej) — brak oceny (≠ OK).
+  limitNotForMaterial,
 }
+
+/// Czy limit z presetu wolno stosować do wybranego materiału. Własny limit
+/// (`preset == null`) — zawsze (to limit ze specyfikacji tego materiału).
+bool hardnessPresetFitsMaterial(
+        HardnessLimitPreset? preset, HardnessMaterial material) =>
+    preset == null || preset.material == material;
 
 /// `v` ≤ `limit` — ściśle, bez tolerancji (limit = wartość maksymalna,
 /// równość = OK). Szum interpolacji usuwa wcześniej [_snap].
@@ -628,11 +680,14 @@ class ReadingCheck {
   bool get isExceeded => status == ReadingStatus.exceeded;
 }
 
-/// Ocena jednego pomiaru względem limitu (max).
+/// Ocena jednego pomiaru względem limitu (max). [limitFitsMaterial] `false`
+/// — limit (preset) dotyczy innego materiału: brak oceny, nawet w tej samej
+/// skali.
 ReadingCheck checkHardnessReading(
   HardnessReading reading,
   HardnessLimit limit, {
   HardnessMaterial material = HardnessMaterial.carbonLowAlloy,
+  bool limitFitsMaterial = true,
 }) {
   ReadingCheck result(ReadingStatus s, {double? inLimit, double? limitHere}) =>
       ReadingCheck(
@@ -649,6 +704,7 @@ ReadingCheck checkHardnessReading(
     return result(ReadingStatus.invalid);
   }
   if (!limit.isValid) return result(ReadingStatus.noLimit);
+  if (!limitFitsMaterial) return result(ReadingStatus.limitNotForMaterial);
 
   if (reading.scale == limit.scale) {
     return result(
@@ -698,7 +754,7 @@ enum SeriesVerdict {
   fail,
 
   /// Bez przekroczeń, ale nie wszystko ocenione (puste, nieczytelne, poza
-  /// tablicą, nierdzewna w innej skali).
+  /// tablicą, nierdzewna w innej skali, preset dla innego materiału).
   incomplete,
 }
 
@@ -721,6 +777,10 @@ class HardnessSeriesResult {
   /// prawdziwe maksimum jest wtedy > limit, a [max] by to zaniżało.
   final bool maxAboveLimitUnknown;
 
+  /// Preset dotyczy innego materiału niż wybrany — żaden pomiar nie jest
+  /// oceniany, werdykt co najwyżej „brak oceny”.
+  final bool limitNotForMaterial;
+
   const HardnessSeriesResult({
     required this.limit,
     required this.checks,
@@ -729,6 +789,7 @@ class HardnessSeriesResult {
     required this.mean,
     required this.statsCount,
     required this.maxAboveLimitUnknown,
+    this.limitNotForMaterial = false,
   });
 
   int count(ReadingStatus s) => checks.where((c) => c.status == s).length;
@@ -740,14 +801,20 @@ class HardnessSeriesResult {
   int get unratedCount => checks.length - okCount - exceededCount;
 }
 
+/// Ocena serii. [preset] — skąd pochodzi limit (`null` = własny limit);
+/// preset dla innego materiału niż [material] → żaden pomiar nie jest
+/// oceniany (werdykt co najwyżej [SeriesVerdict.incomplete]).
 HardnessSeriesResult evaluateHardnessSeries(
   List<HardnessReading> readings,
   HardnessLimit limit, {
   HardnessMaterial material = HardnessMaterial.carbonLowAlloy,
+  HardnessLimitPreset? preset,
 }) {
+  final fits = hardnessPresetFitsMaterial(preset, material);
   final checks = [
     for (final r in readings)
-      checkHardnessReading(r, limit, material: material),
+      checkHardnessReading(r, limit,
+          material: material, limitFitsMaterial: fits),
   ];
   final stats = [
     for (final c in checks)
@@ -767,6 +834,9 @@ HardnessSeriesResult evaluateHardnessSeries(
     verdict = SeriesVerdict.invalidLimit;
   } else if (checks.every((c) => c.status == ReadingStatus.blank)) {
     verdict = SeriesVerdict.empty;
+  } else if (!fits) {
+    // Preset nie dla tego materiału — nic nie oceniono, nic nie jest zielone.
+    verdict = SeriesVerdict.incomplete;
   } else if (checks.any((c) => c.isExceeded)) {
     verdict = SeriesVerdict.fail;
   } else if (checks.every((c) => c.isOk)) {
@@ -782,6 +852,7 @@ HardnessSeriesResult evaluateHardnessSeries(
     mean: mean,
     statsCount: stats.length,
     maxAboveLimitUnknown: hiddenExceeded,
+    limitNotForMaterial: !fits,
   );
 }
 

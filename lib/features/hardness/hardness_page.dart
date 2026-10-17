@@ -20,36 +20,86 @@ import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
 
-/// Ostatnio wybrany limit (preset albo własny) w SharedPreferences.
-/// Nigdy nie rzuca — przy błędzie ekran startuje z domyślnym limitem.
+/// Zapamiętany limit: wybrany preset i — NIEZALEŻNIE od niego — ostatni
+/// prawidłowy własny limit (wybór presetu go nie kasuje).
+class HardnessSavedLimit {
+  /// Id presetu albo [kHardnessCustomLimitId]; `null` — nic nie zapisano.
+  final String? presetId;
+  final HardnessScale? customScale;
+  final String? customValue;
+
+  const HardnessSavedLimit({this.presetId, this.customScale, this.customValue});
+}
+
+/// Ostatni limit w SharedPreferences. Nigdy nie rzuca — przy błędzie ekran
+/// startuje z domyślnym limitem.
 class HardnessLimitStore {
-  static const String key = 'hardness_limit_v1';
+  static const String presetKey = 'hardness_limit_preset_v1';
+  static const String customKey = 'hardness_limit_custom_v1';
+
+  /// Zapis pierwszej wersji modułu („id|skala|wartość”, jeden klucz) —
+  /// tylko do odczytu, gdy nowych kluczy jeszcze nie ma.
+  static const String legacyKey = 'hardness_limit_v1';
 
   const HardnessLimitStore();
 
-  /// `(id, skala, tekst wartości)` albo `null`.
-  Future<(String, HardnessScale, String)?> load() async {
+  static HardnessScale? _scale(String name) =>
+      HardnessScale.values.where((s) => s.name == name).firstOrNull;
+
+  /// Własny limit „skala|wartość” — tylko prawidłowy (inaczej `null`).
+  static (HardnessScale, String)? _custom(String scaleName, String value) {
+    final scale = _scale(scaleName);
+    final v = parseDecimal(value);
+    if (scale == null || v == null || !HardnessLimit(scale, v).isValid) {
+      return null;
+    }
+    return (scale, value.trim());
+  }
+
+  Future<HardnessSavedLimit?> load() async {
     try {
       final prefs = await SharedPreferences.getInstance()
           .timeout(const Duration(seconds: 2));
-      final raw = prefs.getString(key);
-      if (raw == null) return null;
-      final parts = raw.split('|');
-      if (parts.length != 3) return null;
-      final scale =
-          HardnessScale.values.where((s) => s.name == parts[1]).firstOrNull;
-      if (scale == null) return null;
-      return (parts[0], scale, parts[2]);
+      var presetId = prefs.getString(presetKey);
+      (HardnessScale, String)? custom;
+      final rawCustom = prefs.getString(customKey);
+      if (rawCustom != null) {
+        final parts = rawCustom.split('|');
+        if (parts.length == 2) custom = _custom(parts[0], parts[1]);
+      }
+      final legacy = prefs.getString(legacyKey);
+      if (presetId == null && rawCustom == null && legacy != null) {
+        final parts = legacy.split('|');
+        if (parts.length == 3) {
+          presetId = parts[0];
+          custom = _custom(parts[1], parts[2]);
+        }
+      }
+      if (presetId == null && custom == null) return null;
+      return HardnessSavedLimit(
+          presetId: presetId, customScale: custom?.$1, customValue: custom?.$2);
     } catch (_) {
       return null;
     }
   }
 
-  Future<void> save(String id, HardnessScale scale, String value) async {
+  Future<void> savePreset(String id) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          key, '$id|${scale.name}|${value.replaceAll('|', '')}');
+      await prefs.setString(presetKey, id);
+    } catch (_) {
+      // Wybór działa w tej sesji.
+    }
+  }
+
+  /// Zapisuje własny limit TYLKO, gdy jest prawidłowy — pusty albo błędny
+  /// tekst w trakcie pisania nie nadpisuje ostatniego dobrego limitu.
+  Future<void> saveCustom(HardnessScale scale, String value) async {
+    final c = _custom(scale.name, value.replaceAll('|', ''));
+    if (c == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(customKey, '${c.$1.name}|${c.$2}');
     } catch (_) {
       // Wybór działa w tej sesji.
     }
@@ -102,8 +152,10 @@ class _HardnessPageState extends State<HardnessPage> {
   final _customValue = TextEditingController();
   HardnessScale _customScale = HardnessScale.hv;
 
-  /// Monter już zmienił limit — zapis odczytany później go nie nadpisze.
-  bool _limitTouched = false;
+  /// Monter już zmienił preset / własny limit — zapis odczytany później go
+  /// nie nadpisze.
+  bool _presetTouched = false;
+  bool _customTouched = false;
 
   final List<_Row> _rows = [];
   int _seq = 0;
@@ -120,24 +172,35 @@ class _HardnessPageState extends State<HardnessPage> {
     unawaited(_restoreLimit());
   }
 
+  /// Własny limit odtwarzany ZAWSZE (także gdy wybrany jest preset), preset
+  /// osobno — przełączenie na preset i restart nie gubią własnego limitu.
   Future<void> _restoreLimit() async {
     final saved = await widget.store.load();
-    if (!mounted || saved == null || _limitTouched) return;
-    final (id, scale, value) = saved;
-    if (id == kHardnessCustomLimitId) {
-      setState(() {
-        _presetId = id;
+    if (!mounted || saved == null) return;
+    setState(() {
+      final scale = saved.customScale;
+      final value = saved.customValue;
+      if (!_customTouched && scale != null && value != null) {
         _customScale = scale;
         _customValue.text = value;
-      });
-    } else if (hardnessPresetById(id) != null) {
-      setState(() => _presetId = id);
-    }
+      }
+      final id = saved.presetId;
+      if (!_presetTouched &&
+          id != null &&
+          (id == kHardnessCustomLimitId || hardnessPresetById(id) != null)) {
+        _presetId = id;
+      }
+    });
   }
 
-  void _saveLimit() {
-    _limitTouched = true;
-    unawaited(widget.store.save(_presetId, _customScale, _customValue.text));
+  void _savePreset() {
+    _presetTouched = true;
+    unawaited(widget.store.savePreset(_presetId));
+  }
+
+  void _saveCustom() {
+    _customTouched = true;
+    unawaited(widget.store.saveCustom(_customScale, _customValue.text));
   }
 
   @override
@@ -509,7 +572,7 @@ class _HardnessPageState extends State<HardnessPage> {
     );
     if (picked == null || !mounted) return;
     setState(() => _presetId = picked);
-    _saveLimit();
+    _savePreset();
   }
 
   Widget _limitSection() {
@@ -524,6 +587,7 @@ class _HardnessPageState extends State<HardnessPage> {
                 en: 'A number > 0, at most ${formatHardnessExact(_customScale.maxPlausible, en: true)} ${_customScale.label}'))
         : null;
     final note = p == null ? '' : (_en ? p.noteEn : p.notePl);
+    final mismatch = hardnessPresetMismatchReason(p, _material, en: _en);
 
     return QuoteSection(
       title: context.tr(pl: 'Limit (wartość maksymalna)', en: 'Limit (maximum)'),
@@ -589,7 +653,7 @@ class _HardnessPageState extends State<HardnessPage> {
             inputFormatters: numberInputFormatters(),
             onChanged: (_) {
               setState(() {});
-              _saveLimit();
+              _saveCustom();
             },
             decoration: InputDecoration(
               labelText: context.tr(pl: 'Limit max', en: 'Limit max'),
@@ -603,20 +667,17 @@ class _HardnessPageState extends State<HardnessPage> {
           const SizedBox(height: 8),
           _scaleChips(_customScale, (s) {
             setState(() => _customScale = s);
-            _saveLimit();
+            _saveCustom();
           }, keyPrefix: 'hard-limit-scale'),
         ],
-        if (p != null && _material == HardnessMaterial.stainless)
+        if (mismatch != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: QuoteNotice(
-              text: context.tr(
-                  pl: 'Te presety dotyczą stali węglowych i niskostopowych. '
-                      'Dla nierdzewnej użyj limitu ze specyfikacji (Własny '
-                      'limit).',
-                  en: 'These presets are for carbon and low-alloy steels. For '
-                      'stainless use the limit from the specification (Custom '
-                      'limit).'),
+              key: const ValueKey('hard-limit-material-mismatch'),
+              color: kWarn,
+              icon: Icons.warning_amber_outlined,
+              text: mismatch,
             ),
           ),
       ],
@@ -795,13 +856,16 @@ class _HardnessPageState extends State<HardnessPage> {
       SeriesVerdict.incomplete => (
           kWarn,
           Icons.warning_amber_outlined,
-          context.tr(
-              pl: 'Bez oceny: ${r.unratedCount} z $total (puste, błędne, poza '
-                  'tablicą albo bez przeliczenia). Zielony werdykt tylko, gdy '
-                  'każdy pomiar jest oceniony.',
-              en: 'Not rated: ${r.unratedCount} of $total (empty, invalid, '
-                  'outside the table or not convertible). Green only when '
-                  'every reading is rated.'),
+          r.limitNotForMaterial
+              ? '${context.tr(pl: 'Powód', en: 'Reason')}: '
+                  '${hardnessPresetMismatchReason(report.preset, report.material, en: _en)}'
+              : context.tr(
+                  pl: 'Bez oceny: ${r.unratedCount} z $total (puste, błędne, '
+                      'poza tablicą albo bez przeliczenia). Zielony werdykt '
+                      'tylko, gdy każdy pomiar jest oceniony.',
+                  en: 'Not rated: ${r.unratedCount} of $total (empty, '
+                      'invalid, outside the table or not convertible). Green '
+                      'only when every reading is rated.'),
         ),
       SeriesVerdict.empty => (
           kTextSec,

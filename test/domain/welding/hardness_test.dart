@@ -334,14 +334,113 @@ void main() {
       expect(l('iso15156_hrc').value, 22);
       expect(l('iso15156_a105').value, 187);
       expect(l('iso15156_a234').value, 197);
-      // EN ISO 15614-1: gr. 1–2 380/320 HV10, gr. 4–5 po OC 350 (wyd. 2017).
-      expect(l('iso15614_g12_aw').value, 380);
-      expect(l('iso15614_g12_ht').value, 320);
-      expect(l('iso15614_g45_ht').value, 350);
-      // ASME B31.3-2008…2012 tab. 331.1.1: P-No 5A/5B/5C/6 — 241 HB.
-      expect(l('b313_p5_p6').scale, _hb);
-      expect(l('b313_p5_p6').value, 241);
+      // EN ISO 15614-1:2004+A2:2012 tab. 2: gr. 1–2 380/320, gr. 3 450/380,
+      // gr. 4–5 380/320 HV10; wyd. 2017 (źródło wtórne): gr. 4–5 po OC 350.
+      expect(l('iso15614_2004_g12_aw').value, 380);
+      expect(l('iso15614_2004_g12_ht').value, 320);
+      expect(l('iso15614_2004_g3_aw').value, 450);
+      expect(l('iso15614_2004_g3_ht').value, 380);
+      expect(l('iso15614_2004_g45_aw').value, 380);
+      expect(l('iso15614_2004_g45_ht').value, 320);
+      expect(l('iso15614_2017_g45_ht').value, 350);
+      // ASME B31.3-2008…2012 tab. 331.1.1: P-No 3/4 — 225 HB,
+      // P-No 5A/5B/5C i 6 — 241 HB; P-No 6 to nierdzewna martenzytyczna.
       expect(l('b313_p3_p4').value, 225);
+      expect(l('b313_p5').scale, _hb);
+      expect(l('b313_p5').value, 241);
+      expect(l('b313_p6').value, 241);
+      expect(hardnessPresetById('b313_p6')!.material,
+          HardnessMaterial.stainless);
+    });
+
+    test('wydanie w tytule i źródle; wyd. 2004 nie jako 2017', () {
+      final year = RegExp(r'(19|20)\d{2}');
+      Set<String> years(String s) =>
+          year.allMatches(s).map((m) => m[0]!).toSet();
+      for (final p in kHardnessLimitPresets) {
+        for (final (title, source) in [
+          (p.titlePl, p.sourcePl),
+          (p.titleEn, p.sourceEn),
+        ]) {
+          expect(years(title), isNotEmpty, reason: '${p.id}: $title');
+          expect(years(source).containsAll(years(title)), isTrue,
+              reason: '${p.id}: tytuł „$title” vs źródło „$source”');
+        }
+      }
+      final iso15614 = kHardnessLimitPresets
+          .where((p) => p.standard == HardnessStandard.iso15614);
+      for (final p in iso15614) {
+        final is2017 = p.id.contains('2017');
+        for (final s in [p.titlePl, p.titleEn, p.sourcePl, p.sourceEn]) {
+          expect(s.contains('15614-1:2017'), is2017, reason: '${p.id}: $s');
+          expect(s.contains('15614-1:2004+A2:2012'), !is2017,
+              reason: '${p.id}: $s');
+        }
+      }
+      // Jedyna wartość z wyd. 2017 — i ze źródła wtórnego, z ostrzeżeniem.
+      final v2017 = iso15614.where((p) => p.id.contains('2017')).toList();
+      expect(v2017.map((p) => p.limit.value), [350]);
+      expect(v2017.single.sourcePl, contains('źródła wtórnego'));
+      expect(v2017.single.notePl, contains('Sprawdź w normie z kontraktu'));
+    });
+
+    test('gr. 4–5 po OC: 320 (2004) przed 350 (2017); 330 HV → przekroczony',
+        () {
+      final ids = kHardnessLimitPresets.map((p) => p.id).toList();
+      expect(ids.indexOf('iso15614_2004_g45_ht'),
+          lessThan(ids.indexOf('iso15614_2017_g45_ht')));
+      HardnessLimitPreset p(String id) => hardnessPresetById(id)!;
+      final r2004 = evaluateHardnessSeries([_r(330, _hv)],
+          p('iso15614_2004_g45_ht').limit,
+          preset: p('iso15614_2004_g45_ht'));
+      expect(r2004.verdict, SeriesVerdict.fail);
+      final r2017 = evaluateHardnessSeries([_r(330, _hv)],
+          p('iso15614_2017_g45_ht').limit,
+          preset: p('iso15614_2017_g45_ht'));
+      expect(r2017.verdict, SeriesVerdict.pass);
+    });
+  });
+
+  group('preset a materiał', () {
+    const stainless = HardnessMaterial.stainless;
+    HardnessLimitPreset p(String id) => hardnessPresetById(id)!;
+
+    test('preset dla stali węglowych przy nierdzewnej → brak oceny', () {
+      for (final preset in kHardnessLimitPresets
+          .where((x) => x.material == HardnessMaterial.carbonLowAlloy)) {
+        // Ta sama skala co limit i wartość daleko poniżej — i tak bez oceny.
+        final low = preset.limit.value / 2;
+        final r = evaluateHardnessSeries(
+            [_r(low, preset.limit.scale)], preset.limit,
+            material: stainless, preset: preset);
+        expect(r.verdict, SeriesVerdict.incomplete, reason: preset.id);
+        expect(r.limitNotForMaterial, isTrue, reason: preset.id);
+        expect(r.checks.single.status, ReadingStatus.limitNotForMaterial,
+            reason: preset.id);
+        expect(r.max, isNull, reason: preset.id);
+      }
+      // Własny limit (bez presetu) w tej samej skali działa normalnie.
+      final custom = evaluateHardnessSeries(
+          [_r(240, _hv)], const HardnessLimit(_hv, 250),
+          material: stainless);
+      expect(custom.verdict, SeriesVerdict.pass);
+      expect(custom.limitNotForMaterial, isFalse);
+    });
+
+    test('P-No 6: OK dla nierdzewnej, bez oceny dla węglowej', () {
+      final p6 = p('b313_p6');
+      expect(
+          evaluateHardnessSeries([_r(230, _hb)], p6.limit,
+                  material: stainless, preset: p6)
+              .verdict,
+          SeriesVerdict.pass);
+      expect(
+          evaluateHardnessSeries([_r(230, _hb)], p6.limit, preset: p6).verdict,
+          SeriesVerdict.incomplete);
+      // Przekroczenie i tak niewidoczne — preset nie pasuje, brak oceny.
+      expect(
+          evaluateHardnessSeries([_r(260, _hb)], p6.limit, preset: p6).verdict,
+          SeriesVerdict.incomplete);
     });
   });
 }
