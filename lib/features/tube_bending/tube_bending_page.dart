@@ -46,6 +46,15 @@ class TubeBendingPage extends StatefulWidget {
   State<TubeBendingPage> createState() => _TubeBendingPageState();
 }
 
+/// Pole długości: tekst w bieżącej jednostce i wartość kanoniczna w mm.
+/// `mm == null` — pole puste; `NaN` — tekst nieczytelny.
+class _LenField {
+  _LenField([this.mm]);
+
+  final TextEditingController controller = TextEditingController();
+  double? mm;
+}
+
 /// Wynik bieżącego trybu.
 class _Outcome {
   final List<String> problems;
@@ -58,28 +67,31 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
   TubeBendingMode _mode = TubeBendingMode.multi;
   bool _inch = false;
 
+  // Długości: wartość kanoniczna w mm ([_LenField.mm]) zmienia się TYLKO
+  // przy edycji pola. Przełączenie mm ↔ cale przepisuje sam tekst — wynik
+  // i zapis się nie zmieniają, choćby przełączać w kółko.
+
   // Giętarka. Domyślnie CLR 38 mm (giętarka do rurki 12 mm / 1/2").
-  final _clr = TextEditingController(text: '38');
-  final _minStraight = TextEditingController();
-  final _markerOffset = TextEditingController();
+  final _clr = _LenField(38);
+  final _minStraight = _LenField();
+  final _markerOffset = _LenField();
   final _springback = TextEditingController();
 
   // Jedno gięcie.
   final _sAngle = TextEditingController(text: '90');
-  final _sA = TextEditingController(text: '200');
-  final _sB = TextEditingController(text: '150');
+  final _sA = _LenField(200);
+  final _sB = _LenField(150);
 
   // Odsadzka.
-  final _oH = TextEditingController(text: '100');
-  final _oSpread = TextEditingController();
+  final _oH = _LenField(100);
+  final _oSpread = _LenField();
   final _oAngle = TextEditingController(text: '45');
-  final _oA = TextEditingController(text: '200');
-  final _oB = TextEditingController(text: '200');
+  final _oA = _LenField(200);
+  final _oB = _LenField(200);
 
   // Wiele gięć: odcinki (n + 1), kąty i obroty (n).
-  final List<TextEditingController> _segs = [
-    for (final v in const ['150', '200', '250', '120'])
-      TextEditingController(text: v),
+  final List<_LenField> _segs = [
+    for (final v in const [150.0, 200.0, 250.0, 120.0]) _LenField(v),
   ];
   final List<TextEditingController> _angles = [
     for (final v in const ['90', '45', '90']) TextEditingController(text: v),
@@ -93,7 +105,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
   bool _readFailed = false;
   bool _damagedNotice = false;
 
-  List<TextEditingController> get _lengthFields => [
+  List<_LenField> get _lengthFields => [
         _clr,
         _minStraight,
         _markerOffset,
@@ -109,13 +121,16 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
   @override
   void initState() {
     super.initState();
+    for (final f in _lengthFields) {
+      _show(f);
+    }
     unawaited(_load());
   }
 
   @override
   void dispose() {
     for (final c in [
-      ..._lengthFields,
+      for (final f in _lengthFields) f.controller,
       _springback,
       _sAngle,
       _oAngle,
@@ -136,9 +151,13 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
       _readFailed = l.readFailed;
       _damagedNotice = l.damaged && !_touched;
       final s = l.state;
+      // Monter zaczął pisać, zanim odczyt się skończył — jego dane wygrywają.
       if (s != null && !_touched) _apply(s);
       _loaded = true;
     });
+    // Edycja sprzed końca odczytu nie była zapisana (zapis czekał na
+    // odczyt) — zapisz ją teraz, a nie dopiero przy następnej zmianie.
+    if (_touched) await _save();
   }
 
   /// Kontrolery zdjęte z ekranu — pola trzymają je jeszcze w tej klatce.
@@ -150,73 +169,78 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
     });
   }
 
-  /// Cale z 4 miejscami: 150 mm → 5,9055 in → z powrotem 150 mm.
-  static int _decimalsFor(bool inch) => inch ? 4 : 2;
-
-  String _field(double? v, {bool length = true}) {
-    if (v == null || !v.isFinite) return '';
-    final shown = length && _inch ? v / kMmPerInch : v;
-    return numText(shown, decimals: length ? _decimalsFor(_inch) : 2);
+  /// Tekst pola długości z wartości kanonicznej w bieżącej jednostce
+  /// (mm do 3 miejsc, cale do 4). Nieczytelny tekst (NaN) zostaje, jak
+  /// go wpisano — monter ma go poprawić, nie zgubić.
+  void _show(_LenField f) {
+    final v = f.mm;
+    if (v != null && v.isNaN) return;
+    f.controller.text =
+        v == null ? '' : numText(v / _scale, decimals: _inch ? 4 : 3);
   }
+
+  /// Edycja pola długości: jedyne miejsce, które zmienia wartość kanoniczną.
+  void _edited(_LenField f, String text) => _changed(() => f.mm =
+      text.trim().isEmpty ? null : (parseDecimal(text) ?? double.nan) * _scale);
+
+  String _deg2(double? v) => v == null || !v.isFinite ? '' : numText(v);
 
   void _apply(TubeBendingSaved s) {
     _mode = s.mode;
     _inch = s.unit == TubeUnit.inch;
-    _clr.text = _field(s.clrMm);
-    _minStraight.text = _field(s.minStraightMm);
-    _markerOffset.text = _field(s.markerOffsetMm);
-    _springback.text = _field(s.springbackDeg, length: false);
-    _sAngle.text = _field(s.singleAngleDeg, length: false);
-    _sA.text = _field(s.singleLegAMm);
-    _sB.text = _field(s.singleLegBMm);
-    _oH.text = _field(s.offsetHeightMm);
-    _oSpread.text = _field(s.offsetSpreadMm);
-    _oAngle.text = _field(s.offsetAngleDeg, length: false);
-    _oA.text = _field(s.offsetLegAMm);
-    _oB.text = _field(s.offsetLegBMm);
-    _disposeLater([..._segs, ..._angles, ..._rots]);
+    _clr.mm = s.clrMm;
+    _minStraight.mm = s.minStraightMm;
+    _markerOffset.mm = s.markerOffsetMm;
+    _sA.mm = s.singleLegAMm;
+    _sB.mm = s.singleLegBMm;
+    _oH.mm = s.offsetHeightMm;
+    _oSpread.mm = s.offsetSpreadMm;
+    _oA.mm = s.offsetLegAMm;
+    _oB.mm = s.offsetLegBMm;
+    _springback.text = _deg2(s.springbackDeg);
+    _sAngle.text = _deg2(s.singleAngleDeg);
+    _oAngle.text = _deg2(s.offsetAngleDeg);
+    _disposeLater([
+      for (final f in _segs) f.controller,
+      ..._angles,
+      ..._rots,
+    ]);
     _segs
       ..clear()
-      ..addAll([
-        for (final v in s.segmentsMm) TextEditingController(text: _field(v)),
-      ]);
+      ..addAll([for (final v in s.segmentsMm) _LenField(v)]);
     _angles
       ..clear()
       ..addAll([
-        for (final v in s.anglesDeg)
-          TextEditingController(text: _field(v, length: false)),
+        for (final v in s.anglesDeg) TextEditingController(text: _deg2(v)),
       ]);
     _rots
       ..clear()
       ..addAll([
-        for (final v in s.rotationsDeg)
-          TextEditingController(text: _field(v, length: false)),
+        for (final v in s.rotationsDeg) TextEditingController(text: _deg2(v)),
       ]);
+    for (final f in _lengthFields) {
+      _show(f);
+    }
   }
 
   double? _raw(TextEditingController c) => parseDecimal(c.text);
 
-  double? _rawMm(TextEditingController c) {
-    final v = _raw(c);
-    return v == null ? null : v * _scale;
-  }
-
   TubeBendingSaved _snapshot() => TubeBendingSaved(
         mode: _mode,
         unit: _inch ? TubeUnit.inch : TubeUnit.mm,
-        clrMm: _rawMm(_clr),
-        minStraightMm: _rawMm(_minStraight),
-        markerOffsetMm: _rawMm(_markerOffset),
+        clrMm: _clr.mm,
+        minStraightMm: _minStraight.mm,
+        markerOffsetMm: _markerOffset.mm,
         springbackDeg: _raw(_springback),
         singleAngleDeg: _raw(_sAngle),
-        singleLegAMm: _rawMm(_sA),
-        singleLegBMm: _rawMm(_sB),
-        offsetHeightMm: _rawMm(_oH),
-        offsetSpreadMm: _rawMm(_oSpread),
+        singleLegAMm: _sA.mm,
+        singleLegBMm: _sB.mm,
+        offsetHeightMm: _oH.mm,
+        offsetSpreadMm: _oSpread.mm,
         offsetAngleDeg: _raw(_oAngle),
-        offsetLegAMm: _rawMm(_oA),
-        offsetLegBMm: _rawMm(_oB),
-        segmentsMm: [for (final c in _segs) _rawMm(c)],
+        offsetLegAMm: _oA.mm,
+        offsetLegBMm: _oB.mm,
+        segmentsMm: [for (final f in _segs) f.mm],
         anglesDeg: [for (final c in _angles) _raw(c)],
         rotationsDeg: [for (final c in _rots) _raw(c)],
       );
@@ -275,28 +299,23 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
       ? context.tr(pl: '1/32"', en: '1/32"')
       : context.tr(pl: '0,5 mm', en: '0.5 mm');
 
-  /// Wartość pola w mm; puste → NaN (błąd), [optional] → 0.
-  double _mmOf(TextEditingController c, {bool optional = false}) {
-    if (optional && c.text.trim().isEmpty) return 0;
-    return (parseDecimal(c.text) ?? double.nan) * _scale;
-  }
+  /// Kanoniczna wartość pola w mm; puste → NaN (błąd), [optional] → 0.
+  double _mmOf(_LenField f, {bool optional = false}) =>
+      f.mm ?? (optional ? 0 : double.nan);
 
   double _degOf(TextEditingController c, {bool optional = false}) {
     if (optional && c.text.trim().isEmpty) return 0;
     return parseDecimal(c.text) ?? double.nan;
   }
 
+  /// Zmienia tylko wyświetlanie: wartości kanoniczne w mm zostają.
   void _setUnit(bool inch) {
     if (inch == _inch) return;
-    final from = _scale;
-    final to = inch ? kMmPerInch : 1.0;
     _changed(() {
-      for (final c in _lengthFields) {
-        final v = parseDecimal(c.text);
-        if (v == null) continue;
-        c.text = numText(v * from / to, decimals: _decimalsFor(inch));
-      }
       _inch = inch;
+      for (final f in _lengthFields) {
+        _show(f);
+      }
     });
   }
 
@@ -630,17 +649,28 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
 
   // ── Wspólne pola ─────────────────────────────────────────────────────────
 
+  /// Pole długości (mm / cale): edycja ustawia wartość kanoniczną w mm.
+  Widget _lenField(_LenField f, String label,
+          {required String key, String? helper, bool signed = false}) =>
+      _numField(f.controller, label,
+          key: key,
+          helper: helper,
+          signed: signed,
+          onChanged: (t) => _edited(f, t));
+
+  /// Pole niezależne od jednostki (kąty) — tekst jest wartością.
   Widget _numField(TextEditingController c, String label,
           {required String key,
           String? unit,
           String? helper,
-          bool signed = false}) =>
+          bool signed = false,
+          ValueChanged<String>? onChanged}) =>
       TextField(
         key: ValueKey(key),
         controller: c,
         keyboardType: numberKeyboard(signed: signed),
         inputFormatters: numberInputFormatters(signed: signed),
-        onChanged: (_) => _changed(),
+        onChanged: onChanged ?? (_) => _changed(),
         decoration: InputDecoration(
           labelText: label,
           suffixText: unit ?? _u,
@@ -721,7 +751,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
   Widget _benderSection() => QuoteSection(
         title: context.tr(pl: 'Giętarka', en: 'Bender'),
         children: [
-          _numField(
+          _lenField(
             _clr,
             context.tr(
                 pl: 'Promień gięcia po osi CLR', en: 'Centreline radius CLR'),
@@ -733,7 +763,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
                     'the bender plate or manual.'),
           ),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
             _minStraight,
             context.tr(
                 pl: 'Minimalna prosta (uchwyt giętarki)',
@@ -744,7 +774,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
                 en: 'Between bends and at the ends. Empty = not checked.'),
           ),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
             _markerOffset,
             context.tr(
                 pl: 'Przesunięcie znacznika giętarki',
@@ -784,14 +814,14 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
           _numField(_sAngle, context.tr(pl: 'Kąt gięcia', en: 'Bend angle'),
               key: 'tb-s-angle', unit: '°'),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
               _sA,
               context.tr(
                   pl: 'Ramię A (od początku rurki)',
                   en: 'Leg A (from the tube start)'),
               key: 'tb-s-a'),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
               _sB,
               context.tr(
                   pl: 'Ramię B (do końca rurki)',
@@ -808,11 +838,11 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
             en: 'Two bends of the same angle in opposite directions. With a '
                 'side offset — a rolling offset (as in “Rolling offset” for pipe).'),
         children: [
-          _numField(
+          _lenField(
               _oH, context.tr(pl: 'Przesunięcie osi H', en: 'Axis offset H'),
               key: 'tb-o-h'),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
             _oSpread,
             context.tr(
                 pl: 'Przesunięcie boczne (opcjonalnie)',
@@ -828,7 +858,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
           _numField(_oAngle, context.tr(pl: 'Kąt odsadzki', en: 'Offset angle'),
               key: 'tb-o-angle', unit: '°'),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
               _oA,
               context.tr(
                   pl: 'Od początku rurki do gięcia 1',
@@ -838,7 +868,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
                   pl: 'Do punktu przecięcia osi.',
                   en: 'To the centreline intersection.')),
           const SizedBox(height: 12),
-          _numField(
+          _lenField(
               _oB,
               context.tr(
                   pl: 'Od gięcia 2 do końca rurki', en: 'Bend 2 to tube end'),
@@ -851,8 +881,10 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
     _changed(() {
       _angles.add(TextEditingController(text: '90'));
       _rots.add(TextEditingController());
-      _segs.add(
-          TextEditingController(text: _inch ? '4' : numText(100, decimals: 2)));
+      // Nowy odcinek: 100 mm albo 4" — okrągła liczba w bieżącej jednostce.
+      final seg = _LenField(_inch ? 4 * kMmPerInch : 100);
+      _show(seg);
+      _segs.add(seg);
     });
   }
 
@@ -861,7 +893,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
     final removed = [
       _angles.removeAt(k),
       _rots.removeAt(k),
-      _segs.removeAt(k + 1),
+      _segs.removeAt(k + 1).controller,
     ];
     _changed();
     _disposeLater(removed);
@@ -878,7 +910,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
           en: 'Lengths as on the drawing: to the centreline intersections. '
               'Bends in one plane; the rotation is for information only.'),
       children: [
-        _numField(
+        _lenField(
             _segs[0],
             context.tr(
                 pl: 'Odcinek 1: początek rurki → gięcie 1',
@@ -927,7 +959,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
             ],
           ),
           const SizedBox(height: 10),
-          _numField(
+          _lenField(
               _segs[k + 1],
               k == n - 1
                   ? context.tr(

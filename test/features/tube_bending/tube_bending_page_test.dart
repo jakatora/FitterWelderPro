@@ -3,10 +3,13 @@
 // dotyku ≥ 48 dp, udostępnianie przez wstrzykniętą funkcję i zapis ostatniej
 // rurki.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cut_list_app/domain/fitter/tube_bending.dart';
 import 'package:cut_list_app/features/tube_bending/tube_bending_page.dart';
 import 'package:cut_list_app/features/tube_bending/tube_bending_store.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -18,12 +21,26 @@ class _Spy {
   Future<void> text(String t, String subject) async => texts.add((t, subject));
 }
 
+/// Odczyt, który kończy się dopiero po [gate] — monter zdąży coś wpisać.
+class _SlowStore extends TubeBendingStore {
+  _SlowStore();
+
+  final gate = Completer<void>();
+
+  @override
+  Future<TubeBendingLoad> load() async {
+    await gate.future;
+    return super.load();
+  }
+}
+
 Future<_Spy> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
   Size size = const Size(1080, 8000),
   double textScale = 1.0,
   Map<String, Object>? prefs,
+  TubeBendingStore store = const TubeBendingStore(),
 }) async {
   SharedPreferences.setMockInitialValues(prefs ?? {});
   tester.view.physicalSize = size;
@@ -39,7 +56,7 @@ Future<_Spy> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: TubeBendingPage(shareText: spy.text),
+      home: TubeBendingPage(shareText: spy.text, store: store),
     ),
   ));
   await tester.pumpAndSettle();
@@ -232,6 +249,98 @@ void main() {
     expect(_field(tester, 'tb-clr'), '38');
     expect(_field(tester, 'tb-seg-1'), '150');
     expect(_cut('686'), findsOneWidget);
+  });
+
+  testWidgets(
+      'przełączanie mm ↔ cale nie zmienia danych: ten sam wynik i ten sam '
+      'zapis', (tester) async {
+    await _pump(tester);
+    // 150,3 i 38 mm nie mają skończonego zapisu w calach (5,9173…",
+    // 1,4960…") — dawniej tekst „1,4961” stawał się wartością 38,00094 mm.
+    await _enter(tester, 'tb-seg-1', '150,3');
+    final prefs = await SharedPreferences.getInstance();
+    final saved0 = prefs.getString(TubeBendingStore.key)!;
+    final s0 = decodeTubeBending(saved0).state!;
+    // 720,3 − 34,25 = 686,05 → 686,5.
+    expect(_in('tb-exact', '686,05 mm'), findsOneWidget);
+    expect(_cut('686,5'), findsOneWidget);
+    List<double?> lengths(TubeBendingSaved s) => [
+          s.clrMm,
+          s.minStraightMm,
+          s.markerOffsetMm,
+          s.singleLegAMm,
+          s.singleLegBMm,
+          s.offsetHeightMm,
+          s.offsetSpreadMm,
+          s.offsetLegAMm,
+          s.offsetLegBMm,
+          ...s.segmentsMm,
+        ];
+    for (var i = 1; i <= 7; i++) {
+      final inch = i.isOdd;
+      await _tap(tester, inch ? 'tb-unit-in' : 'tb-unit-mm');
+      final s = decodeTubeBending(prefs.getString(TubeBendingStore.key)).state!;
+      expect(s.unit, inch ? TubeUnit.inch : TubeUnit.mm, reason: '$i');
+      // Wartości co do bitu — nie „prawie”.
+      expect(lengths(s), lengths(s0), reason: '$i');
+      expect(s.clrMm, 38, reason: '$i');
+      expect(s.segmentsMm.first, 150.3, reason: '$i');
+      if (inch) {
+        expect(_field(tester, 'tb-clr'), '1,4961', reason: '$i');
+        // 686,0454 mm = 27,0097" → w górę do 1/32" = 27 1/32".
+        expect(_cut('27 1/32"'), findsOneWidget, reason: '$i');
+      }
+    }
+    // Po nieparzystej liczbie przełączeń zostały cale — wracamy do mm.
+    await _tap(tester, 'tb-unit-mm');
+    expect(prefs.getString(TubeBendingStore.key), saved0);
+    expect(_in('tb-exact', '686,05 mm'), findsOneWidget);
+    expect(_cut('686,5'), findsOneWidget);
+    expect(_field(tester, 'tb-seg-1'), '150,3');
+
+    // Wartość wpisana w calach też przeżywa przełączanie: 6" = 152,4 mm.
+    await _tap(tester, 'tb-unit-in');
+    await _enter(tester, 'tb-seg-1', '6');
+    for (var i = 0; i < 4; i++) {
+      await _tap(tester, i.isEven ? 'tb-unit-mm' : 'tb-unit-in');
+    }
+    expect(_field(tester, 'tb-seg-1'), '6');
+    final s6 = decodeTubeBending(prefs.getString(TubeBendingStore.key)).state!;
+    expect(s6.segmentsMm.first, 6 * 25.4);
+    await _tap(tester, 'tb-unit-mm');
+    expect(_field(tester, 'tb-seg-1'), '152,4');
+  });
+
+  testWidgets('edycja przed końcem odczytu: zapisana, nie nadpisana odczytem',
+      (tester) async {
+    final older = encodeTubeBending(const TubeBendingSaved(
+      mode: TubeBendingMode.multi,
+      unit: TubeUnit.mm,
+      clrMm: 38,
+      segmentsMm: [999, 200],
+      anglesDeg: [90],
+      rotationsDeg: [null],
+    ));
+    final store = _SlowStore();
+    await _pump(tester, prefs: {TubeBendingStore.key: older}, store: store);
+    // Odczyt jeszcze trwa — monter już wpisuje.
+    await tester.enterText(find.byKey(const ValueKey('tb-seg-1')), '160');
+    await tester.pump();
+    final prefs = await SharedPreferences.getInstance();
+    // Przed końcem odczytu nic nie nadpisujemy.
+    expect(prefs.getString(TubeBendingStore.key), older);
+
+    store.gate.complete();
+    await tester.pumpAndSettle();
+    // Dane montera zostają na ekranie (odczyt ich nie podmienia)…
+    expect(_field(tester, 'tb-seg-1'), '160');
+    // 160 + 200 + 250 + 120 − 34,25 = 695,75 → 696.
+    expect(_cut('696'), findsOneWidget);
+    // …i są zapisane od razu, bez czekania na następną zmianę.
+    final saved =
+        decodeTubeBending(prefs.getString(TubeBendingStore.key)).state!;
+    expect(saved.segmentsMm, [160, 200, 250, 120]);
+    expect(saved.anglesDeg, [90, 45, 90]);
   });
 
   testWidgets('po angielsku', (tester) async {
