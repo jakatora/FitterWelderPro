@@ -1,7 +1,8 @@
 /// Import spoin do wyceny: spoiny, które monter ma już w aplikacji (mapa
-/// spoin zapisanego odczytu skanera izometryku, dziennik spoin), zamieniane
-/// na pozycje wyceny — zgrupowane po rodzaju złącza, wymiarze i pozycji
-/// („12 × doczołowa DN100 Sch 40 (Ø114,3 × 6,02), PF / 5G").
+/// spoin zapisanego odczytu skanera izometryku, dziennik spoin, trasa
+/// projektu CUT), zamieniane na pozycje wyceny — zgrupowane po rodzaju
+/// złącza, wymiarze i pozycji („12 × doczołowa DN100 Sch 40 (Ø114,3 ×
+/// 6,02), PF / 5G").
 ///
 /// Zasady:
 ///  * wymiarów NIE zgadujemy — spoina bez OD albo ścianki nie trafia do
@@ -18,11 +19,16 @@
 ///  * pozycja ([quotePositionForCode]): kod ISO 6947 / ASME IX z danych →
 ///    [WeldPosition]; brak albo kod nieznany → domyślna pozycja wyceny
 ///    ([defaultImportPosition]: warsztat PA, obiekt PF) — też jako założenie;
-///  * warsztat / obiekt nie dzieli grup — to informacja przy grupie.
+///  * warsztat / obiekt nie dzieli grup — to informacja przy grupie;
+///  * spoina, o której źródło wie, ale nie mówi, jaka jest (projekt CUT:
+///    kołnierz bez typu, wolny koniec kształtki…), przychodzi z
+///    [ImportWeld.skip] i idzie prosto do pominiętych „do sprawdzenia"
+///    z tym powodem — grupowanie jej nie widzi.
 ///
 /// Czysty Dart (bez bazy i widżetów) — źródła podają [ImportWeld]:
 /// dziennik przez [importWeldFromJournal], skan przez
-/// `services/scan_quote_import.dart`.
+/// `services/scan_quote_import.dart`, projekt CUT przez
+/// `services/cut_quote_import.dart`.
 library;
 
 import '../../data/pipe_schedules.dart';
@@ -56,6 +62,11 @@ class ImportWeld {
 
   final ImportLocation location;
 
+  /// Źródło wie o tej spoinie, ale nie wie, jaka jest (albo czy w ogóle
+  /// jest) — idzie do pominiętych z tym powodem, bez grupowania. Null =
+  /// zwykła spoina.
+  final ImportSkipReason? skip;
+
   const ImportWeld({
     this.ref = '',
     this.jointType = '',
@@ -64,6 +75,7 @@ class ImportWeld {
     this.headerOdMm,
     this.position = '',
     this.location = ImportLocation.unknown,
+    this.skip,
   });
 }
 
@@ -75,6 +87,23 @@ enum ImportSkipReason {
   /// Wymiar jest, ale pozycja wyceny byłaby błędna (ścianka ≥ promień,
   /// wartość daleko poza zakresem — literówka?).
   badSize,
+
+  /// Projekt CUT: kołnierz bez typu — WN to doczołowa, SO / SW pachwinowa,
+  /// luźny / gwintowany bez spoiny; CUT typu nie zapisuje.
+  flangeType,
+
+  /// Projekt CUT: zawór — CUT nie zapisuje, czy jest do wspawania (BW),
+  /// mufowy (SW), czy kołnierzowy / gwintowany (bez spoiny).
+  valveEnds,
+
+  /// Projekt CUT: kształtka bez typu z korpusem (projekt ze skanu / szkicu,
+  /// wpis usunięty z biblioteki) — kołnierz, zawór czy redukcja, nie wiadomo.
+  fittingType,
+
+  /// Projekt CUT: koniec kształtki bez odcinka rury w projekcie (spoina
+  /// kształtka–kształtka albo poza zakresem projektu) — co jest po drugiej
+  /// stronie, nie wiadomo.
+  openPort,
 }
 
 class ImportSkipped {
@@ -292,6 +321,11 @@ QuoteImportPlan planQuoteImport(
   final groups = <String, _GroupBuilder>{};
   final skipped = <ImportSkipped>[];
   for (final w in welds) {
+    final skip = w.skip;
+    if (skip != null) {
+      skipped.add(ImportSkipped(w, skip));
+      continue;
+    }
     final (:kind, :assumed) = quoteKindForJointType(w.jointType);
     final od = _positive(w.odMm);
     final wall = _positive(w.wallMm);

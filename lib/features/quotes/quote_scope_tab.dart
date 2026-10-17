@@ -52,8 +52,9 @@ class QuoteScopeTab extends StatelessWidget {
     });
   }
 
-  /// Import ze skanu ISO / dziennika spoin. Pozycje dochodzą do AKTUALNEJ
-  /// wyceny (okno wraca po czasie), a „Cofnij" zdejmuje tylko je.
+  /// Import ze skanu ISO / dziennika spoin / projektu CUT. Pozycje dochodzą
+  /// do AKTUALNEJ wyceny (okno wraca po czasie), a „Cofnij" zdejmuje tylko
+  /// je.
   Future<void> _import(BuildContext context) async {
     final added = await showQuoteImport(context, quote: quote);
     if (added == null || added.isEmpty) return;
