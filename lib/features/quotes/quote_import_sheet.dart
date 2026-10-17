@@ -1,8 +1,10 @@
 // „Importuj spoiny" — pełnoekranowe okno z zakładki „Spoiny" wyceny: źródło
-// (zapisany skan izometryku albo dziennik spoin) → wybór skanu albo
-// projektu / pakietu → PODGLĄD zgrupowanych pozycji → „Dodaj do wyceny".
-// Okno tylko zwraca pozycje; dodaje je zakładka (onUpdate, od aktualnej
-// wyceny). Grupowanie i mapowanie: domain/quotes/quote_import.dart.
+// (zapisany skan izometryku, dziennik spoin albo projekt CUT) → wybór
+// skanu, projektu / pakietu albo projektu CUT → PODGLĄD zgrupowanych pozycji
+// → „Dodaj do wyceny". Okno tylko zwraca pozycje; dodaje je zakładka
+// (onUpdate, od aktualnej wyceny). Grupowanie i mapowanie:
+// domain/quotes/quote_import.dart; spoiny projektu CUT (reguły liczenia):
+// services/cut_quote_import.dart.
 
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -15,6 +17,7 @@ import '../../domain/quotes/weld_geometry.dart';
 import '../../domain/quotes/weld_quote.dart';
 import '../../domain/weld_journal/weld_entry.dart';
 import '../../i18n/app_language.dart';
+import '../../services/cut_quote_import.dart';
 import '../../services/iso_scanner_ai.dart';
 import '../../services/scan_quote_import.dart';
 import '../../theme/app_theme.dart';
@@ -27,20 +30,34 @@ Future<List<QuoteJoint>?> showQuoteImport(
   required WeldQuote quote,
   IsoScanDao? scanDao,
   WeldJournalDao? journalDao,
+  Future<List<CutImportProject>> Function()? loadCutProjects,
 }) =>
     Navigator.of(context).push<List<QuoteJoint>>(MaterialPageRoute(
       fullscreenDialog: true,
       builder: (_) => QuoteImportSheet(
-          quote: quote, scanDao: scanDao, journalDao: journalDao),
+        quote: quote,
+        scanDao: scanDao,
+        journalDao: journalDao,
+        loadCutProjects: loadCutProjects,
+      ),
     ));
 
-enum _Stage { source, scans, journal, preview }
+enum _Stage { source, scans, journal, cut, preview }
 
 class _ScanItem {
   final IsoScanRecord record;
   final AiScanResult? scan;
   final String label;
   const _ScanItem(this.record, this.scan, this.label);
+}
+
+/// Projekt CUT na liście: spoiny do wyceny i do sprawdzenia przy typach
+/// kołnierzy / zaworów jeszcze niewybranych.
+class _CutItem {
+  final CutImportProject data;
+  final int weldCount;
+  final int checkCount;
+  const _CutItem(this.data, this.weldCount, this.checkCount);
 }
 
 /// Wartość listy pakietów „wszystkie" (null w liście rozwijanej bywa
@@ -56,11 +73,15 @@ class QuoteImportSheet extends StatefulWidget {
   final IsoScanDao? scanDao;
   final WeldJournalDao? journalDao;
 
+  /// Do testów; domyślnie [loadCutProjectsForImport].
+  final Future<List<CutImportProject>> Function()? loadCutProjects;
+
   const QuoteImportSheet({
     super.key,
     required this.quote,
     this.scanDao,
     this.journalDao,
+    this.loadCutProjects,
   });
 
   @override
@@ -82,6 +103,12 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
   String? _project;
   String? _package;
   bool _onlyOpen = false;
+
+  List<_CutItem> _cutProjects = const [];
+  _CutItem? _cut;
+  CutProjectWelds? _cutWelds;
+  CutEndJoint _flanges = CutEndJoint.unknown;
+  CutEndJoint _valves = CutEndJoint.unknown;
 
   QuoteImportPlan? _plan;
   String _label = '';
@@ -219,13 +246,101 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
             : context.tr(pl: 'Dziennik spoin', en: 'Weld journal'));
   }
 
+  Future<void> _openCut() async {
+    setState(() {
+      _stage = _Stage.cut;
+      _loading = true;
+      _error = null;
+      _plan = null;
+    });
+    try {
+      final list =
+          await (widget.loadCutProjects ?? loadCutProjectsForImport)();
+      if (!mounted) return;
+      setState(() {
+        _cutProjects = [for (final p in list) _cutItem(p)];
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = context.tr(
+            pl: 'Nie udało się odczytać projektów CUT.',
+            en: 'Could not read the CUT projects.');
+      });
+    }
+  }
+
+  bool _cutStainless(CutImportProject p) =>
+      _stainless || cutProjectIsStainless(p.project);
+
+  _CutItem _cutItem(CutImportProject p) {
+    final plan = planQuoteImport(importWeldsFromCutProject(p).welds,
+        defaultPosition: _defaultPosition, stainless: _cutStainless(p));
+    return _CutItem(p, plan.weldCount, plan.skippedCount);
+  }
+
+  void _pickCut(_CutItem item) {
+    setState(() {
+      _cut = item;
+      _flanges = CutEndJoint.unknown;
+      _valves = CutEndJoint.unknown;
+      _stage = _Stage.preview;
+      _recomputeCut(keepSelection: false);
+    });
+  }
+
+  /// Bez setState — wołane z setState. Zmiana typu kołnierzy / zaworów
+  /// zostawia odznaczone grupy i zmienione pozycje.
+  void _recomputeCut({bool keepSelection = true}) {
+    final item = _cut;
+    if (item == null) return;
+    final res = importWeldsFromCutProject(
+      item.data,
+      options: CutImportOptions(
+        flanges: _flanges,
+        valves: _valves,
+        startTag: context.tr(pl: 'pocz.', en: 'start'),
+        endTag: context.tr(pl: 'kon.', en: 'end'),
+      ),
+    );
+    _cutWelds = res;
+    final plan = planQuoteImport(res.welds,
+        defaultPosition: _defaultPosition,
+        stainless: _cutStainless(item.data));
+    final label = cutImportLabel(item.data.project, english: _en);
+    _setPlan(
+      plan,
+      label.isNotEmpty
+          ? label
+          : context.tr(
+              pl: 'Projekt CUT ${_date(item.data.project.createdAt)}',
+              en: 'CUT project ${_date(item.data.project.createdAt)}'),
+      keepSelection: keepSelection,
+    );
+  }
+
   /// Bez setState — wołane z setState. Nowy podgląd: wszystko zaznaczone,
-  /// pozycje jak z danych.
-  void _setPlan(QuoteImportPlan plan, String label) {
+  /// pozycje jak z danych. [keepSelection] — ten sam podgląd przeliczony:
+  /// odznaczone grupy zostają odznaczone, nowe grupy są zaznaczone.
+  void _setPlan(QuoteImportPlan plan, String label,
+      {bool keepSelection = false}) {
+    final old = _plan;
     _plan = plan;
     _label = label;
-    _selected = {for (final g in plan.groups) g.key};
-    _positions.clear();
+    if (keepSelection && old != null) {
+      final oldKeys = {for (final g in old.groups) g.key};
+      _selected = {
+        for (final g in plan.groups)
+          if (_selected.contains(g.key) || !oldKeys.contains(g.key)) g.key,
+      };
+      final keys = {for (final g in plan.groups) g.key};
+      _positions.removeWhere((k, _) => !keys.contains(k));
+    } else {
+      _selected = {for (final g in plan.groups) g.key};
+      _positions.clear();
+    }
   }
 
   void _back() {
@@ -235,13 +350,16 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
           break;
         case _Stage.scans:
         case _Stage.journal:
+        case _Stage.cut:
           _stage = _Stage.source;
           _plan = null;
           _error = null;
         case _Stage.preview:
-          _stage = _Stage.scans;
+          _stage = _cut != null ? _Stage.cut : _Stage.scans;
           _plan = null;
           _scan = null;
+          _cut = null;
+          _cutWelds = null;
       }
     });
   }
@@ -274,6 +392,7 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
         _Stage.scans =>
           context.tr(pl: 'Zapisane skany ISO', en: 'Stored ISO scans'),
         _Stage.journal => context.tr(pl: 'Dziennik spoin', en: 'Weld journal'),
+        _Stage.cut => context.tr(pl: 'Projekty CUT', en: 'CUT projects'),
         _Stage.preview => context.tr(pl: 'Podgląd importu', en: 'Import preview'),
       };
 
@@ -371,7 +490,294 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
                   'finish a package.'),
           onTap: _openJournal,
         ),
+        _sourceTile(
+          key: const ValueKey('import-source-cut'),
+          icon: Icons.content_cut,
+          title: context.tr(pl: 'Projekt CUT', en: 'CUT project'),
+          subtitle: context.tr(
+              pl: 'Trasa z listy cięć — spoina na każdym połączeniu '
+                  'rura–kształtka, z wymiarem odcinka.',
+              en: 'A route from the cut list — a weld at every '
+                  'pipe-to-fitting joint, in the size of the pipe piece.'),
+          onTap: _openCut,
+        ),
       ];
+
+  List<Widget> _cutStage() {
+    if (_cutProjects.isEmpty) {
+      return [
+        Text(
+          context.tr(
+              pl: 'Nie ma projektów CUT. Zbuduj trasę z odcinków i kształtek '
+                  'w module Lista cięć — projekt pojawi się tutaj.',
+              en: 'There are no CUT projects. Build a route of pipe pieces '
+                  'and fittings in the Cut list module — the project shows '
+                  'up here.'),
+          style: const TextStyle(color: kTextSec, height: 1.45),
+        ),
+      ];
+    }
+    return [
+      QuoteSection(
+        title: context.tr(
+            pl: 'Wybierz projekt (ostatnio zmieniane na górze)',
+            en: 'Pick a project (last changed first)'),
+        children: [
+          for (final item in _cutProjects) _cutTile(item),
+        ],
+      ),
+    ];
+  }
+
+  Widget _cutTile(_CutItem item) {
+    final p = item.data.project;
+    final name = p.name?.trim() ?? '';
+    final title = name.isNotEmpty
+        ? name
+        : cutImportLabel(p, english: _en).isNotEmpty
+            ? cutImportLabel(p, english: _en)
+            : context.tr(pl: 'Projekt bez nazwy', en: 'Unnamed project');
+    final empty = item.data.segments.isEmpty;
+    return ListTile(
+      key: ValueKey('import-cut-${p.id}'),
+      contentPadding: EdgeInsets.zero,
+      minVerticalPadding: 10,
+      enabled: !empty,
+      leading: const Icon(Icons.content_cut, color: kArc),
+      title: Text(title),
+      subtitle: Text(
+        [
+          _date(p.updatedAt),
+          if (empty)
+            context.tr(pl: 'brak odcinków', en: 'no pipe pieces')
+          else ...[
+            context.tr(
+                pl: 'spoiny: ${item.weldCount}', en: 'welds: ${item.weldCount}'),
+            if (item.checkCount > 0)
+              context.tr(
+                  pl: 'do sprawdzenia: ${item.checkCount}',
+                  en: 'to check: ${item.checkCount}'),
+          ],
+        ].join('  ·  '),
+        style: const TextStyle(fontSize: 12, color: kTextMut),
+      ),
+      trailing: const Icon(Icons.chevron_right, color: kTextMut),
+      onTap: () => _pickCut(item),
+    );
+  }
+
+  /// Nad podglądem projektu CUT: nazwa i data, zgodność materiału, wybór
+  /// typu kołnierzy / zaworów (CUT go nie zapisuje).
+  List<Widget> _cutPreviewHead() {
+    final item = _cut;
+    final res = _cutWelds;
+    if (item == null || res == null) return const [];
+    final p = item.data.project;
+    final projectSs = cutProjectIsStainless(p);
+    final material = widget.quote.material;
+    final quoteSs = _stainless;
+    final mismatch =
+        projectSs != quoteSs || material == QuoteMaterial.aluminium;
+    InputDecoration dec(String l) => InputDecoration(
+        labelText: l, isDense: true, border: const OutlineInputBorder());
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          '$_label  ·  ${_date(p.updatedAt)}',
+          style: const TextStyle(
+              fontWeight: FontWeight.w700, color: kTextSec, fontSize: 13),
+        ),
+      ),
+      if (mismatch)
+        QuoteNotice(
+          key: const ValueKey('import-cut-material'),
+          icon: Icons.science_outlined,
+          text: context.tr(
+              pl: 'Projekt CUT: ${projectSs ? 'stal nierdzewna (SS)' : 'stal '
+                  'węglowa (CS)'}, a wycena: ${material.labelPl}. Stopiwo i '
+                  'czas liczą się z materiału wyceny — sprawdź go.',
+              en: 'CUT project: ${projectSs ? 'stainless steel (SS)' : 'carbon '
+                  'steel (CS)'}, but the quote: ${material.labelEn}. Filler '
+                  'metal and time follow the quote material — check it.'),
+        ),
+      if (res.flangeEnds > 0 || res.valveEnds > 0)
+        QuoteSection(
+          key: const ValueKey('import-cut-joints'),
+          title: context.tr(pl: 'Kołnierze i zawory', en: 'Flanges and valves'),
+          subtitle: context.tr(
+              pl: 'Projekt CUT nie zapisuje, jak są połączone z rurą. Wybierz '
+                  '— bez wyboru ich spoiny trafią do sprawdzenia.',
+              en: 'The CUT project does not store how they join the pipe. '
+                  'Pick it — otherwise their welds go to the check list.'),
+          children: [
+            if (res.flangeEnds > 0)
+              _jointChoice(
+                key: const ValueKey('import-cut-flanges'),
+                decoration: dec(context.tr(
+                    pl: 'Kołnierze — połączeń z rurą: ${res.flangeEnds}',
+                    en: 'Flanges — pipe joints: ${res.flangeEnds}')),
+                value: _flanges,
+                labels: {
+                  CutEndJoint.unknown: context.tr(
+                      pl: 'Nie wiem — do sprawdzenia',
+                      en: 'Not sure — to check'),
+                  CutEndJoint.butt: context.tr(
+                      pl: 'Szyjkowe (WN) — doczołowa',
+                      en: 'Weld neck (WN) — butt weld'),
+                  CutEndJoint.fillet: context.tr(
+                      pl: 'Płaskie (SO) / mufowe (SW) — pachwinowa',
+                      en: 'Slip-on (SO) / socket (SW) — fillet weld'),
+                  CutEndJoint.none: context.tr(
+                      pl: 'Luźne / gwintowane — bez spoiny',
+                      en: 'Lap-joint / threaded — no weld'),
+                },
+                onChanged: (v) => setState(() {
+                  _flanges = v;
+                  _recomputeCut();
+                }),
+              ),
+            if (res.flangeEnds > 0 && res.valveEnds > 0)
+              const SizedBox(height: 12),
+            if (res.valveEnds > 0)
+              _jointChoice(
+                key: const ValueKey('import-cut-valves'),
+                decoration: dec(context.tr(
+                    pl: 'Zawory — połączeń z rurą: ${res.valveEnds}',
+                    en: 'Valves — pipe joints: ${res.valveEnds}')),
+                value: _valves,
+                labels: {
+                  CutEndJoint.unknown: context.tr(
+                      pl: 'Nie wiem — do sprawdzenia',
+                      en: 'Not sure — to check'),
+                  CutEndJoint.butt: context.tr(
+                      pl: 'Do wspawania (BW) — doczołowa',
+                      en: 'Butt-weld ends (BW) — butt weld'),
+                  CutEndJoint.fillet: context.tr(
+                      pl: 'Mufowe (SW) — pachwinowa',
+                      en: 'Socket-weld (SW) — fillet weld'),
+                  CutEndJoint.none: context.tr(
+                      pl: 'Kołnierzowe / gwintowane — bez spoiny',
+                      en: 'Flanged / threaded — no weld'),
+                },
+                onChanged: (v) => setState(() {
+                  _valves = v;
+                  _recomputeCut();
+                }),
+              ),
+          ],
+        ),
+    ];
+  }
+
+  Widget _jointChoice({
+    required Key key,
+    required InputDecoration decoration,
+    required CutEndJoint value,
+    required Map<CutEndJoint, String> labels,
+    required ValueChanged<CutEndJoint> onChanged,
+  }) =>
+      DropdownButtonFormField<CutEndJoint>(
+        key: key,
+        initialValue: value,
+        isExpanded: true,
+        itemHeight: null,
+        decoration: decoration,
+        selectedItemBuilder: (_) => [
+          for (final j in CutEndJoint.values)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(labels[j]!,
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        items: [
+          for (final j in CutEndJoint.values)
+            DropdownMenuItem(
+              value: j,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(labels[j]!),
+              ),
+            ),
+        ],
+        onChanged: (v) {
+          if (v != null) onChanged(v);
+        },
+      );
+
+  /// Pod podglądem projektu CUT: reguły liczenia spoin
+  /// (services/cut_quote_import.dart).
+  List<Widget> _cutAssumptions() {
+    if (_cut == null) return const [];
+    final rules = [
+      context.tr(
+          pl: 'Spoina na każdym końcu odcinka przy kształtce — tam, gdzie CUT '
+              'odejmuje szczelinę spoiny. Wymiar: OD i ścianka tego odcinka.',
+          en: 'A weld at every end of a pipe piece that meets a fitting — '
+              'where CUT takes off the root gap. Size: OD and wall of that '
+              'piece.'),
+      context.tr(
+          pl: 'Kolano, trójnik, redukcja — doczołowa (BW): trójnik to 3 '
+              'spoiny, redukcja — 2 o różnych średnicach. Kształtka osiowa '
+              'ze skanu bez typu — spoina jest, rodzaj przyjęty jako '
+              'doczołowa.',
+          en: 'Elbow, tee, reducer — butt weld (BW): a tee is 3 welds, a '
+              'reducer 2 of different sizes. An axial fitting from a scan '
+              'with no type — the weld is there, taken as a butt weld.'),
+      context.tr(
+          pl: 'Kołnierz: WN — doczołowa, SO / SW — pachwinowa, luźny / '
+              'gwintowany — bez spoiny. Zawór: BW — doczołowa, SW — '
+              'pachwinowa, kołnierzowy / gwintowany — bez spoiny. Bez '
+              'wyboru — do sprawdzenia.',
+          en: 'Flange: WN — butt weld, SO / SW — fillet weld, lap-joint / '
+              'threaded — no weld. Valve: BW — butt weld, SW — fillet weld, '
+              'flanged / threaded — no weld. Not picked — to check.'),
+      context.tr(
+          pl: 'Odcinek dłuższy niż sztanga — doczołowa rura–rura na każdy '
+              'podział z listy cięć.',
+          en: 'A piece longer than the stock bar — a pipe-to-pipe butt weld '
+              'for every split on the cut list.'),
+      context.tr(
+          pl: 'Koniec otwarty — bez spoiny. Spoin rura–rura na końcach '
+              'otwartych (np. montażowych) ani odgałęzień wspawanych bez '
+              'trójnika (olet, króciec) projekt nie zapisuje — dodaj je '
+              'ręcznie.',
+          en: 'Open end — no weld. Pipe-to-pipe welds at open ends (e.g. '
+              'field welds) and branches welded on without a tee (olet, '
+              'set-on) are not in the project — add them by hand.'),
+      context.tr(
+          pl: 'Pozycja spawania — z wyceny (warsztat PA, obiekt PF); zmienisz '
+              'ją przy grupie.',
+          en: 'Welding position — from the quote (shop PA, field PF); change '
+              'it on the group.'),
+    ];
+    return [
+      QuoteSection(
+        key: const ValueKey('import-cut-assumptions'),
+        title: context.tr(
+            pl: 'Założenia liczenia spoin', en: 'How welds are counted'),
+        children: [
+          for (final r in rules)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('•  ',
+                      style: TextStyle(color: kTextSec, height: 1.4)),
+                  Expanded(
+                    child: Text(r,
+                        style: const TextStyle(
+                            fontSize: 12.5, color: kTextSec, height: 1.4)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ];
+  }
 
   List<Widget> _scanStage() {
     if (_scans.isEmpty) {
@@ -535,6 +941,14 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
     final badSize = plan.skipped
         .where((s) => s.reason == ImportSkipReason.badSize)
         .toList();
+    List<String> refsFor(ImportSkipReason r) => [
+          for (final s in plan.skipped)
+            if (s.reason == r) s.weld.ref,
+        ];
+    final flanges = refsFor(ImportSkipReason.flangeType);
+    final valves = refsFor(ImportSkipReason.valveEnds);
+    final untyped = refsFor(ImportSkipReason.fittingType);
+    final openPorts = refsFor(ImportSkipReason.openPort);
     return [
       if (_stage == _Stage.preview && _scan != null)
         Padding(
@@ -593,6 +1007,69 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
                     'the OD and wall at the source (typo?).'
                     '${_refsText(badSize.map((s) => s.weld.ref), en: true)}'),
           ),
+        if (flanges.isNotEmpty)
+          QuoteNotice(
+            key: const ValueKey('import-check-flanges'),
+            icon: Icons.help_outline,
+            text: context.tr(
+                pl: 'Do sprawdzenia — kołnierze: ${flanges.length}. Projekt '
+                    'CUT nie zapisuje typu kołnierza (WN, SO, luźny), a od '
+                    'niego zależy spoina — wybierz typ wyżej.'
+                    '${_refsText(flanges, en: false)}',
+                en: 'To check — flanges: ${flanges.length}. The CUT project '
+                    'does not store the flange type (WN, SO, lap-joint) and '
+                    'the weld depends on it — pick the type above.'
+                    '${_refsText(flanges, en: true)}'),
+          ),
+        if (valves.isNotEmpty)
+          QuoteNotice(
+            key: const ValueKey('import-check-valves'),
+            icon: Icons.help_outline,
+            text: context.tr(
+                pl: 'Do sprawdzenia — końce zaworów: ${valves.length}. '
+                    'Projekt CUT nie zapisuje, czy zawór jest do wspawania, '
+                    'mufowy czy kołnierzowy — wybierz wyżej.'
+                    '${_refsText(valves, en: false)}',
+                en: 'To check — valve ends: ${valves.length}. The CUT project '
+                    'does not store whether a valve is butt-weld, socket-weld '
+                    'or flanged — pick it above.'
+                    '${_refsText(valves, en: true)}'),
+          ),
+        if (untyped.isNotEmpty)
+          QuoteNotice(
+            key: const ValueKey('import-check-untyped'),
+            icon: Icons.help_outline,
+            text: context.tr(
+                pl: 'Do sprawdzenia — kształtki bez typu: ${untyped.length}. '
+                    'Projekt ze skanu lub szkicu ISO (albo wpis usunięty z '
+                    'biblioteki) nie mówi, czy to kołnierz, zawór czy '
+                    'redukcja — spoina nie jest zgadywana. Spoiny takiego '
+                    'rysunku dokładniej zaimportujesz ze skanu ISO.'
+                    '${_refsText(untyped, en: false)}',
+                en: 'To check — fittings without a type: ${untyped.length}. '
+                    'A project from an ISO scan or sketch (or a deleted '
+                    'library entry) does not say whether it is a flange, a '
+                    'valve or a reducer — the weld is not guessed. Import '
+                    'the welds of such a drawing from the ISO scan instead.'
+                    '${_refsText(untyped, en: true)}'),
+          ),
+        if (openPorts.isNotEmpty)
+          QuoteNotice(
+            key: const ValueKey('import-check-open-ports'),
+            icon: Icons.help_outline,
+            text: context.tr(
+                pl: 'Do sprawdzenia — wolne końce kształtek: '
+                    '${openPorts.length}. Kształtka ma tam spoinę, ale po '
+                    'drugiej stronie nie ma odcinka rury w projekcie (spoina '
+                    'kształtka–kształtka albo poza projektem) — dodaj ją '
+                    'ręcznie, jeśli wchodzi. Kształtki: '
+                    '${_countedList(openPorts)}.',
+                en: 'To check — free fitting ends: ${openPorts.length}. The '
+                    'fitting has a weld there, but no pipe piece on the other '
+                    'side in the project (fitting-to-fitting or outside the '
+                    'project) — add it by hand if it is part of the job. '
+                    'Fittings: ${_countedList(openPorts)}.'),
+          ),
         for (final g in plan.groups)
           _GroupTile(
             key: ValueKey('import-group-${g.key}'),
@@ -626,6 +1103,18 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
     final shown = named.take(max).join(', ');
     final more = named.length > max ? ' … (+${named.length - max})' : '';
     return en ? ' Welds: $shown$more.' : ' Spoiny: $shown$more.';
+  }
+
+  /// „TEE Ø114.3 ×2, ELB90 Ø60.3" — powtórzenia zliczone, kolejność źródła.
+  static String _countedList(Iterable<String> items) {
+    final counts = <String, int>{};
+    for (final i in items) {
+      counts[i] = (counts[i] ?? 0) + 1;
+    }
+    return [
+      for (final e in counts.entries)
+        e.value > 1 ? '${e.key} ×${e.value}' : e.key,
+    ].join(', ');
   }
 
   Widget? _bottomBar() {
@@ -686,7 +1175,14 @@ class _QuoteImportSheetState extends State<QuoteImportSheet> {
         _Stage.source => _sourceStage(),
         _Stage.scans => _scanStage(),
         _Stage.journal => _journalStage(),
-        _Stage.preview => _plan == null ? const [] : _previewStage(_plan!),
+        _Stage.cut => _cutStage(),
+        _Stage.preview => _plan == null
+            ? const []
+            : [
+                ..._cutPreviewHead(),
+                ..._previewStage(_plan!),
+                ..._cutAssumptions(),
+              ],
       };
     }
     return PopScope(
