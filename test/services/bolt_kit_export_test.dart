@@ -78,6 +78,30 @@ void main() {
     expect(t, isNot(contains('spare')));
   });
 
+  test('komórka PDF z połączeniem zawiera oznaczenie szpilek (jak tekst)', () {
+    final o = _order();
+    final rows = boltKitPdfJointRows(o, en: false);
+    expect(rows, [
+      (
+        '4 ×',
+        'DN150 (6") · Class 300 · RF — A193 B7 / A194 2H, spiralna '
+            '(ASME B16.20), 12 × 3/4" × 4-3/4"'
+      ),
+      (
+        '2 ×',
+        'DN80 (3") · Class 600 · RTJ — A193 B8M / A194 8M, pierścień R31, '
+            '8 × 3/4" × 5"'
+      ),
+    ]);
+    // Ten sam opis co w tekście — PDF i komunikator nie mogą się rozjechać.
+    final text = buildBoltKitText(o, en: false);
+    for (final (count, description) in rows) {
+      expect(text, contains('• $count $description'));
+    }
+    expect(boltKitPdfJointRows(o, en: true).first.$2,
+        endsWith('spiral-wound (ASME B16.20), 12 × 3/4" × 4-3/4"'));
+  });
+
   test('nazwa pliku z datą', () {
     expect(boltKitFileName(DateTime(2026, 10, 7), extension: 'pdf'),
         'Sruby_kolnierze_2026-10-07.pdf');

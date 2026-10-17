@@ -78,6 +78,13 @@ class _BoltKitPageState extends State<BoltKitPage>
   int _spare = 0;
   bool _loading = true;
   bool _damaged = false;
+
+  /// Odczyt zapisanej listy rzucił wyjątek — pierwszy zapis najpierw
+  /// zachowuje to, co leży w pamięci (BoltKitStore.save `afterFailedRead`).
+  bool _readFailed = false;
+
+  /// To samo do komunikatu — zostaje po pierwszym zapisie.
+  bool _loadError = false;
   bool _sharing = false;
   Future<void> _saveChain = Future<void>.value();
 
@@ -96,6 +103,8 @@ class _BoltKitPageState extends State<BoltKitPage>
       _joints = [...loaded.state.joints];
       _spare = loaded.state.sparePercent;
       _damaged = loaded.damaged;
+      _readFailed = loaded.readFailed;
+      _loadError = loaded.readFailed;
       _loading = false;
     });
   }
@@ -124,7 +133,19 @@ class _BoltKitPageState extends State<BoltKitPage>
         BoltKitState(joints: List.unmodifiable(_joints), sparePercent: _spare);
     _saveChain = _saveChain.then((_) async {
       try {
-        await widget.store.save(snapshot);
+        await widget.store.save(snapshot, afterFailedRead: _readFailed);
+        // Od teraz w pamięci leży lista z tego ekranu (poprzednia — w kopii).
+        _readFailed = false;
+      } on BoltKitSaveBlocked {
+        if (mounted) {
+          _snack(context.tr(
+              pl: 'Nie udało się odczytać zapisanej listy, a miejsce na jej '
+                  'kopię jest zajęte — zapis wstrzymany, żeby jej nie '
+                  'nadpisać. Otwórz moduł ponownie.',
+              en: 'The saved list could not be read and the backup slot is '
+                  'taken — saving is paused so it is not overwritten. Open '
+                  'the module again.'));
+        }
       } catch (_) {
         if (mounted) {
           _snack(context.tr(
@@ -960,13 +981,21 @@ class _BoltKitPageState extends State<BoltKitPage>
             key: const ValueKey('bk-damaged'),
             color: kFail,
             icon: Icons.report_problem_outlined,
-            text: context.tr(
-                pl: 'Zapisana lista była częściowo nieczytelna — pokazano to, '
-                    'co dało się odczytać. Przed następnym zapisem aplikacja '
-                    'zachowa kopię surowych danych.',
-                en: 'The saved list was partly unreadable — showing what could '
-                    'be read. Before the next save the app keeps a copy of the '
-                    'raw data.'),
+            text: _loadError
+                ? context.tr(
+                    pl: 'Nie udało się odczytać zapisanej listy — lista jest '
+                        'pusta. Przed pierwszym zapisem aplikacja zachowa '
+                        'kopię tego, co jest w pamięci telefonu.',
+                    en: 'The saved list could not be read — the list is '
+                        'empty. Before the first save the app keeps a copy of '
+                        'what is stored on the phone.')
+                : context.tr(
+                    pl: 'Zapisana lista była częściowo nieczytelna — pokazano '
+                        'to, co dało się odczytać. Przed następnym zapisem '
+                        'aplikacja zachowa kopię surowych danych.',
+                    en: 'The saved list was partly unreadable — showing what '
+                        'could be read. Before the next save the app keeps a '
+                        'copy of the raw data.'),
           ),
         if (_joints.isEmpty)
           Padding(

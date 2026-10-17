@@ -37,16 +37,28 @@ String _t(bool en, String pl, String e) => en ? e : pl;
 String _title(bool en) =>
     _t(en, 'ZAMÓWIENIE ŚRUB DO KOŁNIERZY', 'FLANGE BOLTING ORDER');
 
-/// Wiersz połączenia: „4 × DN150 (6") · Class 300 · RF — A193 B7 / A194 2H,
-/// spiralna (ASME B16.20), 12 × 3/4" × 4-3/4"”.
-String jointLine(BoltKitJoint j, {required bool en}) {
+/// Opis połączenia bez liczby: „DN150 (6") · Class 300 · RF — A193 B7 /
+/// A194 2H, spiralna (ASME B16.20), 12 × 3/4" × 4-3/4"”. Ten sam w tekście
+/// i w komórce tabeli PDF — oznaczenie szpilek nie może zniknąć z PDF.
+String jointDescription(BoltKitJoint j, {required bool en}) {
   final s = j.stud;
   final studs = s == null
       ? ''
       : ', ${s.boltCount} × ${studDesignation(s.size, s.lengthQuarterIn)}';
-  return '${j.count} × ${jointTitle(j)} — ${j.material.pair}, '
+  return '${jointTitle(j)} — ${j.material.pair}, '
       '${jointGasketLabel(j, en: en)}$studs';
 }
+
+/// Wiersz połączenia w tekście: „4 × ” + [jointDescription].
+String jointLine(BoltKitJoint j, {required bool en}) =>
+    '${j.count} × ${jointDescription(j, en: en)}';
+
+/// Wiersze tabeli „Połączenia” w PDF: (liczba, opis).
+List<(String, String)> boltKitPdfJointRows(BoltKitOrder o,
+        {required bool en}) =>
+    [
+      for (final j in o.joints) ('${j.count} ×', jointDescription(j, en: en)),
+    ];
 
 /// Zamówienie jako zwykły tekst.
 String buildBoltKitText(BoltKitOrder o, {required bool en}) {
@@ -226,11 +238,10 @@ pw.Document buildBoltKitPdf(
           1: pw.FlexColumnWidth(),
         },
         children: [
-          for (final j in o.joints)
+          for (final (count, description) in boltKitPdfJointRows(o, en: en))
             pw.TableRow(children: [
-              cell('${j.count} ×', style: head, right: true),
-              cell('${jointTitle(j)} — ${j.material.pair}, '
-                  '${jointGasketLabel(j, en: en)}'),
+              cell(count, style: head, right: true),
+              cell(description),
             ]),
         ],
       ),
