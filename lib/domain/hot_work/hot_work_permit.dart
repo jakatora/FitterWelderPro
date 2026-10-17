@@ -8,14 +8,24 @@
 ///
 /// Zasady bezpieczeństwa zapisane w kodzie (i w testach):
 /// * zielony stan („gotowe do rozpoczęcia”) wymaga odhaczenia wszystkich
-///   punktów „przed rozpoczęciem”, WPISANEGO wyniku pomiaru atmosfery
-///   i dopuszczalnego % DGW (domyślnie 10 % — rozp. MSWiA § 36 ust. 2,
-///   zob. hot_work_sources.dart; zakład może wymagać mniej) — brak pomiaru
-///   nigdy nie daje zielonego stanu;
+///   punktów „przed rozpoczęciem”, WPISANEGO i AKTUALNEGO wyniku pomiaru
+///   atmosfery (nie starszego niż ważność pomiaru — domyślnie 30 min,
+///   wartość przyjęta w aplikacji) i dopuszczalnego % DGW (domyślnie 10 % —
+///   rozp. MSWiA § 36 ust. 2, zob. hot_work_sources.dart; zakład może
+///   wymagać mniej) — brak albo nieaktualny pomiar nigdy nie daje zielonego
+///   stanu;
+/// * protokół z innego dnia niż dziś nigdy nie jest zielony;
+/// * pomiar ponad próg wpisany PÓŹNIEJ niż najpóźniejszy w czasie blokuje
+///   zieleń (wpis z późniejszą godziną nie przykryje świeżego alarmu);
+/// * bez progu z zezwolenia wynik ocenia się względem 10 % DGW z przepisu:
+///   więcej = STOP, nie „brak limitu”;
 /// * „nie dotyczy” liczy się tylko przy punktach, które na to pozwalają
 ///   ([HotWorkCheck.naAllowed]); zapis z innym „n/d” nie zwalnia punktu;
 /// * zaznaczenia nieznanych punktów (stary zapis, zmieniona lista) są
 ///   pomijane — nie mogą udawać odhaczonego punktu;
+/// * pomiary i protokoły nieczytelne przy odczycie (także pomiary
+///   „z przyszłości”) są liczone ([HotWorkParse]) — zapis robi kopię,
+///   ekran pokazuje baner;
 /// * duplikat „jak wczoraj” kopiuje dane organizacyjne, ale NIGDY
 ///   zaznaczeń ani pomiarów — stanowisko sprawdza się na nowo.
 ///
@@ -59,6 +69,11 @@ class HotWorkMeasurement {
   /// w zapisach sprzed tego pola — wtedy liczy się kolejność wpisów.
   final int? at;
 
+  /// Chwila WPISANIA do aplikacji (ms od epoki); `null` w starszych
+  /// zapisach. Pomiar ponad próg wpisany później niż decydujący blokuje
+  /// zieleń.
+  final int? enteredAt;
+
   /// Wynik w % DGW (dolnej granicy wybuchowości, ang. % LEL).
   final double dgwPct;
 
@@ -68,6 +83,7 @@ class HotWorkMeasurement {
   const HotWorkMeasurement({
     required this.time,
     this.at,
+    this.enteredAt,
     required this.dgwPct,
     this.note = '',
   });
@@ -75,19 +91,31 @@ class HotWorkMeasurement {
   Map<String, Object?> toJson() => {
         'time': time,
         if (at != null) 'at': at,
+        if (enteredAt != null) 'entered': enteredAt,
         'dgw': dgwPct,
         'note': note,
       };
 
-  /// `null`, gdy wpis jest uszkodzony (bez wyniku albo wynik ujemny).
-  static HotWorkMeasurement? fromJson(Object? raw) {
+  /// `null`, gdy wpis jest uszkodzony (bez wyniku albo wynik ujemny) albo —
+  /// gdy podano [now] — z chwilą pomiaru dalej w przyszłości niż
+  /// [kHotWorkFutureSlack] (taki pomiar przykryłby wszystkie prawdziwe).
+  static HotWorkMeasurement? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
     final v = raw['dgw'];
     if (v is! num || !v.isFinite || v < 0) return null;
     final at = raw['at'];
+    final atMs = at is num && at.isFinite ? at.toInt() : null;
+    if (now != null &&
+        atMs != null &&
+        atMs > now.add(kHotWorkFutureSlack).millisecondsSinceEpoch) {
+      return null;
+    }
+    final entered = raw['entered'];
     return HotWorkMeasurement(
       time: _s(raw['time']),
-      at: at is num && at.isFinite ? at.toInt() : null,
+      at: atMs,
+      enteredAt:
+          entered is num && entered.isFinite ? entered.toInt() : null,
       dgwPct: v.toDouble(),
       note: _s(raw['note']),
     );
@@ -98,11 +126,12 @@ class HotWorkMeasurement {
       other is HotWorkMeasurement &&
       other.time == time &&
       other.at == at &&
+      other.enteredAt == enteredAt &&
       other.dgwPct == dgwPct &&
       other.note == note;
 
   @override
-  int get hashCode => Object.hash(time, at, dgwPct, note);
+  int get hashCode => Object.hash(time, at, enteredAt, dgwPct, note);
 }
 
 /// Chwila pomiaru o godzinie [hhmm] wpisanej przy [now]: ostatnie takie
@@ -110,7 +139,9 @@ class HotWorkMeasurement {
 /// Godzina „z przyszłości” to wczoraj — np. 23:50 wpisane o 00:12 (zmiana
 /// nocna); godzina tuż po północy wpisana przed północą (00:03 o 23:58)
 /// mieści się w zapasie 5 min — to jutro, nie doba wstecz. Zła godzina →
-/// [now].
+/// [now]. Ekrany NIE przyjmują wyniku późniejszego niż „teraz” (pomiar
+/// z przyszłości przykryłby prawdziwe), a wynik z wczoraj — tylko po
+/// potwierdzeniu.
 DateTime hotWorkMeasurementAt(String hhmm, DateTime now) {
   final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(hhmm.trim());
   if (m == null) return now;
@@ -138,6 +169,33 @@ List<HotWorkMeasurement> hotWorkMeasurementsChrono(
   return List.unmodifiable([for (final (_, m) in indexed) m]);
 }
 
+/// Chwila pomiaru do oceny wieku: [HotWorkMeasurement.at], a w starych
+/// zapisach — godzina na dzień protokołu [recordDate]; `null`, gdy nie da
+/// się jej ustalić (taki pomiar jest nieaktualny).
+int? hotWorkMeasurementMoment(HotWorkMeasurement m, String recordDate) {
+  if (m.at != null) return m.at;
+  final d = DateTime.tryParse(recordDate);
+  final t = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(m.time.trim());
+  if (d == null || t == null) return null;
+  final h = int.parse(t.group(1)!);
+  final min = int.parse(t.group(2)!);
+  if (h > 23 || min > 59) return null;
+  return DateTime(d.year, d.month, d.day, h, min).millisecondsSinceEpoch;
+}
+
+/// Data pomiaru `YYYY-MM-DD` (stare zapisy bez chwili — `null`).
+String? hotWorkMeasurementDate(HotWorkMeasurement m) => m.at == null
+    ? null
+    : hotWorkDate(DateTime.fromMillisecondsSinceEpoch(m.at!));
+
+/// Godzina pomiaru do tekstu — z datą, gdy pomiar jest z innego dnia niż
+/// [recordDate] („2026-10-16 23:50”).
+String hotWorkMeasurementTime(HotWorkMeasurement m, String recordDate) {
+  final t = m.time.isEmpty ? '—' : m.time;
+  final d = hotWorkMeasurementDate(m);
+  return d == null || d == recordDate ? t : '$d $t';
+}
+
 /// Dopuszczalne % DGW, które aplikacja przyjmuje: 0–10. Przepis
 /// (rozp. MSWiA § 36 ust. 2) nie pozwala na więcej niż 10 % DGW, a zakład
 /// może wymagać mniej; wyższa wartość to literówka („100” zamiast „10”)
@@ -145,12 +203,20 @@ List<HotWorkMeasurement> hotWorkMeasurementsChrono(
 bool hotWorkLimitValid(double v) =>
     v.isFinite && v >= 0 && v <= kHotWorkDefaultDgwLimitPct;
 
+/// Ważność pomiaru (min), którą aplikacja przyjmuje: 1 … przyjęta
+/// [kHotWorkMeasurementMaxAgeMin] — dłużej nie wolno.
+bool hotWorkMaxAgeValid(int min) =>
+    min >= 1 && min <= kHotWorkMeasurementMaxAgeMin;
+
 /// Wynik oceny gotowości — co jeszcze blokuje zielony stan.
 enum HotWorkReadiness {
-  /// Ostatni pomiar przekracza dopuszczalny % DGW — NIE zaczynać.
+  /// Pomiar przekracza dopuszczalny % DGW — NIE zaczynać.
   overLimit,
 
-  /// Brak wyniku pomiaru atmosfery.
+  /// Protokół z innego dnia niż dziś — nigdy zielony.
+  otherDay,
+
+  /// Brak aktualnego wyniku pomiaru atmosfery (brak albo nieaktualny).
   noMeasurement,
 
   /// Brak dopuszczalnego % DGW z zezwolenia — wyniku nie da się ocenić.
@@ -177,9 +243,26 @@ class HotWorkAssessment {
   final List<HotWorkCheck> openDuring;
   final List<HotWorkCheck> openAfter;
 
-  /// Najpóźniejszy w czasie pomiar albo `null`.
+  /// Pomiar decydujący: najpóźniejszy w czasie albo — gdy przekracza próg —
+  /// wpisany później niż najpóźniejszy; `null` = brak pomiaru.
   final HotWorkMeasurement? lastMeasurement;
+
+  /// Najpóźniejszy w czasie pomiar (do oceny wieku).
+  final HotWorkMeasurement? latestMeasurement;
   final double? limitPct;
+
+  /// Najpóźniejszy pomiar jest starszy niż ważność (albo z przyszłości).
+  final bool measurementStale;
+
+  /// Decyduje pomiar ponad próg wpisany później niż najpóźniejszy.
+  final bool enteredLater;
+
+  /// Data protokołu i „dziś” w chwili oceny (`YYYY-MM-DD`).
+  final String recordDate;
+  final String today;
+
+  /// Ważność pomiaru użyta w ocenie (min).
+  final int maxAgeMin;
 
   const HotWorkAssessment({
     required this.openBefore,
@@ -187,33 +270,56 @@ class HotWorkAssessment {
     required this.openAfter,
     required this.lastMeasurement,
     required this.limitPct,
+    this.latestMeasurement,
+    this.measurementStale = false,
+    this.enteredLater = false,
+    this.recordDate = '',
+    this.today = '',
+    this.maxAgeMin = kHotWorkMeasurementMaxAgeMin,
   });
 
   bool get measurementMissing => lastMeasurement == null;
   bool get limitMissing => limitPct == null;
 
+  /// Próg użyty w ocenie: z zezwolenia, a bez niego — 10 % DGW z przepisu
+  /// (przekroczenie przepisu to STOP, nie „brak limitu”).
+  double get effectiveLimitPct => limitPct ?? kHotWorkDefaultDgwLimitPct;
+
+  /// Protokół z innego dnia niż dziś.
+  bool get otherDay => recordDate != today;
+
   bool get overLimit {
     final m = lastMeasurement;
-    final l = limitPct;
-    if (m == null || l == null) return false;
-    return !hotWorkMeasurementOk(m.dgwPct, l);
+    if (m == null) return false;
+    return !hotWorkMeasurementOk(m.dgwPct, effectiveLimitPct);
   }
 
   HotWorkReadiness get readiness {
     if (overLimit) return HotWorkReadiness.overLimit;
-    if (measurementMissing) return HotWorkReadiness.noMeasurement;
+    if (otherDay) return HotWorkReadiness.otherDay;
+    if (measurementMissing || measurementStale) {
+      return HotWorkReadiness.noMeasurement;
+    }
     if (limitMissing) return HotWorkReadiness.noLimit;
     if (openBefore.isNotEmpty) return HotWorkReadiness.incomplete;
     return HotWorkReadiness.ready;
   }
 
-  /// Zielony stan: wszystko „przed rozpoczęciem” gotowe i pomiar w normie.
+  /// Zielony stan: dziś, wszystko „przed rozpoczęciem” gotowe i aktualny
+  /// pomiar w normie.
   bool get readyToStart => readiness == HotWorkReadiness.ready;
 
-  /// Praca zamknięta: gotowe + odhaczone punkty „w trakcie” i „po
-  /// zakończeniu” (dozór po pracy).
+  /// Praca zamknięta: wszystkie punkty odhaczone (też dozór po pracy),
+  /// pomiar był w normie, próg wpisany. Wiek pomiaru nie ma tu znaczenia
+  /// (po pracy nikt już nie mierzy); protokół z innego dnia jest zamknięty,
+  /// ale „nieaktualny” (nigdy zielony — zob. [otherDay]).
   bool get closed =>
-      readyToStart && openDuring.isEmpty && openAfter.isEmpty;
+      openBefore.isEmpty &&
+      openDuring.isEmpty &&
+      openAfter.isEmpty &&
+      !measurementMissing &&
+      !overLimit &&
+      !limitMissing;
 }
 
 /// Wartość „bez zmian” dla pól, które mogą być `null` w [HotWorkPermit.copyWith].
@@ -249,6 +355,10 @@ class HotWorkPermit {
   final double? dgwLimitPct;
   final List<HotWorkMeasurement> measurements;
 
+  /// Ważność pomiaru z zezwolenia (min); `null` = przyjęta w aplikacji
+  /// [kHotWorkMeasurementMaxAgeMin]. Wolno tylko skrócić.
+  final int? measurementMaxAgeMin;
+
   /// Czas dozoru po zakończeniu pracy z zezwolenia, w minutach.
   final int? fireWatchAfterMin;
 
@@ -258,6 +368,9 @@ class HotWorkPermit {
   final String notes;
   final int createdAt;
   final int updatedAt;
+
+  /// Ile pomiarów tego protokołu odrzucono przy odczycie (nie zapisywane).
+  final int droppedOnLoad;
 
   const HotWorkPermit({
     required this.id,
@@ -274,12 +387,14 @@ class HotWorkPermit {
     this.issuer = '',
     this.dgwLimitPct,
     this.measurements = const [],
+    this.measurementMaxAgeMin,
     this.fireWatchAfterMin,
     this.checked = const {},
     this.na = const {},
     this.notes = '',
     required this.createdAt,
     required this.updatedAt,
+    this.droppedOnLoad = 0,
   });
 
   /// Nowy, pusty protokół na dziś.
@@ -291,6 +406,15 @@ class HotWorkPermit {
         createdAt: now.millisecondsSinceEpoch,
         updatedAt: now.millisecondsSinceEpoch,
       );
+
+  /// Ważność pomiaru użyta w ocenie (min) — zapis spoza zakresu nigdy nie
+  /// wydłuża ważności.
+  int get effectiveMaxAgeMin {
+    final v = measurementMaxAgeMin;
+    return v != null && hotWorkMaxAgeValid(v)
+        ? v
+        : kHotWorkMeasurementMaxAgeMin;
+  }
 
   /// Nic nie wpisano ani nie odhaczono — takiego protokołu nie zapisujemy.
   bool get isBlank =>
@@ -306,6 +430,7 @@ class HotWorkPermit {
       issuer.trim().isEmpty &&
       (dgwLimitPct == null || dgwLimitPct == kHotWorkDefaultDgwLimitPct) &&
       measurements.isEmpty &&
+      measurementMaxAgeMin == null &&
       fireWatchAfterMin == null &&
       checked.isEmpty &&
       na.isEmpty &&
@@ -322,19 +447,57 @@ class HotWorkPermit {
   List<HotWorkMeasurement> get measurementsChrono =>
       hotWorkMeasurementsChrono(measurements);
 
-  HotWorkAssessment assess() {
+  /// Ocena w chwili [now]: wiek pomiaru i data protokołu liczą się względem
+  /// tej chwili.
+  HotWorkAssessment assess({required DateTime now}) {
     List<HotWorkCheck> open(HotWorkPhase p) => [
           for (final c in hotWorkChecksIn(p))
             if (!isSettled(c)) c,
         ];
     final chrono = measurementsChrono;
     final limit = dgwLimitPct;
+    final validLimit = limit != null && hotWorkLimitValid(limit) ? limit : null;
+    final effLimit = validLimit ?? kHotWorkDefaultDgwLimitPct;
+    final latest = chrono.isEmpty ? null : chrono.last;
+    var decisive = latest;
+    var enteredLater = false;
+    if (latest != null &&
+        hotWorkMeasurementOk(latest.dgwPct, effLimit)) {
+      // Pomiar ponad próg wpisany PÓŹNIEJ niż najpóźniejszy w czasie — np.
+      // o 14:00 wpis z godziną 14:05 (0 %), o 14:02 prawdziwy wynik 15 %.
+      final lastEntered = latest.enteredAt ?? latest.at;
+      if (lastEntered != null) {
+        for (final m in measurements) {
+          final e = m.enteredAt;
+          if (e == null || e <= lastEntered) continue;
+          if (hotWorkMeasurementOk(m.dgwPct, effLimit)) continue;
+          if (!enteredLater || m.dgwPct > decisive!.dgwPct) {
+            decisive = m;
+            enteredLater = true;
+          }
+        }
+      }
+    }
+    var stale = false;
+    if (latest != null) {
+      final t = now.millisecondsSinceEpoch;
+      final moment = hotWorkMeasurementMoment(latest, date);
+      stale = moment == null ||
+          moment > t + kHotWorkFutureSlack.inMilliseconds ||
+          t - moment > effectiveMaxAgeMin * 60000;
+    }
     return HotWorkAssessment(
       openBefore: open(HotWorkPhase.before),
       openDuring: open(HotWorkPhase.during),
       openAfter: open(HotWorkPhase.after),
-      lastMeasurement: chrono.isEmpty ? null : chrono.last,
-      limitPct: limit != null && hotWorkLimitValid(limit) ? limit : null,
+      lastMeasurement: decisive,
+      latestMeasurement: latest,
+      limitPct: validLimit,
+      measurementStale: stale,
+      enteredLater: enteredLater,
+      recordDate: date,
+      today: hotWorkDate(now),
+      maxAgeMin: effectiveMaxAgeMin,
     );
   }
 
@@ -364,9 +527,9 @@ class HotWorkPermit {
   }
 
   /// Kopia na nowy dzień („jak wczoraj”): miejsce, opis, osoby, godziny
-  /// zmiany, rodzaj pracy, dopuszczalne % DGW i czas dozoru zostają.
-  /// Zaznaczenia, pomiary, numer zezwolenia i uwagi — NIE: stanowisko
-  /// sprawdza się na nowo, a zakład wystawia nowe zezwolenie.
+  /// zmiany, rodzaj pracy, dopuszczalne % DGW, ważność pomiaru i czas
+  /// dozoru zostają. Zaznaczenia, pomiary, numer zezwolenia i uwagi — NIE:
+  /// stanowisko sprawdza się na nowo, a zakład wystawia nowe zezwolenie.
   HotWorkPermit duplicateFor({required String newId, required DateTime now}) =>
       HotWorkPermit(
         id: newId,
@@ -381,6 +544,7 @@ class HotWorkPermit {
         fireWatch: fireWatch,
         issuer: issuer,
         dgwLimitPct: dgwLimitPct,
+        measurementMaxAgeMin: measurementMaxAgeMin,
         fireWatchAfterMin: fireWatchAfterMin,
         createdAt: now.millisecondsSinceEpoch,
         updatedAt: now.millisecondsSinceEpoch,
@@ -400,11 +564,13 @@ class HotWorkPermit {
     String? issuer,
     Object? dgwLimitPct = _keep,
     List<HotWorkMeasurement>? measurements,
+    Object? measurementMaxAgeMin = _keep,
     Object? fireWatchAfterMin = _keep,
     Set<String>? checked,
     Set<String>? na,
     String? notes,
     int? updatedAt,
+    Object? droppedOnLoad = _keep,
   }) =>
       HotWorkPermit(
         id: id,
@@ -423,6 +589,9 @@ class HotWorkPermit {
             ? this.dgwLimitPct
             : dgwLimitPct as double?,
         measurements: measurements ?? this.measurements,
+        measurementMaxAgeMin: identical(measurementMaxAgeMin, _keep)
+            ? this.measurementMaxAgeMin
+            : measurementMaxAgeMin as int?,
         fireWatchAfterMin: identical(fireWatchAfterMin, _keep)
             ? this.fireWatchAfterMin
             : fireWatchAfterMin as int?,
@@ -431,6 +600,9 @@ class HotWorkPermit {
         notes: notes ?? this.notes,
         createdAt: createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
+        droppedOnLoad: identical(droppedOnLoad, _keep)
+            ? this.droppedOnLoad
+            : droppedOnLoad as int,
       );
 
   Map<String, Object?> toJson() => {
@@ -450,6 +622,7 @@ class HotWorkPermit {
         'issuer': issuer,
         'dgwLimit': dgwLimitPct,
         'measurements': [for (final m in measurements) m.toJson()],
+        if (measurementMaxAgeMin != null) 'maxAgeMin': measurementMaxAgeMin,
         'fireWatchAfterMin': fireWatchAfterMin,
         // Kolejność listy kontrolnej — stabilny zapis i czytelny diff.
         'checked': [for (final c in kHotWorkChecks)
@@ -463,7 +636,9 @@ class HotWorkPermit {
 
   /// Odczyt z JSON. Zwraca `null` dla wpisu bez identyfikatora albo daty.
   /// Nieznane punkty listy i „n/d” przy punktach bez tej opcji są pomijane.
-  static HotWorkPermit? fromJson(Object? raw) {
+  /// Uszkodzone pomiary — a przy podanym [now] także pomiary z przyszłości
+  /// — są pomijane i liczone w [droppedOnLoad].
+  static HotWorkPermit? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
     final id = _s(raw['id']);
     final date = _s(raw['date']);
@@ -471,6 +646,13 @@ class HotWorkPermit {
     final known = {for (final c in kHotWorkChecks) c.id: c};
     final limit = raw['dgwLimit'];
     final watch = raw['fireWatchAfterMin'];
+    final maxAge = raw['maxAgeMin'];
+    final rawMeasurements = _list(raw['measurements']);
+    final measurements = [
+      for (final m in rawMeasurements)
+        if (HotWorkMeasurement.fromJson(m, now: now) != null)
+          HotWorkMeasurement.fromJson(m, now: now)!,
+    ];
     return HotWorkPermit(
       id: id,
       permitNo: _s(raw['permitNo']),
@@ -490,11 +672,9 @@ class HotWorkPermit {
       dgwLimitPct: limit is num && hotWorkLimitValid(limit.toDouble())
           ? limit.toDouble()
           : null,
-      measurements: [
-        for (final m in _list(raw['measurements']))
-          if (HotWorkMeasurement.fromJson(m) != null)
-            HotWorkMeasurement.fromJson(m)!,
-      ],
+      measurements: measurements,
+      measurementMaxAgeMin:
+          maxAge is int && hotWorkMaxAgeValid(maxAge) ? maxAge : null,
       fireWatchAfterMin:
           watch is num && watch.isFinite && watch >= 0 ? watch.toInt() : null,
       checked: {
@@ -508,11 +688,44 @@ class HotWorkPermit {
       notes: _s(raw['notes']),
       createdAt: _i(raw['createdAt']),
       updatedAt: _i(raw['updatedAt']),
+      droppedOnLoad: rawMeasurements.length - measurements.length,
     );
   }
 }
 
+/// Wynik odczytu listy protokołów: ile protokołów i pomiarów odrzucono.
+class HotWorkParse {
+  final List<HotWorkPermit> permits;
+  final int droppedPermits;
+  final int droppedMeasurements;
+  const HotWorkParse(
+      this.permits, this.droppedPermits, this.droppedMeasurements);
+
+  bool get damaged => droppedPermits > 0 || droppedMeasurements > 0;
+}
+
+/// Lista protokołów z JSON (historia). Uszkodzone wpisy i pomiary (także
+/// z przyszłości względem [now]) są pomijane, ale LICZONE — zapis robi
+/// kopię, ekran pokazuje baner.
+HotWorkParse hotWorkPermitsParse(Object? raw, {DateTime? now}) {
+  if (raw is! List) throw const FormatException('not a list');
+  final permits = <HotWorkPermit>[];
+  var droppedPermits = 0;
+  var droppedMeasurements = 0;
+  for (final e in raw) {
+    final p = HotWorkPermit.fromJson(e, now: now);
+    if (p == null) {
+      droppedPermits++;
+    } else {
+      permits.add(p);
+      droppedMeasurements += p.droppedOnLoad;
+    }
+  }
+  return HotWorkParse(permits, droppedPermits, droppedMeasurements);
+}
+
 /// Lista protokołów z JSON (historia) — uszkodzone wpisy są pomijane.
+/// Do zapisu historii używaj [hotWorkPermitsParse] (liczy pominięte).
 List<HotWorkPermit> hotWorkPermitsFromJson(Object? raw) => [
       for (final e in _list(raw))
         if (HotWorkPermit.fromJson(e) != null) HotWorkPermit.fromJson(e)!,

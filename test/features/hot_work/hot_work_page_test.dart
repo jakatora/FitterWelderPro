@@ -32,6 +32,7 @@ Future<_Spy> _pump(
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
   DateTime Function()? now,
+  TimeOfDay? Function()? pickTime,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -52,6 +53,8 @@ Future<_Spy> _pump(
         newId: () => 'hw-${++n}',
         shareText: spy.text,
         sharePdf: spy.pdf,
+        pickTime: (_, initial) async =>
+            pickTime == null ? initial : pickTime(),
       ),
     ),
   ));
@@ -271,7 +274,7 @@ void main() {
         tester
             .widget<Text>(find.byKey(const ValueKey('hw-item-status-0')))
             .data,
-        'Zamknięte');
+        'Zamknięte · nieaktualne');
 
     await _tapKey(tester, 'hw-dup-last');
     // Edytor kopii: dane zostały, lista i pomiar od nowa.
@@ -465,17 +468,169 @@ void main() {
     expect((await store.load()).single.id, 'old');
   });
 
-  test('pełna historia: zapisywany protokół z najstarszą datą nie wypada',
-      () async {
+  testWidgets('pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
+      (tester) async {
+    var clock = DateTime(2026, 10, 17, 7, 30);
+    await _pump(tester, now: () => clock);
+    await _tapKey(tester, 'hw-new');
+    await _tickAllBefore(tester);
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('Stanowisko przygotowane'));
+
+    // 31 min później, bez dotykania ekranu — stan przelicza się sam.
+    clock = DateTime(2026, 10, 17, 8, 1);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+    expect(await _status(tester),
+        'Pomiar nieaktualny (z 07:30, ważny 30 min) — zmierz ponownie.');
+    expect(find.byIcon(Icons.verified_outlined), findsNothing);
+    await _back(tester);
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('hw-item-status-0')))
+            .data,
+        'Pomiar nieaktualny');
+
+    // Następny dzień — protokół nieaktualny, nawet ze świeżym pomiarem.
+    clock = DateTime(2026, 10, 18, 7, 0);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('hw-item-status-0')))
+            .data,
+        'Nieaktualne');
+    await _tapKey(tester, 'hw-open-0');
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester),
+        startsWith('Protokół z dnia 2026-10-17 — nieaktualny'));
+    expect(find.byKey(const ValueKey('hw-old-notice')), findsOneWidget);
+    final row = await _show(tester, 'hw-meas-1');
+    expect(
+        find.descendant(
+            of: row, matching: find.textContaining('2026-10-18 07:00')),
+        findsOneWidget);
+  });
+
+  testWidgets('ręczna godzina: z przyszłości odrzucona, z wczoraj po '
+      'potwierdzeniu', (tester) async {
+    var clock = DateTime(2026, 10, 17, 14, 0);
+    TimeOfDay? picked;
+    await _pump(tester, now: () => clock, pickTime: () => picked);
+    await _tapKey(tester, 'hw-new');
+    await _tickAllBefore(tester);
+
+    picked = const TimeOfDay(hour: 14, minute: 5);
+    await _tapKey(tester, 'hw-meas-time');
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(find.byKey(const ValueKey('hw-meas-future')), findsOneWidget);
+    await _show(tester, 'hw-meas-empty');
+
+    // Zaległy pomiar ponad próg wpisany po pomiarze z późniejszą godziną —
+    // STOP (wpis późniejszy niż decydujący).
+    picked = const TimeOfDay(hour: 13, minute: 58);
+    await _tapKey(tester, 'hw-meas-time');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester), startsWith('Stanowisko przygotowane'));
+    clock = DateTime(2026, 10, 17, 14, 3);
+    picked = const TimeOfDay(hour: 13, minute: 55);
+    await _tapKey(tester, 'hw-meas-time');
+    await _enter(tester, 'hw-meas-dgw', '15');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(await _status(tester),
+        startsWith('STOP — pomiar 15 % DGW wpisany po pomiarze z 13:58'));
+
+    // Po północy godzina 23:50 to wczoraj — tylko po potwierdzeniu.
+    clock = DateTime(2026, 10, 18, 0, 12);
+    picked = const TimeOfDay(hour: 23, minute: 50);
+    await _tapKey(tester, 'hw-meas-time');
+    await _enter(tester, 'hw-meas-dgw', '0');
+    await _tapKey(tester, 'hw-meas-add');
+    expect(find.text('Pomiar wczoraj?'), findsOneWidget);
+    await tester.tap(find.text('Anuluj'));
+    await tester.pumpAndSettle();
+    expect((await const HotWorkStore().load()).single.measurements,
+        hasLength(2));
+    await _tapKey(tester, 'hw-meas-add');
+    await tester.tap(find.byKey(const ValueKey('hw-yesterday-confirm')));
+    await tester.pumpAndSettle();
+    final saved = (await const HotWorkStore().load()).single.measurements;
+    expect(saved, hasLength(3));
+    expect(saved.map((m) => m.enteredAt), everyElement(isNotNull));
+  });
+
+  testWidgets('uszkodzony i przyszły pomiar w zapisie: baner, kopia surowego '
+      'zapisu', (tester) async {
+    final json = _yesterday().toJson();
+    json['measurements'] = [
+      ...(json['measurements'] as List),
+      {'time': '07:10', 'dgw': -1},
+      {
+        'time': '09:00',
+        'at': DateTime(2030, 1, 1).millisecondsSinceEpoch,
+        'dgw': 0,
+      },
+    ];
+    final raw = jsonEncode([json]);
+    SharedPreferences.setMockInitialValues({HotWorkStore.key: raw});
+    await _pump(tester);
+    await _show(tester, 'hw-load-damaged');
+    expect(find.textContaining('pominięto 0 protokołów i 2 pomiarów'),
+        findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(HotWorkStore.corruptBackupKey), raw);
+    await _tapKey(tester, 'hw-open-0');
+    await _show(tester, 'hw-damaged-notice');
+  });
+
+  testWidgets('historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+      (tester) async {
+    List<HotWorkPermit> many(int n) => [
+          for (var i = 0; i < n; i++)
+            HotWorkPermit.fromJson({..._yesterday().toJson(), 'id': 'p$i'})!,
+        ];
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key:
+          jsonEncode(hotWorkPermitsToJson(many(HotWorkStore.warnAt))),
+    });
+    await _pump(tester);
+    await _show(tester, 'hw-store-warn');
+    expect(find.textContaining('Historia: 180/200'), findsOneWidget);
+
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key:
+          jsonEncode(hotWorkPermitsToJson(many(HotWorkStore.maxEntries))),
+    });
+    await tester.pumpWidget(const SizedBox());
+    await _pump(tester);
+    await _tapKey(tester, 'hw-new');
+    expect(find.byKey(const ValueKey('hw-store-full')), findsOneWidget);
+    expect(find.text('Protokół prac pożarowych'), findsNothing);
+  });
+
+  test('pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
+      'wypada', () async {
+    SharedPreferences.setMockInitialValues({
+      HotWorkStore.key: jsonEncode(hotWorkPermitsToJson([
+        for (var i = 0; i < HotWorkStore.maxEntries; i++)
+          HotWorkPermit.fromJson(
+              {..._yesterday().toJson(), 'id': 'p$i', 'date': '2020-01-01'})!,
+      ])),
+    });
     const store = HotWorkStore();
-    for (var i = 0; i < HotWorkStore.maxEntries; i++) {
-      await store.upsert(HotWorkPermit.fromJson(
-          {..._yesterday().toJson(), 'id': 'p$i'})!);
-    }
-    expect(await store.load(), hasLength(HotWorkStore.maxEntries));
-    final oldest = HotWorkPermit.fromJson(
-        {..._yesterday().toJson(), 'id': 'najstarszy', 'date': '2020-01-01'})!;
-    await store.upsert(oldest);
-    expect((await store.load()).map((p) => p.id), contains('najstarszy'));
+    final first = (await store.load()).first;
+    await store.upsert(first.copyWith(notes: 'zmiana'));
+    expect((await store.load()).firstWhere((p) => p.id == first.id).notes,
+        'zmiana');
+    await expectLater(
+        store.upsert(HotWorkPermit.fromJson(
+            {..._yesterday().toJson(), 'id': 'nowy'})!),
+        throwsA(isA<HotWorkStoreFull>()));
+    final ids = (await store.load()).map((p) => p.id).toSet();
+    expect(ids, hasLength(HotWorkStore.maxEntries));
+    expect(ids, isNot(contains('nowy')));
   });
 }

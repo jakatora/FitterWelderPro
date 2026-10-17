@@ -9,18 +9,24 @@
 /// * zielony stan („można wejść”) wymaga odhaczenia wszystkich punktów
 ///   „przed wejściem” i odczytu KAŻDEGO wymaganego gazu (tlen i palne
 ///   zawsze; CO i H₂S — chyba że pozwolenie ich nie wymaga), którego
-///   NAJPÓŹNIEJSZY odczyt mieści się w progach; brak odczytu nigdy nie
-///   daje zielonego stanu;
+///   NAJPÓŹNIEJSZY odczyt mieści się w progach i jest AKTUALNY (nie
+///   starszy niż ważność pomiaru, domyślnie 30 min — wartość przyjęta);
+///   brak albo nieaktualny odczyt nigdy nie daje zielonego stanu;
+/// * protokół z innego dnia niż dziś nigdy nie jest zielony;
+/// * odczyt STOP wpisany PÓŹNIEJ niż najpóźniejszy w czasie blokuje zieleń
+///   (wpis z późniejszą godziną nie przykryje świeżego alarmu);
+/// * brak progu → ocena względem twardej granicy: przekroczenie = STOP;
 /// * tlen poniżej dolnego progu = STOP (niedotlenienie — argon, CO₂, azot
 ///   wypierają tlen); powyżej górnego = STOP (wzbogacenie tlenem — pożar);
 /// * odczyt gazu, którego pozwolenie nie wymaga, też może dać STOP;
 /// * „najpóźniejszy” liczy się z dokładnością do minuty: kilka odczytów
-///   tego samego gazu z tej samej minuty to remis — decyduje GORSZY,
-///   a ocena zgłasza remis ([CsGasVerdict.tie]);
+///   tego samego gazu z tej samej minuty to remis — decyduje GORSZY
+///   (przy równej randze dalej od progu), a ocena zgłasza remis
+///   ([CsGasVerdict.tie]);
 /// * „nie dotyczy” tylko przy punktach, które na to pozwalają; zaznaczenia
 ///   nieznanych punktów są pomijane;
 /// * duplikat „jak wczoraj” kopiuje dane organizacyjne i progi, NIGDY
-///   pomiarów ani zaznaczeń;
+///   pomiarów ani zaznaczeń; wymagane gazy wracają do czterech;
 /// * pomiary i protokoły nieczytelne przy odczycie są liczone
 ///   ([ConfinedSpaceParse]) — warstwa zapisu robi kopię surowego tekstu
 ///   i ekran pokazuje baner.
@@ -31,6 +37,7 @@ library;
 import '../hot_work/hot_work_permit.dart' show hotWorkDate;
 import 'confined_space_checklist.dart';
 import 'confined_space_gas.dart';
+import 'confined_space_sources.dart';
 
 /// Rodzaj pracy w środku — wybiera ostrzeżenia dla spawacza.
 enum CsProcess {
@@ -67,9 +74,17 @@ class CsGasVerdict {
   /// Odczyty z najpóźniejszej minuty (pusta lista = brak odczytu).
   final List<CsMeasurement> latest;
 
-  /// Odczyt decydujący (najgorszy z [latest]) albo `null`.
+  /// Odczyt decydujący (najgorszy z [latest] albo STOP wpisany później)
+  /// albo `null`.
   final CsMeasurement? decisive;
   final CsReadingState? state;
+
+  /// Najpóźniejszy odczyt jest starszy niż ważność pomiaru (albo z
+  /// przyszłości) — liczy się jak brak pomiaru.
+  final bool stale;
+
+  /// Decyduje odczyt STOP wpisany PÓŹNIEJ niż najpóźniejszy w czasie.
+  final bool enteredLater;
 
   const CsGasVerdict({
     required this.gas,
@@ -77,6 +92,8 @@ class CsGasVerdict {
     required this.latest,
     required this.decisive,
     required this.state,
+    this.stale = false,
+    this.enteredLater = false,
   });
 
   bool get missing => decisive == null;
@@ -99,7 +116,10 @@ enum CsReadiness {
   /// Odczyt gazu poza progiem — NIE wchodzić / wyjść.
   stop,
 
-  /// Brak odczytu wymaganego gazu.
+  /// Protokół z innego dnia niż dziś — nigdy zielony.
+  otherDay,
+
+  /// Brak aktualnego odczytu wymaganego gazu (brak albo nieaktualny).
   noMeasurement,
 
   /// Brak progu dla ocenianego gazu.
@@ -120,14 +140,27 @@ class CsAssessment {
   /// Oceny gazów w kolejności [CsGas.values].
   final List<CsGasVerdict> gases;
 
+  /// Data protokołu i „dziś” w chwili oceny (`YYYY-MM-DD`).
+  final String recordDate;
+  final String today;
+
+  /// Ważność pomiaru użyta w ocenie (min).
+  final int maxAgeMin;
+
   const CsAssessment({
     required this.openBefore,
     required this.openDuring,
     required this.openAfter,
     required this.gases,
+    required this.recordDate,
+    required this.today,
+    required this.maxAgeMin,
   });
 
   CsGasVerdict verdict(CsGas g) => gases.firstWhere((v) => v.gas == g);
+
+  /// Protokół z innego dnia niż dziś.
+  bool get otherDay => recordDate != today;
 
   /// Gazy oceniane: wymagane albo z odczytem.
   Iterable<CsGasVerdict> get _evaluated =>
@@ -136,29 +169,72 @@ class CsAssessment {
   List<CsGasVerdict> get stops => [for (final v in gases) if (v.stop) v];
   List<CsGasVerdict> get missing =>
       [for (final v in gases) if (v.isRequired && v.missing) v];
+
+  /// Wymagane gazy z nieaktualnym (za starym) najpóźniejszym odczytem.
+  List<CsGasVerdict> get stale => [
+        for (final v in gases)
+          if (v.isRequired && !v.missing && !v.stop && v.stale) v,
+      ];
   List<CsGasVerdict> get noLimits =>
       [for (final v in _evaluated) if (v.noLimit) v];
   List<CsGasVerdict> get ties => [for (final v in gases) if (v.tie) v];
 
   CsReadiness get readiness {
     if (stops.isNotEmpty) return CsReadiness.stop;
-    if (missing.isNotEmpty) return CsReadiness.noMeasurement;
+    if (otherDay) return CsReadiness.otherDay;
+    if (missing.isNotEmpty || stale.isNotEmpty) {
+      return CsReadiness.noMeasurement;
+    }
     if (noLimits.isNotEmpty) return CsReadiness.noLimit;
     if (openBefore.isNotEmpty) return CsReadiness.incomplete;
     return CsReadiness.ready;
   }
 
-  /// Zielony stan: wszystko „przed wejściem” gotowe i atmosfera w progach.
+  /// Zielony stan: dziś, wszystko „przed wejściem” gotowe i aktualne
+  /// odczyty w progach.
   bool get readyToEnter => readiness == CsReadiness.ready;
 
-  /// Praca zamknięta: gotowe + odhaczone punkty „w trakcie” i „po”.
+  /// Praca zamknięta: wszystkie punkty odhaczone, odczyty wymaganych gazów
+  /// były w progach (bez STOP). Wiek pomiaru nie ma tu znaczenia — po
+  /// wyjściu nikt już nie mierzy; protokół z innego dnia jest zamknięty,
+  /// ale „nieaktualny” (nigdy zielony — zob. [otherDay]).
   bool get closed =>
-      readyToEnter && openDuring.isEmpty && openAfter.isEmpty;
+      openBefore.isEmpty &&
+      openDuring.isEmpty &&
+      openAfter.isEmpty &&
+      stops.isEmpty &&
+      missing.isEmpty &&
+      noLimits.isEmpty;
 }
 
-/// Ocena gazu [gas] na podstawie [measurements].
-CsGasVerdict csGasVerdict(CsGas gas, List<CsMeasurement> measurements,
-    CsLimits limits, {required bool isRequired}) {
+/// Ranga stanu w remisie: STOP przed brakiem progu, brak progu przed OK.
+int _rank(CsReadingState s) => switch (s) {
+      CsReadingState.low || CsReadingState.high => 2,
+      CsReadingState.noLimit => 1,
+      CsReadingState.ok => 0,
+    };
+
+/// Czy odczyt [a] jest gorszy od [b] (ta sama ranga): dalej od progu —
+/// najniższy tlen (przy wzbogaceniu najwyższy), najwyższe DGW / CO / H₂S
+/// w jednostce kanonicznej.
+bool _worse(CsGas gas, CsMeasurement a, CsReadingState sa, CsMeasurement b,
+    CsReadingState sb) {
+  if (_rank(sa) != _rank(sb)) return _rank(sa) > _rank(sb);
+  final va = csCanonical(gas, a[gas]!);
+  final vb = csCanonical(gas, b[gas]!);
+  if (gas == CsGas.o2 && sa != CsReadingState.high) return va < vb;
+  return va > vb;
+}
+
+/// Ocena gazu [gas] na podstawie [measurements] w chwili [now].
+CsGasVerdict csGasVerdict(
+  CsGas gas,
+  List<CsMeasurement> measurements,
+  CsLimits limits, {
+  required bool isRequired,
+  required DateTime now,
+  int maxAgeMin = kCsMeasurementMaxAgeMin,
+}) {
   final withGas = [for (final m in measurements) if (m[gas] != null) m];
   if (withGas.isEmpty) {
     return CsGasVerdict(
@@ -171,19 +247,31 @@ CsGasVerdict csGasVerdict(CsGas gas, List<CsMeasurement> measurements,
   final last = withGas.map((m) => m.minute).reduce((a, b) => a > b ? a : b);
   final latest = csMeasurementsChrono(
       [for (final m in withGas) if (m.minute == last) m]);
-  // Najgorszy z remisu: STOP przed brakiem progu, brak progu przed OK.
-  int rank(CsReadingState s) => switch (s) {
-        CsReadingState.low || CsReadingState.high => 2,
-        CsReadingState.noLimit => 1,
-        CsReadingState.ok => 0,
-      };
   CsMeasurement decisive = latest.first;
   var state = csReadingState(gas, decisive[gas]!, limits);
   for (final m in latest.skip(1)) {
     final s = csReadingState(gas, m[gas]!, limits);
-    if (rank(s) > rank(state)) {
+    if (_worse(gas, m, s, decisive, state)) {
       decisive = m;
       state = s;
+    }
+  }
+  // Odczyt STOP wpisany PÓŹNIEJ niż najpóźniejsze w czasie — np. o 14:00
+  // wpis z godziną 14:05 (OK), o 14:02 prawdziwy alarm O₂ 17 %. Zaległy
+  // wpis nie może przykryć świeżego alarmu.
+  var enteredLater = false;
+  if (!state.stop) {
+    final lastEntered =
+        latest.map((m) => m.entered).reduce((a, b) => a > b ? a : b);
+    for (final m in withGas) {
+      if (m.entered <= lastEntered) continue;
+      final s = csReadingState(gas, m[gas]!, limits);
+      if (!s.stop) continue;
+      if (!enteredLater || _worse(gas, m, s, decisive, state)) {
+        decisive = m;
+        state = s;
+        enteredLater = true;
+      }
     }
   }
   return CsGasVerdict(
@@ -192,6 +280,8 @@ CsGasVerdict csGasVerdict(CsGas gas, List<CsMeasurement> measurements,
     latest: latest,
     decisive: decisive,
     state: state,
+    stale: !csMeasurementFresh(latest.first, now, maxAgeMin),
+    enteredLater: enteredLater,
   );
 }
 
@@ -239,6 +329,10 @@ class ConfinedSpaceRecord {
 
   final CsLimits limits;
 
+  /// Ważność pomiaru z pozwolenia (min); `null` = przyjęta w aplikacji
+  /// [kCsMeasurementMaxAgeMin]. Wolno tylko skrócić.
+  final int? maxAgeMin;
+
   /// Gazy, których odczyt jest wymagany (tlen i palne zawsze).
   final Set<CsGas> requiredGases;
   final List<CsMeasurement> measurements;
@@ -268,6 +362,7 @@ class ConfinedSpaceRecord {
     this.issuer = '',
     this.rescue = '',
     CsLimits? limits,
+    int? maxAgeMin,
     Set<CsGas> requiredGases = kCsDefaultRequired,
     this.measurements = const [],
     this.checked = const {},
@@ -277,6 +372,8 @@ class ConfinedSpaceRecord {
     required this.updatedAt,
     this.droppedOnLoad = 0,
   })  : limits = limits ?? CsLimits.defaults,
+        maxAgeMin =
+            maxAgeMin != null && csMaxAgeValid(maxAgeMin) ? maxAgeMin : null,
         requiredGases = {
           ...requiredGases,
           for (final g in CsGas.values)
@@ -293,6 +390,9 @@ class ConfinedSpaceRecord {
         updatedAt: now.millisecondsSinceEpoch,
       );
 
+  /// Ważność pomiaru użyta w ocenie (min).
+  int get effectiveMaxAgeMin => maxAgeMin ?? kCsMeasurementMaxAgeMin;
+
   /// Nic nie wpisano ani nie odhaczono — takiego protokołu nie zapisujemy.
   bool get isBlank =>
       permitNo.trim().isEmpty &&
@@ -307,6 +407,7 @@ class ConfinedSpaceRecord {
       issuer.trim().isEmpty &&
       rescue.trim().isEmpty &&
       limits.isDefault &&
+      maxAgeMin == null &&
       requiredGases.length == kCsDefaultRequired.length &&
       measurements.isEmpty &&
       checked.isEmpty &&
@@ -324,7 +425,9 @@ class ConfinedSpaceRecord {
   List<CsMeasurement> get measurementsChrono =>
       csMeasurementsChrono(measurements);
 
-  CsAssessment assess() {
+  /// Ocena w chwili [now]: wiek pomiarów i data protokołu liczą się
+  /// względem tej chwili.
+  CsAssessment assess({required DateTime now}) {
     List<ConfinedSpaceCheck> open(ConfinedSpacePhase p) => [
           for (final c in confinedSpaceChecksIn(p))
             if (!isSettled(c)) c,
@@ -336,8 +439,13 @@ class ConfinedSpaceRecord {
       gases: [
         for (final g in CsGas.values)
           csGasVerdict(g, measurements, limits,
-              isRequired: requiredGases.contains(g)),
+              isRequired: requiredGases.contains(g),
+              now: now,
+              maxAgeMin: effectiveMaxAgeMin),
       ],
+      recordDate: date,
+      today: hotWorkDate(now),
+      maxAgeMin: effectiveMaxAgeMin,
     );
   }
 
@@ -380,20 +488,30 @@ class ConfinedSpaceRecord {
   ConfinedSpaceRecord addMeasurement(CsMeasurement m) =>
       copyWith(measurements: csMeasurementsChrono([...measurements, m]));
 
-  /// Przywraca usunięty pomiar („Cofnij”) — jeśli już jest, bez zmian.
-  ConfinedSpaceRecord restoreMeasurement(CsMeasurement m) =>
-      measurements.contains(m) ? this : addMeasurement(m);
+  /// Przywraca usunięty pomiar („Cofnij”) po IDENTYFIKATORZE — dwa
+  /// identyczne odczyty to dwa pomiary. Jeśli pomiar o tym identyfikatorze
+  /// już jest — bez zmian (cofnięcie dwa razy nie dubluje).
+  ConfinedSpaceRecord restoreMeasurement(CsMeasurement m) {
+    if (m.id.isEmpty) return addMeasurement(m);
+    return measurements.any((x) => x.id == m.id) ? this : addMeasurement(m);
+  }
 
+  /// Usuwa pomiar po identyfikatorze (stare zapisy bez niego — po
+  /// tożsamości obiektu).
   ConfinedSpaceRecord removeMeasurement(CsMeasurement m) {
-    final i = measurements.indexOf(m);
+    final i = m.id.isEmpty
+        ? measurements.indexWhere((x) => identical(x, m))
+        : measurements.indexWhere((x) => x.id == m.id);
     if (i < 0) return this;
     return copyWith(measurements: [...measurements]..removeAt(i));
   }
 
   /// Kopia na nowy dzień („jak wczoraj”): przestrzeń, opis, rodzaj pracy,
-  /// osoby, plan ratunkowy, godziny, progi i wymagane gazy zostają.
+  /// osoby, plan ratunkowy, godziny, progi i ważność pomiaru zostają.
   /// Pomiary, zaznaczenia, numer pozwolenia i uwagi — NIE: atmosfera
   /// i stanowisko sprawdza się na nowo, zakład wydaje nowe pozwolenie.
+  /// Wymagane gazy wracają do wszystkich czterech — wyłączenie gazu to
+  /// świadoma decyzja na dany dzień.
   ConfinedSpaceRecord duplicateFor(
           {required String newId, required DateTime now}) =>
       ConfinedSpaceRecord(
@@ -410,7 +528,7 @@ class ConfinedSpaceRecord {
         issuer: issuer,
         rescue: rescue,
         limits: limits,
-        requiredGases: requiredGases,
+        maxAgeMin: maxAgeMin,
         createdAt: now.millisecondsSinceEpoch,
         updatedAt: now.millisecondsSinceEpoch,
       );
@@ -429,6 +547,7 @@ class ConfinedSpaceRecord {
     String? issuer,
     String? rescue,
     CsLimits? limits,
+    Object? maxAgeMin = _keep,
     Set<CsGas>? requiredGases,
     List<CsMeasurement>? measurements,
     Set<String>? checked,
@@ -452,6 +571,8 @@ class ConfinedSpaceRecord {
         issuer: issuer ?? this.issuer,
         rescue: rescue ?? this.rescue,
         limits: limits ?? this.limits,
+        maxAgeMin:
+            identical(maxAgeMin, _keep) ? this.maxAgeMin : maxAgeMin as int?,
         requiredGases: requiredGases ?? this.requiredGases,
         measurements: measurements ?? this.measurements,
         checked: checked ?? this.checked,
@@ -483,6 +604,7 @@ class ConfinedSpaceRecord {
         'issuer': issuer,
         'rescue': rescue,
         'limits': limits.toJson(),
+        if (maxAgeMin != null) 'maxAgeMin': maxAgeMin,
         'required': [
           for (final g in CsGas.values)
             if (requiredGases.contains(g)) g.name
@@ -503,18 +625,23 @@ class ConfinedSpaceRecord {
       };
 
   /// Odczyt z JSON. `null` dla wpisu bez identyfikatora albo daty.
-  /// Uszkodzone pomiary są pomijane i liczone w [droppedOnLoad].
-  static ConfinedSpaceRecord? fromJson(Object? raw) {
+  /// Uszkodzone pomiary — a przy podanym [now] także pomiary z przyszłości
+  /// (dalej niż [kCsFutureSlack]) — są pomijane i liczone w
+  /// [droppedOnLoad]. Pomiary bez identyfikatora dostają go z pozycji.
+  static ConfinedSpaceRecord? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
     final id = _s(raw['id']);
     final date = _s(raw['date']);
     if (id.isEmpty || date.isEmpty) return null;
     final rawMeasurements = _list(raw['measurements']);
-    final measurements = [
-      for (final m in rawMeasurements)
-        if (CsMeasurement.fromJson(m) != null) CsMeasurement.fromJson(m)!,
-    ];
+    final measurements = <CsMeasurement>[];
+    for (final (i, e) in rawMeasurements.indexed) {
+      final m = CsMeasurement.fromJson(e, now: now);
+      if (m == null) continue;
+      measurements.add(m.id.isEmpty ? m.withId('$id-m$i') : m);
+    }
     final rawRequired = raw['required'];
+    final maxAge = raw['maxAgeMin'];
     return ConfinedSpaceRecord(
       id: id,
       permitNo: _s(raw['permitNo']),
@@ -533,6 +660,8 @@ class ConfinedSpaceRecord {
       issuer: _s(raw['issuer']),
       rescue: _s(raw['rescue']),
       limits: CsLimits.fromJson(raw['limits']),
+      // Zły zapis ważności → przyjęta w aplikacji (nigdy dłuższa).
+      maxAgeMin: maxAge is int ? maxAge : null,
       // Brak listy (uszkodzony zapis) → wszystkie gazy wymagane.
       requiredGases: rawRequired is List
           ? {
@@ -558,6 +687,10 @@ class ConfinedSpaceRecord {
   }
 }
 
+/// Ważność pomiaru (min), którą aplikacja przyjmuje: 1 … przyjęta
+/// [kCsMeasurementMaxAgeMin] — dłużej nie wolno.
+bool csMaxAgeValid(int min) => min >= 1 && min <= kCsMeasurementMaxAgeMin;
+
 /// Wynik odczytu listy protokołów: ile protokołów i pomiarów odrzucono.
 class ConfinedSpaceParse {
   final List<ConfinedSpaceRecord> records;
@@ -569,15 +702,17 @@ class ConfinedSpaceParse {
   bool get damaged => droppedRecords > 0 || droppedMeasurements > 0;
 }
 
-/// Lista protokołów z JSON (historia). Uszkodzone wpisy i pomiary są
-/// pomijane, ale LICZONE — zapis robi kopię, ekran pokazuje baner.
-ConfinedSpaceParse confinedSpaceRecordsFromJson(Object? raw) {
+/// Lista protokołów z JSON (historia). Uszkodzone wpisy i pomiary (także
+/// z przyszłości względem [now]) są pomijane, ale LICZONE — zapis robi
+/// kopię, ekran pokazuje baner.
+ConfinedSpaceParse confinedSpaceRecordsFromJson(Object? raw,
+    {DateTime? now}) {
   if (raw is! List) throw const FormatException('not a list');
   final records = <ConfinedSpaceRecord>[];
   var droppedRecords = 0;
   var droppedMeasurements = 0;
   for (final e in raw) {
-    final r = ConfinedSpaceRecord.fromJson(e);
+    final r = ConfinedSpaceRecord.fromJson(e, now: now);
     if (r == null) {
       droppedRecords++;
     } else {

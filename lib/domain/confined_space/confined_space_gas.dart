@@ -271,6 +271,11 @@ class CsLimits {
 
 /// Jeden pomiar detektorem (jeden lub kilka gazów naraz).
 class CsMeasurement {
+  /// Identyfikator pomiaru (usuwanie i „Cofnij” po identyfikatorze — dwa
+  /// identyczne odczyty to dwa pomiary). Pusty tylko w starych zapisach;
+  /// odczyt protokołu nadaje wtedy identyfikator z pozycji.
+  final String id;
+
   /// Godzina `HH:mm`.
   final String time;
 
@@ -279,6 +284,12 @@ class CsMeasurement {
   /// ekranie); pomiary z tej samej minuty to remis, nie kolejność.
   final int at;
 
+  /// Chwila WPISANIA do aplikacji (ms od epoki); `null` w starych zapisach
+  /// (wtedy = [at]). Odczyt STOP wpisany później niż decydujący blokuje
+  /// zielony stan — zaległy wpis „w normie” z późniejszą godziną nie może
+  /// przykryć świeżego alarmu.
+  final int? enteredAt;
+
   /// Odczyty wg gazu (co najmniej jeden).
   final Map<CsGas, CsQty> values;
 
@@ -286,32 +297,55 @@ class CsMeasurement {
   final String place;
 
   const CsMeasurement({
+    this.id = '',
     required this.time,
     required this.at,
+    this.enteredAt,
     required this.values,
     this.place = '',
   });
 
   CsQty? operator [](CsGas g) => values[g];
 
+  /// Chwila wpisania (stare zapisy — chwila pomiaru).
+  int get entered => enteredAt ?? at;
+
   /// Minuta pomiaru — jednostka porównania „który najpóźniejszy”.
   int get minute => at ~/ 60000;
 
+  CsMeasurement withId(String newId) => CsMeasurement(
+        id: newId,
+        time: time,
+        at: at,
+        enteredAt: enteredAt,
+        values: values,
+        place: place,
+      );
+
   Map<String, Object?> toJson() => {
+        if (id.isNotEmpty) 'id': id,
         'time': time,
         'at': at,
+        if (enteredAt != null) 'entered': enteredAt,
         for (final g in CsGas.values)
           if (values[g] != null) g.name: values[g]!.toJson(),
         'place': place,
       };
 
   /// `null`, gdy wpis jest uszkodzony: bez chwili pomiaru, bez żadnego
-  /// odczytu, albo z którymkolwiek odczytem nieczytelnym (zły odczyt nie
-  /// może zniknąć po cichu, a reszta pomiaru udawać kompletnego).
-  static CsMeasurement? fromJson(Object? raw) {
+  /// odczytu, z którymkolwiek odczytem nieczytelnym (zły odczyt nie może
+  /// zniknąć po cichu, a reszta pomiaru udawać kompletnego) albo — gdy
+  /// podano [now] — z chwilą pomiaru dalej w przyszłości niż
+  /// [kCsFutureSlack] (taki pomiar przykryłby wszystkie prawdziwe).
+  static CsMeasurement? fromJson(Object? raw, {DateTime? now}) {
     if (raw is! Map) return null;
     final at = raw['at'];
     if (at is! num || !at.isFinite) return null;
+    if (now != null &&
+        at > now.add(kCsFutureSlack).millisecondsSinceEpoch) {
+      return null;
+    }
+    final entered = raw['entered'];
     final values = <CsGas, CsQty>{};
     for (final g in CsGas.values) {
       if (!raw.containsKey(g.name) || raw[g.name] == null) continue;
@@ -321,8 +355,11 @@ class CsMeasurement {
     }
     if (values.isEmpty) return null;
     return CsMeasurement(
+      id: raw['id'] is String ? raw['id'] as String : '',
       time: raw['time'] is String ? raw['time'] as String : '',
       at: at.toInt(),
+      enteredAt:
+          entered is num && entered.isFinite ? entered.toInt() : null,
       values: values,
       place: raw['place'] is String ? raw['place'] as String : '',
     );
@@ -331,8 +368,10 @@ class CsMeasurement {
   @override
   bool operator ==(Object other) {
     if (other is! CsMeasurement ||
+        other.id != id ||
         other.time != time ||
         other.at != at ||
+        other.enteredAt != enteredAt ||
         other.place != place ||
         other.values.length != values.length) {
       return false;
@@ -341,8 +380,22 @@ class CsMeasurement {
   }
 
   @override
-  int get hashCode => Object.hash(time, at, place,
-      Object.hashAllUnordered(values.entries.map((e) => Object.hash(e.key, e.value))));
+  int get hashCode => Object.hash(
+      id,
+      time,
+      at,
+      enteredAt,
+      place,
+      Object.hashAllUnordered(
+          values.entries.map((e) => Object.hash(e.key, e.value))));
+}
+
+/// Pomiar świeży: nie starszy niż [maxAgeMin] i nie dalej w przyszłości niż
+/// [kCsFutureSlack] względem [now].
+bool csMeasurementFresh(CsMeasurement m, DateTime now, int maxAgeMin) {
+  final t = now.millisecondsSinceEpoch;
+  if (m.at > t + kCsFutureSlack.inMilliseconds) return false;
+  return t - m.at <= maxAgeMin * 60000;
 }
 
 /// Pomiary w kolejności czasu (stabilnie: przy tej samej chwili — kolejność
@@ -368,38 +421,43 @@ enum CsReadingState {
   /// przekroczenie).
   high,
 
-  /// Brak progu — odczytu nie da się ocenić.
+  /// Brak progu, a odczyt mieści się w twardej granicy — nie da się go
+  /// ocenić względem pozwolenia (przekroczenie twardej granicy to zawsze
+  /// STOP, z progiem czy bez).
   noLimit;
 
   bool get stop => this == low || this == high;
 }
 
+/// Ocena odczytu. Brakujący próg zastępuje TWARDA GRANICA ([CsBound
+/// .hardLimit]): tlen 5 % albo CO 500 ppm przy pustym polu progu to STOP,
+/// nie „brak progu”.
 CsReadingState csReadingState(CsGas gas, CsQty q, CsLimits limits) {
   final v = csCanonical(gas, q);
+  double limitOf(CsBound b) => csCanonical(gas, limits[b] ?? b.hardLimit);
   switch (gas) {
     case CsGas.o2:
-      final min = limits[CsBound.o2Min];
-      final max = limits[CsBound.o2Max];
-      if (min != null && v < csCanonical(gas, min) - kCsEps) {
-        return CsReadingState.low;
+      if (v < limitOf(CsBound.o2Min) - kCsEps) return CsReadingState.low;
+      if (v > limitOf(CsBound.o2Max) + kCsEps) return CsReadingState.high;
+      if (limits[CsBound.o2Min] == null || limits[CsBound.o2Max] == null) {
+        return CsReadingState.noLimit;
       }
-      if (max != null && v > csCanonical(gas, max) + kCsEps) {
-        return CsReadingState.high;
-      }
-      if (min == null || max == null) return CsReadingState.noLimit;
       return CsReadingState.ok;
     case CsGas.lel:
     case CsGas.co:
     case CsGas.h2s:
-      final bound = switch (gas) {
-        CsGas.lel => CsBound.lelMax,
-        CsGas.co => CsBound.coMax,
-        _ => CsBound.h2sMax,
-      };
-      final max = limits[bound];
-      if (max == null) return CsReadingState.noLimit;
-      return v > csCanonical(gas, max) + kCsEps
-          ? CsReadingState.high
+      final bound = csMaxBound(gas)!;
+      if (v > limitOf(bound) + kCsEps) return CsReadingState.high;
+      return limits[bound] == null
+          ? CsReadingState.noLimit
           : CsReadingState.ok;
   }
 }
+
+/// Górna granica gazu (dla tlenu `null` — ma dwie).
+CsBound? csMaxBound(CsGas gas) => switch (gas) {
+      CsGas.o2 => null,
+      CsGas.lel => CsBound.lelMax,
+      CsGas.co => CsBound.coMax,
+      CsGas.h2s => CsBound.h2sMax,
+    };
