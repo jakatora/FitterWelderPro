@@ -131,11 +131,91 @@ void main() {
     expect(_key('defects-cutout'), findsOneWidget);
     expect(_key('defects-safety'), findsOneWidget);
     expect(_key('defects-checklist'), findsOneWidget);
-    expect(find.text('EN ISO 5817, tablica 1 — poz. 1.7, 1.8'), findsOneWidget);
+    expect(find.text('EN ISO 5817, tablica 1 — poz. 1.7 (5011, 5012), '
+        '1.8 (5013)'), findsOneWidget);
+    // Wszystkie numery wady mają pozycję VT — bez uwagi o brakach.
+    expect(_key('defects-iso5817-uncovered'), findsNothing);
 
+    // Dwie pozycje → wybór, potem ekran odbioru na wybranej pozycji.
     await _tapKey(tester, 'defects-iso5817');
+    expect(_key('defects-iso5817-sheet'), findsOneWidget);
+    expect(_key('defects-iso5817-pick-1.7'), findsOneWidget);
+    for (final k in ['defects-iso5817-pick-1.7', 'defects-iso5817-pick-1.8']) {
+      expect(tester.getSize(_key(k)).height,
+          greaterThanOrEqualTo(kMinTapTarget),
+          reason: k);
+    }
+    await tester.tap(_key('defects-iso5817-pick-1.8'));
+    await tester.pumpAndSettle();
     expect(find.byType(Iso5817Page), findsOneWidget);
     expect(find.text('Odbiór spoin ISO 5817'), findsOneWidget);
+    expect(
+        tester.widget<Iso5817Page>(find.byType(Iso5817Page)).initialItemId,
+        '1.8');
+    final picked = find.byKey(const ValueKey('iso5817-item-butt-1.8'));
+    await tester.scrollUntilVisible(picked, 300,
+        scrollable: find
+            .descendant(
+                of: find.byType(Iso5817Page),
+                matching: find.byType(Scrollable))
+            .first);
+    expect(picked, findsOneWidget);
+  });
+
+  testWidgets(
+      'porowatość: poz. 1.3 tylko pory powierzchniowe, reszta — tylko VT; '
+      'jedna pozycja otwiera ISO 5817 od razu', (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'defects-pick-porosity');
+    await _tapKey(tester, 'defects-process-mag135');
+    await _reveal(tester, 'defects-iso5817');
+    expect(find.text('EN ISO 5817, tablica 1 — poz. 1.3 (2017)'),
+        findsOneWidget);
+    expect(find.text('Poz. 1.3 dotyczy tylko: 2017 Por powierzchniowy.'),
+        findsOneWidget);
+    final uncovered = tester
+        .widget<Text>(_key('defects-iso5817-uncovered'))
+        .data!;
+    expect(uncovered,
+        startsWith('Bez pozycji w aplikacji: 2011, 2012, 2013, 2014, 2016.'));
+    expect(
+        uncovered,
+        contains('Aplikacja zawiera tylko pozycje do odbioru wizualnego (VT); '
+            'limity niezgodności wewnętrznych — pełna norma / specyfikacja '
+            'RT / UT.'));
+
+    // Jedna pozycja — bez wyboru, od razu 1.3 (spoina czołowa).
+    await _tapKey(tester, 'defects-iso5817');
+    expect(_key('defects-iso5817-sheet'), findsNothing);
+    expect(
+        tester.widget<Iso5817Page>(find.byType(Iso5817Page)).initialItemId,
+        '1.3-butt');
+  });
+
+  testWidgets('pachwina: wybór pozycji ISO 5817 przy 320 px i czcionce 1,3',
+      (tester) async {
+    await _pump(tester, size: const Size(320, 640), textScale: 1.3);
+    await _tapKey(tester, 'defects-pick-fillet_shape');
+    await _tapKey(tester, 'defects-process-mag135');
+    await _tapKey(tester, 'defects-iso5817');
+    expect(tester.takeException(), isNull);
+    // Kąt przejścia lica dla spoiny pachwinowej, nie czołowej.
+    expect(_key('defects-iso5817-pick-1.12-fillet'), findsOneWidget);
+    expect(_key('defects-iso5817-pick-1.12-butt'), findsNothing);
+    final last = _key('defects-iso5817-pick-1.21');
+    await tester.scrollUntilVisible(last, 200,
+        scrollable: find
+            .descendant(
+                of: _key('defects-iso5817-sheet'),
+                matching: find.byType(Scrollable))
+            .first);
+    expect(tester.takeException(), isNull);
+    await tester.tap(last);
+    await tester.pumpAndSettle();
+    expect(
+        tester.widget<Iso5817Page>(find.byType(Iso5817Page)).initialItemId,
+        '1.21');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('„porowatość” i „porowatosc” → porowatość na początku',
@@ -162,7 +242,12 @@ void main() {
     expect(_key('defects-repair'), findsOneWidget,
         reason: 'jedyny proces wybiera się sam');
     expect(_key('defects-iso5817'), findsNothing);
-    expect(_key('defects-iso5817-none'), findsOneWidget);
+    await _reveal(tester, 'defects-iso5817-none');
+    expect(
+        tester.widget<Text>(_key('defects-iso5817-none')).data,
+        'Ta wada nie ma pozycji EN ISO 5817 w aplikacji. Aplikacja zawiera '
+        'tylko pozycje do odbioru wizualnego (VT); limity niezgodności '
+        'wewnętrznych — pełna norma / specyfikacja RT / UT.');
 
     await _tapKey(tester, 'defects-change');
     expect(_key('defects-search'), findsOneWidget);
@@ -213,7 +298,8 @@ void main() {
     await _tapKey(tester, 'defects-process-tig141');
     expect(find.text('Causes — check in this order'), findsOneWidget);
     expect(find.text('See the ISO 5817 limit'), findsOneWidget);
-    expect(find.text('EN ISO 5817, Table 1 — item 1.7, 1.8'), findsOneWidget);
+    expect(find.text('EN ISO 5817, Table 1 — item 1.7 (5011, 5012), '
+        '1.8 (5013)'), findsOneWidget);
     expect(find.textContaining('Przyczyny'), findsNothing);
     expect(find.textContaining('Sprawdź'), findsNothing);
   });
@@ -299,7 +385,11 @@ void main() {
     expect(text, contains('1. ${advice.causes.first.cause.pl}'));
     expect(text, contains('[x] ${first.text.pl}'));
     expect(text, contains('[ ] ${advice.checklist[1].text.pl}'));
-    expect(text, contains('tablica 1 poz. 1.7, 1.8'));
+    expect(text, contains('tablica 1 poz. 1.7 (5011, 5012), 1.8 (5013)'));
+    expect(text, contains('BHP:'));
+    for (final s in advice.defect.safety) {
+      expect(text, contains('- ${s.pl}'));
+    }
     expect(text, contains('Wiążące są WPS'));
   });
 

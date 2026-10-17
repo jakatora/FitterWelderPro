@@ -40,6 +40,13 @@ class DefectAdvice {
   /// Pozycje EN ISO 5817 (tablica 1) z tymi samymi numerami ISO 6520-1.
   final List<Iso5817Item> iso5817;
 
+  /// To samo z numerami wady, których dotyczy każda pozycja.
+  final List<Iso5817Link> iso5817Links;
+
+  /// Numery wady bez pozycji VT w aplikacji (limity wewnętrznych —
+  /// pełna norma / specyfikacja RT / UT).
+  final List<Iso6520Ref> iso5817Uncovered;
+
   const DefectAdvice({
     required this.defect,
     required this.process,
@@ -49,6 +56,8 @@ class DefectAdvice {
     required this.repair,
     required this.checklist,
     required this.iso5817,
+    required this.iso5817Links,
+    required this.iso5817Uncovered,
   });
 }
 
@@ -117,19 +126,113 @@ DefectAdvice? defectAdvice(
         if (_stepOk(s, process, m)) s
     ],
     iso5817: iso5817ItemsForDefect(defect),
+    iso5817Links: iso5817LinksForDefect(defect),
+    iso5817Uncovered: iso5817UncoveredRefs(defect),
   );
 }
 
-/// Pozycje tablicy 1 EN ISO 5817 dla numerów ISO 6520-1 wady (bez
-/// powtórzeń numeru pozycji — np. 1.3 czołowa i pachwinowa to jedna).
-List<Iso5817Item> iso5817ItemsForDefect(WeldDefect defect) {
-  final codes = defect.codes.toSet();
-  final seenNo = <String>{};
+/// Pozycja tablicy 1 EN ISO 5817 z numerami wady, których dotyczy.
+class Iso5817Link {
+  final Iso5817Item item;
+
+  /// Numery ISO 6520-1 wady objęte tą pozycją.
+  final List<Iso6520Ref> refs;
+  const Iso5817Link(this.item, this.refs);
+
+  /// „1.7 (5011, 5012)”.
+  String get label => '${item.no} (${refs.map((r) => r.code).join(', ')})';
+}
+
+/// Numer nadrzędny ISO 6520-1: 5011 → 501, 101 → 100; dla 100, 200… — null.
+int? _parentCode(int code) {
+  if (code >= 1000) return code ~/ 10;
+  if (code % 100 != 0) return (code ~/ 100) * 100;
+  return null;
+}
+
+/// Pozycja z numerem [itemCode] obejmuje numer [code]: ten sam numer albo
+/// jego podgrupa (101 → 100 „Pęknięcie”, 4011 → 401 „Przyklejenie”).
+bool _covers(int itemCode, int code) {
+  for (int? c = code; c != null; c = _parentCode(c)) {
+    if (c == itemCode) return true;
+  }
+  return false;
+}
+
+/// Pozycje tablicy 1 EN ISO 5817 (z aplikacji — tylko odbiór wizualny VT)
+/// dla numerów wady, w kolejności tablicy. Numer z własną pozycją (104 →
+/// 1.2) nie dostaje dodatkowo pozycji nadrzędnej (100 → 1.1); numer bez
+/// własnej (101) — pozycję nadrzędną. Bliźniacze pozycje czołowa /
+/// pachwinowa (1.3, 1.12) — jedna: pachwinowa, gdy wada ma pozycję tylko
+/// pachwinową (np. 1.10), inaczej czołowa. Warianty tego samego rodzaju
+/// spoiny (3.1 blachy / rury) zostają oba.
+List<Iso5817Link> iso5817LinksForDefect(WeldDefect defect) {
+  final perItem = <Iso5817Item, List<Iso6520Ref>>{};
+  for (final r in defect.refs) {
+    final exact = [
+      for (final i in kIso5817Items)
+        if (i.codes.contains(r.code)) i
+    ];
+    final hits = exact.isNotEmpty
+        ? exact
+        : [
+            for (final i in kIso5817Items)
+              if (i.codes.any((ic) => _covers(ic, r.code))) i
+          ];
+    for (final i in hits) {
+      perItem.putIfAbsent(i, () => []).add(r);
+    }
+  }
+  final matching = [
+    for (final i in kIso5817Items)
+      if (perItem[i] != null) Iso5817Link(i, perItem[i]!)
+  ];
+  // Pozycja tylko pachwinowa bez czołowego bliźniaka (1.10, 1.16, 1.20…)
+  // oznacza wadę spoin pachwinowych.
+  bool filletOnly(Iso5817Item i) =>
+      i.kinds.length == 1 &&
+      i.appliesTo(Iso5817WeldKind.fillet) &&
+      !matching.any((l) =>
+          l.item.no == i.no && l.item.appliesTo(Iso5817WeldKind.butt));
+  final preferred = matching.any((l) => filletOnly(l.item))
+      ? Iso5817WeldKind.fillet
+      : Iso5817WeldKind.butt;
+  final dropped = <Iso5817Link>{};
+  for (final a in matching) {
+    for (final b in matching) {
+      if (identical(a, b) || a.item.no != b.item.no) continue;
+      final twins = a.item.kinds.intersection(b.item.kinds).isEmpty;
+      if (twins && !a.item.appliesTo(preferred)) dropped.add(a);
+    }
+  }
   return [
-    for (final item in kIso5817Items)
-      if (item.codes.any(codes.contains) && seenNo.add(item.no)) item
+    for (final l in matching)
+      if (!dropped.contains(l)) l
   ];
 }
+
+/// Same pozycje z [iso5817LinksForDefect].
+List<Iso5817Item> iso5817ItemsForDefect(WeldDefect defect) =>
+    [for (final l in iso5817LinksForDefect(defect)) l.item];
+
+/// Numery wady bez pozycji VT w aplikacji (np. pory wewnętrzne 2011–2016,
+/// żużel 301) — ich limity są w pełnej normie / specyfikacji RT / UT.
+List<Iso6520Ref> iso5817UncoveredRefs(WeldDefect defect) {
+  final covered = {
+    for (final l in iso5817LinksForDefect(defect)) ...l.refs.map((r) => r.code)
+  };
+  return [
+    for (final r in defect.refs)
+      if (!covered.contains(r.code)) r
+  ];
+}
+
+/// Uwaga o zakresie pozycji ISO 5817 w aplikacji (ekran i udostępnianie).
+String iso5817ScopeNote({required bool en}) => en
+    ? 'The app holds only the items for visual testing (VT); limits for '
+        'internal imperfections — the full standard / RT / UT specification.'
+    : 'Aplikacja zawiera tylko pozycje do odbioru wizualnego (VT); limity '
+        'niezgodności wewnętrznych — pełna norma / specyfikacja RT / UT.';
 
 /// Wada po identyfikatorze (null, gdy nie ma).
 WeldDefect? weldDefectById(String id) {
@@ -249,6 +352,14 @@ String buildDefectShareText(
     }
     b.writeln('${en ? 'Cut out' : 'Do wycięcia'}: ${d.cutOut.of(en: en)}');
   }
+  if (d.safety.isNotEmpty) {
+    b
+      ..writeln()
+      ..writeln(en ? 'Safety:' : 'BHP:');
+    for (final s in d.safety) {
+      b.writeln('- ${s.of(en: en)}');
+    }
+  }
   if (a.checklist.isNotEmpty) {
     b
       ..writeln()
@@ -257,12 +368,17 @@ String buildDefectShareText(
       b.writeln('[${checked.contains(s.id) ? 'x' : ' '}] ${s.text.of(en: en)}');
     }
   }
-  if (a.iso5817.isNotEmpty) {
-    b
-      ..writeln()
-      ..writeln('${en ? 'Limits' : 'Limity'}: EN ISO 5817, '
-          '${en ? 'Table 1 item' : 'tablica 1 poz.'} '
-          '${a.iso5817.map((i) => i.no).join(', ')}');
+  b.writeln();
+  if (a.iso5817Links.isNotEmpty) {
+    b.writeln('${en ? 'Limits' : 'Limity'}: EN ISO 5817, '
+        '${en ? 'Table 1 item' : 'tablica 1 poz.'} '
+        '${a.iso5817Links.map((l) => l.label).join(', ')}');
+  }
+  if (a.iso5817Uncovered.isNotEmpty) {
+    final codes = a.iso5817Uncovered.map((r) => r.code).join(', ');
+    b.writeln(a.iso5817Links.isEmpty
+        ? '${en ? 'Limits' : 'Limity'}: ${iso5817ScopeNote(en: en)}'
+        : '$codes: ${iso5817ScopeNote(en: en)}');
   }
   b
     ..writeln()

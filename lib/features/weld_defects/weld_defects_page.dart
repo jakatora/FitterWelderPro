@@ -156,11 +156,136 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
     }
   }
 
-  void _openIso5817() {
+  /// Otwiera odbiór ISO 5817 na pozycji wady; przy kilku pozycjach (np.
+  /// podtopienie 1.7 i 1.8) najpierw wybór.
+  Future<void> _openIso5817(DefectAdvice advice) async {
     Haptic.tap();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const Iso5817Page()),
+    final links = advice.iso5817Links;
+    if (links.isEmpty) return;
+    String? id = links.first.item.id;
+    if (links.length > 1) {
+      id = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (ctx) {
+          final en = ctx.language == AppLanguage.en;
+          return SafeArea(
+            child: SingleChildScrollView(
+              key: const ValueKey('defects-iso5817-sheet'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      ctx.tr(
+                          pl: 'Którą pozycję EN ISO 5817 sprawdzić?',
+                          en: 'Which EN ISO 5817 item to check?'),
+                      style: const TextStyle(
+                          color: kText,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  for (final l in links)
+                    ListTile(
+                      key: ValueKey('defects-iso5817-pick-${l.item.id}'),
+                      minTileHeight: kMinTapTarget + 8,
+                      title: Text(
+                        '${l.item.no} · '
+                        '${en ? l.item.nameEn : l.item.namePl}',
+                        style: const TextStyle(
+                            color: kText, fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'ISO 6520-1: '
+                        '${l.refs.map((r) => r.code).join(', ')}',
+                        style: const TextStyle(color: kTextMut, fontSize: 12),
+                      ),
+                      trailing:
+                          const Icon(Icons.chevron_right, color: kTextSec),
+                      onTap: () => Navigator.of(ctx).pop(l.item.id),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
+    if (id == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+          builder: (_) => Iso5817Page(initialItemId: id)),
     );
+  }
+
+  List<Widget> _iso5817Section(
+      BuildContext context, DefectAdvice advice, bool en) {
+    const muted = TextStyle(color: kTextMut, fontSize: 12, height: 1.4);
+    final links = advice.iso5817Links;
+    final uncovered = advice.iso5817Uncovered;
+    if (links.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            '${context.tr(
+              pl: 'Ta wada nie ma pozycji EN ISO 5817 w aplikacji.',
+              en: 'This defect has no EN ISO 5817 item in the app.',
+            )} ${iso5817ScopeNote(en: en)}',
+            key: const ValueKey('defects-iso5817-none'),
+            style: muted,
+          ),
+        ),
+      ];
+    }
+    final labels = links.map((l) => l.label).join(', ');
+    return [
+      OutlinedButton.icon(
+        key: const ValueKey('defects-iso5817'),
+        onPressed: () => _openIso5817(advice),
+        icon: const Icon(Icons.fact_check_outlined),
+        label: Text(context.tr(
+          pl: 'Zobacz limit wg ISO 5817',
+          en: 'See the ISO 5817 limit',
+        )),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        context.tr(
+          pl: 'EN ISO 5817, tablica 1 — poz. $labels',
+          en: 'EN ISO 5817, Table 1 — item $labels',
+        ),
+        key: const ValueKey('defects-iso5817-items'),
+        style: muted,
+      ),
+      if (uncovered.isNotEmpty) ...[
+        const SizedBox(height: 4),
+        for (final l in links)
+          Text(
+            context.tr(
+              pl: 'Poz. ${l.item.no} dotyczy tylko: '
+                  '${l.refs.map((r) => '${r.code} ${r.pl}').join('; ')}.',
+              en: 'Item ${l.item.no} covers only: '
+                  '${l.refs.map((r) => '${r.code} ${r.en}').join('; ')}.',
+            ),
+            key: ValueKey('defects-iso5817-covers-${l.item.id}'),
+            style: muted,
+          ),
+        Text(
+          '${context.tr(pl: 'Bez pozycji w aplikacji', en: 'No item in the app')}'
+          ': ${uncovered.map((r) => r.code).join(', ')}. '
+          '${iso5817ScopeNote(en: en)}',
+          key: const ValueKey('defects-iso5817-uncovered'),
+          style: muted,
+        ),
+      ],
+      const SizedBox(height: 10),
+    ];
   }
 
   @override
@@ -279,44 +404,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
             const SizedBox(height: 18),
             _SectionTitle(context.tr(pl: 'Powiązania', en: 'Related')),
             const SizedBox(height: 8),
-            if (advice.iso5817.isNotEmpty) ...[
-              OutlinedButton.icon(
-                key: const ValueKey('defects-iso5817'),
-                onPressed: _openIso5817,
-                icon: const Icon(Icons.fact_check_outlined),
-                label: Text(context.tr(
-                  pl: 'Zobacz limit wg ISO 5817',
-                  en: 'See the ISO 5817 limit',
-                )),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                context.tr(
-                  pl: 'EN ISO 5817, tablica 1 — poz. '
-                      '${advice.iso5817.map((i) => i.no).join(', ')}',
-                  en: 'EN ISO 5817, Table 1 — item '
-                      '${advice.iso5817.map((i) => i.no).join(', ')}',
-                ),
-                key: const ValueKey('defects-iso5817-items'),
-                style: const TextStyle(color: kTextMut, fontSize: 12),
-              ),
-              const SizedBox(height: 10),
-            ] else
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text(
-                  context.tr(
-                    pl: 'Tej wady nie ocenia się wizualnie wg EN ISO 5817 '
-                        '(tablica 1 obejmuje niezgodności zewnętrzne) — '
-                        'kryterium podaje specyfikacja badań RT / UT.',
-                    en: 'This defect is not assessed visually per EN ISO 5817 '
-                        '(Table 1 covers surface imperfections) — the '
-                        'criterion comes from the RT / UT specification.',
-                  ),
-                  key: const ValueKey('defects-iso5817-none'),
-                  style: const TextStyle(color: kTextMut, fontSize: 12),
-                ),
-              ),
+            ..._iso5817Section(context, advice, en),
             Text(
               context.tr(
                 pl: 'Naprawę zapisz w Dzienniku spoin przy konkretnej spoinie '

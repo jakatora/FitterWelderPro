@@ -200,6 +200,51 @@ void main() {
     expect(tester.widget<TextField>(measured).controller!.text, isEmpty);
   });
 
+  testWidgets(
+      'initialItemId: start na wybranej pozycji i rodzaju spoiny; null i '
+      'nieznany — jak dotąd', (tester) async {
+    _phone(tester);
+    Finder item(String kind, String id) =>
+        find.byKey(ValueKey('iso5817-item-$kind-$id'));
+
+    // Bez parametru: 1.7, spoina czołowa (zachowanie bez zmian).
+    await tester.pumpWidget(_app(const Iso5817Page()));
+    await tester.pumpAndSettle();
+    await _reveal(tester, item('butt', '1.7'));
+    expect(item('butt', '1.7'), findsOneWidget);
+
+    // Pozycja tylko dla spoin czołowych.
+    await tester.pumpWidget(_app(const Iso5817Page(
+        key: ValueKey('p-1.14'), initialItemId: '1.14')));
+    await tester.pumpAndSettle();
+    await _reveal(tester, item('butt', '1.14'));
+    expect(item('butt', '1.14'), findsOneWidget);
+    await _reveal(tester, find.byKey(const ValueKey('iso5817-broot')));
+    expect(find.byKey(const ValueKey('iso5817-broot')), findsOneWidget);
+    await _enter(tester, 'iso5817-t', '10');
+    await _enter(tester, 'iso5817-measured', '0,5');
+    // 1.14 poziom C dla t > 3: h ≤ 0,1·t, maks. 1 mm → 1 mm.
+    expect(await _verdict(tester), 'Mieści się w C (limit 1 mm)');
+
+    // Pozycja tylko dla spoin pachwinowych — rodzaj przełącza się sam.
+    await tester.pumpWidget(_app(const Iso5817Page(
+        key: ValueKey('p-1.12-fillet'), initialItemId: '1.12-fillet')));
+    await tester.pumpAndSettle();
+    await _reveal(tester, item('fillet', '1.12-fillet'));
+    expect(item('fillet', '1.12-fillet'), findsOneWidget);
+    await _reveal(tester, find.byKey(const ValueKey('iso5817-a')));
+    expect(find.byKey(const ValueKey('iso5817-a')), findsOneWidget);
+    await _reveal(tester, find.text('Zmierzony kąt α (°)'));
+    expect(find.text('Zmierzony kąt α (°)'), findsOneWidget);
+
+    // Nieznany identyfikator — start jak bez parametru.
+    await tester.pumpWidget(_app(const Iso5817Page(
+        key: ValueKey('p-x'), initialItemId: 'x.99')));
+    await tester.pumpAndSettle();
+    await _reveal(tester, item('butt', '1.7'));
+    expect(item('butt', '1.7'), findsOneWidget);
+  });
+
   testWidgets('EN i skala tekstu 1,3 renderują się bez błędów',
       (tester) async {
     _phone(tester);

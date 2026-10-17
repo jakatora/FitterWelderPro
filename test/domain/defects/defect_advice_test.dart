@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/data/weld_defects.dart';
 import 'package:cut_list_app/domain/defects/defect_advice.dart';
+import 'package:cut_list_app/domain/iso5817/iso5817_table.dart';
 
 WeldDefect _d(String id) => weldDefectById(id)!;
 
@@ -214,16 +215,61 @@ void main() {
   });
 
   group('ISO 5817', () {
+    List<String> labels(String id) =>
+        [for (final l in iso5817LinksForDefect(_d(id))) l.label];
+    List<String> ids(String id) =>
+        [for (final i in iso5817ItemsForDefect(_d(id))) i.id];
+    List<int> uncovered(String id) =>
+        [for (final r in iso5817UncoveredRefs(_d(id))) r.code];
+
     test('podtopienie → poz. 1.7 i 1.8; wolfram i żużel → brak', () {
-      expect(iso5817ItemsForDefect(_d('undercut')).map((i) => i.no),
-          ['1.7', '1.8']);
+      expect(labels('undercut'), ['1.7 (5011, 5012)', '1.8 (5013)']);
+      expect(uncovered('undercut'), isEmpty);
       expect(iso5817ItemsForDefect(_d('tungsten')), isEmpty);
+      expect(uncovered('tungsten'), [3041]);
       expect(iso5817ItemsForDefect(_d('slag')), isEmpty);
-      expect(iso5817ItemsForDefect(_d('porosity')).map((i) => i.no),
-          contains('1.3'));
-      expect(iso5817ItemsForDefect(_d('sagging')).map((i) => i.no), ['1.14']);
-      expect(iso5817ItemsForDefect(_d('misalignment')).map((i) => i.no),
-          ['3.1']);
+      expect(uncovered('slag'), [301, 302]);
+      expect(ids('sagging'), ['1.14']);
+      // 3.1 blachy i rury — dwa warianty, oba zostają.
+      expect(ids('misalignment'), ['3.1-5071', '3.1-5072']);
+      expect(labels('misalignment'), ['3.1 (507, 5071)', '3.1 (507, 5072)']);
+    });
+
+    test('porowatość: poz. 1.3 tylko dla porów powierzchniowych (2017)', () {
+      expect(ids('porosity'), ['1.3-butt']);
+      expect(labels('porosity'), ['1.3 (2017)']);
+      expect(uncovered('porosity'), [2011, 2012, 2013, 2014, 2016]);
+    });
+
+    test('podgrupy: 101 / 102 → 1.1; 104 tylko 1.2; 4011–4013 → 1.5', () {
+      expect(labels('crack_cold'), ['1.1 (100, 101, 102)']);
+      expect(labels('crack_crater'), ['1.2 (104)']);
+      expect(labels('lack_of_fusion'), ['1.5 (401, 4011, 4012, 4013)']);
+      // 402 nie ma pozycji VT (1.6 to tylko 4021).
+      expect(labels('lack_of_penetration'), ['1.6 (4021)']);
+      expect(uncovered('lack_of_penetration'), [402]);
+    });
+
+    test('bliźniacze pozycje: pachwina → wariant pachwinowy, nadlew → '
+        'czołowy', () {
+      expect(ids('fillet_shape'), ['1.10', '1.12-fillet', '1.16', '1.20', '1.21']);
+      expect(ids('excess_weld_metal'), ['1.9', '1.12-butt']);
+    });
+
+    test('każde id z linków otwiera się w Iso5817Page (istnieje w tabeli)',
+        () {
+      for (final d in kWeldDefects) {
+        for (final l in iso5817LinksForDefect(d)) {
+          expect(iso5817ItemById(l.item.id), isNotNull, reason: d.id);
+          expect(l.refs, isNotEmpty);
+        }
+        // Każdy numer wady jest albo w pozycji, albo na liście bez pozycji.
+        final inLinks = {
+          for (final l in iso5817LinksForDefect(d)) ...l.refs.map((r) => r.code)
+        };
+        expect({...inLinks, ...uncovered(d.id)}, d.codes.toSet(),
+            reason: d.id);
+      }
     });
   });
 
@@ -243,8 +289,40 @@ void main() {
       expect(t, contains('   Sprawdź: ${a.causes.first.check.pl}'));
       expect(t, contains('[x] ${first.text.pl}'));
       expect(t, contains('Do wycięcia: '));
-      expect(t, contains('Limity: EN ISO 5817, tablica 1 poz. 1.7, 1.8'));
+      expect(t,
+          contains('Limity: EN ISO 5817, tablica 1 poz. 1.7 (5011, 5012), '
+              '1.8 (5013)'));
       expect(t, endsWith(defectDisclaimer(en: false)));
+    });
+
+    test('BHP w tekście do udostępnienia (PL i EN)', () {
+      final a = defectAdvice(_d('crack_cold'), DefectProcess.mma111)!;
+      final pl = buildDefectShareText(a, en: false);
+      final en = buildDefectShareText(a, en: true);
+      expect(a.defect.safety, isNotEmpty);
+      expect(pl, contains('\nBHP:\n'));
+      expect(en, contains('\nSafety:\n'));
+      for (final s in a.defect.safety) {
+        expect(pl, contains('- ${s.pl}'));
+        expect(en, contains('- ${s.en}'));
+      }
+    });
+
+    test('limity: porowatość — tylko VT dla 2017; wolfram — brak pozycji', () {
+      final p = buildDefectShareText(
+          defectAdvice(_d('porosity'), DefectProcess.mag135)!,
+          en: false);
+      expect(p, contains('Limity: EN ISO 5817, tablica 1 poz. 1.3 (2017)'));
+      expect(p,
+          contains('2011, 2012, 2013, 2014, 2016: Aplikacja zawiera tylko '
+              'pozycje do odbioru wizualnego (VT)'));
+      final w = buildDefectShareText(
+          defectAdvice(_d('tungsten'), DefectProcess.tig141)!,
+          en: false);
+      expect(w, contains('Limity: Aplikacja zawiera tylko pozycje do odbioru '
+          'wizualnego (VT); limity niezgodności wewnętrznych — pełna norma / '
+          'specyfikacja RT / UT.'));
+      expect(w, isNot(contains('tablica 1 poz.')));
     });
 
     test('EN: bez polskich nagłówków', () {

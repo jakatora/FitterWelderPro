@@ -32,7 +32,12 @@ class Iso5817Page extends StatefulWidget {
   /// Data w protokole (domyślnie dziś).
   final DateTime Function()? clock;
 
-  const Iso5817Page({super.key, this.onShare, this.clock});
+  /// Pozycja tablicy 1 do sprawdzenia na starcie ([Iso5817Item.id], np.
+  /// „1.7” albo „1.12-fillet”) — rodzaj spoiny ustawia się wg pozycji.
+  /// `null` albo nieznany identyfikator — start jak dotąd (1.7, czołowa).
+  final String? initialItemId;
+
+  const Iso5817Page({super.key, this.onShare, this.clock, this.initialItemId});
 
   @override
   State<Iso5817Page> createState() => _Iso5817PageState();
@@ -54,6 +59,14 @@ class _Iso5817PageState extends State<Iso5817Page> {
   @override
   void initState() {
     super.initState();
+    final id = widget.initialItemId;
+    final initial = id == null ? null : iso5817ItemById(id);
+    if (initial != null) {
+      _itemId = initial.id;
+      _kind = initial.appliesTo(Iso5817WeldKind.butt)
+          ? Iso5817WeldKind.butt
+          : Iso5817WeldKind.fillet;
+    }
     for (final c in _controllers) {
       c.addListener(_recalc);
     }
