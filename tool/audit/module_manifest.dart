@@ -117,15 +117,18 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.medium,
       status: AuditStatus.passed,
       scenario:
-          'Lej D 600 / d 200 zewn., t 4, H 400: Dm 596 / dm 196, R 666,3, r 219,1, θ 161°, blacha 1314,4 × 630,2 mm; H 300 → R 537,2; 2 części → θ 80,5°, 861,1 × 499,1 mm; d ≥ D, puste H, t ≥ d/2 — komunikat bez wyniku; stożek mimośrodowy z tworzącą pionową: e 200, tworzące 400 / 565,7; kwadrat–koło 600×400/Ø300/H400: szew M3–9 427,2, krawędzie 1984 / 929,9 mm; R ≈ 19,9 m → tabela rzędnych, PDF zablokowany; szablon 1:1 w kaflach A4/A3.',
+          'Lej D 600 / d 200 zewn., t 4, H 400: Dm 595,5 / dm 195,5 (D − t/cos α), R 665,8, r 218,6, θ 161°, blacha 1313,4 × 629,7 mm; H 300 → R 536,5; 2 części → θ 80,5°, 860,4 × 499 mm; arkusz 320 × 460 → zalecane 6 części (tylko z dostępnych chipów); d ≥ D, puste H, t ≥ d/2 — komunikat bez wyniku; stożek mimośrodowy z tworzącą pionową: e 200, tworzące 400 / 565,7; kwadrat–koło 600×400/Ø300/H400: szew M3–9 427,2, krawędzie 1984 / 929,9 mm, pochylenie ścianek 27,7°, przy H 300 (35,0°) ostrzeżenie 0,44 mm na stronę; R ≈ 19,9 m → tabela rzędnych, PDF zablokowany; szablon 1:1 w kaflach A4/A3.',
       evidence: [
-        'test/domain/fitter/cone_development_test.dart: D 1000 / d 400 zewn., t 6, H 600 → R 1111,33, r 440,51, θ 161,00°',
+        'test/domain/fitter/cone_development_test.dart: D 1000 / d 400 zewn., t 6, H 600 → R 1110,53, r 439,71, θ 161,00°',
         'test/domain/fitter/cone_development_test.dart: niezmienniki: łuki = obwody średnie, R − r = tworząca = √(H² + Δr²)',
         'test/domain/fitter/cone_development_test.dart: e = 0 daje to samo co wzór analityczny',
         'test/domain/fitter/transition_development_test.dart: niezmienniki: krawędź prostokąta = 2(A + B), krawędź kołowa = π·D',
-        'test/features/cone_layout/cone_layout_page_test.dart: lej D 600 / d 200 zewn., t 4, H 400 → R 666,3; H 300 → 537,2',
+        'test/features/cone_layout/cone_layout_page_test.dart: lej D 600 / d 200 zewn., t 4, H 400 → R 665,8; H 300 → 536,5',
         'test/features/cone_layout/cone_layout_page_test.dart: błędne wejście → komunikat, bez wyniku i bez PDF',
         'test/features/cone_layout/cone_layout_page_test.dart: udostępnianie tekstu i PDF przez wstrzyknięte funkcje',
+        'test/domain/fitter/cone_development_test.dart: oś obojętna t/cos α = przesunięcie geometryczne o t/2 wzdłuż normalnej',
+        'test/domain/fitter/cone_development_test.dart: d → D (R ≈ 10¹⁰ mm): strzałka, rzędne, przekątna i prostokąt stabilne',
+        'test/features/cone_layout/cone_layout_page_test.dart: zalecany podział tylko z dostępnych chipów (6, nie 5)',
       ]),
   ModuleAuditEntry(
       id: 'cooling-time',
