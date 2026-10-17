@@ -897,7 +897,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          '15 °C, RH 50 %, wiatr 1 m/s, MMA: punkt rosy 4,7 °C, „Można spawać”; MAG przy 5 m/s bez osłony → „Nie spawać”, z parawanem → warunek „wiatr przy spoinie ≤ 2,2 m/s”; deszcz bez namiotu → „Nie spawać”, w namiocie → 2 warunki do odhaczenia; -5 °C, RH 80 %: rosa -7,9 °C, szron -7,0 °C, stal węglowa do ≥ 21 °C (nierdzewna ≥ 10 °C); brak temperatury powierzchni → widoczne założenie; próg wiatru gazu 5 m/s w ustawieniach → MAG przy 4 m/s „Można spawać”, przywrócenie domyślnych → „Nie spawać”; zapis do historii (weather_checks_v1) z miejscem, godziną i odhaczeniem; tekst i PDF.',
+          '15 °C, RH 50 %, wiatr 1 m/s, MMA, złącze suche: punkt rosy 4,7 °C, „Można spawać”; stan złącza „nie sprawdzono” → warunek „złącze suche, bez lodu i śniegu”, mokre bez namiotu → „Nie spawać”; MAG przy 5 m/s bez osłony → „Nie spawać”, z parawanem → warunek „wiatr przy spoinie ≤ 2,2 m/s”; MAG przy 8 km/h → „Nie spawać” także po przełączeniu na m/s (2,23); deszcz bez namiotu → „Nie spawać”, w namiocie → 2 warunki do odhaczenia; -5 °C, RH 80 %: rosa -7,9 °C, szron -7,0 °C, stal węglowa do ≥ 21 °C (nierdzewna ≥ 10 °C); brak temperatury powierzchni → widoczne założenie; próg wiatru gazu 5 m/s w ustawieniach → MAG przy 4 m/s „Można spawać” z twardym ostrzeżeniem „progi łagodniejsze niż normy”, przywrócenie domyślnych → „Nie spawać”; zapis do historii (weather_checks_v1) z miejscem, godziną, odhaczeniem i wersją reguł, uszkodzony zapis kopiowany do weather_checks_v1_corrupt; tekst i PDF.',
       evidence: [
         'test/features/weather_check/weather_check_page_test.dart: wpisanie wartości zmienia werdykt',
         'test/features/weather_check/weather_check_page_test.dart: brak temperatury powierzchni → założenie widoczne',
@@ -911,6 +911,11 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/domain/welding/weather_conditions_test.dart: werdykt: opad bez namiotu → nie spawać; parawan nie pomaga; namiot → warunki',
         'test/domain/welding/weather_conditions_test.dart: werdykt: mróz: -18 °C (0 °F) jeszcze nie blokuje, -18,1 °C bez namiotu tak',
         'test/domain/welding/weather_conditions_test.dart: JSON: uszkodzone pojedyncze wpisy są pomijane, reszta zostaje',
+        'test/features/weather_check/weather_check_page_test.dart: W1: 8 km/h MAG → STOP, przełączenie na m/s nie zmienia werdyktu',
+        'test/features/weather_check/weather_check_page_test.dart: W2: stan złącza — nie sprawdzono → warunek, mokre → STOP',
+        'test/features/weather_check/weather_check_page_test.dart: W4: uszkodzona historia — komunikat, kopia przed nadpisaniem',
+        'test/features/weather_check/weather_check_page_test.dart: W6: walidacja krzyżowa progów i ostrzeżenie o łagodnych progach',
+        'test/domain/welding/weather_conditions_test.dart: -17,85 °C przy progu -17,8 °C: tekst nie odwraca relacji',
       ]),
   ModuleAuditEntry(
       id: 'welder-identity-setup',
