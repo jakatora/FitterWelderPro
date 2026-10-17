@@ -15,6 +15,7 @@ import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
+import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weather_check/weather_check_page.dart';
 import '../features/instruments/instrument_register_page.dart';
 import '../features/iso5817/iso5817_page.dart';
@@ -461,6 +462,50 @@ final List<ToolSpec> kToolRegistry = [
       'lobster back',
       'segmented elbow',
       'gored elbow'
+    ],
+  ),
+  ToolSpec(
+    id: 'tube_bending',
+    group: ToolGroup.elbowsFittings,
+    titlePl: 'Gięcie rurek',
+    titleEn: 'Tube bending',
+    subtitlePl: 'Giętarka ręczna: długość cięcia i znaczniki gięć',
+    subtitleEn: 'Hand bender: cut length and bend marks',
+    icon: Icons.u_turn_left,
+    color: const Color(0xFF4DD0E1),
+    builder: (_) => const TubeBendingPage(),
+    keywordsPl: const [
+      'giecie',
+      'giecie rurek',
+      'gietarka',
+      'rurka',
+      'rurki',
+      'znacznik',
+      'znaczniki',
+      'clr',
+      'promien giecia',
+      'zysk',
+      'gain',
+      'setback',
+      'odsadzka rurki',
+      'nierdzewka',
+      'aparatura',
+      'impulsowa',
+      'swagelok',
+      'hydraulika'
+    ],
+    keywordsEn: const [
+      'tube bending',
+      'tube bender',
+      'hand bender',
+      'bend marks',
+      'gain',
+      'setback',
+      'centreline radius',
+      'clr',
+      'instrument tubing',
+      'swagelok',
+      'springback'
     ],
   ),
   ToolSpec(

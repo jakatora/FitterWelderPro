@@ -91,6 +91,7 @@ import 'package:cut_list_app/features/glossary/glossary_page.dart';
 import 'package:cut_list_app/features/hardness/hardness_page.dart';
 import 'package:cut_list_app/features/ndt_plan/ndt_plan_page.dart';
 import 'package:cut_list_app/features/piecework/piecework_page.dart';
+import 'package:cut_list_app/features/tube_bending/tube_bending_page.dart';
 import 'package:cut_list_app/features/weather_check/weather_check_page.dart';
 import 'package:cut_list_app/domain/hot_work/hot_work_permit.dart';
 import 'package:cut_list_app/features/hot_work/hot_work_edit_page.dart';
@@ -250,6 +251,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'PieceworkPage' => const PieceworkPage(),
       'BoltKitPage' => const BoltKitPage(),
       'NdtPlanPage' => const NdtPlanPage(),
+      'TubeBendingPage' => const TubeBendingPage(),
       'HotWorkEditPage' => HotWorkEditPage(
           initial: HotWorkPermit.blank(
               id: 'smoke-hot-work', now: DateTime(2026, 10, 17, 7))),

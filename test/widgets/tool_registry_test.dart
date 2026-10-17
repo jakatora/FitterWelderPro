@@ -151,6 +151,8 @@ void main() {
         'BoltKitPage',
         // Plan badań NDT z dziennika spoin.
         'NdtPlanPage',
+        // Gięcie rurek: długość cięcia i znaczniki.
+        'TubeBendingPage',
       };
       expect(targets, expected);
     });

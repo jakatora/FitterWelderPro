@@ -25,6 +25,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Śruby do kołnierzy: długość i komplet | Monter → Podpory i kołnierze | długość szpilek wg ASME B16.5 (RF/RTJ, przy rozbieżnych źródłach dłuższa z notatką) albo z wymiarów (zawsze w górę do typoszeregu), komplet: szpilki, nakrętki, uszczelki, zapas, zamówienie PDF |
 | Odbiór połączenia kołnierzowego | Monter → Podpory i kołnierze | osiowość, równoległość, otwory i szczelina wg ASME PCC-1 zał. E, lista montażu, protokół PDF |
 | Warunki do spawania | Spawacz → Kontrola i dokumentacja | mróz, wiatr (AWS D1.1: 8 km/h dla metod gazowych), opad, punkt rosy i szronu; werdykt, warunki do odhaczenia, historia, PDF |
+| Gięcie rurek | Monter → Kolana i kształtki | giętarka ręczna: łuk, setback, gain; jedno gięcie, odsadzka (też przestrzenna), rurka z wieloma gięciami — długość cięcia (zawsze w górę), znaczniki, kolejność, ostrzeżenia o zachodzących łukach; mm/cale |
 | Rozwinięcie stożka i przejść | Monter → Kolana i kształtki | stożek ścięty, mimośrodowy, kwadrat–koło: wymiary do trasowania, podział na części, tabela rzędnych, szablon 1:1 A4/A3 |
 | Słownik spawalniczy | Monter → Tabele i przeliczniki | PL · EN · DE · NL · NO offline: 246 terminów (procesy ISO 4063, niezgodności ISO 6520-1, złącza, pozycje, rury, BHP) + 58 zwrotów na budowę; tryb „pokaż rozmówcy” |
 | Nośność spoiny pachwinowej | Spawacz → Kalkulatory | EN 1993-1-8 (metoda uproszczona i kierunkowa): nośność, wykorzystanie %, wymagane a (w górę), spoina obwodowa rury; szacunek, nie projekt |
