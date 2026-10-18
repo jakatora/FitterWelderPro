@@ -20,6 +20,7 @@ import '../features/ndt_plan/ndt_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
+import '../features/rigging/rigging_page.dart';
 import '../features/shade/shade_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weld_defects/weld_defects_page.dart';
@@ -1895,6 +1896,56 @@ final List<ToolSpec> kToolRegistry = [
       'h2s',
       'carbon monoxide',
       'permit space'
+    ],
+  ),
+  ToolSpec(
+    id: 'rigging',
+    group: ToolGroup.inspection,
+    titlePl: 'Zawiesia i podwieszanie',
+    titleEn: 'Slings and rigging',
+    subtitlePl: 'Pas, łańcuch, lina: nośność, kąt, kolor, lista przed podniesieniem',
+    subtitleEn: 'Webbing, chain, rope: capacity, angle, colour, pre-lift check',
+    icon: Icons.link,
+    color: const Color(0xFFF9A825),
+    builder: (_) => const RiggingPage(),
+    keywordsPl: const [
+      'zawiesie',
+      'zawiesia',
+      'pas transportowy',
+      'pasy transportowe',
+      'zawiesie pasowe',
+      'zawiesie lancuchowe',
+      'zawiesie linowe',
+      'podwieszanie',
+      'podnoszenie',
+      'dzwig',
+      'suwnica',
+      'hak',
+      'wll',
+      'nosnosc',
+      'zadusznik',
+      'koszowe',
+      'ciegna',
+      'kat ciegien',
+      'kolor pasa',
+      'hds'
+    ],
+    keywordsEn: const [
+      'sling',
+      'slings',
+      'rigging',
+      'webbing sling',
+      'roundsling',
+      'chain sling',
+      'wire rope sling',
+      'lifting',
+      'crane',
+      'hoist',
+      'wll',
+      'choke',
+      'basket hitch',
+      'leg angle',
+      'colour code'
     ],
   ),
   ToolSpec(

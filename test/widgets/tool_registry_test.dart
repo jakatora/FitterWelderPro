@@ -169,6 +169,8 @@ void main() {
         'InterpassPage',
         // Przestrzeń zamknięta: wejście i spawanie.
         'ConfinedSpacePage',
+        // Zawiesia i podwieszanie.
+        'RiggingPage',
       };
       expect(targets, expected);
     });

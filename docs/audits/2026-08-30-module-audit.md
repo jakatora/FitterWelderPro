@@ -8,12 +8,12 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 102
+Moduły: 103
 
 | Status | Liczba |
 |---|---:|
 | unverified | 47 |
-| passed | 54 |
+| passed | 55 |
 | simplify | 0 |
 | broken | 0 |
 | domainReview | 1 |
@@ -111,6 +111,7 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 | `quote-list` | QuoteListPage | lib/features/quotes/quote_list_page.dart | project | high | passed | Lista wycen: pusta pokazuje zachętę, nowa wycena dostaje numer WYC/rok/nnn, zapisana wraca jako karta z kwotą i liczbą spoin; kosz z przywracaniem. | test/features/quotes/quote_flow_test.dart: nowa wycena → spoina wpisana ręcznie → zapis i lista<br>test/features/quotes/quote_flow_test.dart: DAO: zapis z sumami, kosz, numeracja, duplikat |
 | `quote-settings` | QuoteSettingsPage | lib/features/quotes/quote_settings_page.dart | project | medium | unverified | Zapis „moich stawek" i danych firmy — nowa wycena startuje z tymi stawkami, zapisane wyceny się nie zmieniają. | test/features/quotes/quote_flow_test.dart: moje stawki: zapis i odczyt, ceny spoiw per materiał |
 | `register` | RegisterScreen | lib/screens/register_screen.dart | account | high | unverified | Użytkownik podaje poprawny e-mail i hasło do rejestracji. | Brak dowodu scenariusza |
+| `rigging` | RiggingPage | lib/features/rigging/rigging_page.dart | fitter | safetyCritical | passed | Monter wpisuje masę spoola (albo liczy ją z rury), rodzaj zawiesia, WLL z etykiety — przy 2 / 3–4 cięgnach mówiąc, czy to WLL cięgna, czy zespołu — sposób zawiązania i kąt; dostaje OK albo STOP (przeciążenie z potrzebnym WLL, kąt ponad 60°, brak etykiety), dokładnie 45° liczone w przedziale niekorzystnym, zawieszka 2,8 t zespołu przy β 30° → 2800 kg, „12,500” kg → brak werdyktu; liczby z poprzedniego razu nie wracają; lista przed podniesieniem — niezaznaczone ≠ OK. | test/domain/rigging/rigging_calc_test.dart: dokładnie 45° → przedział niekorzystny (×1,0 / ×1,5)<br>test/domain/rigging/rigging_calc_test.dart: kąt nieznany albo nieczytelny → brak werdyktu, nie OK<br>test/domain/rigging/rigging_calc_test.dart: ta sama masa w kg i w t daje ten sam werdykt<br>test/domain/rigging/rigging_calc_test.dart: zawieszka 2,8 t zespołu, 2 cięgna β 30° → 2800 kg, nie 3920 kg<br>test/domain/rigging/rigging_calc_test.dart: brak albo nieczytelna etykieta → STOP bez względu na nośność<br>test/features/rigging/rigging_page_test.dart: po ponownym otwarciu WLL, masa i kolor są puste → brak werdyktu<br>test/features/rigging/rigging_page_test.dart: „12,500” w kg → brak werdyktu; masa do obliczeń jednoznacznie<br>test/features/rigging/rigging_page_test.dart: wąski ekran 360×640, tekst ×1,5 — bez overflow |
 | `rolling-offset` | RollingOffsetScreen | lib/screens/rolling_offset_screen.dart | fitter | high | unverified | Dwa przesunięcia osi wyliczają długość rozwinięcia. | Brak dowodu scenariusza |
 | `saddle-cut` | SaddleCutScreen | lib/screens/saddle_cut_screen.dart | fitter | safetyCritical | unverified | Rura odgałęźna 60 mm na kolektorze 114 mm wylicza profil siodła. | Brak dowodu scenariusza |
 | `saddle-template` | SaddleTemplateScreen | lib/screens/saddle_template_screen.dart | fitter | safetyCritical | passed | Szablon siodła 200/100 mm przy 45 stopniach zawiera 73 punkty o skończonych, nieujemnych i symetrycznych głębokościach. | test/audit/fitter_calculations_audit_test.dart: saddle jest symetryczny, skończony i nieujemny |

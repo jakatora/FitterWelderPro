@@ -1054,6 +1054,25 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Użytkownik podaje poprawny e-mail i hasło do rejestracji.'),
   ModuleAuditEntry(
+      id: 'rigging',
+      entryPoint: 'RiggingPage',
+      sourcePath: 'lib/features/rigging/rigging_page.dart',
+      category: AuditCategory.fitter,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Monter wpisuje masę spoola (albo liczy ją z rury), rodzaj zawiesia, WLL z etykiety — przy 2 / 3–4 cięgnach mówiąc, czy to WLL cięgna, czy zespołu — sposób zawiązania i kąt; dostaje OK albo STOP (przeciążenie z potrzebnym WLL, kąt ponad 60°, brak etykiety), dokładnie 45° liczone w przedziale niekorzystnym, zawieszka 2,8 t zespołu przy β 30° → 2800 kg, „12,500” kg → brak werdyktu; liczby z poprzedniego razu nie wracają; lista przed podniesieniem — niezaznaczone ≠ OK.',
+      evidence: [
+        'test/domain/rigging/rigging_calc_test.dart: dokładnie 45° → przedział niekorzystny (×1,0 / ×1,5)',
+        'test/domain/rigging/rigging_calc_test.dart: kąt nieznany albo nieczytelny → brak werdyktu, nie OK',
+        'test/domain/rigging/rigging_calc_test.dart: ta sama masa w kg i w t daje ten sam werdykt',
+        'test/domain/rigging/rigging_calc_test.dart: zawieszka 2,8 t zespołu, 2 cięgna β 30° → 2800 kg, nie 3920 kg',
+        'test/domain/rigging/rigging_calc_test.dart: brak albo nieczytelna etykieta → STOP bez względu na nośność',
+        'test/features/rigging/rigging_page_test.dart: po ponownym otwarciu WLL, masa i kolor są puste → brak werdyktu',
+        'test/features/rigging/rigging_page_test.dart: „12,500” w kg → brak werdyktu; masa do obliczeń jednoznacznie',
+        'test/features/rigging/rigging_page_test.dart: wąski ekran 360×640, tekst ×1,5 — bez overflow',
+      ]),
+  ModuleAuditEntry(
       id: 'rolling-offset',
       entryPoint: 'RollingOffsetScreen',
       sourcePath: 'lib/screens/rolling_offset_screen.dart',
