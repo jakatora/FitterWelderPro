@@ -3,12 +3,17 @@
 ///
 /// Zasada: punkt NIEZAZNACZONY to NIE „ok”. Lista jest kompletna tylko
 /// wtedy, gdy każdy punkt jest zaznaczony albo — tam, gdzie to dozwolone —
-/// oznaczony „nie dotyczy”. Stanu listy NIE zapisujemy: każda zmiana
-/// i stanowisko to nowe sprawdzenie (stare „ptaszki” nie mogą udawać
-/// aktualnych).
+/// oznaczony „nie dotyczy”. „Nie dotyczy” sprzeczne z wyborem na ekranie
+/// ([fumeNaBlock]: powłoka / ocynk / nieznany materiał przy punkcie
+/// o powłokach, maska przylegająca przy punkcie o dopasowaniu, gazy przy
+/// punkcie o gazach) liczy się jako punkt otwarty. Stanu listy NIE
+/// zapisujemy: każda zmiana i stanowisko to nowe sprawdzenie (stare
+/// „ptaszki” nie mogą udawać aktualnych).
 ///
 /// Czysty Dart.
 library;
+
+import 'fume_hazards.dart';
 
 enum FumeCheckGroup {
   extraction('Odciąg u źródła', 'Extraction at source'),
@@ -59,6 +64,15 @@ enum FumeCheckState { open, done, notApplicable }
 
 /// Identyfikator punktu odsyłającego do modułu „Przestrzeń zamknięta”.
 const String kFumeCheckConfinedId = 'room-confined';
+
+/// Punkt o usunięciu powłok.
+const String kFumeCheckCoatingsId = 'mat-coatings';
+
+/// Punkt o gazach (ozon, NOx, CO, opary z powłok).
+const String kFumeCheckGasId = 'room-gases';
+
+/// Punkt o dopasowaniu maski przylegającej.
+const String kFumeCheckFitId = 'rpe-fit';
 
 /// Lista kontrolna — w kolejności wyświetlania.
 const List<FumeCheck> kFumeChecks = [
@@ -130,7 +144,7 @@ const List<FumeCheck> kFumeChecks = [
     source: 'karta charakterystyki (SDS) producenta spoiwa',
   ),
   FumeCheck(
-    'mat-coatings',
+    kFumeCheckCoatingsId,
     FumeCheckGroup.material,
     'Farby, ocynk, oleje, smary i inne powłoki usunięte ze strefy spawania '
         'lub cięcia (zdzieranie też z odciągiem i ŚOI)',
@@ -142,6 +156,21 @@ const List<FumeCheck> kFumeChecks = [
     source: 'praktyka: HSE — welding fume; eliminacja u źródła',
   ),
   // ── Pomieszczenie ─────────────────────────────────────────────────────────
+  FumeCheck(
+    kFumeCheckGasId,
+    FumeCheckGroup.room,
+    'Gazy (ozon, tlenki azotu, CO, opary z powłok) ujęte odciągiem '
+        'i wentylacją ogólną — filtr P3 nie chroni przed gazami',
+    'Gases (ozone, nitrogen oxides, CO, coating vapours) removed by '
+        'extraction and general ventilation — a P3 filter does not protect '
+        'against gases',
+    naAllowed: true,
+    naPl: 'nie dotyczy: przy tym materiale i procesie aplikacja nie '
+        'wskazuje gazów',
+    naEn: 'not applicable: the app lists no gases for this material and '
+        'process',
+    source: 'HSE — welding controls (FFP3/P3 nie chroni przed gazami)',
+  ),
   FumeCheck(
     'room-general',
     FumeCheckGroup.room,
@@ -190,7 +219,7 @@ const List<FumeCheck> kFumeChecks = [
   ),
   // ── ŚOI ───────────────────────────────────────────────────────────────────
   FumeCheck(
-    'rpe-fit',
+    kFumeCheckFitId,
     FumeCheckGroup.rpe,
     'Półmaska / FFP: test dopasowania zrobiony, strefa uszczelnienia gładko '
         'ogolona; z zarostem — tylko przyłbica z nawiewem (TH)',
@@ -221,18 +250,70 @@ List<FumeCheck> fumeChecksIn(FumeCheckGroup g) => [
         if (c.group == g) c
     ];
 
+/// Wybory z ekranu, od których zależy, czy „nie dotyczy” ma sens.
+class FumeCheckContext {
+  const FumeCheckContext({this.material, this.process, this.rpe});
+
+  final FumeMaterial? material;
+  final FumeProcess? process;
+  final FumeRpe? rpe;
+
+  /// Para materiał–proces daje gazy, których filtry P nie zatrzymują.
+  bool get gasHazard =>
+      material != null &&
+      process != null &&
+      fumeHasGasHazard(material!, process!);
+}
+
+/// Dlaczego „nie dotyczy” jest w tym kontekście niedozwolone.
+enum FumeNaBlock {
+  /// Materiał z powłoką, ocynk albo nieznany — nie jest „goły”.
+  coatedMaterial,
+
+  /// Wybrany sprzęt nie jest przyłbicą z nawiewem (FFP / półmaska / brak).
+  notPowered,
+
+  /// Para materiał–proces daje gazy.
+  gasHazard,
+}
+
+/// Blokada „nie dotyczy” dla punktu [c] przy wyborach [ctx]; `null` —
+/// „nie dotyczy” wolno (o ile punkt w ogóle na nie pozwala).
+FumeNaBlock? fumeNaBlock(FumeCheck c, FumeCheckContext ctx) {
+  switch (c.id) {
+    case kFumeCheckCoatingsId:
+      final m = ctx.material;
+      if (m == FumeMaterial.coated ||
+          m == FumeMaterial.galvanised ||
+          m == FumeMaterial.other) {
+        return FumeNaBlock.coatedMaterial;
+      }
+    case kFumeCheckFitId:
+      final r = ctx.rpe;
+      if (r != null && !r.powered) return FumeNaBlock.notPowered;
+    case kFumeCheckGasId:
+      if (ctx.gasHazard) return FumeNaBlock.gasHazard;
+  }
+  return null;
+}
+
 /// Stan punktu — brak wpisu to „otwarty”; „nie dotyczy” tam, gdzie nie
-/// wolno, też liczy się jako otwarty.
-FumeCheckState fumeCheckState(FumeCheck c, Map<String, FumeCheckState> states) {
+/// wolno albo gdzie przeczy wyborom ([fumeNaBlock]), też liczy się jako
+/// otwarty.
+FumeCheckState fumeCheckState(FumeCheck c, Map<String, FumeCheckState> states,
+    [FumeCheckContext ctx = const FumeCheckContext()]) {
   final s = states[c.id] ?? FumeCheckState.open;
-  if (s == FumeCheckState.notApplicable && !c.naAllowed) {
+  if (s == FumeCheckState.notApplicable &&
+      (!c.naAllowed || fumeNaBlock(c, ctx) != null)) {
     return FumeCheckState.open;
   }
   return s;
 }
 
 /// Punkty jeszcze otwarte (niezaznaczone ≠ ok).
-List<FumeCheck> fumeOpenChecks(Map<String, FumeCheckState> states) => [
+List<FumeCheck> fumeOpenChecks(Map<String, FumeCheckState> states,
+        [FumeCheckContext ctx = const FumeCheckContext()]) =>
+    [
       for (final c in kFumeChecks)
-        if (fumeCheckState(c, states) == FumeCheckState.open) c
+        if (fumeCheckState(c, states, ctx) == FumeCheckState.open) c
     ];

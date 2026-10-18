@@ -28,6 +28,7 @@ class FumeInputs {
     this.process,
     this.lev,
     this.rpe,
+    this.longWear,
     this.flow,
     this.flowUnit = FumeFlowUnit.m3h,
     this.shape = FumeHoodShape.round,
@@ -44,6 +45,9 @@ class FumeInputs {
   final FumeProcess? process;
   final FumeLevStatus? lev;
   final FumeRpe? rpe;
+
+  /// Maska noszona bez przerwy dłużej niż godzinę (null — brak odpowiedzi).
+  final bool? longWear;
   final double? flow;
   final FumeFlowUnit flowUnit;
   final FumeHoodShape shape;
@@ -60,6 +64,7 @@ class FumeInputs {
         if (process != null) 'process': process!.name,
         if (lev != null) 'lev': lev!.name,
         if (rpe != null) 'rpe': rpe!.name,
+        if (longWear != null) 'longWear': longWear,
         if (flow != null) 'flow': flow,
         'flowUnit': flowUnit.name,
         'shape': shape.name,
@@ -149,6 +154,16 @@ FumeDecoded decodeFumeInputs(String? raw) {
   final height = len('height', kFumeMaxOpeningM);
   final distance = len('distance', kFumeMaxDistanceM);
 
+  bool? longWear;
+  if (data.containsKey('longWear') && data['longWear'] != null) {
+    final w = data['longWear'];
+    if (w is bool) {
+      longWear = w;
+    } else {
+      corrupt = true;
+    }
+  }
+
   var flanged = false;
   if (data.containsKey('flanged')) {
     final f = data['flanged'];
@@ -179,6 +194,7 @@ FumeDecoded decodeFumeInputs(String? raw) {
       process: process,
       lev: lev,
       rpe: rpe,
+      longWear: longWear,
       flow: flow,
       flowUnit: flowUnit,
       shape: shape,

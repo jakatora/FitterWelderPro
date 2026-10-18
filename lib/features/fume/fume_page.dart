@@ -29,14 +29,17 @@ import '../quotes/quote_widgets.dart';
 import 'fume_input_store.dart';
 
 class FumePage extends StatefulWidget {
-  const FumePage({super.key});
+  const FumePage({super.key, this.store = const FumeInputStore()});
+
+  /// Magazyn ostatnich wejść — wstrzykiwany w testach.
+  final FumeInputStore store;
 
   @override
   State<FumePage> createState() => _FumePageState();
 }
 
 class _FumePageState extends State<FumePage> {
-  final _store = const FumeInputStore();
+  FumeInputStore get _store => widget.store;
 
   final _flow = TextEditingController();
   final _diameter = TextEditingController();
@@ -49,6 +52,9 @@ class _FumePageState extends State<FumePage> {
   FumeProcess? _process;
   FumeLevStatus? _lev;
   FumeRpe? _rpe;
+
+  /// Maska noszona bez przerwy dłużej niż godzinę (null — brak odpowiedzi).
+  bool? _longWear;
   FumeFlowUnit _flowUnit = FumeFlowUnit.m3h;
   FumeLengthUnit _lengthUnit = FumeLengthUnit.mm;
   FumeHoodShape _shape = FumeHoodShape.round;
@@ -60,6 +66,10 @@ class _FumePageState extends State<FumePage> {
 
   /// Spawacz zaczął wpisywać przed końcem odczytu — nie nadpisujemy.
   bool _touched = false;
+
+  /// Odczyt zapisu zakończony. Wcześniej NIE zapisujemy — zapis domyślnych
+  /// (pustych) wartości nadpisałby dane, które jeszcze się czytają.
+  bool _loaded = false;
 
   /// Prędkość podniesiona do minimum po zmianie procesu.
   bool _velocityRaised = false;
@@ -84,7 +94,12 @@ class _FumePageState extends State<FumePage> {
   // ── Zapis ──────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
-    final d = await _store.load();
+    final FumeDecoded d;
+    try {
+      d = await _store.load();
+    } finally {
+      _loaded = true;
+    }
     if (!mounted || _touched) return;
     final i = d.inputs;
     setState(() {
@@ -92,6 +107,7 @@ class _FumePageState extends State<FumePage> {
       _process = i.process;
       _lev = i.lev;
       _rpe = i.rpe;
+      _longWear = i.longWear;
       _flowUnit = i.flowUnit;
       _lengthUnit = i.lengthUnit;
       _shape = i.shape;
@@ -120,6 +136,7 @@ class _FumePageState extends State<FumePage> {
       process: _process,
       lev: _lev,
       rpe: _rpe,
+      longWear: _longWear,
       flow: _savable(_flow),
       flowUnit: _flowUnit,
       shape: _shape,
@@ -138,11 +155,11 @@ class _FumePageState extends State<FumePage> {
     );
   }
 
-  /// Każda zmiana wejścia: przerysuj i zapisz.
+  /// Każda zmiana wejścia: przerysuj i zapisz — ale dopiero po odczycie.
   void _changed(VoidCallback f) {
     _touched = true;
     setState(f);
-    unawaited(_store.save(_currentInputs));
+    if (_loaded) unawaited(_store.save(_currentInputs));
   }
 
   // ── Pola ───────────────────────────────────────────────────────────────
@@ -229,6 +246,7 @@ class _FumePageState extends State<FumePage> {
       capture: capture,
       rpe: _rpe,
       checks: _checks,
+      longWear: _longWear,
     );
 
     return Scaffold(
@@ -729,14 +747,15 @@ class _FumePageState extends State<FumePage> {
       _field(
         _distance,
         context.tr(
-            pl: 'Odległość ssawka–łuk X (opcjonalnie)',
-            en: 'Hood-to-arc distance X (optional)'),
+            pl: 'Odległość ssawki od łuku X — teraz, na stanowisku',
+            en: 'Hood-to-arc distance X — now, at the workplace'),
         key: const ValueKey('fume-distance'),
         unit: lu,
         helper: context.tr(
-            pl: 'Podaj, jeśli chcesz wiedzieć, jakiej wydajności trzeba na '
-                'tę odległość.',
-            en: 'Enter it to see what airflow that distance needs.'),
+            pl: 'Zmierz, jak daleko ssawka stoi od łuku. Bez tego nie ma '
+                'oceny — sam zasięg to tylko informacja.',
+            en: 'Measure how far the hood is from the arc. Without it there '
+                'is no verdict — the reach alone is just information.'),
         error: distanceError,
       ),
       const SizedBox(height: 12),
@@ -748,10 +767,10 @@ class _FumePageState extends State<FumePage> {
           color: kTextSec,
           icon: Icons.edit_outlined,
           text: context.tr(
-              pl: 'Podaj wymiar otworu, prędkość i wydajność (albo '
-                  'odległość) — wtedy policzę zasięg.',
-              en: 'Enter the opening size, velocity and airflow (or the '
-                  'distance) to get the reach.'),
+              pl: 'Podaj wymiar otworu, prędkość, wydajność i odległość '
+                  'ssawki od łuku — wtedy ocenię odciąg.',
+              en: 'Enter the opening size, velocity, airflow and the '
+                  'hood-to-arc distance to check the extraction.'),
         ),
       ));
       return out;
@@ -763,6 +782,28 @@ class _FumePageState extends State<FumePage> {
   List<Widget> _captureResult(FumeCaptureResult r) {
     final out = <Widget>[];
     final limitCm = r.validityLimitCm;
+    final dp = r.distanceProblem;
+    if (dp != null) {
+      final far = dp == FumeCaptureProblem.distanceTooFar;
+      out.add(KeyedSubtree(
+        key: const ValueKey('fume-distance-problem'),
+        child: QuoteNotice(
+          color: far ? kFail : kWarn,
+          icon: far ? Icons.block : Icons.edit_outlined,
+          text: far
+              ? context.tr(
+                  pl: 'Ssawka tak daleko od łuku nie łapie dymu — przysuń ją. '
+                      'Ocena: STOP.',
+                  en: 'A hood that far from the arc does not catch the fume '
+                      '— move it closer. Verdict: STOP.')
+              : context.tr(
+                  pl: 'Odległość nieczytelna — popraw pole X. Bez niej odciąg '
+                      'nie jest sprawdzony.',
+                  en: 'The distance cannot be read — fix field X. Without it '
+                      'the extraction is not checked.'),
+        ),
+      ));
+    }
     if (r.isSlot) {
       out.add(KeyedSubtree(
         key: const ValueKey('fume-slot'),
@@ -832,8 +873,8 @@ class _FumePageState extends State<FumePage> {
           out.add(KeyedSubtree(
             key: const ValueKey('fume-capture-howto'),
             child: QuoteNotice(
-              color: kPass,
-              icon: Icons.check_circle_outline,
+              color: kTextSec,
+              icon: Icons.info_outline,
               text: context.tr(
                   pl: 'Trzymaj ssawkę nie dalej niż ${r.safeReachCm} cm od '
                       'łuku i przesuwaj ją razem z pracą — dalej dym ucieka '
@@ -854,6 +895,22 @@ class _FumePageState extends State<FumePage> {
                       'no further than one hood diameter from the weld — '
                       'here about $oneD cm.'),
               key: const ValueKey('fume-hse-one-d')));
+        }
+        if (r.distanceMissing) {
+          out.add(KeyedSubtree(
+            key: const ValueKey('fume-distance-needed'),
+            child: QuoteNotice(
+              color: kWarn,
+              icon: Icons.straighten,
+              text: context.tr(
+                  pl: 'Podaj odległość ssawki od łuku (pole X) — sam zasięg '
+                      'nie mówi, czy ssawka stoi dość blisko. Do tego czasu '
+                      'odciąg liczy się jako niesprawdzony.',
+                  en: 'Enter the hood-to-arc distance (field X) — the reach '
+                      'alone does not say whether the hood is close enough. '
+                      'Until then the extraction counts as unchecked.'),
+            ),
+          ));
         }
       }
     }
@@ -1063,14 +1120,56 @@ class _FumePageState extends State<FumePage> {
           key: const ValueKey('fume-low-rpe-note'),
           color: kWarn));
     }
-    if (_rpe == FumeRpe.p3) {
-      children.add(_caption(
-          context.tr(
-              pl: 'HSE: FFP3 / półmaska P3 — do ok. godziny pracy; dłużej '
-                  'sprzęt z nawiewem (TH2/TH3).',
-              en: 'HSE: FFP3 / P3 half mask — for up to about an hour; '
-                  'longer, powered equipment (TH2/TH3).'),
-          key: const ValueKey('fume-p3-note')));
+    if (_rpe?.tightFitting ?? false) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 6),
+        child: Text(
+            context.tr(
+                pl: 'Czas w masce bez przerwy dłuższy niż 1 h?',
+                en: 'More than 1 h in the mask without a break?'),
+            key: const ValueKey('fume-wear-question'),
+            style: const TextStyle(
+                fontSize: 13.5, fontWeight: FontWeight.w700, color: kText)),
+      ));
+      children.add(Wrap(spacing: 6, runSpacing: 6, children: [
+        _chip(
+            'fume-wear-short',
+            context.tr(pl: 'Nie — do 1 h', en: 'No — up to 1 h'),
+            _longWear == false,
+            () => _changed(() => _longWear = false)),
+        _chip(
+            'fume-wear-long',
+            context.tr(pl: 'Tak — dłużej', en: 'Yes — longer'),
+            _longWear == true,
+            () => _changed(() => _longWear = true)),
+      ]));
+      if (_longWear == true) {
+        children.add(const SizedBox(height: 8));
+        children.add(KeyedSubtree(
+          key: const ValueKey('fume-wear-long-notice'),
+          child: QuoteNotice(
+            color: kWarn,
+            icon: Icons.timer_outlined,
+            text: context.tr(
+                pl: 'HSE: FFP3 / półmaska P3 — do ok. godziny pracy. Na '
+                    'dłuższą pracę przyłbica spawalnicza z nawiewem TH2 albo '
+                    'TH3 (APF co najmniej 20) — nie trzeba jej szczelnie '
+                    'dopasowywać i nie męczy jak maska.',
+                en: 'HSE: FFP3 / P3 half mask — for up to about an hour. For '
+                    'longer work a powered welding helmet TH2 or TH3 (APF at '
+                    'least 20) — it needs no tight fit and is less tiring than '
+                    'a mask.'),
+          ),
+        ));
+      } else {
+        children.add(_caption(
+            context.tr(
+                pl: 'HSE: FFP3 / półmaska P3 — do ok. godziny pracy; dłużej '
+                    'sprzęt z nawiewem (TH2/TH3).',
+                en: 'HSE: FFP3 / P3 half mask — for up to about an hour; '
+                    'longer, powered equipment (TH2/TH3).'),
+            key: const ValueKey('fume-p3-note')));
+      }
     }
     if (gases.isNotEmpty) {
       children.add(KeyedSubtree(
@@ -1082,11 +1181,15 @@ class _FumePageState extends State<FumePage> {
               pl: 'Ozon, tlenki azotu, CO i opary z powłok to gazy — filtry '
                   'przeciwpyłowe (P2, P3, TH z filtrem P) ich nie zatrzymują. '
                   'Chroni odciąg i wentylacja; w ciasnym miejscu — sprzęt '
-                  'z doprowadzeniem powietrza.',
+                  'z doprowadzeniem powietrza. Bez zaznaczenia punktu '
+                  '„Gazy … ujęte odciągiem i wentylacją” na liście nie ma '
+                  'zieleni.',
               en: 'Ozone, nitrogen oxides, CO and coating vapours are gases '
                   '— particle filters (P2, P3, TH with a P filter) do not '
                   'stop them. Extraction and ventilation protect; in a tight '
-                  'space — air-fed equipment.'),
+                  'space — air-fed equipment. No green until the checklist '
+                  'item “Gases … removed by extraction and ventilation” is '
+                  'ticked.'),
         ),
       ));
     }
@@ -1146,8 +1249,11 @@ class _FumePageState extends State<FumePage> {
 
   // ── Lista kontrolna ────────────────────────────────────────────────────
 
+  FumeCheckContext get _checkCtx =>
+      FumeCheckContext(material: _material, process: _process, rpe: _rpe);
+
   void _toggleCheck(FumeCheck c) {
-    final s = fumeCheckState(c, _checks);
+    final s = fumeCheckState(c, _checks, _checkCtx);
     setState(() {
       _touched = true;
       _checks[c.id] =
@@ -1156,8 +1262,8 @@ class _FumePageState extends State<FumePage> {
   }
 
   void _toggleNa(FumeCheck c) {
-    if (!c.naAllowed) return;
-    final s = fumeCheckState(c, _checks);
+    if (!c.naAllowed || fumeNaBlock(c, _checkCtx) != null) return;
+    final s = fumeCheckState(c, _checks, _checkCtx);
     setState(() {
       _touched = true;
       _checks[c.id] = s == FumeCheckState.notApplicable
@@ -1167,7 +1273,8 @@ class _FumePageState extends State<FumePage> {
   }
 
   Widget _checklistSection() {
-    final open = fumeOpenChecks(_checks).length;
+    final ctx = _checkCtx;
+    final open = fumeOpenChecks(_checks, ctx).length;
     final total = kFumeChecks.length;
     final children = <Widget>[
       Text(
@@ -1193,12 +1300,14 @@ class _FumePageState extends State<FumePage> {
                 fontSize: 13.5, fontWeight: FontWeight.w800, color: kText)),
       ));
       for (final c in fumeChecksIn(g)) {
-        final s = fumeCheckState(c, _checks);
+        final s = fumeCheckState(c, _checks, ctx);
+        final block = c.naAllowed ? fumeNaBlock(c, ctx) : null;
         children.add(_FumeCheckTile(
           check: c,
           checked: s == FumeCheckState.done,
           na: s == FumeCheckState.notApplicable,
           en: _en,
+          naBlockedReason: block == null ? null : _naBlockText(block),
           onToggle: () => _toggleCheck(c),
           onNa: () => _toggleNa(c),
         ));
@@ -1211,6 +1320,24 @@ class _FumePageState extends State<FumePage> {
       children: children,
     );
   }
+
+  String _naBlockText(FumeNaBlock b) => switch (b) {
+        FumeNaBlock.coatedMaterial => context.tr(
+            pl: '„nie dotyczy” niedostępne: wybrany materiał ma powłokę, '
+                'ocynk albo nieznany skład',
+            en: '“not applicable” unavailable: the chosen material is '
+                'coated, galvanised or of unknown composition'),
+        FumeNaBlock.notPowered => context.tr(
+            pl: '„nie dotyczy” niedostępne: wybrany sprzęt to nie przyłbica '
+                'z nawiewem',
+            en: '“not applicable” unavailable: the chosen equipment is not '
+                'a powered helmet'),
+        FumeNaBlock.gasHazard => context.tr(
+            pl: '„nie dotyczy” niedostępne: przy tym materiale i procesie '
+                'powstają gazy',
+            en: '“not applicable” unavailable: this material and process '
+                'give off gases'),
+      };
 
   // ── Ocena ──────────────────────────────────────────────────────────────
 
@@ -1230,6 +1357,17 @@ class _FumePageState extends State<FumePage> {
                 '(wydajność i wymiar otworu).',
             en: 'Hood reach not checked — fill in the calculator (airflow '
                 'and opening size).'),
+        FumeReasonCode.captureDistanceMissing => context.tr(
+            pl: 'Podaj odległość ssawki od łuku — sam zasięg to nie '
+                'potwierdzenie.',
+            en: 'Enter the hood-to-arc distance — the reach alone is no '
+                'confirmation.'),
+        FumeReasonCode.captureDistanceInvalid => context.tr(
+            pl: 'Odległość ssawki od łuku nieczytelna — popraw pole X.',
+            en: 'The hood-to-arc distance cannot be read — fix field X.'),
+        FumeReasonCode.captureDistanceTooFar => context.tr(
+            pl: 'Ssawka za daleko od łuku — nie łapie dymu.',
+            en: 'Hood too far from the arc — it does not catch the fume.'),
         FumeReasonCode.captureInsufficient => context.tr(
             pl: 'Odciąg za słaby albo za daleko od łuku.',
             en: 'Extraction too weak or too far from the arc.'),
@@ -1245,6 +1383,23 @@ class _FumePageState extends State<FumePage> {
                 'materiału.',
             en: 'Respiratory protection below the minimum for this '
                 'material.'),
+        FumeReasonCode.gasHazard => context.tr(
+            pl: 'Gazy (ozon, tlenki azotu, CO, opary z powłok) — filtr P3 ich '
+                'nie zatrzymuje; potwierdź na liście, że ujmuje je odciąg '
+                'i wentylacja.',
+            en: 'Gases (ozone, nitrogen oxides, CO, coating vapours) — a P3 '
+                'filter does not stop them; confirm on the checklist that '
+                'extraction and ventilation remove them.'),
+        FumeReasonCode.wearTimeUnknown => context.tr(
+            pl: 'Nie podano, czy maska jest noszona dłużej niż 1 h bez '
+                'przerwy.',
+            en: 'Not stated whether the mask is worn for more than 1 h '
+                'without a break.'),
+        FumeReasonCode.wearTooLong => context.tr(
+            pl: 'Maska przylegająca ponad 1 h bez przerwy — HSE: na dłuższą '
+                'pracę przyłbica z nawiewem TH2/TH3.',
+            en: 'Tight-fitting mask for over 1 h without a break — HSE: for '
+                'longer work a powered helmet TH2/TH3.'),
         FumeReasonCode.checklistOpen => context.tr(
             pl: 'Lista kontrolna: ${a.openChecks.length} punktów otwartych.',
             en: 'Checklist: ${a.openChecks.length} items open.'),
@@ -1261,11 +1416,15 @@ class _FumePageState extends State<FumePage> {
     final summary = switch (level) {
       FumeLevel.ok => context.tr(
           pl: 'Odciąg sprawdzony, ŚOI spełnia minimum, lista kompletna — '
-              'w zakresie, który aplikacja umie ocenić. Pomiar stężeń '
-              'w strefie oddychania rozstrzyga ostatecznie.',
+              'w zakresie, który aplikacja umie ocenić. Filtr P3 i nawiew '
+              'z filtrem P chronią przed cząstkami dymu, nie przed gazami — '
+              'gazy ujmuje odciąg i wentylacja. Pomiar stężeń w strefie '
+              'oddychania rozstrzyga ostatecznie.',
           en: 'Extraction checked, RPE meets the minimum, checklist complete '
-              '— as far as the app can judge. Breathing-zone measurements '
-              'have the final word.'),
+              '— as far as the app can judge. P3 filters and powered units '
+              'with a P filter protect against fume particles, not gases — '
+              'extraction and ventilation remove the gases. Breathing-zone '
+              'measurements have the final word.'),
       FumeLevel.caution => context.tr(
           pl: 'Nie zielono — popraw to, co niżej.',
           en: 'Not green — fix what is listed below.'),
@@ -1293,6 +1452,7 @@ class _FumePageState extends State<FumePage> {
         ]),
         const SizedBox(height: 6),
         Text(summary,
+            key: const ValueKey('fume-verdict-summary'),
             style: const TextStyle(fontSize: 13, color: kTextSec, height: 1.4)),
         const SizedBox(height: 8),
         for (final r in a.reasons)
@@ -1443,6 +1603,7 @@ class _FumeCheckTile extends StatelessWidget {
     required this.en,
     required this.onToggle,
     required this.onNa,
+    this.naBlockedReason,
   });
 
   final FumeCheck check;
@@ -1452,6 +1613,10 @@ class _FumeCheckTile extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onNa;
 
+  /// „Nie dotyczy” przeczy wyborom na ekranie — przycisk nieaktywny,
+  /// pod punktem wyjaśnienie.
+  final String? naBlockedReason;
+
   @override
   Widget build(BuildContext context) {
     final borderColor = checked
@@ -1459,7 +1624,7 @@ class _FumeCheckTile extends StatelessWidget {
         : na
             ? kTextMut.withValues(alpha: 0.5)
             : kBorder;
-    final hint = na ? check.naHint(en: en) : null;
+    final hint = na ? check.naHint(en: en) : naBlockedReason;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -1531,9 +1696,21 @@ class _FumeCheckTile extends StatelessWidget {
                         key: ValueKey('fume-na-${check.id}'),
                         style: TextButton.styleFrom(
                           minimumSize: const Size(kMinTapTarget, kMinTapTarget),
-                          foregroundColor: na ? kArc : kTextSec,
+                          foregroundColor: naBlockedReason != null
+                              ? kTextMut.withValues(alpha: 0.6)
+                              : na
+                                  ? kArc
+                                  : kTextSec,
                         ),
-                        onPressed: onNa,
+                        // Zablokowane „n/d” nadal przejmuje dotknięcie
+                        // (wyłączony przycisk przepuściłby je do wiersza
+                        // i zaznaczył punkt) — i tylko wyjaśnia blokadę.
+                        onPressed: naBlockedReason == null
+                            ? onNa
+                            : () => ScaffoldMessenger.of(context)
+                              ..hideCurrentSnackBar()
+                              ..showSnackBar(
+                                  SnackBar(content: Text(naBlockedReason!))),
                         child: Text(en ? 'n/a' : 'n/d'),
                       )
                     else

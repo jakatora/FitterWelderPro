@@ -6,9 +6,17 @@
 ///   [FumeLevel.incomplete];
 /// * brak odciągu u źródła → nigdy zielone (co najmniej „ostrożnie”;
 ///   HSE 2019: każde spawanie wymaga środków technicznych);
-/// * odciąg „jest”, ale kalkulator go nie potwierdził → do ŚOI liczy się
-///   jak brak odciągu (minimum P3/TH3), a ocena nie jest zielona;
+/// * odciąg jest „sprawdzony” tylko wtedy, gdy podano RZECZYWISTĄ odległość
+///   ssawki od łuku, wydajność na nią wystarcza i odległość mieści się
+///   w zakresie równania; sam zasięg z wydajności, błędna lub pusta
+///   odległość → do ŚOI liczy się jak brak odciągu (minimum P3/TH3), a ocena
+///   nie jest zielona;
 /// * ŚOI poniżej minimum dla materiału → „stop”;
+/// * gazy (ozon, NOx, CO, opary z powłok) — filtr P ich nie zatrzymuje:
+///   zielone tylko po zaznaczeniu punktu listy o gazach (bez „nie dotyczy”);
+/// * maska przylegająca (FFP / półmaska) — bez odpowiedzi o czasie noszenia
+///   nie ma zieleni, a ponad godzinę bez przerwy → „ostrożnie” (HSE: FFP3/P3
+///   do ok. godziny, dłużej — nawiew TH2/TH3);
 /// * otwarte punkty listy kontrolnej → nie zielone.
 ///
 /// Czysty Dart.
@@ -39,8 +47,19 @@ enum FumeReasonCode {
   /// Brak odciągu u źródła — nigdy zielone.
   levAbsent,
 
-  /// Odciąg jest, ale kalkulator nie ma danych do potwierdzenia zasięgu.
+  /// Odciąg jest, ale kalkulator nie ma danych do potwierdzenia (otwór,
+  /// wydajność).
   captureUnverified,
+
+  /// Brak rzeczywistej odległości ssawki od łuku — sam zasięg to nie
+  /// potwierdzenie.
+  captureDistanceMissing,
+
+  /// Pole odległości wpisane, ale nieczytelne albo ≤ 0.
+  captureDistanceInvalid,
+
+  /// Odległość ponad limit pola — ssawka tak daleko nie łapie dymu.
+  captureDistanceTooFar,
 
   /// Wydajność za mała (na wpisaną odległość albo w ogóle).
   captureInsufficient,
@@ -52,6 +71,16 @@ enum FumeReasonCode {
 
   /// ŚOI poniżej minimum dla materiału.
   rpeTooWeak,
+
+  /// Gazy, których filtry P nie zatrzymują — punkt listy o gazach
+  /// niepotwierdzony.
+  gasHazard,
+
+  /// Maska przylegająca bez odpowiedzi o czasie noszenia.
+  wearTimeUnknown,
+
+  /// Maska przylegająca ponad godzinę bez przerwy.
+  wearTooLong,
 
   /// Otwarte punkty listy kontrolnej.
   checklistOpen,
@@ -67,14 +96,18 @@ class FumeAssessment {
   const FumeAssessment({
     required this.reasons,
     required this.levEffective,
+    required this.gasHazard,
     this.requirement,
     this.openChecks = const [],
   });
 
   final List<FumeReason> reasons;
 
-  /// Odciąg jest i kalkulator potwierdził zasięg.
+  /// Odciąg jest, a kalkulator potwierdził go dla rzeczywistej odległości.
   final bool levEffective;
+
+  /// Para materiał–proces daje gazy (ozon, NOx, CO, opary z powłok).
+  final bool gasHazard;
 
   /// Minimalna ŚOI (null — brak materiału).
   final FumeRpeRequirement? requirement;
@@ -96,6 +129,9 @@ FumeAssessment assessFume({
   required FumeCaptureResult? capture,
   required FumeRpe? rpe,
   required Map<String, FumeCheckState> checks,
+
+  /// Maska noszona bez przerwy dłużej niż godzinę (null — brak odpowiedzi).
+  bool? longWear,
 }) {
   final reasons = <FumeReason>[];
   void add(FumeReasonCode c, FumeLevel l) => reasons.add(FumeReason(c, l));
@@ -114,17 +150,8 @@ FumeAssessment assessFume({
     case FumeLevStatus.absent:
       add(FumeReasonCode.levAbsent, FumeLevel.caution);
     case FumeLevStatus.present:
-      final level = capture?.level ?? FumeLevel.incomplete;
-      switch (level) {
-        case FumeLevel.ok:
-          levEffective = true;
-        case FumeLevel.incomplete:
-          add(FumeReasonCode.captureUnverified, FumeLevel.incomplete);
-        case FumeLevel.caution:
-          add(FumeReasonCode.captureOutOfRange, FumeLevel.caution);
-        case FumeLevel.stop:
-          add(FumeReasonCode.captureInsufficient, FumeLevel.stop);
-      }
+      _captureReasons(capture, add);
+      levEffective = capture?.level == FumeLevel.ok;
   }
 
   final requirement = material == null
@@ -132,17 +159,74 @@ FumeAssessment assessFume({
       : fumeRpeRequirement(material, levEffective: levEffective);
   if (rpe == null) {
     add(FumeReasonCode.rpeMissing, FumeLevel.incomplete);
-  } else if (requirement != null && !fumeRpeMeets(rpe, requirement)) {
-    add(FumeReasonCode.rpeTooWeak, FumeLevel.stop);
+  } else {
+    if (requirement != null && !fumeRpeMeets(rpe, requirement)) {
+      add(FumeReasonCode.rpeTooWeak, FumeLevel.stop);
+    }
+    if (rpe.tightFitting) {
+      if (longWear == null) {
+        add(FumeReasonCode.wearTimeUnknown, FumeLevel.incomplete);
+      } else if (longWear) {
+        add(FumeReasonCode.wearTooLong, FumeLevel.caution);
+      }
+    }
   }
 
-  final open = fumeOpenChecks(checks);
+  final ctx = FumeCheckContext(material: material, process: process, rpe: rpe);
+  final gas = ctx.gasHazard;
+  if (gas) {
+    final gasCheck = fumeCheckById(kFumeCheckGasId)!;
+    if (fumeCheckState(gasCheck, checks, ctx) != FumeCheckState.done) {
+      add(FumeReasonCode.gasHazard, FumeLevel.caution);
+    }
+  }
+
+  final open = fumeOpenChecks(checks, ctx);
   if (open.isNotEmpty) add(FumeReasonCode.checklistOpen, FumeLevel.incomplete);
 
   return FumeAssessment(
     reasons: List.unmodifiable(reasons),
     levEffective: levEffective,
+    gasHazard: gas,
     requirement: requirement,
     openChecks: List.unmodifiable(open),
   );
+}
+
+/// Powody z kalkulatora odciągu (odciąg zaznaczony jako obecny).
+void _captureReasons(
+    FumeCaptureResult? r, void Function(FumeReasonCode, FumeLevel) add) {
+  if (r == null) {
+    add(FumeReasonCode.captureUnverified, FumeLevel.incomplete);
+    return;
+  }
+  switch (r.distanceProblem) {
+    case FumeCaptureProblem.distanceTooFar:
+      add(FumeReasonCode.captureDistanceTooFar, FumeLevel.stop);
+    case FumeCaptureProblem.distanceInvalid:
+      add(FumeReasonCode.captureDistanceInvalid, FumeLevel.incomplete);
+    default:
+      break;
+  }
+  if (r.isSlot) {
+    add(FumeReasonCode.captureOutOfRange, FumeLevel.caution);
+    return;
+  }
+  final tooLow = r.reachState == FumeReachState.tooLowFlow;
+  if (tooLow || r.flowSufficient == false) {
+    add(FumeReasonCode.captureInsufficient, FumeLevel.stop);
+    return;
+  }
+  if (r.flowM3s == null) {
+    // Jest odległość (albo błędna), brak wydajności.
+    add(FumeReasonCode.captureUnverified, FumeLevel.incomplete);
+    return;
+  }
+  if (r.distanceMissing) {
+    add(FumeReasonCode.captureDistanceMissing, FumeLevel.incomplete);
+    return;
+  }
+  if (r.distanceWithinValidity == false) {
+    add(FumeReasonCode.captureOutOfRange, FumeLevel.caution);
+  }
 }

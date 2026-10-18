@@ -436,6 +436,19 @@ bool _emphasised(FumeAgent a, FumeMaterial m, FumeProcess p) {
   }
 }
 
+/// Składniki gazowe — filtry przeciwpyłowe (P2, P3, TH z filtrem P) ich
+/// nie zatrzymują (HSE: FFP3/P3 nie chroni przed gazami z dymu).
+const Set<FumeAgent> kFumeGasAgents = {
+  FumeAgent.o3,
+  FumeAgent.nox,
+  FumeAgent.co,
+  FumeAgent.coatingOrganics,
+};
+
+/// Para materiał–proces daje gazy z [kFumeGasAgents].
+bool fumeHasGasHazard(FumeMaterial m, FumeProcess p) =>
+    fumeHazards(m, p).any((h) => kFumeGasAgents.contains(h.agent));
+
 /// Krótka uwaga o procesie (ilość dymu i co z niej wynika).
 (String, String) fumeProcessNote(FumeProcess p) => switch (p) {
       FumeProcess.mma => (

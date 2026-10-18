@@ -1,8 +1,11 @@
 // Ekran „Dymy spawalnicze i odciąg”: puste pola → komunikaty i UZUPEŁNIJ,
 // składniki z NDS, kalkulator DallaValle (zasięg, kołnierz, poza zakresem,
 // wymagana wydajność), jednostki bez wpływu na werdykt, próg prędkości
-// tylko w górę, brak odciągu → nigdy zielono, komplet → OK, zapis wejść
-// (bez listy), uszkodzony zapis, 360×640 z tekstem ×1,5, cele dotyku.
+// tylko w górę, brak odciągu → nigdy zielono, odciąg sprawdzony tylko
+// z rzeczywistą odległością X (błędna X nie znika), gazy przy TIG/Al
+// i plazmie wymagają punktu listy, sprzeczne „n/d” zablokowane, FFP3 > 1 h
+// → ostrożnie, komplet → OK, zapis wejść (bez listy, dopiero po odczycie),
+// uszkodzony zapis, 360×640 z tekstem ×1,5, cele dotyku.
 //
 // Liczby jak w test/domain/fume/fume_capture_test.dart:
 //  • Q 1200 m³/h, D 300 mm → 24 cm; z kołnierzem 28 cm;
@@ -10,12 +13,16 @@
 //    „poza zakresem równania — przyjmij bliżej”;
 //  • X 200 mm, D 300 mm → ≥ 848 m³/h (≥ 236 l/s); 848 wystarcza, 847 nie.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/domain/fume/fume_checklist.dart';
+import 'package:cut_list_app/domain/fume/fume_hazards.dart';
 import 'package:cut_list_app/domain/fume/fume_inputs.dart';
+import 'package:cut_list_app/features/fume/fume_input_store.dart';
 import 'package:cut_list_app/features/fume/fume_page.dart';
 import 'package:cut_list_app/features/quotes/quote_widgets.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -28,6 +35,7 @@ Future<void> _pump(
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
   Map<String, Object>? prefs,
+  FumeInputStore store = const FumeInputStore(),
 }) async {
   if (prefs != null) SharedPreferences.setMockInitialValues(prefs);
   tester.view.physicalSize = size;
@@ -43,7 +51,7 @@ Future<void> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: const FumePage(),
+      home: FumePage(store: store),
     ),
   ));
   await tester.pumpAndSettle();
@@ -108,13 +116,43 @@ Future<void> _tickAll(WidgetTester tester) async {
   }
 }
 
-/// Stal węglowa + MAG + odciąg Q 1200 m³/h, D 300 mm (24 cm).
-Future<void> _goodSetup(WidgetTester tester) async {
-  await _tap(tester, 'fume-mat-carbonSteel');
-  await _tap(tester, 'fume-proc-migMag');
+/// Stal węglowa + MAG + odciąg Q 1200 m³/h, D 300 mm (zasięg 24 cm),
+/// ssawka 200 mm od łuku.
+Future<void> _goodSetup(WidgetTester tester,
+    {String material = 'carbonSteel', String process = 'migMag'}) async {
+  await _tap(tester, 'fume-mat-$material');
+  await _tap(tester, 'fume-proc-$process');
   await _tap(tester, 'fume-lev-present');
   await _enter(tester, 'fume-flow', '1200');
   await _enter(tester, 'fume-diameter', '300');
+  await _enter(tester, 'fume-distance', '200');
+}
+
+/// Wszystkie punkty listy poza [skip].
+Future<void> _tickAllBut(WidgetTester tester, Set<String> skip) async {
+  for (final c in kFumeChecks) {
+    if (skip.contains(c.id)) continue;
+    await _tap(tester, 'fume-check-${c.id}');
+  }
+}
+
+String _summary(WidgetTester tester) => _text(tester, 'fume-verdict-summary');
+
+/// Magazyn, którego odczyt czeka na [gate]; zapisy trafiają do [saved].
+class _DelayedStore extends FumeInputStore {
+  _DelayedStore(this.raw);
+  final String? raw;
+  final gate = Completer<void>();
+  final saved = <FumeInputs>[];
+
+  @override
+  Future<FumeDecoded> load() async {
+    await gate.future;
+    return decodeFumeInputs(raw);
+  }
+
+  @override
+  Future<void> save(FumeInputs inputs) async => saved.add(inputs);
 }
 
 void main() {
@@ -183,7 +221,61 @@ void main() {
     expect(t, contains('przyjmij bliżej'));
     expect(t, contains('23 cm'));
     expect(t, contains('22 cm'));
+    // Bez odległości ssawki od łuku — zasięg to informacja, nie ocena.
+    await _reveal(tester, 'fume-distance-needed');
+    await _reveal(tester, 'fume-reason-captureDistanceMissing');
+    // Rzeczywista odległość 25 cm > 1,5·D przy wystarczającej Q → ostrożnie.
+    await _enter(tester, 'fume-flow', '2000');
+    await _enter(tester, 'fume-distance', '250');
     await _reveal(tester, 'fume-reason-captureOutOfRange');
+    expect(_key('fume-distance-needed'), findsNothing);
+  });
+
+  testWidgets(
+      'samo Q bez odległości: zasięg jako informacja, „podaj '
+      'odległość”, minimum P3/TH3', (tester) async {
+    await _pump(tester);
+    await _tap(tester, 'fume-mat-carbonSteel');
+    await _tap(tester, 'fume-proc-mma');
+    await _tap(tester, 'fume-lev-present');
+    await _enter(tester, 'fume-flow', '1200');
+    await _enter(tester, 'fume-diameter', '300');
+    await _reveal(tester, 'fume-reach');
+    expect(_readout(tester, 'fume-reach'), '24');
+    expect(_notice(tester, 'fume-distance-needed'),
+        contains('Podaj odległość ssawki od łuku'));
+    await _tap(tester, 'fume-rpe-th2');
+    await _reveal(tester, 'fume-rpe-min');
+    expect(
+        _notice(tester, 'fume-rpe-min'), contains('bez sprawdzonego odciągu'));
+    expect(_notice(tester, 'fume-rpe-min'), contains('NIE spełnia'));
+    await _reveal(tester, 'fume-reason-captureDistanceMissing');
+    // Z odległością w zasięgu minimum spada do APF 20 — TH2 wystarcza.
+    await _enter(tester, 'fume-distance', '200');
+    await _reveal(tester, 'fume-rpe-min');
+    expect(_notice(tester, 'fume-rpe-min'), contains('spełnia minimum'));
+    expect(_key('fume-reason-captureDistanceMissing'), findsNothing);
+  });
+
+  testWidgets(
+      'błędna odległość X przy dobrej Q i Ø: 5000 mm → STOP, 0 → '
+      'UZUPEŁNIJ, nigdy OK', (tester) async {
+    await _pump(tester);
+    await _goodSetup(tester, process: 'mma');
+    await _tap(tester, 'fume-rpe-th3');
+    await _tickAll(tester);
+    expect(await _verdict(tester), 'OK');
+    await _enter(tester, 'fume-distance', '5000');
+    await _reveal(tester, 'fume-distance-problem');
+    expect(_notice(tester, 'fume-distance-problem'), contains('STOP'));
+    expect(await _verdict(tester), 'STOP');
+    expect(_key('fume-reason-captureDistanceTooFar'), findsOneWidget);
+    await _enter(tester, 'fume-distance', '0');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    expect(_key('fume-reason-captureDistanceInvalid'), findsOneWidget);
+    await _enter(tester, 'fume-distance', ',');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    expect(_key('fume-reason-captureDistanceInvalid'), findsOneWidget);
   });
 
   testWidgets(
@@ -242,7 +334,8 @@ void main() {
     expect(_field(tester, 'fume-velocity'), '2,5');
   });
 
-  testWidgets('MIG/MAG: uwaga o osłonie gazowej; ponad 2,2 m/s — ostrzeżenie',
+  testWidgets(
+      'MIG/MAG: uwaga o osłonie gazowej; ponad 1,0 m/s przy łuku — ostrzeżenie',
       (tester) async {
     await _pump(tester);
     await _tap(tester, 'fume-proc-migMag');
@@ -292,6 +385,128 @@ void main() {
     expect(await _verdict(tester), 'STOP');
     await _tap(tester, 'fume-rpe-th3');
     expect(await _verdict(tester), 'OK');
+  });
+
+  testWidgets(
+      'TIG na aluminium i plazma: gazy — bez punktu o gazach nie ma '
+      'zieleni, „n/d” zablokowane', (tester) async {
+    await _pump(tester);
+    await _goodSetup(tester, material: 'aluminium', process: 'tig');
+    await _tap(tester, 'fume-rpe-th3');
+    await _tickAllBut(tester, {kFumeCheckGasId});
+    expect(await _verdict(tester), 'OSTROŻNIE');
+    expect(_key('fume-reason-gasHazard'), findsOneWidget);
+    // „nie dotyczy” zablokowane: wyjaśnienie pod punktem, a dotknięcie
+    // tylko je pokazuje — nie zaznacza punktu.
+    await _reveal(tester, 'fume-na-$kFumeCheckGasId');
+    expect(find.textContaining('powstają gazy'), findsOneWidget);
+    await _tap(tester, 'fume-na-$kFumeCheckGasId');
+    expect(find.textContaining('powstają gazy'), findsNWidgets(2));
+    expect(await _verdict(tester), 'OSTROŻNIE');
+    expect(_key('fume-reason-gasHazard'), findsOneWidget);
+    // Potwierdzenie punktu o gazach → OK, a podsumowanie mówi o cząstkach.
+    await _tap(tester, 'fume-check-$kFumeCheckGasId');
+    expect(await _verdict(tester), 'OK');
+    expect(_summary(tester), contains('nie przed gazami'));
+    // Plazma na stali węglowej: NOx i CO — ta sama zasada.
+    await _tap(tester, 'fume-mat-carbonSteel');
+    await _tap(tester, 'fume-proc-cutting');
+    expect(await _verdict(tester), 'OK');
+    await _tap(tester, 'fume-check-$kFumeCheckGasId');
+    expect(await _verdict(tester), 'OSTROŻNIE');
+    expect(_key('fume-reason-gasHazard'), findsOneWidget);
+  });
+
+  testWidgets(
+      'sprzeczne „nie dotyczy”: powłoka / ocynk i FFP3 — zablokowane, '
+      'liczone jako otwarte', (tester) async {
+    await _pump(tester);
+    await _goodSetup(tester, process: 'mma');
+    await _tap(tester, 'fume-rpe-th3');
+    await _tickAllBut(tester, {kFumeCheckCoatingsId});
+    // Goła stal węglowa — „nie dotyczy” wolno.
+    await _tap(tester, 'fume-na-$kFumeCheckCoatingsId');
+    expect(await _verdict(tester), 'OK');
+    // Ocynk: ten sam wpis nie zamyka punktu, przycisk nieaktywny.
+    await _tap(tester, 'fume-mat-galvanised');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    await _reveal(tester, 'fume-na-$kFumeCheckCoatingsId');
+    expect(find.textContaining('powłokę, ocynk'), findsOneWidget);
+    // Dotknięcie zablokowanego „n/d” niczego nie zaznacza.
+    await _tap(tester, 'fume-na-$kFumeCheckCoatingsId');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    await _tap(tester, 'fume-mat-coated');
+    expect(await _verdict(tester), isNot('OK'));
+    // FFP3 + „nie dotyczy: nawiew” przy dopasowaniu.
+    await _tap(tester, 'fume-mat-carbonSteel');
+    await _tap(tester, 'fume-check-$kFumeCheckCoatingsId');
+    await _tap(tester, 'fume-na-$kFumeCheckFitId');
+    expect(await _verdict(tester), 'OK');
+    await _tap(tester, 'fume-rpe-p3');
+    await _tap(tester, 'fume-wear-short');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    await _reveal(tester, 'fume-na-$kFumeCheckFitId');
+    expect(find.textContaining('to nie przyłbica z nawiewem'), findsOneWidget);
+    await _tap(tester, 'fume-na-$kFumeCheckFitId');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    await _tap(tester, 'fume-check-$kFumeCheckFitId');
+    expect(await _verdict(tester), 'OK');
+  });
+
+  testWidgets(
+      'FFP3: pytanie o czas w masce; > 1 h → OSTROŻNIE z TH2/TH3, '
+      'brak odpowiedzi → brak zieleni', (tester) async {
+    await _pump(tester);
+    await _goodSetup(tester, process: 'mma');
+    await _tap(tester, 'fume-rpe-p3');
+    await _tickAll(tester);
+    await _reveal(tester, 'fume-wear-question');
+    expect(await _verdict(tester), 'UZUPEŁNIJ');
+    expect(_key('fume-reason-wearTimeUnknown'), findsOneWidget);
+    await _tap(tester, 'fume-wear-long');
+    expect(_notice(tester, 'fume-wear-long-notice'), contains('TH2'));
+    expect(await _verdict(tester), 'OSTROŻNIE');
+    expect(_key('fume-reason-wearTooLong'), findsOneWidget);
+    await _tap(tester, 'fume-wear-short');
+    expect(await _verdict(tester), 'OK');
+    // Nawiew — pytania nie ma.
+    await _tap(tester, 'fume-rpe-th3');
+    expect(_key('fume-wear-question'), findsNothing);
+    expect(await _verdict(tester), 'OK');
+  });
+
+  testWidgets(
+      'zapis dopiero po odczycie: zmiany przed końcem odczytu nie '
+      'nadpisują zapisu (opóźniony magazyn)', (tester) async {
+    final store = _DelayedStore(encodeFumeInputs(const FumeInputs(
+        material: FumeMaterial.stainless, flow: 1500, diameter: 250)));
+    await _pump(tester, store: store);
+    // Odczyt jeszcze trwa — zmiana na ekranie, ale bez zapisu.
+    await _tap(tester, 'fume-mat-carbonSteel');
+    await _tap(tester, 'fume-lev-present');
+    expect(store.saved, isEmpty);
+    store.gate.complete();
+    await tester.pumpAndSettle();
+    // Wybór spawacza nie został nadpisany odczytem…
+    await _reveal(tester, 'fume-mat-carbonSteel');
+    expect(tester.widget<ChoiceChip>(_key('fume-mat-carbonSteel')).selected,
+        isTrue);
+    // …a kolejna zmiana już się zapisuje.
+    await _tap(tester, 'fume-proc-tig');
+    expect(store.saved, hasLength(1));
+    expect(store.saved.single.process, FumeProcess.tig);
+
+    // Bez dotykania — odczyt przywraca zapis i dopiero potem wolno zapisać.
+    final quiet = _DelayedStore(encodeFumeInputs(const FumeInputs(
+        material: FumeMaterial.stainless, flow: 1500, diameter: 250)));
+    await _pump(tester, store: quiet);
+    quiet.gate.complete();
+    await tester.pumpAndSettle();
+    expect(quiet.saved, isEmpty);
+    await _tap(tester, 'fume-lev-present');
+    expect(_field(tester, 'fume-flow'), '1500');
+    expect(quiet.saved.single.material, FumeMaterial.stainless);
+    expect(quiet.saved.single.flow, 1500);
   });
 
   testWidgets('„n/d” tylko przy punktach, które na to pozwalają',
@@ -366,9 +581,19 @@ void main() {
       await _reveal(tester, 'fume-apf');
       await _reveal(tester, 'fume-low-rpe-note');
       await _tap(tester, 'fume-na-lev-filter');
+      await _tap(tester, 'fume-rpe-p3');
+      await _tap(tester, 'fume-wear-long');
+      await _reveal(tester, 'fume-wear-long-notice');
+      await _reveal(tester, 'fume-check-$kFumeCheckCoatingsId');
+      await _reveal(tester, 'fume-check-$kFumeCheckGasId');
       await _reveal(tester, 'fume-verdict');
       await _reveal(tester, 'fume-note-measure');
       await _reveal(tester, 'fume-source-7');
+      expect(tester.takeException(), isNull, reason: lang.name);
+      await _enter(tester, 'fume-distance', '5000');
+      await _reveal(tester, 'fume-distance-problem');
+      await _enter(tester, 'fume-distance', '');
+      await _reveal(tester, 'fume-distance-needed');
       expect(tester.takeException(), isNull, reason: lang.name);
       await _tap(tester, 'fume-lev-absent');
       await _reveal(tester, 'fume-lev-absent-notice');

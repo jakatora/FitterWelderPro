@@ -201,4 +201,21 @@ void main() {
       expect(en, isNotEmpty);
     }
   });
+
+  test(
+      'gazy, których filtr P nie zatrzymuje: TIG/MIG (ozon), plazma (NOx, '
+      'CO), powłoki (opary)', () {
+    expect(kFumeGasAgents,
+        {FumeAgent.o3, FumeAgent.nox, FumeAgent.co, FumeAgent.coatingOrganics});
+    expect(fumeHasGasHazard(FumeMaterial.aluminium, FumeProcess.tig), isTrue);
+    expect(
+        fumeHasGasHazard(FumeMaterial.aluminium, FumeProcess.migMag), isTrue);
+    expect(fumeHasGasHazard(FumeMaterial.carbonSteel, FumeProcess.cutting),
+        isTrue);
+    expect(fumeHasGasHazard(FumeMaterial.coated, FumeProcess.mma), isTrue);
+    expect(
+        fumeHasGasHazard(FumeMaterial.carbonSteel, FumeProcess.mma), isFalse);
+    expect(fumeHasGasHazard(FumeMaterial.stainless, FumeProcess.grinding),
+        isFalse);
+  });
 }

@@ -5,6 +5,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/fume/fume_checklist.dart';
+import 'package:cut_list_app/domain/fume/fume_hazards.dart';
 
 void main() {
   test('identyfikatory unikalne, teksty PL/EN i źródła niepuste', () {
@@ -33,6 +34,7 @@ void main() {
       'lev-recirc', // recyrkulacja tylko W3
       'mat-coatings', // powłoki usunięte
       kFumeCheckConfinedId, // odsyłacz: przestrzeń zamknięta
+      kFumeCheckGasId, // gazy: filtr P3 nie chroni
       'room-airing', // przewietrzanie
     ]) {
       expect(fumeCheckById(id), isNotNull, reason: id);
@@ -69,5 +71,54 @@ void main() {
     ]) {
       expect(fumeCheckById(id)!.naAllowed, isFalse, reason: id);
     }
+  });
+
+  test('„nie dotyczy” zablokowane, gdy przeczy wyborom: powłoki, maska, gazy',
+      () {
+    final coatings = fumeCheckById(kFumeCheckCoatingsId)!;
+    for (final m in [
+      FumeMaterial.coated,
+      FumeMaterial.galvanised,
+      FumeMaterial.other,
+    ]) {
+      final ctx = FumeCheckContext(material: m);
+      expect(fumeNaBlock(coatings, ctx), FumeNaBlock.coatedMaterial,
+          reason: m.name);
+      expect(
+          fumeCheckState(
+              coatings, {coatings.id: FumeCheckState.notApplicable}, ctx),
+          FumeCheckState.open,
+          reason: m.name);
+    }
+    expect(
+        fumeNaBlock(coatings,
+            const FumeCheckContext(material: FumeMaterial.carbonSteel)),
+        isNull);
+
+    final fit = fumeCheckById(kFumeCheckFitId)!;
+    for (final r in [FumeRpe.none, FumeRpe.p2, FumeRpe.p3]) {
+      expect(fumeNaBlock(fit, FumeCheckContext(rpe: r)), FumeNaBlock.notPowered,
+          reason: r.name);
+    }
+    for (final r in [FumeRpe.th1, FumeRpe.th2, FumeRpe.th3]) {
+      expect(fumeNaBlock(fit, FumeCheckContext(rpe: r)), isNull,
+          reason: r.name);
+    }
+
+    final gas = fumeCheckById(kFumeCheckGasId)!;
+    expect(gas.naAllowed, isTrue);
+    expect(gas.pl, contains('P3'));
+    expect(
+        fumeNaBlock(
+            gas,
+            const FumeCheckContext(
+                material: FumeMaterial.aluminium, process: FumeProcess.tig)),
+        FumeNaBlock.gasHazard);
+    expect(
+        fumeNaBlock(
+            gas,
+            const FumeCheckContext(
+                material: FumeMaterial.carbonSteel, process: FumeProcess.mma)),
+        isNull);
   });
 }

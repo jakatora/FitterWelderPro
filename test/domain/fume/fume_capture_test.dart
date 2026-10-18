@@ -53,7 +53,37 @@ void main() {
       expect(r.reachCm, 24);
       expect(r.validityLimitCm, 45);
       expect(r.reachState, FumeReachState.within);
-      expect(r.level, FumeLevel.ok);
+    });
+
+    test('sam zasięg bez odległości X to informacja, nie „ok”', () {
+      final r = _calc();
+      expect(r.distanceMissing, isTrue);
+      expect(r.level, FumeLevel.incomplete);
+      // Rzeczywista odległość 20 cm w zasięgu (24 cm) — dopiero teraz ok.
+      final x = _calc(distance: 200);
+      expect(x.distanceMissing, isFalse);
+      expect(x.flowSufficient, isTrue);
+      expect(x.level, FumeLevel.ok);
+    });
+
+    test('błędna, niepusta odległość nie znika po cichu — nigdy „ok”', () {
+      // Za daleko (ponad limit pola 3 m) → stop.
+      final far = _calc(distance: 5000);
+      expect(far.distanceProblem, FumeCaptureProblem.distanceTooFar);
+      expect(far.distanceM, isNull);
+      expect(far.level, FumeLevel.stop);
+      // Nieczytelna („abc” → NaN) i zero → brak oceny.
+      for (final bad in [double.nan, 0.0, -20.0]) {
+        final r = _calc(distance: bad);
+        expect(r.distanceProblem, FumeCaptureProblem.distanceInvalid,
+            reason: '$bad');
+        expect(r.level, FumeLevel.incomplete, reason: '$bad');
+      }
+      // Bez wydajności też: za daleko → stop, nie „brak wyniku”.
+      final noQ = _calc(flow: null, distance: 5000);
+      expect(noQ.level, FumeLevel.stop);
+      // Za mała wydajność wygrywa z błędną odległością (gorsza ocena).
+      expect(_calc(flow: 100, distance: double.nan).level, FumeLevel.stop);
     });
 
     test('kołnierz: ta sama wydajność sięga dalej (Q = 0,75·V·…) → 28 cm', () {
@@ -74,9 +104,14 @@ void main() {
       expect(r.reachCm, 23);
       expect(r.validityLimitCm, 22); // 22,5 cm w dół
       expect(r.reachState, FumeReachState.beyondValidity);
-      expect(r.level, FumeLevel.caution);
       expect(r.level, isNot(FumeLevel.ok));
       expect(r.safeReachCm, 22);
+      // Z rzeczywistą odległością poza 1,5·D (25 cm) i wystarczającą Q —
+      // ostrożnie, nie zielono.
+      final x = _calc(flow: 2000, diameter: 150, distance: 250);
+      expect(x.flowSufficient, isTrue);
+      expect(x.distanceWithinValidity, isFalse);
+      expect(x.level, FumeLevel.caution);
     });
 
     test('za mała wydajność — prędkość nie osiągnięta nawet przy otworze', () {
@@ -97,7 +132,8 @@ void main() {
       expect(r.areaM2, closeTo(0.02, 1e-12));
       expect(r.reachCm, 20);
       expect(r.validityLimitCm, 15);
-      expect(r.level, FumeLevel.caution);
+      expect(r.reachState, FumeReachState.beyondValidity);
+      expect(r.level, isNot(FumeLevel.ok));
     });
 
     test('szczelina (stosunek boków < 0,2) — równanie nie dotyczy, bez wyniku',

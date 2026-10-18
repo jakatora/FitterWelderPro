@@ -372,10 +372,16 @@ const List<FumeSource> kFumeSources = [
     'Progi w aplikacji: prędkość uchwycenia co najmniej 0,5 m/s (szlifowanie '
         '2,5 m/s) — można ją tylko podnieść; zasięg w dół do 1 cm, wymagana '
         'wydajność w górę; poza X ≤ 1,5·D wynik nie jest zielony; bez '
-        'odciągu — nigdy zielono.',
+        'odciągu — nigdy zielono; odciąg sprawdzony tylko z podaną '
+        'odległością ssawki od łuku; gazy (ozon, NOx, CO, opary) wymagają '
+        'potwierdzenia na liście; FFP3/P3 ponad godzinę bez przerwy — nie '
+        'zielono (HSE: nawiew TH2/TH3).',
     'Limits in the app: capture velocity at least 0.5 m/s (grinding '
         '2.5 m/s) — it can only be raised; reach rounded down to 1 cm, '
         'airflow needed rounded up; beyond X ≤ 1.5·D the result is never '
-        'green; without extraction — never green.',
+        'green; without extraction — never green; extraction counts as '
+        'checked only with the hood-to-arc distance entered; gases (ozone, '
+        'NOx, CO, vapours) must be confirmed on the checklist; FFP3/P3 for '
+        'over an hour without a break — not green (HSE: powered TH2/TH3).',
   ),
 ];

@@ -313,9 +313,15 @@ class FumeCaptureResult {
     this.distanceM,
     this.requiredFlowM3s,
     this.velocityAtDistanceMs,
+    this.distanceProblem,
   });
 
   final FumeCaptureInput input;
+
+  /// Pole odległości wpisane, ale błędne ([FumeCaptureProblem.distanceInvalid])
+  /// albo ponad limit ([FumeCaptureProblem.distanceTooFar]) — wtedy ocena
+  /// nigdy nie jest „ok” (błędne pole nie znika po cichu).
+  final FumeCaptureProblem? distanceProblem;
 
   /// Pole otworu A [m²].
   final double areaM2;
@@ -407,26 +413,35 @@ class FumeCaptureResult {
     return v != null && v > kFumeShieldDraughtMs + kFumeEps;
   }
 
-  /// Ocena kalkulatora.
+  /// Ocena kalkulatora. „Ok” tylko wtedy, gdy podano RZECZYWISTĄ odległość
+  /// ssawki od łuku, wydajność na nią wystarcza i odległość mieści się
+  /// w zakresie równania. Sam zasięg z wydajności (bez odległości) to
+  /// informacja, nie potwierdzenie — [FumeLevel.incomplete].
   FumeLevel get level {
+    final fromDistance = switch (distanceProblem) {
+      FumeCaptureProblem.distanceTooFar => FumeLevel.stop,
+      FumeCaptureProblem.distanceInvalid => FumeLevel.incomplete,
+      _ => FumeLevel.ok,
+    };
+    return _baseLevel.worse(fromDistance);
+  }
+
+  FumeLevel get _baseLevel {
     if (isSlot) return FumeLevel.caution;
     final hasQ = flowM3s != null;
     final hasX = distanceM != null;
+    if (hasQ && reachState == FumeReachState.tooLowFlow) return FumeLevel.stop;
     if (hasQ && hasX) {
       if (flowSufficient != true) return FumeLevel.stop;
       if (distanceWithinValidity != true) return FumeLevel.caution;
       return FumeLevel.ok;
     }
-    if (hasQ) {
-      return switch (reachState!) {
-        FumeReachState.within => FumeLevel.ok,
-        FumeReachState.beyondValidity => FumeLevel.caution,
-        FumeReachState.tooLowFlow => FumeLevel.stop,
-      };
-    }
-    // Sama odległość: jest wymagana wydajność, ale nie ma z czym porównać.
+    // Sam zasięg albo sama wymagana wydajność — nie ma czego porównać.
     return FumeLevel.incomplete;
   }
+
+  /// Brakuje rzeczywistej odległości ssawki od łuku (pole puste).
+  bool get distanceMissing => distanceM == null && distanceProblem == null;
 }
 
 /// Liczba ≥ 0 w DÓŁ do całości, odporna na szum (2,9999999999 → 3).
@@ -440,7 +455,8 @@ int fumeFloorCm(double m) => fumeFloor(m * 100);
 
 /// Wynik albo `null`, gdy dane nie pozwalają liczyć ([fumeCaptureProblems]
 /// zawiera problem otworu, prędkości albo nic nie wpisano). Błędne pole
-/// wydajności lub odległości wyłącza tylko tę część wyniku.
+/// wydajności wyłącza tylko tę część wyniku; błędne pole odległości też,
+/// ale zostaje w [FumeCaptureResult.distanceProblem] i psuje ocenę.
 FumeCaptureResult? computeFumeCapture(FumeCaptureInput i) {
   final problems = fumeCaptureProblems(i);
   const blocking = {
@@ -457,10 +473,13 @@ FumeCaptureResult? computeFumeCapture(FumeCaptureInput i) {
   final flowOk = !problems.contains(FumeCaptureProblem.flowInvalid) &&
       !problems.contains(FumeCaptureProblem.flowTooHigh) &&
       i.flow != null;
-  final distOk = !problems.contains(FumeCaptureProblem.distanceInvalid) &&
-      !problems.contains(FumeCaptureProblem.distanceTooFar) &&
-      i.distance != null;
-  if (!flowOk && !distOk) return null;
+  final distanceProblem = problems.contains(FumeCaptureProblem.distanceTooFar)
+      ? FumeCaptureProblem.distanceTooFar
+      : problems.contains(FumeCaptureProblem.distanceInvalid)
+          ? FumeCaptureProblem.distanceInvalid
+          : null;
+  final distOk = distanceProblem == null && i.distance != null;
+  if (!flowOk && !distOk && distanceProblem == null) return null;
 
   final u = i.lengthUnit;
   final double area;
@@ -507,6 +526,7 @@ FumeCaptureResult? computeFumeCapture(FumeCaptureInput i) {
     distanceM: x,
     requiredFlowM3s: required,
     velocityAtDistanceMs: vAtX,
+    distanceProblem: distanceProblem,
   );
 }
 

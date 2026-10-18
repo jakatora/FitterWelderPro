@@ -104,4 +104,19 @@ void main() {
     expect(d.inputs.flow, isNull);
     expect(d.inputs.distance, isNull);
   });
+
+  test(
+      'czas w masce: zapis tak/nie wraca, zła wartość → brak odpowiedzi + '
+      'informacja', () {
+    for (final w in [true, false]) {
+      final d = decodeFumeInputs(
+          encodeFumeInputs(FumeInputs(rpe: FumeRpe.p3, longWear: w)));
+      expect(d.corrupt, isFalse);
+      expect(d.inputs.longWear, w);
+    }
+    final bad = decodeFumeInputs('{"rpe":"p3","longWear":"chyba"}');
+    expect(bad.corrupt, isTrue);
+    expect(bad.inputs.longWear, isNull);
+    expect(decodeFumeInputs('{"rpe":"p3"}').inputs.longWear, isNull);
+  });
 }
