@@ -177,6 +177,8 @@ void main() {
         'GrindingPage',
         // Plan ściegów i elektrod.
         'PassPlanPage',
+        // Ferryt i PMI.
+        'FerritePmiPage',
       };
       expect(targets, expected);
     });

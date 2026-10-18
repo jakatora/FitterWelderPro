@@ -90,6 +90,9 @@ import 'package:cut_list_app/features/rigging/rigging_page.dart';
 import 'package:cut_list_app/features/fume/fume_page.dart';
 import 'package:cut_list_app/features/grinding/grinding_page.dart';
 import 'package:cut_list_app/features/pass_plan/pass_plan_page.dart';
+import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
+import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_edit_page.dart';
+import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/distortion/distortion_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
@@ -280,6 +283,10 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'RiggingPage' => const RiggingPage(),
       'GrindingPage' => const GrindingPage(),
       'PassPlanPage' => const PassPlanPage(),
+      'FerritePmiPage' => const FerritePmiPage(),
+      'FerritePmiEditPage' => FerritePmiEditPage(
+          initial: FerritePmiProtocol.blank(
+              id: 'smoke-ferrite', now: DateTime(2026, 10, 18, 7))),
       'ConfinedSpaceEditPage' => ConfinedSpaceEditPage(
           initial: ConfinedSpaceRecord.blank(
               id: 'smoke-confined', now: DateTime(2026, 10, 18, 7))),

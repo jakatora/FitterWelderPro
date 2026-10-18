@@ -95,7 +95,7 @@ void main() {
     test('nie pomija ani nie powiela wpisów i zachowuje wszystkie pola', () {
       final markdown = renderAuditReport(moduleManifest);
       final rows = markdown.split('\n').where((line) => line.startsWith('| `'));
-      expect(rows.length, 106);
+      expect(rows.length, 108);
       for (final entry in moduleManifest) {
         final row =
             rows.singleWhere((line) => line.startsWith('| `${entry.id}` |'));
@@ -119,8 +119,8 @@ void main() {
         'podaje dokładne liczby i jawnie wymienia niezweryfikowane scenariusze',
         () {
       final markdown = renderAuditReport(moduleManifest);
-      expect(markdown, contains('Moduły: 106'));
-      expect(markdown, contains('| passed | 58 |'));
+      expect(markdown, contains('Moduły: 108'));
+      expect(markdown, contains('| passed | 60 |'));
       expect(markdown, contains('| unverified | 47 |'));
       expect(markdown, contains('| domainReview | 1 |'));
       expect(markdown, contains('| broken | 0 |'));

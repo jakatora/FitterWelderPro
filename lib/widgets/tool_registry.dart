@@ -9,6 +9,7 @@ import '../features/confined_space/confined_space_page.dart';
 import '../features/cooling_time/cooling_time_page.dart';
 import '../features/distortion/distortion_page.dart';
 import '../features/electrode_exposure/electrode_exposure_page.dart';
+import '../features/ferrite_pmi/ferrite_pmi_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/fillet_strength/fillet_strength_page.dart';
 import '../features/flange_check/flange_check_page.dart';
@@ -1870,6 +1871,51 @@ final List<ToolSpec> kToolRegistry = [
       'haz',
       'astm e140',
       'iso 18265'
+    ],
+  ),
+  ToolSpec(
+    id: 'ferrite_pmi',
+    group: ToolGroup.inspection,
+    titlePl: 'Ferryt i PMI',
+    titleEn: 'Ferrite and PMI',
+    subtitlePl: 'Ferrytomierz FN/% wobec specyfikacji, PMI XRF wobec EN/ASTM',
+    subtitleEn: 'Ferritescope FN/% vs spec, XRF PMI vs EN/ASTM',
+    icon: Icons.biotech_outlined,
+    color: const Color(0xFF9FA8DA),
+    builder: (_) => const FerritePmiPage(),
+    keywordsPl: const [
+      'ferryt',
+      'ferrytu',
+      'ferrytomierz',
+      'feritscope',
+      'liczba ferrytowa',
+      'duplex',
+      'dupleks',
+      'pmi',
+      'xrf',
+      'analizator',
+      'sklad chemiczny',
+      'gatunek stali',
+      '316l',
+      '304l',
+      '2205',
+      'p91',
+      'weryfikacja materialu'
+    ],
+    keywordsEn: const [
+      'ferrite',
+      'ferrite number',
+      'ferritescope',
+      'delta ferrite',
+      'duplex',
+      'pmi',
+      'positive material identification',
+      'xrf',
+      'alloy verification',
+      'grade check',
+      '316l',
+      '2205',
+      'p91'
     ],
   ),
   ToolSpec(
