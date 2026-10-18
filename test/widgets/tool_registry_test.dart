@@ -175,6 +175,8 @@ void main() {
         'RiggingPage',
         // Tarcze i szlifierki.
         'GrindingPage',
+        // Plan ściegów i elektrod.
+        'PassPlanPage',
       };
       expect(targets, expected);
     });

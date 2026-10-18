@@ -831,6 +831,25 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/audit/welder_calculations_audit_test.dart: cztery skończone dodatnie poziomy prądu orbitalnego TIG',
       ]),
   ModuleAuditEntry(
+      id: 'pass-plan',
+      entryPoint: 'PassPlanPage',
+      sourcePath: 'lib/features/pass_plan/pass_plan_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          '8 złączy 168,3 × 7,11, rowek V 60° (b 2,5, c 1,5), grań TIG Ø2,4 (11,8 / 12 mm² → 1 ścieg), ścieg gorący Ø2,5, lico Ø3,2 × 350 (karta ESAB OK 48.00): 4 ściegi na złącze; na całość 11 prętów, 25 × Ø2,5 i 39 × Ø3,2 (z zapasem 10 %: 12 / 27 / 42), czas złącza 44 min, całość 5 h 47 min; EN ISO 2560-A B z piecyka: okno 240 − 30 = 210 min, tempo z dolnej granicy TWI → weź najwyżej 8 × Ø2,5 i 12 × Ø3,2 (w dół), 4 porcje; współczynnik 100 % nie zwiększa „ile naraz”; limit „2400” bez potwierdzenia → czerwone ostrzeżenie i wynik z tabeli; szczelina 6 mm → 3 ściegi grani; puste pole → komunikat; uszkodzony zapis → domyślne i kopia.',
+      evidence: [
+        'test/domain/pass_plan/pass_plan_test.dart: przykład 168,3 × 7,11 V60: grań, ścieg gorący, 2 ściegi lica',
+        'test/domain/pass_plan/pass_plan_test.dart: przykład: limit 4 h − 30 min, łuk z dolnej granicy TWI → najwyżej 8 Ø2,5 i 12 Ø3,2 (w dół), 4 porcje',
+        'test/domain/pass_plan/pass_plan_test.dart: współczynnik jarzenia łuku 100 % nie zwiększa „ile naraz”',
+        'test/domain/pass_plan/pass_plan_test.dart: limit dłuższy niż tabela: bez potwierdzenia z tabeli, z — przyjęty',
+        'test/domain/pass_plan/pass_plan_test.dart: grań: ściegi z przekroju ściegu spoiwa grani — szczelina 6 mm → 3',
+        'test/domain/pass_plan/pass_plan_test.dart: częściowe zero „ile naraz”: przypis „po jednej” w tekście, porcje tylko dla reszty',
+        'test/features/pass_plan/pass_plan_page_test.dart: zapis czeka na odczyt: wpis w trakcie wczytywania nie nadpisuje zapisu, potem wygrywa i zapisuje się z kopią',
+        'test/features/pass_plan/pass_plan_page_test.dart: wąski ekran 360×640, tekst ×1,5 — bez przepełnień',
+      ]),
+  ModuleAuditEntry(
       id: 'passivation',
       entryPoint: 'PassivationScreen',
       sourcePath: 'lib/screens/passivation_screen.dart',

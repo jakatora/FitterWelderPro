@@ -89,6 +89,7 @@ import 'package:cut_list_app/features/confined_space/confined_space_page.dart';
 import 'package:cut_list_app/features/rigging/rigging_page.dart';
 import 'package:cut_list_app/features/fume/fume_page.dart';
 import 'package:cut_list_app/features/grinding/grinding_page.dart';
+import 'package:cut_list_app/features/pass_plan/pass_plan_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/distortion/distortion_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
@@ -278,6 +279,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'FumePage' => const FumePage(),
       'RiggingPage' => const RiggingPage(),
       'GrindingPage' => const GrindingPage(),
+      'PassPlanPage' => const PassPlanPage(),
       'ConfinedSpaceEditPage' => ConfinedSpaceEditPage(
           initial: ConfinedSpaceRecord.blank(
               id: 'smoke-confined', now: DateTime(2026, 10, 18, 7))),

@@ -19,6 +19,7 @@ import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/interpass/interpass_page.dart';
 import '../features/ndt_plan/ndt_plan_page.dart';
+import '../features/pass_plan/pass_plan_page.dart';
 import '../features/piecework/piecework_page.dart';
 import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
@@ -1497,6 +1498,52 @@ final List<ToolSpec> kToolRegistry = [
       'voltage drop',
       'cable size',
       'h01n2'
+    ],
+  ),
+  ToolSpec(
+    id: 'pass_plan',
+    group: ToolGroup.weldCalculators,
+    titlePl: 'Plan ściegów i elektrod',
+    titleEn: 'Pass and electrode plan',
+    subtitlePl: 'Ile ściegów, ile elektrod z suszarki, czas złącza',
+    subtitleEn: 'Passes, electrodes to take out, joint time',
+    icon: Icons.layers,
+    color: const Color(0xFFFF6F00),
+    builder: (_) => const PassPlanPage(),
+    keywordsPl: const [
+      'sciegi',
+      'liczba sciegow',
+      'warstwy',
+      'gran',
+      'lico',
+      'wypelnienie',
+      'scieg goracy',
+      'ile elektrod',
+      'zuzycie elektrod',
+      'suszarka',
+      'termos',
+      'kolczan',
+      'ok 48.00',
+      'pret tig',
+      'stopiwo',
+      'czas spawania',
+      'czas zlacza'
+    ],
+    keywordsEn: const [
+      'passes',
+      'number of passes',
+      'layers',
+      'root pass',
+      'hot pass',
+      'fill pass',
+      'cap pass',
+      'electrode consumption',
+      'electrodes needed',
+      'rod oven',
+      'weld metal',
+      'deposition',
+      'arc time',
+      'joint time'
     ],
   ),
   ToolSpec(
