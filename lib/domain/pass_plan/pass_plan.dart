@@ -8,7 +8,8 @@
 //    na przekrój.
 // 2. Warstwy:
 //    • grań — do wysokości [kRootPassHeightMm] (pachwina: pierwszy ścieg
-//      a = [kFilletRootThroatMm]), jak w wycenie; 1 ścieg (rowek X — 2,
+//      a = [kFilletRootThroatMm]), jak w wycenie; ściegi = pole grani /
+//      przekrój ściegu spoiwa grani, W GÓRĘ, co najmniej 1 (rowek X — 2,
 //      po jednym z każdej strony);
 //    • ścieg gorący — 1 ścieg o przekroju ściegu swojej średnicy, tylko
 //      rowek jednostronny (rura, blacha V / I);
@@ -24,9 +25,11 @@
 //    procesu wyceny.
 // 5. Czas łuku: elektroda — czas stapiania z karty (s na gram stopiwa);
 //    TIG, MAG — wydajność stapiania profilu. Czas pracy = łuk /
-//    współczynnik jarzenia łuku.
+//    współczynnik jarzenia łuku, nie wyższy niż górna granica TWI.
 // 6. Ekspozycja: okno = limit − zapas ostrzeżenia z modułu ekspozycji;
-//    najwięcej naraz = okno × tempo zużycia, W DÓŁ.
+//    limit = tabela, wpisany krótszy, dłuższy tylko z potwierdzeniem
+//    (WPS / karta producenta); najwięcej naraz = okno × tempo zużycia
+//    przy współczynniku jarzenia łuku z DOLNEJ granicy TWI, W DÓŁ.
 //
 // Zaokrąglenia: ilości i czasy W GÓRĘ, liczone z dokładnych wartości (nie
 // z zaokrągleń warstw — niedokończona elektroda idzie na następną warstwę
@@ -134,6 +137,12 @@ const List<QuoteProcess> kPassPlanProcesses = [
 double defaultArcOnPct(QuoteProcess p) =>
     kDefaultProcessProfiles[p]!.dutyCycle * 100;
 
+/// Dolna granica współczynnika jarzenia łuku wg TWI JK 96, %.
+double arcOnLowerBoundPct(QuoteProcess p) => kArcOnRangePct[p.code]!.$1;
+
+/// Górna granica współczynnika jarzenia łuku wg TWI JK 96, %.
+double arcOnUpperBoundPct(QuoteProcess p) => kArcOnRangePct[p.code]!.$2;
+
 enum PassLayer { root, hot, fill, cap }
 
 /// Kolejność pracy — decyduje o tempie zużycia elektrod.
@@ -206,7 +215,12 @@ class PassPlanInput {
   final ElectrodeSource source;
 
   /// Limit z WPS / karty, min; `null` — z tabeli modułu ekspozycji.
+  /// Krótszy niż tabela — przyjęty zawsze; dłuższy — tylko z
+  /// [limitAboveTableConfirmed].
   final double? limitMinutes;
+
+  /// „WPS / karta producenta pozwala na dłużej (potwierdzam)”.
+  final bool limitAboveTableConfirmed;
   final WorkOrder order;
   final double shiftH;
 
@@ -234,6 +248,7 @@ class PassPlanInput {
     this.electrodeClass = ElectrodeClass.enIso2560B,
     this.source = ElectrodeSource.oven,
     this.limitMinutes,
+    this.limitAboveTableConfirmed = false,
     this.order = WorkOrder.jointByJoint,
     this.shiftH = kDefaultShiftH,
   });
@@ -262,6 +277,7 @@ class PassPlanInput {
     ElectrodeClass? Function()? electrodeClass,
     ElectrodeSource? source,
     double? Function()? limitMinutes,
+    bool? limitAboveTableConfirmed,
     WorkOrder? order,
     double? shiftH,
   }) =>
@@ -290,6 +306,8 @@ class PassPlanInput {
             electrodeClass != null ? electrodeClass() : this.electrodeClass,
         source: source ?? this.source,
         limitMinutes: limitMinutes != null ? limitMinutes() : this.limitMinutes,
+        limitAboveTableConfirmed:
+            limitAboveTableConfirmed ?? this.limitAboveTableConfirmed,
         order: order ?? this.order,
         shiftH: shiftH ?? this.shiftH,
       );
@@ -308,10 +326,11 @@ class PassPlanInput {
   WorkOrder get effectiveOrder =>
       rootsFirstAvailable ? order : WorkOrder.jointByJoint;
 
-  /// Spoiwa warstw liczonych z przekroju ściegu (grań liczy się z wysokości,
-  /// więc jej przekrój ściegu nie wchodzi do rachunku).
+  /// Spoiwa, których przekrój ściegu wchodzi do rachunku (grań: liczba
+  /// ściegów grani; ścieg gorący: jego pole; wypełnienie, lico: liczba
+  /// ściegów).
   List<PassConsumable> get beadConsumables => <PassConsumable>{
-        for (final c in [effectiveHot, fill, cap])
+        for (final c in [root, effectiveHot, fill, cap])
           if (c != null) c,
       }.toList();
 
@@ -329,10 +348,22 @@ class PassPlanInput {
 
   double beadArea(PassConsumable c) => beadAreasMm2[c] ?? c.defaultBeadAreaMm2;
 
-  /// Współczynnik jarzenia łuku, %.
+  /// Współczynnik jarzenia łuku wpisany (albo z profilu wyceny), %.
   double arcOnPctOf(QuoteProcess p) => arcOnPct[p] ?? defaultArcOnPct(p);
 
-  double arcOnFraction(QuoteProcess p) => arcOnPctOf(p) / 100;
+  /// Do czasu złącza: wpisany, ale nie wyższy niż górna granica TWI —
+  /// czas nigdy krótszy, niż pozwala źródło.
+  double timeArcOnPct(QuoteProcess p) =>
+      math.min(arcOnPctOf(p), arcOnUpperBoundPct(p));
+
+  /// Do „ile naraz z suszarki”: wpisany, ale nie wyższy niż DOLNA granica
+  /// TWI — wolniejsze zużycie = mniej elektrod naraz.
+  double exposureArcOnPct(QuoteProcess p) =>
+      math.min(arcOnPctOf(p), arcOnLowerBoundPct(p));
+
+  /// Wpisany współczynnik powyżej górnej granicy — czas liczony z granicy.
+  bool arcOnCappedForTime(QuoteProcess p) =>
+      arcOnPctOf(p) > arcOnUpperBoundPct(p);
 }
 
 /// Złącze wyceny z danych planu — ta sama walidacja i ta sama geometria.
@@ -502,7 +533,13 @@ class PassLayerPlan {
   /// Elektrody albo pręty TIG (ułamek); drut MAG — 0.
   final double units;
   final double arcMin;
+
+  /// Czas pracy do planu: łuk / [PassPlanInput.timeArcOnPct].
   final double workMin;
+
+  /// Czas pracy do oceny ekspozycji (ostrożnie dłuższy): łuk /
+  /// [PassPlanInput.exposureArcOnPct].
+  final double exposureWorkMin;
 
   const PassLayerPlan({
     required this.layer,
@@ -516,6 +553,7 @@ class PassLayerPlan {
     required this.units,
     required this.arcMin,
     required this.workMin,
+    required this.exposureWorkMin,
   });
 
   /// Elektrody / pręty na tę warstwę jednego złącza, W GÓRĘ.
@@ -568,8 +606,12 @@ class PassSupply {
 class ExposureTake {
   final ElectrodeCardRow electrode;
 
-  /// Tempo zużycia, elektrod na godzinę pracy.
+  /// Tempo zużycia do „ile naraz” — ostrożne (dolna granica TWI
+  /// współczynnika jarzenia łuku), elektrod na godzinę pracy.
   final double ratePerH;
+
+  /// Tempo zużycia wg planu (czas złącza) — do liczby porcji, el./h.
+  final double plannedRatePerH;
 
   /// Najwięcej naraz (W DÓŁ); `null` — bez limitu.
   final int? maxAtOnce;
@@ -577,16 +619,21 @@ class ExposureTake {
   /// Weź teraz: najwięcej naraz, ale nie więcej niż całość z zapasem.
   final int takeNow;
 
-  /// Potrzebne w czasie zmiany (albo całej roboty, jeśli krótsza), W GÓRĘ.
+  /// Potrzebne w czasie zmiany (albo całej roboty, jeśli krótsza) przy
+  /// tempie wg planu, W GÓRĘ.
   final int neededInShift;
 
   const ExposureTake({
     required this.electrode,
     required this.ratePerH,
+    required this.plannedRatePerH,
     required this.maxAtOnce,
     required this.takeNow,
     required this.neededInShift,
   });
+
+  /// Okno krótsze niż zużycie jednej elektrody tej średnicy.
+  bool get belowOne => maxAtOnce == 0;
 }
 
 class ExposurePlan {
@@ -594,11 +641,26 @@ class ExposurePlan {
   final ElectrodeClass? electrodeClass;
   final ElectrodeSource source;
 
-  /// Limit czasu na powietrzu, min; `null` — bez limitu.
+  /// Limit czasu na powietrzu użyty w rachunku, min; `null` — bez limitu.
   final int? limitMinutes;
 
-  /// Limit z tabeli modułu ekspozycji (nie wpisany).
+  /// Limit z tabeli modułu ekspozycji ([defaultLimitMinutes]); `null` —
+  /// bez limitu.
+  final int? tableLimitMinutes;
+
+  /// Limit wpisany w polu (w dół do minuty); `null` — pole puste.
+  final int? typedLimitMinutes;
+
+  /// Rachunek idzie z tabeli (pole puste albo dłuższy bez potwierdzenia).
   final bool limitFromTable;
+
+  /// Wpisano limit dłuższy niż tabela BEZ potwierdzenia — zignorowany,
+  /// liczone z tabeli (czerwone ostrzeżenie).
+  final bool limitRaiseIgnored;
+
+  /// Wpisano limit dłuższy niż tabela z potwierdzeniem „WPS / karta
+  /// producenta pozwala na dłużej”.
+  final bool limitRaiseConfirmed;
 
   /// Zapas przed końcem limitu (jak ostrzeżenie modułu ekspozycji), min.
   final int leadMinutes;
@@ -607,8 +669,15 @@ class ExposurePlan {
   final int windowMinutes;
   final WorkOrder order;
 
-  /// Czas pracy na złącze, z którego liczone jest tempo, min.
+  /// Czas pracy na złącze do tempa „ile naraz” (ostrożny), min.
   final double workMinPerJoint;
+
+  /// Czas pracy na złącze wg planu (do porcji), min.
+  final double plannedWorkMinPerJoint;
+
+  /// Współczynniki jarzenia łuku użyte do tempa „ile naraz” (procesy
+  /// warstw liczonych w tempie), %.
+  final Map<QuoteProcess, double> arcOnPctUsed;
   final double shiftH;
 
   /// Godziny pracy z elektrodami w tej zmianie (zmiana albo cała robota).
@@ -618,19 +687,25 @@ class ExposurePlan {
   final bool wholeJobInShift;
   final List<ExposureTake> takes;
 
-  /// Ile razy iść do suszarki w czasie [hoursInShift]; `null` — okno za
-  /// krótkie na choćby jedną elektrodę.
+  /// Ile razy iść do suszarki w czasie [hoursInShift] (tylko średnice,
+  /// których co najmniej 1 sztuka mieści się w oknie); `null` — żadna.
   final int? portions;
 
   const ExposurePlan({
     required this.electrodeClass,
     required this.source,
     required this.limitMinutes,
+    required this.tableLimitMinutes,
+    required this.typedLimitMinutes,
     required this.limitFromTable,
+    required this.limitRaiseIgnored,
+    required this.limitRaiseConfirmed,
     required this.leadMinutes,
     required this.windowMinutes,
     required this.order,
     required this.workMinPerJoint,
+    required this.plannedWorkMinPerJoint,
+    required this.arcOnPctUsed,
     required this.shiftH,
     required this.hoursInShift,
     required this.wholeJobInShift,
@@ -644,7 +719,11 @@ class ExposurePlan {
   int get totalTakeNow => takes.fold(0, (s, t) => s + t.takeNow);
 
   /// Choć jedna średnica nie mieści nawet jednej sztuki w oknie.
-  bool get someBelowOne => takes.any((t) => t.maxAtOnce == 0);
+  bool get someBelowOne => takes.any((t) => t.belowOne);
+
+  /// Średnice wyjmowane po jednej (okno krótsze niż jedna elektroda).
+  List<ExposureTake> get belowOneTakes =>
+      takes.where((t) => t.belowOne).toList();
 }
 
 class PassPlanResult {
@@ -820,7 +899,8 @@ PassLayerPlan _layerPlan(
     fillerG: fillerG,
     units: units,
     arcMin: arcMin,
-    workMin: arcMin / i.arcOnFraction(c.process),
+    workMin: arcMin / (i.timeArcOnPct(c.process) / 100),
+    exposureWorkMin: arcMin / (i.exposureArcOnPct(c.process) / 100),
   );
 }
 
@@ -834,8 +914,12 @@ PassPlanResult? planPasses(PassPlanInput i) {
   final rest = a.hot + a.fill + a.cap;
   double share(double area) => rest > _areaEps ? vol.fillMm3 * area / rest : 0;
 
+  // Grań: pole / przekrój ściegu spoiwa grani, W GÓRĘ — szeroka szczelina
+  // to więcej ściegów; co najmniej 1 (rowek X — po jednym z każdej strony).
+  final rootPasses =
+      math.max(ceilTol(a.root / i.beadArea(i.root)), xGroove ? 2 : 1);
   final layers = <PassLayerPlan>[
-    _layerPlan(i, PassLayer.root, i.root, xGroove ? 2 : 1, a.root, vol.rootMm3),
+    _layerPlan(i, PassLayer.root, i.root, rootPasses, a.root, vol.rootMm3),
     if (a.hot > 0)
       _layerPlan(i, PassLayer.hot, i.effectiveHot!, 1, a.hot, share(a.hot)),
     if (a.fill > 0)
@@ -900,21 +984,39 @@ ExposurePlan? _exposure(PassPlanInput i, List<PassLayerPlan> layers,
   final electrodes = supplies.where((s) => s.isElectrode).toList();
   if (electrodes.isEmpty) return null;
   final order = i.effectiveOrder;
-  final workPerJoint = layers
-      .where(
-          (l) => order == WorkOrder.jointByJoint || l.layer != PassLayer.root)
-      .fold(0.0, (s, l) => s + l.workMin);
+  final counted = layers.where(
+      (l) => order == WorkOrder.jointByJoint || l.layer != PassLayer.root);
+  // Tempo do „ile naraz” — z ostrożnego (dłuższego) czasu pracy; do porcji
+  // — z czasu wg planu (szybsze zużycie = więcej wyjść do suszarki).
+  final workPerJoint = counted.fold(0.0, (s, l) => s + l.exposureWorkMin);
+  final plannedPerJoint = counted.fold(0.0, (s, l) => s + l.workMin);
   final hoursPerJoint = workPerJoint / 60;
-  final jobH = hoursPerJoint * count;
+  final plannedHoursPerJoint = plannedPerJoint / 60;
+  final jobH = plannedHoursPerJoint * count;
   final hoursInShift = math.min(i.shiftH, jobH);
 
   final cls = i.electrodeClass;
+  int? table;
+  int? typed;
   int? limit;
+  var raiseIgnored = false;
+  var raiseConfirmed = false;
   if (cls != null) {
-    final typed = i.limitMinutes;
+    table = defaultLimitMinutes(cls, i.source);
+    final t = i.limitMinutes;
     // Limit z pola — w dół do pełnej minuty (krótszy = bezpieczniej).
-    limit =
-        typed != null ? floorTol(typed) : defaultLimitMinutes(cls, i.source);
+    typed = t == null ? null : floorTol(t);
+    if (typed == null || typed <= table) {
+      limit = typed ?? table;
+    } else if (i.limitAboveTableConfirmed) {
+      limit = typed;
+      raiseConfirmed = true;
+    } else {
+      // Dłuższy niż tabela bez potwierdzenia (np. literówka „2400”) —
+      // liczymy z tabeli i ostrzegamy.
+      limit = table;
+      raiseIgnored = true;
+    }
   }
   final lead = limit == null ? 0 : warnLeadMinutes(limit);
   final window = limit == null ? 0 : math.max(0, limit - lead);
@@ -923,14 +1025,18 @@ ExposurePlan? _exposure(PassPlanInput i, List<PassLayerPlan> layers,
     for (final s in electrodes)
       () {
         final rate = hoursPerJoint > 0 ? s.unitsPerJoint / hoursPerJoint : 0.0;
+        final planned = plannedHoursPerJoint > 0
+            ? s.unitsPerJoint / plannedHoursPerJoint
+            : 0.0;
         final z = limit == null ? null : floorTol(window / 60 * rate);
         final all = s.unitsJobWithReserve;
         return ExposureTake(
           electrode: s.electrode!,
           ratePerH: rate,
+          plannedRatePerH: planned,
           maxAtOnce: z,
           takeNow: z == null ? all : math.min(z, all),
-          neededInShift: math.min(ceilTol(rate * hoursInShift), s.unitsJob),
+          neededInShift: math.min(ceilTol(planned * hoursInShift), s.unitsJob),
         );
       }(),
   ];
@@ -951,11 +1057,20 @@ ExposurePlan? _exposure(PassPlanInput i, List<PassLayerPlan> layers,
     electrodeClass: cls,
     source: i.source,
     limitMinutes: limit,
-    limitFromTable: cls != null && i.limitMinutes == null,
+    tableLimitMinutes: table,
+    typedLimitMinutes: typed,
+    limitFromTable: cls != null && (typed == null || raiseIgnored),
+    limitRaiseIgnored: raiseIgnored,
+    limitRaiseConfirmed: raiseConfirmed,
     leadMinutes: lead,
     windowMinutes: window,
     order: order,
     workMinPerJoint: workPerJoint,
+    plannedWorkMinPerJoint: plannedPerJoint,
+    arcOnPctUsed: {
+      for (final l in counted)
+        l.consumable.process: i.exposureArcOnPct(l.consumable.process),
+    },
     shiftH: i.shiftH,
     hoursInShift: hoursInShift,
     wholeJobInShift: jobH <= i.shiftH + _tol,

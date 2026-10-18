@@ -22,6 +22,7 @@ import '../../domain/pass_plan/pass_plan_form.dart';
 import '../../domain/pass_plan/pass_plan_sources.dart';
 import '../../domain/pass_plan/pass_plan_text.dart';
 import '../../domain/quotes/quote_labels.dart';
+import '../../domain/quotes/quote_process.dart';
 import '../../domain/quotes/weld_geometry.dart';
 import '../../domain/welding/electrode_exposure.dart';
 import '../../i18n/app_language.dart';
@@ -82,6 +83,9 @@ class _PassPlanPageState extends State<PassPlanPage> {
   final Map<String, String> _choices = {};
 
   bool _edited = false;
+
+  /// Odczyt zapisu zakończony — do tego czasu nic nie zapisujemy.
+  bool _loaded = false;
   bool _loadLossy = false;
   bool _sharing = false;
 
@@ -130,19 +134,32 @@ class _PassPlanPageState extends State<PassPlanPage> {
     try {
       saved = await widget.store.load();
     } catch (_) {
+      saved = null;
+    }
+    if (!mounted) return;
+    // Dopiero teraz wolno zapisywać: odczyt zdążył zachować kopię
+    // uszkodzonego zapisu, a zapis nie nadpisze go wartościami domyślnymi.
+    _loaded = true;
+    if (_edited) {
+      // Spawacz zaczął pisać, zanim zapis się wczytał — jego wpisy wygrywają.
+      _save();
       return;
     }
-    if (!mounted || saved == null || _edited) return;
+    if (saved == null) return;
     setState(() {
       _applyForm(saved!.form);
       _loadLossy = saved.lossy;
     });
   }
 
+  void _save() {
+    unawaited(widget.store.save(_form).catchError((Object _) {}));
+  }
+
   void _changed() {
     _edited = true;
     setState(() {});
-    unawaited(widget.store.save(_form).catchError((Object _) {}));
+    if (_loaded) _save();
   }
 
   void _choose(String key, String value) {
@@ -672,6 +689,12 @@ class _PassPlanPageState extends State<PassPlanPage> {
 
   // ── Sekcja: ekspozycja (wejście) ───────────────────────────────────────
 
+  /// Wpisany limit (w dół do minuty) dłuższy niż tabela.
+  static bool _typedAboveTable(PassPlanInput i, int table) {
+    final t = i.limitMinutes;
+    return t != null && t.isFinite && floorTol(t) > table;
+  }
+
   Widget _exposureInputSection(PassPlanInput i) {
     if (!i.usesElectrodes) {
       return QuoteSection(
@@ -755,9 +778,32 @@ class _PassPlanPageState extends State<PassPlanPage> {
               unit: 'min',
               decimal: false,
               helper: context.tr(
-                  pl: 'Puste — z tabeli. Krótszy limit z WPS ma pierwszeństwo.',
-                  en: 'Empty — from the table. A shorter WPS limit takes '
-                      'precedence.')),
+                  pl: 'Puste — z tabeli. Krótszy zawsze ma pierwszeństwo; '
+                      'dłuższy niż tabela tylko z potwierdzeniem niżej.',
+                  en: 'Empty — from the table. A shorter one always takes '
+                      'precedence; longer than the table only with the '
+                      'confirmation below.')),
+          if (_typedAboveTable(i, tableLimit!))
+            SwitchListTile(
+              key: const ValueKey('pp-limit-up'),
+              contentPadding: EdgeInsets.zero,
+              value: _choice(PassPlanField.limitUp) == '1',
+              onChanged: (v) => _choose(PassPlanField.limitUp, v ? '1' : '0'),
+              title: Text(
+                  context.tr(
+                      pl: 'WPS / karta producenta pozwala na dłużej '
+                          '(potwierdzam)',
+                      en: 'The WPS / manufacturer’s data sheet allows longer '
+                          '(I confirm)'),
+                  style: const TextStyle(fontSize: 13.5, color: kText)),
+              subtitle: Text(
+                  context.tr(
+                      pl: 'Bez potwierdzenia liczę z tabeli: '
+                          '${formatSpan(Duration(minutes: tableLimit))}.',
+                      en: 'Without the confirmation the table is used: '
+                          '${formatSpan(Duration(minutes: tableLimit))}.'),
+                  style: const TextStyle(fontSize: 12, color: kTextMut)),
+            ),
         ],
         if (i.rootsFirstAvailable) ...[
           _label(context.tr(pl: 'Kolejność pracy', en: 'Work order')),
@@ -796,6 +842,21 @@ class _PassPlanPageState extends State<PassPlanPage> {
         en: '≈ ${mm.round()} mm of bead per $size electrode');
   }
 
+  /// Opis pola współczynnika jarzenia łuku: co liczy się z jakiej wartości
+  /// (kierunek ostrożny — patrz pass_plan_sources.dart).
+  String _arcOnHelper(PassPlanInput i, QuoteProcess p) {
+    final lo = ppNum(arcOnLowerBoundPct(p), en: _en);
+    final hi = ppNum(arcOnUpperBoundPct(p), en: _en);
+    final capped = i.arcOnCappedForTime(p);
+    return context.tr(
+        pl: 'TWI: $lo–$hi %. Czas złącza z wpisanego, najwyżej $hi %'
+            '${capped ? ' (tu liczę $hi %)' : ''}; „ile naraz” z najwyżej '
+            '$lo % — wolniejsze zużycie, mniej elektrod na powietrzu.',
+        en: 'TWI: $lo–$hi %. Joint time from the typed value, at most $hi %'
+            '${capped ? ' (using $hi % here)' : ''}; “at once” from at most '
+            '$lo % — slower use, fewer electrodes out.');
+  }
+
   Widget _assumptionsSection(PassPlanInput i) {
     return QuoteSection(
       title:
@@ -828,11 +889,7 @@ class _PassPlanPageState extends State<PassPlanPage> {
                   pl: 'Współczynnik jarzenia łuku ${p.code}',
                   en: 'Arc-on factor ${p.code}'),
               unit: '%',
-              helper: context.tr(
-                  pl: 'Część czasu pracy z zapalonym łukiem (reszta: '
-                      'czyszczenie, wymiana elektrody, szlifowanie).',
-                  en: 'Share of working time with the arc on (the rest: '
-                      'cleaning, changing electrodes, grinding).')),
+              helper: _arcOnHelper(i, p)),
       ],
     );
   }
@@ -990,19 +1047,31 @@ class _PassPlanPageState extends State<PassPlanPage> {
               piecesText(t.takeNow, en: _en),
               key: ValueKey('pp-take-${t.electrode.diameterMm}'), strong: true),
         const SizedBox(height: 4),
-        if (e.hasLimit && e.someBelowOne)
+        if (e.limitRaiseIgnored)
+          KeyedSubtree(
+            key: const ValueKey('pp-limit-ignored'),
+            child: QuoteNotice(
+              color: kFail,
+              icon: Icons.error_outline,
+              text: exposureLimitNoteText(e, en: _en)!,
+            ),
+          ),
+        if (e.limitRaiseConfirmed)
+          KeyedSubtree(
+            key: const ValueKey('pp-limit-confirmed'),
+            child: QuoteNotice(
+              color: kWarn,
+              icon: Icons.verified_outlined,
+              text: exposureLimitNoteText(e, en: _en)!,
+            ),
+          ),
+        if (exposureBelowOneText(e, en: _en) case final text?)
           KeyedSubtree(
             key: const ValueKey('pp-below-one'),
             child: QuoteNotice(
               color: kFail,
               icon: Icons.warning_amber_outlined,
-              text: context.tr(
-                  pl: 'Dla części średnic okno jest krótsze niż zużycie jednej '
-                      'elektrody — wyjmuj je po jednej, resztę trzymaj w '
-                      'piecyku.',
-                  en: 'For some diameters the window is shorter than using up '
-                      'one electrode — take them out one at a time, keep the '
-                      'rest in the oven.'),
+              text: text,
             ),
           ),
         KeyedSubtree(

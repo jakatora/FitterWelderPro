@@ -24,6 +24,15 @@
 //      30–45 % (bez czasu ustawiania i montażu). Domyślne z [P] mieszczą się
 //      w tych zakresach.
 //      https://www.twi-global.com/technical-knowledge/job-knowledge/welding-costs-096
+//      KIERUNEK OSTROŻNY ([kArcOnRangePct]):
+//       • „ile naraz z suszarki” — współczynnik min(wpisany, DOLNA granica
+//         TWI): niższy współczynnik = wolniejsze zużycie = mniej elektrod
+//         naraz = krótsza ekspozycja. Wyższy wpisany współczynnik NIGDY nie
+//         zwiększa „ile naraz”;
+//       • czas złącza i całości — min(wpisany, GÓRNA granica TWI): wyższy
+//         współczynnik skraca czas, więc nie liczymy krócej niż przy górnej
+//         granicy źródła (plan zmiany nie wyjdzie zbyt optymistyczny); niższy
+//         wpisany — dłuższy czas, przyjęty.
 //  [E] Moduł „Elektrody zasadowe: czas i suszenie”
 //      (lib/domain/welding/electrode_exposure.dart): limity AWS D1.1:2020
 //      Tabela 7.1 i kart producentów (defaultLimitMinutes), zapas przed
@@ -152,9 +161,12 @@ const double kMaxStubMm = 150;
 /// w pozycjach wymuszonych, do korekty). Sprawdzenie na stanowisku:
 /// przekrój = objętość stopiwa z elektrody / długość ściegu z niej
 /// (np. Ø3,2 × 350: 23,8 g = 3030 mm³; 18 mm² ↔ ok. 170 mm ściegu).
+/// TIG: 0,5 kg/h ([P]) przy ok. 90 mm/min ≈ 12 mm² — ścieg graniowy
+/// z przetopem na rowku 2,5 / 1,5 mieści się w jednym ściegu.
+/// Służą też do liczby ściegów GRANI (szeroka szczelina = więcej ściegów).
 /// Klucze: nazwy [PassConsumable] (tig, mma25, mma32, mma40, mag).
 const Map<String, double> kDefaultBeadAreaMm2 = {
-  'tig': 10,
+  'tig': 12,
   'mma25': 12,
   'mma32': 18,
   'mma40': 26,
@@ -192,6 +204,16 @@ const double kMaxShiftH = 24;
 /// Współczynnik jarzenia łuku przyjmowany z pola, %.
 const double kMinArcOnPct = 5;
 const double kMaxArcOnPct = 100;
+
+/// Zakres współczynnika jarzenia łuku ręcznego spawania wg [T], % —
+/// (dolna, górna) granica. Klucze: kody procesów wyceny (TIG, MMA, MAG).
+/// Dolna — do „ile naraz z suszarki”, górna — ograniczenie czasu (patrz
+/// KIERUNEK OSTROŻNY w nagłówku).
+const Map<String, (double, double)> kArcOnRangePct = {
+  'TIG': (25, 40),
+  'MMA': (15, 30),
+  'MAG': (30, 45),
+};
 
 /// Największa liczba złączy w jednym planie (literówka?).
 const int kMaxJointCount = 100000;
@@ -239,6 +261,21 @@ const List<PassPlanSource> kPassPlanSources = [
         '“Welding costs” ranges (MMA 15–30 %, TIG 25–40 %, MAG 30–45 %).',
   ),
   PassPlanSource(
+    'arc-on-direction',
+    'Kierunek ostrożny: „ile naraz z suszarki” liczone z dolnej granicy TWI '
+        '(MMA 15 %, TIG 25 %, MAG 30 %) albo niższej wpisanej — wolniejsze '
+        'zużycie to mniej elektrod naraz i krótsza ekspozycja, więc wyższy '
+        'współczynnik nie zwiększa tej liczby. Czas złącza z wpisanego, ale '
+        'nie wyższego niż górna granica TWI (MMA 30 %, TIG 40 %, MAG 45 %) — '
+        'plan zmiany nie wyjdzie krótszy, niż pozwala źródło.',
+    'Cautious direction: “how many at once from the oven” uses the TWI lower '
+        'bound (MMA 15 %, TIG 25 %, MAG 30 %) or a lower typed value — slower '
+        'use means fewer electrodes at once and shorter exposure, so a higher '
+        'factor never raises that number. Joint time uses the typed factor, '
+        'but not above the TWI upper bound (MMA 30 %, TIG 40 %, MAG 45 %) — '
+        'the shift plan is never shorter than the source allows.',
+  ),
+  PassPlanSource(
     'exposure',
     'Limit czasu na powietrzu i zapas przed końcem — z modułu „Elektrody '
         'zasadowe: czas i suszenie” (AWS D1.1:2020 Tabela 7.1, karty '
@@ -249,13 +286,15 @@ const List<PassPlanSource> kPassPlanSources = [
   ),
   PassPlanSource(
     'assumed',
-    'Przyjęte w aplikacji (do korekty): przekroje ściegów TIG 10, Ø2,5 12, '
-        'Ø3,2 18, Ø4,0 26, MAG 25 mm²; ogarek 50 mm (karta ESAB nie podaje '
+    'Przyjęte w aplikacji (do korekty): przekroje ściegów TIG 12, Ø2,5 12, '
+        'Ø3,2 18, Ø4,0 26, MAG 25 mm² (także liczba ściegów grani); ogarek '
+        '50 mm (karta ESAB nie podaje '
         'ogarka — przyjęto, że jej dane odpowiadają 50 mm); warstwa lica 2 mm '
         'w rowku; resztka wypełnienia poniżej pół ściegu idzie do lica; '
         'pręt TIG 1000 mm.',
-    'Assumed in the app (adjust as needed): bead areas TIG 10, Ø2.5 12, '
-        'Ø3.2 18, Ø4.0 26, MAG 25 mm²; 50 mm stub (the ESAB sheet gives no '
+    'Assumed in the app (adjust as needed): bead areas TIG 12, Ø2.5 12, '
+        'Ø3.2 18, Ø4.0 26, MAG 25 mm² (also the number of root passes); 50 mm '
+        'stub (the ESAB sheet gives no '
         'stub length — its data are taken as for 50 mm); 2 mm cap layer in '
         'the groove; a fill remainder under half a bead goes into the cap; '
         '1000 mm TIG rod.',

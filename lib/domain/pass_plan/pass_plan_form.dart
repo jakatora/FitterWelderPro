@@ -40,6 +40,7 @@ abstract final class PassPlanField {
   static const electrodeClass = 'class';
   static const source = 'source';
   static const limit = 'limit';
+  static const limitUp = 'limitUp';
   static const order = 'order';
   static const shift = 'shift';
 
@@ -112,6 +113,7 @@ Map<String, String> passPlanDefaultForm() {
     PassPlanField.electrodeClass: i.electrodeClass?.name ?? kPassPlanNone,
     PassPlanField.source: i.source.name,
     PassPlanField.limit: '',
+    PassPlanField.limitUp: i.limitAboveTableConfirmed ? '1' : '0',
     PassPlanField.order: i.order.name,
     PassPlanField.shift: _canon(i.shiftH),
     for (final c in PassConsumable.values)
@@ -145,6 +147,7 @@ bool passPlanFieldValid(String key, String value) {
     case PassPlanField.cap:
       return kCapChoices.any((c) => c.name == value);
     case PassPlanField.long:
+    case PassPlanField.limitUp:
       return value == '0' || value == '1';
     case PassPlanField.rod:
       final d = parseDecimal(value);
@@ -240,6 +243,7 @@ PassPlanInput passPlanInputFromForm(Map<String, String> form) {
         cls == kPassPlanNone ? null : ElectrodeClass.values.byName(cls),
     source: ElectrodeSource.values.byName(choice(PassPlanField.source)),
     limitMinutes: limitText.isEmpty ? null : _num(limitText),
+    limitAboveTableConfirmed: choice(PassPlanField.limitUp) == '1',
     order: WorkOrder.values.byName(choice(PassPlanField.order)),
     shiftH: _num(v(PassPlanField.shift)),
   );

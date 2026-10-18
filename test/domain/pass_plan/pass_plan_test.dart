@@ -13,8 +13,12 @@
 //  • na złącze: TIG 1,348 pręta (→ 2), Ø2,5 3,067 (→ 4), Ø3,2 4,761 (→ 5);
 //    na 8 złączy z dokładnych: 10,79 → 11, 24,54 → 25, 38,09 → 39; z zapasem
 //    10 %: 12, 27, 42; czas złącza 43,3 → 44 min, całość 346,4 → 347 min;
-//  • ekspozycja: 240 min − 30 min = 210 min; tempo 4,25 i 6,60 el./h →
-//    14,9 → 14 i 23,1 → 23 naraz (w dół); 2 porcje na całą robotę.
+//  • grań TIG: 11,799 / 12 mm² → 1 ścieg;
+//  • ekspozycja: 240 min − 30 min = 210 min; tempo do „ile naraz” z dolnej
+//    granicy TWI (TIG 25 %, MMA 15 %): czas złącza 5,458/0,25 +
+//    8,310/0,15 = 77,23 min → 3,067/1,2872 h = 2,383 i 4,761/1,2872 =
+//    3,699 el./h → 8,34 → 8 i 12,9 → 12 naraz (w dół); porcje z tempa wg
+//    planu (4,251 i 6,598 el./h, cała robota 5,77 h): 25/8 → 4, 39/12 → 4.
 
 import 'dart:math' as math;
 
@@ -152,6 +156,29 @@ void main() {
       expect(r.layer(PassLayer.hot), isNull);
       expect(r.layer(PassLayer.root)!.passes, 2);
       expect(r.layer(PassLayer.cap)!.passes, greaterThanOrEqualTo(2));
+    });
+
+    test('grań: ściegi z przekroju ściegu spoiwa grani — szczelina 6 mm → 3',
+        () {
+      // Szczelina 6: 6·3 + 1,5²·tg 30° + ⅔·8·1 = 24,632 mm² / 12 → 3 ściegi.
+      final wide = _plan(_example.copyWith(gapMm: 6));
+      final root = wide.layer(PassLayer.root)!;
+      expect(root.areaMm2,
+          closeTo(6 * 3 + 1.5 * 1.5 * _tan30 + 2 / 3 * 8 * 1.0, 1e-9));
+      expect(root.passes, 3);
+      // Przekrój ściegu grani z pola: 25 mm² → 1 ścieg; zawsze co najmniej 1.
+      final big = _plan(
+          _example.copyWith(gapMm: 6, beadAreasMm2: {PassConsumable.tig: 25}));
+      expect(big.layer(PassLayer.root)!.passes, 1);
+      // Przykład 2,5 mm: 11,799 / 12 → 1.
+      expect(_plan(_example).layer(PassLayer.root)!.passes, 1);
+      // Przekrój ściegu spoiwa grani jest sprawdzany jak pozostałe.
+      expect(_example.beadConsumables, contains(PassConsumable.tig));
+      expect(
+          passPlanProblems(
+              _example.copyWith(beadAreasMm2: {PassConsumable.tig: 0})),
+          contains(const PassPlanProblem(PassPlanProblemKind.beadArea,
+              consumable: PassConsumable.tig)));
     });
 
     test('pachwina: a ≤ 3 mm — jeden ścieg; a = 6 — grań i lico', () {
@@ -292,6 +319,25 @@ void main() {
       expect(slow.workMinPerJoint, greaterThan(r.workMinPerJoint));
     });
 
+    test('czas złącza: wpisany współczynnik, najwyżej górna granica TWI', () {
+      final base = _plan(_example);
+      // MMA 100 % → czas liczony z 30 % (górna granica TWI) — jak domyślnie.
+      final fast = _plan(_example.copyWith(arcOnPct: {QuoteProcess.mma: 100}));
+      expect(
+          _example.copyWith(arcOnPct: {
+            QuoteProcess.mma: 100
+          }).arcOnCappedForTime(QuoteProcess.mma),
+          isTrue);
+      expect(fast.workMinPerJoint, closeTo(base.workMinPerJoint, 1e-9));
+      // TIG 100 % → 40 % zamiast 35 % — krócej, ale nie krócej niż z 40 %.
+      final tig = _plan(_example.copyWith(arcOnPct: {QuoteProcess.tig: 100}));
+      final root = tig.layer(PassLayer.root)!;
+      expect(root.workMin, closeTo(root.arcMin / 0.40, 1e-9));
+      expect(arcOnUpperBoundPct(QuoteProcess.mma), 30);
+      expect(arcOnUpperBoundPct(QuoteProcess.tig), 40);
+      expect(arcOnUpperBoundPct(QuoteProcess.mag), 45);
+    });
+
     test('czas łuku elektrody z czasu stapiania karty', () {
       final cap = _plan(_example).layer(PassLayer.cap)!;
       final row = electrodeRowFor(PassConsumable.mma32, long: false);
@@ -300,26 +346,88 @@ void main() {
   });
 
   group('ekspozycja', () {
-    test('przykład: limit 4 h − 30 min, najwyżej 14 Ø2,5 i 23 Ø3,2 (w dół)',
-        () {
+    test(
+        'przykład: limit 4 h − 30 min, łuk z dolnej granicy TWI → najwyżej '
+        '8 Ø2,5 i 12 Ø3,2 (w dół), 4 porcje', () {
       final e = _plan(_example).exposure!;
       expect(e.limitMinutes,
           defaultLimitMinutes(ElectrodeClass.enIso2560B, ElectrodeSource.oven));
       expect(e.limitMinutes, 240);
       expect(e.leadMinutes, warnLeadMinutes(240));
       expect(e.windowMinutes, 210);
+      expect(e.arcOnPctUsed, {QuoteProcess.tig: 25.0, QuoteProcess.mma: 15.0});
+      expect(e.workMinPerJoint, closeTo(77.23, 0.01));
       final r = _plan(_example);
-      expect(_take(r, 2.5).ratePerH, closeTo(4.251, 0.001));
-      expect(_take(r, 3.2).ratePerH, closeTo(6.598, 0.001));
-      expect(_take(r, 2.5).maxAtOnce, 14);
-      expect(_take(r, 3.2).maxAtOnce, 23);
+      expect(_take(r, 2.5).ratePerH, closeTo(2.383, 0.001));
+      expect(_take(r, 3.2).ratePerH, closeTo(3.699, 0.001));
+      expect(_take(r, 2.5).plannedRatePerH, closeTo(4.251, 0.001));
+      expect(_take(r, 3.2).plannedRatePerH, closeTo(6.598, 0.001));
+      expect(_take(r, 2.5).maxAtOnce, 8);
+      expect(_take(r, 3.2).maxAtOnce, 12);
       for (final t in e.takes) {
         final exact = e.windowMinutes / 60 * t.ratePerH;
         expect(t.maxAtOnce!, lessThanOrEqualTo(exact));
         expect(t.maxAtOnce! + 1, greaterThan(exact));
       }
-      expect(e.portions, 2);
+      // Porcje z tempa wg planu: 25 / 8 → 4, 39 / 12 → 4.
+      expect(e.portions, 4);
       expect(e.wholeJobInShift, isTrue);
+    });
+
+    test('współczynnik jarzenia łuku 100 % nie zwiększa „ile naraz”', () {
+      final base = _plan(_example);
+      final fast = _plan(_example
+          .copyWith(arcOnPct: {QuoteProcess.mma: 100, QuoteProcess.tig: 100}));
+      for (final d in [2.5, 3.2]) {
+        expect(_take(fast, d).maxAtOnce, _take(base, d).maxAtOnce);
+        expect(_take(fast, d).ratePerH, closeTo(_take(base, d).ratePerH, 1e-9));
+      }
+      // Niżej niż dolna granica (MMA 10 %) — wolniej, mniej naraz.
+      final slow = _plan(_example.copyWith(arcOnPct: {QuoteProcess.mma: 10}));
+      expect(_take(slow, 2.5).maxAtOnce, 6);
+      expect(_take(slow, 3.2).maxAtOnce, 9);
+      // Przegląd całego zakresu pola: nigdy więcej niż przy dolnej granicy.
+      for (var pct = 5.0; pct <= 100; pct += 5) {
+        final r = _plan(_example.copyWith(arcOnPct: {QuoteProcess.mma: pct}));
+        for (final d in [2.5, 3.2]) {
+          expect(_take(r, d).maxAtOnce!,
+              lessThanOrEqualTo(_take(base, d).maxAtOnce!),
+              reason: '$pct % Ø$d');
+        }
+      }
+    });
+
+    test('limit dłuższy niż tabela: bez potwierdzenia z tabeli, z — przyjęty',
+        () {
+      // Literówka „2400” zamiast „240” — bez potwierdzenia liczymy z tabeli.
+      final typo = _plan(_example.copyWith(limitMinutes: () => 2400)).exposure!;
+      expect(typo.limitMinutes, 240);
+      expect(typo.tableLimitMinutes, 240);
+      expect(typo.typedLimitMinutes, 2400);
+      expect(typo.limitRaiseIgnored, isTrue);
+      expect(typo.limitFromTable, isTrue);
+      expect(typo.takes.map((t) => t.maxAtOnce), [8, 12]);
+      expect(exposureLimitNoteText(typo, en: false),
+          contains('Wpisany limit 40 h 00 min jest dłuższy niż z tabeli'));
+      // Z potwierdzeniem „WPS / karta producenta pozwala na dłużej”.
+      final ok = _plan(_example.copyWith(
+              limitMinutes: () => 2400, limitAboveTableConfirmed: true))
+          .exposure!;
+      expect(ok.limitMinutes, 2400);
+      expect(ok.limitRaiseConfirmed, isTrue);
+      expect(ok.limitRaiseIgnored, isFalse);
+      // Krótszy (ostrzejszy) zawsze przyjęty, także bez potwierdzenia.
+      final strict =
+          _plan(_example.copyWith(limitMinutes: () => 120)).exposure!;
+      expect(strict.limitMinutes, 120);
+      expect(strict.limitRaiseIgnored, isFalse);
+      expect(exposureLimitNoteText(strict, en: false), isNull);
+      // Potwierdzenie nie zmienia krótszego limitu.
+      final strictOk = _plan(_example.copyWith(
+              limitMinutes: () => 120, limitAboveTableConfirmed: true))
+          .exposure!;
+      expect(strictOk.limitMinutes, 120);
+      expect(strictOk.limitRaiseConfirmed, isFalse);
     });
 
     test('limit z tabeli modułu ekspozycji: H4R 9 h, opakowanie próżniowe 8 h',
@@ -349,6 +457,37 @@ void main() {
       expect(e.portions, isNull);
     });
 
+    test(
+        'częściowe zero „ile naraz”: przypis „po jednej” w tekście, porcje '
+        'tylko dla reszty', () {
+      // E10018-X: 30 min − 10 min = 20 min; Ø2,5 2,383 × ⅓ = 0,79 → 0,
+      // Ø3,2 3,699 × ⅓ = 1,23 → 1.
+      final r = _plan(
+          _example.copyWith(electrodeClass: () => ElectrodeClass.e10018X));
+      final e = r.exposure!;
+      expect(e.windowMinutes, 20);
+      expect(_take(r, 2.5).maxAtOnce, 0);
+      expect(_take(r, 3.2).maxAtOnce, 1);
+      expect(e.someBelowOne, isTrue);
+      expect(e.belowOneTakes.single.electrode.diameterMm, 2.5);
+      // Porcje tylko dla Ø3,2: 39 / 1 = 39 — i opis, że Ø2,5 po jednej.
+      expect(e.portions, 39);
+      final portions = exposurePortionsText(e, en: false);
+      expect(portions, contains('39 porcji'));
+      expect(portions, contains('tylko Ø3,2; Ø2,5 po jednej'));
+      final note = exposureBelowOneText(e, en: false)!;
+      expect(note, startsWith('Ø2,5: okno krótsze niż zużycie jednej'));
+      final share = passPlanShareText(r, en: false);
+      expect(share, contains('! $note'));
+      expect(share, contains(portions));
+      final en = passPlanShareText(r, en: true);
+      expect(en, contains('! ${exposureBelowOneText(e, en: true)}'));
+      expect(en, contains('only Ø3.2; Ø2.5 one at a time'));
+      // Bez częściowego zera — bez przypisu.
+      expect(
+          exposureBelowOneText(_plan(_example).exposure!, en: false), isNull);
+    });
+
     test('elektroda nie zasadowa: bez limitu — całość z zapasem, 1 porcja', () {
       final r = _plan(_example.copyWith(electrodeClass: () => null));
       final e = r.exposure!;
@@ -362,8 +501,9 @@ void main() {
     test('najpierw granie: tempo bez grani TIG — więcej naraz', () {
       final r = _plan(_example.copyWith(order: WorkOrder.rootsFirst));
       expect(r.exposure!.order, WorkOrder.rootsFirst);
-      expect(_take(r, 2.5).maxAtOnce, 23);
-      expect(_take(r, 3.2).maxAtOnce, 36);
+      // Bez grani: 8,310 / 0,15 = 55,4 min → 3,322 i 5,156 el./h × 3,5 h.
+      expect(_take(r, 2.5).maxAtOnce, 11);
+      expect(_take(r, 3.2).maxAtOnce, 18);
       // Grań elektrodą — kolejność nie ma znaczenia, liczymy złącze po złączu.
       final mmaRoot = _plan(_example.copyWith(
           root: PassConsumable.mma25, order: WorkOrder.rootsFirst));
@@ -375,13 +515,14 @@ void main() {
       final e = r.exposure!;
       expect(e.wholeJobInShift, isFalse);
       expect(e.hoursInShift, 8);
-      // Ø2,5: 4,251 × 8 = 34,01 → 35, /14 → 3; Ø3,2: 52,8 → 53, /23 → 3.
+      // Tempo wg planu: Ø2,5 4,251 × 8 = 34,01 → 35, / 8 → 5; Ø3,2 52,8 →
+      // 53, / 12 → 5.
       expect(_take(r, 2.5).neededInShift, 35);
       expect(_take(r, 3.2).neededInShift, 53);
-      expect(e.portions, 3);
-      // Krótsza zmiana — mniej porcji.
+      expect(e.portions, 5);
+      // Krótsza zmiana — mniej porcji: 9 / 8 → 2, 14 / 12 → 2.
       final short = _plan(_example.copyWith(count: 20, shiftH: 2)).exposure!;
-      expect(short.portions, 1);
+      expect(short.portions, 2);
     });
   });
 
@@ -478,10 +619,24 @@ void main() {
     });
 
     test('zapis i odczyt bez strat', () {
-      final f = form({'od': '114,3', 'wall': '6,02', 'class': 'none'});
+      final f = form({
+        'od': '114,3',
+        'wall': '6,02',
+        'class': 'none',
+        'limit': '600',
+        'limitUp': '1'
+      });
       final d = decodePassPlanFormDetailed(encodePassPlanForm(f));
       expect(d.lossy, isFalse);
       expect(d.form, f);
+      final i = passPlanInputFromForm(d.form);
+      expect(i.limitMinutes, 600);
+      expect(i.limitAboveTableConfirmed, isTrue);
+      expect(
+          passPlanInputFromForm(passPlanDefaultForm()).limitAboveTableConfirmed,
+          isFalse);
+      expect(decodePassPlanFormDetailed('{"v":1,"f":{"limitUp":"tak"}}').lossy,
+          isTrue);
     });
 
     test('uszkodzony zapis → domyślne i flaga straty', () {
@@ -529,7 +684,10 @@ void main() {
       expect(pl, contains('Doczołowa rury Ø168,3 × 7,11, rowek V 60°'));
       expect(pl, contains('• Lico — elektroda Ø3,2 × 350 mm: 2 ściegi'));
       expect(pl, contains('Elektroda Ø2,5 × 350 mm: 25 szt. (z zapasem 27)'));
-      expect(pl, contains('Weź z suszarki: Ø2,5 × 14 szt. · Ø3,2 × 23 szt.'));
+      expect(pl, contains('Weź z suszarki: Ø2,5 × 8 szt. · Ø3,2 × 12 szt.'));
+      expect(pl, contains('łuk TIG 25 %, MMA 15 % — dolna granica TWI'));
+      expect(pl, contains('4 porcje na całą robotę (5 h 47 min pracy)'));
+      expect(pl, isNot(contains('! ')));
       expect(pl, contains('Limit 4 h 00 min − 30 min zapasu = 3 h 30 min'));
       expect(pl, contains('ESAB OK 48.00'));
       expect(pl, contains(passPlanDisclaimer(en: false)));
@@ -537,7 +695,11 @@ void main() {
       final en = passPlanShareText(r, en: true);
       expect(en, contains('Pass and electrode plan'));
       expect(en, contains('Electrode Ø3.2 × 350 mm: 39 pcs (with reserve 42)'));
-      expect(en, contains('Take from the oven: Ø2.5 × 14 pcs · Ø3.2 × 23 pcs'));
+      expect(en, contains('Take from the oven: Ø2.5 × 8 pcs · Ø3.2 × 12 pcs'));
+      // Limit 2400 bez potwierdzenia — ostrzeżenie także w tekście.
+      final typo = _plan(_example.copyWith(limitMinutes: () => 2400));
+      expect(passPlanShareText(typo, en: false),
+          contains('! Wpisany limit 40 h 00 min jest dłuższy niż z tabeli'));
     });
   });
 }

@@ -44,6 +44,29 @@ void main() {
     expect(prefs.getString(kPassPlanCorruptPrefsKey), 'pierwsze uszkodzenie');
   });
 
+  test('zapis nad nieczytelnym surowcem najpierw robi kopię, potem nadpisuje',
+      () async {
+    // Np. zapis wywołany, zanim odczyt zdążył zachować kopię.
+    SharedPreferences.setMockInitialValues(
+        {kPassPlanPrefsKey: '{"v":1,"f":{"od":'});
+    final form = {...passPlanDefaultForm(), 'od': '114,3'};
+    await store.save(form);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kPassPlanCorruptPrefsKey), '{"v":1,"f":{"od":');
+    expect((await store.load())!.form, form);
+    // Inny typ pod kluczem — też kopia.
+    SharedPreferences.setMockInitialValues({kPassPlanPrefsKey: 7});
+    await store.save(form);
+    final p2 = await SharedPreferences.getInstance();
+    expect(p2.getString(kPassPlanCorruptPrefsKey), '7');
+    // Czytelny zapis — bez kopii.
+    SharedPreferences.setMockInitialValues(
+        {kPassPlanPrefsKey: encodePassPlanForm(passPlanDefaultForm())});
+    await store.save(form);
+    final p3 = await SharedPreferences.getInstance();
+    expect(p3.containsKey(kPassPlanCorruptPrefsKey), isFalse);
+  });
+
   test('inny typ wartości w prefs (liczba, lista) nie wywala odczytu',
       () async {
     for (final value in <Object>[

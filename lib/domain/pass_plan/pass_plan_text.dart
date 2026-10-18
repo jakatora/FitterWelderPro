@@ -228,16 +228,64 @@ String exposureRuleText(ExposurePlan e, {required bool en}) {
           '${en ? 'pcs' : 'szt.'} '
           'Ø${formatDiameter(t.electrode.diameterMm, en: en)}')
       .join(' + ');
+  final arcOn = e.arcOnPctUsed.entries
+      .map((x) => '${x.key.code} ${ppNum(x.value, en: en)} %')
+      .join(', ');
   return en
       ? 'Limit $limit − $lead margin = $window. At $rates '
-          '(${workOrderText(e.order, en: en)}) take at most $most at once '
-          '(rounded down).'
+          '(${workOrderText(e.order, en: en)}; arc on $arcOn — the TWI lower '
+          'bound or lower, slower use = fewer out at once) take at most '
+          '$most at once (rounded down).'
       : 'Limit $limit − $lead zapasu = $window. Przy tempie $rates '
-          '(${workOrderText(e.order, en: en)}) bierz najwyżej $most naraz '
-          '(w dół).';
+          '(${workOrderText(e.order, en: en)}; łuk $arcOn — dolna granica TWI '
+          'albo niżej, wolniejsze zużycie = mniej naraz) bierz najwyżej $most '
+          'naraz (w dół).';
 }
 
-/// „2 porcje na zmianę 8 h” / „2 porcje na całą robotę (5 h 47 min)”.
+/// Uwaga o limicie wpisanym w polu: dłuższy niż tabela bez potwierdzenia
+/// (liczone z tabeli) albo z potwierdzeniem; `null` — nic do zgłoszenia.
+String? exposureLimitNoteText(ExposurePlan e, {required bool en}) {
+  final typed = e.typedLimitMinutes;
+  final table = e.tableLimitMinutes;
+  if (typed == null || table == null) return null;
+  final t = formatSpan(Duration(minutes: typed));
+  final tab = formatSpan(Duration(minutes: table));
+  if (e.limitRaiseIgnored) {
+    return en
+        ? 'The typed limit $t is longer than the table ($tab). Worked out '
+            'from the table — a longer limit only when the WPS or the '
+            'manufacturer’s data sheet allows it: tick the confirmation.'
+        : 'Wpisany limit $t jest dłuższy niż z tabeli ($tab). Liczę z tabeli '
+            '— dłuższy tylko, gdy pozwala WPS albo karta producenta: zaznacz '
+            'potwierdzenie.';
+  }
+  if (e.limitRaiseConfirmed) {
+    return en
+        ? 'Limit $t from the WPS / manufacturer’s data sheet — longer than the '
+            'table ($tab), confirmed.'
+        : 'Limit $t z WPS / karty producenta — dłuższy niż tabela ($tab), '
+            'potwierdzony.';
+  }
+  return null;
+}
+
+/// Średnice, których nawet jedna sztuka nie mieści się w oknie; `null` —
+/// takich nie ma. Ta sama treść na ekranie i w tekście do udostępnienia.
+String? exposureBelowOneText(ExposurePlan e, {required bool en}) {
+  if (!e.hasLimit || !e.someBelowOne) return null;
+  final ds = e.belowOneTakes
+      .map((t) => 'Ø${formatDiameter(t.electrode.diameterMm, en: en)}')
+      .join(', ');
+  return en
+      ? '$ds: the window is shorter than using up one electrode — take them '
+          'out one at a time, keep the rest in the oven.'
+      : '$ds: okno krótsze niż zużycie jednej elektrody — wyjmuj po jednej, '
+          'resztę trzymaj w piecyku.';
+}
+
+/// „4 porcje na zmianę 8 h” / „4 porcje na całą robotę (5 h 47 min)”;
+/// przy średnicach wyjmowanych po jednej — „(tylko Ø3,2; Ø2,5 po jednej)”,
+/// żeby liczba porcji nie sugerowała, że wszystko się mieści.
 String exposurePortionsText(ExposurePlan e, {required bool en}) {
   final p = e.portions;
   if (p == null) {
@@ -247,16 +295,25 @@ String exposurePortionsText(ExposurePlan e, {required bool en}) {
         : 'Okno krótsze niż zużycie jednej elektrody — wyjmuj po jednej, '
             'resztę z powrotem do piecyka.';
   }
+  String d(ExposureTake t) =>
+      'Ø${formatDiameter(t.electrode.diameterMm, en: en)}';
+  final partial = e.someBelowOne
+      ? (en
+          ? ' — only ${e.takes.where((t) => !t.belowOne).map(d).join(', ')}; '
+              '${e.belowOneTakes.map(d).join(', ')} one at a time'
+          : ' — tylko ${e.takes.where((t) => !t.belowOne).map(d).join(', ')}; '
+              '${e.belowOneTakes.map(d).join(', ')} po jednej')
+      : '';
   if (e.wholeJobInShift) {
     final t = minutesText(e.hoursInShift * 60);
     return en
-        ? '${portionsText(p, en: en)} for the whole job ($t of work)'
-        : '${portionsText(p, en: en)} na całą robotę ($t pracy)';
+        ? '${portionsText(p, en: en)} for the whole job ($t of work)$partial'
+        : '${portionsText(p, en: en)} na całą robotę ($t pracy)$partial';
   }
   final s = hoursText(e.shiftH, en: en);
   return en
-      ? '${portionsText(p, en: en)} per $s shift'
-      : '${portionsText(p, en: en)} na zmianę $s';
+      ? '${portionsText(p, en: en)} per $s shift$partial'
+      : '${portionsText(p, en: en)} na zmianę $s$partial';
 }
 
 // ─── Komunikaty ──────────────────────────────────────────────────────────
@@ -398,6 +455,10 @@ String passPlanShareText(PassPlanResult r, {required bool en}) {
           : 'Elektrody: ${electrodeClassText(e.electrodeClass, en: en)}'
               '${e.hasLimit ? ', ${electrodeSourceText(e.source, en: en)}' : ''}')
       ..writeln(exposureRuleText(e, en: en));
+    final limitNote = exposureLimitNoteText(e, en: en);
+    if (limitNote != null) b.writeln('! $limitNote');
+    final belowOne = exposureBelowOneText(e, en: en);
+    if (belowOne != null) b.writeln('! $belowOne');
     if (e.hasLimit) b.writeln(exposurePortionsText(e, en: en));
   }
   b

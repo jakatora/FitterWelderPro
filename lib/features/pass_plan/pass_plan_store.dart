@@ -42,8 +42,24 @@ class PassPlanStore {
     return result;
   }
 
+  /// Zapis. Jeśli pod kluczem leży coś, czego nie da się odczytać bez strat
+  /// (np. zapis nie zdążył się wczytać), najpierw trafia to pod klucz kopii
+  /// — nadpisanie nie może zgubić surowego zapisu.
   Future<void> save(Map<String, String> form) async {
     final prefs = await SharedPreferences.getInstance();
+    Object? raw;
+    try {
+      raw = prefs.get(key);
+    } catch (_) {
+      raw = null;
+    }
+    if (raw != null) {
+      if (raw is! String) {
+        await _backup(prefs, _describe(raw));
+      } else if (decodePassPlanFormDetailed(raw).lossy) {
+        await _backup(prefs, raw);
+      }
+    }
     await prefs.setString(key, encodePassPlanForm(form));
   }
 

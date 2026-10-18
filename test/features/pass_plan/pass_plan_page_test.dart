@@ -1,14 +1,17 @@
 // Ekran „Plan ściegów i elektrod”: przykład 8 × 168,3 × 7,11 (grań TIG,
-// Ø2,5, Ø3,2) → 4 ściegi, 25 / 39 elektrod (z zapasem 27 / 42), weź 14 ×
-// Ø2,5 i 23 × Ø3,2; przecinek = kropka; puste pole = komunikat; typoszereg
-// DN / Sch; elektroda bez limitu; limit z WPS i kolejność pracy; blacha X
-// i pachwina; założenia; zapis i uszkodzony zapis; EN; udostępnianie;
-// 360×640 z tekstem ×1,5; cele dotyku ≥ 48 dp.
+// Ø2,5, Ø3,2) → 4 ściegi, 25 / 39 elektrod (z zapasem 27 / 42), weź 8 ×
+// Ø2,5 i 12 × Ø3,2 (łuk z dolnej granicy TWI); przecinek = kropka; puste
+// pole = komunikat; typoszereg DN / Sch; elektroda bez limitu; limit z WPS
+// i kolejność pracy; limit dłuższy niż tabela tylko z potwierdzeniem;
+// blacha X i pachwina; założenia; zapis czeka na odczyt; zapis i uszkodzony
+// zapis; EN; udostępnianie; 360×640 z tekstem ×1,5; cele dotyku ≥ 48 dp.
 //
 // Liczby jak w test/domain/pass_plan/pass_plan_test.dart. Limit z WPS
-// 120 min: okno 120 − 30 = 90 min; złącze po złączu 4,251 × 1,5 = 6,4 → 6
-// i 6,598 × 1,5 = 9,9 → 9; najpierw granie 6,644 × 1,5 = 9,97 → 9
-// i 10,313 × 1,5 = 15,5 → 15.
+// 120 min: okno 120 − 30 = 90 min; złącze po złączu 2,383 × 1,5 = 3,6 → 3
+// i 3,699 × 1,5 = 5,5 → 5; najpierw granie 3,322 × 1,5 = 4,98 → 4
+// i 5,156 × 1,5 = 7,7 → 7.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +21,7 @@ import 'package:cut_list_app/domain/pass_plan/pass_plan.dart';
 import 'package:cut_list_app/domain/pass_plan/pass_plan_form.dart';
 import 'package:cut_list_app/domain/pass_plan/pass_plan_text.dart';
 import 'package:cut_list_app/features/pass_plan/pass_plan_page.dart';
+import 'package:cut_list_app/features/pass_plan/pass_plan_store.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/theme/app_theme.dart';
 
@@ -27,6 +31,27 @@ class _ShareSpy {
       calls.add((text, subject));
 }
 
+/// Magazyn, którego odczyt kończy się dopiero po [gate] — zapis w tym czasie
+/// byłby nadpisaniem nieodczytanych danych.
+class _SlowStore extends PassPlanStore {
+  _SlowStore();
+
+  final gate = Completer<void>();
+  final saves = <Map<String, String>>[];
+
+  @override
+  Future<({Map<String, String> form, bool lossy})?> load() async {
+    await gate.future;
+    return super.load();
+  }
+
+  @override
+  Future<void> save(Map<String, String> form) {
+    saves.add(Map.of(form));
+    return super.save(form);
+  }
+}
+
 Future<void> _pump(
   WidgetTester tester, {
   AppLanguage language = AppLanguage.pl,
@@ -34,6 +59,7 @@ Future<void> _pump(
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
   Map<String, Object>? prefs = const {},
+  PassPlanStore store = const PassPlanStore(),
 }) async {
   // prefs == null — zostaw to, co zapisał poprzedni ekran.
   if (prefs != null) SharedPreferences.setMockInitialValues(prefs);
@@ -51,7 +77,7 @@ Future<void> _pump(
         child: child!,
       ),
       // UniqueKey: kolejne _pump w jednym teście = świeży stan ekranu.
-      home: PassPlanPage(key: UniqueKey(), shareText: s.call),
+      home: PassPlanPage(key: UniqueKey(), shareText: s.call, store: store),
     ),
   ));
   await tester.pumpAndSettle();
@@ -109,8 +135,8 @@ String _fieldText(WidgetTester tester, String key) =>
 
 void main() {
   testWidgets(
-      'przykład 8 × 168,3 × 7,11: 4 ściegi, 25 / 39 elektrod, weź 14 × Ø2,5 '
-      'i 23 × Ø3,2', (tester) async {
+      'przykład 8 × 168,3 × 7,11: 4 ściegi, 25 / 39 elektrod, weź 8 × Ø2,5 '
+      'i 12 × Ø3,2', (tester) async {
     await _pump(tester);
     await _reveal(tester, 'pp-passes');
     expect(_in('pp-passes', '4'), findsOneWidget);
@@ -140,21 +166,25 @@ void main() {
     expect(_in('pp-job-time', '5 h 47 min'), findsOneWidget);
 
     await _reveal(tester, 'pp-take');
-    expect(_in('pp-take', '37'), findsOneWidget);
+    expect(_in('pp-take', '20'), findsOneWidget);
     await _reveal(tester, 'pp-take-2.5');
-    expect(_in('pp-take-2.5', '14 szt.'), findsOneWidget);
+    expect(_in('pp-take-2.5', '8 szt.'), findsOneWidget);
     await _reveal(tester, 'pp-take-3.2');
-    expect(_in('pp-take-3.2', '23 szt.'), findsOneWidget);
+    expect(_in('pp-take-3.2', '12 szt.'), findsOneWidget);
     await _reveal(tester, 'pp-exposure-rule');
     expect(
         _inContaining('pp-exposure-rule',
             'Limit 4 h 00 min − 30 min zapasu = 3 h 30 min'),
         findsOneWidget);
-    expect(_inContaining('pp-exposure-rule', 'bierz najwyżej 14 szt. Ø2,5'),
+    expect(_inContaining('pp-exposure-rule', 'łuk TIG 25 %, MMA 15 %'),
+        findsOneWidget);
+    expect(_inContaining('pp-exposure-rule', 'bierz najwyżej 8 szt. Ø2,5'),
         findsOneWidget);
     await _reveal(tester, 'pp-portions');
-    expect(_in('pp-portions', '2 porcje na całą robotę (5 h 47 min pracy)'),
+    expect(_in('pp-portions', '4 porcje na całą robotę (5 h 47 min pracy)'),
         findsOneWidget);
+    expect(_key('pp-limit-ignored'), findsNothing);
+    expect(_key('pp-below-one'), findsNothing);
     expect(find.textContaining('NaN'), findsNothing);
   });
 
@@ -258,15 +288,56 @@ void main() {
             'Limit 2 h 00 min − 30 min zapasu = 1 h 30 min'),
         findsOneWidget);
     await _reveal(tester, 'pp-take-2.5');
-    expect(_in('pp-take-2.5', '6 szt.'), findsOneWidget);
-    expect(_in('pp-take-3.2', '9 szt.'), findsOneWidget);
+    expect(_in('pp-take-2.5', '3 szt.'), findsOneWidget);
+    expect(_in('pp-take-3.2', '5 szt.'), findsOneWidget);
+    // Krótszy niż tabela — bez potwierdzenia i bez ostrzeżenia.
+    expect(_key('pp-limit-up'), findsNothing);
+    expect(_key('pp-limit-ignored'), findsNothing);
     await _tap(tester, 'pp-order-rootsFirst');
     await _reveal(tester, 'pp-take-2.5');
-    expect(_in('pp-take-2.5', '9 szt.'), findsOneWidget);
-    expect(_in('pp-take-3.2', '15 szt.'), findsOneWidget);
+    expect(_in('pp-take-2.5', '4 szt.'), findsOneWidget);
+    expect(_in('pp-take-3.2', '7 szt.'), findsOneWidget);
     // Grań elektrodą — wybór kolejności znika.
     await _tap(tester, 'pp-root-mma25');
     expect(_key('pp-order-rootsFirst'), findsNothing);
+  });
+
+  testWidgets(
+      'limit 2400 zamiast 240: czerwone ostrzeżenie i wynik z tabeli; '
+      'dłuższy dopiero po potwierdzeniu', (tester) async {
+    final spy = _ShareSpy();
+    await _pump(tester, spy: spy);
+    await _enter(tester, 'pp-limit', '2400');
+    await _reveal(tester, 'pp-limit-ignored');
+    expect(
+        _inContaining('pp-limit-ignored',
+            'Wpisany limit 40 h 00 min jest dłuższy niż z tabeli (4 h 00 min)'),
+        findsOneWidget);
+    await _reveal(tester, 'pp-take-2.5');
+    expect(_in('pp-take-2.5', '8 szt.'), findsOneWidget);
+    expect(_in('pp-take-3.2', '12 szt.'), findsOneWidget);
+    await _reveal(tester, 'pp-exposure-rule');
+    expect(
+        _inContaining('pp-exposure-rule', 'Limit 4 h 00 min'), findsOneWidget);
+    await _tap(tester, 'pp-share');
+    expect(spy.calls.single.$1,
+        contains('! Wpisany limit 40 h 00 min jest dłuższy niż z tabeli'));
+    // Potwierdzenie „WPS / karta producenta pozwala na dłużej”.
+    await _tap(tester, 'pp-limit-up');
+    expect(_key('pp-limit-ignored'), findsNothing);
+    await _reveal(tester, 'pp-limit-confirmed');
+    await _reveal(tester, 'pp-take-2.5');
+    expect(_in('pp-take-2.5', '27 szt.'), findsOneWidget);
+    await _reveal(tester, 'pp-exposure-rule');
+    expect(
+        _inContaining('pp-exposure-rule', 'Limit 40 h 00 min'), findsOneWidget);
+    // Potwierdzenie się zapisuje.
+    await _pump(tester, prefs: null);
+    await _reveal(tester, 'pp-limit-confirmed');
+    await _reveal(tester, 'pp-limit-up');
+    expect(tester.widget<SwitchListTile>(_key('pp-limit-up')).value, isTrue);
+    final size = tester.getSize(_key('pp-limit-up'));
+    expect(size.height, greaterThanOrEqualTo(kMinTapTarget));
   });
 
   testWidgets('blacha X i pachwina: bez ściegu gorącego; rowek X tylko blacha',
@@ -305,10 +376,48 @@ void main() {
     expect(_fieldText(tester, 'pp-bead-mma32'), '18');
     await _reveal(tester, 'pp-passes');
     expect(_in('pp-passes', '4'), findsOneWidget);
-    // Współczynnik jarzenia łuku MMA 15 % — dłuższy czas pracy.
+    // Przekrój ściegu grani: TIG 6 mm² → 11,8 / 6 → 2 ściegi grani.
+    await _enter(tester, 'pp-bead-tig', '6');
+    await _reveal(tester, 'pp-layer-root');
+    expect(_in('pp-layer-root', '2 ściegi'), findsOneWidget);
+    await _enter(tester, 'pp-bead-tig', '12');
+    // Współczynnik jarzenia łuku MMA 100 % nie zwiększa „ile naraz”,
+    // a czas złącza liczy najwyżej z 30 % (górna granica TWI).
+    await _enter(tester, 'pp-arcon-mma', '100');
+    expect(find.textContaining('(tu liczę 30 %)'), findsOneWidget);
+    await _reveal(tester, 'pp-take-3.2');
+    expect(_in('pp-take-3.2', '12 szt.'), findsOneWidget);
+    await _reveal(tester, 'pp-job-time');
+    expect(_in('pp-job-time', '5 h 47 min'), findsOneWidget);
+    // MMA 15 % — dłuższy czas pracy.
     await _enter(tester, 'pp-arcon-mma', '15');
     await _reveal(tester, 'pp-job-time');
     expect(_in('pp-job-time', '5 h 47 min'), findsNothing);
+  });
+
+  testWidgets(
+      'zapis czeka na odczyt: wpis w trakcie wczytywania nie nadpisuje '
+      'zapisu, potem wygrywa i zapisuje się z kopią', (tester) async {
+    final store = _SlowStore();
+    await _pump(tester,
+        store: store, prefs: {kPassPlanPrefsKey: 'zepsute — nie nadpisuj'});
+    await _enter(tester, 'pp-od', '114,3');
+    // Odczyt trwa — nic nie zapisano, surowy zapis nietknięty.
+    expect(store.saves, isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kPassPlanPrefsKey), 'zepsute — nie nadpisuj');
+    store.gate.complete();
+    await tester.pumpAndSettle();
+    // Odczyt skończony: wpis spawacza zostaje i dopiero teraz się zapisuje,
+    // a uszkodzony surowiec trafił pod klucz kopii.
+    expect(_fieldText(tester, 'pp-od'), '114,3');
+    expect(store.saves, hasLength(1));
+    expect(store.saves.single['od'], '114,3');
+    expect(prefs.getString(kPassPlanCorruptPrefsKey), 'zepsute — nie nadpisuj');
+    expect(
+        decodePassPlanFormDetailed(prefs.getString(kPassPlanPrefsKey)!)
+            .form['od'],
+        '114,3');
   });
 
   testWidgets(
@@ -343,7 +452,7 @@ void main() {
     await _reveal(tester, 'pp-supply-mma32');
     expect(_in('pp-supply-mma32', '39 pcs (with reserve 42)'), findsOneWidget);
     await _reveal(tester, 'pp-take-3.2');
-    expect(_in('pp-take-3.2', '23 pcs'), findsOneWidget);
+    expect(_in('pp-take-3.2', '12 pcs'), findsOneWidget);
     await _reveal(tester, 'pp-disclaimer');
     expect(
         find.textContaining('ESTIMATE for planning a shift'), findsOneWidget);
@@ -357,7 +466,7 @@ void main() {
     final (text, subject) = spy.calls.single;
     expect(subject, 'Plan ściegów i elektrod');
     expect(text, contains('• Lico — elektroda Ø3,2 × 350 mm: 2 ściegi'));
-    expect(text, contains('Weź z suszarki: Ø2,5 × 14 szt. · Ø3,2 × 23 szt.'));
+    expect(text, contains('Weź z suszarki: Ø2,5 × 8 szt. · Ø3,2 × 12 szt.'));
     expect(text, contains(passPlanDisclaimer(en: false)));
 
     final spyEn = _ShareSpy();
@@ -365,7 +474,32 @@ void main() {
     await _tap(tester, 'pp-share');
     final (en, enSubject) = spyEn.calls.single;
     expect(enSubject, 'Pass and electrode plan');
-    expect(en, contains('Take from the oven: Ø2.5 × 14 pcs · Ø3.2 × 23 pcs'));
+    expect(en, contains('Take from the oven: Ø2.5 × 8 pcs · Ø3.2 × 12 pcs'));
+  });
+
+  testWidgets(
+      'częściowe zero „ile naraz”: ten sam przypis „po jednej” na ekranie '
+      'i w udostępnionym tekście', (tester) async {
+    final spy = _ShareSpy();
+    await _pump(tester, spy: spy);
+    await _pick(tester, 'pp-class', 'E10018-X');
+    await _reveal(tester, 'pp-take-2.5');
+    expect(_in('pp-take-2.5', '0 szt.'), findsOneWidget);
+    expect(_in('pp-take-3.2', '1 szt.'), findsOneWidget);
+    await _reveal(tester, 'pp-below-one');
+    const note = 'Ø2,5: okno krótsze niż zużycie jednej elektrody — wyjmuj po '
+        'jednej, resztę trzymaj w piecyku.';
+    expect(_in('pp-below-one', note), findsOneWidget);
+    await _reveal(tester, 'pp-portions');
+    expect(_inContaining('pp-portions', 'tylko Ø3,2; Ø2,5 po jednej'),
+        findsOneWidget);
+    await _tap(tester, 'pp-share');
+    final text = spy.calls.single.$1;
+    expect(text, contains('! $note'));
+    expect(
+        text,
+        contains('39 porcji na całą robotę (5 h 47 min pracy) — '
+            'tylko Ø3,2; Ø2,5 po jednej'));
   });
 
   testWidgets('wąski ekran 360×640, tekst ×1,5 — bez przepełnień',
@@ -408,6 +542,10 @@ void main() {
       await _reveal(tester, 'pp-supply-mma40');
       await _enter(tester, 'pp-limit', '12');
       await _reveal(tester, 'pp-below-one');
+      await _enter(tester, 'pp-limit', '2400');
+      await _reveal(tester, 'pp-limit-up');
+      await _reveal(tester, 'pp-limit-ignored');
+      expect(tester.takeException(), isNull, reason: lang.name);
       await _tap(tester, 'pp-kind-plateButt');
       await _tap(tester, 'pp-groove-X');
       await _reveal(tester, 'pp-hot-na');
@@ -452,6 +590,7 @@ void main() {
       'pp-order-rootsFirst',
       'pp-shift',
       'pp-reset-assumptions',
+      'pp-bead-tig',
       'pp-bead-mma25',
       'pp-bead-mma32',
       'pp-arcon-tig',
