@@ -174,6 +174,7 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/confined_space/confined_space_page_test.dart: wąski ekran 320×640, czcionka 1,3: bez przepełnień',
         'test/features/confined_space/confined_space_page_test.dart: pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
         'test/features/confined_space/confined_space_page_test.dart: historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+        'test/features/confined_space/confined_space_page_test.dart: „Cofnij” usunięcia protokołu działa także przy pełnej historii',
       ]),
   ModuleAuditEntry(
       id: 'confined-space-edit',
@@ -199,6 +200,7 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/confined_space/confined_space_page_test.dart: ręczna godzina: z przyszłości odrzucona; STOP wpisany później blokuje zieleń',
         'test/features/confined_space/confined_space_page_test.dart: ręczna godzina z wczoraj wymaga potwierdzenia',
         'test/domain/confined_space/confined_space_record_test.dart: brak progu: w granicy twardej „brak progu”, ponad — STOP',
+        'test/domain/confined_space/confined_space_record_test.dart: zegar +1 h przy dobrym pomiarze nie omija blokady STOP wpisanego później',
       ]),
   ModuleAuditEntry(
       id: 'cooling-time',
@@ -518,6 +520,7 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/hot_work/hot_work_page_test.dart: wąski ekran, czcionka 1,3: bez przepełnień',
         'test/features/hot_work/hot_work_page_test.dart: uszkodzony i przyszły pomiar w zapisie: baner, kopia surowego zapisu',
         'test/features/hot_work/hot_work_page_test.dart: historia: ostrzeżenie od 180 protokołów, przy 200 nowy odrzucony',
+        'test/features/hot_work/hot_work_page_test.dart: „Cofnij” usunięcia protokołu działa także przy pełnej historii',
       ]),
   ModuleAuditEntry(
       id: 'hot-work-edit',
@@ -527,7 +530,7 @@ const moduleManifest = <ModuleAuditEntry>[
       risk: AuditRisk.safetyCritical,
       status: AuditStatus.passed,
       scenario:
-          'Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; pomiar 0 % z 07:30 po 31 min → „Pomiar nieaktualny”; godzina 14:05 o 14:00 odrzucona, z wczoraj po potwierdzeniu; 15 % z 13:55 wpisane po pomiarze z 13:58 → STOP; bez limitu z zezwolenia 40 % DGW → STOP; tekst i PDF protokołu udostępniane.',
+          'Wszystkie punkty „przed rozpoczęciem” odhaczone bez pomiaru — stan „Brak pomiaru atmosfery” (nie zielony); pomiar 7 % DGW przy progu 5 % — STOP; kolejny pomiar 0 % — „Stanowisko przygotowane”; pomiar 0 % z 07:30 po 31 min → „Pomiar nieaktualny”; godzina 14:05 o 14:00 odrzucona, z wczoraj po potwierdzeniu; 15 % z 13:55 wpisane po pomiarze z 13:58 → STOP; bez limitu z zezwolenia 40 % DGW → STOP; dwa pomiary z tej samej minuty → decyduje gorszy, z komunikatem; usunięty pomiar wraca przez „Cofnij” także po zamknięciu ekranu; tekst i PDF protokołu udostępniane.',
       evidence: [
         'test/features/hot_work/hot_work_page_test.dart: wszystkie punkty odhaczone, brak pomiaru — nie zielony',
         'test/features/hot_work/hot_work_page_test.dart: pomiar powyżej progu z zezwolenia — STOP; nowy pomiar zdejmuje',
@@ -539,6 +542,9 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/features/hot_work/hot_work_page_test.dart: pomiar starszy niż 30 min i protokół z wczoraj — bez zieleni',
         'test/features/hot_work/hot_work_page_test.dart: ręczna godzina: z przyszłości odrzucona, z wczoraj po potwierdzeniu',
         'test/domain/hot_work/hot_work_permit_test.dart: pomiar ponad próg wpisany później niż najpóźniejszy blokuje zieleń',
+        'test/domain/hot_work/hot_work_permit_test.dart: chwila wpisu z przyszłości (zegar +1 h) nie omija blokady wpisu późniejszego',
+        'test/features/hot_work/hot_work_page_test.dart: usunięty pomiar: „Cofnij” po zamknięciu ekranu przez magazyn',
+        'test/features/hot_work/hot_work_page_test.dart: remis w tej samej minucie — decyduje gorszy, z komunikatem',
       ]),
   ModuleAuditEntry(
       id: 'hydrotest',
