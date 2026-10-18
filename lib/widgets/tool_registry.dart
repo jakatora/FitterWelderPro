@@ -12,6 +12,7 @@ import '../features/electrode_exposure/electrode_exposure_page.dart';
 import '../features/filler/filler_selector_page.dart';
 import '../features/fillet_strength/fillet_strength_page.dart';
 import '../features/flange_check/flange_check_page.dart';
+import '../features/fume/fume_page.dart';
 import '../features/glossary/glossary_page.dart';
 import '../features/grinding/grinding_page.dart';
 import '../features/hardness/hardness_page.dart';
@@ -1897,6 +1898,59 @@ final List<ToolSpec> kToolRegistry = [
       'h2s',
       'carbon monoxide',
       'permit space'
+    ],
+  ),
+  ToolSpec(
+    id: 'fume',
+    group: ToolGroup.inspection,
+    titlePl: 'Dymy spawalnicze i odciąg',
+    titleEn: 'Welding fume and extraction',
+    subtitlePl: 'Zasięg ssawki, NDS dymu, maska / nawiew, lista stanowiska',
+    subtitleEn: 'Hood reach, fume OELs, RPE, workplace checklist',
+    icon: Icons.masks_outlined,
+    color: const Color(0xFFCFD8DC),
+    builder: (_) => const FumePage(),
+    keywordsPl: const [
+      'dym spawalniczy',
+      'dymy',
+      'odciag',
+      'ramie odciagowe',
+      'ssawka',
+      'wyciag',
+      'wentylacja',
+      'filtr dymu',
+      'polmaska',
+      'ffp2',
+      'ffp3',
+      'th3',
+      'przylbica z nawiewem',
+      'nawiew',
+      'chrom szesciowartosciowy',
+      'cr6',
+      'ocynk',
+      'goraczka metaliczna',
+      'mangan',
+      'ozon',
+      'nds',
+      'rakotworczy'
+    ],
+    keywordsEn: const [
+      'welding fume',
+      'fume extraction',
+      'extraction arm',
+      'lev',
+      'local exhaust ventilation',
+      'capture velocity',
+      'fume hood',
+      'respirator',
+      'papr',
+      'powered respirator',
+      'hexavalent chromium',
+      'metal fume fever',
+      'galvanized',
+      'ozone',
+      'oel',
+      'carcinogen'
     ],
   ),
   ToolSpec(

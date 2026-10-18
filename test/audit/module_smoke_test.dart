@@ -87,6 +87,7 @@ import 'package:cut_list_app/domain/confined_space/confined_space_record.dart';
 import 'package:cut_list_app/features/confined_space/confined_space_edit_page.dart';
 import 'package:cut_list_app/features/confined_space/confined_space_page.dart';
 import 'package:cut_list_app/features/rigging/rigging_page.dart';
+import 'package:cut_list_app/features/fume/fume_page.dart';
 import 'package:cut_list_app/features/grinding/grinding_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/distortion/distortion_page.dart';
@@ -274,6 +275,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'ShadePage' => const ShadePage(),
       'InterpassPage' => const InterpassPage(),
       'ConfinedSpacePage' => const ConfinedSpacePage(),
+      'FumePage' => const FumePage(),
       'RiggingPage' => const RiggingPage(),
       'GrindingPage' => const GrindingPage(),
       'ConfinedSpaceEditPage' => ConfinedSpaceEditPage(

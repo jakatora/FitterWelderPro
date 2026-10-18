@@ -405,6 +405,25 @@ const moduleManifest = <ModuleAuditEntry>[
       status: AuditStatus.unverified,
       scenario: 'Użytkownik wybiera kalkulator z zestawu narzędzi montera.'),
   ModuleAuditEntry(
+      id: 'fume',
+      entryPoint: 'FumePage',
+      sourcePath: 'lib/features/fume/fume_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Q 1200 m³/h, Ø 300 mm, V 0,5 → zasięg 24 cm (z kołnierzem 28 cm), ale bez odległości ssawki → „podaj odległość”, minimum P3/TH3; X 200 mm → ≥ 848 m³/h (≥ 236 l/s), 848 wystarcza, 847 nie, ten sam werdykt po zmianie m³/h→l/s i mm→cm; X 5000 mm → STOP, X 0 → UZUPEŁNIJ; TIG/Al i plazma bez punktu o gazach → brak zieleni; ocynk + „n/d: goły materiał” i FFP3 + „n/d: nawiew” → punkt otwarty; FFP3 > 1 h → OSTROŻNIE z TH2/TH3; brak odciągu przy TH3 → OSTROŻNIE; stal węglowa, ssawka 20 cm, TH2, pełna lista → OK, FFP2 → STOP; uszkodzony zapis → domyślne i komunikat; zapis dopiero po odczycie.',
+      evidence: [
+        'test/features/fume/fume_page_test.dart: samo Q bez odległości: zasięg jako informacja, „podaj odległość”, minimum P3/TH3',
+        'test/features/fume/fume_page_test.dart: błędna odległość X przy dobrej Q i Ø: 5000 mm → STOP, 0 → UZUPEŁNIJ, nigdy OK',
+        'test/features/fume/fume_page_test.dart: odległość → potrzebna wydajność; zmiana jednostek nie zmienia werdyktu',
+        'test/features/fume/fume_page_test.dart: TIG na aluminium i plazma: gazy — bez punktu o gazach nie ma zieleni, „n/d” zablokowane',
+        'test/features/fume/fume_page_test.dart: sprzeczne „nie dotyczy”: powłoka / ocynk i FFP3 — zablokowane, liczone jako otwarte',
+        'test/features/fume/fume_page_test.dart: FFP3: pytanie o czas w masce; > 1 h → OSTROŻNIE z TH2/TH3, brak odpowiedzi → brak zieleni',
+        'test/features/fume/fume_page_test.dart: zapis dopiero po odczycie: zmiany przed końcem odczytu nie nadpisują zapisu (opóźniony magazyn)',
+        'test/features/fume/fume_page_test.dart: komplet → OK; otwarty punkt → UZUPEŁNIJ; FFP2 → STOP',
+      ]),
+  ModuleAuditEntry(
       id: 'glossary',
       entryPoint: 'GlossaryPage',
       sourcePath: 'lib/features/glossary/glossary_page.dart',

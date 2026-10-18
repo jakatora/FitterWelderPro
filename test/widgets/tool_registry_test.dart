@@ -169,6 +169,8 @@ void main() {
         'InterpassPage',
         // Przestrzeń zamknięta: wejście i spawanie.
         'ConfinedSpacePage',
+        // Dymy spawalnicze i odciąg.
+        'FumePage',
         // Zawiesia i podwieszanie.
         'RiggingPage',
         // Tarcze i szlifierki.

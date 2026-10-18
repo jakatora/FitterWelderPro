@@ -38,6 +38,7 @@ const List<String> kWhatsNewToolIds = [
   'weather_check',
   'hot_work',
   'confined_space',
+  'fume',
   'rigging',
   'grinding',
   'electrode_exposure',
