@@ -99,8 +99,7 @@ wydaniem warto porównać z licencjonowanym egzemplarzem (PWHT, ISO 5817).
 
 ## Do zrobienia przy wydaniu (ręcznie)
 
-1. Zdecydować o numerze wersji (`pubspec.yaml`: dziś `0.3.0+17`, a 0.3.0
-   z poprzedniej fali też czeka na wydanie — można wydać razem jako 0.4.0+18).
+1. Wersja: `0.4.0+18` (2026-10-18; obejmuje też niewydane 0.3.0).
 2. Scalić `feat/wyceny-i-moduly` do gałęzi wydania i wypchnąć; potem kroki
    z `docs/RELEASE-0.3.0.md` (backend, AAB, Codemagic).
 3. Zrzuty ekranu sklepu — nowe ekrany: Wyceny (zakładka Wynik), Dobór
@@ -108,23 +107,23 @@ wydaniem warto porównać z licencjonowanym egzemplarzem (PWHT, ISO 5817).
 
 ## Tekst „Co nowego” do sklepów
 
-**Google Play, PL (limit 500 znaków, bez emoji):**
+**Google Play, PL (limit 500 znaków, bez emoji; 446 zn.):**
 
-Wyceny spawalnicze z ofertą PDF i ile brać za godzinę. Nowe narzędzia: dobór
-spoiwa, plan PWHT, odbiór spoin ISO 5817, symbole spawalnicze, czas stygnięcia
-t8/5, nośność spoiny pachwinowej, twardość HV/HB/HRC z limitami NACE,
-elektrody zasadowe (czas i suszenie), warunki do spawania, prace pożarowe,
-odbiór kołnierzy PCC-1, rozwinięcie stożka z szablonem 1:1, słownik
-spawalniczy PL/EN/DE/NL/NO i więcej. Działa bez internetu.
+Wyceny spawalnicze z ofertą PDF i stawka za godzinę. Nowe narzędzia BHP:
+przestrzeń zamknięta, prace pożarowe, zawiesia, tarcze do szlifierki, dymy
+i odciąg. Dla spawacza: plan ściegów i elektrod, temperatura międzyściegowa,
+filtr przyłbicy, wady spoin, egzamin, zakres uprawnień. Kontrola: ISO 5817,
+ferryt i PMI, twardość, tolerancje spoola, plan NDT, kołnierze PCC-1. Też
+PWHT, t8/5, dobór spoiwa, słownik PL/EN/DE/NL/NO. Działa bez internetu.
 
-**Google Play, EN:**
+**Google Play, EN (457 chars):**
 
-Welding quotes with a PDF offer and an hourly rate calculator. New tools:
-filler selector, PWHT plan, ISO 5817 acceptance, welding symbols, t8/5 cooling
-time, fillet weld resistance, HV/HB/HRC hardness with NACE limits,
-low-hydrogen electrode exposure, welding weather check, hot work permit,
-PCC-1 flange joint check, cone layout with a 1:1 template, and a PL/EN/DE/NL/NO
-welding dictionary. Works offline.
+Welding quotes with a PDF offer and an hourly rate. New safety tools: confined
+space, hot work, slings and rigging, grinder discs, welding fume and
+extraction. For welders: pass and electrode plan, interpass temperature, shade
+number, weld defects, exam practice, qualification range. Inspection: ISO 5817,
+ferrite and PMI, hardness, spool tolerances, NDT plan, PCC-1 flanges. Plus
+PWHT, t8/5, filler selector and a PL/EN/DE/NL/NO dictionary. Works offline.
 
 **App Store, PL (bez emoji; bullet dozwolony):**
 
@@ -140,6 +139,15 @@ Nowe narzędzia:
 • Elektrody zasadowe: czas na powietrzu, suszenie i przypomnienia
 • Warunki do spawania: mróz, wiatr, opad, punkt rosy
 • Prace pożarowo niebezpieczne: checklista, pomiar DGW, protokół PDF
+• Przestrzeń zamknięta: lista wejścia, pomiary O₂, DGW, CO i H₂S, protokół PDF
+• Zawiesia i podwieszanie: nośność pasa, łańcucha i liny przy danym kącie cięgien
+• Tarcze i szlifierki: obroty, średnica, data ważności, tarcze do nierdzewki
+• Dymy spawalnicze: zasięg odciągu, NDS i dobór ochrony dróg oddechowych
+• Plan ściegów i elektrod: ile ściegów, ile elektrod wziąć z suszarki
+• Temperatura międzyściegowa, filtr przyłbicy, wady spoin i ich przyczyny
+• Ferryt i PMI: ferrytomierz i analizator XRF wobec specyfikacji i norm
+• Tolerancje spoola wg PFI ES-3 z protokołem
+• Egzamin spawacza (pytania ćwiczeniowe) i zakres uprawnień z próbki EN ISO 9606-1
 • Odbiór połączenia kołnierzowego wg ASME PCC-1 i komplet śrub z długością szpilek wg B16.5
 • Plan badań NDT: ile spoin zbadać na spawacza i linię, gotowość do próby ciśnieniowej
 • Rozwinięcie stożka i przejścia kwadrat–koło z szablonem 1:1
@@ -163,6 +171,15 @@ New tools:
 • Low-hydrogen electrodes: exposure time, re-drying and reminders
 • Welding conditions: frost, wind, rain, dew point
 • Hot work permit: checklist, gas test, PDF record
+• Confined space entry: checklist, O₂, LEL, CO and H₂S readings, PDF record
+• Slings and rigging: webbing, chain and wire rope capacity at the leg angle
+• Grinder discs: speed, diameter, expiry date, discs for stainless
+• Welding fume: extraction hood reach, exposure limits, respirator choice
+• Pass and electrode plan: number of passes, electrodes to take from the oven
+• Interpass temperature, shade number, weld defects and their causes
+• Ferrite and PMI: ferritescope and XRF readings against spec and standards
+• Spool tolerances per PFI ES-3 with a record
+• Welder exam practice questions and qualification range from a test piece (EN ISO 9606-1)
 • Flange joint check per ASME PCC-1 and stud bolt kit with B16.5 stud lengths
 • NDT plan: welds to examine per welder and line, pressure test readiness
 • Cone and square-to-round layout with a 1:1 template
