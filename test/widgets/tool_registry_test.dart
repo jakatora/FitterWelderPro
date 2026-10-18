@@ -171,6 +171,8 @@ void main() {
         'ConfinedSpacePage',
         // Zawiesia i podwieszanie.
         'RiggingPage',
+        // Tarcze i szlifierki.
+        'GrindingPage',
       };
       expect(targets, expected);
     });

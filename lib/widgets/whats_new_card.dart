@@ -39,6 +39,7 @@ const List<String> kWhatsNewToolIds = [
   'hot_work',
   'confined_space',
   'rigging',
+  'grinding',
   'electrode_exposure',
   'hardness',
   'instruments',

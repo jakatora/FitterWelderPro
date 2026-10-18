@@ -425,6 +425,25 @@ const moduleManifest = <ModuleAuditEntry>[
         'test/data/welding_glossary_test.dart: kontrolne tłumaczenia: 5011 podtopienie ciągłe',
       ]),
   ModuleAuditEntry(
+      id: 'grinding',
+      entryPoint: 'GrindingPage',
+      sourcePath: 'lib/features/grinding/grinding_page.dart',
+      category: AuditCategory.welder,
+      risk: AuditRisk.safetyCritical,
+      status: AuditStatus.passed,
+      scenario:
+          'Monter wpisuje dane z tabliczki szlifierki i nadruku tarczy (m/s lub obr./min, średnica, otwór lub gwint, data V MM/RRRR, typ, praca, materiał) i dostaje STOP / brak werdyktu / uwagę / zgodne: tarcza 8 500 obr./min na 11 000 → STOP, 230 mm na 125 mm → STOP, 41/42 bokiem → STOP, Ø16 na kołnierzu 22,23 → STOP, „13/2027” → brak werdyktu; kolor paska tylko podpowiada (63 m/s z paskiem czerwonym → do obliczeń 63); zapisane szlifierki wczytuje, poprawia i usuwa z cofnięciem przez magazyn; lista przed pracą — niezaznaczone ≠ OK.',
+      evidence: [
+        'test/domain/grinding/grinding_check_test.dart: werdykt niezależny od jednostki: m/s i obr./min dają ten sam werdykt dla tych samych danych',
+        'test/domain/grinding/grinding_check_test.dart: nadruk 63 m/s, pasek czerwony (80): do obliczeń idzie nadruk, ostrzeżenie zostaje',
+        'test/domain/grinding/grinding_check_test.dart: otwór tarczy: bez potwierdzenia, że pasuje do kołnierza → brak danych, „nie pasuje” (Ø16 na kołnierzu 22,23) → STOP',
+        'test/domain/grinding/grinding_check_test.dart: nieczytelna data („13/2027”, „07/2O27”) → brak werdyktu dla każdego typu, także listkowej, fibrowej i szczotki',
+        'test/domain/grinding/grinding_check_test.dart: 41 i 42: cięcie OK, szlifowanie bokiem STOP',
+        'test/features/grinding/grinding_store_test.dart: „Cofnij” przywraca tylko usunięty element na dawne miejsce i nie gubi zmian z międzyczasu',
+        'test/features/grinding/grinding_page_test.dart: edycja: wczytana szlifierka → „Zapisz zmiany” po id, bez duplikatu',
+        'test/features/grinding/grinding_page_test.dart: 360×640, czcionka 1,5 (pl): wszystkie trzy zakładki widoczne w całości',
+      ]),
+  ModuleAuditEntry(
       id: 'hardness',
       entryPoint: 'HardnessPage',
       sourcePath: 'lib/features/hardness/hardness_page.dart',

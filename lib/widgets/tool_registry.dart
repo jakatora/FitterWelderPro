@@ -13,6 +13,7 @@ import '../features/filler/filler_selector_page.dart';
 import '../features/fillet_strength/fillet_strength_page.dart';
 import '../features/flange_check/flange_check_page.dart';
 import '../features/glossary/glossary_page.dart';
+import '../features/grinding/grinding_page.dart';
 import '../features/hardness/hardness_page.dart';
 import '../features/hot_work/hot_work_page.dart';
 import '../features/interpass/interpass_page.dart';
@@ -1946,6 +1947,48 @@ final List<ToolSpec> kToolRegistry = [
       'basket hitch',
       'leg angle',
       'colour code'
+    ],
+  ),
+  ToolSpec(
+    id: 'grinding',
+    group: ToolGroup.inspection,
+    titlePl: 'Tarcze i szlifierki',
+    titleEn: 'Discs and grinders',
+    subtitlePl: 'Zgodność tarczy ze szlifierką, data ważności, lista przed pracą',
+    subtitleEn: 'Disc-to-grinder match, expiry date, pre-start checklist',
+    icon: Icons.album_outlined,
+    color: const Color(0xFFF4511E),
+    builder: (_) => const GrindingPage(),
+    keywordsPl: const [
+      'tarcza',
+      'tarcze',
+      'szlifierka',
+      'szlifierki',
+      'katowka',
+      'flex',
+      'fleks',
+      'tarcza do ciecia',
+      'tarcza listkowa',
+      'szczotka druciana',
+      'obroty',
+      'predkosc obwodowa',
+      'data waznosci tarczy',
+      'oslona',
+      'inox',
+      'en 12413'
+    ],
+    keywordsEn: const [
+      'angle grinder',
+      'grinder',
+      'cut-off wheel',
+      'cutting disc',
+      'flap disc',
+      'wire brush',
+      'rpm',
+      'disc expiry',
+      'guard',
+      'inox',
+      'en 12413'
     ],
   ),
   ToolSpec(
