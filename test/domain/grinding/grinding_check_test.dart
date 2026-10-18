@@ -11,7 +11,8 @@ import 'package:cut_list_app/domain/grinding/grinding_check.dart';
 final _now = DateTime(2026, 10, 18, 9);
 
 /// Zestaw w pełni zgodny: szlifierka Ø125 / 11 000 / M14, tarcza 41 Ø125
-/// 80 m/s, otwór 22,23, V 07/2027, cięcie z osłoną, stal węglowa.
+/// 80 m/s, otwór 22,23 pasujący do kołnierza, V 07/2027, cięcie z osłoną,
+/// stal węglowa.
 GrindingInput _ok({
   int? grinderRpm = 11000,
   double? grinderD = 125,
@@ -21,7 +22,9 @@ GrindingInput _ok({
   double? discV = 80,
   int? discN,
   DiscMount? mount = DiscMount.bore2223,
+  bool? boreFits = true,
   YearMonth? expiry = const YearMonth(2027, 7),
+  bool expiryUnreadable = false,
   bool noExpiry = false,
   SpeedStripe? stripe,
   GrindingOperation? op = GrindingOperation.cutting,
@@ -39,7 +42,9 @@ GrindingInput _ok({
       discSpeedMs: discV,
       discRpm: discN,
       discMount: mount,
+      boreFitsFlange: boreFits,
       discExpiry: expiry,
+      expiryUnreadable: expiryUnreadable,
       discNoExpiry: noExpiry,
       stripe: stripe,
       operation: op,
@@ -243,6 +248,21 @@ void main() {
       expect(e.levelOf(FindingKind.speed), FindingLevel.missing);
       expect(e.verdict, GrindingVerdict.noVerdict);
     });
+
+    test(
+        'nadruk 63 m/s, pasek czerwony (80): do obliczeń idzie nadruk, '
+        'ostrzeżenie zostaje', () {
+      final e =
+          _eval(_ok(grinderRpm: 9000, discV: 63, stripe: SpeedStripe.red));
+      // 63·60 000/(π·125) = 9 625,7 → 9 625; z paska byłoby 12 223 (+27 %).
+      expect(e.allowedRpm, 9625);
+      expect(e.levelOf(FindingKind.stripe), FindingLevel.warn);
+      expect(e.levelOf(FindingKind.speed), FindingLevel.ok);
+      expect(e.verdict, GrindingVerdict.caution);
+      // Szlifierka 11 000 — STOP wg nadruku, mimo że pasek „pozwalałby”.
+      expect(_level(_ok(discV: 63, stripe: SpeedStripe.red), FindingKind.speed),
+          FindingLevel.stop);
+    });
   });
 
   group('średnica', () {
@@ -294,6 +314,33 @@ void main() {
       expect(_level(_ok(thread: null), FindingKind.mount), FindingLevel.ok);
       expect(_level(_ok(mount: null), FindingKind.mount), FindingLevel.missing);
     });
+
+    test(
+        'otwór tarczy: bez potwierdzenia, że pasuje do kołnierza → brak '
+        'danych, „nie pasuje” (Ø16 na kołnierzu 22,23) → STOP', () {
+      for (final m in [DiscMount.bore2223, DiscMount.bore16]) {
+        final unknown = _eval(_ok(mount: m, boreFits: null));
+        expect(unknown.levelOf(FindingKind.mount), FindingLevel.missing,
+            reason: m.name);
+        expect(unknown.verdict, GrindingVerdict.noVerdict, reason: m.name);
+        final no = _eval(_ok(mount: m, boreFits: false));
+        expect(no.levelOf(FindingKind.mount), FindingLevel.stop,
+            reason: m.name);
+        expect(no.verdict, GrindingVerdict.stop, reason: m.name);
+        expect(_level(_ok(mount: m, boreFits: true), FindingKind.mount),
+            FindingLevel.ok,
+            reason: m.name);
+      }
+    });
+
+    test('tarcza gwintowana — pytanie o otwór nie ma znaczenia', () {
+      expect(
+          _level(_ok(mount: DiscMount.m14, boreFits: null), FindingKind.mount),
+          FindingLevel.ok);
+      expect(
+          _level(_ok(mount: DiscMount.m14, boreFits: false), FindingKind.mount),
+          FindingLevel.ok);
+    });
   });
 
   group('data ważności', () {
@@ -315,6 +362,40 @@ void main() {
       final e = _eval(_ok(expiry: const YearMonth(2026, 9)));
       expect(e.levelOf(FindingKind.expiry), FindingLevel.stop);
       expect(e.verdict, GrindingVerdict.stop);
+    });
+
+    test(
+        'nieczytelna data („13/2027”, „07/2O27”) → brak werdyktu dla '
+        'każdego typu, także listkowej, fibrowej i szczotki', () {
+      expect(parseExpiry('07/2O27'), isNull);
+      for (final t in DiscType.values) {
+        final e = _eval(_ok(
+            type: t,
+            op: t.isCutOff
+                ? GrindingOperation.cutting
+                : GrindingOperation.grinding,
+            expiry: null,
+            expiryUnreadable: true));
+        expect(e.levelOf(FindingKind.expiry), FindingLevel.missing,
+            reason: t.name);
+        expect(e.verdict, GrindingVerdict.noVerdict, reason: t.name);
+      }
+      // Bez typu też — nieczytelny wpis nie znika.
+      expect(
+          _level(_ok(type: null, expiry: null, expiryUnreadable: true),
+              FindingKind.expiry),
+          FindingLevel.missing);
+      // „Brak daty na tarczy” wyłącza pole — liczy się to potwierdzenie.
+      expect(
+          _level(
+              _ok(
+                  type: DiscType.flap,
+                  op: GrindingOperation.grinding,
+                  expiry: null,
+                  expiryUnreadable: true,
+                  noExpiry: true),
+              FindingKind.expiry),
+          isNull);
     });
 
     test(

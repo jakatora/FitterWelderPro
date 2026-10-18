@@ -201,9 +201,12 @@ const List<GrindingSource> kGrindingAppRules = [
   ),
   GrindingSource(
     'Data dalej niż 36 miesięcy od dziś = podejrzana literówka (max 3 lata '
-        'od produkcji) — brak werdyktu. Tarcza 41, 42 lub 27 bez daty — STOP.',
+        'od produkcji) — brak werdyktu. Wpisana, ale nieczytelna data — brak '
+        'werdyktu przy każdym typie tarczy. Tarcza 41, 42 lub 27 bez daty — '
+        'STOP.',
     'A date more than 36 months ahead = likely typo (max 3 years from '
-        'manufacture) — no verdict. A type 41, 42 or 27 wheel without a '
+        'manufacture) — no verdict. A date entered but unreadable — no '
+        'verdict for any disc type. A type 41, 42 or 27 wheel without a '
         'date — STOP.',
   ),
   GrindingSource(

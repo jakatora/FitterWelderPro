@@ -271,7 +271,17 @@ class GrindingInput {
   final double? discSpeedMs;
   final int? discRpm;
   final DiscMount? discMount;
+
+  /// Tarcza z otworem: otwór pasuje do średnicy centrującej kołnierza
+  /// szlifierki (EN 62841-2-3). `null` = nie wiem — to NIE jest „tak”.
+  final bool? boreFitsFlange;
+
   final YearMonth? discExpiry;
+
+  /// Pole daty ważności niepuste, ale nieczytelne („13/2027”, „07/2O27”).
+  /// Daje brak werdyktu dla KAŻDEGO typu — także tam, gdzie data nie jest
+  /// wymagana: wpisana data, której nie umiemy odczytać, mogła już minąć.
+  final bool expiryUnreadable;
 
   /// Monter potwierdził, że na tarczy NIE MA daty ważności.
   final bool discNoExpiry;
@@ -302,7 +312,9 @@ class GrindingInput {
     this.discSpeedMs,
     this.discRpm,
     this.discMount,
+    this.boreFitsFlange,
     this.discExpiry,
+    this.expiryUnreadable = false,
     this.discNoExpiry = false,
     this.stripe,
     this.operation,
@@ -715,15 +727,39 @@ void _mount(GrindingInput i, List<GrindingFinding> out) {
   }
   final t = m.thread;
   if (t == null) {
-    out.add(GrindingFinding(
-      k,
-      FindingLevel.ok,
-      'Otwór ${m.labelPl} mm — na kołnierzach; otwór musi pasować do '
-          'średnicy centrującej kołnierza.',
-      'Bore ${m.labelEn} mm — on the flanges; the bore must fit the '
-          'flange locating diameter.',
-      source: kSrcEn62841,
-    ));
+    // „For accessories mounted by flanges, the arbour hole of the accessory
+    // must fit the locating diameter of the flange” (EN 62841-2-3). Samo
+    // „otwór 16 mm” nie mówi, czy pasuje — pyta się montera.
+    switch (i.boreFitsFlange) {
+      case null:
+        out.add(GrindingFinding(
+          k,
+          FindingLevel.missing,
+          'Otwór ${m.labelPl} mm — potwierdź, że pasuje do średnicy '
+              'centrującej kołnierza szlifierki.',
+          'Bore ${m.labelEn} mm — confirm it fits the grinder flange '
+              'locating diameter.',
+          source: kSrcEn62841,
+        ));
+      case false:
+        out.add(GrindingFinding(
+          k,
+          FindingLevel.stop,
+          'Otwór ${m.labelPl} mm nie pasuje do kołnierza — tarcza nie będzie '
+              'wycentrowana: bicie, drgania, pęknięcie. Nie zakładaj jej.',
+          'Bore ${m.labelEn} mm does not fit the flange — the disc will not '
+              'run true: wobble, vibration, bursting. Do not fit it.',
+          source: kSrcEn62841,
+        ));
+      case true:
+        out.add(GrindingFinding(
+          k,
+          FindingLevel.ok,
+          'Otwór ${m.labelPl} mm pasuje do kołnierza szlifierki.',
+          'Bore ${m.labelEn} mm fits the grinder flange.',
+          source: kSrcEn62841,
+        ));
+    }
     return;
   }
   final s = i.spindleThread;
@@ -844,9 +880,23 @@ void _typeAndOperation(GrindingInput i, List<GrindingFinding> out) {
 void _expiry(GrindingInput i, DateTime now, List<GrindingFinding> out) {
   const k = FindingKind.expiry;
   final t = i.discType;
+  final e = i.discExpiry;
+  // Wpisana, ale nieczytelna data — brak werdyktu dla każdego typu (także
+  // listkowej, fibrowej i szczotki): mogła już minąć.
+  if (i.expiryUnreadable && e == null && !i.discNoExpiry) {
+    out.add(const GrindingFinding(
+      k,
+      FindingLevel.missing,
+      'Nie rozpoznano wpisanej daty ważności — przepisz ją z pierścienia '
+          'jako MM/RRRR (np. V 07/2027).',
+      'The expiry date entered cannot be read — copy it from the ring as '
+          'MM/YYYY (e.g. V 07/2027).',
+      source: kSrcExpiry,
+    ));
+    return;
+  }
   if (t == null) return;
   final required = t.requiresExpiry;
-  final e = i.discExpiry;
   if (i.discNoExpiry && e == null) {
     if (required) {
       out.add(GrindingFinding(

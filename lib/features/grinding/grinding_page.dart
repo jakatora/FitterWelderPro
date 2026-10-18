@@ -62,6 +62,7 @@ class _GrindingPageState extends State<GrindingPage>
   double? _discV;
   int? _discN;
   DiscMount? _mount;
+  bool? _boreFits;
   final _expiry = TextEditingController();
   bool _noExpiry = false;
   SpeedStripe? _stripe;
@@ -79,7 +80,20 @@ class _GrindingPageState extends State<GrindingPage>
   // Moje szlifierki.
   List<GrinderProfile> _grinders = const [];
   bool _grindersDamaged = false;
+  bool _grindersUnavailable = false;
   bool _grindersLoaded = false;
+
+  /// Szlifierka wczytana do formularza — „Zapisz zmiany” nadpisuje ją po id.
+  String? _loadedId;
+
+  GrinderProfile? get _loaded {
+    final id = _loadedId;
+    if (id == null) return null;
+    for (final g in _grinders) {
+      if (g.id == id) return g;
+    }
+    return null;
+  }
 
   bool get _en => context.language == AppLanguage.en;
 
@@ -101,7 +115,9 @@ class _GrindingPageState extends State<GrindingPage>
     if (!mounted) return;
     setState(() {
       _grinders = r.grinders;
-      _grindersDamaged = r.damaged;
+      // Uszkodzony zapis zostaje zgłoszony do końca wizyty na ekranie.
+      _grindersDamaged = _grindersDamaged || r.damaged;
+      _grindersUnavailable = r.unavailable;
       _grindersLoaded = true;
     });
   }
@@ -122,7 +138,11 @@ class _GrindingPageState extends State<GrindingPage>
         discSpeedMs: _discV,
         discRpm: _discN,
         discMount: _mount,
+        boreFitsFlange: _boreFits,
         discExpiry: _noExpiry ? null : parseExpiry(_expiry.text),
+        expiryUnreadable: !_noExpiry &&
+            _expiry.text.trim().isNotEmpty &&
+            parseExpiry(_expiry.text) == null,
         discNoExpiry: _noExpiry,
         stripe: _stripe,
         operation: _op,
@@ -156,43 +176,48 @@ class _GrindingPageState extends State<GrindingPage>
       _grinderRpm = g.maxRpm;
       _grinderD = g.diameterMm;
       _thread = g.thread;
+      _loadedId = g.id;
+      // Inna szlifierka = inne kołnierze — odpowiedź o otworze od nowa.
+      _boreFits = null;
     });
     _snack(context.tr(pl: 'Wczytano: ${g.name}', en: 'Loaded: ${g.name}'));
   }
 
-  Future<void> _persist(List<GrinderProfile> next) async {
-    try {
-      await widget.store.save(next);
-      if (!mounted) return;
-      setState(() => _grinders = next);
-    } catch (e) {
-      debugPrint('[grinding] save failed: $e');
-      if (!mounted) return;
-      _snack(context.tr(
-          pl: 'Nie udało się zapisać szlifierek.',
-          en: 'Could not save the grinders.'));
-    }
+  void _saveFailed(Object e) {
+    debugPrint('[grinding] save failed: $e');
+    if (!mounted) return;
+    _snack(e is GrinderStoreFull
+        ? context.tr(
+            pl: 'Najwyżej $kMaxGrinders szlifierek — usuń którąś.',
+            en: 'At most $kMaxGrinders grinders — delete one first.')
+        : context.tr(
+            pl: 'Nie udało się zapisać szlifierek — pamięć niedostępna.',
+            en: 'Could not save the grinders — storage unavailable.'));
   }
 
+  Future<String?> _askName(String initial) => showDialog<String>(
+        context: context,
+        builder: (_) => _NameDialog(initial: initial),
+      );
+
+  bool _requireComplete() {
+    if (_grinderComplete) return true;
+    _snack(context.tr(
+        pl: 'Najpierw wpisz obroty i średnicę szlifierki.',
+        en: 'Enter the grinder speed and diameter first.'));
+    return false;
+  }
+
+  /// Nowa szlifierka (nowe id) — dopisana na końcu zapisanej listy.
   Future<void> _saveGrinder() async {
-    if (!_grinderComplete) {
-      _snack(context.tr(
-          pl: 'Najpierw wpisz obroty i średnicę szlifierki.',
-          en: 'Enter the grinder speed and diameter first.'));
-      return;
-    }
+    if (!_requireComplete()) return;
     if (_grinders.length >= kMaxGrinders) {
-      _snack(context.tr(
-          pl: 'Najwyżej $kMaxGrinders szlifierek — usuń którąś.',
-          en: 'At most $kMaxGrinders grinders — delete one first.'));
+      _saveFailed(const GrinderStoreFull());
       return;
     }
     final suggested =
         GrinderProfile.defaultName(_grinderD!, _grinderRpm!, en: _en);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => _NameDialog(initial: suggested),
-    );
+    final name = await _askName(suggested);
     if (name == null || !mounted) return;
     final g = GrinderProfile(
       id: _newId(),
@@ -201,25 +226,80 @@ class _GrindingPageState extends State<GrindingPage>
       diameterMm: _grinderD!,
       thread: _thread,
     );
-    await _persist([..._grinders, g]);
-    if (!mounted) return;
-    _snack(context.tr(pl: 'Zapisano: ${g.name}', en: 'Saved: ${g.name}'));
+    await _upsert(g,
+        done: context.tr(pl: 'Zapisano: ${g.name}', en: 'Saved: ${g.name}'));
+  }
+
+  /// „Zapisz zmiany” we wczytanej szlifierce — po id, bez duplikatu.
+  Future<void> _updateGrinder() async {
+    final loaded = _loaded;
+    if (loaded == null || !_requireComplete()) return;
+    final name = await _askName(loaded.name);
+    if (name == null || !mounted) return;
+    final g = GrinderProfile(
+      id: loaded.id,
+      name: name.trim().isEmpty ? loaded.name : name.trim(),
+      maxRpm: _grinderRpm!,
+      diameterMm: _grinderD!,
+      thread: _thread,
+    );
+    await _upsert(g,
+        done: context.tr(
+            pl: 'Zapisano zmiany: ${g.name}', en: 'Changes saved: ${g.name}'));
+  }
+
+  Future<void> _upsert(GrinderProfile g, {required String done}) async {
+    try {
+      final list = await widget.store.upsert(g);
+      if (!mounted) return;
+      setState(() {
+        _grinders = list;
+        _grindersUnavailable = false;
+        _loadedId = g.id;
+      });
+      _snack(done);
+    } catch (e) {
+      _saveFailed(e);
+    }
   }
 
   Future<void> _deleteGrinder(GrinderProfile g) async {
-    final before = _grinders;
-    await _persist([
-      for (final x in before)
-        if (x.id != g.id) x
-    ]);
+    // Magazyn liczy zmianę od listy zapisanej w chwili zapisu (kolejka) —
+    // dwa szybkie usunięcia nie wskrzeszają pierwszego.
+    final store = widget.store;
+    final GrinderRemoval? removal;
+    try {
+      removal = await store.delete(g.id);
+    } catch (e) {
+      _saveFailed(e);
+      return;
+    }
     if (!mounted) return;
+    setState(() {
+      if (removal != null) _grinders = removal.remaining;
+      if (_loadedId == g.id) _loadedId = null;
+    });
+    final r = removal;
+    if (r == null) return;
     _snack(
       context.tr(pl: 'Usunięto: ${g.name}', en: 'Deleted: ${g.name}'),
       action: SnackBarAction(
         label: context.tr(pl: 'Cofnij', en: 'Undo'),
-        onPressed: () => unawaited(_persist(before)),
+        // Przez magazyn, nie przez stan ekranu — działa też po jego
+        // zamknięciu; przywraca TYLKO ten wpis, na dawne miejsce.
+        onPressed: () => unawaited(_undoDelete(store, r)),
       ),
     );
+  }
+
+  Future<void> _undoDelete(GrinderStore store, GrinderRemoval r) async {
+    try {
+      final list = await store.restore(r.profile, r.index);
+      if (!mounted) return;
+      setState(() => _grinders = list);
+    } catch (e) {
+      _saveFailed(e);
+    }
   }
 
   // ── Budowa ekranu ─────────────────────────────────────────────────────
@@ -230,20 +310,17 @@ class _GrindingPageState extends State<GrindingPage>
       appBar: AppBar(
         title: Text(
             context.tr(pl: 'Tarcze i szlifierki', en: 'Discs and grinders')),
+        // Stałe zakładki (po 1/3 szerokości) z krótkimi etykietami, a gdyby
+        // przy dużej czcionce etykieta i tak się nie mieściła — pomniejszona,
+        // nigdy ucięta: wszystkie trzy widać w całości nawet na 360 dp przy
+        // czcionce ×1,5 (przewijany pasek chował „Źródła” za krawędzią).
         bottom: TabBar(
           controller: _tabs,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
           tabs: [
-            Tab(
-                key: const ValueKey('gr-tab-check'),
-                text: context.tr(pl: 'Sprawdź', en: 'Check')),
-            Tab(
-                key: const ValueKey('gr-tab-list'),
-                text: context.tr(pl: 'Przed pracą', en: 'Before work')),
-            Tab(
-                key: const ValueKey('gr-tab-sources'),
-                text: context.tr(pl: 'Źródła', en: 'Sources')),
+            _tab('gr-tab-check', context.tr(pl: 'Sprawdź', en: 'Check')),
+            _tab('gr-tab-list', context.tr(pl: 'Lista', en: 'List')),
+            _tab('gr-tab-sources', context.tr(pl: 'Źródła', en: 'Sources')),
           ],
         ),
       ),
@@ -257,6 +334,14 @@ class _GrindingPageState extends State<GrindingPage>
       ),
     );
   }
+
+  static Widget _tab(String key, String label) => Tab(
+        key: ValueKey(key),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, maxLines: 1, softWrap: false),
+        ),
+      );
 
   EdgeInsets get _listPadding => EdgeInsets.fromLTRB(
       12, 12, 12, 24 + MediaQuery.viewPaddingOf(context).bottom);
@@ -386,6 +471,31 @@ class _GrindingPageState extends State<GrindingPage>
                   'app storage; nothing was silently deleted.',
             ),
           ),
+        if (_grindersUnavailable) ...[
+          QuoteNotice(
+            key: const ValueKey('gr-grinders-unavailable'),
+            icon: Icons.sd_card_alert_outlined,
+            text: context.tr(
+              pl: 'Pamięć aplikacji jest teraz niedostępna — „Moje '
+                  'szlifierki” nie zostały wczytane. Niczego nie usunięto '
+                  'ani nie nadpisano; sprawdzenie tarczy działa normalnie.',
+              en: 'App storage is unavailable right now — “My grinders” '
+                  'were not loaded. Nothing was deleted or overwritten; the '
+                  'disc check works as usual.',
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const ValueKey('gr-grinders-retry'),
+              style: TextButton.styleFrom(
+                  minimumSize: const Size(0, kMinTapTarget)),
+              onPressed: () => unawaited(_loadGrinders()),
+              icon: const Icon(Icons.refresh),
+              label: Text(context.tr(pl: 'Spróbuj ponownie', en: 'Try again')),
+            ),
+          ),
+        ],
         if (_grinders.isNotEmpty) ...[
           Text(context.tr(pl: 'Moje szlifierki', en: 'My grinders'),
               style: const TextStyle(
@@ -445,6 +555,23 @@ class _GrindingPageState extends State<GrindingPage>
           ],
         ),
         const SizedBox(height: 8),
+        if (_loaded case final loaded?) ...[
+          FilledButton.icon(
+            key: const ValueKey('gr-update-grinder'),
+            style: FilledButton.styleFrom(
+                minimumSize: const Size(0, kMinTapTarget)),
+            onPressed: _grindersLoaded ? _updateGrinder : null,
+            icon: const Icon(Icons.save_outlined),
+            label: Text(
+              context.tr(
+                  pl: 'Zapisz zmiany: ${loaded.name}',
+                  en: 'Save changes: ${loaded.name}'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         OutlinedButton.icon(
           key: const ValueKey('gr-save-grinder'),
           style: OutlinedButton.styleFrom(
@@ -452,8 +579,12 @@ class _GrindingPageState extends State<GrindingPage>
           onPressed: _grindersLoaded ? _saveGrinder : null,
           icon: const Icon(Icons.bookmark_add_outlined),
           label: Text(
-            context.tr(
-                pl: 'Zapisz jako moją szlifierkę', en: 'Save as my grinder'),
+            _loaded == null
+                ? context.tr(
+                    pl: 'Zapisz jako moją szlifierkę', en: 'Save as my grinder')
+                : context.tr(
+                    pl: 'Zapisz jako nową szlifierkę',
+                    en: 'Save as a new grinder'),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -479,11 +610,16 @@ class _GrindingPageState extends State<GrindingPage>
           : '${fmtRpm(g.maxRpm, en: false)} obr./min',
       if (g.thread != null) g.thread!.label,
     ].join(' · ');
+    final selected = g.id == _loadedId;
     return ListTile(
       key: ValueKey('gr-grinder-${g.id}'),
       contentPadding: EdgeInsets.zero,
       minTileHeight: kMinTapTarget,
-      leading: const Icon(Icons.handyman_outlined, color: kTextSec),
+      selected: selected,
+      selectedColor: kArc,
+      leading: Icon(
+          selected ? Icons.check_circle_outline : Icons.handyman_outlined,
+          color: selected ? kArc : kTextSec),
       title: Text(g.name,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
@@ -519,7 +655,15 @@ class _GrindingPageState extends State<GrindingPage>
             key: ValueKey('gr-type-${t.name}'),
             selected: _type == t,
             label: t.label(en: en),
-            onTap: () => setState(() => _type = _type == t ? null : t),
+            onTap: () => setState(() {
+              final next = _type == t ? null : t;
+              // Szczotka ↔ tarcza: pytanie o oznaczenie zmienia treść
+              // („drut nierdzewny” / „INOX”) — stara odpowiedź nie przechodzi.
+              if ((next == DiscType.wire) != (_type == DiscType.wire)) {
+                _marked = null;
+              }
+              _type = next;
+            }),
           ),
         const SizedBox(height: 8),
         QuoteNumberField(
@@ -595,39 +739,24 @@ class _GrindingPageState extends State<GrindingPage>
               ),
           ],
         ),
+        // Kolor to tylko podpowiedź: nie ma przycisku, który przepisałby go
+        // do pola prędkości — do obliczeń idzie wyłącznie nadruk, a pasek
+        // niezgodny z nadrukiem daje ostrzeżenie.
         if (stripe != null) ...[
           const SizedBox(height: 4),
           Text(
             context.tr(
-                pl: 'Pasek ${stripe.colourPl} = '
+                pl: 'Pasek ${stripe.colourPl} zwykle oznacza '
                     '${fmtNum(stripe.speedMs, en: false)} m/s '
                     '(EN 12413 zał. D, informacyjny). Kod barwny nie jest '
-                    'obowiązkowy — przepisz prędkość z nadruku.',
-                en: 'Stripe ${stripe.colourEn} = '
+                    'obowiązkowy — do obliczeń wpisz prędkość z nadruku.',
+                en: 'A ${stripe.colourEn} stripe usually means '
                     '${fmtNum(stripe.speedMs, en: true)} m/s '
                     '(EN 12413 Annex D, informative). The colour code is not '
-                    'mandatory — copy the speed from the print.'),
+                    'mandatory — enter the printed speed for the check.'),
+            key: const ValueKey('gr-stripe-note'),
             style: const TextStyle(fontSize: 12, color: kTextMut, height: 1.35),
           ),
-          if (_discV == null || (_discV! - stripe.speedMs).abs() > 1e-6)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                key: const ValueKey('gr-stripe-apply'),
-                style: TextButton.styleFrom(
-                    minimumSize: const Size(0, kMinTapTarget)),
-                onPressed: () {
-                  FocusManager.instance.primaryFocus?.unfocus();
-                  setState(() => _discV = stripe.speedMs);
-                },
-                icon: const Icon(Icons.south_west, size: 18),
-                label: Text(context.tr(
-                    pl: 'Wpisz ${fmtNum(stripe.speedMs, en: false)} m/s — '
-                        'zgodne z nadrukiem',
-                    en: 'Enter ${fmtNum(stripe.speedMs, en: true)} m/s — '
-                        'matches the print')),
-              ),
-            ),
         ],
         const SizedBox(height: 10),
         Text(context.tr(pl: 'Mocowanie', en: 'Mounting'),
@@ -641,20 +770,38 @@ class _GrindingPageState extends State<GrindingPage>
                 key: ValueKey('gr-mount-${m.name}'),
                 label: _chipLabel(m.label(en: en)),
                 selected: _mount == m,
-                onSelected: (s) => setState(() => _mount = s ? m : null),
+                // Inny otwór = inne pytanie: stare „pasuje” nie przechodzi
+                // na nowe mocowanie.
+                onSelected: (s) => setState(() {
+                  _mount = s ? m : null;
+                  _boreFits = null;
+                }),
               ),
           ],
         ),
+        if (_mount != null && !_mount!.isThreaded) ...[
+          const SizedBox(height: 6),
+          YesNoChips(
+            keyPrefix: 'gr-bore',
+            question: context.tr(
+                pl: 'Otwór tarczy (${_mount!.labelPl} mm) pasuje do kołnierza '
+                    'szlifierki?',
+                en: 'Does the disc bore (${_mount!.labelEn} mm) fit the '
+                    'grinder flange?'),
+            value: _boreFits,
+            onChanged: (v) => setState(() => _boreFits = v),
+          ),
+        ],
         const SizedBox(height: 12),
+        // Bez filtra znaków: wycięcie litery z „1O/2027” dałoby inną,
+        // poprawnie wyglądającą datę („1/2027”). Nieczytelny wpis zostaje
+        // i daje brak werdyktu.
         TextField(
           key: const ValueKey('gr-expiry'),
           controller: _expiry,
           enabled: !_noExpiry,
           keyboardType: TextInputType.datetime,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9/.\-vV ]')),
-            LengthLimitingTextInputFormatter(10),
-          ],
+          inputFormatters: [LengthLimitingTextInputFormatter(12)],
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
             labelText: context.tr(
@@ -734,7 +881,16 @@ class _GrindingPageState extends State<GrindingPage>
                 key: ValueKey('gr-material-${w.name}'),
                 label: _chipLabel(w.label(en: en)),
                 selected: _material == w,
-                onSelected: (s) => setState(() => _material = s ? w : null),
+                // Nierdzewka ↔ aluminium: inne pytania („INOX” / „do
+                // aluminium”) — odpowiedzi od nowa.
+                onSelected: (s) => setState(() {
+                  final next = s ? w : null;
+                  if (next != _material) {
+                    _marked = null;
+                    _usedOnCarbon = null;
+                  }
+                  _material = next;
+                }),
               ),
           ],
         ),
