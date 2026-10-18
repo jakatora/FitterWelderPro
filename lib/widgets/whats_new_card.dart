@@ -46,6 +46,7 @@ const List<String> kWhatsNewToolIds = [
   'ferrite_pmi',
   'hardness',
   'instruments',
+  'spool_check',
   'flange_check',
   'bolt_kit',
   'mitre_bend',

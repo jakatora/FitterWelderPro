@@ -26,6 +26,7 @@ import '../features/power_source/power_source_page.dart';
 import '../features/qualification_range/qualification_range_page.dart';
 import '../features/rigging/rigging_page.dart';
 import '../features/shade/shade_page.dart';
+import '../features/spool_check/spool_check_page.dart';
 import '../features/tube_bending/tube_bending_page.dart';
 import '../features/weld_defects/weld_defects_page.dart';
 import '../features/welder_exam/welder_exam_page.dart';
@@ -308,6 +309,51 @@ final List<ToolSpec> kToolRegistry = [
       'valve',
       'flange',
       'tee'
+    ],
+  ),
+  ToolSpec(
+    id: 'spool_check',
+    group: ToolGroup.cutProjects,
+    titlePl: 'Tolerancje spoola',
+    titleEn: 'Spool tolerances',
+    subtitlePl: 'Wymiary spoola przed wysyłką: PFI ES-3 / EN 13480-4, protokół',
+    subtitleEn: 'Spool dimensions before shipping: PFI ES-3 / EN 13480-4, record',
+    icon: Icons.square_foot,
+    color: const Color(0xFF0097A7),
+    builder: (_) => const SpoolCheckPage(),
+    keywordsPl: const [
+      'tolerancje',
+      'tolerancja spoola',
+      'prefabrykat',
+      'prefabrykacja',
+      'wymiary spoola',
+      'odbior wymiarowy',
+      'czolo czolo',
+      'srodek czolo',
+      'srodek srodek',
+      'odchylka',
+      'pfi es-3',
+      'es-3',
+      'en 13480',
+      'skret otworow',
+      'dwuotworowanie',
+      'nachylenie czola',
+      'prostoliniowosc'
+    ],
+    keywordsEn: const [
+      'spool tolerance',
+      'fabrication tolerances',
+      'pfi es-3',
+      'face to face',
+      'center to face',
+      'center to center',
+      'bolt hole rotation',
+      'two-holing',
+      'flange face tilt',
+      'straightness',
+      'dimensional check',
+      'en 13480-4',
+      'spool inspection'
     ],
   ),
   ToolSpec(

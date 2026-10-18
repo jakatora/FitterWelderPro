@@ -179,6 +179,8 @@ void main() {
         'PassPlanPage',
         // Ferryt i PMI.
         'FerritePmiPage',
+        // Tolerancje spoola.
+        'SpoolCheckPage',
       };
       expect(targets, expected);
     });

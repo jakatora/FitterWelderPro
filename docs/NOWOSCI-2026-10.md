@@ -18,6 +18,7 @@ nic nie wypchnięte, nic nie wydane. Wszystkie nowe moduły działają offline,
 | Symbole spawalnicze | Spawacz → Kontrola i dokumentacja | czytnik symbolu z rysunku (ISO 2553 / AWS A2.4), a↔z |
 | Postęp robót | Spawacz → Kontrola i dokumentacja; dziennik spoin → Więcej | DI dziennie, spawacze, odsetek napraw, prognoza końca, raport |
 | Przyrządy i kalibracja | Spawacz → Kontrola i dokumentacja | terminy kalibracji/walidacji, przypomnienia, rejestr PDF/CSV |
+| Tolerancje spoola | Monter → Cięcie i projekty | wymiary prefabrykatu przed wysyłką: F–F, C–F, C–C, położenie odgałęzienia, skręt otworów kołnierza (kąt ↔ łuk na średnicy podziałowej), nachylenie czoła z dwóch szczelin, przesunięcie boczne, prostoliniowość; tolerancje PFI ES-3 (ostrzejsza z wartości calowej i metrycznej), EN 13480-4 albo z projektu (też +/− niesymetryczne); mm i cale z ułamkami, werdykt w mm; spool OK tylko z kompletem pozycji; następny spool z serii; protokół i historia |
 | Segmentowe kolana | Monter → Kolana i kształtki | kolano z segmentów rury: kąt cięcia, długości, szablon 1:1 |
 | Ciężar stali — profile | Monter → Tabele i przeliczniki | IPE/HEA/HEB/UPN, kątowniki, profile zamknięte, blachy; lista i koszt |
 | Spawarka: cykl pracy i przewody | Spawacz → Kalkulatory | z tabliczki: cykl pracy przy innym prądzie (X₂ = X₁·(I₁/I₂)², w dół, poza tabliczką bez szacunku), I₁₀₀; przewody H01N2-D: spadek napięcia z oporu producenta (85 °C), obciążalność wg cyklu i temperatury, dobór przekroju w górę; wskazówki (masa przy spoinie, napięcie biegu jałowego) |
@@ -88,7 +89,7 @@ Test migracji (`test/database/migration_test.dart`) pilnuje kształtu.
 ## Testy
 
 Pełny zestaw po scaleniu wszystkich modułów i poprawek z przeglądów:
-**3637 zielonych** (przed falą: 2751). Każdy moduł z werdyktem
+**5077 zielonych** (2026-10-18, wersja 0.4.0+18; przed falą: 2751). Audyt modułów: 110, w tym 62 zaliczone z dowodami w testach. Każdy moduł z werdyktem
 (prace pożarowe, t8/5, elektrody, kołnierze, warunki do spawania, stożek)
 przeszedł niezależny przegląd kodu; znalezione błędy poprawiono z testami
 regresji (m.in. werdykt zależny od przełącznika jednostek, ostatnio dopisany

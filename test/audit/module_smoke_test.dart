@@ -93,6 +93,9 @@ import 'package:cut_list_app/features/pass_plan/pass_plan_page.dart';
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_protocol.dart';
 import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_edit_page.dart';
 import 'package:cut_list_app/features/ferrite_pmi/ferrite_pmi_page.dart';
+import 'package:cut_list_app/domain/spool_check/spool_check.dart';
+import 'package:cut_list_app/features/spool_check/spool_check_edit_page.dart';
+import 'package:cut_list_app/features/spool_check/spool_check_page.dart';
 import 'package:cut_list_app/features/cooling_time/cooling_time_page.dart';
 import 'package:cut_list_app/features/distortion/distortion_page.dart';
 import 'package:cut_list_app/features/electrode_exposure/electrode_exposure_page.dart';
@@ -284,6 +287,10 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'GrindingPage' => const GrindingPage(),
       'PassPlanPage' => const PassPlanPage(),
       'FerritePmiPage' => const FerritePmiPage(),
+      'SpoolCheckPage' => const SpoolCheckPage(),
+      'SpoolCheckEditPage' => SpoolCheckEditPage(
+          initial: SpoolCheck.blank(
+              id: 'smoke-spool', now: DateTime(2026, 10, 18, 7))),
       'FerritePmiEditPage' => FerritePmiEditPage(
           initial: FerritePmiProtocol.blank(
               id: 'smoke-ferrite', now: DateTime(2026, 10, 18, 7))),
