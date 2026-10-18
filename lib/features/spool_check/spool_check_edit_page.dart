@@ -24,7 +24,8 @@ import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'spool_check_store.dart';
 
 /// Udostępnienie tekstu — wstrzykiwane w testach.
-typedef SpoolCheckShareText = Future<void> Function(String text, String subject);
+typedef SpoolCheckShareText = Future<void> Function(
+    String text, String subject);
 
 Future<void> spoolCheckDefaultShareText(String text, String subject) async {
   await Share.share(text, subject: subject);
@@ -49,6 +50,17 @@ Color spoolVerdictColor(SpoolVerdict v) => switch (v) {
       SpoolVerdict.out => kFail,
       SpoolVerdict.none => kWarn,
     };
+
+/// Komunikat „pamięć niedostępna” — zapis uszkodzony, a kopii nie udało
+/// się zrobić; magazyn nic nie zapisał ([SpoolCheckStoreUnavailable]).
+String spoolStoreUnavailableText(BuildContext context) => context.tr(
+      pl: 'Pamięć niedostępna — nic nie zapisano. Zapis historii jest '
+          'uszkodzony, a jego kopii nie udało się zrobić, więc historii nie '
+          'nadpisujemy. Udostępnij protokół tekstem.',
+      en: 'Storage unavailable — nothing was saved. The saved history is '
+          'damaged and its backup could not be made, so the history is not '
+          'overwritten. Share the record as text.',
+    );
 
 class SpoolCheckEditPage extends StatefulWidget {
   const SpoolCheckEditPage({
@@ -86,6 +98,37 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
 
   bool _saveFailureShown = false;
 
+  /// Numery spooli innych protokołów z historii (do ostrzeżenia o
+  /// duplikacie). `null` — jeszcze nie wczytano.
+  Set<String>? _otherNos;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadOtherNos());
+  }
+
+  Future<void> _loadOtherNos() async {
+    try {
+      final all = await widget.store.load();
+      if (!mounted) return;
+      setState(() => _otherNos = {
+            for (final c in all)
+              if (c.id != _p.id && c.spoolNo.trim().isNotEmpty)
+                spoolNoKey(c.spoolNo),
+          });
+    } catch (e) {
+      debugPrint('[spool_check] history numbers: $e');
+    }
+  }
+
+  /// Numer spoola jest już w historii (inny protokół) — ostrzeżenie, nie
+  /// blokada.
+  bool get _duplicateNo {
+    final no = _p.spoolNo.trim();
+    return no.isNotEmpty && (_otherNos?.contains(spoolNoKey(no)) ?? false);
+  }
+
   @override
   void dispose() {
     for (final c in [
@@ -108,20 +151,29 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   // ── Zmiany i zapis ─────────────────────────────────────────────────────
 
   void _set(SpoolCheck Function(SpoolCheck p) change) {
-    setState(() => _p = change(_p)
-        .copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
+    setState(() => _p =
+        change(_p).copyWith(updatedAt: widget.now().millisecondsSinceEpoch));
     final snapshot = _p;
     unawaited(widget.store.upsert(snapshot).catchError((Object e) {
       debugPrint('[spool_check] save failed: $e');
-      _reportSaveFailure(full: e is SpoolCheckStoreFull);
+      _reportSaveFailure(
+          full: e is SpoolCheckStoreFull,
+          unavailable: e is SpoolCheckStoreUnavailable);
     }));
   }
 
   /// Raz na ekran — protokół, który się nie zapisuje, nie może tego robić
   /// po cichu.
-  void _reportSaveFailure({bool full = false}) {
+  void _reportSaveFailure({bool full = false, bool unavailable = false}) {
     if (!mounted || _saveFailureShown) return;
     _saveFailureShown = true;
+    if (unavailable) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        key: const ValueKey('sc-store-unavailable'),
+        content: Text(spoolStoreUnavailableText(context)),
+      ));
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       key: ValueKey(full ? 'sc-store-full' : 'sc-save-failed'),
       content: Text(full
@@ -142,35 +194,44 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
 
   void _setItem(SpoolItem item) => _set((p) => p.withItem(item));
 
+  /// Nowa pozycja — ZAWSZE bez tolerancji: werdykt dopiero po świadomym
+  /// wpisie (podpowiedź z poprzedniej pozycji to tylko przycisk w karcie).
   void _addItem(SpoolItemKind kind) {
-    // Przy zestawie „wpisywanym” podpowiadamy tolerancję z ostatniej
-    // pozycji tego samego rodzaju (monter ją widzi i może zmienić).
-    double? tol;
-    if (_p.toleranceSet != SpoolToleranceSet.pfiEs3) {
-      for (final it in _p.items.reversed) {
-        if (it.kind == kind && it.toleranceMm != null) {
-          tol = it.toleranceMm;
-          break;
-        }
+    final item = SpoolItem(id: _id(), kind: kind);
+    _set((p) => p.copyWith(items: [...p.items, item]));
+  }
+
+  /// Podpowiedź tolerancji dla pozycji [index]: najbliższa wcześniejsza
+  /// pozycja tego samego rodzaju z wpisaną tolerancją ± — (nr poz., mm).
+  /// Tylko przy zestawach wpisywanych.
+  (int, double)? _suggestion(int index) {
+    if (_p.toleranceSet == SpoolToleranceSet.pfiEs3) return null;
+    final it = _p.items[index];
+    if (it.toleranceMm != null || it.toleranceDamaged || it.hasAsymmetric) {
+      return null;
+    }
+    for (var j = index - 1; j >= 0; j--) {
+      final prev = _p.items[j];
+      final t = prev.toleranceMm;
+      if (prev.kind == it.kind && t != null && spoolToleranceValid(t)) {
+        return (j + 1, t);
       }
     }
-    final item = SpoolItem(id: _id(), kind: kind, toleranceMm: tol);
-    _set((p) => p.copyWith(items: [...p.items, item]));
+    return null;
   }
 
   void _removeItem(SpoolItem item) {
     final index = _p.items.indexWhere((i) => i.id == item.id);
     if (index < 0) return;
-    _set((p) => p.copyWith(
-        items: [...p.items]..removeWhere((i) => i.id == item.id)));
+    _set((p) =>
+        p.copyWith(items: [...p.items]..removeWhere((i) => i.id == item.id)));
     final store = widget.store;
     final checkId = _p.id;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         key: const ValueKey('sc-item-removed'),
-        content: Text(context.tr(
-            pl: 'Pozycja usunięta.', en: 'Item removed.')),
+        content: Text(context.tr(pl: 'Pozycja usunięta.', en: 'Item removed.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
@@ -258,6 +319,26 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
                     'raw copy is kept on the phone. Check the items.',
               ),
             ),
+          if (_p.spoolNo.trim().isEmpty && !_p.isBlank)
+            QuoteNotice(
+              key: const ValueKey('sc-spoolno-missing'),
+              icon: Icons.edit_note,
+              text: context.tr(
+                  pl: 'Uzupełnij numer spoola — bez niego protokołu nie da się '
+                      'przypisać do spoola na budowie.',
+                  en: 'Fill in the spool number — without it the record cannot '
+                      'be matched to the spool on site.'),
+            ),
+          if (_duplicateNo)
+            QuoteNotice(
+              key: const ValueKey('sc-spoolno-duplicate'),
+              icon: Icons.copy_outlined,
+              text: context.tr(
+                  pl: 'Spool „${_p.spoolNo.trim()}” jest już w historii — '
+                      'sprawdź numer (protokół zapisuje się mimo to).',
+                  en: 'Spool “${_p.spoolNo.trim()}” is already in the history '
+                      '— check the number (the record is saved anyway).'),
+            ),
           _headerSection(en),
           _toleranceSection(en),
           _itemsSection(result, en),
@@ -322,21 +403,28 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
           pl: 'Dane z izometrii. Protokół zapisuje się sam.',
           en: 'Details from the isometric. The record saves itself.'),
       children: [
-        _text('spoolNo', _spoolNo,
-            context.tr(pl: 'Nr spoola', en: 'Spool no.'),
+        _text('spoolNo', _spoolNo, context.tr(pl: 'Nr spoola', en: 'Spool no.'),
             (t) => _set((p) => p.copyWith(spoolNo: t))),
-        _text('isoNo', _isoNo,
+        _text(
+            'isoNo',
+            _isoNo,
             context.tr(pl: 'Nr izometrii / linii', en: 'Isometric / line no.'),
             (t) => _set((p) => p.copyWith(isoNo: t))),
         FieldPair(
-          left: _text('drawingNo', _drawingNo,
+          left: _text(
+              'drawingNo',
+              _drawingNo,
               context.tr(pl: 'Rysunek', en: 'Drawing'),
               (t) => _set((p) => p.copyWith(drawingNo: t))),
-          right: _text('revision', _revision,
+          right: _text(
+              'revision',
+              _revision,
               context.tr(pl: 'Rewizja', en: 'Revision'),
               (t) => _set((p) => p.copyWith(revision: t))),
         ),
-        _text('inspector', _inspector,
+        _text(
+            'inspector',
+            _inspector,
             context.tr(pl: 'Mierzył', en: 'Measured by'),
             (t) => _set((p) => p.copyWith(inspector: t))),
         OutlinedButton(
@@ -378,8 +466,8 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
           ),
           onChanged: (t) {
             final v = int.tryParse(t.trim());
-            _set((p) => p.copyWith(
-                dn: v != null && spoolDnValid(v) ? v : null));
+            _set(
+                (p) => p.copyWith(dn: v != null && spoolDnValid(v) ? v : null));
           },
         ),
         const SizedBox(height: 12),
@@ -530,11 +618,13 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
             key: 'sc-project-info',
             text: context.tr(
                 pl: 'Wpisz tolerancję z projektu / specyfikacji przy każdej '
-                    'pozycji (nowa pozycja podpowiada wartość z poprzedniej '
-                    'tego samego rodzaju).',
-                en: 'Enter the design / specification tolerance at each item '
-                    '(a new item suggests the value from the previous one of '
-                    'the same kind).'),
+                    'pozycji: ± albo osobno + i − (np. +0 / −3) dla długości. '
+                    'Puste pole = brak werdyktu; wartość z poprzedniej pozycji '
+                    'tego rodzaju można przyjąć jednym stuknięciem.',
+                en: 'Enter the design / specification tolerance at each item: '
+                    '± or separate + and − (e.g. +0 / −3) for lengths. An '
+                    'empty field = no verdict; the value from the previous '
+                    'item of that kind can be taken with one tap.'),
           ),
       ],
     );
@@ -544,8 +634,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
         key: ValueKey(key),
         padding: const EdgeInsets.only(bottom: 6),
         child: Text('• $text',
-            style:
-                const TextStyle(fontSize: 13, color: kText, height: 1.35)),
+            style: const TextStyle(fontSize: 13, color: kText, height: 1.35)),
       );
 
   Widget _itemsSection(SpoolCheckResult result, bool en) {
@@ -574,6 +663,7 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
             result: r,
             check: _p,
             en: en,
+            suggestion: _suggestion(i),
             onChanged: _setItem,
             onDelete: () => _removeItem(r.item),
           ),
@@ -619,8 +709,8 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text('• ${s.label(en: en)}',
-                style: const TextStyle(
-                    fontSize: 13, color: kText, height: 1.4)),
+                style:
+                    const TextStyle(fontSize: 13, color: kText, height: 1.4)),
           ),
       ],
     );
@@ -730,12 +820,16 @@ class _ItemCard extends StatefulWidget {
     required this.en,
     required this.onChanged,
     required this.onDelete,
+    this.suggestion,
   });
 
   final int index;
   final SpoolItemResult result;
   final SpoolCheck check;
   final bool en;
+
+  /// Podpowiedź tolerancji: (nr pozycji, mm) — przyjmowana stuknięciem.
+  final (int, double)? suggestion;
   final ValueChanged<SpoolItem> onChanged;
   final VoidCallback onDelete;
 
@@ -757,6 +851,8 @@ class _ItemCardState extends State<_ItemCard> {
       text: _it.angleDeg == null ? '' : spoolNum(_it.angleDeg!, en: _en));
   late final _dn = TextEditingController(text: _it.dn?.toString() ?? '');
   late final _tol = TextEditingController();
+  late final _tolPlus = TextEditingController();
+  late final _tolMinus = TextEditingController();
   late final _note = TextEditingController(text: _it.note);
   final _gapA = TextEditingController();
   final _gapB = TextEditingController();
@@ -773,6 +869,8 @@ class _ItemCardState extends State<_ItemCard> {
     _measured.text = spoolFieldText(_it.measuredMm, _unit, en: _en);
     _base.text = spoolFieldText(_it.baseMm, _unit, en: _en);
     _tol.text = spoolFieldText(_it.toleranceMm, _unit, en: _en);
+    _tolPlus.text = spoolFieldText(_it.tolPlusMm, _unit, en: _en);
+    _tolMinus.text = spoolFieldText(_it.tolMinusMm, _unit, en: _en);
     _gapA.clear();
     _gapB.clear();
   }
@@ -794,6 +892,8 @@ class _ItemCardState extends State<_ItemCard> {
       _angle,
       _dn,
       _tol,
+      _tolPlus,
+      _tolMinus,
       _note,
       _gapA,
       _gapB,
@@ -841,7 +941,52 @@ class _ItemCardState extends State<_ItemCard> {
       setState(() {});
       return;
     }
-    if (mm == _it.toleranceMm) return;
+    if (mm == _it.toleranceMm) {
+      // Ta sama wartość co zapisana (np. „300” → backspace → „30”) — nic do
+      // zapisu, ale komunikat błędu musi zniknąć.
+      setState(() {});
+      return;
+    }
+    _change((i) => i.copyWith(toleranceMm: mm));
+  }
+
+  /// Część tolerancji niesymetrycznej (+ / −): puste → `null`; poprawna
+  /// (0…50 mm) → zapis; błędna → NIE zmienia zapisanej wartości.
+  void _onTolPart(String t, {required bool plus}) {
+    if (t.trim().isEmpty) {
+      _change((i) =>
+          plus ? i.copyWith(tolPlusMm: null) : i.copyWith(tolMinusMm: null));
+      return;
+    }
+    final v = parseSpoolLength(t, _unit);
+    final mm = v == null ? null : spoolFloorMm(v);
+    if (mm == null ||
+        !spoolTolerancePartValid(mm) ||
+        mm == (plus ? _it.tolPlusMm : _it.tolMinusMm)) {
+      setState(() {});
+      return;
+    }
+    _change(
+        (i) => plus ? i.copyWith(tolPlusMm: mm) : i.copyWith(tolMinusMm: mm));
+  }
+
+  String? _tolPartError(TextEditingController c, double? keep) {
+    final t = c.text;
+    if (t.trim().isEmpty) return null;
+    final v = parseSpoolLength(t, _unit);
+    if (v != null && spoolTolerancePartValid(spoolFloorMm(v))) return null;
+    final still = keep == null
+        ? (_en ? 'none entered' : 'brak wpisanej')
+        : spoolFormatBoth(keep, _unit, en: _en);
+    return _en
+        ? 'Enter 0–${kSpoolMaxToleranceMm.round()} mm. Still in force: $still.'
+        : 'Wpisz 0–${kSpoolMaxToleranceMm.round()} mm. Obowiązuje nadal: '
+            '$still.';
+  }
+
+  /// Przyjęcie podpowiedzi — świadomy wpis tolerancji.
+  void _acceptSuggestion(double mm) {
+    _tol.text = spoolFieldText(mm, _unit, en: _en);
     _change((i) => i.copyWith(toleranceMm: mm));
   }
 
@@ -883,7 +1028,9 @@ class _ItemCardState extends State<_ItemCard> {
           ? 'Tolerance ± per EN 13480-4 Annex B'
           : 'Tolerancja ± wg EN 13480-4 zał. B';
     }
-    return _en ? 'Tolerance ± from the design' : 'Tolerancja ± z projektu';
+    return _en
+        ? 'Tolerance ± from the design (empty = no verdict)'
+        : 'Tolerancja ± z projektu (puste = brak werdyktu)';
   }
 
   Widget _lengthField(String key, TextEditingController c, String label,
@@ -935,16 +1082,16 @@ class _ItemCardState extends State<_ItemCard> {
           'drawing',
           _drawing,
           en ? 'Drawing' : 'Z rysunku',
-          (t) => _change(
-              (i) => i.copyWith(drawingMm: _len(t, allowZero: false))),
+          (t) =>
+              _change((i) => i.copyWith(drawingMm: _len(t, allowZero: false))),
           error: _lenError(_drawing, allowZero: false),
         ),
         right: _lengthField(
           'measured',
           _measured,
           kind.measuredLabel(en: en),
-          (t) => _change(
-              (i) => i.copyWith(measuredMm: _len(t, allowZero: false))),
+          (t) =>
+              _change((i) => i.copyWith(measuredMm: _len(t, allowZero: false))),
           error: _lenError(_measured, allowZero: false),
         ),
       ));
@@ -962,8 +1109,8 @@ class _ItemCardState extends State<_ItemCard> {
           ),
           onChanged: (t) {
             final v = int.tryParse(t.trim());
-            _change((i) =>
-                i.copyWith(dn: v != null && spoolDnValid(v) ? v : null));
+            _change(
+                (i) => i.copyWith(dn: v != null && spoolDnValid(v) ? v : null));
           },
         ));
         gap();
@@ -975,7 +1122,8 @@ class _ItemCardState extends State<_ItemCard> {
         children: [
           ChoiceChip(
             key: ValueKey('$_k-mode-arc'),
-            label: Text(en ? 'Offset along circle' : 'Przesunięcie po obwodzie'),
+            label:
+                Text(en ? 'Offset along circle' : 'Przesunięcie po obwodzie'),
             selected: !it.rotationByAngle,
             materialTapTargetSize: MaterialTapTargetSize.padded,
             onSelected: (_) =>
@@ -1004,7 +1152,8 @@ class _ItemCardState extends State<_ItemCard> {
           ),
           onChanged: (t) {
             final v = parseDecimal(t);
-            _change((i) => i.copyWith(angleDeg: v != null && v >= 0 ? v : null));
+            _change(
+                (i) => i.copyWith(angleDeg: v != null && v >= 0 ? v : null));
           },
         ));
       } else {
@@ -1061,8 +1210,7 @@ class _ItemCardState extends State<_ItemCard> {
           'base',
           _base,
           baseLabel,
-          (t) =>
-              _change((i) => i.copyWith(baseMm: _len(t, allowZero: false))),
+          (t) => _change((i) => i.copyWith(baseMm: _len(t, allowZero: false))),
           error: _lenError(_base, allowZero: false),
           helper: kind == SpoolItemKind.faceTilt
               ? (en
@@ -1085,7 +1233,57 @@ class _ItemCardState extends State<_ItemCard> {
       _onTolerance,
       error: _tolError(),
     ));
+    final sug = widget.suggestion;
+    if (sug != null) {
+      final (pos, mm) = sug;
+      children.add(Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          key: ValueKey('$_k-tol-suggest'),
+          style: TextButton.styleFrom(
+              minimumSize: const Size(kMinTapTarget, kMinTapTarget)),
+          onPressed: () => _acceptSuggestion(mm),
+          icon: const Icon(Icons.content_paste_go, size: 18),
+          label: Text(en
+              ? 'As in item $pos: ±${spoolFormatLength(mm, _unit, en: en)} — '
+                  'tap to use'
+              : 'Jak w poz. $pos: ±${spoolFormatLength(mm, _unit, en: en)} — '
+                  'stuknij, by przyjąć'),
+        ),
+      ));
+    }
     gap();
+    if (kind.isLinear &&
+        widget.check.toleranceSet == SpoolToleranceSet.project) {
+      children.add(FieldPair(
+        left: _lengthField(
+          'tolPlus',
+          _tolPlus,
+          en ? 'Tolerance + (longer)' : 'Tolerancja + (dłuższy)',
+          (t) => _onTolPart(t, plus: true),
+          error: _tolPartError(_tolPlus, it.tolPlusMm),
+        ),
+        right: _lengthField(
+          'tolMinus',
+          _tolMinus,
+          en ? 'Tolerance − (shorter)' : 'Tolerancja − (krótszy)',
+          (t) => _onTolPart(t, plus: false),
+          error: _tolPartError(_tolMinus, it.tolMinusMm),
+        ),
+      ));
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          en
+              ? 'Optional, unequal tolerance (e.g. +0 / −3): both fields '
+                  'replace ±; one field alone gives no verdict.'
+              : 'Opcjonalnie, tolerancja niesymetryczna (np. +0 / −3): oba '
+                  'pola zastępują ±; jedno pole — brak werdyktu.',
+          style: const TextStyle(fontSize: 12, color: kTextMut),
+        ),
+      ));
+      gap();
+    }
     children.add(TextField(
       key: ValueKey('$_k-note'),
       controller: _note,
@@ -1226,10 +1424,9 @@ class _ItemCardState extends State<_ItemCard> {
             onPressed: reading == null
                 ? null
                 : () {
-                    _measured.text = spoolFieldText(
-                        reading.deviationMm, _unit, en: en);
-                    _change(
-                        (i) => i.copyWith(measuredMm: reading.deviationMm));
+                    _measured.text =
+                        spoolFieldText(reading.deviationMm, _unit, en: en);
+                    _change((i) => i.copyWith(measuredMm: reading.deviationMm));
                   },
             icon: const Icon(Icons.south),
             label: Text(en ? 'Use as deviation' : 'Wpisz jako odchyłkę'),
@@ -1237,8 +1434,8 @@ class _ItemCardState extends State<_ItemCard> {
           for (final l in lines)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(l,
-                  style: const TextStyle(fontSize: 13, color: kText)),
+              child:
+                  Text(l, style: const TextStyle(fontSize: 13, color: kText)),
             ),
         ],
       ),
@@ -1274,9 +1471,7 @@ class _ResultBox extends StatelessWidget {
                 '${unit == SpoolUnit.inch ? ' (${spoolFormatMm(dev.abs(), en: en)})' : ''}'
             : spoolFormatBoth(dev, unit, en: en);
     final t = r.tolerance;
-    final tolText = t.mm == null
-        ? '—'
-        : '±${spoolFormatBoth(t.mm!, unit, en: en)}';
+    final tolText = spoolToleranceText(t, unit, en: en);
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(

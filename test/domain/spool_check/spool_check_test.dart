@@ -39,7 +39,8 @@ SpoolItem _ff(double? drawing, double? measured,
 SpoolItemResult _one(SpoolCheck c) => c.evaluate().items.single;
 
 void main() {
-  test('ES-3 długości: DN150 ±3 mm (ostrzejsza z 1/8″ i 3,0 mm) — 3,0 mm '
+  test(
+      'ES-3 długości: DN150 ±3 mm (ostrzejsza z 1/8″ i 3,0 mm) — 3,0 mm '
       'w tolerancji, 3,001 mm poza', () {
     final ok = _one(_check(items: [_ff(1250, 1253)]));
     expect(ok.tolerance.mm, 3.0);
@@ -52,12 +53,13 @@ void main() {
     expect(short.signedDeviationMm, -3.0);
     expect(short.verdict, SpoolVerdict.ok);
 
-    expect(_one(_check(items: [_ff(1250, 1253.001)])).verdict,
-        SpoolVerdict.out);
+    expect(
+        _one(_check(items: [_ff(1250, 1253.001)])).verdict, SpoolVerdict.out);
     expect(_one(_check(items: [_ff(1250, 1253.5)])).verdict, SpoolVerdict.out);
   });
 
-  test('ES-3 pasma: DN300–600 ±4,7625 mm (3/16″ ostrzejsze od 5,0 mm), '
+  test(
+      'ES-3 pasma: DN300–600 ±4,7625 mm (3/16″ ostrzejsze od 5,0 mm), '
       'DN650–900 ±6 mm (6,0 ostrzejsze od 1/4″), DN pośrednie do niższego '
       'pasma', () {
     expect(es3LinearBandFor(250)!.mm, 3.0);
@@ -90,7 +92,8 @@ void main() {
     expect(own.tolerance.basis, SpoolToleranceBasis.drawing);
   });
 
-  test('cale: odchyłka dokładnie 1/8″ wobec tolerancji z rysunku 1/8″ — na '
+  test(
+      'cale: odchyłka dokładnie 1/8″ wobec tolerancji z rysunku 1/8″ — na '
       'granicy, w tolerancji; o 1/64″ więcej — poza', () {
     final tol = spoolToleranceToMm(1 / 8, SpoolUnit.inch);
     final drawing = parseSpoolLength('98 1/2', SpoolUnit.inch)!;
@@ -136,7 +139,8 @@ void main() {
         jsonEncode(c.items.map((i) => i.toJson()).toList()));
   });
 
-  test('ES-3 skręt otworów: 1/16″ = 1,5875 mm na granicy; kąt na średnicy '
+  test(
+      'ES-3 skręt otworów: 1/16″ = 1,5875 mm na granicy; kąt na średnicy '
       'podziałowej → przesunięcie po obwodzie', () {
     SpoolItem rot(String id, double? mm) =>
         SpoolItem(id: id, kind: SpoolItemKind.boltRotation, measuredMm: mm);
@@ -170,7 +174,8 @@ void main() {
     expect(noPcd.gaps, contains(SpoolGap.noPcd));
   });
 
-  test('ES-3 nachylenie czoła: 3/64″ na stopę lub 1/32″ — co większe; brak '
+  test(
+      'ES-3 nachylenie czoła: 3/64″ na stopę lub 1/32″ — co większe; brak '
       'średnicy → brak werdyktu', () {
     // Ø 150 mm: 3/64″/stopę × 150 = 0,586 mm < 1/32″ → 0,79375 mm.
     expect(es3FaceAlignmentLimitMm(150), 0.79375);
@@ -193,7 +198,8 @@ void main() {
     expect(r.items[3].gaps, [SpoolGap.noDiameter]);
   });
 
-  test('kalkulator nachylenia: szczeliny 0,9 i 0,3 mm na Ø 300 → 0,6 mm, '
+  test(
+      'kalkulator nachylenia: szczeliny 0,9 i 0,3 mm na Ø 300 → 0,6 mm, '
       '0,115°, 2 mm/m; przeliczenie na inną średnicę w górę', () {
     final t = faceTiltFromGaps(0.9, 0.3, 300)!;
     expect(t.deviationMm, 0.6);
@@ -207,13 +213,13 @@ void main() {
     expect(spoolScaleDeviation(0.6, 300, 334), 0.668);
   });
 
-  test('ES-3 nie podaje przesunięcia bocznego i prostoliniowości — brak '
+  test(
+      'ES-3 nie podaje przesunięcia bocznego i prostoliniowości — brak '
       'werdyktu bez tolerancji z projektu', () {
     final r = _check(items: [
       const SpoolItem(
           id: 'a', kind: SpoolItemKind.branchOffset, measuredMm: 0.5),
-      const SpoolItem(
-          id: 'b', kind: SpoolItemKind.straightness, measuredMm: 2),
+      const SpoolItem(id: 'b', kind: SpoolItemKind.straightness, measuredMm: 2),
       const SpoolItem(
           id: 'c',
           kind: SpoolItemKind.straightness,
@@ -228,7 +234,8 @@ void main() {
     expect(r.items[2].tolerance.basis, SpoolToleranceBasis.drawing);
   });
 
-  test('EN 13480-4 i „z projektu”: bez wpisanej tolerancji brak werdyktu; '
+  test(
+      'EN 13480-4 i „z projektu”: bez wpisanej tolerancji brak werdyktu; '
       'z wpisaną — werdykt i podstawa oceny', () {
     for (final set in [SpoolToleranceSet.en13480, SpoolToleranceSet.project]) {
       final none = _one(_check(set: set, items: [_ff(1250, 1250)]));
@@ -263,13 +270,13 @@ void main() {
     expect(noDev.gaps, [SpoolGap.noMeasured]);
   });
 
-  test('kumulacja: spool OK tylko, gdy wszystkie pozycje mają werdykt i są '
+  test(
+      'kumulacja: spool OK tylko, gdy wszystkie pozycje mają werdykt i są '
       'w tolerancji; jedna poza — spool poza', () {
     final allOk = _check(items: [
       _ff(1250, 1252, id: 'a'),
       _ff(800, 799, id: 'b'),
-      const SpoolItem(
-          id: 'c', kind: SpoolItemKind.boltRotation, measuredMm: 1),
+      const SpoolItem(id: 'c', kind: SpoolItemKind.boltRotation, measuredMm: 1),
     ]).evaluate();
     expect(allOk.overall, SpoolOverall.ok);
     expect(allOk.count(SpoolVerdict.ok), 3);
@@ -335,7 +342,8 @@ void main() {
     expect(back.enGrade, '2');
   });
 
-  test('JSON: nieczytelna tolerancja nie jest zastępowana normą — brak '
+  test(
+      'JSON: nieczytelna tolerancja nie jest zastępowana normą — brak '
       'werdyktu i znacznik uszkodzenia', () {
     final json = _check(items: [_ff(1250, 1251, tol: 2)]).toJson();
     ((json['items'] as List).single as Map)['tolMm'] = 'dwa';
@@ -356,7 +364,8 @@ void main() {
     expect(_one(c.withItem(fixed)).verdict, SpoolVerdict.ok);
   });
 
-  test('JSON: nieznany rodzaj pozycji i wpis bez id pominięte i policzone; '
+  test(
+      'JSON: nieznany rodzaj pozycji i wpis bez id pominięte i policzone; '
       'nieczytelny zestaw → brak werdyktu', () {
     final good = _check(items: [_ff(1250, 1251)]).toJson();
     final badKind = {
@@ -368,7 +377,12 @@ void main() {
       ],
     };
     final badSet = {...good, 'id': 'c3', 'set': 'ISO'};
-    final parsed = spoolChecksParse([good, badKind, badSet, {'date': 'x'}]);
+    final parsed = spoolChecksParse([
+      good,
+      badKind,
+      badSet,
+      {'date': 'x'}
+    ]);
     expect(parsed.droppedChecks, 1);
     expect(parsed.damagedEntries, 2);
     expect(parsed.checks.map((c) => c.id), ['c1', 'c2', 'c3']);
@@ -380,7 +394,8 @@ void main() {
     expect(() => spoolChecksParse({'not': 'a list'}), throwsFormatException);
   });
 
-  test('następny spool z serii: wymiary z rysunku i tolerancje zostają, '
+  test(
+      'następny spool z serii: wymiary z rysunku i tolerancje zostają, '
       'pomiary nie; numer +1', () {
     final c = _check(set: SpoolToleranceSet.project, items: [
       _ff(1250, 1252, id: 'a', tol: 2),
@@ -406,5 +421,120 @@ void main() {
     expect(d.items.map((i) => i.measuredMm), everyElement(isNull));
     expect(d.items[1].baseMm, 300);
     expect(d.evaluate().overall, SpoolOverall.incomplete);
+  });
+
+  test(
+      'następny spool: nieczytelny zestaw zostaje nieczytelny, uszkodzona '
+      'tolerancja — uszkodzona (bez podstawienia ES-3 w kopii)', () {
+    final json = _check(items: [_ff(1250, 1251, tol: 2)]).toJson();
+    json['set'] = 'ISO';
+    ((json['items'] as List).single as Map)['tolMm'] = 'dwa';
+    final damaged = SpoolCheck.fromJson(json)!;
+    expect(damaged.toleranceSet, isNull);
+    expect(damaged.items.single.toleranceDamaged, isTrue);
+    final d = damaged.duplicateFor(
+        newId: 'c2', now: DateTime(2026, 10, 19), itemId: (_) => 'n');
+    expect(d.toleranceSet, isNull);
+    expect(d.items.single.toleranceDamaged, isTrue);
+    final r = d
+        .copyWith(items: [
+          d.items.single.copyWith(measuredMm: 1251),
+        ])
+        .evaluate()
+        .items
+        .single;
+    expect(r.verdict, SpoolVerdict.none);
+    expect(r.gaps, contains(SpoolGap.setUnreadable));
+    // Sam zestaw w porządku, tolerancja uszkodzona — w kopii też bez ES-3.
+    final onlyTol = damaged.copyWith(toleranceSet: SpoolToleranceSet.pfiEs3);
+    final d2 = onlyTol.duplicateFor(
+        newId: 'c3', now: DateTime(2026, 10, 19), itemId: (_) => 'm');
+    final r2 = d2
+        .copyWith(items: [
+          d2.items.single.copyWith(measuredMm: 1251),
+        ])
+        .evaluate()
+        .items
+        .single;
+    expect(r2.tolerance.basis, isNot(SpoolToleranceBasis.es3Linear));
+    expect(r2.gaps, [SpoolGap.toleranceDamaged]);
+    expect(r2.verdict, SpoolVerdict.none);
+  });
+
+  test(
+      'numer następnego spoola: S02-R1 → S03-R1, SP-9 → SP-10, s09 → s10; '
+      '„A” i pusty → puste (bez duplikatu)', () {
+    expect(spoolNextNo('100-P-1203-S02-R1'), '100-P-1203-S03-R1');
+    expect(spoolNextNo('100-P-1203-S02'), '100-P-1203-S03');
+    expect(spoolNextNo('SP-9'), 'SP-10');
+    expect(spoolNextNo('s09'), 's10');
+    expect(spoolNextNo('ISO-1203-sp_099'), 'ISO-1203-sp_100');
+    // „S” w środku słowa (ISO) to nie numer spoola — ostatnia grupa cyfr.
+    expect(spoolNextNo('ISO-1203'), 'ISO-1204');
+    expect(spoolNextNo('L-101-F1'), 'L-101-F2');
+    expect(spoolNextNo('A'), '');
+    expect(spoolNextNo(''), '');
+    expect(spoolNextNo('  '), '');
+    expect(spoolNoKey(' S-01 '), spoolNoKey('s-01'));
+    final dup = _check(items: [_ff(1250, 1251)]).copyWith(spoolNo: 'A');
+    expect(
+        dup
+            .duplicateFor(
+                newId: 'x', now: DateTime(2026, 10, 19), itemId: (_) => 'i')
+            .spoolNo,
+        isEmpty);
+  });
+
+  test(
+      'tolerancja niesymetryczna z projektu (+0 / −3): werdykt wg znaku '
+      'odchyłki; jedna wartość — brak werdyktu; tylko zestaw „z projektu”', () {
+    SpoolItem asym(String id, double measured,
+            {double? plus = 0, double? minus = 3}) =>
+        SpoolItem(
+            id: id,
+            kind: SpoolItemKind.faceToFace,
+            drawingMm: 1250,
+            measuredMm: measured,
+            tolPlusMm: plus,
+            tolMinusMm: minus);
+    final r = _check(set: SpoolToleranceSet.project, items: [
+      asym('a', 1247),
+      asym('b', 1246.999),
+      asym('c', 1250),
+      asym('d', 1250.001),
+      asym('e', 1251, plus: null),
+      asym('f', 1250, plus: 0, minus: 0),
+    ]).evaluate().items;
+    expect(r[0].verdict, SpoolVerdict.ok);
+    expect(r[0].tolerance.isAsymmetric, isTrue);
+    expect(r[0].tolerance.basis, SpoolToleranceBasis.project);
+    expect(r[1].verdict, SpoolVerdict.out);
+    expect(r[2].verdict, SpoolVerdict.ok);
+    expect(r[3].verdict, SpoolVerdict.out);
+    expect(r[4].verdict, SpoolVerdict.none);
+    expect(r[4].gaps, [SpoolGap.toleranceAsymIncomplete]);
+    expect(r[5].gaps, [SpoolGap.toleranceInvalid]);
+    // Niesymetryczna wygrywa z ± tej samej pozycji.
+    final both = _one(_check(set: SpoolToleranceSet.project, items: [
+      asym('g', 1251).copyWith(toleranceMm: 5),
+    ]));
+    expect(both.verdict, SpoolVerdict.out);
+    // Przy ES-3 pola + / − nie działają — obowiązuje pasmo ES-3.
+    final es3 = _one(_check(items: [asym('h', 1251)]));
+    expect(es3.tolerance.basis, SpoolToleranceBasis.es3Linear);
+    expect(es3.verdict, SpoolVerdict.ok);
+    // JSON: zapis i odczyt; nieczytelna część → uszkodzona tolerancja.
+    final c = _check(set: SpoolToleranceSet.project, items: [asym('a', 1247)]);
+    final back = SpoolCheck.fromJson(jsonDecode(jsonEncode(c.toJson())))!;
+    expect(back.items.single.tolPlusMm, 0);
+    expect(back.items.single.tolMinusMm, 3);
+    expect(back.damagedOnLoad, 0);
+    final bad = c.toJson();
+    ((bad['items'] as List).single as Map)['tolMinusMm'] = -1;
+    final broken = SpoolCheck.fromJson(bad)!;
+    expect(broken.damagedOnLoad, 1);
+    expect(broken.items.single.toleranceDamaged, isTrue);
+    expect(broken.items.single.tolPlusMm, isNull);
+    expect(_one(broken).verdict, SpoolVerdict.none);
   });
 }

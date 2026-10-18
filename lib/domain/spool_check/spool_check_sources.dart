@@ -139,8 +139,8 @@ double get kEs3RotationMm => spoolToleranceFromInch(kEs3RotationInch);
 double es3FaceAlignmentLimitMm(double diameterMm) {
   final perMm = kEs3AlignPerFootInch / 12; // cal na cal = mm na mm
   final perMmStrict = math.min(perMm, kEs3AlignMetricPerMm);
-  final minStrict = math.min(
-      kEs3AlignMinInch * kSpoolMmPerInch, kEs3AlignMinMetricMm);
+  final minStrict =
+      math.min(kEs3AlignMinInch * kSpoolMmPerInch, kEs3AlignMinMetricMm);
   return spoolFloorMm(math.max(perMmStrict * diameterMm, minStrict));
 }
 

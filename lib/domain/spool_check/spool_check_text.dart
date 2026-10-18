@@ -48,9 +48,8 @@ extension SpoolItemKindText on SpoolItemKind {
         SpoolItemKind.boltRotation => en
             ? 'Hole offset along the bolt circle'
             : 'Przesunięcie otworu po obwodzie',
-        SpoolItemKind.faceTilt => en
-            ? 'Deviation across the diameter'
-            : 'Odchyłka na średnicy',
+        SpoolItemKind.faceTilt =>
+          en ? 'Deviation across the diameter' : 'Odchyłka na średnicy',
         SpoolItemKind.branchOffset =>
           en ? 'Lateral offset' : 'Przesunięcie boczne',
         SpoolItemKind.straightness =>
@@ -61,11 +60,9 @@ extension SpoolItemKindText on SpoolItemKind {
   String? baseLabel({required bool en}) => switch (this) {
         SpoolItemKind.boltRotation =>
           en ? 'Bolt circle diameter (PCD)' : 'Średnica podziałowa (PCD)',
-        SpoolItemKind.faceTilt => en
-            ? 'Diameter measured across'
-            : 'Średnica, na której zmierzono',
-        SpoolItemKind.straightness =>
-          en ? 'Length checked' : 'Długość odcinka',
+        SpoolItemKind.faceTilt =>
+          en ? 'Diameter measured across' : 'Średnica, na której zmierzono',
+        SpoolItemKind.straightness => en ? 'Length checked' : 'Długość odcinka',
         _ => null,
       };
 }
@@ -123,7 +120,9 @@ String spoolBasisText(SpoolTolerance t, {required bool en}) {
     case SpoolToleranceBasis.drawing:
       return en ? 'drawing / design (item)' : 'rysunek / projekt (pozycja)';
     case SpoolToleranceBasis.en13480:
-      return en ? 'EN 13480-4 Annex B (entered)' : 'EN 13480-4 zał. B (wpisane)';
+      return en
+          ? 'EN 13480-4 Annex B (entered)'
+          : 'EN 13480-4 zał. B (wpisane)';
     case SpoolToleranceBasis.project:
       return en ? 'design (entered)' : 'projekt (wpisane)';
   }
@@ -134,9 +133,8 @@ String spoolGapText(SpoolGap g, {required bool en}) => switch (g) {
       SpoolGap.noDrawing =>
         en ? 'no drawing dimension' : 'brak wymiaru z rysunku',
       SpoolGap.noMeasured => en ? 'no measurement' : 'brak pomiaru',
-      SpoolGap.noPcd => en
-          ? 'no bolt circle diameter'
-          : 'brak średnicy podziałowej',
+      SpoolGap.noPcd =>
+        en ? 'no bolt circle diameter' : 'brak średnicy podziałowej',
       SpoolGap.noDiameter => en
           ? 'no diameter measured across'
           : 'brak średnicy, na której zmierzono',
@@ -153,12 +151,14 @@ String spoolGapText(SpoolGap g, {required bool en}) => switch (g) {
       SpoolGap.toleranceInvalid => en
           ? 'tolerance out of range (0–${kSpoolMaxToleranceMm.round()} mm)'
           : 'tolerancja poza zakresem (0–${kSpoolMaxToleranceMm.round()} mm)',
+      SpoolGap.toleranceAsymIncomplete => en
+          ? 'enter both parts of the tolerance: + and −'
+          : 'wpisz obie wartości tolerancji: + i −',
       SpoolGap.toleranceDamaged => en
           ? 'saved tolerance unreadable — enter it again'
           : 'zapisana tolerancja nieczytelna — wpisz ponownie',
-      SpoolGap.setUnreadable => en
-          ? 'tolerance set unreadable'
-          : 'zestaw tolerancji nieczytelny',
+      SpoolGap.setUnreadable =>
+        en ? 'tolerance set unreadable' : 'zestaw tolerancji nieczytelny',
     };
 
 String spoolVerdictText(SpoolVerdict v, {required bool en}) => switch (v) {
@@ -202,6 +202,17 @@ String spoolOverallShort(SpoolOverall o, {required bool en}) => switch (o) {
       SpoolOverall.empty => en ? 'No items' : 'Brak pozycji',
     };
 
+/// Tolerancja do wyświetlenia: „±3 mm (≈0,118″)” albo niesymetryczna
+/// „+0 mm (0″) / −3 mm (≈0,118″)”; brak — „—”.
+String spoolToleranceText(SpoolTolerance t, SpoolUnit u, {required bool en}) {
+  if (t.isAsymmetric) {
+    return '+${spoolFormatBoth(t.plusMm!, u, en: en)} / '
+        '−${spoolFormatBoth(t.minusMm!, u, en: en)}';
+  }
+  final mm = t.mm;
+  return mm == null ? '—' : '±${spoolFormatBoth(mm, u, en: en)}';
+}
+
 /// Wiersz pozycji: „rysunek 1250 mm, zmierzono 1253,5 mm → odchyłka
 /// +3,5 mm; tolerancja ±3 mm (PFI ES-3, …) → POZA TOLERANCJĄ”.
 String spoolItemLine(SpoolItemResult r, SpoolUnit u, {required bool en}) {
@@ -230,9 +241,9 @@ String spoolItemLine(SpoolItemResult r, SpoolUnit u, {required bool en}) {
               '${u == SpoolUnit.inch ? ' (${spoolFormatMm(dev.abs(), en: en)})' : ''}'
           : spoolFormatBoth(dev, u, en: en);
   final t = r.tolerance;
-  final tolText = t.mm == null
-      ? '—'
-      : '±${spoolFormatBoth(t.mm!, u, en: en)} — ${spoolBasisText(t, en: en)}';
+  final tolText = t.known
+      ? '${spoolToleranceText(t, u, en: en)} — ${spoolBasisText(t, en: en)}'
+      : '—';
   final verdict = spoolVerdictText(r.verdict, en: en);
   final gaps = r.gaps.isEmpty
       ? ''

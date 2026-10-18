@@ -123,7 +123,8 @@ double? parseSpoolInches(String text) {
 }
 
 double? _inchPart(String s) {
-  final mixed = RegExp(r'^(\d+)(?:\s+|\s*-\s*)(\d+)\s*/\s*(\d+)$').firstMatch(s);
+  final mixed =
+      RegExp(r'^(\d+)(?:\s+|\s*-\s*)(\d+)\s*/\s*(\d+)$').firstMatch(s);
   if (mixed != null) {
     final den = int.parse(mixed.group(3)!);
     if (den == 0) return null;

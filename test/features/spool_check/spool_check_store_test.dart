@@ -26,6 +26,38 @@ SpoolCheck _c(String id, {String date = '2026-10-18', int updated = 1}) =>
       updatedAt: updated,
     );
 
+/// Pamięć, która odmawia zapisu kopii uszkodzonej historii (setString →
+/// false albo wyjątek) — reszta jak prawdziwa.
+class _NoBackupPrefs implements SharedPreferences {
+  _NoBackupPrefs(this._real, {this.throwOnBackup = false});
+  final SharedPreferences _real;
+  final bool throwOnBackup;
+  final List<String> refused = [];
+
+  static bool _isBackup(String key) =>
+      key == SpoolCheckStore.corruptBackupKey ||
+      key == SpoolCheckStore.corruptLastBackupKey;
+
+  @override
+  Object? get(String key) => _real.get(key);
+
+  @override
+  String? getString(String key) => _real.getString(key);
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    if (_isBackup(key)) {
+      refused.add(key);
+      if (throwOnBackup) throw StateError('disk full');
+      return false;
+    }
+    return _real.setString(key, value);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 String _many(int n) => jsonEncode(spoolChecksToJson([
       for (var i = 0; i < n; i++) _c('p$i', date: '2020-01-01'),
     ]));
@@ -33,7 +65,8 @@ String _many(int n) => jsonEncode(spoolChecksToJson([
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('zapis i odczyt: najnowszy na górze; pusty protokół nie trafia do '
+  test(
+      'zapis i odczyt: najnowszy na górze; pusty protokół nie trafia do '
       'historii, a zapisany i wyczyszczony znika', () async {
     const store = SpoolCheckStore();
     await store.upsert(_c('old', date: '2026-10-01'));
@@ -65,14 +98,18 @@ void main() {
     expect(prefs.getString(SpoolCheckStore.corruptLastBackupKey), '{zepsute');
   });
 
-  test('uszkodzone pozycje w zapisie: raport uszkodzeń i kopia surowego '
+  test(
+      'uszkodzone pozycje w zapisie: raport uszkodzeń i kopia surowego '
       'zapisu', () async {
     final json = _c('a').toJson();
     json['items'] = [
       ...(json['items'] as List),
       {'id': 'zz', 'kind': 'nieznany'},
     ];
-    final raw = jsonEncode([json, {'id': ''}]);
+    final raw = jsonEncode([
+      json,
+      {'id': ''}
+    ]);
     SharedPreferences.setMockInitialValues({SpoolCheckStore.key: raw});
     final load = await const SpoolCheckStore().loadReport();
     expect(load.damaged, isTrue);
@@ -83,7 +120,8 @@ void main() {
     expect(prefs.getString(SpoolCheckStore.corruptBackupKey), raw);
   });
 
-  test('pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
+  test(
+      'pełna historia: zmiana zapisanego działa, nowy odrzucony, nic nie '
       'wypada', () async {
     SharedPreferences.setMockInitialValues(
         {SpoolCheckStore.key: _many(SpoolCheckStore.maxEntries)});
@@ -114,6 +152,47 @@ void main() {
     expect(ids, contains(victim.id));
     expect(ids, contains('wstawiony'));
     expect(ids, hasLength(SpoolCheckStore.maxEntries + 1));
+  });
+
+  test(
+      'nieudana kopia uszkodzonego zapisu (setString = false albo wyjątek) — '
+      'zapis, usunięcie i przywrócenie rzucają, historia nietknięta', () async {
+    final json = _c('a').toJson();
+    json['items'] = [
+      ...(json['items'] as List),
+      {'id': 'zz', 'kind': 'nieznany'},
+    ];
+    for (final raw in [
+      jsonEncode([json]),
+      '[{"id": "x"'
+    ]) {
+      for (final throwing in [false, true]) {
+        SharedPreferences.setMockInitialValues({SpoolCheckStore.key: raw});
+        final real = await SharedPreferences.getInstance();
+        final fake = _NoBackupPrefs(real, throwOnBackup: throwing);
+        final store = SpoolCheckStore(prefs: () async => fake);
+        final load = await store.loadReport();
+        expect(load.damaged, isTrue);
+        expect(load.backupFailed, isTrue);
+        await expectLater(store.upsert(_c('nowy')),
+            throwsA(isA<SpoolCheckStoreUnavailable>()));
+        await expectLater(
+            store.delete('a'), throwsA(isA<SpoolCheckStoreUnavailable>()));
+        await expectLater(
+            store.restore(_c('b')), throwsA(isA<SpoolCheckStoreUnavailable>()));
+        await expectLater(store.restoreItem('a', _c('a').items.single, 0),
+            throwsA(isA<SpoolCheckStoreUnavailable>()));
+        expect(real.getString(SpoolCheckStore.key), raw,
+            reason: 'historia nie może być nadpisana bez kopii');
+        expect(real.getString(SpoolCheckStore.corruptBackupKey), isNull);
+        expect(fake.refused, isNotEmpty);
+      }
+    }
+    // Gdy pamięć znów przyjmuje kopię — zapis działa, kopia jest.
+    final real = await SharedPreferences.getInstance();
+    await const SpoolCheckStore().upsert(_c('nowy'));
+    expect(real.getString(SpoolCheckStore.corruptBackupKey), '[{"id": "x"');
+    expect((await const SpoolCheckStore().load()).single.id, 'nowy');
   });
 
   test('przywrócenie pozycji w zapisie (ekran edycji zamknięty)', () async {

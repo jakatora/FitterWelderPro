@@ -33,7 +33,8 @@ SpoolCheck _filled() => const SpoolCheck(
     );
 
 void main() {
-  test('protokół tekstowy: nagłówek, werdykt, podstawa oceny, pozycje i '
+  test(
+      'protokół tekstowy: nagłówek, werdykt, podstawa oceny, pozycje i '
       'źródła (PL)', () {
     final t = spoolCheckProtocolText(_filled(), en: false);
     expect(t, startsWith('TOLERANCJE SPOOLA — PROTOKÓŁ KONTROLI WYMIARÓW'));
@@ -48,11 +49,15 @@ void main() {
             '1253,5 mm → odchyłka +3,5 mm; tolerancja ±3 mm (≈0,118″) — '
             'PFI ES-3, do 10″ (DN ≤ 250) → POZA TOLERANCJĄ'));
     expect(t, contains('2. Skręt otworów kołnierza — F2:'));
-    expect(t, contains('±1,5875 mm (1/16″) — PFI ES-3, obrót kołnierza → '
-        'w tolerancji'));
+    expect(
+        t,
+        contains('±1,5875 mm (1/16″) — PFI ES-3, obrót kołnierza → '
+            'w tolerancji'));
     expect(t, contains('3. Prostoliniowość / łuk: odchyłka 2 mm'));
-    expect(t, contains('brak werdyktu (ES-3 nie podaje wartości — wpisz '
-        'tolerancję z projektu)'));
+    expect(
+        t,
+        contains('brak werdyktu (ES-3 nie podaje wartości — wpisz '
+            'tolerancję z projektu)'));
     expect(t, contains('Uwagi: Do poprawki: skrócić F1.'));
     expect(t, contains('ŹRÓDŁA'));
     expect(t, contains('EN 13480-4:2017'));
@@ -60,12 +65,14 @@ void main() {
   });
 
   test('protokół tekstowy po angielsku — cale z mm w nawiasie', () {
-    final t = spoolCheckProtocolText(
-        _filled().copyWith(unit: SpoolUnit.inch), en: true);
+    final t = spoolCheckProtocolText(_filled().copyWith(unit: SpoolUnit.inch),
+        en: true);
     expect(t, startsWith('SPOOL DIMENSIONAL CHECK — RECORD'));
     expect(t, contains('VERDICT: Spool OUT OF TOLERANCE — 1 of 3 item(s).'));
-    expect(t, contains('deviation +≈0.138″ (3.5 mm); tolerance ±≈0.118″ '
-        '(3 mm) — PFI ES-3, up to 10″ (DN ≤ 250) → OUT OF TOLERANCE'));
+    expect(
+        t,
+        contains('deviation +≈0.138″ (3.5 mm); tolerance ±≈0.118″ '
+            '(3 mm) — PFI ES-3, up to 10″ (DN ≤ 250) → OUT OF TOLERANCE'));
     expect(t, contains('Verdict computed in mm'));
   });
 
@@ -78,18 +85,19 @@ void main() {
         'EN 13480-4:2017 zał. B, klasa 2 — wartości wpisane przez '
         'użytkownika');
     expect(
-        spoolSetBasisText(
-            c.copyWith(toleranceSet: SpoolToleranceSet.en13480), en: true),
+        spoolSetBasisText(c.copyWith(toleranceSet: SpoolToleranceSet.en13480),
+            en: true),
         contains('grade not stated'));
     expect(
-        spoolSetBasisText(
-            c.copyWith(toleranceSet: SpoolToleranceSet.project), en: false),
+        spoolSetBasisText(c.copyWith(toleranceSet: SpoolToleranceSet.project),
+            en: false),
         'tolerancje z projektu — wartości wpisane przez użytkownika');
     expect(spoolSetBasisText(c.copyWith(toleranceSet: null), en: false),
         contains('nieczytelny'));
   });
 
-  test('każda wartość ES-3 w kodzie ma źródło z wydaniem (PL i EN); '
+  test(
+      'każda wartość ES-3 w kodzie ma źródło z wydaniem (PL i EN); '
       'EN 13480-4 bez wbudowanych wartości', () {
     final pl = kSpoolCheckSources.map((s) => s.pl).join('\n');
     final en = kSpoolCheckSources.map((s) => s.en).join('\n');
@@ -125,8 +133,8 @@ void main() {
     const c = SpoolCheck(id: 'x', date: '2026-10-18', items: [
       SpoolItem(id: 'a', kind: SpoolItemKind.centerToFace),
     ]);
-    final line = spoolItemLine(c.evaluate().items.single, SpoolUnit.mm,
-        en: false);
+    final line =
+        spoolItemLine(c.evaluate().items.single, SpoolUnit.mm, en: false);
     expect(line, contains('rysunek —, zmierzono —'));
     expect(line, contains('brak werdyktu'));
     expect(line, contains('brak wymiaru z rysunku'));

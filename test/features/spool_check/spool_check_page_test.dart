@@ -41,12 +41,14 @@ Future<void> _pump(
   Size size = const Size(1080, 2400),
   double textScale = 1.0,
   AppLanguage language = AppLanguage.pl,
+  SpoolCheckStore store = const SpoolCheckStore(),
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   var n = 0;
   final page = SpoolCheckPage(
+    store: store,
     now: () => _now,
     newId: () => 'id-${++n}',
     shareText: (_, __) async {},
@@ -107,9 +109,8 @@ Future<void> _back(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-String _status(WidgetTester tester, int i) => tester
-    .widget<Text>(find.byKey(ValueKey('sc-hist-status-$i')))
-    .data!;
+String _status(WidgetTester tester, int i) =>
+    tester.widget<Text>(find.byKey(ValueKey('sc-hist-status-$i'))).data!;
 
 SpoolCheck _stored({String id = 'old', String spoolNo = '100-P-1203-S02'}) =>
     SpoolCheck(
@@ -140,6 +141,30 @@ SpoolCheck _stored({String id = 'old', String spoolNo = '100-P-1203-S02'}) =>
 
 void _seed(List<SpoolCheck> list) => SharedPreferences.setMockInitialValues(
     {SpoolCheckStore.key: jsonEncode(spoolChecksToJson(list))});
+
+/// Pamięć, która odmawia zapisu kopii uszkodzonej historii.
+class _NoBackupPrefs implements SharedPreferences {
+  _NoBackupPrefs(this._real);
+  final SharedPreferences _real;
+
+  @override
+  Object? get(String key) => _real.get(key);
+
+  @override
+  String? getString(String key) => _real.getString(key);
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    if (key == SpoolCheckStore.corruptBackupKey ||
+        key == SpoolCheckStore.corruptLastBackupKey) {
+      return false;
+    }
+    return _real.setString(key, value);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -175,7 +200,8 @@ void main() {
     expect(_status(tester, 0), 'Poza tolerancją');
   });
 
-  testWidgets('następny spool z serii: wymiary z rysunku i tolerancje bez '
+  testWidgets(
+      'następny spool z serii: wymiary z rysunku i tolerancje bez '
       'pomiarów, numer +1', (tester) async {
     _seed([_stored()]);
     await _pump(tester);
@@ -195,11 +221,11 @@ void main() {
     expect(copy.items[1].toleranceMm, 2);
     expect(copy.evaluate().overall, SpoolOverall.incomplete);
     // Oryginał nietknięty.
-    expect(saved.firstWhere((c) => c.id == 'old').items.first.measuredMm,
-        1251);
+    expect(saved.firstWhere((c) => c.id == 'old').items.first.measuredMm, 1251);
   });
 
-  testWidgets('usunięcie protokołu z „Cofnij” — działa przez magazyn także po '
+  testWidgets(
+      'usunięcie protokołu z „Cofnij” — działa przez magazyn także po '
       'zamknięciu ekranu', (tester) async {
     _seed([_stored()]);
     await _pump(tester);
@@ -236,7 +262,8 @@ void main() {
         ['a', 'b']);
   });
 
-  testWidgets('historia: ostrzeżenie od 180 protokołów, przy 200 nowy '
+  testWidgets(
+      'historia: ostrzeżenie od 180 protokołów, przy 200 nowy '
       'odrzucony z komunikatem', (tester) async {
     List<SpoolCheck> many(int n) =>
         [for (var i = 0; i < n; i++) _stored(id: 'p$i', spoolNo: 'S-$i')];
@@ -257,7 +284,8 @@ void main() {
         hasLength(SpoolCheckStore.maxEntries));
   });
 
-  testWidgets('uszkodzony zapis: baner i kopia surowego zapisu; protokół '
+  testWidgets(
+      'uszkodzony zapis: baner i kopia surowego zapisu; protokół '
       'z uszkodzoną tolerancją bez werdyktu', (tester) async {
     final json = _stored().toJson();
     ((json['items'] as List)[1] as Map)['tolMm'] = 'dwa';
@@ -317,5 +345,82 @@ void main() {
       expect(tester.getSize(f).width, greaterThanOrEqualTo(kMinTapTarget),
           reason: k);
     }
+  });
+
+  testWidgets(
+      'następny spool z nieczytelnym zestawem i uszkodzoną tolerancją '
+      '— kopia bez werdyktu, bez podstawienia ES-3', (tester) async {
+    final json = _stored().toJson();
+    json['set'] = 'ISO';
+    ((json['items'] as List)[1] as Map)['tolMm'] = 'dwa';
+    SharedPreferences.setMockInitialValues({
+      SpoolCheckStore.key: jsonEncode([json])
+    });
+    await _pump(tester);
+    await _tapKey(tester, 'sc-dup-last');
+    await _show(tester, 'sc-set-unreadable');
+    await _enter(tester, 'sc-i-1-measured', '600');
+    expect(
+        tester.widget<Text>(find.byKey(const ValueKey('sc-i-1-verdict'))).data,
+        'brak werdyktu');
+    expect(find.text('• zestaw tolerancji nieczytelny'), findsWidgets);
+    await _back(tester);
+    final copy =
+        (await const SpoolCheckStore().load()).firstWhere((c) => c.id != 'old');
+    expect(copy.toleranceSet, isNull);
+    expect(copy.items[1].toleranceDamaged, isTrue);
+    expect(copy.evaluate().overall, SpoolOverall.incomplete);
+  });
+
+  testWidgets(
+      'następny spool po numerze bez cyfr („A”) — pusty numer '
+      'z przypomnieniem, bez duplikatu', (tester) async {
+    _seed([_stored(spoolNo: 'A')]);
+    await _pump(tester);
+    await _tapKey(tester, 'sc-dup-last');
+    await _show(tester, 'sc-spoolno-missing');
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('sc-f-spoolNo')))
+            .controller!
+            .text,
+        isEmpty);
+    await _back(tester);
+    final nos = (await const SpoolCheckStore().load()).map((c) => c.spoolNo);
+    expect(nos, containsAll(['', 'A']));
+  });
+
+  testWidgets(
+      'pamięć odmawia kopii uszkodzonego zapisu — baner „pamięć '
+      'niedostępna”, usunięcie i nowy protokół niczego nie nadpisują',
+      (tester) async {
+    final json = _stored().toJson();
+    json['items'] = [
+      ...(json['items'] as List),
+      {'id': 'zz', 'kind': 'nieznany'},
+    ];
+    final raw = jsonEncode([json]);
+    SharedPreferences.setMockInitialValues({SpoolCheckStore.key: raw});
+    final real = await SharedPreferences.getInstance();
+    final store = SpoolCheckStore(prefs: () async => _NoBackupPrefs(real));
+    await _pump(tester, store: store);
+    await _show(tester, 'sc-store-unavailable-banner');
+    expect(find.textContaining('Pamięć niedostępna — nic nie zapisano'),
+        findsWidgets);
+
+    await _tapKey(tester, 'sc-menu-0');
+    await tester.tap(find.byKey(const ValueKey('sc-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sc-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('sc-store-unavailable')), findsOneWidget);
+    expect(real.getString(SpoolCheckStore.key), raw);
+
+    await _tapKey(tester, 'sc-new');
+    expect(find.text('Protokół spoola'), findsNothing);
+    await _tapKey(tester, 'sc-dup-last');
+    expect(find.text('Protokół spoola'), findsNothing);
+    expect(real.getString(SpoolCheckStore.key), raw);
+    expect(real.getString(SpoolCheckStore.corruptBackupKey), isNull);
   });
 }

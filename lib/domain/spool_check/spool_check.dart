@@ -20,7 +20,6 @@ library;
 
 import 'dart:math' as math;
 
-import '../flange/flange_check.dart' show nextTag;
 import 'spool_check_sources.dart';
 import 'spool_units.dart';
 
@@ -111,6 +110,9 @@ enum SpoolGap {
   notInEs3,
   noTolerance,
   toleranceInvalid,
+
+  /// Tolerancja niesymetryczna z jedną wartością (+ albo −) — wpisz obie.
+  toleranceAsymIncomplete,
   toleranceDamaged,
   setUnreadable,
 }
@@ -144,6 +146,11 @@ enum SpoolOverall {
 /// [kSpoolMaxToleranceMm].
 bool spoolToleranceValid(double v) =>
     v.isFinite && v > 0 && v <= kSpoolMaxToleranceMm + kSpoolCompareEpsMm;
+
+/// Część tolerancji niesymetrycznej (+ albo −), mm: 0…[kSpoolMaxToleranceMm]
+/// (zero dozwolone — „+0 / −3”).
+bool spoolTolerancePartValid(double v) =>
+    v.isFinite && v >= 0 && v <= kSpoolMaxToleranceMm + kSpoolCompareEpsMm;
 
 /// DN z pola: 1…[kSpoolMaxDn].
 bool spoolDnValid(int dn) => dn > 0 && dn <= kSpoolMaxDn;
@@ -184,6 +191,13 @@ class SpoolItem {
   /// Tolerancja ± wpisana przy pozycji, mm (W DÓŁ do siatki).
   final double? toleranceMm;
 
+  /// Tolerancja niesymetryczna z projektu (tylko zestaw „z projektu”,
+  /// pozycje liniowe): dopuszczalne wydłużenie (+) i skrócenie (−), mm,
+  /// każda ≥ 0 (np. +0 / −3). Obie wpisane — zastępują ±; jedna — brak
+  /// werdyktu.
+  final double? tolPlusMm;
+  final double? tolMinusMm;
+
   /// Zapis tolerancji był nieczytelny — pozycja bez werdyktu, dopóki
   /// monter nie wpisze tolerancji ponownie (nie podstawiamy normy).
   final bool toleranceDamaged;
@@ -201,9 +215,14 @@ class SpoolItem {
     this.angleDeg,
     this.dn,
     this.toleranceMm,
+    this.tolPlusMm,
+    this.tolMinusMm,
     this.toleranceDamaged = false,
     this.note = '',
   });
+
+  /// Wpisano choć jedną część tolerancji niesymetrycznej.
+  bool get hasAsymmetric => tolPlusMm != null || tolMinusMm != null;
 
   /// Zmierzona odchyłka przy pozycjach mierzonych wprost (nie liniowych),
   /// mm, w górę do siatki. Skręt jako kąt → przesunięcie po obwodzie na
@@ -244,6 +263,8 @@ class SpoolItem {
       angleDeg == null &&
       dn == null &&
       toleranceMm == null &&
+      tolPlusMm == null &&
+      tolMinusMm == null &&
       note.trim().isEmpty;
 
   SpoolItem copyWith({
@@ -257,30 +278,40 @@ class SpoolItem {
     Object? angleDeg = _keep,
     Object? dn = _keep,
     Object? toleranceMm = _keep,
+    Object? tolPlusMm = _keep,
+    Object? tolMinusMm = _keep,
     bool? toleranceDamaged,
     String? note,
   }) {
     final newTolerance = identical(toleranceMm, _keep)
         ? this.toleranceMm
-        : toleranceMm as double?;
+        : _asDouble(toleranceMm);
+    final touched = !identical(toleranceMm, _keep) ||
+        !identical(tolPlusMm, _keep) ||
+        !identical(tolMinusMm, _keep);
     return SpoolItem(
       id: id ?? this.id,
       kind: kind ?? this.kind,
       label: label ?? this.label,
       drawingMm:
-          identical(drawingMm, _keep) ? this.drawingMm : drawingMm as double?,
+          identical(drawingMm, _keep) ? this.drawingMm : _asDouble(drawingMm),
       measuredMm: identical(measuredMm, _keep)
           ? this.measuredMm
-          : measuredMm as double?,
-      baseMm: identical(baseMm, _keep) ? this.baseMm : baseMm as double?,
+          : _asDouble(measuredMm),
+      baseMm: identical(baseMm, _keep) ? this.baseMm : _asDouble(baseMm),
       rotationByAngle: rotationByAngle ?? this.rotationByAngle,
       angleDeg:
-          identical(angleDeg, _keep) ? this.angleDeg : angleDeg as double?,
+          identical(angleDeg, _keep) ? this.angleDeg : _asDouble(angleDeg),
       dn: identical(dn, _keep) ? this.dn : dn as int?,
       toleranceMm: newTolerance,
+      tolPlusMm:
+          identical(tolPlusMm, _keep) ? this.tolPlusMm : _asDouble(tolPlusMm),
+      tolMinusMm: identical(tolMinusMm, _keep)
+          ? this.tolMinusMm
+          : _asDouble(tolMinusMm),
       // Nowo wpisana tolerancja zdejmuje znacznik uszkodzenia.
-      toleranceDamaged: toleranceDamaged ??
-          (identical(toleranceMm, _keep) ? this.toleranceDamaged : false),
+      toleranceDamaged:
+          toleranceDamaged ?? (touched ? false : this.toleranceDamaged),
       note: note ?? this.note,
     );
   }
@@ -296,6 +327,8 @@ class SpoolItem {
         'angleDeg': angleDeg,
         'dn': dn,
         'tolMm': toleranceMm,
+        'tolPlusMm': tolPlusMm,
+        'tolMinusMm': tolMinusMm,
         if (toleranceDamaged) 'tolDamaged': true,
         'note': note,
       };
@@ -320,9 +353,14 @@ class SpoolItem {
     final base = readNum('baseMm', allowZero: false);
     final angle = readNum('angleDeg');
     final (tol, tolBad) = _readNum(raw, 'tolMm', allowZero: false);
-    final tolInvalid = tol != null && !spoolToleranceValid(tol);
-    if (tolBad || tolInvalid) damaged = true;
-    final tolDamaged = tolBad || tolInvalid || raw['tolDamaged'] == true;
+    final (plus, plusBad) = _readNum(raw, 'tolPlusMm', allowZero: true);
+    final (minus, minusBad) = _readNum(raw, 'tolMinusMm', allowZero: true);
+    final tolInvalid = (tol != null && !spoolToleranceValid(tol)) ||
+        (plus != null && !spoolTolerancePartValid(plus)) ||
+        (minus != null && !spoolTolerancePartValid(minus));
+    final anyBad = tolBad || plusBad || minusBad || tolInvalid;
+    if (anyBad) damaged = true;
+    final tolDamaged = anyBad || raw['tolDamaged'] == true;
     final rawDn = raw['dn'];
     int? dn;
     if (rawDn != null) {
@@ -345,6 +383,8 @@ class SpoolItem {
         angleDeg: angle,
         dn: dn,
         toleranceMm: tolDamaged ? null : tol,
+        tolPlusMm: tolDamaged ? null : plus,
+        tolMinusMm: tolDamaged ? null : minus,
         toleranceDamaged: tolDamaged,
         note: _str(raw['note']),
       ),
@@ -357,9 +397,14 @@ class SpoolItem {
 // OCENA POZYCJI
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Tolerancja pozycji: wartość, podstawa albo powód braku.
+/// Tolerancja pozycji: wartość (± albo + / −), podstawa albo powód braku.
 class SpoolTolerance {
+  /// Tolerancja symetryczna ±, mm (`null` przy niesymetrycznej).
   final double? mm;
+
+  /// Tolerancja niesymetryczna: dopuszczalne + i −, mm.
+  final double? plusMm;
+  final double? minusMm;
   final SpoolToleranceBasis? basis;
 
   /// Pasmo ES-3 (tolerancja liniowa).
@@ -370,15 +415,28 @@ class SpoolTolerance {
   final SpoolGap? gap;
 
   const SpoolTolerance._({this.mm, this.basis, this.band, this.dn})
-      : gap = null;
+      : plusMm = null,
+        minusMm = null,
+        gap = null;
+
+  const SpoolTolerance._asym(double this.plusMm, double this.minusMm)
+      : mm = null,
+        basis = SpoolToleranceBasis.project,
+        band = null,
+        dn = null,
+        gap = null;
 
   const SpoolTolerance.missing(SpoolGap this.gap)
       : mm = null,
+        plusMm = null,
+        minusMm = null,
         basis = null,
         band = null,
         dn = null;
 
-  bool get known => mm != null;
+  bool get isAsymmetric => plusMm != null && minusMm != null;
+
+  bool get known => mm != null || isAsymmetric;
 }
 
 class SpoolItemResult {
@@ -399,9 +457,19 @@ class SpoolItemResult {
   });
 
   SpoolVerdict get verdict {
+    if (gaps.isNotEmpty) return SpoolVerdict.none;
+    final tol = tolerance;
+    if (tol.isAsymmetric) {
+      // Wg znaku odchyłki: dłuższy niż rysunek — „+”, krótszy — „−”.
+      final s = signedDeviationMm;
+      if (s == null) return SpoolVerdict.none;
+      final ok =
+          s >= 0 ? spoolWithin(s, tol.plusMm!) : spoolWithin(-s, tol.minusMm!);
+      return ok ? SpoolVerdict.ok : SpoolVerdict.out;
+    }
     final d = deviationMm;
-    final t = tolerance.mm;
-    if (gaps.isNotEmpty || d == null || t == null) return SpoolVerdict.none;
+    final t = tol.mm;
+    if (d == null || t == null) return SpoolVerdict.none;
     return spoolWithin(d, t) ? SpoolVerdict.ok : SpoolVerdict.out;
   }
 }
@@ -508,9 +576,26 @@ class SpoolCheck {
   /// Tolerancja pozycji wg zestawu protokołu.
   SpoolTolerance toleranceFor(SpoolItem item) {
     final set = toleranceSet;
-    if (set == null) return const SpoolTolerance.missing(SpoolGap.setUnreadable);
+    if (set == null) {
+      return const SpoolTolerance.missing(SpoolGap.setUnreadable);
+    }
     if (item.toleranceDamaged) {
       return const SpoolTolerance.missing(SpoolGap.toleranceDamaged);
+    }
+    if (set == SpoolToleranceSet.project &&
+        item.kind.isLinear &&
+        item.hasAsymmetric) {
+      final plus = item.tolPlusMm;
+      final minus = item.tolMinusMm;
+      if (plus == null || minus == null) {
+        return const SpoolTolerance.missing(SpoolGap.toleranceAsymIncomplete);
+      }
+      if (!spoolTolerancePartValid(plus) ||
+          !spoolTolerancePartValid(minus) ||
+          plus + minus <= 0) {
+        return const SpoolTolerance.missing(SpoolGap.toleranceInvalid);
+      }
+      return SpoolTolerance._asym(spoolFloorMm(plus), spoolFloorMm(minus));
     }
     final own = item.toleranceMm;
     if (own != null) {
@@ -590,7 +675,9 @@ class SpoolCheck {
 
   /// Następny spool z tej samej serii: dane nagłówka, zestaw tolerancji,
   /// pozycje z wymiarami z rysunku i własnymi tolerancjami — BEZ pomiarów
-  /// i uwag; numer spoola +1.
+  /// i uwag; numer spoola wg [spoolNextNo]. Nieczytelny zestaw zostaje
+  /// nieczytelny, a uszkodzona tolerancja — uszkodzona (bez cichego
+  /// podstawienia normy w kopii).
   SpoolCheck duplicateFor({
     required String newId,
     required DateTime now,
@@ -598,7 +685,7 @@ class SpoolCheck {
   }) =>
       SpoolCheck(
         id: newId,
-        spoolNo: nextTag(spoolNo),
+        spoolNo: spoolNextNo(spoolNo),
         isoNo: isoNo,
         drawingNo: drawingNo,
         revision: revision,
@@ -606,7 +693,7 @@ class SpoolCheck {
         inspector: inspector,
         dn: dn,
         unit: unit,
-        toleranceSet: toleranceSet ?? SpoolToleranceSet.pfiEs3,
+        toleranceSet: toleranceSet,
         enGrade: enGrade,
         items: [
           for (final (i, it) in items.indexed)
@@ -619,6 +706,9 @@ class SpoolCheck {
               rotationByAngle: it.rotationByAngle,
               dn: it.dn,
               toleranceMm: it.toleranceMm,
+              tolPlusMm: it.tolPlusMm,
+              tolMinusMm: it.tolMinusMm,
+              toleranceDamaged: it.toleranceDamaged,
             ),
         ],
         createdAt: now.millisecondsSinceEpoch,
@@ -793,7 +883,8 @@ class FaceTiltReading {
 }
 
 /// `null`, gdy brakuje szczeliny albo średnicy (≤ 0).
-FaceTiltReading? faceTiltFromGaps(double? gap1, double? gap2, double? diameter) {
+FaceTiltReading? faceTiltFromGaps(
+    double? gap1, double? gap2, double? diameter) {
   if (gap1 == null || gap2 == null || diameter == null) return null;
   if (gap1 < 0 || gap2 < 0 || diameter <= 0) return null;
   return FaceTiltReading(spoolDeviationMm(gap1, gap2), diameter);
@@ -821,9 +912,44 @@ double boltAngleFromArc(double arcMm, double pcdMm) =>
 // POMOCNICZE
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Numer następnego spoola z serii:
+/// * zwiększa grupę cyfr po OSTATNIM „S” / „SP” (wielkość liter bez
+///   znaczenia, z opcjonalnym „-”, „_” albo spacją), z zachowaniem zer
+///   wiodących: „100-P-1203-S02-R1” → „100-P-1203-S03-R1” (rewizja bez
+///   zmian), „SP-9” → „SP-10”, „s09” → „s10”;
+/// * bez takiej grupy — ostatnią grupę cyfr („L-101-F1” → „L-101-F2”);
+/// * bez cyfr albo pusty — „” (monter uzupełnia numer; nie powstaje po
+///   cichu drugi protokół z tym samym numerem).
+String spoolNextNo(String no) {
+  final s = no.trim();
+  final spool =
+      RegExp(r'(?<![A-Za-z])((?:SP|S)[-_ ]?)(\d+)', caseSensitive: false)
+          .allMatches(s)
+          .lastOrNull;
+  if (spool != null) {
+    final start = spool.start + spool.group(1)!.length;
+    return _bump(s, start, spool.end);
+  }
+  final last = RegExp(r'(\d+)(?!.*\d)').firstMatch(s);
+  if (last == null) return '';
+  return _bump(s, last.start, last.end);
+}
+
+String _bump(String s, int start, int end) {
+  final digits = s.substring(start, end);
+  final next = (BigInt.parse(digits) + BigInt.one).toString();
+  return s.replaceRange(start, end, next.padLeft(digits.length, '0'));
+}
+
+/// Numer do porównań duplikatów: bez spacji na końcach, wielkość liter
+/// bez znaczenia.
+String spoolNoKey(String no) => no.trim().toLowerCase();
+
 /// `RRRR-MM-DD`.
-String spoolDate(DateTime d) =>
-    '${d.year}-${_two(d.month)}-${_two(d.day)}';
+String spoolDate(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+
+/// Liczba z copyWith (`Object?` — przyjmuje też int, np. `measuredMm: 1251`).
+double? _asDouble(Object? v) => v == null ? null : (v as num).toDouble();
 
 String _two(int v) => v.toString().padLeft(2, '0');
 String _str(Object? v) => v is String ? v : '';

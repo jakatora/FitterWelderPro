@@ -90,6 +90,16 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
     return true;
   }
 
+  void _showUnavailable() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        key: const ValueKey('sc-store-unavailable'),
+        content: Text(spoolStoreUnavailableText(context)),
+      ));
+  }
+
   Future<void> _open(SpoolCheck check) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => SpoolCheckEditPage(
@@ -105,6 +115,11 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
 
   Future<void> _new() async {
     if (_refuseWhenFull()) return;
+    // Zapis uszkodzony bez kopii — formularz by się nie zapisał.
+    if (_damage?.backupFailed ?? false) {
+      _showUnavailable();
+      return;
+    }
     await _open(SpoolCheck.blank(id: _id(), now: widget.now()));
   }
 
@@ -116,6 +131,11 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
         newId: _id(), now: widget.now(), itemId: (_) => _id());
     try {
       await widget.store.upsert(copy);
+    } on SpoolCheckStoreUnavailable {
+      // Zapis uszkodzony bez kopii — nic nie zapisano; nie otwieramy
+      // formularza, który by się nie zapisał.
+      _showUnavailable();
+      return;
     } catch (e) {
       // Edycja i tak zapisuje się przy każdej zmianie — otwieramy kopię.
       debugPrint('[spool_check] duplicate save failed: $e');
@@ -139,8 +159,8 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(context.tr(
-            pl: 'Usunąć protokół?', en: 'Delete this record?')),
+        title:
+            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
         content: Text(spoolCheckTitle(check, en: en)),
         actions: [
           TextButton(
@@ -158,7 +178,12 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
       ),
     );
     if (ok != true || !mounted) return;
-    await widget.store.delete(check.id);
+    try {
+      await widget.store.delete(check.id);
+    } on SpoolCheckStoreUnavailable {
+      _showUnavailable();
+      return;
+    }
     await _reload();
     if (!mounted) return;
     // Cofnięcie idzie przez magazyn — działa także po zamknięciu ekranu
@@ -168,12 +193,18 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         key: const ValueKey('sc-deleted'),
-        content: Text(
-            context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.')),
+        content:
+            Text(context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {
-            await store.restore(check);
+            try {
+              await store.restore(check);
+            } catch (e) {
+              debugPrint('[spool_check] undo failed: $e');
+              if (mounted) _showUnavailable();
+              return;
+            }
             if (mounted) await _reload();
           },
         ),
@@ -186,7 +217,8 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
     final items = _items;
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(pl: 'Tolerancje spoola', en: 'Spool tolerances')),
+        title:
+            Text(context.tr(pl: 'Tolerancje spoola', en: 'Spool tolerances')),
       ),
       body: ListView(
         key: const ValueKey('sc-list'),
@@ -196,8 +228,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
           if (items != null && items.length >= SpoolCheckStore.warnAt)
             QuoteNotice(
               key: const ValueKey('sc-store-warn'),
-              color:
-                  items.length >= SpoolCheckStore.maxEntries ? kFail : kWarn,
+              color: items.length >= SpoolCheckStore.maxEntries ? kFail : kWarn,
               icon: Icons.inventory_2_outlined,
               text: context.tr(
                 pl: 'Historia: ${items.length}/${SpoolCheckStore.maxEntries} '
@@ -207,6 +238,13 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
                     'records. When full, a new record cannot be saved — share '
                     'and delete old ones.',
               ),
+            ),
+          if (_damage?.backupFailed ?? false)
+            QuoteNotice(
+              key: const ValueKey('sc-store-unavailable-banner'),
+              color: kFail,
+              icon: Icons.sd_card_alert_outlined,
+              text: spoolStoreUnavailableText(context),
             ),
           if (_damage != null)
             QuoteNotice(
@@ -248,8 +286,7 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
                     minimumSize: const Size(0, kMinTapTarget)),
                 onPressed: _new,
                 icon: const Icon(Icons.add),
-                label: Text(
-                    context.tr(pl: 'Nowy protokół', en: 'New record')),
+                label: Text(context.tr(pl: 'Nowy protokół', en: 'New record')),
               ),
               if (items != null && items.isNotEmpty) ...[
                 const SizedBox(height: 10),

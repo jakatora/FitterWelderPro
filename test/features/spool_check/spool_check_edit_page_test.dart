@@ -98,7 +98,8 @@ Future<SpoolCheck> _saved() async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('pozycja F–F DN150: 1253 przy 1250 — w tolerancji, 1253,5 — '
+  testWidgets(
+      'pozycja F–F DN150: 1253 przy 1250 — w tolerancji, 1253,5 — '
       'poza; zapis w historii', (tester) async {
     await _pump(tester);
     expect(find.text('Protokół spoola'), findsOneWidget);
@@ -130,7 +131,8 @@ void main() {
     expect(s.items.single.measuredMm, 1253.5);
   });
 
-  testWidgets('cale: 98 1/2 i 98 5/8 przy tolerancji 1/8 — na granicy; po '
+  testWidgets(
+      'cale: 98 1/2 i 98 5/8 przy tolerancji 1/8 — na granicy; po '
       'przełączeniu na mm werdykt i zapis bez zmian', (tester) async {
     await _pump(tester);
     await _enter(tester, 'sc-f-spoolNo', 'S-1');
@@ -175,7 +177,8 @@ void main() {
     expect(find.byIcon(Icons.verified_outlined), findsNothing);
   });
 
-  testWidgets('zestaw „z projektu”: bez tolerancji brak werdyktu; wpisana — '
+  testWidgets(
+      'zestaw „z projektu”: bez tolerancji brak werdyktu; wpisana — '
       'werdykt wobec projektu; zły tekst nie kasuje zapisanej tolerancji',
       (tester) async {
     await _pump(tester);
@@ -190,7 +193,8 @@ void main() {
     await _enter(tester, 'sc-i-0-tol', '2');
     expect(await _text(tester, 'sc-i-0-verdict'), 'w tolerancji');
     expect(find.text('Wobec: projekt (wpisane)'), findsOneWidget);
-    expect(await _text(tester, 'sc-status-basis'),
+    expect(
+        await _text(tester, 'sc-status-basis'),
         'Oceniono wobec: tolerancje z projektu — wartości wpisane przez '
         'użytkownika');
 
@@ -202,16 +206,105 @@ void main() {
     expect(find.textContaining('Obowiązuje nadal: ±2 mm'), findsOneWidget);
     expect((await _saved()).items.single.toleranceMm, 2);
 
-    // Nowa pozycja tego rodzaju podpowiada tolerancję z poprzedniej.
-    await _tapKey(tester, 'sc-add-faceToFace');
-    expect(await _field(tester, 'sc-i-1-tol'), '2');
     // Puste pole — brak tolerancji (bez cichego podstawienia normy).
     await _enter(tester, 'sc-i-0-tol', '');
     expect(await _text(tester, 'sc-i-0-verdict'), 'brak werdyktu');
     expect((await _saved()).items.first.toleranceMm, isNull);
   });
 
-  testWidgets('EN 13480-4: klasa zał. B i wartości wpisane — podstawa w '
+  testWidgets(
+      'podpowiedź tolerancji z poprzedniej pozycji: nowa pozycja ma '
+      'puste pole i brak werdyktu, stuknięcie przyjmuje wartość',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'sc-f-spoolNo', 'S-5');
+    await _tapKey(tester, 'sc-set-project');
+    await _tapKey(tester, 'sc-add-faceToFace');
+    await _enter(tester, 'sc-i-0-tol', '3');
+    await _tapKey(tester, 'sc-add-faceToFace');
+    await _enter(tester, 'sc-i-1-drawing', '800');
+    await _enter(tester, 'sc-i-1-measured', '801');
+    expect(await _field(tester, 'sc-i-1-tol'), isEmpty);
+    expect(await _text(tester, 'sc-i-1-verdict'), 'brak werdyktu');
+    expect((await _saved()).items[1].toleranceMm, isNull);
+    final hint = await _show(tester, 'sc-i-1-tol-suggest');
+    expect(
+        find.descendant(
+            of: hint,
+            matching: find.text('Jak w poz. 1: ±3 mm — stuknij, by przyjąć')),
+        findsOneWidget);
+    // Pierwsza pozycja nie ma podpowiedzi (nie ma poprzedniej).
+    expect(find.byKey(const ValueKey('sc-i-0-tol-suggest')), findsNothing);
+    await _tapKey(tester, 'sc-i-1-tol-suggest');
+    expect(await _field(tester, 'sc-i-1-tol'), '3');
+    expect(await _text(tester, 'sc-i-1-verdict'), 'w tolerancji');
+    expect((await _saved()).items[1].toleranceMm, 3);
+    expect(find.byKey(const ValueKey('sc-i-1-tol-suggest')), findsNothing);
+  });
+
+  testWidgets(
+      'błąd pola tolerancji znika po powrocie do zapisanej wartości '
+      '(30 → 300 → 30)', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'sc-f-spoolNo', 'S-6');
+    await _tapKey(tester, 'sc-set-project');
+    await _tapKey(tester, 'sc-add-straightness');
+    await _enter(tester, 'sc-i-0-tol', '30');
+    expect(find.textContaining('Obowiązuje nadal'), findsNothing);
+    await _enter(tester, 'sc-i-0-tol', '300');
+    expect(find.textContaining('Obowiązuje nadal: ±30 mm'), findsOneWidget);
+    await _enter(tester, 'sc-i-0-tol', '30');
+    expect(find.textContaining('Obowiązuje nadal'), findsNothing);
+    expect((await _saved()).items.single.toleranceMm, 30);
+  });
+
+  testWidgets(
+      'tolerancja niesymetryczna +0 / −3 z projektu: werdykt wg znaku '
+      'odchyłki; jedna wartość — brak werdyktu', (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'sc-f-spoolNo', 'S-7');
+    await _tapKey(tester, 'sc-set-project');
+    await _tapKey(tester, 'sc-add-faceToFace');
+    await _enter(tester, 'sc-i-0-drawing', '1250');
+    await _enter(tester, 'sc-i-0-measured', '1247');
+    await _enter(tester, 'sc-i-0-tolMinus', '3');
+    expect(await _text(tester, 'sc-i-0-verdict'), 'brak werdyktu');
+    expect(
+        find.text('• wpisz obie wartości tolerancji: + i −'), findsOneWidget);
+    await _enter(tester, 'sc-i-0-tolPlus', '0');
+    expect(await _text(tester, 'sc-i-0-verdict'), 'w tolerancji');
+    expect(
+        find.text('Tolerancja: +0 mm (0″) / −3 mm (≈0,118″)'), findsOneWidget);
+    // Dłuższy o 0,5 mm przy „+0” — poza, choć |0,5| < 3.
+    await _enter(tester, 'sc-i-0-measured', '1250,5');
+    expect(await _text(tester, 'sc-i-0-verdict'), 'POZA TOLERANCJĄ');
+    final it = (await _saved()).items.single;
+    expect(it.tolPlusMm, 0);
+    expect(it.tolMinusMm, 3);
+    // Pola + / − tylko przy zestawie „z projektu”.
+    await _tapKey(tester, 'sc-set-pfiEs3');
+    expect(find.byKey(const ValueKey('sc-i-0-tolPlus')), findsNothing);
+  });
+
+  testWidgets(
+      'numer spoola już w historii — ostrzeżenie, protokół zapisuje '
+      'się mimo to; brak numeru — przypomnienie', (tester) async {
+    await const SpoolCheckStore().upsert(const SpoolCheck(
+        id: 'old', spoolNo: 'S-01', date: '2026-10-17', dn: 150));
+    await _pump(tester);
+    await _enter(tester, 'sc-f-dn', '150');
+    await _show(tester, 'sc-spoolno-missing');
+    await _enter(tester, 'sc-f-spoolNo', 's-01 ');
+    expect(find.byKey(const ValueKey('sc-spoolno-missing')), findsNothing);
+    await _show(tester, 'sc-spoolno-duplicate');
+    final all = await const SpoolCheckStore().load();
+    expect(all.map((c) => c.spoolNo.trim().toLowerCase()), ['s-01', 's-01']);
+    await _enter(tester, 'sc-f-spoolNo', 'S-02');
+    expect(find.byKey(const ValueKey('sc-spoolno-duplicate')), findsNothing);
+  });
+
+  testWidgets(
+      'EN 13480-4: klasa zał. B i wartości wpisane — podstawa w '
       'werdykcie', (tester) async {
     await _pump(tester);
     await _tapKey(tester, 'sc-set-en13480');
@@ -228,7 +321,8 @@ void main() {
         contains('EN 13480-4:2017 zał. B, klasa 2'));
   });
 
-  testWidgets('nachylenie czoła: kalkulator szczelin wpisuje odchyłkę; '
+  testWidgets(
+      'nachylenie czoła: kalkulator szczelin wpisuje odchyłkę; '
       'granica ES-3 dla średnicy', (tester) async {
     await _pump(tester);
     await _tapKey(tester, 'sc-add-faceTilt');
@@ -243,9 +337,7 @@ void main() {
     expect(await _field(tester, 'sc-i-0-measured'), '0,6');
     expect(await _text(tester, 'sc-i-0-verdict'), 'w tolerancji');
     expect(find.text('Nachylenie: 0,115° = 2 mm/m'), findsOneWidget);
-    expect(
-        find.textContaining(
-            'Granica ES-3 na tej średnicy: 1,171875 mm'),
+    expect(find.textContaining('Granica ES-3 na tej średnicy: 1,171875 mm'),
         findsOneWidget);
     await _enter(tester, 'sc-i-0-gapA', '1,3');
     await _enter(tester, 'sc-i-0-gapB', '0');
@@ -327,8 +419,7 @@ void main() {
     final how = await _show(tester, 'sc-howto');
     expect(
         find.descendant(
-            of: how,
-            matching: find.text('JAK MIERZYĆ — PRAKTYKA WARSZTATOWA')),
+            of: how, matching: find.text('JAK MIERZYĆ — PRAKTYKA WARSZTATOWA')),
         findsOneWidget);
     expect(
         find.descendant(
@@ -346,7 +437,8 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('ekran 360×640, tekst ×1,5: wszystkie rodzaje pozycji bez '
+  testWidgets(
+      'ekran 360×640, tekst ×1,5: wszystkie rodzaje pozycji bez '
       'przepełnień', (tester) async {
     await _pump(tester, size: const Size(360, 640), textScale: 1.5);
     expect(tester.takeException(), isNull);
@@ -363,8 +455,8 @@ void main() {
     }
     // Przewinięcie całego ekranu buduje każdy element.
     await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('sc-share-text-btn')), 300,
-        scrollable: _scrollable);
+        find.byKey(const ValueKey('sc-share-text-btn')), 400,
+        scrollable: _scrollable, maxScrolls: 200);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

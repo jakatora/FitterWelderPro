@@ -6,7 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/domain/spool_check/spool_units.dart';
 
 void main() {
-  test('cale: ułamki do 1/64″ przeliczają się dokładnie (1/16″ = 1,5875 mm, '
+  test(
+      'cale: ułamki do 1/64″ przeliczają się dokładnie (1/16″ = 1,5875 mm, '
       '1/8″ = 3,175 mm, 1/32″ = 0,79375 mm)', () {
     expect(spoolToleranceFromInch(1 / 16), 1.5875);
     expect(spoolToleranceFromInch(1 / 8), 3.175);
@@ -18,8 +19,7 @@ void main() {
     expect(spoolDeviationMm(100 * 25.4, 100.0625 * 25.4), 1.5875);
   });
 
-  test('tolerancja z cali w dół, odchyłka w górę — wartości spoza siatki',
-      () {
+  test('tolerancja z cali w dół, odchyłka w górę — wartości spoza siatki', () {
     // 0,1234567″ = 3,13580018 mm → tolerancja 3,135800, odchyłka 3,135801.
     const inch = 0.1234567;
     final tol = spoolToleranceToMm(inch, SpoolUnit.inch);
@@ -36,7 +36,8 @@ void main() {
     expect(spoolDeviationMm(2543.2, 2540), 3.2);
   });
 
-  test('granica włącznie: odchyłka = tolerancja → w tolerancji; o krok siatki '
+  test(
+      'granica włącznie: odchyłka = tolerancja → w tolerancji; o krok siatki '
       'więcej → poza', () {
     expect(spoolWithin(3.0, 3.0), isTrue);
     expect(spoolWithin(spoolDeviationMm(1253, 1250), 3.0), isTrue);
@@ -47,7 +48,8 @@ void main() {
     expect(spoolWithin(spoolDeviationMm(20000, 20003.175), 3.175), isTrue);
   });
 
-  test('odczyt cali: 98 1/2, 98-1/2, 3/16, 8\' 2 1/2", 1,5 — i odrzucenie '
+  test(
+      'odczyt cali: 98 1/2, 98-1/2, 3/16, 8\' 2 1/2", 1,5 — i odrzucenie '
       '1/0 oraz tekstu', () {
     expect(parseSpoolInches('98 1/2'), 98.5);
     expect(parseSpoolInches('98-1/2'), 98.5);
@@ -67,7 +69,8 @@ void main() {
     expect(parseSpoolLength('98 1/2', SpoolUnit.inch), closeTo(2501.9, 1e-9));
   });
 
-  test('odczyt mm: przecinek i kropka; ujemne, puste i nieczytelne → null '
+  test(
+      'odczyt mm: przecinek i kropka; ujemne, puste i nieczytelne → null '
       '(nie zero)', () {
     expect(parseSpoolLength('1253,5', SpoolUnit.mm), 1253.5);
     expect(parseSpoolLength('1253.5', SpoolUnit.mm), 1253.5);
@@ -78,7 +81,8 @@ void main() {
     expect(parseSpoolLength('-1/8', SpoolUnit.inch), isNull);
   });
 
-  test('formatowanie: ułamek do 1/64, inaczej ≈ dziesiętnie; PL przecinek, '
+  test(
+      'formatowanie: ułamek do 1/64, inaczej ≈ dziesiętnie; PL przecinek, '
       'EN kropka', () {
     expect(spoolFormatLength(2501.9, SpoolUnit.inch, en: false), '98 1/2″');
     expect(spoolFormatLength(3.175, SpoolUnit.inch, en: false), '1/8″');

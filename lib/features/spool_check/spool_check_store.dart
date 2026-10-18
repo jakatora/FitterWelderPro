@@ -5,6 +5,9 @@
 // * nieczytelny zapis ALBO pominięte / uszkodzone wpisy → kopia surowego
 //   tekstu PRZED pierwszym nadpisaniem i flaga dla banera na ekranie (nic
 //   nie znika po cichu);
+// * kopia, której nie udało się zapisać, BLOKUJE zapis: upsert / delete /
+//   restore rzucają [SpoolCheckStoreUnavailable] zamiast nadpisać historię
+//   (baner „pamięć niedostępna — nic nie zapisano”);
 // * operacje szeregowane — odczyt po zapisie zawsze widzi ten zapis;
 // * limit [SpoolCheckStore.maxEntries] — przy pełnej historii NOWY protokół
 //   jest odrzucany ([SpoolCheckStoreFull]), stare nigdy nie wypadają po
@@ -29,11 +32,16 @@ class SpoolCheckLoad {
   final int droppedChecks;
   final int damagedEntries;
 
+  /// Uszkodzony zapis, a kopii surowego tekstu NIE udało się zrobić —
+  /// magazyn nie nadpisze historii, dopóki kopia się nie uda.
+  final bool backupFailed;
+
   const SpoolCheckLoad(
     this.checks, {
     this.unreadable = false,
     this.droppedChecks = 0,
     this.damagedEntries = 0,
+    this.backupFailed = false,
   });
 
   /// Coś odrzucono — surowy tekst jest w kopii, ekran pokazuje baner.
@@ -45,6 +53,14 @@ class SpoolCheckStoreFull implements Exception {
   const SpoolCheckStoreFull();
   @override
   String toString() => 'SpoolCheckStoreFull(${SpoolCheckStore.maxEntries})';
+}
+
+/// Zapis uszkodzony, a jego kopii nie udało się zapisać — nic nie
+/// zapisano, żeby nie nadpisać jedynego egzemplarza danych.
+class SpoolCheckStoreUnavailable implements Exception {
+  const SpoolCheckStoreUnavailable();
+  @override
+  String toString() => 'SpoolCheckStoreUnavailable';
 }
 
 class SpoolCheckStore {
@@ -60,7 +76,11 @@ class SpoolCheckStore {
   /// Kopia późniejszego, innego nieczytelnego zapisu (ostatnia).
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
-  const SpoolCheckStore();
+  /// Dostęp do SharedPreferences — wstrzykiwany w testach (np. pamięć,
+  /// która odmawia zapisu).
+  final Future<SharedPreferences> Function() prefs;
+
+  const SpoolCheckStore({this.prefs = SharedPreferences.getInstance});
 
   /// Kolejka operacji (wspólna dla wszystkich instancji).
   static Future<void>? _tail;
@@ -81,40 +101,60 @@ class SpoolCheckStore {
   Future<SpoolCheckLoad> loadReport() => _serial(_loadNow);
 
   Future<SpoolCheckLoad> _loadNow() async {
-    final prefs = await SharedPreferences.getInstance();
-    Object? raw;
-    try {
-      raw = prefs.get(key);
-      if (raw == null || (raw is String && raw.isEmpty)) {
-        return const SpoolCheckLoad([]);
+    final p = await prefs();
+    final Object? raw = p.get(key);
+    if (raw == null || (raw is String && raw.isEmpty)) {
+      return const SpoolCheckLoad([]);
+    }
+    SpoolChecksParse? parsed;
+    if (raw is String) {
+      try {
+        parsed = spoolChecksParse(jsonDecode(raw));
+      } catch (_) {
+        parsed = null;
       }
-      if (raw is! String) throw const FormatException('not a string');
-      final parsed = spoolChecksParse(jsonDecode(raw));
-      if (parsed.damaged) await _backup(prefs, raw);
-      return SpoolCheckLoad(
-        sortSpoolChecks(parsed.checks),
-        droppedChecks: parsed.droppedChecks,
-        damagedEntries: parsed.damagedEntries,
-      );
+    }
+    // Kopia POZA odczytem — jej niepowodzenie nie może udawać czystej
+    // historii, którą następny zapis by nadpisał.
+    final needsBackup = parsed == null || parsed.damaged;
+    final backupOk = !needsBackup || await _backup(p, raw);
+    if (parsed == null) {
+      return SpoolCheckLoad(const [],
+          unreadable: true, backupFailed: !backupOk);
+    }
+    return SpoolCheckLoad(
+      sortSpoolChecks(parsed.checks),
+      droppedChecks: parsed.droppedChecks,
+      damagedEntries: parsed.damagedEntries,
+      backupFailed: !backupOk,
+    );
+  }
+
+  /// Pierwsza kopia zostaje na zawsze; inny, późniejszy uszkodzony zapis
+  /// trafia do [corruptLastBackupKey]. `true` — ten tekst jest w kopii.
+  static Future<bool> _backup(SharedPreferences p, Object raw) async {
+    final text = raw.toString();
+    try {
+      final first = p.get(corruptBackupKey);
+      if (first == text || p.get(corruptLastBackupKey) == text) return true;
+      final target = first == null ? corruptBackupKey : corruptLastBackupKey;
+      final ok = await p.setString(target, text);
+      return ok && p.get(target) == text;
     } catch (_) {
-      if (raw != null) await _backup(prefs, raw);
-      return const SpoolCheckLoad([], unreadable: true);
+      return false;
     }
   }
 
-  static Future<void> _backup(SharedPreferences prefs, Object raw) async {
-    final text = raw.toString();
-    final first = prefs.get(corruptBackupKey);
-    if (first == null) {
-      await prefs.setString(corruptBackupKey, text);
-    } else if (first != text && prefs.get(corruptLastBackupKey) != text) {
-      await prefs.setString(corruptLastBackupKey, text);
-    }
+  /// Odczyt przed zapisem: uszkodzony zapis bez kopii → nic nie zapisujemy.
+  Future<List<SpoolCheck>> _loadForWrite() async {
+    final load = await _loadNow();
+    if (load.backupFailed) throw const SpoolCheckStoreUnavailable();
+    return [...load.checks];
   }
 
   Future<void> _write(List<SpoolCheck> list) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ok = await prefs.setString(
+    final p = await prefs();
+    final ok = await p.setString(
         key, jsonEncode(spoolChecksToJson(sortSpoolChecks(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
   }
@@ -123,7 +163,7 @@ class SpoolCheckStore {
   /// historii — a jeśli był zapisany, znika. Nowy przy pełnej historii →
   /// [SpoolCheckStoreFull].
   Future<void> upsert(SpoolCheck check) => _serial(() async {
-        final list = [...(await _loadNow()).checks];
+        final list = await _loadForWrite();
         final existed = list.any((c) => c.id == check.id);
         list.removeWhere((c) => c.id == check.id);
         if (!check.isBlank) {
@@ -138,7 +178,7 @@ class SpoolCheckStore {
   /// Przywraca usunięty protokół („Cofnij”) — ZAWSZE, także ponad limit:
   /// to nie nowy wpis, tylko odwołanie usunięcia.
   Future<void> restore(SpoolCheck check) => _serial(() async {
-        final list = [...(await _loadNow()).checks]
+        final list = await _loadForWrite()
           ..removeWhere((c) => c.id == check.id)
           ..add(check);
         await _write(list);
@@ -148,27 +188,28 @@ class SpoolCheckStore {
   /// już nie ma). Brak protokołu w historii → nic.
   Future<void> restoreItem(String checkId, SpoolItem item, int index) =>
       _serial(() async {
-        final list = [...(await _loadNow()).checks];
+        final list = await _loadForWrite();
         final i = list.indexWhere((c) => c.id == checkId);
         if (i < 0) return;
         final c = list[i];
         if (c.items.any((it) => it.id == item.id)) return;
-        final items = [...c.items]..insert(index.clamp(0, c.items.length), item);
+        final items = [...c.items]
+          ..insert(index.clamp(0, c.items.length), item);
         list[i] = c.copyWith(items: items);
         await _write(list);
       });
 
   Future<void> delete(String id) => _serial(() async {
-        final list = [...(await _loadNow()).checks]
+        final list = await _loadForWrite()
           ..removeWhere((c) => c.id == id);
         await _write(list);
       });
 }
 
 /// Najnowsze na górze: data pomiaru malejąco, potem ostatnia zmiana.
-List<SpoolCheck> sortSpoolChecks(List<SpoolCheck> list) => [...list]
-  ..sort((a, b) {
-    final byDate = b.date.compareTo(a.date);
-    if (byDate != 0) return byDate;
-    return b.updatedAt.compareTo(a.updatedAt);
-  });
+List<SpoolCheck> sortSpoolChecks(List<SpoolCheck> list) =>
+    [...list]..sort((a, b) {
+        final byDate = b.date.compareTo(a.date);
+        if (byDate != 0) return byDate;
+        return b.updatedAt.compareTo(a.updatedAt);
+      });
