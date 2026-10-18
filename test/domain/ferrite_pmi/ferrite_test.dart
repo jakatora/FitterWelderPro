@@ -238,6 +238,59 @@ void main() {
     });
   });
 
+  group('minimalna liczba odczytów (przegląd)', () {
+    const min3 = FerritePreset(
+      id: 'm3',
+      group: FerritePresetGroup.austenitic,
+      requirement: FerriteRequirement(min: 3, max: 10, unit: FerriteUnit.fn),
+      appliesTo: {FerriteLocation.weld},
+      titlePl: 't',
+      titleEn: 't',
+      sourcePl: 's',
+      sourceEn: 's',
+      minReadings: 3,
+    );
+    FerriteSiteResult p(List<String> r, {String n = '',
+            FerriteRule rule = FerriteRule.everyReading}) =>
+        _eval(r, req: min3.requirement, preset: min3, n: n, rule: rule);
+
+    test('preset ≥ 3 odczytów: 1 odczyt w zakresie → brak werdyktu', () {
+      final r = p(['5']);
+      expect(r.verdict, FerriteVerdict.none);
+      expect(r.reason, FerriteNoVerdict.tooFewReadings);
+      expect(r.minCount, 3);
+      expect(p(['5', '6', '7']).verdict, FerriteVerdict.pass);
+    });
+
+    test('preset ≥ 3: odczyt poza zakresem i tak „poza zakresem”', () {
+      expect(p(['5', '12']).verdict, FerriteVerdict.fail);
+    });
+
+    test('pole może wymaganie presetu tylko podnieść (2 → 3, 4 → 4)', () {
+      expect(ferriteEffectiveMinCount('2',
+          rule: FerriteRule.everyReading, preset: min3), 3);
+      expect(ferriteEffectiveMinCount('4',
+          rule: FerriteRule.everyReading, preset: min3), 4);
+      expect(p(['5', '6', '7'], n: '4').reason,
+          FerriteNoVerdict.tooFewReadings);
+      // Średnia z N = 2 przy presecie ≥ 3 → obowiązuje 3.
+      expect(p(['5', '6'], n: '2', rule: FerriteRule.average).reason,
+          FerriteNoVerdict.tooFewReadings);
+    });
+
+    test('zakres ręczny: pole puste = 1, „3” przy 2 odczytach → brak '
+        'werdyktu, „0” / ułamek → brak werdyktu', () {
+      expect(_eval(['45']).verdict, FerriteVerdict.pass);
+      expect(_eval(['45', '50'], n: '3').reason,
+          FerriteNoVerdict.tooFewReadings);
+      expect(_eval(['45', '50', '55'], n: '3').verdict, FerriteVerdict.pass);
+      for (final n in ['0', '1,5', 'x']) {
+        expect(_eval(['45'], n: n).reason, FerriteNoVerdict.invalidCount,
+            reason: n);
+      }
+    });
+  });
+
   group('protokół: werdykt wielu miejsc', () {
     FerriteSiteResult r(List<String> v) => _eval(v);
     test('jedno poza → poza; wszystkie w zakresie → w zakresie; inaczej brak',

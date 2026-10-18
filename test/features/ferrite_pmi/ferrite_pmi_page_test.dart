@@ -25,6 +25,14 @@ final _now = DateTime(2026, 10, 18, 9, 30);
 /// Preset duplex (spoina i SWC, % ferrytu) używany w teście.
 const kTestDuplexPreset = 'iso17781_weld';
 
+/// Magazyn, którego usuwanie zawsze się nie udaje (np. brak miejsca).
+class _FailingDeleteStore extends FerritePmiStore {
+  const _FailingDeleteStore();
+  @override
+  Future<void> delete(String id) async =>
+      throw StateError('SharedPreferences.setString failed');
+}
+
 class _Spy {
   final List<(String, String)> texts = [];
   Future<void> text(String t, String subject) async => texts.add((t, subject));
@@ -269,6 +277,85 @@ void main() {
     // Kropka zamiast przecinka — ten sam werdykt.
     await _enter(tester, 'fp-pmi-0-mo', '2.1');
     expect(_has('fp-pmi-0-verdict-conformingNoCarbon'), isTrue);
+  });
+
+  testWidgets(
+      'PMI 304: Mo 2,1 → niezgodny „możliwy 316”; bez odczytu Mo → do '
+      'weryfikacji', (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'fp-new');
+    await _tapKey(tester, 'fp-part-pmi');
+    await _tapKey(tester, 'fp-pmi-0-grade');
+    await _tapInSheet(tester, 'fp-grade-1.4301');
+    await _enter(tester, 'fp-pmi-0-cr', '17,6');
+    await _enter(tester, 'fp-pmi-0-ni', '10,3');
+    // Bez Mo — nie zielone: nie wyklucza 316.
+    expect(_has('fp-pmi-0-verdict-toVerify'), isTrue);
+    final moMissing = tester
+        .widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
+    expect(moMissing.data, contains('brak odczytu Mo — nie wyklucza 316'));
+    await _enter(tester, 'fp-pmi-0-mo', '2,1');
+    expect(_has('fp-pmi-0-verdict-nonConforming'), isTrue);
+    final mo = tester
+        .widget<Text>(find.byKey(const ValueKey('fp-pmi-0-mo-status')));
+    expect(mo.data, contains('nie występuje w 1.4301 / 304'));
+    expect(mo.data, contains('możliwy 1.4401 / 316'));
+    // Mo 0,3 — pozostałość pod progiem, nie blokuje.
+    await _enter(tester, 'fp-pmi-0-mo', '0,3');
+    expect(_has('fp-pmi-0-verdict-conforming'), isTrue);
+  });
+
+  testWidgets(
+      'preset IOGP S-705: 1 odczyt → brak werdyktu „specyfikacja wymaga ≥ 3 '
+      'odczytów”, 3 odczyty → w zakresie', (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'fp-new');
+    await _tapKey(tester, 'fp-preset-picker');
+    await _tapInSheet(tester, 'fp-preset-iogp_s705_fn3_10');
+    expect(_has('fp-preset-min-readings'), isTrue);
+    await _addReadings(tester, 0, ['6']);
+    expect(_has('fp-site-0-verdict-none'), isTrue);
+    final status =
+        tester.widget<Text>(find.byKey(const ValueKey('fp-site-0-status')));
+    expect(status.data, contains('specyfikacja wymaga ≥ 3 odczytów'));
+    await _addReadings(tester, 0, ['7', '8']);
+    expect(_has('fp-site-0-verdict-pass'), isTrue);
+  });
+
+  testWidgets('zakres ręczny: min. odczytów 3 przy 2 odczytach → brak '
+      'werdyktu', (tester) async {
+    await _pump(tester);
+    await _tapKey(tester, 'fp-new');
+    await _enter(tester, 'fp-req-min', '30');
+    await _enter(tester, 'fp-req-max', '70');
+    await _enter(tester, 'fp-min-count', '3');
+    await _addReadings(tester, 0, ['45', '50']);
+    expect(_has('fp-site-0-verdict-none'), isTrue);
+    await _addReadings(tester, 0, ['55']);
+    expect(_has('fp-site-0-verdict-pass'), isTrue);
+  });
+
+  testWidgets('usunięcie przy błędzie zapisu: komunikat, protokół zostaje',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      FerritePmiStore.key: jsonEncode(ferritePmiToJson([_saved(1)])),
+    });
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_app(FerritePmiPage(
+      store: const _FailingDeleteStore(),
+      now: () => _now,
+    )));
+    await tester.pumpAndSettle();
+    await _tapKey(tester, 'fp-menu-0');
+    await tester.tap(find.byKey(const ValueKey('fp-menu-del')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('fp-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(_has('fp-delete-failed'), isTrue);
+    expect(_has('fp-item-0'), isTrue);
   });
 
   testWidgets('menu pozycji: usunięcie z cofnięciem', (tester) async {

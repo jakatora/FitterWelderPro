@@ -149,7 +149,24 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
       ),
     );
     if (ok != true || !mounted) return;
-    await widget.store.delete(p.id);
+    try {
+      await widget.store.delete(p.id);
+    } catch (e) {
+      // Błąd zapisu (np. brak miejsca) — komunikat zamiast wyjątku;
+      // protokół zostaje w historii.
+      debugPrint('[ferrite_pmi] delete failed: $e');
+      if (!mounted) return;
+      _snack(
+        key: const ValueKey('fp-delete-failed'),
+        context.tr(
+            pl: 'Nie udało się usunąć protokołu — zapis w telefonie się nie '
+                'powiódł. Protokół zostaje w historii.',
+            en: 'Could not delete the record — saving on this phone failed. '
+                'The record stays in the history.'),
+      );
+      await _reload();
+      return;
+    }
     await _reload();
     if (!mounted) return;
     _snack(
@@ -158,12 +175,27 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
       action: SnackBarAction(
         label: context.tr(pl: 'Cofnij', en: 'Undo'),
         // Przywrócenie zawsze dozwolone — także przy pełnej historii.
-        onPressed: () async {
-          await widget.store.restore(p);
-          if (mounted) await _reload();
-        },
+        onPressed: () => unawaited(_restore(p)),
       ),
     );
+  }
+
+  Future<void> _restore(FerritePmiProtocol p) async {
+    try {
+      await widget.store.restore(p);
+    } catch (e) {
+      debugPrint('[ferrite_pmi] restore failed: $e');
+      if (!mounted) return;
+      _snack(
+        key: const ValueKey('fp-restore-failed'),
+        context.tr(
+            pl: 'Nie udało się przywrócić protokołu — zapis w telefonie się '
+                'nie powiódł.',
+            en: 'Could not restore the record — saving on this phone '
+                'failed.'),
+      );
+    }
+    if (mounted) await _reload();
   }
 
   String _titleOf(FerritePmiProtocol p) {

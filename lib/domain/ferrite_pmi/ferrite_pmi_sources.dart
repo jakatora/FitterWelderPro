@@ -154,6 +154,8 @@ const List<FerritePreset> kFerritePresets = [
     group: FerritePresetGroup.austenitic,
     requirement: FerriteRequirement(min: 3, max: 10, unit: FerriteUnit.fn),
     appliesTo: _weld,
+    // IOGP S-705 (2020) 12.13.3: co najmniej 3 odczyty FN na spoinę.
+    minReadings: 3,
     titlePl: 'Spoina austenityczna — praca > 350 °C, < −101 °C albo PWHT '
         '(IOGP S-705:2020)',
     titleEn: 'Austenitic weld — service > 350 °C, < −101 °C or PWHT '
@@ -293,6 +295,7 @@ const List<PmiGrade> kPmiGrades = [
     family: PmiFamily.austenitic,
     title: '1.4301 / 304',
     keyElements: {PmiElement.cr, PmiElement.ni},
+    controlElements: {PmiElement.mo: '316'},
     notePl: 'A240-25a ma wyższe Cr i Ni niż A240-17 (= SA-240 BPVC 2025) — '
         'blacha z atestem A240 i SA-240 musi spełnić część wspólną. Rury '
         'EN 10216-5: Cr od 17,0 (EN 10088: od 17,5).',
@@ -377,6 +380,7 @@ const List<PmiGrade> kPmiGrades = [
     family: PmiFamily.austenitic,
     title: '1.4307 / 304L',
     keyElements: {PmiElement.cr, PmiElement.ni},
+    controlElements: {PmiElement.mo: '316L'},
     carbonCritical: true,
     specs: [
       PmiSpec(
@@ -608,6 +612,7 @@ const List<PmiGrade> kPmiGrades = [
     family: PmiFamily.austenitic,
     title: '1.4541 / 321',
     keyElements: {PmiElement.cr, PmiElement.ni, PmiElement.ti},
+    controlElements: {PmiElement.mo: '316Ti'},
     notePl: 'Minimum Ti zależy od C (i N wg ASTM) — XRF potwierdzi je tylko '
         'przy Ti ≥ k × Cmax; wg ASTM (5 × (0,08 + 0,10) = 0,90 > 0,70) '
         'nigdy — potrzebny atest albo OES.',
@@ -713,6 +718,7 @@ const List<PmiGrade> kPmiGrades = [
     family: PmiFamily.austenitic,
     title: '1.4845 / 310S',
     keyElements: {PmiElement.cr, PmiElement.ni},
+    controlElements: {PmiElement.mo: null},
     notePl: 'Stal żaroodporna — nie ma jej w EN 10216-5; rury wg EN 10296-2 '
         '/ EN 10297-2 (ten sam skład).',
     noteEn: 'Heat-resisting steel — not in EN 10216-5; tubes per EN 10296-2 '
@@ -1026,8 +1032,17 @@ const List<PmiGrade> kPmiGrades = [
           PmiElement.cu: PmiRange(max: 0.30),
           PmiElement.ti: PmiRange(max: 0.01),
         },
-        sourcePl: '$_en10216, $_crMoPl.$_en10216NotePl',
-        sourceEn: '$_en10216, $_crMoEn.$_en10216NoteEn',
+        // Ni ≤ 0,40 sprawdzone 2026-10-18 ponownie (przegląd: „może 0,30?”):
+        // Salzgitter Mannesmann, strona EN 10216-2 X10CrMoVNb9-1 — Ni max
+        // 0,40; ICAST, karta „BS 10216-2 EN 1.4903” — Ni 0,400 max; skan
+        // EN 10216-2:2013+A1:2019 tab. 2 (odczyt wcześniejszy) — 0,40.
+        // 0,30 to EN 10028-2:2017 (blachy) — osobny wariant niżej.
+        sourcePl: '$_en10216, $_crMoPl; Ni ≤ 0,40 także wg ICAST (BS EN '
+            '10216-2, 1.4903) — blachy EN 10028-2: Ni ≤ 0,30.'
+            '$_en10216NotePl',
+        sourceEn: '$_en10216, $_crMoEn; Ni ≤ 0.40 also per ICAST (BS EN '
+            '10216-2, 1.4903) — EN 10028-2 plate: Ni ≤ 0.30.'
+            '$_en10216NoteEn',
       ),
       PmiSpec(
         key: 'en10028',
@@ -1199,13 +1214,22 @@ const List<FerritePmiSource> kFerritePmiSources = [
   FerritePmiSource(
     'Przyjęte w aplikacji: niepewność przyrządu podaje użytkownik '
         '(domyślnie 0); odczyt bliżej granicy niż niepewność → „do '
-        'weryfikacji”; dobór pierwiastków kluczowych; próg „resztkowy” '
-        '0,5 % (Ti, Nb, V: 0,1 %; Si: 1,0 %) tylko w podpowiedzi '
-        'najbliższego gatunku; suma odczytów > 100 % = błąd wpisu.',
+        'weryfikacji”; dobór pierwiastków kluczowych; każdy pierwiastek '
+        'z dolną granicą w normie jest wymagany; próg „resztkowy” dla '
+        'pierwiastka spoza składu gatunku — 0,5 % (Ti, Nb 0,1 %; V 0,2 %; '
+        'Si, Cu 1,0 %): powyżej → „niezgodny”, w niepewności → „do '
+        'weryfikacji”; Mo jako pierwiastek kontrolny w 304, 304L, 321, 310S '
+        '(brak odczytu → „do weryfikacji”); suma odczytów > 100 % = błąd '
+        'wpisu; ferryt: domyślnie min. 1 odczyt na miejsce.',
     'Adopted by the app: the instrument uncertainty is entered by the user '
         '(default 0); a reading closer to a limit than the uncertainty → '
-        '“to be verified”; choice of key elements; a 0.5 % “residual” '
-        'threshold (Ti, Nb, V: 0.1 %; Si: 1.0 %) only in the nearest-grade '
-        'hint; readings adding up to > 100 % = input error.',
+        '“to be verified”; choice of key elements; every element with a '
+        'lower limit in the standard is required; a “residual” threshold '
+        'for an element outside the grade composition — 0.5 % (Ti, Nb '
+        '0.1 %; V 0.2 %; Si, Cu 1.0 %): above → “non-conforming”, within '
+        'the uncertainty → “to be verified”; Mo as a control element in 304, '
+        '304L, 321, 310S (no reading → “to be verified”); readings adding up '
+        'to > 100 % = input error; ferrite: at least 1 reading per location '
+        'by default.',
   ),
 ];

@@ -141,6 +141,24 @@ void main() {
       expect(t, contains(preset.sourcePl));
     });
 
+    test('preset IOGP S-705 przy 1 odczycie: „specyfikacja wymaga ≥ 3 '
+        'odczytów”', () {
+      final p = FerritePmiProtocol(
+        id: 'i',
+        date: '2026-10-18',
+        presetId: 'iogp_s705_fn3_10',
+        sites: const [
+          FerriteSite(
+              id: 's', location: FerriteLocation.weld, readings: ['6']),
+        ],
+      );
+      expect(p.ferriteVerdict, FerriteVerdict.none);
+      final t = ferritePmiProtocolText(p, en: false, now: _now);
+      expect(t, contains('za mało odczytów: 1 — specyfikacja wymaga ≥ 3 '
+          'odczytów'));
+      expect(t, contains('min. odczytów na miejsce: 3'));
+    });
+
     test('jednostki różne: w protokole „brak werdyktu” z powodem', () {
       final t = ferritePmiProtocolText(
           _protocol().copyWith(customUnit: FerriteUnit.percent),

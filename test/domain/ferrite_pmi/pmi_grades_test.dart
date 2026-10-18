@@ -6,6 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_sources.dart';
+import 'package:cut_list_app/domain/ferrite_pmi/ferrite_pmi_text.dart';
 import 'package:cut_list_app/domain/ferrite_pmi/pmi.dart';
 
 PmiSpec _spec(String grade, String key) =>
@@ -26,7 +27,11 @@ PmiResult _eval(String grade, String key, Map<PmiElement, String> readings,
         grade: pmiGradeById(grade),
         spec: _spec(grade, key),
         readings: readings,
-        uncertainty: u);
+        uncertainty: u,
+        table: kPmiGrades);
+
+PmiElementCheck _check(PmiResult r, PmiElement e) =>
+    r.checks.firstWhere((c) => c.element == e);
 
 void main() {
   test('tabela: 13 gatunków z zadania, unikalne id i klucze wariantów', () {
@@ -175,7 +180,11 @@ void main() {
 
     test('EN 10216-5 (rury): 1.4301 Cr od 17,0 — inaczej niż EN 10088', () {
       _range('1.4301', 'en10216', PmiElement.cr, 17.0, 19.5);
-      final r = {PmiElement.cr: '17,2', PmiElement.ni: '8,5'};
+      final r = {
+        PmiElement.cr: '17,2',
+        PmiElement.ni: '8,5',
+        PmiElement.mo: '0,1',
+      };
       expect(_eval('1.4301', 'en10216', r).verdict, PmiVerdict.conforming);
       expect(_eval('1.4301', 'en', r).verdict, PmiVerdict.nonConforming);
     });
@@ -195,6 +204,8 @@ void main() {
         PmiElement.v: '0,21',
         PmiElement.nb: '0,08',
         PmiElement.ni: '0,35',
+        PmiElement.mn: '0,45',
+        PmiElement.si: '0,35',
       };
       expect(_eval('1.4903', 'en', r).verdict, PmiVerdict.conformingNoCarbon);
       expect(_eval('1.4903', 'en10028', r).verdict, PmiVerdict.nonConforming);
@@ -204,13 +215,22 @@ void main() {
   group('EN i ASTM się różnią — ocena wobec wybranej normy', () {
     test('Cr 17,8 w 304: SA-240 (17,5–19,5) zgodny, A240-25a (18,0–20,0) '
         'niezgodny', () {
-      final r = {PmiElement.cr: '17,8', PmiElement.ni: '8,5'};
+      // Mo — pierwiastek kontrolny 304 (bez odczytu: do weryfikacji).
+      final r = {
+        PmiElement.cr: '17,8',
+        PmiElement.ni: '8,5',
+        PmiElement.mo: '0,2',
+      };
       expect(_eval('1.4301', 'sa240', r).verdict, PmiVerdict.conforming);
       expect(_eval('1.4301', 'a240', r).verdict, PmiVerdict.nonConforming);
     });
 
     test('Ni 12,5 w 304L: A312 zgodny (bez weryfikacji C), A240 niezgodny', () {
-      final r = {PmiElement.cr: '18,5', PmiElement.ni: '12,5'};
+      final r = {
+        PmiElement.cr: '18,5',
+        PmiElement.ni: '12,5',
+        PmiElement.mo: '0,1',
+      };
       expect(_eval('1.4307', 'a312', r).verdict,
           PmiVerdict.conformingNoCarbon);
       expect(_eval('1.4307', 'a240', r).verdict, PmiVerdict.nonConforming);
@@ -218,7 +238,14 @@ void main() {
 
     test('13CrMo4-5 — Cr 0,9: P12 w zakresie, P11 poza (to nie ten sam '
         'gatunek)', () {
-      final r = {PmiElement.cr: '0,9', PmiElement.mo: '0,5'};
+      // Mn (P12 0,30–0,61) i Si (P11 0,50–1,00) mają dolne granice —
+      // wymagane.
+      final r = {
+        PmiElement.cr: '0,9',
+        PmiElement.mo: '0,5',
+        PmiElement.mn: '0,5',
+        PmiElement.si: '0,3',
+      };
       expect(_eval('1.7335', 'p12', r).verdict, PmiVerdict.conforming);
       expect(_eval('1.7335', 'p11', r).verdict, PmiVerdict.nonConforming);
       expect(pmiGradeById('1.7335')!.notePl, contains('P11'));
@@ -262,6 +289,144 @@ void main() {
       expect(pl, contains('316L'));
       expect(pl, contains('P91'));
       expect(pmiCarbonNote(en: true), contains('carbon'));
+    });
+  });
+
+  group('pierwiastki odróżniające sąsiedni gatunek (przegląd)', () {
+    test('304 (EN): Cr 17,6, Ni 10,3, Mo 2,1 → niezgodny, możliwy 316', () {
+      final r = _eval('1.4301', 'en', {
+        PmiElement.cr: '17,6',
+        PmiElement.ni: '10,3',
+        PmiElement.mo: '2,1',
+      });
+      expect(r.verdict, PmiVerdict.nonConforming);
+      final mo = _check(r, PmiElement.mo);
+      expect(mo.status, PmiElementStatus.outOfRange);
+      expect(mo.note, PmiCheckNote.residualAbove);
+      expect(mo.possibleGrade, '1.4401 / 316');
+      final text =
+          pmiElementStatusText(mo, grade: pmiGradeById('1.4301')!, en: false);
+      expect(text, 'Mo 2,1 % — nie występuje w 1.4301 / 304 (próg resztkowy '
+          '0,5 %); możliwy 1.4401 / 316');
+    });
+
+    test('304 z Mo 0,3 (pod progiem 0,5) — nie blokuje: zgodny', () {
+      final r = _eval('1.4301', 'en', {
+        PmiElement.cr: '18,0',
+        PmiElement.ni: '9,0',
+        PmiElement.mo: '0,3',
+      });
+      expect(r.verdict, PmiVerdict.conforming);
+      expect(_check(r, PmiElement.mo).status, PmiElementStatus.notSpecified);
+      // Równo z progiem — też nie blokuje (granica włącznie).
+      expect(
+          _eval('1.4301', 'en', {
+            PmiElement.cr: '18,0',
+            PmiElement.ni: '9,0',
+            PmiElement.mo: '0,5',
+          }).verdict,
+          PmiVerdict.conforming);
+    });
+
+    test('304 z Mo 0,45 ± 0,1 — próg w niepewności → do weryfikacji', () {
+      final r = _eval('1.4301', 'en', {
+        PmiElement.cr: '18,0',
+        PmiElement.ni: '9,0',
+        PmiElement.mo: '0,45',
+      }, u: {
+        PmiElement.mo: '0,1'
+      });
+      expect(r.verdict, PmiVerdict.toVerify);
+      expect(_check(r, PmiElement.mo).note, PmiCheckNote.residualNear);
+    });
+
+    test('304 bez odczytu Mo → do weryfikacji „brak odczytu Mo — nie '
+        'wyklucza 316”', () {
+      final r = _eval('1.4301', 'en', {
+        PmiElement.cr: '18,0',
+        PmiElement.ni: '9,0',
+      });
+      expect(r.verdict, PmiVerdict.toVerify);
+      final mo = _check(r, PmiElement.mo);
+      expect(mo.note, PmiCheckNote.controlMissing);
+      expect(
+          pmiElementStatusText(mo, grade: pmiGradeById('1.4301')!, en: false),
+          contains('brak odczytu Mo — nie wyklucza 316'));
+      // Mo kontrolny w 304L, 321, 310S; w A312 TP310S Mo ma zakres (≤ 0,75)
+      // — tam zwykła ocena, bez wymogu odczytu.
+      for (final id in ['1.4307', '1.4541', '1.4845']) {
+        expect(pmiGradeById(id)!.controlElements, contains(PmiElement.mo),
+            reason: id);
+      }
+      expect(
+          _eval('1.4845', 'a312', {
+            PmiElement.cr: '25',
+            PmiElement.ni: '20',
+          }).verdict,
+          PmiVerdict.conforming);
+    });
+
+    test('Ti 0,3 w 304 → niezgodny, możliwy 321', () {
+      final r = _eval('1.4301', 'en', {
+        PmiElement.cr: '18,2',
+        PmiElement.ni: '9,5',
+        PmiElement.mo: '0,1',
+        PmiElement.ti: '0,3',
+      });
+      expect(r.verdict, PmiVerdict.nonConforming);
+      expect(_check(r, PmiElement.ti).possibleGrade, '1.4541 / 321');
+    });
+
+    test('P11 bez odczytu Si → brak werdyktu (Si 0,50–1,00 odróżnia od P12)',
+        () {
+      final p11 = {
+        PmiElement.cr: '1,2',
+        PmiElement.mo: '0,5',
+        PmiElement.mn: '0,45',
+      };
+      final r = _eval('1.7335', 'p11', p11);
+      expect(r.verdict, PmiVerdict.none);
+      expect(r.reason, PmiNoVerdict.missingKey);
+      expect(_check(r, PmiElement.si).status, PmiElementStatus.missing);
+      expect(_eval('1.7335', 'p11', {...p11, PmiElement.si: '0,7'}).verdict,
+          PmiVerdict.conforming);
+      // Si 0,3 — to raczej P12, nie P11.
+      expect(_eval('1.7335', 'p11', {...p11, PmiElement.si: '0,3'}).verdict,
+          PmiVerdict.nonConforming);
+    });
+
+    test('P91 bez Mn albo bez Si → brak werdyktu; komplet → zgodny (bez '
+        'weryfikacji C)', () {
+      final full = {
+        PmiElement.cr: '8,8',
+        PmiElement.mo: '0,95',
+        PmiElement.v: '0,21',
+        PmiElement.nb: '0,08',
+        PmiElement.mn: '0,45',
+        PmiElement.si: '0,35',
+      };
+      for (final k in ['en', 'p91t1', 'p91t2']) {
+        expect(_eval('1.4903', k, full).verdict,
+            PmiVerdict.conformingNoCarbon,
+            reason: k);
+        final noMn = _eval('1.4903', k, {...full}..remove(PmiElement.mn));
+        expect(noMn.reason, PmiNoVerdict.missingKey, reason: '$k bez Mn');
+        final noSi = _eval('1.4903', k, {...full}..remove(PmiElement.si));
+        expect(noSi.reason, PmiNoVerdict.missingKey, reason: '$k bez Si');
+      }
+    });
+
+    test('wymagane = kluczowe + każdy pierwiastek z dolną granicą w normie',
+        () {
+      final p91 = pmiGradeById('1.4903')!;
+      expect(p91.requiredIn(p91.specByKey('en')!),
+          containsAll([PmiElement.si, PmiElement.mn, PmiElement.v]));
+      // Blacha EN 10028-2: Si bez dolnej granicy — nie wymagany.
+      expect(p91.requiredIn(p91.specByKey('en10028')!),
+          isNot(contains(PmiElement.si)));
+      final g304 = pmiGradeById('1.4301')!;
+      expect(g304.requiredIn(g304.specByKey('en')!),
+          {PmiElement.cr, PmiElement.ni});
     });
   });
 

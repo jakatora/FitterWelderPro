@@ -48,6 +48,11 @@ void main() {
     check('asme_uha51_308l', 4, 14, FerriteUnit.fn, weld);
     check('urea_316lug_base', null, 0.6, FerriteUnit.percent, base);
     expect(kFerritePresets, hasLength(8));
+    // Minimalna liczba odczytów tylko tam, gdzie źródło ją podaje.
+    for (final p in kFerritePresets) {
+      expect(p.minReadings, p.id == 'iogp_s705_fn3_10' ? 3 : 1, reason: p.id);
+    }
+    expect(ferritePresetById('iogp_s705_fn3_10')!.sourcePl, contains('12.13.3'));
     // Wydanie w tytule — 938-C wyd. 2011 nie udaje aktualnego.
     expect(ferritePresetById('api938c_2011_weld')!.titlePl, contains('2011'));
     // Brak niepotwierdzonych presetów NORSOK M-601.

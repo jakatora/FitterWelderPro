@@ -58,15 +58,16 @@ String ferriteNoVerdictText(FerriteNoVerdict r,
               'conversion'),
       FerriteNoVerdict.invalidCount => _t(
           en,
-          'wpisz N — minimalną liczbę odczytów ze specyfikacji (liczba '
-              'całkowita ≥ 1)',
-          'enter N — the minimum number of readings from the specification '
-              '(whole number ≥ 1)'),
+          'wpisz minimalną liczbę odczytów ze specyfikacji (liczba '
+              'całkowita ≥ 1; przy średniej — N)',
+          'enter the minimum number of readings from the specification '
+              '(whole number ≥ 1; for the average — N)'),
       FerriteNoVerdict.tooFewReadings => _t(
           en,
-          'za mało odczytów: ${count ?? '?'} z wymaganych ${minCount ?? '?'}',
-          'too few readings: ${count ?? '?'} of the required '
-              '${minCount ?? '?'}'),
+          'za mało odczytów: ${count ?? '?'} — specyfikacja wymaga '
+              '≥ ${minCount ?? '?'} odczytów',
+          'too few readings: ${count ?? '?'} — the specification requires '
+              '≥ ${minCount ?? '?'} readings'),
       FerriteNoVerdict.notForLocation => _t(
           en,
           'wybrany zakres nie dotyczy tego miejsca — wpisz zakres ze '
@@ -147,8 +148,45 @@ String pmiElementStatusLabel(PmiElementStatus s, {required bool en}) =>
         _t(en, 'norma nie podaje zakresu', 'no range in the standard'),
     };
 
+/// Status pierwiastka z kontekstem gatunku — także dla pierwiastka spoza
+/// składu („Mo 2,1 % — nie występuje w 1.4301 / 304 …; możliwy 1.4401 /
+/// 316”) i kontrolnego bez odczytu („brak odczytu Mo — nie wyklucza 316”).
+String pmiElementStatusText(PmiElementCheck c,
+    {required PmiGrade grade, required bool en}) {
+  final sym = c.element.symbol;
+  final t = ferriteExact(pmiResidualThreshold(c.element), en: en);
+  final value = ferriteRawText(c.readingText, en: en);
+  final p = c.possibleGrade;
+  return switch (c.note) {
+    PmiCheckNote.residualAbove => _t(
+        en,
+        '$sym $value % — nie występuje w ${grade.title} (próg resztkowy '
+            '$t %)${p == null ? '' : '; możliwy $p'}',
+        '$sym $value % — not part of ${grade.title} (residual threshold '
+            '$t %)${p == null ? '' : '; possibly $p'}'),
+    PmiCheckNote.residualNear => _t(
+        en,
+        'do weryfikacji — $sym $value % ± u sięga progu resztkowego $t % '
+            '(nie występuje w ${grade.title})${p == null ? '' : '; możliwy $p'}',
+        'to verify — $sym $value % ± u reaches the residual threshold $t % '
+            '(not part of ${grade.title})${p == null ? '' : '; possibly $p'}'),
+    PmiCheckNote.controlMissing => _t(
+        en,
+        'do weryfikacji — brak odczytu $sym — nie wyklucza '
+            '${p ?? 'gatunku z $sym'}',
+        'to verify — no $sym reading — ${p ?? 'a grade with $sym'} not '
+            'ruled out'),
+    null => c.status == PmiElementStatus.missing
+        ? _t(en, 'brak odczytu — pierwiastek wymagany (bez niego brak '
+                'werdyktu)',
+            'no reading — required element (no verdict without it)')
+        : pmiElementStatusLabel(c.status, en: en),
+  };
+}
+
 /// „Cr 16,9 ± 0,2 (wym. 16,5–18,5): w zakresie”.
-String pmiCheckLine(PmiElementCheck c, {required bool en}) {
+String pmiCheckLine(PmiElementCheck c,
+    {required PmiGrade grade, required bool en}) {
   final value = c.readingText.isEmpty
       ? '—'
       : c.uncertaintyText.isNotEmpty
@@ -160,7 +198,7 @@ String pmiCheckLine(PmiElementCheck c, {required bool en}) {
       : ' (${_t(en, 'wym.', 'req.')} ${c.range!.text(en: en)})';
   final key = c.key ? '*' : '';
   return '${c.element.symbol}$key $value$range: '
-      '${pmiElementStatusLabel(c.status, en: en)}';
+      '${pmiElementStatusText(c, grade: grade, en: en)}';
 }
 
 /// Podpowiedź „najbliższy gatunek z tabeli” — wyłącznie informacja.
@@ -261,10 +299,13 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
     }
     line('${_t(en, 'Jednostka odczytów', 'Reading unit')}: '
         '${p.readingUnit.label(en: en)}');
+    final n = ferriteEffectiveMinCount(p.minCount,
+        rule: p.rule, preset: p.preset);
     final rule = p.rule == FerriteRule.average
-        ? '${ferriteRuleLabel(p.rule, en: en)} (N = '
-            '${p.minCount.trim().isEmpty ? '—' : p.minCount.trim()})'
-        : ferriteRuleLabel(p.rule, en: en);
+        ? '${ferriteRuleLabel(p.rule, en: en)} (N = ${n ?? '—'})'
+        : '${ferriteRuleLabel(p.rule, en: en)} '
+            '(${_t(en, 'min. odczytów na miejsce', 'min. readings per location')}: '
+            '${n ?? '—'})';
     line('${_t(en, 'Reguła', 'Rule')}: $rule');
     var i = 0;
     for (final r in p.evaluateFerrite()) {
@@ -304,7 +345,7 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
       line('   ${_t(en, 'Wymagany gatunek', 'Required grade')}: '
           '${g == null || s == null ? _t(en, 'nie wybrano', 'not selected') : '${g.title} — ${s.designation}, ${s.standard}'}');
       for (final c in r.checks) {
-        line('   ${pmiCheckLine(c, en: en)}');
+        line('   ${pmiCheckLine(c, grade: g!, en: en)}');
       }
       line('   ${_t(en, 'Werdykt', 'Verdict')}: '
           '${pmiVerdictLabel(r.verdict, en: en)}'
@@ -315,8 +356,8 @@ String ferritePmiProtocolText(FerritePmiProtocol p,
       final near = pmiNearestText(item, en: en);
       if (near != null) line('   $near');
     }
-    line(_t(en, '* — pierwiastek kluczowy gatunku.',
-        '* — key element of the grade.'));
+    line(_t(en, '* — pierwiastek wymagany (kluczowy albo z dolną granicą w normie).',
+        '* — required element (key or with a lower limit in the standard).'));
     line(pmiCarbonNote(en: en));
   }
 

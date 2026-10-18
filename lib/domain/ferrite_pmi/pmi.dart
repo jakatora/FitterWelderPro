@@ -12,8 +12,15 @@
 ///   • „do weryfikacji”, gdy przedział zahacza o granicę (odczyt w zakresie
 ///     poszerzonym o niepewność, ale nie da się rozstrzygnąć) — z u = 0
 ///     tylko „zgodny” / „niezgodny”;
-///   • kluczowy pierwiastek bez odczytu, nieczytelny odczyt, ujemna albo
-///     nieczytelna niepewność, suma odczytów > 100 % → brak werdyktu;
+///   • wymagany pierwiastek bez odczytu (kluczowy ALBO każdy z dolną granicą
+///     w wybranej normie — np. Si dla P11, Si i Mn dla P91), nieczytelny
+///     odczyt, ujemna albo nieczytelna niepewność, suma odczytów > 100 % →
+///     brak werdyktu;
+///   • pierwiastek spoza składu gatunku (norma nie podaje zakresu) powyżej
+///     progu resztkowego → „niezgodny” z podpowiedzią sąsiedniego gatunku
+///     (Mo 2,1 % w 304 → możliwy 316); próg w niepewności → „do
+///     weryfikacji”; pierwiastek kontrolny bez odczytu (Mo w 304) → „do
+///     weryfikacji”;
 ///   • XRF nie mierzy węgla ani azotu: przy gatunkach niskowęglowych („L”,
 ///     duplex, P91) najlepszy możliwy werdykt to „zgodny (bez weryfikacji
 ///     C)”; minimum Ti = k × C (gatunki stabilizowane) da się potwierdzić
@@ -160,6 +167,13 @@ class PmiGrade {
   /// O gatunku decyduje też C (gatunki „L”, duplex, P91) — najlepszy
   /// werdykt z XRF: „zgodny (bez weryfikacji C)”.
   final bool carbonCritical;
+
+  /// Pierwiastki KONTROLNE: nie występują w składzie gatunku, ale ich
+  /// obecność wskazuje sąsiedni gatunek (Mo w 304 → 316). Brak odczytu →
+  /// „do weryfikacji” (nie zielone). Wartość — nazwa gatunku, którego brak
+  /// odczytu nie wyklucza (`null` — ogólnie „gatunek z tym pierwiastkiem”).
+  /// Działa tylko w normie, która nie podaje zakresu tego pierwiastka.
+  final Map<PmiElement, String?> controlElements;
   final String notePl;
   final String noteEn;
 
@@ -170,6 +184,7 @@ class PmiGrade {
     required this.specs,
     required this.keyElements,
     this.carbonCritical = false,
+    this.controlElements = const {},
     this.notePl = '',
     this.noteEn = '',
   });
@@ -178,6 +193,15 @@ class PmiGrade {
 
   PmiSpec? specByKey(String key) =>
       specs.where((s) => s.key == key).firstOrNull;
+
+  /// Pierwiastki WYMAGANE w normie [spec]: kluczowe oraz każdy, dla którego
+  /// norma podaje dolną granicę (min albo min zależne od C) — np. Si dla
+  /// P11, Si i Mn dla P91. Bez odczytu któregoś — brak werdyktu.
+  Set<PmiElement> requiredIn(PmiSpec spec) => {
+        ...keyElements,
+        for (final MapEntry(key: e, value: r) in spec.ranges.entries)
+          if (r.min != null || r.carbonMin != null) e,
+      };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -197,19 +221,48 @@ enum PmiElementStatus {
   /// Minimum Ti = k × C: odczyt poniżej k × Cmax — zależy od C (OES).
   carbonDependent,
 
-  /// Kluczowy pierwiastek bez odczytu.
+  /// Wymagany pierwiastek (kluczowy albo z dolną granicą) bez odczytu.
   missing,
 
   /// Odczyt albo niepewność nieczytelne / ujemne / > 100 %.
   invalid,
 
-  /// Wpisany, ale norma nie podaje zakresu — tylko informacja.
+  /// Wpisany, norma nie podaje zakresu, a odczyt nie przekracza progu
+  /// resztkowego — tylko informacja.
   notSpecified,
+}
+
+/// Dlaczego pierwiastek spoza składu gatunku zmienia werdykt.
+enum PmiCheckNote {
+  /// Pierwiastka nie ma w składzie, a odczyt (− u) > próg resztkowy →
+  /// „poza zakresem” (np. Mo 2,1 % w 304 — możliwy 316).
+  residualAbove,
+
+  /// Próg resztkowy mieści się w odczyt ± u → „do weryfikacji”.
+  residualNear,
+
+  /// Pierwiastek kontrolny bez odczytu → „do weryfikacji” (np. brak Mo
+  /// w 304 nie wyklucza 316).
+  controlMissing,
 }
 
 class PmiElementCheck {
   final PmiElement element;
+
+  /// Pierwiastek wymagany (kluczowy albo z dolną granicą w normie).
   final bool key;
+
+  /// Pierwiastek kontrolny gatunku (bez zakresu w normie).
+  final bool control;
+
+  /// Powód statusu pierwiastka spoza składu (`null` — zwykła ocena).
+  final PmiCheckNote? note;
+
+  /// Podpowiedź: gatunek z tabeli, który ten pierwiastek zawiera
+  /// ([PmiCheckNote.residualAbove] / [PmiCheckNote.residualNear]) albo
+  /// nazwa gatunku, którego brak odczytu nie wyklucza
+  /// ([PmiCheckNote.controlMissing]).
+  final String? possibleGrade;
 
   /// Odczyt i niepewność jako liczby (`null` — brak / nieczytelne).
   final double? reading;
@@ -230,6 +283,9 @@ class PmiElementCheck {
     required this.status,
     this.readingText = '',
     this.uncertaintyText = '',
+    this.control = false,
+    this.note,
+    this.possibleGrade,
   });
 }
 
@@ -329,11 +385,18 @@ double _uncertainty(String? text) {
 
 /// Ocena odczytów XRF ([readings], [uncertainty] — tekst z pól, przecinek
 /// albo kropka) względem gatunku [grade] wg normy [spec].
+///
+/// Pierwiastek wpisany, którego norma gatunku nie wymienia, jest oceniany
+/// względem progu resztkowego [pmiResidualThreshold] (przyjęte w aplikacji):
+/// odczyt − u > próg → „poza zakresem” (np. Mo 2,1 % w 304), próg w odczyt
+/// ± u → „do weryfikacji”. [table] — tabela gatunków do podpowiedzi
+/// „możliwy …” (nie zmienia werdyktu).
 PmiResult evaluatePmi({
   required PmiGrade? grade,
   required PmiSpec? spec,
   required Map<PmiElement, String> readings,
   Map<PmiElement, String> uncertainty = const {},
+  List<PmiGrade> table = const [],
 }) {
   if (grade == null || spec == null) {
     return const PmiResult(
@@ -343,6 +406,18 @@ PmiResult evaluatePmi({
         verdict: PmiVerdict.none,
         reason: PmiNoVerdict.noGrade);
   }
+  final required = grade.requiredIn(spec);
+  List<PmiMatch>? nearest;
+  String? possibleWith(PmiElement e) {
+    nearest ??= pmiNearestGrades(readings, table);
+    for (final m in nearest!) {
+      if (m.grade.id != grade.id && m.spec.ranges[e] != null) {
+        return m.grade.title;
+      }
+    }
+    return null;
+  }
+
   final checks = <PmiElementCheck>[];
   var sum = 0.0;
   var anyInvalid = false;
@@ -350,17 +425,41 @@ PmiResult evaluatePmi({
     final r = _reading(readings[e]);
     final u = _uncertainty(uncertainty[e]);
     final range = spec.ranges[e];
-    final key = grade.keyElements.contains(e);
+    final key = required.contains(e);
+    final control = range == null && grade.controlElements.containsKey(e);
     if (r != null && r.isFinite) sum += r;
     PmiElementStatus? status;
+    PmiCheckNote? note;
+    String? possible;
     if (r == null) {
-      // Bez odczytu: kluczowy → brak werdyktu; inny — pomijany.
-      if (key) status = PmiElementStatus.missing;
+      // Bez odczytu: wymagany → brak werdyktu; kontrolny → do weryfikacji
+      // (nie wyklucza sąsiedniego gatunku); inny — pomijany.
+      if (key) {
+        status = PmiElementStatus.missing;
+      } else if (control) {
+        status = PmiElementStatus.toVerify;
+        note = PmiCheckNote.controlMissing;
+        possible = grade.controlElements[e];
+      }
     } else if (r.isNaN || u.isNaN) {
       status = PmiElementStatus.invalid;
       anyInvalid = true;
     } else if (range == null) {
-      status = PmiElementStatus.notSpecified;
+      // Pierwiastka nie ma w składzie gatunku — próg resztkowy.
+      final t = pmiResidualThreshold(e);
+      final lo = ferriteSnap(r - u);
+      final hi = ferriteSnap(r + u);
+      if (lo > t) {
+        status = PmiElementStatus.outOfRange;
+        note = PmiCheckNote.residualAbove;
+        possible = possibleWith(e);
+      } else if (hi > t) {
+        status = PmiElementStatus.toVerify;
+        note = PmiCheckNote.residualNear;
+        possible = possibleWith(e);
+      } else {
+        status = PmiElementStatus.notSpecified;
+      }
     } else if (range.carbonMin != null) {
       status = _carbonLinkedStatus(r, u, range);
     } else {
@@ -370,6 +469,9 @@ PmiResult evaluatePmi({
     checks.add(PmiElementCheck(
       element: e,
       key: key,
+      control: control,
+      note: note,
+      possibleGrade: possible,
       reading: r == null || r.isNaN ? null : r,
       uncertainty: u.isNaN ? 0 : u,
       readingText: (readings[e] ?? '').trim(),
@@ -406,12 +508,16 @@ PmiResult evaluatePmi({
 // PODPOWIEDŹ: NAJBLIŻSZY GATUNEK Z TABELI (tylko informacja)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Próg „resztkowy” dla pierwiastka, którego norma gatunku nie wymienia —
-/// PRZYJĘTE W APLIKACJI, tylko do podpowiedzi (nie do werdyktu): powyżej
-/// tej zawartości pierwiastek „nie pasuje” do gatunku (np. Mo 2 % przy 304).
+/// Próg „resztkowy” [% masy] dla pierwiastka, którego norma gatunku nie
+/// wymienia — PRZYJĘTE W APLIKACJI (normy go nie podają): powyżej tej
+/// zawartości pierwiastek „nie pasuje” do gatunku (np. Mo 2 % przy 304 —
+/// możliwy 316) i werdykt to „niezgodny”. Progi z zapasem na typowe
+/// zanieczyszczenia: Cu i Si do 1 %, V do 0,2 % (spotykane w stalach
+/// nierdzewnych), Ti i Nb 0,1 % (stabilizacja zaczyna się wyżej).
 double pmiResidualThreshold(PmiElement e) => switch (e) {
-      PmiElement.ti || PmiElement.nb || PmiElement.v => 0.1,
-      PmiElement.si => 1.0,
+      PmiElement.ti || PmiElement.nb => 0.1,
+      PmiElement.v => 0.2,
+      PmiElement.si || PmiElement.cu => 1.0,
       _ => 0.5,
     };
 
@@ -442,7 +548,8 @@ List<PmiMatch> pmiNearestGrades(
     if (r != null && r.isFinite) values[e] = r;
   }
   if (values.isEmpty) return const [];
-  final out = <PmiMatch>[];
+  final out = <(PmiMatch, int)>[];
+  var order = 0;
   for (final g in grades) {
     for (final s in g.specs) {
       var score = 0.0;
@@ -458,15 +565,16 @@ List<PmiMatch> pmiNearestGrades(
         if (lo != null && r < lo) score += lo - r;
         if (hi != null && r > hi) score += r - hi;
       }
-      final missing = g.keyElements.any((e) => !values.containsKey(e));
-      out.add(PmiMatch(g, s, ferriteSnap(score), missing));
+      final missing = g.requiredIn(s).any((e) => !values.containsKey(e));
+      out.add((PmiMatch(g, s, ferriteSnap(score), missing), order++));
     }
   }
+  // Remis → kolejność tabeli (sortowanie w Dart nie jest stabilne).
   out.sort((a, b) {
-    final byScore = a.score.compareTo(b.score);
+    final byScore = a.$1.score.compareTo(b.$1.score);
     if (byScore != 0) return byScore;
-    if (a.missingKey != b.missingKey) return a.missingKey ? 1 : -1;
-    return 0;
+    if (a.$1.missingKey != b.$1.missingKey) return a.$1.missingKey ? 1 : -1;
+    return a.$2.compareTo(b.$2);
   });
-  return out;
+  return [for (final (m, _) in out) m];
 }

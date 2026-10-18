@@ -649,36 +649,51 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
             keyOf: (r) => 'fp-rule-${r.name}',
             onSelected: (r) => _set((p) => p.copyWith(rule: r)),
           ),
-          if (_p.rule == FerriteRule.everyReading)
-            _caption(context.tr(
-                pl: 'Domyślna i ostrzejsza: każdy pojedynczy odczyt musi '
-                    'mieścić się w zakresie.',
-                en: 'Default and stricter: every single reading must be in '
-                    'range.'))
-          else ...[
-            const SizedBox(height: 10),
-            TextField(
-              key: const ValueKey('fp-min-count'),
-              controller: _count,
-              keyboardType: numberKeyboard(decimal: false),
-              inputFormatters: numberInputFormatters(decimal: false),
-              onChanged: (v) => _set((p) => p.copyWith(minCount: v)),
-              decoration: _dec(
-                context.tr(
-                    pl: 'N — min. liczba odczytów (ze specyfikacji)',
-                    en: 'N — min. number of readings (from the spec)'),
-                error: parseFerriteMinCount(_count.text) == null
-                    ? ferriteNoVerdictText(FerriteNoVerdict.invalidCount,
-                        en: _en)
-                    : null,
-              ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const ValueKey('fp-min-count'),
+            controller: _count,
+            keyboardType: numberKeyboard(decimal: false),
+            inputFormatters: numberInputFormatters(decimal: false),
+            onChanged: (v) => _set((p) => p.copyWith(minCount: v)),
+            decoration: _dec(
+              _p.rule == FerriteRule.average
+                  ? context.tr(
+                      pl: 'N — średnia z min. N odczytów (ze specyfikacji)',
+                      en: 'N — mean of at least N readings (from the spec)')
+                  : context.tr(
+                      pl: 'Min. odczytów na miejsce (puste = 1)',
+                      en: 'Min. readings per location (empty = 1)'),
+              error: ferriteEffectiveMinCount(_count.text,
+                          rule: _p.rule, preset: preset) ==
+                      null
+                  ? ferriteNoVerdictText(FerriteNoVerdict.invalidCount,
+                      en: _en)
+                  : null,
             ),
-            _caption(context.tr(
-                pl: 'Średnia ze wszystkich odczytów miejsca; mniej odczytów '
-                    'niż N — brak werdyktu.',
-                en: 'Mean of all readings at the location; fewer readings '
-                    'than N — no verdict.')),
-          ],
+          ),
+          if (preset != null && preset.minReadings > 1)
+            _caption(
+                context.tr(
+                    pl: 'Preset wymaga co najmniej ${preset.minReadings} '
+                        'odczytów na miejsce — pole może to tylko podnieść.',
+                    en: 'The preset requires at least ${preset.minReadings} '
+                        'readings per location — the field can only raise '
+                        'it.'),
+                key: const ValueKey('fp-preset-min-readings'),
+                color: kWarn),
+          _caption(_p.rule == FerriteRule.average
+              ? context.tr(
+                  pl: 'Średnia ze wszystkich odczytów miejsca; mniej odczytów '
+                      'niż N — brak werdyktu.',
+                  en: 'Mean of all readings at the location; fewer readings '
+                      'than N — no verdict.')
+              : context.tr(
+                  pl: 'Domyślna i ostrzejsza: każdy pojedynczy odczyt musi '
+                      'mieścić się w zakresie; mniej odczytów niż wymagane — '
+                      'brak werdyktu.',
+                  en: 'Default and stricter: every single reading must be in '
+                      'range; fewer readings than required — no verdict.')),
         ],
       ),
       QuoteSection(
@@ -1173,7 +1188,14 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
 
   Widget _elementRow(int i, PmiItem item, PmiElement e, PmiGrade? g,
       PmiSpec? spec, PmiElementCheck? check) {
-    final key = g?.keyElements.contains(e) ?? false;
+    // Wymagany: kluczowy albo z dolną granicą w wybranej normie.
+    final key = g != null &&
+        spec != null &&
+        g.requiredIn(spec).contains(e);
+    final control = g != null &&
+        spec != null &&
+        spec.ranges[e] == null &&
+        g.controlElements.containsKey(e);
     final rc = _el(_pmiR, item.id, e, item.readings[e] ?? '');
     final uc = _el(_pmiU, item.id, e, item.uncertainty[e] ?? '');
     final ranges = <String>[];
@@ -1194,7 +1216,9 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
               PmiElementStatus.notSpecified => kTextSec,
               _ => kWarn,
             },
-            pmiElementStatusLabel(check.status, en: _en),
+            g == null
+                ? pmiElementStatusLabel(check.status, en: _en)
+                : pmiElementStatusText(check, grade: g, en: _en),
           );
     return Padding(
       key: ValueKey('fp-pmi-$i-${e.name}-row'),
@@ -1208,9 +1232,13 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
                   text: e.symbol,
                   style: const TextStyle(
                       fontWeight: FontWeight.w800, color: kText, fontSize: 14)),
-              if (key)
+              if (key || control)
                 TextSpan(
-                    text: context.tr(pl: '  kluczowy', en: '  key'),
+                    text: key
+                        ? context.tr(pl: '  wymagany', en: '  required')
+                        : context.tr(
+                            pl: '  kontrolny (spoza składu)',
+                            en: '  control (not in the grade)'),
                     style: const TextStyle(
                         color: kArc,
                         fontSize: 12,

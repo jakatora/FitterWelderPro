@@ -50,7 +50,11 @@ class PmiItem {
   }
 
   PmiResult evaluate() => evaluatePmi(
-      grade: grade, spec: spec, readings: readings, uncertainty: uncertainty);
+      grade: grade,
+      spec: spec,
+      readings: readings,
+      uncertainty: uncertainty,
+      table: kPmiGrades);
 
   bool get isBlank =>
       label.trim().isEmpty &&

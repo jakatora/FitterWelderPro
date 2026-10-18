@@ -12,6 +12,9 @@
 ///     inny odczyt jest już poza zakresem — wtedy „poza zakresem”);
 ///   • reguła „średnia z N”: N ze specyfikacji, mniej odczytów niż N albo
 ///     nieczytelne N → brak werdyktu;
+///   • minimalna liczba odczytów na miejsce (pole protokołu, domyślnie 1,
+///     i preset — np. IOGP S-705: ≥ 3; obowiązuje większa): mniej odczytów
+///     → brak werdyktu (odczyt poza zakresem i tak daje „poza zakresem”);
 ///   • preset dla innego miejsca (np. zakres spoiny przy materiale
 ///     rodzimym) → brak werdyktu dla tego miejsca;
 ///   • średnia pokazywana obok werdyktu zaokrąglana W STRONĘ werdyktu.
@@ -162,6 +165,11 @@ class FerritePreset {
   final String notePl;
   final String noteEn;
 
+  /// Minimalna liczba odczytów na miejsce, gdy źródło ją podaje (np. IOGP
+  /// S-705 12.13.3: ≥ 3 na spoinę); inaczej 1. Mniej odczytów → brak
+  /// werdyktu. Pole „min. odczytów” w protokole może ją tylko podnieść.
+  final int minReadings;
+
   const FerritePreset({
     required this.id,
     required this.group,
@@ -173,6 +181,7 @@ class FerritePreset {
     required this.sourceEn,
     this.notePl = '',
     this.noteEn = '',
+    this.minReadings = 1,
   });
 
   String title({required bool en}) => en ? titleEn : titlePl;
@@ -273,6 +282,24 @@ int? parseFerriteMinCount(String text) {
   return v.toInt();
 }
 
+/// Obowiązująca minimalna liczba odczytów na miejsce: z pola protokołu
+/// ([text]) i z presetu ([FerritePreset.minReadings]) — większa z nich
+/// (pole może wymaganie tylko podnieść). Reguła „każdy odczyt”: puste pole
+/// = 1. Reguła „średnia z N”: N musi być wpisane. Nieczytelne pole →
+/// `null` (brak werdyktu).
+int? ferriteEffectiveMinCount(String text,
+    {required FerriteRule rule, FerritePreset? preset}) {
+  final int? own;
+  if (text.trim().isEmpty) {
+    own = rule == FerriteRule.average ? null : 1;
+  } else {
+    own = parseFerriteMinCount(text);
+  }
+  if (own == null) return null;
+  final fromPreset = preset?.minReadings ?? 1;
+  return own > fromPreset ? own : fromPreset;
+}
+
 enum FerriteVerdict {
   /// W zakresie (każdy odczyt albo średnia — wg reguły).
   pass,
@@ -300,10 +327,11 @@ enum FerriteNoVerdict {
   /// Jednostka odczytów ≠ jednostka wymagania (FN ≠ %).
   unitMismatch,
 
-  /// Reguła „średnia z N”: N puste albo nie jest liczbą całkowitą ≥ 1.
+  /// Pole „min. odczytów / N” nieczytelne (nie liczba całkowita ≥ 1) albo
+  /// puste przy regule „średnia z N”.
   invalidCount,
 
-  /// Reguła „średnia z N”: mniej odczytów niż N.
+  /// Mniej odczytów niż wymaga specyfikacja / preset / N.
   tooFewReadings,
 
   /// Preset dotyczy innego miejsca (np. spoina, a pomiar na materiale
@@ -326,7 +354,8 @@ class FerriteSiteResult {
   final FerriteVerdict verdict;
   final FerriteNoVerdict? reason;
 
-  /// Reguła „średnia”: N ze specyfikacji (gdy czytelne).
+  /// Obowiązująca minimalna liczba odczytów (pole protokołu / preset /
+  /// N), gdy czytelna.
   final int? minCount;
 
   const FerriteSiteResult({
@@ -368,7 +397,7 @@ FerriteSiteResult evaluateFerriteSite(
   final values = [
     for (final r in site.readings) parseFerriteReading(r, readingUnit),
   ];
-  final n = rule == FerriteRule.average ? parseFerriteMinCount(minCountText) : null;
+  final n = ferriteEffectiveMinCount(minCountText, rule: rule, preset: preset);
 
   FerriteSiteResult none(FerriteNoVerdict why,
           {List<FerriteReadingStatus?>? statuses, double? mean}) =>
@@ -418,6 +447,14 @@ FerriteSiteResult evaluateFerriteSite(
     if (anyInvalid) {
       return none(FerriteNoVerdict.invalidReading, statuses: statuses);
     }
+    // Wszystkie w zakresie — ale zielone dopiero przy liczbie odczytów
+    // wymaganej przez specyfikację / preset.
+    if (n == null) {
+      return none(FerriteNoVerdict.invalidCount, statuses: statuses);
+    }
+    if (values.length < n) {
+      return none(FerriteNoVerdict.tooFewReadings, statuses: statuses);
+    }
     return FerriteSiteResult(
       site: site,
       values: values,
@@ -425,6 +462,7 @@ FerriteSiteResult evaluateFerriteSite(
       mean: null,
       verdict: FerriteVerdict.pass,
       reason: null,
+      minCount: n,
     );
   }
 
