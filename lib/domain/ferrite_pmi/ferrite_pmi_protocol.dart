@@ -1,0 +1,433 @@
+/// Protokół „Ferryt i PMI”: dane pomiaru, wymaganie ferrytu z odczytami
+/// w wielu miejscach oraz pozycje PMI (XRF). Zapis JSON do historii.
+///
+/// Odporność zapisu: uszkodzone protokoły / miejsca / pozycje / odczyty są
+/// pomijane, ale LICZONE ([FerritePmiParse]) — magazyn robi kopię surowego
+/// tekstu, ekran pokazuje baner. Odczyty zapisywane jako tekst „tak, jak
+/// wpisano” (bez zaokrąglania).
+///
+/// Czysty Dart.
+library;
+
+import '../../utils/decimal_parse.dart';
+import 'ferrite.dart';
+import 'ferrite_pmi_sources.dart';
+import 'pmi.dart';
+
+/// Pozycja PMI: element (rura, kształtka, spoina) i odczyty XRF.
+class PmiItem {
+  final String id;
+
+  /// Oznaczenie, np. „Rura poz. 3, wytop 12345”.
+  final String label;
+
+  /// Id gatunku z tabeli ('' — nie wybrano).
+  final String gradeId;
+
+  /// Wariant normy w obrębie gatunku ('' — pierwszy, EN).
+  final String specKey;
+  final Map<PmiElement, String> readings;
+  final Map<PmiElement, String> uncertainty;
+
+  const PmiItem({
+    required this.id,
+    this.label = '',
+    this.gradeId = '',
+    this.specKey = '',
+    this.readings = const {},
+    this.uncertainty = const {},
+  });
+
+  PmiGrade? get grade => pmiGradeById(gradeId);
+
+  /// Wybrany wariant normy; bez wyboru — pierwszy (EN). Nieznany klucz
+  /// (zapis z innej wersji) → `null` (brak werdyktu, nie zgadujemy).
+  PmiSpec? get spec {
+    final g = grade;
+    if (g == null) return null;
+    if (specKey.isEmpty) return g.specs.first;
+    return g.specByKey(specKey);
+  }
+
+  PmiResult evaluate() => evaluatePmi(
+      grade: grade, spec: spec, readings: readings, uncertainty: uncertainty);
+
+  bool get isBlank =>
+      label.trim().isEmpty &&
+      gradeId.isEmpty &&
+      readings.values.every((v) => v.trim().isEmpty) &&
+      uncertainty.values.every((v) => v.trim().isEmpty);
+
+  PmiItem copyWith({
+    String? label,
+    String? gradeId,
+    String? specKey,
+    Map<PmiElement, String>? readings,
+    Map<PmiElement, String>? uncertainty,
+  }) =>
+      PmiItem(
+        id: id,
+        label: label ?? this.label,
+        gradeId: gradeId ?? this.gradeId,
+        specKey: specKey ?? this.specKey,
+        readings: readings ?? this.readings,
+        uncertainty: uncertainty ?? this.uncertainty,
+      );
+
+  static Map<String, String> _mapOut(Map<PmiElement, String> m) => {
+        for (final e in PmiElement.values)
+          if ((m[e] ?? '').isNotEmpty) e.name: m[e]!,
+      };
+
+  /// Odczyty z JSON i liczba pominiętych (nieznany pierwiastek albo
+  /// wartość, która nie jest tekstem).
+  static (Map<PmiElement, String>, int) _mapIn(Object? raw) {
+    if (raw is! Map) return (const {}, raw == null ? 0 : 1);
+    final out = <PmiElement, String>{};
+    var lost = 0;
+    for (final MapEntry(:key, :value) in raw.entries) {
+      final e = PmiElement.byName(key);
+      if (e != null && value is String) {
+        out[e] = value;
+      } else {
+        lost++;
+      }
+    }
+    return (out, lost);
+  }
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'label': label,
+        'grade': gradeId,
+        'spec': specKey,
+        'r': _mapOut(readings),
+        'u': _mapOut(uncertainty),
+      };
+
+  /// `null` dla wpisu bez id; drugi element — ile odczytów pominięto.
+  static (PmiItem?, int) fromJson(Object? raw) {
+    if (raw is! Map) return (null, 0);
+    final id = raw['id'];
+    if (id is! String || id.isEmpty) return (null, 0);
+    String s(Object? v) => v is String ? v : '';
+    final (r, lostR) = _mapIn(raw['r']);
+    final (u, lostU) = _mapIn(raw['u']);
+    return (
+      PmiItem(
+        id: id,
+        label: s(raw['label']),
+        gradeId: s(raw['grade']),
+        specKey: s(raw['spec']),
+        readings: r,
+        uncertainty: u,
+      ),
+      lostR + lostU,
+    );
+  }
+}
+
+class FerritePmiProtocol {
+  final String id;
+
+  /// Data pomiaru `YYYY-MM-DD`.
+  final String date;
+
+  /// Obiekt / linia / nr spoiny.
+  final String title;
+  final String inspector;
+
+  /// Przyrząd: ferrytomierz / XRF — model, nr, data kalibracji.
+  final String instrument;
+  final String notes;
+
+  // ── Ferryt ──
+  /// Id presetu ('' — zakres ze specyfikacji wpisany ręcznie).
+  final String presetId;
+  final String customMin;
+  final String customMax;
+  final FerriteUnit customUnit;
+
+  /// Jednostka, którą pokazuje ferrytomierz.
+  final FerriteUnit readingUnit;
+  final FerriteRule rule;
+
+  /// N ze specyfikacji (reguła „średnia z N”) — tekst z pola.
+  final String minCount;
+  final List<FerriteSite> sites;
+
+  // ── PMI ──
+  final List<PmiItem> pmi;
+
+  final int createdAt;
+  final int updatedAt;
+
+  /// Ile elementów (miejsc, odczytów, pozycji) pominięto przy odczycie.
+  final int droppedOnLoad;
+
+  const FerritePmiProtocol({
+    required this.id,
+    required this.date,
+    this.title = '',
+    this.inspector = '',
+    this.instrument = '',
+    this.notes = '',
+    this.presetId = '',
+    this.customMin = '',
+    this.customMax = '',
+    this.customUnit = FerriteUnit.fn,
+    this.readingUnit = FerriteUnit.fn,
+    this.rule = FerriteRule.everyReading,
+    this.minCount = '',
+    this.sites = const [],
+    this.pmi = const [],
+    this.createdAt = 0,
+    this.updatedAt = 0,
+    this.droppedOnLoad = 0,
+  });
+
+  /// Nowy protokół: jedno puste miejsce „spoina” i jedna pusta pozycja PMI.
+  factory FerritePmiProtocol.blank({required String id, required DateTime now}) {
+    final ms = now.millisecondsSinceEpoch;
+    return FerritePmiProtocol(
+      id: id,
+      date: ferritePmiDate(now),
+      sites: [FerriteSite(id: '$id-s1', location: FerriteLocation.weld)],
+      pmi: [PmiItem(id: '$id-p1')],
+      createdAt: ms,
+      updatedAt: ms,
+    );
+  }
+
+  /// Preset wybrany w protokole (`null` — własny zakres albo nieznany id).
+  FerritePreset? get preset =>
+      presetId.isEmpty ? null : ferritePresetById(presetId);
+
+  /// Obowiązujące wymaganie. `null` — preset o nieznanym id (zapis z innej
+  /// wersji aplikacji): brak werdyktu, nie zgadujemy. Własny zakres: puste
+  /// pole = granica otwarta, nieczytelne pole = zakres nieprawidłowy.
+  FerriteRequirement? get requirement {
+    if (presetId.isNotEmpty) return preset?.requirement;
+    double? bound(String t) {
+      if (t.trim().isEmpty) return null;
+      return parseDecimal(t) ?? double.nan;
+    }
+
+    return FerriteRequirement(
+        min: bound(customMin), max: bound(customMax), unit: customUnit);
+  }
+
+  List<FerriteSiteResult> evaluateFerrite() => [
+        for (final s in sites)
+          evaluateFerriteSite(
+            s,
+            requirement: requirement,
+            readingUnit: readingUnit,
+            rule: rule,
+            minCountText: minCount,
+            preset: preset,
+          ),
+      ];
+
+  /// Miejsca z odczytami albo oznaczeniem (puste pomijane w ocenie
+  /// protokołu i w tekście).
+  List<FerriteSite> get filledSites => [
+        for (final s in sites)
+          if (!s.isBlank) s,
+      ];
+
+  List<PmiItem> get filledPmi => [
+        for (final p in pmi)
+          if (!p.isBlank) p,
+      ];
+
+  bool get hasFerrite => filledSites.isNotEmpty;
+  bool get hasPmi => filledPmi.isNotEmpty;
+
+  /// Werdykt ferrytu z miejsc wypełnionych.
+  FerriteVerdict get ferriteVerdict => ferriteOverall([
+        for (final r in evaluateFerrite())
+          if (!r.site.isBlank) r,
+      ]);
+
+  /// Nic nie wpisano — nie trafia do historii.
+  bool get isBlank =>
+      title.trim().isEmpty &&
+      inspector.trim().isEmpty &&
+      instrument.trim().isEmpty &&
+      notes.trim().isEmpty &&
+      customMin.trim().isEmpty &&
+      customMax.trim().isEmpty &&
+      minCount.trim().isEmpty &&
+      presetId.isEmpty &&
+      sites.every((s) => s.isBlank) &&
+      pmi.every((p) => p.isBlank);
+
+  static const Object _keep = Object();
+
+  FerritePmiProtocol copyWith({
+    String? date,
+    String? title,
+    String? inspector,
+    String? instrument,
+    String? notes,
+    String? presetId,
+    String? customMin,
+    String? customMax,
+    FerriteUnit? customUnit,
+    FerriteUnit? readingUnit,
+    FerriteRule? rule,
+    String? minCount,
+    List<FerriteSite>? sites,
+    List<PmiItem>? pmi,
+    int? updatedAt,
+    Object? droppedOnLoad = _keep,
+  }) =>
+      FerritePmiProtocol(
+        id: id,
+        date: date ?? this.date,
+        title: title ?? this.title,
+        inspector: inspector ?? this.inspector,
+        instrument: instrument ?? this.instrument,
+        notes: notes ?? this.notes,
+        presetId: presetId ?? this.presetId,
+        customMin: customMin ?? this.customMin,
+        customMax: customMax ?? this.customMax,
+        customUnit: customUnit ?? this.customUnit,
+        readingUnit: readingUnit ?? this.readingUnit,
+        rule: rule ?? this.rule,
+        minCount: minCount ?? this.minCount,
+        sites: sites ?? this.sites,
+        pmi: pmi ?? this.pmi,
+        createdAt: createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+        droppedOnLoad: identical(droppedOnLoad, _keep)
+            ? this.droppedOnLoad
+            : droppedOnLoad as int,
+      );
+
+  Map<String, Object?> toJson() => {
+        'v': 1,
+        'id': id,
+        'date': date,
+        'title': title,
+        'inspector': inspector,
+        'instrument': instrument,
+        'notes': notes,
+        'preset': presetId,
+        'min': customMin,
+        'max': customMax,
+        'unit': customUnit.name,
+        'readUnit': readingUnit.name,
+        'rule': rule.name,
+        'n': minCount,
+        'sites': [for (final s in sites) s.toJson()],
+        'pmi': [for (final p in pmi) p.toJson()],
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+      };
+
+  /// `null` dla wpisu bez id albo daty. Nieznane jednostki / reguła →
+  /// wpis odrzucony (nie zgadujemy jednostki — to zmienia werdykt).
+  static FerritePmiProtocol? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    String s(Object? v) => v is String ? v : '';
+    int i(Object? v) => v is num && v.isFinite ? v.toInt() : 0;
+    List<Object?> l(Object? v) => v is List ? v : const [];
+    final id = s(raw['id']);
+    final date = s(raw['date']);
+    final unit = FerriteUnit.byName(raw['unit']);
+    final readUnit = FerriteUnit.byName(raw['readUnit']);
+    final rule = FerriteRule.byName(raw['rule']);
+    if (id.isEmpty || date.isEmpty) return null;
+    if (unit == null || readUnit == null || rule == null) return null;
+    var dropped = 0;
+    final sites = <FerriteSite>[];
+    for (final e in l(raw['sites'])) {
+      final (site, lost) = FerriteSite.fromJson(e);
+      if (site == null) {
+        dropped++;
+      } else {
+        sites.add(site);
+        dropped += lost;
+      }
+    }
+    final pmi = <PmiItem>[];
+    for (final e in l(raw['pmi'])) {
+      final (p, lost) = PmiItem.fromJson(e);
+      if (p == null) {
+        dropped++;
+      } else {
+        pmi.add(p);
+        dropped += lost;
+      }
+    }
+    return FerritePmiProtocol(
+      id: id,
+      date: date,
+      title: s(raw['title']),
+      inspector: s(raw['inspector']),
+      instrument: s(raw['instrument']),
+      notes: s(raw['notes']),
+      presetId: s(raw['preset']),
+      customMin: s(raw['min']),
+      customMax: s(raw['max']),
+      customUnit: unit,
+      readingUnit: readUnit,
+      rule: rule,
+      minCount: s(raw['n']),
+      sites: sites,
+      pmi: pmi,
+      createdAt: i(raw['createdAt']),
+      updatedAt: i(raw['updatedAt']),
+      droppedOnLoad: dropped,
+    );
+  }
+}
+
+/// Wynik odczytu historii: ile protokołów i elementów odrzucono.
+class FerritePmiParse {
+  final List<FerritePmiProtocol> protocols;
+  final int droppedProtocols;
+  final int droppedItems;
+
+  const FerritePmiParse(
+      this.protocols, this.droppedProtocols, this.droppedItems);
+
+  bool get damaged => droppedProtocols > 0 || droppedItems > 0;
+}
+
+/// Lista protokołów z JSON. Nie-lista → [FormatException] (zapis
+/// nieczytelny w całości).
+FerritePmiParse ferritePmiParse(Object? raw) {
+  if (raw is! List) throw const FormatException('not a list');
+  final out = <FerritePmiProtocol>[];
+  var droppedProtocols = 0;
+  var droppedItems = 0;
+  for (final e in raw) {
+    final p = FerritePmiProtocol.fromJson(e);
+    if (p == null) {
+      droppedProtocols++;
+    } else {
+      out.add(p);
+      droppedItems += p.droppedOnLoad;
+    }
+  }
+  return FerritePmiParse(out, droppedProtocols, droppedItems);
+}
+
+List<Map<String, Object?>> ferritePmiToJson(List<FerritePmiProtocol> list) =>
+    [for (final p in list) p.toJson()];
+
+/// Najnowsze na górze: data malejąco, potem ostatnia zmiana.
+List<FerritePmiProtocol> sortFerritePmi(List<FerritePmiProtocol> list) =>
+    [...list]..sort((a, b) {
+        final byDate = b.date.compareTo(a.date);
+        if (byDate != 0) return byDate;
+        return b.updatedAt.compareTo(a.updatedAt);
+      });
+
+/// `YYYY-MM-DD`.
+String ferritePmiDate(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
