@@ -1,6 +1,6 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import '../domain/fitter/pipe_slope.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
@@ -46,8 +46,12 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     _lastCalculation = null;
   }
 
+  // Numbers come from lib/domain/fitter/pipe_slope.dart; the screen keeps
+  // its own input check only to pick the right message (bad input vs a
+  // result out of range).
   void _calculate() {
     setState(_clearComputed);
+    final PipeSlopeResult? result;
     if (_mode == 'length_to_rise') {
       final length = _parse(_lengthController.text);
       final slope  = _parse(_slopeController.text);
@@ -55,19 +59,13 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         _showError(context.tr(pl: 'Wpisz długość i nachylenie > 0', en: 'Enter length and slope > 0'));
         return;
       }
-      final rise     = length * slope / 100.0;
-      final angleRad = math.atan(slope / 100.0);
-      final angleDeg = angleRad * 180.0 / math.pi;
-      final mmPerM   = slope * 10.0;
-      if (![rise, angleDeg, mmPerM].every((v) => v.isFinite)) {
+      result = slopeRiseFromLength(lengthMm: length, slopePct: slope);
+      if (result == null) {
         _showRangeError();
         return;
       }
 
-      _riseController.text    = rise.toStringAsFixed(1);
-      _angleController.text   = angleDeg.toStringAsFixed(3);
-      _mmPerMController.text  = mmPerM.toStringAsFixed(1);
-      _lastCalculation = (length, slope, rise);
+      _riseController.text    = result.riseMm.toStringAsFixed(1);
     } else if (_mode == 'rise_to_length') {
       final rise   = _parse(_riseController.text);
       final slope  = _parse(_slopeController.text);
@@ -75,19 +73,13 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         _showError(context.tr(pl: 'Wpisz wznios i nachylenie > 0', en: 'Enter rise and slope > 0'));
         return;
       }
-      final length   = rise / (slope / 100.0);
-      final angleRad = math.atan(slope / 100.0);
-      final angleDeg = angleRad * 180.0 / math.pi;
-      final mmPerM   = slope * 10.0;
-      if (![length, angleDeg, mmPerM].every((v) => v.isFinite)) {
+      result = slopeLengthFromRise(riseMm: rise, slopePct: slope);
+      if (result == null) {
         _showRangeError();
         return;
       }
 
-      _lengthController.text  = length.toStringAsFixed(1);
-      _angleController.text   = angleDeg.toStringAsFixed(3);
-      _mmPerMController.text  = mmPerM.toStringAsFixed(1);
-      _lastCalculation = (length, slope, rise);
+      _lengthController.text  = result.lengthMm.toStringAsFixed(1);
     } else {
       // slope from length + rise
       final length = _parse(_lengthController.text);
@@ -96,20 +88,18 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         _showError(context.tr(pl: 'Wpisz długość i wznios > 0', en: 'Enter length and rise > 0'));
         return;
       }
-      final slope    = (rise / length) * 100.0;
-      final angleRad = math.atan(rise / length);
-      final angleDeg = angleRad * 180.0 / math.pi;
-      final mmPerM   = slope * 10.0;
-      if (![slope, angleDeg, mmPerM].every((v) => v.isFinite)) {
+      result = slopeFromLengthAndRise(lengthMm: length, riseMm: rise);
+      if (result == null) {
         _showRangeError();
         return;
       }
 
-      _slopeController.text   = slope.toStringAsFixed(3);
-      _angleController.text   = angleDeg.toStringAsFixed(3);
-      _mmPerMController.text  = mmPerM.toStringAsFixed(1);
-      _lastCalculation = (length, slope, rise);
+      _slopeController.text   = result.slopePct.toStringAsFixed(3);
     }
+
+    _angleController.text   = result.angleDeg.toStringAsFixed(3);
+    _mmPerMController.text  = result.mmPerM.toStringAsFixed(1);
+    _lastCalculation = (result.lengthMm, result.slopePct, result.riseMm);
 
     setState(() {});
   }

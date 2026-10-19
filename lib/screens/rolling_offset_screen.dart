@@ -1,7 +1,7 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../data/elbow_takeouts.dart';
+import '../domain/fitter/rolling_offset.dart';
 import '../i18n/app_language.dart';
 import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -9,21 +9,11 @@ import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
 
-/// Roll of the offset plane (= how far the elbow is turned) measured from
-/// the vertical, in degrees: atan(Spread / Rise). Rise is the vertical and
-/// Spread the lateral offset as entered on this screen; the roll from the
-/// horizontal is 90° minus this value.
-double rollFromVerticalDeg(double rise, double spread) =>
-    math.atan2(spread, rise) * 180.0 / math.pi;
-
-/// Pipe to cut between the two offset elbows:
-/// Travel − 2 × take-out − 2 × weld gap.
-double rollingCutLengthMm({
-  required double travelMm,
-  required double takeoutMm,
-  double gapMm = 0,
-}) =>
-    travelMm - 2.0 * takeoutMm - 2.0 * gapMm;
+// The geometry lives in lib/domain/fitter/rolling_offset.dart. These two
+// helpers used to be defined here; re-exported so existing imports of this
+// screen keep working.
+export '../domain/fitter/rolling_offset.dart'
+    show rollFromVerticalDeg, rollingCutLengthMm;
 
 class RollingOffsetScreen extends StatefulWidget {
   const RollingOffsetScreen({super.key});
@@ -112,7 +102,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     });
   }
 
-  // Rolling offset formulas:
+  // Rolling offset formulas (computed by rollingOffset() in the domain):
   //   True Offset = √(Rise² + Spread²)
   //   Travel      = True Offset / sin(θ)   [θ = elbow angle]
   //   Run         = True Offset / tan(θ)   = √(Travel² − True Offset²)
@@ -164,7 +154,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // P1-12: Reject angle ≤ 5° or ≥ 89°; allow exactly 90° as edge case
     // (Run = 0, Multiplier = 1). Below 5° sin(θ) collapses → multiplier
     // explodes; above 89° (except 90°) tan(θ) blows up.
-    if (!angleDeg.isFinite || angleDeg <= 5 || (angleDeg >= 89 && angleDeg != 90)) {
+    if (!rollingOffsetAngleValid(angleDeg)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Kąt musi być > 5° i < 89° (lub dokładnie 90°)',
@@ -174,16 +164,11 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       return;
     }
 
-    final angleRad  = angleDeg * math.pi / 180.0;
-    final trueOffset = math.sqrt(rise * rise + spread * spread);
-    final multiplier = 1.0 / math.sin(angleRad);
-    final travel     = trueOffset * multiplier;
-    // 90° edge case: tan(π/2) is mathematically infinite, but math.tan
-    // returns a huge finite float. Pin Run to 0.0 explicitly so the saw
-    // gets a clean reading.
-    final run        = angleDeg == 90 ? 0.0 : trueOffset / math.tan(angleRad);
-
-    if (![trueOffset, multiplier, travel, run].every((v) => v.isFinite)) {
+    // Inputs passed both checks above, so null here means a result that
+    // is not finite.
+    final result = rollingOffset(
+        riseMm: rise, spreadMm: spread, angleDeg: angleDeg);
+    if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Wynik poza zakresem. Sprawdź wartości i jednostki.',
@@ -193,26 +178,26 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       return;
     }
 
-    _trueOffsetController.text = trueOffset.toStringAsFixed(1);
-    _multiplierController.text = multiplier.toStringAsFixed(4);
-    _travelController.text     = travel.toStringAsFixed(1);
-    _runController.text        = run.toStringAsFixed(1);
-    final rollV = rollFromVerticalDeg(rise, spread);
-    _rollVController.text      = rollV.toStringAsFixed(1);
-    _rollHController.text      = (90.0 - rollV).toStringAsFixed(1);
+    _trueOffsetController.text = result.trueOffsetMm.toStringAsFixed(1);
+    _multiplierController.text = result.multiplier.toStringAsFixed(4);
+    _travelController.text     = result.travelMm.toStringAsFixed(1);
+    _runController.text        = result.runMm.toStringAsFixed(1);
+    _rollVController.text      = result.rollFromVerticalDeg.toStringAsFixed(1);
+    _rollHController.text      = result.rollFromHorizontalDeg.toStringAsFixed(1);
 
     // Optional: cut length from the ASME B16.9 LR elbow take-out.
     final dn = _dn;
     if (dn != null) {
-      final t = b169ElbowTakeout(
-          dn: dn, type: ElbowRadiusType.long15D, angleDeg: angleDeg);
-      final gap = _parse(_gapController.text);
-      if (t != null && gap.isFinite && gap >= 0) {
-        final cut = rollingCutLengthMm(
-            travelMm: travel, takeoutMm: t.mm, gapMm: gap);
+      final cut = rollingOffsetCut(
+          travelMm: result.travelMm,
+          angleDeg: angleDeg,
+          dn: dn,
+          gapMm: _parse(_gapController.text));
+      if (cut != null) {
+        final t = cut.takeout;
         _takeoutController.text = t.mm.toStringAsFixed(1);
-        _cutController.text     = cut.toStringAsFixed(1);
-        _cutNegative = cut <= 0;
+        _cutController.text     = cut.cutMm.toStringAsFixed(1);
+        _cutNegative = cut.elbowsOverlap;
         final half = (angleDeg / 2).toStringAsFixed(angleDeg % 2 == 0 ? 0 : 1);
         _takeoutSource = switch (t.basis) {
           TakeoutBasis.tableA90 => context.tr(
@@ -229,7 +214,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     }
 
     setState(() {
-      _showMultiplierWarning = multiplier > 10;
+      _showMultiplierWarning = result.multiplierWarning;
       _lastCalculation = (rise, spread, angleDeg);
     });
   }
