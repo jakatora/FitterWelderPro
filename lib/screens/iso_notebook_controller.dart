@@ -14,7 +14,7 @@ part of 'iso_notebook_screen.dart';
 //    rysowaniem — nic nie trafia ani do szkicu, ani do bazy;
 //  * kolano powstaje samo na styku dwóch rur (`_maybeInsertElbows`), a
 //    „kolano” w poleceniu to zamiar skrętu NASTĘPNEJ rury;
-//  * animacja to osobny podgląd (`_ghostA/_ghostB`), niezależny od gestu
+//  * animacja to osobny podgląd (`_ghost`, własna warstwa), niezależny od gestu
 //    palca (`_dragA/_dragB`). Gest w trakcie animacji kończy polecenie od
 //    razu, bez animacji — przerywa animację, nie zapis;
 //  * polecenia idą przez kolejkę, jedno po drugim.
@@ -139,6 +139,9 @@ enum IsoDrawProblem {
 
   /// Zmiana kierunku w punkcie, w którym stoi już kształtka (zawór, kołnierz,
   /// redukcja…): kolano nie ma gdzie stanąć. Potrzebna rura między nimi.
+  /// Także: na wolnym końcu rysunku stoi już kolano — każda rura (i każda
+  /// kształtka poza spoiną) z tego punktu; [IsoDrawReport.problemPl] mówi
+  /// wtedy „na końcu stoi już kolano”.
   turnAtFitting,
 }
 
@@ -150,6 +153,8 @@ class IsoDrawReport {
     this.assumedEn = const [],
     this.problem,
     this.problemStep,
+    this.problemPl,
+    this.problemEn,
     this.segments = 0,
     this.elbows = 0,
     this.fittings = 0,
@@ -165,6 +170,9 @@ class IsoDrawReport {
   /// Indeks w liście kroków, którego dotyczy [problem] (przy problemach ze
   /// skrętem — indeks [IsoTurn]).
   final int? problemStep;
+
+  /// [problem] jednym zdaniem dla montera (co zrobić dalej), PL i EN.
+  final String? problemPl, problemEn;
 
   /// Ile dodano rur, kolan (wstawionych automatycznie) i kształtek.
   final int segments, elbows, fittings;
@@ -370,10 +378,17 @@ class IsoNotebookController extends ChangeNotifier {
   /// Podgląd animacji (rosnąca rura) albo null.
   @visibleForTesting
   ({Offset a, Offset b})? get debugGhost {
-    final s = _state;
-    final a = s?._ghostA, b = s?._ghostB;
-    return a == null || b == null ? null : (a: a, b: b);
+    final g = _state?._ghost.value;
+    return g == null ? null : (a: g.$1, b: g.$2);
   }
+
+  /// Ile razy ekran zeszytu wykonał `build` (podgląd nie może go wołać).
+  @visibleForTesting
+  int get debugScreenBuilds => _state?._debugBuilds ?? 0;
+
+  /// Ile razy warstwa podglądu się narysowała (wszystkie ekrany).
+  @visibleForTesting
+  static int get debugGhostPaints => _GhostPainter.debugPaints;
 
   /// Widoczny fragment płótna we współrzędnych rysunku.
   @visibleForTesting
@@ -397,9 +412,15 @@ class IsoNotebookController extends ChangeNotifier {
   Future<IsoDrawReport> _draw(
       _IsoState s, List<IsoStep> steps, Duration delay) async {
     final plan = _plan(s, steps);
-    if (plan.problem != null) {
+    final problem = plan.problem;
+    if (problem != null) {
+      final (pl, en) = _problemText(problem, elbow: plan.elbowAtCursor);
       return IsoDrawReport(
-          problem: plan.problem, problemStep: plan.problemStep);
+        problem: problem,
+        problemStep: plan.problemStep,
+        problemPl: pl,
+        problemEn: en,
+      );
     }
     if (plan.ops.isEmpty) {
       return IsoDrawReport(
@@ -559,6 +580,10 @@ class IsoNotebookController extends ChangeNotifier {
     int? heading = start?.heading;
     // A non-weld component on the cursor blocks the automatic elbow there.
     var blocked = !relative && _blockingCompAt(s, start.point);
+    // An elbow already standing on the free end: `_maybeInsertElbows` would
+    // keep it (in its old orientation) and add nothing, so neither a pipe
+    // nor a fitting may start there.
+    final elbowHere = !relative && _elbowAt(s, start.point);
     int? runDn;
     IsoTurn? turn;
     var turnAt = -1;
@@ -592,6 +617,10 @@ class IsoNotebookController extends ChangeNotifier {
           }
           if (turn != null) {
             return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
+          }
+          if (elbowHere && !tool.isWeld) {
+            return _VoicePlan.failed(IsoDrawProblem.turnAtFitting, i,
+                elbowAtCursor: true);
           }
           final f = _planFitting(
             s,
@@ -648,6 +677,11 @@ class IsoNotebookController extends ChangeNotifier {
                     '(${_dirEn(dir)}).');
           }
           final g = _gridDirOf(dir, m);
+          if (elbowHere) {
+            return _VoicePlan.failed(
+                IsoDrawProblem.turnAtFitting, turn != null ? turnAt : i,
+                elbowAtCursor: true);
+          }
           if (heading != null) {
             final about = turn != null ? turnAt : i;
             if (g == (heading + 3) % 6) {
@@ -861,8 +895,11 @@ class IsoNotebookController extends ChangeNotifier {
     return (point: free, heading: s._closestIsoHeading(free - other));
   }
 
-  /// Same rule as `_maybeInsertElbows`: any component but a weld (or an
-  /// elbow already there) keeps the automatic elbow out of [p].
+  static bool _elbowAt(_IsoState s, Offset p) => s._items.any((it) =>
+      it is _Comp && it.isElbow && (it.pos - p).distance < _IsoState._s * 0.45);
+
+  /// Same rule as `_maybeInsertElbows`: any component but a weld keeps the
+  /// automatic elbow out of [p] (an elbow there is [_elbowAt]'s case).
   static bool _blockingCompAt(_IsoState s, Offset p) => s._items.any((it) =>
       it is _Comp &&
       !it.t.isWeld &&
@@ -951,6 +988,52 @@ String _dirEn(IsoDir d) => switch (d) {
       IsoDir.left => 'left',
       IsoDir.down => 'down',
       IsoDir.forward => 'forward',
+    };
+
+/// One sentence per problem — what is wrong and what to do next.
+(String, String) _problemText(IsoDrawProblem p, {bool elbow = false}) =>
+    switch (p) {
+      IsoDrawProblem.reversal => (
+          'Rura zawraca w kierunku, z którego przyszła — powiedz inny '
+              'kierunek.',
+          'The pipe doubles back the way it came — name another direction.',
+        ),
+      IsoDrawProblem.sameDirectionAfterTurn => (
+          'Po kolanie rura idzie dalej prosto, a to nie jest skręt — powiedz, '
+              'dokąd skręca.',
+          'After the elbow the pipe carries straight on, which is no turn — '
+              'say where it turns.',
+        ),
+      IsoDrawProblem.trailingTurn => (
+          'Po kolanie brakuje rury — powiedz, dokąd idzie rura po kolanie.',
+          'There is no pipe after the elbow — say where the pipe goes after '
+              'it.',
+        ),
+      IsoDrawProblem.unsupported45 => (
+          'Kolana 45° nie rysuję jeszcze głosem — narysuj je palcem.',
+          'I cannot draw a 45° elbow by voice yet — draw it with your finger.',
+        ),
+      IsoDrawProblem.unsupportedTee => (
+          'Trójnika nie rysuję jeszcze głosem — narysuj go palcem.',
+          'I cannot draw a tee by voice yet — draw it with your finger.',
+        ),
+      IsoDrawProblem.outOfCanvas => (
+          'Rysunek wyszedłby nad górną krawędź arkusza — zacznij nowy rysunek '
+              'albo rysuj w inną stronę.',
+          'The drawing would go past the top of the sheet — start a new one '
+              'or draw another way.',
+        ),
+      IsoDrawProblem.turnAtFitting when elbow => (
+          'Na końcu stoi już kolano — powiedz „cofnij” albo narysuj palcem.',
+          'An elbow already stands at the end — say “undo” or draw it with '
+              'your finger.',
+        ),
+      IsoDrawProblem.turnAtFitting => (
+          'Kolano nie ma gdzie stanąć — w tym punkcie jest już kształtka. '
+              'Dodaj rurę między nimi.',
+          'The elbow has nowhere to go — a fitting already sits there. Add a '
+              'pipe between them.',
+        ),
     };
 
 String _pipesPl(int n) {
@@ -1044,9 +1127,11 @@ class _VoicePlan {
     required this.assumedPl,
     required this.assumedEn,
   })  : problem = null,
-        problemStep = null;
+        problemStep = null,
+        elbowAtCursor = false;
 
-  _VoicePlan.failed(IsoDrawProblem this.problem, int this.problemStep)
+  _VoicePlan.failed(IsoDrawProblem this.problem, int this.problemStep,
+      {this.elbowAtCursor = false})
       : ops = const [],
         origin = (row: 0, half: 0),
         assumedPl = const [],
@@ -1057,6 +1142,9 @@ class _VoicePlan {
   final List<String> assumedPl, assumedEn;
   final IsoDrawProblem? problem;
   final int? problemStep;
+
+  /// [problem] is an elbow already standing on the free end.
+  final bool elbowAtCursor;
 
   Offset world(_Lat p) =>
       _latToWorld((row: p.row + origin.row, half: p.half + origin.half));

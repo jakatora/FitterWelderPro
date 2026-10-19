@@ -884,9 +884,17 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// while mounted.
   late final IsoNotebookController _voice = IsoNotebookController._(this);
 
-  /// Animation preview of a pipe the voice controller is about to add. Kept
-  /// apart from [_dragA]/[_dragB] so a finger and a command never share it.
-  Offset? _ghostA, _ghostB;
+  /// Animation preview of a pipe the voice controller is about to add (A, B).
+  /// Kept apart from [_dragA]/[_dragB] so a finger and a command never share
+  /// it, and painted by its own layer ([_GhostPainter]) listening to this
+  /// notifier — a preview step repaints that layer only, never rebuilds the
+  /// screen (whose build resolves the CUT of every dimensioned pipe).
+  final ValueNotifier<(Offset, Offset)?> _ghost =
+      ValueNotifier<(Offset, Offset)?>(null);
+
+  /// Number of [build] calls — lets a test prove the preview does not
+  /// rebuild the screen.
+  int _debugBuilds = 0;
 
   /// When the drawing on screen last changed (from the row when opened).
   DateTime? _lastEditedAt;
@@ -990,6 +998,7 @@ class _IsoState extends State<IsoNotebookScreen> {
     // never touches widget state once unmounted.
     if (_editSeq != _savedSeq) unawaited(_flushSave());
     _saveTimer?.cancel();
+    _ghost.dispose();
     super.dispose();
   }
 
@@ -1460,6 +1469,10 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// "Nowy szkic": the current sketch is saved (and stays reachable from
   /// "Saved sketches"), the sheet is cleared — after a confirmation.
   Future<void> _newSketch() async {
+    // A voice command still animating belongs to the CURRENT sketch: land it
+    // before anything is saved or cleared (again below — one may have
+    // started while the dialog was open).
+    _voice._finishNow();
     if (_sheetIsBlank) {
       _snack(_tr('Arkusz jest już pusty.', 'The sheet is already empty.'));
       return;
@@ -1487,6 +1500,7 @@ class _IsoState extends State<IsoNotebookScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    _voice._finishNow();
     if (!await _flushSave()) {
       _snack(_tr(
         'Nie udało się zapisać bieżącego szkicu — nowy nie został rozpoczęty.',
@@ -1500,6 +1514,10 @@ class _IsoState extends State<IsoNotebookScreen> {
 
   /// "Zapisane szkice": list, open or delete stored sketches.
   Future<void> _openSavedSketches() async {
+    // Land a voice command still animating before the sketch is saved — its
+    // tail would otherwise be committed after the save and wiped by the
+    // sketch that gets opened.
+    _voice._finishNow();
     if (!await _flushSave()) {
       _snack(_tr(
         'Nie udało się zapisać bieżącego szkicu — spróbuj ponownie.',
@@ -1539,6 +1557,17 @@ class _IsoState extends State<IsoNotebookScreen> {
       debugPrint('ISO notebook: opening sketch $chosen failed: $e');
     }
     if (record == null || !mounted) return;
+    // Whatever landed while the list was open (a voice command finishing)
+    // is saved before the other sketch replaces it on screen.
+    _voice._finishNow();
+    if (!await _flushSave()) {
+      _snack(_tr(
+        'Nie udało się zapisać bieżącego szkicu — spróbuj ponownie.',
+        'Could not save the current sketch — try again.',
+      ));
+      return;
+    }
+    if (!mounted) return;
     await _dropCurrentIfBlank();
     if (!mounted) return;
     _openRecord(record);
@@ -1578,18 +1607,9 @@ class _IsoState extends State<IsoNotebookScreen> {
 
   // ── viewport helpers for the voice controller ───────────────────────────────
 
-  void _setGhost(Offset? a, Offset? b) {
-    if (_ghostA == a && _ghostB == b) return;
-    if (_disposing || !mounted) {
-      _ghostA = a;
-      _ghostB = b;
-      return;
-    }
-    setState(() {
-      _ghostA = a;
-      _ghostB = b;
-    });
-  }
+  /// Moves the preview — repaints the preview layer, no setState.
+  void _setGhost(Offset? a, Offset? b) =>
+      _ghost.value = a == null || b == null ? null : (a, b);
 
   Size? get _canvasSize {
     final box = _canvasKey.currentContext?.findRenderObject();
@@ -6172,6 +6192,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   // ── build ───────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    _debugBuilds++;
     final cs = Theme.of(context).colorScheme;
     // Single pass over _items for everything the summary bar + appbar need.
     // _pipes/_dimensionedCount/_totalMm each walk _items independently and
@@ -6298,8 +6319,6 @@ class _IsoState extends State<IsoNotebookScreen> {
                             version: _version,
                             dragA: _dragA,
                             dragB: _dragB,
-                            ghostA: _ghostA,
-                            ghostB: _ghostB,
                             tool: _tool,
                             s: _s,
                             cs: cs,
@@ -6327,6 +6346,25 @@ class _IsoState extends State<IsoNotebookScreen> {
                             viewScale: _viewScale,
                           ),
                           size: Size.infinite,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Voice-command preview on its own layer: it repaints on
+                // every animation step without a rebuild of this screen or
+                // a repaint of the drawing. Touches pass through.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _GhostPainter(
+                            ghost: _ghost,
+                            viewOffset: _viewOffset,
+                            viewScale: _viewScale,
+                            primary: cs.primary,
+                          ),
                         ),
                       ),
                     ),
@@ -6902,14 +6940,76 @@ class _SummaryBar extends StatelessWidget {
 
 // ─── Painter ──────────────────────────────────────────────────────────────────
 
+/// A pipe stroke in [color]. A faint tint matches the axis tag colour so
+/// I/II/III are distinguishable from a quick visual scan even without
+/// reading the chips; an off-axis line tints with [primary].
+void _paintPipeStroke(
+    Canvas canvas, Offset a, Offset b, Color color, Color primary) {
+  final tint = switch (_classifyAxis(a, b)) {
+    _Axis.i => const Color(0xFF4A9EFF),
+    _Axis.ii => const Color(0xFF2ECC71),
+    _Axis.iii => const Color(0xFFE8C14B),
+    _Axis.off => primary,
+  };
+  // Mix tint with primary so it's only a subtle cast.
+  final strokeColor = Color.lerp(color, tint, 0.35) ?? color;
+  canvas.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = strokeColor
+        ..strokeWidth = 5.0
+        ..strokeCap = StrokeCap.round);
+  canvas.drawCircle(a, 5.5, Paint()..color = strokeColor);
+  canvas.drawCircle(b, 5.5, Paint()..color = strokeColor);
+}
+
+/// The voice-command preview: the pipe being drawn, half-transparent, with a
+/// dot on its growing end. Its own layer, repainted straight from
+/// [ghost] — a preview step neither rebuilds the screen nor repaints the
+/// drawing under it.
+class _GhostPainter extends CustomPainter {
+  _GhostPainter({
+    required this.ghost,
+    required this.viewOffset,
+    required this.viewScale,
+    required this.primary,
+  }) : super(repaint: ghost);
+
+  final ValueListenable<(Offset, Offset)?> ghost;
+  final Offset viewOffset;
+  final double viewScale;
+  final Color primary;
+
+  /// Paint calls, for the test that the preview actually animates.
+  static int debugPaints = 0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final g = ghost.value;
+    if (g == null) return;
+    debugPaints++;
+    final (a, b) = g;
+    canvas.save();
+    canvas.translate(viewOffset.dx, viewOffset.dy);
+    canvas.scale(viewScale);
+    _paintPipeStroke(canvas, a, b, primary.withValues(alpha: 0.5), primary);
+    canvas.drawCircle(b, 6.5, Paint()..color = primary.withValues(alpha: 0.75));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_GhostPainter old) =>
+      !identical(ghost, old.ghost) ||
+      viewOffset != old.viewOffset ||
+      viewScale != old.viewScale ||
+      primary != old.primary;
+}
+
 class _Painter extends CustomPainter {
   final List<_Item> items;
   final int version; // ticks on every mutation so shouldRepaint catches it
   final Offset? dragA, dragB;
-
-  /// A pipe a voice command is drawing, growing step by step — separate
-  /// from the finger preview [dragA]/[dragB].
-  final Offset? ghostA, ghostB;
   final _Tool tool;
   final double s;
   final ColorScheme cs;
@@ -6949,8 +7049,6 @@ class _Painter extends CustomPainter {
     required this.version,
     required this.dragA,
     required this.dragB,
-    this.ghostA,
-    this.ghostB,
     required this.tool,
     required this.s,
     required this.cs,
@@ -6998,7 +7096,6 @@ class _Painter extends CustomPainter {
     canvas.scale(viewScale);
     _drawGrid(canvas, size);
     _drawItems(canvas);
-    if (ghostA != null && ghostB != null) _drawGhost(canvas);
     if (dragA != null && dragB != null) _drawPreview(canvas);
     canvas.restore();
     if (showStatusBox) _drawTitleBlock(canvas, size);
@@ -7557,22 +7654,7 @@ class _Painter extends CustomPainter {
     final color = cs.primary.withValues(alpha: alpha);
     switch (t) {
       case _Tool.pipe:
-        // Faint tint inside the pipe stroke matches the axis tag colour so
-        // I/II/III are distinguishable from a quick visual scan even without
-        // reading the chips. Off-axis stays primary.
-        final axis = _classifyAxis(a, b);
-        final tint = switch (axis) {
-              _Axis.i => const Color(0xFF4A9EFF),
-              _Axis.ii => const Color(0xFF2ECC71),
-              _Axis.iii => const Color(0xFFE8C14B),
-              _Axis.off => cs.primary,
-            };
-        // Mix tint with primary so it's only a subtle cast.
-        final strokeColor = Color.lerp(color, tint, 0.35) ?? color;
-        canvas.drawLine(a, b,
-          Paint()..color = strokeColor..strokeWidth = 5.0..strokeCap = StrokeCap.round);
-        canvas.drawCircle(a, 5.5, Paint()..color = strokeColor);
-        canvas.drawCircle(b, 5.5, Paint()..color = strokeColor);
+        _paintPipeStroke(canvas, a, b, color, cs.primary);
       case _Tool.thin:
         canvas.drawLine(a, b,
           Paint()..color = color..strokeWidth = 1.5..strokeCap = StrokeCap.round);
@@ -8899,14 +8981,6 @@ class _Painter extends CustomPainter {
     tp.paint(canvas, note.pos - Offset(tp.width / 2, tp.height / 2));
   }
 
-  /// Voice-command preview: the pipe drawn half-transparent with a dot on
-  /// its growing end.
-  void _drawGhost(Canvas canvas) {
-    _drawSeg(canvas, ghostA!, ghostB!, _Tool.pipe, alpha: 0.5);
-    canvas.drawCircle(
-        ghostB!, 6.5, Paint()..color = cs.primary.withValues(alpha: 0.75));
-  }
-
   void _drawPreview(Canvas canvas) {
     canvas.drawCircle(dragA!, 7.0, Paint()..color = cs.primary);
     _drawSeg(canvas, dragA!, dragB!, tool, alpha: 0.45);
@@ -9617,8 +9691,6 @@ class _Painter extends CustomPainter {
       missingDimLabel != old.missingDimLabel ||
       dragA != old.dragA ||
       dragB != old.dragB ||
-      ghostA != old.ghostA ||
-      ghostB != old.ghostB ||
       tool != old.tool ||
       axisLock != old.axisLock ||
       showStatusBox != old.showStatusBox ||

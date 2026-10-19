@@ -62,10 +62,17 @@ const _actions = [
 /// A long name, a dimensioned run with a five-digit CUT total, and a
 /// voice-drawn tail — the busiest summary bar a fitter will see.
 Future<IsoNotebookController> _openBusySketch(WidgetTester tester) async {
+  // The fixture's pipe ends on an elbow 45° — a drawing command may not
+  // start on an elbow, so that one is left out here.
+  final sketch = representativeIsoSketch();
+  sketch['items'] = [
+    for (final i in sketch['items'] as List)
+      if ((i as Map)['tool'] != 'elbow45') i,
+  ];
   await IsoDrawingDao().upsert(IsoDrawingRecord(
     id: 'busy',
     name: '6"-CWS-1234 — linia zażółcona',
-    json: jsonEncode(representativeIsoSketch()),
+    json: jsonEncode(sketch),
     createdAt: 1000,
     updatedAt: 1000,
   ));
