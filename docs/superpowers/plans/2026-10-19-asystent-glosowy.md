@@ -1,0 +1,702 @@
+# Asystent głosowy sterujący modułami — plan wdrożenia (v2)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Jeden asystent głosowy dostępny na każdym ekranie, który:
+- odpowiada liczbami z modułów aplikacji;
+- steruje modułami;
+- rysuje izometrię na żywo;
+- zbiera dla właściciela feedback o problemach.
+
+**Architecture:**
+- Lokalny, deterministyczny mózg wybiera umiejętność (`AssistantSkill`) z katalogów grupowych.
+- Umiejętność liczy funkcją domeny i zwraca: odpowiedź, pokazanie w module, pytanie albo potwierdzenie.
+- Moduły odbierają polecenia przez `ToolBridge`, Zeszyt ISO przez `IsoNotebookController`.
+- Nakładka nad Navigatorem ma własny `Overlay` i trzyma się polityki nawigacji, która nie porywa użytkownika.
+- Feedback trafia do lokalnej kolejki, a po zgodzie do nowego endpointu backendu Fittera.
+
+**Tech Stack:**
+- Flutter 3.47.5 (`C:\Users\Startklaar\flutter\bin\flutter.bat`), Dart 3;
+- `speech_to_text` 7.5, `flutter_tts` 4.2, `vibration` 3.2;
+- SharedPreferences, sqflite;
+- backend: Node 24, Express 5, `node:sqlite`, Zod (osobne repo `backend/`, Railway).
+
+**Spec:** `docs/superpowers/specs/2026-10-19-asystent-glosowy-sterujacy-design.md` (v2: §2.1 mierniki, §2.2 zakres, §4.4a nawigacja, §4.5 ISO, §4.7 mowa, §4.8 feedback).
+
+## Global Constraints
+
+- UI dwujęzyczne `context.tr(pl:, en:)`, domyślnie PL, polskie znaki poprawnie.
+- Liczby w odpowiedziach tylko z funkcji domeny. Asystent nie ma własnych tabel liczb. Źródła norm wg domeny, np. DN→OD: „EN 10220 / ISO 4200 seria 1, ASME B36.10M”, NIE „ISO 6708”.
+- Bez nowych pakietów w `pubspec.yaml`.
+- Mikrofon tylko po naciśnięciu. TTS milknie przed nasłuchem (przerwa 250 ms).
+- Zmiana danych = podsumowanie → potwierdzenie → zapis → Cofnij.
+- Moduły bezpieczeństwa (prace pożarowe, przestrzeń zamknięta, zawiesia, szlifierki, dymy):
+  - asystent nie ustawia `checked`, `na` ani żadnego pola gotowości;
+  - potwierdzenie tylko dotykiem, bez głosowego „tak”.
+- Nic nie wychodzi z telefonu bez zgody. Zgoda na feedback jest osobna i domyślnie wyłączona. Nie wysyłamy nagrań.
+- `kLegalVersion` zostaje 3 (zgoda na feedback jest osobna, z datą polityki).
+- Polecenie rozpoznane lokalnie nigdy nie idzie na serwer. `kAssistantRemoteLlm = false`. Kontrakt V1 `/ai/intent` bez zmian.
+- `match()` umiejętności jest synchroniczne i bez I/O.
+- Singletony (`ToolBridge.instance`, `AssistantSession.instance`, mowa) mają `@visibleForTesting reset()`. Przy starcie aplikacji zero wywołań platformy.
+- Konwencje repo:
+  - `flutter analyze` czysty;
+  - testy bez sieci (`MockClient`, atrapy mowy, `useTestDatabase()`, `seedFreshInstall()`);
+  - commit z pliku przez `git commit -F`;
+  - nie commitować `macos/Flutter/GeneratedPluginRegistrant.swift`, `pubspec.lock`, `.atlas/`, `linux|windows/flutter/*`.
+- Agenci w worktree: najpierw `git merge feat/wyceny-i-moduly`. NIE ruszają:
+  - `lib/widgets/tool_registry.dart` (poza zadaniem 1.4);
+  - `tool/audit/*`, `test/audit/*`;
+  - `lib/assistant/skills/skill_catalog.dart` (integruje koordynator).
+  Każda grupa rejestruje umiejętności we własnym `lib/assistant/skills/<grupa>/catalog.dart`.
+- Repo GitHub jest PUBLICZNE: żadnych surowych zgłoszeń, tokenów ani zrzutów danych w repo.
+
+## Review Focus
+
+1. **Hałas i błędy rozpoznawania mowy.**
+   - „de en 40”, „dn czterdzieści”, „d n 40” → DN40;
+   - „dn 4 0” → pytanie;
+   - z N-best wybierana alternatywa z najwyższym wynikiem.
+   - Pin: korpus 1.1 i 1.3, test alternatyw w 1.5.
+2. **„Kradzież” zamiaru między umiejętnościami.**
+   - „dodaj zawór kulowy dn50” nie może trafić w zapis parametru spawania;
+   - „ile waży rura” nie może trafić w rysowanie.
+   - Pin: globalny test routera 1.3 (rozszerzany przez koordynatora po każdym scaleniu).
+3. **Strona wczytuje ustawienia po otwarciu i nadpisuje pola asystenta.** Pin: `whenReady` + `markReady` w 1.4.
+4. **Rysowanie przy niepustym szkicu, zawrócenie, kolano na końcu, góra siatki.** Pin: 3.1 / 3.2.
+5. **Feedback bez zgody, z danymi osobowymi albo spamujący.**
+   - bez zgody 0 żądań;
+   - telefon i e-mail zamaskowane;
+   - propozycja zgłoszenia maks. raz na sesję i dobę.
+   - Pin: 5.1a / 5.1b.
+
+## Przegląd planu v1 → v2 (co poprawiono i dlaczego)
+
+| # | Problem w v1 | Poprawka w v2 | Zadanie |
+|---|---|---|---|
+| 1 | Nakładka w `MaterialApp.builder` nie ma Overlay ani Navigatora: TextField, Tooltip i arkusze się wywrócą | Własny `Overlay` + `Material`; `appNavigatorKey`; `AppRouteObserver`; trasy `tool:<id>` | 1.4, 1.5 |
+| 2 | Każde pytanie otwierało moduł, więc stos tras rósł (10× „Wstecz” = nowy chaos) | Polityka nawigacji §4.4a: `apply` w miejscu / `pushReplacement` / chip zamiast porywania | 1.4 |
+| 3 | Stary parser („dodaj…” = zapis parametru) przechwyciłby polecenia rysowania | Adapter starego parsera jako umiejętność z oceną według dowodów i premią kontekstu; globalny test routera | 1.3 |
+| 4 | `speech_to_text` to singleton, więc druga instancja wisi na „słucham” | Jedna współdzielona mowa z dyspozytorem; N-best; ponowienie przy błędzie rozpoznawania na urządzeniu | 1.5 |
+| 5 | API kontrolera ISO nie pasowało do modelu (kolano tylko z dwóch rur, 45° i trójnik niemożliwe, wiersze < 0, kolizja z gestem) | Kolano = zamiar skrętu; pytania przy zawróceniu; 45°/trójnik poza zakresem; `_ghost`; dopasowanie widoku; kolejka; pytanie „dorysować czy nowy” | 3.1, 3.2 |
+| 6 | Przepięcie `AiChatScreen` (2200 linii, ~20 testów) na nową sesję | Zadanie 1.0: wyciągnąć zapisy do `AssistantActions`; ekran zostaje, mózg tylko jako pierwszy krok przed serwerem | 1.0, 1.5 |
+| 7 | Sprzeczności RODO: „nie powiązane” + kasowanie; `kLegalVersion` 4 blokuje czat; raporty w publicznym repo | Losowy `feedback_install_id`; wersja zasad bez zmian; raport poza repo albo mailem | 5.1a, 5.2, 5.3 |
+| 8 | Brak testu na telefonie do samego końca | 1.6: build z pilotem i 30 frazami, przed Etapem 2 | 1.6 |
+| 9 | Brak mierników sukcesu i zawyżony zakres „każdy moduł” | Spec §2.1/§2.2; manifest pokrycia liczony z katalogów; test kontraktu pól | 4.2 |
+| 10 | Rekordy bezpieczeństwa: test „po nazwach pól” za słaby (`na` też odhacza) | Biała lista pól; reszta JSON = `blank()`; bez głosowego „tak” | 4.1 |
+| 11 | „Wiedza z całej aplikacji” = tylko Pomoc i słownik | 2.5: wiedza z danych modułów (wady, ISO 5817, elektrody, kolory zawiesi i tarcz, NDS) | 2.5 |
+| 12 | „Steruje modułem” w modułach rejestrów = tylko otwarcie | 4.3: pytania o własne dane (uprawnienia, kalibracje, postęp, ekspozycja elektrod) | 4.3 |
+| 13 | Feedback nie łapał błędów aplikacji ani zgłoszeń z modułów | Globalne handlery błędów, „Zgłoś problem z tym modułem” w `HelpButton`, karta zgody po 3× „nie rozumiem” | 5.1b |
+| 14 | Dwa pola tekstowe na Start (wyszukiwarka + asystent) to więcej chaosu | Jedno pole: pisanie pokazuje trafienia, Enter albo mikrofon idzie do asystenta | 1.5 |
+| 15 | Zadanie 0.2 za szerokie (część logiki już jest w domenie) | Tylko przelicznik, spadek, rolling offset | 0.2 |
+
+## Ścieżki pracy i kolejność
+
+```
+Start równolegle:
+  A1 (rdzeń logiki): 0.1 → 1.1 → 1.2 → 1.3
+  B  (domena):       0.2
+  C  (ISO):          3.1
+  D  (backend repo): 5.2   (najpierw fixture sygnału — wspólny z 5.1a/5.3)
+  E  (feedback lib): 5.1a
+Po A1:
+  A2 (UI rdzenia):   1.0 → 1.4 → 1.5 → 1.6 (build do właściciela)
+Po A2 (+B, +C):
+  2.0 (zakładki FitterTools) → równolegle 2.1 | 2.2 | 2.3 | 2.4 | 2.5 | 3.2 | 4.1 | 4.3 | 5.1b
+Na koniec: 4.2 (pokrycie), 5.3 (raport właściciela), Etap 6 (odbiór, build, wdrożenie backendu)
+```
+
+Koordynator po każdym scaleniu:
+- dopisuje katalog grupy do `skill_catalog.dart`;
+- uruchamia globalny test routera i pełne testy;
+- rozstrzyga kolizje zamiarów.
+
+---
+
+## Etap 0 — Fundamenty domeny
+
+### Zadanie 0.1: Publiczne funkcje rur i tokenizer mowy (ścieżka A1)
+
+**Files:**
+- Create: `lib/domain/fitter/pipe_size_lookup.dart`
+- Create: `lib/assistant/core/spoken_numbers.dart`. Przeniesione z `assistant_parser.dart`:
+  - `foldSpeech` (= dawne `_fold`);
+  - `spokenTokens` (= dawne `_tokens`/`_items` z zamianą liczb słownie na cyfry);
+  - `parseSpokenNumber`.
+- Modify: `lib/assistant/assistant_parser.dart` (importuje nowe, usuwa kopie; zachowanie bez zmian)
+- Modify: `lib/data/pipe_schedules.dart` (+ `PipeRow? pipeRowForDn(int dn)`)
+- Test: `test/domain/fitter/pipe_size_lookup_test.dart`, `test/assistant/spoken_numbers_test.dart`
+
+**Interfaces — Produces:**
+```dart
+class OdOption { const OdOption(this.odMm, this.series); final double odMm; final OdSeries series; }
+double? odForDn(int dn);                 // seria główna: asmeAndEn1 → asme → en1 → pierwsza
+List<OdOption> odSeriesForDn(int dn);    // główna pierwsza; DN40 → [48.3 asmeAndEn1, 44.5 en3]
+double? odForNps(double inches);
+PipeRow? pipeRowForDn(int dn);
+String foldSpeech(String text);
+/// Tokeny po zwinięciu; ciągi liczb słownych zamienione na cyfry („czterdzieści pięć” → „45”);
+/// dwie liczby słowne obok siebie zostają osobno („dwa sześćdziesiąt” → „2”, „60”).
+/// „metr dwadzieścia” zostaje jako „metr”, „20” — długość składa `Utterance.lengthMm()`.
+List<String> spokenTokens(String text);
+double? parseSpokenNumber(String text);
+```
+
+- [ ] Testy:
+  - `odForDn(40) == 48.3`;
+  - `odSeriesForDn(40).map((o) => o.odMm).toList() == [48.3, 44.5]`;
+  - `odForDn(999) == null`;
+  - `odForNps(2) == 60.3`;
+  - `pipeRowForDn(50)!.od == 60.3`.
+- [ ] Testy:
+  - `spokenTokens('dn czterdzieści')` → `['dn', '40']`;
+  - `spokenTokens('ścianka dwa sześćdziesiąt')` → `['scianka', '2', '60']` (osobno, bez sklejania);
+  - `parseSpokenNumber('półtora')` → 1.5.
+- [ ] Stare korpusy parsera (`assistant_parser_test.dart`, `assistant_dirty_speech_test.dart`) zielone bez zmian.
+- [ ] Commit.
+
+### Zadanie 0.2: Czyste funkcje: przelicznik, spadek, rolling offset (ścieżka B)
+
+**Files:**
+- Create: `lib/domain/fitter/unit_conversion.dart`. Funkcje `convertLength(double v, LengthUnit from, LengthUnit to)` oraz analogicznie `Temperature`, `Pressure` i `Flow`, z enumami jednostek takimi, jakie ma dziś ekran.
+- Create: `lib/domain/fitter/pipe_slope.dart`. Funkcje `riseMm({required double lengthMm, required double slopePct})`, `lengthMm({riseMm, slopePct})`, `slopePct({lengthMm, riseMm})`, `angleDeg(slopePct)` i `mmPerM(slopePct)`.
+- Create: `lib/domain/fitter/rolling_offset.dart`. Funkcja `RollingOffsetResult? rollingOffset({required double riseMm, required double spreadMm, required double angleDeg})`, gdzie wynik ma pola `offsetMm`, `travelMm`, `runMm` i `rollDeg`.
+- Modify: `lib/screens/quick_converter_screen.dart`, `lib/screens/pipe_slope_screen.dart`, `lib/screens/rolling_offset_screen.dart`. Strony wołają nowe funkcje, a zachowanie i formatowanie zostają bez zmian.
+- Test: `test/domain/fitter/unit_conversion_test.dart`, `pipe_slope_test.dart`, `rolling_offset_test.dart`; dotychczasowe testy ekranów zielone.
+
+- [ ] Wartości referencyjne PRZEPISZ z obecnej logiki ekranu przed refaktorem: 1″ = 25,4 mm; 100 °C = 212 °F; 10 bar → psi wg stałej ekranu; 2 % na 5000 mm = 100 mm; rolling offset rise 300 / spread 400 / 45° wg wzoru ekranu.
+- [ ] Refaktor stron, ich testy zielone, commit.
+
+## Etap 1 — Rdzeń
+
+### Zadanie 1.1: `Utterance` (A1)
+
+**Files:** Create `lib/assistant/core/utterance.dart`; Test `test/assistant/core/utterance_test.dart`.
+
+**Interfaces — Produces:**
+```dart
+class Utterance {
+  Utterance(this.raw, {required this.lang, this.byVoice = false, this.alternatives = const []});
+  final String raw; final AppLanguage lang; final bool byVoice;
+  final List<String> alternatives;                 // N-best z rozpoznawania (bez raw)
+  late final String folded = foldSpeech(raw);
+  late final List<String> tokens = spokenTokens(raw);
+  bool hasAny(Iterable<String> foldedWordsOrPhrases);
+  bool hasStem(Iterable<String> stems);            // 'kolan' → kolano/kolanko/kolana
+  int? dn();          // dn40 | dn 40 | de en 40 | d n 40 | dn czterdzieści; „dn 4 0” → null
+  double? npsInches();// 2" | 2 cale | półtora cala | trzy czwarte (cala)
+  double? lengthMm({double assumeMetersBelow = 50}); // „2 m”, „1500”, „150 cm”, „metr dwadzieścia”→1200; „rura 2” → 2000 (lengthAssumedMeters = true)
+  bool get lengthAssumedMeters;
+  double? numberNear(Iterable<String> keys);
+  double? angleDeg();
+  Utterance withRaw(String alt);                   // do oceny alternatyw
+}
+```
+
+- [ ] Testy z przykładami w komentarzach (każdy przypadek osobno), także EN („what is the OD of DN40”).
+- [ ] Commit.
+
+### Zadanie 1.2: Kontrakt umiejętności (A1)
+
+**Files:** Create `lib/assistant/core/skill.dart`, `assistant_text.dart`, `module_context.dart`; Test `test/assistant/core/skill_contract_test.dart`.
+
+**Interfaces — Produces:**
+```dart
+class AssistantText { const AssistantText(this.pl, this.en); final String pl, en; String of(AppLanguage l) => l == AppLanguage.en ? en : pl; }
+class SkillExample { const SkillExample(this.pl, this.en); final String pl, en; }
+enum AssistantTier { a, b, c, d }   // A otwórz/wyjaśnij, B licz+wypełnij, C rekord, D rysuj
+/// Bez zależności od UI — implementuje ToolBridge (1.4), w testach atrapa.
+abstract class ModuleContext { String? get activeToolId; bool get onHomeOrAssistant; }
+abstract class AssistantSkill {
+  String get id; String? get toolId; AssistantTier get tier;
+  List<SkillExample> get examples;
+  bool get readOnly => true;                        // false = zmienia dane → ConfirmResult
+  bool get safetyCritical => false;                 // true = potwierdzenie tylko dotykiem
+  SkillMatch? match(Utterance u, AssistantContext ctx);   // synchronicznie, bez I/O
+  Future<SkillResult> run(SkillMatch m, AssistantContext ctx);
+}
+class SkillMatch { const SkillMatch(this.skill, this.score, {this.slots = const {}, this.missing = const [], this.utterance}); final AssistantSkill skill; final double score; final Map<String, Object?> slots; final List<String> missing; final Utterance? utterance; }
+class AnswerLine { const AnswerLine(this.label, this.value); final AssistantText label; final String value; }
+class AssistantAnswer { const AssistantAnswer({required this.text, this.spoken, this.lines = const [], this.source}); final AssistantText text; final AssistantText? spoken; final List<AnswerLine> lines; final AssistantText? source; }
+class ShowInModule { const ShowInModule(this.toolId, [this.fields = const {}]); final String toolId; final Map<String, Object?> fields; }
+class FollowUp { const FollowUp(this.label, this.utterance); final AssistantText label; final String utterance; }
+sealed class SkillResult { const SkillResult(); }
+class AnswerResult extends SkillResult { const AnswerResult(this.answer, {this.show, this.followUps = const []}); final AssistantAnswer answer; final ShowInModule? show; final List<FollowUp> followUps; }
+class AskResult extends SkillResult { const AskResult(this.slot, this.question, {required this.partial, this.choices = const []}); final String slot; final AssistantText question; final SkillMatch partial; final List<FollowUp> choices; }
+typedef UndoAction = Future<void> Function();
+class ConfirmResult extends SkillResult { const ConfirmResult(this.summary, this.perform, {this.show, this.touchOnly = false}); final AssistantAnswer summary; final Future<UndoAction?> Function() perform; final ShowInModule? show; final bool touchOnly; }
+class NotUnderstood extends SkillResult { const NotUnderstood(this.suggestions); final List<FollowUp> suggestions; }
+class FailedResult extends SkillResult { const FailedResult(this.message); final AssistantText message; }
+class AssistantContext {
+  AssistantContext({required this.lang, required this.modules, DateTime Function()? now}) : now = now ?? DateTime.now;
+  AppLanguage lang; final ModuleContext modules; final DateTime Function() now;
+  SkillMatch? lastMatch; DateTime? lastAt;          // kontynuacja i dopowiedzenie (8 s)
+}
+```
+
+- [ ] Test kontraktu na atrapie umiejętności. Commit.
+
+### Zadanie 1.3: Mózg, pilotażowe umiejętności i globalny test routera (A1)
+
+**Files:**
+- Create:
+  - `lib/assistant/core/brain.dart`;
+  - `lib/assistant/skills/skill_catalog.dart` (`List<AssistantSkill> buildSkillCatalog()` = suma katalogów grup);
+  - `lib/assistant/skills/core/catalog.dart` (`coreSkills()`);
+  - w katalogu `lib/assistant/skills/core/`: `pipe_od_skill.dart`, `pipe_wall_skill.dart`, `open_tool_skill.dart`, `explain_tool_skill.dart`, `capabilities_skill.dart` („co umiesz”, także dla bieżącego modułu), `knowledge_skill.dart` (`searchHelp` + `weldingGlossaryIndex`), `legacy_intents_skill.dart`.
+- Test:
+  - `test/assistant/core/brain_test.dart`;
+  - `test/assistant/skills/core/*_test.dart`;
+  - `test/assistant/router_corpus_test.dart` — **globalny**: każdy przykład i każde odrzucenie każdej umiejętności z `buildSkillCatalog()` przez cały mózg;
+  - `test/assistant/router_perf_test.dart` (500 wypowiedzi < 1 s).
+
+**Interfaces — Produces:**
+```dart
+class BrainReply { const BrainReply(this.result, {this.match, this.notUnderstood = false, this.usedAlternative}); final SkillResult result; final SkillMatch? match; final bool notUnderstood; final String? usedAlternative; }
+class AssistantBrain {
+  AssistantBrain({required List<AssistantSkill> skills, this.threshold = 0.55, this.ambiguityGap = 0.08, this.contextBonus = 0.1});
+  /// Ocena raw + alternatyw; wybór najwyższego wyniku. Jedna tura naraz.
+  Future<BrainReply> handle(Utterance u, AssistantContext ctx);
+  AskResult? get pending; void cancelPending();
+}
+```
+
+**Reguły mózgu:**
+1. Pytanie w toku:
+   - wypowiedź z wartością slotu → `pending.partial` + slot → `run`;
+   - „anuluj / nie / stop / zostaw” → kasuje;
+   - inna umiejętność ≥ próg → kasuje pytanie i obsługuje nową.
+2. Ocena wszystkich umiejętności (z wyjątkiem fallbacków `open/explain/knowledge/capabilities`) dla `raw` i każdej z alternatyw:
+   - premia `contextBonus`, gdy `skill.toolId == ctx.modules.activeToolId`;
+   - remis różnych modułów (< `ambiguityGap`) → `AskResult('skill', …)` z dwoma wyborami.
+3. Kontynuacja i dopowiedzenie:
+   - kontynuacja: brak trafienia ≥ próg, ale `lastMatch` z ostatnich 2 min, a wypowiedź zawiera slot („a DN50?”, „a dla 2 cali”) → `lastMatch.skill` z nowymi slotami;
+   - dopowiedzenie: to samo w ciągu 8 s bez słowa kontynuacji.
+4. Fallbacki: `open_tool` (czasownik „otwórz/pokaż/włącz”), potem `explain`, potem `knowledge`.
+5. Nic nie pasuje → `NotUnderstood` z 3 propozycjami z `searchTools`; `notUnderstood: true`.
+6. `run` rzuca wyjątek → `FailedResult` (karta „Nie udało się”), sygnał błędu (Zadanie 5.1b).
+
+**`LegacyIntentsSkill`:**
+- Woła `parseAssistantCommand` (stary parser).
+- Wynik liczy według dowodów:
+  - `save_weld_parameter` wymaga procesu albo materiału ORAZ prądu albo ścianki;
+  - samo „dodaj …” bez tych pól daje wynik 0;
+  - `add_weld_journal_entry` wymaga słowa „dziennik/spoina nr”.
+- Zwraca `ConfirmResult` przez `AssistantActions` (Zadanie 1.0; w 1.3 atrapa interfejsu `AssistantActionsPort`).
+
+**`PipeOdSkill`:**
+- Odpowiedź PL: „DN40 — średnica zewnętrzna 48,3 mm (EN 10220 / ISO 4200 seria 1, ASME B36.10M). W szeregu EN 3: 44,5 mm.”
+- `show: ShowInModule('dn_mm', {'dn': 40})`.
+- `followUps`: „a ścianka?”, „a DN50?”.
+- Korpus:
+  - **trafienia:** „jaka jest średnica rury dn40”, „średnica zewnętrzna DN 40”, „ile ma de en czterdzieści”, „dn40 ile mm”, „średnica 2 cale”, „what is the OD of DN40”;
+  - **odrzucenia:** „ścianka dn40 sch40” → `pipe.wall`; „otwórz tabelę dn” → `tool.open`; „dodaj zawór kulowy dn50” → NIE `pipe.od` i NIE `legacy.save`;
+  - „dn” bez liczby → `AskResult('dn')`.
+
+- [ ] Testy mózgu:
+  - kolejność 1–6;
+  - remis;
+  - „anuluj”;
+  - kontynuacja „a dla DN50?”;
+  - wybór alternatywy N-best („de en 40” w alt, „ten en 40” w raw);
+  - stary zapis parametru → `ConfirmResult` bez zapisu.
+- [ ] Globalny test routera i test wydajności.
+- [ ] Commit.
+
+### Zadanie 1.0: `AssistantActions` — zapisy wyciągnięte z `AiChatScreen` (A2)
+
+**Files:**
+- Create: `lib/assistant/assistant_actions.dart`, z metodami:
+  - `Future<SavedWeldParam> saveWeldParam(WeldParamDraft d, {required bool byVoice, required AppLanguage lang})`;
+  - `Future<void> undoWeldParam(...)`;
+  - `prepareJournal` / `saveJournal` / `undoJournal`;
+  - `historyAdd`.
+  Logika 1:1 z `_save`, `_prepareJournal`, `_saveJournal`.
+- Modify: `lib/screens/ai_chat_screen.dart` (woła `AssistantActions`; klucze i parametry konstruktora bez zmian)
+- Test: istniejące `test/assistant/assistant_flow*_test.dart` zielone bez zmian + `test/assistant/assistant_actions_test.dart`
+
+- [ ] Refaktor bez zmiany zachowania, testy, commit.
+
+### Zadanie 1.4: Nawigacja globalna, `ToolBridge`, uchwyty pilotażowe (A2)
+
+**Files:**
+- Create: `lib/app_navigator.dart`, zawierający:
+  - `appNavigatorKey`;
+  - `AppRouteObserver` (stos tras: nazwa, czy `PopupRoute`, czy otwarta przez asystenta);
+  - `Future<void> openToolById(String id, {bool byAssistant = false, bool replaceAssistantRoute = false})`, z `RouteSettings(name: 'tool:<id>')`.
+- Modify:
+  - `lib/app.dart`: `navigatorKey`, `navigatorObservers`;
+  - `lib/widgets/tool_registry.dart`: `openTool` nadaje `RouteSettings(name: 'tool:<id>')`. To jedyna zmiana w rejestrze.
+- Create: `lib/assistant/core/tool_bridge.dart`
+- Modify (piloty `ToolHandleHost`):
+  - `lib/screens/dn_mm_screen.dart` (`dn` → filtr i podświetlenie wiersza);
+  - `lib/screens/pipe_schedule_screen.dart` (`dn`, `schedule`; `markReady` po `_loadPrefs`);
+  - `lib/screens/heat_input_screen.dart` (`volts`, `amps`, `travel_mm_min`; `markReady` po przywróceniu ustawień).
+- Test: `test/assistant/core/tool_bridge_test.dart`, `test/assistant/navigation_policy_test.dart`, `test/assistant/tool_handles_pilot_test.dart`
+
+**Interfaces — Produces:**
+```dart
+abstract class ToolHandle {
+  String get toolId; Set<String> get supportedFields;
+  /// Ustawia pola i JAWNIE przelicza. Zwraca pola nieobsłużone.
+  Future<Set<String>> apply(Map<String, Object?> fields);
+}
+class ToolBridge extends ChangeNotifier implements ModuleContext {
+  static ToolBridge get instance; @visibleForTesting static void reset();
+  void attach(ToolHandle h, {required Route<dynamic>? route}); void detach(ToolHandle h);
+  ToolHandle? get current;                      // uchwyt trasy na wierzchu (isCurrent)
+  @override String? get activeToolId; @override bool get onHomeOrAssistant;
+  Future<ToolHandle?> whenReady(String toolId, {Duration timeout = const Duration(seconds: 3)});
+}
+mixin ToolHandleHost<T extends StatefulWidget> on State<T> implements ToolHandle { void markReady(); }
+enum ShowOutcome { appliedInPlace, opened, replaced, offeredChip, blockedByPopup, timedOut }
+Future<ShowOutcome> showInModule(ShowInModule s, {required bool userOnHomeOrAssistant});
+```
+
+**Polityka (spec §4.4a):**
+1. `current?.toolId == s.toolId` → `apply`.
+2. Wierzch to `PopupRoute` → `blockedByPopup`.
+3. Wierzch otwarty przez asystenta → `pushReplacement`.
+4. `userOnHomeOrAssistant` → `push`.
+5. Inaczej → `offeredChip` (sesja pokaże chip „Pokaż w module”).
+
+- [ ] Testy:
+  - `whenReady` czeka na `markReady` (strona z opóźnionym `_loadPrefs` 200 ms);
+  - timeout → `timedOut`, odpowiedź zostaje;
+  - pięć gałęzi polityki;
+  - DN40 → wiersz 48,3 widoczny;
+  - `heat_input` 230 A / 24 V / 150 mm/min → wynik na ekranie zgodny z `heatInputKJPerMm`.
+- [ ] Commit.
+
+### Zadanie 1.5: Mowa współdzielona, sesja, nakładka, pole na Start (A2)
+
+**Files:**
+- Modify: `lib/assistant/speech_io.dart`:
+  - `SharedSpeech.instance` (jedna instancja `SystemSpeechInput`/`SystemSpeechOutput`, dyspozytor callbacków na aktywnego konsumenta);
+  - callback `SpeechHeard {text, isFinal, alternatives: List<String>, confidence}`;
+  - rozpoznawanie na urządzeniu → ponowienie z siecią przy błędzie języka;
+  - kategoria audio iOS i `awaitSpeakCompletion`;
+  - stare API dla `AiChatScreen` zachowane przez adapter.
+- Create:
+  - `lib/assistant/core/assistant_session.dart`;
+  - `lib/assistant/core/assistant_settings.dart` (`speakReplies` domyślnie true dla nakładki, `showMicButton` domyślnie true, pozycja przycisku jako ułamki ekranu, język rozpoznawania);
+  - `lib/assistant/ui/assistant_overlay.dart`;
+  - `lib/assistant/ui/assistant_answer_card.dart`.
+- Modify:
+  - `lib/app.dart`: `builder: WeldTimerAlarmOverlay(child: AssistantOverlay(child: child))`, czyli alarm nad nakładką;
+  - `lib/screens/home_screen.dart`: `_SearchField` staje się polem asystenta (pisanie → trafienia narzędzi na żywo jak dziś; Enter/mikrofon → asystent);
+  - `lib/screens/ai_chat_screen.dart`: tryb Wykonaj najpierw pyta mózg o umiejętności tylko do odczytu, a dopiero potem stary silnik i serwer; mowa ze `SharedSpeech`.
+- Test:
+  - `test/assistant/ui/assistant_overlay_test.dart`;
+  - `test/assistant/core/assistant_session_test.dart`;
+  - `test/assistant/shared_speech_test.dart`;
+  - `test/assistant/no_remote_for_local_test.dart`;
+  - istniejące `assistant_flow*_test.dart`, `widget_test.dart`, `welder_journey_test.dart`, `home_quick_access_test.dart`, `home_refresh_nav_test.dart` zielone.
+
+**Interfaces — Produces:**
+```dart
+enum ListenState { idle, listening, thinking, speaking }
+class AssistantTurn { final Utterance utterance; final BrainReply reply; final ShowOutcome? show; final DateTime at; }
+class AssistantSession extends ChangeNotifier {
+  AssistantSession({required AssistantBrain brain, required AssistantContext context, SpeechPort? speech, AssistantSettings? settings, FeedbackSink? feedback});
+  static AssistantSession get instance; @visibleForTesting static void reset();
+  List<AssistantTurn> get turns; ListenState get state; String get partial; ConfirmResult? get awaitingConfirm;
+  Future<void> toggleListening();                  // w „thinking” — anuluje turę
+  Future<void> submit(String text, {bool byVoice = false, List<String> alternatives = const []});
+  Future<void> confirm({required bool byTouch});   // touchOnly + !byTouch → ignoruj
+  Future<void> undoLast();
+}
+abstract class FeedbackSink { void notUnderstood(Utterance u); void complaint(Utterance u, String? toolId); void error(Object e, String? toolId); }  // implementacja w 5.1b; tu NoopFeedbackSink
+```
+
+**Nakładka (spec §4.6, §4.4a):**
+- przycisk 64 dp; przeciąganie dopiero po długim przytrzymaniu; pozycja jako ułamki ekranu; domyślnie z lewej, z dala od FAB;
+- panel ≤ 40% wysokości, zwijany do paska; „Wstecz” najpierw zwija panel;
+- `Semantics(liveRegion)`; stan nasłuchu nie tylko kolorem; wibracja na start i stop;
+- przy otwartej klawiaturze chowa się do 40 dp;
+- ukryta, gdy na wierzchu jest `AiChatScreen`, `ChatScreen`, kamera skanera albo `PopupRoute`;
+- w spoczynku żadnej animacji;
+- na Windows i web przycisk otwiera wpisywanie.
+
+**Potwierdzenie:**
+- głosowe „tak / zapisz / potwierdzam” działa tylko przy `awaitingConfirm`, i nigdy dla `touchOnly`;
+- inaczej wypowiedź idzie do mózgu.
+
+- [ ] Testy (atrapa `SpeechPort`):
+  - tap → słucham → częściowe „średnica dn” → końcowe „średnica dn40” → karta „48,3 mm”, a na Start moduł otwarty (`opened`);
+  - to samo w innym module → `offeredChip`, stos tras bez zmian;
+  - TTS powiedział tekst;
+  - alternatywa N-best wybrana;
+  - potwierdzenie zapisu parametru dotykiem i głosem + Cofnij;
+  - `touchOnly` ignoruje głos;
+  - dwa kolejne konsumenty mowy (nakładka i `AiChatScreen`) dostają `onDone`;
+  - `MockClient`: pytanie DN40 przy zgodzie na serwer = 0 żądań HTTP;
+  - `pumpAndSettle` w testach pełnej aplikacji kończy się.
+- [ ] Commit.
+
+### Zadanie 1.6: Wczesny build i test na telefonie (koordynator)
+
+- [ ] Build `0.5.0+19-pilot` (APK arm64), wysłany przez Firebase App Distribution, z listą 30 fraz w notatkach wydania:
+  - 10× DN/ścianka;
+  - 5× „otwórz…”;
+  - 5× wiedza;
+  - 5× zapis parametru;
+  - 5× ciche i z hałasem.
+- [ ] Prośba do właściciela o wynik („idziemy dalej / stop”). Etap 2 rusza równolegle i nie blokuje się na odpowiedzi; uwagi z testu trafiają do bieżących zadań.
+
+## Etap 2 — Umiejętności modułów (poziom B) i wiedza
+
+### Zadanie 2.0: `FitterToolsScreen` sterowalny (jeden wykonawca dla wszystkich zakładek)
+
+**Files:**
+- Modify: `lib/screens/fitter_tools_screen.dart`:
+  - `StatefulWidget` + `TabController`;
+  - uchwyt-kontener `selectTab(toolId)`;
+  - uchwyty wszystkich 8 zakładek (`slope_cut`, `elbow_cut`, `elbow_rotation`, `insert`, `reducer`, `pipe_weight`, `bevel`, `thermal_expansion`), z `supportedFields` i jawnym przeliczeniem.
+- Test: `test/assistant/fitter_tools_handles_test.dart` (każda zakładka: `showInModule` → wartości i wynik na ekranie)
+
+### Zadania 2.1–2.4: Umiejętności grup
+
+Każda umiejętność obejmuje:
+- plik `lib/assistant/skills/<grupa>/<x>_skill.dart`, rejestrowany w `lib/assistant/skills/<grupa>/catalog.dart`;
+- korpus ≥ 6 trafień i ≥ 3 odrzuceń (PL + EN), w tym odrzucenia przeciw innym grupom;
+- `ShowInModule` tylko z polami z `supportedFields` danego uchwytu (test kontraktu);
+- `source` z domeny.
+
+| Zadanie | Grupa / id umiejętności | Uchwyty stron |
+|---|---|---|
+| 2.1 | `fitter_tables`: `pipe.weight`, `steel.weight`, `units.convert`, `elbow.takeout`, `sanitary.tube` | SteelWeightPage, QuickConverterScreen, ElbowTakeoutScreen, SanitaryTubeScreen (pipe_weight z 2.0) |
+| 2.2 | `fitter_routes`: `pipe.slope`, `rolling.offset`, `bevel.geometry`, `thermal.expansion`, `elbow.cut`, `insert.length`, `reducer.cut` | PipeSlopeScreen, RollingOffsetScreen (zakładki z 2.0) |
+| 2.3 | `welder_calc`: `heat.input`, `preheat.ce` (w `heat_input`), `cooling.t85`, `shade.number`, `power.duty`, `power.cable`, `tungsten.pick` | CoolingTimePage, ShadePage, PowerSourcePage, TungstenScreen (HeatInput z 1.4) |
+| 2.4 | `welder_misc`: `bolt.torque`, `timer.start` / `timer.stop` / `timer.cool` (narzędzie `welder_calculators`, `WeldTimerService`), `glossary.term` | BoltTorqueScreen (`markReady` po `_loadPrefs`), WelderToolsScreen (zakładka timera), GlossaryPage |
+
+### Zadanie 2.5: Wiedza z danych modułów (grupa `knowledge_modules`)
+
+Umiejętności tylko odpowiadają, z odsyłaczem do modułu. Wszystkie dane pochodzą z istniejących plików domeny.
+
+| Umiejętność | Pytanie | Źródło danych |
+|---|---|---|
+| `defects.causes` | „przyczyny porowatości przy MAG” | `lib/data/weld_defects.dart` |
+| `iso5817.limit` | „ile podtopienia na poziomie B” | `lib/domain/iso5817/*` |
+| `electrodes.exposure` | „ile elektroda 7018 może leżeć poza suszarką” | `lib/domain/welding/electrode_exposure.dart` |
+| `rigging.colour` | „zielony pas ile ton” | `lib/domain/rigging/rigging_colors.dart` |
+| `grinding.stripe` | „czerwony pasek na tarczy” | `lib/domain/grinding/*` |
+| `fume.oel` | „NDS manganu” | `lib/domain/fume/fume_hazards.dart` |
+| `filler.pick` | „spoiwo do 316L” | `lib/domain/filler/filler_selector.dart` |
+| `shade.quick` | (odpowiedź z `computeShade`, jeśli nie ma w 2.3) | |
+
+- [ ] Korpusy jak wyżej. Odpowiedź zawsze z nazwą normy z domeny.
+
+## Etap 3 — Rysowanie ISO
+
+### Zadanie 3.1: `IsoNotebookController` (ścieżka C)
+
+**Files:**
+- Create: `lib/screens/iso_notebook_controller.dart` (`part of 'iso_notebook_screen.dart'`)
+- Modify: `lib/screens/iso_notebook_screen.dart` (rejestracja kontrolera/uchwytu w `initState`/`dispose`; pole `_ghost`; kursor; dopasowanie widoku; `ready`)
+- Test: `test/screens/iso_notebook_controller_test.dart` (asercje przez kodek z bazy, jak `iso_notebook_autosave_test`)
+
+**Interfaces — Produces:**
+```dart
+/// Indeks kierunku siatki (_isoHeadings): 0 prawo, 1 góra (oś III = pion), 2 do tyłu, 3 lewo, 4 dół, 5 do przodu.
+enum IsoDir { right, up, back, left, down, forward }
+sealed class IsoStep { const IsoStep(); }
+class IsoPipe extends IsoStep { const IsoPipe({this.dir, this.lengthMm}); final IsoDir? dir; final double? lengthMm; }
+class IsoTurn extends IsoStep { const IsoTurn({this.toDir, this.dn}); final IsoDir? toDir; final int? dn; }   // zamiar skrętu dla następnej rury
+class IsoFitting extends IsoStep { const IsoFitting(this.tool, {this.dn, this.dnOut}); final String tool; final int? dn; final int? dnOut; }  // flange, blindFlange, cap, reducer, gateValve, ballValve, checkValve, globeValve, butterflyValve, weld, support — osiowe, na kursorze
+class IsoDrawReport { final List<String> assumedPl, assumedEn; final IsoDrawProblem? problem; final int segments, elbows, fittings; }
+enum IsoDrawProblem { reversal, sameDirectionAfterTurn, trailingTurn, unsupported45, unsupportedTee, outOfCanvas }
+class IsoNotebookController extends ChangeNotifier {
+  Future<void> get ready;
+  bool get hasContent; String? get sketchName; DateTime? get lastEdited;
+  Future<void> startNew();                         // _flushSave() → _startBlankSketch(persist: false)
+  /// Wykonuje sekwencję jako JEDEN krok Cofnij; zatrzymuje się na pierwszym problemie (bez częściowego zapisu).
+  Future<IsoDrawReport> draw(List<IsoStep> steps, {Duration stepDelay = const Duration(milliseconds: 300)});
+  void undo();
+}
+```
+
+**Reguły:**
+- Kursor:
+  - pusty szkic → start przesunięty tak, żeby rysunek nie wyszedł nad górę siatki;
+  - niepusty → wolny koniec ostatniej rury.
+- Rura bez kierunku:
+  - pierwsza: w prawo;
+  - po `IsoTurn` bez kierunku — skręt domyślny: right/left → forward; forward/back → right; up/down → right;
+  - zawsze dopisywany do `assumed`.
+- Rura bez długości = 3 kroki siatki, bez wymiaru. Z długością: wymiar `_CutCalc('<mm>')` i liczba kroków `clamp(round(mm / 500), 2, 8)`.
+- Kolano powstaje automatycznie (`_maybeInsertElbows`). DN z `IsoTurn` → `withElbowSpec` (CTE z `isoStandardElbowCteMm`).
+- Problemy (zatrzymują przed problematycznym krokiem; nic nie zapisują):
+  - zawrócenie;
+  - ten sam kierunek po skręcie;
+  - skręt na końcu;
+  - 45°, trójnik;
+  - wyjście poza płótno.
+- Animacja: `_ghost` rośnie w 4 krokach przez `stepDelay` (w testach `Duration.zero`), potem `_mutate`. Po całości dopasowanie widoku.
+
+- [ ] Testy:
+  - `[IsoPipe(), IsoTurn(), IsoPipe()]` → 2 odcinki, 1 kolano, kierunki right → forward, `assumed` niepuste;
+  - jeden `undo()` cofa całość;
+  - niepusty szkic: start na końcu ostatniej rury, stary szkic w bazie bez zmian;
+  - `lengthMm: 1500` → wymiar „1500”;
+  - zawrócenie → `problem: reversal`, nic nie dodane;
+  - skręt na końcu → `trailingTurn`;
+  - rysowanie „w górę” blisko krawędzi → widok dopasowany, punkty siatki ≥ 0;
+  - gest palca w trakcie animacji nie psuje `_ghost`.
+- [ ] Commit.
+
+### Zadanie 3.2: Umiejętność `iso.draw` (po 1.3, 1.4, 3.1)
+
+**Files:**
+- Create: `lib/assistant/skills/iso/iso_command_parser.dart`, `iso_draw_skill.dart`, `catalog.dart`
+- Modify: `lib/screens/iso_notebook_screen.dart` (`ToolHandle` zeszytu: pola `steps` (lista), `new_sketch` (bool))
+- Test: `test/assistant/skills/iso/iso_command_parser_test.dart`, `test/assistant/iso_draw_flow_test.dart`
+
+**Gramatyka:**
+- `rura|rurę|rurka|rury` [długość] [kierunek];
+- `kolano|kolanko|łuk` [90] [kierunek], gdzie kierunek to zamiar skrętu;
+- „kolano 45” i „trójnik” → zgłoszenie niewspieranego elementu;
+- `kołnierz|zaślepka|dennica|redukcja [DN na DN]|zawór (kulowy|zasuwa|zwrotny|grzybkowy|przepustnica)` [DN];
+- kierunki: w prawo / w lewo / w górę / w dół / do przodu / do tyłu (+ północ / południe / wschód / zachód przy strzałce N);
+- polecenia: „nowy rysunek”, „cofnij”, „zmień ostatnie kolano w górę” (= cofnij ostatnie polecenie + odtwórz zapamiętaną listę z poprawką).
+
+**Wynik:**
+- `AnswerResult` z opisem: co narysowano, co przyjęto, problem;
+- `show: ShowInModule('iso_notebook', {'steps': [...]})`;
+- chipy „w górę / w dół / do przodu / do tyłu” dla ostatniego skrętu.
+
+**Zasady:**
+- Gołe „rura kolano rura” bez „narysuj/dodaj do rysunku” liczy się jako `iso.draw` tylko z premią kontekstu (zeszyt otwarty).
+- Zeszyt zamknięty, a ostatni szkic niepusty i < 12 h → `AskResult('target', „Dorysować do «X» czy nowy rysunek?”)`.
+
+- [ ] Korpus:
+  - „narysuj rura kolanko rura” → [pipe, turn, pipe];
+  - „rura dwa metry w prawo kolano w górę rura metr” → kierunki i długości (2000, 1000);
+  - „rura 2” → 2000 i informacja „przyjąłem 2 m”;
+  - „dodaj zawór kulowy dn50” → `IsoFitting('ballValve', dn: 50)`;
+  - odrzucenia: „ile waży rura dn50” (`pipe.weight`), „zapisz spawam rurę dn50 141 80 amper” (`legacy.save`).
+- [ ] Test przepływu: wypowiedź → zeszyt otwarty → 2 odcinki i kolano → „w górę” → kolano w górę → „cofnij” → stan sprzed.
+- [ ] Commit.
+
+## Etap 4 — Rekordy, pytania o własne dane, pokrycie
+
+### Zadanie 4.1: Rekordy (poziom C)
+
+Umiejętności:
+- `hot_work.prepare` i `confined_space.prepare`: miejsce, opis prac, nr zezwolenia, osoby; `safetyCritical`, `touchOnly`;
+- `interpass.reading`: temperatura do bieżącej spoiny; `touchOnly` nie jest wymagane, ale jest potwierdzenie;
+- `hardness.convert`: przelicznik, do odczytu;
+- `quote.new`: nowa wycena z materiałem, schematem i miejscem, potem otwarcie.
+
+**Mechanizm:**
+1. `X.blank(...).copyWith(<pola z białej listy>)`.
+2. `ConfirmResult`.
+3. `store.upsert`.
+4. `openToolById` + strona edycji z `initial:`.
+5. Cofnij → `store.delete`.
+
+- [ ] Test białej listy: JSON rekordu po umiejętności == JSON `blank()` poza polami z białej listy (w tym `checked`, `na`, pomiary, gotowość nietknięte).
+
+### Zadanie 4.3: Pytania o własne dane (do odczytu, lokalnie)
+
+| Umiejętność | Pytanie | Źródło |
+|---|---|---|
+| `certs.expiry` | „kiedy wygasa moje uprawnienie 141” | `welder_certificates` (DAO) |
+| `instruments.due` | „kiedy kalibracja” | `instruments` |
+| `progress.today` | „ile cali-średnic dziś” | `work_progress` |
+| `electrodes.status` | „ile jeszcze mogą leżeć elektrody” | dziennik ekspozycji |
+| `journal.last` | „ostatnia spoina” | `weld_journal` |
+
+- [ ] Testy na `useTestDatabase()` z danymi.
+
+### Zadanie 4.2: Pokrycie liczone z katalogu (koordynator, na końcu)
+
+**Files:** Create `lib/assistant/assistant_coverage.dart` (`Map<String, AssistantTier> assistantCoverage()` — z katalogu i rejestru, bez ręcznej mapy); Test `test/assistant/assistant_coverage_test.dart`.
+
+Test sprawdza, że:
+- (a) każde id z `kToolRegistry` ma co najmniej poziom A;
+- (b) `open_tool` trafia z tytułu PL i EN każdego narzędzia;
+- (c) `explain` daje niepusty opis;
+- (d) każda umiejętność ≥ B ma ≥ 3 przykłady, które przez CAŁY mózg trafiają w nią, a `run` nie rzuca;
+- (e) dla każdego `ShowInModule` z przykładów pola ⊆ `supportedFields` uchwytu (rejestr uchwytów dostarczany w teście przez otwarcie stron).
+
+## Etap 5 — Feedback
+
+### Zadanie 5.1a: Biblioteka feedbacku (ścieżka E, bez UI)
+
+**Files:**
+- Create:
+  - `lib/feedback/feedback_signal.dart` (model + JSON = fixture `test/fixtures/feedback_signal_v1.json`, ten sam plik kopiowany do `backend/test/fixtures/`);
+  - `complaint_detector.dart` (`FeedbackKind? classify(String folded, {required bool lastTurnFailed})`, rodzaje `explicit`, `complaint`, `cantFind`, `notUnderstood`, `error`);
+  - `redact.dart`;
+  - `feedback_store.dart` (SharedPreferences `feedback_queue_v1`, limit 300; automatyczne wypadają najstarsze z licznikiem; jawne nigdy; kopia uszkodzonego zapisu);
+  - `feedback_uploader.dart` (partie ≤ 20; bez zgody 0 żądań; 404/5xx → zostaje w kolejce; nagłówek `X-Feedback-Id`);
+  - `feedback_consent.dart` (`feedback_consent_v1`, domyślnie false; zapis daty polityki `kLegalUpdated` przy zgodzie; losowy `feedback_install_id`);
+  - `lib/config/app_version.dart` (`kAppVersion` + test zgodności z `pubspec.yaml`).
+- Test: `test/feedback/*`.
+
+- [ ] Detektor:
+  - „ta apka nie działa” → `complaint`;
+  - „spawarka nie działa” bez nieudanej tury → null;
+  - „gdzie jest kalkulator…” → `cantFind`;
+  - „zgłoś problem: …” → `explicit`.
+- [ ] Maskowanie: „+48 600 100 200”, „600100200”, „jan@x.pl”, ciąg 9+ cyfr → `***`.
+- [ ] Commit.
+
+### Zadanie 5.2: Backend (ścieżka D, repo `backend/`, worktree w tym repo)
+
+**Files:**
+- Create: `src/routes/fitterFeedback.js`:
+  - `POST /api/fitter/feedback`: Zod `.strict()`, partia ≤ 20, tekst ≤ 500, limity: na `feedback_id` 50/dobę, globalnie 5000/dobę, wierszy łącznie ≤ 200 000;
+  - `GET /api/fitter/feedback/admin`: `requireAdmin` z `fitterChat.js`, stronicowanie `since`, `limit` ≤ 500, filtr `kind`, `tool`.
+- Modify:
+  - `src/db/schema.sql`, `src/db/repos.js`;
+  - migracja `SCHEMA_VERSION = '4'` + `migrate.test`;
+  - `src/services/housekeeping.js` (retencja 180 dni);
+  - `src/services/dataErasure.js` + `src/routes/fitterMe.js` (kasowanie po `X-Feedback-Id`);
+  - `src/routes/publicPages.js` (sekcja „Zgłoszenia problemów”, ta sama treść co `legal_texts.dart`);
+  - `src/app.js`;
+  - `README.md`.
+- Test: `test/feedback.test.js` (walidacja, partia 21 → 400, limity → 429, admin bez tokenu → 404 przy pustym `ADMIN_TOKEN` i 401 przy złym, kasowanie, retencja, fixture).
+
+### Zadanie 5.1b: Integracja feedbacku w aplikacji (po 1.5 i 5.1a)
+
+**Files:**
+- Create: `lib/feedback/feedback_sink_impl.dart` (`FeedbackSink`: nierozpoznane ×2 w 3 min = 1 sygnał; narzekanie; błąd); `lib/feedback/report_problem_sheet.dart` (podgląd, „Wyślij”, zgoda per zgłoszenie); `lib/assistant/skills/feedback/feedback_skill.dart` + `catalog.dart` („zgłoś problem …”).
+- Modify:
+  - `lib/main.dart` (`FlutterError.onError`, `PlatformDispatcher.instance.onError` → sygnał `error` z typem i modułem, z zachowaniem `debugPrint`);
+  - `lib/widgets/help_button.dart` („Zgłoś problem z tym modułem”);
+  - `lib/assistant/ui/assistant_overlay.dart` (karta zgody po 3× „nie rozumiem”; propozycja zgłoszenia maks. 1/sesję i 1/dobę, nigdy po udanej odpowiedzi);
+  - `lib/screens/profile_screen.dart` (zgoda, „Moje zgłoszenia”, „Usuń moje dane” czyści kolejkę i zgodę oraz woła kasowanie na serwerze);
+  - `lib/legal/legal_texts.dart` (sekcja „Zgłoszenia problemów”, `kLegalUpdated`; `kLegalVersion` bez zmian);
+  - `lib/config/backend_config.dart`.
+- Test: `test/feedback/integration_test.dart`, `test/legal_*` zaktualizowane (z `publicPages.js`), `test/store/privacy_manifests_test.dart`.
+
+### Zadanie 5.3: Raport dla właściciela
+
+**Files:**
+- Create: `tool/feedback_digest.dart`:
+  - `--since 7d`, token z env `FITTER_ADMIN_TOKEN`;
+  - wynik do `%USERPROFILE%\Documents\FitterFeedback\<data>.md` (POZA repo): moduł × rodzaj, liczności, top frazy nierozpoznane (kandydaci na umiejętności), błędy po typie.
+- Create: `tool/feedback_digest_mail.py`: wysyłka raportu mailem przez SMTP z vaulta na adres właściciela, uruchamiana ręcznie albo z harmonogramu, jeśli właściciel zgodzi się na zadanie cykliczne.
+- Test: `test/tool/feedback_digest_test.dart` (grupowanie na danych z fixture).
+
+## Etap 6 — Odbiór
+
+- [ ] Pełny `flutter test`, `flutter analyze`, `npm test` w backendzie.
+- [ ] Przegląd kodu każdego zadania (`feature-dev:code-reviewer`), poprawki z testami.
+- [ ] Audyt modułów: nowe strony w manifeście (jeśli są).
+- [ ] `docs/NOWOSCI-2026-10.md` + teksty sklepów.
+- [ ] Deklaracje App Privacy i Data Safety (feedback): punkt osobny, PRZED wysłaniem buildu do sklepu.
+- [ ] Wdrożenie backendu nocą:
+  - kopia `fitter.db`;
+  - deploy z klonu z LF;
+  - `/health`;
+  - test `POST /feedback`;
+  - potem aplikacja (przy 404 trzyma kolejkę).
+- [ ] Build 0.5.0+19 → Firebase App Distribution (Android) + Codemagic (iOS) → mail do właściciela z listą testów.
+- [ ] Ręczny test na telefonie wg mierników spec §2.1:
+  - DN40 w ciszy i przy szlifierce;
+  - „narysuj rura kolanko rura”, „w górę”, „cofnij”;
+  - zapis parametru „tak, zapisz” i Cofnij;
+  - „zgłoś problem”;
+  - zgoda wyłączona = 0 wysyłek.
