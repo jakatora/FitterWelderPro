@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "3f0c2b7e-5d8a-4b7e-9a7b-2f1d9c0e4a11",
+      "kind": "notUnderstood",
+      "text": "narysuj mi trójnik równoprzelotowy",
+      "tool": "iso_notebook",
+      "skill": null,
+      "skillsVersion": 1,
+      "app": "0.5.0+19",
+      "platform": "android",
+      "lang": "pl",
+      "at": "2026-10-19T12:00:00.000Z",
+      "errorType": null
+    }
+  ]
+}
