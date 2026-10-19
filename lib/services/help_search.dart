@@ -53,34 +53,46 @@ String _stem(String word) {
   return word;
 }
 
+final RegExp _spaces = RegExp(r'\s+');
+
+/// Results of [normalizeForSearch] for long, constant texts (help answers,
+/// tool titles and keywords are normalised on every search — the assistant
+/// searches on every unrecognised utterance). Bounded; cleared when full.
+final Map<String, String> _normalized = {};
+const int _normalizedLimit = 4096;
+
 /// Normalises a string for matching: lowercased, accents folded, punctuation
 /// reduced to spaces. Polish-aware: ą→a, ż→z, etc.
 String normalizeForSearch(String s) {
+  final cached = _normalized[s];
+  if (cached != null) return cached;
   final lower = s.toLowerCase();
   final buf = StringBuffer();
   for (final ch in lower.runes) {
-    final c = String.fromCharCode(ch);
-    switch (c) {
-      case 'ą': buf.write('a'); break;
-      case 'ć': buf.write('c'); break;
-      case 'ę': buf.write('e'); break;
-      case 'ł': buf.write('l'); break;
-      case 'ń': buf.write('n'); break;
-      case 'ó': buf.write('o'); break;
-      case 'ś': buf.write('s'); break;
-      case 'ź': buf.write('z'); break;
-      case 'ż': buf.write('z'); break;
+    switch (ch) {
+      case 0x105: buf.write('a'); // ą
+      case 0x107: buf.write('c'); // ć
+      case 0x119: buf.write('e'); // ę
+      case 0x142: buf.write('l'); // ł
+      case 0x144: buf.write('n'); // ń
+      case 0xF3: buf.write('o'); // ó
+      case 0x15B: buf.write('s'); // ś
+      case 0x17A: buf.write('z'); // ź
+      case 0x17C: buf.write('z'); // ż
       default:
         // collapse anything non-alphanumeric to a single space so terms split
-        if (RegExp(r'[a-z0-9]').hasMatch(c)) {
-          buf.write(c);
+        if ((ch >= 0x61 && ch <= 0x7A) || (ch >= 0x30 && ch <= 0x39)) {
+          buf.writeCharCode(ch);
         } else {
           buf.write(' ');
         }
     }
   }
   // Squash multiple spaces.
-  return buf.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  final out = buf.toString().replaceAll(_spaces, ' ').trim();
+  if (_normalized.length >= _normalizedLimit) _normalized.clear();
+  _normalized[s] = out;
+  return out;
 }
 
 /// Search the entire knowledge base. Returns results sorted by score, then

@@ -20,13 +20,21 @@ const _plFold = {
 /// Zwija frazę-wzorzec tak jak wypowiedź (małe litery, bez polskich znaków,
 /// interpunkcja → spacja) — ale BEZ żargonu i liczb, żeby wzorzec nie zmienił
 /// sensu.
-String _foldPattern(String p) {
+String _foldPattern(String p) => _patternCache[p] ??= _foldPatternRaw(p);
+
+/// Wzorce to stałe w kodzie umiejętności — zwijamy każdy raz.
+final Map<String, String> _patternCache = {};
+
+final _alnum = RegExp(r'[a-z0-9]');
+final _spaces = RegExp(r'\s+');
+
+String _foldPatternRaw(String p) {
   final buf = StringBuffer();
   for (final c in p.toLowerCase().split('')) {
     final f = _plFold[c] ?? c;
-    buf.write(RegExp(r'[a-z0-9]').hasMatch(f) ? f : ' ');
+    buf.write(_alnum.hasMatch(f) ? f : ' ');
   }
-  return buf.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  return buf.toString().replaceAll(_spaces, ' ').trim();
 }
 
 /// Słowa, które mogą stać między słowem-kluczem a liczbą („prąd NA 90",
