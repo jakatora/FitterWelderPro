@@ -127,9 +127,11 @@ class FeedbackConsent {
     }
   }
 
-  /// „Usuń moje dane”: zgoda, identyfikator i cała kolejka (z kopią
-  /// uszkodzonego zapisu). Kasowanie na serwerze woła UI WCZEŚNIEJ, z
-  /// [storedInstallId].
+  /// Lokalne skasowanie wszystkiego: zgoda, identyfikator i cała kolejka (z
+  /// kopią uszkodzonego zapisu). NIE wołaj tego wprost z „Usuń moje dane” —
+  /// użyj `eraseAllFeedback` (feedback_uploader.dart), które najpierw czeka na
+  /// wysyłkę w toku i kasuje dane na serwerze, a identyfikator usuwa dopiero
+  /// po sukcesie.
   Future<void> clearAll() async {
     try {
       final prefs = await SharedPreferences.getInstance();

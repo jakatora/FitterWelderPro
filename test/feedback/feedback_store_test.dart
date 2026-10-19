@@ -27,7 +27,7 @@ void main() {
   test('add → list od najstarszego; zapis przeżywa nową instancję prefs',
       () async {
     await fill(0, 3);
-    expect((await store.list()).map((e) => e.id), ['sig-0', 'sig-1', 'sig-2']);
+    expect((await store.list()).map((e) => e.id), [uid(0), uid(1), uid(2)]);
 
     final raw = (await SharedPreferences.getInstance())
         .getString(FeedbackStore.prefsKey)!;
@@ -44,7 +44,7 @@ void main() {
 
   test('sygnał niezgodny z kontraktem nie wchodzi', () async {
     final bad = FeedbackSignal(
-      id: 'x',
+      id: uid(999),
       kind: FeedbackKind.complaint,
       text: 'a',
       tool: null,
@@ -63,13 +63,13 @@ void main() {
   test('pusty tekst wchodzi tylko dla error', () async {
     expect(
         await store.add(FeedbackSignal.create(
-            kind: FeedbackKind.explicit, text: '  ', id: 'pusty')),
+            kind: FeedbackKind.explicit, text: '  ', id: uid(901))),
         isFalse);
     expect(
         await store.add(FeedbackSignal.create(
-            kind: FeedbackKind.error, errorType: 'StateError', id: 'blad')),
+            kind: FeedbackKind.error, errorType: 'StateError', id: uid(902))),
         isTrue);
-    expect((await store.list()).map((e) => e.id), ['blad']);
+    expect((await store.list()).map((e) => e.id), [uid(902)]);
   });
 
   test('add maskuje tekst nawet sygnału zbudowanego konstruktorem', () async {
@@ -86,8 +86,8 @@ void main() {
           at: DateTime.utc(2026, 10, 19),
           errorType: null,
         );
-    expect(await store.add(raw(FeedbackKind.explicit, 'a')), isTrue);
-    expect(await store.add(raw(FeedbackKind.error, 'b')), isTrue);
+    expect(await store.add(raw(FeedbackKind.explicit, uid(1))), isTrue);
+    expect(await store.add(raw(FeedbackKind.error, uid(2))), isTrue);
 
     final items = await store.list();
     expect(items[0].text, 'dzwoń *** albo ***');
@@ -101,20 +101,74 @@ void main() {
   test('takeBatch(20) bierze najstarsze 20 i NIE usuwa', () async {
     await fill(0, 25);
     final batch = await store.takeBatch(20);
-    expect(batch.map((e) => e.id), [for (var i = 0; i < 20; i++) 'sig-$i']);
+    expect(batch.map((e) => e.id), [for (var i = 0; i < 20; i++) uid(i)]);
     expect(await store.list(), hasLength(25));
   });
 
   test('markSent i remove usuwają, liczniki rosną', () async {
     await fill(0, 5);
-    expect(await store.markSent(['sig-0', 'sig-1', 'nie-ma']), 2);
-    expect(await store.remove('sig-4'), isTrue);
-    expect(await store.remove('sig-4'), isFalse);
-    expect(await store.markRejected(['sig-2']), 1);
-    expect((await store.list()).map((e) => e.id), ['sig-3']);
+    expect(await store.markSent([uid(0), uid(1), 'nie-ma']), 2);
+    expect(await store.remove(uid(4)), isTrue);
+    expect(await store.remove(uid(4)), isFalse);
+    expect(await store.markRejected([uid(2)]), 1);
+    expect((await store.list()).map((e) => e.id), [uid(3)]);
     final st = await store.stats();
     expect(st.sent, 2);
     expect(st.rejected, 1);
+  });
+
+  group('jawne zgłoszenia nie są kasowane — blokada', () {
+    test('markRejected usuwa automatyczne, jawne blokuje i zostawia', () async {
+      await fill(0, 2);
+      await fill(2, 4, kind: FeedbackKind.explicit);
+      expect(await store.markRejected([uid(0), uid(2)]), 1);
+
+      expect((await store.list()).map((e) => e.id), [uid(1), uid(2), uid(3)]);
+      expect(await store.blockedIds(), {uid(2)});
+      final st = await store.stats();
+      expect(st.rejected, 1);
+      expect(st.blocked, 1);
+    });
+
+    test('takeBatch pomija zablokowane; blokada przeżywa zapis', () async {
+      await fill(0, 3, kind: FeedbackKind.explicit);
+      expect(await store.markBlocked([uid(1)]), 1);
+      expect(await store.markBlocked([uid(1)]), 0, reason: 'już zablokowany');
+
+      store.resetForTest();
+      expect((await store.takeBatch()).map((e) => e.id), [uid(0), uid(2)]);
+      expect(await store.blockedIds(), {uid(1)});
+    });
+
+    test('takePoolBatch: tylko jedna pula, bez zablokowanych, od najstarszych',
+        () async {
+      await fill(0, 2);
+      await fill(2, 5, kind: FeedbackKind.explicit);
+      await fill(5, 6);
+      await store.markBlocked([uid(3)]);
+      expect((await store.takePoolBatch(explicit: true)).map((e) => e.id),
+          [uid(2), uid(4)]);
+      expect(
+          (await store.takePoolBatch(explicit: false, max: 2)).map((e) => e.id),
+          [uid(0), uid(1)]);
+    });
+
+    test('markBlocked ignoruje automatyczne', () async {
+      await fill(0, 1);
+      expect(await store.markBlocked([uid(0)]), 0);
+      expect(await store.takeBatch(), hasLength(1));
+    });
+
+    test('remove i markSent zdejmują blokadę razem z elementem', () async {
+      await fill(0, 2, kind: FeedbackKind.explicit);
+      await store.markBlocked([uid(0), uid(1)]);
+      await store.remove(uid(0));
+      await store.markSent([uid(1)]);
+      expect(await store.blockedIds(), isEmpty);
+      final raw = (await SharedPreferences.getInstance())
+          .getString(FeedbackStore.prefsKey)!;
+      expect((jsonDecode(raw) as Map)['blocked'], isEmpty);
+    });
   });
 
   group('limit 300', () {
@@ -128,8 +182,8 @@ void main() {
 
       final ids = (await store.list()).map((e) => e.id).toList();
       expect(ids, hasLength(FeedbackStore.capacity));
-      expect(ids.first, 'sig-1');
-      expect(ids.last, 'sig-300');
+      expect(ids.first, uid(1));
+      expect(ids.last, uid(300));
       expect((await store.stats()).dropped, 1);
     });
 
@@ -149,12 +203,12 @@ void main() {
       final explicitIds =
           items.where((e) => e.isExplicit).map((e) => e.id).toSet();
       expect(explicitIds, {
-        for (var i = 0; i < 10; i++) 'sig-$i',
-        for (var i = 300; i < 305; i++) 'sig-$i',
+        for (var i = 0; i < 10; i++) uid(i),
+        for (var i = 300; i < 305; i++) uid(i),
       });
       // Wypadły najstarsze automatyczne: sig-10..sig-14.
-      expect(items.any((e) => e.id == 'sig-14'), isFalse);
-      expect(items.any((e) => e.id == 'sig-15'), isTrue);
+      expect(items.any((e) => e.id == uid(14)), isFalse);
+      expect(items.any((e) => e.id == uid(15)), isTrue);
       expect((await store.stats()).dropped, 5);
     });
 
@@ -197,15 +251,15 @@ void main() {
         'v': 1,
         'items': [
           good,
-          {...good, 'id': 'sig-2', 'kind': 'praise'},
-          {...good, 'id': 'sig-3', 'text': null},
+          {...good, 'id': uid(2), 'kind': 'praise'},
+          {...good, 'id': uid(3), 'text': null},
           'śmieć',
         ],
         'dropped': 7,
       });
       seedFeedback({FeedbackStore.prefsKey: raw});
 
-      expect((await store.list()).map((e) => e.id), ['sig-1']);
+      expect((await store.list()).map((e) => e.id), [uid(1)]);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(FeedbackStore.corruptKey), raw);
       final st = await store.stats();
@@ -222,13 +276,13 @@ void main() {
           'v': 1,
           'items': [
             good,
-            {...good, 'id': 'sig-2', 'platform': 'amiga'},
-            {...good, 'id': 'sig-3', 'text': ''},
+            {...good, 'id': uid(2), 'platform': 'amiga'},
+            {...good, 'id': uid(3), 'text': ''},
           ],
         }),
       });
       final items = await store.list();
-      expect(items.map((e) => e.id), ['sig-1', 'sig-2', 'sig-3']);
+      expect(items.map((e) => e.id), [uid(1), uid(2), uid(3)]);
       expect(items.map((e) => e.isValidForUpload), [true, false, false]);
       expect((await store.stats()).corrupt, isFalse);
       final prefs = await SharedPreferences.getInstance();
@@ -258,23 +312,23 @@ void main() {
     test('60 równoległych add → 60 elementów', () async {
       await Future.wait([for (var i = 0; i < 60; i++) store.add(sig(i))]);
       final ids = (await store.list()).map((e) => e.id).toList();
-      expect(ids, [for (var i = 0; i < 60; i++) 'sig-$i']);
+      expect(ids, [for (var i = 0; i < 60; i++) uid(i)]);
     });
 
     test('równoległe add, markSent i remove — wynik jak po kolei', () async {
       await fill(0, 10);
       await Future.wait([
         store.add(sig(10)),
-        store.markSent(['sig-0', 'sig-1']),
+        store.markSent([uid(0), uid(1)]),
         store.add(sig(11)),
-        store.remove('sig-5'),
+        store.remove(uid(5)),
         store.add(sig(12)),
-        store.markRejected(['sig-9']),
+        store.markRejected([uid(9)]),
       ]);
       final ids = (await store.list()).map((e) => e.id).toList();
       expect(ids, [
-        'sig-2', 'sig-3', 'sig-4', 'sig-6', 'sig-7', 'sig-8', //
-        'sig-10', 'sig-11', 'sig-12',
+        uid(2), uid(3), uid(4), uid(6), uid(7), uid(8), //
+        uid(10), uid(11), uid(12),
       ]);
       final st = await store.stats();
       expect(st.sent, 2);

@@ -103,7 +103,7 @@ void main() {
     final sentIds = [
       for (final r in requests) ..._items(r).map((e) => e['id'])
     ];
-    expect(sentIds, [for (var i = 0; i < 45; i++) 'sig-$i']);
+    expect(sentIds, [for (var i = 0; i < 45; i++) uid(i)]);
     expect((await FeedbackStore.instance.stats()).sent, 45);
   });
 
@@ -204,7 +204,7 @@ void main() {
       final sentIds = [
         for (final r in requests) ..._items(r).map((e) => e['id'])
       ];
-      expect(sentIds, ['sig-0', 'sig-1', 'sig-2', 'sig-3', 'sig-4']);
+      expect(sentIds, [uid(0), uid(1), uid(2), uid(3), uid(4)]);
       expect((await FeedbackStore.instance.stats()).rejected, 4);
     });
 
@@ -251,42 +251,453 @@ void main() {
     expect(FeedbackUploader().timeout, const Duration(seconds: 15));
   });
 
-  test('400 z jednym złym elementem: tylko on usunięty z licznikiem', () async {
-    await FeedbackConsent.instance.grant();
-    await fill(0, 20);
-    final out = await uploader.flush(client: backend((r) {
-      final ids = _items(r).map((e) => e['id']);
-      return ids.contains('sig-13')
-          ? _json(400, {'error': 'VALIDATION'})
-          : _json(200, {'accepted': ids.length, 'duplicates': 0});
-    }));
-
-    expect(out.status, UploadStatus.done);
-    expect(out.rejected, 1);
-    expect(out.sent, 19);
-    expect(await queued(), 0);
-    final st = await FeedbackStore.instance.stats();
-    expect(st.rejected, 1);
-    expect(st.sent, 19);
-    // Każdy dobry element przyjęty dokładnie raz.
-    final accepted = [
-      for (final r in requests)
-        if (!_items(r).any((e) => e['id'] == 'sig-13'))
-          ..._items(r).map((e) => e['id'])
+  /// Serwer jak backend 5fb551c: 400 INVALID_ITEM z `index` (pierwszy zły)
+  /// i `indices` (wszystkie złe, rosnąco) albo 200.
+  http.Response judge(http.Request r, Set<String> badIds) {
+    final ids = _items(r).map((e) => e['id']).toList();
+    final bad = [
+      for (var i = 0; i < ids.length; i++)
+        if (badIds.contains(ids[i])) i,
     ];
-    expect(accepted.toSet(), hasLength(19));
-    expect(accepted, hasLength(19));
+    if (bad.isEmpty) {
+      return _json(200, {'accepted': ids.length, 'duplicates': 0});
+    }
+    return _json(400, {
+      'error': {
+        'code': kFeedbackInvalidItemCode,
+        'message': 'Element ${bad.first}: …',
+        'index': bad.first,
+        'indices': bad,
+      },
+    });
+  }
+
+  http.Response invalidItem() => _json(400, {
+        'error': {
+          'code': kFeedbackInvalidItemCode,
+          'message': 'zły element',
+          'index': 0,
+          'indices': [0],
+        },
+      });
+
+  group(
+      '400 INVALID_ITEM: odrzucone dokładnie wskazane indeksy, reszta ponowiona',
+      () {
+    test('złe automatyczne: tylko one usunięte, reszta partii wysłana raz',
+        () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 20);
+      final out = await uploader.flush(
+          client: backend((r) => judge(r, {uid(4), uid(13)})));
+
+      expect(out.status, UploadStatus.done);
+      expect(out.requests, 2, reason: 'bez dzielenia na pół');
+      expect(out.rejected, 2);
+      expect(out.sent, 18);
+      expect(await queued(), 0);
+      final st = await FeedbackStore.instance.stats();
+      expect(st.rejected, 2);
+      expect(st.sent, 18);
+      final retried = _items(requests[1]).map((e) => e['id']).toList();
+      expect(retried, [
+        for (var i = 0; i < 20; i++)
+          if (i != 4 && i != 13) uid(i),
+      ]);
+    });
+
+    test('tylko `index` bez `indices` też wystarcza', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 3);
+      var first = true;
+      final out = await uploader.flush(client: backend((r) {
+        if (first) {
+          first = false;
+          return _json(400, {
+            'error': {'code': kFeedbackInvalidItemCode, 'index': 1},
+          });
+        }
+        return _json(200, {'accepted': _items(r).length, 'duplicates': 0});
+      }));
+      expect(out.rejected, 1);
+      expect(out.sent, 2);
+      expect(_items(requests[1]).map((e) => e['id']), [uid(0), uid(2)]);
+    });
+
+    test(
+        'INVALID_ITEM bez poprawnych indeksów → protocolError, nic nie '
+        'skasowane', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 3);
+      for (final err in <Map<String, Object?>>[
+        {'code': kFeedbackInvalidItemCode},
+        {
+          'code': kFeedbackInvalidItemCode,
+          'index': 7,
+          'indices': [7, -1]
+        },
+        {'code': kFeedbackInvalidItemCode, 'indices': 'x'},
+      ]) {
+        final out = await uploader.flush(
+            client: backend((_) => _json(400, {'error': err})));
+        expect(out.status, UploadStatus.protocolError, reason: '$err');
+        expect(await queued(), 3);
+      }
+    });
+
+    test('zły JAWNY: zablokowany, nie skasowany, kolejna wysyłka go pomija',
+        () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 3);
+      await fill(3, 4, kind: FeedbackKind.explicit);
+      final out =
+          await uploader.flush(client: backend((r) => judge(r, {uid(3)})));
+
+      expect(out.status, UploadStatus.done);
+      expect(out.blocked, 1);
+      expect(out.rejected, 0);
+      expect(out.sent, 3);
+      expect((await FeedbackStore.instance.list()).map((e) => e.id), [uid(3)]);
+      expect(await FeedbackStore.instance.blockedIds(), {uid(3)});
+
+      requests.clear();
+      final again = await uploader.flush(client: ok());
+      expect(again.status, UploadStatus.empty);
+      expect(requests, isEmpty);
+    });
   });
 
-  test('400 na wszystko: elementy usunięte jako odrzucone', () async {
+  group('400 bez wskazania elementu = błąd protokołu, nic nie skasowane', () {
+    final bodies = <String, Object>{
+      'BAD_REQUEST': {
+        'error': {'code': 'BAD_REQUEST', 'message': 'Niepoprawne zgłoszenia'},
+      },
+      'BAD_JSON': {
+        'error': {'code': 'BAD_JSON', 'message': 'zły JSON'},
+      },
+      'BAD_FEEDBACK_ID': {
+        'error': {'code': 'BAD_FEEDBACK_ID', 'message': 'zły nagłówek'},
+      },
+      'UNSUPPORTED_VERSION': {
+        'error': {'code': 'UNSUPPORTED_VERSION', 'message': 'version: 1'},
+      },
+      'bez kodu': {'error': 'oops'},
+      'puste ciało': '',
+    };
+    bodies.forEach((name, body) {
+      test(name, () async {
+        await FeedbackConsent.instance.grant();
+        await fill(0, 5);
+        await fill(5, 7, kind: FeedbackKind.explicit);
+        final out = await uploader.flush(
+            client: backend((_) =>
+                body is String ? http.Response(body, 400) : _json(400, body)));
+
+        expect(out.status, UploadStatus.protocolError);
+        expect(out.requests, 1, reason: 'bez dzielenia partii');
+        expect(out.rejected, 0);
+        expect(out.blocked, 0);
+        expect(await queued(), 7);
+        expect(await FeedbackStore.instance.blockedIds(), isEmpty);
+      });
+    });
+
+    test('413 PAYLOAD_TOO_LARGE też: nic nie skasowane', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 3);
+      final out = await uploader.flush(
+          client: backend((_) => _json(413, {
+                'error': {'code': 'PAYLOAD_TOO_LARGE', 'message': 'za duże'},
+              })));
+      expect(out.status, UploadStatus.protocolError);
+      expect(await queued(), 3);
+    });
+  });
+
+  group('pule limitów: jawne osobnymi partiami i przed automatycznymi', () {
+    List<String> kinds(http.Request r) =>
+        _items(r).map((e) => e['kind'] as String).toSet().toList();
+
+    test('kolejka mieszana → najpierw same jawne, potem same automatyczne',
+        () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 3); // starsze automatyczne
+      await fill(3, 25, kind: FeedbackKind.explicit); // 22 jawne
+      await fill(25, 27);
+
+      final out = await uploader.flush(client: ok());
+
+      expect(out.status, UploadStatus.done);
+      expect(requests.map((r) => _items(r).length), [20, 2, 5]);
+      expect(kinds(requests[0]), ['explicit']);
+      expect(kinds(requests[1]), ['explicit']);
+      expect(kinds(requests[2]), ['notUnderstood']);
+      expect(await queued(), 0);
+    });
+
+    test('429 w puli jawnych nie wstrzymuje automatycznych', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 2);
+      await fill(2, 3, kind: FeedbackKind.explicit);
+      final out = await uploader.flush(client: backend((r) {
+        if (kinds(r).contains('explicit')) {
+          return http.Response(
+              jsonEncode({
+                'error': {'code': 'RATE_LIMITED'}
+              }),
+              429,
+              headers: {'retry-after': '600'});
+        }
+        return _json(200, {'accepted': _items(r).length, 'duplicates': 0});
+      }));
+
+      expect(out.status, UploadStatus.rateLimited);
+      expect(out.retryAfter, const Duration(seconds: 600));
+      expect(out.sent, 2);
+      expect((await FeedbackStore.instance.list()).map((e) => e.id), [uid(2)]);
+    });
+
+    test('429 w puli automatycznych: jawne już wysłane', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 2);
+      await fill(2, 3, kind: FeedbackKind.explicit);
+      final out = await uploader.flush(client: backend((r) {
+        if (kinds(r).contains('explicit')) {
+          return _json(200, {'accepted': 1, 'duplicates': 0});
+        }
+        return _json(429, {
+          'error': {'code': 'RATE_LIMITED'}
+        });
+      }));
+      expect(out.status, UploadStatus.rateLimited);
+      expect(out.sent, 1);
+      expect((await FeedbackStore.instance.list()).map((e) => e.id),
+          [uid(0), uid(1)]);
+    });
+
+    test('503 FEEDBACK_FULL przy jawnych zatrzymuje całą wysyłkę', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 2);
+      await fill(2, 3, kind: FeedbackKind.explicit);
+      final out = await uploader.flush(
+          client: backend((_) => http.Response(
+              jsonEncode({
+                'error': {'code': 'FEEDBACK_FULL'}
+              }),
+              503,
+              headers: {'retry-after': '3600'})));
+      expect(out.status, UploadStatus.serverFull);
+      expect(out.requests, 1);
+      expect(out.retryAfter, const Duration(hours: 1));
+      expect(await queued(), 3);
+    });
+  });
+
+  group('„Wyślij” przy jawnym zgłoszeniu (sendExplicit)', () {
+    test('bez zgody: wysyła tylko ten jeden element, automatyczne zostają',
+        () async {
+      await fill(0, 3);
+      await fill(3, 4, kind: FeedbackKind.explicit);
+      await fill(4, 5, kind: FeedbackKind.explicit);
+      expect(await FeedbackConsent.instance.isGranted(), isFalse);
+
+      final out = await uploader.sendExplicit(uid(3), client: ok());
+
+      expect(out.status, UploadStatus.done);
+      expect(out.requests, 1);
+      expect(out.sent, 1);
+      final sent = _items(requests.single);
+      expect(sent, hasLength(1));
+      expect(sent.single['id'], uid(3));
+      expect(sent.single['kind'], 'explicit');
+      expect(requests.single.headers['X-Feedback-Id'],
+          matches(RegExp(r'^[A-Za-z0-9_-]{22,64}$')));
+      expect((await FeedbackStore.instance.list()).map((e) => e.id),
+          [uid(0), uid(1), uid(2), uid(4)]);
+      expect(await FeedbackConsent.instance.isGranted(), isFalse,
+          reason: '„Wyślij” nie włącza zgody na wysyłkę automatyczną');
+
+      // Automatyczne nadal nie idą bez zgody.
+      requests.clear();
+      final auto = await uploader.flush(client: ok());
+      expect(auto.status, UploadStatus.noConsent);
+      expect(requests, isEmpty);
+    });
+
+    test('automatyczny albo nieznany id → notFound, zero żądań', () async {
+      await fill(0, 1);
+      expect((await uploader.sendExplicit(uid(0), client: ok())).status,
+          UploadStatus.notFound);
+      expect((await uploader.sendExplicit(uid(77), client: ok())).status,
+          UploadStatus.notFound);
+      expect(requests, isEmpty);
+      expect(await queued(), 1);
+    });
+
+    test('404 / brak sieci: zgłoszenie zostaje', () async {
+      await fill(0, 1, kind: FeedbackKind.explicit);
+      final out = await uploader.sendExplicit(uid(0),
+          client: backend((_) => _json(404, {})));
+      expect(out.status, UploadStatus.notDeployed);
+      expect(await queued(), 1);
+    });
+
+    test('400 INVALID_ITEM: zablokowane, nie skasowane', () async {
+      await fill(0, 1, kind: FeedbackKind.explicit);
+      final out = await uploader.sendExplicit(uid(0),
+          client: backend((_) => invalidItem()));
+      expect(out.status, UploadStatus.blocked);
+      expect(await queued(), 1);
+      expect(await FeedbackStore.instance.blockedIds(), {uid(0)});
+
+      // Ponowne „Wyślij” wolno (decyzja użytkownika); 400 → nadal blokada.
+      final again = await uploader.sendExplicit(uid(0),
+          client: backend((_) => invalidItem()));
+      expect(again.status, UploadStatus.blocked);
+      expect(await queued(), 1);
+    });
+
+    test('niezgodne z kontraktem: blokada bez żądania', () async {
+      seedFeedback({
+        FeedbackStore.prefsKey: queueJson([
+          {
+            ...sig(0, kind: FeedbackKind.explicit).toJson(),
+            'app': 'wersja próbna',
+          },
+        ]),
+      });
+      final out = await uploader.sendExplicit(uid(0), client: ok());
+      expect(out.status, UploadStatus.blocked);
+      expect(requests, isEmpty);
+      expect(await queued(), 1);
+    });
+  });
+
+  test('flush: niezgodne JAWNE są blokowane, nie kasowane', () async {
+    seedFeedback({
+      FeedbackStore.prefsKey: queueJson([
+        sig(0),
+        {...sig(1, kind: FeedbackKind.explicit).toJson(), 'lang': 'de'},
+        {...sig(2).toJson(), 'lang': 'de'},
+      ]),
+    });
     await FeedbackConsent.instance.grant();
-    await fill(0, 4);
-    final out = await uploader.flush(
-        client: backend((_) => _json(400, {'error': 'VALIDATION'})));
-    expect(out.rejected, 4);
-    expect(out.sent, 0);
-    expect(await queued(), 0);
-    expect((await FeedbackStore.instance.stats()).rejected, 4);
+    final out = await uploader.flush(client: ok());
+    expect(out.status, UploadStatus.done);
+    expect(out.rejected, 1);
+    expect(out.blocked, 1);
+    expect(_items(requests.single).map((e) => e['id']), [uid(0)]);
+    expect((await FeedbackStore.instance.list()).map((e) => e.id), [uid(1)]);
+  });
+
+  group('„Usuń moje dane” bez wyścigu z wysyłką (eraseAllFeedback)', () {
+    test(
+        'POST w toku dochodzi PRZED kasowaniem na serwerze; potem wszystko '
+        'lokalnie znika', () async {
+      await FeedbackConsent.instance.grant();
+      await fill(0, 25);
+      final events = <String>[];
+      final postStarted = Completer<void>();
+      final slow = MockClient((r) async {
+        events.add('post-start');
+        if (!postStarted.isCompleted) postStarted.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        events.add('post-end');
+        return _json(200, {'accepted': _items(r).length, 'duplicates': 0});
+      });
+
+      final flushing = FeedbackUploader.instance.flush(client: slow);
+      await postStarted.future;
+      final id = await FeedbackConsent.instance.storedInstallId();
+      expect(id, isNotNull);
+
+      final result = await eraseAllFeedback(deleteOnServer: (feedbackId) async {
+        events.add('delete:$feedbackId');
+        return true;
+      });
+
+      expect(result, FeedbackEraseResult.erased);
+      expect(events, ['post-start', 'post-end', 'delete:$id'],
+          reason: 'druga partia nie rusza po cofnięciu zgody');
+      expect((await flushing).status, UploadStatus.noConsent);
+      expect(await FeedbackConsent.instance.isGranted(), isFalse);
+      expect(await FeedbackConsent.instance.storedInstallId(), isNull);
+      expect(await queued(), 0);
+    });
+
+    test('w trakcie kasowania nic nie wychodzi', () async {
+      await fill(0, 1, kind: FeedbackKind.explicit);
+      await FeedbackConsent.instance.installId();
+      final gate = Completer<bool>();
+      final erasing = uploader.eraseAll(deleteOnServer: (_) => gate.future);
+      await Future<void>.delayed(Duration.zero);
+
+      expect((await uploader.flush(client: ok())).status, UploadStatus.erasing);
+      expect((await uploader.sendExplicit(uid(0), client: ok())).status,
+          UploadStatus.erasing);
+      expect(requests, isEmpty);
+
+      gate.complete(true);
+      expect(await erasing, FeedbackEraseResult.erased);
+    });
+
+    test('serwer zawiódł: identyfikator ZOSTAJE, zgoda cofnięta, kolejka pusta',
+        () async {
+      await FeedbackConsent.instance.grant();
+      final id = await FeedbackConsent.instance.installId();
+      await fill(0, 3);
+
+      for (final failing in <Future<bool> Function(String)>[
+        (_) async => false,
+        (_) async => throw http.ClientException('offline'),
+      ]) {
+        final result = await uploader.eraseAll(deleteOnServer: failing);
+        expect(result, FeedbackEraseResult.serverFailed);
+        expect(await FeedbackConsent.instance.storedInstallId(), id);
+        expect(await FeedbackConsent.instance.isGranted(), isFalse);
+        expect(await queued(), 0);
+      }
+
+      // Ponowienie z działającym serwerem kasuje już wszystko.
+      String? deleted;
+      final retry = await uploader.eraseAll(deleteOnServer: (fid) async {
+        deleted = fid;
+        return true;
+      });
+      expect(retry, FeedbackEraseResult.erased);
+      expect(deleted, id);
+      expect(await FeedbackConsent.instance.storedInstallId(), isNull);
+    });
+
+    test('bez identyfikatora: serwer nie jest wołany', () async {
+      await fill(0, 2);
+      var called = false;
+      final result = await uploader.eraseAll(deleteOnServer: (_) async {
+        called = true;
+        return true;
+      });
+      expect(result, FeedbackEraseResult.nothingOnServer);
+      expect(called, isFalse);
+      expect(await queued(), 0);
+    });
+
+    test('waitIdle czeka na „Wyślij” w toku', () async {
+      await fill(0, 1, kind: FeedbackKind.explicit);
+      final release = Completer<void>();
+      final sending = uploader.sendExplicit(uid(0), client: backend((r) async {
+        await release.future;
+        return _json(200, {'accepted': 1, 'duplicates': 0});
+      }));
+      var idle = false;
+      final waiting = uploader.waitIdle().then((_) => idle = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(idle, isFalse);
+      release.complete();
+      await waiting;
+      expect(idle, isTrue);
+      expect((await sending).status, UploadStatus.done);
+      await uploader.waitIdle(); // bezczynny → od razu
+    });
   });
 
   test('cofnięcie zgody w trakcie: następna partia nie idzie', () async {

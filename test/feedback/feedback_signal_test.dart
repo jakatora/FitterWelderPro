@@ -134,6 +134,92 @@ void main() {
     });
   });
 
+  group('pola techniczne: wzorce zamiast treści', () {
+    test('e.toString() ze ścieżką i nazwiskiem nie wychodzi w errorType/tool',
+        () {
+      const path = r'C:\Users\Jan Kowalski\Documents\iso.json';
+      final e = FileSystemException('Cannot open file', path);
+      final s = FeedbackSignal.create(
+        kind: FeedbackKind.error,
+        errorType: e.toString(),
+        tool: path,
+        skill: 'Jan Kowalski',
+      );
+      expect(e.toString(), contains('Jan Kowalski'));
+      expect(s.errorType, isNull);
+      expect(s.tool, isNull);
+      expect(s.skill, isNull);
+      expect(s.isValidForUpload, isTrue);
+      expect(jsonEncode(s.toJson()), isNot(contains('Kowalski')));
+    });
+
+    test('runtimeType i identyfikatory modułów przechodzą', () {
+      for (final t in [
+        'RangeError',
+        '_TypeError',
+        'FileSystemException',
+        'List<int>',
+        r'_$Closure',
+        'dart.async.TimeoutException',
+      ]) {
+        expect(
+            FeedbackSignal.create(kind: FeedbackKind.error, errorType: t)
+                .errorType,
+            t);
+      }
+      for (final t in [
+        'iso_notebook',
+        'fitter.pipe-weight',
+        'cut_list',
+        'b31'
+      ]) {
+        expect(
+            FeedbackSignal.create(kind: FeedbackKind.error, tool: t).tool, t);
+      }
+      // Typ generyczny ze spacją po przecinku — nie pasuje → null.
+      expect(
+          FeedbackSignal.create(
+                  kind: FeedbackKind.error, errorType: '_Map<String, dynamic>')
+              .errorType,
+          isNull);
+    });
+
+    test('sanitized() czyści pola sygnału zbudowanego konstruktorem', () {
+      final raw = FeedbackSignal.fromJson({
+        ..._fixtureItem(),
+        'tool': r'D:\projekty\Jan',
+        'skill': 'Ok',
+        'kind': 'error',
+        'text': '',
+        'errorType': 'PathNotFoundException: /home/jan',
+      });
+      expect(raw.isValidForUpload, isFalse);
+      final s = raw.sanitized();
+      expect(s.tool, isNull);
+      expect(s.skill, isNull);
+      expect(s.errorType, isNull);
+      expect(s.isValidForUpload, isTrue);
+    });
+
+    test('pusty tool/skill idzie jako null, nigdy pusty napis', () {
+      for (final empty in ['', '   ', '\t']) {
+        final s = FeedbackSignal.create(
+            kind: FeedbackKind.complaint, text: 'x', tool: empty, skill: empty);
+        final json = s.toJson();
+        expect(json['tool'], isNull);
+        expect(json['skill'], isNull);
+        expect(json.containsKey('tool'), isTrue);
+        expect(s.isValidForUpload, isTrue);
+      }
+    });
+
+    test('create generuje UUID zgodny z serwerem', () {
+      final s = FeedbackSignal.create(kind: FeedbackKind.complaint, text: 'x');
+      expect(kFeedbackIdPattern.hasMatch(s.id), isTrue);
+      expect(kFeedbackAppPattern.hasMatch(s.app), isTrue);
+    });
+  });
+
   group('contractViolation: reguły serwera', () {
     final cases = <String, (String, Object?)>{
       'text > 500': ('text', 'x' * 501),
@@ -145,7 +231,14 @@ void main() {
       'platform spoza listy': ('platform', 'linux'),
       'lang spoza listy': ('lang', 'de'),
       'app pusty': ('app', ''),
-      'id > 64': ('id', 'i' * 65),
+      'id nie jest UUID': ('id', 'sig-1'),
+      'tool ze ścieżką': ('tool', r'C:\Users\Jan Kowalski'),
+      'tool z wielką literą i spacją': ('tool', 'Iso Notebook'),
+      'skill ze spacją': ('skill', 'jan kowalski'),
+      'errorType z treścią błędu': ('errorType', 'FileSystemException: x'),
+      'errorType od cyfry': ('errorType', '1Error'),
+      'app ze spacją': ('app', '0.4.0 beta'),
+      'app > 32': ('app', '1' * 33),
       'skillsVersion ujemne': ('skillsVersion', -1),
     };
     cases.forEach((name, c) {

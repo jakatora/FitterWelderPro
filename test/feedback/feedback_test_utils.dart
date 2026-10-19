@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cut_list_app/feedback/feedback_consent.dart';
 import 'package:cut_list_app/feedback/feedback_signal.dart';
 import 'package:cut_list_app/feedback/feedback_store.dart';
+import 'package:cut_list_app/feedback/feedback_uploader.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 /// Czysty stan: puste preferencje, singletony od zera.
@@ -14,7 +15,12 @@ void seedFeedback([Map<String, Object> values = const {}]) {
   SharedPreferences.setMockInitialValues({...values});
   FeedbackStore.instance.resetForTest();
   FeedbackConsent.instance.resetForTest();
+  FeedbackUploader.instance.resetForTest();
 }
+
+/// Przewidywalny UUID (serwer przyjmuje tylko UUID jako `id`).
+String uid(int i) =>
+    '00000000-0000-4000-8000-${i.toRadixString(16).padLeft(12, '0')}';
 
 /// Sygnał testowy o przewidywalnym id i czasie.
 FeedbackSignal sig(
@@ -26,15 +32,17 @@ FeedbackSignal sig(
       kind: kind,
       text: text ?? 'polecenie $i',
       tool: 'iso_notebook',
-      id: 'sig-$i',
+      id: uid(i),
       lang: AppLanguage.pl,
       at: DateTime.utc(2026, 10, 19, 12).add(Duration(seconds: i)),
     );
 
 /// Zapis kolejki w formacie `feedback_queue_v1` (szybkie ziarno dużych kolejek).
-String queueJson(List<FeedbackSignal> items, {int dropped = 0}) => jsonEncode({
+String queueJson(List<Object> items, {int dropped = 0}) => jsonEncode({
       'v': 1,
-      'items': [for (final s in items) s.toJson()],
+      'items': [
+        for (final s in items) s is FeedbackSignal ? s.toJson() : s,
+      ],
       'dropped': dropped,
       'rejected': 0,
       'sent': 0,

@@ -3,10 +3,15 @@
 // Kontrakt z backendem (wersja 1, wzorzec: test/fixtures/feedback_signal_v1.json,
 // ta sama kopia w backend/test/fixtures/):
 //   body {"version": 1, "items": [<sygnał>, ...]}, partia ≤ 20;
-//   sygnał: id, kind, text (≤ 500, po maskowaniu; pusty dla `error`),
-//   tool i skill (≤ 64 albo null), skillsVersion, app, platform
+//   sygnał: id (UUID), kind, text (≤ 500, po maskowaniu; pusty tylko dla
+//   `error`), tool i skill (identyfikator [a-z0-9_.-] ≤ 64 albo null),
+//   skillsVersion, app ([0-9A-Za-z.+_-] ≤ 32), platform
 //   (android|ios|windows|web|other), lang (pl|en), at (ISO 8601 UTC, ms),
-//   errorType (albo null).
+//   errorType (nazwa typu ≤ 80 albo null).
+//
+// Pola techniczne (`tool`, `skill`, `errorType`) mają ścisłe wzorce: wartość,
+// która nie wygląda na identyfikator (np. `e.toString()` ze ścieżką
+// „C:\Users\Jan Kowalski\…”), jest zamieniana na null — nie wychodzi nigdy.
 //
 // Sygnał NIE niesie identyfikatora urządzenia czatu ani niczego o osobie —
 // instalację wskazuje wyłącznie nagłówek `X-Feedback-Id` (feedback_consent.dart).
@@ -33,8 +38,19 @@ const int kFeedbackErrorTypeMax = 80;
 /// Maksymalna liczba sygnałów w jednej partii.
 const int kFeedbackBatchMax = 20;
 
-const int _kAppMax = 32;
-const int _kIdMax = 64;
+/// `id` — UUID (serwer przyjmuje tylko taki).
+final RegExp kFeedbackIdPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+/// `tool` i `skill` — identyfikator modułu / umiejętności.
+final RegExp kFeedbackTagPattern = RegExp(r'^[a-z0-9_.-]{1,64}$');
+
+/// `errorType` — nazwa typu błędu (np. `RangeError`, `_TypeError`).
+final RegExp kFeedbackErrorTypePattern =
+    RegExp(r'^[A-Za-z_][A-Za-z0-9_.$<>]{0,79}$');
+
+/// `app` — wersja aplikacji (np. `0.4.0+18`).
+final RegExp kFeedbackAppPattern = RegExp(r'^[0-9A-Za-z.+_-]{1,32}$');
 
 const Set<String> kFeedbackPlatforms = {
   'android',
@@ -106,8 +122,10 @@ class FeedbackSignal {
   /// - dla [FeedbackKind.error] tekst jest zawsze pusty, dla pozostałych
   ///   rodzajów MUSI być niepusty (inaczej [contractViolation] = 'text'
   ///   i kolejka go nie przyjmie);
-  /// - `tool`, `skill`, `errorType` puste → null, za długie (64 / 64 / 80)
-  ///   → przycięte;
+  /// - `tool`, `skill`, `errorType`: przycięte (64 / 64 / 80), a jeśli nie
+  ///   pasują do wzorca ([kFeedbackTagPattern], [kFeedbackErrorTypePattern])
+  ///   albo są puste → null. Do `errorType` podawaj `e.runtimeType`, nie
+  ///   `e.toString()` — tekst błędu i tak zostanie wyrzucony;
   /// - czas w UTC z dokładnością do milisekund.
   factory FeedbackSignal.create({
     required FeedbackKind kind,
@@ -127,15 +145,15 @@ class FeedbackSignal {
       id: id ?? const Uuid().v4(),
       kind: kind,
       text: kind == FeedbackKind.error ? '' : prepareFeedbackText(text),
-      tool: _tag(tool),
-      skill: _tag(skill),
+      tool: _cleanTag(tool),
+      skill: _cleanTag(skill),
       skillsVersion: skillsVersion,
       app: app ?? kAppVersion,
       platform: platform ?? feedbackPlatform(),
       lang: (lang ?? AppLanguageController.current).name,
       at: DateTime.fromMillisecondsSinceEpoch(when.millisecondsSinceEpoch,
           isUtc: true),
-      errorType: _tag(errorType, kFeedbackErrorTypeMax),
+      errorType: _cleanErrorType(errorType),
     );
   }
 
@@ -208,40 +226,43 @@ class FeedbackSignal {
   bool get isExplicit => kind == FeedbackKind.explicit;
 
   /// Kopia z tekstem zamaskowanym i przyciętym jak w [FeedbackSignal.create]
-  /// (pusty dla `error`) i oczyszczonymi tagami. Kolejka woła to przy każdym
-  /// `add`, więc nawet sygnał zbudowany konstruktorem nie zapisze telefonu.
+  /// (pusty dla `error`) i oczyszczonymi polami technicznymi (niepasujące do
+  /// wzorca → null). Kolejka woła to przy każdym `add`, więc nawet sygnał
+  /// zbudowany konstruktorem nie zapisze telefonu ani ścieżki pliku.
   FeedbackSignal sanitized() => FeedbackSignal(
         id: id,
         kind: kind,
         text: kind == FeedbackKind.error ? '' : prepareFeedbackText(text),
-        tool: _tag(tool),
-        skill: _tag(skill),
+        tool: _cleanTag(tool),
+        skill: _cleanTag(skill),
         skillsVersion: skillsVersion,
         app: app,
         platform: platform,
         lang: lang,
         at: at,
-        errorType: _tag(errorType, kFeedbackErrorTypeMax),
+        errorType: _cleanErrorType(errorType),
       );
 
   /// Pierwsze pole niezgodne z regułami serwera albo null (można wysłać).
   ///
   /// Serwer odrzuca CAŁĄ partię (400), gdy choć jeden element jest zły,
   /// dlatego kolejka nie przyjmuje takich elementów, a uploader odsiewa je
-  /// przed wysyłką (licznik `rejected`).
+  /// przed wysyłką (automatyczne: licznik `rejected`; jawne: blokada).
   String? get contractViolation {
-    if (id.isEmpty || id.length > _kIdMax) return 'id';
+    if (!kFeedbackIdPattern.hasMatch(id)) return 'id';
     if (text.length > kFeedbackTextMax) return 'text';
     if (kind == FeedbackKind.error ? text.isNotEmpty : text.trim().isEmpty) {
       return 'text';
     }
-    if (!_validTag(tool, kFeedbackTagMax)) return 'tool';
-    if (!_validTag(skill, kFeedbackTagMax)) return 'skill';
-    if (skillsVersion < 0) return 'skillsVersion';
-    if (app.isEmpty || app.length > _kAppMax) return 'app';
+    if (tool != null && !kFeedbackTagPattern.hasMatch(tool!)) return 'tool';
+    if (skill != null && !kFeedbackTagPattern.hasMatch(skill!)) return 'skill';
+    if (skillsVersion < 0 || skillsVersion > 1000000) return 'skillsVersion';
+    if (!kFeedbackAppPattern.hasMatch(app)) return 'app';
     if (!kFeedbackPlatforms.contains(platform)) return 'platform';
     if (!kFeedbackLangs.contains(lang)) return 'lang';
-    if (!_validTag(errorType, kFeedbackErrorTypeMax)) return 'errorType';
+    if (errorType != null && !kFeedbackErrorTypePattern.hasMatch(errorType!)) {
+      return 'errorType';
+    }
     return null;
   }
 
@@ -292,12 +313,15 @@ Map<String, Object?> feedbackPayload(List<FeedbackSignal> items) => {
       'items': [for (final s in items) s.toJson()],
     };
 
-String? _tag(String? raw, [int max = kFeedbackTagMax]) {
+/// Przycina do [max] i zostawia tylko wartość pasującą do [pattern].
+String? _clean(String? raw, int max, RegExp pattern) {
   if (raw == null) return null;
-  final t = raw.trim();
-  if (t.isEmpty) return null;
-  return truncateUtf16(t, max);
+  final t = truncateUtf16(raw.trim(), max);
+  return pattern.hasMatch(t) ? t : null;
 }
 
-bool _validTag(String? v, int max) =>
-    v == null || (v.isNotEmpty && v.length <= max);
+String? _cleanTag(String? raw) =>
+    _clean(raw, kFeedbackTagMax, kFeedbackTagPattern);
+
+String? _cleanErrorType(String? raw) =>
+    _clean(raw, kFeedbackErrorTypeMax, kFeedbackErrorTypePattern);
