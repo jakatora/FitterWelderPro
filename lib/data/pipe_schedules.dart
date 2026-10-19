@@ -139,6 +139,15 @@ const List<PipeRow> kPipeWalls = [
   }),
 ];
 
+/// Row of [kPipeWalls] for a nominal size, or null when the DN is not in the
+/// table (we never fall back to a neighbouring size).
+PipeRow? pipeRowForDn(int dn) {
+  for (final r in kPipeWalls) {
+    if (r.dn == dn) return r;
+  }
+  return null;
+}
+
 /// Density (kg/dm³) for the mass calculation in the lookup screen.
 /// Carbon/alloy steel 7.85; stainless 316/316L (1.4401/1.4404) 8.0 per
 /// EN 10088-1 (TEAM EDELSTAHL 1.4404: "Density kg/dm³ 8,0"). 304/304L is 7.9.
