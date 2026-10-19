@@ -13,6 +13,12 @@
 // dat ani pojedynczych liczb — to treść, z której właściciel uczy asystenta.
 // Koszt: trzy liczby trzycyfrowe od 4–8 w zapisie 3-3-3 („600 100 200”)
 // wyglądają jak komórka i zostaną zamaskowane. Prywatność ma pierwszeństwo.
+//
+// Wzorce szukają na KOPII tekstu, w której każdy ciąg białych znaków
+// (podwójna spacja, twarda spacja U+00A0, wąska U+202F, tabulator, nowa
+// linia…) jest jedną spacją; trafienia są przenoszone na oryginał, więc
+// reszta tekstu zostaje bez zmian. Trafienia wszystkich wzorców są łączone
+// (suma zakresów), każdy spójny zakres → jedno `***`.
 
 const String kRedactedMark = '***';
 
@@ -36,8 +42,10 @@ final RegExp _international = RegExp(r'\(?(?:\+|\b00)\d[\d \-.()]{6,}\d');
 final RegExp _accountGrouped =
     RegExp(r'\b(?:[A-Za-z]{2})?\d{2}(?: ?\d{4}){5,7}\b');
 
-/// Grupy cyfr rozdzielone „-” albo „.” (600-100-200, 123-456-78-90).
-final RegExp _separated = RegExp(r'\b\d{2,4}(?:[\-.]\d{2,4}){2,4}\b');
+/// Grupy cyfr rozdzielone „-” (także z odstępami) albo „.”
+/// (600-100-200, 600 - 100 - 200, 600.100.200, 123-456-78-90). Kropka bez
+/// odstępów, żeby „1200. 1500. 1800” (wymiary w zdaniach) zostało.
+final RegExp _separated = RegExp(r'\b\d{2,4}(?:(?: ?- ?|\.)\d{2,4}){2,4}\b');
 
 /// Stacjonarny: 22 123 45 67, (22) 123-45-67.
 final RegExp _landline =
@@ -53,23 +61,91 @@ final RegExp _digit = RegExp(r'\d');
 
 int _digitCount(String s) => _digit.allMatches(s).length;
 
+/// Biały znak w rozumieniu `\s` z JavaScriptu (także U+00A0, U+202F,
+/// U+2000–U+200A, U+3000, U+FEFF).
+bool _isSpace(int c) =>
+    (c >= 0x09 && c <= 0x0D) ||
+    c == 0x20 ||
+    c == 0x85 ||
+    c == 0xA0 ||
+    c == 0x1680 ||
+    (c >= 0x2000 && c <= 0x200A) ||
+    c == 0x2028 ||
+    c == 0x2029 ||
+    c == 0x202F ||
+    c == 0x205F ||
+    c == 0x3000 ||
+    c == 0xFEFF;
+
 /// Zastępuje dane kontaktowe i długie ciągi cyfr znakiem [kRedactedMark].
 String redactPersonalData(String text) {
   if (text.isEmpty) return text;
-  var out = text;
-  out = out.replaceAll(_email, kRedactedMark);
-  out = out.replaceAll(_spokenEmail, kRedactedMark);
-  // Konto przed numerem międzynarodowym: grupa „0000” w koncie wygląda jak
-  // prefiks „00” i zamaskowałaby tylko ogon numeru.
-  out = out.replaceAll(_accountGrouped, kRedactedMark);
-  out = out.replaceAllMapped(
-      _international, (m) => _digitCount(m[0]!) >= 8 ? kRedactedMark : m[0]!);
-  out = out.replaceAllMapped(
-      _separated, (m) => _digitCount(m[0]!) >= 9 ? kRedactedMark : m[0]!);
-  out = out.replaceAll(_landline, kRedactedMark);
-  out = out.replaceAll(_mobileSpaced, kRedactedMark);
-  out = out.replaceAll(_longDigits, kRedactedMark);
-  return out;
+
+  // Kopia do dopasowania: każdy ciąg białych znaków = jedna spacja.
+  // [from]/[to] — zakres w oryginale odpowiadający znakowi kopii.
+  final copy = StringBuffer();
+  final from = <int>[];
+  final to = <int>[];
+  var i = 0;
+  while (i < text.length) {
+    if (_isSpace(text.codeUnitAt(i))) {
+      var j = i;
+      while (j < text.length && _isSpace(text.codeUnitAt(j))) {
+        j++;
+      }
+      copy.writeCharCode(0x20);
+      from.add(i);
+      to.add(j);
+      i = j;
+    } else {
+      copy.writeCharCode(text.codeUnitAt(i));
+      from.add(i);
+      to.add(i + 1);
+      i++;
+    }
+  }
+  final n = copy.toString();
+
+  final masked = List<bool>.filled(n.length, false);
+  void mark(RegExp re, [int minDigits = 0]) {
+    for (final m in re.allMatches(n)) {
+      if (minDigits > 0 && _digitCount(m[0]!) < minDigits) continue;
+      for (var k = m.start; k < m.end; k++) {
+        masked[k] = true;
+      }
+    }
+  }
+
+  mark(_email);
+  mark(_spokenEmail);
+  mark(_accountGrouped);
+  mark(_international, 8);
+  mark(_separated, 9);
+  mark(_landline);
+  mark(_mobileSpaced);
+  mark(_longDigits);
+
+  if (!masked.contains(true)) return text;
+  final out = StringBuffer();
+  var pos = 0;
+  var k = 0;
+  while (k < n.length) {
+    if (!masked[k]) {
+      k++;
+      continue;
+    }
+    var e = k;
+    while (e < n.length && masked[e]) {
+      e++;
+    }
+    out
+      ..write(text.substring(pos, from[k]))
+      ..write(kRedactedMark);
+    pos = to[e - 1];
+    k = e;
+  }
+  out.write(text.substring(pos));
+  return out.toString();
 }
 
 /// Przycina do [max] jednostek UTF-16 (tak liczy `String.length` w Dart i w

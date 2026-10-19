@@ -1,7 +1,7 @@
 // Lokalna kolejka sygnałów feedbacku (SharedPreferences `feedback_queue_v1`).
 //
-// Zapis: {"v":1,"items":[<sygnał>...],"dropped":n,"rejected":n,"sent":n,
-//         "corrupt":bool} — elementy od najstarszego.
+// Zapis: {"v":1,"items":[<sygnał>...],"blocked":[<id>...],"dropped":n,
+//         "rejected":n,"sent":n,"corrupt":bool} — elementy od najstarszego.
 //
 // Zasady:
 //   - limit [FeedbackStore.capacity] = 300; przy przepełnieniu wypada
@@ -11,6 +11,9 @@
 //   - `add` przyjmuje tylko sygnał zgodny z kontraktem (po ponownym
 //     maskowaniu); element zapisany wcześniej, który przestał spełniać reguły
 //     serwera, zostaje — uploader odsiewa go przed wysyłką;
+//   - jawnego zgłoszenia NIC poza użytkownikiem nie kasuje: zamiast
+//     odrzucenia dostaje blokadę (`blocked`) — zostaje na liście „Moje
+//     zgłoszenia”, a automatyczna wysyłka go pomija ([takeBatch]);
 //   - uszkodzony zapis (zły JSON albo element o złej STRUKTURZE): surowy
 //     tekst idzie RAZ pod `feedback_queue_v1_corrupt` (pierwsza kopia nie jest
 //     nadpisywana), ocalałe elementy zostają, flaga `corrupt` = true;
@@ -31,22 +34,36 @@ class FeedbackQueueStats {
   const FeedbackQueueStats({
     required this.count,
     required this.explicitCount,
+    required this.blocked,
     required this.dropped,
     required this.rejected,
     required this.sent,
     required this.corrupt,
   });
 
-  /// Sygnały czekające w kolejce.
+  static const FeedbackQueueStats empty = FeedbackQueueStats(
+    count: 0,
+    explicitCount: 0,
+    blocked: 0,
+    dropped: 0,
+    rejected: 0,
+    sent: 0,
+    corrupt: false,
+  );
+
+  /// Sygnały w kolejce (razem z zablokowanymi).
   final int count;
 
   /// W tym jawne zgłoszenia.
   final int explicitCount;
 
+  /// Jawne zgłoszenia zablokowane (serwer ich nie przyjmie w tej postaci).
+  final int blocked;
+
   /// Automatyczne sygnały, które wypadły przy przepełnieniu.
   final int dropped;
 
-  /// Sygnały odrzucone przez serwer (400) i usunięte.
+  /// Automatyczne sygnały odrzucone (niezgodne z kontraktem) i usunięte.
   final int rejected;
 
   /// Sygnały przyjęte przez serwer (200) i usunięte z kolejki.
@@ -87,16 +104,35 @@ class FeedbackStore {
     });
   }
 
-  /// Wszystkie sygnały w kolejce, od najstarszego.
+  /// Wszystkie sygnały w kolejce (także zablokowane), od najstarszego.
   Future<List<FeedbackSignal>> list() => _guarded('list',
       const <FeedbackSignal>[], (_, doc) async => List.unmodifiable(doc.items));
 
-  /// Pierwsze [max] sygnałów (najstarsze) BEZ usuwania — usuwa [markSent]
-  /// albo [markRejected] po odpowiedzi serwera.
+  /// Identyfikatory zablokowanych jawnych zgłoszeń.
+  Future<Set<String>> blockedIds() => _guarded('blockedIds', const <String>{},
+      (_, doc) async => Set.unmodifiable(doc.blocked));
+
+  /// Pierwsze [max] NIEZABLOKOWANYCH sygnałów (najstarsze) BEZ usuwania —
+  /// usuwa [markSent] albo [markRejected] po odpowiedzi serwera.
   Future<List<FeedbackSignal>> takeBatch([int max = kFeedbackBatchMax]) =>
-      _guarded('takeBatch', const <FeedbackSignal>[], (_, doc) async {
+      _take('takeBatch', max, null);
+
+  /// Jak [takeBatch], ale tylko z jednej puli: jawne ([explicit] = true) albo
+  /// automatyczne. Serwer liczy limity obu pul osobno, a partia mieszana
+  /// podlega obu — dlatego uploader nie miesza ich w jednym żądaniu.
+  Future<List<FeedbackSignal>> takePoolBatch({
+    required bool explicit,
+    int max = kFeedbackBatchMax,
+  }) =>
+      _take('takePoolBatch', max, explicit);
+
+  Future<List<FeedbackSignal>> _take(String what, int max, bool? explicit) =>
+      _guarded(what, const <FeedbackSignal>[], (_, doc) async {
         if (max <= 0) return const <FeedbackSignal>[];
-        return List.unmodifiable(doc.items.take(max));
+        return List.unmodifiable(doc.items
+            .where((e) => !doc.blocked.contains(e.id))
+            .where((e) => explicit == null || e.isExplicit == explicit)
+            .take(max));
       });
 
   /// Dodaje sygnał (tekst jeszcze raz maskowany — [FeedbackSignal.sanitized]).
@@ -126,51 +162,74 @@ class FeedbackStore {
         return true;
       });
 
-  /// Usuwa jeden sygnał (np. użytkownik skasował go w „Moje zgłoszenia”).
+  /// Usuwa jeden sygnał — decyzja użytkownika (np. „Moje zgłoszenia”).
   Future<bool> remove(String id) =>
       _guarded('remove', false, (prefs, doc) async {
         final before = doc.items.length;
         doc.items.removeWhere((e) => e.id == id);
         if (doc.items.length == before) return false;
+        doc.blocked.remove(id);
         await _save(prefs, doc);
         return true;
       });
 
   /// Usuwa sygnały przyjęte przez serwer. Zwraca liczbę usuniętych.
-  Future<int> markSent(Iterable<String> ids) =>
-      _removeCounted('markSent', ids, (doc, n) => doc.sent += n);
-
-  /// Usuwa sygnały odrzucone przez serwer (400). Zwraca liczbę usuniętych.
-  Future<int> markRejected(Iterable<String> ids) =>
-      _removeCounted('markRejected', ids, (doc, n) => doc.rejected += n);
-
-  Future<int> _removeCounted(String what, Iterable<String> ids,
-      void Function(_QueueDoc doc, int removed) count) {
+  Future<int> markSent(Iterable<String> ids) {
     final set = ids.toSet();
-    return _guarded(what, 0, (prefs, doc) async {
+    return _guarded('markSent', 0, (prefs, doc) async {
       final before = doc.items.length;
       doc.items.removeWhere((e) => set.contains(e.id));
       final removed = before - doc.items.length;
       if (removed == 0) return 0;
-      count(doc, removed);
+      doc.blocked.removeAll(set);
+      doc.sent += removed;
       await _save(prefs, doc);
       return removed;
     });
   }
 
+  /// Odrzucone sygnały: AUTOMATYCZNE są usuwane (licznik `rejected`), jawne
+  /// NIGDY — dostają blokadę jak w [markBlocked]. Zwraca liczbę usuniętych.
+  Future<int> markRejected(Iterable<String> ids) {
+    final set = ids.toSet();
+    return _guarded('markRejected', 0, (prefs, doc) async {
+      var changed = false;
+      for (final e in doc.items) {
+        if (e.isExplicit && set.contains(e.id) && doc.blocked.add(e.id)) {
+          changed = true;
+        }
+      }
+      final before = doc.items.length;
+      doc.items.removeWhere((e) => !e.isExplicit && set.contains(e.id));
+      final removed = before - doc.items.length;
+      doc.rejected += removed;
+      if (removed > 0 || changed) await _save(prefs, doc);
+      return removed;
+    });
+  }
+
+  /// Blokuje jawne zgłoszenia (serwer ich nie przyjmie w tej postaci):
+  /// zostają w kolejce, automatyczna wysyłka je pomija. Zwraca liczbę nowo
+  /// zablokowanych. Sygnały automatyczne są ignorowane.
+  Future<int> markBlocked(Iterable<String> ids) {
+    final set = ids.toSet();
+    return _guarded('markBlocked', 0, (prefs, doc) async {
+      var n = 0;
+      for (final e in doc.items) {
+        if (e.isExplicit && set.contains(e.id) && doc.blocked.add(e.id)) n++;
+      }
+      if (n > 0) await _save(prefs, doc);
+      return n;
+    });
+  }
+
   Future<FeedbackQueueStats> stats() => _guarded(
         'stats',
-        const FeedbackQueueStats(
-          count: 0,
-          explicitCount: 0,
-          dropped: 0,
-          rejected: 0,
-          sent: 0,
-          corrupt: false,
-        ),
+        FeedbackQueueStats.empty,
         (_, doc) async => FeedbackQueueStats(
           count: doc.items.length,
           explicitCount: doc.items.where((e) => e.isExplicit).length,
+          blocked: doc.blocked.length,
           dropped: doc.dropped,
           rejected: doc.rejected,
           sent: doc.sent,
@@ -251,6 +310,15 @@ class FeedbackStore {
           intact = false;
         }
       }
+      final blocked = decoded['blocked'];
+      if (blocked is List) {
+        final explicitIds = {
+          for (final s in doc.items)
+            if (s.isExplicit) s.id,
+        };
+        doc.blocked
+            .addAll(blocked.whereType<String>().where(explicitIds.contains));
+      }
     } on FormatException {
       return false;
     }
@@ -262,6 +330,7 @@ class FeedbackStore {
 
 class _QueueDoc {
   final List<FeedbackSignal> items = [];
+  final Set<String> blocked = {};
   int dropped = 0;
   int rejected = 0;
   int sent = 0;
@@ -270,6 +339,10 @@ class _QueueDoc {
   Map<String, Object?> toJson() => {
         'v': 1,
         'items': [for (final s in items) s.toJson()],
+        'blocked': [
+          for (final s in items)
+            if (blocked.contains(s.id)) s.id,
+        ],
         'dropped': dropped,
         'rejected': rejected,
         'sent': sent,

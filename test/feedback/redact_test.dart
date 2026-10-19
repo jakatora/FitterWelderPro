@@ -24,6 +24,36 @@ void main() {
     });
   });
 
+  group('telefony z nietypowymi odstępami', () {
+    const cases = {
+      'tel 600  100  200': 'tel ***',
+      'tel 600 100 200': 'tel ***',
+      'tel 600 100 200': 'tel ***',
+      'tel +48 600 100 200': 'tel ***',
+      'tel +48  600   100 200': 'tel ***',
+      'tel 600\t100\t200': 'tel ***',
+      'tel 600 - 100 - 200': 'tel ***',
+      'tel 22 123 45 67': 'tel ***',
+      'konto PL61 1090 1014 0000 0712 1981 2874': 'konto ***',
+    };
+    cases.forEach((input, expected) {
+      test(input.replaceAll(' ', '<nbsp>').replaceAll(' ', '<nnbsp>'),
+          () => expect(redactPersonalData(input), expected));
+    });
+
+    test('reszta tekstu zostaje nietknięta (podwójne spacje, nowe linie)', () {
+      const input = 'Linia  pierwsza\n\nnumer 600 100 200  i  koniec';
+      expect(
+          redactPersonalData(input), 'Linia  pierwsza\n\nnumer ***  i  koniec');
+    });
+
+    test('maskowanie jest idempotentne', () {
+      const input = 'jan@x.pl, 600  100  200';
+      final once = redactPersonalData(input);
+      expect(redactPersonalData(once), once);
+    });
+  });
+
   group('e-maile', () {
     const cases = {
       'jan@x.pl': '***',
@@ -61,6 +91,8 @@ void main() {
       'ile waży 6000 mm rury 168,3 x 7,1',
       'it fails at startup. Please fix it',
       'look at this dot',
+      'rura 1200. 1500. 1800',
+      'odcinki  1200  1500  800',
     ];
     for (final k in keep) {
       test(k, () => expect(redactPersonalData(k), k));
