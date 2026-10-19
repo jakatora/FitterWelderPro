@@ -87,6 +87,10 @@ class BackendConfig {
   /// Stary backend: 404 → aplikacja kieruje do usunięcia mailowego.
   static const String me = '/api/fitter/me';
 
+  /// POST — partia zgłoszeń problemów (lib/feedback/feedback_uploader.dart),
+  /// nagłówek `X-Feedback-Id`. Stary backend: 404 → kolejka czeka.
+  static const String feedback = '/api/fitter/feedback';
+
   /// Publiczne strony dla sklepów (statyczny HTML z backendu).
   static const String privacyPage = '/privacy';
   static const String dataDeletionPage = '/data-deletion';
