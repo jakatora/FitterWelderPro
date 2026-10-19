@@ -137,6 +137,22 @@ Map<String, Object?> _seg(Offset a, Offset b) => <String, Object?>{
       'calc': null,
     };
 
+Map<String, Object?> _elbow(Offset pos, int dir, int dir2) => <String, Object?>{
+      'kind': 'comp',
+      'tool': 'elbow90',
+      'pos': <double>[pos.dx, pos.dy],
+      'dir': dir,
+      'dir2': dir2,
+      'label': '',
+      'dn': null,
+      'elbowSubtype': null,
+      'cteMm': null,
+      'physicalLengthMm': null,
+      'dnOut': null,
+      'endA': null,
+      'endB': null,
+    };
+
 Map<String, Object?> _northArrow(Offset pos, int dir) => <String, Object?>{
       'kind': 'comp',
       'tool': 'northArrow',
@@ -538,6 +554,8 @@ void main() {
       ], stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.turnAtFitting);
       expect(r.problemStep, 2);
+      expect(r.problemPl, contains('kształtka'));
+      expect(r.problemEn, isNotEmpty);
       expect(c.hasContent, isFalse);
       await _leave(tester);
     });
@@ -613,7 +631,7 @@ void main() {
     testWidgets(
         'rysowanie w górę na pustym arkuszu: start przesunięty, punkty w '
         'wierszach ≥ 0, widok dopasowany do całego rysunku', (tester) async {
-      await _boot(tester, size: const Size(800, 1000));
+      await _boot(tester, size: const Size(412, 860));
       final c = await _open(tester);
       final canvas = tester.getSize(_canvas);
       const up = IsoPipe(lengthMm: 4000); // 8 grid rows
@@ -649,7 +667,7 @@ void main() {
           expect(row.round(), greaterThanOrEqualTo(0));
         }
       }
-      // 40 rows (≈ 1110 px) do not fit an 800 × 1000 screen at 100 %: the
+      // 40 rows (≈ 1110 px) do not fit a 412 × 860 phone at 100 %: the
       // view zooms out until the whole drawing is on screen.
       expect(canvas.height, lessThan(40 * _dy));
       final visible = c.debugVisibleWorld!;
@@ -756,6 +774,161 @@ void main() {
       await expectLater(
           c.draw(const [IsoPipe()], stepDelay: Duration.zero),
           throwsStateError);
+    });
+  });
+
+  group('poprawki z przeglądu', () {
+    testWidgets(
+        'krok podglądu nie przebudowuje ekranu — przebudowy nie rosną z liczbą '
+        'kroków podglądu, a warstwa podglądu się przemalowuje', (tester) async {
+      await _boot(tester);
+      final c = await _open(tester);
+      await tester.pump();
+      final builds0 = c.debugScreenBuilds;
+      final paints0 = IsoNotebookController.debugGhostPaints;
+
+      const step = Duration(milliseconds: 40);
+      final pending = c.draw(const [
+        IsoPipe(),
+        IsoTurn(),
+        IsoPipe(),
+        IsoTurn(toDir: IsoDir.up),
+        IsoPipe(),
+      ], stepDelay: step);
+      // Three preview steps of the first pipe, a frame after each.
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(c.debugGhost, isNotNull);
+      expect(c.hasContent, isFalse, reason: 'still previewing pipe 1');
+      expect(c.debugScreenBuilds, builds0,
+          reason: 'a preview step must not rebuild the screen');
+      expect(IsoNotebookController.debugGhostPaints, greaterThan(paints0),
+          reason: 'the preview layer itself does repaint');
+
+      // The rest of the run: 3 pipes × 4 preview steps = 12 steps.
+      for (var i = 0; i < 40 && c.isBusy; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      final r = await pending;
+      expect(r.segments, 3);
+      final builds = c.debugScreenBuilds - builds0;
+      expect(builds, lessThanOrEqualTo(r.segments + 1),
+          reason: 'one rebuild per committed pipe, none per preview step '
+              '(12 steps → $builds rebuilds)');
+      await _leave(tester);
+    });
+
+    testWidgets(
+        'otwarcie innego szkicu w trakcie animacji: stary szkic w bazie ma '
+        'wszystkie rury polecenia', (tester) async {
+      await _seed('old', _onePipe());
+      await IsoDrawingDao().upsert(IsoDrawingRecord(
+        id: 'other',
+        name: 'Inny rysunek',
+        json: jsonEncode(_sketch('Inny rysunek', [
+          _seg(Offset(64, 10 * _dy), Offset(192, 10 * _dy)),
+        ])),
+        createdAt: 500,
+        updatedAt: 500, // older: the notebook opens 'old'
+      ));
+      await _boot(tester);
+      final c = await _open(tester);
+      expect(c.sketchName, 'Linia testowa');
+
+      final pending = c.draw(const [
+        IsoPipe(dir: IsoDir.forward),
+        IsoTurn(toDir: IsoDir.right),
+        IsoPipe(),
+        IsoTurn(toDir: IsoDir.forward),
+        IsoPipe(),
+      ], stepDelay: const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(c.debugGhost, isNotNull, reason: 'mid-animation');
+
+      await tester.tap(find.byTooltip('Szkice'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Zapisane szkice…'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Inny rysunek').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect((await pending).segments, 3);
+      expect(c.sketchName, 'Inny rysunek');
+      final old = await IsoDrawingDao().getById('old');
+      final pipes =
+          _pipes((jsonDecode(old!.json) as Map).cast<String, Object?>());
+      expect(pipes, hasLength(4),
+          reason: 'the original pipe + all 3 of the command, none lost');
+      await _leave(tester);
+    });
+
+    testWidgets(
+        '„Nowy szkic” w trakcie animacji: stary szkic w bazie ma wszystkie '
+        'rury polecenia', (tester) async {
+      await _seed('old', _onePipe());
+      await _boot(tester);
+      final c = await _open(tester);
+
+      final pending = c.draw(const [
+        IsoPipe(dir: IsoDir.forward),
+        IsoTurn(toDir: IsoDir.right),
+        IsoPipe(),
+      ], stepDelay: const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(c.debugGhost, isNotNull);
+
+      await tester.tap(find.byTooltip('Szkice'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Nowy szkic'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.widgetWithText(TextButton, 'Nowy szkic'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect((await pending).segments, 2);
+      expect(c.hasContent, isFalse, reason: 'a fresh sheet');
+      final old = await IsoDrawingDao().getById('old');
+      final pipes =
+          _pipes((jsonDecode(old!.json) as Map).cast<String, Object?>());
+      expect(pipes, hasLength(3));
+      await _leave(tester);
+    });
+
+    testWidgets(
+        'kolano stojące na wolnym końcu blokuje rurę i kształtkę '
+        '(turnAtFitting, „na końcu stoi już kolano”), zapis bez zmian',
+        (tester) async {
+      final original = await _seed(
+          'elbow',
+          _sketch('Z kolanem', [
+            _seg(Offset(64, 4 * _dy), Offset(192, 4 * _dy)),
+            _elbow(Offset(192, 4 * _dy), 3, 1),
+          ]));
+      await _boot(tester);
+      final c = await _open(tester);
+
+      for (final steps in const [
+        [IsoTurn(toDir: IsoDir.forward), IsoPipe()], // a turn
+        [IsoPipe(dir: IsoDir.right)], // straight on through the elbow
+        [IsoFitting('ballValve', dn: 50)], // a fitting on top of it
+      ]) {
+        final r = await c.draw(steps, stepDelay: Duration.zero);
+        expect(r.problem, IsoDrawProblem.turnAtFitting, reason: '$steps');
+        expect(r.problemStep, 0);
+        expect(r.problemPl, contains('Na końcu stoi już kolano'));
+        expect(r.problemPl, contains('cofnij'));
+        expect(r.segments, 0);
+      }
+      await tester.pump(const Duration(milliseconds: 600));
+      expect((await IsoDrawingDao().getById('elbow'))!.json, original.json);
+      await _leave(tester);
     });
   });
 }
