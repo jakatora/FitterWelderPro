@@ -10,6 +10,7 @@
 // a [mentionsDn] mówi, że DN padło — umiejętność zapyta o rozmiar.
 
 import '../../i18n/app_language.dart';
+import '../../utils/decimal_parse.dart';
 import 'spoken_numbers.dart';
 
 const _plFold = {
@@ -265,7 +266,7 @@ class Utterance {
     final sign = _degreeSignRe.firstMatch(raw);
     double? fromSign;
     if (sign != null) {
-      fromSign = double.tryParse(sign[1]!.replaceAll(',', '.'));
+      fromSign = parseDecimal(sign[1]);
     }
     for (var i = 0; i < items.length; i++) {
       final it = items[i];
