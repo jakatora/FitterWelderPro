@@ -1,0 +1,1089 @@
+part of 'iso_notebook_screen.dart';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STEROWANIE ZESZYTEM Z ZEWNĄTRZ — dla asystenta głosowego (spec §4.5).
+//
+// „Narysuj rura kolanko rura” → [IsoPipe(), IsoTurn(), IsoPipe()] →
+// [IsoNotebookController.draw]. Model szkicu jest prywatny, więc kontroler
+// jest częścią tej biblioteki; na zewnątrz wystają tylko prymitywy poniżej.
+//
+// Zasady:
+//  * całe polecenie to JEDEN krok „Cofnij” (jedno `_undo.add`);
+//  * polecenie jest najpierw planowane w całości. Problem (zawrócenie, skręt
+//    na końcu, 45°, trójnik, wyjście nad górę siatki…) zatrzymuje je PRZED
+//    rysowaniem — nic nie trafia ani do szkicu, ani do bazy;
+//  * kolano powstaje samo na styku dwóch rur (`_maybeInsertElbows`), a
+//    „kolano” w poleceniu to zamiar skrętu NASTĘPNEJ rury;
+//  * animacja to osobny podgląd (`_ghostA/_ghostB`), niezależny od gestu
+//    palca (`_dragA/_dragB`). Gest w trakcie animacji kończy polecenie od
+//    razu, bez animacji — przerywa animację, nie zapis;
+//  * polecenia idą przez kolejkę, jedno po drugim.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Kierunek rury w słowach montera.
+///
+/// Indeks = kierunek siatki ([_isoHeadings]) w domyślnym odwzorowaniu osi:
+/// 0 w prawo, 1 w górę (oś III = pion), 2 do tyłu, 3 w lewo, 4 w dół,
+/// 5 do przodu. „W górę” rysuje w górę ekranu po osi, którą legenda osi
+/// podpisuje „pion”; „do przodu” — w dół ekranu po drugiej osi poziomej.
+///
+/// Wyjątek: strzałka północy położona na osi III zamienia role osi — legenda
+/// pokazuje wtedy „góra/dół” przy osi II. Kontroler idzie za legendą: w górę
+/// = oś II w górę ekranu, do przodu/do tyłu = oś III. Prawo/lewo to zawsze
+/// oś I (pozioma na ekranie).
+enum IsoDir { right, up, back, left, down, forward }
+
+/// Strona świata — działa tylko przy strzałce północy na rysunku
+/// ([IsoNotebookController.dirForCompass]).
+enum IsoCompass { north, south, east, west }
+
+/// Jeden krok polecenia rysowania.
+sealed class IsoStep {
+  const IsoStep();
+}
+
+/// Rura od kursora. Bez [dir]: pierwsza w prawo, kolejna dalej prosto, po
+/// [IsoTurn] — skręt domyślny. Bez [lengthMm]: 3 kroki siatki i bez wymiaru.
+class IsoPipe extends IsoStep {
+  const IsoPipe({this.dir, this.lengthMm});
+  final IsoDir? dir;
+  final double? lengthMm;
+
+  @override
+  bool operator ==(Object other) =>
+      other is IsoPipe && other.dir == dir && other.lengthMm == lengthMm;
+
+  @override
+  int get hashCode => Object.hash(IsoPipe, dir, lengthMm);
+
+  @override
+  String toString() => 'IsoPipe(${[
+        if (dir != null) 'dir: ${dir!.name}',
+        if (lengthMm != null) 'lengthMm: $lengthMm',
+      ].join(', ')})';
+}
+
+/// Zamiar skrętu dla NASTĘPNEJ rury — kolano 90° wstawia się samo na styku.
+/// [dn] trafia do kolana (CTE z [isoStandardElbowCteMm] albo z pamięci
+/// rysunku) i do pamięci ostatniego DN.
+class IsoTurn extends IsoStep {
+  const IsoTurn({this.toDir, this.dn});
+  final IsoDir? toDir;
+  final int? dn;
+
+  @override
+  bool operator ==(Object other) =>
+      other is IsoTurn && other.toDir == toDir && other.dn == dn;
+
+  @override
+  int get hashCode => Object.hash(IsoTurn, toDir, dn);
+
+  @override
+  String toString() => 'IsoTurn(${[
+        if (toDir != null) 'toDir: ${toDir!.name}',
+        if (dn != null) 'dn: $dn',
+      ].join(', ')})';
+}
+
+/// Kształtka osiowa stawiana na kursorze, ze specyfikacją z tablic (bez
+/// okien dialogowych). [tool]: `flange`, `blindFlange`, `cap`, `reducer`,
+/// `gateValve`, `ballValve`, `checkValve`, `globeValve`, `butterflyValve`,
+/// `weld`, `fieldWeld`, `support`. `elbow45` → [IsoDrawProblem.unsupported45],
+/// `tee` / `olet` → [IsoDrawProblem.unsupportedTee]; inna nazwa to błąd
+/// programisty ([ArgumentError]).
+class IsoFitting extends IsoStep {
+  const IsoFitting(this.tool, {this.dn, this.dnOut});
+  final String tool;
+  final int? dn;
+
+  /// Tylko redukcja: DN wylotu.
+  final int? dnOut;
+
+  @override
+  bool operator ==(Object other) =>
+      other is IsoFitting &&
+      other.tool == tool &&
+      other.dn == dn &&
+      other.dnOut == dnOut;
+
+  @override
+  int get hashCode => Object.hash(IsoFitting, tool, dn, dnOut);
+
+  @override
+  String toString() => "IsoFitting('$tool'${[
+        if (dn != null) ', dn: $dn',
+        if (dnOut != null) ', dnOut: $dnOut',
+      ].join()})";
+}
+
+/// Dlaczego polecenie NIE zostało narysowane (nic nie zapisano).
+enum IsoDrawProblem {
+  /// Rura w kierunku przeciwnym do poprzedniej (zawrócenie).
+  reversal,
+
+  /// Po kolanie rura idzie dalej tym samym kierunkiem — to nie jest skręt.
+  sameDirectionAfterTurn,
+
+  /// Kolano bez rury za nim (na końcu polecenia albo tuż przed kształtką):
+  /// „powiedz, dokąd idzie rura po kolanie”.
+  trailingTurn,
+
+  /// Kolano 45° — poza zakresem tej wersji, do narysowania palcem.
+  unsupported45,
+
+  /// Trójnik / olet — poza zakresem tej wersji, do narysowania palcem.
+  unsupportedTee,
+
+  /// Rysunek wyszedłby nad górną krawędź siatki (wiersze < 0).
+  outOfCanvas,
+
+  /// Zmiana kierunku w punkcie, w którym stoi już kształtka (zawór, kołnierz,
+  /// redukcja…): kolano nie ma gdzie stanąć. Potrzebna rura między nimi.
+  turnAtFitting,
+}
+
+/// Wynik [IsoNotebookController.draw].
+@immutable
+class IsoDrawReport {
+  const IsoDrawReport({
+    this.assumedPl = const [],
+    this.assumedEn = const [],
+    this.problem,
+    this.problemStep,
+    this.segments = 0,
+    this.elbows = 0,
+    this.fittings = 0,
+  });
+
+  /// Co kontroler przyjął sam (kierunek, skręt domyślny, DN, brak długości).
+  /// Listy równoległe: PL i EN. Puste, gdy wystąpił [problem].
+  final List<String> assumedPl, assumedEn;
+
+  /// Null = narysowano. Inaczej nic nie zostało dodane ani zapisane.
+  final IsoDrawProblem? problem;
+
+  /// Indeks w liście kroków, którego dotyczy [problem] (przy problemach ze
+  /// skrętem — indeks [IsoTurn]).
+  final int? problemStep;
+
+  /// Ile dodano rur, kolan (wstawionych automatycznie) i kształtek.
+  final int segments, elbows, fittings;
+
+  bool get ok => problem == null;
+
+  @override
+  String toString() => problem != null
+      ? 'IsoDrawReport(problem: ${problem!.name} @ $problemStep)'
+      : 'IsoDrawReport(segments: $segments, elbows: $elbows, '
+          'fittings: $fittings, assumed: $assumedPl)';
+}
+
+/// Sterowanie zamontowanym Zeszytem ISO. Jedna instancja na ekran; znajdziesz
+/// ją przez [IsoNotebookController.active] (null, gdy zeszyt nie jest
+/// otwarty) albo [activeListenable].
+class IsoNotebookController extends ChangeNotifier {
+  IsoNotebookController._(this._state);
+
+  _IsoState? _state;
+
+  // ── rejestr ────────────────────────────────────────────────────────────────
+
+  static IsoNotebookController? _current;
+  static final ValueNotifier<IsoNotebookController?> _activeNotifier =
+      ValueNotifier<IsoNotebookController?>(null);
+
+  /// Kontroler zamontowanego ekranu zeszytu albo null.
+  static IsoNotebookController? get active => _current;
+
+  /// To samo co [active], jako sygnał (np. „czekaj, aż zeszyt się otworzy”).
+  /// Zmiana dochodzi w mikrozadaniu, nigdy w trakcie budowania drzewa.
+  static ValueListenable<IsoNotebookController?> get activeListenable =>
+      _activeNotifier;
+
+  static void _publish() =>
+      scheduleMicrotask(() => _activeNotifier.value = _current);
+
+  void _attach() {
+    _current = this;
+    _publish();
+  }
+
+  /// Ekran znika: polecenie w toku kończy się od razu (dispose zapisze je
+  /// razem z resztą), kolejne w kolejce dostaną [StateError].
+  void _detach() {
+    _finishNow();
+    _state = null;
+    if (identical(_current, this)) {
+      _current = null;
+      _publish();
+    }
+    for (final c in [_prefsLoaded, _sketchLoaded, _laidOut]) {
+      if (!c.isCompleted) c.complete();
+    }
+  }
+
+  // ── gotowość ───────────────────────────────────────────────────────────────
+
+  final Completer<void> _prefsLoaded = Completer<void>();
+  final Completer<void> _sketchLoaded = Completer<void>();
+  final Completer<void> _laidOut = Completer<void>();
+  late final Future<void> _ready = Future.wait<void>([
+    _prefsLoaded.future,
+    _sketchLoaded.future,
+    _laidOut.future,
+  ]).then((_) {});
+
+  /// Ustawienia wczytane, ostatni szkic na ekranie, płótno ma rozmiar.
+  /// [draw], [startNew] i [undo] z kolejki same na to czekają.
+  Future<void> get ready => _ready;
+
+  void _markPrefsLoaded() {
+    if (!_prefsLoaded.isCompleted) _prefsLoaded.complete();
+  }
+
+  void _markSketchLoaded() {
+    if (!_sketchLoaded.isCompleted) _sketchLoaded.complete();
+  }
+
+  void _awaitFirstLayout() {
+    final s = _state;
+    if (s == null || _laidOut.isCompleted) return;
+    final size = s._canvasSize;
+    if (size != null && !size.isEmpty) {
+      _laidOut.complete();
+      return;
+    }
+    WidgetsBinding.instance
+      ..addPostFrameCallback((_) => _awaitFirstLayout())
+      ..scheduleFrame();
+  }
+
+  // ── stan ───────────────────────────────────────────────────────────────────
+
+  /// Czy na arkuszu cokolwiek jest.
+  bool get hasContent => _state?._items.isNotEmpty ?? false;
+
+  /// Nazwa rysunku albo null (bez nazwy).
+  String? get sketchName {
+    final n = _state?._projectName ?? '';
+    return n.isEmpty ? null : n;
+  }
+
+  /// Ostatnia zmiana rysunku na ekranie (z bazy przy otwarciu), null dla
+  /// nowego, nietkniętego arkusza.
+  DateTime? get lastEdited => _state?._lastEditedAt;
+
+  /// Polecenie w toku albo w kolejce.
+  bool get isBusy => _queued > 0;
+
+  /// Kierunek montera dla strony świata — tylko gdy na rysunku jest strzałka
+  /// północy (inaczej null). Odwzorowanie jak etykiety N/S/E/W na liniach.
+  IsoDir? dirForCompass(IsoCompass c) {
+    final s = _state;
+    final m = s?._currentMapping;
+    if (s == null || m == null) return null;
+    final north = s._closestIsoHeading(m.northVec);
+    final east = s._closestIsoHeading(m.eastVec);
+    final grid = switch (c) {
+      IsoCompass.north => north,
+      IsoCompass.south => (north + 3) % 6,
+      IsoCompass.east => east,
+      IsoCompass.west => (east + 3) % 6,
+    };
+    return _semanticOf(grid, m);
+  }
+
+  void _changed() {
+    if (_state == null) return;
+    notifyListeners();
+  }
+
+  // ── kolejka ────────────────────────────────────────────────────────────────
+
+  Future<void> _tail = Future<void>.value();
+  int _queued = 0;
+  _VoiceRun? _run;
+
+  Future<T> _enqueue<T>(Future<T> Function(_IsoState s) op) {
+    _queued++;
+    final result = _tail.then((_) async {
+      try {
+        await ready;
+        final s = _state;
+        if (s == null) {
+          throw StateError('IsoNotebookScreen is no longer mounted');
+        }
+        return await op(s);
+      } finally {
+        _queued--;
+      }
+    });
+    _tail = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  // ── API ────────────────────────────────────────────────────────────────────
+
+  /// Zapisuje bieżący szkic i otwiera pusty arkusz (bez wpisu w bazie —
+  /// wpis powstaje przy pierwszym elemencie). Pusty, zapisany wcześniej
+  /// arkusz zostaje usunięty. [StateError], gdy zapis się nie udał (wtedy
+  /// nic się nie zmienia).
+  Future<void> startNew() => _enqueue((s) async {
+        if (!await s._flushSave()) {
+          throw StateError('Could not save the current sketch');
+        }
+        if (_state == null) {
+          throw StateError('IsoNotebookScreen is no longer mounted');
+        }
+        await s._dropCurrentIfBlank();
+        if (_state == null) {
+          throw StateError('IsoNotebookScreen is no longer mounted');
+        }
+        s._startBlankSketch(persist: false);
+      });
+
+  /// Wykonuje sekwencję jako JEDEN krok Cofnij; zatrzymuje się na pierwszym
+  /// problemie (bez częściowego zapisu). Każda rura rośnie w podglądzie w 4
+  /// krokach co [stepDelay] (zero = bez animacji), potem trafia do szkicu.
+  /// Na koniec widok dopasowuje się tak, żeby cały rysunek był widoczny.
+  Future<IsoDrawReport> draw(List<IsoStep> steps,
+      {Duration stepDelay = const Duration(milliseconds: 300)}) {
+    final copy = List<IsoStep>.unmodifiable(steps);
+    return _enqueue((s) => _draw(s, copy, stepDelay));
+  }
+
+  /// Cofa ostatni krok (całe polecenie [draw] naraz). Gdy w kolejce czekają
+  /// polecenia, cofnięcie ustawia się za nimi.
+  void undo() {
+    final s = _state;
+    if (s == null) return;
+    if (_queued == 0) {
+      s._undoAction();
+      return;
+    }
+    unawaited(_enqueue((st) async => st._undoAction())
+        .then<void>((_) {}, onError: (Object _) {}));
+  }
+
+  // ── testy ──────────────────────────────────────────────────────────────────
+
+  /// Podgląd animacji (rosnąca rura) albo null.
+  @visibleForTesting
+  ({Offset a, Offset b})? get debugGhost {
+    final s = _state;
+    final a = s?._ghostA, b = s?._ghostB;
+    return a == null || b == null ? null : (a: a, b: b);
+  }
+
+  /// Widoczny fragment płótna we współrzędnych rysunku.
+  @visibleForTesting
+  Rect? get debugVisibleWorld => _state?._visibleWorld;
+
+  /// Etykieta osi na każdej rurze — dokładnie to, co rysuje płótno (I/II/III,
+  /// a przy strzałce N: N/S/E/W/↑/↓).
+  @visibleForTesting
+  List<String> get debugPipeAxisTags {
+    final s = _state;
+    if (s == null) return const [];
+    final m = s._currentMapping;
+    return [
+      for (final it in s._items)
+        if (it is _Seg && it.t == _Tool.pipe) _axisTagText(it.a, it.b, m),
+    ];
+  }
+
+  // ── rysowanie ──────────────────────────────────────────────────────────────
+
+  Future<IsoDrawReport> _draw(
+      _IsoState s, List<IsoStep> steps, Duration delay) async {
+    final plan = _plan(s, steps);
+    if (plan.problem != null) {
+      return IsoDrawReport(
+          problem: plan.problem, problemStep: plan.problemStep);
+    }
+    if (plan.ops.isEmpty) {
+      return IsoDrawReport(
+          assumedPl: plan.assumedPl, assumedEn: plan.assumedEn);
+    }
+    final run = _VoiceRun(plan);
+    // The whole command is ONE undo step — taken here, not through _push(),
+    // which would finish this very run.
+    s._undo.add(List<_Item>.from(s._items));
+    _run = run;
+    // Fit before drawing, so the fitter watches the route grow.
+    s._showWorldRect(plan.boundsWith(s._drawingBounds()),
+        fallback: plan.bounds);
+    try {
+      final animate = delay > Duration.zero;
+      while (!run.done && !run.interrupted) {
+        final op = plan.ops[run.next];
+        if (animate && op is _PlannedPipe) {
+          final a = plan.world(op.from), b = plan.world(op.to);
+          for (var q = 1; q <= 4 && !run.interrupted; q++) {
+            _state?._setGhost(a, Offset.lerp(a, b, q / 4));
+            await Future<void>.delayed(delay);
+          }
+          if (run.interrupted) break;
+          s._setGhost(null, null);
+        }
+        _commitNext(s, run);
+        if (animate && op is _PlannedFitting && !run.done) {
+          await Future<void>.delayed(delay);
+        }
+      }
+    } finally {
+      if (identical(_run, run)) _run = null;
+    }
+    if (!run.interrupted && _state != null) {
+      s._showWorldRect(plan.boundsWith(s._drawingBounds()),
+          fallback: plan.bounds);
+    }
+    _changed();
+    return IsoDrawReport(
+      assumedPl: plan.assumedPl,
+      assumedEn: plan.assumedEn,
+      segments: run.segments,
+      elbows: run.elbows,
+      fittings: run.fittings,
+    );
+  }
+
+  /// Gest palca, Cofnij, wyjście z ekranu albo inny szkic w trakcie
+  /// animacji: reszta polecenia trafia do szkicu od razu, bez animacji.
+  void _finishNow() {
+    final run = _run;
+    if (run == null) return;
+    _run = null;
+    run.interrupted = true;
+    final s = _state;
+    if (s == null) return;
+    s._setGhost(null, null);
+    while (!run.done) {
+      _commitNext(s, run);
+    }
+  }
+
+  void _commitNext(_IsoState s, _VoiceRun run) {
+    final plan = run.plan;
+    final op = plan.ops[run.next++];
+    switch (op) {
+      case _PlannedPipe():
+        final dn = op.elbowDn;
+        if (dn != null) {
+          // Through the drawing's take-out memory, exactly like a DN typed
+          // in the elbow sheet: _maybeInsertElbows picks it up from there.
+          final cte = s._recallCompDim(_Tool.elbow90, dn) ??
+              isoStandardElbowCteMm(dn, 'lr90');
+          s._rememberCompDim(_Tool.elbow90, dn, cte);
+        }
+        final seg = _Seg(plan.world(op.from), plan.world(op.to), _Tool.pipe,
+            calc: op.calc);
+        final before = _elbowCount(s);
+        s._mutate(() => s._items.add(seg));
+        s._maybeInsertElbows(seg);
+        run.segments++;
+        run.elbows += _elbowCount(s) - before;
+      case _PlannedFitting():
+        final pos = plan.world(op.at);
+        s._mutate(() {
+          var comp = _Comp(pos, op.tool,
+              dir: op.dir,
+              label: op.tool.isWeld ? '${s._nextWeldNo()}' : op.label);
+          final dn = op.dn;
+          if (dn != null) {
+            comp = comp.withPhysicalSpec(
+              dn: dn,
+              dnOut: op.dnOut,
+              physicalLengthMm: op.lengthMm,
+              endA: op.endA,
+              endB: op.endB,
+            );
+          }
+          s._items.add(comp);
+          _weldFitting(s, op, pos);
+        });
+        run.fittings++;
+    }
+    if (run.done) {
+      // A fitting placed before its pipe (e.g. a flange at the very start)
+      // had nothing to weld to yet; the weld pass is idempotent.
+      for (final f in plan.ops.whereType<_PlannedFitting>()) {
+        if (f.dn == null || f.endA == null) continue;
+        final pos = plan.world(f.at);
+        final count = s._items.length;
+        _weldFitting(s, f, pos);
+        if (s._items.length != count) s._mutate(() {});
+      }
+    }
+  }
+
+  static void _weldFitting(_IsoState s, _PlannedFitting f, Offset pos) {
+    final a = f.endA, b = f.endB;
+    if (f.dn == null || a == null || b == null) return;
+    s._addPhysicalCompWelds(pos: pos, dir: f.dir, endA: a, endB: b);
+  }
+
+  static int _elbowCount(_IsoState s) => s._items
+      .where((it) => it is _Comp && it.t == _Tool.elbow90)
+      .length;
+
+  // ── planowanie (bez skutków ubocznych) ─────────────────────────────────────
+
+  static const Map<String, _Tool> _kFittings = {
+    'flange': _Tool.flange,
+    'blindFlange': _Tool.blindFlange,
+    'cap': _Tool.cap,
+    'reducer': _Tool.reducer,
+    'gateValve': _Tool.gateValve,
+    'ballValve': _Tool.ballValve,
+    'checkValve': _Tool.checkValve,
+    'globeValve': _Tool.globeValve,
+    'butterflyValve': _Tool.butterflyValve,
+    'weld': _Tool.weld,
+    'fieldWeld': _Tool.fieldWeld,
+    'support': _Tool.support,
+  };
+
+  _VoicePlan _plan(_IsoState s, List<IsoStep> steps) {
+    final m = s._currentMapping;
+    final pl = <String>[], en = <String>[];
+    void assume(String p, String e) {
+      if (pl.contains(p)) return;
+      pl.add(p);
+      en.add(e);
+    }
+
+    final start = _cursor(s);
+    final relative = start == null;
+    var cur = relative ? (row: 0, half: 0) : _worldToLat(start.point);
+    int? heading = start?.heading;
+    // A non-weld component on the cursor blocks the automatic elbow there.
+    var blocked = !relative && _blockingCompAt(s, start.point);
+    int? runDn;
+    IsoTurn? turn;
+    var turnAt = -1;
+    var noLength = 0;
+    final ops = <_PlannedOp>[];
+
+    for (var i = 0; i < steps.length; i++) {
+      final step = steps[i];
+      switch (step) {
+        case IsoTurn():
+          if (turn == null) {
+            turn = step;
+            turnAt = i;
+          } else {
+            turn = IsoTurn(
+                toDir: step.toDir ?? turn.toDir, dn: step.dn ?? turn.dn);
+            assume('Dwa kolana pod rząd policzyłem jako jedno.',
+                'Two elbows in a row counted as one.');
+          }
+        case IsoFitting():
+          final tool = _kFittings[step.tool];
+          if (tool == null) {
+            if (step.tool == 'elbow45') {
+              return _VoicePlan.failed(IsoDrawProblem.unsupported45, i);
+            }
+            if (step.tool == 'tee' || step.tool == 'olet') {
+              return _VoicePlan.failed(IsoDrawProblem.unsupportedTee, i);
+            }
+            throw ArgumentError.value(step.tool, 'IsoFitting.tool',
+                'not an axial fitting the notebook can place');
+          }
+          if (turn != null) {
+            return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
+          }
+          final f = _planFitting(
+            s,
+            tool: tool,
+            step: step,
+            index: i,
+            at: cur,
+            heading: heading ?? _lookAheadDir(steps, i, m),
+            atStart: heading == null,
+            runDn: runDn,
+            assume: assume,
+          );
+          ops.add(f);
+          if (f.dnAfter != null) runDn = f.dnAfter;
+          if (!tool.isWeld) blocked = true;
+        case IsoPipe():
+          final IsoDir dir;
+          final pd = step.dir;
+          if (turn != null) {
+            final td = turn.toDir;
+            if (heading == null) {
+              assume('Kolano na początku pominąłem — przed nim nie ma rury.',
+                  'Skipped the elbow at the start — there is no pipe before it.');
+              dir = pd ?? td ?? IsoDir.right;
+              if (pd == null && td == null) {
+                assume('Pierwsza rura bez kierunku: przyjąłem w prawo.',
+                    'First pipe without a direction: drawn to the right.');
+              }
+            } else if (pd != null && td != null && pd != td) {
+              dir = pd;
+              assume(
+                  'Kolano i rura miały różne kierunki — przyjąłem kierunek '
+                      'rury (${_dirPl(pd)}).',
+                  'The elbow and the pipe named different directions — '
+                      'used the pipe’s (${_dirEn(pd)}).');
+            } else if (pd != null || td != null) {
+              dir = (pd ?? td)!;
+            } else {
+              dir = _defaultTurn(_semanticOf(heading, m));
+              assume('Kolano bez kierunku: przyjąłem skręt ${_dirPl(dir)}.',
+                  'Elbow without a direction: turned ${_dirEn(dir)}.');
+            }
+          } else if (pd != null) {
+            dir = pd;
+          } else if (heading == null) {
+            dir = IsoDir.right;
+            assume('Pierwsza rura bez kierunku: przyjąłem w prawo.',
+                'First pipe without a direction: drawn to the right.');
+          } else {
+            dir = _semanticOf(heading, m);
+            assume(
+                'Rura bez kierunku: przyjąłem dalej prosto (${_dirPl(dir)}).',
+                'Pipe without a direction: carried straight on '
+                    '(${_dirEn(dir)}).');
+          }
+          final g = _gridDirOf(dir, m);
+          if (heading != null) {
+            final about = turn != null ? turnAt : i;
+            if (g == (heading + 3) % 6) {
+              return _VoicePlan.failed(IsoDrawProblem.reversal, about);
+            }
+            if (turn != null && g == heading) {
+              return _VoicePlan.failed(
+                  IsoDrawProblem.sameDirectionAfterTurn, turnAt);
+            }
+            if (g != heading && blocked) {
+              return _VoicePlan.failed(IsoDrawProblem.turnAtFitting, about);
+            }
+          }
+          final len = step.lengthMm;
+          final hasLen = len != null && len.isFinite && len > 0;
+          final n = hasLen ? (len / 500).round().clamp(2, 8) : 3;
+          if (!hasLen) noLength++;
+          final to = _latMove(cur, g, n);
+          if (!relative && to.row < 0) {
+            return _VoicePlan.failed(IsoDrawProblem.outOfCanvas, i);
+          }
+          final corner = heading != null && g != heading;
+          final turnDn = _validDn(turn?.dn);
+          if (turnDn != null) runDn = turnDn;
+          ops.add(_PlannedPipe(
+            i,
+            from: cur,
+            to: to,
+            calc: hasLen ? _CutCalc(_IsoState._fmtMm(len)) : null,
+            elbowDn: corner ? runDn : null,
+          ));
+          cur = to;
+          heading = g;
+          turn = null;
+          blocked = false;
+      }
+    }
+    if (turn != null) {
+      return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
+    }
+    if (noLength > 0) {
+      assume(
+          'Bez długości: $noLength ${_pipesPl(noLength)} — wymiar do '
+              'uzupełnienia.',
+          'No length: $noLength pipe${noLength == 1 ? '' : 's'} — dimension '
+              'still to enter.');
+    }
+    final origin = relative ? _originFor(s, ops) : (row: 0, half: 0);
+    return _VoicePlan(
+        ops: ops, origin: origin, assumedPl: pl, assumedEn: en);
+  }
+
+  _PlannedFitting _planFitting(
+    _IsoState s, {
+    required _Tool tool,
+    required IsoFitting step,
+    required int index,
+    required _Lat at,
+    required int heading,
+    required bool atStart,
+    required int? runDn,
+    required void Function(String pl, String en) assume,
+  }) {
+    // A flange / cap at the START of a run faces away from its pipe: the
+    // weld side (end A, −heading) must look at the pipe leaving it.
+    final terminal = tool == _Tool.flange ||
+        tool == _Tool.blindFlange ||
+        tool == _Tool.cap;
+    final dir = atStart && terminal ? (heading + 3) % 6 : heading;
+    if (tool.isWeld || tool == _Tool.support) {
+      return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+    }
+    final namePl = _IsoState.compName(tool, true);
+    final nameEn = _IsoState.compName(tool, false);
+    var dn = _validDn(step.dn);
+    if (dn == null) {
+      dn = runDn ??
+          s._lastDnByTool[tool] ??
+          s._lastDnByTool[_Tool.elbow90];
+      if (dn != null) {
+        assume('$namePl: przyjąłem DN$dn.', '$nameEn: assumed DN$dn.');
+      } else {
+        assume('$namePl: bez średnicy — uzupełnij DN.',
+            '$nameEn: no size — enter the DN.');
+        return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+      }
+    }
+    switch (tool) {
+      case _Tool.reducer:
+        var out = _validDn(step.dnOut);
+        if (out == null) {
+          for (final d in _IsoState._dnChoices.reversed) {
+            if (d < dn) {
+              out = d;
+              break;
+            }
+          }
+          if (out == null) {
+            assume('$namePl: bez średnicy wylotu — uzupełnij.',
+                '$nameEn: no outlet size — enter it.');
+            return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+          }
+          assume('$namePl: przyjąłem DN$dn na DN$out.',
+              '$nameEn: assumed DN$dn to DN$out.');
+        }
+        final hi = math.max(dn, out), lo = math.min(dn, out);
+        final len = _IsoState._reducerLenDefault[hi];
+        if (len == null) _noTableLength(assume, namePl, nameEn, hi);
+        return _PlannedFitting(index,
+            at: at,
+            tool: tool,
+            dir: dir,
+            dn: hi,
+            dnOut: lo,
+            lengthMm: len,
+            endA: EndConnection.buttWeld,
+            endB: EndConnection.buttWeld,
+            label: len != null ? 'DN$hi→DN$lo · $len mm' : 'DN$hi→DN$lo',
+            dnAfter: lo);
+      case _Tool.flange:
+      case _Tool.blindFlange:
+        // The flange sheet's defaults: weld neck, blind = slip-on.
+        final type = tool == _Tool.blindFlange
+            ? EndConnection.slipOn
+            : EndConnection.weldNeck;
+        final len = isoFlangeAxialLengthMm(dn: dn, type: type);
+        if (len == null) _noTableLength(assume, namePl, nameEn, dn);
+        return _PlannedFitting(index,
+            at: at,
+            tool: tool,
+            dir: dir,
+            dn: dn,
+            lengthMm: len,
+            endA: type,
+            endB: EndConnection.none,
+            label: 'DN$dn · ${type.code}',
+            dnAfter: dn);
+      case _Tool.cap:
+        final len = TakeoutCatalog.cap[dn];
+        if (len == null) _noTableLength(assume, namePl, nameEn, dn);
+        return _PlannedFitting(index,
+            at: at,
+            tool: tool,
+            dir: dir,
+            dn: dn,
+            lengthMm: len,
+            endA: EndConnection.buttWeld,
+            endB: EndConnection.none,
+            label: 'DN$dn',
+            dnAfter: dn);
+      default:
+        // Valves — the per-kind B16.10 / wafer tables.
+        final len = isoValveFaceToFaceMm(tool.name, dn);
+        if (len == null) _noTableLength(assume, namePl, nameEn, dn);
+        return _PlannedFitting(index,
+            at: at,
+            tool: tool,
+            dir: dir,
+            dn: dn,
+            lengthMm: len,
+            endA: EndConnection.buttWeld,
+            endB: EndConnection.buttWeld,
+            label: 'DN$dn',
+            dnAfter: dn);
+    }
+  }
+
+  static void _noTableLength(void Function(String pl, String en) assume,
+          String namePl, String nameEn, int dn) =>
+      assume(
+          '$namePl DN$dn: brak długości w tablicy — wpisz ją z karty '
+              'katalogowej.',
+          '$nameEn DN$dn: no table length — enter it from the datasheet.');
+
+  static int? _validDn(int? dn) => dn != null && dn > 0 ? dn : null;
+
+  /// Grid heading of the first pipe after step [i] — orients a fitting that
+  /// is placed before any pipe exists.
+  static int _lookAheadDir(List<IsoStep> steps, int i, _AxisMapping? m) {
+    IsoDir? turnDir;
+    for (var j = i + 1; j < steps.length; j++) {
+      final s = steps[j];
+      if (s is IsoTurn) turnDir = s.toDir ?? turnDir;
+      if (s is IsoPipe) return _gridDirOf(s.dir ?? turnDir ?? IsoDir.right, m);
+    }
+    return _gridDirOf(IsoDir.right, m);
+  }
+
+  /// Free end of the last pipe and the heading it arrives with, or null
+  /// when the sheet has no pipe yet.
+  static ({Offset point, int heading})? _cursor(_IsoState s) {
+    final tol = _IsoState._s * 0.25;
+    _Seg? last;
+    for (var i = s._items.length - 1; i >= 0; i--) {
+      final it = s._items[i];
+      if (it is _Seg && it.t == _Tool.pipe) {
+        last = it;
+        break;
+      }
+    }
+    if (last == null) return null;
+    final self = last;
+    bool shared(Offset p) => s._items.any((it) =>
+        it is _Seg &&
+        it.t == _Tool.pipe &&
+        !identical(it, self) &&
+        ((it.a - p).distance < tol || (it.b - p).distance < tol));
+    final fromA = shared(self.b) && !shared(self.a);
+    final free = fromA ? self.a : self.b;
+    final other = fromA ? self.b : self.a;
+    return (point: free, heading: s._closestIsoHeading(free - other));
+  }
+
+  /// Same rule as `_maybeInsertElbows`: any component but a weld (or an
+  /// elbow already there) keeps the automatic elbow out of [p].
+  static bool _blockingCompAt(_IsoState s, Offset p) => s._items.any((it) =>
+      it is _Comp &&
+      !it.t.isWeld &&
+      !it.isElbow &&
+      (it.pos - p).distance < _IsoState._s * 0.45);
+
+  /// Origin for a route drawn on a sheet without pipes: centred in the
+  /// visible canvas, pushed down so no point lands above grid row 1.
+  static _Lat _originFor(_IsoState s, List<_PlannedOp> ops) {
+    final pts = [for (final op in ops) ...op.points];
+    if (pts.isEmpty) return (row: 0, half: 0);
+    var minRow = pts.first.row, maxRow = minRow;
+    var minHalf = pts.first.half, maxHalf = minHalf;
+    for (final p in pts) {
+      minRow = math.min(minRow, p.row);
+      maxRow = math.max(maxRow, p.row);
+      minHalf = math.min(minHalf, p.half);
+      maxHalf = math.max(maxHalf, p.half);
+    }
+    final view = s._visibleWorld ?? const Rect.fromLTWH(0, 0, 320, 320);
+    final cx = (minHalf + maxHalf) / 2 * _kHalfStep;
+    final cy = (minRow + maxRow) / 2 * _kRowH;
+    var row = ((view.center.dy - cy) / _kRowH).round();
+    var half = ((view.center.dx - cx) / _kHalfStep).round();
+    if (row + minRow < 1) row = 1 - minRow;
+    // Grid parity: odd rows sit half a step to the right.
+    if ((half - row).isOdd) half += 1;
+    return (row: row, half: half);
+  }
+}
+
+// ── kierunki ─────────────────────────────────────────────────────────────────
+
+/// Grid heading (index into [_isoHeadings]) for a fitter's direction.
+///
+/// Up/down = the axis the compass legend calls vertical (III, or II when a
+/// North arrow lies on III), up = towards the top of the screen; forward /
+/// back = the other horizontal axis, forward = towards the bottom of the
+/// screen (towards the viewer); right / left = axis I. Without a North arrow
+/// this is exactly `dir.index`.
+int _gridDirOf(IsoDir d, _AxisMapping? m) {
+  final vertical = m?.upAxis ?? _Axis.iii;
+  final horizontal = vertical == _Axis.iii ? _Axis.ii : _Axis.iii;
+  int on(_Axis axis, {required bool screenUp}) {
+    for (var i = 0; i < 6; i++) {
+      if (_isoAxisByDir[i] != axis) continue;
+      final h = _isoHeadings[i];
+      if (screenUp ? h.dy < 0 : h.dy > 0) return i;
+    }
+    return 0;
+  }
+
+  return switch (d) {
+    IsoDir.right => 0,
+    IsoDir.left => 3,
+    IsoDir.up => on(vertical, screenUp: true),
+    IsoDir.down => on(vertical, screenUp: false),
+    IsoDir.forward => on(horizontal, screenUp: false),
+    IsoDir.back => on(horizontal, screenUp: true),
+  };
+}
+
+IsoDir _semanticOf(int grid, _AxisMapping? m) => IsoDir.values
+    .firstWhere((d) => _gridDirOf(d, m) == grid, orElse: () => IsoDir.right);
+
+/// Skręt domyślny: z poziomu I na II, z II na I, z pionu na I.
+IsoDir _defaultTurn(IsoDir from) => switch (from) {
+      IsoDir.right || IsoDir.left => IsoDir.forward,
+      IsoDir.forward || IsoDir.back => IsoDir.right,
+      IsoDir.up || IsoDir.down => IsoDir.right,
+    };
+
+String _dirPl(IsoDir d) => switch (d) {
+      IsoDir.right => 'w prawo',
+      IsoDir.up => 'w górę',
+      IsoDir.back => 'do tyłu',
+      IsoDir.left => 'w lewo',
+      IsoDir.down => 'w dół',
+      IsoDir.forward => 'do przodu',
+    };
+
+String _dirEn(IsoDir d) => switch (d) {
+      IsoDir.right => 'right',
+      IsoDir.up => 'up',
+      IsoDir.back => 'back',
+      IsoDir.left => 'left',
+      IsoDir.down => 'down',
+      IsoDir.forward => 'forward',
+    };
+
+String _pipesPl(int n) {
+  if (n == 1) return 'rura';
+  final d = n % 10, t = n % 100;
+  return d >= 2 && d <= 4 && (t < 12 || t > 14) ? 'rury' : 'rur';
+}
+
+// ── siatka (wiersz, pół-kolumna) ─────────────────────────────────────────────
+//
+// The notebook grid in integers: x = half · s/2, y = row · s·√3/2, with
+// `half` and `row` of equal parity — the points `_snap` produces, computed
+// with the same expression so they compare bit for bit.
+
+typedef _Lat = ({int row, int half});
+
+const double _kHalfStep = _IsoState._s / 2.0;
+final double _kRowH = _IsoState._s * math.sqrt(3) / 2.0;
+
+/// (Δrow, Δhalf) of one grid step along each heading of [_isoHeadings].
+const List<(int, int)> _kLatStep = [
+  (0, 2), (-1, 1), (-1, -1), (0, -2), (1, -1), (1, 1),
+];
+
+_Lat _latMove(_Lat p, int dir, int n) => (
+      row: p.row + _kLatStep[dir].$1 * n,
+      half: p.half + _kLatStep[dir].$2 * n,
+    );
+
+_Lat _worldToLat(Offset o) =>
+    (row: (o.dy / _kRowH).round(), half: (o.dx / _kHalfStep).round());
+
+Offset _latToWorld(_Lat p) => Offset(p.half * _kHalfStep, p.row * _kRowH);
+
+// ── plan polecenia ───────────────────────────────────────────────────────────
+
+sealed class _PlannedOp {
+  const _PlannedOp(this.step);
+
+  /// Index of the [IsoStep] this op comes from.
+  final int step;
+
+  Iterable<_Lat> get points;
+}
+
+final class _PlannedPipe extends _PlannedOp {
+  const _PlannedPipe(super.step,
+      {required this.from, required this.to, this.calc, this.elbowDn});
+  final _Lat from, to;
+  final _CutCalc? calc;
+
+  /// DN for the elbow at [from] (null = the drawing's memory decides).
+  final int? elbowDn;
+
+  @override
+  Iterable<_Lat> get points => [from, to];
+}
+
+final class _PlannedFitting extends _PlannedOp {
+  const _PlannedFitting(
+    super.step, {
+    required this.at,
+    required this.tool,
+    required this.dir,
+    this.dn,
+    this.dnOut,
+    this.lengthMm,
+    this.endA,
+    this.endB,
+    this.label = '',
+    this.dnAfter,
+  });
+  final _Lat at;
+  final _Tool tool;
+  final int dir;
+  final int? dn, dnOut, lengthMm;
+  final EndConnection? endA, endB;
+  final String label;
+
+  /// DN of the run downstream of this fitting.
+  final int? dnAfter;
+
+  @override
+  Iterable<_Lat> get points => [at];
+}
+
+class _VoicePlan {
+  _VoicePlan({
+    required this.ops,
+    required this.origin,
+    required this.assumedPl,
+    required this.assumedEn,
+  })  : problem = null,
+        problemStep = null;
+
+  _VoicePlan.failed(IsoDrawProblem this.problem, int this.problemStep)
+      : ops = const [],
+        origin = (row: 0, half: 0),
+        assumedPl = const [],
+        assumedEn = const [];
+
+  final List<_PlannedOp> ops;
+  final _Lat origin;
+  final List<String> assumedPl, assumedEn;
+  final IsoDrawProblem? problem;
+  final int? problemStep;
+
+  Offset world(_Lat p) =>
+      _latToWorld((row: p.row + origin.row, half: p.half + origin.half));
+
+  /// World bounds of the new route.
+  Rect get bounds {
+    Rect? r;
+    for (final op in ops) {
+      for (final p in op.points) {
+        final w = world(p);
+        final pr = Rect.fromLTRB(w.dx, w.dy, w.dx, w.dy);
+        r = r == null ? pr : r.expandToInclude(pr);
+      }
+    }
+    return r ?? Rect.zero;
+  }
+
+  Rect boundsWith(Rect? drawing) =>
+      drawing == null ? bounds : drawing.expandToInclude(bounds);
+}
+
+class _VoiceRun {
+  _VoiceRun(this.plan);
+  final _VoicePlan plan;
+  int next = 0;
+  bool interrupted = false;
+  int segments = 0, elbows = 0, fittings = 0;
+
+  bool get done => next >= plan.ops.length;
+}

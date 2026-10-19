@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -38,6 +39,8 @@ export '../domain/iso_notebook/sketch_cut.dart' show isoManualDeductAliases;
 // next door because they need the private model classes below.
 part 'iso_notebook_saved_sketches.dart';
 part 'iso_notebook_sketch_codec.dart';
+// Voice-assistant control (draw / new sketch / undo) — same reason.
+part 'iso_notebook_controller.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ISO NOTEBOOK — full piping isometric sketch pad with a built-in cut
@@ -574,6 +577,16 @@ _Axis _classifyAxis(Offset a, Offset b) {
   return _Axis.off;
 }
 
+/// The axis tag painted on a pipe A→B: with an N-arrow placed, the
+/// directional label (N/S/E/W/↑/↓); without one, the anonymous Roman numeral;
+/// '⚠' for an off-axis line.
+String _axisTagText(Offset a, Offset b, _AxisMapping? mapping) {
+  final axis = _classifyAxis(a, b);
+  if (axis == _Axis.off) return '⚠';
+  final dirLabel = mapping?.labelForLine(a, b) ?? '';
+  return dirLabel.isNotEmpty ? dirLabel : axis.label;
+}
+
 /// 6 iso headings as unit vectors. Index = N arrow `dir` after the symbol
 /// refactor (dir=0 is +I = right). Cycling `dir` by 60° walks around the
 /// hex; pairs that share an axis differ by 3.
@@ -866,6 +879,18 @@ class _IsoState extends State<IsoNotebookScreen> {
   _Tool _tool = _Tool.pipe;
   String _projectName = '';
 
+  // ── voice drawing (iso_notebook_controller.dart) ──────────────────────────
+  /// This screen's controller; registered as [IsoNotebookController.active]
+  /// while mounted.
+  late final IsoNotebookController _voice = IsoNotebookController._(this);
+
+  /// Animation preview of a pipe the voice controller is about to add. Kept
+  /// apart from [_dragA]/[_dragB] so a finger and a command never share it.
+  Offset? _ghostA, _ghostB;
+
+  /// When the drawing on screen last changed (from the row when opened).
+  DateTime? _lastEditedAt;
+
   /// Root gap per weld (mm) of this sketch — stored with it, 0 by default.
   /// Taken off once per welded pipe end, the segment builder's rule, so the
   /// sketch and a project with the same gap cut the same pipe.
@@ -937,6 +962,9 @@ class _IsoState extends State<IsoNotebookScreen> {
   @override
   void initState() {
     super.initState();
+    _voice._attach();
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _voice._awaitFirstLayout());
     _loadPrefs();
     // Going to the background is the last reliable moment to write: the OS
     // may kill a backgrounded app without another callback.
@@ -954,6 +982,8 @@ class _IsoState extends State<IsoNotebookScreen> {
   @override
   void dispose() {
     _disposing = true;
+    // A voice command still animating lands in full before the flush below.
+    _voice._detach();
     _lifecycle?.dispose();
     // The route is gone, the drawing must not be: write whatever the pending
     // debounce would have written. _flushSave snapshots synchronously and
@@ -964,18 +994,22 @@ class _IsoState extends State<IsoNotebookScreen> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _hintHidden = prefs.getBool(_kHintHiddenPref) ?? false;
-      _showAxisCompass = prefs.getBool(_kAxisCompassPref) ?? true;
-      _showStatusBox = prefs.getBool(_kStatusBoxPref) ?? true;
-      _paperMode = prefs.getBool(_kPaperModePref) ?? false;
-      _axisLock = prefs.getBool(_kAxisLockPref) ?? true;
-      _fullscreen = prefs.getBool(_kFullscreenPref) ?? false;
-      _showColorLegend = prefs.getBool(_kColorLegendPref) ?? true;
-      _hintLoaded = true;
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _hintHidden = prefs.getBool(_kHintHiddenPref) ?? false;
+        _showAxisCompass = prefs.getBool(_kAxisCompassPref) ?? true;
+        _showStatusBox = prefs.getBool(_kStatusBoxPref) ?? true;
+        _paperMode = prefs.getBool(_kPaperModePref) ?? false;
+        _axisLock = prefs.getBool(_kAxisLockPref) ?? true;
+        _fullscreen = prefs.getBool(_kFullscreenPref) ?? false;
+        _showColorLegend = prefs.getBool(_kColorLegendPref) ?? true;
+        _hintLoaded = true;
+      });
+    } finally {
+      _voice._markPrefsLoaded();
+    }
   }
 
   /// P0r-12: shared persist-with-rollback helper for the five view toggles.
@@ -1101,6 +1135,15 @@ class _IsoState extends State<IsoNotebookScreen> {
   }
 
   void _mutate(VoidCallback f) {
+    if (_disposing || !mounted) {
+      // Only a voice command finishing while the route goes away gets here
+      // (see IsoNotebookController._detach): no rebuild, and dispose()
+      // flushes the save right after.
+      f();
+      _version++;
+      _markEdited();
+      return;
+    }
     setState(() {
       f();
       _version++;
@@ -1109,12 +1152,14 @@ class _IsoState extends State<IsoNotebookScreen> {
       _markEdited();
     });
     _scheduleSave();
+    _voice._changed();
   }
 
   /// Records that the drawing (or its name) changed. Call inside setState.
   void _markEdited() {
     _dirty = true;
     _editSeq++;
+    _lastEditedAt = DateTime.now();
   }
 
   // ── autosave ────────────────────────────────────────────────────────────────
@@ -1235,6 +1280,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   Future<void> _handleLeave() async {
     if (_leaving) return;
     _leaving = true;
+    _voice._finishNow();
     try {
       final nav = Navigator.of(context);
       if (await _flushSave()) {
@@ -1282,22 +1328,27 @@ class _IsoState extends State<IsoNotebookScreen> {
 
   /// Opening the notebook: the most recently saved sketch comes back.
   Future<void> _loadLastSketch() async {
-    IsoDrawingRecord? record;
     try {
-      record = await _drawingDao.latest();
-    } catch (e) {
-      debugPrint('ISO notebook: reading the last sketch failed: $e');
+      IsoDrawingRecord? record;
+      try {
+        record = await _drawingDao.latest();
+      } catch (e) {
+        debugPrint('ISO notebook: reading the last sketch failed: $e');
+      }
+      if (!mounted || record == null) return;
+      // The fitter started drawing before the read came back: the fresh work
+      // wins; the stored sketch stays untouched under "Saved sketches".
+      if (_editSeq > 0) return;
+      _openRecord(record);
+    } finally {
+      _voice._markSketchLoaded();
     }
-    if (!mounted || record == null) return;
-    // The fitter started drawing before the read came back: the fresh work
-    // wins; the stored sketch stays untouched under "Saved sketches".
-    if (_editSeq > 0) return;
-    _openRecord(record);
   }
 
   /// Puts [record] on screen. Returns false (and says why) when this build
   /// cannot open it — the stored row is then left exactly as it is.
   bool _openRecord(IsoDrawingRecord record) {
+    _voice._finishNow();
     final label = record.name.isEmpty ? _tr('bez nazwy', 'untitled') : record.name;
     _IsoSketch sketch;
     try {
@@ -1341,11 +1392,13 @@ class _IsoState extends State<IsoNotebookScreen> {
         _drawingCreatedAt = record.createdAt;
         _drawingStored = true;
       }
+      _lastEditedAt = DateTime.fromMillisecondsSinceEpoch(record.updatedAt);
       _version++;
       _editSeq++;
       _savedSeq = _editSeq;
       _dirty = false;
     });
+    _voice._changed();
     if (forked) {
       _snack(_tr(
         'Części elementów (${sketch.skippedItems}) ta wersja aplikacji nie '
@@ -1383,6 +1436,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   /// A fresh, empty sheet with a new id. With [persist] it is written right
   /// away, so reopening the notebook shows it instead of the previous one.
   void _startBlankSketch({required bool persist}) {
+    _voice._finishNow();
     setState(() {
       _items.clear();
       _undo.clear();
@@ -1393,11 +1447,13 @@ class _IsoState extends State<IsoNotebookScreen> {
       _drawingId = const Uuid().v4();
       _drawingCreatedAt = DateTime.now().millisecondsSinceEpoch;
       _drawingStored = persist;
+      _lastEditedAt = null;
       _version++;
       _editSeq++;
       _savedSeq = persist ? _savedSeq : _editSeq;
       _dirty = persist;
     });
+    _voice._changed();
     if (persist) unawaited(_flushSave());
   }
 
@@ -1520,6 +1576,92 @@ class _IsoState extends State<IsoNotebookScreen> {
     return (p - (a + ab * t)).distance;
   }
 
+  // ── viewport helpers for the voice controller ───────────────────────────────
+
+  void _setGhost(Offset? a, Offset? b) {
+    if (_ghostA == a && _ghostB == b) return;
+    if (_disposing || !mounted) {
+      _ghostA = a;
+      _ghostB = b;
+      return;
+    }
+    setState(() {
+      _ghostA = a;
+      _ghostB = b;
+    });
+  }
+
+  Size? get _canvasSize {
+    final box = _canvasKey.currentContext?.findRenderObject();
+    return box is RenderBox && box.hasSize ? box.size : null;
+  }
+
+  /// The part of the drawing (world coordinates) the canvas shows now.
+  Rect? get _visibleWorld {
+    final size = _canvasSize;
+    if (size == null) return null;
+    return Rect.fromLTWH(
+      -_viewOffset.dx / _viewScale,
+      -_viewOffset.dy / _viewScale,
+      size.width / _viewScale,
+      size.height / _viewScale,
+    );
+  }
+
+  /// World bounds of everything on the sheet, or null for an empty one.
+  Rect? _drawingBounds() {
+    Rect? r;
+    void add(Offset p) {
+      final pr = Rect.fromLTRB(p.dx, p.dy, p.dx, p.dy);
+      r = r == null ? pr : r!.expandToInclude(pr);
+    }
+
+    for (final it in _items) {
+      if (it is _Seg) {
+        add(it.a);
+        add(it.b);
+      } else if (it is _Comp) {
+        add(it.pos);
+      } else if (it is _Note) {
+        add(it.pos);
+      }
+    }
+    return r;
+  }
+
+  /// Pans (and zooms out, never in) so [rect] is on screen with a margin.
+  /// When even the smallest zoom cannot show [rect], [fallback] (the part
+  /// just drawn) is shown instead. Nothing moves when [rect] is visible.
+  void _showWorldRect(Rect rect, {Rect? fallback}) {
+    final size = _canvasSize;
+    final visible = _visibleWorld;
+    if (size == null || visible == null || _disposing || !mounted) return;
+    const margin = 40.0;
+    final inner = visible.deflate(margin / _viewScale);
+    bool shows(Rect r) =>
+        r.left >= inner.left &&
+        r.top >= inner.top &&
+        r.right <= inner.right &&
+        r.bottom <= inner.bottom;
+    if (shows(rect)) return;
+    double fit(Rect r) => math.min(
+          math.max(size.width - 2 * margin, 1) / math.max(r.width, 1),
+          math.max(size.height - 2 * margin, 1) / math.max(r.height, 1),
+        );
+    var target = rect;
+    var scale = math.min(_viewScale, fit(rect));
+    if (scale < 0.25 && fallback != null) {
+      target = fallback;
+      scale = math.min(_viewScale, fit(fallback));
+    }
+    scale = scale.clamp(0.25, 6.0);
+    setState(() {
+      _viewScale = scale;
+      _viewOffset =
+          Offset(size.width / 2, size.height / 2) - target.center * scale;
+    });
+  }
+
   // ── two-finger pinch / pan ──────────────────────────────────────────────────
   // One finger draws (or scrolls in pan mode) exactly as before; a second
   // finger turns the gesture into zoom + scroll, in any mode, and abandons a
@@ -1540,6 +1682,9 @@ class _IsoState extends State<IsoNotebookScreen> {
   }
 
   void _scaleStart(ScaleStartDetails d) {
+    // A finger on the canvas ends a voice animation at once (the command
+    // lands in full) — the gesture then works on a settled drawing.
+    _voice._finishNow();
     if (_pinching) {
       // Reconfigured (a finger joined or left): the scale restarts at 1.
       _pinchLastScale = 1.0;
@@ -1902,6 +2047,7 @@ class _IsoState extends State<IsoNotebookScreen> {
 
   // ── tap ─────────────────────────────────────────────────────────────────────
   Future<void> _tapUp(TapUpDetails d) async {
+    _voice._finishNow();
     if (_panMode) return;
     final raw = _toWorld(d.localPosition);
 
@@ -2114,6 +2260,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   }
 
   void _longPress(LongPressStartDetails d) {
+    _voice._finishNow();
     if (_panMode) return;
     final raw = _toWorld(d.localPosition);
     final pt = _snap(raw);
@@ -5046,9 +5193,15 @@ class _IsoState extends State<IsoNotebookScreen> {
   }
 
   // ── undo / clear ────────────────────────────────────────────────────────────
-  void _push() => _undo.add(List.from(_items));
+  void _push() {
+    // A voice command still animating lands first, so this snapshot (and
+    // the command's own one before it) each hold a settled drawing.
+    _voice._finishNow();
+    _undo.add(List.from(_items));
+  }
 
   void _undoAction() {
+    _voice._finishNow();
     if (_undo.isEmpty) return;
     _mutate(() => _items..clear()..addAll(_undo.removeLast()));
   }
@@ -6013,6 +6166,8 @@ class _IsoState extends State<IsoNotebookScreen> {
                             version: _version,
                             dragA: _dragA,
                             dragB: _dragB,
+                            ghostA: _ghostA,
+                            ghostB: _ghostB,
                             tool: _tool,
                             s: _s,
                             cs: cs,
@@ -6576,6 +6731,10 @@ class _Painter extends CustomPainter {
   final List<_Item> items;
   final int version; // ticks on every mutation so shouldRepaint catches it
   final Offset? dragA, dragB;
+
+  /// A pipe a voice command is drawing, growing step by step — separate
+  /// from the finger preview [dragA]/[dragB].
+  final Offset? ghostA, ghostB;
   final _Tool tool;
   final double s;
   final ColorScheme cs;
@@ -6615,6 +6774,8 @@ class _Painter extends CustomPainter {
     required this.version,
     required this.dragA,
     required this.dragB,
+    this.ghostA,
+    this.ghostB,
     required this.tool,
     required this.s,
     required this.cs,
@@ -6662,6 +6823,7 @@ class _Painter extends CustomPainter {
     canvas.scale(viewScale);
     _drawGrid(canvas, size);
     _drawItems(canvas);
+    if (ghostA != null && ghostB != null) _drawGhost(canvas);
     if (dragA != null && dragB != null) _drawPreview(canvas);
     canvas.restore();
     if (showStatusBox) _drawTitleBlock(canvas, size);
@@ -7186,15 +7348,7 @@ class _Painter extends CustomPainter {
       _Axis.iii => const Color(0xFFE8C14B), // gold
       _Axis.off => cs.error,
     };
-    // With an N-arrow placed, prefer the directional label (N/S/E/W/↑/↓);
-    // without one, fall back to the anonymous Roman numeral.
-    final String text;
-    if (axis == _Axis.off) {
-      text = '⚠';
-    } else {
-      final dirLabel = mapping?.labelForLine(seg.a, seg.b) ?? '';
-      text = dirLabel.isNotEmpty ? dirLabel : axis.label;
-    }
+    final text = _axisTagText(seg.a, seg.b, mapping);
     final tp = TextPainter(
       text: TextSpan(
         text: text,
@@ -8570,6 +8724,14 @@ class _Painter extends CustomPainter {
     tp.paint(canvas, note.pos - Offset(tp.width / 2, tp.height / 2));
   }
 
+  /// Voice-command preview: the pipe drawn half-transparent with a dot on
+  /// its growing end.
+  void _drawGhost(Canvas canvas) {
+    _drawSeg(canvas, ghostA!, ghostB!, _Tool.pipe, alpha: 0.5);
+    canvas.drawCircle(
+        ghostB!, 6.5, Paint()..color = cs.primary.withValues(alpha: 0.75));
+  }
+
   void _drawPreview(Canvas canvas) {
     canvas.drawCircle(dragA!, 7.0, Paint()..color = cs.primary);
     _drawSeg(canvas, dragA!, dragB!, tool, alpha: 0.45);
@@ -9280,6 +9442,8 @@ class _Painter extends CustomPainter {
       missingDimLabel != old.missingDimLabel ||
       dragA != old.dragA ||
       dragB != old.dragB ||
+      ghostA != old.ghostA ||
+      ghostB != old.ghostB ||
       tool != old.tool ||
       axisLock != old.axisLock ||
       showStatusBox != old.showStatusBox ||
