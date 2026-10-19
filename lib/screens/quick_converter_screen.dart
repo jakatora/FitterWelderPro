@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../domain/fitter/unit_conversion.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../utils/haptic.dart';
@@ -36,33 +37,9 @@ class QuickConverterScreen extends StatelessWidget {
 
 enum _Kind { length, temperature, pressure, flow }
 
-// Factors retained from the original converter. Reference:
-// https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b8
-const _lengthFactors = {
-  'mm': 1.0,
-  'cm': 10.0,
-  'm': 1000.0,
-  'in': 25.4,
-  'ft': 304.8
-};
-const _pressureFactors = {
-  'bar': 1.0,
-  'MPa': 10.0,
-  'kPa': 0.01,
-  'psi': 0.0689476,
-  'atm': 1.01325,
-  // Old gauges / gas tests. NIST SP 811 App. B: kgf/cm² = 9.80665 × 10⁴ Pa
-  // (exact, standard gravity) = 0.980665 bar; mbar = 10⁻³ bar.
-  'kgf/cm²': 0.980665,
-  'mbar': 0.001,
-};
-const _flowFactors = {
-  'l/min': 1.0,
-  'slpm': 1.0,
-  'cfh': 0.4719474,
-  'scfh': 0.4719474
-};
-const _temperatureFloors = {'°C': -273.15, '°F': -459.67, 'K': 0.0};
+// Units, factors (NIST SP 811 App. B) and the conversions themselves live in
+// lib/domain/fitter/unit_conversion.dart; this screen only parses, formats
+// and explains. Units are kept as their screen symbols ('mm', 'in', '°C'…).
 final _decimal = RegExp(r'^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$');
 
 double? _parse(String text) {
@@ -107,12 +84,20 @@ class _ConversionTabState extends State<_ConversionTab>
   @override
   bool get wantKeepAlive => true;
 
-  List<String> get _units => switch (widget.kind) {
-        _Kind.length => _lengthFactors.keys.toList(),
-        _Kind.temperature => _temperatureFloors.keys.toList(),
-        _Kind.pressure => _pressureFactors.keys.toList(),
-        _Kind.flow => _flowFactors.keys.toList(),
-      };
+  List<MeasureUnit> get _unitValues {
+    switch (widget.kind) {
+      case _Kind.length:
+        return LengthUnit.values;
+      case _Kind.temperature:
+        return TemperatureUnit.values;
+      case _Kind.pressure:
+        return PressureUnit.values;
+      case _Kind.flow:
+        return FlowUnit.values;
+    }
+  }
+
+  List<String> get _units => [for (final unit in _unitValues) unit.symbol];
 
   void _clear() {
     Haptic.tap();
@@ -122,59 +107,51 @@ class _ConversionTabState extends State<_ConversionTab>
     });
   }
 
-  Map<String, double> _convert(double value) {
-    if (widget.kind == _Kind.temperature) {
-      // Source-scale floor avoids a negative rounding artifact at -459.67 F.
-      // Converts temperatures, not differences between temperatures.
-      final kelvin = switch (_src) {
-        '°C' => value + 273.15,
-        '°F' => (value + 459.67) / 1.8,
-        _ => value,
-      };
-      return {'°C': kelvin - 273.15, '°F': kelvin * 1.8 - 459.67, 'K': kelvin};
+  /// [value] in the selected unit → every unit of this tab (or the reason it
+  /// is refused), from the domain conversion.
+  ConversionTable<MeasureUnit> _convert(double value) {
+    switch (widget.kind) {
+      case _Kind.length:
+        return convertLengthAll(value, LengthUnit.fromSymbol(_src)!);
+      case _Kind.temperature:
+        return convertTemperatureAll(value, TemperatureUnit.fromSymbol(_src)!);
+      case _Kind.pressure:
+        return convertPressureAll(value, PressureUnit.fromSymbol(_src)!);
+      case _Kind.flow:
+        return convertFlowAll(value, FlowUnit.fromSymbol(_src)!);
     }
-    final factors = switch (widget.kind) {
-      _Kind.length => _lengthFactors,
-      _Kind.pressure => _pressureFactors,
-      _ => _flowFactors,
-    };
-    final base = value * factors[_src]!;
-    return {
-      for (final unit in factors.keys)
-        if (widget.kind != _Kind.flow || _isStandard(unit) == _isStandard(_src))
-          unit: base / factors[unit]!
-    };
   }
 
-  // Actual and standardized flow are different quantities. No implicit
-  // l/min == slpm conversion without gas, pressure, temperature and reference data.
-  // https://www.alicat.com/support/what-is-mass-flow/
-  bool _isStandard(String unit) => unit == 'slpm' || unit == 'scfh';
+  static Map<String, double> _bySymbol(ConversionTable<MeasureUnit> table) =>
+      {for (final e in table.values.entries) e.key.symbol: e.value};
 
-  String? _error(double? value, Map<String, double> results) {
+  // Actual and standardized flow are different quantities: see FlowUnit.
+  bool get _srcIsStandardFlow => FlowUnit.fromSymbol(_src)!.standard;
+
+  String? _error(double? value, ConversionIssue? issue) {
     if (_ctrl.text.trim().isEmpty) return null;
     if (value == null) {
       return context.tr(
           pl: 'Wpisz liczbę z jednym przecinkiem lub kropką, bez jednostki.',
           en: 'Enter a number with one decimal separator, without a unit.');
     }
-    if (!value.isFinite || results.values.any((v) => !v.isFinite)) {
-      return context.tr(
-          pl: 'Wartość poza zakresem. Sprawdź liczbę i jednostkę.',
-          en: 'Value out of range. Check the number and unit.');
-    }
-    if (widget.kind == _Kind.temperature) {
-      if (value < _temperatureFloors[_src]!) {
+    switch (issue) {
+      case null:
+        return null;
+      case ConversionIssue.outOfRange:
         return context.tr(
-            pl: 'Temperatura nie może być niższa niż ${_temperatureFloors[_src]} $_src (zero absolutne).',
-            en: 'Temperature cannot be below ${_temperatureFloors[_src]} $_src (absolute zero).');
-      }
-    } else if (value < 0) {
-      return context.tr(
-          pl: 'Ten przelicznik obsługuje wartości od 0. Sprawdź znak.',
-          en: 'This converter accepts values from 0. Check the sign.');
+            pl: 'Wartość poza zakresem. Sprawdź liczbę i jednostkę.',
+            en: 'Value out of range. Check the number and unit.');
+      case ConversionIssue.belowAbsoluteZero:
+        final floor = TemperatureUnit.fromSymbol(_src)!.absoluteZero;
+        return context.tr(
+            pl: 'Temperatura nie może być niższa niż $floor $_src (zero absolutne).',
+            en: 'Temperature cannot be below $floor $_src (absolute zero).');
+      case ConversionIssue.negative:
+        return context.tr(
+            pl: 'Ten przelicznik obsługuje wartości od 0. Sprawdź znak.',
+            en: 'This converter accepts values from 0. Check the sign.');
     }
-    return null;
   }
 
   @override
@@ -187,10 +164,11 @@ class _ConversionTabState extends State<_ConversionTab>
   Widget build(BuildContext context) {
     super.build(context);
     final value = _parse(_ctrl.text);
-    final results =
-        value != null && value.isFinite ? _convert(value) : <String, double>{};
-    final error = _error(value, results);
+    final conversion = value == null ? null : _convert(value);
+    final error = _error(value, conversion?.issue);
     final valid = value != null && error == null;
+    final results =
+        valid ? _bySymbol(conversion!) : const <String, double>{};
     final theme = Theme.of(context);
     return SingleChildScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -323,14 +301,14 @@ class _ConversionTabState extends State<_ConversionTab>
           _Kind.pressure => 2.0,
           _Kind.flow => 10.0,
         };
-    final converted = results ?? _convert(sample);
+    final converted = results ?? _bySymbol(_convert(sample));
     final input = guideNumber(sample);
     late String inputs;
     late String caution;
     late List<String> steps;
     switch (widget.kind) {
       case _Kind.length:
-        final factor = guideNumber(_lengthFactors[_src]!);
+        final factor = guideNumber(LengthUnit.fromSymbol(_src)!.toMm);
         final mm = _fmt(converted['mm']!);
         inputs = context.tr(
             pl: 'Wybierz jednostkę odczytaną z rysunku. 1 cal (in) = 25,4 mm; 1 stopa (ft) = 304,8 mm.',
@@ -360,7 +338,7 @@ class _ConversionTabState extends State<_ConversionTab>
             pl: 'Zero absolutne to 0 K = −273,15 °C = −459,67 °F. Konwerter nie dobiera temperatury podgrzewania — sprawdź WPS.',
             en: 'Absolute zero is 0 K = −273.15 °C = −459.67 °F. The converter does not select a preheat temperature — check the WPS.');
       case _Kind.pressure:
-        final factor = guideNumber(_pressureFactors[_src]!);
+        final factor = guideNumber(PressureUnit.fromSymbol(_src)!.toBar);
         final bar = _fmt(converted['bar']!);
         inputs = context.tr(
             pl: 'Wybierz jednostkę odczytaną z dokumentacji lub manometru. 1 MPa = 10 bar; 1 bar = 100 kPa.',
@@ -373,9 +351,9 @@ class _ConversionTabState extends State<_ConversionTab>
             pl: 'Przeliczamy tylko jednostkę, nie punkt odniesienia: ciśnienie względne nie staje się absolutnym. Wartości nieujemne. Ciśnienie próby określa dokumentacja.',
             en: 'Only the unit changes, not the reference: gauge pressure does not become absolute pressure. Non-negative values only. Test pressure comes from the documentation.');
       case _Kind.flow:
-        final litreUnit = _isStandard(_src) ? 'slpm' : 'l/min';
-        final feetUnit = _isStandard(_src) ? 'scfh' : 'cfh';
-        final factor = guideNumber(_flowFactors[_src]!);
+        final litreUnit = _srcIsStandardFlow ? 'slpm' : 'l/min';
+        final feetUnit = _srcIsStandardFlow ? 'scfh' : 'cfh';
+        final factor = guideNumber(FlowUnit.fromSymbol(_src)!.toLpm);
         final lpm = _fmt(converted[litreUnit]!);
         inputs = context.tr(
             pl: 'Przepisz dokładną jednostkę z przepływomierza. Litera „s” oznacza przepływ sprowadzony do warunków standardowych urządzenia.',
