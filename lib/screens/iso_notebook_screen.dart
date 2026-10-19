@@ -5756,6 +5756,419 @@ class _IsoState extends State<IsoNotebookScreen> {
     );
   }
 
+  // ── app-bar actions ─────────────────────────────────────────────────────────
+  //
+  // Twelve actions are 576 dp of icons. On a 360–412 dp phone the row slid
+  // under the Back button (which then could not be tapped) and its right
+  // half fell off the screen. When the bar is too narrow, the least-used
+  // actions move — same handlers, same enabled state — into a „Więcej”
+  // menu; on a wide screen the bar is exactly as before.
+
+  /// „Szkice”: CUT project, weld gap, new sketch, saved sketches.
+  List<PopupMenuEntry<String>> _sketchMenuItems(int pipeCount) => [
+        PopupMenuItem<String>(
+          value: 'project',
+          enabled: pipeCount > 0,
+          child: Row(children: [
+            const Icon(Icons.content_cut, size: 20),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(_tr('Utwórz projekt CUT…', 'Create CUT project…')),
+            ),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'gap',
+          child: Row(children: [
+            const Icon(Icons.compare_arrows, size: 20),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(_tr('Szczelina spoiny: ${_fmtMm(_gapMm)} mm…',
+                  'Weld gap: ${_fmtMm(_gapMm)} mm…')),
+            ),
+          ]),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'new',
+          child: Row(children: [
+            const Icon(Icons.note_add_outlined, size: 20),
+            const SizedBox(width: 8),
+            Text(_tr('Nowy szkic', 'New sketch')),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'open',
+          child: Row(children: [
+            const Icon(Icons.folder_open, size: 20),
+            const SizedBox(width: 8),
+            Text(_tr('Zapisane szkice…', 'Saved sketches…')),
+          ]),
+        ),
+      ];
+
+  void _onSketchMenu(String key) {
+    switch (key) {
+      case 'new':
+        unawaited(_newSketch());
+        break;
+      case 'open':
+        unawaited(_openSavedSketches());
+        break;
+      case 'project':
+        unawaited(_createProjectFromSketch());
+        break;
+      case 'gap':
+        unawaited(_editGap());
+        break;
+    }
+  }
+
+  /// „Widok”: pan, zoom, overlays, paper mode.
+  List<PopupMenuEntry<String>> _viewMenuItems() => [
+        CheckedPopupMenuItem<String>(
+          value: 'pan',
+          checked: _panMode,
+          child: Text(_tr('Przesuń arkusz (pan)', 'Pan canvas')),
+        ),
+        PopupMenuItem<String>(
+          value: 'zoom_in',
+          child: Row(children: [
+            const Icon(Icons.zoom_in, size: 20),
+            const SizedBox(width: 8),
+            Text(_tr('Powiększ', 'Zoom in')),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'zoom_out',
+          child: Row(children: [
+            const Icon(Icons.zoom_out, size: 20),
+            const SizedBox(width: 8),
+            Text(_tr('Pomniejsz', 'Zoom out')),
+          ]),
+        ),
+        PopupMenuItem<String>(
+          value: 'reset_view',
+          child: Row(children: [
+            const Icon(Icons.center_focus_strong, size: 20),
+            const SizedBox(width: 8),
+            Text(_tr('Resetuj widok', 'Reset view')),
+          ]),
+        ),
+        const PopupMenuDivider(),
+        CheckedPopupMenuItem<String>(
+          value: 'axis',
+          checked: _showAxisCompass,
+          child: Text(_tr('Panel kierunkowy (OSIE)', 'Direction legend (AXES)')),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'status',
+          checked: _showStatusBox,
+          child: Text(_tr('Panel statusu (ISO/SEG/CUT)', 'Status panel')),
+        ),
+        // P2-04: dedicated toggle for the on-canvas color legend so
+        // users can hide it once they've memorised the I/II/III key.
+        CheckedPopupMenuItem<String>(
+          value: 'legend',
+          checked: _showColorLegend,
+          child: Text(_tr('Pokaż legendę kolorów', 'Show color legend')),
+        ),
+        CheckedPopupMenuItem<String>(
+          value: 'paper',
+          checked: _paperMode,
+          child: Text(_tr('Tryb papierowy (jasny)', 'Paper mode (light)')),
+        ),
+      ];
+
+  void _onViewMenu(String key) {
+    switch (key) {
+      case 'axis':
+        _setShowAxisCompass(!_showAxisCompass);
+        break;
+      case 'status':
+        _setShowStatusBox(!_showStatusBox);
+        break;
+      case 'paper':
+        _setPaperMode(!_paperMode);
+        break;
+      case 'legend':
+        // P2-04: explicit user toggle wins over the auto-hide
+        // heuristic (which only kicks in above the segment
+        // threshold and only when this preference is already on).
+        _setShowColorLegend(!_showColorLegend);
+        break;
+      case 'pan':
+        setState(() => _panMode = !_panMode);
+        break;
+      case 'zoom_in':
+        _zoomBy(1.25);
+        break;
+      case 'zoom_out':
+        _zoomBy(0.8);
+        break;
+      case 'reset_view':
+        setState(() {
+          _viewOffset = Offset.zero;
+          _viewScale = 1.0;
+        });
+        break;
+    }
+  }
+
+  // On phones the tooltip only fires on long-press, so most users never see
+  // what the lock actually changed. A short SnackBar names the new mode and
+  // explains the practical effect.
+  void _toggleAxisLock() {
+    final next = !_axisLock;
+    _setAxisLock(next);
+    // ignore: deprecated_member_use
+    SemanticsService.announce(
+      next
+          ? _tr('Blokada osi włączona', 'Axis lock on')
+          : _tr('Blokada osi wyłączona', 'Axis lock off'),
+      Directionality.of(context),
+    );
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(next
+            ? _tr('Blokada osi: WŁ. — rury trzymają się 3 osi izo',
+                'Axis lock: ON — pipes snap to the 3 iso axes')
+            : _tr('Blokada osi: WYŁ. — wolne rysowanie pod kątem (slope)',
+                'Axis lock: OFF — free-angle drawing (slope)')),
+        duration: const Duration(seconds: 2),
+      ));
+  }
+
+  void _toggleFullscreen() {
+    final next = !_fullscreen;
+    _setFullscreen(next);
+    // ignore: deprecated_member_use
+    SemanticsService.announce(
+      next
+          ? _tr('Tryb pełnoekranowy włączony', 'Fullscreen mode on')
+          : _tr('Tryb pełnoekranowy wyłączony', 'Fullscreen mode off'),
+      Directionality.of(context),
+    );
+  }
+
+  List<Widget> _barActions({required int pipeCount, required bool hasComp}) {
+    _BarAction plain({
+      required int rank,
+      required IconData icon,
+      required String tooltip,
+      required VoidCallback? onPressed,
+    }) =>
+        _BarAction(
+          rank: rank,
+          button: IconButton(
+              icon: Icon(icon), tooltip: tooltip, onPressed: onPressed),
+          icon: icon,
+          label: tooltip,
+          onMenu: onPressed == null ? null : (_) => onPressed(),
+        );
+
+    final axisLockTip = _axisLock
+        ? _tr('Wyłącz blokadę osi (slope)', 'Disable axis lock (slope)')
+        : _tr('Włącz blokadę osi', 'Enable axis lock');
+    final fullscreenTip = _fullscreen
+        ? _tr('Wyjdź z pełnego ekranu', 'Exit fullscreen')
+        : _tr('Pełny ekran', 'Fullscreen');
+
+    // Bar order as it always was; `rank` only decides what stays on a
+    // narrow bar (lower = stays longer).
+    final all = <_BarAction>[
+      // The sketch saves itself; this menu starts another one or goes
+      // back to an earlier one.
+      _BarAction(
+        rank: 2,
+        button: PopupMenuButton<String>(
+          icon: const Icon(Icons.folder_open_outlined),
+          tooltip: _tr('Szkice', 'Sketches'),
+          onSelected: _onSketchMenu,
+          itemBuilder: (ctx) => _sketchMenuItems(pipeCount),
+        ),
+        icon: Icons.folder_open_outlined,
+        label: _tr('Szkice', 'Sketches'),
+        onMenu: (anchor) => unawaited(_showSubmenu(
+            anchor, _sketchMenuItems(pipeCount), _onSketchMenu)),
+      ),
+      // Help never leaves the bar (no menu row).
+      _BarAction(rank: 0, button: HelpButton(help: kHelpIsoNotebook)),
+      plain(
+        rank: 10,
+        icon: Icons.label_outline,
+        tooltip: _tr('Prefiksy notatek', 'Note prefixes'),
+        onPressed: () => _showNotePrefixHelp(context),
+      ),
+      plain(
+        rank: 3,
+        icon: Icons.straighten,
+        tooltip: _tr('Wprowadź wymiary', 'Enter dimensions'),
+        onPressed: pipeCount == 0 ? null : _enterAllDimensions,
+      ),
+      plain(
+        rank: 6,
+        icon: Icons.copy_all_outlined,
+        tooltip: _tr('Kopiuj zestawienie', 'Copy summary'),
+        onPressed: (pipeCount == 0 && !hasComp) ? null : _copySummary,
+      ),
+      plain(
+        rank: 1,
+        icon: Icons.undo,
+        tooltip: _tr('Cofnij', 'Undo'),
+        onPressed: _undo.isEmpty ? null : _undoAction,
+      ),
+      // P1-46: axis-lock IconButton gets `toggled` semantics + a
+      // SemanticsService.announce so screen readers hear the new state.
+      _BarAction(
+        rank: 4,
+        button: Semantics(
+          toggled: _axisLock,
+          button: true,
+          label: _tr('Blokada osi izometrycznej', 'Isometric axis lock'),
+          child: IconButton(
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: anim,
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: Icon(
+                _axisLock ? Icons.lock : Icons.lock_open,
+                key: ValueKey<bool>(_axisLock),
+              ),
+            ),
+            tooltip: axisLockTip,
+            onPressed: _toggleAxisLock,
+          ),
+        ),
+        icon: _axisLock ? Icons.lock : Icons.lock_open,
+        label: axisLockTip,
+        onMenu: (_) => _toggleAxisLock(),
+      ),
+      // P2-04: fullscreen toggle — collapses toolbar + summary to a 40 dp
+      // strip so the canvas grabs the rest of the screen. Tooltip flips
+      // PL/EN. Semantics mirrors a toggle for screen readers.
+      _BarAction(
+        rank: 7,
+        button: Semantics(
+          toggled: _fullscreen,
+          button: true,
+          label: _tr('Tryb pełnoekranowy', 'Fullscreen mode'),
+          child: IconButton(
+            icon: Icon(
+                _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+            tooltip: fullscreenTip,
+            onPressed: _toggleFullscreen,
+          ),
+        ),
+        icon: _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+        label: fullscreenTip,
+        onMenu: (_) => _toggleFullscreen(),
+      ),
+      plain(
+        rank: 8,
+        icon: Icons.picture_as_pdf_outlined,
+        tooltip: _tr('Eksportuj PDF', 'Export PDF'),
+        onPressed: _items.isEmpty ? null : _exportPdf,
+      ),
+      plain(
+        rank: 9,
+        icon: _hintHidden ? Icons.help_outline : Icons.help_outlined,
+        tooltip: _tr('Pokaż instrukcję', 'Show hint'),
+        onPressed: () => _setHintHidden(false),
+      ),
+      plain(
+        rank: 11,
+        icon: Icons.delete_sweep_outlined,
+        tooltip: _tr('Wyczyść', 'Clear all'),
+        onPressed: _items.isEmpty ? null : _clear,
+      ),
+      // Overlay + appearance toggles. Single popup keeps app bar from
+      // crowding past the safe-area on small phones. State changes are
+      // persisted so the fitter's preferred view sticks across sessions.
+      _BarAction(
+        rank: 5,
+        button: PopupMenuButton<String>(
+          icon: const Icon(Icons.tune),
+          tooltip: _tr('Widok', 'View'),
+          onSelected: _onViewMenu,
+          itemBuilder: (ctx) => _viewMenuItems(),
+        ),
+        icon: Icons.tune,
+        label: _tr('Widok', 'View'),
+        onMenu: (anchor) =>
+            unawaited(_showSubmenu(anchor, _viewMenuItems(), _onViewMenu)),
+      ),
+    ];
+    return _fitBarActions(all);
+  }
+
+  /// All actions when they fit; otherwise the best-ranked ones (in bar
+  /// order) plus „Więcej” holding the rest (in bar order).
+  List<Widget> _fitBarActions(List<_BarAction> all) {
+    const slot = 48.0; // an IconButton
+    // Back button 56 dp, the title's two 16 dp gutters, a 72 dp title.
+    final width = MediaQuery.sizeOf(context).width;
+    final slots = ((width - 56 - 32 - 72) / slot).floor();
+    if (all.length <= slots) return [for (final a in all) a.button];
+    final byRank = [...all]..sort((a, b) => a.rank.compareTo(b.rank));
+    final shown = <_BarAction>{
+      ...byRank.take(math.max(slots - 1, 0)),
+      ...all.where((a) => a.label == null),
+    };
+    final hidden = [for (final a in all) if (!shown.contains(a)) a];
+    return [
+      for (final a in all)
+        if (shown.contains(a)) a.button,
+      if (hidden.isNotEmpty) _moreButton(hidden),
+    ];
+  }
+
+  Widget _moreButton(List<_BarAction> hidden) => Builder(
+        builder: (anchor) => PopupMenuButton<int>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: _tr('Więcej', 'More'),
+          onSelected: (i) => hidden[i].onMenu?.call(anchor),
+          itemBuilder: (ctx) => [
+            for (var i = 0; i < hidden.length; i++)
+              PopupMenuItem<int>(
+                value: i,
+                enabled: hidden[i].onMenu != null,
+                child: Row(children: [
+                  Icon(hidden[i].icon, size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(child: Text(hidden[i].label!)),
+                ]),
+              ),
+          ],
+        ),
+      );
+
+  /// Opens the „Szkice” / „Widok” menu from the „Więcej” button when the
+  /// bar had no room for its own button.
+  Future<void> _showSubmenu(
+    BuildContext anchor,
+    List<PopupMenuEntry<String>> items,
+    ValueChanged<String> onSelected,
+  ) async {
+    if (!anchor.mounted) return;
+    final box = anchor.findRenderObject();
+    final overlay = Navigator.of(anchor).overlay?.context.findRenderObject();
+    if (box is! RenderBox || overlay is! RenderBox) return;
+    final rect = Rect.fromPoints(
+      box.localToGlobal(Offset.zero, ancestor: overlay),
+      box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay),
+    );
+    final key = await showMenu<String>(
+      context: anchor,
+      position: RelativeRect.fromRect(rect, Offset.zero & overlay.size),
+      items: items,
+    );
+    if (key != null && mounted) onSelected(key);
+  }
+
   // ── build ───────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -5832,288 +6245,7 @@ class _IsoState extends State<IsoNotebookScreen> {
             ),
           ),
         ),
-        actions: [
-          // The sketch saves itself; this menu starts another one or goes
-          // back to an earlier one.
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.folder_open_outlined),
-            tooltip: _tr('Szkice', 'Sketches'),
-            onSelected: (key) {
-              switch (key) {
-                case 'new':
-                  unawaited(_newSketch());
-                  break;
-                case 'open':
-                  unawaited(_openSavedSketches());
-                  break;
-                case 'project':
-                  unawaited(_createProjectFromSketch());
-                  break;
-                case 'gap':
-                  unawaited(_editGap());
-                  break;
-              }
-            },
-            itemBuilder: (ctx) => [
-              PopupMenuItem<String>(
-                value: 'project',
-                enabled: pipeCount > 0,
-                child: Row(children: [
-                  const Icon(Icons.content_cut, size: 20),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                        _tr('Utwórz projekt CUT…', 'Create CUT project…')),
-                  ),
-                ]),
-              ),
-              PopupMenuItem<String>(
-                value: 'gap',
-                child: Row(children: [
-                  const Icon(Icons.compare_arrows, size: 20),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(_tr('Szczelina spoiny: ${_fmtMm(_gapMm)} mm…',
-                        'Weld gap: ${_fmtMm(_gapMm)} mm…')),
-                  ),
-                ]),
-              ),
-              const PopupMenuDivider(),
-              PopupMenuItem<String>(
-                value: 'new',
-                child: Row(children: [
-                  const Icon(Icons.note_add_outlined, size: 20),
-                  const SizedBox(width: 8),
-                  Text(_tr('Nowy szkic', 'New sketch')),
-                ]),
-              ),
-              PopupMenuItem<String>(
-                value: 'open',
-                child: Row(children: [
-                  const Icon(Icons.folder_open, size: 20),
-                  const SizedBox(width: 8),
-                  Text(_tr('Zapisane szkice…', 'Saved sketches…')),
-                ]),
-              ),
-            ],
-          ),
-          HelpButton(help: kHelpIsoNotebook),
-          IconButton(
-            icon: const Icon(Icons.label_outline),
-            tooltip: _tr('Prefiksy notatek', 'Note prefixes'),
-            onPressed: () => _showNotePrefixHelp(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.straighten),
-            tooltip: _tr('Wprowadź wymiary', 'Enter dimensions'),
-            onPressed: pipeCount == 0 ? null : _enterAllDimensions,
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy_all_outlined),
-            tooltip: _tr('Kopiuj zestawienie', 'Copy summary'),
-            onPressed: (pipeCount == 0 && !hasComp) ? null : _copySummary,
-          ),
-          IconButton(
-            icon: const Icon(Icons.undo),
-            tooltip: _tr('Cofnij', 'Undo'),
-            onPressed: _undo.isEmpty ? null : _undoAction,
-          ),
-          // P1-46: axis-lock IconButton gets `toggled` semantics + a
-          // SemanticsService.announce so screen readers hear the new state.
-          Semantics(
-            toggled: _axisLock,
-            button: true,
-            label: _tr('Blokada osi izometrycznej', 'Isometric axis lock'),
-            child: IconButton(
-              icon: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                transitionBuilder: (child, anim) => ScaleTransition(
-                  scale: anim,
-                  child: FadeTransition(opacity: anim, child: child),
-                ),
-                child: Icon(
-                  _axisLock ? Icons.lock : Icons.lock_open,
-                  key: ValueKey<bool>(_axisLock),
-                ),
-              ),
-              tooltip: _axisLock
-                  ? _tr('Wyłącz blokadę osi (slope)',
-                      'Disable axis lock (slope)')
-                  : _tr('Włącz blokadę osi', 'Enable axis lock'),
-              // On phones the tooltip only fires on long-press, so most users
-              // never see what the lock actually changed. A short SnackBar
-              // names the new mode and explains the practical effect.
-              onPressed: () {
-                final next = !_axisLock;
-                _setAxisLock(next);
-                // ignore: deprecated_member_use
-                SemanticsService.announce(
-                  next
-                      ? _tr('Blokada osi włączona', 'Axis lock on')
-                      : _tr('Blokada osi wyłączona', 'Axis lock off'),
-                  Directionality.of(context),
-                );
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(SnackBar(
-                    content: Text(next
-                        ? _tr(
-                            'Blokada osi: WŁ. — rury trzymają się 3 osi izo',
-                            'Axis lock: ON — pipes snap to the 3 iso axes')
-                        : _tr(
-                            'Blokada osi: WYŁ. — wolne rysowanie pod kątem (slope)',
-                            'Axis lock: OFF — free-angle drawing (slope)')),
-                    duration: const Duration(seconds: 2),
-                  ));
-              },
-            ),
-          ),
-          // P2-04: fullscreen toggle — collapses toolbar + summary to a 40 dp
-          // strip so the canvas grabs the rest of the screen. Tooltip flips
-          // PL/EN. Semantics mirrors a toggle for screen readers.
-          Semantics(
-            toggled: _fullscreen,
-            button: true,
-            label: _tr('Tryb pełnoekranowy', 'Fullscreen mode'),
-            child: IconButton(
-              icon: Icon(_fullscreen
-                  ? Icons.fullscreen_exit
-                  : Icons.fullscreen),
-              tooltip: _fullscreen
-                  ? _tr('Wyjdź z pełnego ekranu', 'Exit fullscreen')
-                  : _tr('Pełny ekran', 'Fullscreen'),
-              onPressed: () {
-                final next = !_fullscreen;
-                _setFullscreen(next);
-                // ignore: deprecated_member_use
-                SemanticsService.announce(
-                  next
-                      ? _tr('Tryb pełnoekranowy włączony',
-                          'Fullscreen mode on')
-                      : _tr('Tryb pełnoekranowy wyłączony',
-                          'Fullscreen mode off'),
-                  Directionality.of(context),
-                );
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            tooltip: _tr('Eksportuj PDF', 'Export PDF'),
-            onPressed: _items.isEmpty ? null : _exportPdf,
-          ),
-          IconButton(
-            icon: Icon(_hintHidden
-                ? Icons.help_outline
-                : Icons.help_outlined),
-            tooltip: _tr('Pokaż instrukcję', 'Show hint'),
-            onPressed: () => _setHintHidden(false),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_sweep_outlined),
-            tooltip: _tr('Wyczyść', 'Clear all'),
-            onPressed: _items.isEmpty ? null : _clear,
-          ),
-          // Overlay + appearance toggles. Single popup keeps app bar from
-          // crowding past the safe-area on small phones. State changes are
-          // persisted so the fitter's preferred view sticks across sessions.
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.tune),
-            tooltip: _tr('Widok', 'View'),
-            onSelected: (key) {
-              switch (key) {
-                case 'axis':
-                  _setShowAxisCompass(!_showAxisCompass);
-                  break;
-                case 'status':
-                  _setShowStatusBox(!_showStatusBox);
-                  break;
-                case 'paper':
-                  _setPaperMode(!_paperMode);
-                  break;
-                case 'legend':
-                  // P2-04: explicit user toggle wins over the auto-hide
-                  // heuristic (which only kicks in above the segment
-                  // threshold and only when this preference is already on).
-                  _setShowColorLegend(!_showColorLegend);
-                  break;
-                case 'pan':
-                  setState(() => _panMode = !_panMode);
-                  break;
-                case 'zoom_in':
-                  _zoomBy(1.25);
-                  break;
-                case 'zoom_out':
-                  _zoomBy(0.8);
-                  break;
-                case 'reset_view':
-                  setState(() {
-                    _viewOffset = Offset.zero;
-                    _viewScale = 1.0;
-                  });
-                  break;
-              }
-            },
-            itemBuilder: (ctx) => [
-              CheckedPopupMenuItem<String>(
-                value: 'pan',
-                checked: _panMode,
-                child: Text(_tr('Przesuń arkusz (pan)', 'Pan canvas')),
-              ),
-              PopupMenuItem<String>(
-                value: 'zoom_in',
-                child: Row(children: [
-                  const Icon(Icons.zoom_in, size: 20),
-                  const SizedBox(width: 8),
-                  Text(_tr('Powiększ', 'Zoom in')),
-                ]),
-              ),
-              PopupMenuItem<String>(
-                value: 'zoom_out',
-                child: Row(children: [
-                  const Icon(Icons.zoom_out, size: 20),
-                  const SizedBox(width: 8),
-                  Text(_tr('Pomniejsz', 'Zoom out')),
-                ]),
-              ),
-              PopupMenuItem<String>(
-                value: 'reset_view',
-                child: Row(children: [
-                  const Icon(Icons.center_focus_strong, size: 20),
-                  const SizedBox(width: 8),
-                  Text(_tr('Resetuj widok', 'Reset view')),
-                ]),
-              ),
-              const PopupMenuDivider(),
-              CheckedPopupMenuItem<String>(
-                value: 'axis',
-                checked: _showAxisCompass,
-                child: Text(_tr('Panel kierunkowy (OSIE)',
-                    'Direction legend (AXES)')),
-              ),
-              CheckedPopupMenuItem<String>(
-                value: 'status',
-                checked: _showStatusBox,
-                child:
-                    Text(_tr('Panel statusu (ISO/SEG/CUT)', 'Status panel')),
-              ),
-              // P2-04: dedicated toggle for the on-canvas color legend so
-              // users can hide it once they've memorised the I/II/III key.
-              CheckedPopupMenuItem<String>(
-                value: 'legend',
-                checked: _showColorLegend,
-                child: Text(_tr('Pokaż legendę kolorów',
-                    'Show color legend')),
-              ),
-              CheckedPopupMenuItem<String>(
-                value: 'paper',
-                checked: _paperMode,
-                child: Text(_tr('Tryb papierowy (jasny)',
-                    'Paper mode (light)')),
-              ),
-            ],
-          ),
-        ],
+        actions: _barActions(pipeCount: pipeCount, hasComp: hasComp),
       ),
       body: Column(
         children: [
@@ -6619,6 +6751,32 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
+// ─── App-bar action ───────────────────────────────────────────────────────────
+
+/// One app-bar action: the button the bar shows, and how it reads as a row
+/// of the „Więcej” menu when a narrow bar has no room for it.
+class _BarAction {
+  const _BarAction({
+    required this.rank,
+    required this.button,
+    this.icon,
+    this.label,
+    this.onMenu,
+  });
+
+  /// Lower stays on a narrow bar longer.
+  final int rank;
+  final Widget button;
+  final IconData? icon;
+
+  /// Menu row text; null = the action never leaves the bar.
+  final String? label;
+
+  /// Runs the action from the menu ([anchor] = the „Więcej” button);
+  /// null = disabled, exactly when the button is.
+  final void Function(BuildContext anchor)? onMenu;
+}
+
 // ─── Summary bar ──────────────────────────────────────────────────────────────
 
 class _SummaryBar extends StatelessWidget {
@@ -6676,28 +6834,45 @@ class _SummaryBar extends StatelessWidget {
           if (pipeCount > 0)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  Icon(Icons.content_cut, size: 14, color: cs.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${context.tr(pl: 'Odcinki', en: 'Segments')}: '
-                    '$dimensioned/$pipeCount',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: cs.onSurface),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${context.tr(pl: 'Suma CUT', en: 'Total CUT')}: '
-                    '${totalMm.toStringAsFixed(1)} mm',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: cs.primary),
-                  ),
-                ],
+              // One line with the total pushed right when both fit; on a
+              // narrow phone or with large text the total moves to its own
+              // line instead of overflowing. Never truncated — it is the
+              // number the fitter saws from.
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 2,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.content_cut, size: 14, color: cs.primary),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '${context.tr(pl: 'Odcinki', en: 'Segments')}: '
+                            '$dimensioned/$pipeCount',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: cs.onSurface),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      '${context.tr(pl: 'Suma CUT', en: 'Total CUT')}: '
+                      '${totalMm.toStringAsFixed(1)} mm',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: cs.primary),
+                    ),
+                  ],
+                ),
               ),
             ),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [

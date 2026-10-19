@@ -613,7 +613,7 @@ void main() {
     testWidgets(
         'rysowanie w górę na pustym arkuszu: start przesunięty, punkty w '
         'wierszach ≥ 0, widok dopasowany do całego rysunku', (tester) async {
-      await _boot(tester, size: const Size(800, 1000));
+      await _boot(tester, size: const Size(412, 860));
       final c = await _open(tester);
       final canvas = tester.getSize(_canvas);
       const up = IsoPipe(lengthMm: 4000); // 8 grid rows
@@ -649,7 +649,7 @@ void main() {
           expect(row.round(), greaterThanOrEqualTo(0));
         }
       }
-      // 40 rows (≈ 1110 px) do not fit an 800 × 1000 screen at 100 %: the
+      // 40 rows (≈ 1110 px) do not fit a 412 × 860 phone at 100 %: the
       // view zooms out until the whole drawing is on screen.
       expect(canvas.height, lessThan(40 * _dy));
       final visible = c.debugVisibleWorld!;
