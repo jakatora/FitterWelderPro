@@ -627,7 +627,12 @@ class _AiChatScreenState extends State<AiChatScreen>
           'Nie wykonuję tego polecenia.', 'I will not execute that command.');
       return true;
     }
-    if (await _tryIsoCommand(text, lang)) return true;
+    if (referencesInstruction(utterance)) {
+      _pendingIso = null;
+      _awaitingIsoChoice = false;
+    } else if (await _tryIsoCommand(text, lang)) {
+      return true;
+    }
     _brainContext.lang = lang;
     final legacyIntent = parseAssistantCommand(text).intent;
     final calculationRequest = heatInputRequested(utterance) ||

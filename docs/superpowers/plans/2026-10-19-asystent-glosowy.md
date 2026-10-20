@@ -948,3 +948,16 @@ Etap 2.4: słownik i moment śrub wdrożone; timery pozostają do implementacji.
 Następny audyt: oddzielić cytowane polecenia do tłumaczenia/wyjaśnienia od akcji
 ISO, kalkulatorów i starszej ścieżki zapisu. Samo rozpoznanie słów polecenia
 wewnątrz pytania nie może uruchamiać działania. Pełny odbiór wizji nadal otwarty.
+
+2026-10-21 — spójność pytań i akcji: referencesInstruction rozpoznaje prośby
+PL/EN o tłumaczenie/wyjaśnienie przed ISO, matcherami obliczeń/zapisu,
+kontynuacją i starszym pending slotem. Polecenie wewnątrz pytania pozostaje
+tekstem: parseAssistantCommand i AssistantEngine dają answer_question.
+Silnik nie wysyła takiego tekstu do zdalnego klasyfikatora intencji; istniejąca
+ścieżka odpowiedzi zachowuje zgodę i bramki AI. Lokalny słownik, wiedza i opis
+narzędzia pozostają dostępne. Alternatywa transkrypcji bez ramy pytania nie może
+wyprzeć głównej prośby o tłumaczenie. Normalny draw/save nadal rozpoznawany.
+Pierwsza regresja wykryła blokowanie tool.explain: poprawiono listę dozwolonych
+odpowiedzi. Po korekcie assistant+ISO parser:1361PASS, dodatkowe warianty językowe
+z korpusem routingu:488PASS; analiza zmienionego kodu bez uwag. To testy lokalnej
+klasyfikacji i regresja UI, bez płatnych wywołań AI i bez fizycznego mikrofonu.

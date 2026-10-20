@@ -19,6 +19,8 @@ import 'assistant_intent_client.dart';
 import 'assistant_intents.dart';
 import 'assistant_parser.dart';
 import 'assistant_validator.dart';
+import 'core/command_words.dart' show referencesInstruction;
+import 'core/utterance.dart';
 
 class AssistantOutcome {
   /// Intencja, której dotyczy wynik ([kIntentUnknown], gdy nic nie rozpoznano).
@@ -111,6 +113,14 @@ class AssistantEngine {
     String? carriedIntent,
     String? answeringField,
   }) async {
+    if (referencesInstruction(Utterance(text, lang: lang))) {
+      final fields = <String, Object?>{'text': text.trim()};
+      return AssistantOutcome(
+        intent: kIntentAnswerQuestion,
+        check: validateAssistantProposal(kIntentAnswerQuestion, fields),
+        fields: fields,
+      );
+    }
     // ── Odpowiedź na nasze pytanie o jedno pole: tylko lokalnie ────────────
     if (answeringField != null && carriedIntent != null) {
       final answer = carriedIntent == kIntentOpenTool
@@ -201,7 +211,11 @@ class AssistantEngine {
       case RemoteIntentUnavailable(:final kind):
         return AssistantOutcome(
             intent: kIntentUnknown, check: null, remoteUnavailable: kind);
-      case RemoteIntentProposal(:final intent, fields: final rawFields, :final question):
+      case RemoteIntentProposal(
+          :final intent,
+          fields: final rawFields,
+          :final question
+        ):
         final fields = normalizeRemoteFields(rawFields);
         if (intent == kIntentUnknown) {
           return AssistantOutcome(

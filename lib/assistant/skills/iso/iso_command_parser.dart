@@ -31,6 +31,7 @@ import '../../../screens/iso_notebook_screen.dart'
     show IsoCompass, IsoDir, IsoFitting, IsoPipe, IsoStep, IsoTurn;
 import '../../core/spoken_numbers.dart' show SpokenItem, isInchUnit;
 import '../../core/utterance.dart';
+import '../../core/command_words.dart' show referencesInstruction;
 import '../core/skill_words.dart' show mentionsWall, mentionsWeight;
 
 /// Narzędzie zastępcze: „zawór” bez rodzaju. Nie trafia do zeszytu —
@@ -590,6 +591,7 @@ class _Seg {
 /// Polecenie rysowania z wypowiedzi albo null, gdy to nie jest polecenie
 /// rysowania (pytanie, zapis, inny moduł, brak elementów).
 IsoCommand? parseIsoCommand(Utterance u) {
+  if (referencesInstruction(u)) return null;
   final items = u.items;
   if (items.isEmpty) return null;
   final f = u.folded;

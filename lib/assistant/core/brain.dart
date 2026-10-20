@@ -141,6 +141,9 @@ class AssistantBrain {
   }
 
   Future<BrainReply> _handle(Utterance u, AssistantContext ctx) async {
+    if (referencesInstruction(u)) {
+      cancelPending();
+    }
     if (isNegatedCommand(u)) {
       cancelPending();
       return const BrainReply(AnswerResult(AssistantAnswer(
@@ -150,7 +153,10 @@ class AssistantBrain {
     final cands = <Utterance>[
       u,
       for (final alt in u.alternatives.toSet())
-        if (alt.trim().isNotEmpty && alt.trim() != u.raw.trim()) u.withRaw(alt),
+        if (!referencesInstruction(u) &&
+            alt.trim().isNotEmpty &&
+            alt.trim() != u.raw.trim())
+          u.withRaw(alt),
     ];
     cands.removeWhere(isNegatedCommand);
     if (u.folded.isEmpty && cands.length == 1) return _notUnderstood(u);
@@ -304,6 +310,7 @@ class AssistantBrain {
 
   /// Kontynuacja / dopowiedzenie ostatniej umiejętności dla [c] albo null.
   SkillMatch? _continuation(Utterance c, AssistantContext ctx) {
+    if (referencesInstruction(c)) return null;
     final last = ctx.recentMatch();
     if (last == null || last.skill.fallbackOrder != null) return null;
     final marker = c.isContinuation;
@@ -364,6 +371,12 @@ class AssistantBrain {
   }
 
   SkillMatch? _safeMatch(AssistantSkill s, Utterance u, AssistantContext ctx) {
+    if (referencesInstruction(u) &&
+        s.id != 'glossary.term' &&
+        s.id != 'tool.explain' &&
+        s.id != 'knowledge') {
+      return null;
+    }
     try {
       return s.match(u, ctx);
     } catch (e) {

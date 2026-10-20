@@ -6,6 +6,16 @@
 
 import 'utterance.dart';
 
+/// A translation/explanation quotes an instruction; its verbs are data.
+/// Keep this before pending slots as well as before direct action routing.
+bool referencesInstruction(Utterance u) => RegExp(
+        r'^(?:(?:prosze|please|hej|hey|asystencie)\s+)*'
+        r'(?:przetlumacz\w*|tlumacz\w*|translate|wyjasnij|wytlumacz|explain|'
+        r'co (?:to )?znaczy|co oznacza|what does|jak powiedziec|jak (?:jest|bedzie)|'
+        r'powiedz po (?:angielsku|niemiecku|polsku|holendersku|norwesku)|'
+        r'how (?:do (?:i|you) (?:say|translate)|to say))\b')
+    .hasMatch(u.folded);
+
 /// Czasowniki poleceń zapisu i rysowania („dodaj zawór", „zapisz TIG…",
 /// „narysuj rurę") — przy nich pytania o liczby z tabel nie trafiają.
 final RegExp kCommandVerbRe = RegExp(

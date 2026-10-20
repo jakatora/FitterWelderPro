@@ -29,8 +29,11 @@
 // OD w lib/domain/fitter/pipe_size_lookup.dart.
 
 import '../domain/fitter/pipe_size_lookup.dart';
+import '../i18n/app_language.dart';
 import 'assistant_intents.dart';
 import 'core/spoken_numbers.dart';
+import 'core/command_words.dart' show referencesInstruction;
+import 'core/utterance.dart';
 
 export 'core/spoken_numbers.dart' show parseSpokenNumber;
 
@@ -47,6 +50,9 @@ class AssistantProposal {
 AssistantProposal parseAssistantCommand(String text) {
   final folded = foldSpeech(text);
   if (folded.isEmpty) return const AssistantProposal(kIntentUnknown, {});
+  if (referencesInstruction(Utterance(text, lang: AppLanguage.pl))) {
+    return AssistantProposal(kIntentAnswerQuestion, {'text': text.trim()});
+  }
 
   // „Jaki prąd mam zapisany na…", „pokaż moje parametry…" — odczyt lokalny.
   if (!_hardOpenAtStart.hasMatch(folded) && _myParamsRe.hasMatch(folded)) {
@@ -74,9 +80,9 @@ AssistantProposal parseAssistantCommand(String text) {
 
   final fields = _extractWeldFields(folded);
   final hasVerb = _saveVerb.hasMatch(folded);
-  final looksLikeParam = (fields.containsKey('material') ||
-          fields.containsKey('process')) &&
-      (fields.containsKey('current_a') || fields.containsKey('wall_mm'));
+  final looksLikeParam =
+      (fields.containsKey('material') || fields.containsKey('process')) &&
+          (fields.containsKey('current_a') || fields.containsKey('wall_mm'));
   if (hasVerb || looksLikeParam) {
     return AssistantProposal(kIntentSaveWeldParameter, fields);
   }
@@ -93,9 +99,10 @@ Map<String, Object?> parseFieldAnswer(String field, String text) {
       final no = _weldNoFrom('spoina $text') ?? _weldNoFrom(text);
       return {if (no != null) 'weld_no': no};
     case 'project':
-      final p = _cleanFreeText(
-          text.replaceFirst(RegExp(r'^\s*(?:do\s+)?(?:projekt\S*|project)\s*[:\-]?\s*',
-              caseSensitive: false), ''));
+      final p = _cleanFreeText(text.replaceFirst(
+          RegExp(r'^\s*(?:do\s+)?(?:projekt\S*|project)\s*[:\-]?\s*',
+              caseSensitive: false),
+          ''));
       return {if (p != null) 'project': p};
     case 'wps':
       final w = _wpsFrom('WPS $text');
@@ -132,8 +139,9 @@ Map<String, Object?> parseFieldAnswer(String field, String text) {
     final i = numbers.single;
     final item = items[i];
     if (item.fraction) return out;
-    final unit =
-        i + 1 < items.length && !items[i + 1].isNumber ? items[i + 1].word : null;
+    final unit = i + 1 < items.length && !items[i + 1].isNumber
+        ? items[i + 1].word
+        : null;
     if (unit != null && !_unitFitsField(unit, field)) return out;
     out[field] = item.value;
   }
@@ -221,15 +229,41 @@ _Kw? _keyword(String w) {
 /// Słowa, które mogą stać między słowem-kluczem a liczbą („ścianka MA 2 mm",
 /// „prąd NA 60").
 const Set<String> _bridgeWords = {
-  'na', 'ma', 'to', 'o', 'of', 'is', 'at', 'the', 'a', 'jest', 'wynosi',
-  'rowna', 'okolo', 'about', 'ok', 'z', 'ze', 'w', 'we', 'mam', 'daje',
+  'na',
+  'ma',
+  'to',
+  'o',
+  'of',
+  'is',
+  'at',
+  'the',
+  'a',
+  'jest',
+  'wynosi',
+  'rowna',
+  'okolo',
+  'about',
+  'ok',
+  'z',
+  'ze',
+  'w',
+  'we',
+  'mam',
+  'daje',
 };
 
 const Set<String> _processCodesMigMag = {'131', '135', '136', '138'};
 const Set<String> _processCodesTig = {'141', '142'};
 const Set<String> _processCodesMma = {'111'};
 const Set<String> _materialCodes = {
-  '316', '304', '321', '2205', '1.4301', '1.4307', '1.4404', '1.4571',
+  '316',
+  '304',
+  '321',
+  '2205',
+  '1.4301',
+  '1.4307',
+  '1.4404',
+  '1.4571',
   '1.4462',
 };
 
@@ -291,8 +325,8 @@ Set<int> _ambiguousNumbers(List<SpokenItem> items) {
     final a = items[j];
     final b = items[j + 1];
     if (!a.isSpoken || !b.isSpoken) continue;
-    final kindA = _unitKind(_unitAfter(items, j)) ??
-        _kwKind(_keywordBefore(items, j));
+    final kindA =
+        _unitKind(_unitAfter(items, j)) ?? _kwKind(_keywordBefore(items, j));
     final kindB = _unitKind(_unitAfter(items, j + 1));
     if (kindA == null) continue; // pierwsza i tak do niczego nie trafi
     if (kindB != null && kindB != kindA) continue;
@@ -350,7 +384,9 @@ Map<String, Object?> _extractWeldFields(String s) {
       // Po angielsku słowo-klucz stoi często ZA jednostką: „2 mm wall".
       if (kw == null && j + 2 < items.length) {
         final after = _keyword(items[j + 2].word);
-        if (after == _Kw.wall || after == _Kw.diameter || after == _Kw.electrode) {
+        if (after == _Kw.wall ||
+            after == _Kw.diameter ||
+            after == _Kw.electrode) {
           kw = after;
         }
       }
@@ -475,15 +511,16 @@ final Map<String, RegExp> _materialPatterns = {
   'AL': RegExp(r'\balumin\w*|\balu\b'),
   'OTHER': RegExp(
       r'\btytan\w*|\btitanium\b|\bmiedz\w*|\bcopper\b|\binconel\w*|\bhastelloy\w*|\bmonel\w*'),
-  'SS': RegExp(r'\bnierdzew\w*|\b316l?\b|\b304l?\b|\b321\b|\b1\.4(?:301|307|404|571)\b|'
+  'SS': RegExp(
+      r'\bnierdzew\w*|\b316l?\b|\b304l?\b|\b321\b|\b1\.4(?:301|307|404|571)\b|'
       r'\binox\b|\bkwasow\w*|\bkwasoodporn\w*|\bstainless\b|\bss\b|\baustenit\w*'),
-  'CS': RegExp(r'\bczarn\w*|\bweglow\w*|\bcs\b|\bcarbon\b(?! dioxide)|\bs235\w*|'
+  'CS': RegExp(
+      r'\bczarn\w*|\bweglow\w*|\bcs\b|\bcarbon\b(?! dioxide)|\bs235\w*|'
       r'\bs355\w*|\bp235\w*|\bp265\w*|\ba106\w*|\bmild steel\b|\bblack steel\b|\bst ?37\b'),
 };
 
 // „tik"/„tyk" — tak rozpoznawanie mowy zapisuje „TIG"; „argonówka" = TIG.
-final _tigRe =
-    RegExp(r'\b(?:tig|tik|tyk|tick|wig|gtaw|argonowk\w*)\b');
+final _tigRe = RegExp(r'\b(?:tig|tik|tyk|tick|wig|gtaw|argonowk\w*)\b');
 final _migRe = RegExp(
     r'\b(?:mig|mag|migiem|magiem|gmaw|fcaw|migomat\w*|migowk\w*|magowk\w*)\b|'
     r'\bdrut\w* proszkow\w*|\bflux ?cor\w*');
@@ -498,7 +535,9 @@ String? _process(String s, Set<String> fromCodes) {
   if (_mmaRe.hasMatch(s)) hits.add('MMA');
   // „Elektroda" sama w sobie oznacza MMA — chyba że mowa o TIG/MIG (wtedy to
   // wolfram albo drut) albo padło słowo „wolfram".
-  if (hits.isEmpty && _electrodeWordRe.hasMatch(s) && !_tungstenRe.hasMatch(s)) {
+  if (hits.isEmpty &&
+      _electrodeWordRe.hasMatch(s) &&
+      !_tungstenRe.hasMatch(s)) {
     hits.add('MMA');
   }
   return hits.length == 1 ? hits.single : null;
@@ -507,9 +546,9 @@ String? _process(String s, Set<String> fromCodes) {
 final _noFillerRe = RegExp(
     r'\bbez (?:drutu|spoiwa|pret\w*|dodatk\w*|material\w*)|\bna sucho\b|\bautogen\w*|'
     r'\bwithout (?:filler|wire|rod)\b|\bno (?:filler|wire|rod)\b|\bfusion\b');
-final _fillerRe = RegExp(
-    r'\bz (?:drutem|pretem|dodatkiem|material\w*)|\bze spoiwem\b|'
-    r'\bwith (?:filler|wire|rod)\b|\bfiller (?:wire|rod)\b');
+final _fillerRe =
+    RegExp(r'\bz (?:drutem|pretem|dodatkiem|material\w*)|\bze spoiwem\b|'
+        r'\bwith (?:filler|wire|rod)\b|\bfiller (?:wire|rod)\b');
 
 bool? _filler(String s) {
   final no = _noFillerRe.hasMatch(s);
@@ -523,14 +562,17 @@ String? _position(String s) {
   if (code != null) return code[1]!.toUpperCase();
   if (RegExp(r'\bh ?l ?045\b').hasMatch(s)) return 'H-L045';
   if (RegExp(r'\bj ?l ?045\b').hasMatch(s)) return 'J-L045';
-  final iso = RegExp(r'\b(?:pozycj\w*|position|pos)\s+(p[a-hj])\b').firstMatch(s);
+  final iso =
+      RegExp(r'\b(?:pozycj\w*|position|pos)\s+(p[a-hj])\b').firstMatch(s);
   if (iso != null) return iso[1]!.toUpperCase();
   // Sam kod bez słowa „pozycja" — tylko jednoznaczne (nie „pa"/„pe").
   final bare = RegExp(r'\b(p[bcdfghj])\b').firstMatch(s);
   if (bare != null) return bare[1]!.toUpperCase();
   final words = <String, RegExp>{
-    'PF': RegExp(r'\bpionow\w* (?:w|pod) gore\b|\bpod gore\b|\buphill\b|\bvertical up\w*'),
-    'PG': RegExp(r'\bpionow\w* (?:w|z) dol\b|\bz gory\b|\bdownhill\b|\bvertical down\w*'),
+    'PF': RegExp(
+        r'\bpionow\w* (?:w|pod) gore\b|\bpod gore\b|\buphill\b|\bvertical up\w*'),
+    'PG': RegExp(
+        r'\bpionow\w* (?:w|z) dol\b|\bz gory\b|\bdownhill\b|\bvertical down\w*'),
     'PA': RegExp(r'\bpodoln\w*|\bflat\b'),
     'PC': RegExp(r'\bnascienn\w*|\bhorizontal\b|\bpoziom\w*'),
     'PE': RegExp(r'\bpulapow\w*|\bsufitow\w*|\boverhead\b'),
@@ -567,7 +609,8 @@ final Map<String, RegExp> _jointPatterns = {
   'BUTT': RegExp(r'\bdoczolow\w*|\bbutt\b|\bna styk\b'),
   'FILLET': RegExp(r'\bpachwin\w*|\bfillet\b'),
   'SOCKET': RegExp(r'\bmufow\w*|\bmuf[aey]?\b|\bsocket\b|\bkielich\w*'),
-  'BRANCH': RegExp(r'\bodgalezien\w*|\bkrocc\w*|\bkrociec\b|\bbranch\b|\bsiodl\w*|\bsaddle\b'),
+  'BRANCH': RegExp(
+      r'\bodgalezien\w*|\bkrocc\w*|\bkrociec\b|\bbranch\b|\bsiodl\w*|\bsaddle\b'),
 };
 
 // ─── Intencje ────────────────────────────────────────────────────────────────
@@ -703,7 +746,9 @@ String? _wpsFrom(String original) {
     caseSensitive: false,
   ).firstMatch(original);
   if (m == null) return null;
-  final v = m[1]!.replaceAll(RegExp(r'\s+'), '').replaceFirst(RegExp(r'[.\-/]+$'), '');
+  final v = m[1]!
+      .replaceAll(RegExp(r'\s+'), '')
+      .replaceFirst(RegExp(r'[.\-/]+$'), '');
   if (!RegExp(r'\d').hasMatch(v) || v.length > kAssistantTextLimits['wps']!) {
     return null;
   }
