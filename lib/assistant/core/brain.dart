@@ -372,6 +372,7 @@ class AssistantBrain {
 
   SkillMatch? _safeMatch(AssistantSkill s, Utterance u, AssistantContext ctx) {
     if (referencesInstruction(u) &&
+        !s.answersQuestionsOnly &&
         s.id != 'glossary.term' &&
         s.id != 'tool.explain' &&
         s.id != 'knowledge') {

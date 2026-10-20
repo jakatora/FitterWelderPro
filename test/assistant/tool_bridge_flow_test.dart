@@ -272,7 +272,8 @@ void main() {
     await settle(tester);
     await say(tester, 'Uruchom chłodzenie 2,5 minuty');
     expect(ToolBridge.instance.activeToolId, 'welder_calculators');
-    expect(DefaultTabController.of(tester.element(find.byType(TabBar))).index, 2);
+    expect(
+        DefaultTabController.of(tester.element(find.byType(TabBar))).index, 2);
     expect(service.target!.inSeconds, 150);
     expect(service.maxInterpassC, isNull);
     now = now.add(const Duration(seconds: 10));
@@ -295,6 +296,26 @@ void main() {
     await close(tester);
     service.dispose();
     WeldTimerService.instance = WeldTimerService();
+  });
+  testWidgets('chat opens defect advice with exact supplied filters',
+      (tester) async {
+    await boot(tester);
+    unawaited(openTool(
+        appNavigatorKey.currentState!.overlay!.context, toolById('dn_mm')!));
+    await settle(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Pokaż przyczyny porowatości MAG stal węglowa');
+    expect(ToolBridge.instance.activeToolId, 'weld_defects');
+    expect(find.byKey(const ValueKey('defects-selected')), findsOneWidget);
+    expect(find.textContaining('Wada spoiny: Porowatość'), findsOneWidget);
+    expect(find.textContaining('Proces: 135/138 MAG'), findsOneWidget);
+    await say(tester, 'porowatość TIG 60 A');
+    expect(find.text('Jaki materiał spawasz?'), findsOneWidget);
+    expect(ToolBridge.instance.activeToolId, 'weld_defects');
+    await say(tester, 'stal nierdzewna');
+    expect(find.textContaining('Proces: 141 TIG'), findsOneWidget);
+    await close(tester);
   });
   testWidgets(
       'missing table is queued privately once; invalid input does not create a bug report',

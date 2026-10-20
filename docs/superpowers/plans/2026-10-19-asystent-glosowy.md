@@ -986,3 +986,29 @@ PASS (build/welder-misc-full-app-tests.log), pełny flutter analyze bez uwag
 (build/welder-misc-full-analyze.log). Po usunięciu wewnętrznej nazwy trybu z
 karty odpowiedzi dodatkowe17testów timera PASS. APK pozostaje starszy; nie
 utożsamiać tych testów z odbiorem fizycznego mikrofonu lub systemowego alarmu.
+
+2026-10-21 — `defects.causes` (etap2.5): odpowiedzi z defectAdvice i
+buildDefectShareText, tych samych co moduł wad spoin. Przyczyny, sprawdzenia,
+naprawa, BHP, zastrzeżenie WPS/procedury i adresy źródeł pozostają z domeny.
+Proces i materiał zbierane w rozmowie, bez wyboru na podstawie samego amperażu.
+FCAW bez rozróżnienia 114/136 dopytuje. Rozbieżne materiały/pozycje dopytują;
+para nieobecna w bazie uruchamia brakującą możliwość zamiast zmiany materiału.
+Wspólne numery ISO pęknięć nie rozstrzygają typu: chip przekazuje pełną nazwę.
+Liczby słownie i literowane pozycje używają wspólnego tokenizera (141 A nie jest
+procesem141, ISO3041 nie jest stalą304L, H-L045 jest pozycją pipeUp).
+Odpowiedź opisuje możliwe przyczyny, nie stwierdza faktycznej diagnozy. Warunki
+zależne od pozycji pozostają oznaczone. Zakres ISO5817 z udostępniania to VT.
+Nowe answersQuestionsOnly umożliwia umiejętnościom wiedzy odpowiedź na „wyjaśnij”
+przy zachowaniu ochrony cytowanych poleceń w kalkulatorach/zapisie/ISO.
+WelderToolsPage bez zmian; WeldDefectsPage ma atomowy uchwyt defect_id/process/
+material/position, waliduje cały zestaw przed zmianą, czyści stary checklist tylko
+w pamięci ekranu. Jawne „pokaż przyczyny…” otwiera i wypełnia moduł; zwykłe
+pytanie zachowuje zasady pokazywania odpowiedzi/odnośnika w obcym module.
+„Porowatość TIG60A” rozpoznawana przed starszym parserem zapisu jako pomoc przy
+wadzie, nie zapis parametrów. Pełny czat DN→wady i doprecyzowanie materiału
+sprawdzone. Otwieranie wszystkich narzędzi z pełnych tytułów PL/EN zachowane.
+Regresja assistant+UI/domena/dane wad:1451PASS; po ochronie krótkiej wypowiedzi
+odrębny router+umiejętność+pełny czat561PASS. Analiza zmienionego kodu czysta.
+Checkpoint całej aplikacji nadal a105026:6489PASS, nie przypisywać go nowszym
+zmianom. Dalej2.5: ISO5817, elektrody, zawiesia, tarcze, NDS dymów, spoiwo;
+następnie pozostałe wymagania ISO/rejestrów/pokrycia/raportów/odbioru.

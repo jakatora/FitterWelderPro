@@ -131,12 +131,10 @@ void main() {
   });
 
   group('wiedza', () {
-    test('Pomoc: „dlaczego pojawia się porowatość"', () async {
+    test('porowatość: domena dopytuje o proces zamiast zgadywać FAQ', () async {
       final r = await BrainHarness().say('dlaczego pojawia się porowatość');
-      expect(r.match!.skill.id, 'knowledge');
-      final a = r.result as AnswerResult;
-      expect(a.answer.text.pl, startsWith('Dlaczego pojawia się porowatość?'));
-      expect(a.answer.source!.pl, startsWith('Pomoc'));
+      expect(r.match!.skill.id, 'defects.causes');
+      expect((r.result as AskResult).slot, 'process');
     });
     test('słownik: „jak jest podtopienie po niemiecku"', () async {
       final h = BrainHarness();

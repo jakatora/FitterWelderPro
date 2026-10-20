@@ -85,7 +85,7 @@ class ExplainToolSkill extends AssistantSkill {
   @override
   List<SkillRejection> get rejections => const [
         SkillRejection('otwórz rolling offset', routesTo: 'tool.open'),
-        SkillRejection('dlaczego pojawia się porowatość', routesTo: 'knowledge'),
+        SkillRejection('dlaczego pojawia się porowatość', routesTo: 'defects.causes'),
         SkillRejection('jaka jest średnica dn40', routesTo: 'pipe.od'),
       ];
 

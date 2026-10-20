@@ -67,6 +67,10 @@ abstract class AssistantSkill {
   /// true = potwierdzenie tylko dotykiem (moduły bezpieczeństwa).
   bool get safetyCritical => false;
 
+  /// Answers sourced questions without performing an app action. These may
+  /// handle requests to explain quoted text, unlike calculators and writes.
+  bool get answersQuestionsOnly => false;
+
   /// Synchronicznie, bez I/O. null = to nie do mnie.
   SkillMatch? match(Utterance u, AssistantContext ctx);
 

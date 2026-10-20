@@ -91,14 +91,19 @@ void main() {
       expect(wall, isNot(contains('DN ↔ mm')));
     });
     test('lista ścianek też opisuje OD', () async {
-      final wall = textOf((await BrainHarness().say('jakie ścianki ma dn300')).result);
-      expect(wall, startsWith('DN300 (OD 323,8 mm wg ASME; w tabeli DN ↔ mm: 323,9 mm)'));
+      final wall =
+          textOf((await BrainHarness().say('jakie ścianki ma dn300')).result);
+      expect(
+          wall,
+          startsWith(
+              'DN300 (OD 323,8 mm wg ASME; w tabeli DN ↔ mm: 323,9 mm)'));
     });
   });
 
   group('3. ułamki po jednostce i „N i <ułamek>"', () {
     test('„dwa cale i pół" → 2,5" = DN65', () async {
-      expect(Utterance('dwa cale i pół', lang: AppLanguage.pl).npsInches(), 2.5);
+      expect(
+          Utterance('dwa cale i pół', lang: AppLanguage.pl).npsInches(), 2.5);
       final r = await BrainHarness().say('średnica dwa cale i pół');
       expect(textOf(r.result), contains('(DN65)'));
     });
@@ -153,8 +158,8 @@ void main() {
       final h = BrainHarness();
       await h.say('średnica dn40');
       expect((await h.say('a ścianka?')).match!.skill.id, 'pipe.wall');
-      expect(textOf((await h.say('a sch 80?')).result),
-          startsWith('DN40 Sch 80'));
+      expect(
+          textOf((await h.say('a sch 80?')).result), startsWith('DN40 Sch 80'));
     });
   });
 
@@ -164,13 +169,14 @@ void main() {
       final ask = r.result as AskResult;
       expect(ask.slot, 'dn');
       expect(ask.choices.map((c) => c.utterance), ['DN50', 'DN80']);
-      expect(Utterance('średnica dn50 i dn80', lang: AppLanguage.pl).dn(),
-          isNull);
+      expect(
+          Utterance('średnica dn50 i dn80', lang: AppLanguage.pl).dn(), isNull);
     });
     test('„DN fifty and sixty" → pytanie (EN)', () async {
       final u = Utterance('DN fifty and sixty', lang: AppLanguage.en);
       expect(u.dn(), isNull);
-      final r = await BrainHarness(lang: AppLanguage.en).say('DN fifty and sixty');
+      final r =
+          await BrainHarness(lang: AppLanguage.en).say('DN fifty and sixty');
       expect((r.result as AskResult).slot, 'dn');
     });
     test('ten sam DN dwa razy to nie dwuznaczność', () {
@@ -193,7 +199,6 @@ void main() {
     });
     test('pytania z Pomocy dalej działają', () async {
       for (final t in [
-        'dlaczego pojawia się porowatość',
         'jaki przepływ gazu osłonowego ustawić',
         'ile czasu powinien trwać back purge',
       ]) {

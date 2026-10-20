@@ -49,7 +49,7 @@ class GlossaryTermSkill extends AssistantSkill {
   List<SkillRejection> get rejections => const [
         SkillRejection('otwórz słownik spawalniczy', routesTo: 'tool.open'),
         SkillRejection('dlaczego pojawia się porowatość',
-            routesTo: 'knowledge'),
+            routesTo: 'defects.causes'),
         SkillRejection('zapisz TIG 100 A ścianka 2 mm'),
       ];
   @override

@@ -254,8 +254,6 @@ class KnowledgeSkill extends AssistantSkill {
 
   @override
   List<SkillExample> get examples => const [
-        SkillExample(
-            'Dlaczego pojawia się porowatość?', 'Why does porosity appear?'),
         SkillExample('Jaki przepływ gazu osłonowego ustawić?',
             'What shielding gas flow should be set?'),
         SkillExample('Ile czasu powinien trwać back purge?',

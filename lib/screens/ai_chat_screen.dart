@@ -675,6 +675,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     final explicitOpen = reply.match?.skill.id == 'tool.open' ||
         reply.match?.skill.id == 'account.open' ||
         (reply.match?.skill.id.startsWith('timer.') ?? false) ||
+        ((reply.match?.skill.answersQuestionsOnly ?? false) &&
+            kOpenVerbAtStartRe.hasMatch(utterance.folded)) ||
         (reply.match?.skill.tier == AssistantTier.b &&
             requestsCalculation(utterance)) ||
         (reply.match?.skill.id == 'heat.input' &&

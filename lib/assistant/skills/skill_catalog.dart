@@ -14,6 +14,7 @@ import 'fitter_routes/catalog.dart';
 import 'fitter_tables/catalog.dart';
 import 'welder_calc/catalog.dart';
 import 'welder_misc/catalog.dart';
+import 'knowledge_modules/catalog.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog(
@@ -27,7 +28,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());
   // Kolejne grupy (koordynator):
-  //   all.addAll(knowledgeModuleSkills());// 2.5
+  all.addAll(knowledgeModuleSkills());
   //   all.addAll(isoSkills());            // 3.2
   return List.unmodifiable(all);
 }

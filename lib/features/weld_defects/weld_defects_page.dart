@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../data/weld_defects.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/defects/defect_advice.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -36,7 +37,49 @@ class WeldDefectsPage extends StatefulWidget {
   State<WeldDefectsPage> createState() => _WeldDefectsPageState();
 }
 
-class _WeldDefectsPageState extends State<WeldDefectsPage> {
+class _WeldDefectsPageState extends State<WeldDefectsPage>
+    with ToolHandleHost<WeldDefectsPage> {
+  @override
+  String get toolId => 'weld_defects';
+  @override
+  Set<String> get supportedFields =>
+      const {'defect_id', 'process', 'material', 'position'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    if (rejected.isNotEmpty) return rejected;
+    final d = fields['defect_id'] is String
+        ? weldDefectById(fields['defect_id'] as String)
+        : null;
+    final p = DefectProcess.values
+        .where((v) => v.name == fields['process'])
+        .firstOrNull;
+    final m = DefectMaterial.values
+        .where((v) => v.name == fields['material'])
+        .firstOrNull;
+    final pos = DefectPosition.values
+        .where((v) => v.name == fields['position'])
+        .firstOrNull;
+    if (d == null ||
+        p == null ||
+        !d.processes.contains(p) ||
+        m == null ||
+        !d.materialsFor(p).contains(m) ||
+        (fields['position'] != null && pos == null)) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _defectId = d.id;
+      _process = p;
+      _material = m;
+      _position = pos;
+      _checked.clear();
+      _search.clear();
+    });
+    _scrollTo(_resultKey);
+    return {};
+  }
+
   final _search = TextEditingController();
   final _processKey = GlobalKey();
   final _resultKey = GlobalKey();
@@ -53,6 +96,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
   void initState() {
     super.initState();
     _search.addListener(_onSearch);
+    markReady();
   }
 
   void _onSearch() {
@@ -218,8 +262,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
     }
     if (id == null || !mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-          builder: (_) => Iso5817Page(initialItemId: id)),
+      MaterialPageRoute<void>(builder: (_) => Iso5817Page(initialItemId: id)),
     );
   }
 
@@ -345,8 +388,8 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
             const SizedBox(height: 18),
             KeyedSubtree(
               key: _processKey,
-              child: _SectionTitle(
-                  context.tr(pl: '2. Proces', en: '2. Process')),
+              child:
+                  _SectionTitle(context.tr(pl: '2. Proces', en: '2. Process')),
             ),
             const SizedBox(height: 8),
             _processChips(context, defect, en),
@@ -397,8 +440,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
             _RepairCard(advice: advice, en: en),
             const SizedBox(height: 18),
             _SectionTitle(context.tr(
-                pl: 'Przed następnym ściegiem',
-                en: 'Before the next run')),
+                pl: 'Przed następnym ściegiem', en: 'Before the next run')),
             const SizedBox(height: 8),
             _checklist(context, advice, en),
             const SizedBox(height: 18),
@@ -424,8 +466,8 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
               ),
               onPressed: () => _share(advice),
               icon: const Icon(Icons.share_outlined),
-              label: Text(context.tr(
-                  pl: 'Udostępnij tekstem', en: 'Share as text')),
+              label: Text(
+                  context.tr(pl: 'Udostępnij tekstem', en: 'Share as text')),
             ),
             const SizedBox(height: 16),
             _SourcesFootnote(advice: advice, en: en),
@@ -486,9 +528,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
               child: Text(
                 '${g.digit}xx · ${en ? g.en : g.pl}',
                 style: const TextStyle(
-                    color: kTextMut,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700),
+                    color: kTextMut, fontSize: 12, fontWeight: FontWeight.w700),
               ),
             ),
             for (final d in kWeldDefects.where((d) => d.group == g))
@@ -559,8 +599,7 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
       spacing: 8,
       runSpacing: 4,
       children: [
-        chip('defects-material-any', context.tr(pl: 'Każdy', en: 'Any'),
-            null),
+        chip('defects-material-any', context.tr(pl: 'Każdy', en: 'Any'), null),
         for (final m in allowed)
           chip('defects-material-${m.name}', en ? m.en : m.pl, m),
       ],
@@ -573,7 +612,8 @@ class _WeldDefectsPageState extends State<WeldDefectsPage> {
       initialValue: _position,
       isExpanded: true,
       decoration: InputDecoration(
-        labelText: context.tr(pl: 'Pozycja (ISO 6947)', en: 'Position (ISO 6947)'),
+        labelText:
+            context.tr(pl: 'Pozycja (ISO 6947)', en: 'Position (ISO 6947)'),
       ),
       items: [
         DropdownMenuItem<DefectPosition?>(
@@ -752,8 +792,8 @@ class _SelectedDefect extends StatelessWidget {
               padding: const EdgeInsets.only(right: 6),
               child: Text(
                 defect.looks.of(en: en),
-                style: const TextStyle(
-                    color: kTextSec, fontSize: 13, height: 1.4),
+                style:
+                    const TextStyle(color: kTextSec, fontSize: 13, height: 1.4),
               ),
             ),
             Align(
@@ -900,8 +940,8 @@ class _Labeled extends StatelessWidget {
             TextSpan(children: [
               TextSpan(
                 text: '$label: ',
-                style: const TextStyle(
-                    color: kText, fontWeight: FontWeight.w700),
+                style:
+                    const TextStyle(color: kText, fontWeight: FontWeight.w700),
               ),
               TextSpan(text: text),
             ]),
