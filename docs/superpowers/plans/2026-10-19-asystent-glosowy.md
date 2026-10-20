@@ -781,7 +781,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   Masa stali wypełnia draft kalkulatora, bez dodania pozycji ani zmiany cen listy.
 - Grupa 2.2: działają `pipe.slope`, `rolling.offset`, `bevel.geometry`,
   `thermal.expansion`, dodatkowe `slope.cut` i `reducer.cut`.
-  Nadal trzeba wdrożyć polecenia `elbow.cut`, `elbow.rotation`, `insert.length`.
+  Działa również `elbow.cut` (pomiar całych łuków, oznaczenia cięcia i reszta).
+  Nadal trzeba wdrożyć `elbow.rotation` oraz `insert.length`.
 - Z grupy 2.3 działa `heat.input`; pozostają pozostałe kalkulatory spawalnicze.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
@@ -802,3 +803,6 @@ Najnowsza regresja redukcji: 1119 PASS, analiza zmienionych plików czysta.
 Pełny checkpoint `4f8359c`: 5911 PASS, web build i debug APK Androida przeszły.
 Nowsze moduły są sprawdzane regresjami; starszy APK nie zawiera późniejszych zmian.
 Test mikrofonu na urządzeniu i końcowy build całej wizji pozostają do wykonania.
+
+Cięcie kolanka: testy umiejętności i rzeczywistego ekranu, korpus routera oraz
+regresja asystent/domena/zakładki: 1134 PASS. Analiza nowych plików czysta.

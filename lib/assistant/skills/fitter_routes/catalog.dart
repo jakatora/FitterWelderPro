@@ -5,6 +5,7 @@ import 'thermal_expansion_skill.dart';
 import 'bevel_geometry_skill.dart';
 import 'slope_cut_skill.dart';
 import 'reducer_cut_skill.dart';
+import 'elbow_cut_skill.dart';
 
 List<AssistantSkill> fitterRoutesSkills() => [
       PipeSlopeSkill(),
@@ -12,5 +13,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       ThermalExpansionSkill(),
       BevelGeometrySkill(),
       SlopeCutSkill(),
-      ReducerCutSkill()
+      ReducerCutSkill(),
+      ElbowCutSkill()
     ];
