@@ -107,9 +107,11 @@ class SanitaryTubeSkill extends AssistantSkill {
           'Which tube standard: ASME BPE / ASTM A270 or DIN 11850 series II? Their dimensions differ.');
     }
     if (s['unsupported_series'] == true) {
-      return const FailedResult(AssistantText(
-          'Aplikacja ma tabelę DIN 11850 seria II. Brakuje tabeli podanej serii — nie zastąpię jej inną.',
-          'The app contains DIN 11850 series II. The requested series is missing; I will not substitute another series.'));
+      return const FailedResult(
+          AssistantText(
+              'Aplikacja ma tabelę DIN 11850 seria II. Brakuje tabeli podanej serii — nie zastąpię jej inną.',
+              'The app contains DIN 11850 series II. The requested series is missing; I will not substitute another series.'),
+          reportMissingCapability: true);
     }
     final bpe = standard == 'bpe';
     final rows = bpe ? kBpeTube : kDin11850Tube;
@@ -165,9 +167,11 @@ class SanitaryTubeSkill extends AssistantSkill {
     }
     final row = dnRow ?? odRow;
     if (row == null) {
-      return const FailedResult(AssistantText(
-          'Brak tego rozmiaru w tabeli wybranej normy. Nie wybieram najbliższej średnicy.',
-          'This size is missing from the selected standard table. I will not choose a nearest diameter.'));
+      return const FailedResult(
+          AssistantText(
+              'Brak tego rozmiaru w tabeli wybranej normy. Nie wybieram najbliższej średnicy.',
+              'This size is missing from the selected standard table. I will not choose a nearest diameter.'),
+          reportMissingCapability: true);
     }
     final label = bpe ? 'ASME BPE / ASTM A270' : 'DIN 11850 seria II';
     return AnswerResult(

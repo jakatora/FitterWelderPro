@@ -207,8 +207,12 @@ class NotUnderstood extends SkillResult {
 }
 
 class FailedResult extends SkillResult {
-  const FailedResult(this.message);
+  const FailedResult(this.message, {this.reportMissingCapability = false});
   final AssistantText message;
+
+  /// A supported request reached a missing feature or data set. Invalid user
+  /// input stays unreported; the UI queues capability gaps with consent rules.
+  final bool reportMissingCapability;
 }
 
 /// Okno kontynuacji („a dla DN50?") — spec §4.3.

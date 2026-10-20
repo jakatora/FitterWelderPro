@@ -6,6 +6,7 @@ import 'package:cut_list_app/app_navigator.dart';
 import 'package:cut_list_app/assistant/core/assistant_panel_controller.dart';
 import 'package:cut_list_app/assistant/core/tool_bridge.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
+import 'package:cut_list_app/feedback/feedback_store.dart';
 import 'package:cut_list_app/domain/welding/heat_input.dart';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
 import 'package:cut_list_app/screens/dn_mm_screen.dart';
@@ -181,6 +182,23 @@ void main() {
     await say(tester, 'nie narysuj rury 2 metry w prawo');
     expect(ToolBridge.instance.activeToolId, 'thermal_expansion');
     expect(appRoutes.top, same(calculatorRoute));
+    await close(tester);
+  });
+  testWidgets(
+      'missing table is queued privately once; invalid input does not create a bug report',
+      (tester) async {
+    await boot(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'rura sanitarna DIN 11850 seria III DN50');
+    var reports = await FeedbackStore.instance.list();
+    expect(reports, hasLength(1));
+    expect(reports.single.tool, 'sanitary_tube');
+    expect(reports.single.skill, 'sanitary.tube');
+    await say(tester, 'rura sanitarna DIN 11850 seria III DN50');
+    expect(await FeedbackStore.instance.list(), hasLength(1));
+    await say(tester, 'rura sanitarna BPE OD minus 50,8 mm');
+    expect(await FeedbackStore.instance.list(), hasLength(1));
     await close(tester);
   });
 }

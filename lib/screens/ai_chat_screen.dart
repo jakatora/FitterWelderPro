@@ -645,6 +645,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (!mounted) return true;
     final result = reply.result;
     if (result is NotUnderstood) return false;
+    if (result is FailedResult && result.reportMissingCapability) {
+      unawaited(_feedback.missing(text,
+          tool: reply.match?.skill.toolId,
+          skill: reply.match?.skill.id,
+          lang: lang));
+    }
     // Write skills are intentionally left to the existing confirmation flow.
     if (result is ConfirmResult) return false;
     setState(() {

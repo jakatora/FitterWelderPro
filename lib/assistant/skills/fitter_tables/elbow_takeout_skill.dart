@@ -129,9 +129,11 @@ class ElbowTakeoutSkill extends AssistantSkill {
     final r =
         b169ElbowTakeout(dn: dn, type: family, angleDeg: angle.toDouble());
     if (r == null || !r.mm.isFinite) {
-      return const FailedResult(AssistantText(
-          'Ta rodzina kolana nie występuje dla tego rozmiaru w tabeli ASME B16.9. Wybierz inną rodzinę lub użyj własnych wymiarów z karty elementu.',
-          'This elbow family is not listed for this size in ASME B16.9. Choose another family or use dimensions from the component datasheet.'));
+      return const FailedResult(
+          AssistantText(
+              'Ta rodzina kolana nie występuje dla tego rozmiaru w tabeli ASME B16.9. Wybierz inną rodzinę lub użyj własnych wymiarów z karty elementu.',
+              'This elbow family is not listed for this size in ASME B16.9. Choose another family or use dimensions from the component datasheet.'),
+          reportMissingCapability: true);
     }
     final table = switch (family) {
       ElbowRadiusType.short1D => '6.1-4',
