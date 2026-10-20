@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../i18n/app_language.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../data/nps_dn_od_r.dart';
 import '../domain/fitter/size_query.dart';
 import '../utils/clipboard_helper.dart';
@@ -25,19 +26,42 @@ class DnMmScreen extends StatefulWidget {
   State<DnMmScreen> createState() => _DnMmScreenState();
 }
 
-class _DnMmScreenState extends State<DnMmScreen> {
+class _DnMmScreenState extends State<DnMmScreen>
+    with ToolHandleHost<DnMmScreen> {
   final _dnCtrl = TextEditingController();
   final _mmCtrl = TextEditingController();
   final _mmFocus = FocusNode();
   final _searchFocus = FocusNode();
   String _q = '';
+  int? _highlightedDn;
+  @override
+  String get toolId => 'dn_mm';
+  @override
+  Set<String> get supportedFields => const {'dn'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final dn = fields['dn'];
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    if (dn is! int || !kNpsTable.any((r) => r.dn == dn)) return {'dn'};
+    if (!mounted) return fields.keys.toSet();
+    setState(() {
+      _dnCtrl.text = '$dn';
+      _mmCtrl.clear();
+      _q = '';
+      _highlightedDn = dn;
+    });
+    return {};
+  }
 
   @override
   void initState() {
     super.initState();
     if (widget.initialDn != null) _dnCtrl.text = '${widget.initialDn}';
+    _highlightedDn = widget.initialDn;
+    markReady();
   }
-
 
   @override
   void dispose() {
@@ -71,6 +95,7 @@ class _DnMmScreenState extends State<DnMmScreen> {
       _dnCtrl.clear();
       _mmCtrl.clear();
       _q = '';
+      _highlightedDn = null;
     });
   }
 
@@ -82,11 +107,15 @@ class _DnMmScreenState extends State<DnMmScreen> {
         title: const Text('DN-MM'),
         actions: [
           HelpButton(help: kHelpDnMm),
-          IconButton(tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'), icon: const Icon(Icons.clear_all), onPressed: _clear),
+          IconButton(
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              icon: const Icon(Icons.clear_all),
+              onPressed: _clear),
         ],
       ),
       body: Padding(
-        padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
+        padding: EdgeInsets.fromLTRB(
+            12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           children: [
             Row(
@@ -97,7 +126,9 @@ class _DnMmScreenState extends State<DnMmScreen> {
                     keyboardType: numberKeyboard(decimal: false),
                     inputFormatters: numberInputFormatters(decimal: false),
                     textInputAction: TextInputAction.next,
-                    decoration: InputDecoration(labelText: 'DN', hintText: context.tr(pl: 'np. 50', en: 'e.g. 50')),
+                    decoration: InputDecoration(
+                        labelText: 'DN',
+                        hintText: context.tr(pl: 'np. 50', en: 'e.g. 50')),
                     onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _mmFocus.requestFocus(),
                   ),
@@ -110,7 +141,9 @@ class _DnMmScreenState extends State<DnMmScreen> {
                     keyboardType: numberKeyboard(),
                     inputFormatters: numberInputFormatters(),
                     textInputAction: TextInputAction.next,
-                    decoration: InputDecoration(labelText: 'OD [mm]', hintText: context.tr(pl: 'np. 60,3', en: 'e.g. 60.3')),
+                    decoration: InputDecoration(
+                        labelText: 'OD [mm]',
+                        hintText: context.tr(pl: 'np. 60,3', en: 'e.g. 60.3')),
                     onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _searchFocus.requestFocus(),
                   ),
@@ -121,7 +154,10 @@ class _DnMmScreenState extends State<DnMmScreen> {
             TextField(
               focusNode: _searchFocus,
               textInputAction: TextInputAction.search,
-              decoration: InputDecoration(labelText: context.tr(pl: 'Szukaj (NPS/DN/OD/R)', en: 'Search (NPS/DN/OD/R)'), prefixIcon: const Icon(Icons.search)),
+              decoration: InputDecoration(
+                  labelText: context.tr(
+                      pl: 'Szukaj (NPS/DN/OD/R)', en: 'Search (NPS/DN/OD/R)'),
+                  prefixIcon: const Icon(Icons.search)),
               onChanged: (v) => setState(() => _q = v),
               onSubmitted: (_) => FocusScope.of(context).unfocus(),
             ),
@@ -132,10 +168,14 @@ class _DnMmScreenState extends State<DnMmScreen> {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32),
                         child: Text(
-                          (_dnCtrl.text.trim().isEmpty && _mmCtrl.text.trim().isEmpty && _q.trim().isEmpty)
+                          (_dnCtrl.text.trim().isEmpty &&
+                                  _mmCtrl.text.trim().isEmpty &&
+                                  _q.trim().isEmpty)
                               ? context.tr(
-                                  pl: 'Wpisz DN, OD [mm] lub szukaj, aby zobaczyć wymiary.',
-                                  en: 'Enter DN, OD [mm], or search to see sizes.')
+                                  pl:
+                                      'Wpisz DN, OD [mm] lub szukaj, aby zobaczyć wymiary.',
+                                  en:
+                                      'Enter DN, OD [mm], or search to see sizes.')
                               : context.tr(
                                   pl: 'Brak wyników dla podanych kryteriów.',
                                   en: 'No results for the given criteria.'),
@@ -172,7 +212,7 @@ class _DnMmScreenState extends State<DnMmScreen> {
               rows: [
                 for (final r in rows)
                   DataRow(
-                    selected: widget.initialDn == r.dn,
+                    selected: _highlightedDn == r.dn,
                     // Long-press a reference row to copy it as a
                     // single line (e.g. into a chat/SMS to a foreman).
                     // copyToClipboard already fires Haptic.copied().

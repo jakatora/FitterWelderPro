@@ -17,6 +17,8 @@ import '../assistant/core/brain.dart';
 import '../app_navigator.dart';
 import '../assistant/core/assistant_panel_controller.dart';
 import '../assistant/core/assistant_feedback_recorder.dart';
+import '../assistant/core/tool_bridge.dart';
+import '../assistant/skills/welder_calc/heat_input_skill.dart';
 import '../assistant/skills/iso/iso_command_parser.dart';
 import 'iso_notebook_screen.dart';
 import '../assistant/core/skill.dart';
@@ -148,7 +150,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   late final _brain = AssistantBrain(skills: buildSkillCatalog());
   late final _brainContext = AssistantContext(
       lang: AppLanguage.pl,
-      modules: const FixedModuleContext(),
+      modules:
+          widget.embedded ? ToolBridge.instance : const FixedModuleContext(),
       now: widget.now);
   SkillResult? _localResult;
   final _feedback = AssistantFeedbackRecorder();
@@ -616,7 +619,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
     if (await _tryIsoCommand(text, lang)) return true;
     final legacyIntent = parseAssistantCommand(text).intent;
-    if (legacyIntent == kIntentSaveWeldParameter ||
+    final heatRequest = heatInputRequested(Utterance(text, lang: lang));
+    if ((legacyIntent == kIntentSaveWeldParameter && !heatRequest) ||
         legacyIntent == kIntentAddWeldJournalEntry ||
         legacyIntent == kIntentQueryMyParams) {
       _brain.cancelPending();
@@ -632,7 +636,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     // Write skills are intentionally left to the existing confirmation flow.
     if (result is ConfirmResult) return false;
     setState(() {
-      _busy = false;
+      _busy = widget.embedded && result is AnswerResult && result.show != null;
       _localResult = result;
       _question = null;
       _notice = null;
@@ -645,18 +649,42 @@ class _AiChatScreenState extends State<AiChatScreen>
       _ => '',
     };
     if (spoken.isNotEmpty) await _speak(spoken);
-    // Explicit navigation commands execute immediately. Calculation answers
-    // remain visible and offer the filled module as a separate action.
-    if (mounted &&
-        reply.match?.skill.id == 'tool.open' &&
-        result is AnswerResult) {
-      final show = result.show;
-      final tool = show == null ? null : toolById(show.toolId);
-      if (tool != null) {
-        await openTool(_navigationContext, tool, fields: show!.fields);
+    final explicitOpen = reply.match?.skill.id == 'tool.open' ||
+        (reply.match?.skill.id == 'heat.input' &&
+            reply.match?.slots['mode'] == 'set');
+    if (mounted && result is AnswerResult && result.show != null) {
+      if (widget.embedded) {
+        setState(() => _busy = true);
+        try {
+          await _showModule(result.show!, explicit: explicitOpen);
+        } finally {
+          if (mounted) setState(() => _busy = false);
+        }
+      } else if (explicitOpen) {
+        final tool = toolById(result.show!.toolId);
+        if (tool != null) {
+          await openTool(_navigationContext, tool, fields: result.show!.fields);
+        }
       }
     }
     return true;
+  }
+
+  Future<void> _showModule(ShowInModule show, {bool explicit = true}) async {
+    final outcome = await showInModule(show, explicit: explicit);
+    if (!mounted) return;
+    if (outcome == ShowOutcome.timedOut ||
+        outcome == ShowOutcome.unsupportedFields ||
+        outcome == ShowOutcome.unavailable) {
+      setState(() {
+        _notice = _tr(
+            'Wynik jest gotowy, ale nie udało się ustawić go w module. '
+                'Spróbuj ponownie przyciskiem „Pokaż w module”.',
+            'The answer is ready, but could not be applied in the module. '
+                'Try again using "Show in module".');
+        _noticeIsError = true;
+      });
+    }
   }
 
   Widget _localAnswerCard(SkillResult result) {
@@ -692,7 +720,9 @@ class _AiChatScreenState extends State<AiChatScreen>
                 : () {
                     final show = result.show!;
                     final tool = toolById(show.toolId);
-                    if (tool != null) {
+                    if (widget.embedded) {
+                      _showModule(show);
+                    } else if (tool != null) {
                       openTool(_navigationContext, tool, fields: show.fields);
                     }
                   },
@@ -1466,6 +1496,15 @@ class _AiChatScreenState extends State<AiChatScreen>
               if (_localResult case final result?) _localAnswerCard(result),
               if (_question != null) Text(_question!),
               if (_notice != null) Text(_notice!),
+              if (_queryResults != null) ...[
+                Text(_tr('Moje parametry: $_queryTitle',
+                    'My parameters: $_queryTitle')),
+                if (_queryResults!.isEmpty)
+                  Text(_tr(
+                      'Brak zapisanych parametrów.', 'No saved parameters.')),
+                for (final p in _queryResults!)
+                  Text(myWeldParamLine(p, context.language)),
+              ],
               if (_localResult == null && _question == null && _notice == null)
                 Text(_tr(
                     'Powiedz np. „narysuj rura metr kolano w górę rura metr” '

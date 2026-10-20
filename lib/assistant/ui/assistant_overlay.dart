@@ -4,6 +4,7 @@ import '../../app_navigator.dart';
 import '../../i18n/app_language.dart';
 import '../../screens/ai_chat_screen.dart';
 import '../core/assistant_panel_controller.dart';
+import '../assistant_history.dart';
 
 /// Independent Overlay supplies text selection and tooltips above Navigator.
 /// It does not intercept the uncovered drawing area.
@@ -93,6 +94,21 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
                             Expanded(
                                 child: Text(context.tr(
                                     pl: 'Asystent', en: 'Assistant'))),
+                            ListenableBuilder(
+                                listenable: AssistantHistoryStore.instance,
+                                builder: (context, _) {
+                                  final history =
+                                      AssistantHistoryStore.instance;
+                                  return IconButton(
+                                      tooltip: context.tr(
+                                          pl: 'Czytaj odpowiedzi na głos',
+                                          en: 'Read replies aloud'),
+                                      icon: Icon(history.speakReplies
+                                          ? Icons.volume_up
+                                          : Icons.volume_off),
+                                      onPressed: () => history.setSpeakReplies(
+                                          !history.speakReplies));
+                                }),
                             IconButton(
                                 tooltip: context.tr(pl: 'Zwiń', en: 'Collapse'),
                                 onPressed: () {

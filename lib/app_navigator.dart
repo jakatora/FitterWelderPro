@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+const kAssistantRouteOrigin = 'assistant';
+
 final appNavigatorKey = GlobalKey<NavigatorState>();
 final appRoutes = AppRouteObserver();
 

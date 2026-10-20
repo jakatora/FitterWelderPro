@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../config/feature_flags.dart';
+import '../app_navigator.dart';
+import '../assistant/core/assistant_panel_controller.dart';
 import '../features/bolt_kit/bolt_kit_page.dart';
 import '../features/cone_layout/cone_layout_page.dart';
 import '../features/confined_space/confined_space_page.dart';
@@ -317,7 +319,8 @@ final List<ToolSpec> kToolRegistry = [
     titlePl: 'Tolerancje spoola',
     titleEn: 'Spool tolerances',
     subtitlePl: 'Wymiary spoola przed wysyłką: PFI ES-3 / EN 13480-4, protokół',
-    subtitleEn: 'Spool dimensions before shipping: PFI ES-3 / EN 13480-4, record',
+    subtitleEn:
+        'Spool dimensions before shipping: PFI ES-3 / EN 13480-4, record',
     icon: Icons.square_foot,
     color: const Color(0xFF0097A7),
     builder: (_) => const SpoolCheckPage(),
@@ -572,8 +575,7 @@ final List<ToolSpec> kToolRegistry = [
     group: ToolGroup.elbowsFittings,
     titlePl: 'Rozwinięcie stożka i przejść',
     titleEn: 'Cone & transition layout',
-    subtitlePl:
-        'Lej, stożek, kwadrat–koło: wymiary do trasowania, szablon 1:1',
+    subtitlePl: 'Lej, stożek, kwadrat–koło: wymiary do trasowania, szablon 1:1',
     subtitleEn: 'Cones, hoppers, square to round: layout data, 1:1 template',
     icon: Icons.filter_alt_outlined,
     color: const Color(0xFF4DB6AC),
@@ -1870,8 +1872,10 @@ final List<ToolSpec> kToolRegistry = [
     group: ToolGroup.inspection,
     titlePl: 'Twardość: przelicznik i limity',
     titleEn: 'Hardness: converter and limits',
-    subtitlePl: 'HV, HB, HRC, HRB wg ISO 18265; limity NACE, ISO 15614-1, B31.3',
-    subtitleEn: 'HV, HB, HRC, HRB per ISO 18265; NACE, ISO 15614-1, B31.3 limits',
+    subtitlePl:
+        'HV, HB, HRC, HRB wg ISO 18265; limity NACE, ISO 15614-1, B31.3',
+    subtitleEn:
+        'HV, HB, HRC, HRB per ISO 18265; NACE, ISO 15614-1, B31.3 limits',
     icon: Icons.diamond_outlined,
     color: const Color(0xFF90A4AE),
     builder: (_) => const HardnessPage(),
@@ -2097,7 +2101,8 @@ final List<ToolSpec> kToolRegistry = [
     group: ToolGroup.inspection,
     titlePl: 'Zawiesia i podwieszanie',
     titleEn: 'Slings and rigging',
-    subtitlePl: 'Pas, łańcuch, lina: nośność, kąt, kolor, lista przed podniesieniem',
+    subtitlePl:
+        'Pas, łańcuch, lina: nośność, kąt, kolor, lista przed podniesieniem',
     subtitleEn: 'Webbing, chain, rope: capacity, angle, colour, pre-lift check',
     icon: Icons.link,
     color: const Color(0xFFF9A825),
@@ -2147,7 +2152,8 @@ final List<ToolSpec> kToolRegistry = [
     group: ToolGroup.inspection,
     titlePl: 'Tarcze i szlifierki',
     titleEn: 'Discs and grinders',
-    subtitlePl: 'Zgodność tarczy ze szlifierką, data ważności, lista przed pracą',
+    subtitlePl:
+        'Zgodność tarczy ze szlifierką, data ważności, lista przed pracą',
     subtitleEn: 'Disc-to-grinder match, expiry date, pre-start checklist',
     icon: Icons.album_outlined,
     color: const Color(0xFFF4511E),
@@ -2377,20 +2383,15 @@ final List<ToolSpec> kToolRegistry = [
       'procedura',
       'zakres'
     ],
-    keywordsEn: const [
-      'wps',
-      'procedure',
-      'pqr',
-      'wpqr',
-      'range'
-    ],
+    keywordsEn: const ['wps', 'procedure', 'pqr', 'wpqr', 'range'],
   ),
   ToolSpec(
     id: 'work_progress',
     group: ToolGroup.inspection,
     titlePl: 'Postęp robót',
     titleEn: 'Work progress',
-    subtitlePl: 'Ile zrobione dziś, DI, spawacze, naprawy, kiedy koniec pakietu',
+    subtitlePl:
+        'Ile zrobione dziś, DI, spawacze, naprawy, kiedy koniec pakietu',
     subtitleEn: 'Done today, dia-inches, welders, repairs, package finish date',
     icon: Icons.insights_outlined,
     color: const Color(0xFF4A9EFF),
@@ -2788,22 +2789,40 @@ List<ToolSpec> resolveTools(Iterable<String> ids, {int? limit}) {
 /// Otwiera narzędzie: zapisuje je w „ostatnio używanych", a jeśli narzędzie
 /// wysyła dane na serwer — najpierw przepuszcza przez bramkę imienia i zasad.
 Future<void> openTool(BuildContext context, ToolSpec tool,
-    {Map<String, Object?> fields = const {}}) async {
+    {Map<String, Object?> fields = const {},
+    bool byAssistant = false,
+    bool replace = false}) async {
+  if (tool.id == 'assistant' &&
+      AssistantPanelController.instance.onCommand != null &&
+      appRoutes.assistantAvailable) {
+    AssistantPanelController.instance.setExpanded(true);
+    unawaited(ToolUsageStore.instance.recordOpen(tool.id));
+    return;
+  }
   if (tool.needsAccount) {
     final ok = await ensureCommunityAccess(context);
     if (!ok || !context.mounted) return;
   }
   // Nie czekamy na zapis — ekran ma się otworzyć od razu.
   unawaited(ToolUsageStore.instance.recordOpen(tool.id));
-  await Navigator.of(context).push(MaterialPageRoute(
-    settings: RouteSettings(name: 'tool:${tool.id}'),
+  final route = MaterialPageRoute<void>(
+    settings: RouteSettings(
+        name: 'tool:${tool.id}',
+        arguments: byAssistant ? kAssistantRouteOrigin : null),
     builder: (context) => switch (tool.id) {
-      'dn_mm' when fields['dn'] is int => DnMmScreen(initialDn: fields['dn'] as int),
+      'dn_mm' when fields['dn'] is int =>
+        DnMmScreen(initialDn: fields['dn'] as int),
       'wall_thickness' when fields['dn'] is int => PipeScheduleScreen(
-        initialDn: fields['dn'] as int, initialSchedule: fields['schedule'] as String?),
+          initialDn: fields['dn'] as int,
+          initialSchedule: fields['schedule'] as String?),
       _ => tool.builder(context),
     },
-  ));
+  );
+  if (replace) {
+    await Navigator.of(context).pushReplacement(route);
+  } else {
+    await Navigator.of(context).push(route);
+  }
 }
 
 // ─── Wyszukiwarka ───────────────────────────────────────────────────────────
@@ -3057,7 +3076,8 @@ final List<NavEntry> kNavEntries = [
     color: const Color(0xFF9BA3C7),
     keywordsPl: const ['zasady', 'regulamin', 'warunki', 'moderacja'],
     keywordsEn: const ['rules', 'terms', 'conditions', 'moderation'],
-    open: (context) => Navigator.of(context).push(LegalScreen.route(termsOfUse)),
+    open: (context) =>
+        Navigator.of(context).push(LegalScreen.route(termsOfUse)),
   ),
   NavEntry(
     id: 'privacy',

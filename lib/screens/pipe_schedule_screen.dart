@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/pipe_schedules.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../domain/fitter/size_query.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 
-const _kCard   = Color(0xFF141821);
+const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
-const _kBlue   = Color(0xFF4A9EFF);
-const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
+const _kBlue = Color(0xFF4A9EFF);
+const _kMuted = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 /// What the table cells show.
 enum ScheduleView { wall, inside, mass }
@@ -29,8 +30,43 @@ class PipeScheduleScreen extends StatefulWidget {
   State<PipeScheduleScreen> createState() => _PipeScheduleScreenState();
 }
 
-class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
+class _PipeScheduleScreenState extends State<PipeScheduleScreen>
+    with ToolHandleHost<PipeScheduleScreen> {
   String _q = '';
+  String? _assistantSchedule;
+  @override
+  String get toolId => 'wall_thickness';
+  @override
+  Set<String> get supportedFields => const {'dn', 'schedule'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    final dn = fields['dn'], sch = fields['schedule'];
+    if (fields.containsKey('dn') &&
+        (dn is! int || !kPipeWalls.any((r) => r.dn == dn))) {
+      rejected.add('dn');
+    }
+    if (fields.containsKey('schedule') &&
+        (sch is! String || !kSchedules.contains(sch))) {
+      rejected.add('schedule');
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      if (dn is int) {
+        _q = 'DN$dn';
+        _filter.text = _q;
+      }
+      if (sch is String) {
+        _assistantSchedule = sch;
+        _stainless = kSchedulesStainless.contains(sch);
+        _view = ScheduleView.wall;
+      }
+    });
+    return {};
+  }
+
   ScheduleView _view = ScheduleView.wall;
   bool _stainless = false;
   final _filter = TextEditingController();
@@ -48,7 +84,11 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
       _q = 'DN${widget.initialDn}';
       _filter.text = _q;
     }
-    _loadPrefs();
+    _assistantSchedule = widget.initialSchedule;
+    _loadPrefs().then((_) => markReady(), onError: (Object e, StackTrace s) {
+      debugPrint('PipeSchedule preferences: ${e.runtimeType}');
+      markReady();
+    });
   }
 
   Future<void> _loadPrefs() async {
@@ -57,7 +97,9 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
     final view = prefs.getString(_kPrefView);
     final showMass = prefs.getBool(_kPrefShowMass); // pre-ID versions
     final stainless = prefs.getBool(_kPrefStainless);
-    if (view == null && showMass == null && stainless == null &&
+    if (view == null &&
+        showMass == null &&
+        stainless == null &&
         widget.initialSchedule == null) {
       return;
     }
@@ -94,16 +136,19 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selected = widget.initialSchedule;
-    final schedules = selected != null && schedulesFor(stainless: _stainless).contains(selected)
-        ? [selected, ...schedulesFor(stainless: _stainless).where((s) => s != selected)]
+    final selected = _assistantSchedule;
+    final schedules = selected != null &&
+            schedulesFor(stainless: _stainless).contains(selected)
+        ? [
+            selected,
+            ...schedulesFor(stainless: _stainless).where((s) => s != selected)
+          ]
         : schedulesFor(stainless: _stainless);
     final rows = _rows;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr(
-            pl: 'Grubości ścianek / Sch',
-            en: 'Wall thickness / Sch')),
+            pl: 'Grubości ścianek / Sch', en: 'Wall thickness / Sch')),
       ),
       body: Column(
         children: [
@@ -130,7 +175,8 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
               runSpacing: 4,
               children: [
                 ChoiceChip(
-                  label: Text(context.tr(pl: 'CS — B36.10M', en: 'CS — B36.10M')),
+                  label:
+                      Text(context.tr(pl: 'CS — B36.10M', en: 'CS — B36.10M')),
                   selected: !_stainless,
                   onSelected: (_) {
                     setState(() => _stainless = false);
@@ -138,7 +184,8 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
                   },
                 ),
                 ChoiceChip(
-                  label: Text(context.tr(pl: 'SS — B36.19M', en: 'SS — B36.19M')),
+                  label:
+                      Text(context.tr(pl: 'SS — B36.19M', en: 'SS — B36.19M')),
                   selected: _stainless,
                   onSelected: (_) {
                     setState(() => _stainless = true);
@@ -211,8 +258,8 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
                                 pl: 'Spróbuj: DN50, 2", 100',
                                 en: 'Try: DN50, 2", 100'),
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: _kMuted, fontSize: 12),
+                            style:
+                                const TextStyle(color: _kMuted, fontSize: 12),
                           ),
                         ],
                       ),
@@ -239,7 +286,9 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
         ? context.tr(
             pl: 'ASME B36.19M (nierdzewna) — 40S/80S ≠ 40/80 od NPS 10–12',
             en: 'ASME B36.19M (stainless) — 40S/80S ≠ 40/80 from NPS 10–12')
-        : context.tr(pl: 'ASME B36.10M (węglowa / stopowa)', en: 'ASME B36.10M (carbon / alloy)');
+        : context.tr(
+            pl: 'ASME B36.10M (węglowa / stopowa)',
+            en: 'ASME B36.10M (carbon / alloy)');
     return switch (_view) {
       ScheduleView.wall => norm,
       ScheduleView.inside => '$norm · ID = OD − 2t',

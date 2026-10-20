@@ -1,0 +1,179 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import '../../app_navigator.dart';
+import '../../widgets/tool_registry.dart';
+import 'skill.dart';
+
+abstract class ToolHandle {
+  String get toolId;
+  Set<String> get supportedFields;
+  Future<Set<String>> apply(Map<String, Object?> fields);
+}
+
+class _HandleEntry {
+  _HandleEntry(this.route, this.ready);
+  final Route<dynamic>? route;
+  bool ready;
+}
+
+class _Waiter {
+  _Waiter(this.toolId);
+  final String toolId;
+  final completer = Completer<ToolHandle?>();
+}
+
+/// Handles belong to route instances, not tool IDs: hidden copies never
+/// receive a command intended for the visible screen.
+class ToolBridge implements ModuleContext {
+  ToolBridge() {
+    appRoutes.addListener(_completeWaiters);
+  }
+  static ToolBridge _instance = ToolBridge();
+  static ToolBridge get instance => _instance;
+  final _handles = <ToolHandle, _HandleEntry>{};
+  final _waiters = <_Waiter>[];
+
+  @visibleForTesting
+  static void reset() {
+    appRoutes.removeListener(_instance._completeWaiters);
+    for (final w in _instance._waiters) {
+      if (!w.completer.isCompleted) w.completer.complete(null);
+    }
+    _instance = ToolBridge();
+  }
+
+  void attach(ToolHandle handle,
+      {required Route<dynamic>? route, bool ready = false}) {
+    _handles[handle] = _HandleEntry(route, ready);
+    _completeWaiters();
+  }
+
+  void detach(ToolHandle handle) => _handles.remove(handle);
+  void markReady(ToolHandle handle) {
+    _handles[handle]?.ready = true;
+    _completeWaiters();
+  }
+
+  ToolHandle? get current {
+    for (final entry in _handles.entries) {
+      if (entry.value.route?.isCurrent == true) return entry.key;
+    }
+    return null;
+  }
+
+  bool isReady(ToolHandle h) => _handles[h]?.ready ?? false;
+  @override
+  String? get activeToolId => appRoutes.toolId ?? current?.toolId;
+  @override
+  bool get onHomeOrAssistant =>
+      appRoutes.top?.isFirst == true || appRoutes.toolId == 'assistant';
+
+  void _completeWaiters() {
+    if (appRoutes.top is PopupRoute) {
+      for (final w in List<_Waiter>.from(_waiters)) {
+        _waiters.remove(w);
+        if (!w.completer.isCompleted) w.completer.complete(null);
+      }
+      return;
+    }
+    final handle = current;
+    if (handle == null || !isReady(handle)) return;
+    for (final w in List<_Waiter>.from(_waiters)) {
+      if (w.toolId == handle.toolId && !w.completer.isCompleted) {
+        _waiters.remove(w);
+        w.completer.complete(handle);
+      }
+    }
+  }
+
+  Future<ToolHandle?> whenReady(String toolId,
+      {Duration timeout = const Duration(seconds: 3)}) async {
+    final h = current;
+    if (h?.toolId == toolId && isReady(h!)) return h;
+    final waiter = _Waiter(toolId);
+    _waiters.add(waiter);
+    final timer = Timer(timeout, () {
+      if (!waiter.completer.isCompleted) waiter.completer.complete(null);
+    });
+    try {
+      return await waiter.completer.future;
+    } finally {
+      timer.cancel();
+      _waiters.remove(waiter);
+    }
+  }
+}
+
+mixin ToolHandleHost<T extends StatefulWidget> on State<T>
+    implements ToolHandle {
+  bool _ready = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    ToolBridge.instance
+        .attach(this, route: ModalRoute.of(context), ready: _ready);
+  }
+
+  void markReady() {
+    _ready = true;
+    if (mounted) ToolBridge.instance.markReady(this);
+  }
+
+  @override
+  void dispose() {
+    ToolBridge.instance.detach(this);
+    super.dispose();
+  }
+}
+
+enum ShowOutcome {
+  appliedInPlace,
+  opened,
+  replaced,
+  offeredChip,
+  blockedByPopup,
+  timedOut,
+  unsupportedFields,
+  unavailable
+}
+
+/// Apply in place, replace a previous read-only pilot, or offer a chip.
+/// Explicit requests may navigate; an unrelated calculation never hijacks
+/// a user-opened screen or a dialog.
+Future<ShowOutcome> showInModule(ShowInModule show,
+    {bool explicit = false,
+    Duration timeout = const Duration(seconds: 3)}) async {
+  final bridge = ToolBridge.instance;
+  final top = appRoutes.top;
+  if (top is PopupRoute) return ShowOutcome.blockedByPopup;
+  final same = bridge.activeToolId == show.toolId;
+  var outcome = ShowOutcome.appliedInPlace;
+  if (!same) {
+    const transientTools = {'dn_mm', 'wall_thickness', 'heat_input'};
+    final replace = top?.settings.arguments == kAssistantRouteOrigin &&
+        transientTools.contains(appRoutes.toolId);
+    if (!explicit && !bridge.onHomeOrAssistant && !replace) {
+      return ShowOutcome.offeredChip;
+    }
+    final tool = toolById(show.toolId);
+    final context = appNavigatorKey.currentState?.overlay?.context;
+    if (tool == null || context == null) return ShowOutcome.unavailable;
+    unawaited(openTool(context, tool, byAssistant: true, replace: replace));
+    outcome = replace ? ShowOutcome.replaced : ShowOutcome.opened;
+  }
+  if (show.fields.isEmpty) return outcome;
+  final handle = await bridge.whenReady(show.toolId, timeout: timeout);
+  if (handle == null) {
+    return appRoutes.top is PopupRoute
+        ? ShowOutcome.blockedByPopup
+        : ShowOutcome.timedOut;
+  }
+  // Another route may have appeared while preferences were loading.
+  if (appRoutes.top is PopupRoute) return ShowOutcome.blockedByPopup;
+  if (!identical(bridge.current, handle)) return ShowOutcome.offeredChip;
+  final unsupported =
+      show.fields.keys.toSet().difference(handle.supportedFields);
+  if (unsupported.isNotEmpty) return ShowOutcome.unsupportedFields;
+  final rejected = await handle.apply(show.fields);
+  return rejected.isEmpty ? outcome : ShowOutcome.unsupportedFields;
+}

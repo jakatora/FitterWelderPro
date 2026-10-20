@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/pipe_schedules.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../domain/welding/heat_input.dart';
 import '../domain/welding/preheat.dart';
 import '../domain/wps/wps_record.dart';
@@ -60,7 +61,78 @@ class HeatInputScreen extends StatefulWidget {
   State<HeatInputScreen> createState() => _HeatInputScreenState();
 }
 
-class _HeatInputScreenState extends State<HeatInputScreen> {
+class _HeatInputScreenState extends State<HeatInputScreen>
+    with ToolHandleHost<HeatInputScreen> {
+  @override
+  String get toolId => 'heat_input';
+  @override
+  Set<String> get supportedFields => const {
+        'volts',
+        'amps',
+        'travel_mm_min',
+        'process',
+        'standard',
+        'efficiency'
+      };
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    for (final e in fields.entries) {
+      final value = e.value;
+      if (e.key == 'process') {
+        if (value is! String || WeldingProcess.fromCode(value) == null) {
+          rejected.add(e.key);
+        }
+      } else if (e.key == 'standard') {
+        if (!HeatInputStandard.values.any((s) => s.name == value)) {
+          rejected.add(e.key);
+        }
+      } else if (value is! num ||
+          !value.isFinite ||
+          value <= 0 ||
+          (e.key == 'efficiency' && value > 1)) {
+        rejected.add(e.key);
+      }
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      if (fields['process'] case final String process) {
+        if (_process != process) {
+          _wpsMinCtrl.clear();
+          _wpsMaxCtrl.clear();
+          _wpsSource = null;
+        }
+        _etaCtrl.clear();
+        _process = process;
+      }
+      if (fields['standard'] case final String standard) {
+        final next = HeatInputStandard.values.byName(standard);
+        if (next != _standard) {
+          _wpsMinCtrl.clear();
+          _wpsMaxCtrl.clear();
+          _wpsSource = null;
+        }
+        _standard = next;
+      }
+      if (fields['efficiency'] case final num value) {
+        _etaCtrl.text = value.toString();
+      }
+      if (fields['volts'] case final num value) {
+        _voltsCtrl.text = value.toString();
+      }
+      if (fields['amps'] case final num value) {
+        _ampsCtrl.text = value.toString();
+      }
+      if (fields['travel_mm_min'] case final num value) {
+        _travelCtrl.text = value.toString();
+      }
+      // Results are computed directly by build from these controllers.
+    });
+    return {};
+  }
+
   // ─── Heat input inputs ──────────────────────────────────────────────────
   final _voltsCtrl = TextEditingController(text: '22');
   final _ampsCtrl = TextEditingController(text: '110');
@@ -405,8 +477,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     _travelCtrl.text = p[2].toStringAsFixed(0);
   }
 
-  double _parse(TextEditingController c) =>
-      parseDecimal(c.text) ?? 0.0;
+  double _parse(TextEditingController c) => parseDecimal(c.text) ?? 0.0;
 
   /// Empty field → null (used for the optional WPS bounds).
   double? _parseOptional(TextEditingController c) {
@@ -420,7 +491,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     super.initState();
     // P2-05: rehydrate the last DN/SCH pick so the hint chip shows up
     // immediately on the Preheat tab.
-    _restorePipeSize();
+    _restorePipeSize().whenComplete(markReady);
   }
 
   @override
@@ -553,11 +624,17 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
     final why = [
       for (final o in r.outOfRange)
         switch (o) {
-          CetOutOfRange.cet => context.tr(pl: 'CET poza 0,2–0,5 %', en: 'CET outside 0.2–0.5 %'),
-          CetOutOfRange.thickness => context.tr(pl: 'grubość poza 10–90 mm', en: 'thickness outside 10–90 mm'),
-          CetOutOfRange.hydrogen => context.tr(pl: 'HD poza 1–20 ml/100 g', en: 'HD outside 1–20 ml/100 g'),
-          CetOutOfRange.heatInput => context.tr(pl: 'Q poza 0,5–4,0 kJ/mm', en: 'Q outside 0.5–4.0 kJ/mm'),
-          CetOutOfRange.composition => context.tr(pl: 'skład poza zakresem metody', en: 'chemistry outside the method range'),
+          CetOutOfRange.cet =>
+            context.tr(pl: 'CET poza 0,2–0,5 %', en: 'CET outside 0.2–0.5 %'),
+          CetOutOfRange.thickness => context.tr(
+              pl: 'grubość poza 10–90 mm', en: 'thickness outside 10–90 mm'),
+          CetOutOfRange.hydrogen => context.tr(
+              pl: 'HD poza 1–20 ml/100 g', en: 'HD outside 1–20 ml/100 g'),
+          CetOutOfRange.heatInput => context.tr(
+              pl: 'Q poza 0,5–4,0 kJ/mm', en: 'Q outside 0.5–4.0 kJ/mm'),
+          CetOutOfRange.composition => context.tr(
+              pl: 'skład poza zakresem metody',
+              en: 'chemistry outside the method range'),
         },
     ].join(', ');
     return '$base ${context.tr(pl: 'Poza zakresem stosowania: $why.', en: 'Outside the scope: $why.')}';
@@ -830,7 +907,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 children: [
                   Expanded(
                     child: _NumField(
-                      label: context.tr(pl: 'Długość ściegu', en: 'Bead length'),
+                      label:
+                          context.tr(pl: 'Długość ściegu', en: 'Bead length'),
                       ctrl: _beadLenCtrl,
                       suffix: 'mm',
                       rejectNegative: true,
@@ -854,7 +932,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(48, 48)),
                     onPressed: () => setState(() {
                       _travelCtrl.text = _measuredSpeed!.toStringAsFixed(0);
                     }),
@@ -915,7 +994,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                         pl: 'EN 1011-1 / EN ISO 15614-1: Q = η × U × I × 60 / v (η wg procesu).',
                         en: 'EN 1011-1 / EN ISO 15614-1: Q = η × U × I × 60 / v (η by process).',
                       ),
-                style: const TextStyle(fontSize: 11, color: _kTextSec, height: 1.4),
+                style: const TextStyle(
+                    fontSize: 11, color: _kTextSec, height: 1.4),
               ),
               // η z WPS — tylko EN 1011-1 (ASME IX liczy bez η).
               if (!asme) ...[
@@ -944,7 +1024,9 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         const SizedBox(height: 12),
 
         _SectionCard(
-          title: context.tr(pl: 'Zakres WPS (${_unit.label})', en: 'WPS range (${_unit.label})'),
+          title: context.tr(
+              pl: 'Zakres WPS (${_unit.label})',
+              en: 'WPS range (${_unit.label})'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -990,8 +1072,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(48, 48)),
+                  style:
+                      OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
                   onPressed: _pickWps,
                   icon: const Icon(Icons.library_books_outlined, size: 20),
                   label: Text(context.tr(pl: 'Wybierz WPS', en: 'Pick WPS')),
@@ -1096,7 +1178,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               Text(
                 verdictText,
                 style: TextStyle(
-                  color: verdict == WpsRangeVerdict.notSet ? _kTextSec : okColour,
+                  color:
+                      verdict == WpsRangeVerdict.notSet ? _kTextSec : okColour,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1112,7 +1195,10 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               const SizedBox(height: 4),
               Text(
                 _disclaimer,
-                style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
+                style: const TextStyle(
+                    color: _kTextMut,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -1172,7 +1258,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'Wybierz gatunek — chemia uzupełni się sama (typowa, nie z atestu).',
                   en: 'Pick a grade — chemistry auto-fills (typical, not from the MTR).',
                 ),
-                style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
+                style: const TextStyle(
+                    fontSize: 11, color: _kTextMut, height: 1.4),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -1187,7 +1274,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       message:
                           '${m.name} · P-No ${m.pNo}\n${isPl ? m.practicePl : m.practiceEn}',
                       child: ChoiceChip(
-                        label: Text(m.key, style: const TextStyle(fontSize: 11)),
+                        label:
+                            Text(m.key, style: const TextStyle(fontSize: 11)),
                         selected: _material?.key == m.key,
                         onSelected: (_) {
                           // P1-16: tap on the already-selected chip clears the
@@ -1198,7 +1286,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                             _applyMaterial(m);
                           }
                         },
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                        labelPadding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 6),
                         materialTapTargetSize: MaterialTapTargetSize.padded,
                       ),
                     ),
@@ -1248,8 +1337,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       ),
                       icon: const Icon(Icons.close, size: 18),
                       color: _kTextMut,
-                      constraints: const BoxConstraints(
-                          minWidth: 48, minHeight: 48),
+                      constraints:
+                          const BoxConstraints(minWidth: 48, minHeight: 48),
                       onPressed: _clearPipeSize,
                     ),
                   ],
@@ -1258,18 +1347,16 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               if (_hintOdMm != null && _hintWallMm != null) ...[
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
                     color: _kBg,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: _kBorder.withValues(alpha: 0.8)),
+                    border: Border.all(color: _kBorder.withValues(alpha: 0.8)),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
-                          size: 14, color: _kTextMut),
+                      Icon(Icons.info_outline, size: 14, color: _kTextMut),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -1295,7 +1382,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               if (_material != null) ...[
                 const SizedBox(height: 10),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
                     color: _kOrange.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(8),
@@ -1336,7 +1424,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                           height: 1.4,
                         ),
                       ),
-                      if ((isPl ? _material!.notesPl : _material!.notesEn).isNotEmpty) ...[
+                      if ((isPl ? _material!.notesPl : _material!.notesEn)
+                          .isNotEmpty) ...[
                         const SizedBox(height: 3),
                         Text(
                           isPl ? _material!.notesPl : _material!.notesEn,
@@ -1356,8 +1445,7 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.bolt_outlined,
-                                size: 14, color: _kGold),
+                            Icon(Icons.bolt_outlined, size: 14, color: _kGold),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -1385,32 +1473,61 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
         const SizedBox(height: 12),
         _SectionCard(
-          title: context.tr(pl: 'Skład chemiczny (% wt)', en: 'Chemistry (% wt)'),
+          title:
+              context.tr(pl: 'Skład chemiczny (% wt)', en: 'Chemistry (% wt)'),
           child: Column(
             children: [
               Row(
                 children: [
-                  Expanded(child: _NumField(label: 'C', ctrl: _cCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'C',
+                          ctrl: _cCtrl,
+                          onChanged: () => setState(() {}))),
                   const SizedBox(width: 8),
-                  Expanded(child: _NumField(label: 'Mn', ctrl: _mnCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'Mn',
+                          ctrl: _mnCtrl,
+                          onChanged: () => setState(() {}))),
                   const SizedBox(width: 8),
-                  Expanded(child: _NumField(label: 'Cr', ctrl: _crCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'Cr',
+                          ctrl: _crCtrl,
+                          onChanged: () => setState(() {}))),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _NumField(label: 'Mo', ctrl: _moCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'Mo',
+                          ctrl: _moCtrl,
+                          onChanged: () => setState(() {}))),
                   const SizedBox(width: 8),
-                  Expanded(child: _NumField(label: 'V', ctrl: _vCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'V',
+                          ctrl: _vCtrl,
+                          onChanged: () => setState(() {}))),
                   const SizedBox(width: 8),
-                  Expanded(child: _NumField(label: 'Ni', ctrl: _niCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'Ni',
+                          ctrl: _niCtrl,
+                          onChanged: () => setState(() {}))),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _NumField(label: 'Cu', ctrl: _cuCtrl, onChanged: () => setState(() {}))),
+                  Expanded(
+                      child: _NumField(
+                          label: 'Cu',
+                          ctrl: _cuCtrl,
+                          onChanged: () => setState(() {}))),
                   const SizedBox(width: 8),
                   Expanded(
                     flex: 2,
@@ -1440,23 +1557,29 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [severity.withValues(alpha: 0.20),
-                severity.withValues(alpha: 0.05)],
+              colors: [
+                severity.withValues(alpha: 0.20),
+                severity.withValues(alpha: 0.05)
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: severity.withValues(alpha: 0.4), width: 1.5),
+            border:
+                Border.all(color: severity.withValues(alpha: 0.4), width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.local_fire_department_outlined, color: severity, size: 22),
+                  Icon(Icons.local_fire_department_outlined,
+                      color: severity, size: 22),
                   const SizedBox(width: 8),
                   Text(
-                    context.tr(pl: 'Carbon Equivalent (CE)', en: 'Carbon Equivalent (CE)'),
+                    context.tr(
+                        pl: 'Carbon Equivalent (CE)',
+                        en: 'Carbon Equivalent (CE)'),
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -1478,7 +1601,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                     ),
                     triggerMode: TooltipTriggerMode.tap,
                     showDuration: const Duration(seconds: 8),
-                    textStyle: const TextStyle(fontSize: 11, color: Colors.white, height: 1.4),
+                    textStyle: const TextStyle(
+                        fontSize: 11, color: Colors.white, height: 1.4),
                     padding: const EdgeInsets.all(10),
                     margin: const EdgeInsets.symmetric(horizontal: 16),
                     child: Icon(
@@ -1506,7 +1630,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                         'matter; overheating → sensitisation → intergranular '
                         'corrosion), martensitic — per WPS.',
                   ),
-                  style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
+                  style: const TextStyle(
+                      color: _kTextSec, fontSize: 12, height: 1.4),
                 )
               else if (p.crMo)
                 Text(
@@ -1530,7 +1655,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                               'for it. Pick the grade from the list to see the code minimum; '
                               'the WPS governs.',
                         ),
-                  style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.4),
+                  style: const TextStyle(
+                      color: _kTextSec, fontSize: 12, height: 1.4),
                 )
               else
                 Text(
@@ -1731,12 +1857,16 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                       'calculated above; method A (CE, nomograms) — read from the standard. Use the WPS temperature; '
                       'never below the code minimum.',
                 ),
-                style: const TextStyle(color: _kTextSec, fontSize: 11, height: 1.45),
+                style: const TextStyle(
+                    color: _kTextSec, fontSize: 11, height: 1.45),
               ),
               const SizedBox(height: 6),
               Text(
                 _disclaimer,
-                style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
+                style: const TextStyle(
+                    color: _kTextMut,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic),
               ),
             ],
           ),
@@ -1753,10 +1883,32 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                 en: 'CE rule of thumb (non-normative)'),
             child: Column(
               children: [
-                _CeRow(range: 'CE <0.35', preheat: '0 / 50 °C', note: context.tr(pl: 'Cienka ścianka brak / ≥25 mm (~1") = 50 °C', en: 'Thin: none / ≥25 mm (~1"): 50 °C'), color: _kGreen),
-                _CeRow(range: '0.35-0.45', preheat: '100-150 °C', note: context.tr(pl: 'Niskie podgrzewanie', en: 'Low preheat'), color: _kGold),
-                _CeRow(range: '0.45-0.55', preheat: '150-200 °C', note: context.tr(pl: '+ elektrody niskowodorowe', en: '+ low-H electrodes'), color: _kOrange),
-                _CeRow(range: 'CE >0.55', preheat: '200-300 °C', note: context.tr(pl: '+ rozważ PWHT', en: '+ consider PWHT'), color: _kAccent),
+                _CeRow(
+                    range: 'CE <0.35',
+                    preheat: '0 / 50 °C',
+                    note: context.tr(
+                        pl: 'Cienka ścianka brak / ≥25 mm (~1") = 50 °C',
+                        en: 'Thin: none / ≥25 mm (~1"): 50 °C'),
+                    color: _kGreen),
+                _CeRow(
+                    range: '0.35-0.45',
+                    preheat: '100-150 °C',
+                    note: context.tr(
+                        pl: 'Niskie podgrzewanie', en: 'Low preheat'),
+                    color: _kGold),
+                _CeRow(
+                    range: '0.45-0.55',
+                    preheat: '150-200 °C',
+                    note: context.tr(
+                        pl: '+ elektrody niskowodorowe',
+                        en: '+ low-H electrodes'),
+                    color: _kOrange),
+                _CeRow(
+                    range: 'CE >0.55',
+                    preheat: '200-300 °C',
+                    note:
+                        context.tr(pl: '+ rozważ PWHT', en: '+ consider PWHT'),
+                    color: _kAccent),
               ],
             ),
           ),
@@ -1789,7 +1941,10 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
         ),
         title: Text(
           context.tr(pl: 'Skąd ten wynik?', en: 'Where does this come from?'),
-          style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 15, fontWeight: FontWeight.w800),
+          style: const TextStyle(
+              color: Color(0xFFE7ECF3),
+              fontSize: 15,
+              fontWeight: FontWeight.w800),
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -1801,12 +1956,20 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'EN 1011-1 / EN ISO 15614-1 (z η):',
                   en: 'EN 1011-1 / EN ISO 15614-1 (with η):',
                 ),
-                style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+                style: const TextStyle(
+                    color: _kTextSec,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6),
               ),
               const SizedBox(height: 6),
               Text(
                 'Q [kJ/mm] = η × V × I × 60 / (s × 1000)',
-                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
+                style: const TextStyle(
+                    color: Color(0xFFE7ECF3),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
@@ -1814,12 +1977,20 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'ASME IX QW-409.1 (bez η):',
                   en: 'ASME IX QW-409.1 (no η):',
                 ),
-                style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+                style: const TextStyle(
+                    color: _kTextSec,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6),
               ),
               const SizedBox(height: 6),
               Text(
                 'HI [kJ/mm] = V × I × 60 / (s × 1000)',
-                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
+                style: const TextStyle(
+                    color: Color(0xFFE7ECF3),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
@@ -1827,17 +1998,25 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'V — napięcie [V]\nI — prąd [A]\ns — prędkość spawania [mm/min]\nη — sprawność cieplna procesu (EN 1011-1 tab. 1)',
                   en: 'V — voltage [V]\nI — current [A]\ns — travel speed [mm/min]\nη — process thermal efficiency (EN 1011-1 Table 1)',
                 ),
-                style: const TextStyle(color: _kTextSec, fontSize: 12, height: 1.5),
+                style: const TextStyle(
+                    color: _kTextSec, fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
-                context.tr(pl: 'Sprawność η (EN 1011-1):', en: 'Efficiency η (EN 1011-1):'),
-                style: const TextStyle(color: _kTextSec, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+                context.tr(
+                    pl: 'Sprawność η (EN 1011-1):',
+                    en: 'Efficiency η (EN 1011-1):'),
+                style: const TextStyle(
+                    color: _kTextSec,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6),
               ),
               const SizedBox(height: 4),
               Text(
                 'SAW (121) = 1.0\nSMAW / MMA (111) = 0.8\nGMAW (131/135) = 0.8\nFCAW-G / FCAW-S (136/137, 114) = 0.8\nGTAW / TIG (141) = 0.6',
-                style: const TextStyle(color: Color(0xFFE7ECF3), fontSize: 12, height: 1.5),
+                style: const TextStyle(
+                    color: Color(0xFFE7ECF3), fontSize: 12, height: 1.5),
               ),
               const SizedBox(height: 10),
               Text(
@@ -1845,7 +2024,11 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
                   pl: 'Za wysokie HI = gruboziarnista HAZ, niska udarność. Za niskie HI = szybkie chłodzenie, pęknięcia wodorowe.',
                   en: 'Too high HI = coarse-grain HAZ, low toughness. Too low HI = fast cooling, hydrogen cracks.',
                 ),
-                style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic, height: 1.4),
+                style: const TextStyle(
+                    color: _kTextMut,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    height: 1.4),
               ),
             ],
           ),
@@ -1865,8 +2048,8 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
   // Welder pastes this into a WhatsApp message to the inspector — no need to
   // re-type any number.
   String _buildTraceString(double? hi, _PreheatView p) {
-    final mat = _material?.key ??
-        context.tr(pl: 'własny skład', en: 'custom chem.');
+    final mat =
+        _material?.key ?? context.tr(pl: 'własny skład', en: 'custom chem.');
     final std = _standard == HeatInputStandard.asmeIx
         ? context.tr(pl: 'ASME IX, bez η', en: 'ASME IX, no η')
         : !_etaOverrideValid
@@ -1881,13 +2064,17 @@ class _HeatInputScreenState extends State<HeatInputScreen> {
               en: 'Heat input: — (no result, $_process · $std)')
           : 'Heat input: ${_unit.format(hi)} ${_unit.label} ($_process · $std)',
       p.stainless
-          ? context.tr(pl: 'CE: nie dotyczy (stal nierdzewna) · Materiał: $mat',
+          ? context.tr(
+              pl: 'CE: nie dotyczy (stal nierdzewna) · Materiał: $mat',
               en: 'CE: n/a (stainless) · Material: $mat')
           : p.crMo
               ? context.tr(
-                  pl: 'CE: nie stosować do stali Cr-Mo — minimum kodowe i WPS · Materiał: $mat',
-                  en: 'CE: not for Cr-Mo steels — code minimum and WPS · Material: $mat')
-              : context.tr(pl: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Materiał: $mat',
+                  pl:
+                      'CE: nie stosować do stali Cr-Mo — minimum kodowe i WPS · Materiał: $mat',
+                  en:
+                      'CE: not for Cr-Mo steels — code minimum and WPS · Material: $mat')
+              : context.tr(
+                  pl: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Materiał: $mat',
                   en: 'CE_IIW: ${p.ce.toStringAsFixed(3)} · Material: $mat'),
       if (_material != null) ...[
         context.tr(
@@ -1967,6 +2154,7 @@ class _PreheatView {
 
   /// Seferian [C] = [C]c × (1 + 0.005·t) — the equivalent the °C comes from.
   final double? seferianTotalCe;
+
   /// ASME B31.3 ≥ 2014 (= B31.1-2022 Tab. 131.4.1-1).
   final int? codeMinC;
 
@@ -2181,7 +2369,8 @@ class _NumField extends StatelessWidget {
         suffixStyle: const TextStyle(color: _kTextMut, fontSize: 11),
         filled: true,
         fillColor: _kBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         helperText: helper,
         helperMaxLines: 3,
         helperStyle: const TextStyle(color: _kTextMut, fontSize: 10.5),
@@ -2197,7 +2386,8 @@ class _NumField extends StatelessWidget {
                         pl: 'Wartość musi być ≤ ${_fmtMax(maxValue!)}',
                         en: 'Value must be ≤ ${_fmtMax(maxValue!)}',
                       )
-                    : context.tr(pl: 'Nieprawidłowa liczba', en: 'Invalid number'),
+                    : context.tr(
+                        pl: 'Nieprawidłowa liczba', en: 'Invalid number'),
         errorStyle: const TextStyle(fontSize: 10),
         errorMaxLines: 2,
         border: OutlineInputBorder(
@@ -2241,7 +2431,8 @@ class _ProcessSelector extends StatelessWidget {
         return Semantics(
           button: true,
           selected: active,
-          label: '$opt ${context.tr(pl: 'proces spawania', en: 'welding process')}',
+          label:
+              '$opt ${context.tr(pl: 'proces spawania', en: 'welding process')}',
           // P1-16: per-chip tooltip surfaces η so a welder can sanity-check
           // before tapping (long-press on Material to peek, tap to commit).
           child: Tooltip(
@@ -2255,7 +2446,8 @@ class _ProcessSelector extends StatelessWidget {
               onTap: () => onChanged(opt),
               child: Container(
                 constraints: const BoxConstraints(minWidth: 48, minHeight: 40),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: active ? _kAccent.withValues(alpha: 0.18) : _kBg,
                   borderRadius: BorderRadius.circular(8),
@@ -2288,7 +2480,11 @@ class _CeRow extends StatelessWidget {
   final String preheat;
   final String note;
   final Color color;
-  const _CeRow({required this.range, required this.preheat, required this.note, required this.color});
+  const _CeRow(
+      {required this.range,
+      required this.preheat,
+      required this.note,
+      required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -2305,7 +2501,8 @@ class _CeRow extends StatelessWidget {
             ),
             child: Text(
               range,
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w700, color: color),
               textAlign: TextAlign.center,
             ),
           ),
@@ -2314,13 +2511,17 @@ class _CeRow extends StatelessWidget {
             width: 80,
             child: Text(
               preheat,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFE7ECF3), fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFFE7ECF3),
+                  fontWeight: FontWeight.w700),
             ),
           ),
           Expanded(
             child: Text(
               note,
-              style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
+              style:
+                  const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
             ),
           ),
         ],
@@ -2351,7 +2552,8 @@ class _InfoCard extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 11, color: _kTextSec, height: 1.5),
+              style:
+                  const TextStyle(fontSize: 11, color: _kTextSec, height: 1.5),
             ),
           ),
         ],

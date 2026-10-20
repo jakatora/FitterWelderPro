@@ -731,3 +731,35 @@ Test sprawdza, że:
 - Kolejne: test mikrofonu na Androidzie/iOS, pełny ToolBridge, pojedynczy
   stan rozmowy także przy wejściu z kafla asystenta, ustawienia/N-best,
   kolejne umiejętności, UI zgody, konta/profil/admin Railway; test modeli.
+
+
+## Kontynuacja 2026-10-20 — most do modułów i energia liniowa
+
+- ToolBridge/ToolHandleHost: uchwyty per instancja trasy, gotowość dopiero po
+  ustawieniach, timeout, odrzucanie nieobsługiwanych pól. Polecenia nie idą
+  do ukrytej kopii tego samego modułu. Popup blokuje także polecenie czekające
+  na ustawienia. Zmiany pól są walidowane w całości przed zastosowaniem.
+- Piloty: DN ↔ mm, Grubości ścianek/Sch oraz Heat input. Bieżący moduł jest
+  aktualizowany w miejscu. Przejściowe ekrany kalkulatorów otwarte przez
+  asystenta są zastępowane, a ręcznie otwarty obcy moduł pozostaje bez zmian
+  (przycisk „Pokaż w module”). Bez zastępowania Zeszytu ISO z rysunkiem.
+- Kafel ASYSTENT na Start otwiera istniejącą rozmowę w globalnym panelu.
+  Dostępny jest przełącznik czytania odpowiedzi i wynik odczytu Moich parametrów.
+  Pełny ekran pozostaje zgodnym adapterem dla samodzielnego wejścia/testów.
+- Umiejętność heat.input: obliczenia z domeny, wartości z jednostkami,
+  dopytywanie o prąd/napięcie/prędkość/proces/EN lub ASME; sprawność z WPS
+  jako 0,8 lub 80%; sprzeczne/zerowe/niepoprawne liczby blokują wykonanie.
+  „Ustaw 250 A” w kalkulatorze zmienia wyłącznie prąd. Ten sam proces,
+  konwencja i sprawność trafiają do ekranu, więc wynik zgadza się z kartą.
+  Zmiana procesu/konwencji usuwa nieaktualny zakres WPS z widoku, bez zmian
+  w zapisanej bibliotece WPS i bez wpisów do dziennika.
+- Korpus porównania modeli rozszerzony do 25 scenariuszy; bez płatnych API.
+- Backend: sprawdzono istniejące osobne repo i czystą gałąź feedbacku
+  D:/wt/fwp-backend-feedback (5fb551c). Zwykły CLI nieautoryzowany;
+  RAILWAY_API_TOKEN z vaulta odrzucony przez railway list (401).
+  Nie tworzono serwera, kont ani wdrożenia. Przed deployem odświeżyć OAuth
+  lub zweryfikować projektowy RAILWAY_TOKEN (także istnieje w vaulcie).
+- Następne: konta/profile/admin na istniejącym Railway, UI zgody i lista
+  zgłoszeń, kolejne grupy umiejętności i odbiór mikrofonu na telefonie.
+
+Walidacja etapu: pełny przebieg 5715 PASS; najnowsze przepływy 13 PASS; heat.input 7 PASS; analyze bez uwag; build web PASS. Produkcyjny /health HTTP 200; nie wykonywano deployu.

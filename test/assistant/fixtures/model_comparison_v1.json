@@ -239,6 +239,47 @@
         "type": "explain",
         "tool": "iso_notebook"
       }
+    },
+    {
+      "id": "heat-en",
+      "turns": [
+        "Oblicz energię liniową TIG EN 24 V 230 A 150 mm/min"
+      ],
+      "expected": {
+        "type": "calculate",
+        "tool": "heat_input",
+        "process": "GTAW",
+        "standard": "en1011",
+        "volts": 24,
+        "amps": 230,
+        "travel_mm_min": 150,
+        "domainResultKjMm": 1.3248
+      }
+    },
+    {
+      "id": "heat-standard-missing",
+      "turns": [
+        "Oblicz heat input TIG 24 V 230 A 150 mm/min"
+      ],
+      "expected": {
+        "type": "clarification",
+        "missing": "standard"
+      }
+    },
+    {
+      "id": "heat-set-current",
+      "activeTool": "heat_input",
+      "turns": [
+        "Ustaw 250 A"
+      ],
+      "expected": {
+        "type": "setFields",
+        "tool": "heat_input",
+        "fields": {
+          "amps": 250
+        },
+        "mustNotSaveJournal": true
+      }
     }
   ]
 }
