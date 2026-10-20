@@ -73,6 +73,7 @@ dependencies:
   # Czas timera z `clock.now()` — w testach widgetów podąża za czasem testu.
   # Czysty Dart, już był w lock (przechodnio).
   clock: ^1.1.1
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:

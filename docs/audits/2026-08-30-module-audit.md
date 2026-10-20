@@ -8,11 +8,11 @@ uprawnień spawacza, Biblioteka WPS), nie każdy wewnętrzny serwis aplikacji.
 
 ## Podsumowanie manifestu
 
-Moduły: 110
+Moduły: 112
 
 | Status | Liczba |
 |---|---:|
-| unverified | 47 |
+| unverified | 49 |
 | passed | 62 |
 | simplify | 0 |
 | broken | 0 |
@@ -40,6 +40,8 @@ własności wyników, a nie zgodność z zatwierdzonym projektem/WPS.
 
 | ID | Punkt wejścia | Plik | Kategoria | Ryzyko | Status | Scenariusz | Dowód |
 |---|---|---|---|---|---|---|---|
+| `railway-account` | AccountScreen | lib/screens/account_screen.dart | account | high | unverified | Rejestracja na Railway, ponowne logowanie, prywatny profil zawodowy, wylogowanie i usunięcie konta. | Brak dowodu scenariusza |
+| `admin-reports` | AdminReportsScreen | lib/screens/account_screen.dart | account | high | unverified | Administrator widzi raporty i zmienia status; zwykłe konto otrzymuje odmowę także bezpośrednio z API. | Brak dowodu scenariusza |
 | `ai-chat` | AiChatScreen | lib/screens/ai_chat_screen.dart | ai | high | unverified | Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji. | Brak dowodu scenariusza |
 | `bolt-kit` | BoltKitPage | lib/features/bolt_kit/bolt_kit_page.dart | fitter | safetyCritical | passed | DN100 CL150 RF → 8 × 5/8" × 3-1/2" (88,9 mm); DN150 CL300 RF → 12 × 3/4" × 4-3/4" (120,65 mm), RTJ 5-1/2" + pierścień R45; CL150 DN15 RTJ → komunikat, bez wyniku; CL600 DN200 RTJ → 7-3/4" (dłuższa z rozbieżnych źródeł) z notatką; z wymiarów 24 + 24 + 4,5 + 2 × 18 + 2 × 2,5 = 93,5 → 95 mm (co 10 mm → 100, co 1/4" → 3-3/4"), 115,00 → 115, 115,01 → 120, puste pole → brak wyniku; komplet 4 × DN150 CL300 B7 → 48 szpilek, 96 nakrętek, 4 uszczelki, zapas 10 % → 53 / 106 / 5; uszkodzony JSON → pusta lista z komunikatem i kopią przed nadpisaniem. | test/domain/bolting/stud_length_test.dart: Class 300 DN150 RF: 12 × 3/4" × 4-3/4", RTJ 5-1/2"<br>test/domain/bolting/stud_length_test.dart: Class 150 DN15 i DN20 RTJ — brak w B16.5, nie zgadujemy<br>test/domain/bolting/stud_length_test.dart: rozbieżne źródła → dłuższa wartość i notatka<br>test/domain/bolting/stud_length_test.dart: liczba i średnica szpilek: katalog = źródło tabeli długości<br>test/domain/bolting/stud_length_test.dart: granica kroku: 115,00 → 115 (nie 120); 115,01 → 120<br>test/domain/bolting/stud_length_test.dart: zaokrąglenie zawsze w górę: siatka wartości, każdy typoszereg<br>test/domain/bolting/stud_length_test.dart: puste / nieczytelne pole → brak wyniku z listą pól (nie zero)<br>test/domain/bolting/bolt_kit_test.dart: 10 %: 48 → 53, 96 → 106, 4 → 5 (zawsze w górę)<br>test/features/bolt_kit/bolt_kit_store_test.dart: uszkodzony zapis: komunikat, kopia przed nadpisaniem — tylko raz<br>test/features/bolt_kit/bolt_kit_page_test.dart: wybór DN × Class → długość szpilki z tabeli B16.5<br>test/features/bolt_kit/bolt_kit_page_test.dart: tryb z wymiarów: 93,5 mm → 95 mm; puste pole — brak wyniku<br>test/features/bolt_kit/bolt_kit_page_test.dart: lista połączeń → zamówienie z zapasem i zapis<br>test/features/bolt_kit/bolt_kit_page_test.dart: wąski ekran 320×640, tekst ×1,3 — bez wyjątków (pl)<br>test/services/bolt_kit_export_test.dart: PDF renderuje się z polskimi fontami |
 | `bolt-torque` | BoltTorqueScreen | lib/screens/bolt_torque_screen.dart | fitter | safetyCritical | unverified | Śruba M16 klasy 8.8 zwraca moment dokręcania w Nm. | Brak dowodu scenariusza |
@@ -201,6 +203,8 @@ zmienić status. Nie kupować ani nie publikować w ramach testu.
 
 ### P1 — weryfikacja
 
+- [unverified] `railway-account`: Rejestracja na Railway, ponowne logowanie, prywatny profil zawodowy, wylogowanie i usunięcie konta. (ryzyko: high).
+- [unverified] `admin-reports`: Administrator widzi raporty i zmienia status; zwykłe konto otrzymuje odmowę także bezpośrednio z API. (ryzyko: high).
 - [unverified] `ai-chat`: Użytkownik wysyła pytanie o spawanie i otrzymuje odpowiedź bez uruchamiania płatnej funkcji. (ryzyko: high).
 - [unverified] `consent`: Użytkownik akceptuje wymagane zgody przed użyciem aplikacji. (ryzyko: high).
 - [unverified] `iso-notebook`: Użytkownik otwiera zapisany notatnik ISO projektu. (ryzyko: high).

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../config/backend_config.dart';
 import '../config/feature_flags.dart';
 import 'api_client.dart';
+import 'account_service.dart';
 import 'legal_consent.dart';
 import 'premium_service.dart';
 import 'user_profile.dart';
@@ -69,6 +70,7 @@ class ChatMessage {
   final bool? mine;
 
   final String nickname;
+  final Map<String, dynamic>? professionalProfile;
   final String text;
   final DateTime createdAt;
   final int flags;
@@ -81,6 +83,7 @@ class ChatMessage {
     required this.createdAt,
     required this.flags,
     this.authorId,
+    this.professionalProfile,
     this.mine,
   });
 
@@ -94,9 +97,12 @@ class ChatMessage {
       authorId: author is String && author.isNotEmpty ? author : null,
       mine: mine is bool ? mine : null,
       nickname: j['nickname'] as String,
+      professionalProfile: j['professional_profile'] is Map
+          ? Map<String, dynamic>.from(j['professional_profile'] as Map)
+          : null,
       text: j['text'] as String,
-      createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
-          DateTime.now(),
+      createdAt:
+          DateTime.tryParse(j['created_at'] as String? ?? '') ?? DateTime.now(),
       flags: j['flags'] as int? ?? 0,
     );
   }
@@ -120,6 +126,8 @@ class ChatMessage {
 
 /// Dlaczego zapis na czacie (wiadomość, zgłoszenie) się nie udał.
 enum ChatFailure {
+  accountRequired,
+
   /// 429 — limit wiadomości/zgłoszeń. Czekać, nie ponawiać od razu.
   rateLimited,
 
@@ -139,6 +147,7 @@ enum ChatFailure {
 /// Mapuje wyjątek z [ChatService] na [ChatFailure]. Surowy wyjątek zostaje
 /// dla `debugPrint` — użytkownik dostaje tylko zrozumiały komunikat.
 ChatFailure classifyChatError(Object error) {
+  if (error is AccountException) return ChatFailure.accountRequired;
   if (error is ApiException) {
     if (error.isInstallSecretError) return ChatFailure.installSecret;
     if (error.statusCode == 429) return ChatFailure.rateLimited;
@@ -158,6 +167,17 @@ ChatFailure classifyChatError(Object error) {
 class ChatService {
   ChatService._();
   static final ChatService instance = ChatService._();
+
+  Future<Map<String, dynamic>> _accountError(Object error) async {
+    if (error is ApiException &&
+        error.statusCode == 401 &&
+        !error.isInstallSecretError) {
+      await AccountService.instance.forgetSession();
+      throw AccountException(
+          'Sesja wygasła. Zaloguj się ponownie / Session expired. Sign in again.');
+    }
+    throw error;
+  }
 
   /// Default rooms used while the network call hasn't returned yet (e.g.
   /// first open). The backend returns the same set; we keep this list in
@@ -208,6 +228,9 @@ class ChatService {
   /// Nie zapisujemy jej osobno: jedno źródło prawdy zamiast kopii, która
   /// rozjeżdża się po pierwszej zmianie.
   Future<String> getNickname() async {
+    final accountName =
+        AccountService.instance.account?['displayName'] as String?;
+    if (accountName != null && accountName.isNotEmpty) return accountName;
     final profile = await UserProfileService.instance.get();
     final full = profile?.fullName.trim() ?? '';
     if (full.length >= 2) {
@@ -250,17 +273,22 @@ class ChatService {
     // Nagłówki tożsamości: dzięki nim nowy backend odsyła `mine` i surowy
     // device_id przy NASZYCH wiadomościach. Do pokoju wchodzi się tylko przez
     // bramkę zgody (community_gate.dart), więc nic nie wychodzi przed zgodą.
-    final headers = await PremiumService.instance.authHeaders();
-    final body = await ApiClient.instance.getJson(
-      BackendConfig.chatMessages,
-      query: {
-        'room': room,
-        'limit': '${math.min(limit, 200)}',
-        if (sinceIso != null) 'since': sinceIso,
-      },
-      headers: headers,
-      timeout: const Duration(seconds: 8),
-    );
+    final headers = {
+      ...await PremiumService.instance.authHeaders(),
+      ...await AccountService.instance.headers()
+    };
+    final body = await ApiClient.instance
+        .getJson(
+          BackendConfig.chatMessages,
+          query: {
+            'room': room,
+            'limit': '${math.min(limit, 200)}',
+            if (sinceIso != null) 'since': sinceIso,
+          },
+          headers: headers,
+          timeout: const Duration(seconds: 8),
+        )
+        .catchError(_accountError);
     final raw = body['messages'] as List<dynamic>? ?? const [];
     return raw
         .map((j) => ChatMessage.fromJson(j as Map<String, dynamic>))
@@ -279,23 +307,34 @@ class ChatService {
     required String text,
     String? idempotencyKey,
   }) async {
-    final nick = await getNickname();
-    final headers = await PremiumService.instance.authHeaders();
+    await AccountService.instance.load();
+    if (AccountService.instance.account == null) {
+      throw AccountException(
+          'Zaloguj się w Profil → Konto / Sign in under Profile → Account');
+    }
+    final fullName = AccountService.instance.account!['displayName'] as String;
+    final nick = fullName.length > 32 ? fullName.substring(0, 32) : fullName;
+    final headers = {
+      ...await PremiumService.instance.authHeaders(),
+      ...await AccountService.instance.headers()
+    };
     final deviceId = PremiumService.instance.deviceId;
-    final body = await ApiClient.instance.postJson(
-      BackendConfig.chatMessages,
-      body: {
-        'room': room,
-        'device_id': deviceId,
-        'nickname': nick,
-        'text': text,
-      },
-      headers: {
-        ...headers,
-        kIdempotencyKeyHeader: idempotencyKey ?? newIdempotencyKey(),
-      },
-      timeout: const Duration(seconds: 8),
-    );
+    final body = await ApiClient.instance
+        .postJson(
+          BackendConfig.chatMessages,
+          body: {
+            'room': room,
+            'device_id': deviceId,
+            'nickname': nick,
+            'text': text,
+          },
+          headers: {
+            ...headers,
+            kIdempotencyKeyHeader: idempotencyKey ?? newIdempotencyKey(),
+          },
+          timeout: const Duration(seconds: 8),
+        )
+        .catchError(_accountError);
     return ChatMessage.fromJson(body['message'] as Map<String, dynamic>);
   }
 
@@ -304,14 +343,19 @@ class ChatService {
   /// widział „Zgłoszono." także wtedy, gdy nic nie dotarło na serwer).
   Future<void> report(int messageId) async {
     if (!BackendConfig.chatBackendLive) return;
-    final headers = await PremiumService.instance.authHeaders();
+    final headers = {
+      ...await PremiumService.instance.authHeaders(),
+      ...await AccountService.instance.headers()
+    };
     final deviceId = PremiumService.instance.deviceId;
-    await ApiClient.instance.postJson(
-      BackendConfig.chatReport,
-      body: {'id': messageId, 'device_id': deviceId},
-      headers: {...headers, kIdempotencyKeyHeader: newIdempotencyKey()},
-      timeout: const Duration(seconds: 8),
-    );
+    await ApiClient.instance
+        .postJson(
+          BackendConfig.chatReport,
+          body: {'id': messageId, 'device_id': deviceId},
+          headers: {...headers, kIdempotencyKeyHeader: newIdempotencyKey()},
+          timeout: const Duration(seconds: 8),
+        )
+        .catchError(_accountError);
   }
 
   /// Rejestruje sekret instalacji na serwerze — ale TYLKO wtedy, gdy monter

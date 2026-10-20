@@ -37,6 +37,24 @@ class ModuleAuditEntry {
 
 const moduleManifest = <ModuleAuditEntry>[
   ModuleAuditEntry(
+      id: 'railway-account',
+      entryPoint: 'AccountScreen',
+      sourcePath: 'lib/screens/account_screen.dart',
+      category: AuditCategory.account,
+      risk: AuditRisk.high,
+      status: AuditStatus.unverified,
+      scenario:
+          'Rejestracja na Railway, ponowne logowanie, prywatny profil zawodowy, wylogowanie i usunięcie konta.'),
+  ModuleAuditEntry(
+      id: 'admin-reports',
+      entryPoint: 'AdminReportsScreen',
+      sourcePath: 'lib/screens/account_screen.dart',
+      category: AuditCategory.account,
+      risk: AuditRisk.high,
+      status: AuditStatus.unverified,
+      scenario:
+          'Administrator widzi raporty i zmienia status; zwykłe konto otrzymuje odmowę także bezpośrednio z API.'),
+  ModuleAuditEntry(
       id: 'ai-chat',
       entryPoint: 'AiChatScreen',
       sourcePath: 'lib/screens/ai_chat_screen.dart',

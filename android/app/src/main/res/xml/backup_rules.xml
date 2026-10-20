@@ -24,6 +24,7 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="FlutterSharedPreferences.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
     <exclude domain="sharedpref" path="scheduled_notifications.xml" />
     <exclude domain="file" path="datastore/" />
 </full-backup-content>

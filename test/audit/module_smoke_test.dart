@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +17,8 @@ import 'package:cut_list_app/database/project_dao.dart';
 import 'package:cut_list_app/models/job_listing.dart';
 import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/screens/ai_chat_screen.dart';
+import 'package:cut_list_app/screens/account_screen.dart';
+import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/screens/bolt_torque_screen.dart';
 import 'package:cut_list_app/screens/chat_screen.dart';
 import 'package:cut_list_app/screens/component_library_screen.dart';
@@ -145,7 +150,11 @@ const _smokeQuote = WeldQuote(
   title: 'Kolektor DN100',
   joints: [
     QuoteJoint(
-        id: 'j1', kind: JointKind.pipeButt, odMm: 114.3, wallMm: 6.02, count: 12),
+        id: 'j1',
+        kind: JointKind.pipeButt,
+        odMm: 114.3,
+        wallMm: 6.02,
+        count: 12),
   ],
   createdAt: 0,
   updatedAt: 0,
@@ -218,6 +227,8 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'ProjectsScreen' => const ProjectsScreen(),
       'QuickConverterScreen' => const QuickConverterScreen(),
       'RegisterScreen' => const RegisterScreen(),
+      'AccountScreen' => const AccountScreen(),
+      'AdminReportsScreen' => const AdminReportsScreen(),
       'RollingOffsetScreen' => const RollingOffsetScreen(),
       'SaddleCutScreen' => const SaddleCutScreen(),
       'SaddleTemplateScreen' => const SaddleTemplateScreen(),
@@ -307,8 +318,7 @@ Widget buildAuditedScreen(String entryPoint) => switch (entryPoint) {
       'QuoteEditPage' =>
         QuoteEditPage(quote: _smokeQuote, settings: const QuoteSettings()),
       'QuoteJointPage' => QuoteJointPage(quote: _smokeQuote),
-      'QuoteSettingsPage' =>
-        const QuoteSettingsPage(settings: QuoteSettings()),
+      'QuoteSettingsPage' => const QuoteSettingsPage(settings: QuoteSettings()),
       _ => throw ArgumentError.value(entryPoint, 'entryPoint'),
     };
 
@@ -389,6 +399,9 @@ void main() {
   });
 
   setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    AccountService.instance = AccountService.forTesting(MockClient((_) async =>
+        http.Response('{"error":{"message":"Login required"}}', 401)));
     SharedPreferences.setMockInitialValues({
       'premium_active': false,
       'user_profile_v1':
@@ -429,19 +442,27 @@ void main() {
   testWidgets('formularz rejestracji zachowuje wpisane dane po błędzie',
       (tester) async {
     await tester.pumpWidget(_testApp(const RegisterScreen()));
-    await tester.pump();
+    await tester.pumpAndSettle();
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), 'spawacz@example.com');
     await tester.enterText(fields.at(1), 'haslo-123');
-    await tester.enterText(fields.at(2), 'inne-haslo');
-    await tester.tap(find.byType(ElevatedButton));
+    await tester.enterText(fields.at(2), 'Jan Kowalski');
+    tester.testTextInput.hide();
+    await tester.pump();
+    await tester.scrollUntilVisible(
+        find.widgetWithText(FilledButton, 'Załóż konto'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.widgetWithText(FilledButton, 'Załóż konto'));
     await tester.pump();
 
+    await tester.scrollUntilVisible(
+        find.text('Przeczytaj i zaakceptuj zasady konta.'), -200,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('spawacz@example.com'), findsOneWidget);
     expect(find.text('haslo-123'), findsOneWidget);
-    expect(find.text('inne-haslo'), findsOneWidget);
+    expect(find.text('Jan Kowalski'), findsOneWidget);
     expect(
-      find.text('Uzupełnij pola i upewnij się, że hasła są takie same.'),
+      find.text('Przeczytaj i zaakceptuj zasady konta.'),
       findsOneWidget,
     );
     expect(find.byType(Scaffold), findsOneWidget);

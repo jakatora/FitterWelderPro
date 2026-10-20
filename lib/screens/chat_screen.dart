@@ -11,7 +11,8 @@ import '../services/content_filter.dart';
 import '../services/premium_service.dart';
 import '../utils/haptic.dart';
 import '../widgets/community_gate.dart';
-import 'profile_screen.dart';
+import 'account_screen.dart';
+import '../services/account_service.dart';
 import '../theme/app_theme.dart' show kMinTapTarget, kTextMut;
 
 // Public chat (Fitter Welder Pro). Two-screen flow:
@@ -83,6 +84,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // (POST /device/register). Tylko po zgodzie na zasady — sprawdza to
     // registerDeviceIfConsented. Stary backend (404) i brak sieci: po cichu.
     unawaited(ChatService.instance.registerDeviceIfConsented());
+    unawaited(AccountService.instance.load().catchError((Object _) {}));
     _loadRooms();
   }
 
@@ -118,10 +120,21 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Text(
-          context.tr(pl: 'Czat', en: 'Chat'),
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-        ),
+        title: ListenableBuilder(
+            listenable: AccountService.instance,
+            builder: (_, __) =>
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(context.tr(pl: 'Czat', en: 'Chat'),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w700)),
+                  if (AccountService.instance.account != null)
+                    Text(
+                        AccountService.instance.account!['displayName']
+                            as String,
+                        style: const TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                ])),
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline, color: _kIconBright),
@@ -171,7 +184,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _openProfile() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ProfileScreen()),
+      MaterialPageRoute(builder: (_) => const AccountScreen()),
     );
     if (mounted) setState(() {});
   }
@@ -184,10 +197,21 @@ class _ChatComingSoon extends StatelessWidget {
       backgroundColor: const Color(0xFF0B0E13),
       appBar: AppBar(
         backgroundColor: _kCard,
-        title: Text(
-          context.tr(pl: 'Czat', en: 'Chat'),
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-        ),
+        title: ListenableBuilder(
+            listenable: AccountService.instance,
+            builder: (_, __) =>
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(context.tr(pl: 'Czat', en: 'Chat'),
+                      style: const TextStyle(
+                          fontSize: 20, fontWeight: FontWeight.w700)),
+                  if (AccountService.instance.account != null)
+                    Text(
+                        AccountService.instance.account!['displayName']
+                            as String,
+                        style: const TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                ])),
       ),
       body: Center(
         child: Padding(
@@ -536,6 +560,14 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
   }
 
   Future<void> _send() async {
+    await AccountService.instance.load();
+    if (!mounted) return;
+    if (AccountService.instance.account == null) {
+      await Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()));
+      if (!mounted || AccountService.instance.account == null) return;
+    }
+
     final text = _ctrl.text.trim();
     if (text.isEmpty || _sending) return;
     // P1-43 — minimum 2 visible characters. Single-character mash usually
@@ -610,6 +642,10 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
       final failure = classifyChatError(e);
       final String message;
       switch (failure) {
+        case ChatFailure.accountRequired:
+          message = context.tr(
+              pl: 'Sesja wygasła. Naciśnij Wyślij, aby zalogować się ponownie.',
+              en: 'Session expired. Tap Send to sign in again.');
         case ChatFailure.rateLimited:
           message = context.tr(
             pl: 'Zwolnij — max 8 wiadomości na minutę.',
@@ -806,6 +842,9 @@ class _RoomViewState extends State<_RoomView> with WidgetsBindingObserver {
           duration:
               Duration(seconds: failure == ChatFailure.installSecret ? 10 : 4),
           content: Text(switch (failure) {
+            ChatFailure.accountRequired => context.tr(
+                pl: 'Zaloguj się ponownie w Profil → Konto.',
+                en: 'Sign in again under Profile → Account.'),
             ChatFailure.installSecret => _installSecretMessage(context),
             ChatFailure.rateLimited => context.tr(
                 pl: 'Wyczerpano dzienny limit zgłoszeń. Spróbuj jutro.',
@@ -1075,6 +1114,10 @@ class _MessageBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: align,
         children: [
+          if (message.professionalProfile != null)
+            Text(
+                '${message.professionalProfile!['profession']} · ${(message.professionalProfile!['processes'] as List? ?? []).join(' / ')}',
+                style: const TextStyle(fontSize: 12, color: kChatTimeOnOthers)),
           if (!isMine)
             Padding(
               padding: const EdgeInsets.only(bottom: 3),

@@ -1,0 +1,27 @@
+import 'dart:convert';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:cut_list_app/services/account_service.dart';
+import 'package:cut_list_app/services/user_profile.dart';
+
+/// Explicit account fixture for chat tests. No request reaches the network.
+Future<void> seedSignedInAccount() async {
+  FlutterSecureStorage.setMockInitialValues({});
+  final name =
+      (await UserProfileService.instance.get())?.fullName ?? 'Jan Nowak';
+  final client = MockClient((_) async => http.Response(
+      jsonEncode({
+        'account': {
+          'id': 'test-account',
+          'displayName': name,
+          'role': 'user',
+          'email': 'fixture@example.com'
+        },
+        'token': 'test-token-no-production-access',
+      }),
+      200));
+  AccountService.instance = AccountService.forTesting(client);
+  await AccountService.instance
+      .signIn('fixture@example.com', 'fixture-password');
+}

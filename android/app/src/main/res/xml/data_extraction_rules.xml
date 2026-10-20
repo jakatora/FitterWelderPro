@@ -7,11 +7,13 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="FlutterSharedPreferences.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
         <exclude domain="sharedpref" path="scheduled_notifications.xml" />
         <exclude domain="file" path="datastore/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="FlutterSharedPreferences.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
         <exclude domain="sharedpref" path="scheduled_notifications.xml" />
         <exclude domain="file" path="datastore/" />
     </device-transfer>

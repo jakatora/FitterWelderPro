@@ -45,7 +45,7 @@ void main() {
     });
 
     test('zgoda nie zmienia kLegalVersion (zgoda osobna)', () {
-      expect(kLegalVersion, 3);
+      expect(kLegalVersion, 4);
     });
 
     test('revoke: brak zgody, identyfikator zostaje (do kasowania na serwerze)',

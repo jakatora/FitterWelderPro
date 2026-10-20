@@ -3,6 +3,7 @@
 // komunikat, gdy serwer odrzuci sekret instalacji. Atrapa HTTP.
 
 import 'dart:convert';
+import '../support/test_account.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +48,7 @@ Map<String, dynamic> _msg(int id, String device, String author, String nick,
 void main() {
   final requests = <http.Request>[];
 
-  setUp(() {
+  setUp(() async {
     requests.clear();
     SharedPreferences.setMockInitialValues({
       'user_profile_v1':
@@ -60,6 +61,7 @@ void main() {
       'fitter_install_secret': _secret,
     });
     UserProfileService.instance.resetForTest();
+    await seedSignedInAccount();
     LegalConsent.instance.resetForTest();
     BlockedUsers.instance.resetForTest();
     PremiumService.instance.resetForTest();
@@ -71,8 +73,8 @@ void main() {
       if (r.method == 'GET' && r.url.path == '/api/fitter/chat/messages') {
         return _json(200, {
           'messages': [
-            _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas',
-                'Kto ma P91?', false),
+            _msg(1, _otherAuthor, _otherAuthor, 'Zbigniew Hałas', 'Kto ma P91?',
+                false),
             _msg(2, _myDevice, 'a_me', 'Marek Kowalczyk', 'Ja mam', true),
           ]
         });

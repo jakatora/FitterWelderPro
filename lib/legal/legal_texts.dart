@@ -36,9 +36,9 @@ import '../i18n/app_language.dart';
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
 /// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
 /// kalkulatory działają dalej.
-const int kLegalVersion = 3;
+const int kLegalVersion = 4;
 
-const String kLegalUpdated = '2026-09-26';
+const String kLegalUpdated = '2026-10-20';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -67,20 +67,29 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
       title: c.tr(pl: 'Polityka prywatności', en: 'Privacy Policy'),
       intro: c.tr(
         pl: 'Krótko: kalkulatory i projekty zostają na Twoim telefonie. Na '
-            'serwer wysyłamy dane tylko wtedy, gdy sam napiszesz na publicznym '
+            'serwer wysyłamy dane, gdy założysz konto, zgodzisz się na zgłoszenia, napiszesz na publicznym '
             'czacie, zadasz pytanie asystentowi AI albo zeskanujesz rysunek — '
             'pytania i zdjęcia rysunków przekazujemy do Anthropic (model '
             'Claude) i ich nie zapisujemy. Nie ma reklam, analityki ani '
             'śledzenia.',
         en: 'In short: calculators and projects stay on your phone. We send data '
-            'to a server only when you post in the public chat, ask the AI '
+            'to a server when you create an account, consent to reports, post in the public chat, ask the AI '
             'assistant or scan a drawing — questions and drawing photos are '
             'passed to Anthropic (Claude model) and we do not store them. No '
             'ads, no analytics, no tracking.',
       ),
       sections: [
         LegalSection(
-          c.tr(pl: 'Co zostaje na Twoim telefonie', en: 'What stays on your phone'),
+            c.tr(
+                pl: 'Konto i profil zawodowy',
+                en: 'Account and professional profile'),
+            c.tr(
+                pl: 'Dobrowolne konto zapisujemy na serwerze Railway: e-mail, bezpieczny skrót hasła, imię i nazwisko, zawód, procesy spawania, staż, kwalifikacje i stempel. Sesja wygasa po 30 dniach; token przechowujemy w bezpiecznym magazynie telefonu. E-mail pozostaje prywatny. Nazwa konta podpisuje wiadomości na czacie. Dane zawodowe są prywatne, dopóki nie włączysz ich widoczności. Konto i jego wiadomości usuniesz w Profil → Konto po potwierdzeniu hasłem. Kopie bezpieczeństwa mogą zachować dane do 30 dni. Kalkulatory nie wymagają konta. Raporty błędów są dostępne wyłącznie administratorowi; ich wysyłka wymaga osobnej zgody, bez nagrań głosu. Dane konta przechowujemy do jego usunięcia.',
+                en: 'Optional accounts are stored on Railway: email, a secure password hash, display name, profession, welding processes, experience, qualifications and stamp. Sessions expire after 30 days; the token is kept in secure phone storage. Email remains private. The account name signs chat messages. Professional information stays private until you enable visibility. Delete the account and its messages under Profile → Account by confirming your password. Backups may retain data for up to 30 days. Calculators do not require an account. Error reports are available only to the administrator; uploading requires separate consent and never includes voice recordings. Account data is retained until deletion.')),
+        LegalSection(
+          c.tr(
+              pl: 'Co zostaje na Twoim telefonie',
+              en: 'What stays on your phone'),
           c.tr(
             pl: 'Projekty, cut listy, dziennik spoin, zdjęcia numerów wytopu, '
                 'parametry spawania, wyniki kalkulatorów, historia asystenta i '
@@ -117,7 +126,9 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
-          c.tr(pl: 'Co wysyłamy, gdy piszesz na czacie', en: 'What we send when you post in chat'),
+          c.tr(
+              pl: 'Co wysyłamy, gdy piszesz na czacie',
+              en: 'What we send when you post in chat'),
           c.tr(
             pl: 'Wysyłamy treść wiadomości, Twoje imię i nazwisko z profilu, '
                 'znacznik czasu oraz identyfikator instalacji aplikacji (losowy '
@@ -240,7 +251,9 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
-          c.tr(pl: 'Jak długo przechowujemy wiadomości', en: 'How long we keep messages'),
+          c.tr(
+              pl: 'Jak długo przechowujemy wiadomości',
+              en: 'How long we keep messages'),
           c.tr(
             pl: 'Wiadomości czatu przechowujemy tak długo, jak istnieje pokój, w '
                 'którym je napisano, chyba że wcześniej usunie je moderacja albo '
@@ -416,7 +429,9 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
       ),
       sections: [
         LegalSection(
-          c.tr(pl: 'Wyniki sprawdzaj z WPS i normą', en: 'Verify results against your WPS and the standard'),
+          c.tr(
+              pl: 'Wyniki sprawdzaj z WPS i normą',
+              en: 'Verify results against your WPS and the standard'),
           c.tr(
             pl: 'Kalkulatory są pomocą, nie dokumentem. Zanim utniesz rurę albo '
                 'zajarzysz łuk, porównaj wynik z obowiązującą u Ciebie '
@@ -458,7 +473,9 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
-          c.tr(pl: 'Zero tolerancji dla treści obraźliwych', en: 'Zero tolerance for objectionable content'),
+          c.tr(
+              pl: 'Zero tolerancji dla treści obraźliwych',
+              en: 'Zero tolerance for objectionable content'),
           c.tr(
             pl: 'Nie ma zgody na wyzwiska, groźby, nękanie, treści seksualne, '
                 'rasistowskie i dyskryminujące, spam ani reklamę. Nie publikuj '
@@ -493,7 +510,9 @@ LegalDocument termsOfUse(BuildContext c) => LegalDocument(
           ),
         ),
         LegalSection(
-          c.tr(pl: 'Piszesz pod własnym nazwiskiem', en: 'You post under your own name'),
+          c.tr(
+              pl: 'Piszesz pod własnym nazwiskiem',
+              en: 'You post under your own name'),
           c.tr(
             pl: 'Wiadomości podpisywane są imieniem i nazwiskiem z Twojego profilu. '
                 'Nie ma anonimowych ksywek. Podszywanie się pod inną osobę jest '

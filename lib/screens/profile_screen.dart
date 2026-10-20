@@ -21,6 +21,7 @@ import '../utils/haptic.dart';
 import '../widgets/scan_consent_gate.dart';
 import '../widgets/wpqr_chip.dart';
 import 'legal_screen.dart';
+import 'account_screen.dart';
 import 'onboarding_name_screen.dart'
     show describeNameProblem, fullNameTooLongMessage;
 import 'root_gate.dart';
@@ -885,6 +886,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
               children: [
                 _Identity(name: fullName),
+                ListTile(leading: const Icon(Icons.account_circle_outlined), title: Text(context.tr(pl: 'Konto i profil zawodowy', en: 'Account and professional profile')), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()))),
                 // Ostrzeżenie o uprawnieniu tuż pod nazwiskiem, bo to ten sam
                 // temat: czym się podpisujesz. Znika samo, gdy WPQR jest
                 // ważny albo nie ma daty — i znika od razu po „usuń moje

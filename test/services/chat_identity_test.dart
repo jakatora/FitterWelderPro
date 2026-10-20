@@ -3,6 +3,7 @@
 // prawdziwych połączeń.
 
 import 'dart:convert';
+import '../support/test_account.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/services/api_client.dart';
+import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/blocked_users.dart';
 import 'package:cut_list_app/services/chat_service.dart';
 import 'package:cut_list_app/services/premium_service.dart';
@@ -47,8 +49,8 @@ http.Response _json(int status, Object body) => http.Response(
 void main() {
   group('ChatMessage — nowy backend', () {
     test('cudza wiadomość: author_id zamiast device_id, mine=false', () {
-      final m = ChatMessage.fromJson(_newBackendMessage(
-          id: 1, deviceId: _otherAuthor, mine: false));
+      final m = ChatMessage.fromJson(
+          _newBackendMessage(id: 1, deviceId: _otherAuthor, mine: false));
       expect(m.authorId, _otherAuthor);
       expect(m.mine, isFalse);
       expect(m.blockKey, _otherAuthor);
@@ -107,7 +109,7 @@ void main() {
   });
 
   group('blokady po author_id', () {
-    setUp(() {
+    setUp(() async {
       SharedPreferences.setMockInitialValues({});
       BlockedUsers.instance.resetForTest();
     });
@@ -118,8 +120,8 @@ void main() {
       // Blokada sprzed zmiany — surowy device_id autora.
       await BlockedUsers.instance.block('dev-surowy-abc', 'Zbigniew Hałas');
 
-      final fresh = ChatMessage.fromJson(_newBackendMessage(
-          id: 9, deviceId: _otherAuthor, mine: false));
+      final fresh = ChatMessage.fromJson(
+          _newBackendMessage(id: 9, deviceId: _otherAuthor, mine: false));
       // Nowy backend nie wydaje już surowych device_id — stara blokada nie
       // pasuje, ale NIE znika z listy.
       expect(
@@ -139,7 +141,7 @@ void main() {
   group('nagłówki i błędy zapisu', () {
     final requests = <http.Request>[];
 
-    setUp(() {
+    setUp(() async {
       requests.clear();
       SharedPreferences.setMockInitialValues({
         'fitter_device_id': _myDevice,
@@ -149,6 +151,7 @@ void main() {
       });
       PremiumService.instance.resetForTest();
       UserProfileService.instance.resetForTest();
+      await seedSignedInAccount();
     });
 
     tearDown(() => ApiClient.instance.debugSetClient(null));
@@ -211,7 +214,23 @@ void main() {
       expect(caught, isA<ApiException>());
       expect(classifyChatError(caught!), ChatFailure.installSecret);
       expect(requests.single.headers[kInstallSecretHeader], _secret);
-      expect(jsonDecode(requests.single.body), {'id': 42, 'device_id': _myDevice});
+      expect(
+          jsonDecode(requests.single.body), {'id': 42, 'device_id': _myDevice});
+    });
+
+    test('expired Railway session requests login and clears the rejected token',
+        () async {
+      backend((_) async => _json(401, {
+            'error': {'code': 'UNAUTHORIZED', 'message': 'Session expired'}
+          }));
+      await expectLater(
+          ChatService.instance
+              .postMessage(room: 'general', text: 'Test message'),
+          throwsA(isA<AccountException>()));
+      expect(await AccountService.instance.headers(), isEmpty);
+      expect(AccountService.instance.account, isNull);
+      expect(classifyChatError(AccountException('expired')),
+          ChatFailure.accountRequired);
     });
 
     test('klasyfikacja błędów czatu', () {
@@ -221,8 +240,8 @@ void main() {
           ChatFailure.installSecret);
       expect(classifyChatError(api(400, 'INSTALL_SECRET_MALFORMED')),
           ChatFailure.installSecret);
-      expect(classifyChatError(api(429, 'RATE_LIMITED')),
-          ChatFailure.rateLimited);
+      expect(
+          classifyChatError(api(429, 'RATE_LIMITED')), ChatFailure.rateLimited);
       expect(classifyChatError(api(400, 'BAD_REQUEST')), ChatFailure.rejected);
       expect(classifyChatError(api(500)), ChatFailure.server);
       expect(classifyChatError(api(401, 'UNAUTHORIZED')), ChatFailure.server);

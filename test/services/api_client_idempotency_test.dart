@@ -9,6 +9,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import '../support/test_account.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -57,7 +58,7 @@ void main() {
     }));
   }
 
-  setUp(() {
+  setUp(() async {
     requests.clear();
     SharedPreferences.setMockInitialValues({
       'fitter_device_id': '0123456789abcdef0123456789abcdef',
@@ -66,6 +67,7 @@ void main() {
     });
     PremiumService.instance.resetForTest();
     UserProfileService.instance.resetForTest();
+    await seedSignedInAccount();
   });
 
   tearDown(() => ApiClient.instance.debugSetClient(null));
@@ -133,7 +135,9 @@ void main() {
         return _json(201, _message(8));
       }));
       await ChatService.instance.postMessage(
-          room: 'general', text: 'Jaki preheat?', idempotencyKey: 'stały-klucz');
+          room: 'general',
+          text: 'Jaki preheat?',
+          idempotencyKey: 'stały-klucz');
       expect(requests.single.headers[kIdempotencyKeyHeader], 'stały-klucz');
     });
 
