@@ -22,7 +22,7 @@ final RegExp kOpenVerbAtStartRe = RegExp(
 bool mentionsWeight(Utterance u) =>
     u.hasStem(
         const ['waz', 'waga', 'wagi', 'ciezar', 'masa', 'masy', 'weigh']) ||
-    u.hasAny(const ['kg', 'kilogram', 'kilogramow', 'mass']);
+    u.hasAny(const ['kg', 'kilogram', 'kilogramow', 'mass', 'mase', 'wage']);
 
 /// Słowa ścianki i harmonogramu.
 bool mentionsWall(Utterance u) =>

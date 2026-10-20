@@ -629,8 +629,11 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (await _tryIsoCommand(text, lang)) return true;
     final legacyIntent = parseAssistantCommand(text).intent;
-    final heatRequest = heatInputRequested(Utterance(text, lang: lang));
-    if ((legacyIntent == kIntentSaveWeldParameter && !heatRequest) ||
+    final calculationRequest = heatInputRequested(utterance) ||
+        _brain.skills.any((skill) =>
+            skill.tier == AssistantTier.b &&
+            skill.match(utterance, _brainContext) != null);
+    if ((legacyIntent == kIntentSaveWeldParameter && !calculationRequest) ||
         legacyIntent == kIntentAddWeldJournalEntry ||
         legacyIntent == kIntentQueryMyParams) {
       _brain.cancelPending();
@@ -873,7 +876,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         Haptic.error();
       case null:
         unawaited(_feedback.missing(_commandSoFar,
-            tool: appRoutes.toolId, lang: lang));
+            tool: ToolBridge.instance.activeToolId, lang: lang));
         setState(() {
           _resetAct(clearText: false);
           _notice = _notUnderstoodText(out);

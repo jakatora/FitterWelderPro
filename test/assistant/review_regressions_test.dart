@@ -25,7 +25,8 @@ void main() {
       final r = await h.say('ile waży rura dn50');
       expect(r.match?.skill.id, isNot('pipe.od'));
       expect(textOf(r.result), isNot(contains('60,3')));
-      expect(h.brain.pending, isNull);
+      expect(r.match?.skill.id, 'pipe.weight');
+      expect(h.brain.pending?.slot, 'wall_mm');
     });
     test('„zapisz TIG nierdzewka 60 A" → zapis parametru, nie „DN60"',
         () async {

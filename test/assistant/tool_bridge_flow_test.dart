@@ -168,6 +168,10 @@ void main() {
     expect(ToolBridge.instance.activeToolId, 'unit_converter');
     expect(find.text('50.800'), findsOneWidget);
     await say(tester,
+        'Oblicz masę rury OD 60,3 mm ścianka 3,91 mm długość 1 m 316L ilość 2');
+    expect(ToolBridge.instance.activeToolId, 'pipe_weight');
+    expect(find.textContaining('Łącznie 2 szt.: 11,08 kg'), findsOneWidget);
+    await say(tester,
         'Oblicz fazowanie V ścianka 10 mm kąt rowka 60 próg 1 mm szczelina 0 mm');
     expect(ToolBridge.instance.activeToolId, 'bevel');
     final calculatorRoute = appRoutes.top;
