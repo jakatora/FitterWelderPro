@@ -16,7 +16,8 @@ Map<String, Object?> _slots(Utterance u) {
             ? 'bpe'
             : 'din11850_ii';
   }
-  if (RegExp(r'\b(?:seria|serii|series)\s*(?:1|i|3|iii)\b').hasMatch(u.folded)) {
+  if (RegExp(r'\b(?:seria|serii|series)\s*(?:1|i|3|iii)\b')
+      .hasMatch(u.folded)) {
     out['unsupported_series'] = true;
   }
   final od = lengthNear(u, const ['od', 'srednic', 'diameter']);

@@ -18,6 +18,8 @@ import '../../domain/quotes/quote_calculator.dart' show formatPln;
 import '../../domain/steel_weight/steel_order_text.dart';
 import '../../domain/steel_weight/steel_sections.dart';
 import '../../domain/steel_weight/steel_weight.dart';
+import '../../domain/steel_weight/steel_draft_fields.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
@@ -47,7 +49,51 @@ class SteelWeightPage extends StatefulWidget {
 }
 
 class _SteelWeightPageState extends State<SteelWeightPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, ToolHandleHost<SteelWeightPage> {
+  int _assistantGen = 0;
+  @override
+  String get toolId => 'steel_weight';
+  @override
+  Set<String> get supportedFields => steelDraftFields;
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final item = steelDraftFromFields(fields);
+    if (item == null || !mounted || _loading) {
+      return fields.isEmpty ? supportedFields : fields.keys.toSet();
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _shape = item.shape;
+      _material = item.material;
+      if (item.shape.tabulated) _picked[item.shape] = item.section!;
+      _lengthMm = item.lengthMm;
+      _count = item.count.toDouble();
+      switch (item.shape) {
+        case SteelShape.hollow:
+          _hollowCustom = true;
+          _hollowH = item.a;
+          _hollowB = item.b;
+          _hollowT = item.t;
+        case SteelShape.flat:
+          _flatW = item.a;
+          _flatT = item.t;
+        case SteelShape.roundBar:
+          _roundD = item.a;
+        case SteelShape.squareBar:
+          _squareA = item.a;
+        case SteelShape.plate:
+          _plateW = item.a;
+          _plateL = item.lengthMm;
+          _plateT = item.t;
+        default:
+          break;
+      }
+      _assistantGen++;
+      _tabs.index = 0;
+    });
+    return {};
+  }
+
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
   // ── Lista (zapisywana) ──────────────────────────────────────────────────
@@ -119,6 +165,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
       _loading = false;
       _listGen++;
     });
+    markReady();
   }
 
   void _setOrder(SteelOrder o) {
@@ -284,7 +331,12 @@ class _SteelWeightPageState extends State<SteelWeightPage>
       ),
       body: TabBarView(
         controller: _tabs,
-        children: [_profileTab(), _listTab()],
+        children: [
+          KeyedSubtree(
+              key: ValueKey('sw-assistant-$_assistantGen'),
+              child: _profileTab()),
+          _listTab()
+        ],
       ),
     );
   }

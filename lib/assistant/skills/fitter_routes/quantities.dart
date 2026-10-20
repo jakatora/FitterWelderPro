@@ -27,7 +27,9 @@ double? lengthNear(Utterance u, List<String> labels) {
   final values = <double>{};
   for (var i = 0; i < u.items.length; i++) {
     if (u.items[i].isNumber ||
-        !labels.any((l) => u.items[i].word.startsWith(l))) {
+        !labels.any((l) => l.length == 1
+            ? u.items[i].word == l
+            : u.items[i].word.startsWith(l))) {
       continue;
     }
     for (var j = i + 1; j < u.items.length && j <= i + 3; j++) {
