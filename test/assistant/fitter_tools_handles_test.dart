@@ -81,6 +81,7 @@ void main() {
       expect(find.text(results[entry.key]!), findsWidgets);
       final handle = ToolBridge.instance.current!;
       expect(handle.toolId, entry.key);
+      expect(await handle.apply({}), isNotEmpty);
       final fields = tester
           .widgetList<TextField>(find.byType(TextField))
           .map((f) => f.controller!.text)

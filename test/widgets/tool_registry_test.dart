@@ -200,18 +200,17 @@ void main() {
       }
     });
 
-    test('skaner widoczny, gdy da się go użyć (darmowy tryb albo Premium)',
-        () {
+    test('skaner widoczny, gdy da się go użyć (darmowy tryb albo Premium)', () {
       expect(toolById('iso_scanner') != null, kAiScannerReachable);
       expect(
-        resolveTools(['iso_scanner', 'nie-istnieje', 'dn_mm'])
-            .map((t) => t.id),
+        resolveTools(['iso_scanner', 'nie-istnieje', 'dn_mm']).map((t) => t.id),
         [if (kAiScannerReachable) 'iso_scanner', 'dn_mm'],
       );
       // Skaner nie publikuje niczego pod nazwiskiem — nie przechodzi przez
       // bramkę imienia i zasad czatu. Zgodę na wysyłkę zdjęcia (serwer +
       // Anthropic) pytamy przed pierwszym skanem (scan_consent_gate.dart).
-      expect(kToolRegistry.firstWhere((t) => t.id == 'iso_scanner').needsAccount,
+      expect(
+          kToolRegistry.firstWhere((t) => t.id == 'iso_scanner').needsAccount,
           isFalse);
     });
   });
@@ -226,8 +225,7 @@ void main() {
       expect(ids('xyzqq'), isEmpty);
     });
 
-    test('„kolano" — wymiary kolan na pierwszym miejscu, reszta kolan też',
-        () {
+    test('„kolano" — wymiary kolan na pierwszym miejscu, reszta kolan też', () {
       final r = ids('kolano');
       expect(r.first, 'elbow_takeouts');
       expect(r, containsAll(['elbow_cut', 'elbow_rotation']));
@@ -308,8 +306,8 @@ void main() {
           (tester) async {
         await openById(tester, id);
         expect(find.byType(FitterToolsScreen), findsOneWidget);
-        final controller = DefaultTabController.of(
-            tester.element(find.byType(TabBarView)));
+        final controller =
+            tester.widget<TabBarView>(find.byType(TabBarView)).controller!;
         expect(controller.index, tab);
         expect(find.text(label), findsWidgets);
       });

@@ -1,4 +1,5 @@
 import '../../core/utterance.dart';
+import '../../../utils/decimal_parse.dart';
 
 double signedQuantity(Utterance u, int i) {
   final v = u.items[i].value!;
@@ -57,6 +58,25 @@ double? lengthNear(Utterance u, List<String> labels) {
       }
       break;
     }
+  }
+  return values.length > 1 ? double.nan : values.singleOrNull;
+}
+
+/// Percent signs and spoken percent share one parser; conflicting values ask.
+double? percentValue(Utterance u) {
+  final values = <double>{};
+  for (var i = 1; i < u.items.length; i++) {
+    if ((u.items[i].word.startsWith('procent') ||
+            u.items[i].word.startsWith('percent')) &&
+        u.items[i - 1].isNumber) {
+      values.add(signedQuantity(u, i - 1));
+    }
+  }
+  for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*%').allMatches(u.raw)) {
+    final value = parseDecimal(m[1]!)!;
+    final spokenMinus = RegExp(r'minus\s*$', caseSensitive: false)
+        .hasMatch(u.raw.substring(0, m.start));
+    values.add(spokenMinus ? -value.abs() : value);
   }
   return values.length > 1 ? double.nan : values.singleOrNull;
 }

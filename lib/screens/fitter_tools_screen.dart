@@ -13,19 +13,13 @@ import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
+export '../domain/fitter/fitter_calcs.dart' show slopeCutDeltaMm;
+
 const _kAccent = Color(0xFF1A8A9B);
 const _kAccentWarm = Color(0xFFFF8E1E); // wyróżnienia wynikowe
 const _kResultBg = Color(0xFF152530);
 const _kResultBorder = Color(0xFF1A3A4A);
 const _kSubtle = Color(0xFF546E7A); // tekst pomocniczy
-
-/// Axial height difference Δh across a pipe of outside diameter [odMm] for a
-/// single mitre cut that gives a [slopePct] % fall: Δh = D·tan α with
-/// α = atan(p/100), i.e. D·p/100. (D·sin α — used until 2026-09 — is the
-/// length along the slanted cut face, not what the fitter marks off.)
-/// Same convention as `pipe_slope_screen.dart` (rise = length·tan α).
-double slopeCutDeltaMm(double odMm, double slopePct) =>
-    odMm * math.tan(math.atan(slopePct / 100.0));
 
 /// Offset spool between two identical elbows of angle [angleDeg].
 class InsertCalc {
@@ -152,10 +146,15 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     final target = _tabs.index;
+    if (fields.isEmpty) {
+      return supportedFields;
+    }
     if (fields.keys.any((key) => !supportedFields.contains(key))) {
       return fields.keys.toSet();
     }
-    for (var frame = 0; frame < 4 && _keys[target].currentState == null; frame++) {
+    for (var frame = 0;
+        frame < 4 && _keys[target].currentState == null;
+        frame++) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || _tabs.index != target) return fields.keys.toSet();
     }
@@ -1617,7 +1616,10 @@ class _ReducerTabState extends State<_ReducerTab> implements _FitterTabInput {
         d2 = _finite(f, 'd2_mm'),
         l = _finite(f, 'length_mm'),
         target = _finite(f, 'target_mm');
-    if (!_positive(d1) || !_positive(d2) || !_positive(l) || !_positive(target)) {
+    if (!_positive(d1) ||
+        !_positive(d2) ||
+        !_positive(l) ||
+        !_positive(target)) {
       return f.keys.toSet();
     }
     final r = reducerCutFromLargeMm(

@@ -27,6 +27,14 @@ SlopeSawAngles slopeSawAngles(double slopePct) {
   return SlopeSawAngles(a, 90.0 - a);
 }
 
+/// Axial height difference Δh across a pipe of outside diameter [odMm] for a
+/// single mitre cut that gives a [slopePct] % fall: Δh = D·tan α with
+/// α = atan(p/100), i.e. D·p/100. (D·sin α — used until 2026-09 — is the
+/// length along the slanted cut face, not what the fitter marks off.)
+/// Same convention as `pipe_slope_screen.dart` (rise = length·tan α).
+double slopeCutDeltaMm(double odMm, double slopePct) =>
+    odMm * math.tan(math.atan(slopePct / 100.0));
+
 // ── Elbow cut (trim an elbow along its arcs) ────────────────────────────────
 
 class ElbowCutResult {

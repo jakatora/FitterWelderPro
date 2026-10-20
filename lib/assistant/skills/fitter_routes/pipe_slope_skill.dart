@@ -1,5 +1,4 @@
 import '../../../domain/fitter/pipe_slope.dart';
-import '../../../utils/decimal_parse.dart';
 import '../../core/skill.dart';
 import '../core/skill_words.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
@@ -13,20 +12,8 @@ Map<String, Object?> _slots(Utterance u) {
   final rise = lengthNear(u, _riseLabels);
   if (length != null) out['length_mm'] = length;
   if (rise != null) out['rise_mm'] = rise;
-  final percentages = <double>{};
-  for (var i = 1; i < u.items.length; i++) {
-    if (u.items[i].word.startsWith('procent') ||
-        u.items[i].word.startsWith('percent')) {
-      if (u.items[i - 1].isNumber) percentages.add(signedQuantity(u, i - 1));
-    }
-  }
-  for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*%').allMatches(u.raw)) {
-    percentages.add(parseDecimal(m[1]!)!);
-  }
-  if (percentages.isNotEmpty) {
-    out['slope_pct'] =
-        percentages.length == 1 ? percentages.single : double.nan;
-  }
+  final percentage = percentValue(u);
+  if (percentage != null) out['slope_pct'] = percentage;
   // One unlabelled length, e.g. "spadek 1% na 6 metrów". Never choose
   // arbitrarily between two different lengths.
   if (length == null && rise == null) {
@@ -76,7 +63,10 @@ class PipeSlopeSkill extends AssistantSkill {
       _slots(u);
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
-    if (explainedTool(u) != null) return null;
+    if (explainedTool(u) != null ||
+        u.hasStem(const ['ciec', 'cieci', 'cut', 'pila', 'saw'])) {
+      return null;
+    }
     if (RegExp(r'^(?:otworz|pokaz|open|show)\b').hasMatch(u.folded)) {
       return null;
     }
