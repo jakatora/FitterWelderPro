@@ -787,7 +787,7 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
 - Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85`, `preheat.ce`
-  i `power.duty`; pozostają power.cable i tungsten.pick.
+  i `power.duty` / `power.cable`; pozostaje tungsten.pick.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -875,3 +875,21 @@ usuwa stare dane instalacji przewodów, których użytkownik nie podał dla tego
 obliczenia. Pełny czat CE→power_source, rzeczywisty wynik i ochrona zapisu
 sprawdzone. Regresja assistant+power_source UI+domena: 1204 PASS.
 Analiza zmienionych plików power.duty czysta.
+
+2026-10-21 — `power.cable`: sprawdzanie przekroju i dobór najmniejszego z
+checkCable/sizeCable. Jawne A, długości obu przewodów, cykl %, temperatura C,
+próg V; dla sprawdzania mm². Nie zgaduje połowy długości pętli ani progu 4 V.
+Temperatura pomiędzy kolumnami używa konserwatywnie wyższego przedziału „do”
+z podaniem tego w odpowiedzi. Wynik zachowuje spadek, nagrzewanie i źródła domeny.
+Brak spełniającego przekroju do 95 mm² nie daje fikcyjnego zalecenia; formularz
+odznacza poprzedni przekrój. AC/inny model przewodu/aluminiowe przewody trafiają
+do ścieżki brakującej możliwości. Wzmianka o aluminiowym spawanym materiale nie
+zmienia automatycznie materiału przewodów. Mowa z milimetrami kwadratowymi działa.
+PowerSourcePage rozszerza uchwyt atomowo; nie miesza pól tabliczki z instalacją,
+nie zapisuje SharedPreferences i czyści starą tabliczkę przy nowym poleceniu kabli.
+PowerDuty nie przejmuje cyklu pracy przewodów. Jawne sprawdź/check/size wykonuje
+obliczenie i przejście do ekranu; negacje tych czasowników zatrzymują wykonanie.
+Zastrzeżenie domeny rozróżnia 40°C źródła od 25°C odniesienia tabeli przewodów.
+Pełny czat i widoczny formularz sprawdzone; regresja assistant+power UI+domena:
+1239 PASS, analiza czysta. Dodatkowa korekta rozróżnienia materiału spawanego
+i przewodów ma osobny test umiejętności.

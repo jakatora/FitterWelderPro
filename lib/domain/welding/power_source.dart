@@ -717,11 +717,11 @@ String platePointText(PlatePoint p, {required bool en}) =>
 /// Zastrzeżenie przy każdym wyniku.
 String powerSourceDisclaimer({required bool en}) => en
     ? 'ESTIMATE: the rating plate, the duty cycle chart in the manual and '
-        'the cable data sheet take precedence. The duty cycle applies to a '
-        '10 min period and 40 °C ambient.'
+        'the cable data sheet take precedence. The power source duty cycle applies to a '
+        '10 min period and 40 °C ambient; cable ratings use 25 °C with the selected ambient factor.'
     : 'SZACUNEK: pierwszeństwo mają tabliczka znamionowa, wykres cyklu '
-        'pracy z instrukcji i karta katalogowa przewodu. Cykl pracy dotyczy '
-        'okresu 10 min i otoczenia 40 °C.';
+        'pracy z instrukcji i karta katalogowa przewodu. Cykl pracy źródła dotyczy '
+        'okresu 10 min i otoczenia 40 °C; obciążalność przewodów ma odniesienie 25 °C i wybrany współczynnik otoczenia.';
 
 /// Wzór cyklu pracy i źródło.
 String dutyFormulaNote({required bool en}) => en

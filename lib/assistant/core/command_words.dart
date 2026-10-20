@@ -60,9 +60,15 @@ bool looksLikeOtherCommand(Utterance u) =>
 final _negatedCommand = RegExp(
     r'^(?:(?:prosze|please|hej|hey|asystencie|asystent)\s+)*'
     r'(?:nie\s+(?:oblicz\w*|policz\w*|przelicz\w*|otwier\w*|otworz\w*|pokaz\w*|'
-    r'dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
-    r'|(?:do not|dont|don t)\s+(?:select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
+    r'sprawdz\w*|dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
+    r'|(?:do not|dont|don t)\s+(?:check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
+
+bool requestsWeldingCables(Utterance u) =>
+    u.hasStem(const ['przewod', 'kabel', 'kabl', 'cable', 'lead']) &&
+    (u.hasStem(
+            const ['spawal', 'masow', 'weld', 'return', 'ground', 'torch']) ||
+        u.hasAny(const ['h01n2']));
 
 /// Cooling time consumes heat input as a parameter; it is a separate task.
 bool requestsCoolingTime(Utterance u) =>
@@ -87,6 +93,9 @@ bool requestsCalculation(Utterance u) =>
       'przelicz',
       'wylicz',
       'dobierz',
+      'sprawdz',
+      'check',
+      'size',
       'select',
       'pick',
       'skroc',

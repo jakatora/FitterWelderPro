@@ -53,10 +53,21 @@ class _PowerSourcePageState extends State<PowerSourcePage>
     with ToolHandleHost<PowerSourcePage> {
   @override
   String get toolId => 'power_source';
+  static const _cableFields = {
+    'cable_mode',
+    'weld_lead_m',
+    'return_lead_m',
+    'section_mm2',
+    'duty_pct',
+    'ambient_c',
+    'drop_limit_v'
+  };
   @override
-  Set<String> get supportedFields => const {'plate', 'weld_current_a'};
+  Set<String> get supportedFields =>
+      const {'plate', 'weld_current_a', ..._cableFields};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any(_cableFields.contains)) return _applyCable(fields);
     final rejected = fields.keys.toSet().difference(supportedFields);
     final points = fields['plate'];
     final current = fields['weld_current_a'];
@@ -102,6 +113,60 @@ class _PowerSourcePageState extends State<PowerSourcePage>
     return {};
   }
 
+  Future<Set<String>> _applyCable(Map<String, Object?> fields) async {
+    final rejected =
+        fields.keys.toSet().difference({..._cableFields, 'weld_current_a'});
+    final mode = fields['cable_mode'];
+    if (!const ['check', 'size'].contains(mode)) rejected.add('cable_mode');
+    double n(String k) =>
+        fields[k] is num ? (fields[k] as num).toDouble() : double.nan;
+    final section = n('section_mm2'), ambient = n('ambient_c');
+    final input = CableInput(
+        currentA: n('weld_current_a'),
+        weldLeadM: n('weld_lead_m'),
+        returnLeadM: n('return_lead_m'),
+        sectionMm2: section.isFinite && section == section.roundToDouble()
+            ? section.toInt()
+            : 0,
+        dutyPct: n('duty_pct'),
+        ambientC: ambient.isFinite && ambient == ambient.roundToDouble()
+            ? ambient.toInt()
+            : 0,
+        dropLimitV: n('drop_limit_v'));
+    if (mode == 'size' && fields.containsKey('section_mm2')) {
+      rejected.add('section_mm2');
+    }
+    for (final p in cableProblems(input, forSizing: mode == 'size')) {
+      rejected.add(switch (p) {
+        CableProblem.current => 'weld_current_a',
+        CableProblem.weldLead => 'weld_lead_m',
+        CableProblem.returnLead => 'return_lead_m',
+        CableProblem.noLength => 'weld_lead_m',
+        CableProblem.section => 'section_mm2',
+        CableProblem.duty => 'duty_pct',
+        CableProblem.ambient => 'ambient_c',
+        CableProblem.dropLimit => 'drop_limit_v'
+      });
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    final selected =
+        mode == 'size' ? sizeCable(input)!.sectionMm2 : input.sectionMm2;
+    setState(() {
+      _plateEdited = true;
+      _fillPlate([]);
+      _current.text = input.currentA.toString();
+      _leadWeld.text = input.weldLeadM.toString();
+      _leadReturn.text = input.returnLeadM.toString();
+      _cableDuty.text = input.dutyPct.toString();
+      _dropLimit.text = input.dropLimitV.toString();
+      _section = selected;
+      _ambient = input.ambientC;
+    });
+    return {};
+  }
+
   // Przykład z typowej tabliczki MMA/TIG.
   static const _defaultPlate = [
     PlatePoint(200, 35),
@@ -117,7 +182,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
   final _cableDuty = TextEditingController(text: '60');
   final _dropLimit = TextEditingController();
 
-  int _section = 35;
+  int? _section = 35;
   int _ambient = 30;
   bool _plateEdited = false;
   bool _sharing = false;
@@ -199,7 +264,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
         currentA: _val(_current),
         weldLeadM: _val(_leadWeld),
         returnLeadM: _val(_leadReturn),
-        sectionMm2: _section,
+        sectionMm2: _section ?? 0,
         dutyPct: _val(_cableDuty),
         ambientC: _ambient,
         dropLimitV: _val(_dropLimit),

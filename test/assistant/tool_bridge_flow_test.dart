@@ -207,6 +207,15 @@ void main() {
     await say(tester, 'Oblicz CE C 0,2 Mn 1 pozostałe zero grubość 15 mm');
     expect(ToolBridge.instance.activeToolId, 'heat_input');
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+    await say(tester, 'nie sprawdzaj przewodów spawalniczych');
+    expect(ToolBridge.instance.activeToolId, 'heat_input');
+    await say(tester,
+        'Sprawdź przewody spawalniczy 25 m masowy 25 m 200 A 60% otoczenie 30 C próg 4 V przekrój 35 mm²');
+    expect(ToolBridge.instance.activeToolId, 'power_source');
+    final powerRoute = appRoutes.top;
+    await say(tester,
+        'Dobierz przewody spawalniczy 25 m masowy 25 m 200 A 60% otoczenie 30 C próg 4 V');
+    expect(appRoutes.top, same(powerRoute));
     await say(
         tester, 'Oblicz cykl pracy tabliczka 200 A 60% prąd spawania 150 A');
     expect(ToolBridge.instance.activeToolId, 'power_source');

@@ -16,6 +16,7 @@ import 'welder_calc/shade_number_skill.dart';
 import 'welder_calc/cooling_time_skill.dart';
 import 'welder_calc/preheat_ce_skill.dart';
 import 'welder_calc/power_duty_skill.dart';
+import 'welder_calc/power_cable_skill.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
@@ -27,6 +28,7 @@ List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
   all.add(CoolingTimeSkill());
   all.add(PreheatCeSkill());
   all.add(PowerDutySkill());
+  all.add(PowerCableSkill());
   all.add(AccountNavigationSkill());
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());

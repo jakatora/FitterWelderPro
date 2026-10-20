@@ -120,6 +120,7 @@ class PowerDutySkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
+        requestsWeldingCables(u) ||
         kCommandVerbRe.hasMatch(u.folded) ||
         kOpenVerbAtStartRe.hasMatch(u.folded)) {
       return null;
