@@ -68,6 +68,7 @@ import '../screens/pipe_schedule_screen.dart';
 import '../screens/pipe_slope_screen.dart';
 import '../screens/pre_weld_checklist_screen.dart';
 import '../screens/profile_screen.dart';
+import '../screens/account_screen.dart';
 import '../screens/projects_screen.dart';
 import '../screens/quick_converter_screen.dart';
 import '../screens/rolling_offset_screen.dart';
@@ -3007,6 +3008,30 @@ final List<NavEntry> kNavEntries = [
       if (!context.mounted) return;
       await _pushScreen(context, const ChatScreen());
     },
+  ),
+  NavEntry(
+    id: 'account',
+    titlePl: 'Konto i profil zawodowy',
+    titleEn: 'Account and professional profile',
+    subtitlePl: 'Logowanie, zawód, doświadczenie i widoczność na czacie',
+    subtitleEn: 'Sign in, profession, experience and chat visibility',
+    icon: Icons.account_circle_outlined,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const ['konto', 'logowanie', 'zaloguj', 'rejestracja', 'profil zawodowy', 'kwalifikacje', 'stempel'],
+    keywordsEn: const ['account', 'login', 'sign in', 'registration', 'professional profile', 'qualifications', 'stamp'],
+    open: (context) => _pushScreen(context, const AccountScreen()),
+  ),
+  NavEntry(
+    id: 'account_register',
+    titlePl: 'Utwórz konto',
+    titleEn: 'Create an account',
+    subtitlePl: 'Rejestracja konta Fitter Welder Pro',
+    subtitleEn: 'Register a Fitter Welder Pro account',
+    icon: Icons.person_add_outlined,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const ['zaloz konto', 'utworz konto', 'rejestracja'],
+    keywordsEn: const ['create account', 'sign up', 'register'],
+    open: (context) => _pushScreen(context, const AccountScreen(initialRegister: true)),
   ),
   NavEntry(
     id: 'profile',

@@ -650,6 +650,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     };
     if (spoken.isNotEmpty) await _speak(spoken);
     final explicitOpen = reply.match?.skill.id == 'tool.open' ||
+        reply.match?.skill.id == 'account.open' ||
         (reply.match?.skill.id == 'heat.input' &&
             reply.match?.slots['mode'] == 'set');
     if (mounted && result is AnswerResult && result.show != null) {

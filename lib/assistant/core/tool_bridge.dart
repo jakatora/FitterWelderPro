@@ -157,7 +157,19 @@ Future<ShowOutcome> showInModule(ShowInModule show,
     }
     final tool = toolById(show.toolId);
     final context = appNavigatorKey.currentState?.overlay?.context;
-    if (tool == null || context == null) return ShowOutcome.unavailable;
+    if (context == null) return ShowOutcome.unavailable;
+    if (tool == null) {
+      // Navigation entries own their existing consent gates. They accept no
+      // field injection; account credentials stay in the dedicated form.
+      final entry = kNavEntries
+          .where((e) => e.id == show.toolId && e.available)
+          .firstOrNull;
+      if (entry == null || show.fields.isNotEmpty) {
+        return ShowOutcome.unavailable;
+      }
+      unawaited(entry.open(context));
+      return ShowOutcome.opened;
+    }
     unawaited(openTool(context, tool, byAssistant: true, replace: replace));
     outcome = replace ? ShowOutcome.replaced : ShowOutcome.opened;
   }
