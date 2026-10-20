@@ -1,10 +1,16 @@
 import '../../../domain/welding/shade_number.dart';
+import '../../../utils/decimal_parse.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
 
-Map<String, Object?> _slots(Utterance u) {
+Map<String, Object?> _slots(Utterance original) {
+  final u = original.withRaw(original.raw.replaceAllMapped(
+      RegExp(
+          r'(?<![\d.,])[-−]?\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d+)?(?=\s*(?:l\b|litr\w*|liter\w*|litre\w*)\s*(?:/|na\b|per\b))',
+          caseSensitive: false),
+      (m) => (parseDecimal(m[0]) ?? double.nan).toString()));
   final s = <String, Object?>{};
   final processes = <ShadeProcess>{};
   void alias(ShadeProcess p, List<String> words) {
@@ -83,7 +89,9 @@ Map<String, Object?> _slots(Utterance u) {
       }
       if (j < u.items.length) {
         final time = u.items[j].word;
-        if (time == 'h' || time.startsWith('godzin') || time.startsWith('hour')) {
+        if (time == 'h' ||
+            time.startsWith('godzin') ||
+            time.startsWith('hour')) {
           flows.add(signedQuantity(u, i));
         }
         if (time.startsWith('min')) flows.add(signedQuantity(u, i) * 60);
@@ -95,7 +103,7 @@ Map<String, Object?> _slots(Utterance u) {
           r'(-?\d+(?:[.,]\d+)?)\s*(?:l|liters?|litres?|litrow|litrów|litry)\s*(?:/|na\s+|per\s+)(h\b|godzin\w*|hours?\b|min\w*)',
           caseSensitive: false)
       .allMatches(u.raw)) {
-    var v = double.tryParse(m[1]!.replaceAll(',', '.')) ?? double.nan;
+    var v = parseDecimal(m[1]!) ?? double.nan;
     if (RegExp(r'minus\s*$', caseSensitive: false)
         .hasMatch(u.raw.substring(0, m.start))) {
       v = -v.abs();

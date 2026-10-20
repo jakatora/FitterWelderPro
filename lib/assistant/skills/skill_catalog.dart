@@ -11,29 +11,18 @@ import 'core/catalog.dart';
 import 'core/account_navigation_skill.dart';
 import 'fitter_routes/catalog.dart';
 import 'fitter_tables/catalog.dart';
-import 'welder_calc/heat_input_skill.dart';
-import 'welder_calc/shade_number_skill.dart';
-import 'welder_calc/cooling_time_skill.dart';
-import 'welder_calc/preheat_ce_skill.dart';
-import 'welder_calc/power_duty_skill.dart';
-import 'welder_calc/power_cable_skill.dart';
+import 'welder_calc/catalog.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
   final all = <AssistantSkill>[];
   Iterable<AssistantSkill> catalog() => all;
   all.addAll(coreSkills(actions: actions, catalog: catalog));
-  all.add(HeatInputSkill());
-  all.add(ShadeNumberSkill());
-  all.add(CoolingTimeSkill());
-  all.add(PreheatCeSkill());
-  all.add(PowerDutySkill());
-  all.add(PowerCableSkill());
+  all.addAll(welderCalcSkills());
   all.add(AccountNavigationSkill());
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());
   // Kolejne grupy (koordynator):
-  //   all.addAll(welderCalcSkills());     // 2.3
   //   all.addAll(welderMiscSkills());     // 2.4
   //   all.addAll(knowledgeModuleSkills());// 2.5
   //   all.addAll(isoSkills());            // 3.2

@@ -5,22 +5,23 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/tungsten.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
-const _kCard   = Color(0xFF141821);
+const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
-const _kGreen  = Color(0xFF2ECC71);
-const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
+const _kGreen = Color(0xFF2ECC71);
+const _kSec = Color(0xFF9BA3C7);
+const _kMuted = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 // SharedPreferences keys (P2-14 persistence)
 const _kPrefOverrides = 'prefs_tungsten_overrides';
-const _kPrefInStock   = 'prefs_tungsten_in_stock';
+const _kPrefInStock = 'prefs_tungsten_in_stock';
 
 // ── P2-14: per-diameter cup / argon flow / tip-angle reference ──────────────
 // Table lives in lib/data/tungsten.dart (kTungstenExtrasByDia) — the same one
@@ -30,11 +31,11 @@ TungstenExtras? _extrasFor(double diaMm) => tungstenExtrasFor(diaMm);
 /// In-memory override record for a single user pick decision.
 /// Persisted as JSON in `prefs_tungsten_overrides` (capped list, newest first).
 class TungstenOverride {
-  final double suggestedDiaMm;   // what sizeForCurrent() proposed
-  final double usedDiaMm;        // what the welder actually picked
-  final String reason;           // free-text (length-capped)
-  final int amps;                // current at decision time
-  final int ts;                  // ms since epoch
+  final double suggestedDiaMm; // what sizeForCurrent() proposed
+  final double usedDiaMm; // what the welder actually picked
+  final String reason; // free-text (length-capped)
+  final int amps; // current at decision time
+  final int ts; // ms since epoch
 
   const TungstenOverride({
     required this.suggestedDiaMm,
@@ -84,7 +85,8 @@ final _kHelpTungsten = ScreenHelp(
     HelpStep('🟠', 'Tabela podświetli zalecaną średnicę.'),
     HelpStep('👆', 'Dotknij wiersza aby nadpisać wybór i podać powód.'),
     HelpStep('📦', 'Przytrzymaj wiersz aby oznaczyć "W magazynie".'),
-    HelpStep('🪪', 'Opcjonalnie wpisz nr złącza i stempel spawacza (do notatek).'),
+    HelpStep(
+        '🪪', 'Opcjonalnie wpisz nr złącza i stempel spawacza (do notatek).'),
   ],
   stepsEn: [
     HelpStep('🔢', 'Enter the welding current (A) for DC-.'),
@@ -104,7 +106,27 @@ class TungstenScreen extends StatefulWidget {
   State<TungstenScreen> createState() => _TungstenScreenState();
 }
 
-class _TungstenScreenState extends State<TungstenScreen> {
+class _TungstenScreenState extends State<TungstenScreen>
+    with ToolHandleHost<TungstenScreen> {
+  @override
+  String get toolId => 'tungsten';
+  @override
+  Set<String> get supportedFields => const {'amps'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final amps = fields['amps'];
+    if (fields.length != 1 ||
+        amps is! num ||
+        !amps.isFinite ||
+        amps < kTungstenSizes.first.minA ||
+        amps > kTungstenSizes.last.maxA ||
+        !mounted) {
+      return fields.isEmpty ? {'amps'} : fields.keys.toSet();
+    }
+    setState(() => _amps.text = amps.toString());
+    return {};
+  }
+
   final _amps = TextEditingController();
   final _jointId = TextEditingController();
   final _jointStamp = TextEditingController();
@@ -120,7 +142,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
   @override
   void initState() {
     super.initState();
-    _hydrate();
+    _hydrate().whenComplete(markReady);
   }
 
   @override
@@ -149,8 +171,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
           if (decoded is List) {
             for (final e in decoded) {
               if (e is Map) {
-                final ov =
-                    TungstenOverride.fromJson(e.cast<String, dynamic>());
+                final ov = TungstenOverride.fromJson(e.cast<String, dynamic>());
                 if (ov != null) loadedOverrides.add(ov);
               }
             }
@@ -209,9 +230,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
 
   Future<void> _copyRow(TungstenSize s) async {
     final extras = _extrasFor(s.diaMm);
-    final extraTrail = extras == null
-        ? ''
-        : ' · ${extras.cup} · ${extras.argonFlow}';
+    final extraTrail =
+        extras == null ? '' : ' · ${extras.cup} · ${extras.argonFlow}';
     final text = '${s.diaMm.toStringAsFixed(1)} mm (${s.diaImp}) '
         '${s.minA}-${s.maxA} A$extraTrail';
     await Clipboard.setData(ClipboardData(text: text));
@@ -221,9 +241,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(context.tr(
-              pl: 'Skopiowano: $text',
-              en: 'Copied: $text')),
+          content:
+              Text(context.tr(pl: 'Skopiowano: $text', en: 'Copied: $text')),
           duration: const Duration(milliseconds: 1200),
         ),
       );
@@ -264,7 +283,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
 
   /// Open the override dialog (tap on a row). Captures a reason and records
   /// {suggested, used, reason} as a TungstenOverride.
-  Future<void> _openOverrideDialog(TungstenSize tapped, TungstenSize? suggested) async {
+  Future<void> _openOverrideDialog(
+      TungstenSize tapped, TungstenSize? suggested) async {
     await Haptic.tap();
     if (!mounted) return;
     final ctrl = TextEditingController();
@@ -298,8 +318,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
             ),
             title: Text(
               context.tr(
-                  pl: 'Nadpisać wybór? Powód:',
-                  en: 'Override pick? Reason:'),
+                  pl: 'Nadpisać wybór? Powód:', en: 'Override pick? Reason:'),
               style: const TextStyle(
                   color: Color(0xFFE7ECF3),
                   fontSize: 16,
@@ -346,8 +365,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                     decoration: InputDecoration(
                       labelText: context.tr(pl: 'Powód', en: 'Reason'),
                       hintText: context.tr(
-                          pl: 'np. stożek za zimny',
-                          en: 'e.g. cone too cold'),
+                          pl: 'np. stożek za zimny', en: 'e.g. cone too cold'),
                       isDense: true,
                       counterText: '',
                     ),
@@ -361,8 +379,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
                       for (final c in chips)
                         ActionChip(
                           label: Text(c,
-                              style: const TextStyle(
-                                  color: _kSec, fontSize: 12)),
+                              style:
+                                  const TextStyle(color: _kSec, fontSize: 12)),
                           backgroundColor: _kCard,
                           side: const BorderSide(color: _kBorder),
                           onPressed: () {
@@ -377,8 +395,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                 ],
               ),
             ),
-            actionsPadding:
-                const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogCtx).pop(false),
@@ -410,8 +427,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
     if (!mounted) return;
     final reason = ctrl.text.trim();
     if (reason.isEmpty) return;
-    final ampsParsed =
-        parseDecimal(_amps.text) ?? 0;
+    final ampsParsed = parseDecimal(_amps.text) ?? 0;
     final record = TungstenOverride(
       suggestedDiaMm: suggested?.diaMm ?? tapped.diaMm,
       usedDiaMm: tapped.diaMm,
@@ -479,8 +495,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Elektroda wolframowa', en: 'Tungsten electrode')),
+        title: Text(
+            context.tr(pl: 'Elektroda wolframowa', en: 'Tungsten electrode')),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -513,7 +529,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
               pl: 'Tabela orientacyjna (pasma DC−, typowe) — wiąże WPS i karta producenta elektrod.',
               en: 'Indicative table (typical DC− bands) — the WPS and the electrode maker\'s data are binding.',
             ),
-            style: const TextStyle(color: _kSec, fontSize: 12, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+                color: _kSec, fontSize: 12, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 10),
 
@@ -526,8 +543,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                   textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
                     labelText: context.tr(
-                        pl: 'Nr złącza (opcj.)',
-                        en: 'Joint ID (optional)'),
+                        pl: 'Nr złącza (opcj.)', en: 'Joint ID (optional)'),
                     hintText: 'W-001',
                     isDense: true,
                   ),
@@ -540,13 +556,11 @@ class _TungstenScreenState extends State<TungstenScreen> {
                   controller: _jointStamp,
                   textCapitalization: TextCapitalization.characters,
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                        RegExp(r'[A-Za-z0-9\-]')),
+                    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]')),
                   ],
                   decoration: InputDecoration(
                     labelText: context.tr(
-                        pl: 'Stempel (opcj.)',
-                        en: 'Stamp (optional)'),
+                        pl: 'Stempel (opcj.)', en: 'Stamp (optional)'),
                     hintText: 'JK-12',
                     isDense: true,
                   ),
@@ -578,9 +592,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          context.tr(
-                              pl: 'POZA ZAKRESEM',
-                              en: 'OUT OF RANGE'),
+                          context.tr(pl: 'POZA ZAKRESEM', en: 'OUT OF RANGE'),
                           style: const TextStyle(
                             color: _kOrange,
                             fontSize: 12,
@@ -632,8 +644,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
             context.tr(
                 pl: 'Dotknij wiersza aby nadpisać · przytrzymaj aby oznaczyć w magazynie',
                 en: 'Tap a row to override · long-press to flag in stock'),
-            style: const TextStyle(
-                color: _kMuted, fontSize: 11, height: 1.3),
+            style: const TextStyle(color: _kMuted, fontSize: 11, height: 1.3),
           ),
           const SizedBox(height: 8),
           ...kTungstenSizes.map((s) {
@@ -703,8 +714,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                                       const SizedBox(width: 4),
                                       Text(
                                         context.tr(
-                                            pl: 'W MAG.',
-                                            en: 'IN STOCK'),
+                                            pl: 'W MAG.', en: 'IN STOCK'),
                                         style: const TextStyle(
                                             color: _kGreen,
                                             fontSize: 10,
@@ -738,14 +748,11 @@ class _TungstenScreenState extends State<TungstenScreen> {
                                       pl: 'Dysza ${extras.cup}',
                                       en: 'Cup ${extras.cup}'),
                                   style: const TextStyle(
-                                      color: _kSec,
-                                      fontSize: 11,
-                                      height: 1.3),
+                                      color: _kSec, fontSize: 11, height: 1.3),
                                 ),
                               ),
                               const SizedBox(width: 10),
-                              const Icon(Icons.air,
-                                  color: _kMuted, size: 12),
+                              const Icon(Icons.air, color: _kMuted, size: 12),
                               const SizedBox(width: 4),
                               Flexible(
                                 child: Text(
@@ -753,9 +760,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                                       pl: 'Argon ${extras.argonFlow}',
                                       en: 'Argon ${extras.argonFlow}'),
                                   style: const TextStyle(
-                                      color: _kSec,
-                                      fontSize: 11,
-                                      height: 1.3),
+                                      color: _kSec, fontSize: 11, height: 1.3),
                                 ),
                               ),
                             ],
@@ -772,9 +777,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                                       pl: 'Kąt szlifu ${extras.tipAngle}',
                                       en: 'Tip angle ${extras.tipAngle}'),
                                   style: const TextStyle(
-                                      color: _kSec,
-                                      fontSize: 11,
-                                      height: 1.3),
+                                      color: _kSec, fontSize: 11, height: 1.3),
                                 ),
                               ),
                             ],
@@ -846,7 +849,8 @@ class _TungstenScreenState extends State<TungstenScreen> {
                           '(focused arc, orbital); blunt 45–60° for higher current. '
                           'Grind along the electrode axis with a dedicated wheel.',
                     ),
-                    style: const TextStyle(color: _kSec, fontSize: 12, height: 1.4),
+                    style: const TextStyle(
+                        color: _kSec, fontSize: 12, height: 1.4),
                   ),
                 ),
               ],
@@ -857,8 +861,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
           Row(
             children: [
               Text(
-                context.tr(
-                    pl: 'TYP ELEKTRODY', en: 'ELECTRODE TYPE'),
+                context.tr(pl: 'TYP ELEKTRODY', en: 'ELECTRODE TYPE'),
                 style: const TextStyle(
                     color: _kMuted,
                     fontSize: 10,
@@ -876,8 +879,7 @@ class _TungstenScreenState extends State<TungstenScreen> {
                         'electrode to identify the type.'),
                 triggerMode: TooltipTriggerMode.tap,
                 showDuration: const Duration(seconds: 6),
-                child: const Icon(Icons.info_outline,
-                    color: _kMuted, size: 14),
+                child: const Icon(Icons.info_outline, color: _kMuted, size: 14),
               ),
             ],
           ),
@@ -899,14 +901,18 @@ class _TungstenScreenState extends State<TungstenScreen> {
                     Row(
                       children: [
                         Container(
-                          width: 14, height: 14,
+                          width: 14,
+                          height: 14,
                           decoration: BoxDecoration(
                               color: t.colorDot,
                               shape: BoxShape.circle,
                               border: Border.all(color: _kBorder)),
                         ),
                         const SizedBox(width: 8),
-                        Text(t.isoCode == t.code ? t.code : '${t.code} (${t.isoCode})',
+                        Text(
+                            t.isoCode == t.code
+                                ? t.code
+                                : '${t.code} (${t.isoCode})',
                             style: const TextStyle(
                                 color: Color(0xFFE7ECF3),
                                 fontSize: 14,

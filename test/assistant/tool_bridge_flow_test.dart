@@ -225,8 +225,18 @@ void main() {
             .controller!
             .text,
         '150.0');
+    await say(tester, 'Dobierz wolfram DCEN nierdzewna 75 A');
+    expect(ToolBridge.instance.activeToolId, 'tungsten');
+    expect(
+        tester
+            .widget<TextField>(find.byWidgetPredicate((w) =>
+                w is TextField &&
+                w.decoration?.labelText == 'Prąd spawania (A, DC-)'))
+            .controller!
+            .text,
+        '75.0');
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'power_source');
+    expect(ToolBridge.instance.activeToolId, 'tungsten');
     await close(tester);
   });
   testWidgets(

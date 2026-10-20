@@ -48,6 +48,16 @@ void main() {
     expect(r.show!.fields.containsKey('thickness_mm'), isFalse);
     expect(r.answer.text.pl, isNot(contains('minimum OSHA')));
   });
+  test('grouped flow digits use the common decimal parser, not a partial flow',
+      () async {
+    final r =
+        (await BrainHarness().say('filtr cięcie tlenowe przepływ 1 500,5 l/h'))
+            .result as AnswerResult;
+    expect(r.show!.fields['flow_lh'], 1500.5);
+    final conflict = await BrainHarness().say(
+        'filtr cięcie tlenowe przepływ 1 500 l/h oraz sto litrów na godzinę');
+    expect(conflict.result, isA<AskResult>());
+  });
   test('spoken numbers and flow time units work together', () async {
     final r = (await BrainHarness().say(
             'filtr spawanie gazowe przepływ sto litrów na godzinę',

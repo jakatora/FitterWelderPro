@@ -786,8 +786,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
-- Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85`, `preheat.ce`
-  i `power.duty` / `power.cable`; pozostaje tungsten.pick.
+- Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85`, `preheat.ce`,
+  `power.duty`, `power.cable` i `tungsten.pick` (zakres tabeli DC− nierdzewnej).
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -893,3 +893,27 @@ Zastrzeżenie domeny rozróżnia 40°C źródła od 25°C odniesienia tabeli prz
 Pełny czat i widoczny formularz sprawdzone; regresja assistant+power UI+domena:
 1239 PASS, analiza czysta. Dodatkowa korekta rozróżnienia materiału spawanego
 i przewodów ma osobny test umiejętności.
+
+2026-10-21 — `tungsten.pick`: shared sizeForCurrent/tungstenExtrasFor, jawna
+biegunowość DC− i stal nierdzewna. Samo DC wymaga doprecyzowania. Materiał,
+prąd z jednostką i rozbieżne dane zbierane w rozmowie; liczba 304 A nie jest
+automatycznie gatunkiem 304. Granice 70/80/150/250 zachowują wybór większej
+średnicy wspólnej tabeli. Dodatki dysza/argon/szlif są punktami startowymi,
+przepływ dotyczy palnika. ISO 6848 nazwane jako oznaczenia typów, nie źródło
+pasm prądowych. Wskazany WT20 zachowuje notę o pyle z tabeli; WP/WZ8 nie
+stają się doborem do nierdzewnej DC−. WC20 ma opis, ale brak osobnej tabeli
+prądowej w tym modelu lantan/tor. AC/DC+/inny materiał i 15–400 A poza tabelą
+uruchamiają brakującą możliwość zamiast ekstrapolacji skrajnego wiersza.
+Atomowy uchwyt TungstenScreen przyjmuje tylko wspierany prąd, czeka na prefs,
+nie zapisuje magazynu, historii nadpisań ani oznaczeń złącza/stempla. Pełny
+czat power_source→tungsten sprawdzony. WelderCalc ma wspólny katalog grupy.
+Regresja assistant+tungsten UI+dane: 1250 PASS. Kolory czubka są rozpoznawane
+z tego samego źródła co kody typów; nieznany kod nie jest zastępowany WL20,
+a niejednoznaczny typ można jawnie pominąć po pytaniu.
+Pełny checkpoint wykrył jeden skopiowany parser przecinka w shade.number.
+Zastąpiono go parseDecimal i dodano test grupowanych cyfr przepływu
+„1 500,5 l/h” oraz konfliktu z drugą wartością. Testy wspólnego parsera,
+filtra i wolframu po korekcie: 73 PASS.
+Pełny checkpoint 2026-10-21 po wszystkich korektach: 6360 testów całej aplikacji
+PASS, pełna analiza Flutter bez uwag. To checkpoint kodu, nie końcowy odbiór
+fizycznego mikrofonu ani aktualny build APK; te pozostają w etapie 6.
