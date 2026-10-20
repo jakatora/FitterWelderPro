@@ -6,6 +6,7 @@ import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
+import '../assistant/core/tool_bridge.dart';
 
 class PipeSlopeScreen extends StatefulWidget {
   const PipeSlopeScreen({super.key});
@@ -14,15 +15,71 @@ class PipeSlopeScreen extends StatefulWidget {
   State<PipeSlopeScreen> createState() => _PipeSlopeScreenState();
 }
 
-class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
+class _PipeSlopeScreenState extends State<PipeSlopeScreen>
+    with ToolHandleHost<PipeSlopeScreen> {
+  @override
+  String get toolId => 'pipe_slope';
+  @override
+  Set<String> get supportedFields =>
+      const {'mode', 'length_mm', 'rise_mm', 'slope_pct'};
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final invalidNumbers = fields.entries
+        .where((e) =>
+            e.key != 'mode' &&
+            (e.value is! num ||
+                !(e.value as num).isFinite ||
+                (e.value as num) <= 0))
+        .map((e) => e.key)
+        .toSet();
+    if (invalidNumbers.isNotEmpty) return invalidNumbers;
+    if (fields.keys.any((key) => !supportedFields.contains(key))) {
+      return fields.keys.toSet();
+    }
+    final mode = fields['mode'];
+    if (!const ['length_to_rise', 'rise_to_length', 'slope_from_lr']
+        .contains(mode)) {
+      return {'mode'};
+    }
+    final a = mode == 'rise_to_length' ? 'rise_mm' : 'length_mm';
+    final b = mode == 'slope_from_lr' ? 'rise_mm' : 'slope_pct';
+    final first = fields[a];
+    final second = fields[b];
+    if (first is! num || !first.isFinite || first <= 0) return {a};
+    if (second is! num || !second.isFinite || second <= 0) return {b};
+    final result = switch (mode) {
+      'length_to_rise' => slopeRiseFromLength(
+          lengthMm: first.toDouble(), slopePct: second.toDouble()),
+      'rise_to_length' => slopeLengthFromRise(
+          riseMm: first.toDouble(), slopePct: second.toDouble()),
+      _ => slopeFromLengthAndRise(
+          lengthMm: first.toDouble(), riseMm: second.toDouble()),
+    };
+    if (!mounted || result == null) return {a, b};
+    setState(() {
+      _mode = mode as String;
+      _lengthController.text = result.lengthMm.toString();
+      _riseController.text = result.riseMm.toString();
+      _slopeController.text = result.slopePct.toString();
+    });
+    _calculate();
+    return {};
+  }
+
   // Mode: calculate rise from length+slope, OR length from rise+slope, OR slope from length+rise
   String _mode = 'length_to_rise';
 
   final _lengthController = TextEditingController();
-  final _slopeController  = TextEditingController();
-  final _riseController   = TextEditingController();
+  final _slopeController = TextEditingController();
+  final _riseController = TextEditingController();
 
-  final _angleController  = TextEditingController();
+  final _angleController = TextEditingController();
   final _mmPerMController = TextEditingController();
   (double, double, double)? _lastCalculation;
 
@@ -54,9 +111,11 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     final PipeSlopeResult? result;
     if (_mode == 'length_to_rise') {
       final length = _parse(_lengthController.text);
-      final slope  = _parse(_slopeController.text);
+      final slope = _parse(_slopeController.text);
       if (!length.isFinite || !slope.isFinite || length <= 0 || slope <= 0) {
-        _showError(context.tr(pl: 'Wpisz długość i nachylenie > 0', en: 'Enter length and slope > 0'));
+        _showError(context.tr(
+            pl: 'Wpisz długość i nachylenie > 0',
+            en: 'Enter length and slope > 0'));
         return;
       }
       result = slopeRiseFromLength(lengthMm: length, slopePct: slope);
@@ -65,12 +124,14 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         return;
       }
 
-      _riseController.text    = result.riseMm.toStringAsFixed(1);
+      _riseController.text = result.riseMm.toStringAsFixed(1);
     } else if (_mode == 'rise_to_length') {
-      final rise   = _parse(_riseController.text);
-      final slope  = _parse(_slopeController.text);
+      final rise = _parse(_riseController.text);
+      final slope = _parse(_slopeController.text);
       if (!rise.isFinite || !slope.isFinite || rise <= 0 || slope <= 0) {
-        _showError(context.tr(pl: 'Wpisz wznios i nachylenie > 0', en: 'Enter rise and slope > 0'));
+        _showError(context.tr(
+            pl: 'Wpisz wznios i nachylenie > 0',
+            en: 'Enter rise and slope > 0'));
         return;
       }
       result = slopeLengthFromRise(riseMm: rise, slopePct: slope);
@@ -79,13 +140,14 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         return;
       }
 
-      _lengthController.text  = result.lengthMm.toStringAsFixed(1);
+      _lengthController.text = result.lengthMm.toStringAsFixed(1);
     } else {
       // slope from length + rise
       final length = _parse(_lengthController.text);
-      final rise   = _parse(_riseController.text);
+      final rise = _parse(_riseController.text);
       if (!length.isFinite || !rise.isFinite || length <= 0 || rise <= 0) {
-        _showError(context.tr(pl: 'Wpisz długość i wznios > 0', en: 'Enter length and rise > 0'));
+        _showError(context.tr(
+            pl: 'Wpisz długość i wznios > 0', en: 'Enter length and rise > 0'));
         return;
       }
       result = slopeFromLengthAndRise(lengthMm: length, riseMm: rise);
@@ -94,11 +156,11 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         return;
       }
 
-      _slopeController.text   = result.slopePct.toStringAsFixed(3);
+      _slopeController.text = result.slopePct.toStringAsFixed(3);
     }
 
-    _angleController.text   = result.angleDeg.toStringAsFixed(3);
-    _mmPerMController.text  = result.mmPerM.toStringAsFixed(1);
+    _angleController.text = result.angleDeg.toStringAsFixed(3);
+    _mmPerMController.text = result.mmPerM.toStringAsFixed(1);
     _lastCalculation = (result.lengthMm, result.slopePct, result.riseMm);
 
     setState(() {});
@@ -120,24 +182,28 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
     return CalculationGuide(
       hasResult: _lastCalculation != null,
       inputs: context.tr(
-        pl: 'Długość oznacza rzut poziomy odcinka, nie długość po skosie. Wznios to różnica wysokości końców. Wpisuj wymiary w mm; 1 m = 1000 mm.',
-        en: 'Length is the horizontal projection, not the sloping pipe length. Rise is the height difference between the ends. Enter dimensions in mm; 1 m = 1000 mm.'),
+          pl: 'Długość oznacza rzut poziomy odcinka, nie długość po skosie. Wznios to różnica wysokości końców. Wpisuj wymiary w mm; 1 m = 1000 mm.',
+          en: 'Length is the horizontal projection, not the sloping pipe length. Rise is the height difference between the ends. Enter dimensions in mm; 1 m = 1000 mm.'),
       steps: [
         if (_mode == 'length_to_rise')
-          context.tr(pl: 'Wznios = długość × nachylenie / 100\n$l × $s / 100 = ${rise.toStringAsFixed(1)} mm',
-            en: 'Rise = length × slope / 100\n$l × $s / 100 = ${rise.toStringAsFixed(1)} mm'),
+          context.tr(
+              pl: 'Wznios = długość × nachylenie / 100\n$l × $s / 100 = ${rise.toStringAsFixed(1)} mm',
+              en: 'Rise = length × slope / 100\n$l × $s / 100 = ${rise.toStringAsFixed(1)} mm'),
         if (_mode == 'rise_to_length')
-          context.tr(pl: 'Długość = wznios / (nachylenie / 100)\n$r / ($s / 100) = ${length.toStringAsFixed(1)} mm',
-            en: 'Length = rise / (slope / 100)\n$r / ($s / 100) = ${length.toStringAsFixed(1)} mm'),
+          context.tr(
+              pl: 'Długość = wznios / (nachylenie / 100)\n$r / ($s / 100) = ${length.toStringAsFixed(1)} mm',
+              en: 'Length = rise / (slope / 100)\n$r / ($s / 100) = ${length.toStringAsFixed(1)} mm'),
         if (_mode == 'slope_from_lr')
-          context.tr(pl: 'Nachylenie = wznios / długość × 100\n$r / $l × 100 = ${slope.toStringAsFixed(3)}%',
-            en: 'Slope = rise / length × 100\n$r / $l × 100 = ${slope.toStringAsFixed(3)}%'),
-        context.tr(pl: 'Na każdy metr poziomy: $s × 10 = ${(slope * 10).toStringAsFixed(1)} mm różnicy wysokości.',
-          en: 'For each horizontal metre: $s × 10 = ${(slope * 10).toStringAsFixed(1)} mm height difference.'),
+          context.tr(
+              pl: 'Nachylenie = wznios / długość × 100\n$r / $l × 100 = ${slope.toStringAsFixed(3)}%',
+              en: 'Slope = rise / length × 100\n$r / $l × 100 = ${slope.toStringAsFixed(3)}%'),
+        context.tr(
+            pl: 'Na każdy metr poziomy: $s × 10 = ${(slope * 10).toStringAsFixed(1)} mm różnicy wysokości.',
+            en: 'For each horizontal metre: $s × 10 = ${(slope * 10).toStringAsFixed(1)} mm height difference.'),
       ],
       caution: context.tr(
-        pl: '1% nie oznacza 1°. Wymagany spadek i kierunek ustala dokumentacja projektu. Przyciski procentów to skróty wpisywania, nie zalecenia projektowe.',
-        en: '1% does not mean 1°. The project documentation determines the required slope and direction. Percentage presets are input shortcuts, not design recommendations.'),
+          pl: '1% nie oznacza 1°. Wymagany spadek i kierunek ustala dokumentacja projektu. Przyciski procentów to skróty wpisywania, nie zalecenia projektowe.',
+          en: '1% does not mean 1°. The project documentation determines the required slope and direction. Percentage presets are input shortcuts, not design recommendations.'),
     );
   }
 
@@ -183,8 +249,11 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   @override
   void dispose() {
     for (final c in [
-      _lengthController, _slopeController, _riseController,
-      _angleController, _mmPerMController,
+      _lengthController,
+      _slopeController,
+      _riseController,
+      _angleController,
+      _mmPerMController,
     ]) {
       c.dispose();
     }
@@ -203,7 +272,8 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionLabel(context.tr(pl: 'TRYB OBLICZEŃ', en: 'CALCULATION MODE')),
+            _sectionLabel(
+                context.tr(pl: 'TRYB OBLICZEŃ', en: 'CALCULATION MODE')),
             const SizedBox(height: 8),
             _modeSelector(),
             const SizedBox(height: 20),
@@ -216,7 +286,9 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                 _lengthController,
                 label: context.tr(pl: 'Długość rury', en: 'Pipe length'),
                 suffix: 'mm',
-                helperText: context.tr(pl: 'Rzut poziomy; 1 m = 1000 mm', en: 'Horizontal projection; 1 m = 1000 mm'),
+                helperText: context.tr(
+                    pl: 'Rzut poziomy; 1 m = 1000 mm',
+                    en: 'Horizontal projection; 1 m = 1000 mm'),
               ),
               const SizedBox(height: 12),
             ],
@@ -269,7 +341,8 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                 onPressed: _calculate,
                 icon: const Icon(Icons.calculate),
                 label: Text(context.tr(pl: 'OBLICZ', en: 'CALCULATE')),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16)),
               ),
             ),
             const SizedBox(height: 24),
@@ -279,23 +352,29 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
 
             if (_mode == 'length_to_rise')
               _result(_riseController,
-                label: context.tr(pl: 'Wznios (Rise)', en: 'Rise'), suffix: 'mm'),
+                  label: context.tr(pl: 'Wznios (Rise)', en: 'Rise'),
+                  suffix: 'mm'),
 
             if (_mode == 'rise_to_length') ...[
               _result(_lengthController,
-                label: context.tr(pl: 'Długość rury', en: 'Pipe length'), suffix: 'mm'),
+                  label: context.tr(pl: 'Długość rury', en: 'Pipe length'),
+                  suffix: 'mm'),
             ],
 
             if (_mode == 'slope_from_lr')
               _result(_slopeController,
-                label: context.tr(pl: 'Nachylenie', en: 'Slope'), suffix: '%'),
+                  label: context.tr(pl: 'Nachylenie', en: 'Slope'),
+                  suffix: '%'),
 
             const SizedBox(height: 12),
             _result(_angleController,
-              label: context.tr(pl: 'Kąt nachylenia', en: 'Slope angle'), suffix: '°'),
+                label: context.tr(pl: 'Kąt nachylenia', en: 'Slope angle'),
+                suffix: '°'),
             const SizedBox(height: 12),
             _result(_mmPerMController,
-              label: context.tr(pl: 'mm na metr bieżący', en: 'mm per running metre'), suffix: 'mm/m'),
+                label: context.tr(
+                    pl: 'mm na metr bieżący', en: 'mm per running metre'),
+                suffix: 'mm/m'),
 
             const SizedBox(height: 16),
             _guide(),
@@ -317,8 +396,10 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
                   icon: const Icon(Icons.info_outline, size: 18),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                  tooltip: context.tr(pl: 'Źródło wzorów', en: 'Formula source'),
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  tooltip:
+                      context.tr(pl: 'Źródło wzorów', en: 'Formula source'),
                   onPressed: _showFormulaInfo,
                 ),
               ],
@@ -332,9 +413,15 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   Widget _modeSelector() {
     final cs = Theme.of(context).colorScheme;
     final modes = [
-      ('length_to_rise', context.tr(pl: 'Długość → Wznios', en: 'Length → Rise')),
-      ('rise_to_length', context.tr(pl: 'Wznios → Długość', en: 'Rise → Length')),
-      ('slope_from_lr',  context.tr(pl: 'Wyznacz %', en: 'Find slope %')),
+      (
+        'length_to_rise',
+        context.tr(pl: 'Długość → Wznios', en: 'Length → Rise')
+      ),
+      (
+        'rise_to_length',
+        context.tr(pl: 'Wznios → Długość', en: 'Rise → Length')
+      ),
+      ('slope_from_lr', context.tr(pl: 'Wyznacz %', en: 'Find slope %')),
     ];
     return Column(
       children: modes.map((m) {
@@ -359,7 +446,9 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
               margin: const EdgeInsets.only(bottom: 6),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: selected ? cs.primaryContainer.withValues(alpha: 0.4) : null,
+                color: selected
+                    ? cs.primaryContainer.withValues(alpha: 0.4)
+                    : null,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: selected ? cs.primary : cs.outlineVariant,
@@ -368,13 +457,18 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
               child: Row(children: [
                 ExcludeSemantics(
                   child: Icon(
-                    selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
                     color: selected ? cs.primary : cs.onSurfaceVariant,
                     size: 20,
                   ),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: Text(m.$2, style: TextStyle(color: selected ? cs.onPrimaryContainer : null))),
+                Expanded(
+                    child: Text(m.$2,
+                        style: TextStyle(
+                            color: selected ? cs.onPrimaryContainer : null))),
               ]),
             ),
           ),
@@ -384,9 +478,9 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   }
 
   Widget _sectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-  );
+        text,
+        style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+      );
 
   /// Drainage-slope presets. In food & pharma the line must self-drain, so the
   /// slope is a spec requirement — these are the values that actually appear
@@ -439,7 +533,10 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen> {
   }
 
   Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix, bool readOnly = false, String? helperText}) {
+      {required String label,
+      String? suffix,
+      bool readOnly = false,
+      String? helperText}) {
     return TextField(
       controller: ctrl,
       readOnly: readOnly,

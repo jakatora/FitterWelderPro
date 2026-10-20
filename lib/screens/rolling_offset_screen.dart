@@ -8,6 +8,7 @@ import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
+import '../assistant/core/tool_bridge.dart';
 
 // The geometry lives in lib/domain/fitter/rolling_offset.dart. These two
 // helpers used to be defined here; re-exported so existing imports of this
@@ -22,22 +23,69 @@ class RollingOffsetScreen extends StatefulWidget {
   State<RollingOffsetScreen> createState() => _RollingOffsetScreenState();
 }
 
-class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
-  final _riseController   = TextEditingController();
+class _RollingOffsetScreenState extends State<RollingOffsetScreen>
+    with ToolHandleHost<RollingOffsetScreen> {
+  @override
+  String get toolId => 'rolling_offset';
+  @override
+  Set<String> get supportedFields =>
+      const {'rise_mm', 'spread_mm', 'angle_deg'};
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final rise = fields['rise_mm'];
+    final spread = fields['spread_mm'];
+    final angle = fields['angle_deg'];
+    if (rise is! num || !rise.isFinite || rise <= 0) return {'rise_mm'};
+    if (spread is! num || !spread.isFinite || spread <= 0) return {'spread_mm'};
+    if (angle is! num || !rollingOffsetAngleValid(angle.toDouble())) {
+      return {'angle_deg'};
+    }
+    if (!mounted ||
+        rollingOffset(
+                riseMm: rise.toDouble(),
+                spreadMm: spread.toDouble(),
+                angleDeg: angle.toDouble()) ==
+            null) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _riseController.text = rise.toString();
+      _spreadController.text = spread.toString();
+      _selectedAngle = 'custom';
+      _customAngleController.text = angle.toString();
+      // A new geometric answer must not reuse a different pipe's DN/gap
+      // and silently present a stale cut length.
+      _dn = null;
+      _gapController.clear();
+    });
+    _calculate();
+    return {};
+  }
+
+  final _riseController = TextEditingController();
   final _spreadController = TextEditingController();
 
   final _trueOffsetController = TextEditingController();
-  final _travelController     = TextEditingController();
-  final _runController        = TextEditingController();
+  final _travelController = TextEditingController();
+  final _runController = TextEditingController();
   final _multiplierController = TextEditingController();
-  final _rollVController      = TextEditingController();
-  final _rollHController      = TextEditingController();
+  final _rollVController = TextEditingController();
+  final _rollHController = TextEditingController();
 
   // Optional cut length: B16.9 LR elbow size + weld gap.
   int? _dn;
-  final _gapController        = TextEditingController();
-  final _takeoutController    = TextEditingController();
-  final _cutController        = TextEditingController();
+  final _gapController = TextEditingController();
+  final _takeoutController = TextEditingController();
+  final _cutController = TextEditingController();
   String? _takeoutSource;
   bool _cutNegative = false;
 
@@ -66,22 +114,25 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
   Widget _guide() {
     final (rise, spread, angle) = _lastCalculation ?? (300.0, 400.0, 45.0);
-    final offset = _lastCalculation == null ? '500.0' : _trueOffsetController.text;
+    final offset =
+        _lastCalculation == null ? '500.0' : _trueOffsetController.text;
     final travel = _lastCalculation == null ? '707.1' : _travelController.text;
     return CalculationGuide(
       hasResult: _lastCalculation != null,
       inputs: context.tr(
-        pl: 'Rise to przesunięcie pionowe osi rur. Spread to przesunięcie boczne osi, mierzone prostopadle do Rise. Wpisz oba wymiary w mm i wybierz kąt kolan.',
-        en: 'Rise is the vertical offset of the pipe centrelines. Spread is the lateral offset, measured perpendicular to Rise. Enter both in mm and select the elbow angle.'),
+          pl: 'Rise to przesunięcie pionowe osi rur. Spread to przesunięcie boczne osi, mierzone prostopadle do Rise. Wpisz oba wymiary w mm i wybierz kąt kolan.',
+          en: 'Rise is the vertical offset of the pipe centrelines. Spread is the lateral offset, measured perpendicular to Rise. Enter both in mm and select the elbow angle.'),
       steps: [
-        context.tr(pl: 'Rzeczywiste odsunięcie osi:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm',
-          en: 'True offset of the centrelines:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm'),
-        context.tr(pl: 'Odległość między punktami przecięcia osi kolan:\n$offset / sin(${guideNumber(angle)}°) = $travel mm',
-          en: 'Distance between the elbow centreline intersection points:\n$offset / sin(${guideNumber(angle)}°) = $travel mm'),
+        context.tr(
+            pl: 'Rzeczywiste odsunięcie osi:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm',
+            en: 'True offset of the centrelines:\n√(${guideNumber(rise)}² + ${guideNumber(spread)}²) = $offset mm'),
+        context.tr(
+            pl: 'Odległość między punktami przecięcia osi kolan:\n$offset / sin(${guideNumber(angle)}°) = $travel mm',
+            en: 'Distance between the elbow centreline intersection points:\n$offset / sin(${guideNumber(angle)}°) = $travel mm'),
       ],
       caution: context.tr(
-        pl: 'Travel nie jest długością cięcia ani długością kolana. Przed cięciem uwzględnij zabudowy obu kształtek, sposób wymiarowania i szczeliny z dokumentacji projektu. Obliczenia używają pełnej precyzji; prezentowane liczby są zaokrąglone.',
-        en: 'Travel is not a cut length or an elbow length. Before cutting, account for both fitting take-outs, dimension references and gaps from the project documentation. Calculations use full precision; displayed numbers are rounded.'),
+          pl: 'Travel nie jest długością cięcia ani długością kolana. Przed cięciem uwzględnij zabudowy obu kształtek, sposób wymiarowania i szczeliny z dokumentacji projektu. Obliczenia używają pełnej precyzji; prezentowane liczby są zaokrąglone.',
+          en: 'Travel is not a cut length or an elbow length. Before cutting, account for both fitting take-outs, dimension references and gaps from the project documentation. Calculations use full precision; displayed numbers are rounded.'),
     );
   }
 
@@ -126,7 +177,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
     // user fixes the validation error.
     setState(_clearComputed);
 
-    final rise   = _parse(_riseController.text);
+    final rise = _parse(_riseController.text);
     final spread = _parse(_spreadController.text);
     final angleDeg = _selectedAngle == 'custom'
         ? _parse(_customAngleController.text)
@@ -136,10 +187,13 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+            const Icon(Icons.warning_amber_rounded,
+                color: Colors.orangeAccent, size: 20),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(context.tr(pl: 'Wpisz Rise i Spread > 0', en: 'Enter Rise and Spread > 0')),
+              child: Text(context.tr(
+                  pl: 'Wpisz Rise i Spread > 0',
+                  en: 'Enter Rise and Spread > 0')),
             ),
           ],
         ),
@@ -166,8 +220,8 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
     // Inputs passed both checks above, so null here means a result that
     // is not finite.
-    final result = rollingOffset(
-        riseMm: rise, spreadMm: spread, angleDeg: angleDeg);
+    final result =
+        rollingOffset(riseMm: rise, spreadMm: spread, angleDeg: angleDeg);
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
@@ -180,10 +234,10 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
 
     _trueOffsetController.text = result.trueOffsetMm.toStringAsFixed(1);
     _multiplierController.text = result.multiplier.toStringAsFixed(4);
-    _travelController.text     = result.travelMm.toStringAsFixed(1);
-    _runController.text        = result.runMm.toStringAsFixed(1);
-    _rollVController.text      = result.rollFromVerticalDeg.toStringAsFixed(1);
-    _rollHController.text      = result.rollFromHorizontalDeg.toStringAsFixed(1);
+    _travelController.text = result.travelMm.toStringAsFixed(1);
+    _runController.text = result.runMm.toStringAsFixed(1);
+    _rollVController.text = result.rollFromVerticalDeg.toStringAsFixed(1);
+    _rollHController.text = result.rollFromHorizontalDeg.toStringAsFixed(1);
 
     // Optional: cut length from the ASME B16.9 LR elbow take-out.
     final dn = _dn;
@@ -196,7 +250,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       if (cut != null) {
         final t = cut.takeout;
         _takeoutController.text = t.mm.toStringAsFixed(1);
-        _cutController.text     = cut.cutMm.toStringAsFixed(1);
+        _cutController.text = cut.cutMm.toStringAsFixed(1);
         _cutNegative = cut.elbowsOverlap;
         final half = (angleDeg / 2).toStringAsFixed(angleDeg % 2 == 0 ? 0 : 1);
         _takeoutSource = switch (t.basis) {
@@ -253,9 +307,17 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   @override
   void dispose() {
     for (final c in [
-      _riseController, _spreadController, _customAngleController,
-      _trueOffsetController, _travelController, _runController, _multiplierController,
-      _rollVController, _rollHController, _gapController, _takeoutController,
+      _riseController,
+      _spreadController,
+      _customAngleController,
+      _trueOffsetController,
+      _travelController,
+      _runController,
+      _multiplierController,
+      _rollVController,
+      _rollHController,
+      _gapController,
+      _takeoutController,
       _cutController,
     ]) {
       c.dispose();
@@ -275,225 +337,243 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
         if (discard && mounted) nav.pop();
       },
       child: Scaffold(
-      appBar: AppBar(
-        title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
-        actions: [
-          // P1-04: explicit reset of every controller + chip state. 48 dp
-          // tap target via default IconButton constraints.
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
-            onPressed: _resetAll,
-          ),
-          HelpButton(help: kHelpRollingOffset),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _sectionLabel(context.tr(pl: 'KĄT KOLAN', en: 'ELBOW ANGLE')),
-            const SizedBox(height: 8),
-            Row(children: [
-              _angleBtn(cs, '45', '45°'),
-              const SizedBox(width: 8),
-              _angleBtn(cs, '60', '60°'),
-              const SizedBox(width: 8),
-              _angleBtn(cs, '30', '30°'),
-              const SizedBox(width: 8),
-              _angleBtn(cs, 'custom', context.tr(pl: 'Inny', en: 'Custom')),
-            ]),
-            if (_selectedAngle == 'custom') ...[
-              const SizedBox(height: 12),
-              _field(_customAngleController,
-                label: context.tr(pl: 'Kąt kolana (°)', en: 'Elbow angle (°)'), suffix: '°'),
-            ],
-            const SizedBox(height: 20),
-
-            _sectionLabel(context.tr(pl: 'DANE WEJŚCIOWE', en: 'INPUT DATA')),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: _field(_riseController,
-                label: context.tr(pl: 'Rise (odchylenie pionowe)', en: 'Rise (vertical offset)'),
-                suffix: 'mm')),
-              const SizedBox(width: 12),
-              Expanded(child: _field(_spreadController,
-                label: context.tr(pl: 'Spread (odchylenie boczne)', en: 'Spread (lateral offset)'),
-                suffix: 'mm',
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _calculate())),
-            ]),
-            const SizedBox(height: 16),
-
-            _sectionLabel(context.tr(
-                pl: 'DŁUGOŚĆ CIĘCIA (OPCJONALNIE)',
-                en: 'CUT LENGTH (OPTIONAL)')),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: _dn,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: context.tr(
-                    pl: 'Kolana ASME B16.9 LR — DN',
-                    en: 'ASME B16.9 LR elbows — DN'),
-                border: const OutlineInputBorder(),
-              ),
-              items: [
-                DropdownMenuItem<int>(
-                  value: null,
-                  child: Text(
-                    context.tr(pl: '— bez kolan (tylko Travel)', en: '— no elbows (Travel only)'),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                for (final e in kElbowTakeouts)
-                  DropdownMenuItem<int>(
-                    value: e.dn,
-                    child: Text('DN${e.dn} (${e.nps}")',
-                        overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              onChanged: (v) => setState(() {
-                _clearComputed();
-                _dn = v;
-              }),
+        appBar: AppBar(
+          title: Text(context.tr(pl: 'Rolling Offset', en: 'Rolling Offset')),
+          actions: [
+            // P1-04: explicit reset of every controller + chip state. 48 dp
+            // tap target via default IconButton constraints.
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: context.tr(pl: 'Wyczyść', en: 'Clear'),
+              onPressed: _resetAll,
             ),
-            const SizedBox(height: 12),
-            _field(_gapController,
-              label: context.tr(pl: 'Szczelina spoiny (mm)', en: 'Weld root gap (mm)'),
-              suffix: 'mm',
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _calculate()),
-            const SizedBox(height: 24),
-
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _calculate,
-                icon: const Icon(Icons.calculate),
-                label: Text(context.tr(pl: 'OBLICZ', en: 'CALCULATE')),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            _sectionLabel(context.tr(pl: 'WYNIKI', en: 'RESULTS')),
-            const SizedBox(height: 12),
-            // P1-12: yellow banner when multiplier > 10 → very shallow kąt,
-            // tiny sin(θ) blows Travel up; fitter should re-check angle.
-            if (_showMultiplierWarning) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.15),
-                  border: Border.all(color: Colors.amber),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        color: Colors.amber, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        context.tr(
-                          pl: 'Multiplier > 10 — sprawdź kąt; bardzo płaskie kolano daje ogromny Travel.',
-                          en: 'Multiplier > 10 — check angle; a very shallow elbow yields a huge Travel.',
-                        ),
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            _result(_trueOffsetController,
-              label: context.tr(pl: 'True Offset = √(Rise²+Spread²)', en: 'True Offset = √(Rise²+Spread²)')),
-            const SizedBox(height: 12),
-            _result(_multiplierController,
-              label: context.tr(pl: 'Multiplier = 1/sin(θ)', en: 'Multiplier = 1/sin(θ)'),
-              suffix: '×'),
-            const SizedBox(height: 12),
-            _result(_travelController,
-              label: context.tr(
-                pl: 'Travel = True Offset × Multiplier',
-                en: 'Travel = True Offset × Multiplier',
-              )),
-            const SizedBox(height: 12),
-            _result(_runController,
-              label: context.tr(
-                pl: 'Run = True Offset / tan(θ)',
-                en: 'Run = True Offset / tan(θ)',
-              )),
-            const SizedBox(height: 12),
-            _result(_rollVController,
-              label: context.tr(
-                pl: 'Obrót kolana od pionu = atan(Spread / Rise)',
-                en: 'Elbow roll from vertical = atan(Spread / Rise)',
-              ),
-              suffix: '°'),
-            const SizedBox(height: 12),
-            _result(_rollHController,
-              label: context.tr(
-                pl: 'Obrót od poziomu = atan(Rise / Spread)',
-                en: 'Roll from horizontal = atan(Rise / Spread)',
-              ),
-              suffix: '°'),
-            if (_dn != null) ...[
-              const SizedBox(height: 12),
-              _result(_takeoutController,
-                label: context.tr(pl: 'Take-out kolana T', en: 'Elbow take-out T')),
-              if (_takeoutSource != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, left: 4),
-                  child: Text(
-                    _takeoutSource!,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              const SizedBox(height: 12),
-              _result(_cutController,
-                label: context.tr(
-                  pl: 'Długość cięcia = Travel − 2×T − 2×szczelina',
-                  en: 'Cut length = Travel − 2×T − 2×gap',
-                )),
-              if (_cutNegative)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    context.tr(
-                      pl: 'Kolana nachodzą na siebie — odsadzka za mała dla tego DN i kąta.',
-                      en: 'The elbows overlap — the offset is too small for this DN and angle.',
-                    ),
-                    style: const TextStyle(color: Colors.orange, fontSize: 13),
-                  ),
-                ),
-            ],
-            const SizedBox(height: 16),
-
-            Text(
-              context.tr(
-                pl: 'Travel to wymiar osiowy między kolanami, nie długość cięcia. Run to rzut wzdłuż kierunku początkowej rury.',
-                en: 'Travel is the centreline dimension between elbows, not a cut length. Run is the projection along the original pipe direction.',
-              ),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            _guide(),
+            HelpButton(help: kHelpRollingOffset),
           ],
         ),
-      ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionLabel(context.tr(pl: 'KĄT KOLAN', en: 'ELBOW ANGLE')),
+              const SizedBox(height: 8),
+              Row(children: [
+                _angleBtn(cs, '45', '45°'),
+                const SizedBox(width: 8),
+                _angleBtn(cs, '60', '60°'),
+                const SizedBox(width: 8),
+                _angleBtn(cs, '30', '30°'),
+                const SizedBox(width: 8),
+                _angleBtn(cs, 'custom', context.tr(pl: 'Inny', en: 'Custom')),
+              ]),
+              if (_selectedAngle == 'custom') ...[
+                const SizedBox(height: 12),
+                _field(_customAngleController,
+                    label:
+                        context.tr(pl: 'Kąt kolana (°)', en: 'Elbow angle (°)'),
+                    suffix: '°'),
+              ],
+              const SizedBox(height: 20),
+
+              _sectionLabel(context.tr(pl: 'DANE WEJŚCIOWE', en: 'INPUT DATA')),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                    child: _field(_riseController,
+                        label: context.tr(
+                            pl: 'Rise (odchylenie pionowe)',
+                            en: 'Rise (vertical offset)'),
+                        suffix: 'mm')),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: _field(_spreadController,
+                        label: context.tr(
+                            pl: 'Spread (odchylenie boczne)',
+                            en: 'Spread (lateral offset)'),
+                        suffix: 'mm',
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _calculate())),
+              ]),
+              const SizedBox(height: 16),
+
+              _sectionLabel(context.tr(
+                  pl: 'DŁUGOŚĆ CIĘCIA (OPCJONALNIE)',
+                  en: 'CUT LENGTH (OPTIONAL)')),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int>(
+                initialValue: _dn,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: context.tr(
+                      pl: 'Kolana ASME B16.9 LR — DN',
+                      en: 'ASME B16.9 LR elbows — DN'),
+                  border: const OutlineInputBorder(),
+                ),
+                items: [
+                  DropdownMenuItem<int>(
+                    value: null,
+                    child: Text(
+                      context.tr(
+                          pl: '— bez kolan (tylko Travel)',
+                          en: '— no elbows (Travel only)'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  for (final e in kElbowTakeouts)
+                    DropdownMenuItem<int>(
+                      value: e.dn,
+                      child: Text('DN${e.dn} (${e.nps}")',
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (v) => setState(() {
+                  _clearComputed();
+                  _dn = v;
+                }),
+              ),
+              const SizedBox(height: 12),
+              _field(_gapController,
+                  label: context.tr(
+                      pl: 'Szczelina spoiny (mm)', en: 'Weld root gap (mm)'),
+                  suffix: 'mm',
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _calculate()),
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _calculate,
+                  icon: const Icon(Icons.calculate),
+                  label: Text(context.tr(pl: 'OBLICZ', en: 'CALCULATE')),
+                  style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16)),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              _sectionLabel(context.tr(pl: 'WYNIKI', en: 'RESULTS')),
+              const SizedBox(height: 12),
+              // P1-12: yellow banner when multiplier > 10 → very shallow kąt,
+              // tiny sin(θ) blows Travel up; fitter should re-check angle.
+              if (_showMultiplierWarning) ...[
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    border: Border.all(color: Colors.amber),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          color: Colors.amber, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          context.tr(
+                            pl: 'Multiplier > 10 — sprawdź kąt; bardzo płaskie kolano daje ogromny Travel.',
+                            en: 'Multiplier > 10 — check angle; a very shallow elbow yields a huge Travel.',
+                          ),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              _result(_trueOffsetController,
+                  label: context.tr(
+                      pl: 'True Offset = √(Rise²+Spread²)',
+                      en: 'True Offset = √(Rise²+Spread²)')),
+              const SizedBox(height: 12),
+              _result(_multiplierController,
+                  label: context.tr(
+                      pl: 'Multiplier = 1/sin(θ)', en: 'Multiplier = 1/sin(θ)'),
+                  suffix: '×'),
+              const SizedBox(height: 12),
+              _result(_travelController,
+                  label: context.tr(
+                    pl: 'Travel = True Offset × Multiplier',
+                    en: 'Travel = True Offset × Multiplier',
+                  )),
+              const SizedBox(height: 12),
+              _result(_runController,
+                  label: context.tr(
+                    pl: 'Run = True Offset / tan(θ)',
+                    en: 'Run = True Offset / tan(θ)',
+                  )),
+              const SizedBox(height: 12),
+              _result(_rollVController,
+                  label: context.tr(
+                    pl: 'Obrót kolana od pionu = atan(Spread / Rise)',
+                    en: 'Elbow roll from vertical = atan(Spread / Rise)',
+                  ),
+                  suffix: '°'),
+              const SizedBox(height: 12),
+              _result(_rollHController,
+                  label: context.tr(
+                    pl: 'Obrót od poziomu = atan(Rise / Spread)',
+                    en: 'Roll from horizontal = atan(Rise / Spread)',
+                  ),
+                  suffix: '°'),
+              if (_dn != null) ...[
+                const SizedBox(height: 12),
+                _result(_takeoutController,
+                    label: context.tr(
+                        pl: 'Take-out kolana T', en: 'Elbow take-out T')),
+                if (_takeoutSource != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 4),
+                    child: Text(
+                      _takeoutSource!,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                _result(_cutController,
+                    label: context.tr(
+                      pl: 'Długość cięcia = Travel − 2×T − 2×szczelina',
+                      en: 'Cut length = Travel − 2×T − 2×gap',
+                    )),
+                if (_cutNegative)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      context.tr(
+                        pl: 'Kolana nachodzą na siebie — odsadzka za mała dla tego DN i kąta.',
+                        en: 'The elbows overlap — the offset is too small for this DN and angle.',
+                      ),
+                      style:
+                          const TextStyle(color: Colors.orange, fontSize: 13),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 16),
+
+              Text(
+                context.tr(
+                  pl: 'Travel to wymiar osiowy między kolanami, nie długość cięcia. Run to rzut wzdłuż kierunku początkowej rury.',
+                  en: 'Travel is the centreline dimension between elbows, not a cut length. Run is the projection along the original pipe direction.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              _guide(),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _sectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-  );
+        text,
+        style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+      );
 
   Widget _angleBtn(ColorScheme cs, String value, String label) {
     final selected = _selectedAngle == value;
@@ -535,7 +615,8 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
   }
 
   Widget _field(TextEditingController ctrl,
-      {required String label, String? suffix,
+      {required String label,
+      String? suffix,
       TextInputAction textInputAction = TextInputAction.next,
       ValueChanged<String>? onSubmitted}) {
     return TextField(
@@ -547,8 +628,7 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen> {
       keyboardType: numberKeyboard(),
       inputFormatters: numberInputFormatters(),
       textInputAction: textInputAction,
-      onSubmitted: onSubmitted ??
-          (_) => FocusScope.of(context).nextFocus(),
+      onSubmitted: onSubmitted ?? (_) => FocusScope.of(context).nextFocus(),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,

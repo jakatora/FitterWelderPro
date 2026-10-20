@@ -37,7 +37,7 @@ void main() {
     });
     test('w module poziomu A: uczciwie, że liczenie głosem jeszcze nie działa',
         () async {
-      final r = await BrainHarness(activeToolId: 'rolling_offset', onHome: false)
+      final r = await BrainHarness(activeToolId: 'bolt_torque', onHome: false)
           .say('co mogę tu zrobić');
       expect(textOf(r.result), contains('jeszcze nie'));
     });
@@ -56,7 +56,8 @@ void main() {
       expect((r.result as AnswerResult).show!.toolId, 'heat_input');
     });
     test('EN: open the DN table', () async {
-      final r = await BrainHarness(lang: AppLanguage.en).say('open the DN table');
+      final r =
+          await BrainHarness(lang: AppLanguage.en).say('open the DN table');
       expect((r.result as AnswerResult).show!.toolId, 'dn_mm');
     });
     test('„gdzie jest dziennik spoin" też otwiera', () async {
