@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/bolting/bolt_torque.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/flange_catalog.dart';
 import '../utils/clipboard_helper.dart';
@@ -53,7 +54,58 @@ class BoltTorqueScreen extends StatefulWidget {
   State<BoltTorqueScreen> createState() => _BoltTorqueScreenState();
 }
 
-class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
+class _BoltTorqueScreenState extends State<BoltTorqueScreen>
+    with ToolHandleHost<BoltTorqueScreen> {
+  @override
+  String get toolId => 'bolt_torque';
+  @override
+  Set<String> get supportedFields => const {
+        'bolt_size',
+        'grade',
+        'lube',
+        'preload_fraction',
+        'flange_dn',
+        'flange_class'
+      };
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    final size = fields['bolt_size'] is String
+        ? flangeBoltSize(fields['bolt_size'] as String)
+        : null;
+    final grade = fields['grade'],
+        lube = fields['lube'],
+        frac = fields['preload_fraction'];
+    if (size == null) rejected.add('bolt_size');
+    if (!kBoltGradeSmysMpa.containsKey(grade)) rejected.add('grade');
+    if (!kBoltNutFactors.containsKey(lube)) rejected.add('lube');
+    if (frac is! num || !frac.isFinite || frac < .30 || frac > .75) {
+      rejected.add('preload_fraction');
+    }
+    final dn = fields['flange_dn'], cls = fields['flange_class'];
+    final preset =
+        dn is int && cls is int ? FlangeCatalog.lookup(dn, cls) : null;
+    if ((fields.containsKey('flange_dn') ||
+            fields.containsKey('flange_class')) &&
+        (preset == null || preset.boltSize != size?.label)) {
+      rejected.addAll({'flange_dn', 'flange_class'});
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      _boltSize = size!.label;
+      _grade = grade as String;
+      _lube = lube as String;
+      _preloadFraction = (frac as num).toDouble();
+      _flangeDn = preset == null ? null : dn as int;
+      _flangeClass = preset == null ? null : cls as int;
+      _flangeBoltCount = preset?.boltCount;
+    });
+    _recalculate(persist: false);
+    return {};
+  }
+
   // ─── Input state ────────────────────────────────────────────────────────
   String _boltSize = '5/8'; // Inch nominal
   String _grade = 'B7';
@@ -67,7 +119,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
   int? _flangeClass;
   int? _flangeBoltCount;
 
-  void _applyFlangePreset(int dn, int cls) {
+  void _applyFlangePreset(int dn, int cls, {bool persist = true}) {
     final b = FlangeCatalog.lookup(dn, cls);
     if (b == null) {
       // DN/Class combo missing from the APP's catalogue (the catalogue covers
@@ -102,7 +154,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
       _flangeBoltCount = b.boltCount;
       _boltSize = b.boltSize;
     });
-    _recalculate();
+    _recalculate(persist: persist);
   }
 
   void _clearFlangePreset() {
@@ -125,30 +177,11 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
   // Bolt sizes, threads per inch (UNC ≤ 1", 8UN > 1" per ASME B16.5) and the
   // tensile stress area come from lib/domain/bolting/bolt_torque.dart.
 
-  /// SMYS [MPa] for ASTM A193 bolt grades. Note: B7 SMYS drops for >2.5" dia,
-  /// but for the standard flange range here (≤2") it stays at 105 ksi = 724 MPa.
-  /// Source: ASTM A193/A193M Table 2.
-  static const Map<String, int> _smysMpa = {
-    'B7': 724,   // 105 ksi
-    'B7M': 552,  // 80 ksi  (lower hardness ≤22 HRC for sour service)
-    'B16': 724,  // 105 ksi (Cr-Mo, similar SMYS but better creep)
-    'B8M': 207,  // 30 ksi  (SS 316, much lower strength)
-  };
-
-  /// Nut factor K — lubricant-dependent.
-  static const Map<String, double> _kFactor = {
-    'dry': 0.20,
-    'oil': 0.18,
-    'cu_anti_seize': 0.16,
-    'ni_anti_seize': 0.13,
-    'moly_paste': 0.11,
-  };
-
   // ─── Calculation ─────────────────────────────────────────────────────────
-  void _recalculate() {
+  void _recalculate({bool persist = true}) {
     final size = flangeBoltSize(_boltSize);
-    final smys = _smysMpa[_grade];
-    final k = _kFactor[_lube];
+    final smys = kBoltGradeSmysMpa[_grade];
+    final k = kBoltNutFactors[_lube];
     if (size == null || smys == null || k == null) {
       setState(() {
         _torqueNm = null;
@@ -175,7 +208,7 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
       _stressAreaMm2 = r.stressAreaMm2;
       _threadDesignation = size.threadDesignation;
     });
-    _savePrefs();
+    if (persist) _savePrefs();
   }
 
   // Autosave so a fitter who backs out mid-pick doesn't lose their setup
@@ -197,15 +230,19 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
     final dn = prefs.getInt(_kPrefFlangeDn);
     final cls = prefs.getInt(_kPrefFlangeClass);
     setState(() {
-      if (boltSize != null && flangeBoltSize(boltSize) != null) _boltSize = boltSize;
-      if (grade != null && _smysMpa.containsKey(grade)) _grade = grade;
-      if (lube != null && _kFactor.containsKey(lube)) _lube = lube;
-      if (preload != null && preload >= 0.30 && preload <= 0.75) _preloadFraction = preload;
+      if (boltSize != null && flangeBoltSize(boltSize) != null) {
+        _boltSize = boltSize;
+      }
+      if (grade != null && kBoltGradeSmysMpa.containsKey(grade)) _grade = grade;
+      if (lube != null && kBoltNutFactors.containsKey(lube)) _lube = lube;
+      if (preload != null && preload >= 0.30 && preload <= 0.75) {
+        _preloadFraction = preload;
+      }
     });
     if (dn != null && cls != null) {
-      _applyFlangePreset(dn, cls);
+      _applyFlangePreset(dn, cls, persist: false);
     } else {
-      _recalculate();
+      _recalculate(persist: false);
     }
   }
 
@@ -227,8 +264,9 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
   @override
   void initState() {
     super.initState();
-    _recalculate();
-    _loadPrefs();
+    _loadPrefs().catchError((Object error) {
+      debugPrint('bolt torque preferences: $error');
+    }).whenComplete(markReady);
   }
 
   // ─── UI ─────────────────────────────────────────────────────────────────
@@ -245,7 +283,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
         padding: const EdgeInsets.all(12),
         children: [
           _SectionCard(
-            title: context.tr(pl: 'Preset kołnierza (B16.5)', en: 'Flange preset (B16.5)'),
+            title: context.tr(
+                pl: 'Preset kołnierza (B16.5)', en: 'Flange preset (B16.5)'),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -254,7 +293,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                     pl: 'Wybierz DN i klasę — śruba i ilość ustawią się same.',
                     en: 'Pick DN & class — bolt size and count fill in automatically.',
                   ),
-                  style: const TextStyle(fontSize: 11, color: _kTextMut, height: 1.4),
+                  style: const TextStyle(
+                      fontSize: 11, color: _kTextMut, height: 1.4),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -285,7 +325,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                 if (_flangeBoltCount != null) ...[
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: _kGold.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
@@ -339,10 +380,18 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                   value: _grade,
                   items: const ['B7', 'B7M', 'B16', 'B8M'],
                   subtitles: {
-                    'B7': context.tr(pl: 'Standard CS — ogólne zastosowanie', en: 'Standard CS — general purpose'),
-                    'B7M': context.tr(pl: 'Sour service / NACE (≤22 HRC)', en: 'Sour service / NACE (≤22 HRC)'),
-                    'B16': context.tr(pl: 'Cr-Mo — wysokie T (steam ≤540°C)', en: 'Cr-Mo — high T (steam ≤540°C)'),
-                    'B8M': context.tr(pl: 'SS 316 — korozja, niższa wytrzymałość', en: 'SS 316 — corrosion, lower strength'),
+                    'B7': context.tr(
+                        pl: 'Standard CS — ogólne zastosowanie',
+                        en: 'Standard CS — general purpose'),
+                    'B7M': context.tr(
+                        pl: 'Sour service / NACE (≤22 HRC)',
+                        en: 'Sour service / NACE (≤22 HRC)'),
+                    'B16': context.tr(
+                        pl: 'Cr-Mo — wysokie T (steam ≤540°C)',
+                        en: 'Cr-Mo — high T (steam ≤540°C)'),
+                    'B8M': context.tr(
+                        pl: 'SS 316 — korozja, niższa wytrzymałość',
+                        en: 'SS 316 — corrosion, lower strength'),
                   },
                   onChanged: (v) {
                     setState(() => _grade = v);
@@ -355,15 +404,23 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
           const SizedBox(height: 12),
 
           _SectionCard(
-            title: context.tr(pl: 'Smarowanie i preload', en: 'Lubrication & preload'),
+            title: context.tr(
+                pl: 'Smarowanie i preload', en: 'Lubrication & preload'),
             child: Column(
               children: [
                 _DropdownRow(
-                  label: context.tr(pl: 'Smar (K-factor)', en: 'Lube (K-factor)'),
+                  label:
+                      context.tr(pl: 'Smar (K-factor)', en: 'Lube (K-factor)'),
                   value: _lube,
-                  items: const ['dry', 'oil', 'cu_anti_seize', 'ni_anti_seize', 'moly_paste'],
+                  items: const [
+                    'dry',
+                    'oil',
+                    'cu_anti_seize',
+                    'ni_anti_seize',
+                    'moly_paste'
+                  ],
                   labelOf: (v) {
-                    final k = _kFactor[v]!;
+                    final k = kBoltNutFactors[v]!;
                     return '${_lubeName(v, context)}  •  K=${k.toStringAsFixed(2)}';
                   },
                   onChanged: (v) {
@@ -412,7 +469,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                     en: 'The target bolt stress is chosen from the flange, gasket and bolt limits '
                         '(ASME PCC-1, Appendix O) or the joint procedure — the slider is only a calculation input.',
                   ),
-                  style: const TextStyle(color: _kTextMut, fontSize: 11, height: 1.4),
+                  style: const TextStyle(
+                      color: _kTextMut, fontSize: 11, height: 1.4),
                 ),
               ],
             ),
@@ -426,12 +484,16 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [_kAccent.withValues(alpha: 0.20), _kAccent.withValues(alpha: 0.05)],
+                  colors: [
+                    _kAccent.withValues(alpha: 0.20),
+                    _kAccent.withValues(alpha: 0.05)
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _kAccent.withValues(alpha: 0.4), width: 1.5),
+                border: Border.all(
+                    color: _kAccent.withValues(alpha: 0.4), width: 1.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,7 +503,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                       Icon(Icons.bolt_outlined, color: _kAccent, size: 22),
                       const SizedBox(width: 8),
                       Text(
-                        context.tr(pl: 'Moment dokręcania', en: 'Tightening torque'),
+                        context.tr(
+                            pl: 'Moment dokręcania', en: 'Tightening torque'),
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -512,7 +575,10 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                         pl: '$_flangeBoltCount śrub × ${_torqueNm!.toStringAsFixed(0)} N·m, rundy wg ASME PCC-1',
                         en: '$_flangeBoltCount bolts × ${_torqueNm!.toStringAsFixed(0)} N·m, rounds per ASME PCC-1',
                       ),
-                      style: const TextStyle(color: _kTextMut, fontSize: 11, fontStyle: FontStyle.italic),
+                      style: const TextStyle(
+                          color: _kTextMut,
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic),
                     ),
                   ],
                   const SizedBox(height: 10),
@@ -541,7 +607,8 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                           label: Text(context.tr(pl: 'Kopiuj', en: 'Copy')),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: _kAccent,
-                            side: BorderSide(color: _kAccent.withValues(alpha: 0.5)),
+                            side: BorderSide(
+                                color: _kAccent.withValues(alpha: 0.5)),
                           ),
                         ),
                       ),
@@ -552,9 +619,10 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () {
-                            final flangeLine = (_flangeDn != null && _flangeClass != null)
+                            final flangeLine = (_flangeDn != null &&
+                                    _flangeClass != null)
                                 ? 'DN$_flangeDn #$_flangeClass'
-                                  '${_flangeBoltCount != null ? ' (${_flangeBoltCount}x)' : ''}\n'
+                                    '${_flangeBoltCount != null ? ' (${_flangeBoltCount}x)' : ''}\n'
                                 : '';
                             final lubeLine = _lubeName(_lube, context);
                             final msg = context.tr(
@@ -577,10 +645,12 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
                                     en: 'Bolt torque'));
                           },
                           icon: const Icon(Icons.ios_share, size: 16),
-                          label: Text(context.tr(pl: 'Udostępnij', en: 'Share')),
+                          label:
+                              Text(context.tr(pl: 'Udostępnij', en: 'Share')),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: _kAccent,
-                            side: BorderSide(color: _kAccent.withValues(alpha: 0.5)),
+                            side: BorderSide(
+                                color: _kAccent.withValues(alpha: 0.5)),
                           ),
                         ),
                       ),
@@ -622,17 +692,47 @@ class _BoltTorqueScreenState extends State<BoltTorqueScreen> {
 
           // ─── Star pattern reference ─────────────────────────────────────
           _SectionCard(
-            title: context.tr(pl: 'Procedura skręcania (ASME PCC-1)', en: 'Tightening procedure (ASME PCC-1)'),
+            title: context.tr(
+                pl: 'Procedura skręcania (ASME PCC-1)',
+                en: 'Tightening procedure (ASME PCC-1)'),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _StepLine(num: '1', text: context.tr(pl: 'Smaruj gwinty + powierzchnię nakrętki', en: 'Lube threads + nut bearing face')),
-                _StepLine(num: '2', text: context.tr(pl: 'Ręcznie dokręć wszystkie śruby', en: 'Hand-tighten all bolts')),
-                _StepLine(num: '3', text: context.tr(pl: 'Runda 1: 20–30 % momentu — na krzyż (sprawdzaj równoległość szczeliny)', en: 'Round 1: 20–30 % of target — cross pattern (check the flange gap)')),
-                _StepLine(num: '4', text: context.tr(pl: 'Runda 2: 50–70 % momentu — na krzyż', en: 'Round 2: 50–70 % of target — cross pattern')),
-                _StepLine(num: '5', text: context.tr(pl: 'Runda 3: 100 % momentu — na krzyż', en: 'Round 3: 100 % of target — cross pattern')),
-                _StepLine(num: '6', text: context.tr(pl: 'Runda 4: 100 % — okrężnie, aż nakrętki przestaną się obracać', en: 'Round 4: 100 % — circular, until no further nut rotation')),
-                _StepLine(num: '7', text: context.tr(pl: 'Runda 5: jeśli czas pozwala — po min. 4 h powtórz rundę 4 (ASME PCC-1, tab. 1)', en: 'Round 5: time permitting — after a minimum of 4 h repeat Round 4 (ASME PCC-1, Table 1)')),
+                _StepLine(
+                    num: '1',
+                    text: context.tr(
+                        pl: 'Smaruj gwinty + powierzchnię nakrętki',
+                        en: 'Lube threads + nut bearing face')),
+                _StepLine(
+                    num: '2',
+                    text: context.tr(
+                        pl: 'Ręcznie dokręć wszystkie śruby',
+                        en: 'Hand-tighten all bolts')),
+                _StepLine(
+                    num: '3',
+                    text: context.tr(
+                        pl: 'Runda 1: 20–30 % momentu — na krzyż (sprawdzaj równoległość szczeliny)',
+                        en: 'Round 1: 20–30 % of target — cross pattern (check the flange gap)')),
+                _StepLine(
+                    num: '4',
+                    text: context.tr(
+                        pl: 'Runda 2: 50–70 % momentu — na krzyż',
+                        en: 'Round 2: 50–70 % of target — cross pattern')),
+                _StepLine(
+                    num: '5',
+                    text: context.tr(
+                        pl: 'Runda 3: 100 % momentu — na krzyż',
+                        en: 'Round 3: 100 % of target — cross pattern')),
+                _StepLine(
+                    num: '6',
+                    text: context.tr(
+                        pl: 'Runda 4: 100 % — okrężnie, aż nakrętki przestaną się obracać',
+                        en: 'Round 4: 100 % — circular, until no further nut rotation')),
+                _StepLine(
+                    num: '7',
+                    text: context.tr(
+                        pl: 'Runda 5: jeśli czas pozwala — po min. 4 h powtórz rundę 4 (ASME PCC-1, tab. 1)',
+                        en: 'Round 5: time permitting — after a minimum of 4 h repeat Round 4 (ASME PCC-1, Table 1)')),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -829,7 +929,8 @@ class _StepLine extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 13, color: _kTextSec, height: 1.4),
+              style:
+                  const TextStyle(fontSize: 13, color: _kTextSec, height: 1.4),
             ),
           ),
         ],

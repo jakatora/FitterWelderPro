@@ -788,7 +788,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
 - Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85`, `preheat.ce`,
   `power.duty`, `power.cable` i `tungsten.pick` (zakres tabeli DC− nierdzewnej).
-  Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
+  Z grupy 2.4 działa bolt.torque; pozostają timery i glossary.term.
+  Grupa 2.5 wymaga implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
 - Nadal potrzebne są pełny etap 4 (odczyt/zapisy oraz manifest pokrycia),
@@ -917,3 +918,20 @@ filtra i wolframu po korekcie: 73 PASS.
 Pełny checkpoint 2026-10-21 po wszystkich korektach: 6360 testów całej aplikacji
 PASS, pełna analiza Flutter bez uwag. To checkpoint kodu, nie końcowy odbiór
 fizycznego mikrofonu ani aktualny build APK; te pozostają w etapie 6.
+
+2026-10-21 — `bolt.torque`: śruba calowa UNC/8UN albo preset DN × Class,
+jawny gatunek, nazwane smarowanie i preload 30–75% SMYS. Mapy SMYS/K
+przeniesione z UI do wspólnej domeny bez zmiany wartości. B8M wymaga jawnego
+potwierdzenia klasy 1 (model 207 MPa). Metryczne śruby, nieznane gatunki,
+nieobecne rozmiary, klasy B8M i własne K uruchamiają brakującą możliwość;
+sprzeczne K/preset jest błędnym wejściem, nie raportem brakującej funkcji.
+ASME B16.5/B1.1 nie staje się gatunkiem B16/B1. Wynik dotyczy jednej śruby,
+liczba śrub z katalogu nie mnoży momentu. Konflikt rozmiaru z DN/Class wymaga
+korekty; ręczna odpowiedź usuwa poprzedni preset.
+BoltTorqueScreen ma atomowy uchwyt gotowy po _loadPrefs. Otwarcie nie zapisuje
+domyślnych danych przed ich odczytem; odtworzenie i apply asystenta liczą bez
+zapisu preferencji. Ręczna edycja zachowuje dotychczasowe autosave.
+Pełny czat tungsten→bolt_torque i realny wynik 134 N·m / 134,07 w odpowiedzi
+sprawdzone. Test możliwości pokazuje nową komendę w bolt_torque; stwierdzenie
+o braku sterowania pozostaje testowane w hydrotest, gdzie nadal jest prawdziwe.
+Regresja assistant+bolt UI+domena: 1298 PASS, analiza zmienionego kodu czysta.

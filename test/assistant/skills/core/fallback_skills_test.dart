@@ -37,9 +37,19 @@ void main() {
     });
     test('w module poziomu A: uczciwie, że liczenie głosem jeszcze nie działa',
         () async {
-      final r = await BrainHarness(activeToolId: 'bolt_torque', onHome: false)
+      final r = await BrainHarness(activeToolId: 'hydrotest', onHome: false)
           .say('co mogę tu zrobić');
       expect(textOf(r.result), contains('jeszcze nie'));
+    });
+    test('moment dokręcania pokazuje obecne polecenie obliczania', () async {
+      final r = await BrainHarness(activeToolId: 'bolt_torque', onHome: false)
+          .say('co mogę tu zrobić');
+      final answer = r.result as AnswerResult;
+      expect(answer.answer.text.pl, isNot(contains('jeszcze nie')));
+      expect(
+          answer.answer.lines.map((l) => l.value),
+          contains(
+              'Oblicz moment dokręcania 5/8 cala B7 smar miedziany preload 50%'));
     });
   });
 

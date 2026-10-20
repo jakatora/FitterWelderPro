@@ -235,8 +235,11 @@ void main() {
             .controller!
             .text,
         '75.0');
+    await say(tester,
+        'Oblicz moment dokręcania 5/8 cala B7 smar miedziany preload 50%');
+    expect(ToolBridge.instance.activeToolId, 'bolt_torque');
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'tungsten');
+    expect(ToolBridge.instance.activeToolId, 'bolt_torque');
     await close(tester);
   });
   testWidgets(

@@ -29,6 +29,24 @@ const double kMmPerInch = 25.4;
 /// liczone jednym przelicznikiem.
 const double kNmPerFtLb = 1.3558;
 
+/// Existing screen SMYS presets [MPa], ASTM A193/A193M Table 2, for the
+/// supported flange-bolt range up to 2 in. B8M uses the 207 MPa Class 1 model.
+const kBoltGradeSmysMpa = <String, int>{
+  'B7': 724,
+  'B7M': 552,
+  'B16': 724,
+  'B8M': 207
+};
+
+/// Indicative nut factors from the existing calculator, not a lubricant test.
+const kBoltNutFactors = <String, double>{
+  'dry': .20,
+  'oil': .18,
+  'cu_anti_seize': .16,
+  'ni_anti_seize': .13,
+  'moly_paste': .11
+};
+
 /// Jeden rozmiar śruby kołnierzowej wraz z szeregiem gwintu.
 class FlangeBoltSize {
   /// Etykieta jak w katalogu kołnierzy (`flange_catalog.dart`), np. `1-1/8`.
@@ -95,7 +113,8 @@ double tensileStressAreaIn2(double diameterIn, int threadsPerInch) {
   }
   final dEff = diameterIn - 0.9743 / threadsPerInch;
   if (dEff <= 0) {
-    throw ArgumentError('d = $diameterIn in za małe dla $threadsPerInch zw./cal');
+    throw ArgumentError(
+        'd = $diameterIn in za małe dla $threadsPerInch zw./cal');
   }
   return 0.7854 * dEff * dEff;
 }
@@ -161,7 +180,8 @@ class Pcc1Round {
   final double maxFraction;
   final double targetNm;
 
-  const Pcc1Round(this.round, this.minFraction, this.maxFraction, this.targetNm);
+  const Pcc1Round(
+      this.round, this.minFraction, this.maxFraction, this.targetNm);
 
   double get minNm => targetNm * minFraction;
   double get maxNm => targetNm * maxFraction;
