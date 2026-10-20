@@ -782,7 +782,9 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
 - Grupa 2.2: działają `pipe.slope`, `rolling.offset`, `bevel.geometry`,
   `thermal.expansion`, dodatkowe `slope.cut` i `reducer.cut`.
   Działa również `elbow.cut` (pomiar całych łuków, oznaczenia cięcia i reszta).
-  Nadal trzeba wdrożyć `elbow.rotation` oraz `insert.length`.
+  Działa `elbow.rotation`: OD albo obwód, stopnie albo procent, korekta
+  konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
+  Nadal trzeba wdrożyć `insert.length`.
 - Z grupy 2.3 działa `heat.input`; pozostają pozostałe kalkulatory spawalnicze.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
@@ -806,3 +808,6 @@ Test mikrofonu na urządzeniu i końcowy build całej wizji pozostają do wykona
 
 Cięcie kolanka: testy umiejętności i rzeczywistego ekranu, korpus routera oraz
 regresja asystent/domena/zakładki: 1134 PASS. Analiza nowych plików czysta.
+
+Obrót kolanka: rzeczywisty ekran pokazuje 100 mm dla obwodu 400 mm i 25%;
+regresja asystent/domena/zakładki 1159 PASS, analiza zmienionych plików czysta.
