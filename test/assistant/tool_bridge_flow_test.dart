@@ -13,6 +13,8 @@ import 'package:cut_list_app/screens/dn_mm_screen.dart';
 import 'package:cut_list_app/widgets/tool_registry.dart';
 import '../support/test_database.dart';
 import '../test_prefs.dart';
+import 'package:cut_list_app/services/weld_timer_service.dart';
+import '../support/fake_weld_timer_effects.dart';
 
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 4; i++) {
@@ -251,6 +253,48 @@ void main() {
     await say(tester, 'nie narysuj rury 2 metry w prawo');
     expect(ToolBridge.instance.activeToolId, 'glossary');
     await close(tester);
+  });
+  testWidgets(
+      'chat controls the shared timer and refreshes the visible timer tab',
+      (tester) async {
+    var now = DateTime(2026, 10, 21, 12);
+    final service = WeldTimerService(
+        now: () => now,
+        effects: FakeEffects(notificationsSupported: false),
+        startTicker: (_) => null,
+        observeLifecycle: false);
+    WeldTimerService.instance = service;
+    await boot(tester);
+    unawaited(openTool(
+        appNavigatorKey.currentState!.overlay!.context, toolById('dn_mm')!));
+    await settle(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Uruchom chłodzenie 2,5 minuty');
+    expect(ToolBridge.instance.activeToolId, 'welder_calculators');
+    expect(DefaultTabController.of(tester.element(find.byType(TabBar))).index, 2);
+    expect(service.target!.inSeconds, 150);
+    expect(service.maxInterpassC, isNull);
+    now = now.add(const Duration(seconds: 10));
+    await say(tester, 'Zatrzymaj timer');
+    expect(service.running, isFalse);
+    expect(service.elapsed.inSeconds, 10);
+    await say(tester, 'Uruchom chłodzenie 3 minuty');
+    expect(service.target!.inSeconds, 150);
+    expect(find.textContaining('Obecny timer ma postęp.'), findsOneWidget);
+    await say(tester, 'tak zastąp timer');
+    expect(service.target!.inSeconds, 180);
+    expect(service.running, isTrue);
+    expect(
+        find.byWidgetPredicate(
+            (w) => w is TextField && w.controller?.text == '3'),
+        findsWidgets);
+    await say(tester, 'nie zatrzymuj timera');
+    expect(service.running, isTrue);
+    await say(tester, 'Zatrzymaj timer');
+    await close(tester);
+    service.dispose();
+    WeldTimerService.instance = WeldTimerService();
   });
   testWidgets(
       'missing table is queued privately once; invalid input does not create a bug report',

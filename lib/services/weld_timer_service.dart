@@ -181,6 +181,11 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   double? get maxInterpassC => _maxInterpassC;
   int get purgeSeconds => _purgeSeconds;
 
+  int _controlRevision = 0;
+
+  /// Changes only on controls/configuration, not on clock ticks.
+  int get controlRevision => _controlRevision;
+
   bool get running => _runningSince != null;
 
   /// Odliczanie doszło do końca (zostaje do resetu / nowego startu).
@@ -200,7 +205,9 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
 
   Duration get _rawElapsed {
     final since = _runningSince;
-    return since == null ? _accumulated : _accumulated + _now().difference(since);
+    return since == null
+        ? _accumulated
+        : _accumulated + _now().difference(since);
   }
 
   /// Upłynęło — dla odliczania nigdy ponad cel.
@@ -250,6 +257,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   void setMode(WeldTimerMode mode) {
     if (mode == _mode) return;
     _resetState();
+    _controlRevision++;
     _mode = mode;
     notifyListeners();
   }
@@ -259,12 +267,14 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
         ? Duration.zero
         : (value > maxCoolTime ? maxCoolTime : value);
     if (v == _coolTime) return;
+    _controlRevision++;
     _coolTime = v;
     notifyListeners();
   }
 
   void setMaxInterpass(double? celsius) {
     if (celsius == _maxInterpassC) return;
+    _controlRevision++;
     _maxInterpassC = celsius;
     notifyListeners();
   }
@@ -272,6 +282,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   void setPurgeSeconds(int seconds) {
     final v = seconds.clamp(0, maxPurgeSeconds);
     if (v == _purgeSeconds) return;
+    _controlRevision++;
     _purgeSeconds = v;
     notifyListeners();
   }
@@ -287,6 +298,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     final t = target;
     if (t != null && t <= Duration.zero) return; // nie ma czego odliczać
     _ensureObserving();
+    _controlRevision++;
     _runningSince = _now();
     _ticker?.cancel();
     _ticker = _startTicker(tick);
@@ -299,6 +311,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
 
   void pause() {
     if (!running) return;
+    _controlRevision++;
     _accumulated = _rawElapsed;
     _runningSince = null;
     _stopRunningSideEffects();
@@ -337,6 +350,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _finish() {
+    _controlRevision++;
     _accumulated = target ?? _rawElapsed;
     _runningSince = null;
     _finished = true;
@@ -354,6 +368,7 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _resetState() {
+    _controlRevision++;
     final wasRunning = running;
     _accumulated = Duration.zero;
     _runningSince = null;
@@ -442,8 +457,8 @@ class WeldTimerService extends ChangeNotifier with WidgetsBindingObserver {
     // Mogło się zmienić w czasie await (powrót, pauza).
     if (_inForeground || !running || _notificationScheduled) return;
     final at = _now().add(remaining!);
-    final text =
-        weldTimerAlarmText(currentAlarm, english: AppLanguageController.isEnglish);
+    final text = weldTimerAlarmText(currentAlarm,
+        english: AppLanguageController.isEnglish);
     _notificationScheduled = true;
     try {
       await _effects.scheduleEndNotification(
@@ -497,7 +512,16 @@ class SystemWeldTimerEffects implements WeldTimerEffects {
   /// Długie impulsy: krótkie „tyknięcia” HapticFeedback giną w rękawicach
   /// i pod kurtką, a na Androidzie w ogóle znikają, gdy użytkownik wyłączył
   /// wibracje dotyku w ustawieniach.
-  static const List<int> vibrationPattern = [0, 800, 400, 800, 400, 800, 400, 1500];
+  static const List<int> vibrationPattern = [
+    0,
+    800,
+    400,
+    800,
+    400,
+    800,
+    400,
+    1500
+  ];
 
   bool get _mobile =>
       !kIsWeb &&

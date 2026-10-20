@@ -7,6 +7,7 @@
 
 import '../core/assistant_actions_port.dart';
 import '../core/skill.dart';
+import '../../services/weld_timer_service.dart';
 import 'core/catalog.dart';
 import 'core/account_navigation_skill.dart';
 import 'fitter_routes/catalog.dart';
@@ -15,12 +16,13 @@ import 'welder_calc/catalog.dart';
 import 'welder_misc/catalog.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
-List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
+List<AssistantSkill> buildSkillCatalog(
+    {AssistantActionsPort? actions, WeldTimerService Function()? timer}) {
   final all = <AssistantSkill>[];
   Iterable<AssistantSkill> catalog() => all;
   all.addAll(coreSkills(actions: actions, catalog: catalog));
   all.addAll(welderCalcSkills());
-  all.addAll(welderMiscSkills());
+  all.addAll(welderMiscSkills(timer: timer));
   all.add(AccountNavigationSkill());
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());

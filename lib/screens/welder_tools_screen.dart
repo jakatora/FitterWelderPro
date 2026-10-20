@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../domain/welding/purge.dart';
 import '../domain/welding/shielding_gas.dart';
 import '../i18n/app_language.dart';
@@ -30,7 +31,7 @@ const _kSec    = Color(0xFF9BA3C7);
 double? _num(TextEditingController c) =>
     parseDecimal(c.text);
 
-class WelderToolsScreen extends StatelessWidget {
+class WelderToolsScreen extends StatefulWidget {
   /// Zakładka otwierana na starcie (jak `FitterToolsScreen(initialTab:)`).
   final int initialTab;
   const WelderToolsScreen({super.key, this.initialTab = tabGas});
@@ -42,11 +43,35 @@ class WelderToolsScreen extends StatelessWidget {
   static const int tabCount = 4;
 
   @override
+  State<WelderToolsScreen> createState() => _WelderToolsScreenState();
+}
+
+class _WelderToolsScreenState extends State<WelderToolsScreen>
+    with ToolHandleHost<WelderToolsScreen> {
+  late TabController _tabs;
+  int _timerRevision = 0;
+  @override String get toolId => 'welder_calculators';
+  @override Set<String> get supportedFields => const {'tab'};
+  @override void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) markReady();
+    });
+  }
+  @override Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.isEmpty) return {};
+    if (fields.length != 1 || fields['tab'] != 'timer') return fields.keys.toSet();
+    setState(() { _tabs.index = WelderToolsScreen.tabTimer; _timerRevision++; });
+    return {};
+  }
+  @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: tabCount,
-      initialIndex: initialTab.clamp(0, tabCount - 1),
-      child: Scaffold(
+      length: WelderToolsScreen.tabCount,
+      initialIndex: widget.initialTab.clamp(0, WelderToolsScreen.tabCount - 1),
+      child: Builder(builder: (tabContext) {
+        _tabs = DefaultTabController.of(tabContext);
+        return Scaffold(
         appBar: AppBar(
           title: Text(context.tr(pl: 'Gaz, formowanie i timer', en: 'Gas, purge and timer')),
           actions: [HelpButton(help: kHelpWelderTools)],
@@ -63,10 +88,11 @@ class WelderToolsScreen extends StatelessWidget {
         body: TabBarView(children: [
           _GasConsumptionTab(),
           _O2PurgeTab(),
-          _WeldTimerTab(),
+          _WeldTimerTab(key: ValueKey(_timerRevision)),
           _PressureConverterTab(),
         ]),
-      ),
+      );
+      }),
     );
   }
 }
@@ -663,6 +689,7 @@ String _fmtPlain(double v) {
 }
 
 class _WeldTimerTab extends StatefulWidget {
+  const _WeldTimerTab({super.key});
   @override State<_WeldTimerTab> createState() => _WeldTimerTabState();
 }
 

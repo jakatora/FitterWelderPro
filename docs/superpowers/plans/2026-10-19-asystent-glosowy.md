@@ -961,3 +961,28 @@ Pierwsza regresja wykryła blokowanie tool.explain: poprawiono listę dozwolonyc
 odpowiedzi. Po korekcie assistant+ISO parser:1361PASS, dodatkowe warianty językowe
 z korpusem routingu:488PASS; analiza zmienionego kodu bez uwag. To testy lokalnej
 klasyfikacji i regresja UI, bez płatnych wywołań AI i bez fizycznego mikrofonu.
+
+2026-10-21 — `timer.start`, `timer.stop`, `timer.cool`: polecenia sterują tym
+samym WeldTimerService co ekran i alarmy. Stoper liczy w górę, pauza zachowuje
+czas, wznowienie nie zmienia ustawień; przy żądaniu zmiany wymaga „uruchom”.
+Nowe odliczanie wymaga czasu z jednostką, obsługuje sumę min+sek i ułamki.
+Odrzuca ujemne, zerowe, ponad limit, powtórzone jednostki i osierocone liczby.
+Nowe chłodzenie czyści odziedziczony limit 150°C: WPS jest tylko jawnie podanym
+limitem, nie pomiarem. Koniec odliczania nadal wymaga pomiaru temperatury / O2.
+Zastąpienie lub reset timera z postępem dopytuje. Rewizja sterowania serwisu
+unieważnia stare potwierdzenie po ręcznej zmianie; same takty go nie unieważniają.
+Nie ma automatycznej kontynuacji timera z gołej liczby. Negacje start/stop/pause/
+resume/reset/uruchom/wznów/wyzeruj są obsługiwane przed działaniem.
+WelderToolsScreen ma uchwyt gotowy po zbudowaniu kontrolera, payload tab=timer.
+Używa tego samego DefaultTabController co ręczne zakładki; zastosowanie odświeża
+pola timera z aktualnego serwisu. Nie zmienia pozostałych kalkulatorów.
+Pełny czat DN→timer, pauza, odmowa/skasowanie postępu, ponowne pola i negacja:
+40 testów UI PASS (wraz z dotychczasowymi testami ekranu i handle). Odbiór
+fizycznego mikrofonu i systemowych powiadomień na urządzeniu nadal w etapie6.
+Etap2.4 zaimplementowany; następny zakres2.5 wiedza z domeny, później pozostałe
+wymagania ISO/rejestrów/pokrycia/raportów i końcowa weryfikacja.
+Pełny checkpoint po grupie welder_misc 2026-10-21:6489 testów całej aplikacji
+PASS (build/welder-misc-full-app-tests.log), pełny flutter analyze bez uwag
+(build/welder-misc-full-analyze.log). Po usunięciu wewnętrznej nazwy trybu z
+karty odpowiedzi dodatkowe17testów timera PASS. APK pozostaje starszy; nie
+utożsamiać tych testów z odbiorem fizycznego mikrofonu lub systemowego alarmu.

@@ -1,6 +1,12 @@
 import '../../core/skill.dart';
 import 'bolt_torque_skill.dart';
 import 'glossary_term_skill.dart';
+import 'timer_skill.dart';
+import '../../../services/weld_timer_service.dart';
 
-List<AssistantSkill> welderMiscSkills() =>
-    [BoltTorqueSkill(), GlossaryTermSkill()];
+List<AssistantSkill> welderMiscSkills({WeldTimerService Function()? timer}) => [
+      BoltTorqueSkill(),
+      GlossaryTermSkill(),
+      for (final action in ['start', 'stop', 'cool'])
+        TimerSkill(action, timer: timer)
+    ];

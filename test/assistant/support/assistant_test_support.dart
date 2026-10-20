@@ -6,6 +6,8 @@ import 'package:cut_list_app/assistant/core/brain.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/services/weld_timer_service.dart';
+import '../../support/fake_weld_timer_effects.dart';
 
 /// Atrapa zapisów: nic nie zapisuje naprawdę, liczy wywołania.
 class FakeActionsPort implements AssistantActionsPort {
@@ -48,8 +50,8 @@ class FakeActionsPort implements AssistantActionsPort {
     return PreparedJournal(
       draft: draft,
       summary: AssistantAnswer(
-          text: AssistantText.same(
-              'Spoina ${draft.weldNo} · ${draft.project}')),
+          text:
+              AssistantText.same('Spoina ${draft.weldNo} · ${draft.project}')),
     );
   }
 
@@ -71,14 +73,24 @@ class BrainHarness {
     String? activeToolId,
     bool onHome = true,
     FakeActionsPort? actions,
+    WeldTimerService? timer,
   })  : actions = actions ?? FakeActionsPort(),
         clock = DateTime(2026, 10, 19, 12) {
-    brain = AssistantBrain(skills: buildSkillCatalog(actions: this.actions));
+    this.timer = timer ??
+        WeldTimerService(
+            now: () => clock,
+            effects: FakeEffects(notificationsSupported: false),
+            startTicker: (_) => null,
+            observeLifecycle: false);
+    brain = AssistantBrain(
+        skills:
+            buildSkillCatalog(actions: this.actions, timer: () => this.timer));
     modules = FixedModuleContext(
         activeToolId: activeToolId, onHomeOrAssistant: onHome);
     ctx = AssistantContext(lang: lang, modules: modules, now: () => clock);
   }
 
+  late final WeldTimerService timer;
   final AppLanguage lang;
   final FakeActionsPort actions;
   DateTime clock;

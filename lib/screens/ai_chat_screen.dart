@@ -674,6 +674,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (spoken.isNotEmpty) await _speak(spoken);
     final explicitOpen = reply.match?.skill.id == 'tool.open' ||
         reply.match?.skill.id == 'account.open' ||
+        (reply.match?.skill.id.startsWith('timer.') ?? false) ||
         (reply.match?.skill.tier == AssistantTier.b &&
             requestsCalculation(utterance)) ||
         (reply.match?.skill.id == 'heat.input' &&
