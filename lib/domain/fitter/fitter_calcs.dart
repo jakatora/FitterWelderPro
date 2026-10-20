@@ -290,3 +290,46 @@ BevelGeometry bevelGeometry({
     grooveOpeningMm: gapMm + 2.0 * w,
   );
 }
+
+/// Offset spool between two identical elbows of angle [angleDeg].
+class InsertCalc {
+  final double takeoutMm;
+  final double travelMm;
+
+  /// travel − 2 × take-out: distance between the two elbow ends.
+  final double insertMm;
+
+  /// insert − 2 × weld gap: the pipe length to cut (two butt welds), same
+  /// convention as Rolling Offset (`rollingCutLengthMm`).
+  final double cutMm;
+
+  /// run = offset / tan θ: how far along the line the second elbow sits.
+  final double runMm;
+  const InsertCalc({
+    required this.takeoutMm,
+    required this.travelMm,
+    required this.insertMm,
+    required this.cutMm,
+    required this.runMm,
+  });
+}
+
+/// travel = offset / sin θ; insert = travel − 2 × [takeoutMm];
+/// cut = insert − 2 × [weldGapMm].
+InsertCalc insertBetweenElbows({
+  required double offsetMm,
+  required double angleDeg,
+  required double takeoutMm,
+  double weldGapMm = 0,
+}) {
+  final rad = angleDeg * math.pi / 180.0;
+  final travel = offsetMm / math.sin(rad);
+  final insert = travel - 2.0 * takeoutMm;
+  return InsertCalc(
+    takeoutMm: takeoutMm,
+    travelMm: travel,
+    insertMm: insert,
+    cutMm: insert - 2.0 * weldGapMm,
+    runMm: offsetMm / math.tan(rad),
+  );
+}

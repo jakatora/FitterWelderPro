@@ -183,8 +183,13 @@ void main() {
         'Skróć redukcję duża 100 mm mała 50 mm długość 200 mm docelowa 75 mm');
     expect(ToolBridge.instance.activeToolId, 'reducer');
     expect(appRoutes.top, same(calculatorRoute));
+    await say(tester,
+        'Oblicz wstawkę promień 100 mm offset 300 mm kąt 90 stopni szczelina 2 mm');
+    expect(ToolBridge.instance.activeToolId, 'insert');
+    expect(appRoutes.top, same(calculatorRoute));
+    expect(find.text('96.0 mm'), findsOneWidget);
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'reducer');
+    expect(ToolBridge.instance.activeToolId, 'insert');
     expect(appRoutes.top, same(calculatorRoute));
     await close(tester);
   });

@@ -784,7 +784,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   Działa również `elbow.cut` (pomiar całych łuków, oznaczenia cięcia i reszta).
   Działa `elbow.rotation`: OD albo obwód, stopnie albo procent, korekta
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
-  Nadal trzeba wdrożyć `insert.length`.
+  Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
+  jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
 - Z grupy 2.3 działa `heat.input`; pozostają pozostałe kalkulatory spawalnicze.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
@@ -811,3 +812,10 @@ regresja asystent/domena/zakładki: 1134 PASS. Analiza nowych plików czysta.
 
 Obrót kolanka: rzeczywisty ekran pokazuje 100 mm dla obwodu 400 mm i 25%;
 regresja asystent/domena/zakładki 1159 PASS, analiza zmienionych plików czysta.
+
+Wstawka: wspólne `insertBetweenElbows` przeniesione z ekranu do domeny
+(reexport zachowuje istniejące importy). Tabela 45° LR używa B, segment używa
+A × tan(θ/2); odpowiedź opisuje podstawę. Brak dodatniego cięcia nie wypełnia
+ekranu. Brak rodziny w tabeli uruchamia ścieżkę raportu brakującej możliwości.
+Regresja asystent/domena/kalkulatory/zakładki: 1198 PASS, analiza czysta;
+osobno sprawdzona pełna rozmowa przełączająca kalkulator do zakładki wstawki.
