@@ -204,8 +204,11 @@ void main() {
                 matching: find.byType(Scrollable))
             .first);
     expect(find.byKey(const ValueKey('cool-verdict-notSet')), findsOneWidget);
+    await say(tester, 'Oblicz CE C 0,2 Mn 1 pozostałe zero grubość 15 mm');
+    expect(ToolBridge.instance.activeToolId, 'heat_input');
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'cooling_time');
+    expect(ToolBridge.instance.activeToolId, 'heat_input');
     await close(tester);
   });
   testWidgets(

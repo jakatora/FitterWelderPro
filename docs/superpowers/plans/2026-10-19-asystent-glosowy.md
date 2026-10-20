@@ -786,8 +786,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
-- Z grupy 2.3 działają `heat.input`, `shade.number` i `cooling.t85`; pozostają
-  preheat.ce, power.duty/power.cable i tungsten.pick.
+- Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85` i `preheat.ce`;
+  pozostają power.duty/power.cable i tungsten.pick.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -845,3 +845,19 @@ nie jest przejmowane przez heat.input nawet na ekranie energii liniowej.
 
 Czas stygnięcia: regresja assistant + cooling UI + domena 1138 PASS, analiza
 zmienionych plików czysta. Osobne testy pełnej rozmowy i umiejętności 26 PASS.
+
+2026-10-21 — CE/podgrzewanie: własna analiza C/Mn/Cr/Mo/V/Ni/Cu albo jeden
+gatunek z MaterialCatalog; dane katalogowe jawnie nazwane jako typowe. Brakujące
+pierwiastki nie są zerowane bez polecenia; „pozostałe zero” zachowuje wcześniej
+podane wartości. Gatunek i własna analiza razem wymagają wyboru źródła.
+CE IIW, Seferian i nienormatywna reguła CE korzystają z istniejącej domeny.
+Stale nierdzewne i Cr-Mo mają komunikat o nieprzeznaczeniu metod CE/Seferiana,
+bez wyznaczania nimi temperatury; dla gatunku dostępne minimum B31.3 ≥ 2014
+jest osobno nazwane i wskazuje potrzebę sprawdzenia wydania projektu.
+Uchwyt HeatInputScreen przyjmuje pełny skład i grubość atomowo, otwiera CE,
+czyści dawny wybór DN/SCH i parametry łuku. Brak podanych HD/Q nie uruchamia
+metody B na domyślnych danych; HD wymaga jawnego wyboru. Polecenie heat.input
+wraca do pierwszej zakładki. Pełny czat cooling→CE i formularz sprawdzone.
+
+CE/podgrzewanie: regresja assistant + HeatInput UI + preheat domena 1220 PASS,
+analiza czysta. Osobno umiejętność i pełny czat: 19 PASS.

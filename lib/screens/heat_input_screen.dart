@@ -62,7 +62,18 @@ class HeatInputScreen extends StatefulWidget {
 }
 
 class _HeatInputScreenState extends State<HeatInputScreen>
-    with ToolHandleHost<HeatInputScreen> {
+    with SingleTickerProviderStateMixin, ToolHandleHost<HeatInputScreen> {
+  late final TabController _assistantTabs;
+  bool _assistantNeedsHydrogen = false;
+  static const _chemKeys = {
+    'c_pct',
+    'mn_pct',
+    'cr_pct',
+    'mo_pct',
+    'v_pct',
+    'ni_pct',
+    'cu_pct'
+  };
   @override
   String get toolId => 'heat_input';
   @override
@@ -72,10 +83,100 @@ class _HeatInputScreenState extends State<HeatInputScreen>
         'travel_mm_min',
         'process',
         'standard',
-        'efficiency'
+        'efficiency',
+        ..._chemKeys,
+        'thickness_mm',
+        'grade_key'
       };
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any((k) =>
+        _chemKeys.contains(k) || k == 'thickness_mm' || k == 'grade_key')) {
+      final allowed = {..._chemKeys, 'thickness_mm', 'grade_key'};
+      final rejected = fields.keys.toSet().difference(allowed);
+      for (final k in {..._chemKeys, 'thickness_mm'}) {
+        final v = fields[k];
+        if (v is! num ||
+            !v.isFinite ||
+            (k == 'thickness_mm' ? v <= 0 : v < 0 || v > 100)) {
+          rejected.add(k);
+        }
+      }
+      final grade = MaterialCatalog.all
+          .where((m) => m.key == fields['grade_key'])
+          .firstOrNull;
+      if (fields.containsKey('grade_key') && grade == null) {
+        rejected.add('grade_key');
+      }
+      if (grade != null) {
+        final values = [
+          grade.c,
+          grade.mn,
+          grade.cr,
+          grade.mo,
+          grade.v,
+          grade.ni,
+          grade.cu
+        ];
+        var i = 0;
+        for (final k in _chemKeys) {
+          if (fields[k] is! num ||
+              ((fields[k] as num) - values[i]).abs() > .000001) {
+            rejected.add(k);
+          }
+          i++;
+        }
+      }
+      if (_chemKeys.every((k) => fields[k] is num) &&
+          _chemKeys.fold<double>(
+                  0, (sum, k) => sum + (fields[k] as num).toDouble()) >
+              100) {
+        rejected.addAll(_chemKeys);
+      }
+      if (rejected.isEmpty) {
+        final s = seferianPreheat(
+            c: (fields['c_pct'] as num).toDouble(),
+            mn: (fields['mn_pct'] as num).toDouble(),
+            cr: (fields['cr_pct'] as num).toDouble(),
+            mo: (fields['mo_pct'] as num).toDouble(),
+            ni: (fields['ni_pct'] as num).toDouble(),
+            thicknessMm: (fields['thickness_mm'] as num).toDouble());
+        if (s == null || !s.preheatC.isFinite || !s.totalCe.isFinite) {
+          rejected.add('thickness_mm');
+        }
+      }
+      if (rejected.isNotEmpty || !mounted) {
+        return rejected.isEmpty ? fields.keys.toSet() : rejected;
+      }
+      setState(() {
+        final ctrls = [
+          _cCtrl,
+          _mnCtrl,
+          _crCtrl,
+          _moCtrl,
+          _vCtrl,
+          _niCtrl,
+          _cuCtrl
+        ];
+        var i = 0;
+        for (final k in _chemKeys) {
+          ctrls[i++].text = fields[k].toString();
+        }
+        _thicknessCtrl.text = fields['thickness_mm'].toString();
+        _material = grade;
+        _selectedDn = null;
+        _selectedSch = null;
+        _hintOdMm = null;
+        _hintWallMm = null;
+        _voltsCtrl.clear();
+        _ampsCtrl.clear();
+        _travelCtrl.clear();
+        _etaCtrl.clear();
+        _assistantNeedsHydrogen = true;
+        _assistantTabs.index = 1;
+      });
+      return {};
+    }
     final rejected = fields.keys.toSet().difference(supportedFields);
     for (final e in fields.entries) {
       final value = e.value;
@@ -129,6 +230,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
         _travelCtrl.text = value.toString();
       }
       // Results are computed directly by build from these controllers.
+      _assistantTabs.index = 0;
     });
     return {};
   }
@@ -371,6 +473,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
   /// Wyczyść — wipes all inputs + chip back to factory defaults. P1-04.
   void _resetAll() {
     setState(() {
+      _assistantNeedsHydrogen = false;
       _voltsCtrl.text = '22';
       _ampsCtrl.text = '110';
       _travelCtrl.text = '200';
@@ -489,6 +592,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
   @override
   void initState() {
     super.initState();
+    _assistantTabs = TabController(length: 2, vsync: this);
     // P2-05: rehydrate the last DN/SCH pick so the hint chip shows up
     // immediately on the Preheat tab.
     _restorePipeSize().whenComplete(markReady);
@@ -496,6 +600,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
 
   @override
   void dispose() {
+    _assistantTabs.dispose();
     _voltsCtrl.dispose();
     _ampsCtrl.dispose();
     _travelCtrl.dispose();
@@ -575,7 +680,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
       standard: HeatInputStandard.en1011,
       efficiency: _eta,
     );
-    final cet = qEn == null
+    final cet = qEn == null || _assistantNeedsHydrogen
         ? null
         : en1011MethodBPreheat(
             c: _parse(_cCtrl),
@@ -608,6 +713,11 @@ class _HeatInputScreenState extends State<HeatInputScreen>
   double _hd = 10;
 
   String _cetNote(_PreheatView p) {
+    if (_assistantNeedsHydrogen) {
+      return context.tr(
+          pl: 'Nie podano wodoru HD ani parametrów EN dla tego obliczenia. Metoda B nie jest wyznaczona.',
+          en: 'No hydrogen HD or EN parameters were supplied for this calculation. Method B has not been calculated.');
+    }
     final r = p.cet;
     if (p.qEnKjMm == null || r == null) {
       return context.tr(
@@ -719,6 +829,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
             HelpButton(help: kHelpHeatInput),
           ],
           bottom: TabBar(
+            controller: _assistantTabs,
             isScrollable: false,
             indicatorColor: _kAccent,
             tabs: [
@@ -728,6 +839,7 @@ class _HeatInputScreenState extends State<HeatInputScreen>
           ),
         ),
         body: TabBarView(
+          controller: _assistantTabs,
           children: [
             _heatInputTab(hi, wpsMin, wpsMax, verdict),
             _preheatTab(preheat),
@@ -1779,8 +1891,11 @@ class _HeatInputScreenState extends State<HeatInputScreen>
                       ChoiceChip(
                         label: Text('HD ${hd.toStringAsFixed(0)}',
                             style: const TextStyle(fontSize: 11)),
-                        selected: _hd == hd,
-                        onSelected: (_) => setState(() => _hd = hd),
+                        selected: !_assistantNeedsHydrogen && _hd == hd,
+                        onSelected: (_) => setState(() {
+                          _hd = hd;
+                          _assistantNeedsHydrogen = false;
+                        }),
                         materialTapTargetSize: MaterialTapTargetSize.padded,
                       ),
                   ],
