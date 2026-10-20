@@ -102,6 +102,18 @@ class AssistantBrain {
   List<SkillMatch>? _tie;
   Future<void> _tail = Future<void>.value();
 
+  /// Side-effect-free preflight before the legacy write parser. A broken
+  /// matcher is ignored so one skill cannot crash the preflight.
+  bool recognizesCalculation(Utterance u, AssistantContext ctx) {
+    if (isNegatedCommand(u)) return false;
+    for (final skill in _regular) {
+      if (skill.tier != AssistantTier.b) continue;
+      final match = _safeMatch(skill, u, ctx);
+      if (match != null && match.score >= threshold) return true;
+    }
+    return false;
+  }
+
   /// Pytanie, na które asystent czeka.
   AskResult? get pending => _pending;
 

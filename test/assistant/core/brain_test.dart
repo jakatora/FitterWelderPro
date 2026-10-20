@@ -63,6 +63,13 @@ class _WordSkill extends AssistantSkill {
   }
 }
 
+class _BrokenMatcher extends _WordSkill {
+  _BrokenMatcher() : super('broken', 'rura', .9);
+  @override
+  SkillMatch? match(Utterance u, AssistantContext ctx) =>
+      throw StateError('broken matcher');
+}
+
 void main() {
   late DateTime clock;
   late AssistantContext ctx;
@@ -81,6 +88,24 @@ void main() {
     ctx = makeCtx();
   });
 
+  test(
+      'calculation preflight tolerates broken matchers, respects threshold and never executes',
+      () {
+    final valid = _WordSkill('valid', 'rura', .9);
+    final brain = AssistantBrain(skills: [_BrokenMatcher(), valid]);
+    expect(brain.recognizesCalculation(pl('rura'), ctx), isTrue);
+    expect(valid.runs, 0);
+    expect(brain.pending, isNull);
+    expect(brain.recognizesCalculation(pl('nie obliczaj rury'), ctx), isFalse);
+    expect(
+        AssistantBrain(skills: [_BrokenMatcher()])
+            .recognizesCalculation(pl('rura'), ctx),
+        isFalse);
+    expect(
+        AssistantBrain(skills: [_WordSkill('low', 'rura', .3)])
+            .recognizesCalculation(pl('rura'), ctx),
+        isFalse);
+  });
   group('ocena umiejętności', () {
     test('najwyższy wynik ≥ progu wygrywa', () async {
       final a = _WordSkill('a', 'rura', 0.6, toolId: 'x');
@@ -139,8 +164,8 @@ void main() {
       final a = _WordSkill('a', 'rura', 0.80, toolId: 'dn_mm');
       final b = _WordSkill('b', 'rura', 0.75, toolId: 'wall_thickness');
       final brain = AssistantBrain(skills: [a, b]);
-      final r = await brain.handle(
-          pl('rura'), makeCtx(active: 'wall_thickness'));
+      final r =
+          await brain.handle(pl('rura'), makeCtx(active: 'wall_thickness'));
       expect(r.match!.skill.id, 'b');
     });
 
@@ -150,8 +175,8 @@ void main() {
       final main = _WordSkill('main', 'rura', 0.8);
       final brain = AssistantBrain(skills: [open, main, caps]);
       expect((await brain.handle(pl('otwórz'), ctx)).match!.skill.id, 'caps');
-      expect((await brain.handle(pl('otwórz rura'), ctx)).match!.skill.id,
-          'main');
+      expect(
+          (await brain.handle(pl('otwórz rura'), ctx)).match!.skill.id, 'main');
     });
 
     test('wyjątek w run → FailedResult, mózg działa dalej', () async {
@@ -172,8 +197,8 @@ void main() {
                 FollowUp(AssistantText.same('X'), 'otwórz x'),
               ]);
       final r = await brain.handle(pl('bla bla'), ctx);
-      expect((r.result as NotUnderstood).suggestions.single.utterance,
-          'otwórz x');
+      expect(
+          (r.result as NotUnderstood).suggestions.single.utterance, 'otwórz x');
     });
   });
 
@@ -281,7 +306,8 @@ void main() {
   group('zapis parametru ze starego parsera', () {
     test('→ ConfirmResult, nic nie zapisane przed potwierdzeniem', () async {
       final h = BrainHarness();
-      final r = await h.say('zapisz TIG nierdzewka ścianka 2 mm 60 A bez drutu');
+      final r =
+          await h.say('zapisz TIG nierdzewka ścianka 2 mm 60 A bez drutu');
       expect(r.match!.skill.id, 'legacy.save');
       final confirm = r.result as ConfirmResult;
       expect(h.actions.savedParams, isEmpty);

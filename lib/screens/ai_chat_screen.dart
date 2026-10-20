@@ -628,11 +628,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       return true;
     }
     if (await _tryIsoCommand(text, lang)) return true;
+    _brainContext.lang = lang;
     final legacyIntent = parseAssistantCommand(text).intent;
     final calculationRequest = heatInputRequested(utterance) ||
-        _brain.skills.any((skill) =>
-            skill.tier == AssistantTier.b &&
-            skill.match(utterance, _brainContext) != null);
+        _brain.recognizesCalculation(utterance, _brainContext);
     if ((legacyIntent == kIntentSaveWeldParameter && !calculationRequest) ||
         legacyIntent == kIntentAddWeldJournalEntry ||
         legacyIntent == kIntentQueryMyParams) {
