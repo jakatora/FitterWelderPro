@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import '../assistant/core/tool_bridge.dart';
 
 import '../data/sanitary_tube.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
 
-const _kCard   = Color(0xFF141821);
+const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
-const _kBlue   = Color(0xFF4A9EFF);
-const _kGreen  = Color(0xFF2ECC71);
-const _kMuted  = kTextMut; // token motywu (kontrast ≥ 4,5:1)
+const _kBlue = Color(0xFF4A9EFF);
+const _kGreen = Color(0xFF2ECC71);
+const _kMuted = kTextMut; // token motywu (kontrast ≥ 4,5:1)
 
 void _showSourceInfo(BuildContext context) {
   showDialog<void>(
@@ -18,8 +19,7 @@ void _showSourceInfo(BuildContext context) {
     builder: (ctx) => AlertDialog(
       backgroundColor: _kCard,
       title: Text(context.tr(
-          pl: 'Źródło wymiarów i wzory',
-          en: 'Dimension source & formulas')),
+          pl: 'Źródło wymiarów i wzory', en: 'Dimension source & formulas')),
       content: SingleChildScrollView(
         child: Text(
           context.tr(
@@ -68,7 +68,40 @@ class SanitaryTubeScreen extends StatefulWidget {
   State<SanitaryTubeScreen> createState() => _SanitaryTubeScreenState();
 }
 
-class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
+class _SanitaryTubeScreenState extends State<SanitaryTubeScreen>
+    with ToolHandleHost<SanitaryTubeScreen> {
+  String? _assistantSize;
+  @override
+  String get toolId => 'sanitary_tube';
+  @override
+  Set<String> get supportedFields => const {'standard', 'size'};
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final standard = fields['standard'], size = fields['size'];
+    if (!const ['bpe', 'din11850_ii'].contains(standard)) return {'standard'};
+    final rows = standard == 'bpe' ? kBpeTube : kDin11850Tube;
+    if (size is! String || !rows.any((row) => row.size == size)) {
+      return {'size'};
+    }
+    if (!mounted) return {'size'};
+    setState(() {
+      _bpe = standard == 'bpe';
+      _assistantSize = size;
+      _q = size;
+      _filter.text = size;
+    });
+    return {};
+  }
+
   bool _bpe = true;
   String _q = '';
   final _filter = TextEditingController();
@@ -81,21 +114,28 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
 
   List<SanitaryTube> get _rows {
     final src = _bpe ? kBpeTube : kDin11850Tube;
+    if (_assistantSize != null) {
+      return src.where((row) => row.size == _assistantSize).toList();
+    }
     if (_q.trim().isEmpty) return src;
     final q = _q.trim().toLowerCase();
-    return src.where((t) => t.size.toLowerCase().contains(q) ||
-        t.od.toStringAsFixed(0).contains(q)).toList();
+    return src
+        .where((t) =>
+            t.size.toLowerCase().contains(q) ||
+            t.od.toStringAsFixed(0).contains(q))
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Rury sanitarne (tube)', en: 'Sanitary tube')),
+        title:
+            Text(context.tr(pl: 'Rury sanitarne (tube)', en: 'Sanitary tube')),
         actions: [
           IconButton(
-            tooltip: context.tr(pl: 'Skąd te liczby?', en: 'Where do these come from?'),
+            tooltip: context.tr(
+                pl: 'Skąd te liczby?', en: 'Where do these come from?'),
             icon: const Icon(Icons.info_outline),
             onPressed: () => _showSourceInfo(context),
           ),
@@ -110,16 +150,24 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
                 ChoiceChip(
                   label: const Text('ASME BPE'),
                   selected: _bpe,
-                  onSelected: (_) => setState(() => _bpe = true),
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  onSelected: (_) => setState(() {
+                    _bpe = true;
+                    _assistantSize = null;
+                  }),
+                  labelPadding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                 ),
                 const SizedBox(width: 8),
                 ChoiceChip(
                   label: const Text('DIN 11850'),
                   selected: !_bpe,
-                  onSelected: (_) => setState(() => _bpe = false),
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  onSelected: (_) => setState(() {
+                    _bpe = false;
+                    _assistantSize = null;
+                  }),
+                  labelPadding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                   materialTapTargetSize: MaterialTapTargetSize.padded,
                 ),
               ],
@@ -132,11 +180,13 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: context.tr(
-                    pl: 'Szukaj: 2", DN50, 51…',
-                    en: 'Search: 2", DN50, 51…'),
+                    pl: 'Szukaj: 2", DN50, 51…', en: 'Search: 2", DN50, 51…'),
                 isDense: true,
               ),
-              onChanged: (v) => setState(() => _q = v),
+              onChanged: (v) => setState(() {
+                _q = v;
+                _assistantSize = null;
+              }),
             ),
           ),
           Padding(
@@ -147,8 +197,10 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
                   child: Text(
                     _bpe
                         ? context.tr(
-                            pl: 'ASME BPE / ASTM A270 — standard farmaceutyczny, wymiar = OD calowy.',
-                            en: 'ASME BPE / ASTM A270 — pharma standard, sized by imperial OD.')
+                            pl:
+                                'ASME BPE / ASTM A270 — standard farmaceutyczny, wymiar = OD calowy.',
+                            en:
+                                'ASME BPE / ASTM A270 — pharma standard, sized by imperial OD.')
                         : context.tr(
                             pl: 'DIN 11850 — metryczna rura mleczarska, standard spożywczy UE.',
                             en: 'DIN 11850 — metric dairy tube, EU food-industry standard.'),
@@ -166,8 +218,8 @@ class _SanitaryTubeScreenState extends State<SanitaryTubeScreen> {
                       const Icon(Icons.touch_app, size: 11, color: _kMuted),
                       const SizedBox(width: 3),
                       Text(
-                        context.tr(pl: 'przytrzymaj = kopiuj',
-                            en: 'hold = copy'),
+                        context.tr(
+                            pl: 'przytrzymaj = kopiuj', en: 'hold = copy'),
                         style: const TextStyle(
                             color: _kMuted,
                             fontSize: 10,
@@ -213,7 +265,10 @@ class _HeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     TextStyle s(Color c) => TextStyle(
-        color: c, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.3);
+        color: c,
+        fontSize: 10,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.3);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 2),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -224,12 +279,25 @@ class _HeaderRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          SizedBox(width: 64, child: Text(context.tr(pl: 'ROZMIAR', en: 'SIZE'), style: s(_kMuted))),
-          Expanded(child: Text('OD', textAlign: TextAlign.center, style: s(_kOrange))),
-          Expanded(child: Text(context.tr(pl: 'ŚCIANKA', en: 'WALL'), textAlign: TextAlign.center, style: s(_kBlue))),
-          Expanded(child: Text('ID', textAlign: TextAlign.center, style: s(_kMuted))),
-          Expanded(child: Text('kg/m', textAlign: TextAlign.center, style: s(_kMuted))),
-          Expanded(child: Text('L/m', textAlign: TextAlign.center, style: s(_kGreen))),
+          SizedBox(
+              width: 64,
+              child: Text(context.tr(pl: 'ROZMIAR', en: 'SIZE'),
+                  style: s(_kMuted))),
+          Expanded(
+              child:
+                  Text('OD', textAlign: TextAlign.center, style: s(_kOrange))),
+          Expanded(
+              child: Text(context.tr(pl: 'ŚCIANKA', en: 'WALL'),
+                  textAlign: TextAlign.center, style: s(_kBlue))),
+          Expanded(
+              child:
+                  Text('ID', textAlign: TextAlign.center, style: s(_kMuted))),
+          Expanded(
+              child:
+                  Text('kg/m', textAlign: TextAlign.center, style: s(_kMuted))),
+          Expanded(
+              child:
+                  Text('L/m', textAlign: TextAlign.center, style: s(_kGreen))),
         ],
       ),
     );
@@ -268,11 +336,26 @@ class _Row extends StatelessWidget {
               ],
             ),
           ),
-          _Cell(value: t.od.toStringAsFixed(2), color: _kOrange, label: '${t.size} OD'),
-          _Cell(value: t.wall.toStringAsFixed(2), color: _kBlue, label: '${t.size} wall'),
-          _Cell(value: t.id.toStringAsFixed(2), color: const Color(0xFFE7ECF3), label: '${t.size} ID'),
-          _Cell(value: t.massPerMeter.toStringAsFixed(2), color: _kMuted, label: '${t.size} kg/m'),
-          _Cell(value: t.litresPerMeter.toStringAsFixed(3), color: _kGreen, label: '${t.size} L/m'),
+          _Cell(
+              value: t.od.toStringAsFixed(2),
+              color: _kOrange,
+              label: '${t.size} OD'),
+          _Cell(
+              value: t.wall.toStringAsFixed(2),
+              color: _kBlue,
+              label: '${t.size} wall'),
+          _Cell(
+              value: t.id.toStringAsFixed(2),
+              color: const Color(0xFFE7ECF3),
+              label: '${t.size} ID'),
+          _Cell(
+              value: t.massPerMeter.toStringAsFixed(2),
+              color: _kMuted,
+              label: '${t.size} kg/m'),
+          _Cell(
+              value: t.litresPerMeter.toStringAsFixed(3),
+              color: _kGreen,
+              label: '${t.size} L/m'),
         ],
       ),
     );
