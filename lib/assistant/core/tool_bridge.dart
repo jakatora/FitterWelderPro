@@ -10,6 +10,12 @@ abstract class ToolHandle {
   Future<Set<String>> apply(Map<String, Object?> fields);
 }
 
+/// One route may contain several calculators. Only its selected tab is active.
+abstract class TabbedToolHandle implements ToolHandle {
+  Set<String> get toolIds;
+  bool selectTool(String toolId);
+}
+
 class _HandleEntry {
   _HandleEntry(this.route, this.ready);
   final Route<dynamic>? route;
@@ -63,7 +69,7 @@ class ToolBridge implements ModuleContext {
 
   bool isReady(ToolHandle h) => _handles[h]?.ready ?? false;
   @override
-  String? get activeToolId => appRoutes.toolId ?? current?.toolId;
+  String? get activeToolId => current?.toolId ?? appRoutes.toolId;
   @override
   bool get onHomeOrAssistant =>
       appRoutes.top?.isFirst == true || appRoutes.toolId == 'assistant';
@@ -146,7 +152,14 @@ Future<ShowOutcome> showInModule(ShowInModule show,
   final bridge = ToolBridge.instance;
   final top = appRoutes.top;
   if (top is PopupRoute) return ShowOutcome.blockedByPopup;
-  final same = bridge.activeToolId == show.toolId;
+  var same = bridge.activeToolId == show.toolId;
+  final container = bridge.current;
+  if (!same &&
+      container is TabbedToolHandle &&
+      container.toolIds.contains(show.toolId)) {
+    if (!explicit && !bridge.onHomeOrAssistant) return ShowOutcome.offeredChip;
+    same = container.selectTool(show.toolId);
+  }
   var outcome = ShowOutcome.appliedInPlace;
   if (!same) {
     const transientTools = {'dn_mm', 'wall_thickness', 'heat_input'};
