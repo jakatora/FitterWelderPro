@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../domain/fitter/unit_conversion.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
@@ -7,31 +8,75 @@ import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
 
 /// Offline conversions; all four original categories remain available.
-class QuickConverterScreen extends StatelessWidget {
+class QuickConverterScreen extends StatefulWidget {
   const QuickConverterScreen({super.key});
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-        length: 4,
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(
-                context.tr(pl: 'Konwerter jednostek', en: 'Unit converter')),
-            bottom: TabBar(isScrollable: true, tabs: [
-              Tab(text: context.tr(pl: 'Długość', en: 'Length')),
-              Tab(text: context.tr(pl: 'Temperatura', en: 'Temperature')),
-              Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
-              Tab(text: context.tr(pl: 'Przepływ gazu', en: 'Gas flow')),
-            ]),
-          ),
-          body: const SafeArea(
-              top: false,
-              child: TabBarView(children: [
-                _ConversionTab(kind: _Kind.length),
-                _ConversionTab(kind: _Kind.temperature),
-                _ConversionTab(kind: _Kind.pressure),
-                _ConversionTab(kind: _Kind.flow),
-              ])),
+  State<QuickConverterScreen> createState() => _QuickConverterScreenState();
+}
+
+class _QuickConverterScreenState extends State<QuickConverterScreen>
+    with SingleTickerProviderStateMixin, ToolHandleHost<QuickConverterScreen> {
+  late final _tabs = TabController(length: 4, vsync: this);
+  int _revision = 0;
+  final _inputs = <_Kind, ({double value, String from, int revision})>{};
+  @override
+  String get toolId => 'unit_converter';
+  @override
+  Set<String> get supportedFields => const {'kind', 'value', 'from'};
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final kind =
+        _Kind.values.where((k) => k.name == fields['kind']).firstOrNull;
+    final value = fields['value'];
+    final from = fields['from'];
+    if (kind == null) return {'kind'};
+    if (value is! num || !value.isFinite) return {'value'};
+    if (from is! String) return {'from'};
+    final table = conversionBySymbol(kind.name, value.toDouble(), from);
+    if (table == null) return {'from'};
+    if (!table.ok) return {'value'};
+    if (!mounted) return fields.keys.toSet();
+    setState(() {
+      _inputs[kind] =
+          (value: value.toDouble(), from: from, revision: ++_revision);
+      _tabs.index = kind.index;
+    });
+    return {};
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          title:
+              Text(context.tr(pl: 'Konwerter jednostek', en: 'Unit converter')),
+          bottom: TabBar(controller: _tabs, isScrollable: true, tabs: [
+            Tab(text: context.tr(pl: 'Długość', en: 'Length')),
+            Tab(text: context.tr(pl: 'Temperatura', en: 'Temperature')),
+            Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
+            Tab(text: context.tr(pl: 'Przepływ gazu', en: 'Gas flow')),
+          ]),
         ),
+        body: SafeArea(
+            top: false,
+            child: TabBarView(controller: _tabs, children: [
+              for (final kind in _Kind.values)
+                _ConversionTab(kind: kind, input: _inputs[kind]),
+            ])),
       );
 }
 
@@ -71,7 +116,8 @@ String _fmt(double value) {
 String _label(String unit) => unit == 'in' ? 'in (")' : unit;
 
 class _ConversionTab extends StatefulWidget {
-  const _ConversionTab({required this.kind});
+  const _ConversionTab({required this.kind, this.input});
+  final ({double value, String from, int revision})? input;
   final _Kind kind;
   @override
   State<_ConversionTab> createState() => _ConversionTabState();
@@ -83,6 +129,25 @@ class _ConversionTabState extends State<_ConversionTab>
   late String _src = _units.first;
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _acceptInput();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConversionTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.input != widget.input) _acceptInput();
+  }
+
+  void _acceptInput() {
+    final input = widget.input;
+    if (input == null) return;
+    _ctrl.text = input.value.toString();
+    _src = input.from;
+  }
 
   List<MeasureUnit> get _unitValues {
     switch (widget.kind) {
@@ -167,8 +232,7 @@ class _ConversionTabState extends State<_ConversionTab>
     final conversion = value == null ? null : _convert(value);
     final error = _error(value, conversion?.issue);
     final valid = value != null && error == null;
-    final results =
-        valid ? _bySymbol(conversion!) : const <String, double>{};
+    final results = valid ? _bySymbol(conversion!) : const <String, double>{};
     final theme = Theme.of(context);
     return SingleChildScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -235,8 +299,7 @@ class _ConversionTabState extends State<_ConversionTab>
       // ACCEPTS '-' so a pasted negative stays visible and gets its error.
       // The shared formatter refuses (never trims) any other stray
       // character, so '1e5' cannot turn into '15' either.
-      keyboardType:
-          numberKeyboard(signed: widget.kind == _Kind.temperature),
+      keyboardType: numberKeyboard(signed: widget.kind == _Kind.temperature),
       inputFormatters: numberInputFormatters(signed: true),
       textInputAction: TextInputAction.done,
       onChanged: (_) => setState(() {}),

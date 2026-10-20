@@ -192,3 +192,25 @@ double? convertPressure(double value, PressureUnit from, PressureUnit to) =>
 /// [from] and [to] are not the same kind (actual vs standard flow).
 double? convertFlow(double value, FlowUnit from, FlowUnit to) =>
     convertFlowAll(value, from).values[to];
+
+/// Validates the wire format used to fill the converter screen.
+/// Unknown categories or source symbols are refused before any UI mutation.
+ConversionTable<MeasureUnit>? conversionBySymbol(
+    String kind, double value, String from) {
+  switch (kind) {
+    case 'length':
+      final unit = LengthUnit.fromSymbol(from);
+      return unit == null ? null : convertLengthAll(value, unit);
+    case 'temperature':
+      final unit = TemperatureUnit.fromSymbol(from);
+      return unit == null ? null : convertTemperatureAll(value, unit);
+    case 'pressure':
+      final unit = PressureUnit.fromSymbol(from);
+      return unit == null ? null : convertPressureAll(value, unit);
+    case 'flow':
+      final unit = FlowUnit.fromSymbol(from);
+      return unit == null ? null : convertFlowAll(value, unit);
+    default:
+      return null;
+  }
+}
