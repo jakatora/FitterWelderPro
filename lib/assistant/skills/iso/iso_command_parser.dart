@@ -448,10 +448,10 @@ const Set<String> _questionWords = {
   'which',
 };
 
-final RegExp _foreignRe =
-    RegExp(r'\b(?:zapisz|zapamietaj|zanotuj|save|store|remember|record|log|'
-        r'dziennik\w*|journal|projekt\w*|project|wps|raport\w*|report|'
-        r'tig|mig|mag|mma|welding|welder|cen\w*|koszt\w*|price|cost)\b');
+final RegExp _foreignRe = RegExp(
+    r'\b(?:oblicz\w*|policz\w*|przelicz\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|calculate|compute|convert|trim|cut|zapisz|zapamietaj|zanotuj|save|store|remember|record|log|'
+    r'dziennik\w*|journal|projekt\w*|project|wps|raport\w*|report|'
+    r'tig|mig|mag|mma|welding|welder|cen\w*|koszt\w*|price|cost)\b');
 
 /// Słowa innego modułu — wtedy to nie jest polecenie rysowania.
 bool _foreign(Utterance u) {

@@ -8,6 +8,10 @@ void main() {
     'nie obliczaj spadku 2% na 6 metrów': AppLanguage.pl,
     'proszę nie przeliczaj 2 cale na mm': AppLanguage.pl,
     'nie otwieraj fazowania': AppLanguage.pl,
+    'nie skracaj redukcji duża 100 mm mała 50 mm długość 200 mm docelowa 75 mm':
+        AppLanguage.pl,
+    'do not trim reducer large 100 mm small 50 mm length 200 mm target 75 mm':
+        AppLanguage.en,
     'nie zapisz TIG 90 A 2 mm': AppLanguage.pl,
     'do not convert 2 inches to mm': AppLanguage.en,
     "don't calculate slope 2% over 6 meters": AppLanguage.en,

@@ -179,8 +179,12 @@ void main() {
     await say(tester, 'Oblicz dylatację długość 50 m delta 100 C 304L');
     expect(ToolBridge.instance.activeToolId, 'thermal_expansion');
     expect(appRoutes.top, same(calculatorRoute));
+    await say(tester,
+        'Skróć redukcję duża 100 mm mała 50 mm długość 200 mm docelowa 75 mm');
+    expect(ToolBridge.instance.activeToolId, 'reducer');
+    expect(appRoutes.top, same(calculatorRoute));
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'thermal_expansion');
+    expect(ToolBridge.instance.activeToolId, 'reducer');
     expect(appRoutes.top, same(calculatorRoute));
     await close(tester);
   });

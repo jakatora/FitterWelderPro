@@ -60,8 +60,8 @@ bool looksLikeOtherCommand(Utterance u) =>
 final _negatedCommand = RegExp(
     r'^(?:(?:prosze|please|hej|hey|asystencie|asystent)\s+)*'
     r'(?:nie\s+(?:oblicz\w*|policz\w*|przelicz\w*|otwier\w*|otworz\w*|pokaz\w*|'
-    r'rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
-    r'|(?:do not|dont|don t)\s+(?:calculate|compute|convert|open|show|draw|save|add|delete|set|change|insert)\b)');
+    r'skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
+    r'|(?:do not|dont|don t)\s+(?:calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
 
 /// Explicit calculations may open their calculator, unlike factual questions.
@@ -71,6 +71,13 @@ bool requestsCalculation(Utterance u) =>
       'oblicz',
       'policz',
       'przelicz',
+      'wylicz',
+      'skroc',
+      'przytn',
+      'ciec',
+      'cieci',
+      'trim',
+      'cut',
       'calculate',
       'compute',
       'convert'

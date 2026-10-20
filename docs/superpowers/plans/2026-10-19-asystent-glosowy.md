@@ -763,3 +763,42 @@ Test sprawdza, że:
   zgłoszeń, kolejne grupy umiejętności i odbiór mikrofonu na telefonie.
 
 Walidacja etapu: pełny przebieg 5715 PASS; najnowsze przepływy 13 PASS; heat.input 7 PASS; analyze bez uwag; build web PASS. Produkcyjny /health HTTP 200; nie wykonywano deployu.
+
+## Stan realizacji — 2026-10-20 (po wdrożeniu kont)
+
+Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całej wizji.
+
+- Railway: osobny projekt Fitter, trwały wolumen `/data`, schemat SQLite 5.
+  Backend `main` `1081eb5`, PR #1 połączony. Deployment
+  `cdc127e7-3d01-44dd-8fae-8b1eef627d8a` przeszedł i zachował dane po restarcie.
+  Realny HTTP potwierdził konta, profile, zmianę hasła/unieważnienie sesji,
+  usunięcie konta testowego i dostęp do raportów: admin 200, user 403, anon 401.
+  Raport kontrolny potwierdził maskowanie na serwerze i zmianę statusu.
+- Wspólny panel rozmowy i ToolBridge działają. Wszystkie osiem zakładek
+  FitterToolsScreen ma uchwyty, walidację i jawne przeliczenie.
+- Grupa 2.1 ma lokalne umiejętności i sterowanie ekranami: `pipe.weight`,
+  `steel.weight`, `units.convert`, `elbow.takeout`, `sanitary.tube`.
+  Masa stali wypełnia draft kalkulatora, bez dodania pozycji ani zmiany cen listy.
+- Grupa 2.2: działają `pipe.slope`, `rolling.offset`, `bevel.geometry`,
+  `thermal.expansion`, dodatkowe `slope.cut` i `reducer.cut`.
+  Nadal trzeba wdrożyć polecenia `elbow.cut`, `elbow.rotation`, `insert.length`.
+- Z grupy 2.3 działa `heat.input`; pozostają pozostałe kalkulatory spawalnicze.
+  Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
+- Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
+  Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
+- Nadal potrzebne są pełny etap 4 (odczyt/zapisy oraz manifest pokrycia),
+  domknięcie wszystkich ścieżek zgłoszeń i końcowy odbiór etapu 6.
+- Brak tabeli w rozpoznanej umiejętności może zwrócić
+  `FailedResult.reportMissingCapability`. Taki raport jest lokalnie maskowany,
+  deduplikowany i wysyłany tylko zgodnie z osobną zgodą. Błędne wymiary nie
+  tworzą raportu brakującej funkcji.
+- Jawne oblicz/przelicz/skróć/trim przechodzi do kalkulatora także z innego
+  ekranu. Negacje nie wykonują działania. Polecenie skracania redukcji nie
+  trafia do rysowania kształtki w ISO.
+
+Dowody: testy poszczególnych umiejętności w `test/assistant/`, testy rzeczywistych
+formularzy i przejść w `tool_bridge_flow_test.dart` / `fitter_tools_handles_test.dart`.
+Najnowsza regresja redukcji: 1119 PASS, analiza zmienionych plików czysta.
+Pełny checkpoint `4f8359c`: 5911 PASS, web build i debug APK Androida przeszły.
+Nowsze moduły są sprawdzane regresjami; starszy APK nie zawiera późniejszych zmian.
+Test mikrofonu na urządzeniu i końcowy build całej wizji pozostają do wykonania.
