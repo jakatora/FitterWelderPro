@@ -13,7 +13,10 @@ import 'support/assistant_test_support.dart';
 
 void main() {
   test('500 wypowiedzi < 1 s', () async {
-    final catalog = buildSkillCatalog(actions: FakeActionsPort());
+    final harness = BrainHarness();
+    addTearDown(harness.timer.dispose);
+    final catalog =
+        buildSkillCatalog(actions: harness.actions, timer: () => harness.timer);
     final corpus = <String>[
       for (final s in catalog) ...[
         for (final e in s.examples) ...[e.pl, e.en],
@@ -47,7 +50,8 @@ void main() {
     }
     sw.stop();
     // ignore: avoid_print
-    print('router: ${utterances.length} wypowiedzi w ${sw.elapsedMilliseconds} ms');
+    print(
+        'router: ${utterances.length} wypowiedzi w ${sw.elapsedMilliseconds} ms');
     expect(sw.elapsed, lessThan(const Duration(seconds: 1)));
   });
 }

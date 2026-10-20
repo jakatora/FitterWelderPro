@@ -5,6 +5,18 @@ import '../../core/skill.dart';
 import '../../../i18n/app_language.dart';
 import '../../core/command_words.dart';
 
+final _defectHints = {
+  for (final d in kWeldDefects)
+    for (final word in normalizeGlossary(
+            '${d.title.pl} ${d.title.en} ${d.keywords.join(" ")}')
+        .split(' '))
+      if (word.length >= 4) word.substring(0, 4)
+};
+final _defectCodes = {
+  for (final d in kWeldDefects)
+    for (final code in d.codes) '$code'
+};
+
 final _frame = RegExp(
     r'\b(?:wyjasnij|wytlumacz|explain|pokaz|otworz|show|open|dlaczego|czemu|pojawia|pojawiaja|sie|przyczyn\w*|powod\w*|jak|napraw\w*|usunac|wada|wady|spoin\w*|spawania|spawaniu|przy|dla|proces\w*|metod\w*|w|we|i|na|z|ze|mi|mam|jest|wystepuje|what|why|does|do|occur|occurs|appear|appears|cause|causes|of|how|to|fix|repair|weld|welding|defect|defects|in|with|the|a|an|and|process|during)\b');
 Map<String, Object?> _slots(Utterance original) {
@@ -18,7 +30,7 @@ Map<String, Object?> _slots(Utterance original) {
     final aliases = switch (p) {
       DefectProcess.mma111 => ['mma', 'smaw', '111'],
       DefectProcess.mag135 => ['mag', '135', '138'],
-      DefectProcess.fcaw136 => ['136'],
+      DefectProcess.fcaw136 => ['136', 'fcaw g'],
       DefectProcess.fcaw114 => ['fcaw s', '114'],
       DefectProcess.tig141 => ['tig', 'gtaw', '141'],
       DefectProcess.saw121 => ['saw', '121', 'luk kryty'],
@@ -32,7 +44,7 @@ Map<String, Object?> _slots(Utterance original) {
     if (aliases.any((a) => RegExp('\\b$a\\b').hasMatch(f))) processes.add(p);
   }
   if (RegExp(r'\bfcaw\b').hasMatch(f) &&
-      !RegExp(r'\b(?:fcaw s|136|114)\b').hasMatch(f)) {
+      !RegExp(r'\b(?:fcaw s|fcaw g|136|114)\b').hasMatch(f)) {
     processes.addAll([DefectProcess.fcaw136, DefectProcess.fcaw114]);
   }
   final materials = <DefectMaterial>{};
@@ -62,7 +74,7 @@ Map<String, Object?> _slots(Utterance original) {
       .replaceAll(RegExp(r'\b(?:proces\w*|process)\s+\d{3}\b'), ' ')
       .replaceAll(
           RegExp(
-              r'\b(?:fcaw s|mma|smaw|mag|fcaw|tig|gtaw|saw|mig|111|135|138|136|114|141|121|131|luk kryty)\b'),
+              r'\b(?:fcaw s|fcaw g|mma|smaw|mag|fcaw|tig|gtaw|saw|mig|111|135|138|136|114|141|121|131|luk kryty)\b'),
           ' ')
       .replaceAll(
           RegExp(
@@ -99,6 +111,7 @@ Map<String, Object?> _slots(Utterance original) {
 }
 
 List<WeldDefect> _hits(String query) {
+  if (normalizeGlossary(query).length < 3) return [];
   final hits = searchDefects(query);
   final q = normalizeGlossary(query);
   final exact = hits
@@ -172,6 +185,36 @@ class DefectsCausesSkill extends AssistantSkill {
       'repair',
       'fix'
     ]);
+    final hasDefectHint = u.tokens.any((v) =>
+        _defectCodes.contains(v) ||
+        (v.length >= 4 && _defectHints.contains(v.substring(0, 4))));
+    if (!intent &&
+        !hasDefectHint &&
+        !(u.hasStem(const ['wad', 'defect']) &&
+            u.hasStem(const ['spoin', 'weld']))) {
+      return null;
+    }
+    if (!intent &&
+        !u.tokens.any(const [
+          'mma',
+          'smaw',
+          'mag',
+          'fcaw',
+          'tig',
+          'gtaw',
+          'saw',
+          'mig',
+          '111',
+          '135',
+          '138',
+          '136',
+          '114',
+          '141',
+          '121',
+          '131'
+        ].contains)) {
+      return null;
+    }
     final s = _slots(u);
     // A defect with process/amps is a request for help, not a parameter
     // record merely because the legacy parser sees TIG and 60 A.

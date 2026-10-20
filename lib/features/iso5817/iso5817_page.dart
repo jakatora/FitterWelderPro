@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/iso5817/iso5817_limits.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/iso5817/iso5817_table.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -43,7 +44,70 @@ class Iso5817Page extends StatefulWidget {
   State<Iso5817Page> createState() => _Iso5817PageState();
 }
 
-class _Iso5817PageState extends State<Iso5817Page> {
+class _Iso5817PageState extends State<Iso5817Page>
+    with ToolHandleHost<Iso5817Page> {
+  bool _assistantLimitOnly = false;
+  @override
+  String get toolId => 'iso5817';
+  @override
+  Set<String> get supportedFields => const {
+        'item_id',
+        'kind',
+        'level',
+        't',
+        'b',
+        'b_root',
+        'a',
+        'measured',
+        'short',
+        'limit_only'
+      };
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    if (rejected.isNotEmpty) return rejected;
+    final item = fields['item_id'] is String
+        ? iso5817ItemById(fields['item_id'] as String)
+        : null;
+    final kind = Iso5817WeldKind.values
+        .where((v) => v.name == fields['kind'])
+        .firstOrNull;
+    final level =
+        Iso5817Level.values.where((v) => v.name == fields['level']).firstOrNull;
+    if (item == null ||
+        kind == null ||
+        !item.appliesTo(kind) ||
+        level == null ||
+        fields['short'] is! bool ||
+        fields['limit_only'] is! bool) {
+      return fields.keys.toSet();
+    }
+    for (final key in ['t', 'b', 'b_root', 'a', 'measured']) {
+      final v = fields[key];
+      if (v != null &&
+          (v is! num || !v.isFinite || v < 0 || (key != 'measured' && v == 0))) {
+        return fields.keys.toSet();
+      }
+    }
+    setState(() {
+      _itemId = item.id;
+      _kind = kind;
+      _level = level;
+      _isShort = fields['short'] as bool;
+      _assistantLimitOnly = fields['limit_only'] as bool;
+      for (final entry in {
+        't': _t,
+        'b': _b,
+        'b_root': _bRoot,
+        'a': _a,
+        'measured': _measured
+      }.entries) {
+        entry.value.text = fields[entry.key]?.toString() ?? '';
+      }
+    });
+    return {};
+  }
+
   Iso5817Level _level = Iso5817Level.c;
   Iso5817WeldKind _kind = Iso5817WeldKind.butt;
   String _itemId = '1.7';
@@ -59,6 +123,7 @@ class _Iso5817PageState extends State<Iso5817Page> {
   @override
   void initState() {
     super.initState();
+    markReady();
     final id = widget.initialItemId;
     final initial = id == null ? null : iso5817ItemById(id);
     if (initial != null) {
@@ -90,8 +155,7 @@ class _Iso5817PageState extends State<Iso5817Page> {
   Iso5817Input get _input => Iso5817Input(
         t: parseDecimal(_t.text),
         b: parseDecimal(_b.text),
-        bRoot:
-            _kind == Iso5817WeldKind.butt ? parseDecimal(_bRoot.text) : null,
+        bRoot: _kind == Iso5817WeldKind.butt ? parseDecimal(_bRoot.text) : null,
         a: _kind == Iso5817WeldKind.fillet ? parseDecimal(_a.text) : null,
       );
 
@@ -309,10 +373,12 @@ class _Iso5817PageState extends State<Iso5817Page> {
               padding: const EdgeInsets.only(bottom: 10),
               child: Text(
                 context.tr(
-                  pl: 'Ocena obecności — wybranie pozycji oznacza, że '
-                      'niezgodność stwierdzono.',
-                  en: 'Presence check — choosing this item means the '
-                      'imperfection was found.',
+                  pl: _assistantLimitOnly
+                      ? 'Przegląd limitu: obecność niezgodności nie została potwierdzona.'
+                      : 'Ocena obecności — wybranie pozycji oznacza, że niezgodność stwierdzono.',
+                  en: _assistantLimitOnly
+                      ? 'Limit reference: no imperfection presence has been confirmed.'
+                      : 'Presence check — choosing this item means the imperfection was found.',
                 ),
                 style: const TextStyle(color: kTextSec, fontSize: 12),
               ),
@@ -323,18 +389,31 @@ class _Iso5817PageState extends State<Iso5817Page> {
           const SizedBox(height: 6),
           _RequiredReadout(assessment: assessment, input: input, en: en),
           const SizedBox(height: 14),
-          _VerdictBox(assessment: assessment, en: en),
+          if (_assistantLimitOnly)
+            OutlinedButton(
+                key: const ValueKey('iso5817-enable-assessment'),
+                onPressed: () => setState(() => _assistantLimitOnly = false),
+                child: Text(context.tr(
+                    pl: item.measure == Iso5817Measure.presence
+                        ? 'Potwierdzam obecność — oceń'
+                        : 'Oceń podany pomiar',
+                    en: item.measure == Iso5817Measure.presence
+                        ? 'Confirm presence and assess'
+                        : 'Assess the supplied measurement')))
+          else
+            _VerdictBox(assessment: assessment, en: en),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            key: const ValueKey('iso5817-share'),
-            onPressed: assessment.outcome == Iso5817Outcome.incomplete
-                ? null
-                : () => _share(assessment),
-            icon: const Icon(Icons.share_outlined),
-            label: Text(context.tr(
-                pl: 'Udostępnij wynik do protokołu',
-                en: 'Share the result for the report')),
-          ),
+          if (!_assistantLimitOnly)
+            OutlinedButton.icon(
+              key: const ValueKey('iso5817-share'),
+              onPressed: assessment.outcome == Iso5817Outcome.incomplete
+                  ? null
+                  : () => _share(assessment),
+              icon: const Icon(Icons.share_outlined),
+              label: Text(context.tr(
+                  pl: 'Udostępnij wynik do protokołu',
+                  en: 'Share the result for the report')),
+            ),
           const SizedBox(height: 24),
           _SectionTitle(context.tr(
             pl: 'Dopuszczalne wartości — poziom ${_level.letter}',
@@ -610,9 +689,8 @@ class _RequiredReadout extends StatelessWidget {
     final limit = a.requiredLimit;
     final item = a.item;
     final rule = limit.rule;
-    final ruleText = rule == null
-        ? ''
-        : iso5817RuleText(rule, en: en, symbol: item.symbol);
+    final ruleText =
+        rule == null ? '' : iso5817RuleText(rule, en: en, symbol: item.symbol);
     final calc = iso5817LimitCalc(limit, input, en: en);
     final isValue = limit.status == Iso5817LimitStatus.value;
     final value = isValue ? iso5817Num(limit.value!, en: en) : '—';
@@ -738,8 +816,7 @@ class _VerdictBox extends StatelessWidget {
           ),
           if (remark.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(remark,
-                style: const TextStyle(color: kTextMut, fontSize: 12)),
+            Text(remark, style: const TextStyle(color: kTextMut, fontSize: 12)),
           ],
           if (note2023.isNotEmpty) ...[
             const SizedBox(height: 4),

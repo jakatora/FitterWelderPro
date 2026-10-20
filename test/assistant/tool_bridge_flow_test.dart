@@ -317,6 +317,21 @@ void main() {
     expect(find.textContaining('Proces: 141 TIG'), findsOneWidget);
     await close(tester);
   });
+  testWidgets('chat shows the ISO limit then assesses a supplied measurement',
+      (tester) async {
+    await boot(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester,
+        'Pokaż limit ISO 5817 2014 5011 poziom B t 10 mm spoina czołowa');
+    expect(ToolBridge.instance.activeToolId, 'iso5817');
+    expect(find.textContaining('Pokazuję limit; nie oceniam'), findsOneWidget);
+    await say(tester, 'a pomiar 0,4 mm');
+    expect(ToolBridge.instance.activeToolId, 'iso5817');
+    expect(find.textContaining('Pomiar: h = 0,4 mm'), findsOneWidget);
+    expect(find.textContaining('Wynik:'), findsOneWidget);
+    await close(tester);
+  });
   testWidgets(
       'missing table is queued privately once; invalid input does not create a bug report',
       (tester) async {

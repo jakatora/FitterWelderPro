@@ -1012,3 +1012,35 @@ odrębny router+umiejętność+pełny czat561PASS. Analiza zmienionego kodu czys
 Checkpoint całej aplikacji nadal a105026:6489PASS, nie przypisywać go nowszym
 zmianom. Dalej2.5: ISO5817, elektrody, zawiesia, tarcze, NDS dymów, spoiwo;
 następnie pozostałe wymagania ISO/rejestrów/pokrycia/raportów/odbioru.
+
+2026-10-21 — `iso5817.limit`: odpowiedzi z iso5817Limit/assessIso5817 oraz
+wspólnego buildIso5817Report. Wszystkie nazwy pozycji PL/EN z istniejącej tabeli,
+numery ISO6520-1 i identyfikatory pozycji; warianty wymagają wyboru, nie pierwszego
+trafienia. Jawne poziom, rodzaj spoiny, t i wymiary używane przez regułę. Krótkie/
+długie zbierane z definicją domeny. Nie bierze C, czołowej, krótkiej ani t z UI.
+Jednostki pomiaru oddzielają mm od stopni, kąt >180 odrzucony. Liczby słownie,
+przecinki i literowane be/ce/de działają; odpowiedź na pytanie o wymiar może być
+samą liczbą z jednostką. Kontynuacja „a pomiar 0,4 mm” zachowuje jawnie podane
+wcześniej dane w oknie rozmowy; nie uruchamia oceny cytowanych poleceń.
+Numery w wymiarach nie stają się kodami wad; kod2011 nie jest automatycznie
+rokiem normy. Zwykłe polecenia innych kalkulatorów nie są przejmowane przez ISO,
+także na aktywnym ekranie ISO. Zakres RT/UT, fatigue/B90/B125, aluminium/beam,
+częściowy przetop i systematyczne niezgodności nie dostają zmyślonego werdyktu.
+Źródłowa tabela jest2014. Przed użyciem asystent wymaga2014 w pytaniu lub jawnego
+potwierdzenia w rozmowie; inne wydanie trafia do brakującej możliwości. Status
+wycofania2014 i zastąpienia2023 sprawdzony2026-10-21 w oficjalnym ISO:
+https://www.iso.org/standard/54952.html . Nie przenosić liczb2014 na2023.
+Iso5817Page ma atomowy uchwyt item_id/kind/level/t/b/b_root/a/measured/short/
+limit_only, czyści stare wymiary i pomiar. Tryb limit_only nie stwierdza obecności
+pęknięcia, nie pokazuje werdyktu ani eksportu protokołu. Użytkownik może jawnie
+przejść do oceny pomiaru/obecności, albo podać pomiar w rozmowie.
+Testy ujawniły wcześniejszą kolizję bare FCAW-G z defects.causes: qualifier G
+jest rozpoznany, zapytanie jednoliterowe nie wybiera wady. Dodano szybkie bramki
+nazw i cache indeksu ISO. Test wydajności używa prawdziwego WeldTimerService
+z atrapą efektów (jak BrainHarness), zamiast wywoływać pluginy bez bindingu.
+Nie podniesiono progu: 500 wypowiedzi860ms w regresji,920ms w kontroli dopowiedzenia.
+Regresja assistant+ISO UI+domena1474PASS; po dopowiedzeniu dodatkowe29PASS
+(umiejętność, pełny czat, performance). Cała grupa2.5 nadal nieukończona:
+electrodes.exposure, rigging.colour, grinding.stripe, fume.oel, filler.pick.
+Pełny checkpoint aplikacji nadal a105026:6489PASS. Fizyczny mikrofon, systemowe
+alarmy i nowy build pozostają w etapie6. Backend w tej zmianie bez operacji.
