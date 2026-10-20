@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/welding/power_source.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
@@ -48,7 +49,59 @@ class PowerSourcePage extends StatefulWidget {
   State<PowerSourcePage> createState() => _PowerSourcePageState();
 }
 
-class _PowerSourcePageState extends State<PowerSourcePage> {
+class _PowerSourcePageState extends State<PowerSourcePage>
+    with ToolHandleHost<PowerSourcePage> {
+  @override
+  String get toolId => 'power_source';
+  @override
+  Set<String> get supportedFields => const {'plate', 'weld_current_a'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    final points = fields['plate'];
+    final current = fields['weld_current_a'];
+    final rows = <PlateRowInput>[];
+    if (points is! List || points.isEmpty || points.length > kPlateRows) {
+      rejected.add('plate');
+    } else {
+      for (var i = 0; i < points.length; i++) {
+        final p = points[i];
+        if (p is! Map ||
+            p.keys.toSet().difference({'current_a', 'duty_pct'}).isNotEmpty ||
+            p['current_a'] is! num ||
+            p['duty_pct'] is! num) {
+          rejected.add('plate');
+        } else {
+          rows.add(PlateRowInput(
+              row: i + 1,
+              currentA: (p['current_a'] as num).toDouble(),
+              dutyPct: (p['duty_pct'] as num).toDouble()));
+        }
+      }
+    }
+    if (current is! num || !current.isFinite) rejected.add('weld_current_a');
+    if (rejected.isEmpty &&
+        computeDutyCycle(DutyCycleInput(
+                rows: rows, weldCurrentA: (current as num).toDouble())) ==
+            null) {
+      rejected.addAll({'plate', 'weld_current_a'});
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      _plateEdited = true;
+      _fillPlate([for (final r in rows) PlatePoint(r.currentA, r.dutyPct)]);
+      _current.text = current.toString();
+      // A new duty calculation does not supply a cable installation.
+      _leadWeld.clear();
+      _leadReturn.clear();
+      _cableDuty.clear();
+      _dropLimit.clear();
+    });
+    return {};
+  }
+
   // Przykład z typowej tabliczki MMA/TIG.
   static const _defaultPlate = [
     PlatePoint(200, 35),
@@ -74,7 +127,7 @@ class _PowerSourcePageState extends State<PowerSourcePage> {
     super.initState();
     _fillPlate(_defaultPlate);
     _dropLimit.text = psNum(kDefaultDropLimitV, en: false);
-    unawaited(_loadPlate());
+    unawaited(_loadPlate().whenComplete(markReady));
   }
 
   @override

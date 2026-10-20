@@ -207,8 +207,17 @@ void main() {
     await say(tester, 'Oblicz CE C 0,2 Mn 1 pozostałe zero grubość 15 mm');
     expect(ToolBridge.instance.activeToolId, 'heat_input');
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+    await say(
+        tester, 'Oblicz cykl pracy tabliczka 200 A 60% prąd spawania 150 A');
+    expect(ToolBridge.instance.activeToolId, 'power_source');
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('ps-current')))
+            .controller!
+            .text,
+        '150.0');
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'heat_input');
+    expect(ToolBridge.instance.activeToolId, 'power_source');
     await close(tester);
   });
   testWidgets(

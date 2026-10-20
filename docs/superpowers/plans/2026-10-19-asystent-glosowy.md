@@ -786,8 +786,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
-- Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85` i `preheat.ce`;
-  pozostają power.duty/power.cable i tungsten.pick.
+- Z grupy 2.3 działają `heat.input`, `shade.number`, `cooling.t85`, `preheat.ce`
+  i `power.duty`; pozostają power.cable i tungsten.pick.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -861,3 +861,17 @@ wraca do pierwszej zakładki. Pełny czat cooling→CE i formularz sprawdzone.
 
 CE/podgrzewanie: regresja assistant + HeatInput UI + preheat domena 1220 PASS,
 analiza czysta. Osobno umiejętność i pełny czat: 19 PASS.
+
+2026-10-21 — `power.duty`: 1–3 jawne pary prąd A/cykl % z tabliczki i osobny
+prąd spawania. Wspólne computeDutyCycle/powerSourceShareText/dutyAmbientNote;
+zaokrąglenia ostrożne i pierwszeństwo tabliczki zachowane. Powyżej największego
+prądu z tabliczki: wynik poza zakresem zamiast ekstrapolacji. Niepełne dodatkowe
+wiersze i niezwiązane procenty nie są pomijane. Prąd spawania nie może stać się
+punktem tabliczki tylko dlatego, że stoi przy nim procent. Korekta tabliczki
+zastępuje cały zestaw. Mowa słowna A/procent działa w testach.
+PowerSourcePage ma atomowy uchwyt gotowy po asynchronicznym odczycie zapisanej
+tabliczki. Polecenie wypełnia draft bez zapisu tabliczki w SharedPreferences;
+usuwa stare dane instalacji przewodów, których użytkownik nie podał dla tego
+obliczenia. Pełny czat CE→power_source, rzeczywisty wynik i ochrona zapisu
+sprawdzone. Regresja assistant+power_source UI+domena: 1204 PASS.
+Analiza zmienionych plików power.duty czysta.
