@@ -1,5 +1,4 @@
 import '../../../domain/fitter/rolling_offset.dart';
-import '../../../utils/decimal_parse.dart';
 import '../../core/skill.dart';
 import '../core/skill_words.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
@@ -13,24 +12,8 @@ Map<String, Object?> _slots(Utterance u) {
   final spread = lengthNear(u, _spread);
   if (rise != null) result['rise_mm'] = rise;
   if (spread != null) result['spread_mm'] = spread;
-  final angles = <double>{};
-  for (var i = 0; i < u.items.length; i++) {
-    if (!u.items[i].isNumber) continue;
-    final before = i > 0 ? u.items[i - 1].word : '';
-    final after = i + 1 < u.items.length ? u.items[i + 1].word : '';
-    if (['kat', 'angle', 'elbow', 'kolano'].contains(before) ||
-        after.startsWith('stopn') ||
-        after.startsWith('degree') ||
-        after == 'deg') {
-      angles.add(signedQuantity(u, i));
-    }
-  }
-  for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*°').allMatches(u.raw)) {
-    angles.add(parseDecimal(m[1]!)!);
-  }
-  if (angles.isNotEmpty) {
-    result['angle_deg'] = angles.length == 1 ? angles.single : double.nan;
-  }
+  final angle = angleValue(u);
+  if (angle != null) result['angle_deg'] = angle;
   return result;
 }
 

@@ -73,10 +73,35 @@ double? percentValue(Utterance u) {
     }
   }
   for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*%').allMatches(u.raw)) {
-    final value = parseDecimal(m[1]!)!;
+    final value = parseDecimal(m[1]!) ?? double.nan;
     final spokenMinus = RegExp(r'minus\s*$', caseSensitive: false)
         .hasMatch(u.raw.substring(0, m.start));
     values.add(spokenMinus ? -value.abs() : value);
+  }
+  return values.length > 1 ? double.nan : values.singleOrNull;
+}
+
+/// Explicit angle labels / degree units only, never an arbitrary nearby number.
+double? angleValue(Utterance u) {
+  final values = <double>{};
+  for (var i = 0; i < u.items.length; i++) {
+    if (!u.items[i].isNumber) continue;
+    final before = i > 0 ? u.items[i - 1].word : '';
+    final label = before == 'minus' && i > 1 ? u.items[i - 2].word : before;
+    final after = i + 1 < u.items.length ? u.items[i + 1].word : '';
+    if (const ['kat', 'angle', 'elbow', 'kolano'].contains(label) ||
+        after.startsWith('stopn') ||
+        after.startsWith('degree') ||
+        after == 'deg') {
+      values.add(
+          lengthUnitScale(after) != null ? double.nan : signedQuantity(u, i));
+    }
+  }
+  for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*°').allMatches(u.raw)) {
+    final v = parseDecimal(m[1]!) ?? double.nan;
+    final minus = RegExp(r'minus\s*$', caseSensitive: false)
+        .hasMatch(u.raw.substring(0, m.start));
+    values.add(minus ? -v.abs() : v);
   }
   return values.length > 1 ? double.nan : values.singleOrNull;
 }

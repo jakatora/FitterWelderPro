@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../assistant/core/tool_bridge.dart';
 
 import '../data/elbow_takeouts.dart';
 import '../domain/fitter/size_query.dart';
@@ -6,11 +7,11 @@ import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
 import '../theme/app_theme.dart' show kTextMut;
 
-const _kCard   = Color(0xFF141821);
+const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
 const _kOrange = Color(0xFFFF8E1E);
-const _kSec    = Color(0xFF9BA3C7);
-const _kMuted  = kTextMut;
+const _kSec = Color(0xFF9BA3C7);
+const _kMuted = kTextMut;
 const _kAccent = Color(0xFF4A9EFF);
 
 /// Quick reference: centre-to-face dimensions for butt-weld elbows.
@@ -22,7 +23,33 @@ class ElbowTakeoutScreen extends StatefulWidget {
   State<ElbowTakeoutScreen> createState() => _ElbowTakeoutScreenState();
 }
 
-class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
+class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen>
+    with ToolHandleHost<ElbowTakeoutScreen> {
+  @override
+  String get toolId => 'elbow_takeouts';
+  @override
+  Set<String> get supportedFields => const {'dn'};
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final dn = fields['dn'];
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    if (dn is! int || !kElbowTakeouts.any((r) => r.dn == dn)) return {'dn'};
+    if (!mounted) return {'dn'};
+    setState(() {
+      _q = 'DN$dn';
+      _filter.text = _q;
+    });
+    return {};
+  }
+
   final _filter = TextEditingController();
   String _q = '';
   // Cache filtered rows so we don't walk the full list on every rebuild
@@ -66,8 +93,7 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: context.tr(
-                    pl: 'Szukaj: DN50, 2", 100…',
-                    en: 'Search: DN50, 2", 100…'),
+                    pl: 'Szukaj: DN50, 2", 100…', en: 'Search: DN50, 2", 100…'),
                 isDense: true,
                 counterText: '',
               ),
@@ -100,7 +126,8 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.search_off, size: 48, color: _kMuted),
+                          const Icon(Icons.search_off,
+                              size: 48, color: _kMuted),
                           const SizedBox(height: 12),
                           Text(
                             context.tr(
@@ -118,7 +145,8 @@ class _ElbowTakeoutScreenState extends State<ElbowTakeoutScreen> {
                                 pl: 'Spróbuj: DN50, 2", 1 1/2", 100',
                                 en: 'Try: DN50, 2", 1 1/2", 100'),
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: _kMuted, fontSize: 12),
+                            style:
+                                const TextStyle(color: _kMuted, fontSize: 12),
                           ),
                         ],
                       ),
@@ -151,9 +179,9 @@ class _LegendBar extends StatelessWidget {
       child: Row(
         children: const [
           _LegendChip(label: 'DN / NPS', color: _kMuted),
-          _LegendChip(label: 'LR 90°',   color: _kOrange),
-          _LegendChip(label: 'SR 90°',   color: _kAccent),
-          _LegendChip(label: 'LR 45°',   color: _kSec),
+          _LegendChip(label: 'LR 90°', color: _kOrange),
+          _LegendChip(label: 'SR 90°', color: _kAccent),
+          _LegendChip(label: 'LR 45°', color: _kSec),
         ],
       ),
     );
@@ -266,12 +294,9 @@ class _Cell extends StatelessWidget {
         children: [
           Text(value,
               style: TextStyle(
-                  color: color,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800)),
+                  color: color, fontSize: 16, fontWeight: FontWeight.w800)),
           Text(unit,
-              style: const TextStyle(
-                  color: _kMuted, fontSize: 10, height: 1)),
+              style: const TextStyle(color: _kMuted, fontSize: 10, height: 1)),
         ],
       ),
     );

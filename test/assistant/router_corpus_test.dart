@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/widgets/tool_registry.dart' show toolById;
 
 import 'support/assistant_test_support.dart';
 
@@ -27,6 +28,9 @@ void main() {
     for (final s in catalog) {
       expect(s.examples, isNotEmpty, reason: s.id);
       if (s.tier == AssistantTier.b && s.fallbackOrder == null) {
+        expect(s.toolId, isNotNull, reason: s.id);
+        expect(toolById(s.toolId!), isNotNull,
+            reason: '${s.id}: unknown calculator route');
         expect(s.examples.length, greaterThanOrEqualTo(6), reason: s.id);
         expect(s.rejections.length, greaterThanOrEqualTo(3), reason: s.id);
       }
