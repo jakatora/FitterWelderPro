@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../assistant/assistant_engine.dart';
+import '../assistant/assistant_parser.dart' show parseAssistantCommand;
 import '../assistant/assistant_history.dart';
 import '../assistant/assistant_intent_client.dart';
 import '../assistant/assistant_intents.dart';
@@ -12,6 +13,14 @@ import '../assistant/assistant_local_ops.dart';
 import '../assistant/assistant_tools.dart';
 import '../assistant/assistant_validator.dart';
 import '../assistant/speech_io.dart';
+import '../assistant/core/brain.dart';
+import '../app_navigator.dart';
+import '../assistant/core/assistant_panel_controller.dart';
+import '../assistant/core/assistant_feedback_recorder.dart';
+import '../assistant/skills/iso/iso_command_parser.dart';
+import 'iso_notebook_screen.dart';
+import '../assistant/core/skill.dart';
+import '../assistant/skills/skill_catalog.dart';
 import '../database/weld_journal_dao.dart';
 import '../database/weld_param_dao.dart';
 import '../domain/weld_journal/weld_defaults.dart';
@@ -66,11 +75,13 @@ const _kOk = Color(0xFF35C88B);
 // objects instead of recomputing `withValues(alpha: ...)` per frame.
 const _kAccentSoft = Color(0x26E8C14B); // ~0.15 alpha — assistant avatar
 const _kAccentChipFill = Color(0x1AE8C14B); // ~0.10 alpha — citation chip fill
-const _kAccentChipBorder = Color(0x40E8C14B); // ~0.25 alpha — citation chip border
+const _kAccentChipBorder =
+    Color(0x40E8C14B); // ~0.25 alpha — citation chip border
 const _kAccentDot = Color(0xB3E8C14B); // ~0.70 alpha — typing dot
 const _kBlueSoft = Color(0x264A9EFF); // ~0.15 alpha — user avatar
 const _kBlueBubble = Color(0x2E4A9EFF); // ~0.18 alpha — user bubble fill
-const _kBlueBubbleBorder = Color(0x4D4A9EFF); // ~0.30 alpha — user bubble border
+const _kBlueBubbleBorder =
+    Color(0x4D4A9EFF); // ~0.30 alpha — user bubble border
 
 const _kMessageTextStyle = TextStyle(
   color: _kTextPrimary,
@@ -94,6 +105,7 @@ class AiChatScreen extends StatefulWidget {
   const AiChatScreen({
     super.key,
     this.initialMode = AssistantMode.act,
+    this.embedded = false,
     this.speechInput,
     this.speechOutput,
     this.engine,
@@ -103,6 +115,7 @@ class AiChatScreen extends StatefulWidget {
   });
 
   final AssistantMode initialMode;
+  final bool embedded;
 
   /// Rozpoznawanie mowy (domyślnie system telefonu).
   final SpeechInput? speechInput;
@@ -130,7 +143,27 @@ class _AiChatScreenState extends State<AiChatScreen>
     with WidgetsBindingObserver {
   late final SpeechInput _speech = widget.speechInput ?? SystemSpeechInput();
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
-  late final AssistantEngine _engine = widget.engine ?? AssistantEngine();
+  late final AssistantEngine _engine =
+      widget.engine ?? AssistantEngine(remoteAllowed: () async => false);
+  late final _brain = AssistantBrain(skills: buildSkillCatalog());
+  late final _brainContext = AssistantContext(
+      lang: AppLanguage.pl,
+      modules: const FixedModuleContext(),
+      now: widget.now);
+  SkillResult? _localResult;
+  final _feedback = AssistantFeedbackRecorder();
+  IsoCommand? _pendingIso;
+  bool _awaitingIsoChoice = false;
+  BuildContext get _navigationContext => widget.embedded
+      ? (appNavigatorKey.currentState?.overlay?.context ?? context)
+      : context;
+
+  Future<void> _receiveCommand(String text) async {
+    if (_busy) return;
+    _cmdCtrl.text = text;
+    await _submitCommand();
+  }
+
   final _dao = WeldParamDao();
   final _journalDao = WeldJournalDao();
   final _history = AssistantHistoryStore.instance;
@@ -179,6 +212,24 @@ class _AiChatScreenState extends State<AiChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _history.load();
+    if (widget.embedded) {
+      AssistantPanelController.instance.onCommand = _receiveCommand;
+      AssistantPanelController.instance.addListener(_panelChanged);
+      appRoutes.addListener(_panelChanged);
+    }
+  }
+
+  void _panelChanged() {
+    if (!mounted ||
+        (AssistantPanelController.instance.expanded &&
+            appRoutes.assistantAvailable)) {
+      return;
+    }
+    if (_listening) {
+      _speech.cancel();
+      setState(() => _listening = false);
+    }
+    _voice.stop();
   }
 
   @override
@@ -212,6 +263,11 @@ class _AiChatScreenState extends State<AiChatScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (widget.embedded) {
+      AssistantPanelController.instance.onCommand = null;
+      AssistantPanelController.instance.removeListener(_panelChanged);
+      appRoutes.removeListener(_panelChanged);
+    }
     if (_listening) _speech.cancel();
     _voice.stop();
     _cmdCtrl.dispose();
@@ -276,10 +332,11 @@ class _AiChatScreenState extends State<AiChatScreen>
       _listening = true;
       _voiceUsed = true;
     });
+    var submitted = false;
     await _speech.listen(
       language: lang,
       onResult: (text, isFinal) {
-        if (!mounted) return;
+        if (!mounted || submitted) return;
         final joined = before.isEmpty ? text : '$before $text';
         setState(() {
           target.value = TextEditingValue(
@@ -287,6 +344,10 @@ class _AiChatScreenState extends State<AiChatScreen>
             selection: TextSelection.collapsed(offset: joined.length),
           );
         });
+        if (widget.embedded && isFinal && joined.trim().isNotEmpty) {
+          submitted = true;
+          scheduleMicrotask(_submitCommand);
+        }
       },
       onDone: (error) {
         if (!mounted) return;
@@ -315,6 +376,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     _offerServer = false;
     _offerAsk = false;
     _queryResults = null;
+    _localResult = null;
+    _brain.cancelPending();
     if (clearText) {
       _cmdCtrl.clear();
       _voiceUsed = false;
@@ -345,11 +408,12 @@ class _AiChatScreenState extends State<AiChatScreen>
       _offerAsk = false;
       _queryResults = null;
       _commandBeforeAnswer = _commandSoFar;
-      _commandSoFar =
-          _pendingField == null ? text : '$_commandSoFar, $text';
+      _commandSoFar = _pendingField == null ? text : '$_commandSoFar, $text';
     });
     AssistantOutcome out;
     try {
+      // A pending legacy save owns its replies until its summary is ready.
+      if (_pendingField == null && await _tryLocalCommand(text, lang)) return;
       out = await _engine.interpret(
         text,
         lang: lang,
@@ -373,6 +437,284 @@ class _AiChatScreenState extends State<AiChatScreen>
     await _handleOutcome(out);
   }
 
+  void _isoReply(String pl, String en) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _cmdCtrl.clear();
+      _localResult = AnswerResult(AssistantAnswer(text: AssistantText(pl, en)));
+      _notice = null;
+      _question = null;
+    });
+    _speak(_tr(pl, en));
+  }
+
+  Future<bool> _tryIsoCommand(String text, AppLanguage lang) async {
+    final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    var command = parseIsoCommand(u);
+    final onIso = appRoutes.toolId == 'iso_notebook' ||
+        (!widget.embedded && IsoNotebookController.active != null);
+    if (_awaitingIsoChoice) {
+      final folded = u.folded;
+      if (folded == 'anuluj' || folded == 'cancel') {
+        _pendingIso = null;
+        _awaitingIsoChoice = false;
+        _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
+        return true;
+      }
+      if (folded == 'dorysuj' ||
+          folded == 'append' ||
+          folded == 'nowy' ||
+          folded == 'new') {
+        if ((folded == 'dorysuj' || folded == 'append') &&
+            _pendingIso?.kind == IsoCommandKind.newSketch) {
+          _pendingIso = null;
+          _awaitingIsoChoice = false;
+          _isoReply('Pozostajemy na obecnym rysunku.',
+              'Keeping the current drawing.');
+          return true;
+        }
+        command = _pendingIso?.copyWith(
+            newSketch: folded == 'nowy' || folded == 'new');
+        _pendingIso = command;
+        _awaitingIsoChoice = false;
+      } else if (command == null || !command.explicit) {
+        if (parseAssistantCommand(text).intent != kIntentUnknown) {
+          _pendingIso = null;
+          _awaitingIsoChoice = false;
+          return false;
+        }
+        _isoReply('Powiedz „dorysuj”, „nowy” albo „anuluj”.',
+            'Say "append", "new", or "cancel".');
+        return true;
+      } else {
+        _pendingIso = null;
+        _awaitingIsoChoice = false;
+      }
+    }
+    if (command == null && onIso && u.tokens.length <= 3) {
+      final dir = isoDirectionOf(u);
+      if (dir != null) {
+        command = IsoCommand(
+            kind: IsoCommandKind.changeLastTurn,
+            turnDir: dir,
+            explicit: true,
+            strong: true);
+      }
+    }
+    if (command == null || (!command.explicit && !onIso)) return false;
+    if (!widget.embedded &&
+        AssistantPanelController.instance.onCommand != null) {
+      setState(() => _busy = false);
+      unawaited(AssistantPanelController.instance.submit(text));
+      return true;
+    }
+    final unsafe = command.warnings
+        .where((w) => w.kind != IsoParseWarningKind.lengthAssumedMeters);
+    if (unsafe.isNotEmpty ||
+        command.compassAt.isNotEmpty ||
+        command.turnCompass != null) {
+      unawaited(_feedback.missing(text,
+          tool: 'iso_notebook', skill: 'iso.unsupported', lang: lang));
+      _isoReply(
+          'Potrzebuję dokładniejszego polecenia. Podaj długość z jednostką, '
+              'kierunek (prawo, lewo, góra, dół) i rodzaj kształtki. '
+              'Kolana 45° i trójniki dodaj na razie ręcznie.',
+          'Please specify a length with units, direction (right, left, up, down) '
+              'and fitting type. Add 45° elbows and tees manually for now.');
+      return true;
+    }
+    var controller = onIso ? IsoNotebookController.active : null;
+    if (controller == null) {
+      final tool = toolById('iso_notebook')!;
+      unawaited(openTool(_navigationContext, tool));
+      final ready = Completer<IsoNotebookController>();
+      void changed() {
+        final active = IsoNotebookController.active;
+        if (active != null && !ready.isCompleted) ready.complete(active);
+      }
+
+      IsoNotebookController.activeListenable.addListener(changed);
+      changed();
+      try {
+        controller = await ready.future.timeout(const Duration(seconds: 5));
+      } on TimeoutException {
+        _isoReply('Nie udało się otworzyć Zeszytu ISO. Spróbuj ponownie.',
+            'Could not open the ISO notebook. Please try again.');
+        return true;
+      } finally {
+        IsoNotebookController.activeListenable.removeListener(changed);
+      }
+    }
+    if (!mounted) return true;
+    await controller.ready;
+    if (!mounted) return true;
+    if (command.kind == IsoCommandKind.changeLastTurn) {
+      final dir = command.turnDir;
+      final report =
+          dir == null ? null : await controller.redirectLastTurn(dir);
+      if (report == null) {
+        _isoReply(
+            'Nie zmieniłem rysunku. Mogę poprawić tylko ostatnie polecenie '
+                'z kolanem, jeśli od tego czasu nie było zmian ręcznych.',
+            'Drawing unchanged. I can only correct the last voice command '
+                'with an elbow, with no manual changes since.');
+      } else if (report.ok) {
+        _isoReply(
+            'Zmieniłem kierunek ostatniego kolana. ${report.assumedPl.join(' ')}',
+            'Changed the last elbow direction. ${report.assumedEn.join(' ')}');
+      } else {
+        _isoReply(report.problemPl ?? 'Rysunek bez zmian.',
+            report.problemEn ?? 'Drawing unchanged.');
+      }
+      return true;
+    }
+    if (_pendingIso != command &&
+        controller.hasContent &&
+        !command.append &&
+        (command.kind == IsoCommandKind.draw ||
+            command.kind == IsoCommandKind.newSketch)) {
+      _pendingIso = command;
+      _awaitingIsoChoice = true;
+      _isoReply(
+          'Na arkuszu jest już rysunek. Powiedz „dorysuj” albo „nowy”. '
+              '„Anuluj” pozostawi go bez zmian.',
+          'There is already a drawing. Say "append" or "new". '
+              '"Cancel" leaves it unchanged.');
+      return true;
+    }
+    _pendingIso = null;
+    if (command.kind == IsoCommandKind.undo) {
+      controller.undo();
+      _isoReply(
+          'Cofnąłem ostatni krok rysunku.', 'Undid the last drawing step.');
+      return true;
+    }
+    if (command.newSketch || command.kind == IsoCommandKind.newSketch) {
+      await controller.startNew();
+    }
+    if (command.kind == IsoCommandKind.newSketch) {
+      _isoReply('Nowy arkusz. Powiedz, co narysować.',
+          'New sheet. Tell me what to draw.');
+      return true;
+    }
+    final report = await controller.draw(command.steps);
+    if (report.ok) {
+      _isoReply(
+          'Narysowałem: rury ${report.segments}, kolana ${report.elbows}, '
+              'kształtki ${report.fittings}. ${report.assumedPl.join(' ')}',
+          'Drawn: ${report.segments} pipes, ${report.elbows} elbows, '
+              '${report.fittings} fittings. ${report.assumedEn.join(' ')}');
+    } else {
+      _isoReply(
+          report.problemPl ?? 'Nie zmieniłem rysunku. Doprecyzuj polecenie.',
+          report.problemEn ?? 'Drawing unchanged. Please clarify the command.');
+    }
+    return true;
+  }
+
+  Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
+    if (await _tryIsoCommand(text, lang)) return true;
+    final legacyIntent = parseAssistantCommand(text).intent;
+    if (legacyIntent == kIntentSaveWeldParameter ||
+        legacyIntent == kIntentAddWeldJournalEntry ||
+        legacyIntent == kIntentQueryMyParams) {
+      _brain.cancelPending();
+      _localResult = null;
+      return false;
+    }
+    _brainContext.lang = lang;
+    final reply = await _brain.handle(
+        Utterance(text, lang: lang, byVoice: _voiceUsed), _brainContext);
+    if (!mounted) return true;
+    final result = reply.result;
+    if (result is NotUnderstood) return false;
+    // Write skills are intentionally left to the existing confirmation flow.
+    if (result is ConfirmResult) return false;
+    setState(() {
+      _busy = false;
+      _localResult = result;
+      _question = null;
+      _notice = null;
+      _cmdCtrl.clear();
+    });
+    final spoken = switch (result) {
+      AnswerResult(:final answer) => (answer.spoken ?? answer.text).of(lang),
+      AskResult(:final question) => question.of(lang),
+      FailedResult(:final message) => message.of(lang),
+      _ => '',
+    };
+    if (spoken.isNotEmpty) await _speak(spoken);
+    // Explicit navigation commands execute immediately. Calculation answers
+    // remain visible and offer the filled module as a separate action.
+    if (mounted &&
+        reply.match?.skill.id == 'tool.open' &&
+        result is AnswerResult) {
+      final show = result.show;
+      final tool = show == null ? null : toolById(show.toolId);
+      if (tool != null) {
+        await openTool(_navigationContext, tool, fields: show!.fields);
+      }
+    }
+    return true;
+  }
+
+  Widget _localAnswerCard(SkillResult result) {
+    final lang = context.language;
+    final answer = result is AnswerResult ? result.answer : null;
+    final question = result is AskResult ? result.question.of(lang) : null;
+    final choices = switch (result) {
+      AnswerResult(:final followUps) => followUps,
+      AskResult(:final choices) => choices,
+      _ => const <FollowUp>[],
+    };
+    return _InfoCard(
+      key: const Key('assistant-local-answer'),
+      children: [
+        Semantics(
+            liveRegion: true,
+            child: Text(
+                answer?.text.of(lang) ??
+                    question ??
+                    (result is FailedResult ? result.message.of(lang) : ''),
+                style: const TextStyle(color: _kTextPrimary, fontSize: 16))),
+        if (answer?.source case final source?) ...[
+          const SizedBox(height: 8),
+          Text(source.of(lang), style: const TextStyle(color: _kTextSec)),
+        ],
+        if (result is AnswerResult && result.show != null)
+          TextButton.icon(
+            key: const Key('assistant-show-module'),
+            icon: const Icon(Icons.open_in_new),
+            label: Text(_tr('Pokaż w module', 'Show in module')),
+            onPressed: _busy
+                ? null
+                : () {
+                    final show = result.show!;
+                    final tool = toolById(show.toolId);
+                    if (tool != null) {
+                      openTool(_navigationContext, tool, fields: show.fields);
+                    }
+                  },
+          ),
+        if (choices.isNotEmpty)
+          Wrap(spacing: 8, children: [
+            for (final choice in choices)
+              ActionChip(
+                label: Text(choice.label.of(lang)),
+                onPressed: _busy
+                    ? null
+                    : () {
+                        _cmdCtrl.text = choice.utterance;
+                        _voiceUsed = false;
+                        _submitCommand();
+                      },
+              ),
+          ]),
+      ],
+    );
+  }
+
   Future<void> _handleOutcome(AssistantOutcome out) async {
     final check = out.check;
     final lang = context.language;
@@ -382,12 +724,12 @@ class _AiChatScreenState extends State<AiChatScreen>
           _question = null;
           _pendingField = null;
         });
-        final confirmed = await Navigator.of(context).push<bool>(
+        final confirmed = await Navigator.of(_navigationContext).push<bool>(
           MaterialPageRoute(
             builder: (_) => _SaveSummaryPage(
               draft: draft,
-              note: draft.sourceNote(
-                  at: _now(), byVoice: _voiceUsed, lang: lang),
+              note:
+                  draft.sourceNote(at: _now(), byVoice: _voiceUsed, lang: lang),
             ),
           ),
         );
@@ -399,7 +741,8 @@ class _AiChatScreenState extends State<AiChatScreen>
           setState(() {
             _resetAct(clearText: false);
             _cmdCtrl.text = _commandSoFar;
-            _notice = _tr('Nic nie zapisano. Popraw polecenie i stuknij „Dalej".',
+            _notice = _tr(
+                'Nic nie zapisano. Popraw polecenie i stuknij „Dalej".',
                 'Nothing saved. Edit the command and tap "Next".');
             _noticeIsError = false;
           });
@@ -409,10 +752,15 @@ class _AiChatScreenState extends State<AiChatScreen>
         setState(() {
           _resetAct();
           _notice = null;
-          _mode = AssistantMode.answer;
+          if (!widget.embedded) _mode = AssistantMode.answer;
           _inputCtrl.text = text;
         });
-        await _send();
+        if (widget.embedded) setState(() => _busy = true);
+        try {
+          await _send();
+        } finally {
+          if (mounted && widget.embedded) setState(() => _busy = false);
+        }
       case AssistantReadyToQuery(:final criteria):
         await _showMyParams(criteria);
       case AssistantReadyToJournal(:final draft):
@@ -426,14 +774,15 @@ class _AiChatScreenState extends State<AiChatScreen>
         if (tool == null) {
           setState(() {
             _resetAct(clearText: false);
-            _notice = _tr('Nie znalazłem narzędzia „$query". Spróbuj inną nazwą.',
+            _notice = _tr(
+                'Nie znalazłem narzędzia „$query". Spróbuj inną nazwą.',
                 'No tool found for "$query". Try another name.');
             _noticeIsError = true;
           });
           return;
         }
         setState(() => _resetAct());
-        await openTool(context, tool);
+        await openTool(_navigationContext, tool);
       case AssistantNeedsField(:final intent, :final field):
         var q = assistantQuestionFor(field, lang);
         if (field == 'project') {
@@ -480,12 +829,15 @@ class _AiChatScreenState extends State<AiChatScreen>
         });
         Haptic.error();
       case null:
+        unawaited(_feedback.missing(_commandSoFar,
+            tool: appRoutes.toolId, lang: lang));
         setState(() {
           _resetAct(clearText: false);
           _notice = _notUnderstoodText(out);
           _noticeIsError = true;
-          _offerServer = out.remoteUnavailable == RemoteUnavailableKind.notAllowed &&
-              !LegalConsent.instance.isAccepted;
+          _offerServer =
+              out.remoteUnavailable == RemoteUnavailableKind.notAllowed &&
+                  !LegalConsent.instance.isAccepted;
           _offerAsk = true;
         });
     }
@@ -527,7 +879,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       'Saved to "Pipe parameters" → Mine',
     );
     final undoLabel = _tr('Cofnij', 'Undo');
-    final undoneText = _tr('Cofnięto — rekord usunięty.', 'Undone — record removed.');
+    final undoneText =
+        _tr('Cofnięto — rekord usunięty.', 'Undone — record removed.');
     final undoFailedText = _tr('Nie udało się cofnąć — rekord zostaje.',
         'Could not undo — the record stays.');
     setState(() {
@@ -610,7 +963,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (!mounted) return;
       setState(() {
         _resetAct(clearText: false);
-        _notice = _tr('Nie udało się odczytać dziennika spoin. Nic nie zapisano.',
+        _notice = _tr(
+            'Nie udało się odczytać dziennika spoin. Nic nie zapisano.',
             'Could not read the weld journal. Nothing saved.');
         _noticeIsError = true;
       });
@@ -624,7 +978,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       setState(() {
         _pendingIntent = kIntentAddWeldJournalEntry;
         _pendingField = 'weld_no';
-        _carried = {'project': project, if (draft.wps != null) 'wps': draft.wps};
+        _carried = {
+          'project': project,
+          if (draft.wps != null) 'wps': draft.wps
+        };
         _question = q;
         _cmdCtrl.clear();
         _notice = _tr(
@@ -645,7 +1002,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       byVoice: _voiceUsed,
       lang: lang,
     );
-    final confirmed = await Navigator.of(context).push<bool>(
+    final confirmed = await Navigator.of(_navigationContext).push<bool>(
       MaterialPageRoute(builder: (_) => _JournalSummaryPage(entry: entry)),
     );
     if (!mounted) return;
@@ -841,7 +1198,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _useServer() async {
-    final ok = await ensureServerConsent(context);
+    final ok = await ensureServerConsent(_navigationContext);
     if (!ok || !mounted) return;
     await _submitCommand();
   }
@@ -870,7 +1227,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     // Treść pytania wychodzi na serwer — najpierw zgoda (bez wymogu imienia).
     // Bez zgody: pomoc offline z aplikacji, NIC nie wychodzi z telefonu.
-    final consented = await ensureServerConsent(context);
+    final consented = await ensureServerConsent(_navigationContext);
     if (!mounted) return;
 
     // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
@@ -883,7 +1240,13 @@ class _AiChatScreenState extends State<AiChatScreen>
 
     if (!consented) {
       final offline = AiChatService.instance.offlineReply(text);
-      setState(() => _messages.add(offline));
+      setState(() {
+        _messages.add(offline);
+        if (widget.embedded) {
+          _localResult = AnswerResult(
+              AssistantAnswer(text: AssistantText.same(offline.text)));
+        }
+      });
       _scrollToBottom();
       await _speak(offline.text);
       return;
@@ -897,7 +1260,13 @@ class _AiChatScreenState extends State<AiChatScreen>
           (t, h) => AiChatService.instance.sendMessage(t, history: h);
       final reply = await sender(text, history);
       if (!mounted) return;
-      setState(() => _messages.add(reply));
+      setState(() {
+        _messages.add(reply);
+        if (widget.embedded) {
+          _localResult = AnswerResult(
+              AssistantAnswer(text: AssistantText.same(reply.text)));
+        }
+      });
       _typing.value = false;
       _scrollToBottom();
       await _speak(reply.text);
@@ -915,8 +1284,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       _typing.value = false;
       _scrollToBottom();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(_tr('Połączenie z AI nie powiodło się.',
-            'AI connection failed.')),
+        content: Text(
+            _tr('Połączenie z AI nie powiodło się.', 'AI connection failed.')),
         duration: const Duration(seconds: 6),
         behavior: SnackBarBehavior.floating,
         backgroundColor: _kCard,
@@ -990,6 +1359,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) return _buildEmbedded();
     return Scaffold(
       backgroundColor: _kBg,
       appBar: AppBar(
@@ -1013,15 +1383,12 @@ class _AiChatScreenState extends State<AiChatScreen>
               final on = _history.speakReplies;
               return IconButton(
                 key: const Key('assistant-tts-toggle'),
-                icon: Icon(on
-                    ? Icons.volume_up_outlined
-                    : Icons.volume_off_outlined),
+                icon: Icon(
+                    on ? Icons.volume_up_outlined : Icons.volume_off_outlined),
                 color: on ? _kAccent : _kTextSec,
                 tooltip: on
-                    ? _tr('Czytanie na głos: włączone',
-                        'Read aloud: on')
-                    : _tr('Czytanie na głos: wyłączone',
-                        'Read aloud: off'),
+                    ? _tr('Czytanie na głos: włączone', 'Read aloud: on')
+                    : _tr('Czytanie na głos: wyłączone', 'Read aloud: off'),
                 onPressed: () {
                   if (on) _voice.stop();
                   _history.setSpeakReplies(!on);
@@ -1032,8 +1399,8 @@ class _AiChatScreenState extends State<AiChatScreen>
           IconButton(
             icon: const Icon(Icons.history, color: _kTextSec),
             tooltip: _tr('Historia operacji', 'Operation history'),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const _HistoryPage())),
+            onPressed: () => Navigator.of(_navigationContext)
+                .push(MaterialPageRoute(builder: (_) => const _HistoryPage())),
           ),
           if (_mode == AssistantMode.answer)
             IconButton(
@@ -1091,18 +1458,77 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
+  Widget _buildEmbedded() => Column(children: [
+        Expanded(
+            child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                children: [
+              if (_localResult case final result?) _localAnswerCard(result),
+              if (_question != null) Text(_question!),
+              if (_notice != null) Text(_notice!),
+              if (_localResult == null && _question == null && _notice == null)
+                Text(_tr(
+                    'Powiedz np. „narysuj rura metr kolano w górę rura metr” '
+                        'albo zapytaj o wymiar.',
+                    'Say e.g. "draw pipe one metre elbow up pipe one metre", or ask a dimension.')),
+              if (_listening)
+                Text(_tr('Słucham…', 'Listening…'),
+                    key: const Key('assistant-listening')),
+            ])),
+        Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(children: [
+              if (_speech.isSupported)
+                SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: IconButton(
+                        key: const Key('assistant-mic'),
+                        tooltip: _tr('Powiedz polecenie', 'Speak a command'),
+                        onPressed: _busy ? null : () => _toggleMic(_cmdCtrl),
+                        icon: Icon(_listening ? Icons.stop : Icons.mic))),
+              Expanded(
+                  child: TextField(
+                      key: const Key('assistant-command'),
+                      controller: _cmdCtrl,
+                      enabled: !_busy,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _submitCommand(),
+                      decoration: InputDecoration(
+                          labelText:
+                              _tr('Co mam zrobić?', 'What should I do?')))),
+              SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: IconButton(
+                      key: const Key('assistant-go'),
+                      tooltip: _tr('Wykonaj', 'Execute'),
+                      onPressed: _busy ? null : _submitCommand,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.send))),
+            ])),
+      ]);
+
   Widget _buildActBody() {
     final answering = _question != null;
     return ListView(
       padding: EdgeInsets.fromLTRB(
           12, 8, 12, 24 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
-        if (!answering)
+        if (_localResult case final result?) ...[
+          _localAnswerCard(result),
+          const SizedBox(height: 12),
+        ],
+        if (!answering && _localResult == null)
           _InfoCard(
             children: [
               Text(
-                _tr('Powiedz albo wpisz, co zapisać lub otworzyć.',
-                    'Say or type what to save or open.'),
+                _tr('Powiedz, co mam zrobić w aplikacji.',
+                    'Tell me what to do in the app.'),
                 style: const TextStyle(
                     color: _kTextPrimary,
                     fontSize: 15,
@@ -1112,6 +1538,8 @@ class _AiChatScreenState extends State<AiChatScreen>
               for (final example in [
                 _tr('Zapisz, że spawam stal nierdzewną, ściankę 2 mm, TIG bez drutu na 60 amperach',
                     'Save stainless steel, 2 mm wall, TIG without filler at 60 amps'),
+                _tr('Jaka jest średnica rury DN40?',
+                    'What is the outside diameter of DN40?'),
                 _tr('Otwórz heat input', 'Open heat input'),
               ])
                 Padding(
@@ -1132,8 +1560,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                         border: Border.all(color: _kBorder),
                       ),
                       child: Text('„$example"',
-                          style: const TextStyle(
-                              color: _kTextSec, fontSize: 14)),
+                          style:
+                              const TextStyle(color: _kTextSec, fontSize: 14)),
                     ),
                   ),
                 ),
@@ -1192,7 +1620,8 @@ class _AiChatScreenState extends State<AiChatScreen>
           decoration: InputDecoration(
             labelText: answering
                 ? _tr('Odpowiedź', 'Answer')
-                : _tr('Polecenie (możesz poprawić)', 'Command (you can edit it)'),
+                : _tr(
+                    'Polecenie (możesz poprawić)', 'Command (you can edit it)'),
             filled: true,
             fillColor: _kCard,
           ),
@@ -1376,8 +1805,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 mic: _speech.isSupported
                     ? _MicButton(
                         listening: _listening,
-                        onPressed:
-                            typing ? null : () => _toggleMic(_inputCtrl),
+                        onPressed: typing ? null : () => _toggleMic(_inputCtrl),
                       )
                     : null,
               );
@@ -1405,11 +1833,16 @@ class _SaveSummaryPage extends StatelessWidget {
     String n(double v) => assistantNumber(v, lang);
     final notGiven = tr('nie podano', 'not given');
     final rows = <(String, String)>[
-      (tr('Materiał', 'Material'), assistantMaterialLabel(draft.material, lang)),
+      (
+        tr('Materiał', 'Material'),
+        assistantMaterialLabel(draft.material, lang)
+      ),
       (tr('Metoda', 'Process'), assistantProcessLabel(draft.process, lang)),
       (
         tr('Spoiwo', 'Filler'),
-        draft.filler ? tr('z drutem', 'with filler') : tr('bez drutu', 'without filler')
+        draft.filler
+            ? tr('z drutem', 'with filler')
+            : tr('bez drutu', 'without filler')
       ),
       (tr('Grubość ścianki', 'Wall thickness'), '${n(draft.wallMm)} mm'),
       (tr('Prąd', 'Current'), '${n(draft.currentA)} A'),
@@ -1418,7 +1851,8 @@ class _SaveSummaryPage extends StatelessWidget {
         draft.diameterMm == null ? notGiven : '${n(draft.diameterMm!)} mm'
       ),
       if (draft.position != null) (tr('Pozycja', 'Position'), draft.position!),
-      if (draft.gas != null) (tr('Gaz', 'Gas'), assistantGasLabel(draft.gas!, lang)),
+      if (draft.gas != null)
+        (tr('Gaz', 'Gas'), assistantGasLabel(draft.gas!, lang)),
       if (draft.flowLpm != null)
         (tr('Przepływ gazu', 'Gas flow'), '${n(draft.flowLpm!)} l/min'),
       if (draft.electrodeMm != null)
@@ -1541,11 +1975,15 @@ class _JournalSummaryPage extends StatelessWidget {
     final rows = <(String, String)>[
       (tr('Nr spoiny', 'Weld no.'), entry.weldNo),
       (tr('Projekt', 'Project'), entry.projectName),
-      ('WPS', entry.wpsRef.isEmpty ? tr('nie podano', 'not given') : entry.wpsRef),
+      (
+        'WPS',
+        entry.wpsRef.isEmpty ? tr('nie podano', 'not given') : entry.wpsRef
+      ),
       (
         tr('Spawacz (stempel)', 'Welder (stamp)'),
         entry.welder.isEmpty
-            ? tr('brak — ustaw tożsamość spawacza', 'none — set up welder identity')
+            ? tr('brak — ustaw tożsamość spawacza',
+                'none — set up welder identity')
             : entry.welder
       ),
       (tr('Data', 'Date'), entry.date),
@@ -1693,8 +2131,9 @@ class _HistoryPage extends StatelessWidget {
               final e = entries[i];
               final at =
                   '${e.at.year}-${two(e.at.month)}-${two(e.at.day)} ${two(e.at.hour)}:${two(e.at.minute)}';
-              final source =
-                  e.byVoice ? tr('głosowo', 'by voice') : tr('tekstem', 'typed');
+              final source = e.byVoice
+                  ? tr('głosowo', 'by voice')
+                  : tr('tekstem', 'typed');
               return _InfoCard(
                 children: [
                   Row(
@@ -2010,8 +2449,8 @@ class _TypingIndicatorState extends State<_TypingIndicator>
               color: _kAccentSoft,
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.smart_toy_outlined,
-                color: _kAccent, size: 18),
+            child:
+                const Icon(Icons.smart_toy_outlined, color: _kAccent, size: 18),
           ),
           const SizedBox(width: 8),
           Container(
@@ -2067,7 +2506,8 @@ class _SuggestionStrip extends StatelessWidget {
     final suggestions = [
       context.tr(pl: 'Jaki preheat dla P91?', en: 'What preheat for P91?'),
       context.tr(pl: 'Co to NACE MR0175?', en: 'What is NACE MR0175?'),
-      context.tr(pl: 'Heat input dla SMAW 110A', en: 'Heat input for SMAW 110A'),
+      context.tr(
+          pl: 'Heat input dla SMAW 110A', en: 'Heat input for SMAW 110A'),
       context.tr(
           pl: 'Moment śrub flange 4" Class 300',
           en: 'Bolt torque 4" Class 300 flange'),

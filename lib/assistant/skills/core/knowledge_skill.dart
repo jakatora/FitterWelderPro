@@ -11,6 +11,7 @@ import '../../../data/welding_glossary.dart';
 import '../../../domain/glossary/glossary.dart';
 import '../../../i18n/app_language.dart';
 import '../../../services/help_search.dart';
+import '../../../utils/decimal_parse.dart';
 import '../../../widgets/tool_registry.dart' show toolById;
 import '../../core/skill.dart';
 import '../../core/tool_lookup.dart';
@@ -207,7 +208,7 @@ class KnowledgeSkill extends AssistantSkill {
     const units = {'a', 'amper', 'amperow', 'amps', 'v', 'volt', 'volts',
       'mm', 'cm', 'kg', 'bar', 'psi', 'min', 'sekund', 'seconds'};
     for (var i = 0; i + 1 < u.tokens.length; i++) {
-      if (double.tryParse(u.tokens[i].replaceAll(',', '.')) != null &&
+      if (parseDecimal(u.tokens[i]) != null &&
           units.contains(u.tokens[i + 1])) {
         return null;
       }

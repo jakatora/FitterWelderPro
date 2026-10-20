@@ -129,6 +129,8 @@ Future<void> _pump(
 
 Future<void> _command(WidgetTester tester, String text) async {
   await tester.enterText(find.byKey(const Key('assistant-command')), text);
+  await tester.ensureVisible(find.byKey(const Key('assistant-go')));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('assistant-go')));
   await _settle(tester);
 }
@@ -139,6 +141,54 @@ void main() {
   setUp(() {
     seedFreshInstall();
     AssistantHistoryStore.instance.resetForTest();
+  });
+
+  testWidgets('lokalne DN40 i kontynuacja nie wysyłają pytania na serwer',
+      (tester) async {
+    var requests = 0;
+    await _pump(tester, chatSender: (text, history) async {
+      requests++;
+      return ChatMessage(role: ChatRole.assistant, text: 'REMOTE');
+    });
+    await _command(tester, 'Jaka jest średnica rury DN40?');
+    expect(find.byKey(const Key('assistant-local-answer')), findsOneWidget);
+    expect(find.textContaining('48,3'), findsWidgets);
+    expect(find.byKey(const Key('assistant-mode-act')), findsOneWidget);
+    expect(requests, 0);
+    await _command(tester, 'a dla DN50?');
+    await tester.drag(find.byType(ListView).first, const Offset(0, 800));
+    await _settle(tester);
+    expect(find.textContaining('60,3'), findsWidgets);
+    expect(requests, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settle(tester);
+  });
+
+  testWidgets('odpowiedź DN40 otwiera moduł z wypełnionym filtrem',
+      (tester) async {
+    await _pump(tester);
+    await _command(tester, 'Jaka jest średnica rury DN40?');
+    await tester.ensureVisible(find.byKey(const Key('assistant-show-module')));
+    await tester.tap(find.byKey(const Key('assistant-show-module')));
+    await _settle(tester);
+    expect(find.text('DN-MM'), findsOneWidget);
+    expect(find.text('48.30'), findsOneWidget);
+    expect(find.text('60.30'), findsNothing);
+    await tester.pageBack();
+    await _settle(tester);
+    expect(find.byKey(const Key('assistant-local-answer')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settle(tester);
+  });
+
+  testWidgets('lokalne pytanie o ściankę dopytuje o DN', (tester) async {
+    await _pump(tester);
+    await _command(tester, 'Jaka ścianka sch 40?');
+    expect(find.byKey(const Key('assistant-local-answer')), findsOneWidget);
+    await _command(tester, 'DN50');
+    expect(find.textContaining('3,91'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _settle(tester);
   });
 
   testWidgets(
@@ -280,7 +330,9 @@ void main() {
 
     await tester.enterText(find.byKey(const Key('assistant-command')),
         'Zapisz nierdzewka TIG bez drutu ścianka 2 mm 65 A');
-    await tester.tap(find.byKey(const Key('assistant-go')));
+    await tester.ensureVisible(find.byKey(const Key('assistant-go')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('assistant-go')));
     await _settle(tester);
     expect(find.text('65 A'), findsOneWidget);
     await tester.tap(find.byKey(const Key('assistant-save')));

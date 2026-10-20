@@ -18,7 +18,8 @@ String _seriesLabel(BuildContext context, OdSeries s) => switch (s) {
     };
 
 class DnMmScreen extends StatefulWidget {
-  const DnMmScreen({super.key});
+  const DnMmScreen({super.key, this.initialDn});
+  final int? initialDn;
 
   @override
   State<DnMmScreen> createState() => _DnMmScreenState();
@@ -30,6 +31,13 @@ class _DnMmScreenState extends State<DnMmScreen> {
   final _mmFocus = FocusNode();
   final _searchFocus = FocusNode();
   String _q = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialDn != null) _dnCtrl.text = '${widget.initialDn}';
+  }
+
 
   @override
   void dispose() {
@@ -164,6 +172,7 @@ class _DnMmScreenState extends State<DnMmScreen> {
               rows: [
                 for (final r in rows)
                   DataRow(
+                    selected: widget.initialDn == r.dn,
                     // Long-press a reference row to copy it as a
                     // single line (e.g. into a chat/SMS to a foreman).
                     // copyToClipboard already fires Haptic.copied().

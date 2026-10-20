@@ -1,0 +1,54 @@
+import 'package:flutter/material.dart';
+
+final appNavigatorKey = GlobalKey<NavigatorState>();
+final appRoutes = AppRouteObserver();
+
+/// Tracks the actual top route, including dialogs, without polling the UI.
+class AppRouteObserver extends NavigatorObserver with ChangeNotifier {
+  final _routes = <Route<dynamic>>[];
+  Route<dynamic>? get top => _routes.lastOrNull;
+  bool get assistantAvailable =>
+      top != null &&
+      top is! PopupRoute &&
+      (top!.isFirst || (top!.settings.name?.startsWith('tool:') ?? false)) &&
+      !const {'tool:assistant', 'tool:iso_scanner'}
+          .contains(top!.settings.name);
+  String? get toolId {
+    final name = top?.settings.name;
+    return name != null && name.startsWith('tool:') ? name.substring(5) : null;
+  }
+
+  void _changed() =>
+      WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (previousRoute == null && route.isFirst) _routes.clear();
+    _routes.add(route);
+    _changed();
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _routes.remove(route);
+    _changed();
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _routes.remove(route);
+    _changed();
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    final index = oldRoute == null ? -1 : _routes.indexOf(oldRoute);
+    if (index >= 0) {
+      if (newRoute == null) {
+        _routes.removeAt(index);
+      } else {
+        _routes[index] = newRoute;
+      }
+    }
+    _changed();
+  }
+}

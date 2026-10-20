@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'i18n/app_language.dart';
+import 'app_navigator.dart';
+import 'assistant/ui/assistant_overlay.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/root_gate.dart';
 import 'theme/app_theme.dart';
@@ -41,6 +43,8 @@ class _CutListAppState extends State<CutListApp> {
         builder: (context, _) {
           return MaterialApp(
             title: 'Fitter Welder Pro',
+            navigatorKey: appNavigatorKey,
+            navigatorObservers: [appRoutes],
             debugShowCheckedModeBanner: false,
             locale: _languageController.locale,
             localizationsDelegates: const [
@@ -71,7 +75,8 @@ class _CutListAppState extends State<CutListApp> {
                     // Koniec odliczania timera spawalniczego — pełny ekran
                     // nad każdym ekranem aplikacji.
                     child: WeldTimerAlarmOverlay(
-                      child: child ?? const SizedBox.shrink(),
+                      child: AssistantOverlay(
+                          child: child ?? const SizedBox.shrink()),
                     ),
                   ),
                 ),

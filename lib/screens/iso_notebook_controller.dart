@@ -354,11 +354,63 @@ class IsoNotebookController extends ChangeNotifier {
   /// problemie (bez częściowego zapisu). Każda rura rośnie w podglądzie w 4
   /// krokach co [stepDelay] (zero = bez animacji), potem trafia do szkicu.
   /// Na koniec widok dopasowuje się tak, żeby cały rysunek był widoczny.
+  List<IsoStep>? _lastVoiceSteps;
+  int? _lastVoiceVersion;
+
   Future<IsoDrawReport> draw(List<IsoStep> steps,
       {Duration stepDelay = const Duration(milliseconds: 300)}) {
     final copy = List<IsoStep>.unmodifiable(steps);
-    return _enqueue((s) => _draw(s, copy, stepDelay));
+    return _enqueue((s) async {
+      final report = await _draw(s, copy, stepDelay);
+      if (report.ok) {
+        _lastVoiceSteps = copy;
+        _lastVoiceVersion = s._version;
+      }
+      return report;
+    });
   }
+
+  /// Correct the latest voice turn only if no manual edit intervened.
+  /// The complete replacement is validated before touching the drawing.
+  Future<IsoDrawReport?> redirectLastTurn(IsoDir direction) => _enqueue((s) async {
+    final last = _lastVoiceSteps;
+    if (last == null || s._version != _lastVoiceVersion || s._undo.isEmpty) {
+      return null;
+    }
+    final index = last.lastIndexWhere((step) => step is IsoTurn);
+    if (index < 0) return null;
+    final steps = List<IsoStep>.from(last);
+    final turn = steps[index] as IsoTurn;
+    steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
+    for (var i = index + 1; i < steps.length; i++) {
+      if (steps[i] case final IsoPipe pipe) {
+        steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
+        break;
+      }
+    }
+    final current = List<_Item>.from(s._items);
+    final before = List<_Item>.from(s._undo.last);
+    late final _VoicePlan preview;
+    try {
+      s._items..clear()..addAll(before);
+      preview = _plan(s, steps);
+    } finally {
+      s._items..clear()..addAll(current);
+    }
+    if (preview.problem case final problem?) {
+      final (pl, en) = _problemText(problem, elbow: preview.elbowAtCursor);
+      return IsoDrawReport(problem: problem, problemStep: preview.problemStep,
+          problemPl: pl, problemEn: en);
+    }
+    s._undo.removeLast();
+    s._mutate(() => s._items..clear()..addAll(before));
+    final report = await _draw(s, steps, const Duration(milliseconds: 150));
+    if (report.ok) {
+      _lastVoiceSteps = List.unmodifiable(steps);
+      _lastVoiceVersion = s._version;
+    }
+    return report;
+  });
 
   /// Cofa ostatni krok (całe polecenie [draw] naraz). Gdy w kolejce czekają
   /// polecenia, cofnięcie ustawia się za nimi.

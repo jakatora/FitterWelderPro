@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../assistant/core/assistant_panel_controller.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6239,6 +6240,10 @@ class _IsoState extends State<IsoNotebookScreen> {
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
+        if (AssistantPanelController.instance.expanded) {
+          AssistantPanelController.instance.setExpanded(false);
+          return;
+        }
         unawaited(_handleLeave());
       },
       child: Scaffold(

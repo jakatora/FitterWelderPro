@@ -21,7 +21,9 @@ enum ScheduleView { wall, inside, mass }
 /// The view chips switch the cells between wall, inside diameter (OD − 2t)
 /// and kg/m — same table, the three readings a fitter actually asks for.
 class PipeScheduleScreen extends StatefulWidget {
-  const PipeScheduleScreen({super.key});
+  const PipeScheduleScreen({super.key, this.initialDn, this.initialSchedule});
+  final int? initialDn;
+  final String? initialSchedule;
 
   @override
   State<PipeScheduleScreen> createState() => _PipeScheduleScreenState();
@@ -42,6 +44,10 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialDn != null) {
+      _q = 'DN${widget.initialDn}';
+      _filter.text = _q;
+    }
     _loadPrefs();
   }
 
@@ -51,7 +57,10 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
     final view = prefs.getString(_kPrefView);
     final showMass = prefs.getBool(_kPrefShowMass); // pre-ID versions
     final stainless = prefs.getBool(_kPrefStainless);
-    if (view == null && showMass == null && stainless == null) return;
+    if (view == null && showMass == null && stainless == null &&
+        widget.initialSchedule == null) {
+      return;
+    }
     setState(() {
       final byName = ScheduleView.values.where((v) => v.name == view);
       if (byName.isNotEmpty) {
@@ -60,6 +69,9 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
         _view = ScheduleView.mass;
       }
       if (stainless != null) _stainless = stainless;
+      if (widget.initialSchedule != null) {
+        _stainless = kSchedulesStainless.contains(widget.initialSchedule);
+      }
     });
   }
 
@@ -82,7 +94,10 @@ class _PipeScheduleScreenState extends State<PipeScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final schedules = schedulesFor(stainless: _stainless);
+    final selected = widget.initialSchedule;
+    final schedules = selected != null && schedulesFor(stainless: _stainless).contains(selected)
+        ? [selected, ...schedulesFor(stainless: _stainless).where((s) => s != selected)]
+        : schedulesFor(stainless: _stainless);
     final rows = _rows;
     return Scaffold(
       appBar: AppBar(

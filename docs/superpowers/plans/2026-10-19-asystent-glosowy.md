@@ -700,3 +700,34 @@ Test sprawdza, że:
   - zapis parametru „tak, zapisz” i Cofnij;
   - „zgłoś problem”;
   - zgoda wyłączona = 0 wysyłek.
+
+
+## Stan kontynuacji — 2026-10-20 (pilot, nie pełny odbiór etapów 1–6)
+
+- Odzyskano niescalone poprawki rdzenia z worktree Claude'a ae0306298a1aca922
+  i testy przeglądu. Domknięto opisy rozbieżności OD pomiędzy tabelami oraz
+  odrzucenie dopasowania ogólnego FAQ do pytania z konkretnym pomiarem.
+- AiChatScreen pyta lokalny mózg przed starym silnikiem; zapisy i dziennik
+  nadal mają istniejące potwierdzenia. Lokalne odpowiedzi, pytania, chipy
+  kontynuacji i pokazanie DN/Sch w module. Domyślna zdalna klasyfikacja
+  w trybie Wykonaj wyłączona; tryb odpowiedzi zachowuje dotychczasową zgodę.
+- Globalna nakładka z własnym Overlay: rozmowa pozostaje zamontowana przy
+  nawigacji, panel do 40% ekranu, polecenia głosowe wykonywane po końcowym
+  wyniku STT, wspólny systemowy STT/TTS, ukrycie nad dialogami i kamerą,
+  Wstecz najpierw zwija panel. DN/Sch piloty przyjmują początkowe pola;
+  pełny ToolBridge/ToolHandle z whenReady nadal do implementacji.
+- Odzyskano parser ISO af0909ea4a926da74 i połączono go z kontrolerem:
+  otwarcie zeszytu, rysowanie na żywo, dorysuj/nowy/anuluj na niepustym
+  arkuszu, Cofnij, „w dół”/zmiana ostatniego kolana. Korekta ma walidację
+  przed modyfikacją i odmawia po ręcznej zmianie. Nieobsługiwane 45°,
+  trójniki i strony świata nie modyfikują rysunku.
+- Rejestrator brakujących możliwości: maskowana lokalna kolejka feedbacku,
+  deduplikacja sesji, automatyczna wysyłka tylko przy osobnej zgodzie.
+  Brak wdrożenia backendu feedbacku, UI zgody i panelu konta administratora.
+- Korpus porównawczy modeli: test/assistant/fixtures/model_comparison_v1.json
+  (22 scenariusze PL/EN). Żadnych płatnych wywołań ani wyboru dostawcy.
+- Wymagania kont na Railway, profilu zawodowego i prywatnych raportów admina
+  dopisane do specyfikacji. Nie podłączono Firebase Auth.
+- Kolejne: test mikrofonu na Androidzie/iOS, pełny ToolBridge, pojedynczy
+  stan rozmowy także przy wejściu z kafla asystenta, ustawienia/N-best,
+  kolejne umiejętności, UI zgody, konta/profil/admin Railway; test modeli.

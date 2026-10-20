@@ -47,7 +47,9 @@ String speechLocaleFor(AppLanguage lang) =>
     lang == AppLanguage.en ? 'en_US' : 'pl_PL';
 
 class SystemSpeechInput implements SpeechInput {
-  SystemSpeechInput();
+  factory SystemSpeechInput() => _shared;
+  SystemSpeechInput._();
+  static final _shared = SystemSpeechInput._();
 
   final SpeechToText _stt = SpeechToText();
   bool _ready = false;
@@ -91,6 +93,7 @@ class SystemSpeechInput implements SpeechInput {
     required SpeechResultCallback onResult,
     required void Function(String? error) onDone,
   }) async {
+    if (_onDone != null) await cancel();
     _onDone = onDone;
     try {
       await _stt.listen(
@@ -115,6 +118,7 @@ class SystemSpeechInput implements SpeechInput {
     try {
       await _stt.stop();
     } catch (_) {}
+    _finish(null);
   }
 
   @override
@@ -132,6 +136,9 @@ abstract class SpeechOutput {
 }
 
 class SystemSpeechOutput implements SpeechOutput {
+  factory SystemSpeechOutput() => _shared;
+  SystemSpeechOutput._();
+  static final _shared = SystemSpeechOutput._();
   FlutterTts? _tts;
 
   @override

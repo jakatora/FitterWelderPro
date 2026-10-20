@@ -241,3 +241,26 @@ Każde narzędzie ma wpis w manifeście pokrycia (`assistant_coverage.dart`). Te
 - model językowy (architektura gotowa, flaga wyłączona);
 - sterowanie rozmową wieloetapową dłuższą niż jedno pytanie dopytujące;
 - przebudowa menu (asystent ma zmniejszyć chaos; porządki w menu — osobna decyzja).
+
+
+## Doprecyzowanie właściciela — 2026-10-20
+
+- Jedna rozmowa steruje aplikacją i odpowiada na pytania. Prośba o ISO otwiera
+  rysunek, a kolejne polecenia dotyczą tego samego szkicu. Zachować kontekst
+  przy przechodzeniu między modułami; nie tworzyć niezależnych asystentów.
+- Konta, rejestracja, logowanie i profile zawodowe na istniejącym backendzie
+  Railway, bez Firebase Auth. Konto jest tożsamością autora na czacie,
+  niezależną od urządzenia. Profil: zawód, metody, doświadczenie, uprawnienia,
+  stempel; zakres widoczności danych zawodowych wybiera użytkownik.
+- Konto właściciela ma rolę administratora nadawaną po stronie serwera.
+  W sekcji „Raporty asystenta” widzi brakujące funkcje i nierozpoznane prośby:
+  polecenie (po maskowaniu danych), moduł, brakująca możliwość, data, wersja,
+  liczba powtórzeń, status nowe/w trakcie/wdrożone. Zwykłe konta nie mają
+  dostępu do odczytu, także bezpośrednio przez API. Nie przechowywać zgłoszeń
+  ani sekretów administratora w publicznym repo. Wysyłka z osobną zgodą.
+- Koszt AI ograniczać przez lokalne narzędzia i obliczenia. Rozważany model
+  do trudniejszych poleceń i odpowiedzi; dostawca nie jest wybrany. Właściciel
+  2026-10-20 uzgodnił porównanie Haiku i modeli dostępnych w Codexie przed
+  decyzją. Ten sam korpus PL/EN, ocena poprawności, pytań uzupełniających,
+  czasu i kosztu. Zabezpieczenia zapisu i walidacja domeny obowiązują model.
+- Nie uruchomiono płatnego API ani integracji logowania w Firebase.

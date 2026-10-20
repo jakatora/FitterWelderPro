@@ -1,0 +1,1179 @@
+// Polecenie rysowania Zeszytu ISO z wypowiedzi (plan 3.2, spec §4.5).
+//
+// Czysta funkcja [parseIsoCommand]: „narysuj rura dwa metry w prawo kolano
+// w górę rura metr” → [IsoPipe(right, 2000), IsoTurn(up), IsoPipe(1000)].
+// Żadnego I/O, żadnego stanu — umiejętność `iso.draw` woła ją w `match`.
+//
+// Gramatyka (kolejność elementów = kolejność rysowania):
+//   rura | rurę | rurka | rury | odcinek | pipe   [długość] [kierunek] [DN]
+//   kolano | kolanko | łuk | skręt | elbow | bend [90] [kierunek] [DN]
+//       — „kolano” to ZAMIAR skrętu następnej rury (kolano wstawia zeszyt);
+//   kolano 45 / łuk 30 … i trójnik / tee / olet  → niewspierane (ostrzeżenie);
+//   kołnierz [zaślepiający] | zaślepka | dennica | redukcja [DN na DN] |
+//   zawór (kulowy | zasuwa | zwrotny | grzybkowy | przepustnica) | spoina
+//   [montażowa] | podpora   [DN];
+//   kierunki: w prawo / w lewo / w górę / w dół / do przodu / do tyłu
+//   (EN right / left / up / down / forward / back) oraz strony świata
+//   (północ / południe / wschód / zachód) — te rozwiązuje dopiero strzałka
+//   północy na rysunku ([IsoCommand.compassAt]);
+//   polecenia: „nowy rysunek”, „cofnij”, „zmień ostatnie kolano w górę”.
+//
+// Zasada jak w całym asystencie: niejasne → ostrzeżenie albo null (umiejętność
+// dopyta), NIGDY cichy zły rysunek. Pytania („ile waży rura dn50”), zapisy
+// („zapisz spawam rurę…”) i słowa innych modułów (ścianka, waga, prąd)
+// odrzucamy tutaj, żeby rysowanie nie podkradało cudzych zamiarów.
+
+import 'package:flutter/foundation.dart';
+
+import '../../../domain/fitter/pipe_size_lookup.dart' show dnForNps, knownDns;
+import '../../../i18n/app_language.dart';
+import '../../../screens/iso_notebook_screen.dart'
+    show IsoCompass, IsoDir, IsoFitting, IsoPipe, IsoStep, IsoTurn;
+import '../../core/spoken_numbers.dart' show SpokenItem, isInchUnit;
+import '../../core/utterance.dart';
+import '../core/skill_words.dart' show mentionsWall, mentionsWeight;
+
+/// Narzędzie zastępcze: „zawór” bez rodzaju. Nie trafia do zeszytu —
+/// umiejętność najpierw pyta, jaki to zawór.
+const String kIsoAnyValve = 'valve';
+
+/// Zawory, które zeszyt umie postawić (nazwy narzędzi [IsoFitting.tool]).
+const List<String> kIsoValveTools = [
+  'ballValve',
+  'gateValve',
+  'checkValve',
+  'globeValve',
+  'butterflyValve',
+];
+
+enum IsoCommandKind {
+  /// Rysuj [IsoCommand.steps] (opcjonalnie na nowym arkuszu).
+  draw,
+
+  /// Sam „nowy rysunek” — bez elementów.
+  newSketch,
+
+  /// „Cofnij” — ostatni krok na rysunku.
+  undo,
+
+  /// „Zmień ostatnie kolano w górę” — cofnij ostatnie polecenie i narysuj je
+  /// jeszcze raz z innym skrętem.
+  changeLastTurn,
+}
+
+enum IsoParseWarningKind {
+  /// „rura 2” — liczba bez jednostki przyjęta jako metry ([IsoParseWarning
+  /// .value] = mm).
+  lengthAssumedMeters,
+
+  /// Kolano inne niż 90° ([IsoParseWarning.value] = kąt).
+  unsupported45,
+
+  /// Trójnik / olet / odgałęzienie.
+  unsupportedTee,
+
+  /// „Zawór” bez rodzaju (krok to [kIsoAnyValve]).
+  valveTypeMissing,
+}
+
+@immutable
+class IsoParseWarning {
+  const IsoParseWarning(this.kind, {this.step, this.value});
+
+  final IsoParseWarningKind kind;
+
+  /// Indeks kroku w [IsoCommand.steps], którego dotyczy.
+  final int? step;
+  final double? value;
+
+  @override
+  bool operator ==(Object other) =>
+      other is IsoParseWarning &&
+      other.kind == kind &&
+      other.step == step &&
+      other.value == value;
+
+  @override
+  int get hashCode => Object.hash(kind, step, value);
+
+  @override
+  String toString() =>
+      'IsoParseWarning(${kind.name}${step != null ? ' @$step' : ''}'
+      '${value != null ? ' = $value' : ''})';
+}
+
+/// Wynik [parseIsoCommand].
+@immutable
+class IsoCommand {
+  const IsoCommand({
+    required this.kind,
+    this.steps = const [],
+    this.newSketch = false,
+    this.append = false,
+    this.turnDir,
+    this.turnCompass,
+    this.compassAt = const {},
+    this.warnings = const [],
+    this.explicit = false,
+    this.strong = false,
+    this.unknownWords = 0,
+  });
+
+  final IsoCommandKind kind;
+
+  /// Kroki do narysowania ([IsoCommandKind.draw]).
+  final List<IsoStep> steps;
+
+  /// Padło „nowy rysunek / od nowa / new drawing”.
+  final bool newSketch;
+
+  /// Padło „dorysuj / do tego rysunku / add to the drawing” — rysuj do
+  /// ostatniego szkicu bez pytania.
+  final bool append;
+
+  /// Nowy kierunek ostatniego skrętu ([IsoCommandKind.changeLastTurn]).
+  final IsoDir? turnDir;
+
+  /// Strona świata zamiast [turnDir] — do rozwiązania strzałką północy.
+  final IsoCompass? turnCompass;
+
+  /// Kroki, których kierunek padł jako strona świata (indeks → strona).
+  /// Kierunek kroku w [steps] jest wtedy pusty, dopóki umiejętność nie
+  /// rozwiąże go przez strzałkę północy (albo nie dopyta).
+  final Map<int, IsoCompass> compassAt;
+
+  final List<IsoParseWarning> warnings;
+
+  /// Jawny zamiar rysowania („narysuj”, „do rysunku”, „nowy rysunek”,
+  /// „ostatnie kolano”) — bez niego polecenie liczy się tylko w zeszycie.
+  final bool explicit;
+
+  /// Konkretne polecenie (≥ 2 elementy albo element z kierunkiem, długością
+  /// czy DN; „cofnij”) — samo „rura” w zeszycie to jeszcze za mało.
+  final bool strong;
+
+  /// Słowa spoza gramatyki rysowania (obniżają pewność).
+  final int unknownWords;
+
+  bool has(IsoParseWarningKind k) => warnings.any((w) => w.kind == k);
+
+  IsoParseWarning? firstWarning(IsoParseWarningKind k) {
+    for (final w in warnings) {
+      if (w.kind == k) return w;
+    }
+    return null;
+  }
+
+  /// Kopia z innymi krokami / stronami świata / ostrzeżeniami.
+  IsoCommand copyWith({
+    List<IsoStep>? steps,
+    Map<int, IsoCompass>? compassAt,
+    List<IsoParseWarning>? warnings,
+    bool? newSketch,
+  }) =>
+      IsoCommand(
+        kind: kind,
+        steps: steps ?? this.steps,
+        newSketch: newSketch ?? this.newSketch,
+        append: append,
+        turnDir: turnDir,
+        turnCompass: turnCompass,
+        compassAt: compassAt ?? this.compassAt,
+        warnings: warnings ?? this.warnings,
+        explicit: explicit,
+        strong: strong,
+        unknownWords: unknownWords,
+      );
+
+  /// [IsoCommandKind.changeLastTurn] z rozwiązanym kierunkiem.
+  IsoCommand withTurnDir(IsoDir dir) => IsoCommand(
+        kind: kind,
+        steps: steps,
+        newSketch: newSketch,
+        append: append,
+        turnDir: dir,
+        compassAt: compassAt,
+        warnings: warnings,
+        explicit: explicit,
+        strong: strong,
+        unknownWords: unknownWords,
+      );
+
+  @override
+  String toString() => 'IsoCommand(${kind.name}, $steps'
+      '${newSketch ? ', newSketch' : ''}${append ? ', append' : ''}'
+      '${turnDir != null ? ', turnDir: ${turnDir!.name}' : ''}'
+      '${turnCompass != null ? ', turnCompass: ${turnCompass!.name}' : ''}'
+      '${compassAt.isNotEmpty ? ', compass: $compassAt' : ''}'
+      '${warnings.isNotEmpty ? ', $warnings' : ''})';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Słowa
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum _El { pipe, turn, tee, flange, cap, reducer, valve, weld, support }
+
+/// Element, który zaczyna się od słowa [w], albo null.
+_El? _element(String w) {
+  if (w.startsWith('rurocia')) return null; // „rurociąg” — instalacja, nie rura
+  if (w.startsWith('rur') ||
+      w.startsWith('odcink') ||
+      w == 'odcinek' ||
+      w == 'pipe' ||
+      w == 'pipes' ||
+      w == 'tube') {
+    return _El.pipe;
+  }
+  if (w.startsWith('kolan') ||
+      w == 'luk' ||
+      w == 'luku' ||
+      w == 'luki' ||
+      w == 'lukiem' ||
+      w.startsWith('skret') ||
+      w.startsWith('skrec') ||
+      w == 'elbow' ||
+      w == 'elbows' ||
+      w == 'bend' ||
+      w == 'turn') {
+    return _El.turn;
+  }
+  if (w.startsWith('trojnik') ||
+      w.startsWith('odgalez') ||
+      w.startsWith('odejsci') ||
+      w == 'tee' ||
+      w == 'tees' ||
+      w == 'olet' ||
+      w == 'branch') {
+    return _El.tee;
+  }
+  // „kołnierzowa” (zaślepka kołnierzowa) to przymiotnik, nie nowy kołnierz.
+  if (w.startsWith('kolnierzow')) return null;
+  if (w.startsWith('kolnierz') || w == 'flange' || w == 'flanges') {
+    return _El.flange;
+  }
+  // „zaślepiający” (kołnierz zaślepiający) to przymiotnik.
+  if (w.startsWith('zaslepiaj')) return null;
+  if (w.startsWith('zaslep') ||
+      w.startsWith('denn') ||
+      w == 'cap' ||
+      w == 'caps' ||
+      w == 'endcap') {
+    return _El.cap;
+  }
+  if (w.startsWith('redukc') ||
+      w.startsWith('zwezk') ||
+      w == 'reducer' ||
+      w == 'reducers') {
+    return _El.reducer;
+  }
+  if (w.startsWith('zawor') ||
+      w.startsWith('zasuw') ||
+      w.startsWith('przepustnic') ||
+      w == 'valve' ||
+      w == 'valves') {
+    return _El.valve;
+  }
+  if (w.startsWith('spoin') || w == 'weld' || w == 'welds') return _El.weld;
+  if (w.startsWith('podpor') ||
+      w.startsWith('wspornik') ||
+      w == 'support' ||
+      w == 'supports') {
+    return _El.support;
+  }
+  return null;
+}
+
+/// Rodzaj zaworu ze słowa (PL po rzeczowniku, EN przed nim).
+String? _valveTypeOf(String w) {
+  if (w.startsWith('kulow') || w == 'ball') return 'ballValve';
+  if (w.startsWith('zasuw') || w == 'gate') return 'gateValve';
+  if (w.startsWith('zwrotn') ||
+      w == 'check' ||
+      w == 'nonreturn' ||
+      w == 'return') {
+    return 'checkValve';
+  }
+  if (w.startsWith('grzybk') || w == 'globe') return 'globeValve';
+  if (w.startsWith('przepustnic') ||
+      w.startsWith('motylk') ||
+      w == 'butterfly') {
+    return 'butterflyValve';
+  }
+  return null;
+}
+
+bool _isBlindWord(String w) =>
+    w.startsWith('zaslepiaj') ||
+    w == 'slepy' ||
+    w == 'slepa' ||
+    w == 'slepego' ||
+    w == 'blind' ||
+    w.startsWith('kolnierzow');
+
+bool _isFieldWord(String w) =>
+    w.startsWith('montazow') || w == 'field' || w == 'site';
+
+/// Słowa, które stoją PRZED swoim elementem (EN: „ball valve”, „blind
+/// flange”, „field weld”, „end cap”).
+bool _isLeadIn(String w, _El el) => switch (el) {
+      _El.valve => _valveTypeOf(w) != null && !w.startsWith('zasuw'),
+      _El.flange => w == 'blind',
+      _El.weld => w == 'field' || w == 'site',
+      _El.cap => w == 'end',
+      _ => false,
+    };
+
+const Map<String, IsoDir> _dirWords = {
+  'prawo': IsoDir.right, 'right': IsoDir.right, //
+  'lewo': IsoDir.left, 'left': IsoDir.left,
+  'gore': IsoDir.up, 'gora': IsoDir.up, 'gory': IsoDir.up, 'up': IsoDir.up,
+  'upward': IsoDir.up, 'upwards': IsoDir.up,
+  'dol': IsoDir.down, 'dolu': IsoDir.down, 'down': IsoDir.down,
+  'downward': IsoDir.down, 'downwards': IsoDir.down,
+  'przodu': IsoDir.forward, 'przod': IsoDir.forward,
+  'naprzod': IsoDir.forward, 'forward': IsoDir.forward,
+  'forwards': IsoDir.forward, 'ahead': IsoDir.forward,
+  'tylu': IsoDir.back, 'tyl': IsoDir.back, 'back': IsoDir.back,
+  'backward': IsoDir.back, 'backwards': IsoDir.back,
+};
+
+IsoCompass? _compassOf(String w) {
+  if (w.startsWith('polnoc') || w == 'north' || w == 'northward') {
+    return IsoCompass.north;
+  }
+  if (w.startsWith('poludni') || w == 'south' || w == 'southward') {
+    return IsoCompass.south;
+  }
+  if (w.startsWith('wschod') || w == 'east' || w == 'eastward') {
+    return IsoCompass.east;
+  }
+  if (w.startsWith('zachod') || w == 'west' || w == 'westward') {
+    return IsoCompass.west;
+  }
+  return null;
+}
+
+/// Pierwszy kierunek w [items] (słowo kierunku albo strona świata).
+(IsoDir?, IsoCompass?) _directionIn(Iterable<SpokenItem> items) {
+  for (final it in items) {
+    if (it.isNumber) continue;
+    final d = _dirWords[it.word];
+    if (d != null) return (d, null);
+    final c = _compassOf(it.word);
+    if (c != null) return (null, c);
+  }
+  return (null, null);
+}
+
+/// Kierunek z całej wypowiedzi („w górę” jako odpowiedź na pytanie).
+/// Strony świata się nie liczą — [isoCompassOf].
+IsoDir? isoDirectionOf(Utterance u) {
+  for (final it in u.items) {
+    if (it.isNumber) continue;
+    final d = _dirWords[it.word];
+    if (d != null) return d;
+  }
+  return null;
+}
+
+/// Strona świata z wypowiedzi albo null.
+IsoCompass? isoCompassOf(Utterance u) {
+  for (final it in u.items) {
+    if (it.isNumber) continue;
+    final c = _compassOf(it.word);
+    if (c != null) return c;
+  }
+  return null;
+}
+
+/// Rodzaj zaworu z wypowiedzi („kulowy”, „zasuwa”, „check”) albo null.
+String? isoValveTypeOf(Utterance u) {
+  for (final it in u.items) {
+    if (it.isNumber) continue;
+    final t = _valveTypeOf(it.word);
+    if (t != null) return t;
+  }
+  return null;
+}
+
+final RegExp _newSketchRe = RegExp(
+    r'\b(?:nowy|nowa|nowe|nowym|nowej|nowego|czysty|czysta|czystym|czystej) '
+    r'(?:rysun\w*|szkic\w*|arkusz\w*|izometri\w*|kartk\w*|zeszyt\w*)\b|'
+    r'\bod nowa\b|\bzacznij od poczatku\b|'
+    r'\bnew (?:drawing|sketch|sheet|iso|isometric)\b|\bstart over\b|'
+    r'\bfresh (?:drawing|sketch|sheet)\b');
+
+final RegExp _appendRe = RegExp(r'\bdorysuj\w*|\bdorysowa\w*|'
+    r'\bdo (?:tego|ostatniego|starego|poprzedniego|obecnego|istniejacego) '
+    r'(?:rysunku|szkicu|arkusza)\b|'
+    r'\b(?:do|na) (?:rysunku|rysunek|szkicu|szkic)\b|'
+    r'\b(?:to|on|into) (?:the |this |that |my )?(?:drawing|sketch|existing)\b|'
+    r'\bexisting (?:drawing|sketch)\b|\bcontinue\b');
+
+final RegExp _drawVerbRe =
+    RegExp(r'\b(?:narysuj\w*|rysuj\w*|dorysuj\w*|naszkicuj\w*|draw|sketch)\b');
+
+final RegExp _drawPlaceRe = RegExp(
+    r'\b(?:do|na|w) (?:rysunku|rysunek|szkicu|szkic|zeszycie|zeszytu|'
+    r'izometrii|izometrie|arkuszu)\b|'
+    r'\b(?:to|on|in|into) (?:the |this |my )?(?:drawing|sketch|notebook|iso)\b');
+
+final RegExp _undoAtStartRe =
+    RegExp(r'^(?:(?:prosze|hej|ok|okej|asystencie|asystent|please|hey)\s+)*'
+        r'(?:cofnij|cofnac|undo)\b');
+
+final RegExp _drawingNounRe =
+    RegExp(r'\b(?:rysun\w*|rysowani\w*|szkic\w*|zeszyt\w*|drawing|sketch)\b');
+
+final RegExp _changeVerbRe =
+    RegExp(r'\b(?:zmien|popraw|przestaw|obroc|change|make|switch)\b');
+
+final RegExp _questionRe = RegExp(
+    r'^(?:(?:a|i|hej|ok|okej|prosze|powiedz|powiedz mi|tell me)\s+)*'
+    r'(?:ile|jak\w*|co|czy|ktor\w*|gdzie|kiedy|dlaczego|czemu|po co|'
+    r'what\w*|how|which|where|why|when|is|are|does|do you|can you|could)\b');
+
+const Set<String> _questionWords = {
+  'ile',
+  'jaka',
+  'jaki',
+  'jakie',
+  'jakiej',
+  'jakiego',
+  'jakim',
+  'what',
+  'whats',
+  'how',
+  'which',
+};
+
+final RegExp _foreignRe =
+    RegExp(r'\b(?:zapisz|zapamietaj|zanotuj|save|store|remember|record|log|'
+        r'dziennik\w*|journal|projekt\w*|project|wps|raport\w*|report|'
+        r'tig|mig|mag|mma|welding|welder|cen\w*|koszt\w*|price|cost)\b');
+
+/// Słowa innego modułu — wtedy to nie jest polecenie rysowania.
+bool _foreign(Utterance u) {
+  if (_foreignRe.hasMatch(u.folded)) return true;
+  if (mentionsWeight(u) || mentionsWall(u)) return true;
+  if (u.hasStem(const [
+    'amper',
+    'prad',
+    'spaw',
+    'elektrod',
+    'drut',
+    'srednic',
+    'diamet',
+    'zewnetrz',
+  ])) {
+    return true;
+  }
+  // „80 A” — prąd.
+  final items = u.items;
+  for (var i = 0; i + 1 < items.length; i++) {
+    if (items[i].isNumber &&
+        !items[i + 1].isNumber &&
+        (items[i + 1].word == 'a' || items[i + 1].word == 'v')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Słowa „neutralne” dla rysowania: spójniki, czasowniki poleceń, miejsca.
+const Set<String> _vocabulary = {
+  // PL
+  'oraz', 'potem', 'nastepnie', 'dalej', 'pozniej', 'teraz', 'jeszcze',
+  'prosze', 'hej', 'okej', 'asystent', 'asystencie', 'dobra', 'tak', 'tam',
+  'tutaj', 'przez', 'pod', 'kat', 'kata', 'katem', 'dodaj', 'dopisz', 'wstaw',
+  'postaw', 'zrob', 'daj', 'cofnij', 'cofnac', 'polecenie', 'element',
+  'kierunek', 'kierunku', 'strone', 'strona', 'stronie', 'bok', 'tego', 'tej',
+  'ten', 'jedna', 'jeden', 'jedno', 'prosta', 'prosto', 'zmien', 'popraw',
+  'przestaw', 'obroc', 'nowy', 'nowa', 'nowe', 'nowym', 'nowej', 'nowego',
+  'czysty', 'czysta', 'czystym', 'czystej', 'stary', 'starego', 'obecnego',
+  'poprzedniego', 'istniejacego', 'zacznij', 'poczatku', 'idzie',
+  'idaca', 'idacy', 'leci', 'biegnie', 'dwie', 'calej',
+  // EN
+  'and', 'then', 'next', 'now', 'please', 'hey', 'okay', 'the', 'with',
+  'from', 'into', 'long', 'length', 'another', 'more', 'one', 'straight',
+  'vertical', 'vertically', 'horizontal', 'horizontally', 'last', 'change',
+  'make', 'switch', 'add', 'insert', 'put', 'place', 'drawing', 'notebook',
+  'sheet', 'iso', 'isometric', 'new', 'start', 'over', 'fresh', 'undo',
+  'this', 'that', 'existing', 'same', 'old', 'continue', 'going', 'goes',
+  'direction', 'way', 'side', 'end', 'field', 'site', 'blind', 'ball', 'gate',
+  'check', 'globe', 'butterfly', 'nonreturn', 'return', 'non', 'draw',
+  'sketch', 'lay', 'run', 'runs',
+};
+
+/// Rdzenie neutralne (odmiany i jednostki).
+const List<String> _vocabularyStems = [
+  'rysow',
+  'rysun',
+  'narysow',
+  'dorysow',
+  'narysuj',
+  'rysuj',
+  'dorysuj',
+  'naszkicuj',
+  'szkic',
+  'zeszyt',
+  'arkusz',
+  'izometr',
+  'kartk',
+  'ostatni',
+  'kolejn',
+  'nastepn',
+  'dlugos',
+  'dlug',
+  'pionow',
+  'poziom',
+  'metr',
+  'milimet',
+  'centymet',
+  'stopn',
+  'stopie',
+  'meter',
+  'metre',
+  'millimet',
+  'centimet',
+  'inch',
+  'degree',
+  'cal',
+  'kulow',
+  'zwrotn',
+  'grzybk',
+  'motylk',
+  'montazow',
+  'zaslepiaj',
+  'slep',
+  'kolnierzow',
+  'polnoc',
+  'poludni',
+  'wschod',
+  'zachod',
+  'north',
+  'south',
+  'east',
+  'west',
+];
+
+final RegExp _digitsRe = RegExp(r'^[\d.]+$');
+final RegExp _pairRe = RegExp(r'^(\d+)x(\d+)$');
+
+bool _known(String w) =>
+    w.length < 3 ||
+    _digitsRe.hasMatch(w) ||
+    _pairRe.hasMatch(w) ||
+    _vocabulary.contains(w) ||
+    _dirWords.containsKey(w) ||
+    _element(w) != null ||
+    _valveTypeOf(w) != null ||
+    _vocabularyStems.any(w.startsWith) ||
+    isInchUnit(w);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Parser
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _Seg {
+  _Seg(this.el, this.at);
+  final _El el;
+
+  /// Indeks słowa-klucza.
+  final int at;
+
+  /// Indeksy elementów wypowiedzi należących do tego elementu (z kluczem).
+  final List<int> idx = [];
+}
+
+/// Polecenie rysowania z wypowiedzi albo null, gdy to nie jest polecenie
+/// rysowania (pytanie, zapis, inny moduł, brak elementów).
+IsoCommand? parseIsoCommand(Utterance u) {
+  final items = u.items;
+  if (items.isEmpty) return null;
+  final f = u.folded;
+  final drawVerb = _drawVerbRe.hasMatch(f);
+  final explicitPlace = _drawPlaceRe.hasMatch(f);
+
+  // ── odrzucenia ──────────────────────────────────────────────────────────
+  if (_questionRe.hasMatch(f)) return null;
+  if (u.tokens.any(_questionWords.contains)) return null;
+  if (!drawVerb && u.raw.trim().endsWith('?')) return null;
+  if (_foreign(u)) return null;
+  if (!drawVerb &&
+      RegExp(r'^(?:otworz|pokaz|uruchom|wlacz|open|show|launch)\b')
+          .hasMatch(f)) {
+    return null;
+  }
+
+  final unknown = [
+    for (final it in items)
+      if (!it.isNumber && !_known(it.word)) it.word,
+  ].length;
+  if (unknown >= 3) return null;
+
+  final newSketch = _newSketchRe.hasMatch(f);
+  final append = _appendRe.hasMatch(f) && !newSketch;
+
+  // ── cofnij ──────────────────────────────────────────────────────────────
+  if (_undoAtStartRe.hasMatch(f)) {
+    final object = _drawingNounRe.hasMatch(f) ||
+        items.any((it) => !it.isNumber && _element(it.word) != null);
+    return IsoCommand(
+      kind: IsoCommandKind.undo,
+      explicit: object,
+      strong: true,
+      unknownWords: unknown,
+    );
+  }
+
+  // ── elementy ────────────────────────────────────────────────────────────
+  final segs = <_Seg>[];
+  for (var i = 0; i < items.length; i++) {
+    final it = items[i];
+    if (it.isNumber) continue;
+    final el = _element(it.word);
+    if (el == null) continue;
+    // „zawór zasuwa” / „zawór kulowy”: rodzaj należy do zaworu przed nim.
+    if (el == _El.valve &&
+        segs.isNotEmpty &&
+        segs.last.el == _El.valve &&
+        _valveTypeOf(it.word) != null &&
+        !_segHasValveType(items, segs.last.at, i)) {
+      continue;
+    }
+    // „skręt kolana”, „elbow turn” — jedno kolano, nie dwa.
+    if (el == _El.turn &&
+        segs.isNotEmpty &&
+        segs.last.el == _El.turn &&
+        segs.last.at == i - 1) {
+      continue;
+    }
+    segs.add(_Seg(el, i));
+  }
+
+  // ── zmień ostatnie kolano ───────────────────────────────────────────────
+  final lastWord = u.hasStem(const ['ostatni']) || u.hasAny(const ['last']);
+  final changeVerb = _changeVerbRe.hasMatch(f);
+  if (segs.isNotEmpty &&
+      segs.every((s) => s.el == _El.turn) &&
+      (lastWord || changeVerb) &&
+      !drawVerb) {
+    final (d, c) = _directionIn(items);
+    return IsoCommand(
+      kind: IsoCommandKind.changeLastTurn,
+      turnDir: d,
+      turnCompass: c,
+      explicit: true,
+      strong: true,
+      unknownWords: unknown,
+    );
+  }
+
+  if (segs.isEmpty) {
+    if (newSketch) {
+      return IsoCommand(
+        kind: IsoCommandKind.newSketch,
+        newSketch: true,
+        explicit: true,
+        strong: true,
+        unknownWords: unknown,
+      );
+    }
+    return null;
+  }
+
+  // Przypisanie słów do elementów: od klucza do następnego klucza; słowa
+  // stojące przed kluczem (EN „ball valve”, kąt „45 degree elbow”) idą do
+  // swojego elementu.
+  final owner = List<int>.filled(items.length, -1);
+  for (var k = 0; k < segs.length; k++) {
+    final end = k + 1 < segs.length ? segs[k + 1].at : items.length;
+    for (var i = segs[k].at; i < end; i++) {
+      owner[i] = k;
+    }
+  }
+  for (var k = 0; k < segs.length; k++) {
+    final s = segs[k];
+    final floor = k == 0 ? 0 : segs[k - 1].at + 1;
+    var j = s.at - 1;
+    while (j >= floor && j >= s.at - 2) {
+      final it = items[j];
+      final take = it.isNumber
+          ? s.el == _El.turn && _isAngleLeadIn(items, j, s.at)
+          : _isLeadIn(it.word, s.el) ||
+              (s.el == _El.turn && _isDegreeWord(it.word));
+      if (!take) break;
+      owner[j] = k;
+      j--;
+    }
+  }
+  for (var i = 0; i < items.length; i++) {
+    if (owner[i] >= 0) segs[owner[i]].idx.add(i);
+  }
+  final preamble = [
+    for (var i = 0; i < items.length; i++)
+      if (owner[i] < 0) items[i],
+  ];
+  final (preDir, preCompass) = _directionIn(preamble);
+
+  // ── kroki ───────────────────────────────────────────────────────────────
+  final steps = <IsoStep>[];
+  final compassAt = <int, IsoCompass>{};
+  final warnings = <IsoParseWarning>[];
+  int? pipeDn; // DN rury powiedziany przy rurze — dla następnej kształtki
+  var strong = segs.length >= 2;
+
+  for (var k = 0; k < segs.length; k++) {
+    final s = segs[k];
+    final segItems = [for (final i in s.idx) items[i]];
+    var (dir, compass) = _directionIn(segItems);
+    if (k == 0 && dir == null && compass == null) {
+      dir = preDir;
+      compass = preCompass;
+    }
+    if (dir != null || compass != null) strong = true;
+    final sub = Utterance(_textOf(segItems), lang: u.lang);
+    final index = steps.length;
+    if (compass != null) compassAt[index] = compass;
+
+    switch (s.el) {
+      case _El.pipe:
+        final len = sub.lengthMm();
+        final assumed = sub.lengthAssumedMeters;
+        final mm = len != null && len > 0 ? len : null;
+        if (mm != null) strong = true;
+        if (mm != null && assumed) {
+          warnings.add(IsoParseWarning(IsoParseWarningKind.lengthAssumedMeters,
+              step: index, value: mm));
+        }
+        final dn = _dnOf(sub);
+        if (dn != null) {
+          pipeDn = dn;
+          strong = true;
+        }
+        steps.add(IsoPipe(dir: dir, lengthMm: mm));
+      case _El.turn:
+        final angle = sub.angleDeg();
+        final dn = _dnOf(sub) ?? pipeDn;
+        pipeDn = null;
+        if (angle != null && angle != 90) {
+          warnings.add(IsoParseWarning(IsoParseWarningKind.unsupported45,
+              step: index, value: angle));
+          compassAt.remove(index);
+          steps.add(IsoFitting('elbow45', dn: dn));
+        } else {
+          steps.add(IsoTurn(toDir: dir, dn: dn));
+        }
+      case _El.tee:
+        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        warnings.add(
+            IsoParseWarning(IsoParseWarningKind.unsupportedTee, step: index));
+        compassAt.remove(index);
+        steps.add(IsoFitting('tee', dn: sizes.firstOrNull?.$1 ?? pipeDn));
+        pipeDn = null;
+      case _El.flange:
+      case _El.cap:
+        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        final blind =
+            segItems.any((it) => !it.isNumber && _isBlindWord(it.word));
+        final tool = s.el == _El.cap
+            ? (segItems.any(
+                    (it) => !it.isNumber && it.word.startsWith('kolnierzow'))
+                ? 'blindFlange'
+                : 'cap')
+            : (blind ? 'blindFlange' : 'flange');
+        compassAt.remove(index);
+        final dn = sizes.firstOrNull?.$1 ?? pipeDn;
+        if (dn != null) strong = true;
+        steps.add(IsoFitting(tool, dn: dn));
+        pipeDn = null;
+      case _El.reducer:
+        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        int? dn, out;
+        if (sizes.length >= 2) {
+          dn = sizes[0].$1;
+          out = sizes[1].$1;
+        } else if (sizes.length == 1) {
+          // „redukcja na DN80” — wylot; „redukcja DN100” — wlot.
+          if (sizes[0].$2) {
+            out = sizes[0].$1;
+            dn = pipeDn;
+          } else {
+            dn = sizes[0].$1;
+          }
+        } else {
+          dn = pipeDn;
+        }
+        if (dn != null || out != null) strong = true;
+        compassAt.remove(index);
+        steps.add(IsoFitting('reducer', dn: dn, dnOut: out));
+        pipeDn = null;
+      case _El.valve:
+        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        String? type;
+        for (final it in segItems) {
+          if (it.isNumber) continue;
+          type = _valveTypeOf(it.word);
+          if (type != null) break;
+        }
+        if (type == null) {
+          warnings.add(IsoParseWarning(IsoParseWarningKind.valveTypeMissing,
+              step: index));
+        }
+        compassAt.remove(index);
+        final dn = sizes.firstOrNull?.$1 ?? pipeDn;
+        if (dn != null) strong = true;
+        steps.add(IsoFitting(type ?? kIsoAnyValve, dn: dn));
+        pipeDn = null;
+      case _El.weld:
+        final field =
+            segItems.any((it) => !it.isNumber && _isFieldWord(it.word));
+        compassAt.remove(index);
+        steps.add(IsoFitting(field ? 'fieldWeld' : 'weld'));
+      case _El.support:
+        compassAt.remove(index);
+        steps.add(const IsoFitting('support'));
+    }
+  }
+
+  // Kształtki osiowe nie mają kierunku — strona świata przy nich nic nie
+  // znaczy (usunięta wyżej); zostają tylko rury i skręty.
+  return IsoCommand(
+    kind: IsoCommandKind.draw,
+    steps: List.unmodifiable(steps),
+    newSketch: newSketch,
+    append: append,
+    compassAt: Map.unmodifiable(compassAt),
+    warnings: List.unmodifiable(warnings),
+    explicit: drawVerb || explicitPlace || newSketch,
+    strong: strong,
+    unknownWords: unknown,
+  );
+}
+
+bool _segHasValveType(List<SpokenItem> items, int from, int to) {
+  for (var i = from; i < to; i++) {
+    final it = items[i];
+    if (it.isNumber) continue;
+    if (i == from &&
+        !it.word.startsWith('zasuw') &&
+        !it.word.startsWith('przepustnic')) {
+      continue;
+    }
+    if (_valveTypeOf(it.word) != null) return true;
+  }
+  return false;
+}
+
+bool _isDegreeWord(String w) =>
+    w.startsWith('stopn') ||
+    w.startsWith('stopie') ||
+    w == 'deg' ||
+    w.startsWith('degree');
+
+/// Liczba tuż przed kolanem („45 elbow”, „45 degree elbow”) to kąt.
+bool _isAngleLeadIn(List<SpokenItem> items, int j, int at) {
+  final v = items[j].value!;
+  if (j == at - 1) return const [11.25, 15, 22.5, 30, 45, 60, 90].contains(v);
+  return j == at - 2 &&
+      !items[at - 1].isNumber &&
+      _isDegreeWord(items[at - 1].word);
+}
+
+String _textOf(List<SpokenItem> items) =>
+    [for (final it in items) it.text].join(' ');
+
+/// DN z fragmentu: „dn 50”, „de en 50”, „2 cale”.
+int? _dnOf(Utterance sub) {
+  final dn = sub.dn();
+  if (dn != null) return dn;
+  final nps = sub.npsInches();
+  return nps == null ? null : dnForNps(nps);
+}
+
+/// Rozmiary kształtki po kolei: (DN, czy stoi po „na / to / do”). [keyAt] —
+/// pozycja słowa-klucza w [items] (numery spoin itp. przed nim się nie
+/// liczą). „dn 4 0” (dwuznaczne) nie daje rozmiaru.
+List<(int, bool)> _sizes(List<SpokenItem> items, int keyAt) {
+  final out = <(int, bool)>[];
+  final known = knownDns.toSet();
+  var after = false;
+  var i = keyAt + 1;
+  while (i < items.length) {
+    final it = items[i];
+    if (!it.isNumber) {
+      final w = it.word;
+      final pair = _pairRe.firstMatch(w);
+      if (pair != null) {
+        out
+          ..add((int.parse(pair[1]!), false))
+          ..add((int.parse(pair[2]!), true));
+        i++;
+        continue;
+      }
+      if (w == 'na' || w == 'to' || w == 'into' || w == 'do') after = true;
+      final marker = w == 'dn' ||
+          ((w == 'de' || w == 'd' || w == 'dee') &&
+              i + 1 < items.length &&
+              !items[i + 1].isNumber &&
+              (items[i + 1].word == 'en' || items[i + 1].word == 'n'));
+      if (marker) {
+        final j = w == 'dn' ? i + 1 : i + 2;
+        if (j < items.length && items[j].isNumber) {
+          final v = items[j].value!;
+          final ambiguous = j + 1 < items.length &&
+              items[j + 1].isNumber &&
+              items[j + 1].value! < 10 &&
+              v < 100;
+          if (!ambiguous && v == v.roundToDouble() && v > 0) {
+            out.add((v.toInt(), after));
+            after = false;
+          }
+          i = ambiguous ? j + 2 : j + 1;
+          continue;
+        }
+      }
+      i++;
+      continue;
+    }
+    final v = it.value!;
+    final next = i + 1 < items.length ? items[i + 1] : null;
+    if (next != null && !next.isNumber && isInchUnit(next.word) ||
+        it.fraction) {
+      final dn = dnForNps(v);
+      if (dn != null) {
+        out.add((dn, after));
+        after = false;
+      }
+      i += next != null && !next.isNumber && isInchUnit(next.word) ? 2 : 1;
+      continue;
+    }
+    if (v == v.roundToDouble() && known.contains(v.toInt())) {
+      out.add((v.toInt(), after));
+      after = false;
+    }
+    i++;
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Kroki ↔ pola ShowInModule
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Kroki jako lista map (pola `ShowInModule('iso_notebook', {'steps': …})`):
+/// `{'kind': 'pipe'|'turn'|'fitting', 'dir', 'length_mm', 'dn', 'dn_out',
+/// 'tool'}` — bez typów z biblioteki ekranu, do logów i zgłoszeń.
+List<Map<String, Object?>> encodeIsoSteps(List<IsoStep> steps) => [
+      for (final s in steps)
+        switch (s) {
+          IsoPipe() => {
+              'kind': 'pipe',
+              if (s.dir != null) 'dir': s.dir!.name,
+              if (s.lengthMm != null) 'length_mm': s.lengthMm,
+            },
+          IsoTurn() => {
+              'kind': 'turn',
+              if (s.toDir != null) 'dir': s.toDir!.name,
+              if (s.dn != null) 'dn': s.dn,
+            },
+          IsoFitting() => {
+              'kind': 'fitting',
+              'tool': s.tool,
+              if (s.dn != null) 'dn': s.dn,
+              if (s.dnOut != null) 'dn_out': s.dnOut,
+            },
+        },
+    ];
+
+/// Odwrotność [encodeIsoSteps]; przyjmuje też gotowe [IsoStep]. Null albo
+/// brak pola = pusta lista. Zły format → [FormatException].
+List<IsoStep> decodeIsoSteps(Object? raw) {
+  if (raw == null) return const [];
+  if (raw is! List) throw FormatException('steps: not a list', raw);
+  IsoDir? dir(Object? v) {
+    if (v == null) return null;
+    if (v is IsoDir) return v;
+    for (final d in IsoDir.values) {
+      if (d.name == v) return d;
+    }
+    throw FormatException('steps: unknown direction', v);
+  }
+
+  int? dn(Object? v) => v == null ? null : (v as num).toInt();
+
+  return [
+    for (final e in raw)
+      if (e is IsoStep)
+        e
+      else if (e is Map)
+        switch (e['kind']) {
+          'pipe' => IsoPipe(
+              dir: dir(e['dir']),
+              lengthMm: (e['length_mm'] as num?)?.toDouble()),
+          'turn' => IsoTurn(toDir: dir(e['dir']), dn: dn(e['dn'])),
+          'fitting' => IsoFitting(e['tool'] as String,
+              dn: dn(e['dn']), dnOut: dn(e['dn_out'])),
+          _ => throw FormatException('steps: unknown kind', e),
+        }
+      else
+        throw FormatException('steps: not a step', e),
+  ];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Słowa dla montera (opis i wypowiedź zwrotna)
+// ═══════════════════════════════════════════════════════════════════════════
+
+String isoDirPl(IsoDir d) => switch (d) {
+      IsoDir.right => 'w prawo',
+      IsoDir.up => 'w górę',
+      IsoDir.back => 'do tyłu',
+      IsoDir.left => 'w lewo',
+      IsoDir.down => 'w dół',
+      IsoDir.forward => 'do przodu',
+    };
+
+String isoDirEn(IsoDir d) => switch (d) {
+      IsoDir.right => 'right',
+      IsoDir.up => 'up',
+      IsoDir.back => 'back',
+      IsoDir.left => 'left',
+      IsoDir.down => 'down',
+      IsoDir.forward => 'forward',
+    };
+
+String isoDir(IsoDir d, AppLanguage l) =>
+    l == AppLanguage.en ? isoDirEn(d) : isoDirPl(d);
+
+String isoCompassName(IsoCompass c, AppLanguage l) =>
+    switch ((c, l == AppLanguage.en)) {
+      (IsoCompass.north, false) => 'na północ',
+      (IsoCompass.south, false) => 'na południe',
+      (IsoCompass.east, false) => 'na wschód',
+      (IsoCompass.west, false) => 'na zachód',
+      (IsoCompass.north, true) => 'north',
+      (IsoCompass.south, true) => 'south',
+      (IsoCompass.east, true) => 'east',
+      (IsoCompass.west, true) => 'west',
+    };
+
+/// Nazwa kształtki ([IsoFitting.tool]) dla montera.
+String isoFittingName(String tool, AppLanguage l) {
+  final en = l == AppLanguage.en;
+  return switch (tool) {
+    'flange' => en ? 'flange' : 'kołnierz',
+    'blindFlange' => en ? 'blind flange' : 'kołnierz zaślepiający',
+    'cap' => en ? 'cap' : 'zaślepka',
+    'reducer' => en ? 'reducer' : 'redukcja',
+    'gateValve' => en ? 'gate valve' : 'zasuwa',
+    'ballValve' => en ? 'ball valve' : 'zawór kulowy',
+    'checkValve' => en ? 'check valve' : 'zawór zwrotny',
+    'globeValve' => en ? 'globe valve' : 'zawór grzybkowy',
+    'butterflyValve' => en ? 'butterfly valve' : 'przepustnica',
+    'weld' => en ? 'weld' : 'spoina',
+    'fieldWeld' => en ? 'field weld' : 'spoina montażowa',
+    'support' => en ? 'support' : 'podpora',
+    'elbow45' => en ? '45° elbow' : 'kolano 45°',
+    'tee' => en ? 'tee' : 'trójnik',
+    kIsoAnyValve => en ? 'valve' : 'zawór',
+    _ => tool,
+  };
+}
+
+String _num(double v, AppLanguage l) {
+  final r = v.roundToDouble();
+  final s = (v - r).abs() < 1e-9
+      ? r.toStringAsFixed(0)
+      : v.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
+  return l == AppLanguage.en ? s : s.replaceAll('.', ',');
+}
+
+/// „2 m” / „1500 mm” (karta) albo „2 metry” / „1500 milimetrów” (mowa).
+String isoLength(double mm, AppLanguage l, {bool spoken = false}) {
+  final en = l == AppLanguage.en;
+  final metres = mm % 1000 == 0;
+  if (!spoken) return metres ? '${_num(mm / 1000, l)} m' : '${_num(mm, l)} mm';
+  if (metres) {
+    final m = (mm / 1000).round();
+    if (en) return '$m ${m == 1 ? 'metre' : 'metres'}';
+    return '$m ${_plForm(m, 'metr', 'metry', 'metrów')}';
+  }
+  if (en) return '${_num(mm, l)} millimetres';
+  final n = mm.roundToDouble() == mm ? mm.toInt() : null;
+  return '${_num(mm, l)} '
+      '${n == null ? 'milimetra' : _plForm(n, 'milimetr', 'milimetry', 'milimetrów')}';
+}
+
+String _plForm(int n, String one, String few, String many) {
+  if (n == 1) return one;
+  final d = n % 10, t = n % 100;
+  return d >= 2 && d <= 4 && (t < 12 || t > 14) ? few : many;
+}
+
+/// Jeden krok słowami: „rura 2 m w prawo”, „kolano DN50 w górę”,
+/// „redukcja DN100 → DN80”.
+String describeIsoStep(IsoStep s, AppLanguage l, {bool spoken = false}) {
+  final en = l == AppLanguage.en;
+  return switch (s) {
+    IsoPipe() => [
+        en ? 'pipe' : 'rura',
+        if (s.lengthMm != null) isoLength(s.lengthMm!, l, spoken: spoken),
+        if (s.dir != null) isoDir(s.dir!, l),
+      ].join(' '),
+    IsoTurn() => [
+        en ? 'elbow' : 'kolano',
+        if (s.dn != null) 'DN${s.dn}',
+        if (s.toDir != null) isoDir(s.toDir!, l),
+      ].join(' '),
+    IsoFitting() => [
+        isoFittingName(s.tool, l),
+        if (s.tool == 'reducer' && s.dn != null && s.dnOut != null)
+          'DN${s.dn} → DN${s.dnOut}'
+        else if (s.tool == 'reducer' && s.dnOut != null)
+          '→ DN${s.dnOut}'
+        else if (s.dn != null)
+          'DN${s.dn}',
+      ].join(' '),
+  };
+}
+
+/// Kroki słowami, po przecinku.
+String describeIsoSteps(List<IsoStep> steps, AppLanguage l,
+        {bool spoken = false}) =>
+    [for (final s in steps) describeIsoStep(s, l, spoken: spoken)].join(', ');
+
+/// Kroki z powrotem jako wypowiedź, którą [parseIsoCommand] czyta tak samo
+/// (chipy „popraw…”): „narysuj rura 2000 mm w prawo kolano w górę rura”.
+String isoStepsToUtterance(List<IsoStep> steps, AppLanguage l,
+    {bool newSketch = false}) {
+  final en = l == AppLanguage.en;
+  String mm(double v) => '${_num(v, AppLanguage.en)} mm';
+  final words = <String>[
+    if (en) 'draw' else 'narysuj',
+    if (newSketch) en ? 'on a new drawing' : 'na nowym rysunku',
+  ];
+  for (final s in steps) {
+    switch (s) {
+      case IsoPipe():
+        words.add(en ? 'pipe' : 'rura');
+        if (s.lengthMm != null) words.add(mm(s.lengthMm!));
+        if (s.dir != null) words.add(isoDir(s.dir!, l));
+      case IsoTurn():
+        words.add(en ? 'elbow' : 'kolano');
+        if (s.dn != null) words.add('dn ${s.dn}');
+        if (s.toDir != null) words.add(isoDir(s.toDir!, l));
+      case IsoFitting():
+        words.add(isoFittingName(s.tool, l));
+        if (s.tool == 'reducer') {
+          if (s.dn != null) words.add('dn ${s.dn}');
+          if (s.dnOut != null) words.add('${en ? 'to' : 'na'} dn ${s.dnOut}');
+        } else if (s.dn != null) {
+          words.add('dn ${s.dn}');
+        }
+    }
+  }
+  return words.join(' ');
+}

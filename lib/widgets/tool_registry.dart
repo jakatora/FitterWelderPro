@@ -2787,14 +2787,23 @@ List<ToolSpec> resolveTools(Iterable<String> ids, {int? limit}) {
 
 /// Otwiera narzędzie: zapisuje je w „ostatnio używanych", a jeśli narzędzie
 /// wysyła dane na serwer — najpierw przepuszcza przez bramkę imienia i zasad.
-Future<void> openTool(BuildContext context, ToolSpec tool) async {
+Future<void> openTool(BuildContext context, ToolSpec tool,
+    {Map<String, Object?> fields = const {}}) async {
   if (tool.needsAccount) {
     final ok = await ensureCommunityAccess(context);
     if (!ok || !context.mounted) return;
   }
   // Nie czekamy na zapis — ekran ma się otworzyć od razu.
   unawaited(ToolUsageStore.instance.recordOpen(tool.id));
-  await Navigator.of(context).push(MaterialPageRoute(builder: tool.builder));
+  await Navigator.of(context).push(MaterialPageRoute(
+    settings: RouteSettings(name: 'tool:${tool.id}'),
+    builder: (context) => switch (tool.id) {
+      'dn_mm' when fields['dn'] is int => DnMmScreen(initialDn: fields['dn'] as int),
+      'wall_thickness' when fields['dn'] is int => PipeScheduleScreen(
+        initialDn: fields['dn'] as int, initialSchedule: fields['schedule'] as String?),
+      _ => tool.builder(context),
+    },
+  ));
 }
 
 // ─── Wyszukiwarka ───────────────────────────────────────────────────────────

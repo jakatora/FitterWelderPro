@@ -204,6 +204,23 @@ void main() {
     await db.delete(IsoDrawingDao.table);
   });
 
+  testWidgets('zmiana ostatniego kolana: błędny kierunek nie rusza szkicu', (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [IsoPipe(lengthMm: 1000), IsoTurn(toDir: IsoDir.up),
+      IsoPipe(lengthMm: 1000)], stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final report = await c.redirectLastTurn(IsoDir.left);
+    expect(report?.problem, IsoDrawProblem.reversal);
+    final after = await _stored(tester);
+    expect(after, before);
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(c.hasContent, isFalse);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   group('rysowanie sekwencji', () {
     testWidgets(
         'rura, kolano, rura → 2 odcinki i 1 kolano, w prawo potem do przodu, '
