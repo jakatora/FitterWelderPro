@@ -1,9 +1,12 @@
 // Mózg asystenta (spec §4.3, plan zadanie 1.3) — lokalny i deterministyczny.
 //
 // Kolejność na jedną turę:
-//   1. pytanie w toku: wypowiedź z wartością slotu → `run` z dołożonym
-//      slotem; „anuluj / nie / stop" → kasuje; inna umiejętność ≥ progu →
-//      kasuje pytanie i obsługuje nową; bełkot → to samo pytanie;
+//   1. pytanie w toku: najpierw ocena wypowiedzi jako nowego polecenia —
+//      INNA umiejętność ≥ 0,8 wygrywa; inaczej wypowiedź z wartością slotu
+//      (`fillSlot`) → `run` z dołożonym slotem; „anuluj / nie / stop" →
+//      kasuje; inna umiejętność ≥ progu → kasuje pytanie i obsługuje nową;
+//      wyraźnie inne, nieznane polecenie („ile waży…") → kasuje i „nie
+//      rozumiem"; bełkot → to samo pytanie;
 //   2. ocena wszystkich zwykłych umiejętności dla tekstu i każdej
 //      alternatywy N-best (premia kontekstu dla bieżącego modułu); remis
 //      umiejętności z różnych modułów → „Chodzi o … czy …?";
@@ -26,6 +29,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../i18n/app_language.dart';
 import '../../widgets/tool_registry.dart' show toolById;
+import 'command_words.dart';
 import 'skill.dart';
 import 'tool_lookup.dart';
 
@@ -50,6 +54,10 @@ const double _continuationScore = 0.8;
 
 /// Wynik dopowiedzenia (do 8 s, bez słowa kontynuacji).
 const double _appendScore = 0.6;
+
+/// Od tego wyniku INNA umiejętność wygrywa z pytaniem w toku — wypowiedź to
+/// nowe polecenie, nie odpowiedź na „Jakie DN?".
+const double _newCommandScore = 0.8;
 
 final RegExp _cancelRe = RegExp(
     r'^(?:(?:no|ok|okej|dobra)\s+)?(?:anuluj\w*|nie|stop|zostaw|nic|niewazne|'
@@ -129,36 +137,58 @@ class AssistantBrain {
 
     final p = _pending;
     if (p != null) {
-      final answered = _answerPending(p, cands, ctx);
-      if (answered != null) return _run(answered.$1, ctx, answered.$2);
+      // Wybór z remisu („pierwsze", chip) — jednoznaczny, najpierw.
+      final chosen = _answerTie(p, cands);
+      if (chosen != null) return _run(chosen.$1, ctx, chosen.$2);
+      // Najpierw ocena wypowiedzi jako NOWEGO polecenia: gdy inna
+      // umiejętność ma ≥ 0,8 („ścianka dn50 sch 40", „zapisz TIG…" po
+      // „Jakie DN?"), pytanie w toku jej nie połyka.
+      final scored = _scoreRegular(cands, ctx);
+      final newCommand = scored.any((s) =>
+          s.order >= 0 &&
+          s.score >= _newCommandScore &&
+          !identical(s.match.skill, p.partial.skill));
+      if (!newCommand) {
+        final answered = _answerPending(p, cands, ctx);
+        if (answered != null) return _run(answered.$1, ctx, answered.$2);
+      }
       if (cands.any((c) => _cancelRe.hasMatch(c.folded))) {
         cancelPending();
         return const BrainReply(AnswerResult(AssistantAnswer(
             text: AssistantText('Dobrze, zostawiam.', 'OK, dropped.'))));
       }
-      final routed = await _route(cands, ctx, keepPending: p);
+      final routed = await _route(cands, ctx, keepPending: p, scored: scored);
       if (routed != null) return routed;
-      // Nic innego — powtarzamy pytanie.
+      // Wyraźnie inne polecenie, którego nikt nie zna („ile waży rura dn50"
+      // po „Jakie DN?") — porzucamy pytanie zamiast je powtarzać.
+      if (cands.any(looksLikeOtherCommand)) {
+        cancelPending();
+        return _notUnderstood(u);
+      }
+      // Bełkot — powtarzamy pytanie.
       return BrainReply(p, match: p.partial);
     }
     return await _route(cands, ctx) ?? _notUnderstood(u);
   }
 
+  /// Wybór jednej z umiejętności remisu: (trafienie, alternatywa) albo null.
+  (SkillMatch, String?)? _answerTie(AskResult p, List<Utterance> cands) {
+    final tie = _tie;
+    if (p.slot != 'skill' || tie == null) return null;
+    for (final c in cands) {
+      final i = _tieChoice(p, c);
+      if (i != null) {
+        cancelPending();
+        return (tie[i], c == cands.first ? null : c.raw);
+      }
+    }
+    return null;
+  }
+
   /// Odpowiedź na pytanie w toku: (trafienie z dołożonym slotem, alternatywa).
   (SkillMatch, String?)? _answerPending(
       AskResult p, List<Utterance> cands, AssistantContext ctx) {
-    final tie = _tie;
-    if (p.slot == 'skill' && tie != null) {
-      for (final c in cands) {
-        final i = _tieChoice(p, c);
-        if (i != null) {
-          cancelPending();
-          final m = tie[i];
-          return (m, c == cands.first ? null : c.raw);
-        }
-      }
-      return null;
-    }
+    if (p.slot == 'skill' && _tie != null) return null;
     for (final c in cands) {
       Map<String, Object?>? slots;
       try {
@@ -192,9 +222,36 @@ class AssistantBrain {
   }
 
   /// Ocena zwykłych umiejętności + kontynuacja, potem fallbacki. null = nic.
-  /// [keepPending] — pytanie w toku, które kasujemy tylko, gdy coś trafi.
+  /// [keepPending] — pytanie w toku, które kasujemy tylko, gdy coś trafi;
+  /// [scored] — gotowa ocena (żeby nie liczyć dwa razy).
   Future<BrainReply?> _route(List<Utterance> cands, AssistantContext ctx,
-      {AskResult? keepPending}) async {
+      {AskResult? keepPending, List<_Scored>? scored}) async {
+    scored ??= _scoreRegular(cands, ctx);
+
+    if (scored.isNotEmpty && scored.first.score >= threshold) {
+      final best = scored.first;
+      if (keepPending != null) cancelPending();
+      final rival = _rival(best, scored);
+      if (rival != null) return _askTie(best, rival, ctx);
+      return _run(best.match, ctx,
+          best.candidate == 0 ? null : cands[best.candidate].raw);
+    }
+
+    for (final s in _fallbacks) {
+      for (var ci = 0; ci < cands.length; ci++) {
+        final m = _safeMatch(s, cands[ci], ctx);
+        if (m == null || m.score < threshold) continue;
+        if (keepPending != null) cancelPending();
+        return _run(m, ctx, ci == 0 ? null : cands[ci].raw);
+      }
+    }
+    return null;
+  }
+
+  /// Wyniki zwykłych umiejętności i kontynuacji dla tekstu i alternatyw,
+  /// od najlepszego (remis: tekst przed alternatywą, potem kolejność
+  /// katalogu). Kontynuacja ma `order` = -1.
+  List<_Scored> _scoreRegular(List<Utterance> cands, AssistantContext ctx) {
     final scored = <_Scored>[];
     for (var ci = 0; ci < cands.length; ci++) {
       final c = cands[ci];
@@ -220,25 +277,7 @@ class AssistantBrain {
       if (c != 0) return c;
       return a.order.compareTo(b.order);
     });
-
-    if (scored.isNotEmpty && scored.first.score >= threshold) {
-      final best = scored.first;
-      if (keepPending != null) cancelPending();
-      final rival = _rival(best, scored);
-      if (rival != null) return _askTie(best, rival, ctx);
-      return _run(best.match, ctx,
-          best.candidate == 0 ? null : cands[best.candidate].raw);
-    }
-
-    for (final s in _fallbacks) {
-      for (var ci = 0; ci < cands.length; ci++) {
-        final m = _safeMatch(s, cands[ci], ctx);
-        if (m == null || m.score < threshold) continue;
-        if (keepPending != null) cancelPending();
-        return _run(m, ctx, ci == 0 ? null : cands[ci].raw);
-      }
-    }
-    return null;
+    return scored;
   }
 
   /// Kontynuacja / dopowiedzenie ostatniej umiejętności dla [c] albo null.

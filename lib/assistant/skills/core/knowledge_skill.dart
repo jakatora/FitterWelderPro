@@ -202,6 +202,16 @@ class KnowledgeSkill extends AssistantSkill {
       }
     }
 
+    // A concrete measurement needs a calculation skill, not a generic FAQ
+    // selected just because it contains one word such as "porosity".
+    const units = {'a', 'amper', 'amperow', 'amps', 'v', 'volt', 'volts',
+      'mm', 'cm', 'kg', 'bar', 'psi', 'min', 'sekund', 'seconds'};
+    for (var i = 0; i + 1 < u.tokens.length; i++) {
+      if (double.tryParse(u.tokens[i].replaceAll(',', '.')) != null &&
+          units.contains(u.tokens[i + 1])) {
+        return null;
+      }
+    }
     final help = _helpHit(u);
     if (help != null) {
       return SkillMatch(this, 0.65,

@@ -60,6 +60,54 @@ void main() {
     });
   });
 
+  group('przecinek dziesiętny: cyfry kolejno, z zerami wiodącymi', () {
+    test('„dwa przecinek zero pięć" → 2,05',
+        () => expect(parseSpokenNumber('dwa przecinek zero pięć'), 2.05));
+    test('„zero przecinek zero zero pięć" → 0,005',
+        () => expect(parseSpokenNumber('zero przecinek zero zero pięć'), 0.005));
+    test('„przecinek zero zero pięć" (bez całości) → 0,005',
+        () => expect(parseSpokenNumber('przecinek zero zero pięć'), 0.005));
+    test('„dwa przecinek siedem siedem" → 2,77', () {
+      expect(spokenTokens('dwa przecinek siedem siedem'), ['2.77']);
+    });
+    test('„dwa przecinek siedemdziesiąt pięć" → 2,75',
+        () => expect(parseSpokenNumber('dwa przecinek siedemdziesiąt pięć'), 2.75));
+    test('„dwa przecinek pięć sześćdziesiąt amper" → 2,5 i 60', () {
+      expect(spokenTokens('dwa przecinek pięć sześćdziesiąt amper'),
+          ['2.5', '60', 'amper']);
+    });
+    test('„2 przecinek 77 60 A" → 2,77 i 60', () {
+      expect(spokenTokens('2 przecinek 77 60 A'), ['2.77', '60', 'a']);
+    });
+    test('„2 przecinek 0 5" → 2,05',
+        () => expect(spokenTokens('2 przecinek 0 5'), ['2.05']));
+    test('„zero zero pięć" bez przecinka to trzy liczby, nie 5', () {
+      expect(spokenTokens('zero zero pięć'), ['0', '0', '5']);
+    });
+  });
+
+  group('„N i <ułamek>"', () {
+    test('„jeden i trzy czwarte" → 1,75',
+        () => expect(spokenTokens('jeden i trzy czwarte'), ['1.75']));
+    test('„dwa i jedna czwarta cala" → 2,25',
+        () => expect(spokenTokens('dwa i jedna czwarta cala'), ['2.25', 'cala']));
+    test('EN „one and three quarters" → 1,75',
+        () => expect(spokenTokens('one and three quarters'), ['1.75']));
+  });
+
+  test('„and" nie znika przy przerwanym ciągu („fifty and sixty")', () {
+    expect(spokenTokens('DN fifty and sixty'), ['dn', '50', 'and', '60']);
+    expect(spokenTokens('one hundred and ten'), ['110']);
+  });
+
+  test('słowa wyłączone z liczb („ten" po polsku)', () {
+    expect(
+        spokenItems(foldSpeech('ten dn40'), notNumbers: const {'ten'})
+            .map((i) => i.text)
+            .toList(),
+        ['ten', 'dn', '40']);
+  });
+
   group('parseSpokenNumber', () {
     test('„półtora" → 1,5', () => expect(parseSpokenNumber('półtora'), 1.5));
     test('„sto dwadzieścia pięć" → 125',

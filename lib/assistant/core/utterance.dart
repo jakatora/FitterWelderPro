@@ -115,6 +115,14 @@ const List<double> _elbowAngles = [11.25, 15, 22.5, 30, 45, 60, 90, 180];
 final _continuationRe = RegExp(
     r'^(?:a|i|to|oraz|and|also|then|what about|how about)(?: |$)');
 
+/// Angielskie liczebniki, które po polsku są zwykłymi słowami.
+const Set<String> _plNotNumbers = {'ten', 'one'};
+
+/// Spójniki między dwoma rozmiarami („dn 50 albo 80", „DN fifty and sixty").
+const Set<String> _conjunctions = {
+  'i', 'oraz', 'albo', 'lub', 'czy', 'and', 'or',
+};
+
 final _attachedDnRe = RegExp(r'\bdn(\d+(?:\.\d+)?)\b');
 final _attachedLengthRe = RegExp(r'^(\d+(?:\.\d+)?)(m|cm)$');
 final _degreeSignRe = RegExp(r'(\d+(?:[.,]\d+)?)\s*°');
@@ -134,7 +142,10 @@ class Utterance {
   final List<String> alternatives;
 
   late final String folded = foldSpeech(raw);
-  late final List<SpokenItem> items = spokenItems(folded);
+  /// Elementy zdania. Po polsku „ten" i „one" to zaimki, nie liczby
+  /// angielskie („ile ma ten dn40").
+  late final List<SpokenItem> items = spokenItems(folded,
+      notNumbers: lang == AppLanguage.pl ? _plNotNumbers : const {});
   late final List<String> tokens = [for (final i in items) i.text];
 
   late final String _padded = ' $folded ';
@@ -190,42 +201,66 @@ class Utterance {
       hasAny(const ['srednica nominalna', 'nominal diameter', 'nominal size']);
 
   /// Indeksy elementów zużytych przez DN (liczba za znacznikiem i — przy
-  /// dwuznaczności — następna).
-  late final (int?, Set<int>) _dnParse = () {
+  /// dwuznaczności — następna) oraz wszystkie różne wartości DN w zdaniu.
+  late final (int?, Set<int>, List<int>) _dnParse = () {
     final used = <int>{};
-    int? result;
-    var decided = false;
+    final values = <int>[];
+    var ambiguous = false;
     for (final m in _dnMarkers) {
       final j = m + 1;
       if (j >= items.length || !items[j].isNumber) continue;
       used.add(j);
-      if (decided) continue;
-      decided = true;
       final v = items[j].value!;
-      if (items[j].fraction || v != v.roundToDouble() || v <= 0) continue;
+      if (items[j].fraction || v != v.roundToDouble() || v <= 0) {
+        ambiguous = true;
+        continue;
+      }
       // „dn 4 0" — kolejna cyfra bez jednostki: 40 czy 4? Nie zgadujemy.
       final k = j + 1;
-      final attached = _attachedDnRe.hasMatch(folded) &&
-          _attachedDnRe.firstMatch(folded)![1] == items[j].raw;
+      final attached = _attachedDnRe
+          .allMatches(folded)
+          .any((a) => a[1] == items[j].raw);
       if (!attached &&
           k < items.length &&
           items[k].isNumber &&
           items[k].value! < 10 &&
           v < 100 &&
-          !(k + 1 < items.length &&
-              !items[k + 1].isNumber &&
-              _isAnyUnit(items[k + 1].word))) {
+          !_unitAt(k + 1)) {
         used.add(k);
+        ambiguous = true;
         continue;
       }
-      result = v.toInt();
+      if (!values.contains(v.toInt())) values.add(v.toInt());
+      // „DN fifty and sixty", „dn 50 albo 80" — drugi rozmiar po spójniku.
+      if (k + 1 < items.length &&
+          !items[k].isNumber &&
+          _conjunctions.contains(items[k].word) &&
+          items[k + 1].isNumber &&
+          !items[k + 1].fraction &&
+          !_unitAt(k + 2)) {
+        final w = items[k + 1].value!;
+        if (w == w.roundToDouble() && w > 0) {
+          used.add(k + 1);
+          if (!values.contains(w.toInt())) values.add(w.toInt());
+        }
+      }
     }
-    return (result, used);
+    final result = !ambiguous && values.length == 1 ? values.single : null;
+    return (result, used, List<int>.unmodifiable(values));
   }();
 
+  bool _unitAt(int i) =>
+      i < items.length && !items[i].isNumber && _isAnyUnit(items[i].word);
+
   /// DN: „dn40", „dn 40", „de en 40", „d n 40", „dn czterdzieści", „rura
-  /// setka". „dn 4 0" → null (dwuznaczne), brak liczby → null.
+  /// setka". null, gdy brak liczby albo rozmiar jest niejasny: „dn 4 0"
+  /// (cyfry osobno) i dwa różne DN w zdaniu („dn50 i dn80") — wtedy
+  /// [dnValues] mówi, między czym wybierać.
   int? dn() => _dnParse.$1;
+
+  /// Wszystkie różne DN z wypowiedzi, w kolejności („średnica dn50 i dn80"
+  /// → [50, 80]). Jedna wartość = [dn].
+  List<int> get dnValues => _dnParse.$3;
 
   // ─── NPS ──────────────────────────────────────────────────────────────────
 
@@ -245,7 +280,8 @@ class Utterance {
       if (v <= 0) continue;
       final next = i + 1 < items.length ? items[i + 1] : null;
       if (next != null && !next.isNumber && isInchUnit(next.word)) {
-        return (v, i);
+        // „dwa cale i pół" → 2,5
+        return (v + _fractionAfterUnit(i + 2), i);
       }
       // „trzy czwarte" bez „cala": ułamek ma sens tylko jako cale.
       if (it.fraction &&
@@ -324,7 +360,8 @@ class Utterance {
         // „metr", „metr dwadzieścia"
         if (_isSingleMeterWord(it.word) &&
             (i == 0 || !items[i - 1].isNumber)) {
-          return (1000 + _cmAfter(i + 1), false);
+          final f = _fractionAfterUnit(i + 1);
+          return (1000 + (f > 0 ? f * 1000 : _cmAfter(i + 1)), false);
         }
         // „pół metra"
         if (it.word == 'pol' && next != null && !next.isNumber &&
@@ -335,9 +372,13 @@ class Utterance {
       }
       if (next == null || next.isNumber) continue;
       final v = it.value!;
-      if (_isMmWord(next.word)) return (v, false);
-      if (_isCmWord(next.word)) return (v * 10, false);
-      if (_isMeterWord(next.word)) return (v * 1000 + _cmAfter(i + 2), false);
+      // „dwa metry i pół" → 2500; „dwa metry dwadzieścia" → 2200
+      final f = _fractionAfterUnit(i + 2);
+      if (_isMmWord(next.word)) return (v + f, false);
+      if (_isCmWord(next.word)) return ((v + f) * 10, false);
+      if (_isMeterWord(next.word)) {
+        return ((v + f) * 1000 + (f > 0 ? 0 : _cmAfter(i + 2)), false);
+      }
     }
     // 2) liczba bez jednostki, której nie zużyło nic innego
     final used = <int>{
@@ -362,6 +403,24 @@ class Utterance {
       return (v * 1000, true);
     }
     return (null, false);
+  }
+
+  /// Ułamek za jednostką („dwa cale I PÓŁ", „metr i ćwierć", „dwa metry
+  /// i trzy czwarte", „two inches and a half") albo 0.
+  double _fractionAfterUnit(int j) {
+    if (j + 1 >= items.length) return 0;
+    final and = items[j];
+    if (and.isNumber || (and.word != 'i' && and.word != 'and')) return 0;
+    final f = items[j + 1];
+    if (f.isNumber) return f.fraction && f.value! < 1 ? f.value! : 0;
+    if (f.word == 'pol' || f.word == 'half') return 0.5;
+    if (f.word == 'cwierc' || f.word == 'quarter') return 0.25;
+    if (f.word == 'a' && j + 2 < items.length) {
+      final g = items[j + 2];
+      if (!g.isNumber && g.word == 'half') return 0.5;
+      if (!g.isNumber && g.word == 'quarter') return 0.25;
+    }
+    return 0;
   }
 
   /// Centymetry po metrach („dwa metry dwadzieścia"): liczba < 100 bez

@@ -37,6 +37,16 @@ AssistantText _source(String schedule) => _stainless(schedule)
     ? const AssistantText.same('ASME B36.19M')
     : const AssistantText.same('ASME B36.10M');
 
+String _odDescription(PipeRow row, AppLanguage lang) {
+  final reference = odForDn(row.dn);
+  final od = fmt(row.od, lang);
+  final differs = reference != null && (reference - row.od).abs() > 0.001;
+  if (lang == AppLanguage.en) {
+    return 'OD $od mm per ASME${differs ? '; DN ↔ mm table: ${fmt(reference, lang)} mm' : ''}';
+  }
+  return 'OD $od mm wg ASME${differs ? '; w tabeli DN ↔ mm: ${fmt(reference, lang)} mm' : ''}';
+}
+
 class PipeWallSkill extends AssistantSkill {
   @override
   String get id => 'pipe.wall';
@@ -103,7 +113,14 @@ class PipeWallSkill extends AssistantSkill {
     if (_givesWallValue(u)) return null;
     final (dn, nps) = _size(u);
     final hasSize = dn != null || nps != null;
-    if (!hasSize && mentionsWelding(u)) return null;
+    if (!hasSize && (mentionsWelding(u) || mentionsOtherObject(u))) {
+      // „jaka grubość blachy / spoiny", „ścianka na TIG 60 A" — to nie tabela
+      // rur.
+      return null;
+    }
+    // Liczby bez DN, cali i harmonogramu („ścianka dwa sześćdziesiąt") to
+    // podana wartość, nie pytanie o tabelę.
+    if (!hasSize && !u.mentionsDn && _bareNumbers(u)) return null;
     final openVerb = kOpenVerbAtStartRe.hasMatch(u.folded);
 
     final slots = <String, Object?>{if (schedule != null) 'schedule': schedule};
@@ -117,15 +134,18 @@ class PipeWallSkill extends AssistantSkill {
       // „do czego służy grubość ścianek" → opis modułu, nie tabela.
       if (explainedTool(u) != null) return null;
       final ctxDn = ctx.recentSlot('dn');
-      if (ctxDn is int) {
+      if (u.dnValues.length > 1) slots['dns'] = u.dnValues;
+      // DN z kontekstu tylko dla krótkiej kontynuacji („a ścianka?", „a sch
+      // 80?"). Gdy rozmiar padł, ale jest niejasny („ścianka dn 4 0 sch 80"),
+      // NIE podstawiamy poprzedniego DN — pytamy.
+      if (ctxDn is int && !u.mentionsDn && _inheritsContext(u)) {
         slots['dn'] = ctxDn;
         score = 0.85;
       } else {
         score = 0.6;
       }
     }
-    score -= 0.08 * unknownWords(u, _vocabulary,
-        stems: const ['sciank', 'grubos', 'schedul', 'szedul', 'szedzul']);
+    score -= 0.08 * unknownWords(u, _vocabulary, stems: _wallStems);
     if (score <= 0) return null;
     return SkillMatch(this, score,
         slots: slots,
@@ -133,12 +153,43 @@ class PipeWallSkill extends AssistantSkill {
         utterance: u);
   }
 
+  static const _wallStems = ['sciank', 'grubos', 'schedul', 'szedul', 'szedzul'];
+
+  bool _isScheduleWord(String w) =>
+      w == 'sch' || w.startsWith('schedul') || w.startsWith('szedul') ||
+      w.startsWith('szedzul') || w.startsWith('skedul');
+
+  /// Liczby, które nie są numerem harmonogramu („sch 80" → 80 jest).
+  bool _bareNumbers(Utterance u) {
+    final items = u.items;
+    for (var i = 0; i < items.length; i++) {
+      if (!items[i].isNumber) continue;
+      final prev = i > 0 ? items[i - 1] : null;
+      if (prev != null && !prev.isNumber && _isScheduleWord(prev.word)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /// Kontynuacja tylko ze słownika umiejętności, bez obcych przedmiotów.
+  bool _inheritsContext(Utterance u) =>
+      !mentionsOtherObject(u) &&
+      !_bareNumbers(u) &&
+      unknownWords(u, _vocabulary, stems: _wallStems) == 0;
+
+  /// Słowa średnicy — „a średnica dla DN50" po ściance to pytanie o OD.
+  bool _odWord(Utterance u) =>
+      u.hasStem(const ['srednic', 'zewnetrz', 'diamet']) ||
+      u.hasAny(const ['od', 'outside']);
+
   @override
   Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) {
-    // Kontynuacja nie może przejąć polecenia innego modułu.
-    if (kCommandVerbRe.hasMatch(u.folded) ||
-        mentionsWeight(u) ||
-        mentionsFitting(u)) {
+    // Kontynuacja nie może przejąć polecenia innego modułu ani pytania
+    // o średnicę.
+    if (looksLikeOtherCommand(u) ||
+        mentionsOtherObject(u) ||
+        _odWord(u) ||
+        u.dnValues.length > 1) {
       return const {};
     }
     final out = <String, Object?>{};
@@ -159,15 +210,24 @@ class PipeWallSkill extends AssistantSkill {
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
     final s = slotsFrom(u, ctx);
+    if (s.isEmpty && (looksLikeOtherCommand(u) || _odWord(u))) return null;
     if (slot == 'dn' && !s.containsKey('dn')) {
-      final numbers = [for (final i in u.items) if (i.isNumber) i];
-      if (numbers.length == 1 && !numbers.single.fraction) {
-        final v = numbers.single.value!;
-        if (v == v.roundToDouble() && v > 0) {
-          return {...s, 'dn': v.toInt(), 'nps': null};
-        }
-      }
-      return null;
+      // Sama liczba („50") w odpowiedzi na „Dla jakiego DN?" — bez
+      // jednostki i bez obcych słów.
+      final items = u.items;
+      final idx = [
+        for (var i = 0; i < items.length; i++)
+          if (items[i].isNumber) i,
+      ];
+      if (idx.length != 1) return null;
+      final it = items[idx.single];
+      if (it.fraction) return null;
+      final after = idx.single + 1 < items.length ? items[idx.single + 1] : null;
+      if (after != null && !kNeutralWords.contains(after.word)) return null;
+      if (unknownWords(u, _vocabulary, stems: _wallStems) > 0) return null;
+      final v = it.value!;
+      if (v != v.roundToDouble() || v <= 0) return null;
+      return {...s, 'dn': v.toInt(), 'nps': null};
     }
     return s.containsKey(slot) ? s : null;
   }
@@ -219,12 +279,13 @@ class PipeWallSkill extends AssistantSkill {
     final mass = massPerMeter(row, schedule, stainless: stainless);
     final src = _source(schedule);
     String t(AppLanguage l) {
-      final w = fmt(wall, l), od = fmt(row.od, l), inner = fmt(id, l);
+      final w = fmt(wall, l), inner = fmt(id, l);
+      final od = _odDescription(row, l);
       return l == AppLanguage.en
           ? 'DN$dn ${_schLabel(schedule)} — wall $w mm (${src.en}). '
-              'OD $od mm, inside diameter $inner mm.'
+              '$od, inside diameter $inner mm.'
           : 'DN$dn ${_schLabel(schedule)} — ścianka $w mm (${src.pl}). '
-              'OD $od mm, średnica wewnętrzna $inner mm.';
+              '$od, średnica wewnętrzna $inner mm.';
     }
 
     final spoken = AssistantText(
@@ -290,9 +351,9 @@ class PipeWallSkill extends AssistantSkill {
       final list =
           main.map((e) => '${_schLabel(e.$1)} ${fmt(e.$2, l)} mm').join(', ');
       return l == AppLanguage.en
-          ? 'DN$dn (OD ${fmt(row.od, l)} mm) — walls per ASME B36.10M / '
+          ? 'DN$dn (${_odDescription(row, l)}) — walls per ASME B36.10M / '
               'B36.19M: $list. Say a schedule, e.g. "sch 80", or see the table.'
-          : 'DN$dn (OD ${fmt(row.od, l)} mm) — ścianki wg ASME B36.10M / '
+          : 'DN$dn (${_odDescription(row, l)}) — ścianki wg ASME B36.10M / '
               'B36.19M: $list. Powiedz harmonogram, np. „sch 80”, albo zobacz '
               'tabelę.';
     }

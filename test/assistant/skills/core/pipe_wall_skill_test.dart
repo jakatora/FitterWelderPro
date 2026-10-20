@@ -68,7 +68,7 @@ void main() {
     h.wait(const Duration(seconds: 10));
     final r = await h.say('a ścianka?');
     expect(r.match!.skill.id, 'pipe.wall');
-    expect(textOf(r.result), startsWith('DN40 (OD 48,3 mm)'));
+    expect(textOf(r.result), startsWith('DN40 (OD 48,3 mm wg ASME)'));
     final r2 = await h.say('a sch 80?');
     expect(r2.match!.skill.id, 'pipe.wall');
     expect(textOf(r2.result), startsWith('DN40 Sch 80 — ścianka 5,08 mm'));

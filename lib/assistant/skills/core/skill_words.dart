@@ -4,27 +4,14 @@ import '../../../i18n/app_language.dart';
 import '../../assistant_validator.dart' show assistantNumber;
 import '../../core/utterance.dart';
 
-/// Czasowniki poleceń zapisu i rysowania („dodaj zawór", „zapisz TIG…",
-/// „narysuj rurę") — przy nich pytania o liczby z tabel nie trafiają.
-final RegExp kCommandVerbRe = RegExp(
-    r'\b(?:zapisz|zapamietaj|zanotuj|dodaj|dopisz|wpisz|save|store|remember|'
-    r'record|add|log|narysuj|rysuj|dorysuj|draw|wstaw|insert)\b');
+// kCommandVerbRe, kOpenVerbAtStartRe, mentionsWeight, mentionsWall,
+// mentionsFitting — przeniesione do core (mózg też ich potrzebuje).
+export '../../core/command_words.dart';
 
-/// „Otwórz / pokaż / włącz…" na początku zdania (jak w starym parserze).
-final RegExp kOpenVerbAtStartRe = RegExp(
-    r'^(?:(?:prosze|please|hej|hey|ok|okej|asystencie|asystent)\s+)*'
-    r'(?:otworz|pokaz|uruchom|wlacz|przejdz do|idz do|open|show|launch|start|'
-    r'go to|take me to)\b');
-
-/// Słowa ciężaru — pytanie o masę to inny moduł (pipe_weight, steel_weight).
-bool mentionsWeight(Utterance u) =>
-    u.hasStem(const ['waz', 'waga', 'wagi', 'ciezar', 'masa', 'masy', 'weigh']) ||
-    u.hasAny(const ['kg', 'kilogram', 'kilogramow', 'mass']);
-
-/// Słowa ścianki i harmonogramu.
-bool mentionsWall(Utterance u) =>
-    u.hasStem(const ['sciank', 'grubos', 'schedul', 'szedul', 'szedzul']) ||
-    u.hasAny(const ['wall', 'walls', 'thickness', 'sch']);
+/// Inne materiały i elementy niż rura („średnica DRUTU", „grubość BLACHY",
+/// „grubość SPOINY") — wtedy rozmiar rury z kontekstu się nie przenosi.
+bool mentionsOtherObject(Utterance u) =>
+    u.hasStem(const ['spoin', 'drut', 'blach', 'wire', 'plate', 'sheet', 'weld']);
 
 /// Słowa spawania (prąd, proces) — „jaka ścianka na TIG 60 A" to nie tabela.
 bool mentionsWelding(Utterance u) {
@@ -41,13 +28,6 @@ bool mentionsWelding(Utterance u) {
   }
   return false;
 }
-
-/// Kształtki — „wymiar kolana DN50" to moduł kolan, nie „DN ↔ mm".
-bool mentionsFitting(Utterance u) =>
-    u.hasStem(const [
-      'kolan', 'luk', 'trojnik', 'redukc', 'zawor', 'kolnierz', 'zaslep',
-      'denn', 'elbow', 'tee', 'reducer', 'valve', 'flange', 'cap',
-    ]);
 
 /// Liczba po polsku/angielsku: 48.3 → „48,3" / „48.3" (bez zbędnych zer).
 String fmt(double v, AppLanguage lang) => assistantNumber(v, lang);

@@ -2,9 +2,11 @@
 //
 // Liczby i normy WYŁĄCZNIE z lib/domain/fitter/pipe_size_lookup.dart (ta sama
 // tabela co ekran). DN bez kontekstu → wartość serii głównej i pozostałe
-// serie (spec §3.2). Brak DN, „dn 4 0", DN spoza tabeli → pytanie.
+// serie (spec §3.2). Brak DN, „dn 4 0", dwa różne DN, DN spoza tabeli →
+// pytanie. Gdy tabela ścianek (ASME) ma inną OD — podajemy obie, opisane.
 
 import '../../../data/nps_dn_od_r.dart';
+import '../../../data/pipe_schedules.dart' show pipeRowForDn;
 import '../../../domain/fitter/pipe_size_lookup.dart';
 import '../../../i18n/app_language.dart';
 import '../../core/skill.dart';
@@ -123,11 +125,16 @@ class PipeOdSkill extends AssistantSkill {
       if (openVerb) return null; // „otwórz tabelę dn" → otwarcie modułu
       // „do czego służy DN ↔ mm" → opis modułu.
       if (explainedTool(u) != null) return null;
+      // „średnica dn50 i dn80" → zapytamy, o który.
+      if (u.dnValues.length > 1) slots['dns'] = u.dnValues;
       score = odWord ? 0.65 : 0.6;
     } else if (odWord && u.hasStem(const ['srednic', 'diamet'])) {
-      // „a średnica?" po ściance — DN z kontekstu.
+      // „a średnica?" po ściance — DN z kontekstu. Tylko krótka
+      // kontynuacja ze słownika umiejętności: „jaka średnica drutu 1,2?"
+      // to nie pytanie o ostatnią rurę.
+      if (openVerb || !_inheritsContext(u)) return null;
       final ctxDn = ctx.recentSlot('dn');
-      if (ctxDn is! int || openVerb) return null;
+      if (ctxDn is! int) return null;
       slots['dn'] = ctxDn;
       score = 0.85;
     } else {
@@ -143,13 +150,34 @@ class PipeOdSkill extends AssistantSkill {
         utterance: u);
   }
 
+  /// Rozmiar z kontekstu wolno wziąć tylko dla krótkiej kontynuacji
+  /// złożonej ze słownika umiejętności („a średnica?"), bez liczb i bez
+  /// innych przedmiotów (drut, blacha, spoina).
+  bool _inheritsContext(Utterance u) =>
+      !mentionsOtherObject(u) &&
+      !u.items.any((i) => i.isNumber) &&
+      unknownWords(u, _vocabulary, stems: const ['srednic', 'zewnetrz']) == 0;
+
+  /// Wypowiedź to inny temat niż średnica rury — nie może być ani
+  /// kontynuacją, ani odpowiedzią na „Jakie DN?".
+  bool _foreign(Utterance u) =>
+      looksLikeOtherCommand(u) ||
+      mentionsWall(u) ||
+      hasScheduleToken(u) ||
+      mentionsOtherObject(u);
+
   @override
   Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) {
     // Kontynuacja nie może przejąć polecenia innego modułu („dodaj zawór
-    // kulowy dn50" kilka sekund po DN40 to nie pytanie o średnicę).
+    // kulowy dn50" kilka sekund po DN40 to nie pytanie o średnicę, „a
+    // ścianka dla DN50" — też nie).
     if (kCommandVerbRe.hasMatch(u.folded) ||
         mentionsWeight(u) ||
-        (mentionsFitting(u) && !_odWord(u))) {
+        mentionsWall(u) ||
+        hasScheduleToken(u) ||
+        mentionsOtherObject(u) ||
+        (mentionsFitting(u) && !_odWord(u)) ||
+        u.dnValues.length > 1) {
       return const {};
     }
     final (dn, nps) = _size(u);
@@ -161,16 +189,25 @@ class PipeOdSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
-    if (slot != 'dn') return null;
+    if (slot != 'dn' || _foreign(u)) return null;
     final s = slotsFrom(u, ctx);
     if (s.isNotEmpty) return s;
-    // Sama liczba („40") w odpowiedzi na „Jakie DN?".
-    final numbers = [for (final i in u.items) if (i.isNumber) i];
-    if (numbers.length == 1 && !numbers.single.fraction) {
-      final v = numbers.single.value!;
-      if (v == v.roundToDouble() && v > 0) return {'dn': v.toInt(), 'nps': null};
-    }
-    return null;
+    // Sama liczba („40", „czterdzieści proszę") w odpowiedzi na „Jakie DN?"
+    // — bez jednostki („60 A", „50 mm" to nie DN) i bez obcych słów.
+    final items = u.items;
+    final idx = [
+      for (var i = 0; i < items.length; i++)
+        if (items[i].isNumber) i,
+    ];
+    if (idx.length != 1) return null;
+    final it = items[idx.single];
+    if (it.fraction) return null;
+    final after = idx.single + 1 < items.length ? items[idx.single + 1] : null;
+    if (after != null && !kNeutralWords.contains(after.word)) return null;
+    if (unknownWords(u, _vocabulary) > 0) return null;
+    final v = it.value!;
+    if (v != v.roundToDouble() || v <= 0) return null;
+    return {'dn': v.toInt(), 'nps': null};
   }
 
   @override
@@ -188,6 +225,18 @@ class PipeOdSkill extends AssistantSkill {
           partial: m,
         );
       }
+    }
+    final dns = (m.slots['dns'] as List?)?.cast<int>();
+    if (dn == null && dns != null && dns.length > 1) {
+      // „średnica dn50 i dn80" — odpowiadamy dla jednego, nie zgadujemy.
+      final names = dns.map((d) => 'DN$d');
+      return AskResult(
+        'dn',
+        AssistantText('Dla którego rozmiaru: ${names.join(' czy ')}?',
+            'Which size: ${names.join(' or ')}?'),
+        partial: m,
+        choices: [for (final d in dns) _dnChoice(d, ctx)],
+      );
     }
     if (dn == null) {
       // „dn 4 0" — liczby padły, ale rozmiar jest dwuznaczny.
@@ -256,11 +305,26 @@ class PipeOdSkill extends AssistantSkill {
       ].join();
     }
 
+    // Tabela ścianek (ASME B36.10M / B36.19M) ma dla kilku DN inną OD niż
+    // tabela „DN ↔ mm" (np. DN300 323,8 vs 323,9; DN600 610 vs 609,6). Obie
+    // pochodzą z danych aplikacji — podajemy obie, opisane, nigdy jedną
+    // po cichu w jednej odpowiedzi, a drugą w drugiej.
+    final wallOd = wallTableOdIfDifferent(dn);
+    String wallNote(AppLanguage l) => wallOd == null
+        ? ''
+        : l == AppLanguage.en
+            ? ' The wall table (ASME B36.10M / B36.19M) gives OD '
+                '${fmt(wallOd, l)} mm.'
+            : ' Tabela ścianek (ASME B36.10M / B36.19M) podaje OD '
+                '${fmt(wallOd, l)} mm.';
+
     final odPl = fmt(main.odMm, AppLanguage.pl);
     final odEn = fmt(main.odMm, AppLanguage.en);
     final text = AssistantText(
-      '$headPl — średnica zewnętrzna $odPl mm (${src.pl}).${sentences(AppLanguage.pl)}',
-      '$headPl — outside diameter $odEn mm (${src.en}).${sentences(AppLanguage.en)}',
+      '$headPl — średnica zewnętrzna $odPl mm (${src.pl}).'
+          '${sentences(AppLanguage.pl)}${wallNote(AppLanguage.pl)}',
+      '$headPl — outside diameter $odEn mm (${src.en}).'
+          '${sentences(AppLanguage.en)}${wallNote(AppLanguage.en)}',
     );
 
     String spokenOthers(AppLanguage l) => [
@@ -282,6 +346,11 @@ class PipeOdSkill extends AssistantSkill {
       if (npsLabel != null) AnswerLine(const AssistantText.same('NPS'), npsLabel),
       for (final o in series.skip(1))
         AnswerLine(_seriesLine(o.series), '${fmt(o.odMm, lang)} mm'),
+      if (wallOd != null)
+        AnswerLine(
+            const AssistantText('OD w tabeli ścianek (ASME)',
+                'OD in the wall table (ASME)'),
+            '${fmt(wallOd, lang)} mm'),
     ];
 
     final all = knownDns;
@@ -300,6 +369,29 @@ class PipeOdSkill extends AssistantSkill {
       ],
     );
   }
+}
+
+/// Różnica OD między tabelą ścianek a „DN ↔ mm", od której obie wartości
+/// są podawane jawnie.
+const double kOdMismatchMm = 0.05;
+
+/// OD z tabeli ścianek (`kPipeWalls`, ASME B36.10M/B36.19M), gdy różni się
+/// od serii głównej „DN ↔ mm" (`odForDn`) o więcej niż [kOdMismatchMm];
+/// inaczej null.
+double? wallTableOdIfDifferent(int dn) {
+  final row = pipeRowForDn(dn);
+  final main = odForDn(dn);
+  if (row == null || main == null) return null;
+  return (row.od - main).abs() > kOdMismatchMm ? row.od : null;
+}
+
+/// OD z tabeli „DN ↔ mm", gdy różni się od OD tabeli ścianek o więcej niż
+/// [kOdMismatchMm]; inaczej null.
+double? dnTableOdIfDifferent(int dn) {
+  final row = pipeRowForDn(dn);
+  final main = odForDn(dn);
+  if (row == null || main == null) return null;
+  return (row.od - main).abs() > kOdMismatchMm ? main : null;
 }
 
 /// Token harmonogramu („sch40", „10s", „std", „xs") — wspólny z `pipe.wall`.

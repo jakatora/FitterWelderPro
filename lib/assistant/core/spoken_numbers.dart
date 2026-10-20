@@ -167,7 +167,12 @@ const Map<String, double> _standaloneFractions = {
   'poltorej': 1.5,
 };
 const Set<String> _decimalWords = {'przecinek', 'koma', 'point', 'comma'};
-const Set<String> _quarterWords = {'czwarte', 'czwartych', 'czwarta'};
+const Set<String> _quarterWords = {
+  'czwarte', 'czwartych', 'czwarta', 'quarter', 'quarters',
+};
+
+/// Spójniki przed ułamkiem: „dwa I pół", „one AND three quarters".
+const Set<String> _andWords = {'i', 'and'};
 
 /// Jednostka „średnica drutu" (z żargonu „jedynka" = drut 1 mm). Do ścianki
 /// nie pasuje; stary parser wpisuje ją do pola tylko przy MIG/MAG.
@@ -273,9 +278,13 @@ List<String> _wordTokens(String folded) {
   return out;
 }
 
-/// Elementy zdania ZWINIĘTEGO już przez [foldSpeech]: ciągi liczb słownych
+//// Elementy zdania ZWINIĘTEGO już przez [foldSpeech]: ciągi liczb słownych
 /// złożone w jedną liczbę, ułamki i „półtora" jako liczby.
-List<SpokenItem> spokenItems(String folded) {
+///
+/// [notNumbers] — słowa, które w danym języku NIE są liczbami („ten" po
+/// polsku to zaimek, nie 10).
+List<SpokenItem> spokenItems(String folded,
+    {Set<String> notNumbers = const {}}) {
   final t = _wordTokens(folded);
   final out = <SpokenItem>[];
   var i = 0;
@@ -285,7 +294,9 @@ List<SpokenItem> spokenItems(String folded) {
     String? raw;
     var fraction = false;
     final frac = _fracToken.firstMatch(w);
-    if (frac != null) {
+    if (notNumbers.contains(w)) {
+      // słowo w tym języku — patrz niżej
+    } else if (frac != null) {
       value = double.parse(frac[1]!);
       fraction = true;
       i++;
@@ -302,9 +313,21 @@ List<SpokenItem> spokenItems(String folded) {
       fraction = true;
       i++;
     } else if (_isNumberWord(w)) {
-      final (v, next) = _readNumberWords(t, i);
+      final (v, next) = _readNumberWords(t, i, notNumbers);
       value = v;
       i = next;
+    } else if (_decimalWords.contains(w) &&
+        (out.isEmpty || !out.last.isNumber) &&
+        i + 1 < t.length &&
+        (t[i + 1] == 'zero' || t[i + 1] == '0')) {
+      // „przecinek zero zero pięć" — całość „zero" zgubiona przez
+      // rozpoznawanie mowy. Tylko z „zero" na początku: samo „przecinek"
+      // bywa podyktowaną interpunkcją.
+      final (digits, next) = _readDecimalDigits(t, i + 1, notNumbers);
+      if (digits != null) {
+        value = double.parse('0.$digits');
+        i = next;
+      }
     }
     if (value == null) {
       out.add(SpokenItem.word(w));
@@ -317,7 +340,7 @@ List<SpokenItem> spokenItems(String folded) {
       fraction = true;
       i++;
     }
-    // „i pół" / „and a half" / „and half" / „i ćwierć"
+    // „i pół" / „and a half" / „and half" / „i ćwierć" / „i trzy czwarte"
     if (i + 1 < t.length && t[i] == 'i' && t[i + 1] == 'pol') {
       value += 0.5;
       raw = null;
@@ -338,21 +361,25 @@ List<SpokenItem> spokenItems(String folded) {
       value += 0.5;
       raw = null;
       i += 2;
-    } else if (i + 1 < t.length && _decimalWords.contains(t[i])) {
-      // „trzy przecinek dwa" / „three point two" / „2 przecinek 77"
-      double? decimals;
-      var next = i + 1;
-      if (_digits.hasMatch(t[next]) && !t[next].contains('.')) {
-        decimals = double.parse('0.${t[next]}');
-        next++;
-      } else if (_plainNumberWords.containsKey(t[next])) {
-        final (v, n) = _readNumberWords(t, next);
-        final digits = v.toInt().toString();
-        decimals = double.parse('0.$digits');
-        next = n;
+    } else if (i + 2 < t.length &&
+        _andWords.contains(t[i]) &&
+        _plainNumberWords.containsKey(t[i + 1]) &&
+        !notNumbers.contains(t[i + 1])) {
+      // „jeden i trzy czwarte", „dwa i jedna czwarta", „one and three
+      // quarters" — tylko gdy za liczbą stoi słowo ćwierci.
+      final (n, next) = _readNumberWords(t, i + 1, notNumbers);
+      if (next < t.length && _quarterWords.contains(t[next]) && n > 0 && n < 4) {
+        value += n / 4;
+        raw = null;
+        fraction = true;
+        i = next + 1;
       }
-      if (decimals != null) {
-        value = value.truncateToDouble() + decimals;
+    } else if (i + 1 < t.length && _decimalWords.contains(t[i])) {
+      // „trzy przecinek dwa", „three point two", „2 przecinek 77",
+      // „dwa przecinek zero pięć" (2,05), „dwa przecinek siedem siedem" (2,77)
+      final (digits, next) = _readDecimalDigits(t, i + 1, notNumbers);
+      if (digits != null) {
+        value = value.truncateToDouble() + double.parse('0.$digits');
         raw = null;
         i = next;
       }
@@ -362,38 +389,90 @@ List<SpokenItem> spokenItems(String folded) {
   return out;
 }
 
+/// Cyfry po słowie dziesiętnym, od [start]: kolejno, z zerami wiodącymi.
+///
+/// • pojedyncze cyfry (słowem albo „0"–„9") doklejają się jedna po drugiej:
+///   „zero pięć" → „05", „siedem siedem" → „77";
+/// • liczba wielocyfrowa („77", „siedemdziesiąt pięć") jest dozwolona tylko
+///   jako PIERWSZA i kończy część dziesiętną;
+/// • po cyfrach kolejna liczba ≥ 10 zostaje osobno („dwa przecinek pięć
+///   sześćdziesiąt amper" → 2,5 i 60).
+/// Zwraca (cyfry, indeks za nimi) albo (null, start).
+(String?, int) _readDecimalDigits(
+    List<String> t, int start, Set<String> notNumbers) {
+  final buf = StringBuffer();
+  var j = start;
+  while (j < t.length) {
+    final w = t[j];
+    if (_digits.hasMatch(w) && !w.contains('.')) {
+      if (w.length > 1) {
+        if (buf.isEmpty) {
+          buf.write(w);
+          j++;
+        }
+        break;
+      }
+      buf.write(w);
+      j++;
+      continue;
+    }
+    final plain = notNumbers.contains(w) ? null : _plainNumberWords[w];
+    if (plain == null) break;
+    if (plain < 10) {
+      buf.write(plain);
+      j++;
+      continue;
+    }
+    if (buf.isEmpty) {
+      final (v, n) = _readNumberWords(t, j, notNumbers);
+      buf.write(v.toInt());
+      j = n;
+    }
+    break;
+  }
+  return buf.isEmpty ? (null, start) : (buf.toString(), j);
+}
+
 /// Czyta ciąg słów-liczb od [start]. Zwraca (wartość, indeks za ciągiem).
 ///
 /// Słowa łączą się tylko w porządku malejących rzędów, jak w mowie:
 /// setki + dziesiątki + jedności („sto dwadzieścia pięć" = 125), dziesiątki
 /// + jedności („sixty five" = 65). „Dwa sześćdziesiąt" to DWIE liczby (2 i
-/// 60), a nie 62.
-(double, int) _readNumberWords(List<String> t, int start) {
+/// 60), a nie 62; „zero zero pięć" to trzy liczby, nie 5.
+(double, int) _readNumberWords(
+    List<String> t, int start, Set<String> notNumbers) {
   var total = 0.0;
   var current = 0.0;
-  // Ostatnio dodane słowo-liczba bieżącej grupy (0 = grupa pusta).
+  // Ostatnio dodane słowo-liczba bieżącej grupy i czy grupa coś ma.
   var last = 0;
+  var started = false;
   var i = start;
   while (i < t.length) {
     final w = t[i];
-    final plain = _plainNumberWords[w];
+    final plain = notNumbers.contains(w) ? null : _plainNumberWords[w];
     if (plain != null) {
-      if (!_canFollow(last, plain, current)) break;
+      if (!_canFollow(started, last, plain, current)) break;
       current += plain;
       last = plain;
+      started = true;
     } else if (_hundredWords.contains(w)) {
       if (last >= 100) break;
       current = (current == 0 ? 1 : current) * 100;
       last = 100;
+      started = true;
     } else if (_thousandWords.contains(w)) {
       total += (current == 0 ? 1 : current) * 1000;
       current = 0;
       last = 0;
+      started = false;
     } else if (w == 'and' &&
+        i > start &&
         i + 1 < t.length &&
         _plainNumberWords.containsKey(t[i + 1]) &&
-        i > start) {
-      // „one hundred and ten" — ale nie „and a half"
+        !notNumbers.contains(t[i + 1]) &&
+        _canFollow(started, last, _plainNumberWords[t[i + 1]]!, current)) {
+      // „one hundred and ten" — ale nie „fifty and sixty" (dwie liczby:
+      // „and" zostaje słowem) ani „and a half".
     } else {
       break;
     }
@@ -403,12 +482,13 @@ List<SpokenItem> spokenItems(String folded) {
 }
 
 /// Czy słowo o wartości [next] może dopełnić bieżącą grupę, w której ostatnio
-/// padło [last] (a suma to [current]).
-bool _canFollow(int last, int next, double current) {
-  if (last == 0 && current == 0) return true;
+/// padło [last] (a suma to [current]); [started] — grupa nie jest pusta.
+bool _canFollow(bool started, int last, int next, double current) {
+  if (!started) return true;
+  if (last == 0) return false; // po „zero" nic się nie dokleja
   if (last >= 100) {
     // „sto dwadzieścia", „sto pięć", „dwieście jedenaście"
-    return next < 100 && current % 100 == 0;
+    return next < 100 && next > 0 && current % 100 == 0;
   }
   if (last >= 20 && last % 10 == 0) {
     // „sześćdziesiąt pięć"
@@ -417,7 +497,7 @@ bool _canFollow(int last, int next, double current) {
   return false; // po jednościach i nastkach nic się nie dokleja
 }
 
-/// Tokeny po zwinięciu; ciągi liczb słownych zamienione na cyfry
+// Tokeny po zwinięciu; ciągi liczb słownych zamienione na cyfry
 /// („czterdzieści pięć" → „45"); dwie liczby słowne obok siebie zostają
 /// osobno („dwa sześćdziesiąt" → „2", „60"). „metr dwadzieścia" zostaje jako
 /// „metr", „20" — długość składa `Utterance.lengthMm()`.
