@@ -128,6 +128,7 @@ class HeatInputSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (kCommandVerbRe.hasMatch(u.folded) ||
+        requestsCoolingTime(u) ||
         kOpenVerbAtStartRe.hasMatch(u.folded) ||
         u.hasAny(const ['gdzie', 'where']) ||
         explainedTool(u) != null) {

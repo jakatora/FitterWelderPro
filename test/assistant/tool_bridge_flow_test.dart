@@ -193,8 +193,19 @@ void main() {
     await say(tester, 'Dobierz filtr przyłbicy TIG 100 A');
     expect(ToolBridge.instance.activeToolId, 'shade');
     expect(find.byKey(const ValueKey('shade-en')), findsOneWidget);
+    await say(tester,
+        'Oblicz t8/5 Q 1 kJ/mm temperatura 100 C grubość 20 mm wypełnienie');
+    expect(ToolBridge.instance.activeToolId, 'cooling_time');
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('cool-verdict-notSet')), 300,
+        scrollable: find
+            .descendant(
+                of: find.byKey(const ValueKey('cool-list')),
+                matching: find.byType(Scrollable))
+            .first);
+    expect(find.byKey(const ValueKey('cool-verdict-notSet')), findsOneWidget);
     await say(tester, 'nie narysuj rury 2 metry w prawo');
-    expect(ToolBridge.instance.activeToolId, 'shade');
+    expect(ToolBridge.instance.activeToolId, 'cooling_time');
     await close(tester);
   });
   testWidgets(

@@ -64,6 +64,20 @@ final _negatedCommand = RegExp(
     r'|(?:do not|dont|don t)\s+(?:select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
 
+/// Cooling time consumes heat input as a parameter; it is a separate task.
+bool requestsCoolingTime(Utterance u) =>
+    RegExp(r'\bt\s*8\s*[/ ]\s*5\b|\bt85\b', caseSensitive: false)
+        .hasMatch(u.raw) ||
+    u.hasAny(const [
+      'czas stygnięcia',
+      'czas stygniecia',
+      'cooling time',
+      't osiem na pięć',
+      't osiem pięć',
+      't eight to five',
+      't eight five'
+    ]);
+
 /// Explicit calculations may open their calculator, unlike factual questions.
 bool requestsCalculation(Utterance u) =>
     !isNegatedCommand(u) &&

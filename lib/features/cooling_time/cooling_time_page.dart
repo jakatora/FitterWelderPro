@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../domain/welding/cooling_time.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/welding/heat_input.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -27,7 +28,74 @@ class CoolingTimePage extends StatefulWidget {
   State<CoolingTimePage> createState() => _CoolingTimePageState();
 }
 
-class _CoolingTimePageState extends State<CoolingTimePage> {
+class _CoolingTimePageState extends State<CoolingTimePage>
+    with ToolHandleHost<CoolingTimePage> {
+  @override
+  String get toolId => 'cooling_time';
+  @override
+  Set<String> get supportedFields => const {
+        'q_kj_mm',
+        'preheat_c',
+        'thickness_mm',
+        'shape',
+        'window_min_s',
+        'window_max_s'
+      };
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    double? n(String k) =>
+        fields[k] is num ? (fields[k] as num).toDouble() : null;
+    final q = n('q_kj_mm'), t = n('preheat_c'), d = n('thickness_mm');
+    final shape =
+        WeldShape.values.where((s) => s.name == fields['shape']).firstOrNull;
+    if (q == null || !q.isFinite || q <= 0) rejected.add('q_kj_mm');
+    if (t == null || !t.isFinite || t <= -273.15 || t >= 500) {
+      rejected.add('preheat_c');
+    }
+    if (d == null || !d.isFinite || d <= 0) rejected.add('thickness_mm');
+    if (shape == null) rejected.add('shape');
+    for (final k in const ['window_min_s', 'window_max_s']) {
+      if (fields.containsKey(k) &&
+          (n(k) == null || !n(k)!.isFinite || n(k)! <= 0)) {
+        rejected.add(k);
+      }
+    }
+    final min = n('window_min_s'), max = n('window_max_s');
+    if (min != null && max != null && min > max) {
+      rejected.addAll({'window_min_s', 'window_max_s'});
+    }
+    if (rejected.isEmpty &&
+        coolingTime(
+                heatInputKjMm: q!,
+                preheatC: t!,
+                thicknessMm: d!,
+                shape: shape!) ==
+            null) {
+      rejected.add('q_kj_mm');
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      _fromParams = false;
+      _q.text = q.toString();
+      _t0.text = t.toString();
+      _d.text = d.toString();
+      _shape = shape!;
+      // An example window is never the user's WPS window.
+      _wMin.text = min?.toString() ?? '';
+      _wMax.text = max?.toString() ?? '';
+    });
+    return {};
+  }
+
   // Q ≈ 1 kJ/mm, T0 100 °C, blacha 20 mm, ścieg wypełniający czołowej —
   // typowy punkt wyjścia dla S690; okno 5–15 s to tylko przykład.
   final _q = TextEditingController(text: '1,0');
@@ -66,8 +134,9 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
     return parseDecimal(t);
   }
 
-  double? _parseWindow(TextEditingController c) =>
-      c.text.trim().isEmpty ? null : (parseDecimal(c.text.trim()) ?? double.nan);
+  double? _parseWindow(TextEditingController c) => c.text.trim().isEmpty
+      ? null
+      : (parseDecimal(c.text.trim()) ?? double.nan);
 
   /// Q [kJ/mm] wg EN 1011-1 (z k). Z parametrów — przez heat_input.dart.
   double? get _heatInput {
@@ -92,13 +161,13 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
             pl: 'Pachwinowa 1-ściegowa, narożna',
             en: 'Single-run fillet, corner'),
         WeldShape.filletTee => context.tr(
-            pl: 'Pachwinowa 1-ściegowa, teowa', en: 'Single-run fillet, T-joint'),
+            pl: 'Pachwinowa 1-ściegowa, teowa',
+            en: 'Single-run fillet, T-joint'),
       };
 
   String _shapeFactors(WeldShape s) {
-    final f2 = s.hasF2Range
-        ? '${_n(s.f2Min, 2)}–${_n(s.f2Max, 2)}'
-        : _n(s.f2Min, 2);
+    final f2 =
+        s.hasF2Range ? '${_n(s.f2Min, 2)}–${_n(s.f2Max, 2)}' : _n(s.f2Min, 2);
     return 'F2 = $f2 · F3 = ${_n(s.f3, 2)}';
   }
 
@@ -129,7 +198,8 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
   Widget _caption(String text) => Padding(
         padding: const EdgeInsets.only(top: 6),
         child: Text(text,
-            style: const TextStyle(fontSize: 12, color: kTextMut, height: 1.35)),
+            style:
+                const TextStyle(fontSize: 12, color: kTextMut, height: 1.35)),
       );
 
   @override
@@ -167,9 +237,10 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
 
     return Scaffold(
       appBar: AppBar(
-          title: Text(context.tr(
-              pl: 'Czas stygnięcia t8/5', en: 'Cooling time t8/5'))),
+          title: Text(
+              context.tr(pl: 'Czas stygnięcia t8/5', en: 'Cooling time t8/5'))),
       body: ListView(
+        key: const ValueKey('cool-list'),
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
@@ -251,12 +322,12 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
                 key: const ValueKey('cool-i'), unit: 'A'),
           ),
           const SizedBox(height: 10),
-          _field(_v, context.tr(pl: 'Prędkość spawania v', en: 'Travel speed v'),
+          _field(
+              _v, context.tr(pl: 'Prędkość spawania v', en: 'Travel speed v'),
               key: const ValueKey('cool-v'), unit: 'mm/min'),
           if (q != null && q > 0)
             _caption(context.tr(
-                pl: 'Q = ${_n(q, 2)} kJ/mm',
-                en: 'Q = ${_n(q, 2)} kJ/mm')),
+                pl: 'Q = ${_n(q, 2)} kJ/mm', en: 'Q = ${_n(q, 2)} kJ/mm')),
         ],
       ],
     );
@@ -264,7 +335,8 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
 
   Widget _jointSection() {
     return QuoteSection(
-      title: context.tr(pl: 'Złącze i temperatura', en: 'Joint and temperature'),
+      title:
+          context.tr(pl: 'Złącze i temperatura', en: 'Joint and temperature'),
       children: [
         FieldPair(
           left: _field(
@@ -311,7 +383,8 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
           en: 'From the WPS or the steel maker. One limit is enough.'),
       children: [
         FieldPair(
-          left: _field(_wMin, 'min', key: const ValueKey('cool-wmin'), unit: 's'),
+          left:
+              _field(_wMin, 'min', key: const ValueKey('cool-wmin'), unit: 's'),
           right:
               _field(_wMax, 'max', key: const ValueKey('cool-wmax'), unit: 's'),
         ),
@@ -359,8 +432,10 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
       (b - a).abs() < 0.05 ? _n(a) : '${_n(a)}–${_n(b)}';
 
   String _flowText(HeatFlow f) => f == HeatFlow.threeD
-      ? context.tr(pl: 'przepływ 3D (gruba blacha)', en: '3D flow (thick plate)')
-      : context.tr(pl: 'przepływ 2D (cienka blacha)', en: '2D flow (thin plate)');
+      ? context.tr(
+          pl: 'przepływ 3D (gruba blacha)', en: '3D flow (thick plate)')
+      : context.tr(
+          pl: 'przepływ 2D (cienka blacha)', en: '2D flow (thin plate)');
 
   String _windowText(double? wMin, double? wMax) {
     if (wMin != null && wMax != null) return '${_n(wMin)}–${_n(wMax)} s';
@@ -369,8 +444,7 @@ class _CoolingTimePageState extends State<CoolingTimePage> {
   }
 
   Widget _resultSection(CoolingTimeResult r, double? wMin, double? wMax) {
-    final verdict =
-        checkT85Window(r.t85MinS, r.t85MaxS, min: wMin, max: wMax);
+    final verdict = checkT85Window(r.t85MinS, r.t85MaxS, min: wMin, max: wMax);
     final (fLo, fHi) = r.shapeFactor;
     final fName = r.flow == HeatFlow.threeD ? 'F3' : 'F2';
     final fText = (fHi - fLo).abs() < 1e-9
@@ -778,7 +852,8 @@ class CoolingTimePainter extends CustomPainter {
     final bottom = 16.0 + labelSize;
     const top = 8.0;
     const right = 8.0;
-    final plot = Rect.fromLTRB(left, top, size.width - right, size.height - bottom);
+    final plot =
+        Rect.fromLTRB(left, top, size.width - right, size.height - bottom);
     if (plot.width <= 10 || plot.height <= 10) return;
 
     final xMax = qTop(result.heatInputKjMm);
@@ -801,7 +876,8 @@ class CoolingTimePainter extends CustomPainter {
       return decimalComma ? s.replaceAll('.', ',') : s;
     }
 
-    void label(String text, Offset anchor, {TextAlign align = TextAlign.center}) {
+    void label(String text, Offset anchor,
+        {TextAlign align = TextAlign.center}) {
       final tp = TextPainter(
         text: TextSpan(text: text, style: labelStyle),
         textDirection: TextDirection.ltr,
@@ -835,8 +911,8 @@ class CoolingTimePainter extends CustomPainter {
 
     // Okno t8/5 — pas.
     if (windowMin != null || windowMax != null) {
-      final band = Rect.fromLTRB(plot.left, y(windowMax ?? yMax), plot.right,
-          y(windowMin ?? 0));
+      final band = Rect.fromLTRB(
+          plot.left, y(windowMax ?? yMax), plot.right, y(windowMin ?? 0));
       canvas.drawRect(band, Paint()..color = kPass.withValues(alpha: 0.14));
       final edge = Paint()
         ..color = kPass.withValues(alpha: 0.7)

@@ -786,8 +786,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
-- Z grupy 2.3 działają `heat.input` i `shade.number`; pozostają preheat.ce,
-  cooling.t85, power.duty/power.cable i tungsten.pick.
+- Z grupy 2.3 działają `heat.input`, `shade.number` i `cooling.t85`; pozostają
+  preheat.ce, power.duty/power.cable i tungsten.pick.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -830,3 +830,18 @@ etykiety proces/process/metoda. ShadePage ma atomowy uchwyt i czyści nieaktualn
 pola poprzedniego procesu. Jawne dobierz/select/pick otwiera kalkulator;
 negacja dobierz/dobieraj/select/pick nie wykonuje polecenia. Pełny czat i formularz
 sprawdzone; regresja assistant+shade UI+domena: 1125 PASS, analiza czysta.
+
+Czas stygnięcia: `cooling.t85` używa `coolingTime` i `checkT85Window`, zachowuje
+przedział 2D spoin pachwinowych. Q bezpośrednie z jednostką lub obliczone z
+parametrów i sprawności EN; energia łuku ASME wymaga wyjaśnienia/EN. Podanie
+obu źródeł Q wymaga jawnego wyboru. Temperatura, grubość i rodzaj spoiny nie
+są przyjmowane domyślnie.
+Puste okno WPS czyści przykładowe 5–15 s na ekranie i daje brak oceny zgodności;
+granice jednostronne, min/max i okno „od 5 do 15 sekund” obsługiwane. Błędne
+lub sprzeczne okno wymaga poprawki. Słowne t osiem na pięć, kilodżul na milimetr
+i stopnie Celsjusza działają w testach. Atomowy uchwyt CoolingTimePage waliduje
+całość przed zmianą. Jawne polecenie przełącza stronę w pełnym czacie. t8/5
+nie jest przejmowane przez heat.input nawet na ekranie energii liniowej.
+
+Czas stygnięcia: regresja assistant + cooling UI + domena 1138 PASS, analiza
+zmienionych plików czysta. Osobne testy pełnej rozmowy i umiejętności 26 PASS.
