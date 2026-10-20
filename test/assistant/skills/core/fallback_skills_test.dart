@@ -139,17 +139,22 @@ void main() {
       expect(a.answer.source!.pl, startsWith('Pomoc'));
     });
     test('słownik: „jak jest podtopienie po niemiecku"', () async {
-      final r = await BrainHarness().say('jak jest podtopienie po niemiecku');
-      expect(r.match!.skill.id, 'knowledge');
-      final a = r.result as AnswerResult;
+      final h = BrainHarness();
+      final r = await h.say('jak jest podtopienie po niemiecku');
+      expect(r.match!.skill.id, 'glossary.term');
+      expect(r.result, isA<AskResult>());
+      final a = (await h.say('5011')).result as AnswerResult;
       expect(a.answer.text.pl, contains('DE:'));
       expect(a.answer.source!.pl, contains('Słownik'));
     });
     test('EN: what is undercut in German', () async {
-      final r = await BrainHarness(lang: AppLanguage.en)
-          .say('what is undercut in German');
-      expect(r.match!.skill.id, 'knowledge');
-      expect(textOf(r.result, AppLanguage.en), contains('DE:'));
+      final h = BrainHarness(lang: AppLanguage.en);
+      final r = await h.say('what is undercut in German');
+      expect(r.match!.skill.id, 'glossary.term');
+      expect(r.result, isA<AskResult>());
+      expect(
+          textOf((await h.say('continuous undercut')).result, AppLanguage.en),
+          contains('DE:'));
     });
     test('pojedyncze słowo z Pomocy nie wystarcza', () async {
       final r = await BrainHarness().say('dodaj spoinę 12');

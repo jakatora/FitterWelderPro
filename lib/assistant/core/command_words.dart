@@ -60,8 +60,8 @@ bool looksLikeOtherCommand(Utterance u) =>
 final _negatedCommand = RegExp(
     r'^(?:(?:prosze|please|hej|hey|asystencie|asystent)\s+)*'
     r'(?:nie\s+(?:oblicz\w*|policz\w*|przelicz\w*|otwier\w*|otworz\w*|pokaz\w*|'
-    r'sprawdz\w*|dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
-    r'|(?:do not|dont|don t)\s+(?:check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
+    r'znajdz\w*|szukaj\w*|wyszuk\w*|sprawdz\w*|dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
+    r'|(?:do not|dont|don t)\s+(?:find|lookup|look up|check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
 
 bool requestsWeldingCables(Utterance u) =>
@@ -87,24 +87,33 @@ bool requestsCoolingTime(Utterance u) =>
 /// Explicit calculations may open their calculator, unlike factual questions.
 bool requestsCalculation(Utterance u) =>
     !isNegatedCommand(u) &&
-    u.hasStem(const [
-      'oblicz',
-      'policz',
-      'przelicz',
-      'wylicz',
-      'dobierz',
-      'sprawdz',
-      'check',
-      'size',
-      'select',
-      'pick',
-      'skroc',
-      'przytn',
-      'ciec',
-      'cieci',
-      'trim',
-      'cut',
-      'calculate',
-      'compute',
-      'convert'
-    ]);
+    (u.hasStem(const [
+          'oblicz',
+          'policz',
+          'przelicz',
+          'wylicz',
+          'dobierz',
+          'sprawdz',
+          'check',
+          'size',
+          'select',
+          'pick',
+          'skroc',
+          'przytn',
+          'ciec',
+          'cieci',
+          'trim',
+          'cut',
+          'calculate',
+          'compute',
+          'convert'
+        ]) ||
+        (u.hasStem(const ['slownik', 'glossary', 'dictionary']) &&
+            u.hasStem(const [
+              'znajdz',
+              'wyszuk',
+              'pokaz',
+              'find',
+              'lookup',
+              'look'
+            ])));

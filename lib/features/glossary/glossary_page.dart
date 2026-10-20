@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/welding_glossary.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/glossary/glossary.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -35,7 +36,43 @@ class GlossaryPage extends StatefulWidget {
   State<GlossaryPage> createState() => _GlossaryPageState();
 }
 
-class _GlossaryPageState extends State<GlossaryPage> {
+class _GlossaryPageState extends State<GlossaryPage>
+    with ToolHandleHost<GlossaryPage> {
+  String? _assistantTermId;
+  @override
+  String get toolId => 'glossary';
+  @override
+  Set<String> get supportedFields => const {'term_id', 'target'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    final term =
+        kWeldingGlossary.where((t) => t.id == fields['term_id']).firstOrNull;
+    final target = GlossaryLang.values
+        .where((l) => l.name == fields['target'])
+        .firstOrNull;
+    if (term == null) rejected.add('term_id');
+    if (fields.containsKey('target') &&
+        (target == null || !GlossaryLang.targets.contains(target))) {
+      rejected.add('target');
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    _search.text = term!.pl;
+    setState(() {
+      _assistantTermId = term.id;
+      _category = null;
+      _onlyFavorites = false;
+      _expanded
+        ..clear()
+        ..add(term.id);
+      if (target != null) _target = target;
+    });
+    _scrollToTop();
+    return {};
+  }
+
   final _search = TextEditingController();
   final _list = ScrollController();
   String _lastQuery = '';
@@ -50,7 +87,7 @@ class _GlossaryPageState extends State<GlossaryPage> {
   void initState() {
     super.initState();
     _search.addListener(_onQuery);
-    unawaited(_restore());
+    unawaited(_restore().whenComplete(markReady));
   }
 
   @override
@@ -64,6 +101,7 @@ class _GlossaryPageState extends State<GlossaryPage> {
   void _onQuery() {
     if (!mounted || _search.text == _lastQuery) return;
     _lastQuery = _search.text;
+    _assistantTermId = null;
     _scrollToTop();
     setState(() {});
   }
@@ -76,8 +114,8 @@ class _GlossaryPageState extends State<GlossaryPage> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final target = GlossaryLang.parse(
-          prefs.getString(GlossaryPage.targetPrefsKey));
+      final target =
+          GlossaryLang.parse(prefs.getString(GlossaryPage.targetPrefsKey));
       final favs =
           prefs.getStringList(GlossaryPage.favoritesPrefsKey) ?? const [];
       if (!mounted) return;
@@ -94,7 +132,6 @@ class _GlossaryPageState extends State<GlossaryPage> {
   }
 
   Future<void> _setTarget(GlossaryLang lang) async {
-    if (lang == _target) return;
     unawaited(Haptic.tap());
     setState(() => _target = lang);
     try {
@@ -157,14 +194,18 @@ class _GlossaryPageState extends State<GlossaryPage> {
     final results = weldingGlossaryIndex.search(
       _search.text,
       category: _category,
-      onlyIds: _onlyFavorites ? _favorites : null,
+      onlyIds: _assistantTermId != null
+          ? {_assistantTermId!}
+          : _onlyFavorites
+              ? _favorites
+              : null,
     );
     final source = _source(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr(
-            pl: 'Słownik spawalniczy', en: 'Welding dictionary')),
+        title: Text(
+            context.tr(pl: 'Słownik spawalniczy', en: 'Welding dictionary')),
         actions: [
           IconButton(
             key: const ValueKey('glossary-fav-filter'),
@@ -177,7 +218,10 @@ class _GlossaryPageState extends State<GlossaryPage> {
             onPressed: () {
               unawaited(Haptic.tap());
               _scrollToTop();
-              setState(() => _onlyFavorites = !_onlyFavorites);
+              setState(() {
+                _assistantTermId = null;
+                _onlyFavorites = !_onlyFavorites;
+              });
             },
           ),
         ],
@@ -188,7 +232,8 @@ class _GlossaryPageState extends State<GlossaryPage> {
             ConstrainedBox(
               // Na niskim ekranie (poziomo, klawiatura) nagłówek się przewija,
               // zamiast wypychać listę poza ekran.
-              constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.6),
+              constraints:
+                  BoxConstraints(maxHeight: constraints.maxHeight * 0.6),
               child: SingleChildScrollView(
                 child: _header(context, results.length),
               ),
@@ -340,7 +385,10 @@ class _GlossaryPageState extends State<GlossaryPage> {
         onSelected: (_) {
           unawaited(Haptic.tap());
           _scrollToTop();
-          setState(() => _category = c);
+          setState(() {
+            _assistantTermId = null;
+            _category = c;
+          });
         },
       ),
     );
@@ -519,8 +567,8 @@ class _TermCard extends StatelessWidget {
               padding: const EdgeInsets.only(right: 10),
               child: Text(
                 def,
-                style: const TextStyle(
-                    color: kTextSec, fontSize: 13, height: 1.4),
+                style:
+                    const TextStyle(color: kTextSec, fontSize: 13, height: 1.4),
               ),
             ),
           ],

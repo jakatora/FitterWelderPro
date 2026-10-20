@@ -935,3 +935,16 @@ Pełny czat tungsten→bolt_torque i realny wynik 134 N·m / 134,07 w odpowiedzi
 sprawdzone. Test możliwości pokazuje nową komendę w bolt_torque; stwierdzenie
 o braku sterowania pozostaje testowane w hydrotest, gdzie nadal jest prawdziwe.
 Regresja assistant+bolt UI+domena: 1298 PASS, analiza zmienionego kodu czysta.
+
+2026-10-21 — `glossary.term`: wspólny indeks słownika PL/EN/DE/NL/NO,
+wybór dokładnego hasła lub doprecyzowanie wielu wyników (np. podtopienie).
+Tłumaczenie wymaga wskazanego języka; sprzeczne języki wymagają pytania.
+Atomowy uchwyt otwiera dokładny rekord, rozwija definicję, usuwa stare filtry.
+Zmiana języka przez asystenta jest tymczasowa; ręczna zmiana zapisuje preferencję,
+a ręczne wyszukiwanie opuszcza tryb dokładnego rekordu. Ulubione zachowane.
+Negacja wyszukania zatrzymuje akcję. Regresja 1338 PASS, dodatkowa kontrola
+ręcznej zmiany języka i wyszukiwania 24 PASS; analiza zmienionego kodu czysta.
+Etap 2.4: słownik i moment śrub wdrożone; timery pozostają do implementacji.
+Następny audyt: oddzielić cytowane polecenia do tłumaczenia/wyjaśnienia od akcji
+ISO, kalkulatorów i starszej ścieżki zapisu. Samo rozpoznanie słów polecenia
+wewnątrz pytania nie może uruchamiać działania. Pełny odbiór wizji nadal otwarty.

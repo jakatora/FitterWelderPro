@@ -238,8 +238,18 @@ void main() {
     await say(tester,
         'Oblicz moment dokręcania 5/8 cala B7 smar miedziany preload 50%');
     expect(ToolBridge.instance.activeToolId, 'bolt_torque');
-    await say(tester, 'nie narysuj rury 2 metry w prawo');
+    await say(tester, 'nie znajdź WPS w słowniku');
     expect(ToolBridge.instance.activeToolId, 'bolt_torque');
+    await say(tester, 'Znajdź w słowniku WPS');
+    expect(ToolBridge.instance.activeToolId, 'glossary');
+    expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('glossary-search')))
+            .controller!
+            .text,
+        contains('WPS'));
+    await say(tester, 'nie narysuj rury 2 metry w prawo');
+    expect(ToolBridge.instance.activeToolId, 'glossary');
     await close(tester);
   });
   testWidgets(

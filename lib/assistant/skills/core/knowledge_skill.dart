@@ -37,19 +37,102 @@ final _definitionRe = RegExp(
 
 /// Słowa wokół terminu w pytaniu o tłumaczenie / definicję.
 const Set<String> _frame = {
-  'jak', 'jest', 'sie', 'mowi', 'nazywa', 'powiedziec', 'po', 'co', 'to',
-  'znaczy', 'oznacza', 'czym', 'za', 'slowo', 'termin', 'przetlumacz',
-  'tlumaczenie', 'niemiecku', 'niderlandzku', 'holendersku', 'norwesku',
-  'angielsku', 'polsku', 'niemiecki', 'norweski', 'angielski', 'polski',
-  'what', 'is', 'are', 'does', 'mean', 'means', 'in', 'german', 'dutch',
-  'norwegian', 'english', 'polish', 'how', 'do', 'you', 'say', 'translate',
-  'the', 'a', 'an', 'word', 'term', 'define', 'definition', 'of', 'na',
-  'prosze', 'powiedz', 'mi', 'please', 'tell', 'me', 'hej', 'ok',
+  'i',
+  'and',
+  'lub',
+  'or',
+  'otworz',
+  'pokaz',
+  'open',
+  'show',
+  'spawalniczy',
+  'slownik',
+  'slowniku',
+  'slownika',
+  'haslo',
+  'hasla',
+  'glossary',
+  'dictionary',
+  'jezyk',
+  'jezyku',
+  'language',
+  'into',
+  'znajdz',
+  'find',
+  'wyszukaj',
+  'lookup',
+  'look',
+  'up',
+  'w',
+  'jak',
+  'jest',
+  'sie',
+  'mowi',
+  'nazywa',
+  'powiedziec',
+  'po',
+  'co',
+  'to',
+  'znaczy',
+  'oznacza',
+  'czym',
+  'za',
+  'slowo',
+  'termin',
+  'przetlumacz',
+  'tlumaczenie',
+  'niemiecku',
+  'niderlandzku',
+  'holendersku',
+  'norwesku',
+  'angielsku',
+  'polsku',
+  'niemiecki',
+  'norweski',
+  'angielski',
+  'polski',
+  'what',
+  'is',
+  'are',
+  'does',
+  'mean',
+  'means',
+  'in',
+  'german',
+  'dutch',
+  'norwegian',
+  'english',
+  'polish',
+  'how',
+  'do',
+  'you',
+  'say',
+  'translate',
+  'the',
+  'a',
+  'an',
+  'word',
+  'term',
+  'define',
+  'definition',
+  'of',
+  'na',
+  'prosze',
+  'powiedz',
+  'mi',
+  'please',
+  'tell',
+  'me',
+  'hej',
+  'ok',
 };
 
-String _glossaryTerm(Utterance u) => [
+String glossaryQuery(Utterance u) => [
       for (final t in u.tokens)
-        if (!_frame.contains(t)) t,
+        if (!_frame.contains(t) &&
+            !RegExp(r'^(?:niemieck|niderlandzk|holendersk|norwesk|angielsk|polsk)\w*$')
+                .hasMatch(t))
+          t,
     ].join(' ');
 
 GlossaryLang? _target(String folded) {
@@ -58,6 +141,11 @@ GlossaryLang? _target(String folded) {
   }
   return null;
 }
+
+List<GlossaryLang> glossaryTargets(String folded) => [
+      for (final e in _targets.entries)
+        if (e.key.hasMatch(folded)) e.value
+    ];
 
 (HelpCategory, HelpEntry)? _helpById(String id) {
   for (final c in kHelpCategories) {
@@ -78,8 +166,7 @@ GlossaryTerm? _termById(String id) {
 /// Posortowane słowa Pomocy (pytania, odpowiedzi, tagi, kategorie) per język.
 final Map<AppLanguage, List<String>> _vocabularies = {};
 
-List<String> _helpVocabulary(AppLanguage lang) =>
-    _vocabularies[lang] ??= () {
+List<String> _helpVocabulary(AppLanguage lang) => _vocabularies[lang] ??= () {
       final words = <String>{};
       void add(String s) {
         for (final w in normalizeForSearch(s).split(' ')) {
@@ -167,8 +254,8 @@ class KnowledgeSkill extends AssistantSkill {
 
   @override
   List<SkillExample> get examples => const [
-        SkillExample('Dlaczego pojawia się porowatość?', 'Why does porosity appear?'),
-        SkillExample('Jak jest podtopienie po niemiecku?', 'What is undercut in German?'),
+        SkillExample(
+            'Dlaczego pojawia się porowatość?', 'Why does porosity appear?'),
         SkillExample('Jaki przepływ gazu osłonowego ustawić?',
             'What shielding gas flow should be set?'),
         SkillExample('Ile czasu powinien trwać back purge?',
@@ -187,7 +274,7 @@ class KnowledgeSkill extends AssistantSkill {
     final f = u.folded;
     final target = _target(f);
     if (target != null || _translateRe.hasMatch(f)) {
-      final term = _glossaryTerm(u);
+      final term = glossaryQuery(u);
       if (term.isNotEmpty) {
         final hits = weldingGlossaryIndex.search(term);
         if (hits.isNotEmpty) {
@@ -205,8 +292,23 @@ class KnowledgeSkill extends AssistantSkill {
 
     // A concrete measurement needs a calculation skill, not a generic FAQ
     // selected just because it contains one word such as "porosity".
-    const units = {'a', 'amper', 'amperow', 'amps', 'v', 'volt', 'volts',
-      'mm', 'cm', 'kg', 'bar', 'psi', 'min', 'sekund', 'seconds'};
+    const units = {
+      'a',
+      'amper',
+      'amperow',
+      'amps',
+      'v',
+      'volt',
+      'volts',
+      'mm',
+      'cm',
+      'kg',
+      'bar',
+      'psi',
+      'min',
+      'sekund',
+      'seconds'
+    };
     for (var i = 0; i + 1 < u.tokens.length; i++) {
       if (parseDecimal(u.tokens[i]) != null &&
           units.contains(u.tokens[i + 1])) {
@@ -220,7 +322,7 @@ class KnowledgeSkill extends AssistantSkill {
     }
 
     if (_definitionRe.hasMatch(f)) {
-      final term = _glossaryTerm(u);
+      final term = glossaryQuery(u);
       if (term.isNotEmpty) {
         final hits = weldingGlossaryIndex.search(term);
         final withDef = [
@@ -254,8 +356,8 @@ class KnowledgeSkill extends AssistantSkill {
       final q = normalizeForSearch(r.entry.question(u.lang));
       final tags = [for (final t in r.entry.tags) normalizeForSearch(t)];
       final covered = content
-          .where((w) => _stems(w).any(
-              (s) => q.contains(s) || tags.any((t) => t.contains(s))))
+          .where((w) => _stems(w)
+              .any((s) => q.contains(s) || tags.any((t) => t.contains(s))))
           .length;
       if (covered / content.length >= 0.6) return r;
     }
@@ -293,8 +395,8 @@ class KnowledgeSkill extends AssistantSkill {
     if (kind == 'definition') {
       return AnswerResult(
         AssistantAnswer(
-          text: AssistantText('„${term.pl}” — ${term.defPl}',
-              '"${term.en}" — ${term.defEn}'),
+          text: AssistantText(
+              '„${term.pl}” — ${term.defPl}', '"${term.en}" — ${term.defEn}'),
           source: source,
         ),
         followUps: followUps,
