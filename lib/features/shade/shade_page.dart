@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/welding/shade_number.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
@@ -42,7 +43,60 @@ class ShadePage extends StatefulWidget {
   State<ShadePage> createState() => _ShadePageState();
 }
 
-class _ShadePageState extends State<ShadePage> {
+class _ShadePageState extends State<ShadePage> with ToolHandleHost<ShadePage> {
+  @override
+  String get toolId => 'shade';
+  @override
+  Set<String> get supportedFields =>
+      const {'process', 'current_a', 'flow_lh', 'thickness_mm'};
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    final process = ShadeProcess.values
+        .where((p) => p.name == fields['process'])
+        .firstOrNull;
+    if (process == null) rejected.add('process');
+    for (final key in const ['current_a', 'flow_lh', 'thickness_mm']) {
+      if (!fields.containsKey(key)) continue;
+      final v = fields[key];
+      final max = key == 'current_a'
+          ? kShadeMaxCurrentA
+          : key == 'flow_lh'
+              ? kShadeMaxFlowLh
+              : kShadeMaxThicknessMm;
+      if (v is! num || !v.isFinite || v <= 0 || v > max) rejected.add(key);
+    }
+    if (process != null) {
+      if (process.isGas) {
+        if (fields.containsKey('current_a') ||
+            !fields.containsKey('flow_lh') &&
+                !fields.containsKey('thickness_mm')) {
+          rejected.add('current_a');
+        }
+      } else if (!fields.containsKey('current_a') ||
+          fields.containsKey('flow_lh') ||
+          fields.containsKey('thickness_mm')) {
+        rejected.add('current_a');
+      }
+    }
+    if (rejected.isNotEmpty || !mounted) {
+      return rejected.isEmpty ? fields.keys.toSet() : rejected;
+    }
+    setState(() {
+      _process = process!;
+      _current.text = fields['current_a']?.toString() ?? '';
+      _flow.text = fields['flow_lh']?.toString() ?? '';
+      _thickness.text = fields['thickness_mm']?.toString() ?? '';
+    });
+    return {};
+  }
+
   final _current = TextEditingController();
   final _flow = TextEditingController();
   final _thickness = TextEditingController();

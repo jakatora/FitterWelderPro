@@ -786,7 +786,8 @@ Ten wpis aktualizuje historyczne notatki powyżej; nie oznacza ukończenia całe
   konkurencyjnych danych w rozmowie i wypełnienie rzeczywistej zakładki.
   Działa `insert.length`: dwa jednakowe kolana, rodzina tablicowa lub ręczny R,
   jawny kąt/offset/szczelina na każdą spoinę, wynik cięcia i wypełnienie zakładki.
-- Z grupy 2.3 działa `heat.input`; pozostają pozostałe kalkulatory spawalnicze.
+- Z grupy 2.3 działają `heat.input` i `shade.number`; pozostają preheat.ce,
+  cooling.t85, power.duty/power.cable i tungsten.pick.
   Grupy 2.4 i 2.5 wymagają implementacji i sprawdzenia rzeczywistych efektów.
 - Podstawowe ISO rysuje/dorysowuje/cofa i chroni przed niejasnymi zmianami.
   Zakres etapu 3 należy zweryfikować z kodem i uzupełnić, nie uznawać za zakończony.
@@ -819,3 +820,13 @@ A × tan(θ/2); odpowiedź opisuje podstawę. Brak dodatniego cięcia nie wypeł
 ekranu. Brak rodziny w tabeli uruchamia ścieżkę raportu brakującej możliwości.
 Regresja asystent/domena/kalkulatory/zakładki: 1198 PASS, analiza czysta;
 osobno sprawdzona pełna rozmowa przełączająca kalkulator do zakładki wstawki.
+
+Filtr przyłbicy: `shade.number` używa `computeShade` i `shadeShareText` z domeny,
+bez skracania ograniczeń tabel. Procesy łukowe: prąd z jednostką; MIG wymaga
+rozróżnienia metalu. Procesy gazowe: przepływ z jednostką czasu lub grubość,
+bez wymyślania danych do drugiej tabeli. Jednostki l/min przeliczane na l/h,
+liczby słowne obsługiwane. Cyfry prądu nie stają się kodem procesu; kody wymagają
+etykiety proces/process/metoda. ShadePage ma atomowy uchwyt i czyści nieaktualne
+pola poprzedniego procesu. Jawne dobierz/select/pick otwiera kalkulator;
+negacja dobierz/dobieraj/select/pick nie wykonuje polecenia. Pełny czat i formularz
+sprawdzone; regresja assistant+shade UI+domena: 1125 PASS, analiza czysta.

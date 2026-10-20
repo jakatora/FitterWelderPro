@@ -188,9 +188,13 @@ void main() {
     expect(ToolBridge.instance.activeToolId, 'insert');
     expect(appRoutes.top, same(calculatorRoute));
     expect(find.text('96.0 mm'), findsOneWidget);
-    await say(tester, 'nie narysuj rury 2 metry w prawo');
+    await say(tester, 'nie dobieraj filtra TIG 100 A');
     expect(ToolBridge.instance.activeToolId, 'insert');
-    expect(appRoutes.top, same(calculatorRoute));
+    await say(tester, 'Dobierz filtr przyłbicy TIG 100 A');
+    expect(ToolBridge.instance.activeToolId, 'shade');
+    expect(find.byKey(const ValueKey('shade-en')), findsOneWidget);
+    await say(tester, 'nie narysuj rury 2 metry w prawo');
+    expect(ToolBridge.instance.activeToolId, 'shade');
     await close(tester);
   });
   testWidgets(

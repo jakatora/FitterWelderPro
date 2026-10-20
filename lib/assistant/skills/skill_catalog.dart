@@ -12,6 +12,7 @@ import 'core/account_navigation_skill.dart';
 import 'fitter_routes/catalog.dart';
 import 'fitter_tables/catalog.dart';
 import 'welder_calc/heat_input_skill.dart';
+import 'welder_calc/shade_number_skill.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
@@ -19,6 +20,7 @@ List<AssistantSkill> buildSkillCatalog({AssistantActionsPort? actions}) {
   Iterable<AssistantSkill> catalog() => all;
   all.addAll(coreSkills(actions: actions, catalog: catalog));
   all.add(HeatInputSkill());
+  all.add(ShadeNumberSkill());
   all.add(AccountNavigationSkill());
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());
