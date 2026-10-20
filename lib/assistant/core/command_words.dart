@@ -20,7 +20,8 @@ final RegExp kOpenVerbAtStartRe = RegExp(
 
 /// Słowa ciężaru — pytanie o masę to inny moduł (pipe_weight, steel_weight).
 bool mentionsWeight(Utterance u) =>
-    u.hasStem(const ['waz', 'waga', 'wagi', 'ciezar', 'masa', 'masy', 'weigh']) ||
+    u.hasStem(
+        const ['waz', 'waga', 'wagi', 'ciezar', 'masa', 'masy', 'weigh']) ||
     u.hasAny(const ['kg', 'kilogram', 'kilogramow', 'mass']);
 
 /// Słowa ścianki i harmonogramu.
@@ -29,10 +30,21 @@ bool mentionsWall(Utterance u) =>
     u.hasAny(const ['wall', 'walls', 'thickness', 'sch']);
 
 /// Kształtki — „wymiar kolana DN50" to moduł kolan, nie „DN ↔ mm".
-bool mentionsFitting(Utterance u) =>
-    u.hasStem(const [
-      'kolan', 'luk', 'trojnik', 'redukc', 'zawor', 'kolnierz', 'zaslep',
-      'denn', 'elbow', 'tee', 'reducer', 'valve', 'flange', 'cap',
+bool mentionsFitting(Utterance u) => u.hasStem(const [
+      'kolan',
+      'luk',
+      'trojnik',
+      'redukc',
+      'zawor',
+      'kolnierz',
+      'zaslep',
+      'denn',
+      'elbow',
+      'tee',
+      'reducer',
+      'valve',
+      'flange',
+      'cap',
     ]);
 
 /// Wyraźnie inne polecenie: czasownik zapisu/rysowania, „otwórz", ciężar
@@ -43,3 +55,23 @@ bool looksLikeOtherCommand(Utterance u) =>
     kOpenVerbAtStartRe.hasMatch(u.folded) ||
     mentionsWeight(u) ||
     mentionsFitting(u);
+
+/// A negated instruction is handled locally before ISO, writes or remote AI.
+final _negatedCommand = RegExp(
+    r'^(?:(?:prosze|please|hej|hey|asystencie|asystent)\s+)*'
+    r'(?:nie\s+(?:oblicz\w*|policz\w*|przelicz\w*|otwier\w*|otworz\w*|pokaz\w*|'
+    r'rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
+    r'|(?:do not|dont|don t)\s+(?:calculate|compute|convert|open|show|draw|save|add|delete|set|change|insert)\b)');
+bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
+
+/// Explicit calculations may open their calculator, unlike factual questions.
+bool requestsCalculation(Utterance u) =>
+    !isNegatedCommand(u) &&
+    u.hasStem(const [
+      'oblicz',
+      'policz',
+      'przelicz',
+      'calculate',
+      'compute',
+      'convert'
+    ]);

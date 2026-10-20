@@ -64,7 +64,8 @@ final RegExp _cancelRe = RegExp(
     r'nie wazne|koniec|daj spokoj|cancel|never ?mind|no|forget it|leave it)'
     r'(?:\s+(?:to|it|tego|juz|already))?$');
 
-final RegExp _firstRe = RegExp(r'^(?:to |the )?(?:pierwsz\w*|first|1|jeden|jedno)$');
+final RegExp _firstRe =
+    RegExp(r'^(?:to |the )?(?:pierwsz\w*|first|1|jeden|jedno)$');
 final RegExp _secondRe =
     RegExp(r'^(?:to |the )?(?:drug\w*|second|2|dwa|drugie)$');
 
@@ -128,11 +129,18 @@ class AssistantBrain {
   }
 
   Future<BrainReply> _handle(Utterance u, AssistantContext ctx) async {
+    if (isNegatedCommand(u)) {
+      cancelPending();
+      return const BrainReply(AnswerResult(AssistantAnswer(
+          text: AssistantText('Nie wykonuję tego polecenia.',
+              'I will not execute that command.'))));
+    }
     final cands = <Utterance>[
       u,
       for (final alt in u.alternatives.toSet())
         if (alt.trim().isNotEmpty && alt.trim() != u.raw.trim()) u.withRaw(alt),
     ];
+    cands.removeWhere(isNegatedCommand);
     if (u.folded.isEmpty && cands.length == 1) return _notUnderstood(u);
 
     final p = _pending;
@@ -199,7 +207,9 @@ class AssistantBrain {
       if (slots == null) continue;
       cancelPending();
       final m = p.partial.copyWith(
-          slots: {...p.partial.slots, ...slots}, missing: const [], utterance: c);
+          slots: {...p.partial.slots, ...slots},
+          missing: const [],
+          utterance: c);
       return (m, c == cands.first ? null : c.raw);
     }
     return null;

@@ -14,6 +14,7 @@ import '../assistant/assistant_tools.dart';
 import '../assistant/assistant_validator.dart';
 import '../assistant/speech_io.dart';
 import '../assistant/core/brain.dart';
+import '../assistant/core/command_words.dart';
 import '../app_navigator.dart';
 import '../assistant/core/assistant_panel_controller.dart';
 import '../assistant/core/assistant_feedback_recorder.dart';
@@ -617,6 +618,15 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
+    final utterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    if (isNegatedCommand(utterance)) {
+      _brain.cancelPending();
+      _pendingIso = null;
+      _awaitingIsoChoice = false;
+      _isoReply(
+          'Nie wykonuję tego polecenia.', 'I will not execute that command.');
+      return true;
+    }
     if (await _tryIsoCommand(text, lang)) return true;
     final legacyIntent = parseAssistantCommand(text).intent;
     final heatRequest = heatInputRequested(Utterance(text, lang: lang));
@@ -651,6 +661,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (spoken.isNotEmpty) await _speak(spoken);
     final explicitOpen = reply.match?.skill.id == 'tool.open' ||
         reply.match?.skill.id == 'account.open' ||
+        (reply.match?.skill.tier == AssistantTier.b &&
+            requestsCalculation(utterance)) ||
         (reply.match?.skill.id == 'heat.input' &&
             reply.match?.slots['mode'] == 'set');
     if (mounted && result is AnswerResult && result.show != null) {

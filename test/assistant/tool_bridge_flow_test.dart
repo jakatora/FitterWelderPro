@@ -151,4 +151,32 @@ void main() {
     expect(identical(appRoutes.top, route), isTrue);
     await close(tester);
   });
+  testWidgets(
+      'explicit calculations switch modules; negated commands never execute',
+      (tester) async {
+    await boot(tester);
+    unawaited(openTool(appNavigatorKey.currentState!.overlay!.context,
+        toolById('heat_input')!));
+    await settle(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    final original = appRoutes.top;
+    await say(tester, 'nie przeliczaj 2 cale na mm');
+    expect(appRoutes.top, same(original));
+    expect(find.text('Nie wykonuję tego polecenia.'), findsOneWidget);
+    await say(tester, 'Przelicz 2 cale na mm');
+    expect(ToolBridge.instance.activeToolId, 'unit_converter');
+    expect(find.text('50.800'), findsOneWidget);
+    await say(tester,
+        'Oblicz fazowanie V ścianka 10 mm kąt rowka 60 próg 1 mm szczelina 0 mm');
+    expect(ToolBridge.instance.activeToolId, 'bevel');
+    final calculatorRoute = appRoutes.top;
+    await say(tester, 'Oblicz dylatację długość 50 m delta 100 C 304L');
+    expect(ToolBridge.instance.activeToolId, 'thermal_expansion');
+    expect(appRoutes.top, same(calculatorRoute));
+    await say(tester, 'nie narysuj rury 2 metry w prawo');
+    expect(ToolBridge.instance.activeToolId, 'thermal_expansion');
+    expect(appRoutes.top, same(calculatorRoute));
+    await close(tester);
+  });
 }

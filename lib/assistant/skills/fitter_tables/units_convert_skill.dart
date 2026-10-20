@@ -143,7 +143,8 @@ class UnitsConvertSkill extends AssistantSkill {
     AskResult ask(String slot, String pl, String en) =>
         AskResult(slot, AssistantText(pl, en), partial: m);
     final s = m.slots;
-    if (m.utterance?.hasStem(const ['roznic', 'delta', 'difference']) == true) {
+    if (s['kind'] == 'temperature' &&
+        m.utterance?.hasStem(const ['roznic', 'delta', 'difference']) == true) {
       return const FailedResult(AssistantText(
           'Ten konwerter przelicza temperaturę, a nie różnicę temperatur. Dla różnicy potrzebne jest osobne przeliczenie.',
           'This converter handles temperatures, not temperature differences. A difference needs a separate conversion.'));
