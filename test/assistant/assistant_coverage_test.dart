@@ -21,7 +21,7 @@ void main() {
     final session = assistantCoverage(
       skills: buildSkillCatalog(actions: FakeActionsPort()),
     );
-    expect(readOnly['weld_journal'], AssistantTier.a);
+    expect(readOnly['weld_journal'], AssistantTier.b);
     expect(session['weld_journal'], AssistantTier.c);
     expect(session['welder_pipes'], AssistantTier.c);
     expect(readOnly['dn_mm'], AssistantTier.b);
