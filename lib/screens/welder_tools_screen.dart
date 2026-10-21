@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../assistant/core/tool_bridge.dart';
 import '../domain/welding/purge.dart';
+import '../domain/welding/pressure_conversion.dart';
 import '../domain/welding/welder_calculator_input.dart';
 import '../domain/welding/shielding_gas.dart';
 import '../i18n/app_language.dart';
@@ -62,6 +63,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
   int _timerRevision = 0;
   final _gasKey = GlobalKey<_GasConsumptionTabState>();
   final _purgeKey = GlobalKey<_O2PurgeTabState>();
+  final _pressureKey = GlobalKey<_PressureConverterTabState>();
   @override
   Map<String, Object?> get inputFields =>
       Map.unmodifiable(switch (_tabs.index) {
@@ -74,13 +76,13 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
             ...?_purgeKey.currentState?.inputFields
           },
         WelderToolsScreen.tabTimer => {'tab': 'timer'},
-        _ => {'tab': 'pressure'},
+        _ => {'tab': 'pressure', ...?_pressureKey.currentState?.inputFields},
       });
   @override
   String get toolId => 'welder_calculators';
   @override
   Set<String> get supportedFields =>
-      const {'tab', ...GasCalculatorInput.keys, ...PurgeCalculatorInput.keys};
+      const {'tab', ...GasCalculatorInput.keys, ...PurgeCalculatorInput.keys, ...PressureCalculatorInput.keys};
   @override
   void initState() {
     super.initState();
@@ -108,6 +110,9 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
       } else if (fields['tab'] == 'purge') {
         validated = PurgeCalculatorInput.fromFields(fields).fields;
         target = WelderToolsScreen.tabPurge;
+      } else if (fields['tab'] == 'pressure') {
+        validated = PressureCalculatorInput.fromFields(fields).fields;
+        target = WelderToolsScreen.tabPressure;
       } else {
         return fields.keys.toSet();
       }
@@ -117,6 +122,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
     setState(() => _tabs.index = target);
     _WelderCalculatorTab? state() {
       if (target == WelderToolsScreen.tabGas) return _gasKey.currentState;
+      if (target == WelderToolsScreen.tabPressure) return _pressureKey.currentState;
       return _purgeKey.currentState;
     }
 
@@ -157,7 +163,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
             _GasConsumptionTab(key: _gasKey),
             _O2PurgeTab(key: _purgeKey),
             _WeldTimerTab(key: ValueKey(_timerRevision)),
-            _PressureConverterTab(),
+            _PressureConverterTab(key: _pressureKey),
           ]),
         );
       }),
@@ -1040,21 +1046,28 @@ class _ModeButton extends StatelessWidget {
 // ZAKŁADKA: PRZELICZNIK CIŚNIENIA
 // ═══════════════════════════════════════════════════════════════════════════
 class _PressureConverterTab extends StatefulWidget {
+  const _PressureConverterTab({super.key});
   @override State<_PressureConverterTab> createState() => _PressureConverterTabState();
 }
 
-class _PressureConverterTabState extends State<_PressureConverterTab> {
+class _PressureConverterTabState extends State<_PressureConverterTab> implements _WelderCalculatorTab {
   final _valCtrl = TextEditingController();
   String _fromUnit = 'bar';
 
   // mbar i słupy wody — tak podaje się ciśnienie formowania i korków purge.
-  // Wartości umowne: 1 mmH₂O = 9,80665 Pa; 1 inH₂O = 25,4 mmH₂O = 249,0889 Pa
+  // Wartości umowne: 1 mmH₂O = 9,80665 Pa; 1 inH₂O = 25,4 mmH₂O = 249,08891 Pa
   // (ρ = 1000 kg/m³, g = 9,80665 m/s²).
-  final Map<String, double> _toBar = {
-    'bar': 1.0, 'mbar': 0.001, 'MPa': 10.0, 'kPa': 0.01, 'Pa': 0.00001,
-    'PSI': 0.0689476, 'atm': 1.01325, 'kgf/cm²': 0.980665,
-    'inH₂O': 0.002490889, 'mmH₂O': 0.0000980665,
-  };
+  final Map<String, double> _toBar = welderPressureFactors;
+
+  @override
+  Map<String, Object?> get inputFields => {'value': _num(_valCtrl), 'from': _fromUnit};
+
+  @override
+  void applyInput(Map<String, Object?> fields) {
+    _valCtrl.text = _assistantNumberText(fields['value']);
+    _fromUnit = fields['from'] as String;
+    _calc();
+  }
 
   Map<String, String>? _results;
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
@@ -1065,10 +1078,11 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
       _results = null;
       final v = _num(_valCtrl);
       if (v == null) return;
-      final inBar = v * (_toBar[_fromUnit] ?? 1.0);
+      final values = convertWelderPressure(v, _fromUnit);
+      if (values == null) return;
       _results = {};
-      for (final e in _toBar.entries) {
-        _results![e.key] = (inBar / e.value).toStringAsFixed(e.key == 'Pa' ? 0 : 4);
+      for (final e in values.entries) {
+        _results![e.key] = e.value.toStringAsFixed(e.key == 'Pa' ? 0 : 4);
       }
     });
   }
@@ -1095,6 +1109,7 @@ class _PressureConverterTabState extends State<_PressureConverterTab> {
         )),
         const SizedBox(width: 10),
         Expanded(child: DropdownButtonFormField<String>(
+          key: ValueKey(_fromUnit),
           initialValue: _fromUnit,
           decoration: InputDecoration(labelText: _tr('Jednostka', 'Unit')),
           items: _toBar.keys.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),

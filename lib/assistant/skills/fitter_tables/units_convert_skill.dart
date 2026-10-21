@@ -1,4 +1,5 @@
 import '../../../domain/fitter/unit_conversion.dart';
+import '../../../domain/welding/pressure_conversion.dart';
 import '../../core/skill.dart';
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
@@ -56,13 +57,46 @@ import '../fitter_routes/quantities.dart';
   if (word == 'psi' || word == 'atm' || word == 'mbar') {
     return (kind: 'pressure', symbol: word);
   }
+  if (word == 'pa' || word.startsWith('paskal') || word.startsWith('pascal')) {
+    return (kind: 'pressure', symbol: 'Pa');
+  }
+  if (word.startsWith('milibar') || word.startsWith('millibar')) {
+    return (kind: 'pressure', symbol: 'mbar');
+  }
+  if (word == 'mmwater' || word == 'inwater' || word == 'kgfcm') {
+    return (
+      kind: 'pressure',
+      symbol: switch (word) {
+        'mmwater' => 'mmH₂O',
+        'inwater' => 'inH₂O',
+        _ => 'kgf/cm²',
+      }
+    );
+  }
   if (const ['lpm', 'slpm', 'cfh', 'scfh'].contains(word)) {
     return (kind: 'flow', symbol: word == 'lpm' ? 'l/min' : word);
   }
   return null;
 }
 
-Map<String, Object?> _slots(Utterance u) {
+Map<String, Object?> _slots(Utterance original) {
+  // Keep the chemical subscript and square exponent inside their unit, rather
+  // than letting speech tokenization count them as additional input values.
+  var raw = original.raw.replaceAll(RegExp(r'[-−]\s*(?=\d)'), ' minus ');
+  for (final entry in {
+    r'\bmm\s*h[₂2]o\b': 'mmwater',
+    r'\bin\s*h[₂2]o\b': 'inwater',
+    r'\bkgf\s*/\s*cm[²2]': 'kgfcm',
+    r'\bmm\s+(?:słupa wody|slupa wody|water column)\b': 'mmwater',
+    r'\b(?:in|inches)\s+(?:of\s+)?water(?:\s+column)?\b': 'inwater',
+    r'\b(?:milimetr(?:y|ów|ow|a)?|millimet(?:er|re)s?)\s+(?:słupa wody|slupa wody|(?:of\s+)?water(?:\s+column)?)\b':
+        'mmwater',
+    r'\b(?:cal(?:e|i|a)?|inch(?:es)?)\s+(?:słupa wody|slupa wody|(?:of\s+)?water(?:\s+column)?)\b':
+        'inwater',
+  }.entries) {
+    raw = raw.replaceAll(RegExp(entry.key, caseSensitive: false), entry.value);
+  }
+  final u = original.withRaw(raw);
   final numbers = <double>[];
   final units = <({String kind, String symbol})>[];
   for (var i = 0; i < u.items.length; i++) {
@@ -96,6 +130,11 @@ Map<String, Object?> _slots(Utterance u) {
 
 class UnitsConvertSkill extends AssistantSkill {
   @override
+  bool get contextualEditsNeedAi => true;
+  @override
+  bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
+      pendingReplyNeedsInterpretation(u);
+  @override
   String get id => 'units.convert';
   @override
   String get toolId => 'unit_converter';
@@ -110,6 +149,8 @@ class UnitsConvertSkill extends AssistantSkill {
             'Convert minus 40 Celsius to Fahrenheit'),
         SkillExample('Przelicz 5 bar na psi', 'Convert 5 bar to psi'),
         SkillExample('Przelicz 10 l/min na cfh', 'Convert 10 l/min to cfh'),
+        SkillExample('Przelicz 10 mbar na mmH₂O', 'Convert 10 mbar to mmH₂O'),
+        SkillExample('Przelicz 1 kgf/cm² na Pa', 'Convert 1 kgf/cm² to Pa'),
       ];
   @override
   List<SkillRejection> get rejections => const [
@@ -122,7 +163,10 @@ class UnitsConvertSkill extends AssistantSkill {
     if (!u.hasStem(const ['przelicz', 'convert'])) return null;
     final slots = _slots(u);
     if (!slots.containsKey('from')) return null;
-    return SkillMatch(this, .93, slots: slots, utterance: u);
+    return SkillMatch(this, .93,
+        slots: slots,
+        utterance: u,
+        requiresAiInterpretation: requiresInterpretationFor(u, slots));
   }
 
   @override
@@ -174,26 +218,42 @@ class UnitsConvertSkill extends AssistantSkill {
           'Te jednostki opisują różne wielkości. Wybierz jednostki tego samego rodzaju.',
           'These units measure different quantities. Choose units of the same kind.'));
     }
-    final table = conversionBySymbol(kind, value.toDouble(), from);
-    if (table == null || !table.ok) {
+    final pressure = kind == 'pressure'
+        ? convertWelderPressure(value.toDouble(), from)
+        : null;
+    final table = kind == 'pressure'
+        ? null
+        : conversionBySymbol(kind, value.toDouble(), from);
+    if (kind == 'pressure' ? pressure == null : table == null || !table.ok) {
       return ask(
           'value',
           'Wartość poza zakresem tej jednostki. Podaj poprawną wartość.',
           'Value outside the range for this unit. Give a valid value.');
     }
-    final results = table.values.entries.where((e) => e.key.symbol == to);
+    final results = kind == 'pressure'
+        ? pressure!.entries.where((e) => e.key == to).map((e) => e.value)
+        : table!.values.entries
+            .where((e) => e.key.symbol == to)
+            .map((e) => e.value);
     if (results.isEmpty) {
       return const FailedResult(AssistantText(
           'Przepływ rzeczywisty i znormalizowany wymagają danych gazu, temperatury, ciśnienia i warunków odniesienia. Nie przeliczę ich przez samą zmianę jednostki.',
           'Actual and standard flow require gas, temperature, pressure and reference conditions. They cannot be converted by changing the unit alone.'));
     }
-    final result = results.single.value;
+    final result = results.single;
+    final useWelder = kind == 'pressure' &&
+        (ctx.modules.activeToolId == 'welder_calculators' ||
+            PressureUnit.fromSymbol(from) == null ||
+            PressureUnit.fromSymbol(to) == null);
     return AnswerResult(
         AssistantAnswer(
             text: AssistantText(
                 '${fmt(value.toDouble(), ctx.lang)} $from = ${fmt(result, ctx.lang)} $to.',
                 '${fmt(value.toDouble(), ctx.lang)} $from = ${fmt(result, ctx.lang)} $to.')),
-        show:
-            ShowInModule(toolId, {'kind': kind, 'value': value, 'from': from}));
+        show: useWelder
+            ? ShowInModule('welder_calculators',
+                {'tab': 'pressure', 'value': value, 'from': from})
+            : ShowInModule(
+                toolId, {'kind': kind, 'value': value, 'from': from}));
   }
 }
