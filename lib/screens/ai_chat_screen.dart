@@ -818,7 +818,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _cmdCtrl.clear();
     });
     final spoken = switch (result) {
-      AnswerResult(:final answer) => (answer.spoken ?? answer.text).of(lang),
+      AnswerResult(:final answer) => answer.speechText(lang),
       AskResult(:final question) => question.of(lang),
       FailedResult(:final message) => message.of(lang),
       _ => '',
@@ -908,6 +908,24 @@ class _AiChatScreenState extends State<AiChatScreen>
                     }
                   },
           ),
+        if (answer != null)
+          for (var index = 0; index < answer.lines.length; index++)
+            Padding(
+              key: ValueKey('assistant-answer-row-$index'),
+              padding: const EdgeInsets.only(top: 10),
+              child: MergeSemantics(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(answer.lines[index].label.of(lang),
+                        style: const TextStyle(color: _kTextSec, fontSize: 13)),
+                    Text(answer.lines[index].value,
+                        style: const TextStyle(
+                            color: _kTextPrimary, fontSize: 16)),
+                  ],
+                ),
+              ),
+            ),
         if (choices.isNotEmpty)
           Wrap(spacing: 8, children: [
             for (final choice in choices)

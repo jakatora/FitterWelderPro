@@ -86,8 +86,12 @@ class CertificatesExpirySkill extends AssistantSkill {
       ];
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
-    final m =
-        _namedExpiry.firstMatch(u.folded) ?? _expiryQuery.firstMatch(u.folded);
+    final named = _namedExpiry.firstMatch(u.folded);
+    // Optional "my/the" may backtrack into the process capture when the
+    // question contains no actual process name.
+    final m = named != null && !const {'my', 'the'}.contains(named.group(1))
+        ? named
+        : _expiryQuery.firstMatch(u.folded);
     if (m == null) return null;
     return SkillMatch(this, .94,
         slots: {'process': m.group(1) ?? ''}, utterance: u);

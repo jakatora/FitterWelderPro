@@ -144,12 +144,21 @@ class AssistantAnswer {
   /// Tekst karty.
   final AssistantText text;
 
-  /// Tekst do przeczytania (krótszy, z jednostkami słownie); null = [text].
+  /// Tekst do przeczytania (krótszy, z jednostkami słownie); null = tekst i wiersze.
   final AssistantText? spoken;
   final List<AnswerLine> lines;
 
   /// Norma / źródło liczb („EN 10220 / ISO 4200 seria 1, ASME B36.10M").
   final AssistantText? source;
+
+  /// Use the skill's tailored wording when present. Otherwise the values in
+  /// detail rows are part of the answer too, not just its introductory text.
+  String speechText(AppLanguage lang) =>
+      spoken?.of(lang) ??
+      [
+        text.of(lang),
+        for (final line in lines) '${line.label.of(lang)}: ${line.value}',
+      ].join('\n');
 }
 
 /// Co pokazać w module: id narzędzia i pola do ustawienia (uchwyt strony,
