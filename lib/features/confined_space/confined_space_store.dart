@@ -106,8 +106,7 @@ class ConfinedSpaceStore {
         return const ConfinedSpaceLoad([]);
       }
       if (raw is! String) throw const FormatException('not a string');
-      final parsed =
-          confinedSpaceRecordsFromJson(jsonDecode(raw), now: _now());
+      final parsed = confinedSpaceRecordsFromJson(jsonDecode(raw), now: _now());
       if (parsed.damaged) await _backup(prefs, raw);
       return ConfinedSpaceLoad(
         sortConfinedSpaceRecords(parsed.records),
@@ -163,6 +162,31 @@ class ConfinedSpaceStore {
   /// protokół przy pełnej historii → [ConfinedSpaceStoreFull].
   Future<void> upsert(ConfinedSpaceRecord record) =>
       _serial(() => _upsertNow(record));
+
+  /// Create an assistant draft without replacing existing or damaged data.
+  Future<void> insertNew(ConfinedSpaceRecord record) => _serial(() async {
+        final load = await _loadNow();
+        if (load.damaged || load.records.any((r) => r.id == record.id)) {
+          throw StateError(
+              'Cannot insert a new draft over existing/damaged data');
+        }
+        await _upsertNow(record);
+      });
+
+  /// Undo must preserve any later manual fields, checks or measurements.
+  Future<bool> deleteIfUnchanged(ConfinedSpaceRecord original) =>
+      _serial(() async {
+        final load = await _loadNow();
+        if (load.damaged) return false;
+        final matching = load.records.where((r) => r.id == original.id);
+        if (matching.isEmpty) return true;
+        if (jsonEncode(matching.single.toJson()) !=
+            jsonEncode(original.toJson())) {
+          return false;
+        }
+        await _write(load.records.where((r) => r.id != original.id).toList());
+        return true;
+      });
 
   /// „Cofnij” usunięcia protokołu: przywraca go ZAWSZE, także gdy historia
   /// w międzyczasie doszła do limitu (to cofnięcie, nie nowy protokół).

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../domain/confined_space/confined_space_record.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/confined_space/confined_space_text.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -45,7 +46,29 @@ class ConfinedSpacePage extends StatefulWidget {
 
 enum _ItemAction { duplicate, delete }
 
-class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
+class _ConfinedSpacePageState extends State<ConfinedSpacePage>
+    with ToolHandleHost<ConfinedSpacePage> {
+  @override
+  String get toolId => 'confined_space';
+  @override
+  Set<String> get supportedFields => const {'record_id'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 1 || fields['record_id'] is! String) {
+      return fields.keys.toSet();
+    }
+    final load = await _store.load();
+    final found = load.records.where((r) => r.id == fields['record_id']);
+    if (!mounted ||
+        load.damaged ||
+        found.length != 1 ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return {'record_id'};
+    }
+    unawaited(_open(found.single));
+    return {};
+  }
+
   List<ConfinedSpaceRecord>? _items;
   bool _loadFailed = false;
 
@@ -93,6 +116,7 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
         _loadFailed = false;
         if (load.damaged) _damage = load;
       });
+      if (!load.damaged) markReady();
     } catch (e) {
       debugPrint('[confined_space] load failed: $e');
       if (!mounted) return;
@@ -169,8 +193,8 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(
-            context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
+        title:
+            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
         content: Text(_titleOf(record)),
         actions: [
           TextButton(
@@ -239,9 +263,8 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
           if (items != null && items.length >= ConfinedSpaceStore.warnAt)
             QuoteNotice(
               key: const ValueKey('cs-store-warn'),
-              color: items.length >= ConfinedSpaceStore.maxEntries
-                  ? kFail
-                  : kWarn,
+              color:
+                  items.length >= ConfinedSpaceStore.maxEntries ? kFail : kWarn,
               icon: Icons.inventory_2_outlined,
               text: context.tr(
                 pl: 'Historia: ${items.length}/${ConfinedSpaceStore.maxEntries} '
@@ -294,8 +317,7 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage> {
                     minimumSize: const Size(0, kMinTapTarget)),
                 onPressed: _new,
                 icon: const Icon(Icons.add),
-                label:
-                    Text(context.tr(pl: 'Nowy protokół', en: 'New record')),
+                label: Text(context.tr(pl: 'Nowy protokół', en: 'New record')),
               ),
               if (items != null && items.isNotEmpty) ...[
                 const SizedBox(height: 10),
