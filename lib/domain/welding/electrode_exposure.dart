@@ -760,9 +760,23 @@ class ElectrodeBatch {
       oven = null;
     }
 
-    final priorSeconds = (j['prior'] as num?)?.toInt() ?? 0;
-    if (priorSeconds < 0) loss();
-    final redries = (j['r'] as num?)?.toInt() ?? 0;
+    final rawPrior = (j['prior'] as num?) ?? 0;
+    final priorSeconds = rawPrior.toInt();
+    if (rawPrior != priorSeconds || rawPrior < 0) loss();
+    final rawRedries = (j['r'] as num?) ?? 0;
+    final redries = rawRedries.toInt();
+    final rawLimit = j['lim']! as num;
+    final rawMaxRedries = (j['maxR'] as num?) ?? 1;
+    if (rawLimit != rawLimit.toInt() ||
+        rawLimit < 1 ||
+        rawLimit > 7 * 24 * 60 ||
+        rawMaxRedries != rawMaxRedries.toInt() ||
+        rawMaxRedries < 0 ||
+        rawMaxRedries > 99 ||
+        rawRedries != redries ||
+        rawRedries < 0) {
+      loss();
+    }
 
     return ElectrodeBatch(
       id: j['id']! as String,
@@ -771,8 +785,8 @@ class ElectrodeBatch {
       diameterMm: (j['d'] as num?)?.toDouble(),
       quantity: j['qty'] as String? ?? '',
       location: j['loc'] as String? ?? '',
-      limitMinutes: (j['lim']! as num).toInt().clamp(1, 7 * 24 * 60),
-      maxRedries: ((j['maxR'] as num?)?.toInt() ?? 1).clamp(0, 99),
+      limitMinutes: rawLimit.toInt().clamp(1, 7 * 24 * 60),
+      maxRedries: rawMaxRedries.toInt().clamp(0, 99),
       redryCount: redries < 0 ? 0 : redries,
       takenOutAt: takenOutAt,
       exposureStart: start,

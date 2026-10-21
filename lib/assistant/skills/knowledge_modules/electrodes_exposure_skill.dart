@@ -2,6 +2,7 @@ import '../../../domain/welding/electrode_exposure.dart';
 import '../../../domain/welding/electrode_reference.dart';
 import '../../core/skill.dart';
 import '../../core/command_words.dart';
+import '../own_data/electrodes_status_skill.dart' show isElectrodeStatusQuery;
 
 String _classText(Utterance u) => u.tokens.join(' ').replaceAllMapped(
     RegExp(r'\be\s+((?:\d\s+){3,4}\d)\b'),
@@ -178,6 +179,7 @@ class ElectrodesExposureSkill extends AssistantSkill {
       ];
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
+    if (isElectrodeStatusQuery(u)) return null;
     if (u.hasStem(const [
           'przetlum',
           'translat',
