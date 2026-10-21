@@ -945,10 +945,11 @@ class IsoNotebookController extends ChangeNotifier {
           }
           if (heading != null) {
             final about = turn != null ? turnAt : i;
-            if (g == (heading + 3) % 6) {
+            final spatialAngle = isoSpatialGridTurnDegrees(heading, g);
+            if ((spatialAngle - 180).abs() < 1e-8) {
               return _VoicePlan.failed(IsoDrawProblem.reversal, about);
             }
-            if (turn != null && g == heading) {
+            if (turn != null && spatialAngle.abs() < 1e-8) {
               return _VoicePlan.failed(
                   IsoDrawProblem.sameDirectionAfterTurn, turnAt);
             }

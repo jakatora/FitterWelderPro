@@ -27,6 +27,7 @@ import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
 import '../domain/iso_notebook/sketch_cut.dart';
+import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees;
 import '../domain/iso_notebook/sketch_to_project.dart';
 import '../services/iso_sketch_project_writer.dart';
 import 'fitter_screen.dart';
