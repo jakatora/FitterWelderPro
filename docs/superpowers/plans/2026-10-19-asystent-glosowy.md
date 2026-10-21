@@ -1325,3 +1325,6 @@ przedłużenie przelotu; nie przedstawiać tego jako gotowej1-komendowej trasy),
 pełne trasy45 nadal wymagają modelu pochylenia, katalogiso.draw/pokrycie,
 rekordy4.1/własne dane4.3, audyt5 i końcowe build/głos6. Rozpoczęto świeży APK;
 ADB ostatnio bez telefonu, testy byVoice nie weryfikują fizycznego mikrofonu.
+
+
+2026-10-21: Inline ISO main run completed. A single pipe–tee–pipe command preserves run DN and outlet DN and is undone as one operation; a following branch starts at that tee. Invalid sizes, conflicting planned fittings, and non-straight tee runs reject atomically. Explicit direction on an inline tee remains unsupported rather than silently ignored. Validation: 1698 assistant/controller/autosave tests PASS (build/iso-inline-tee-regression.log); full flutter analyze clean (build/iso-inline-tee-analyze.log). Existing APK 1e2a13b does not include this increment. Goal ACTIVE: full45 geometry, ISO catalog/coverage, records/own data, report audit, and final device acceptance remain.

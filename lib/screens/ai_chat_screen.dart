@@ -603,8 +603,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (command.has(IsoParseWarningKind.invalidSymbolSize)) {
       _isoReply(
-          'Nie umieściłem symbolu. Podaj jedno dodatnie DN; przy trójniku DN przelotu oraz odgałęzienia.',
-          'Symbol unchanged. Give one positive DN; for a tee give the run and branch DN.');
+          'Nie wykonałem polecenia. Podaj jedno dodatnie DN; przy trójniku DN przelotu oraz odgałęzienia.',
+          'Command not executed. Give one positive DN; for a tee give the run and branch DN.');
       return true;
     }
     final unsafe = command.warnings.where((w) =>

@@ -311,6 +311,21 @@ void main() {
     await _say(t, 'cofnij');
     expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
   });
+  testWidgets(
+      'one command draws a tee run, supports a branch, and undoes each complete command',
+      (t) async {
+    await _boot(t);
+    await _say(
+        t, 'narysuj rura metr w prawo trójnik DN80 na DN50 rura metr w prawo');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'od trójnika rura metr w górę');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(3));
+    await _say(t, 'cofnij');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'cofnij');
+    expect(IsoNotebookController.active!.hasContent, isFalse);
+    expect(await FeedbackStore.instance.list(), isEmpty);
+  });
   testWidgets('jedna rozmowa otwiera ISO, rysuje, dorysowuje i cofa',
       (tester) async {
     seedFreshInstall();

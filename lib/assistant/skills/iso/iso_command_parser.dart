@@ -872,14 +872,26 @@ IsoCommand? parseIsoCommand(Utterance u) {
         }
       case _El.tee:
         final sizes = _sizes(segItems, s.idx.indexOf(s.at));
-        if (!symbolOnly) {
+        if (!symbolOnly && (dir != null || compass != null)) {
           warnings.add(
               IsoParseWarning(IsoParseWarningKind.unsupportedTee, step: index));
         }
         if (!symbolOnly) compassAt.remove(index);
+        if (sizes.length > 2 ||
+            (sub.mentionsDn && sizes.isEmpty) ||
+            sub.items.any((item) => item.isNumber && item.value! <= 0) ||
+            sub.hasAny(const ['minus', 'negative'])) {
+          warnings.add(IsoParseWarning(IsoParseWarningKind.invalidSymbolSize,
+              step: index));
+        }
+        final outletOnly = sizes.firstOrNull?.$2 == true;
         steps.add(IsoFitting('tee',
-            dn: sizes.firstOrNull?.$1 ?? pipeDn,
-            dnOut: sizes.length == 2 ? sizes[1].$1 : null,
+            dn: outletOnly ? pipeDn : sizes.firstOrNull?.$1 ?? pipeDn,
+            dnOut: sizes.length == 2
+                ? sizes[1].$1
+                : outletOnly
+                    ? sizes.firstOrNull?.$1
+                    : null,
             symbolOnly: symbolOnly,
             dir: symbolOnly ? dir : null));
         pipeDn = null;

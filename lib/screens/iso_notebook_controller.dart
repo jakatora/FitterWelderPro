@@ -89,7 +89,7 @@ class IsoTurn extends IsoStep {
 /// okien dialogowych). [tool]: `flange`, `blindFlange`, `cap`, `reducer`,
 /// `gateValve`, `ballValve`, `checkValve`, `globeValve`, `butterflyValve`,
 /// `weld`, `fieldWeld`, `support`. `elbow45` → [IsoDrawProblem.unsupported45],
-/// `tee` / `olet` → [IsoDrawProblem.unsupportedTee]. Explicit standalone
+/// `tee` supports a straight run; `olet` → [IsoDrawProblem.unsupportedTee]. Explicit standalone
 /// `symbolOnly` allows elbow45 and tee placement; it does not infer routing.
 /// Inna nazwa to błąd
 /// programisty ([ArgumentError]).
@@ -144,7 +144,7 @@ enum IsoDrawProblem {
   /// Kolano 45° — poza zakresem tej wersji, do narysowania palcem.
   unsupported45,
 
-  /// Trójnik / olet — poza zakresem tej wersji, do narysowania palcem.
+  /// Unsupported branch grammar / olet; a tee run and explicit branch are supported.
   unsupportedTee,
 
   /// Invalid explicit run/branch sizes for a requested symbol.
@@ -589,6 +589,15 @@ class IsoNotebookController extends ChangeNotifier {
     }
     for (final op in plan.ops.whereType<_PlannedFitting>()) {
       if (op.tool != _Tool.elbow45 && op.tool != _Tool.tee) continue;
+      if (plan.ops.whereType<_PlannedFitting>().any((other) =>
+          !identical(other, op) && !other.tool.isWeld && other.at == op.at)) {
+        final (pl, en) = _problemText(IsoDrawProblem.occupiedSymbol);
+        return IsoDrawReport(
+            problem: IsoDrawProblem.occupiedSymbol,
+            problemStep: op.step,
+            problemPl: pl,
+            problemEn: en);
+      }
       final at = plan.world(op.at);
       if (s._items.any((item) =>
           item is _Comp &&
@@ -740,6 +749,7 @@ class IsoNotebookController extends ChangeNotifier {
   // ── planowanie (bez skutków ubocznych) ─────────────────────────────────────
 
   static const Map<String, _Tool> _kFittings = {
+    'tee': _Tool.tee,
     'flange': _Tool.flange,
     'blindFlange': _Tool.blindFlange,
     'cap': _Tool.cap,

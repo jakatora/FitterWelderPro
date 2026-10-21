@@ -62,7 +62,6 @@ void main() {
   test('a routing request is not changed into a standalone symbol', () {
     for (final text in [
       'narysuj rura metr kolano 45 rura metr',
-      'narysuj rura metr trójnik rura metr',
       'narysuj symbol kolana 30 DN50',
       'narysuj symbol rura kolano 45 rura'
     ]) {

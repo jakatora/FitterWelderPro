@@ -530,6 +530,30 @@ void main() {
     expect(_items(await _stored(tester)), _items(before));
     await _leave(tester);
   });
+  testWidgets(
+      'inline tee rejects overlapping fittings and changed run direction without partial drawing',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    for (final steps in [
+      <IsoStep>[
+        const IsoPipe(dir: IsoDir.right),
+        const IsoFitting('tee', dn: 80),
+        const IsoPipe(dir: IsoDir.up)
+      ],
+      <IsoStep>[
+        const IsoPipe(dir: IsoDir.right),
+        const IsoFitting('tee', dn: 80),
+        const IsoFitting('ballValve', dn: 80)
+      ],
+    ]) {
+      expect(
+          (await c.draw(steps, stepDelay: Duration.zero)).problem, isNotNull);
+      expect(c.hasContent, isFalse);
+      expect(await _stored(tester), isNull);
+    }
+    await _leave(tester);
+  });
   group('niepusty szkic i nowy rysunek', () {
     testWidgets(
         'invalid new drawing preserves active sketch, database and undo',
@@ -544,7 +568,7 @@ void main() {
           const IsoPipe(dir: IsoDir.left)
         ],
         <IsoStep>[const IsoPipe(), const IsoTurn()],
-        <IsoStep>[const IsoFitting('tee')],
+        <IsoStep>[const IsoFitting('olet')],
       ]) {
         final r =
             await c.draw(steps, newSketch: true, stepDelay: Duration.zero);
@@ -768,7 +792,7 @@ void main() {
       await _leave(tester);
     });
 
-    testWidgets('kolano 45° i trójnik → poza zakresem, nic nie dodane',
+    testWidgets('kolano 45° i olet → poza zakresem, nic nie dodane',
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);
@@ -776,7 +800,7 @@ void main() {
           stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.unsupported45);
       expect(r.problemStep, 1);
-      r = await c.draw(const [IsoPipe(), IsoFitting('tee', dn: 50)],
+      r = await c.draw(const [IsoPipe(), IsoFitting('olet', dn: 50)],
           stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.unsupportedTee);
       expect(c.hasContent, isFalse);
