@@ -27,7 +27,7 @@ import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
 import '../domain/iso_notebook/sketch_cut.dart';
-import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees;
+import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees, IsoSpatialVector, IsoSpatialElbow;
 import '../domain/iso_notebook/sketch_to_project.dart';
 import '../services/iso_sketch_project_writer.dart';
 import 'fitter_screen.dart';
@@ -168,14 +168,16 @@ class _Seg implements _Item, SketchPipe {
   /// the centreline so the iso reads the same way a real shop drawing does
   /// (insulation lines run parallel to the carrier pipe).
   final bool insulated;
+  /// A spatial ray is stored explicitly; paper directions alone are ambiguous.
+  final IsoSpatialVector? spatialDirection;
   const _Seg(this.a, this.b, this.t,
-      {this.calc, this.slope = '', this.insulated = false});
+      {this.calc, this.slope = '', this.insulated = false, this.spatialDirection});
   _Seg withCalc(_CutCalc? c) =>
-      _Seg(a, b, t, calc: c, slope: slope, insulated: insulated);
+      _Seg(a, b, t, calc: c, slope: slope, insulated: insulated, spatialDirection: spatialDirection);
   _Seg withSlope(String s) =>
-      _Seg(a, b, t, calc: calc, slope: s, insulated: insulated);
+      _Seg(a, b, t, calc: calc, slope: s, insulated: insulated, spatialDirection: spatialDirection);
   _Seg withInsulated(bool v) =>
-      _Seg(a, b, t, calc: calc, slope: slope, insulated: v);
+      _Seg(a, b, t, calc: calc, slope: slope, insulated: v, spatialDirection: spatialDirection);
   bool get hasDim => calc != null;
   bool get hasSlope => slope.isNotEmpty;
 
@@ -419,6 +421,8 @@ class _Comp implements _Item, SketchComponent {
   @override
   final EndConnection? endB;
 
+  final IsoSpatialElbow? spatialBend;
+
   const _Comp(
     this.pos,
     this.t, {
@@ -432,8 +436,11 @@ class _Comp implements _Item, SketchComponent {
     this.dnOut,
     this.endA,
     this.endB,
+    this.spatialBend,
   });
 
+  // Rotating the symbol is a manual orientation edit. Invalidate its spatial
+  // linkage; the undo snapshot still contains the original geometry.
   _Comp rotate() => _Comp(pos, t,
       dir: (dir + 1) % 6,
       dir2: dir2 == null ? null : (dir2! + 1) % 6,
@@ -459,6 +466,8 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialBend: subtype == null || spatialBend == null ||
+            (spatialBend!.degrees - ((subtype == _ElbowSubtype.lr45 || subtype == _ElbowSubtype.sr45) ? 45 : 90)).abs() < 1e-7 ? spatialBend : null,
       );
 
   /// Persist the DN + centre-to-end take-out of a NON-elbow axial fitting
@@ -478,6 +487,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialBend: spatialBend,
       );
 
   /// Tee spec: run DN, branch DN (null or equal = equal tee) and the run
@@ -495,6 +505,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: (dnBranch == null || dnBranch == dn) ? null : dnBranch,
         endA: endA,
         endB: endB,
+        spatialBend: spatialBend,
       );
 
   _Comp withTeeDirections({required int branch, required int run}) =>
@@ -508,7 +519,8 @@ class _Comp implements _Item, SketchComponent {
           elbowSubtype: elbowSubtype,
           physicalLengthMm: physicalLengthMm,
           endA: endA,
-          endB: endB);
+          endB: endB,
+          spatialBend: spatialBend);
 
   /// Persist physical-length / outlet-DN / end-connection spec captured by
   /// the reducer / valve / flange / cap spec sheets. Mirrors [withElbowSpec]
@@ -536,6 +548,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialBend: spatialBend,
       );
 
   bool get isElbow => t == _Tool.elbow90 || t == _Tool.elbow45;
@@ -601,6 +614,12 @@ String _axisTagText(Offset a, Offset b, _AxisMapping? mapping) {
   final dirLabel = mapping?.labelForLine(a, b) ?? '';
   return dirLabel.isNotEmpty ? dirLabel : axis.label;
 }
+
+bool _hasSpatialSlope(_Seg seg) {
+  final v=seg.spatialDirection;
+  return v!=null && [v.i,v.ii,v.iii].where((n)=>n.abs()>1e-8).length>1;
+}
+String _pipeAxisTagText(_Seg seg,_AxisMapping? mapping)=>_hasSpatialSlope(seg) ? '3D' : _axisTagText(seg.a,seg.b,mapping);
 
 /// 6 iso headings as unit vectors. Index = N arrow `dir` after the symbol
 /// refactor (dir=0 is +I = right). Cycling `dir` by 60° walks around the
@@ -7624,7 +7643,7 @@ class _Painter extends CustomPainter {
   /// monter sees at a glance which 3D direction this pipe runs in. Drawn on
   /// the opposite side from the dim chip to avoid overlap.
   void _drawAxisTag(Canvas canvas, _Seg seg) {
-    final axis = _classifyAxis(seg.a, seg.b);
+    final axis = _hasSpatialSlope(seg) ? _Axis.off : _classifyAxis(seg.a, seg.b);
     final mid = (seg.a + seg.b) / 2;
     final d = seg.b - seg.a;
     final len = d.distance;
@@ -7634,13 +7653,13 @@ class _Painter extends CustomPainter {
     final side = seg.calc != null ? -1.0 : 1.0;
     final pos = mid + norm * 15 * side;
 
-    final color = switch (axis) {
+    final color = seg.spatialDirection != null && axis == _Axis.off ? cs.secondary : switch (axis) {
       _Axis.i => const Color(0xFF4A9EFF),   // blue
       _Axis.ii => const Color(0xFF2ECC71),  // green
       _Axis.iii => const Color(0xFFE8C14B), // gold
       _Axis.off => cs.error,
     };
-    final text = _axisTagText(seg.a, seg.b, mapping);
+    final text = _pipeAxisTagText(seg, mapping);
     final tp = TextPainter(
       text: TextSpan(
         text: text,
@@ -9038,6 +9057,11 @@ class _Painter extends CustomPainter {
     // Elbow with two specific legs renders along the actual iso headings of
     // the connected pipes (no canvas rotation) — for every other symbol the
     // legacy 60°-step rotation still applies.
+    if (c.isElbow && c.spatialBend != null) {
+      _symSpatialElbow(canvas, s * .46, c.spatialBend!);
+      canvas.restore();
+      return;
+    }
     if (c.t == _Tool.elbow90 && c.dir2 != null) {
       _symElbowIso(canvas, s * 0.46, c.dir, c.dir2!);
       canvas.restore();
@@ -9352,6 +9376,20 @@ class _Painter extends CustomPainter {
         ..style = PaintingStyle.stroke,
     );
     canvas.drawCircle(Offset.zero, 4.5, Paint()..color = cs.secondary);
+  }
+
+  void _symSpatialElbow(Canvas canvas, double r, IsoSpatialElbow bend) {
+    final a=bend.incoming.projected,b=bend.outgoing.projected;
+    final pa=Offset(a.x,a.y),pb=Offset(b.x,b.y);
+    final physicalStub=r/math.max(pa.distance,pb.distance);
+    final tangent=physicalStub*.55;
+    final arc=bend.projectedArc(tangentMm:tangent);
+    canvas.drawLine(-pa*physicalStub,Offset(arc.first.x,arc.first.y),_pipePaint);
+    final path=Path()..moveTo(arc.first.x,arc.first.y);
+    for(final point in arc.skip(1)) { path.lineTo(point.x,point.y); }
+    canvas.drawPath(path,_pipePaint);
+    canvas.drawLine(Offset(arc.last.x,arc.last.y),pb*physicalStub,_pipePaint);
+    canvas.drawCircle(Offset.zero,4.5,Paint()..color=cs.secondary);
   }
 
   void _symElbow90(Canvas canvas, double r) {

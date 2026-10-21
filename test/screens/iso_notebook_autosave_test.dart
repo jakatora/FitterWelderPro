@@ -22,6 +22,7 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/iso_notebook_screen.dart';
 
 import '../support/iso_sketch_fixture.dart';
+import '../support/iso_spatial_fixture.dart';
 
 const _openButton = 'Otwórz zeszyt';
 
@@ -92,6 +93,39 @@ void main() {
     await tester.pumpWidget(_launcher());
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+      'spatial drawing renders and survives a real edit, autosave and reopen',
+      (tester) async {
+    final original = spatialSketch();
+    await IsoDrawingDao().upsert(IsoDrawingRecord(
+      id: 'spatial-sketch',
+      name: 'Spatial',
+      json: jsonEncode(original),
+      createdAt: 1000,
+      updatedAt: 1000,
+    ));
+    await bootLauncher(tester);
+    await _openNotebook(tester);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Odcinki: 1/1'), findsOneWidget);
+    // A real canvas edit forces the screen to serialize its loaded model.
+    await _drawPipe(tester);
+    await _leaveNotebook(tester);
+    final saved =
+        jsonDecode((await IsoDrawingDao().getById('spatial-sketch'))!.json)
+            as Map;
+    expect(saved['format'], 4);
+    final oldItems = original['items'] as List;
+    final newItems = saved['items'] as List;
+    expect(newItems.length, greaterThan(oldItems.length));
+    expect(newItems.take(oldItems.length).toList(), oldItems);
+    await _openNotebook(tester);
+    expect(tester.takeException(), isNull);
+    await _leaveNotebook(tester);
+    expect(jsonDecode((await IsoDrawingDao().getById('spatial-sketch'))!.json),
+        saved);
+  });
 
   testWidgets(
       'narysowana rura wraca po zamknięciu i ponownym otwarciu zeszytu — '

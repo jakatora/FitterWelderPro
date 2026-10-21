@@ -94,7 +94,7 @@ void main() {
           jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))) as Map;
       expect(back, sketch);
       expect(back['format'], 3);
-      expect(kIsoSketchFormatVersion, 3);
+      expect(kIsoSketchFormatVersion, greaterThanOrEqualTo(3));
     });
 
     test('through the body at both ends — a pair no DimRef names', () {

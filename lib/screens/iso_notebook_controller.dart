@@ -563,7 +563,7 @@ class IsoNotebookController extends ChangeNotifier {
     final m = s._currentMapping;
     return [
       for (final it in s._items)
-        if (it is _Seg && it.t == _Tool.pipe) _axisTagText(it.a, it.b, m),
+        if (it is _Seg && it.t == _Tool.pipe) _pipeAxisTagText(it, m),
     ];
   }
 

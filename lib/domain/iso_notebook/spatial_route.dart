@@ -212,3 +212,71 @@ IsoSpatialRoute planIsoSpatialRoute(List<IsoSpatialStep> steps,
   if (awaitingPipe) throw ArgumentError('A bend cannot end the route');
   return IsoSpatialRoute._(origin, point, direction, segments, bends);
 }
+
+/// Geometry of a fitting at a virtual centreline intersection. Both rays
+/// follow flow: [incoming] arrives at the vertex, [outgoing] leaves it.
+/// No part radius or take-out is inferred from this drawing metadata.
+class IsoSpatialElbow {
+  IsoSpatialElbow._(this.incoming, this.outgoing);
+  factory IsoSpatialElbow(
+      {required IsoSpatialVector incoming,
+      required IsoSpatialVector outgoing}) {
+    bool valid(IsoSpatialVector v) {
+      if (!v.isFinite || (v.magnitude - 1).abs() > 1e-8) return false;
+      final p = v.projected;
+      return p.x * p.x + p.y * p.y > 1e-20;
+    }
+
+    if (!valid(incoming) || !valid(outgoing)) {
+      throw ArgumentError('Elbow rays must be visible unit directions');
+    }
+    final degrees = incoming.angleTo(outgoing);
+    if (degrees <= 1e-8 || degrees >= 180 - 1e-8) {
+      throw ArgumentError('Invalid elbow angle');
+    }
+    return IsoSpatialElbow._(incoming, outgoing);
+  }
+  final IsoSpatialVector incoming, outgoing;
+  double get degrees => incoming.angleTo(outgoing);
+
+  /// A projected circular centreline arc, at a SYMBOL scale. [tangentMm]
+  /// positions its tangent points relative to the virtual intersection;
+  /// it is unrelated to a manufactured fitting's dimensions or CUT values.
+  List<({double x, double y})> projectedArc(
+      {required double tangentMm, int samples = 16}) {
+    if (!tangentMm.isFinite || tangentMm <= 0 || samples < 2) {
+      throw ArgumentError('Invalid symbol arc');
+    }
+    final a = incoming.unit, b = outgoing.unit;
+    final radians = degrees * math.pi / 180;
+    final tangent = (b - a * a.dot(b)).unit;
+    final radius = tangentMm / math.tan(radians / 2);
+    final start = a * (-tangentMm);
+    return List.unmodifiable([
+      for (var i = 0; i <= samples; i++)
+        (start +
+                a * (radius * math.sin(radians * i / samples)) +
+                tangent * (radius * (1 - math.cos(radians * i / samples))))
+            .projected
+    ]);
+  }
+
+  Map<String, Object?> toJson() =>
+      {'incoming': incoming.toJson(), 'outgoing': outgoing.toJson()};
+  static IsoSpatialElbow? fromJson(Object? raw) {
+    if (raw is! Map ||
+        raw.length != 2 ||
+        !raw.containsKey('incoming') ||
+        !raw.containsKey('outgoing')) {
+      return null;
+    }
+    final a = IsoSpatialVector.fromJson(raw['incoming']),
+        b = IsoSpatialVector.fromJson(raw['outgoing']);
+    if (a == null || b == null) return null;
+    try {
+      return IsoSpatialElbow(incoming: a, outgoing: b);
+    } on ArgumentError {
+      return null;
+    }
+  }
+}

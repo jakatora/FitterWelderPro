@@ -10,9 +10,9 @@ part of 'iso_notebook_screen.dart';
 // are private to it; nothing here touches widgets, the database or the
 // screen state.
 //
-// FORMAT (kIsoSketchFormatVersion = 3):
+// FORMAT (kIsoSketchFormatVersion = 4):
 //   {
-//     "format": 1, 2 or 3,
+//     "format": 1, 2, 3 or 4,
 //     "name": "6\"-CWS-1234",
 //     "gapMm": 3,             (format 2 only — see below)
 //     "items": [
@@ -51,6 +51,10 @@ part of 'iso_notebook_screen.dart';
 // and cut from the DimRef instead, so a sketch that has them is written as
 // format 3 (refused by older builds); one without them keeps format 1 / 2.
 //
+// FORMAT 4 adds spatialDirection to pipe segments and spatialBend (incoming /
+// outgoing unit vectors) to elbows. Older builds cannot preserve these rays;
+// only sketches carrying them use format 4, leaving legacy encodings stable.
+//
 // EVOLVING THE FORMAT: a new field that an older build would drop on its
 // next autosave MUST bump [kIsoSketchFormatVersion]. An older build refuses a
 // newer format (it starts a fresh sketch and leaves the stored one alone),
@@ -61,7 +65,7 @@ part of 'iso_notebook_screen.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Version of the JSON document written into `iso_drawings.json`.
-const int kIsoSketchFormatVersion = 3;
+const int kIsoSketchFormatVersion = 4;
 
 /// The stored sketch cannot be opened by this build.
 class IsoSketchFormatException implements Exception {
@@ -133,6 +137,8 @@ Map<String, Object?> _encodeItem(_Item it) {
       'slope': it.slope,
       'insulated': it.insulated,
       'calc': it.calc == null ? null : _encodeCalc(it.calc!),
+      if (it.spatialDirection != null)
+        'spatialDirection': it.spatialDirection!.toJson(),
     };
   }
   if (it is _Comp) {
@@ -150,6 +156,7 @@ Map<String, Object?> _encodeItem(_Item it) {
       'dnOut': it.dnOut,
       'endA': it.endA?.name,
       'endB': it.endB?.name,
+      if (it.spatialBend != null) 'spatialBend': it.spatialBend!.toJson(),
     };
   }
   if (it is _Note) {
@@ -165,7 +172,13 @@ Map<String, Object?> _encodeItem(_Item it) {
 }
 
 Map<String, Object?> _encodeIsoSketch(_IsoSketch s) => {
-      'format': _sketchHasStops(s) ? 3 : (s.gapMm > 0 ? 2 : 1),
+      'format': s.items.any((it) =>
+              (it is _Seg && it.spatialDirection != null) ||
+              (it is _Comp && it.spatialBend != null))
+          ? 4
+          : _sketchHasStops(s)
+              ? 3
+              : (s.gapMm > 0 ? 2 : 1),
       'name': s.name,
       if (s.gapMm > 0) 'gapMm': s.gapMm,
       'items': [for (final it in s.items) _encodeItem(it)],
@@ -251,6 +264,45 @@ _CutCalc _decodeCalc(Object? raw) {
   );
 }
 
+IsoSpatialVector? _decodeSpatialDirection(
+    Object? raw, Offset a, Offset b, _Tool tool) {
+  if (raw == null) return null;
+  final v = IsoSpatialVector.fromJson(raw);
+  if (v == null || tool != _Tool.pipe || (v.magnitude - 1).abs() > 1e-8) {
+    throw const _UnreadableItem();
+  }
+  final p = v.projected;
+  final projected = Offset(p.x, p.y), line = b - a;
+  if (projected.distance < 1e-10 || line.distance < 1e-10) {
+    throw const _UnreadableItem();
+  }
+  final alignment = (projected.dx * line.dx + projected.dy * line.dy) /
+      (projected.distance * line.distance);
+  if (!alignment.isFinite || alignment < 1 - 1e-8) {
+    throw const _UnreadableItem();
+  }
+  return v;
+}
+
+IsoSpatialElbow? _decodeSpatialBend(
+    Object? raw, _Tool tool, _ElbowSubtype? subtype) {
+  if (raw == null) return null;
+  final bend = IsoSpatialElbow.fromJson(raw);
+  if (bend == null || (tool != _Tool.elbow45 && tool != _Tool.elbow90)) {
+    throw const _UnreadableItem();
+  }
+  final angle = tool == _Tool.elbow45 ? 45 : 90;
+  if ((bend.degrees - angle).abs() > 1e-7) throw const _UnreadableItem();
+  if (subtype != null &&
+      ((subtype == _ElbowSubtype.lr45 || subtype == _ElbowSubtype.sr45)
+              ? 45
+              : 90) !=
+          angle) {
+    throw const _UnreadableItem();
+  }
+  return bend;
+}
+
 _Item _decodeItem(Object? raw) {
   if (raw is! Map) throw const _UnreadableItem();
   switch (raw['kind']) {
@@ -259,17 +311,21 @@ _Item _decodeItem(Object? raw) {
       if (!tool.isLine) throw const _UnreadableItem();
       final insulated = raw['insulated'] ?? false;
       if (insulated is! bool) throw const _UnreadableItem();
+      final a = _decodeOffset(raw['a']), b = _decodeOffset(raw['b']);
       return _Seg(
-        _decodeOffset(raw['a']),
-        _decodeOffset(raw['b']),
+        a,
+        b,
         tool,
         calc: raw['calc'] == null ? null : _decodeCalc(raw['calc']),
         slope: _string(raw['slope']),
         insulated: insulated,
+        spatialDirection:
+            _decodeSpatialDirection(raw['spatialDirection'], a, b, tool),
       );
     case 'comp':
       final tool = _enumOrThrow(_toolByName, raw['tool']);
       if (!tool.isComp) throw const _UnreadableItem();
+      final subtype = _optionalEnum(_elbowByName, raw['elbowSubtype']);
       return _Comp(
         _decodeOffset(raw['pos']),
         tool,
@@ -277,12 +333,13 @@ _Item _decodeItem(Object? raw) {
         dir2: _optionalInt(raw['dir2']),
         label: _string(raw['label']),
         dn: _optionalInt(raw['dn']),
-        elbowSubtype: _optionalEnum(_elbowByName, raw['elbowSubtype']),
+        elbowSubtype: subtype,
         cteMm: _optionalInt(raw['cteMm']),
         physicalLengthMm: _optionalInt(raw['physicalLengthMm']),
         dnOut: _optionalInt(raw['dnOut']),
         endA: _optionalEnum(_endByName, raw['endA']),
         endB: _optionalEnum(_endByName, raw['endB']),
+        spatialBend: _decodeSpatialBend(raw['spatialBend'], tool, subtype),
       );
     case 'note':
       return _Note(_decodeOffset(raw['pos']), _string(raw['text']));
@@ -316,6 +373,12 @@ _IsoSketch _decodeIsoSketch(Object? raw) {
     throw const IsoSketchFormatException('items is not a list');
   }
 
+  if (format < 4 &&
+      itemsRaw.any((it) =>
+          it is Map &&
+          (it['spatialDirection'] != null || it['spatialBend'] != null))) {
+    throw const IsoSketchFormatException('spatial geometry requires format 4');
+  }
   final items = <_Item>[];
   var skipped = 0;
   for (final r in itemsRaw) {
