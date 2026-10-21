@@ -3,6 +3,7 @@ import '../assistant/core/tool_bridge.dart';
 import '../domain/fitter/unit_conversion.dart';
 import '../i18n/app_language.dart';
 import '../utils/clipboard_helper.dart';
+import '../utils/decimal_input_text.dart';
 import '../utils/haptic.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
@@ -145,7 +146,7 @@ class _ConversionTabState extends State<_ConversionTab>
   void _acceptInput() {
     final input = widget.input;
     if (input == null) return;
-    _ctrl.text = input.value.toString();
+    _ctrl.text = decimalInputText(input.value);
     _src = input.from;
   }
 

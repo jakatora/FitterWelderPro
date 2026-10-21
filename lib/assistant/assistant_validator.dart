@@ -436,8 +436,23 @@ String assistantJointLabel(String code, AppLanguage lang) {
 }
 
 /// Liczba bez zbędnych zer, z przecinkiem po polsku: 2 → „2", 2.5 → „2,5".
+/// Małe wartości niezerowe i wykładniki zachowują swój rząd wielkości.
 String assistantNumber(double v, AppLanguage lang) {
+  if (v == 0) return '0';
   var s = v.toStringAsFixed(2);
-  s = s.replaceFirst(RegExp(r'\.?0+$'), '');
+  // Only decimal fractional zeros are cosmetic. Exponent zeros change the
+  // magnitude (1e+30 must never become 1e+3).
+  if (!s.contains('e')) {
+    // Fixed precision is exactly two decimal places, so suffix checks avoid
+    // allocating regular expressions on this shared response-formatting path.
+    if (s.endsWith('.00')) {
+      s = s.substring(0, s.length - 3);
+    } else if (s.endsWith('0')) {
+      s = s.substring(0, s.length - 1);
+    }
+  }
+  // Keep the ordinary two-decimal display, but never call a nonzero
+  // measurement zero just because it is smaller than that display precision.
+  if (s == '0' || s == '-0') s = v.toString();
   return lang == AppLanguage.en ? s : s.replaceAll('.', ',');
 }
