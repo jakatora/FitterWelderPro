@@ -63,6 +63,11 @@ const _fitterFields = <String, Set<String>>{
   'thermal_expansion': {'length_m', 'delta_k', 'material'},
 };
 
+/// Explicit opt-in: only the selected calculator may publish visible inputs.
+abstract interface class _FitterTabReadable {
+  Map<String, Object?> get inputFields;
+}
+
 abstract interface class _FitterTabInput {
   Set<String> applyFields(Map<String, Object?> fields);
 }
@@ -76,7 +81,7 @@ bool _positive(double? v) => v != null && v > 0;
 
 class _FitterToolsScreenState extends State<FitterToolsScreen>
     with SingleTickerProviderStateMixin, ToolHandleHost<FitterToolsScreen>
-    implements TabbedToolHandle {
+    implements TabbedToolHandle, InputToolHandle {
   late final TabController _tabs;
   final _keys = List.generate(8, (_) => GlobalKey());
   @override
@@ -85,6 +90,14 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
   Set<String> get toolIds => _fitterTabIds.toSet();
   @override
   Set<String> get supportedFields => _fitterFields[toolId]!;
+  @override
+  Map<String, Object?> get inputFields {
+    final state = _keys[_tabs.index].currentState;
+    return state is _FitterTabReadable
+        ? Map.unmodifiable((state as _FitterTabReadable).inputFields)
+        : const {};
+  }
+
   @override
   void initState() {
     super.initState();
@@ -700,7 +713,8 @@ class _ElbowTabState extends State<_ElbowTab> implements _FitterTabInput {
                           'OD derived from measurement: ${_odDerived!.toStringAsFixed(1)} mm',
                         ),
                         style: TextStyle(
-                            fontSize: 12, color: _kAccent.withValues(alpha: 0.8)),
+                            fontSize: 12,
+                            color: _kAccent.withValues(alpha: 0.8)),
                       ),
                     ),
                   ],
@@ -1727,7 +1741,15 @@ class _PipeWeightTab extends StatefulWidget {
 }
 
 class _PipeWeightTabState extends State<_PipeWeightTab>
-    implements _FitterTabInput {
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'od_mm': parseDecimal(_od.text),
+        'wall_mm': parseDecimal(_t.text),
+        'length_mm': parseDecimal(_l.text),
+        'quantity': parseDecimal(_qty.text),
+        'material': _mat.name,
+      };
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final od = _finite(f, 'od_mm'),
