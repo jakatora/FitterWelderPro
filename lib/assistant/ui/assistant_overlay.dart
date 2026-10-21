@@ -139,7 +139,9 @@ class _PanelPopEntry extends PopEntry<dynamic> {
   final ValueNotifier<bool> canPopNotifier = ValueNotifier<bool>(true);
   @override
   void onPopInvokedWithResult(bool didPop, dynamic result) {
-    if (!didPop && AssistantPanelController.instance.expanded) {
+    if (!didPop &&
+        appRoutes.assistantAvailable &&
+        AssistantPanelController.instance.expanded) {
       FocusManager.instance.primaryFocus?.unfocus();
       AssistantPanelController.instance.setExpanded(false);
     }

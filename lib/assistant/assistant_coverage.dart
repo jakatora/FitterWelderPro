@@ -6,8 +6,9 @@ import 'skills/skill_catalog.dart';
 /// draw. This describes the supplied session catalog, not every action on a
 /// page. Modules with no specialized skill remain at level A.
 ///
-/// Pass the live catalog when actions are connected; the default catalog has
-/// no persistence port and therefore does not advertise record writes.
+/// Pass the live catalog when legacy actions are connected. The default
+/// catalog includes writes backed by local module stores; legacy journal and
+/// parameter writes require their separate persistence port.
 /// ISO's separate UI command handler is deliberately not inferred as tier D.
 Map<String, AssistantTier> assistantCoverage({
   Iterable<AssistantSkill>? skills,

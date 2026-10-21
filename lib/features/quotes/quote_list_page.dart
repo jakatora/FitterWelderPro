@@ -2,6 +2,7 @@
 // duplikat („jak poprzednio"), kosz z przywracaniem, „Moje stawki i firma".
 
 import 'dart:async';
+import '../../assistant/core/tool_bridge.dart';
 
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -31,7 +32,29 @@ class QuoteListPage extends StatefulWidget {
   State<QuoteListPage> createState() => _QuoteListPageState();
 }
 
-class _QuoteListPageState extends State<QuoteListPage> {
+class _QuoteListPageState extends State<QuoteListPage>
+    with ToolHandleHost<QuoteListPage> {
+  @override
+  String get toolId => 'weld_quotes';
+  @override
+  Set<String> get supportedFields => const {'quote_id'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 1 || fields['quote_id'] is! String) {
+      return fields.keys.toSet();
+    }
+    final quote = await _dao.byId(fields['quote_id'] as String);
+    if (!mounted || quote == null || quote.isDeleted) return {'quote_id'};
+    unawaited(_open(quote, tab: 0));
+    return {};
+  }
+
+  void _onStoreChanged() {
+    if (mounted && (ModalRoute.of(context)?.isCurrent ?? true)) {
+      unawaited(_load());
+    }
+  }
+
   late final WeldQuoteDao _dao = widget.dao ?? WeldQuoteDao();
   final _search = TextEditingController();
   List<WeldQuote> _all = const [];
@@ -44,12 +67,14 @@ class _QuoteListPageState extends State<QuoteListPage> {
   @override
   void initState() {
     super.initState();
+    WeldQuoteDao.changes.addListener(_onStoreChanged);
     _search.addListener(() => setState(() {}));
     unawaited(_load());
   }
 
   @override
   void dispose() {
+    WeldQuoteDao.changes.removeListener(_onStoreChanged);
     _search.dispose();
     super.dispose();
   }
@@ -69,6 +94,7 @@ class _QuoteListPageState extends State<QuoteListPage> {
       _failed = failed;
       _loading = false;
     });
+    if (!failed) markReady();
   }
 
   List<WeldQuote> get _visible {

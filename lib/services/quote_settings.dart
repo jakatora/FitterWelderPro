@@ -228,6 +228,39 @@ class QuoteSettingsStore {
     }
   }
 
+  /// Assistant previews must not silently replace damaged saved prices with
+  /// defaults. Missing fields from older templates keep the native defaults.
+  Future<({QuoteSettings settings, bool saved})> loadForAssistant() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.get(key);
+    if (raw == null || raw == '') {
+      return (settings: const QuoteSettings(), saved: false);
+    }
+    if (raw is! String) throw const FormatException('Invalid quote template');
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) throw const FormatException('Invalid quote template');
+    final settings = QuoteSettings.fromJson(decoded);
+    bool preserved(Object? original, Object? parsed) {
+      if (original is Map && parsed is Map) {
+        return original.entries.every((e) =>
+            parsed.containsKey(e.key) && preserved(e.value, parsed[e.key]));
+      }
+      if (original is List && parsed is List) {
+        return original.length == parsed.length &&
+            original.indexed.every((e) => preserved(e.$2, parsed[e.$1]));
+      }
+      if (original is num && (!original.isFinite || original < 0)) return false;
+      return original == parsed;
+    }
+
+    if (!preserved(decoded, settings.toJson()) ||
+        settings.validityDays < 1 ||
+        settings.baseRates.profiles.values.any((p) => !p.isValid)) {
+      throw const FormatException('Lossy quote template');
+    }
+    return (settings: settings, saved: true);
+  }
+
   Future<void> save(QuoteSettings s) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(s.toJson()));

@@ -2,6 +2,7 @@
 /// kopia zapasowa je obejmuje. Usuwanie miękkie (kosz z przywracaniem).
 library;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import 'package:uuid/uuid.dart';
 
@@ -10,6 +11,7 @@ import '../domain/quotes/weld_quote.dart';
 import 'db.dart';
 
 class WeldQuoteDao {
+  static final changes = ValueNotifier<int>(0);
   static const String table = 'weld_quotes';
 
   final int Function() _clock;
@@ -52,6 +54,63 @@ class WeldQuoteDao {
     // wyceny nie wpadną na siebie (UNIQUE na id).
     await db.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
     return saved;
+  }
+
+  /// A new assistant draft never replaces an existing offer. Allocate its
+  /// number and insert in one transaction, including numbers in the bin.
+  Future<WeldQuote> insertNewDraft(WeldQuote draft) async {
+    if (draft.id.isEmpty ||
+        draft.status != QuoteStatus.draft ||
+        draft.isDeleted ||
+        draft.number.isNotEmpty ||
+        draft.joints.isNotEmpty ||
+        draft.extras.isNotEmpty) {
+      throw ArgumentError('Expected a new empty draft');
+    }
+    final db = await AppDatabase.get();
+    final saved = await db.transaction((txn) async {
+      final rows = await txn.query(table, columns: ['number']);
+      final now = _clock();
+      final quote = draft.copyWith(
+          number: nextQuoteNumber(
+              [for (final row in rows) (row['number'] as String?) ?? ''],
+              DateTime.fromMillisecondsSinceEpoch(now).year),
+          createdAt: now,
+          updatedAt: now);
+      final totals = computeQuote(quote);
+      await txn.insert(
+          table,
+          quote.toRow(
+              netGrosze: totals.netGrosze, grossGrosze: totals.grossGrosze),
+          conflictAlgorithm: ConflictAlgorithm.abort);
+      return quote;
+    });
+    changes.value++;
+    return saved;
+  }
+
+  /// Undo preserves offers edited after confirmation and retains their number.
+  Future<bool> softDeleteIfUnchanged(WeldQuote expected) async {
+    final totals = computeQuote(expected);
+    final snapshot = expected.toRow(
+        netGrosze: totals.netGrosze, grossGrosze: totals.grossGrosze);
+    final db = await AppDatabase.get();
+    final removed = await db.transaction((txn) async {
+      final rows =
+          await txn.query(table, where: 'id = ?', whereArgs: [expected.id]);
+      if (rows.length != 1 ||
+          rows.single.length != snapshot.length ||
+          !snapshot.entries.every((e) => rows.single[e.key] == e.value)) {
+        return false;
+      }
+      final now = _clock();
+      return await txn.update(table, {'deleted_at': now, 'updated_at': now},
+              where: 'id = ? AND deleted_at IS NULL',
+              whereArgs: [expected.id]) ==
+          1;
+    });
+    if (removed) changes.value++;
+    return removed;
   }
 
   Future<void> softDelete(String id) async {

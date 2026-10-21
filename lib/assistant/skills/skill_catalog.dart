@@ -1,3 +1,4 @@
+import 'records/quote_new_skill.dart';
 import 'records/interpass_reading_skill.dart';
 // Katalog wszystkich umiejętności asystenta = suma katalogów grup.
 //
@@ -47,6 +48,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(JournalLastSkill(load: journal));
   all.add(ElectrodesStatusSkill(load: electrodes));
   all.add(ProgressTodaySkill(load: journal));
+  all.add(QuoteNewSkill());
   all.add(InterpassReadingSkill());
   all.add(HotWorkPrepareSkill());
   all.add(ConfinedSpacePrepareSkill());
