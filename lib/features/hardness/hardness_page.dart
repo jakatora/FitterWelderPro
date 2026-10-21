@@ -7,6 +7,7 @@
 // seria żyje w pamięci ekranu; zapamiętywany jest tylko ostatni limit.
 
 import 'dart:async';
+import '../../assistant/core/tool_bridge.dart';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -140,7 +141,46 @@ class _Row {
 /// Szybkie dodawanie pomiaru z nazwą miejsca.
 enum _Spot { cap, root, hazA, hazB, base, other }
 
-class _HardnessPageState extends State<HardnessPage> {
+class _HardnessPageState extends State<HardnessPage>
+    with ToolHandleHost<HardnessPage> {
+  @override
+  String get toolId => 'hardness';
+  @override
+  Set<String> get supportedFields => const {'value', 'scale', 'material'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted ||
+        fields.length != 3 ||
+        !supportedFields.containsAll(fields.keys)) {
+      return fields.keys.toSet();
+    }
+    final value = fields['value'];
+    final scale = HardnessScale.values
+        .where((s) => s.name == fields['scale'])
+        .firstOrNull;
+    final material = HardnessMaterial.values
+        .where((s) => s.name == fields['material'])
+        .firstOrNull;
+    if (value is! num ||
+        !value.toDouble().isFinite ||
+        scale == null ||
+        material == null ||
+        value <= 0 ||
+        value > scale.maxPlausible) {
+      return fields.keys.toSet();
+    }
+    if (material != _material &&
+        _rows.any((r) => r.value.text.trim().isNotEmpty)) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _convValue.text = value.toString();
+      _convScale = scale;
+      _material = material;
+    });
+    return {};
+  }
+
   static const String _defaultPresetId = 'iso15156_weld';
 
   HardnessMaterial _material = HardnessMaterial.carbonLowAlloy;
@@ -169,6 +209,7 @@ class _HardnessPageState extends State<HardnessPage> {
     // Kontekstu jeszcze nie ma — język z kontrolera (ustawiany przed runApp).
     _rows.add(_Row(_seq++, AppLanguageController.isEnglish ? 'Cap' : 'Lico',
         HardnessScale.hv));
+    markReady();
     unawaited(_restoreLimit());
   }
 
@@ -251,8 +292,7 @@ class _HardnessPageState extends State<HardnessPage> {
         _Spot.root => context.tr(pl: 'Grań', en: 'Root'),
         _Spot.hazA => context.tr(pl: 'SWC strona A', en: 'HAZ side A'),
         _Spot.hazB => context.tr(pl: 'SWC strona B', en: 'HAZ side B'),
-        _Spot.base =>
-          context.tr(pl: 'Materiał rodzimy', en: 'Base metal'),
+        _Spot.base => context.tr(pl: 'Materiał rodzimy', en: 'Base metal'),
         _Spot.other => context.tr(pl: 'Inny punkt', en: 'Other point'),
       };
 
@@ -276,7 +316,8 @@ class _HardnessPageState extends State<HardnessPage> {
         key: key,
         padding: const EdgeInsets.only(top: 6),
         child: Text(text,
-            style: const TextStyle(fontSize: 12, color: kTextMut, height: 1.35)),
+            style:
+                const TextStyle(fontSize: 12, color: kTextMut, height: 1.35)),
       );
 
   Widget _kv(String k, String v, {Key? key}) => CopyOnLongPress(
@@ -403,7 +444,8 @@ class _HardnessPageState extends State<HardnessPage> {
     final t = _convValue.text.trim();
     final v = t.isEmpty ? null : parseDecimal(t);
     final stainless = _material == HardnessMaterial.stainless;
-    final outOfOwnRange = v != null && v > 0 && !isInHardnessTable(v, _convScale);
+    final outOfOwnRange =
+        v != null && v > 0 && !isInHardnessTable(v, _convScale);
 
     String out(HardnessScale to) {
       if (v == null || v <= 0) return '—';
@@ -414,9 +456,8 @@ class _HardnessPageState extends State<HardnessPage> {
       return '≈ ${_n(x)} ${to.label}';
     }
 
-    final rm = v == null || v <= 0
-        ? null
-        : estimateTensileStrengthMpa(v, _convScale);
+    final rm =
+        v == null || v <= 0 ? null : estimateTensileStrengthMpa(v, _convScale);
 
     return QuoteSection(
       title: context.tr(pl: 'Przelicznik', en: 'Converter'),
@@ -502,8 +543,8 @@ class _HardnessPageState extends State<HardnessPage> {
         HardnessStandard.iso15614 => context.tr(
             pl: 'EN ISO 15614-1 — kwalifikacja technologii (WPQR)',
             en: 'EN ISO 15614-1 — procedure qualification (WPQR)'),
-        HardnessStandard.asmeB313 => context.tr(
-            pl: 'ASME B31.3 — po PWHT', en: 'ASME B31.3 — after PWHT'),
+        HardnessStandard.asmeB313 =>
+          context.tr(pl: 'ASME B31.3 — po PWHT', en: 'ASME B31.3 — after PWHT'),
       };
 
   Future<void> _pickLimit() async {
@@ -523,8 +564,8 @@ class _HardnessPageState extends State<HardnessPage> {
               onTap: () => Navigator.of(ctx).pop(id),
             );
         return ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
           child: SingleChildScrollView(
             padding: const EdgeInsets.only(bottom: 16),
             child: Column(
@@ -534,7 +575,8 @@ class _HardnessPageState extends State<HardnessPage> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
                   child: Text(
-                      context.tr(pl: 'Wybierz limit (max)', en: 'Pick a limit (max)'),
+                      context.tr(
+                          pl: 'Wybierz limit (max)', en: 'Pick a limit (max)'),
                       style: Theme.of(ctx).textTheme.titleMedium),
                 ),
                 for (final std in HardnessStandard.values) ...[
@@ -552,7 +594,7 @@ class _HardnessPageState extends State<HardnessPage> {
                       tile(
                         p.id,
                         '${hardnessLimitText(p.limit, en: _en)} — '
-                            '${_en ? p.titleEn : p.titlePl}',
+                        '${_en ? p.titleEn : p.titlePl}',
                         _en ? p.sourceEn : p.sourcePl,
                       ),
                 ],
@@ -590,7 +632,8 @@ class _HardnessPageState extends State<HardnessPage> {
     final mismatch = hardnessPresetMismatchReason(p, _material, en: _en);
 
     return QuoteSection(
-      title: context.tr(pl: 'Limit (wartość maksymalna)', en: 'Limit (maximum)'),
+      title:
+          context.tr(pl: 'Limit (wartość maksymalna)', en: 'Limit (maximum)'),
       children: [
         Material(
           color: kBg,
@@ -727,7 +770,8 @@ class _HardnessPageState extends State<HardnessPage> {
                   ),
                   IconButton(
                     key: ValueKey('hard-row-${row.id}-del'),
-                    tooltip: context.tr(pl: 'Usuń pomiar', en: 'Remove reading'),
+                    tooltip:
+                        context.tr(pl: 'Usuń pomiar', en: 'Remove reading'),
                     icon: const Icon(Icons.delete_outline),
                     color: kTextSec,
                     onPressed: () => _removeRow(row),
@@ -747,7 +791,8 @@ class _HardnessPageState extends State<HardnessPage> {
                     labelText: context.tr(pl: 'Twardość', en: 'Hardness'),
                     suffixText: row.scale.label,
                     errorText: unreadable
-                        ? context.tr(pl: 'Nieczytelna liczba', en: 'Unreadable number')
+                        ? context.tr(
+                            pl: 'Nieczytelna liczba', en: 'Unreadable number')
                         : null,
                     isDense: true,
                     border: const OutlineInputBorder(),
@@ -771,10 +816,10 @@ class _HardnessPageState extends State<HardnessPage> {
                         child: Text.rich(
                           TextSpan(children: [
                             TextSpan(
-                                text: hardnessStatusLabel(check.status, en: _en),
+                                text:
+                                    hardnessStatusLabel(check.status, en: _en),
                                 style: TextStyle(
-                                    color: color,
-                                    fontWeight: FontWeight.w800)),
+                                    color: color, fontWeight: FontWeight.w800)),
                             TextSpan(
                                 text:
                                     ' · ${hardnessCheckDetail(check, limit, en: _en)}'),
