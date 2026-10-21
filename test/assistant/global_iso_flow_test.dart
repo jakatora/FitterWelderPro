@@ -156,6 +156,38 @@ void main() {
     await _close(t);
   });
   testWidgets(
+      'spatial tee branch asks, rejects a nonperpendicular axis, accepts correction and undoes',
+      (t) async {
+    await _boot(t);
+    await _say(t,
+        'narysuj rura metr w prawo kolano 45 stopni DN100 w górę rura metr trójnik DN100 na DN80 rura metr');
+    final c = IsoNotebookController.active!;
+    expect(c.debugPipeAxisTags, hasLength(3));
+    await _say(t, 'od trójnika rura metr');
+    expect(find.textContaining('W jakim kierunku ma iść odgałęzienie'),
+        findsOneWidget);
+    await _say(t, 'w górę');
+    expect(c.debugPipeAxisTags, hasLength(3));
+    await _say(t, 'do tyłu');
+    expect(c.debugPipeAxisTags, hasLength(4));
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final sketch = jsonDecode(saved!.json) as Map;
+    expect(sketch['format'], 6);
+    final items = sketch['items'] as List;
+    final tee = items.singleWhere((x) => x['tool'] == 'tee');
+    expect(tee['dnOut'], 80);
+    expect((tee['spatialTee'] as Map)['branch'], [0.0, -1.0, 0.0]);
+    await _say(t, 'do przodu');
+    expect(find.textContaining('Zmieniłem kierunek odgałęzienia.'),
+        findsOneWidget);
+    await _say(t, 'cofnij');
+    expect(c.debugPipeAxisTags, hasLength(3));
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    await _close(t);
+  });
+  testWidgets(
       'compass directions and a short correction follow the actual north arrow',
       (t) async {
     await t.runAsync(() => IsoDrawingDao().upsert(IsoDrawingRecord(

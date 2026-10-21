@@ -10,6 +10,34 @@ void expectVector(IsoSpatialVector actual, IsoSpatialVector expected,
 }
 
 void main() {
+  test(
+      'spatial tee preserves unknown roll and accepts only perpendicular unit branches',
+      () {
+    final run = IsoSpatialVector.gridHeading(0)
+        .turnTowards(IsoSpatialVector.gridHeading(1), 45);
+    final pending = IsoSpatialTee(run: run);
+    expect(IsoSpatialTee.fromJson(pending.toJson())!.branch, isNull);
+    final tee =
+        IsoSpatialTee(run: run, branch: IsoSpatialVector.gridHeading(2));
+    expect(IsoSpatialTee.fromJson(tee.toJson())!.run.toJson(), run.toJson());
+    for (final branch in [
+      run,
+      IsoSpatialVector.gridHeading(1),
+      const IsoSpatialVector(0, 2, 0),
+      IsoSpatialVector.zero
+    ]) {
+      expect(
+          () => IsoSpatialTee(run: run, branch: branch), throwsArgumentError);
+    }
+    expect(IsoSpatialTee.fromJson({...tee.toJson(), 'future': true}), isNull);
+    expect(
+        IsoSpatialTee.fromJson({
+          'run': run.toJson(),
+          'branch': [0, 1]
+        }),
+        isNull);
+  });
+
   test('angle computation does not invent a bend after unit normalization', () {
     final diagonal = IsoSpatialVector.gridHeading(0)
         .turnTowards(IsoSpatialVector.gridHeading(1), 45);

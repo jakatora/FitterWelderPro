@@ -284,3 +284,46 @@ class IsoSpatialElbow {
     }
   }
 }
+
+/// Run flow and optional known branch of a perpendicular tee. A null branch
+/// means its roll has not been specified, not a fabricated third pipe.
+class IsoSpatialTee {
+  IsoSpatialTee._(this.run, this.branch);
+  factory IsoSpatialTee(
+      {required IsoSpatialVector run, IsoSpatialVector? branch}) {
+    bool valid(IsoSpatialVector v) {
+      final p = v.projected;
+      return v.isFinite &&
+          (v.magnitude - 1).abs() < 1e-8 &&
+          p.x * p.x + p.y * p.y > 1e-20;
+    }
+
+    if (!valid(run) ||
+        (branch != null && (!valid(branch) || run.dot(branch).abs() > 1e-8))) {
+      throw ArgumentError(
+          'A tee needs visible unit rays and a perpendicular branch');
+    }
+    return IsoSpatialTee._(run, branch);
+  }
+  final IsoSpatialVector run;
+  final IsoSpatialVector? branch;
+  Map<String, Object?> toJson() =>
+      {'run': run.toJson(), 'branch': branch?.toJson()};
+  static IsoSpatialTee? fromJson(Object? raw) {
+    if (raw is! Map ||
+        raw.length != 2 ||
+        !raw.containsKey('run') ||
+        !raw.containsKey('branch')) {
+      return null;
+    }
+    final run = IsoSpatialVector.fromJson(raw['run']);
+    final branch =
+        raw['branch'] == null ? null : IsoSpatialVector.fromJson(raw['branch']);
+    if (run == null || (raw['branch'] != null && branch == null)) return null;
+    try {
+      return IsoSpatialTee(run: run, branch: branch);
+    } on ArgumentError {
+      return null;
+    }
+  }
+}

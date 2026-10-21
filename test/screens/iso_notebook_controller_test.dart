@@ -443,6 +443,143 @@ void main() {
     await _leave(tester);
   });
 
+  testWidgets(
+      'spatial tee run branches only perpendicular, survives reopen and restores pending roll on undo',
+      (tester) async {
+    await _boot(tester);
+    var c = await _open(tester);
+    final report = await c.draw(const [
+      IsoPipe(lengthMm: 1000),
+      IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+      IsoPipe(lengthMm: 1000),
+      IsoFitting('tee', dn: 100, dnOut: 80),
+      IsoPipe(lengthMm: 1000)
+    ], stepDelay: Duration.zero);
+    expect(report.ok, isTrue, reason: report.toString());
+    expect(report.fittings, 1);
+    final before = await _stored(tester);
+    final tee = _comps(before, 'tee').single;
+    expect(before!['format'], 6);
+    expect((tee['spatialTee'] as Map)['branch'], isNull);
+    expect(_comps(before, 'weld'), hasLength(4));
+    await _leave(tester);
+    c = await _open(tester);
+    final invalid = await c.draw(
+        const [IsoPipe(dir: IsoDir.up, lengthMm: 1000)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(invalid.problem, IsoDrawProblem.invalidBranch);
+    expect(await _stored(tester), before);
+    final branch = await c.draw(
+        const [IsoPipe(dir: IsoDir.back, lengthMm: 1000)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(branch.ok, isTrue, reason: branch.toString());
+    expect(branch.elbows, 0);
+    final after = await _stored(tester);
+    final actual = _comps(after, 'tee').single;
+    final geometry = IsoSpatialTee.fromJson(actual['spatialTee'])!;
+    expect(geometry.run.dot(geometry.branch!), closeTo(0, 1e-8));
+    expect(_pipes(after).last['a'], tee['pos']);
+    expect(_pipes(after), hasLength(4));
+    expect(actual['dn'], 100);
+    expect(actual['dnOut'], 80);
+    expect(_comps(after, 'weld'), hasLength(5));
+    final duplicate = await c.draw(const [IsoPipe(dir: IsoDir.forward)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(duplicate.problem, IsoDrawProblem.invalidBranch);
+    expect(await _stored(tester), after);
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(await _stored(tester), before);
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'manual branch snaps to a fractional spatial tee node and preserves its reducing sizes',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [
+      IsoPipe(),
+      IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+      IsoPipe(),
+      IsoFitting('tee', dn: 100, dnOut: 80),
+      IsoPipe()
+    ], stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final tee = _comps(before, 'tee').single;
+    final node = _pt(tee['pos']);
+    final view = c.debugVisibleWorld!, rect = tester.getRect(_canvas);
+    Offset screen(Offset p) => Offset(
+        rect.left + (p.dx - view.left) / view.width * rect.width,
+        rect.top + (p.dy - view.top) / view.height * rect.height);
+    final axis = IsoSpatialVector.gridHeading(2).projected;
+    await tester.dragFrom(screen(node),
+        screen(node + Offset(axis.x, axis.y) * 96) - screen(node));
+    await tester.pumpAndSettle();
+    final after = await _stored(tester);
+    expect(_pipes(after), hasLength(4));
+    expect(_pipes(after).last['a'], tee['pos']);
+    final updated = _comps(after, 'tee').single;
+    expect((updated['spatialTee'] as Map)['branch'], [0.0, -1.0, 0.0]);
+    expect(updated['dn'], 100);
+    expect(updated['dnOut'], 80);
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(await _stored(tester), before);
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'physically perpendicular tee legs keep separate welds and correct CUT when their paper rays overlap',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    final run = await c.draw(const [
+      IsoPipe(lengthMm: 1000),
+      IsoTurn(degrees: 45, toDir: IsoDir.back, dn: 100),
+      IsoPipe(lengthMm: 1000),
+      IsoFitting('tee', dn: 100, dnOut: 80),
+      IsoPipe(lengthMm: 1000)
+    ], stepDelay: Duration.zero);
+    expect(run.ok, isTrue);
+    final branch = await c.draw(const [IsoPipe(dir: IsoDir.up, lengthMm: 1000)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(branch.ok, isTrue, reason: branch.toString());
+    final stored = await _stored(tester);
+    expect(_comps(stored, 'weld'), hasLength(5));
+    expect(_comps(stored, 'weld').map((w) => w['label']).toSet(), hasLength(5));
+    expect(_comps(stored, 'tee').single['cteMm'], 105);
+    expect(find.text('Suma CUT: 3564.0 mm'), findsOneWidget,
+        reason: '4000 - two elbow take-outs64 - two tee run C105 - branch M98');
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'a standalone tee can gain a spatial run from the actual connected pipes without paper-axis guesses',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(
+        const [IsoPipe(), IsoTurn(degrees: 45, toDir: IsoDir.up), IsoPipe()],
+        stepDelay: Duration.zero);
+    await c.draw(
+        const [IsoFitting('tee', symbolOnly: true, dn: 100, dnOut: 80)],
+        stepDelay: Duration.zero);
+    final invalid = await c.draw(const [IsoPipe(dir: IsoDir.back)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(invalid.problem, IsoDrawProblem.invalidBranch,
+        reason: 'a symbol plus one pipe does not invent the other run leg');
+    await c.draw(const [IsoPipe()], stepDelay: Duration.zero);
+    final report = await c.draw(const [IsoPipe(dir: IsoDir.back)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(report.ok, isTrue, reason: report.toString());
+    final tee = _comps(await _stored(tester), 'tee').single;
+    expect(IsoSpatialTee.fromJson(tee['spatialTee'])!.branch!.toJson(),
+        [0.0, -1.0, 0.0]);
+    expect(tee['dnOut'], 80);
+    await _leave(tester);
+  });
+
   testWidgets('zmiana ostatniego kolana: błędny kierunek nie rusza szkicu',
       (tester) async {
     await _boot(tester);

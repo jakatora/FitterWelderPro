@@ -14,6 +14,7 @@
 library;
 
 import 'dart:ui' show Offset;
+import 'spatial_route.dart';
 
 import '../../models/prefab/dim_ref.dart';
 import '../../models/prefab/end_connection.dart';
@@ -89,6 +90,16 @@ abstract interface class SketchPipe {
 
   /// Null while the line has no dimension.
   SketchDimension? get dimension;
+}
+
+/// Optional spatial metadata contracts; old sketch implementations retain
+/// their six-axis graph behavior without inventing missing 3D information.
+abstract interface class SketchSpatialPipe {
+  IsoSpatialVector? get spatialDirection;
+}
+
+abstract interface class SketchSpatialTee {
+  IsoSpatialTee? get spatialTee;
 }
 
 /// Grid step of the notebook canvas (world units per grid cell).
@@ -217,14 +228,49 @@ Offset? _awayFrom(SketchPipe q, Offset p, double tol) {
 bool _opposite(Offset u, Offset v) => u.dx * v.dx + u.dy * v.dy < -0.98;
 
 /// Which leg [pipe] is at the node [p], judged from the other [pipes] that
-/// end on the same point. On an isometric, lines that are opposite on paper
-/// are opposite in space, so "in line" is read straight off the sketch.
+/// end on the same point. Explicit spatial tee/pipe rays take precedence:
+/// different physical rays can overlap on paper. Legacy axis-only sketches
+/// retain their existing projected graph classification.
 SketchLegRole sketchLegRoleAt(
   SketchPipe pipe,
   Offset p,
   Iterable<SketchPipe> pipes,
-  double tol,
-) {
+  double tol, {
+  SketchComponent? component,
+}) {
+  final tee = component is SketchSpatialTee
+      ? (component as SketchSpatialTee).spatialTee
+      : null;
+  if (tee != null) {
+    if ((pipe.a - p).distance >= tol && (pipe.b - p).distance >= tol) {
+      return SketchLegRole.unknown;
+    }
+    IsoSpatialVector? ray;
+    final stored = pipe is SketchSpatialPipe
+        ? (pipe as SketchSpatialPipe).spatialDirection
+        : null;
+    if (stored != null) {
+      ray = (pipe.a - p).distance < tol ? stored : stored * -1;
+    } else {
+      final paper = _awayFrom(pipe, p, tol);
+      if (paper != null) {
+        for (var i = 0; i < 6; i++) {
+          final axis = IsoSpatialVector.gridHeading(i),
+              projected = IsoSpatialVector.gridHeading(i).projected;
+          if ((paper - Offset(projected.x, projected.y)).distance < 1e-8) {
+            ray = axis;
+            break;
+          }
+        }
+      }
+    }
+    if (ray == null) return SketchLegRole.unknown;
+    if (tee.run.dot(ray).abs() > 1 - 1e-8) return SketchLegRole.run;
+    if (tee.branch != null && tee.branch!.dot(ray) > 1 - 1e-8) {
+      return SketchLegRole.branch;
+    }
+    return SketchLegRole.unknown;
+  }
   final mine = _awayFrom(pipe, p, tol);
   if (mine == null) return SketchLegRole.unknown;
   final others = <Offset>[];
@@ -391,7 +437,7 @@ SketchAxialTakeouts sketchAxialTakeoutsFor(
     }
     int? cte;
     if (it.toolName == 'tee') {
-      final role = sketchLegRoleAt(pipe, end, pipes, tol);
+      final role = sketchLegRoleAt(pipe, end, pipes, tol, component: it);
       cte = sketchTeeTakeoutFor(it, role);
       if (cte == null &&
           role == SketchLegRole.unknown &&
@@ -919,7 +965,7 @@ int? sketchInferredDn(
       int? candidate;
       if (it.toolName == 'tee') {
         candidate = sketchIsReducingTee(it) &&
-                sketchLegRoleAt(pipe, endpoint, pipes, tol) ==
+                sketchLegRoleAt(pipe, endpoint, pipes, tol, component: it) ==
                     SketchLegRole.branch
             ? it.dnOut
             : it.dn;

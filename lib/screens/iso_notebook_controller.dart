@@ -686,6 +686,13 @@ class IsoNotebookController extends ChangeNotifier {
     final plan = run.plan;
     final op = plan.ops[run.next++];
     switch (op) {
+      case _PlannedSpatialBranch():
+        s._mutate(() {
+          final index = s._items.indexOf(op.tee);
+          if (index >= 0) s._items[index] = op.tee.withSpatialTee(op.geometry);
+          s._addSpatialWeldsAt(op.tee.pos,
+              [op.geometry.run, op.geometry.run * -1, op.geometry.branch!]);
+        });
       case _PlannedBranch():
         s._mutate(() {
           final index = s._items.indexOf(op.tee);
@@ -737,7 +744,8 @@ class IsoNotebookController extends ChangeNotifier {
           var comp = _Comp(pos, op.tool,
               dir: op.dir,
               label: op.tool.isWeld ? '${s._nextWeldNo()}' : op.label,
-              spatialDirection: op.spatialDirection);
+              spatialDirection: op.spatialDirection,
+              spatialTee: op.spatialTee);
           final dn = op.dn;
           if (dn != null && op.tool == _Tool.elbow45) {
             comp = comp.withElbowSpec(
@@ -762,7 +770,7 @@ class IsoNotebookController extends ChangeNotifier {
       // A fitting placed before its pipe (e.g. a flange at the very start)
       // had nothing to weld to yet; the weld pass is idempotent.
       for (final f in plan.ops.whereType<_PlannedFitting>()) {
-        if (f.dn == null || f.endA == null) continue;
+        if (f.spatialTee == null && (f.dn == null || f.endA == null)) continue;
         final pos = plan.world(f.at);
         final count = s._items.length;
         _weldFitting(s, f, pos);
@@ -772,6 +780,27 @@ class IsoNotebookController extends ChangeNotifier {
   }
 
   static void _weldFitting(_IsoState s, _PlannedFitting f, Offset pos) {
+    if (f.spatialTee case final tee?) {
+      final expected = [
+        tee.run,
+        tee.run * -1,
+        if (tee.branch != null) tee.branch!
+      ];
+      final connected = <IsoSpatialVector>[];
+      for (final pipe
+          in s._items.whereType<_Seg>().where((p) => p.t == _Tool.pipe)) {
+        if ((pipe.a - pos).distance >= _IsoState._s * .25 &&
+            (pipe.b - pos).distance >= _IsoState._s * .25) {
+          continue;
+        }
+        final ray = s._spatialOutgoing(pipe, pos);
+        if (ray != null && expected.any((e) => e.dot(ray) > 1 - 1e-8)) {
+          connected.add(ray);
+        }
+      }
+      s._addSpatialWeldsAt(pos, connected);
+      return;
+    }
     final a = f.endA, b = f.endB;
     if (f.dn == null || a == null || b == null) return;
     if (f.spatialDirection case final ray?) {
@@ -808,9 +837,20 @@ class IsoNotebookController extends ChangeNotifier {
       {bool fromLastTee = false, bool explicitLastTee = false}) {
     final m = s._currentMapping;
     final cursor = _cursor(s);
-    if (steps.any((step) => step is IsoTurn && step.degrees != 90) ||
-        cursor?.spatialDirection != null) {
-      return _planSpatial(s, steps, fromLastTee: fromLastTee);
+    final teeTarget =
+        s._items.whereType<_Comp>().where((c) => c.t == _Tool.tee).lastOrNull;
+    final spatial = fromLastTee
+        ? teeTarget?.spatialTee != null ||
+            (teeTarget != null &&
+                s._items.whereType<_Seg>().any((p) =>
+                    _hasSpatialSlope(p) &&
+                    ((p.a - teeTarget.pos).distance < _IsoState._s * .25 ||
+                        (p.b - teeTarget.pos).distance < _IsoState._s * .25)))
+        : steps.any((step) => step is IsoTurn && step.degrees != 90) ||
+            cursor?.spatialDirection != null;
+    if (spatial) {
+      return _planSpatial(s, steps,
+          fromLastTee: fromLastTee, explicitLastTee: explicitLastTee);
     }
     final pl = <String>[], en = <String>[];
     void assume(String p, String e) {
@@ -1043,10 +1083,9 @@ class IsoNotebookController extends ChangeNotifier {
   /// Plans genuine spatial rays. Paper coordinates are never quantized back
   /// to a grid heading: two different physical rays can share a projection.
   _VoicePlan _planSpatial(_IsoState s, List<IsoStep> steps,
-      {required bool fromLastTee}) {
-    if (fromLastTee) return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      {required bool fromLastTee, required bool explicitLastTee}) {
     final cursor = _cursor(s);
-    final relative = cursor == null;
+    var relative = cursor == null;
     final m = s._currentMapping;
     var point = cursor?.point ?? Offset.zero;
     IsoSpatialVector? ray = cursor == null
@@ -1054,7 +1093,7 @@ class IsoNotebookController extends ChangeNotifier {
         : (cursor.spatialDirection ??
             IsoSpatialVector.gridHeading(cursor.heading));
     var blocked = cursor != null && _blockingCompAt(s, point);
-    final elbowHere = cursor != null && _elbowAt(s, point);
+    var elbowHere = cursor != null && _elbowAt(s, point);
     IsoTurn? turn;
     var turnAt = -1;
     int? runDn;
@@ -1076,6 +1115,57 @@ class IsoNotebookController extends ChangeNotifier {
       return null;
     }
 
+    if (fromLastTee) {
+      final tees =
+          s._items.whereType<_Comp>().where((c) => c.t == _Tool.tee).toList();
+      final tee = tees.lastOrNull;
+      final pipe = steps.firstOrNull;
+      var original = tee?.spatialTee;
+      if (tee == null ||
+          original?.branch != null ||
+          (tees.length > 1 && !explicitLastTee) ||
+          pipe is! IsoPipe ||
+          pipe.dir == null) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      final touching = s._items
+          .whereType<_Seg>()
+          .where((p) =>
+              p.t == _Tool.pipe &&
+              ((p.a - tee.pos).distance < _IsoState._s * .25 ||
+                  (p.b - tee.pos).distance < _IsoState._s * .25))
+          .toList();
+      final rays = touching.map((p) => s._spatialOutgoing(p, tee.pos)).toList();
+      if (original == null &&
+          rays.length == 2 &&
+          rays.every((r) => r != null) &&
+          rays[0]!.dot(rays[1]!) < -1 + 1e-8) {
+        original = IsoSpatialTee(run: rays[0]! * -1);
+      }
+      final run = original?.run;
+      if (run == null ||
+          rays.length != 2 ||
+          rays.any((r) => r == null) ||
+          !rays.any((r) => r!.dot(run) > 1 - 1e-8) ||
+          !rays.any((r) => r!.dot(run) < -1 + 1e-8)) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      final branch = IsoSpatialVector.gridHeading(_gridDirOf(pipe.dir!, m));
+      IsoSpatialTee geometry;
+      try {
+        geometry = IsoSpatialTee(run: run, branch: branch);
+      } on ArgumentError {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      point = tee.pos;
+      ray = branch;
+      relative = false;
+      blocked = false;
+      elbowHere = false;
+      runDn = tee.dnOut ?? tee.dn;
+      ops.add(_PlannedSpatialBranch(0,
+          at: at(point), tee: tee, geometry: geometry));
+    }
     for (var i = 0; i < steps.length; i++) {
       final step = steps[i];
       switch (step) {
@@ -1199,9 +1289,7 @@ class IsoNotebookController extends ChangeNotifier {
           }
           final heading = ray == null ? _lookAheadDir(steps, i, m) : grid(ray);
           final tool = _kFittings[step.tool];
-          if (tool == null ||
-              step.symbolOnly ||
-              (heading == null && tool == _Tool.tee)) {
+          if (tool == null || step.symbolOnly) {
             return _VoicePlan.failed(IsoDrawProblem.spatialFitting, i);
           }
           if (elbowHere && !tool.isWeld) {
@@ -1221,7 +1309,11 @@ class IsoNotebookController extends ChangeNotifier {
               heading: heading ??
                   s._closestIsoHeading(
                       Offset(ray!.projected.x, ray.projected.y)),
-              spatialDirection: heading == null ? ray : null,
+              spatialDirection:
+                  heading == null && tool != _Tool.tee ? ray : null,
+              spatialTee: heading == null && tool == _Tool.tee
+                  ? IsoSpatialTee(run: ray!)
+                  : null,
               atStart: ray == null,
               runDn: runDn,
               assume: assume);
@@ -1253,6 +1345,7 @@ class IsoNotebookController extends ChangeNotifier {
     required _Lat at,
     required int heading,
     IsoSpatialVector? spatialDirection,
+    IsoSpatialTee? spatialTee,
     required bool atStart,
     required int? runDn,
     required void Function(String pl, String en) assume,
@@ -1269,7 +1362,11 @@ class IsoNotebookController extends ChangeNotifier {
         : spatialDirection;
     if (tool.isWeld || tool == _Tool.support) {
       return _PlannedFitting(index,
-          spatialDirection: axis, at: at, tool: tool, dir: dir);
+          spatialDirection: axis,
+          spatialTee: spatialTee,
+          at: at,
+          tool: tool,
+          dir: dir);
     }
     final namePl = _IsoState.compName(tool, true);
     final nameEn = _IsoState.compName(tool, false);
@@ -1282,7 +1379,11 @@ class IsoNotebookController extends ChangeNotifier {
         assume('$namePl: bez średnicy — uzupełnij DN.',
             '$nameEn: no size — enter the DN.');
         return _PlannedFitting(index,
-            spatialDirection: axis, at: at, tool: tool, dir: dir);
+            spatialDirection: axis,
+            spatialTee: spatialTee,
+            at: at,
+            tool: tool,
+            dir: dir);
       }
     }
     switch (tool) {
@@ -1296,6 +1397,7 @@ class IsoNotebookController extends ChangeNotifier {
             'Placed a 45° elbow symbol in the specified orientation. Specify slope and further routing separately.');
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: heading,
@@ -1305,11 +1407,18 @@ class IsoNotebookController extends ChangeNotifier {
       case _Tool.tee:
         final cte = TakeoutCatalog.tee[dn];
         if (cte == null) _noTableLength(assume, namePl, nameEn, dn);
-        assume(
-            'Umieściłem symbol trójnika we wskazanej orientacji. Odgałęzienie nie ma jeszcze narysowanej rury.',
-            'Placed a tee symbol in the specified orientation. Its branch pipe is not drawn yet.');
+        if (spatialTee != null) {
+          assume(
+              'Przelot trójnika biegnie wzdłuż rury. Znak „?” oznacza nieustawiony kierunek odgałęzienia; podaj go poleceniem „od trójnika rura…”.',
+              'The tee run follows the pipe. “?” marks an unspecified branch direction; specify it with “from the tee pipe…”.');
+        } else {
+          assume(
+              'Umieściłem symbol trójnika we wskazanej orientacji. Odgałęzienie nie ma jeszcze narysowanej rury.',
+              'Placed a tee symbol in the specified orientation. Its branch pipe is not drawn yet.');
+        }
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: heading,
@@ -1330,7 +1439,11 @@ class IsoNotebookController extends ChangeNotifier {
             assume('$namePl: bez średnicy wylotu — uzupełnij.',
                 '$nameEn: no outlet size — enter it.');
             return _PlannedFitting(index,
-                spatialDirection: axis, at: at, tool: tool, dir: dir);
+                spatialDirection: axis,
+                spatialTee: spatialTee,
+                at: at,
+                tool: tool,
+                dir: dir);
           }
           assume('$namePl: przyjąłem DN$dn na DN$out.',
               '$nameEn: assumed DN$dn to DN$out.');
@@ -1340,6 +1453,7 @@ class IsoNotebookController extends ChangeNotifier {
         if (len == null) _noTableLength(assume, namePl, nameEn, hi);
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: dir,
@@ -1360,6 +1474,7 @@ class IsoNotebookController extends ChangeNotifier {
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: dir,
@@ -1374,6 +1489,7 @@ class IsoNotebookController extends ChangeNotifier {
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: dir,
@@ -1389,6 +1505,7 @@ class IsoNotebookController extends ChangeNotifier {
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
             spatialDirection: axis,
+            spatialTee: spatialTee,
             at: at,
             tool: tool,
             dir: dir,
@@ -1593,8 +1710,8 @@ String _dirEn(IsoDir d) => switch (d) {
           'A fitting already occupies this location. Add a pipe segment or choose a new sheet before placing another symbol.',
         ),
       IsoDrawProblem.invalidBranch => (
-          'Wybierz kierunek odgałęzienia od trójnika z narysowanym prostym przelotem. Przy kilku trójnikach wskaż „od ostatniego trójnika”. Kierunek musi być poza przelotem, a odgałęzienie jeszcze puste.',
-          'Choose a branch direction from a tee with a drawn straight run. With several tees, say “from the last tee”. The direction must differ from the run and the branch must still be empty.',
+          'Wybierz kierunek odgałęzienia od trójnika z narysowanym prostym przelotem. Przy kilku trójnikach wskaż „od ostatniego trójnika”. Kierunek musi być prostopadły w przestrzeni do przelotu, a odgałęzienie jeszcze puste.',
+          'Choose a branch direction from a tee with a drawn straight run. With several tees, say “from the last tee”. The direction must be perpendicular to the run in space and the branch must still be empty.',
         ),
       IsoDrawProblem.outOfCanvas => (
           'Rysunek wyszedłby nad górną krawędź arkusza — zacznij nowy rysunek '
@@ -1697,6 +1814,16 @@ final class _PlannedBranch extends _PlannedOp {
   Iterable<_Lat> get points => [at];
 }
 
+final class _PlannedSpatialBranch extends _PlannedOp {
+  const _PlannedSpatialBranch(super.step,
+      {required this.at, required this.tee, required this.geometry});
+  final _Lat at;
+  final _Comp tee;
+  final IsoSpatialTee geometry;
+  @override
+  Iterable<_Lat> get points => [at];
+}
+
 final class _PlannedFitting extends _PlannedOp {
   const _PlannedFitting(
     super.step, {
@@ -1712,9 +1839,11 @@ final class _PlannedFitting extends _PlannedOp {
     this.dnAfter,
     this.cte,
     this.spatialDirection,
+    this.spatialTee,
   });
   final _Lat at;
   final IsoSpatialVector? spatialDirection;
+  final IsoSpatialTee? spatialTee;
   final _Tool tool;
   final int dir;
   final int? dn, dnOut, lengthMm, cte;

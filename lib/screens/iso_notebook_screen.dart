@@ -27,7 +27,7 @@ import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
 import '../domain/iso_notebook/sketch_cut.dart';
-import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees, IsoSpatialVector, IsoSpatialElbow;
+import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees, IsoSpatialVector, IsoSpatialElbow, IsoSpatialTee;
 import '../domain/iso_notebook/sketch_to_project.dart';
 import '../services/iso_sketch_project_writer.dart';
 import 'fitter_screen.dart';
@@ -155,7 +155,7 @@ class _CalcResult {
         remove = true;
 }
 
-class _Seg implements _Item, SketchPipe {
+class _Seg implements _Item, SketchPipe, SketchSpatialPipe {
   @override
   final Offset a, b;
   final _Tool t;
@@ -169,6 +169,7 @@ class _Seg implements _Item, SketchPipe {
   /// (insulation lines run parallel to the carrier pipe).
   final bool insulated;
   /// A spatial ray is stored explicitly; paper directions alone are ambiguous.
+  @override
   final IsoSpatialVector? spatialDirection;
   const _Seg(this.a, this.b, this.t,
       {this.calc, this.slope = '', this.insulated = false, this.spatialDirection});
@@ -377,7 +378,7 @@ class _StopPicker extends StatelessWidget {
 // created from a sketch must store exactly the number this screen shows, and
 // one shared formula is the only way to guarantee that.
 
-class _Comp implements _Item, SketchComponent {
+class _Comp implements _Item, SketchComponent, SketchSpatialTee {
   @override
   final Offset pos;
   final _Tool t;
@@ -421,6 +422,8 @@ class _Comp implements _Item, SketchComponent {
   @override
   final EndConnection? endB;
 
+  @override
+  final IsoSpatialTee? spatialTee;
   final IsoSpatialElbow? spatialBend;
   final IsoSpatialVector? spatialDirection;
 
@@ -437,6 +440,7 @@ class _Comp implements _Item, SketchComponent {
     this.dnOut,
     this.endA,
     this.endB,
+    this.spatialTee,
     this.spatialBend,
     this.spatialDirection,
   });
@@ -468,6 +472,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialTee: spatialTee,
         spatialDirection: spatialDirection,
         spatialBend: subtype == null || spatialBend == null ||
             (spatialBend!.degrees - ((subtype == _ElbowSubtype.lr45 || subtype == _ElbowSubtype.sr45) ? 45 : 90)).abs() < 1e-7 ? spatialBend : null,
@@ -490,6 +495,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialTee: spatialTee,
         spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
@@ -509,6 +515,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: (dnBranch == null || dnBranch == dn) ? null : dnBranch,
         endA: endA,
         endB: endB,
+        spatialTee: spatialTee,
         spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
@@ -525,7 +532,8 @@ class _Comp implements _Item, SketchComponent {
           physicalLengthMm: physicalLengthMm,
           endA: endA,
           endB: endB,
-          spatialDirection: spatialDirection,
+
+        spatialDirection: spatialDirection,
           spatialBend: spatialBend);
 
   /// Persist physical-length / outlet-DN / end-connection spec captured by
@@ -554,9 +562,23 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialTee: spatialTee,
         spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
+
+  _Comp withSpatialTee(IsoSpatialTee geometry) => _Comp(pos, t,
+      dir: dir,
+      dir2: dir2,
+      label: label,
+      dn: dn,
+      elbowSubtype: elbowSubtype,
+      cteMm: cteMm,
+      physicalLengthMm: physicalLengthMm,
+      dnOut: dnOut,
+      endA: endA,
+      endB: endB,
+      spatialTee: geometry);
 
   bool get isElbow => t == _Tool.elbow90 || t == _Tool.elbow45;
 
@@ -1637,6 +1659,26 @@ class _IsoState extends State<IsoNotebookScreen> {
     return best;
   }
 
+  Offset _snapPipeStart(Offset raw) {
+    Offset? nearest;
+    var distance = _s * .25;
+    for (final item in _items) {
+      final points = item is _Seg && item.t == _Tool.pipe
+          ? [item.a, item.b]
+          : item is _Comp
+              ? [item.pos]
+              : <Offset>[];
+      for (final point in points) {
+        final delta = (point - raw).distance;
+        if (delta < distance) {
+          distance = delta;
+          nearest = point;
+        }
+      }
+    }
+    return nearest ?? _snap(raw);
+  }
+
   double _distToSeg(Offset p, Offset a, Offset b) {
     final ab = b - a;
     final l2 = ab.dx * ab.dx + ab.dy * ab.dy;
@@ -1805,7 +1847,8 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
     if (!_tool.isLine) return;
     setState(() {
-      _dragA = _snap(_toWorld(d.localPosition));
+      final raw=_toWorld(d.localPosition);
+      _dragA = _tool==_Tool.pipe ? _snapPipeStart(raw) : _snap(raw);
       _dragB = _dragA;
     });
   }
@@ -2024,9 +2067,25 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
   }
 
+  IsoSpatialVector? _spatialOutgoing(_Seg pipe, Offset junction) {
+    if (pipe.spatialDirection case final ray?) {
+      return (pipe.a - junction).distance <= (pipe.b - junction).distance
+          ? ray
+          : ray * -1;
+    }
+    final outward = _outgoing(pipe, junction);
+    if (outward.distance < .01) return null;
+    final heading = _closestIsoHeading(outward);
+    if ((outward / outward.distance - _isoHeadings[heading]).distance > 1e-8) {
+      return null;
+    }
+    return IsoSpatialVector.gridHeading(heading);
+  }
+
   /// A manual axis-aligned pipe can join an assistant's oblique ray.
   /// Never infer its physical angle from the projected hex-grid headings.
   void _maybeInsertSpatialElbow(Offset junction, List<_Seg> pipes) {
+    if(pipes.length==3) { _maybeUpdateSpatialTee(junction,pipes);return; }
     if (pipes.length != 2 ||
         _items.any((it) =>
             it is _Comp &&
@@ -2070,14 +2129,62 @@ class _IsoState extends State<IsoNotebookScreen> {
     });
   }
 
+  void _maybeUpdateSpatialTee(Offset junction, List<_Seg> pipes) {
+    final index = _items.indexWhere((it) =>
+        it is _Comp && !it.t.isWeld && (it.pos - junction).distance < _s * .45);
+    final existing = index < 0 ? null : _items[index] as _Comp;
+    if (existing != null && existing.t != _Tool.tee && !existing.isElbow) {
+      return;
+    }
+    final rays = pipes.map((p) => _spatialOutgoing(p, junction)).toList();
+    if (rays.any((r) => r == null)) return;
+    for (var i = 0; i < 3; i++) {
+      for (var j = i + 1; j < 3; j++) {
+        if (rays[i]!.dot(rays[j]!) > -1 + 1e-8) continue;
+        final run = existing?.spatialTee?.run ?? rays[i]!;
+        if (run.dot(rays[i]!).abs() < 1 - 1e-8) continue;
+        final branch = rays[3 - i - j]!;
+        IsoSpatialTee tee;
+        try {
+          tee = IsoSpatialTee(run: run, branch: branch);
+        } on ArgumentError {
+          continue;
+        }
+        _mutate(() {
+          if (existing?.t == _Tool.tee) {
+            _items[index] = existing!.withSpatialTee(tee);
+          } else {
+            final dn = existing?.dn ?? _lastDnByTool[_Tool.tee];
+            final comp = _Comp(junction, _Tool.tee,
+                dn: dn,
+                cteMm: dn == null ? null : TakeoutCatalog.tee[dn],
+                spatialTee: tee);
+            if (index < 0) {
+              _items.add(comp);
+            } else {
+              _items[index] = comp;
+            }
+          }
+          _addSpatialWeldsAt(junction, [run, run * -1, branch]);
+        });
+        return;
+      }
+    }
+  }
+
   /// Weld markers follow actual projected flow rays, including oblique pipes.
   void _addSpatialWeldsAt(Offset junction, List<IsoSpatialVector> rays) {
     for (final ray in rays) {
       final p = ray.projected;
       final v = Offset(p.x, p.y);
       final pos = junction + v / v.distance * (_s * .55);
-      if (_items.any((it) =>
-          it is _Comp && it.t.isWeld && (it.pos - pos).distance < _s * .3)) {
+      if (_items.any((it) {
+        if(it is! _Comp || !it.t.isWeld || (it.pos-pos).distance>=_s*.3) return false;
+        final actual=it.spatialDirection??(it.dir>=0 && it.dir<6 ? IsoSpatialVector.gridHeading(it.dir) : null);
+        // Two perpendicular physical legs can share a paper position. Keep
+        // their weld records distinct even when their projected dots overlap.
+        return actual!=null && actual.dot(ray)>1-1e-8;
+      })) {
         continue;
       }
       _items.add(_Comp(pos, _Tool.weld,
@@ -9138,6 +9245,19 @@ class _Painter extends CustomPainter {
     // Elbow with two specific legs renders along the actual iso headings of
     // the connected pipes (no canvas rotation) — for every other symbol the
     // legacy 60°-step rotation still applies.
+    if (c.t == _Tool.tee && c.spatialTee != null) {
+      final tee=c.spatialTee!;
+      final rays=[tee.run,tee.run * -1,if(tee.branch!=null) tee.branch!];
+      final projected=rays.map((v)=>v.projected).toList();
+      final scale=s*.46/projected.map((v)=>math.sqrt(v.x*v.x+v.y*v.y)).reduce(math.max);
+      for(final v in projected) { canvas.drawLine(Offset.zero,Offset(v.x,v.y)*scale,_pipePaint); }
+      canvas.drawCircle(Offset.zero,4.5,Paint()..color=cs.secondary);
+      if(tee.branch==null) {
+        final text=TextPainter(text:TextSpan(text:'?',style:TextStyle(color:cs.secondary,fontSize:12)),textDirection:TextDirection.ltr)..layout();
+        text.paint(canvas,const Offset(5,5));
+      }
+      canvas.restore();return;
+    }
     if (c.isElbow && c.spatialBend != null) {
       _symSpatialElbow(canvas, s * .46, c.spatialBend!);
       canvas.restore();

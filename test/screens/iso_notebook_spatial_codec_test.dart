@@ -8,6 +8,37 @@ import '../support/iso_spatial_fixture.dart';
 
 void main() {
   test(
+      'format6 keeps pending and known tee directions and refuses downgrade or damage',
+      () {
+    final sketch = spatialSketch()..['format'] = 6;
+    final items = sketch['items'] as List;
+    final comp =
+        items.whereType<Map>().firstWhere((c) => c['tool'] == 'elbow45');
+    comp['tool'] = 'tee';
+    comp['elbowSubtype'] = null;
+    comp.remove('spatialBend');
+    final run =
+        IsoSpatialVector.fromJson((items.first as Map)['spatialDirection'])!;
+    for (final tee in [
+      IsoSpatialTee(run: run),
+      IsoSpatialTee(run: run, branch: IsoSpatialVector.gridHeading(2))
+    ]) {
+      comp['spatialTee'] = tee.toJson();
+      expect(
+          jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))), sketch);
+    }
+    sketch['format'] = 5;
+    expect(() => isoSketchRoundTripForTesting(jsonEncode(sketch)),
+        throwsA(isA<IsoSketchFormatException>()));
+    sketch['format'] = 6;
+    comp['spatialTee'] = {'run': run.toJson(), 'branch': run.toJson()};
+    expect(isoSketchSkippedItemsForTesting(jsonEncode(sketch)), 1);
+    comp['spatialTee'] = IsoSpatialTee(run: run).toJson();
+    comp['tool'] = 'northArrow';
+    expect(isoSketchSkippedItemsForTesting(jsonEncode(sketch)), 1);
+  });
+
+  test(
       'format 5 preserves axial fitting direction without upgrading format 4 drawings',
       () {
     final sketch = spatialSketch()..['format'] = 5;
@@ -49,7 +80,7 @@ void main() {
     expect(jsonDecode(encoded), original);
     expect(isoSketchRoundTripForTesting(encoded), encoded);
     expect(isoSketchSkippedItemsForTesting(encoded), 0);
-    expect(kIsoSketchFormatVersion, 5);
+    expect(kIsoSketchFormatVersion, 6);
   });
   test('legacy sketches retain their original format and fields', () {
     final old = representativeIsoSketch();
