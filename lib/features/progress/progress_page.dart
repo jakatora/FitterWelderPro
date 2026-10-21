@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../database/weld_journal_dao.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/progress/progress_filter.dart';
 import '../../domain/progress/progress_forecast.dart';
 import '../../domain/progress/progress_report.dart';
@@ -73,7 +74,41 @@ class _View {
   });
 }
 
-class _ProgressPageState extends State<ProgressPage> {
+class _ProgressPageState extends State<ProgressPage>
+    with ToolHandleHost<ProgressPage> {
+  @override
+  String get toolId => 'work_progress';
+  @override
+  Set<String> get supportedFields => const {'project', 'period'};
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 2 ||
+        !fields.keys.toSet().containsAll(supportedFields) ||
+        fields['project'] is! String ||
+        fields['period'] != 'today') {
+      return fields.keys.toSet();
+    }
+    final all = (await _dao.listAll()).where((e) => !e.isDeleted).toList();
+    final requested = (fields['project'] as String).trim();
+    var project = '';
+    if (requested.isNotEmpty) {
+      final matches = progressProjects(all)
+          .where((p) => p.toLowerCase() == requested.toLowerCase());
+      if (matches.isEmpty) return {'project'};
+      project = matches.first;
+    }
+    final scope = await widget.store.load(project, '');
+    if (!mounted) return fields.keys.toSet();
+    setState(() {
+      _all = all;
+      _filter = ProgressFilter(project: project, period: ProgressPeriod.today);
+      _scope = scope;
+      _failed = false;
+    });
+    return {};
+  }
+
   late final WeldJournalDao _dao = widget.dao ?? WeldJournalDao();
 
   /// Nieusunięte wpisy dziennika.
@@ -127,6 +162,7 @@ class _ProgressPageState extends State<ProgressPage> {
       _scope = scope;
       _loading = false;
     });
+    if (!failed) markReady();
   }
 
   /// Projekt / pakiet, którego już nie ma w dzienniku (zmieniona nazwa,
@@ -167,8 +203,8 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   Future<void> _openJournal() async {
-    await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
     if (!mounted) return;
     await _load();
   }
@@ -216,8 +252,8 @@ class _ProgressPageState extends State<ProgressPage> {
     final week = _scope.week;
     final summary = summarizeProgress(_filter.apply(_all, today));
     final scopeSummary = summarizeProgress(scope);
-    final pace = computePace(scope,
-        today: today, week: week, workingDays: _paceDays);
+    final pace =
+        computePace(scope, today: today, week: week, workingDays: _paceDays);
     final s = _scope;
     ProgressForecast? forecast;
     if (s.hasTotal) {
@@ -441,8 +477,7 @@ class _ProgressPageState extends State<ProgressPage> {
                   child: Text(_tr('Wszystkie projekty', 'All projects'))),
               for (final p in projects)
                 DropdownMenuItem(
-                    value: p,
-                    child: Text(p, overflow: TextOverflow.ellipsis)),
+                    value: p, child: Text(p, overflow: TextOverflow.ellipsis)),
             ],
             onChanged: (p) =>
                 unawaited(_changeScope(project: p ?? '', testPackage: '')),
@@ -623,8 +658,7 @@ class _ProgressPageState extends State<ProgressPage> {
         for (final n in notes)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text(n,
-                style: const TextStyle(fontSize: 12, color: kWarn)),
+            child: Text(n, style: const TextStyle(fontSize: 12, color: kWarn)),
           ),
       ],
     );
@@ -645,7 +679,8 @@ class _ProgressPageState extends State<ProgressPage> {
         Wrap(
           spacing: 6,
           children: [
-            _chip<bool>(true, _chartDi, 'DI', (x) => setState(() => _chartDi = x),
+            _chip<bool>(
+                true, _chartDi, 'DI', (x) => setState(() => _chartDi = x),
                 key: const ValueKey('progress-chart-di')),
             _chip<bool>(false, _chartDi, _tr('Spoiny', 'Welds'),
                 (x) => setState(() => _chartDi = x),
@@ -701,7 +736,9 @@ class _ProgressPageState extends State<ProgressPage> {
             _chip<bool>(false, _sortByRepairs, _tr('najwięcej DI', 'most DI'),
                 (x) => setState(() => _sortByRepairs = x),
                 key: const ValueKey('progress-sort-di')),
-            _chip<bool>(true, _sortByRepairs,
+            _chip<bool>(
+                true,
+                _sortByRepairs,
                 _tr('najwięcej napraw', 'most repairs'),
                 (x) => setState(() => _sortByRepairs = x),
                 key: const ValueKey('progress-sort-repairs')),
@@ -777,7 +814,8 @@ class _ProgressPageState extends State<ProgressPage> {
                 onPressed: () => unawaited(_pickDue()),
                 icon: const Icon(Icons.event_outlined),
                 label: Text(s.due.isEmpty
-                    ? _tr('Termin: ustaw (opcjonalnie)', 'Deadline: set (optional)')
+                    ? _tr('Termin: ustaw (opcjonalnie)',
+                        'Deadline: set (optional)')
                     : '${_tr('Termin', 'Deadline')}: ${dayLabel(s.dueDate!, en: en)}'),
               ),
             ),
@@ -804,7 +842,8 @@ class _ProgressPageState extends State<ProgressPage> {
         ),
         if (f == null)
           Text(
-            _tr('Wpisz zakres, a pokażę % wykonania, datę końca przy obecnym '
+            _tr(
+                'Wpisz zakres, a pokażę % wykonania, datę końca przy obecnym '
                     'tempie i ile trzeba robić dziennie na termin.',
                 'Enter the scope to see % done, the finish date at the current '
                     'pace and the daily output needed for the deadline.'),
@@ -947,8 +986,10 @@ class _WelderRow extends StatelessWidget {
               rate == null
                   ? (q.repairs > 0
                       ? context.tr(
-                          pl: 'brak wyników RT/UT — naprawiane ${q.repairedWelds} z ${q.welds}',
-                          en: 'no RT/UT results — repaired ${q.repairedWelds} of ${q.welds}')
+                          pl:
+                              'brak wyników RT/UT — naprawiane ${q.repairedWelds} z ${q.welds}',
+                          en:
+                              'no RT/UT results — repaired ${q.repairedWelds} of ${q.welds}')
                       : context.tr(
                           pl: 'odsetek napraw: brak wyników RT/UT',
                           en: 'repair rate: no RT/UT results'))

@@ -23,7 +23,7 @@ Future<JournalSnapshot> readLocalJournal({required String? ownerStamp}) async {
   ]);
 }
 
-Future<JournalSnapshot> _readCurrent() async => readLocalJournal(
+Future<JournalSnapshot> readCurrentJournal() async => readLocalJournal(
     ownerStamp: (await WelderIdentityService.instance.get())?.stamp);
 
 final _lastQuery = RegExp(
@@ -42,7 +42,7 @@ final _mentionsProject = RegExp(
     r'\s+(?:w projekcie|z projektu|in (?:the )?project|from (?:the )?project) .+$');
 
 class JournalLastSkill extends AssistantSkill {
-  JournalLastSkill({JournalReader? load}) : _load = load ?? _readCurrent;
+  JournalLastSkill({JournalReader? load}) : _load = load ?? readCurrentJournal;
   final JournalReader _load;
 
   @override

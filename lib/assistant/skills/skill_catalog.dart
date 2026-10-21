@@ -19,6 +19,7 @@ import 'own_data/instruments_due_skill.dart';
 import 'own_data/certificates_expiry_skill.dart';
 import 'own_data/journal_last_skill.dart';
 import 'own_data/electrodes_status_skill.dart';
+import 'own_data/progress_today_skill.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog(
@@ -42,6 +43,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(CertificatesExpirySkill(load: certificates));
   all.add(JournalLastSkill(load: journal));
   all.add(ElectrodesStatusSkill(load: electrodes));
+  all.add(ProgressTodaySkill(load: journal));
   //   all.addAll(isoSkills());            // 3.2
   return List.unmodifiable(all);
 }
