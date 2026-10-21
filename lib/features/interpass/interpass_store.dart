@@ -7,6 +7,7 @@
 // (zapis przy każdej zmianie, odczyt po powrocie zawsze widzi ostatni zapis).
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +32,8 @@ class InterpassStoreFull implements Exception {
 }
 
 class InterpassStore {
+  static final changes = ValueNotifier<int>(0);
+
   static const String key = 'interpass_log_v1';
 
   /// Kopia nieczytelnego zapisu — zanim pierwszy zapis go nadpisze.
@@ -114,6 +117,7 @@ class InterpassStore {
     final ok = await prefs.setString(
         key, jsonEncode(interpassLogToJson(sortInterpassWelds(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    changes.value++;
   }
 
   /// Zapisuje (nową albo zmienioną) spoinę. Pusta spoina (nic nie wpisano)
@@ -141,6 +145,27 @@ class InterpassStore {
         final i = list.indexWhere((w) => w.id == id);
         if (i < 0) return false;
         list[i] = change(list[i]);
+        await _write(list);
+        return true;
+      });
+
+  /// Optimistic, serialised replacement for a previewed assistant operation.
+  /// A corrupt log, removed record or later manual edit must never be replaced.
+  Future<bool> replaceIfUnchanged(
+          InterpassWeld expected, InterpassWeld replacement) =>
+      _serial(() async {
+        if (expected.id != replacement.id || replacement.isBlank) return false;
+        final load = await _loadNow();
+        if (load.corrupt) return false;
+        final list = [...load.welds];
+        final matches =
+            list.indexed.where((e) => e.$2.id == expected.id).toList();
+        if (matches.length != 1 ||
+            jsonEncode(matches.single.$2.toJson()) !=
+                jsonEncode(expected.toJson())) {
+          return false;
+        }
+        list[matches.single.$1] = replacement;
         await _write(list);
         return true;
       });

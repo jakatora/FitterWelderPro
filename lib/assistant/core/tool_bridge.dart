@@ -4,6 +4,10 @@ import '../../app_navigator.dart';
 import '../../widgets/tool_registry.dart';
 import 'skill.dart';
 
+abstract interface class RecordToolHandle {
+  String? get selectedRecordId;
+}
+
 abstract class ToolHandle {
   String get toolId;
   Set<String> get supportedFields;
@@ -30,7 +34,15 @@ class _Waiter {
 
 /// Handles belong to route instances, not tool IDs: hidden copies never
 /// receive a command intended for the visible screen.
-class ToolBridge implements ModuleContext {
+class ToolBridge implements ModuleContext, RecordModuleContext {
+  @override
+  String? selectedRecordId(String toolId) {
+    final handle = current;
+    return handle?.toolId == toolId && handle is RecordToolHandle
+        ? (handle as RecordToolHandle).selectedRecordId
+        : null;
+  }
+
   ToolBridge() {
     appRoutes.addListener(_completeWaiters);
   }

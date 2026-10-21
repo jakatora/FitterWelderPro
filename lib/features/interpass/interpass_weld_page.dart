@@ -8,6 +8,8 @@
 // werdyktu (lib/domain/welding/interpass_log.dart).
 
 import 'dart:async';
+import 'dart:convert';
+import '../../assistant/core/tool_bridge.dart';
 
 import 'package:flutter/material.dart';
 
@@ -52,7 +54,41 @@ class InterpassWeldPage extends StatefulWidget {
   State<InterpassWeldPage> createState() => _InterpassWeldPageState();
 }
 
-class _InterpassWeldPageState extends State<InterpassWeldPage> {
+class _InterpassWeldPageState extends State<InterpassWeldPage>
+    with ToolHandleHost<InterpassWeldPage>
+    implements RecordToolHandle {
+  @override
+  String get toolId => 'interpass';
+  @override
+  String? get selectedRecordId => _w.id;
+  @override
+  Set<String> get supportedFields => const {'weld_id'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 1 || fields['weld_id'] != _w.id) {
+      return fields.keys.toSet();
+    }
+    return await _reloadRecord() ? {} : {'weld_id'};
+  }
+
+  Future<bool> _reloadRecord() async {
+    final before = jsonEncode(_w.toJson());
+    final load = await widget.store.load();
+    final found = load.welds.where((w) => w.id == _w.id).toList();
+    if (!mounted ||
+        load.corrupt ||
+        found.length != 1 ||
+        before != jsonEncode(_w.toJson())) {
+      return false;
+    }
+    setState(() => _w = found.single);
+    return true;
+  }
+
+  void _onStoreChanged() {
+    unawaited(_reloadRecord().catchError((Object _) => false));
+  }
+
   late InterpassWeld _w = widget.initial;
   late InterpassUnit _unit = widget.unit;
   bool _busy = false;
@@ -83,7 +119,15 @@ class _InterpassWeldPageState extends State<InterpassWeldPage> {
   bool? _mMelted;
 
   @override
+  void initState() {
+    super.initState();
+    InterpassStore.changes.addListener(_onStoreChanged);
+    markReady();
+  }
+
+  @override
   void dispose() {
+    InterpassStore.changes.removeListener(_onStoreChanged);
     for (final c in [
       _weldNo,
       _desc,

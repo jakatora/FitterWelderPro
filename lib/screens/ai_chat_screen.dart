@@ -2547,30 +2547,37 @@ class _HistoryPage extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          e.kind == 'confined_space.prepare'
+                          e.kind == 'interpass.reading'
                               ? (e.undone
-                                  ? tr(
-                                      'Szkic przestrzeni zamkniętej — cofnięty',
-                                      'Confined space draft — undone')
-                                  : tr('Szkic przestrzeni zamkniętej',
-                                      'Confined space draft'))
-                              : e.kind == 'hot_work.prepare'
+                                  ? tr('Pomiar temperatury — cofnięty',
+                                      'Temperature reading — undone')
+                                  : tr(
+                                      'Pomiar temperatury', 'Temperature reading'))
+                              : e.kind == 'confined_space.prepare'
                                   ? (e.undone
-                                      ? tr('Szkic prac gorących — cofnięty',
-                                          'Hot work draft — undone')
-                                      : tr('Szkic prac gorących',
-                                          'Hot work draft'))
-                                  : e.kind == kIntentAddWeldJournalEntry
+                                      ? tr(
+                                          'Szkic przestrzeni zamkniętej — cofnięty',
+                                          'Confined space draft — undone')
+                                      : tr('Szkic przestrzeni zamkniętej',
+                                          'Confined space draft'))
+                                  : e.kind == 'hot_work.prepare'
                                       ? (e.undone
-                                          ? tr('Wpis do dziennika — cofnięty',
-                                              'Journal entry — undone')
-                                          : tr('Wpis do dziennika spoin',
-                                              'Weld journal entry'))
-                                      : (e.undone
-                                          ? tr('Zapis parametru — cofnięty',
-                                              'Parameter saved — undone')
-                                          : tr('Zapis parametru',
-                                              'Parameter saved')),
+                                          ? tr('Szkic prac gorących — cofnięty',
+                                              'Hot work draft — undone')
+                                          : tr('Szkic prac gorących',
+                                              'Hot work draft'))
+                                      : e.kind == kIntentAddWeldJournalEntry
+                                          ? (e.undone
+                                              ? tr(
+                                                  'Wpis do dziennika — cofnięty',
+                                                  'Journal entry — undone')
+                                              : tr('Wpis do dziennika spoin',
+                                                  'Weld journal entry'))
+                                          : (e.undone
+                                              ? tr('Zapis parametru — cofnięty',
+                                                  'Parameter saved — undone')
+                                              : tr('Zapis parametru',
+                                                  'Parameter saved')),
                           style: const TextStyle(
                               color: _kTextPrimary,
                               fontWeight: FontWeight.w800),

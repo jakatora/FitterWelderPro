@@ -6,6 +6,7 @@
 // (lib/domain/welding/interpass_log.dart).
 
 import 'dart:async';
+import '../../assistant/core/tool_bridge.dart';
 
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -77,7 +78,36 @@ class InterpassPage extends StatefulWidget {
   State<InterpassPage> createState() => _InterpassPageState();
 }
 
-class _InterpassPageState extends State<InterpassPage> {
+class _InterpassPageState extends State<InterpassPage>
+    with ToolHandleHost<InterpassPage> {
+  @override
+  String get toolId => 'interpass';
+  @override
+  Set<String> get supportedFields => const {'weld_id'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 1 || fields['weld_id'] is! String) {
+      return fields.keys.toSet();
+    }
+    final load = await widget.store.load();
+    final found = load.welds.where((w) => w.id == fields['weld_id']).toList();
+    if (!mounted || load.corrupt || found.length != 1) return {'weld_id'};
+    unawaited(_open(found.single));
+    return {};
+  }
+
+  void _onStoreChanged() {
+    if (mounted && (ModalRoute.of(context)?.isCurrent ?? true)) {
+      unawaited(_reload());
+    }
+  }
+
+  @override
+  void dispose() {
+    InterpassStore.changes.removeListener(_onStoreChanged);
+    super.dispose();
+  }
+
   List<InterpassWeld>? _items;
   bool _corrupt = false;
   bool _loadFailed = false;
@@ -86,6 +116,7 @@ class _InterpassPageState extends State<InterpassPage> {
   @override
   void initState() {
     super.initState();
+    InterpassStore.changes.addListener(_onStoreChanged);
     unawaited(_reload());
   }
 
@@ -105,6 +136,7 @@ class _InterpassPageState extends State<InterpassPage> {
         _loadFailed = false;
         _unit = unit;
       });
+      if (!load.corrupt) markReady();
     } catch (e) {
       debugPrint('[interpass] load failed: $e');
       if (!mounted) return;
@@ -126,6 +158,7 @@ class _InterpassPageState extends State<InterpassPage> {
 
   Future<void> _open(InterpassWeld weld) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'tool:interpass'),
       builder: (_) => InterpassWeldPage(
         initial: weld,
         unit: _unit,

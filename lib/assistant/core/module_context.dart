@@ -20,3 +20,8 @@ class FixedModuleContext implements ModuleContext {
   @override
   final bool onHomeOrAssistant;
 }
+
+/// A module can expose the selected persisted record without exposing widgets.
+abstract interface class RecordModuleContext {
+  String? selectedRecordId(String toolId);
+}
