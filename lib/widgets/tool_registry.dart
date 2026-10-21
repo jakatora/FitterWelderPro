@@ -2521,6 +2521,7 @@ final List<ToolSpec> kToolRegistry = [
     color: const Color(0xFF9CCC65),
     builder: (_) => const InstrumentRegisterPage(),
     keywordsPl: const [
+      'rejestr przyrządów',
       'kalibracja',
       'wzorcowanie',
       'walidacja',
