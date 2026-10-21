@@ -64,6 +64,13 @@ abstract class AssistantSkill {
   /// false = zmienia dane → [ConfirmResult].
   bool get readOnly => true;
 
+  /// Opt-in when native continuation would reuse stale conversation fields.
+  bool get contextualEditsNeedAi => false;
+
+  /// Checks newly supplied quantities before merging earlier fields.
+  bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
+      false;
+
   /// These slots accept the user's literal prose. A valid native reply must
   /// not require cloud interpretation or be rewritten by a language model.
   Set<String> get literalReplySlots => const {};
@@ -114,7 +121,10 @@ abstract class AssistantSkill {
 
 class SkillMatch {
   const SkillMatch(this.skill, this.score,
-      {this.slots = const {}, this.missing = const [], this.utterance});
+      {this.slots = const {},
+      this.missing = const [],
+      this.utterance,
+      this.requiresAiInterpretation = false});
 
   final AssistantSkill skill;
 
@@ -126,16 +136,22 @@ class SkillMatch {
   final List<String> missing;
   final Utterance? utterance;
 
+  /// The topic matches, but executing would omit part of the user's input.
+  final bool requiresAiInterpretation;
+
   SkillMatch copyWith({
     double? score,
     Map<String, Object?>? slots,
     List<String>? missing,
     Utterance? utterance,
+    bool? requiresAiInterpretation,
   }) =>
       SkillMatch(skill, score ?? this.score,
           slots: slots ?? this.slots,
           missing: missing ?? this.missing,
-          utterance: utterance ?? this.utterance);
+          utterance: utterance ?? this.utterance,
+          requiresAiInterpretation:
+              requiresAiInterpretation ?? this.requiresAiInterpretation);
 
   @override
   String toString() => 'SkillMatch(${skill.id}, $score, $slots)';

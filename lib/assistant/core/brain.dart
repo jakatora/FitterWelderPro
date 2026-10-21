@@ -20,8 +20,8 @@
 //   5. „nie rozumiem" z 3 propozycjami narzędzi;
 //   6. wyjątek w `run` → [FailedResult] (karta „Nie udało się").
 //
-// Polecenie rozpoznane tutaj nigdy nie idzie na serwer (spec §3.7) — mózg
-// nie ma klienta HTTP.
+// W pełni rozpoznane polecenia mogą pozostać lokalne. Niepełne rozpoznanie
+// oznaczamy dla warstwy AI; sam mózg nie ma klienta HTTP.
 
 import 'dart:async';
 
@@ -132,12 +132,37 @@ class AssistantBrain {
   /// offline. Generic knowledge fallback must not swallow free-form AI input.
   bool recognizesLocalRequest(Utterance u, AssistantContext ctx) {
     if (isNegatedCommand(u)) return false;
-    if (_scoreRegular([u], ctx).any((s) => s.score >= threshold)) return true;
+    final candidates = _scoreRegular([u], ctx);
+    if (candidates.any((s) =>
+        s.score >= threshold &&
+        candidates.first.score - s.score < ambiguityGap &&
+        s.match.requiresAiInterpretation)) {
+      return false;
+    }
+    if (candidates.any((s) => s.score >= threshold)) return true;
     return _fallbacks.where((s) => s.fallbackOrder != 3).any((s) {
       final match = _safeMatch(s, u, ctx);
       return match != null && match.score >= threshold;
     });
   }
+
+  /// A strong, independently matched new intent may supersede a pending
+  /// question while still needing AI to normalize the rest of its parameters.
+  bool requiresInterpretation(Utterance u, AssistantContext ctx) {
+    if (isNegatedCommand(u)) return false;
+    return _regular.any((skill) {
+      final match = _safeMatch(skill, u, ctx);
+      return match != null &&
+          match.score >= _newCommandScore &&
+          match.requiresAiInterpretation;
+    });
+  }
+
+  static const _interpretationRequired = FailedResult(
+      AssistantText(
+          'Nie rozpoznałem wszystkich parametrów. Doprecyzuj polecenie albo spróbuj ponownie z AI.',
+          'I could not interpret all parameters. Clarify the request or retry with AI.'),
+      reportMissingCapability: false);
 
   /// Pytanie, na które asystent czeka.
   AskResult? get pending => _pending;
@@ -156,6 +181,10 @@ class AssistantBrain {
     Map<String, Object?>? slots;
     try {
       slots = p.partial.skill.fillSlot(p.slot, u, ctx);
+      if (slots != null &&
+          p.partial.skill.requiresInterpretationFor(u, slots)) {
+        return false;
+      }
     } catch (_) {
       return false;
     }
@@ -224,6 +253,10 @@ class AssistantBrain {
       try {
         values = expected.partial.skill
             .fillProposalSlot(expected.slot, command, original, context);
+        if (values != null &&
+            expected.partial.skill.requiresInterpretationFor(command, values)) {
+          return BrainReply(expected, match: expected.partial);
+        }
       } catch (_) {
         return BrainReply(expected, match: expected.partial);
       }
@@ -304,6 +337,9 @@ class AssistantBrain {
       final match = _safeMatch(skill, command, context);
       if (match == null || match.score < threshold) {
         return _notUnderstood(original);
+      }
+      if (match.requiresAiInterpretation) {
+        return BrainReply(_interpretationRequired, match: match);
       }
       cancelPending();
       return _run(match, context, null);
@@ -389,17 +425,24 @@ class AssistantBrain {
     if (p.slot == 'skill' && _tie != null) return null;
     for (final c in cands) {
       Map<String, Object?>? slots;
+      var needsAi = p.partial.requiresAiInterpretation;
       try {
         slots = p.partial.skill.fillSlot(p.slot, c, ctx);
+        if (slots != null) {
+          needsAi =
+              needsAi || p.partial.skill.requiresInterpretationFor(c, slots);
+        }
       } catch (e) {
+        slots = null;
         debugPrint('Asystent: fillSlot ${p.partial.skill.id}: $e');
       }
       if (slots == null) continue;
-      cancelPending();
+      if (!needsAi) cancelPending();
       final m = p.partial.copyWith(
           slots: {...p.partial.slots, ...slots},
           missing: const [],
-          utterance: c);
+          utterance: c,
+          requiresAiInterpretation: needsAi);
       return (m, c == cands.first ? null : c.raw);
     }
     return null;
@@ -488,8 +531,12 @@ class AssistantBrain {
     final marker = c.isContinuation;
     if (!marker && ctx.recentMatch(within: kAppendWindow) == null) return null;
     Map<String, Object?> slots;
+    bool needsAi;
     try {
       slots = last.skill.slotsFrom(c, ctx);
+      needsAi = last.requiresAiInterpretation ||
+          last.skill.contextualEditsNeedAi ||
+          last.skill.requiresInterpretationFor(c, slots);
     } catch (e) {
       debugPrint('Asystent: slotsFrom ${last.skill.id}: $e');
       return null;
@@ -500,6 +547,7 @@ class AssistantBrain {
       slots: {...last.slots, ...slots},
       missing: const [],
       utterance: c,
+      requiresAiInterpretation: needsAi,
     );
   }
 
@@ -561,6 +609,10 @@ class AssistantBrain {
 
   Future<BrainReply> _run(
       SkillMatch m, AssistantContext ctx, String? usedAlternative) async {
+    if (m.requiresAiInterpretation) {
+      return BrainReply(_interpretationRequired,
+          match: m, usedAlternative: usedAlternative);
+    }
     SkillResult r;
     try {
       r = await m.skill.run(m, ctx);

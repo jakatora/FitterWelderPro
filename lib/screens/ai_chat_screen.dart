@@ -760,8 +760,21 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     final sequence = _compoundAction.firstMatch(u.folded);
     final compound = sequence != null && sequence.start > 0;
-    final pending = _brain.pending;
+    final currentPending = _brain.pending;
     _brainContext.lang = lang;
+    final supersedesPending = currentPending != null &&
+        _brain.requiresInterpretation(u, _brainContext);
+    if (supersedesPending) {
+      _aiQueue.cancel();
+      _brain.cancelPending();
+      _clearIsoQuestion();
+      setState(() {
+        _localResult = null;
+        _aiQuestion = null;
+        _question = null;
+      });
+    }
+    final pending = supersedesPending ? null : currentPending;
     final relational = pendingReplyNeedsInterpretation(u);
     if (pending != null &&
         (_brain.canAnswerPendingDirectly(u, _brainContext) ||

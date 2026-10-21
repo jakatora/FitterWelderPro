@@ -1,5 +1,6 @@
 import '../../../i18n/app_language.dart';
 import '../../core/skill.dart';
+import '../../core/command_words.dart' show pendingReplyNeedsInterpretation;
 import '../core/skill_words.dart' show fmt;
 import '../fitter_routes/quantities.dart' show signedQuantity, lengthUnitScale;
 import '../../../domain/welding/welder_calculator_input.dart';
@@ -94,6 +95,69 @@ double? _scale(_Unit kind, String word) {
   };
 }
 
+double? _flowScale(Utterance u, int number) {
+  if (number + 1 >= u.items.length) return null;
+  final volume = u.items[number + 1].word;
+  if (volume == 'lpm') return 1;
+  final litres = _scale(_Unit.litres, volume) != null
+      ? 1.0
+      : volume == 'ml' ||
+              volume.startsWith('mililitr') ||
+              volume.startsWith('millilitr') ||
+              volume.startsWith('milliliter')
+          ? 0.001
+          : null;
+  if (litres == null) return null;
+  var denominator = number + 2;
+  if (denominator < u.items.length &&
+      const {'na', 'per', 'a'}.contains(u.items[denominator].word)) {
+    denominator++;
+  }
+  if (denominator >= u.items.length || u.items[denominator].isNumber) {
+    return null;
+  }
+  final minutes = _scale(_Unit.minutes, u.items[denominator].word);
+  return minutes == null ? null : litres / minutes;
+}
+
+// A labelled quantity we do not understand is different from two competing
+// values for one field. Preserve the former for AI; reject the latter locally.
+bool _unparsedClause(Utterance u, int index) {
+  if (index + 1 >= u.items.length ||
+      u.items[index].isNumber ||
+      !u.items[index + 1].isNumber) {
+    return false;
+  }
+  final word = u.items[index].word;
+  if (_quantityLabels.contains(word) ||
+      const {
+        'albo',
+        'lub',
+        'or',
+        'and',
+        'i',
+        'zamiast',
+        'rather',
+        'than',
+        'minus',
+        'kg',
+        'g',
+        't',
+        'a',
+        'v'
+      }.contains(word)) {
+    return false;
+  }
+  return !_Unit.values
+      .where((k) => k != _Unit.count)
+      .any((k) => _scale(k, word) != null);
+}
+
+bool _requiresInterpretation(Utterance u, Map<String, Object?> slots) =>
+    pendingReplyNeedsInterpretation(u) ||
+    (slots.values.every((v) => v is num && v.isFinite) &&
+        u.items.where((i) => i.isNumber).length > slots.length);
+
 double? _number(Utterance u, _Field field) {
   final found = <double>{};
   for (var i = 0; i < u.items.length; i++) {
@@ -101,8 +165,26 @@ double? _number(Utterance u, _Field field) {
       continue;
     }
     var j = i + 1;
+    if (field.unit == _Unit.count && i > 0 && u.items[i - 1].isNumber) {
+      if (j < u.items.length && u.items[j].isNumber) {
+        found.add(double.nan);
+        continue;
+      }
+      j = i - 1;
+    }
     while (j < u.items.length &&
-        const {'na', 'of', 'is', 'wynosi', 'minus'}.contains(u.items[j].word)) {
+        const {
+          'na',
+          'of',
+          'is',
+          'wynosi',
+          'minus',
+          'ma',
+          'to',
+          'po',
+          'przez',
+          'for'
+        }.contains(u.items[j].word)) {
       j++;
     }
     if (j >= u.items.length || !u.items[j].isNumber) {
@@ -114,12 +196,23 @@ double? _number(Utterance u, _Field field) {
       }
     }
     final unit = j + 1 < u.items.length ? u.items[j + 1].word : '';
-    final factor = _scale(field.unit, unit);
+    final rate = _flowScale(u, j);
+    final nextClause = _unparsedClause(u, j + 1);
+    final factor = field.unit == _Unit.flow
+        ? rate
+        : field.unit == _Unit.litres && rate != null
+            ? null
+            : field.unit == _Unit.count && nextClause
+                ? 1.0
+                : _scale(field.unit, unit);
     var extraNumber =
         field.unit == _Unit.count && j > i && i > 0 && u.items[i - 1].isNumber;
-    if (!_quantityLabels.contains(unit)) {
+    if (!_quantityLabels.contains(unit) && !nextClause) {
       for (var k = j + 2; k < u.items.length; k++) {
-        if (_quantityLabels.contains(u.items[k].word)) break;
+        if (_quantityLabels.contains(u.items[k].word) ||
+            _unparsedClause(u, k)) {
+          break;
+        }
         if (u.items[k].isNumber) {
           extraNumber = true;
           break;
@@ -161,6 +254,23 @@ abstract class _WelderGasCalculation extends AssistantSkill {
   String get toolId => 'welder_calculators';
   @override
   AssistantTier get tier => AssistantTier.b;
+  @override
+  bool get contextualEditsNeedAi => true;
+  @override
+  bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
+      _requiresInterpretation(u, supplied);
+  @override
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+      Utterance original, AssistantContext ctx) {
+    final values = fillSlot(slot, command, ctx);
+    if (values == null) return null;
+    if (!pendingReplyNeedsInterpretation(original) &&
+        _requiresInterpretation(original, {slot: values[slot]})) {
+      return null;
+    }
+    return values;
+  }
+
   @override
   Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) =>
       _parse(u, _definitions);
@@ -225,7 +335,10 @@ class GasConsumptionSkill extends _WelderGasCalculation {
     }
     final slots = slotsFrom(u, ctx);
     return _calculate(u) || slots.isNotEmpty
-        ? SkillMatch(this, .94, slots: slots, utterance: u)
+        ? SkillMatch(this, .94,
+            slots: slots,
+            utterance: u,
+            requiresAiInterpretation: _requiresInterpretation(u, slots))
         : null;
   }
 
@@ -342,11 +455,15 @@ class PurgeEstimateSkill extends _WelderGasCalculation {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (_explainOrOpen(u) ||
-        !u.hasStem(const ['formowan', 'purge']) ||
+        !(u.hasStem(const ['formowan']) || u.hasAny(const ['purge'])) ||
         !_calculate(u)) {
       return null;
     }
-    return SkillMatch(this, .94, slots: slotsFrom(u, ctx), utterance: u);
+    final slots = slotsFrom(u, ctx);
+    return SkillMatch(this, .94,
+        slots: slots,
+        utterance: u,
+        requiresAiInterpretation: _requiresInterpretation(u, slots));
   }
 
   @override
