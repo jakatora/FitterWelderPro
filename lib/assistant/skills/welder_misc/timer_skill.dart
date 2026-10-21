@@ -20,6 +20,94 @@ bool _start(Utterance u) => u.hasStem(const [
       'odlicz'
     ]);
 bool _cool(Utterance u) => u.hasStem(const ['chlodzen', 'cooldown', 'cooling']);
+bool _set(Utterance u) =>
+    u.hasStem(const ['ustaw', 'zmien', 'set', 'change', 'configure']);
+
+const _literalWords = {
+  'na',
+  'to',
+  'the',
+  'a',
+  'of',
+  'at',
+  'for',
+  'using',
+  'czas',
+  'time',
+  'duration',
+  'limit',
+  'c',
+  's',
+  'h',
+  'tak',
+  'nie',
+  'yes',
+  'no',
+  'or',
+  'and',
+  'albo',
+  'lub',
+  'czy',
+  'minus',
+  'stop',
+  'prosze',
+  'please',
+  'mi',
+  'me',
+  'my',
+  'teraz',
+  'now',
+  'keep',
+  'wps',
+  'wedlug',
+  'wg',
+};
+const _literalStems = [
+  'timer',
+  'stoper',
+  'stopwatch',
+  'odlicz',
+  'chlodzen',
+  'cooldown',
+  'cooling',
+  'formowan',
+  'purge',
+  'spawan',
+  'welding',
+  'uruchom',
+  'wlacz',
+  'start',
+  'rozpocz',
+  'wznow',
+  'resume',
+  'zatrzymaj',
+  'pauz',
+  'pause',
+  'wyzeruj',
+  'reset',
+  'ustaw',
+  'zmien',
+  'set',
+  'change',
+  'configure',
+  'obliczon',
+  'obliczen',
+  'wyliczon',
+  'calculated',
+  'wynik',
+  'result',
+  'sek',
+  'sec',
+  'min',
+  'godzin',
+  'hour',
+  'cels',
+  'replace',
+  'zastap',
+  'zostaw',
+  'cancel',
+  'anuluj',
+];
 
 Map<String, Object?> _slots(Utterance original) {
   final u = original
@@ -95,7 +183,81 @@ class TimerSkill extends AssistantSkill {
   @override
   AssistantTier get tier => AssistantTier.b;
   @override
+  bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
+      pendingReplyNeedsInterpretation(u) ||
+      u.raw.contains('%') ||
+      u.items.any((i) =>
+          !i.isNumber &&
+          !_literalWords.contains(i.word) &&
+          !_literalStems.any(i.word.startsWith)) ||
+      action == 'stop' &&
+          (supplied.containsKey('seconds') || supplied.containsKey('max_c'));
+  @override
+  bool acceptsProposal(
+      Utterance original, Utterance command, AssistantContext context) {
+    final clauses = original.folded
+        .split(RegExp(r'\b(?:potem|nastepnie|pozniej|then|after that)\b'));
+    final timerClauses =
+        clauses.where((c) => _topic(original.withRaw(c))).toList();
+    final intent = timerClauses.isEmpty
+        ? original
+        : original.withRaw(timerClauses.join(' '));
+    final supplied = _slots(intent), normalized = _slots(command);
+    final originalMode = supplied['mode'];
+    var proposedMode = normalized['mode'];
+    if (proposedMode == null) {
+      final modules = context.modules;
+      final visible = modules is FieldModuleContext
+          ? (modules as FieldModuleContext).inputFields(toolId)
+          : null;
+      if (visible?['tab'] == 'timer') proposedMode = visible?['mode'];
+    }
+    if (originalMode != null &&
+        originalMode != 'ambiguous' &&
+        proposedMode != originalMode) {
+      return false;
+    }
+    if (supplied['resume'] == true &&
+        (normalized['resume'] != true ||
+            supplied.containsKey('seconds') ||
+            supplied.containsKey('max_c') ||
+            pendingReplyNeedsInterpretation(intent))) {
+      return false;
+    }
+    if (_set(intent) && !_start(intent) && !_stop(intent)) {
+      return action == 'set';
+    }
+    if (_start(intent) && !_set(intent) && !_stop(intent)) {
+      return action != 'set' && action != 'stop';
+    }
+    if (_stop(intent) && !_set(intent) && !_start(intent)) {
+      if ((supplied['reset'] == true) != (normalized['reset'] == true)) {
+        return false;
+      }
+      if (pendingReplyNeedsInterpretation(intent) ||
+          supplied.containsKey('seconds') ||
+          supplied.containsKey('max_c')) {
+        return false;
+      }
+      return action == 'stop';
+    }
+    return true;
+  }
+
+  @override
   List<SkillExample> get examples => switch (action) {
+        'set' => const [
+            SkillExample('Ustaw timer chłodzenia 2 minuty',
+                'Set cooldown timer 2 minutes'),
+            SkillExample('Ustaw timer formowania 90 sekund',
+                'Set purge timer 90 seconds'),
+            SkillExample('Zmień czas timera chłodzenia na 3 minuty',
+                'Change cooldown timer to 3 minutes'),
+            SkillExample('Ustaw timer chłodzenia 2 minuty limit 150 C',
+                'Set cooldown timer 2 minutes limit 150 C'),
+            SkillExample('Ustaw stoper spawania', 'Set welding stopwatch'),
+            SkillExample('Ustaw timer 90 sekund', 'Set timer 90 seconds'),
+          ],
         'cool' => const [
             SkillExample(
                 'Uruchom chłodzenie 2 minuty', 'Start cooldown 2 minutes'),
@@ -144,11 +306,16 @@ class TimerSkill extends AssistantSkill {
     }
     final chosen = _stop(u)
         ? 'stop'
-        : _cool(u)
-            ? 'cool'
-            : 'start';
+        : _set(u)
+            ? 'set'
+            : _cool(u)
+                ? 'cool'
+                : 'start';
     if (chosen != action ||
-        (!_start(u) && !_stop(u) && !(_cool(u) && u.hasAny(const ['timer'])))) {
+        (!_start(u) &&
+            !_stop(u) &&
+            !_set(u) &&
+            !(_cool(u) && u.hasAny(const ['timer'])))) {
       return null;
     }
     if (u.raw.trim().endsWith('?') ||
@@ -156,7 +323,11 @@ class TimerSkill extends AssistantSkill {
       return null;
     }
     if (kOpenVerbAtStartRe.hasMatch(u.folded) && !_start(u)) return null;
-    return SkillMatch(this, .98, slots: _slots(u), utterance: u);
+    final slots = _slots(u);
+    return SkillMatch(this, .98,
+        slots: slots,
+        utterance: u,
+        requiresAiInterpretation: requiresInterpretationFor(u, slots));
   }
 
   // Bare numeric continuations must never restart a timer.
@@ -185,17 +356,44 @@ class TimerSkill extends AssistantSkill {
     final s = m.slots;
     final timer = _timer();
     if (s['replace'] == false) {
-      return const AnswerResult(AssistantAnswer(
-          text: AssistantText(
-              'Zostawiam obecny timer.', 'Keeping the current timer.')));
+      return const AnswerResult(
+          AssistantAnswer(
+              text: AssistantText(
+                  'Zostawiam obecny timer.', 'Keeping the current timer.')),
+          actionCompleted: false);
     }
     final reset = s['reset'] == true;
+    if (action == 'stop' && s['mode'] != null && s['mode'] != timer.mode.name) {
+      if (!timer.hasProgress) {
+        return const AnswerResult(
+            AssistantAnswer(
+                text: AssistantText(
+                    'Nie ma aktywnego timera w wybranym trybie.',
+                    'There is no active timer in the requested mode.')),
+            actionCompleted: false);
+      }
+      return const FailedResult(AssistantText(
+          'Aktywny timer ma inny tryb. Podaj właściwy tryb albo powiedz „zatrzymaj timer”.',
+          'The active timer has a different mode. Give the matching mode or say “stop timer”.'));
+    }
     if (action == 'stop' && !reset) {
       timer.pause();
       return _answer(timer, 'Timer zatrzymany; czas zachowany.',
           'Timer paused; elapsed time kept.');
     }
-    final modeName = s['mode'];
+    final modules = ctx.modules;
+    final fields = modules is FieldModuleContext
+        ? (modules as FieldModuleContext).inputFields(toolId)
+        : null;
+    final visibleTimer = fields?['tab'] == 'timer' ? fields : null;
+    final previousInputs = s['timer_inputs'];
+    if (previousInputs is Map<String, Object?> &&
+        !mapEquals(previousInputs, visibleTimer)) {
+      return const FailedResult(AssistantText(
+          'Ustawienia timera zmieniły się. Ponów polecenie dla aktualnych danych.',
+          'Timer settings changed. Repeat the request for the current inputs.'));
+    }
+    final modeName = s['mode'] ?? visibleTimer?['mode'];
     if (action != 'stop' && s['resume'] == true) {
       if (s.containsKey('seconds') ||
           s.containsKey('max_c') ||
@@ -227,6 +425,29 @@ class TimerSkill extends AssistantSkill {
             ? WeldTimerMode.purge
             : WeldTimerMode.weld;
     var seconds = s['seconds'] as double?;
+    var durationFromForm = s['duration_from_form'] == true;
+    final fromVisible =
+        visibleTimer != null && visibleTimer['mode'] == modeName;
+    if (action != 'stop' &&
+        s['calculated'] != true &&
+        seconds == null &&
+        fromVisible &&
+        mode != WeldTimerMode.weld) {
+      final value = visibleTimer[
+          mode == WeldTimerMode.cool ? 'cool_minutes' : 'purge_seconds'];
+      final limit =
+          mode == WeldTimerMode.cool ? 600 : WeldTimerService.maxPurgeSeconds;
+      final configured = visibleTimer['target_seconds'];
+      seconds = value is num &&
+              value.isFinite &&
+              value > 0 &&
+              value <= limit &&
+              configured is num &&
+              configured.isFinite
+          ? configured.toDouble()
+          : double.nan;
+      durationFromForm = true;
+    }
     if (s['calculated'] == true &&
         (mode != WeldTimerMode.purge ||
             (seconds != null && s['purge_inputs'] == null))) {
@@ -264,7 +485,31 @@ class TimerSkill extends AssistantSkill {
             'There is no valid result in the open purge calculator. Give a timer duration with a unit, or complete the calculator and repeat the command.');
       }
     }
-    final max = s['max_c'] as double?;
+    var max = s['max_c'] as double?;
+    if (mode == WeldTimerMode.cool &&
+        !s.containsKey('max_c') &&
+        action != 'stop') {
+      if (fromVisible && visibleTimer['max_c_valid'] == false) {
+        return _ask(
+            m,
+            'max_c',
+            'Podaj poprawny limit WPS w °C albo wyczyść pole.',
+            'Enter a valid WPS limit in °C or clear the field.');
+      }
+      if (fromVisible) {
+        max = ((visibleTimer.containsKey('configured_max_c')
+                ? visibleTimer['configured_max_c']
+                : visibleTimer['max_c']) as num?)
+            ?.toDouble();
+      } else if (action == 'set' && timer.mode == WeldTimerMode.cool) {
+        max = timer.maxInterpassC;
+      }
+    }
+    if (max != null && mode != WeldTimerMode.cool) {
+      return const FailedResult(AssistantText(
+          'Limit temperatury dotyczy timera chłodzenia.',
+          'The temperature limit applies to the cooldown timer.'));
+    }
     if (max != null && (!max.isFinite || max <= 0)) {
       return _ask(
           m,
@@ -292,8 +537,10 @@ class TimerSkill extends AssistantSkill {
           'Stoper spawania liczy w górę. Odliczanie wybierz jako chłodzenie lub formowanie.',
           'The welding stopwatch counts up. Choose cooldown or purge for a countdown.'));
     }
-    final sameRunningWeld =
-        action != 'stop' && mode == WeldTimerMode.weld && timer.mode == mode;
+    final sameRunningWeld = action != 'stop' &&
+        action != 'set' &&
+        mode == WeldTimerMode.weld &&
+        timer.mode == mode;
     if (timer.hasProgress &&
         !sameRunningWeld &&
         (s['replace'] != true || s['revision'] != timer.controlRevision)) {
@@ -304,6 +551,13 @@ class TimerSkill extends AssistantSkill {
               'The current timer has progress. Replace it and reset elapsed time?'),
           partial: m.copyWith(slots: {
             ...s,
+            if (visibleTimer != null) ...{
+              'timer_inputs': Map<String, Object?>.from(visibleTimer),
+              'mode': modeName,
+              if (mode != WeldTimerMode.weld) 'seconds': seconds,
+              if (durationFromForm) 'duration_from_form': true,
+              if (mode == WeldTimerMode.cool) 'max_c': max,
+            },
             if (purgeInputs != null) ...{
               'seconds': seconds,
               'purge_inputs': purgeInputs,
@@ -323,11 +577,20 @@ class TimerSkill extends AssistantSkill {
     if (!sameRunningWeld) timer.reset();
     timer.setMode(mode);
     if (mode == WeldTimerMode.cool) {
-      timer.setCoolTime(Duration(milliseconds: (seconds! * 1000).ceil()));
+      final milliseconds = seconds! * 1000;
+      timer.setCoolTime(Duration(
+          milliseconds:
+              durationFromForm ? milliseconds.round() : milliseconds.ceil()));
       timer.setMaxInterpass(
-          max); // No inherited/default 150 °C for a new command.
+          max); // Preserve explicit/visible settings; never invent a WPS limit.
     } else if (mode == WeldTimerMode.purge) {
       timer.setPurgeSeconds(seconds!.ceil());
+    }
+    if (action == 'set') {
+      return _answer(
+          timer,
+          'Timer ustawiony. Odliczanie nie zostało uruchomione.',
+          'Timer configured. The countdown has not been started.');
     }
     timer.start();
     return _answer(

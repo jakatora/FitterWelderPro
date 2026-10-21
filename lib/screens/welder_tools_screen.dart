@@ -60,7 +60,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
     with ToolHandleHost<WelderToolsScreen>
     implements InputToolHandle {
   late TabController _tabs;
-  int _timerRevision = 0;
+  GlobalKey<_WeldTimerTabState> _timerKey = GlobalKey<_WeldTimerTabState>();
   final _gasKey = GlobalKey<_GasConsumptionTabState>();
   final _purgeKey = GlobalKey<_O2PurgeTabState>();
   final _pressureKey = GlobalKey<_PressureConverterTabState>();
@@ -75,7 +75,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
             'tab': 'purge',
             ...?_purgeKey.currentState?.inputFields
           },
-        WelderToolsScreen.tabTimer => {'tab': 'timer'},
+        WelderToolsScreen.tabTimer => {'tab': 'timer', ...?_timerKey.currentState?.inputFields},
         _ => {'tab': 'pressure', ...?_pressureKey.currentState?.inputFields},
       });
   @override
@@ -97,9 +97,17 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
     if (fields.length == 1 && fields['tab'] == 'timer') {
       setState(() {
         _tabs.index = WelderToolsScreen.tabTimer;
-        _timerRevision++;
+        _timerKey = GlobalKey<_WeldTimerTabState>();
       });
-      return {};
+      final refreshed = _timerKey;
+      final waiting = Stopwatch()..start();
+      while (refreshed.currentState == null && waiting.elapsed < const Duration(seconds: 2)) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || _tabs.index != WelderToolsScreen.tabTimer || !identical(_timerKey, refreshed)) {
+          return fields.keys.toSet();
+        }
+      }
+      return refreshed.currentState == null ? fields.keys.toSet() : {};
     }
     final Map<String, Object?> validated;
     final int target;
@@ -126,7 +134,8 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
       return _purgeKey.currentState;
     }
 
-    for (var frame = 0; frame < 4 && state() == null; frame++) {
+    final waiting = Stopwatch()..start();
+    while (state() == null && waiting.elapsed < const Duration(seconds: 2)) {
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted || _tabs.index != target) return fields.keys.toSet();
     }
@@ -162,7 +171,7 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
           body: TabBarView(children: [
             _GasConsumptionTab(key: _gasKey),
             _O2PurgeTab(key: _purgeKey),
-            _WeldTimerTab(key: ValueKey(_timerRevision)),
+            _WeldTimerTab(key: _timerKey),
             _PressureConverterTab(key: _pressureKey),
           ]),
         );
@@ -825,6 +834,24 @@ class _WeldTimerTab extends StatefulWidget {
 
 class _WeldTimerTabState extends State<_WeldTimerTab> {
   final WeldTimerService _timer = WeldTimerService.instance;
+
+  // Stable controls only: elapsed/remaining ticks must not invalidate every
+  // delayed AI reply. Manual controls and finishing do change this snapshot.
+  Map<String, Object?> get inputFields => {
+    'mode': _timer.mode.name,
+    'running': _timer.running,
+    'finished': _timer.finished,
+    'control_revision': _timer.controlRevision,
+    'target_seconds': _timer.target == null ? null : _timer.target!.inMilliseconds / 1000,
+    if (_timer.mode == WeldTimerMode.cool) ...{
+      'cool_minutes': _num(_coolTimeCtrl),
+      'max_c': _num(_maxTempCtrl),
+      'configured_max_c': _timer.maxInterpassC,
+      'max_c_valid': _maxTempCtrl.text.trim().isEmpty || (_num(_maxTempCtrl) != null && _num(_maxTempCtrl)! > 0),
+    },
+    if (_timer.mode == WeldTimerMode.purge)
+      'purge_seconds': int.tryParse(_purgeInputCtrl.text.trim()),
+  };
 
   // Pola startują z wartości serwisu — po powrocie na zakładkę widać to,
   // co spawacz ustawił wcześniej.

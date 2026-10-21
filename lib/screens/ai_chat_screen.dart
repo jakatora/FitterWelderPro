@@ -701,8 +701,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   static final _compoundAction = RegExp(
       r'\b(?:nastepnie|potem|pozniej|then|after that)\s+(?:mi\s+)?'
       r'(?:przypomnij|pokaz|zapisz|zachowaj|dodaj|dopisz|otworz|narysuj|'
-      r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|'
-      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind)\b');
+      r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|uruchom|wlacz|zatrzymaj|wznow|'
+      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind|start|pause|stop|resume)\b');
 
   bool _compoundNeedsAi({bool needsConsent = false}) {
     if (!mounted) return true;

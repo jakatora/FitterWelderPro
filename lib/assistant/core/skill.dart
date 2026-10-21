@@ -71,6 +71,12 @@ abstract class AssistantSkill {
   bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
       false;
 
+  /// Native skills may refuse a model normalization that changes an explicit
+  /// user action (for example, configuring a timer must not start it).
+  bool acceptsProposal(
+          Utterance original, Utterance command, AssistantContext context) =>
+      true;
+
   /// These slots accept the user's literal prose. A valid native reply must
   /// not require cloud interpretation or be rewritten by a language model.
   Set<String> get literalReplySlots => const {};

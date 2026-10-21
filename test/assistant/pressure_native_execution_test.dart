@@ -14,6 +14,16 @@ import 'support/assistant_test_support.dart';
 const screen = WelderToolsScreen(initialTab: WelderToolsScreen.tabPressure);
 void main() {
   useTestDatabase();
+  testWidgets(
+      'extended conversion opens and fills the lazy pressure tab from another tool',
+      (t) async {
+    await mount(t,
+        interpret: (_) async => throw StateError('Exact conversion is local'));
+    await say(t, 'Przelicz 10 mbar na Pa');
+    expect(ToolBridge.instance.inputFields('welder_calculators'),
+        {'tab': 'pressure', 'value': 10, 'from': 'mbar'});
+    expect(find.text('1000'), findsOneWidget);
+  });
   test('pressure domain uses conventional Pa and water-column factors', () {
     expect(convertWelderPressure(1, 'bar')!['Pa'], closeTo(100000, 1e-9));
     expect(convertWelderPressure(1, 'inH₂O')!['mmH₂O'], closeTo(25.4, 1e-10));

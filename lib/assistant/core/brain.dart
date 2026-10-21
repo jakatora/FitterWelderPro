@@ -341,6 +341,17 @@ class AssistantBrain {
       if (match.requiresAiInterpretation) {
         return BrainReply(_interpretationRequired, match: match);
       }
+      try {
+        if (!skill.acceptsProposal(original, command, context)) {
+          return BrainReply(
+              const FailedResult(AssistantText(
+                  'Propozycja AI zmienia rodzaj polecenia. Doprecyzuj zadanie.',
+                  'The AI proposal changes the requested action. Please clarify the task.')),
+              match: match);
+        }
+      } catch (_) {
+        return _notUnderstood(original);
+      }
       cancelPending();
       return _run(match, context, null);
     });

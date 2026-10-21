@@ -164,8 +164,11 @@ void main() {
     service.setMode(WeldTimerMode.cool);
     service.setCoolTime(const Duration(seconds: 150));
     service.setMaxInterpass(null);
-    expect(await handle.apply({'tab': 'timer'}), isEmpty);
+    final refreshing = handle.apply({'tab': 'timer'});
     await tester.pumpAndSettle();
+    expect(await refreshing, isEmpty,
+        reason:
+            'tab=${DefaultTabController.of(tester.element(find.byType(TabBar))).index}; fields=${tester.widgetList<TextField>(find.byType(TextField)).map((f) => f.controller!.text).toList()}');
     expect(DefaultTabController.of(tester.element(find.byType(TabBar))).index,
         WelderToolsScreen.tabTimer);
     final fields = tester
