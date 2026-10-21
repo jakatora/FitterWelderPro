@@ -158,6 +158,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   final _feedback = AssistantFeedbackRecorder();
   IsoCommand? _pendingIso;
   bool _awaitingIsoChoice = false;
+  IsoCommand? _pendingIsoValve;
   BuildContext get _navigationContext => widget.embedded
       ? (appNavigatorKey.currentState?.overlay?.context ?? context)
       : context;
@@ -382,6 +383,9 @@ class _AiChatScreenState extends State<AiChatScreen>
     _queryResults = null;
     _localResult = null;
     _brain.cancelPending();
+    _pendingIso = null;
+    _pendingIsoValve = null;
+    _awaitingIsoChoice = false;
     if (clearText) {
       _cmdCtrl.clear();
       _voiceUsed = false;
@@ -441,16 +445,31 @@ class _AiChatScreenState extends State<AiChatScreen>
     await _handleOutcome(out);
   }
 
-  void _isoReply(String pl, String en) {
+  void _isoReply(String pl, String en, {List<FollowUp> choices = const []}) {
     if (!mounted) return;
     setState(() {
       _busy = false;
       _cmdCtrl.clear();
-      _localResult = AnswerResult(AssistantAnswer(text: AssistantText(pl, en)));
+      _localResult = AnswerResult(AssistantAnswer(text: AssistantText(pl, en)),
+          followUps: choices);
       _notice = null;
       _question = null;
     });
     _speak(_tr(pl, en));
+  }
+
+  void _askIsoValve() {
+    _isoReply(
+        'Jaki rodzaj zaworu w tym poleceniu? Wybierz kulowy, zasuwę, zwrotny, grzybkowy albo przepustnicę. Zachowam resztę rysunku i DN; możesz też jawnie podać nowe DN.',
+        'Which valve type in this command: ball, gate, check, globe or butterfly? I will keep the rest of the drawing and DN; you may explicitly give a new DN.',
+        choices: const [
+          FollowUp(AssistantText('Kulowy', 'Ball'), 'ball'),
+          FollowUp(AssistantText('Zasuwa', 'Gate'), 'gate'),
+          FollowUp(AssistantText('Zwrotny', 'Check'), 'check'),
+          FollowUp(AssistantText('Grzybkowy', 'Globe'), 'globe'),
+          FollowUp(AssistantText('Przepustnica', 'Butterfly'), 'butterfly'),
+          FollowUp(AssistantText('Anuluj', 'Cancel'), 'anuluj'),
+        ]);
   }
 
   Future<bool> _tryIsoCommand(String text, AppLanguage lang) async {
@@ -459,6 +478,35 @@ class _AiChatScreenState extends State<AiChatScreen>
     var command = parseIsoCommand(u);
     final onIso = appRoutes.toolId == 'iso_notebook' ||
         (!widget.embedded && IsoNotebookController.active != null);
+    if (_pendingIsoValve case final pending?) {
+      if (u.hasAny(const ['anuluj', 'cancel', 'stop', 'nie', 'no']) &&
+          u.tokens.length == 1) {
+        _pendingIsoValve = null;
+        _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
+        return true;
+      }
+      final singleValveAnswer = command != null &&
+          command.kind == IsoCommandKind.draw &&
+          !command.newSketch &&
+          command.steps.length == 1 &&
+          command.steps.single is IsoFitting &&
+          kIsoValveTools.contains((command.steps.single as IsoFitting).tool);
+      if (command?.explicit == true && !singleValveAnswer) {
+        _pendingIsoValve = null;
+      } else if (!singleValveAnswer &&
+          (_brain.recognizesNewCommand(u, _brainContext) ||
+              parseAssistantCommand(text).intent != kIntentUnknown)) {
+        _pendingIsoValve = null;
+        return false;
+      } else {
+        command = pending.chooseValve(u);
+        if (command == null) {
+          _askIsoValve();
+          return true;
+        }
+        _pendingIsoValve = null;
+      }
+    }
     if (_awaitingIsoChoice) {
       final folded = u.folded;
       if (folded == 'anuluj' || folded == 'cancel') {
@@ -517,8 +565,9 @@ class _AiChatScreenState extends State<AiChatScreen>
       unawaited(AssistantPanelController.instance.submit(text));
       return true;
     }
-    final unsafe = command.warnings
-        .where((w) => w.kind != IsoParseWarningKind.lengthAssumedMeters);
+    final unsafe = command.warnings.where((w) =>
+        w.kind != IsoParseWarningKind.lengthAssumedMeters &&
+        w.kind != IsoParseWarningKind.valveTypeMissing);
     if (unsafe.isNotEmpty) {
       unawaited(_feedback.missing(text,
           tool: 'iso_notebook', skill: 'iso.unsupported', lang: lang));
@@ -528,6 +577,11 @@ class _AiChatScreenState extends State<AiChatScreen>
               'Kolana 45° i trójniki dodaj na razie ręcznie.',
           'Please specify a length with units, direction (right, left, up, down) '
               'and fitting type. Add 45° elbows and tees manually for now.');
+      return true;
+    }
+    if (command.has(IsoParseWarningKind.valveTypeMissing)) {
+      _pendingIsoValve = command;
+      _askIsoValve();
       return true;
     }
     var controller = onIso ? IsoNotebookController.active : null;
@@ -637,12 +691,14 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (isNegatedCommand(utterance)) {
       _brain.cancelPending();
       _pendingIso = null;
+      _pendingIsoValve = null;
       _awaitingIsoChoice = false;
       _isoReply(
           'Nie wykonuję tego polecenia.', 'I will not execute that command.');
       return true;
     }
     if (referencesInstruction(utterance)) {
+      _pendingIsoValve = null;
       _pendingIso = null;
       _awaitingIsoChoice = false;
     } else if (await _tryIsoCommand(text, lang)) {

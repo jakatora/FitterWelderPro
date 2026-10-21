@@ -10,6 +10,8 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cut_list_app/i18n/app_language.dart';
+import 'package:cut_list_app/feedback/feedback_store.dart';
+import 'package:cut_list_app/feedback/feedback_consent.dart';
 import 'package:cut_list_app/legal/legal_texts.dart';
 import 'package:cut_list_app/services/blocked_users.dart';
 import 'package:cut_list_app/services/legal_consent.dart';
@@ -23,7 +25,8 @@ void seedOnboardedUser({
   Map<String, Object> extra = const {},
 }) {
   SharedPreferences.setMockInitialValues({
-    'user_profile_v1': jsonEncode({'firstName': firstName, 'lastName': lastName}),
+    'user_profile_v1':
+        jsonEncode({'firstName': firstName, 'lastName': lastName}),
     'legal_consent_v1': jsonEncode({
       'version': kLegalVersion,
       'acceptedAt': '2026-07-09T12:00:00.000',
@@ -43,7 +46,8 @@ void seedFreshInstall({Map<String, Object> extra = const {}}) {
 /// w profilu, ale nie był jeszcze na czacie): ma profil, nie ma zgody.
 void seedProfileWithoutConsent() {
   SharedPreferences.setMockInitialValues({
-    'user_profile_v1': jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
+    'user_profile_v1':
+        jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
   });
   _resetSingletons();
 }
@@ -52,7 +56,8 @@ void seedProfileWithoutConsent() {
 /// `kLegalVersion`).
 void seedOutdatedConsent() {
   SharedPreferences.setMockInitialValues({
-    'user_profile_v1': jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
+    'user_profile_v1':
+        jsonEncode({'firstName': 'Marek', 'lastName': 'Kowalczyk'}),
     'legal_consent_v1': jsonEncode({
       'version': kLegalVersion - 1,
       'acceptedAt': '2026-01-01T00:00:00.000',
@@ -62,6 +67,10 @@ void seedOutdatedConsent() {
 }
 
 void _resetSingletons() {
+  // A fixture is a new install. Futures from a previous widget's fake-async
+  // zone cannot be reused after replacing the mocked preference store.
+  FeedbackStore.instance.resetForTest();
+  FeedbackConsent.instance.resetForTest();
   UserProfileService.instance.resetForTest();
   LegalConsent.instance.resetForTest();
   BlockedUsers.instance.resetForTest();

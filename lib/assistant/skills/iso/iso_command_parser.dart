@@ -200,6 +200,44 @@ class IsoCommand {
         unknownWords: unknownWords,
       );
 
+  /// Fills one explicitly missing valve type, preserving the rest of the
+  /// sequence. Conflicting types or ambiguous sizes leave it unanswered.
+  IsoCommand? chooseValve(Utterance answer) {
+    if (answer.hasAny(const ['nie', 'not', 'no', 'bez', 'without'])) {
+      return null;
+    }
+    for (final token in answer.tokens) {
+      final element = _element(token);
+      if (element != null && element != _El.valve) return null;
+    }
+    final types = {
+      for (final token in answer.tokens)
+        if (token != 'return' || answer.hasAny(const ['non return']))
+          if (_valveTypeOf(token) case final type?) type
+    };
+    if (types.length != 1) return null;
+    final missing = firstWarning(IsoParseWarningKind.valveTypeMissing);
+    final index = missing?.step;
+    if (index == null || index < 0 || index >= steps.length) return null;
+    final original = steps[index];
+    if (original is! IsoFitting || original.tool != kIsoAnyValve) return null;
+    final sizeMentioned = answer.mentionsDn ||
+        answer.hasAny(const ['nps']) ||
+        answer.tokens.any(isInchUnit);
+    final dn = _dnOf(answer);
+    if (sizeMentioned && (dn == null || !knownDns.contains(dn))) return null;
+    if (!sizeMentioned && answer.items.any((item) => item.isNumber)) {
+      return null;
+    }
+    final copy = List<IsoStep>.from(steps);
+    copy[index] =
+        IsoFitting(types.single, dn: dn ?? original.dn, dnOut: original.dnOut);
+    return copyWith(steps: copy, warnings: [
+      for (final w in warnings)
+        if (w != missing) w
+    ]);
+  }
+
   /// Resolves all compass references together. A missing north arrow leaves
   /// the original command untouched; no partial direction is guessed.
   IsoCommand? resolveCompass(IsoDir? Function(IsoCompass) direction) {

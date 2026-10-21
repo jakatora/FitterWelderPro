@@ -109,6 +109,70 @@ void main() {
     expect(IsoNotebookController.active!.debugPipeAxisTags, before);
     await _close(t);
   });
+  for (final e in {
+    'Kulowy': 'ballValve',
+    'Zasuwa': 'gateValve',
+    'Zwrotny': 'checkValve',
+    'Grzybkowy': 'globeValve',
+    'Przepustnica': 'butterflyValve'
+  }.entries) {
+    testWidgets('valve choice ${e.key} completes the stored ISO sequence',
+        (t) async {
+      await _boot(t);
+      await _say(t, 'narysuj rura metr w prawo zawór DN50');
+      expect(IsoNotebookController.active, isNull);
+      expect(find.textContaining('Jaki rodzaj zaworu'), findsOneWidget);
+      final chip = find.widgetWithText(ActionChip, e.key);
+      await t.ensureVisible(chip);
+      await t.pumpAndSettle();
+      expect(chip.hitTestable(), findsOneWidget);
+      await t.tap(chip);
+      await settle(t);
+      expect(IsoNotebookController.active!.hasContent, isTrue);
+      await t.pump(const Duration(milliseconds: 600));
+      await flushTestDatabase(t);
+      final stored = await t.runAsync(() => IsoDrawingDao().latest());
+      final items = (jsonDecode(stored!.json) as Map)['items'] as List;
+      expect(items.where((x) => x['kind'] == 'seg' && x['tool'] == 'pipe'),
+          hasLength(1));
+      final valve = items.singleWhere((x) => x['tool'] == e.value);
+      expect(valve['dn'], 50);
+      expect(await FeedbackStore.instance.list(), isEmpty);
+      if (e.value == 'ballValve') {
+        await _say(t, 'cofnij');
+        expect(IsoNotebookController.active!.hasContent, isFalse);
+      }
+    });
+  }
+  testWidgets('two unnamed valves are clarified before any part is drawn',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo zawór DN50 rura metr zawór DN80');
+    await _say(t, 'narysuj zawór kulowy');
+    expect(IsoNotebookController.active, isNull);
+    expect(find.textContaining('Jaki rodzaj zaworu'), findsOneWidget);
+    await _say(t, 'dodaj zawór zwrotny');
+    expect(IsoNotebookController.active!.hasContent, isTrue);
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final stored = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(stored!.json) as Map)['items'] as List;
+    expect(items.singleWhere((x) => x['tool'] == 'ballValve')['dn'], 50);
+    expect(items.singleWhere((x) => x['tool'] == 'checkValve')['dn'], 80);
+  });
+  testWidgets(
+      'a valve question accepts a new command or cancel without drawing',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr zawór DN50');
+    await _say(t, 'anuluj');
+    expect(IsoNotebookController.active, isNull);
+    await _say(t, 'narysuj rura metr zawór DN50');
+    await _say(t, 'NDS manganu');
+    expect(find.textContaining('0,05 mg/m³'), findsWidgets);
+    await _say(t, 'kulowy');
+    expect(IsoNotebookController.active, isNull);
+  });
   testWidgets('jedna rozmowa otwiera ISO, rysuje, dorysowuje i cofa',
       (tester) async {
     seedFreshInstall();

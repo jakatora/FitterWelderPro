@@ -1191,3 +1191,40 @@ startNew może zmienić aktywny arkusz przy błędzie. Katalog nie ma iso.draw
 adaptera; coverage4.2 nie zaimplementowane, rekordy4 i audyt5/6 nadal potrzebne.
 Pełny checkpoint całej aplikacji6727PASS i APK pozostają e7cd1d4 (ostatni APK
 nie zawiera tej poprawki kompasu). Backend bez zmian. Cel ACTIVE.
+
+2026-10-21 — ISO dopytuje o zawór zamiast zgłaszać brak funkcji. Czyste
+IsoCommand.chooseValve uzupełnia pierwszy placeholder, zachowuje wszystkie
+rury, kierunki, długości i DN; usuwa tylko właściwe valveTypeMissing.
+Kulowy/zasuwa/zwrotny/grzybkowy/przepustnica PL/EN, bezpośrednia odpowiedź oraz
+„narysuj/dodaj zawór <typ>” w dopytaniu zachowują całą sekwencję. Jawne DN/NPS
+może zmienić rozmiar tylko tego zaworu. Sprzeczne typy, negacja, nieznane DN,
+wiele DN, liczby bez jednostki/etykiety i dodatkowe elementy nie są zgadywane.
+„Return” bez non nie oznacza automatycznie zaworu zwrotnego. Dwa nieokreślone
+zawory mają dwa kolejne pytania; przed kompletem nic nie jest rysowane.
+Czat pokazuje5chipów+Anuluj, zachowuje polecenie w _pendingIsoValve. Anulowanie,
+negacja, odniesienie/wyjaśnienie i nowy niezależny zamiar czyszczą je bez rysowania.
+Reset akcji czyści też oba oczekiwania ISO. Pełny zapis ma żądany rodzaj iDN50,
+Cofnij usuwa całą sekwencję wraz z kształtkami. Kontrola dwóch zaworów DN50/DN80
+obejmuje naturalne odpowiedzi „narysuj zawór kulowy” i „dodaj zawór zwrotny”.
+Naprawiono harness: seedFreshInstall/pozostałe testowe ziarna preferencji
+resetują FeedbackStore._tail i FeedbackConsent._pendingId przez istniejące
+resetForTest. Kolejka/Future po poprzedniej fake-async zone przeżywała podmianę
+SharedPreferences i blokowała await list(), zarówno końcowy tool_bridge_flow
+jak i nowe testy ISO. Po zidentyfikowaniu źródła zakończono tylko potwierdzone
+własne zablokowane workery:51372 stary90243,50108 stary46342. Obie sesje terminalne
+exit1, NIE PASS. Zestaw tool_bridge_flow po poprawce kończy się normalnie.
+Nie restartowano na podstawie samego braku output; listener obu PID zweryfikowany.
+Dwa pierwsze testy chipów początkowo klikały starą pozycję przed klatką layoutu
+po ensureVisible. Dodano pumpAndSettle i hitTestable; wszystkie5 przechodzą
+prawdziwym tap, bez wywoływania callbacku poza UI.
+Kontrole: iso-valve-fixed-tests.log23PASS; końcowy pełny globalny dialog z2
+zaworami i Cofnij build/iso-valve-final-undo-check.log11PASS. Cała aplikacja
+6756PASS (build/iso-valve-full-app-tests.log), perf619ms/500<1s, cała analiza
+czysta (build/iso-valve-final-analyze.log). To zamyka nieukończoną regresję
+z poprzedniego checkpointu. Ostatnie doprecyzowanie jawnej odpowiedzi i resetu
+zweryfikowane w końcowych11 testach rozmowy.
+Nadal ACTIVE, backend bez zmian. APK pozostaje e7cd1d4 (nie zawiera e16aab5 ani
+tej zmiany). Następny konkretny brak: draw(newSketch) powinien najpierw
+zweryfikować nową sekwencję na pustym arkuszu; obecny startNew przed draw może
+przełączyć aktywny arkusz nawet dla błędnej trasy. Następnie45/tee, katalogISO/
+pokrycie, rekordy4 i własne dane, audyt5, finalny build i realny mikrofon6.
