@@ -41,6 +41,26 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
       return const ModuleActionResult(false,
           AssistantText('Moduł jest zamknięty.', 'The module is closed.'));
     }
+    if (action.startsWith('mode:') && field == null) {
+      final mode = action.substring(5);
+      if (!const {'length_to_rise', 'rise_to_length', 'slope_from_lr'}
+          .contains(mode)) {
+        return const ModuleActionResult(false,
+            AssistantText('Nieznany tryb spadku.', 'Unknown slope mode.'));
+      }
+      _selectMode(mode);
+      final label = switch (mode) {
+        'length_to_rise' =>
+          const AssistantText('Długość → Wznios', 'Length → Rise'),
+        'rise_to_length' =>
+          const AssistantText('Wznios → Długość', 'Rise → Length'),
+        _ => const AssistantText('Wyznacz %', 'Find slope %'),
+      };
+      return ModuleActionResult(
+          true,
+          AssistantText(
+              'Wybrano tryb: ${label.pl}.', 'Selected mode: ${label.en}.'));
+    }
     if (action == 'formula' && field == null) {
       _showFormulaInfo();
       return const ModuleActionResult(
@@ -120,6 +140,12 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     if (!mounted) return fields.keys.toSet();
+    if (fields.length == 2 &&
+        fields['action'] == 'mode' &&
+        fields['mode'] is String) {
+      final result = await performAction('mode:${fields['mode']}');
+      return result.completed ? {} : fields.keys.toSet();
+    }
     if (fields.length == 1 && fields['action'] == 'formula') {
       final r = await performAction('formula');
       return r.completed ? {} : {'action'};
@@ -532,6 +558,15 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
     );
   }
 
+  void _selectMode(String mode) {
+    if (_mode == mode) return;
+    setState(() {
+      _clearComputed();
+      _mode = mode;
+      _clearComputed();
+    });
+  }
+
   Widget _modeSelector() {
     final cs = Theme.of(context).colorScheme;
     final modes = [
@@ -557,12 +592,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
           selected: selected,
           label: m.$2,
           child: InkWell(
-            onTap: () => setState(() {
-              if (_mode == m.$1) return;
-              _clearComputed();
-              _mode = m.$1;
-              _clearComputed();
-            }),
+            onTap: () => _selectMode(m.$1),
             borderRadius: BorderRadius.circular(8),
             child: Container(
               margin: const EdgeInsets.only(bottom: 6),

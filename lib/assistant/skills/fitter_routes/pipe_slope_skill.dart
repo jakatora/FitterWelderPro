@@ -224,6 +224,37 @@ Set<String> _copyFields(Utterance u) {
   };
 }
 
+String? _requestedMode(Utterance u) {
+  final qualified = u.folded.replaceFirst(
+      RegExp(r'\s+(?:w kalkulatorze spadku rury|for pipe slope)$'), '');
+  final text = qualified.replaceFirst(
+      RegExp(
+          r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw)\s+tryb(?:\s+na)?|(?:change|set)\s+mode(?:\s+to)?|tryb|mode)\s+'),
+      '');
+  if (text == qualified) return null;
+  return switch (text) {
+    'dlugosc do wznios' ||
+    'dlugosc do wzniosu' ||
+    'obliczanie wzniosu' ||
+    'length to rise' ||
+    'calculate rise' =>
+      'length_to_rise',
+    'wznios do dlugosci' ||
+    'obliczanie dlugosci' ||
+    'rise to length' ||
+    'calculate length' =>
+      'rise_to_length',
+    'wyznacz procent' ||
+    'wyznacz %' ||
+    'obliczanie procentu spadku' ||
+    'find slope percent' ||
+    'find slope %' ||
+    'calculate slope percentage' =>
+      'slope_from_lr',
+    _ => null,
+  };
+}
+
 class PipeSlopeSkill extends AssistantSkill {
   @override
   String get id => 'pipe.slope';
@@ -244,6 +275,13 @@ class PipeSlopeSkill extends AssistantSkill {
         SkillExample('Spadek rury długość 1,5 metra wznios 15 mm',
             'Pipe slope length 1.5 meters rise 15 mm'),
         SkillExample('Oblicz spadek rury', 'Calculate pipe slope'),
+        SkillExample('Ustaw tryb obliczanie wzniosu w kalkulatorze spadku rury',
+            'Set mode to calculate rise for pipe slope'),
+        SkillExample(
+            'Ustaw tryb obliczanie długości w kalkulatorze spadku rury',
+            'Set mode to calculate length for pipe slope'),
+        SkillExample('Ustaw tryb wyznacz procent w kalkulatorze spadku rury',
+            'Set mode to find slope percent for pipe slope'),
         SkillExample('Pokaż wzory spadku rury', 'Show pipe slope formulas'),
       ];
   @override
@@ -275,6 +313,11 @@ class PipeSlopeSkill extends AssistantSkill {
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     final active = ctx.modules.activeToolId == toolId;
     if (!_foreign(u) && (active || _topic(u))) {
+      final mode = _requestedMode(u);
+      if (mode != null) {
+        return SkillMatch(this, .98,
+            slots: {'module_action': 'mode:$mode'}, utterance: u);
+      }
       if (_copy.hasMatch(u.folded) && _copyWords(u)) {
         final fields = _copyFields(u);
         return SkillMatch(this, .98,
@@ -338,6 +381,24 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
+    final requestedMode = _requestedMode(u);
+    if (requestedMode != null) {
+      return {
+        'module_action': 'mode:$requestedMode',
+        'native_action': null,
+        'native_edit': null,
+        'copy_field': null,
+        'length_mm': null,
+        'rise_mm': null,
+        'slope_pct': null
+      };
+    }
+    if (_copy.hasMatch(u.folded) && _copyWords(u) ||
+        _formula.hasMatch(u.folded) &&
+            _formulaWords(u) &&
+            u.hasStem(const ['wzor', 'formula'])) {
+      return null;
+    }
     if (slot == 'copy_field') {
       if (_edit.hasMatch(u.folded) ||
           _copy.hasMatch(u.folded) ||
@@ -380,7 +441,9 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
     final action = m.slots['module_action'];
-    if (action == 'copy' || action == 'formula') {
+    if (action == 'copy' ||
+        action == 'formula' ||
+        action is String && action.startsWith('mode:')) {
       final field = m.slots['copy_field'];
       if (action == 'copy' && field == 'ambiguous') {
         return AskResult(
@@ -397,6 +460,16 @@ class PipeSlopeSkill extends AssistantSkill {
               ])
                 FollowUp(label, label.of(ctx.lang)),
             ]);
+      }
+      if (action is String &&
+          action.startsWith('mode:') &&
+          ctx.modules.activeToolId != toolId) {
+        return AnswerResult(
+            const AssistantAnswer(
+                text: AssistantText('Otwieram wybrany tryb kalkulatora spadku.',
+                    'Opening the selected slope calculator mode.')),
+            show: ShowInModule(
+                toolId, {'action': 'mode', 'mode': action.substring(5)}));
       }
       if (action == 'formula' && ctx.modules.activeToolId != toolId) {
         return const AnswerResult(

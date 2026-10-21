@@ -58,6 +58,10 @@ void main() {
     await settle(t);
     await t.tap(find.byTooltip('Powiedz, co zrobić'));
     await settle(t);
+    await say(t, 'oblicz spadek rury');
+    await say(t, 'ustaw tryb obliczanie długości');
+    expect(ToolBridge.instance.inputFields('pipe_slope')!['mode'],
+        'rise_to_length');
     await say(t, 'spadek 1% na 6 metrów');
     expect(ToolBridge.instance.current?.toolId, 'pipe_slope');
     await t.tap(find.text('Kopiuj wynik'));
