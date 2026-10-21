@@ -1160,3 +1160,34 @@ starszy pełny checkpointa1050266489PASS. Backend w tej zmianie bez zmian.
 Cel nadal ACTIVE: audyt/rozszerzenie ISO3, rekordy i własne dane4, pokrycie,
 audyt raportów5 i odbiór głosu/build6. Rozpoczęto przygotowanie świeżego APK;
 nie traktować testów byVoice (transkrypcja) jako testu mikrofonu telefonu.
+
+2026-10-21 — audyt ISO3 ujawnił czat odrzucający strony świata, mimo gotowego
+IsoNotebookController.dirForCompass. Dodano czysty IsoCommand.resolveCompass:
+kompletne pipe/turn oraz korekta ostatniego skrętu rozwiązują się razem,
+zachowują długości/DN; brak orientacji lub błędny indeks/kształtka -> null bez
+zmiany oryginału. Czat otwiera docelowy zeszyt, czeka na ready, pyta append/new
+przed rozwiązaniem stron świata. Nowy arkusz nie przejmuje strzałki starego;
+brak strzałki nie rysuje i nie raportuje błędu programu, prosi o orientację.
+„Na zachód” w otwartym ISO poprawia ostatnie kolano według rzeczywistej strzałki.
+Dodatkowo pytanie ISO o cel nie połyka mocnego nowego polecenia z katalogu:
+nowy side-effect-free brain.recognizesNewCommand (bez wykonania/zapisu/kasowania
+pending) działa przed legacy parse przy dopytaniu. Test NDS manganu porzuca
+pytanie o arkusz, nie dorysowuje starych kroków po późniejszym „dorysuj”.
+Pełny przepływ: N/E z rzeczywistej strzałki, odmowa odziedziczenia N przez nowy
+arkusz, poprawka na W, Cofnij. Początkowe testy współdzieliły SQLite szkice;
+fixture czyści tylko testową tabelę iso_drawings i zamyka UI w tearDown.
+Docelowe testy: iso-controller-acceptance.log34PASS (cały globalny ISO, kontroler,
+autosave) + iso-compass-preflight-check.log5PASS. Dodatkowy nowy-target1PASS.
+Analiza pięciu zmienionych plików czysta: build/iso-compass-final-analyze2.log.
+Szersza regresja build/iso-compass-regression.log NIEZAKOŃCZONA:1643 ukończonych
+przypadków bez błędu, ostatni tool_bridge_flow missing-table; sesja90243 nadal
+live. Processflutter_tester51372, listener zaimportował tool_bridge_flow_test.
+Nie restartowano procesu na podstawie braku obserwacji. Następna tura ma
+sprawdzić tę samą sesję (nie zgłaszać pełnego PASS), ew. zdiagnozować końcowy
+prywatny raport. Inne testy akceptacji kończą się poprawnie.
+Nadal braki ISO: valveTypeMissing dostaje ogólną odmowę zamiast dopytania;
+45/tee unsupported (manualne dostępne), nowe rysowanie walidowane dopiero po
+startNew może zmienić aktywny arkusz przy błędzie. Katalog nie ma iso.draw
+adaptera; coverage4.2 nie zaimplementowane, rekordy4 i audyt5/6 nadal potrzebne.
+Pełny checkpoint całej aplikacji6727PASS i APK pozostają e7cd1d4 (ostatni APK
+nie zawiera tej poprawki kompasu). Backend bez zmian. Cel ACTIVE.

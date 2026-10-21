@@ -455,6 +455,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Future<bool> _tryIsoCommand(String text, AppLanguage lang) async {
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    _brainContext.lang = lang;
     var command = parseIsoCommand(u);
     final onIso = appRoutes.toolId == 'iso_notebook' ||
         (!widget.embedded && IsoNotebookController.active != null);
@@ -483,7 +484,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIso = command;
         _awaitingIsoChoice = false;
       } else if (command == null || !command.explicit) {
-        if (parseAssistantCommand(text).intent != kIntentUnknown) {
+        if (_brain.recognizesNewCommand(u, _brainContext) ||
+            parseAssistantCommand(text).intent != kIntentUnknown) {
           _pendingIso = null;
           _awaitingIsoChoice = false;
           return false;
@@ -498,10 +500,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (command == null && onIso && u.tokens.length <= 3) {
       final dir = isoDirectionOf(u);
-      if (dir != null) {
+      final compass = isoCompassOf(u);
+      if (dir != null || compass != null) {
         command = IsoCommand(
             kind: IsoCommandKind.changeLastTurn,
             turnDir: dir,
+            turnCompass: compass,
             explicit: true,
             strong: true);
       }
@@ -515,9 +519,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     final unsafe = command.warnings
         .where((w) => w.kind != IsoParseWarningKind.lengthAssumedMeters);
-    if (unsafe.isNotEmpty ||
-        command.compassAt.isNotEmpty ||
-        command.turnCompass != null) {
+    if (unsafe.isNotEmpty) {
       unawaited(_feedback.missing(text,
           tool: 'iso_notebook', skill: 'iso.unsupported', lang: lang));
       _isoReply(
@@ -553,6 +555,33 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (!mounted) return true;
     await controller.ready;
     if (!mounted) return true;
+    if (_pendingIso != command &&
+        controller.hasContent &&
+        !command.append &&
+        (command.kind == IsoCommandKind.draw ||
+            command.kind == IsoCommandKind.newSketch)) {
+      _pendingIso = command;
+      _awaitingIsoChoice = true;
+      _isoReply(
+          'Na arkuszu jest już rysunek. Powiedz „dorysuj” albo „nowy”. '
+              '„Anuluj” pozostawi go bez zmian.',
+          'There is already a drawing. Say "append" or "new". '
+              '"Cancel" leaves it unchanged.');
+      return true;
+    }
+    if (command.compassAt.isNotEmpty || command.turnCompass != null) {
+      final resolved = command.newSketch
+          ? null
+          : command.resolveCompass(controller.dirForCompass);
+      if (resolved == null) {
+        _pendingIso = null;
+        _isoReply(
+            'Nie zmieniłem rysunku. Kierunki świata wymagają strzałki północy na docelowym arkuszu. Ustaw ją albo podaj kierunek: prawo, lewo, góra, dół, przód lub tył.',
+            'Drawing unchanged. Compass directions require a north arrow on the target sheet. Place it or give a direction: right, left, up, down, forward or back.');
+        return true;
+      }
+      command = resolved;
+    }
     if (command.kind == IsoCommandKind.changeLastTurn) {
       final dir = command.turnDir;
       final report =
@@ -571,20 +600,6 @@ class _AiChatScreenState extends State<AiChatScreen>
         _isoReply(report.problemPl ?? 'Rysunek bez zmian.',
             report.problemEn ?? 'Drawing unchanged.');
       }
-      return true;
-    }
-    if (_pendingIso != command &&
-        controller.hasContent &&
-        !command.append &&
-        (command.kind == IsoCommandKind.draw ||
-            command.kind == IsoCommandKind.newSketch)) {
-      _pendingIso = command;
-      _awaitingIsoChoice = true;
-      _isoReply(
-          'Na arkuszu jest już rysunek. Powiedz „dorysuj” albo „nowy”. '
-              '„Anuluj” pozostawi go bez zmian.',
-          'There is already a drawing. Say "append" or "new". '
-              '"Cancel" leaves it unchanged.');
       return true;
     }
     _pendingIso = null;

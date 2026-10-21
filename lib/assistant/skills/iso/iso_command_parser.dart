@@ -200,6 +200,32 @@ class IsoCommand {
         unknownWords: unknownWords,
       );
 
+  /// Resolves all compass references together. A missing north arrow leaves
+  /// the original command untouched; no partial direction is guessed.
+  IsoCommand? resolveCompass(IsoDir? Function(IsoCompass) direction) {
+    final resolved = List<IsoStep>.from(steps);
+    for (final e in compassAt.entries) {
+      if (e.key < 0 || e.key >= resolved.length) return null;
+      if (resolved[e.key] is! IsoPipe && resolved[e.key] is! IsoTurn) {
+        return null;
+      }
+      final dir = direction(e.value);
+      if (dir == null) return null;
+      resolved[e.key] = switch (resolved[e.key]) {
+        IsoPipe(:final lengthMm) => IsoPipe(dir: dir, lengthMm: lengthMm),
+        IsoTurn(:final dn) => IsoTurn(toDir: dir, dn: dn),
+        _ => resolved[e.key],
+      };
+    }
+    var command = copyWith(steps: resolved, compassAt: const {});
+    if (turnCompass case final compass?) {
+      final dir = direction(compass);
+      if (dir == null) return null;
+      command = command.withTurnDir(dir);
+    }
+    return command;
+  }
+
   @override
   String toString() => 'IsoCommand(${kind.name}, $steps'
       '${newSketch ? ', newSketch' : ''}${append ? ', append' : ''}'
