@@ -36,6 +36,8 @@ import '../domain/weld_journal/weld_entry.dart';
 import '../i18n/app_language.dart';
 import '../models/weld_param.dart';
 import '../services/ai_chat_service.dart';
+import '../services/account_service.dart';
+import '../services/user_profile.dart';
 import '../services/legal_consent.dart';
 import '../services/welder_identity.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -163,6 +165,11 @@ class _AiChatScreenState extends State<AiChatScreen>
   bool _runningAiPlan = false;
   bool _aiThinking = false;
   int _aiEpoch = 0;
+  int _conversationEpoch = 0;
+  late final _account = AccountService.instance;
+  int _sessionRevision = 0;
+  StreamSubscription<UserProfile?>? _profileChanges;
+  final _summaryRoutes = <Route<bool>>{};
   AssistantAiUnavailable? _aiUnavailable;
   String? _aiQuestion;
   void _rememberAi(String text, String response,
@@ -195,19 +202,25 @@ class _AiChatScreenState extends State<AiChatScreen>
         _awaitingIsoChoice,
     execute: _executeIsoSkill,
   );
-  late final _actions = AssistantActions(
-      parameters: _dao,
-      journal: _journalDao,
-      history: _history,
-      now: _now,
-      stamp: _stamp,
-      projectContext: () => _lastProject,
-      onProjectSaved: (p) {
-        if (mounted) _lastProject = p;
-      });
-  late final _brain = AssistantBrain(
+  AssistantActions _createActions() {
+    final epoch = _conversationEpoch;
+    return AssistantActions(
+        parameters: _dao,
+        journal: _journalDao,
+        history: _history,
+        now: _now,
+        stamp: _stamp,
+        projectContext: () => _lastProject,
+        onProjectSaved: (p) {
+          if (mounted && epoch == _conversationEpoch) _lastProject = p;
+        });
+  }
+
+  late AssistantActions _actions = _createActions();
+  AssistantBrain _createBrain() => AssistantBrain(
       skills:
           widget.skills ?? buildSkillCatalog(iso: _isoPort, actions: _actions));
+  late AssistantBrain _brain = _createBrain();
   bool _collectIsoReply = false;
   SkillResult? _isoSkillResult;
   Future<SkillResult> _executeIsoSkill(Utterance u) async {
@@ -236,7 +249,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _awaitingIsoChoice = false;
   }
 
-  late final _brainContext = AssistantContext(
+  late AssistantContext _brainContext = AssistantContext(
       lang: AppLanguage.pl,
       modules:
           widget.embedded ? ToolBridge.instance : const FixedModuleContext(),
@@ -306,12 +319,61 @@ class _AiChatScreenState extends State<AiChatScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sessionRevision = _account.sessionRevision;
+    _account.addListener(_accountChanged);
+    _profileChanges = UserProfileService.instance.changes.listen((profile) {
+      if (profile == null && mounted) _clearConversation();
+    });
     _history.load();
     if (widget.embedded) {
       AssistantPanelController.instance.onCommand = _receiveCommand;
       AssistantPanelController.instance.addListener(_panelChanged);
       appRoutes.addListener(_panelChanged);
     }
+  }
+
+  void _accountChanged() {
+    if (_sessionRevision == _account.sessionRevision) return;
+    _sessionRevision = _account.sessionRevision;
+    if (mounted) _clearConversation();
+  }
+
+  void _clearConversation() {
+    _conversationEpoch++;
+    for (final route in List.of(_summaryRoutes)) {
+      route.navigator?.removeRoute(route, false);
+    }
+    _summaryRoutes.clear();
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+    _resetAct();
+    _aiClient?.close();
+    _aiClient = null;
+    _speech.cancel();
+    _voice.stop();
+    _actions = _createActions();
+    _brain = _createBrain();
+    _brainContext = AssistantContext(
+        lang: context.language,
+        modules:
+            widget.embedded ? ToolBridge.instance : const FixedModuleContext(),
+        now: widget.now);
+    setState(() {
+      _aiHistory.clear();
+      _messages
+        ..clear()
+        ..add(_buildWelcomeMessage(context));
+      _inputCtrl.clear();
+      _typing.value = false;
+      _commandSoFar = '';
+      _commandBeforeAnswer = '';
+      _lastProject = '';
+      _listening = false;
+      _runningAiPlan = false;
+      _busy = false;
+      _notice = null;
+      _noticeIsError = false;
+      _aiUnavailable = null;
+    });
   }
 
   void _panelChanged() {
@@ -357,6 +419,8 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   @override
   void dispose() {
+    _account.removeListener(_accountChanged);
+    _profileChanges?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (widget.embedded) {
       AssistantPanelController.instance.onCommand = null;
@@ -400,6 +464,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   // ═════════════════════════════════════════════════════════════════════════
 
   Future<void> _toggleMic(TextEditingController target) async {
+    final epoch = _conversationEpoch;
     if (_listening) {
       await _speech.stop();
       if (mounted) setState(() => _listening = false);
@@ -419,7 +484,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
     await _voice.stop(); // nie mówimy do własnego mikrofonu
     final ok = await _speech.initialize();
-    if (!mounted) return;
+    if (!mounted || epoch != _conversationEpoch) return;
     if (!ok) {
       messenger.showSnackBar(SnackBar(content: Text(noMic)));
       return;
@@ -433,7 +498,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     await _speech.listen(
       language: lang,
       onResult: (text, isFinal) {
-        if (!mounted || submitted) return;
+        if (!mounted || epoch != _conversationEpoch || submitted) return;
         final joined = before.isEmpty ? text : '$before $text';
         setState(() {
           target.value = TextEditingValue(
@@ -443,11 +508,13 @@ class _AiChatScreenState extends State<AiChatScreen>
         });
         if (widget.embedded && isFinal && joined.trim().isNotEmpty) {
           submitted = true;
-          scheduleMicrotask(_submitCommand);
+          scheduleMicrotask(() {
+            if (mounted && epoch == _conversationEpoch) _submitCommand();
+          });
         }
       },
       onDone: (error) {
-        if (!mounted) return;
+        if (!mounted || epoch != _conversationEpoch) return;
         setState(() => _listening = false);
         if (error != null) {
           messenger.showSnackBar(SnackBar(content: Text(interrupted)));
@@ -530,6 +597,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<bool> _tryAiCommand(String text, AppLanguage lang) async {
+    final conversationEpoch = _conversationEpoch;
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (isNegatedCommand(u) ||
         referencesInstruction(u) ||
@@ -567,7 +635,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     await LegalConsent.instance.load();
-    if (!mounted) return true;
+    if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
       return compound ? _compoundNeedsAi(needsConsent: true) : false;
     }
@@ -651,7 +719,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       try {
         await _send();
       } finally {
-        if (mounted) setState(() => _busy = false);
+        if (mounted && epoch == _aiEpoch) setState(() => _busy = false);
       }
       return true;
     }
@@ -675,6 +743,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Future<void> _runAiPlan(AppLanguage lang) async {
     if (_runningAiPlan) return;
+    final epoch = _conversationEpoch;
     _runningAiPlan = true;
     try {
       AiCommandStep? step;
@@ -687,9 +756,10 @@ class _AiChatScreenState extends State<AiChatScreen>
             command: u,
             original: Utterance(original, lang: lang, byVoice: _voiceUsed),
             context: _brainContext);
-        if (!mounted) return;
+        if (!mounted || epoch != _conversationEpoch) return;
         final handled = await _presentBrainReply(reply, u, original, lang,
             aiExecution: true);
+        if (!mounted || epoch != _conversationEpoch) return;
         if (!handled ||
             reply.result is FailedResult ||
             _noticeIsError == true) {
@@ -710,8 +780,10 @@ class _AiChatScreenState extends State<AiChatScreen>
         }
       }
     } finally {
-      _runningAiPlan = false;
-      if (mounted) setState(() => _busy = false);
+      if (epoch == _conversationEpoch) {
+        _runningAiPlan = false;
+        if (mounted) setState(() => _busy = false);
+      }
     }
   }
 
@@ -727,6 +799,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _submitCommand() async {
+    final epoch = _conversationEpoch;
     var text = _cmdCtrl.text.trim();
     if (text.isEmpty || _busy || _runningAiPlan) return;
     // „Ten sam" na pytanie o projekt = ostatni projekt dziennika.
@@ -758,6 +831,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       // Negation and existing native workflows retain ownership. Unknown
       // free-form requests reach AI before generic deterministic fallbacks.
       if (_pendingField == null && await _tryAiCommand(text, lang)) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       // A pending legacy save owns its replies until its summary is ready.
       if (_pendingField == null && await _tryLocalCommand(text, lang)) {
         _showAiFallbackNotice();
@@ -772,7 +846,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       );
     } catch (e) {
       debugPrint('Assistant.interpret: $e');
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       setState(() {
         _busy = false;
         _notice = _tr('Coś poszło nie tak. Tekst zostaje — spróbuj ponownie.',
@@ -781,7 +855,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       return;
     }
-    if (!mounted) return;
+    if (!mounted || epoch != _conversationEpoch) return;
     setState(() => _busy = false);
     await _handleOutcome(out);
     _showAiFallbackNotice();
@@ -1269,8 +1343,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
     }
     _brainContext.lang = lang;
+    final epoch = _conversationEpoch;
     final reply = await _brain.handle(
         Utterance(text, lang: lang, byVoice: _voiceUsed), _brainContext);
+    if (!mounted || epoch != _conversationEpoch) return true;
     return _presentBrainReply(reply, utterance, text, lang);
   }
 
@@ -1278,6 +1354,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       BrainReply reply, Utterance utterance, String text, AppLanguage lang,
       {bool aiExecution = false}) async {
     if (!mounted) return true;
+    final epoch = _conversationEpoch;
     final result = reply.result;
     if (reply.match?.skill.id != 'iso.draw') _clearIsoQuestion();
     if (result is NotUnderstood) return false;
@@ -1304,6 +1381,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _ => '',
     };
     if (spoken.isNotEmpty) await _speak(spoken);
+    if (!mounted || epoch != _conversationEpoch) return true;
     final explicitOpen = aiExecution ||
         reply.match?.skill.id == 'tool.open' ||
         reply.match?.skill.id == 'account.open' ||
@@ -1488,10 +1566,11 @@ class _AiChatScreenState extends State<AiChatScreen>
       _noticeIsError = false;
     });
     var saved = false;
+    final epoch = _conversationEpoch;
     try {
       final undo = await pending.perform();
       saved = true;
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       _rememberAi(
           _tr('Potwierdzam zapis', 'Confirm save'), _tr('Zapisano.', 'Saved.'));
       setState(() {
@@ -1509,7 +1588,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         }
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && epoch == _conversationEpoch) {
         setState(() {
           _notice = saved
               ? _tr('Zapisano, ale nie udało się otworzyć modułu.',
@@ -1523,11 +1602,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     } finally {
       if (mounted) {
         setState(() {
-          _busy = false;
+          if (epoch == _conversationEpoch) _busy = false;
           _localCommitting = false;
         });
       }
     }
+    if (!mounted || epoch != _conversationEpoch) return;
     if (mounted && _aiQueue.waiting && (!saved || _noticeIsError == true)) {
       _aiQueue.cancel();
     }
@@ -1540,12 +1620,13 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _undoLocal({bool fromCommand = false}) async {
+    final epoch = _conversationEpoch;
     final undo = _localUndo;
     if (_runningAiPlan || undo == null || (_busy && !fromCommand)) return;
     setState(() => _busy = true);
     try {
       await undo();
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       _rememberAi(_tr('Cofnij zapis', 'Undo save'),
           _tr('Zapis cofnięty.', 'Save undone.'));
       setState(() {
@@ -1555,7 +1636,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         _notice = null;
       });
     } catch (_) {
-      if (mounted) {
+      if (mounted && epoch == _conversationEpoch) {
         setState(() {
           _notice = _tr(
               'Nie udało się cofnąć zapisu. Sprawdź, czy rekord został zmieniony.',
@@ -1564,11 +1645,12 @@ class _AiChatScreenState extends State<AiChatScreen>
         });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted && epoch == _conversationEpoch) setState(() => _busy = false);
     }
   }
 
   Future<void> _handleOutcome(AssistantOutcome out) async {
+    final epoch = _conversationEpoch;
     final check = out.check;
     final lang = context.language;
     switch (check) {
@@ -1577,16 +1659,11 @@ class _AiChatScreenState extends State<AiChatScreen>
           _question = null;
           _pendingField = null;
         });
-        final confirmed = await Navigator.of(_navigationContext).push<bool>(
-          MaterialPageRoute(
-            builder: (_) => _SaveSummaryPage(
-              draft: draft,
-              note:
-                  draft.sourceNote(at: _now(), byVoice: _voiceUsed, lang: lang),
-            ),
-          ),
-        );
-        if (!mounted) return;
+        final confirmed = await _showRecordSummary(_SaveSummaryPage(
+          draft: draft,
+          note: draft.sourceNote(at: _now(), byVoice: _voiceUsed, lang: lang),
+        ));
+        if (!mounted || epoch != _conversationEpoch) return;
         if (confirmed == true) {
           await _save(draft);
         } else {
@@ -1640,7 +1717,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         var q = assistantQuestionFor(field, lang);
         if (field == 'project') {
           _lastProject = await loadLastWeldProject();
-          if (!mounted) return;
+          if (!mounted || epoch != _conversationEpoch) return;
           if (_lastProject.isNotEmpty) {
             q = _tr('$q Powiedz „ten sam", żeby wybrać: $_lastProject.',
                 '$q Say "the same" to use: $_lastProject.');
@@ -1700,8 +1777,19 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   DateTime _now() => (widget.now ?? DateTime.now)();
 
+  Future<bool?> _showRecordSummary(Widget summary) async {
+    final route = MaterialPageRoute<bool>(builder: (_) => summary);
+    _summaryRoutes.add(route);
+    try {
+      return await Navigator.of(_navigationContext).push(route);
+    } finally {
+      _summaryRoutes.remove(route);
+    }
+  }
+
   Future<void> _save(WeldParamDraft draft) async {
     if (_localCommitting) return;
+    final epoch = _conversationEpoch;
     setState(() {
       _busy = true;
       _localCommitting = true;
@@ -1709,10 +1797,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     try {
       final undo = await _actions.saveWeldParam(draft,
           byVoice: _voiceUsed, lang: context.language);
-      if (mounted) _savedNative(undo, journal: false);
+      if (mounted && epoch == _conversationEpoch) {
+        _savedNative(undo, journal: false);
+      }
     } catch (e) {
       debugPrint('Assistant native save: ${e.runtimeType}');
-      if (mounted) {
+      if (mounted && epoch == _conversationEpoch) {
         setState(() {
           _notice = _tr(
               'Nie udało się zapisać — sprawdź dane przed ponowieniem.',
@@ -1723,7 +1813,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     } finally {
       if (mounted) {
         setState(() {
-          _busy = false;
+          if (epoch == _conversationEpoch) _busy = false;
           _localCommitting = false;
         });
       }
@@ -1785,13 +1875,14 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   /// „Jaki prąd mam zapisany na…" — odczyt „Moich parametrów", offline.
   Future<void> _showMyParams(Map<String, Object> criteria) async {
+    final epoch = _conversationEpoch;
     final lang = context.language;
     List<WeldParam> all;
     try {
       all = await _dao.listAll();
     } catch (e) {
       debugPrint('Assistant query failed: $e');
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       setState(() {
         _resetAct(clearText: false);
         _notice = _tr('Nie udało się odczytać zapisanych parametrów.',
@@ -1800,7 +1891,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       return;
     }
-    if (!mounted) return;
+    if (!mounted || epoch != _conversationEpoch) return;
     final hits = findMyWeldParams(all, criteria);
     setState(() {
       _resetAct();
@@ -1816,11 +1907,12 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   /// Wpis do dziennika: sprawdzenie numeru, podsumowanie, zapis po „Zapisz".
   Future<void> _prepareJournal(WeldJournalDraft draft) async {
+    final epoch = _conversationEpoch;
     final lang = context.language;
     final byVoice = _voiceUsed;
     final prep =
         await _actions.prepareJournal(draft, byVoice: byVoice, lang: lang);
-    if (!mounted) return;
+    if (!mounted || epoch != _conversationEpoch) return;
     switch (prep) {
       case JournalWeldNoTaken(:final project, :final weldNo, :final wps):
         final q = assistantQuestionFor('weld_no', lang);
@@ -1847,10 +1939,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         return;
       case PreparedJournal():
         final snapshot = prep.payload as AssistantJournalSnapshot;
-        final confirmed = await Navigator.of(_navigationContext).push<bool>(
-            MaterialPageRoute(
-                builder: (_) => _JournalSummaryPage(entry: snapshot.entry)));
-        if (!mounted) return;
+        final confirmed = await _showRecordSummary(
+            _JournalSummaryPage(entry: snapshot.entry));
+        if (!mounted || epoch != _conversationEpoch) return;
         if (confirmed != true) {
           setState(() {
             _resetAct(clearText: false);
@@ -1865,9 +1956,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         try {
           final undo =
               await _actions.saveJournal(prep, byVoice: byVoice, lang: lang);
-          if (mounted) _savedNative(undo, journal: true);
+          if (mounted && epoch == _conversationEpoch) {
+            _savedNative(undo, journal: true);
+          }
         } catch (_) {
-          if (mounted) {
+          if (mounted && epoch == _conversationEpoch) {
             setState(() {
               _notice = _tr(
                   'Nie udało się potwierdzić zapisu. Dziennik mógł zostać zmieniony — sprawdź go przed ponowieniem.',
@@ -1993,6 +2086,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   // ═════════════════════════════════════════════════════════════════════════
 
   Future<void> _send() async {
+    final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
     if (_listening) {
@@ -2003,7 +2097,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     // Treść pytania wychodzi na serwer — najpierw zgoda (bez wymogu imienia).
     // Bez zgody: pomoc offline z aplikacji, NIC nie wychodzi z telefonu.
     final consented = await ensureServerConsent(_navigationContext);
-    if (!mounted) return;
+    if (!mounted || epoch != _conversationEpoch) return;
 
     // Historia BEZ bieżącego pytania, najwyżej 6 ostatnich wpisów.
     final history = chatHistoryForRequest(_messages);
@@ -2034,7 +2128,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       final sender = widget.chatSender ??
           (t, h) => AiChatService.instance.sendMessage(t, history: h);
       final reply = await sender(text, history);
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       setState(() {
         _messages.add(reply);
         if (widget.embedded) {
@@ -2051,7 +2145,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       await _speak(reply.text);
     } catch (e) {
       debugPrint('AiChatScreen.send error: $e');
-      if (!mounted) return;
+      if (!mounted || epoch != _conversationEpoch) return;
       setState(() {
         _messages.add(ChatMessage(
           role: ChatRole.assistant,
@@ -2072,6 +2166,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           label: _tr('Ponów', 'Retry'),
           textColor: _kAccent,
           onPressed: () {
+            if (!mounted || epoch != _conversationEpoch) return;
             _inputCtrl.text = text;
             _send();
           },
@@ -2092,6 +2187,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _clearChat() async {
+    final epoch = _conversationEpoch;
     if (_messages.length > 1) {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -2123,13 +2219,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           ],
         ),
       );
-      if (confirmed != true || !mounted) return;
+      if (confirmed != true || !mounted || epoch != _conversationEpoch) return;
     }
-    setState(() {
-      _messages
-        ..clear()
-        ..add(_buildWelcomeMessage(context));
-    });
+    _clearConversation();
   }
 
   // ═════════════════════════════════════════════════════════════════════════

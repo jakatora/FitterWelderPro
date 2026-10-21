@@ -21,6 +21,10 @@ class AccountService extends ChangeNotifier {
   String? _token;
   Future<void>? _loading;
   bool _loaded = false;
+  int _sessionRevision = 0;
+
+  /// Changes only when the authenticated session changes, never on profile edits.
+  int get sessionRevision => _sessionRevision;
   bool get isAdmin => account?['role'] == 'admin';
   Future<void> load() {
     if (_loaded) return Future.value();
@@ -34,6 +38,8 @@ class AccountService extends ChangeNotifier {
   Future<void> _restore() async {
     _token = await _storage.read(key: _key);
     if (_token == null) return;
+    _sessionRevision++;
+    notifyListeners();
     try {
       final r = await request('GET', '/me');
       account = Map<String, dynamic>.from(r['account'] as Map);
@@ -67,8 +73,9 @@ class AccountService extends ChangeNotifier {
           method != 'DELETE') {
         _token = null;
         account = null;
-        await _storage.delete(key: _key);
+        _sessionRevision++;
         notifyListeners();
+        await _storage.delete(key: _key);
       }
       throw AccountException(data['error']?['message'] as String? ??
           'Błąd serwera / Server error');
@@ -92,6 +99,7 @@ class AccountService extends ChangeNotifier {
     _token = token;
     _loaded = true;
     account = Map<String, dynamic>.from(r['account'] as Map);
+    _sessionRevision++;
     notifyListeners();
   }
 
@@ -108,10 +116,11 @@ class AccountService extends ChangeNotifier {
   }
 
   Future<void> forgetSession() async {
-    await _storage.delete(key: _key);
     _token = null;
     account = null;
+    _sessionRevision++;
     notifyListeners();
+    await _storage.delete(key: _key);
   }
 }
 

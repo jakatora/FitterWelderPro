@@ -30,12 +30,14 @@ void main() {
     });
     final service = AccountService.forTesting(client);
     await service.signIn('welder@example.com', 'a-private-password');
+    expect(service.sessionRevision, 1);
     expect(service.isAdmin, false);
     final saved = await const FlutterSecureStorage().readAll();
     expect(saved.values, [token]);
     expect(saved.toString(), isNot(contains('a-private-password')));
     expect(await service.headers(), {'Authorization': 'Bearer $token'});
     await service.signOut();
+    expect(service.sessionRevision, 2);
     expect(service.account, isNull);
     expect(await const FlutterSecureStorage().readAll(), isEmpty);
     expect(calls.last, endsWith('/logout'));
