@@ -21,8 +21,7 @@ import '../../core/skill.dart';
 
 enum _LegacyMode { weldParam, journal }
 
-final _journalEvidenceRe = RegExp(
-    r'\bdziennik\w*|\bjournal\b|\bweld log\b|'
+final _journalEvidenceRe = RegExp(r'\bdziennik\w*|\bjournal\b|\bweld log\b|'
     r'\bspoin\w* (?:nr|numer\w*|no|number)\b|\bweld (?:nr|no|number)\b');
 
 final _saveVerbRe = RegExp(
@@ -40,7 +39,11 @@ List<FollowUp> _choicesFor(String field, AppLanguage lang) {
         f('stal czarna', 'carbon steel'),
         f('duplex', 'duplex'),
       ],
-    'process' => [f('TIG', 'TIG'), f('MIG/MAG', 'MIG/MAG'), f('elektroda', 'stick')],
+    'process' => [
+        f('TIG', 'TIG'),
+        f('MIG/MAG', 'MIG/MAG'),
+        f('elektroda', 'stick')
+      ],
     'filler' => [f('z drutem', 'with filler'), f('bez drutu', 'no filler')],
     _ => const [],
   };
@@ -108,7 +111,8 @@ class LegacyIntentsSkill extends AssistantSkill {
   @override
   List<SkillRejection> get rejections => _isParam
       ? const [
-          SkillRejection('dodaj zawór kulowy dn50', alsoNot: ['legacy.journal']),
+          SkillRejection('dodaj zawór kulowy dn50',
+              alsoNot: ['legacy.journal']),
           SkillRejection('dodaj rurę 2 metry', alsoNot: ['legacy.journal']),
           SkillRejection('dodaj spoinę 12', alsoNot: ['legacy.journal']),
           SkillRejection('add a ball valve DN50',
@@ -129,18 +133,20 @@ class LegacyIntentsSkill extends AssistantSkill {
     if (_isParam) {
       if (p.intent != kIntentSaveWeldParameter) return null;
       final f = p.fields;
-      final evidence = (f.containsKey('material') || f.containsKey('process')) &&
-          (f.containsKey('current_a') || f.containsKey('wall_mm'));
+      final evidence =
+          (f.containsKey('material') || f.containsKey('process')) &&
+              (f.containsKey('current_a') || f.containsKey('wall_mm'));
       if (!evidence) return null;
-      final required =
-          kSaveWeldRequiredOrder.where(f.containsKey).length / kSaveWeldRequiredOrder.length;
+      final required = kSaveWeldRequiredOrder.where(f.containsKey).length /
+          kSaveWeldRequiredOrder.length;
       final verb = _saveVerbRe.hasMatch(u.folded) ? 0.1 : 0.0;
       return SkillMatch(this, 0.7 + verb + 0.1 * required,
-          slots: Map.of(f), utterance: u);
+          slots: {...f, 'origin_voice': u.byVoice}, utterance: u);
     }
     if (p.intent != kIntentAddWeldJournalEntry) return null;
     if (!_journalEvidenceRe.hasMatch(u.folded)) return null;
-    return SkillMatch(this, 0.85, slots: Map.of(p.fields), utterance: u);
+    return SkillMatch(this, 0.85,
+        slots: {...p.fields, 'origin_voice': u.byVoice}, utterance: u);
   }
 
   /// Kontynuacja nie dotyczy zapisów — „a dla DN50?" po zapisie to nie
@@ -151,17 +157,38 @@ class LegacyIntentsSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
+    if (slot == 'project' &&
+        const {
+          'ten sam',
+          'ten sam projekt',
+          'ostatni',
+          'same',
+          'the same',
+          'same project'
+        }.contains(u.folded)) {
+      final port = actions;
+      if (port is! LastJournalProjectPort) return null;
+      final project =
+          (port as LastJournalProjectPort).lastJournalProject.trim();
+      return project.isEmpty
+          ? null
+          : {'project': project, if (u.byVoice) 'origin_voice': true};
+    }
     final f = parseFieldAnswer(slot, u.raw);
-    return f.containsKey(slot) ? f : null;
+    return f.containsKey(slot)
+        ? {...f, if (u.byVoice) 'origin_voice': true}
+        : null;
   }
 
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
     final lang = ctx.lang;
-    final byVoice = m.utterance?.byVoice ?? false;
+    final byVoice =
+        m.slots['origin_voice'] == true || (m.utterance?.byVoice ?? false);
     final intent =
         _isParam ? kIntentSaveWeldParameter : kIntentAddWeldJournalEntry;
-    final check = validateAssistantProposal(intent, m.slots);
+    final check =
+        validateAssistantProposal(intent, {...m.slots}..remove('origin_voice'));
     switch (check) {
       case AssistantReadyToSave(:final draft):
         return ConfirmResult(
@@ -185,8 +212,11 @@ class LegacyIntentsSkill extends AssistantSkill {
                       'zapisałem — podaj inny numer.',
                   'Weld $weldNo already exists in project "$project". Nothing '
                       'saved — give another number.'),
-              partial: m.copyWith(
-                  slots: {'project': project, if (wps != null) 'wps': wps}),
+              partial: m.copyWith(slots: {
+                'project': project,
+                if (wps != null) 'wps': wps,
+                if (byVoice) 'origin_voice': true
+              }),
             );
           case JournalUnavailable(:final message):
             return FailedResult(message);

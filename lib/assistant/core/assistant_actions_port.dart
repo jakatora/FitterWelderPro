@@ -67,3 +67,8 @@ class JournalUnavailable extends JournalPreparation {
   const JournalUnavailable(this.message);
   final AssistantText message;
 }
+
+/// Optional synchronous context; no file/DB access during slot matching.
+abstract interface class LastJournalProjectPort {
+  String get lastJournalProject;
+}

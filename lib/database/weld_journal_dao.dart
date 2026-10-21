@@ -17,6 +17,7 @@
 /// the caller as `by` (empty when the owner never set one up).
 library;
 
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -67,10 +68,63 @@ class WeldJournalDao {
     final db = await AppDatabase.get();
     await db.transaction((txn) async {
       await txn.insert(table, e.toRow());
-      await _log(txn, e.id, by, WeldHistoryAction.create,
-          newValue: e.weldNo);
+      await _log(txn, e.id, by, WeldHistoryAction.create, newValue: e.weldNo);
       await _logWarning(txn, e.id, by, warning);
     });
+  }
+
+  /// The assistant rechecks the approved project/number in the write transaction.
+  Future<bool> insertAssistantIfAvailable(WeldEntry e,
+      {required String by}) async {
+    final db = await AppDatabase.get();
+    return db.transaction((txn) async {
+      if (await _read(txn, e.id) != null) {
+        return _unchangedAssistantCreation(txn, e);
+      }
+      final rows = await txn.query(table, columns: ['project_name', 'weld_no']);
+      final project = e.projectName.trim().toLowerCase();
+      for (final row in rows) {
+        final name = (row['project_name'] as String).trim();
+        if (name.toLowerCase() != project) continue;
+        if (name != e.projectName ||
+            (row['weld_no'] as String).trim().toUpperCase() ==
+                e.weldNo.trim().toUpperCase()) {
+          return false;
+        }
+      }
+      await txn.insert(table, e.toRow());
+      await _log(txn, e.id, by, WeldHistoryAction.create, newValue: e.weldNo);
+      return true;
+    });
+  }
+
+  /// Undo only the original unedited creation, preserving the journal evidence.
+  Future<bool> softDeleteAssistantIfUnchanged(WeldEntry expected,
+      {required String by}) async {
+    final db = await AppDatabase.get();
+    return db.transaction((txn) async {
+      if (!await _unchangedAssistantCreation(txn, expected)) return false;
+      await txn.update(table, {'deleted_at': _clock()},
+          where: 'id = ?', whereArgs: [expected.id]);
+      await _log(txn, expected.id, by, WeldHistoryAction.delete,
+          oldValue: expected.weldNo);
+      return true;
+    });
+  }
+
+  Future<bool> _unchangedAssistantCreation(
+      DatabaseExecutor txn, WeldEntry expected) async {
+    final current = await _read(txn, expected.id);
+    if (current == null ||
+        current.isDeleted ||
+        current.repairs.isNotEmpty ||
+        !mapEquals(current.toRow(), expected.toRow())) {
+      return false;
+    }
+    final history = await txn
+        .query(historyTable, where: 'weld_id = ?', whereArgs: [expected.id]);
+    return history.length == 1 &&
+        history.single['action'] == WeldHistoryAction.create;
   }
 
   /// Saves [e] over the stored row and logs every changed field. Returns the
@@ -92,8 +146,8 @@ class WeldJournalDao {
       final after = e.copyWith(deletedAt: before.deletedAt);
       final changes = diffWeldEntries(before, after);
       if (changes.isEmpty) return const <WeldChange>[];
-      await txn.update(table, after.toRow(),
-          where: 'id = ?', whereArgs: [e.id]);
+      await txn
+          .update(table, after.toRow(), where: 'id = ?', whereArgs: [e.id]);
       final reason = unlockReason?.trim() ?? '';
       if (reason.isNotEmpty) {
         await _log(txn, e.id, by, WeldHistoryAction.unlock, newValue: reason);
@@ -180,11 +234,10 @@ class WeldJournalDao {
         createdAt: _clock(),
       );
       await txn.insert(repairsTable, plan.repair.toRow());
-      await txn.update(table, plan.weld.toRow(),
-          where: 'id = ?', whereArgs: [id]);
+      await txn
+          .update(table, plan.weld.toRow(), where: 'id = ?', whereArgs: [id]);
       await _log(txn, id, by, WeldHistoryAction.repair,
-          field: 'repair',
-          newValue: plan.repair.summary());
+          field: 'repair', newValue: plan.repair.summary());
       for (final c in diffWeldEntries(before, plan.weld)) {
         await _log(txn, id, by, WeldHistoryAction.repair,
             field: c.field, oldValue: c.oldValue, newValue: c.newValue);
@@ -222,9 +275,7 @@ class WeldJournalDao {
   Future<List<WeldHistoryEntry>> history(String id) async {
     final db = await AppDatabase.get();
     final rows = await db.query(historyTable,
-        where: 'weld_id = ?',
-        whereArgs: [id],
-        orderBy: 'at DESC, rowid DESC');
+        where: 'weld_id = ?', whereArgs: [id], orderBy: 'at DESC, rowid DESC');
     return rows.map(WeldHistoryEntry.fromRow).toList();
   }
 
@@ -300,7 +351,9 @@ class WeldJournalSettingsDao {
         where: 'project_key = ?',
         whereArgs: [WeldJournalProjectSettings.keyFor(projectName)],
         limit: 1);
-    return rows.isEmpty ? null : WeldJournalProjectSettings.fromRow(rows.single);
+    return rows.isEmpty
+        ? null
+        : WeldJournalProjectSettings.fromRow(rows.single);
   }
 
   Future<void> save(WeldJournalProjectSettings s) async {

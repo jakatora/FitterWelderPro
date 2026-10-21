@@ -1,3 +1,4 @@
+import '../own_data/my_params_skill.dart';
 // Katalog grupy „core": pilotażowe umiejętności rdzenia (plan 1.3).
 
 import '../../core/assistant_actions_port.dart';
@@ -20,6 +21,7 @@ import 'pipe_wall_skill.dart';
 /// domyślnie tylko ta grupa.
 List<AssistantSkill> coreSkills({
   AssistantActionsPort? actions,
+  SavedParamsReader? savedParams,
   Iterable<AssistantSkill> Function()? catalog,
 }) {
   final out = <AssistantSkill>[];
@@ -27,6 +29,7 @@ List<AssistantSkill> coreSkills({
   out.addAll([
     PipeOdSkill(),
     PipeWallSkill(),
+    MyParamsSkill(load: savedParams),
     if (actions != null) ...[
       LegacyIntentsSkill.weldParam(actions),
       LegacyIntentsSkill.journal(actions),

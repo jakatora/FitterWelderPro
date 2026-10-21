@@ -1,3 +1,5 @@
+import '../assistant/assistant_actions.dart';
+import '../assistant/core/assistant_actions_port.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import '../assistant/assistant_ai_client.dart';
 import '../assistant/ai_execution_queue.dart';
@@ -5,7 +7,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:uuid/uuid.dart';
 
 import '../assistant/assistant_engine.dart';
 import '../assistant/assistant_parser.dart' show parseAssistantCommand;
@@ -194,8 +195,19 @@ class _AiChatScreenState extends State<AiChatScreen>
         _awaitingIsoChoice,
     execute: _executeIsoSkill,
   );
-  late final _brain =
-      AssistantBrain(skills: widget.skills ?? buildSkillCatalog(iso: _isoPort));
+  late final _actions = AssistantActions(
+      parameters: _dao,
+      journal: _journalDao,
+      history: _history,
+      now: _now,
+      stamp: _stamp,
+      projectContext: () => _lastProject,
+      onProjectSaved: (p) {
+        if (mounted) _lastProject = p;
+      });
+  late final _brain = AssistantBrain(
+      skills:
+          widget.skills ?? buildSkillCatalog(iso: _isoPort, actions: _actions));
   bool _collectIsoReply = false;
   SkillResult? _isoSkillResult;
   Future<SkillResult> _executeIsoSkill(Utterance u) async {
@@ -251,7 +263,6 @@ class _AiChatScreenState extends State<AiChatScreen>
   final _dao = WeldParamDao();
   final _journalDao = WeldJournalDao();
   final _history = AssistantHistoryStore.instance;
-  static const _uuid = Uuid();
 
   late AssistantMode _mode = widget.initialMode;
   bool _listening = false;
@@ -1211,7 +1222,14 @@ class _AiChatScreenState extends State<AiChatScreen>
     if ((legacyIntent == kIntentSaveWeldParameter && !calculationRequest) ||
         legacyIntent == kIntentAddWeldJournalEntry ||
         legacyIntent == kIntentQueryMyParams) {
-      if (!_brain.recognizesNewCommand(utterance, _brainContext)) {
+      if (!(_aiQueue.waiting &&
+              (_aiQueue.waitingSkill?.startsWith('legacy.') ?? false)) &&
+          !_brain.recognizesNewCommand(utterance, _brainContext,
+              exceptSkillIds: const {
+                'legacy.save',
+                'legacy.journal',
+                'params.saved'
+              })) {
         _brain.cancelPending();
         _clearIsoQuestion();
         _localResult = null;
@@ -1496,6 +1514,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     try {
       await undo();
       if (!mounted) return;
+      _rememberAi(_tr('Cofnij zapis', 'Undo save'),
+          _tr('Zapis cofnięty.', 'Save undone.'));
       setState(() {
         _localUndo = null;
         _localResult = const AnswerResult(AssistantAnswer(
@@ -1649,66 +1669,75 @@ class _AiChatScreenState extends State<AiChatScreen>
   DateTime _now() => (widget.now ?? DateTime.now)();
 
   Future<void> _save(WeldParamDraft draft) async {
-    final lang = context.language;
-    final messenger = ScaffoldMessenger.of(context);
-    final at = _now();
-    final record = draft.toWeldParam(
-        id: _uuid.v4(), at: at, byVoice: _voiceUsed, lang: lang);
+    if (_localCommitting) return;
+    setState(() {
+      _busy = true;
+      _localCommitting = true;
+    });
     try {
-      await _dao.insert(record);
+      final undo = await _actions.saveWeldParam(draft,
+          byVoice: _voiceUsed, lang: context.language);
+      if (mounted) _savedNative(undo, journal: false);
     } catch (e) {
-      debugPrint('Assistant save failed: $e');
-      if (!mounted) return;
-      setState(() {
-        _notice = _tr('Nie udało się zapisać — nic nie zostało zmienione.',
-            'Could not save — nothing was changed.');
-        _noticeIsError = true;
-      });
-      return;
+      debugPrint('Assistant native save: ${e.runtimeType}');
+      if (mounted) {
+        setState(() {
+          _notice = _tr(
+              'Nie udało się zapisać — sprawdź dane przed ponowieniem.',
+              'Could not confirm the save — check the data before retrying.');
+          _noticeIsError = true;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _localCommitting = false;
+        });
+      }
     }
-    final entry = AssistantHistoryEntry(
-      id: _uuid.v4(),
-      kind: kIntentSaveWeldParameter,
-      summary: _summaryLine(draft, lang),
-      recordId: record.id,
-      at: at,
-      byVoice: _voiceUsed,
-    );
-    await _history.add(entry);
+  }
+
+  void _savedNative(UndoAction? undo, {required bool journal}) {
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = journal
+        ? _tr('Dopisano do dziennika spoin — status „do badania"',
+            'Added to the weld journal — status "pending"')
+        : _tr('Zapisano w „Parametry — rury" → Moje',
+            'Saved to "Pipe parameters" → Mine');
+    _rememberAi(_commandSoFar, saved);
     Haptic.saved();
-    if (!mounted) return;
-    final savedText = _tr(
-      'Zapisano w „Parametry — rury" → Moje',
-      'Saved to "Pipe parameters" → Mine',
-    );
-    final undoLabel = _tr('Cofnij', 'Undo');
-    final undoneText =
-        _tr('Cofnięto — rekord usunięty.', 'Undone — record removed.');
-    final undoFailedText = _tr('Nie udało się cofnąć — rekord zostaje.',
-        'Could not undo — the record stays.');
     setState(() {
       _resetAct();
       _notice = null;
     });
-    unawaited(_speak(savedText));
+    unawaited(_speak(saved));
     messenger.showSnackBar(SnackBar(
-      content: Text(savedText),
-      duration: const Duration(seconds: 8),
-      action: SnackBarAction(
-        label: undoLabel,
-        onPressed: () async {
-          try {
-            await _dao.deleteById(entry.recordId);
-          } catch (e) {
-            debugPrint('Assistant undo failed: $e');
-            messenger.showSnackBar(SnackBar(content: Text(undoFailedText)));
-            return;
-          }
-          await _history.markUndone(entry.id);
-          messenger.showSnackBar(SnackBar(content: Text(undoneText)));
-        },
-      ),
-    ));
+        content: Text(saved),
+        duration: const Duration(seconds: 8),
+        action: undo == null
+            ? null
+            : SnackBarAction(
+                label: _tr('Cofnij', 'Undo'),
+                onPressed: () async {
+                  try {
+                    await undo();
+                  } catch (_) {
+                    messenger.showSnackBar(SnackBar(
+                        content: Text(_tr(
+                            'Nie udało się cofnąć — rekord został zmieniony.',
+                            'Could not undo — the record has changed.'))));
+                    return;
+                  }
+                  if (!mounted) return;
+                  final text = journal
+                      ? _tr('Cofnięto — wpis oznaczony jako usunięty.',
+                          'Undone — the entry is marked deleted.')
+                      : _tr('Cofnięto — rekord usunięty.',
+                          'Undone — record removed.');
+                  _rememberAi(_tr('Cofnij zapis', 'Undo save'), text);
+                  messenger.showSnackBar(SnackBar(content: Text(text)));
+                })));
   }
 
   Future<String> _stamp() async {
@@ -1756,136 +1785,66 @@ class _AiChatScreenState extends State<AiChatScreen>
   /// Wpis do dziennika: sprawdzenie numeru, podsumowanie, zapis po „Zapisz".
   Future<void> _prepareJournal(WeldJournalDraft draft) async {
     final lang = context.language;
-    List<WeldEntry> journal;
-    String stamp;
-    try {
-      journal = await _journalDao.listAll();
-      stamp = await _stamp();
-    } catch (e) {
-      debugPrint('Assistant journal read failed: $e');
-      if (!mounted) return;
-      setState(() {
-        _resetAct(clearText: false);
-        _notice = _tr(
-            'Nie udało się odczytać dziennika spoin. Nic nie zapisano.',
-            'Could not read the weld journal. Nothing saved.');
-        _noticeIsError = true;
-      });
-      return;
-    }
+    final byVoice = _voiceUsed;
+    final prep =
+        await _actions.prepareJournal(draft, byVoice: byVoice, lang: lang);
     if (!mounted) return;
-    final project = canonicalJournalProject(journal, draft.project);
-    if (isWeldNoTaken(journal, project: project, weldNo: draft.weldNo)) {
-      // Numer zajęty: projekt i WPS zostają, pytamy tylko o inny numer.
-      final q = assistantQuestionFor('weld_no', lang);
-      setState(() {
-        _pendingIntent = kIntentAddWeldJournalEntry;
-        _pendingField = 'weld_no';
-        _carried = {
-          'project': project,
-          if (draft.wps != null) 'wps': draft.wps
-        };
-        _question = q;
-        _cmdCtrl.clear();
-        _notice = _tr(
-            'Spoina ${draft.weldNo} jest już w projekcie „$project". Nic nie zapisano — podaj inny numer.',
-            'Weld ${draft.weldNo} already exists in project "$project". Nothing saved — give another number.');
-        _noticeIsError = true;
-      });
-      Haptic.error();
-      await _speak(q);
-      return;
-    }
-    final at = _now();
-    final entry = buildAssistantWeldEntry(
-      WeldJournalDraft(weldNo: draft.weldNo, project: project, wps: draft.wps),
-      id: _uuid.v4(),
-      stamp: stamp,
-      at: at,
-      byVoice: _voiceUsed,
-      lang: lang,
-    );
-    final confirmed = await Navigator.of(_navigationContext).push<bool>(
-      MaterialPageRoute(builder: (_) => _JournalSummaryPage(entry: entry)),
-    );
-    if (!mounted) return;
-    if (confirmed != true) {
-      setState(() {
-        _resetAct(clearText: false);
-        _cmdCtrl.text = _commandSoFar;
-        _notice = _tr('Nic nie zapisano. Popraw polecenie i stuknij „Dalej".',
-            'Nothing saved. Edit the command and tap "Next".');
-        _noticeIsError = false;
-      });
-      return;
-    }
-    await _saveJournal(entry, stamp: stamp, at: at);
-  }
-
-  Future<void> _saveJournal(WeldEntry entry,
-      {required String stamp, required DateTime at}) async {
-    final lang = context.language;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _journalDao.insert(entry, by: stamp);
-    } catch (e) {
-      debugPrint('Assistant journal save failed: $e');
-      if (!mounted) return;
-      setState(() {
-        _notice = _tr('Nie udało się zapisać — nic nie zostało zmienione.',
-            'Could not save — nothing was changed.');
-        _noticeIsError = true;
-      });
-      return;
-    }
-    await saveLastWeldProject(entry.projectName);
-    final history = AssistantHistoryEntry(
-      id: _uuid.v4(),
-      kind: kIntentAddWeldJournalEntry,
-      summary: [
-        '${lang == AppLanguage.en ? 'Weld' : 'Spoina'} ${entry.weldNo}',
-        entry.projectName,
-        if (entry.wpsRef.isNotEmpty) 'WPS ${entry.wpsRef}',
-        if (entry.welder.isNotEmpty) entry.welder,
-      ].join(' · '),
-      recordId: entry.id,
-      at: at,
-      byVoice: _voiceUsed,
-    );
-    await _history.add(history);
-    Haptic.saved();
-    if (!mounted) return;
-    final savedText = _tr('Dopisano do dziennika spoin — status „do badania"',
-        'Added to the weld journal — status "pending"');
-    final undoLabel = _tr('Cofnij', 'Undo');
-    final undoneText = _tr('Cofnięto — wpis oznaczony jako usunięty.',
-        'Undone — the entry is marked deleted.');
-    final undoFailedText = _tr('Nie udało się cofnąć — wpis zostaje.',
-        'Could not undo — the entry stays.');
-    setState(() {
-      _resetAct();
-      _notice = null;
-    });
-    unawaited(_speak(savedText));
-    messenger.showSnackBar(SnackBar(
-      content: Text(savedText),
-      duration: const Duration(seconds: 8),
-      action: SnackBarAction(
-        label: undoLabel,
-        onPressed: () async {
-          try {
-            // Dziennik to dowód — wpisu nie kasujemy, tylko oznaczamy.
-            await _journalDao.softDelete(entry.id, by: stamp);
-          } catch (e) {
-            debugPrint('Assistant journal undo failed: $e');
-            messenger.showSnackBar(SnackBar(content: Text(undoFailedText)));
-            return;
+    switch (prep) {
+      case JournalWeldNoTaken(:final project, :final weldNo, :final wps):
+        final q = assistantQuestionFor('weld_no', lang);
+        setState(() {
+          _pendingIntent = kIntentAddWeldJournalEntry;
+          _pendingField = 'weld_no';
+          _carried = {'project': project, if (wps != null) 'wps': wps};
+          _question = q;
+          _cmdCtrl.clear();
+          _notice = _tr(
+              'Spoina $weldNo jest już w projekcie „$project”. Nic nie zapisano — podaj inny numer.',
+              'Weld $weldNo already exists in project "$project". Nothing saved — give another number.');
+          _noticeIsError = true;
+        });
+        Haptic.error();
+        await _speak(q);
+        return;
+      case JournalUnavailable(:final message):
+        setState(() {
+          _resetAct(clearText: false);
+          _notice = message.of(lang);
+          _noticeIsError = true;
+        });
+        return;
+      case PreparedJournal():
+        final snapshot = prep.payload as AssistantJournalSnapshot;
+        final confirmed = await Navigator.of(_navigationContext).push<bool>(
+            MaterialPageRoute(
+                builder: (_) => _JournalSummaryPage(entry: snapshot.entry)));
+        if (!mounted) return;
+        if (confirmed != true) {
+          setState(() {
+            _resetAct(clearText: false);
+            _cmdCtrl.text = _commandSoFar;
+            _notice = _tr(
+                'Nic nie zapisano. Popraw polecenie i stuknij „Dalej”.',
+                'Nothing saved. Edit the command and tap "Next".');
+            _noticeIsError = false;
+          });
+          return;
+        }
+        try {
+          final undo =
+              await _actions.saveJournal(prep, byVoice: byVoice, lang: lang);
+          if (mounted) _savedNative(undo, journal: true);
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _notice = _tr(
+                  'Nie udało się potwierdzić zapisu. Dziennik mógł zostać zmieniony — sprawdź go przed ponowieniem.',
+                  'Could not confirm the save. The journal may have changed — check it before retrying.');
+              _noticeIsError = true;
+            });
           }
-          await _history.markUndone(history.id);
-          messenger.showSnackBar(SnackBar(content: Text(undoneText)));
-        },
-      ),
-    ));
+        }
+    }
   }
 
   String _fieldLabel(String? field, AppLanguage lang) {
@@ -1979,25 +1938,6 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (out.remoteQuestion != null) out.remoteQuestion!,
       if (extra != null) extra,
     ].join('\n');
-  }
-
-  String _summaryLine(WeldParamDraft d, AppLanguage lang) {
-    final en = lang == AppLanguage.en;
-    final filler = d.filler
-        ? (en ? 'with filler' : 'z drutem')
-        : (en ? 'no filler' : 'bez drutu');
-    final process = switch (d.process) {
-      'MIG_MAG' => 'MIG/MAG',
-      'MMA' => 'MMA',
-      _ => d.process,
-    };
-    return [
-      '$process $filler',
-      d.material,
-      't ${assistantNumber(d.wallMm, lang)} mm',
-      '${assistantNumber(d.currentA, lang)} A',
-      if (d.diameterMm != null) 'Ø ${assistantNumber(d.diameterMm!, lang)}',
-    ].join(' · ');
   }
 
   Future<void> _useServer() async {

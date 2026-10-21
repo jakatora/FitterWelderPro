@@ -97,6 +97,7 @@ class BrainHarness {
         skills: buildSkillCatalog(
             iso: iso ?? FakeIsoDrawingPort(),
             actions: this.actions,
+            savedParams: () async => [],
             timer: () => this.timer,
             instruments: instruments ?? () async => [],
             certificates: certificates ?? (_) async => [],

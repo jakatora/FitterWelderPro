@@ -1,3 +1,4 @@
+import 'own_data/my_params_skill.dart';
 import 'iso/catalog.dart';
 import 'iso/iso_draw_skill.dart';
 import 'records/quote_new_skill.dart';
@@ -30,6 +31,7 @@ import 'records/confined_space_prepare_skill.dart';
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog(
     {AssistantActionsPort? actions,
+    SavedParamsReader? savedParams,
     WeldTimerService Function()? timer,
     InstrumentReader? instruments,
     CertificateReader? certificates,
@@ -38,7 +40,8 @@ List<AssistantSkill> buildSkillCatalog(
     IsoDrawingPort? iso}) {
   final all = <AssistantSkill>[];
   Iterable<AssistantSkill> catalog() => all;
-  all.addAll(coreSkills(actions: actions, catalog: catalog));
+  all.addAll(
+      coreSkills(actions: actions, catalog: catalog, savedParams: savedParams));
   all.addAll(welderCalcSkills());
   all.addAll(welderMiscSkills(timer: timer));
   all.add(AccountNavigationSkill());
