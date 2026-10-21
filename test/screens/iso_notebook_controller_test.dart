@@ -221,7 +221,7 @@ void main() {
     expect(report.segments, 3);
     expect(report.elbows, 2);
     final sketch = await _stored(tester);
-    expect(sketch!['format'], 4);
+    expect(sketch!['format'], 5);
     final pipes = _pipes(sketch);
     final bends = _comps(sketch, 'elbow45');
     expect(bends, hasLength(2));
@@ -305,6 +305,141 @@ void main() {
       expect(report.ok, isFalse);
       expect(c.hasContent, isFalse);
     }
+    await _leave(tester);
+  });
+
+  for (final tool in [
+    'ballValve',
+    'gateValve',
+    'checkValve',
+    'globeValve',
+    'butterflyValve',
+    'flange',
+    'blindFlange',
+    'cap',
+    'reducer',
+    'weld',
+    'fieldWeld',
+    'support'
+  ]) {
+    testWidgets('spatial $tool aligns with pipe and survives reopen and Undo',
+        (tester) async {
+      await _boot(tester);
+      var c = await _open(tester);
+      await c.draw(const [
+        IsoPipe(lengthMm: 1000),
+        IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+        IsoPipe(lengthMm: 1000)
+      ], stepDelay: Duration.zero);
+      final before = await _stored(tester);
+      final ray = _pipes(before).last['spatialDirection'];
+      final report = await c.draw(
+          [IsoFitting(tool, dn: 100, dnOut: tool == 'reducer' ? 80 : null)],
+          stepDelay: Duration.zero);
+      expect(report.ok, isTrue, reason: report.toString());
+      expect(report.fittings, 1);
+      final after = await _stored(tester);
+      final fitting = _comps(after, tool).last;
+      expect(fitting['spatialDirection'], ray);
+      expect(after!['format'], 5);
+      if (!['weld', 'fieldWeld', 'support'].contains(tool)) {
+        expect(fitting['dn'], 100);
+      }
+      expect(tester.takeException(), isNull);
+      // A real reopen proves codec and painter both understand the orientation.
+      await _leave(tester);
+      c = await _open(tester);
+      expect(await _stored(tester), after);
+      final continuation = await c
+          .draw(const [IsoPipe(lengthMm: 1000)], stepDelay: Duration.zero);
+      expect(continuation.ok, isTrue);
+      expect(_pipes(await _stored(tester)).length, _pipes(after).length + 1);
+      c.undo();
+      await tester.pumpAndSettle();
+      expect(await _stored(tester), after);
+      await _leave(tester);
+    });
+  }
+  testWidgets('spatial fittings and auto welds are one reversible command',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    final report = await c.draw(const [
+      IsoPipe(lengthMm: 1000),
+      IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+      IsoPipe(lengthMm: 1000),
+      IsoFitting('ballValve', dn: 100),
+      IsoPipe(lengthMm: 1000)
+    ], stepDelay: Duration.zero);
+    expect(report.ok, isTrue);
+    expect(report.elbows, 1);
+    expect(report.fittings, 1);
+    final stored = await _stored(tester);
+    final welds = _comps(stored, 'weld');
+    expect(welds, hasLength(4));
+    expect(welds.every((w) => w['spatialDirection'] != null), isTrue);
+    expect(welds.map((w) => w['label']).toSet(), hasLength(4));
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(c.hasContent, isFalse);
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'a manual pipe joining a spatial ray uses its physical 45 degree angle',
+      (tester) async {
+    final ray = IsoSpatialVector.gridHeading(0)
+        .turnTowards(IsoSpatialVector.gridHeading(2), 45);
+    final a = Offset(64, 6 * _dy), b = Offset(96, 4 * _dy);
+    final pipe = _seg(a, b)..['spatialDirection'] = ray.toJson();
+    await _seed(
+        'manual-spatial', _sketch('Spatial manual', [pipe])..['format'] = 4);
+    await _boot(tester);
+    final c = await _open(tester);
+    final view = c.debugVisibleWorld!, rect = tester.getRect(_canvas);
+    Offset screen(Offset point) => Offset(
+        rect.left + (point.dx - view.left) / view.width * rect.width,
+        rect.top + (point.dy - view.top) / view.height * rect.height);
+    await tester.dragFrom(
+        screen(b), screen(b + const Offset(128, 0)) - screen(b));
+    await tester.pumpAndSettle();
+    final saved = await _stored(tester);
+    expect(_pipes(saved), hasLength(2));
+    expect(_comps(saved, 'elbow45'), hasLength(1), reason: jsonEncode(saved));
+    expect(_comps(saved, 'elbow90'), isEmpty);
+    final bend = IsoSpatialElbow.fromJson(
+        _comps(saved, 'elbow45').single['spatialBend'])!;
+    expect(bend.degrees, closeTo(45, 1e-7));
+    expect(_comps(saved, 'weld'), hasLength(2));
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(_pipes(await _stored(tester)), hasLength(1));
+    expect(_comps(await _stored(tester), 'elbow45'), isEmpty);
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'standalone tee symbol keeps exact spatial cursor without inventing a branch',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(
+        const [IsoPipe(), IsoTurn(degrees: 45, toDir: IsoDir.up), IsoPipe()],
+        stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final end = _pipes(before).last['b'];
+    final report = await c.draw(const [
+      IsoFitting('tee', symbolOnly: true, dir: IsoDir.back, dn: 100, dnOut: 80)
+    ], stepDelay: Duration.zero);
+    expect(report.ok, isTrue);
+    expect(report.fittings, 1);
+    final tee = _comps(await _stored(tester), 'tee').single;
+    expect(tee['pos'], end);
+    expect(tee['dir'], IsoDir.back.index);
+    expect(tee['spatialDirection'], isNull);
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(await _stored(tester), before);
     await _leave(tester);
   });
 

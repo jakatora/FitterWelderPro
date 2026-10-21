@@ -725,6 +725,8 @@ class IsoNotebookController extends ChangeNotifier {
               elbowSubtype: subtype,
               cteMm: cte,
               spatialBend: bend)));
+          s._mutate(() =>
+              s._addSpatialWeldsAt(seg.a, [bend.incoming * -1, bend.outgoing]));
           if (dn != null && cte != null) s._rememberCompDim(tool, dn, cte);
         }
         run.segments++;
@@ -734,7 +736,8 @@ class IsoNotebookController extends ChangeNotifier {
         s._mutate(() {
           var comp = _Comp(pos, op.tool,
               dir: op.dir,
-              label: op.tool.isWeld ? '${s._nextWeldNo()}' : op.label);
+              label: op.tool.isWeld ? '${s._nextWeldNo()}' : op.label,
+              spatialDirection: op.spatialDirection);
           final dn = op.dn;
           if (dn != null && op.tool == _Tool.elbow45) {
             comp = comp.withElbowSpec(
@@ -771,7 +774,13 @@ class IsoNotebookController extends ChangeNotifier {
   static void _weldFitting(_IsoState s, _PlannedFitting f, Offset pos) {
     final a = f.endA, b = f.endB;
     if (f.dn == null || a == null || b == null) return;
-    s._addPhysicalCompWelds(pos: pos, dir: f.dir, endA: a, endB: b);
+    if (f.spatialDirection case final ray?) {
+      if (!s._pipeTouches(pos)) return;
+      s._addSpatialWeldsAt(
+          pos, [if (a.producesWeld) ray * -1, if (b.producesWeld) ray]);
+    } else {
+      s._addPhysicalCompWelds(pos: pos, dir: f.dir, endA: a, endB: b);
+    }
   }
 
   static int _elbowCount(_IsoState s) =>
@@ -1160,9 +1169,39 @@ class IsoNotebookController extends ChangeNotifier {
           if (turn != null) {
             return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
           }
+          if (step.symbolOnly && steps.length == 1) {
+            final tool = switch (step.tool) {
+              'elbow45' => _Tool.elbow45,
+              'tee' => _Tool.tee,
+              _ => _kFittings[step.tool],
+            };
+            if (tool == null) {
+              return _VoicePlan.failed(IsoDrawProblem.spatialFitting, i);
+            }
+            if ((step.dn != null && !_IsoState._dnChoices.contains(step.dn)) ||
+                (step.dnOut != null &&
+                    !_IsoState._dnChoices.contains(step.dnOut)) ||
+                (tool == _Tool.tee &&
+                    step.dnOut != null &&
+                    (step.dn == null || step.dnOut! > step.dn!))) {
+              return _VoicePlan.failed(IsoDrawProblem.invalidFittingSize, i);
+            }
+            ops.add(_planFitting(s,
+                tool: tool,
+                step: step,
+                index: i,
+                at: at(point),
+                heading: _gridDirOf(step.dir ?? IsoDir.right, m),
+                atStart: ray == null,
+                runDn: runDn,
+                assume: assume));
+            continue;
+          }
           final heading = ray == null ? _lookAheadDir(steps, i, m) : grid(ray);
           final tool = _kFittings[step.tool];
-          if (heading == null || tool == null || step.symbolOnly) {
+          if (tool == null ||
+              step.symbolOnly ||
+              (heading == null && tool == _Tool.tee)) {
             return _VoicePlan.failed(IsoDrawProblem.spatialFitting, i);
           }
           if (elbowHere && !tool.isWeld) {
@@ -1179,7 +1218,10 @@ class IsoNotebookController extends ChangeNotifier {
               step: step,
               index: i,
               at: at(point),
-              heading: heading,
+              heading: heading ??
+                  s._closestIsoHeading(
+                      Offset(ray!.projected.x, ray.projected.y)),
+              spatialDirection: heading == null ? ray : null,
               atStart: ray == null,
               runDn: runDn,
               assume: assume);
@@ -1210,6 +1252,7 @@ class IsoNotebookController extends ChangeNotifier {
     required int index,
     required _Lat at,
     required int heading,
+    IsoSpatialVector? spatialDirection,
     required bool atStart,
     required int? runDn,
     required void Function(String pl, String en) assume,
@@ -1219,8 +1262,14 @@ class IsoNotebookController extends ChangeNotifier {
     final terminal =
         tool == _Tool.flange || tool == _Tool.blindFlange || tool == _Tool.cap;
     final dir = atStart && terminal ? (heading + 3) % 6 : heading;
+    final axis = atStart && terminal
+        ? spatialDirection == null
+            ? null
+            : spatialDirection * -1
+        : spatialDirection;
     if (tool.isWeld || tool == _Tool.support) {
-      return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+      return _PlannedFitting(index,
+          spatialDirection: axis, at: at, tool: tool, dir: dir);
     }
     final namePl = _IsoState.compName(tool, true);
     final nameEn = _IsoState.compName(tool, false);
@@ -1232,7 +1281,8 @@ class IsoNotebookController extends ChangeNotifier {
       } else {
         assume('$namePl: bez średnicy — uzupełnij DN.',
             '$nameEn: no size — enter the DN.');
-        return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+        return _PlannedFitting(index,
+            spatialDirection: axis, at: at, tool: tool, dir: dir);
       }
     }
     switch (tool) {
@@ -1245,7 +1295,13 @@ class IsoNotebookController extends ChangeNotifier {
             'Umieściłem symbol kolana 45° we wskazanej orientacji. Pochylenie i dalszą trasę trzeba określić osobno.',
             'Placed a 45° elbow symbol in the specified orientation. Specify slope and further routing separately.');
         return _PlannedFitting(index,
-            at: at, tool: tool, dir: heading, dn: dn, cte: cte, dnAfter: dn);
+            spatialDirection: axis,
+            at: at,
+            tool: tool,
+            dir: heading,
+            dn: dn,
+            cte: cte,
+            dnAfter: dn);
       case _Tool.tee:
         final cte = TakeoutCatalog.tee[dn];
         if (cte == null) _noTableLength(assume, namePl, nameEn, dn);
@@ -1253,6 +1309,7 @@ class IsoNotebookController extends ChangeNotifier {
             'Umieściłem symbol trójnika we wskazanej orientacji. Odgałęzienie nie ma jeszcze narysowanej rury.',
             'Placed a tee symbol in the specified orientation. Its branch pipe is not drawn yet.');
         return _PlannedFitting(index,
+            spatialDirection: axis,
             at: at,
             tool: tool,
             dir: heading,
@@ -1272,7 +1329,8 @@ class IsoNotebookController extends ChangeNotifier {
           if (out == null) {
             assume('$namePl: bez średnicy wylotu — uzupełnij.',
                 '$nameEn: no outlet size — enter it.');
-            return _PlannedFitting(index, at: at, tool: tool, dir: dir);
+            return _PlannedFitting(index,
+                spatialDirection: axis, at: at, tool: tool, dir: dir);
           }
           assume('$namePl: przyjąłem DN$dn na DN$out.',
               '$nameEn: assumed DN$dn to DN$out.');
@@ -1281,6 +1339,7 @@ class IsoNotebookController extends ChangeNotifier {
         final len = _IsoState._reducerLenDefault[hi];
         if (len == null) _noTableLength(assume, namePl, nameEn, hi);
         return _PlannedFitting(index,
+            spatialDirection: axis,
             at: at,
             tool: tool,
             dir: dir,
@@ -1300,6 +1359,7 @@ class IsoNotebookController extends ChangeNotifier {
         final len = isoFlangeAxialLengthMm(dn: dn, type: type);
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
+            spatialDirection: axis,
             at: at,
             tool: tool,
             dir: dir,
@@ -1313,6 +1373,7 @@ class IsoNotebookController extends ChangeNotifier {
         final len = TakeoutCatalog.cap[dn];
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
+            spatialDirection: axis,
             at: at,
             tool: tool,
             dir: dir,
@@ -1327,6 +1388,7 @@ class IsoNotebookController extends ChangeNotifier {
         final len = isoValveFaceToFaceMm(tool.name, dn);
         if (len == null) _noTableLength(assume, namePl, nameEn, dn);
         return _PlannedFitting(index,
+            spatialDirection: axis,
             at: at,
             tool: tool,
             dir: dir,
@@ -1511,8 +1573,8 @@ String _dirEn(IsoDir d) => switch (d) {
           'Specify the elbow target direction; its angle must fit the spatial route and bend plane.',
         ),
       IsoDrawProblem.spatialFitting => (
-          'Podaj prosty odcinek w osi przed kształtką; orientacja kształtek na pochyłej trasie wymaga jeszcze obsługi.',
-          'Specify an axis-aligned run before the fitting; oblique fitting orientation still needs support.',
+          'Ta kształtka wymaga jeszcze określenia przestrzennego przelotu i odgałęzienia. Możesz osobno umieścić jej symbol.',
+          'This fitting still needs a spatial run and branch orientation. You can place its standalone symbol separately.',
         ),
       IsoDrawProblem.unsupported45 => (
           'Podaj kolano 45° jako skręt z kierunkiem i rurą za nim albo poproś o sam symbol kolana.',
@@ -1649,8 +1711,10 @@ final class _PlannedFitting extends _PlannedOp {
     this.label = '',
     this.dnAfter,
     this.cte,
+    this.spatialDirection,
   });
   final _Lat at;
+  final IsoSpatialVector? spatialDirection;
   final _Tool tool;
   final int dir;
   final int? dn, dnOut, lengthMm, cte;

@@ -8,6 +8,40 @@ import '../support/iso_spatial_fixture.dart';
 
 void main() {
   test(
+      'format 5 preserves axial fitting direction without upgrading format 4 drawings',
+      () {
+    final sketch = spatialSketch()..['format'] = 5;
+    final items = sketch['items'] as List;
+    final direction = (items.first as Map)['spatialDirection'];
+    final valve = items.whereType<Map>().firstWhere(
+        (c) => c['tool'] == 'gateValve',
+        orElse: () =>
+            items.whereType<Map>().firstWhere((c) => c['kind'] == 'comp'));
+    valve['tool'] = 'ballValve';
+    valve['elbowSubtype'] = null;
+    valve.remove('spatialBend');
+    valve['spatialDirection'] = direction;
+    expect(
+        jsonDecode(isoSketchRoundTripForTesting(jsonEncode(sketch))), sketch);
+    sketch['format'] = 4;
+    expect(() => isoSketchRoundTripForTesting(jsonEncode(sketch)),
+        throwsA(isA<IsoSketchFormatException>()));
+    sketch['format'] = 5;
+    for (final raw in [
+      <num>[0, 0, 0],
+      <num>[2, 0, 0],
+      <num>[1, 2],
+      <String>['1', '0', '0']
+    ]) {
+      valve['spatialDirection'] = raw;
+      expect(isoSketchSkippedItemsForTesting(jsonEncode(sketch)), 1);
+    }
+    valve['spatialDirection'] = direction;
+    valve['tool'] = 'northArrow';
+    expect(isoSketchSkippedItemsForTesting(jsonEncode(sketch)), 1);
+  });
+
+  test(
       'format 4 preserves full precision spatial geometry and legacy CUT fields',
       () {
     final original = spatialSketch();
@@ -15,7 +49,7 @@ void main() {
     expect(jsonDecode(encoded), original);
     expect(isoSketchRoundTripForTesting(encoded), encoded);
     expect(isoSketchSkippedItemsForTesting(encoded), 0);
-    expect(kIsoSketchFormatVersion, 4);
+    expect(kIsoSketchFormatVersion, 5);
   });
   test('legacy sketches retain their original format and fields', () {
     final old = representativeIsoSketch();

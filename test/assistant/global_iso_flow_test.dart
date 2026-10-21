@@ -126,6 +126,36 @@ void main() {
     await _close(t);
   });
   testWidgets(
+      'the common assistant places a real valve along a spatial pipe and undoes only that command',
+      (t) async {
+    await _boot(t);
+    await _say(
+        t, 'narysuj rura metr w prawo kolano 45 stopni DN100 w górę rura metr');
+    await _say(t, 'dorysuj zawór kulowy DN100');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final sketch = jsonDecode(saved!.json) as Map;
+    expect(sketch['format'], 5);
+    final items = sketch['items'] as List;
+    final valve = items.singleWhere((x) => x['tool'] == 'ballValve');
+    final pipe = items.where((x) => x['tool'] == 'pipe').last;
+    expect(valve['spatialDirection'], pipe['spatialDirection']);
+    expect(valve['dn'], 100);
+    expect(items.where((x) => x['tool'] == 'weld'), hasLength(4));
+    await _say(t, 'cofnij');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final undone = await t.runAsync(() => IsoDrawingDao().latest());
+    expect(
+        ((jsonDecode(undone!.json) as Map)['items'] as List)
+            .where((x) => x['tool'] == 'ballValve'),
+        isEmpty);
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    await _close(t);
+  });
+  testWidgets(
       'compass directions and a short correction follow the actual north arrow',
       (t) async {
     await t.runAsync(() => IsoDrawingDao().upsert(IsoDrawingRecord(

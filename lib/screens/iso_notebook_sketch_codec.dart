@@ -10,9 +10,9 @@ part of 'iso_notebook_screen.dart';
 // are private to it; nothing here touches widgets, the database or the
 // screen state.
 //
-// FORMAT (kIsoSketchFormatVersion = 4):
+// FORMAT (kIsoSketchFormatVersion = 5):
 //   {
-//     "format": 1, 2, 3 or 4,
+//     "format": 1, 2, 3, 4 or 5,
 //     "name": "6\"-CWS-1234",
 //     "gapMm": 3,             (format 2 only — see below)
 //     "items": [
@@ -55,6 +55,9 @@ part of 'iso_notebook_screen.dart';
 // outgoing unit vectors) to elbows. Older builds cannot preserve these rays;
 // only sketches carrying them use format 4, leaving legacy encodings stable.
 //
+// FORMAT 5 adds spatialDirection to axial fittings and weld markers. Only
+// sketches carrying these fields use format 5; older builds refuse them.
+//
 // EVOLVING THE FORMAT: a new field that an older build would drop on its
 // next autosave MUST bump [kIsoSketchFormatVersion]. An older build refuses a
 // newer format (it starts a fresh sketch and leaves the stored one alone),
@@ -65,7 +68,7 @@ part of 'iso_notebook_screen.dart';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Version of the JSON document written into `iso_drawings.json`.
-const int kIsoSketchFormatVersion = 4;
+const int kIsoSketchFormatVersion = 5;
 
 /// The stored sketch cannot be opened by this build.
 class IsoSketchFormatException implements Exception {
@@ -157,6 +160,8 @@ Map<String, Object?> _encodeItem(_Item it) {
       'endA': it.endA?.name,
       'endB': it.endB?.name,
       if (it.spatialBend != null) 'spatialBend': it.spatialBend!.toJson(),
+      if (it.spatialDirection != null)
+        'spatialDirection': it.spatialDirection!.toJson(),
     };
   }
   if (it is _Note) {
@@ -172,13 +177,15 @@ Map<String, Object?> _encodeItem(_Item it) {
 }
 
 Map<String, Object?> _encodeIsoSketch(_IsoSketch s) => {
-      'format': s.items.any((it) =>
-              (it is _Seg && it.spatialDirection != null) ||
-              (it is _Comp && it.spatialBend != null))
-          ? 4
-          : _sketchHasStops(s)
-              ? 3
-              : (s.gapMm > 0 ? 2 : 1),
+      'format': s.items.any((it) => it is _Comp && it.spatialDirection != null)
+          ? 5
+          : s.items.any((it) =>
+                  (it is _Seg && it.spatialDirection != null) ||
+                  (it is _Comp && it.spatialBend != null))
+              ? 4
+              : _sketchHasStops(s)
+                  ? 3
+                  : (s.gapMm > 0 ? 2 : 1),
       'name': s.name,
       if (s.gapMm > 0) 'gapMm': s.gapMm,
       'items': [for (final it in s.items) _encodeItem(it)],
@@ -284,6 +291,19 @@ IsoSpatialVector? _decodeSpatialDirection(
   return v;
 }
 
+IsoSpatialVector? _decodeSpatialComponentDirection(Object? raw, _Tool tool) {
+  if (raw == null) return null;
+  final v = IsoSpatialVector.fromJson(raw);
+  final allowed =
+      IsoNotebookController._kFittings.containsValue(tool) && tool != _Tool.tee;
+  if (!allowed || v == null || (v.magnitude - 1).abs() > 1e-8) {
+    throw const _UnreadableItem();
+  }
+  final p = v.projected;
+  if (p.x * p.x + p.y * p.y < 1e-20) throw const _UnreadableItem();
+  return v;
+}
+
 IsoSpatialElbow? _decodeSpatialBend(
     Object? raw, _Tool tool, _ElbowSubtype? subtype) {
   if (raw == null) return null;
@@ -340,6 +360,8 @@ _Item _decodeItem(Object? raw) {
         endA: _optionalEnum(_endByName, raw['endA']),
         endB: _optionalEnum(_endByName, raw['endB']),
         spatialBend: _decodeSpatialBend(raw['spatialBend'], tool, subtype),
+        spatialDirection:
+            _decodeSpatialComponentDirection(raw['spatialDirection'], tool),
       );
     case 'note':
       return _Note(_decodeOffset(raw['pos']), _string(raw['text']));
@@ -373,6 +395,14 @@ _IsoSketch _decodeIsoSketch(Object? raw) {
     throw const IsoSketchFormatException('items is not a list');
   }
 
+  if (format < 5 &&
+      itemsRaw.any((it) =>
+          it is Map &&
+          it['kind'] == 'comp' &&
+          it['spatialDirection'] != null)) {
+    throw const IsoSketchFormatException(
+        'spatial component orientation requires format 5');
+  }
   if (format < 4 &&
       itemsRaw.any((it) =>
           it is Map &&

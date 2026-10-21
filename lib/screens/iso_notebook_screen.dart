@@ -422,6 +422,7 @@ class _Comp implements _Item, SketchComponent {
   final EndConnection? endB;
 
   final IsoSpatialElbow? spatialBend;
+  final IsoSpatialVector? spatialDirection;
 
   const _Comp(
     this.pos,
@@ -437,6 +438,7 @@ class _Comp implements _Item, SketchComponent {
     this.endA,
     this.endB,
     this.spatialBend,
+    this.spatialDirection,
   });
 
   // Rotating the symbol is a manual orientation edit. Invalidate its spatial
@@ -466,6 +468,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialDirection: spatialDirection,
         spatialBend: subtype == null || spatialBend == null ||
             (spatialBend!.degrees - ((subtype == _ElbowSubtype.lr45 || subtype == _ElbowSubtype.sr45) ? 45 : 90)).abs() < 1e-7 ? spatialBend : null,
       );
@@ -487,6 +490,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
 
@@ -505,6 +509,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: (dnBranch == null || dnBranch == dn) ? null : dnBranch,
         endA: endA,
         endB: endB,
+        spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
 
@@ -520,6 +525,7 @@ class _Comp implements _Item, SketchComponent {
           physicalLengthMm: physicalLengthMm,
           endA: endA,
           endB: endB,
+          spatialDirection: spatialDirection,
           spatialBend: spatialBend);
 
   /// Persist physical-length / outlet-DN / end-connection spec captured by
@@ -548,6 +554,7 @@ class _Comp implements _Item, SketchComponent {
         dnOut: dnOut,
         endA: endA,
         endB: endB,
+        spatialDirection: spatialDirection,
         spatialBend: spatialBend,
       );
 
@@ -1721,6 +1728,7 @@ class _IsoState extends State<IsoNotebookScreen> {
   // finger turns the gesture into zoom + scroll, in any mode, and abandons a
   // line that was being drawn. Zoom used to live only in the "View" menu:
   // two or three taps per step on a 360 dp phone in gloves.
+  final Map<int, Offset> _canvasPointerStarts = {};
   bool _pinching = false;
   double _pinchLastScale = 1.0;
 
@@ -1750,7 +1758,8 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
     _panStart(DragStartDetails(
       globalPosition: d.focalPoint,
-      localPosition: d.localFocalPoint,
+      localPosition: _canvasPointerStarts.length == 1
+          ? _canvasPointerStarts.values.single : d.localFocalPoint,
     ));
   }
 
@@ -1912,6 +1921,10 @@ class _IsoState extends State<IsoNotebookScreen> {
       if (!touching.contains(newSeg)) touching.add(newSeg);
       final count = touching.length;
       if (count < 2 || count > 3) continue;
+      if (touching.any((p) => p.spatialDirection != null)) {
+        _maybeInsertSpatialElbow(endpoint, touching);
+        continue;
+      }
 
       // Outgoing iso-heading per pipe — index into `_isoHeadings`.
       final legs = <int>[];
@@ -2008,6 +2021,69 @@ class _IsoState extends State<IsoNotebookScreen> {
       _items.add(
         _Comp(pos, _Tool.weld, dir: dir, label: '${_nextWeldNo()}'),
       );
+    }
+  }
+
+  /// A manual axis-aligned pipe can join an assistant's oblique ray.
+  /// Never infer its physical angle from the projected hex-grid headings.
+  void _maybeInsertSpatialElbow(Offset junction, List<_Seg> pipes) {
+    if (pipes.length != 2 ||
+        _items.any((it) =>
+            it is _Comp &&
+            !it.t.isWeld &&
+            (it.pos - junction).distance < _s * .45)) {
+      return;
+    }
+    final rays = <IsoSpatialVector>[];
+    for (final pipe in pipes) {
+      final outward = _outgoing(pipe, junction);
+      final spatial = pipe.spatialDirection;
+      if (spatial != null) {
+        rays.add((pipe.a - junction).distance <= (pipe.b - junction).distance
+            ? spatial
+            : spatial * -1);
+      } else {
+        if (outward.distance < .01) return;
+        final heading = _closestIsoHeading(outward);
+        if ((outward / outward.distance - _isoHeadings[heading]).distance >
+            1e-8) {
+          return;
+        }
+        rays.add(IsoSpatialVector.gridHeading(heading));
+      }
+    }
+    final angle = (rays[0] * -1).angleTo(rays[1]);
+    final is45 = (angle - 45).abs() < 1e-7;
+    if (!is45 && (angle - 90).abs() > 1e-7) return;
+    final tool = is45 ? _Tool.elbow45 : _Tool.elbow90;
+    final subtype = is45 ? _ElbowSubtype.lr45 : _ElbowSubtype.lr90;
+    final cached = _autoFillFor(tool);
+    final bend = IsoSpatialElbow(incoming: rays[0] * -1, outgoing: rays[1]);
+    _mutate(() {
+      _items.add(_Comp(junction, tool,
+          dir: _closestIsoHeading(_outgoing(pipes[0], junction)),
+          dn: cached?.dn,
+          cteMm: cached?.value,
+          elbowSubtype: subtype,
+          spatialBend: bend));
+      _addSpatialWeldsAt(junction, rays);
+    });
+  }
+
+  /// Weld markers follow actual projected flow rays, including oblique pipes.
+  void _addSpatialWeldsAt(Offset junction, List<IsoSpatialVector> rays) {
+    for (final ray in rays) {
+      final p = ray.projected;
+      final v = Offset(p.x, p.y);
+      final pos = junction + v / v.distance * (_s * .55);
+      if (_items.any((it) =>
+          it is _Comp && it.t.isWeld && (it.pos - pos).distance < _s * .3)) {
+        continue;
+      }
+      _items.add(_Comp(pos, _Tool.weld,
+          dir: _closestIsoHeading(v),
+          label: '${_nextWeldNo()}',
+          spatialDirection: ray));
     }
   }
 
@@ -6327,69 +6403,74 @@ class _IsoState extends State<IsoNotebookScreen> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: GestureDetector(
-                    // Scale = one-finger drag (draw / scroll) + two-finger
-                    // pinch-zoom and pan; see _scaleStart.
-                    onScaleStart: _scaleStart,
-                    onScaleUpdate: _scaleUpdate,
-                    onScaleEnd: _scaleEnd,
-                    onTapUp: _tapUp,
-                    onLongPressStart: _longPress,
-                    child: RepaintBoundary(
-                      key: _canvasKey,
-                      // P1-46: canvas Semantics declares itself a button with
-                      // explicit onTap/onLongPress actions so screen readers
-                      // and Switch Access can trigger the same gestures used
-                      // by the GestureDetector above. Tap centres on the
-                      // visible canvas viewport; long-press fires delete-at-
-                      // centre to match the on-screen long-press behaviour.
-                      child: Semantics(
-                        label: _tr(
-                          'Płótno szkicu izometrycznego — przeciągnij aby rysować, dotknij aby wybrać',
-                          'Isometric sketch canvas — drag to draw, tap to select',
-                        ),
-                        button: true,
-                        container: true,
-                        onTap: () => _semanticCanvasTap(),
-                        onLongPress: () => _semanticCanvasLongPress(),
-                        child: CustomPaint(
-                          painter: _Painter(
-                            items: _items,
-                            version: _version,
-                            dragA: _dragA,
-                            dragB: _dragB,
-                            tool: _tool,
-                            s: _s,
-                            cs: cs,
-                            mapping: mapping,
-                            projectName: _projectName,
-                            cutBySeg: cutBySeg,
-                            doubtful: doubtful,
-                            missingDimLabel:
-                                _tr('brak wymiaru', 'no dimension'),
-                            // Ghost extension shows which iso axis the snap is
-                            // locked to — only meaningful for the pipe tool with
-                            // axis-lock on. Other line tools fall back to free
-                            // grid snap, so the hint would be misleading.
-                            axisLock: _axisLock && _tool == _Tool.pipe,
-                            showStatusBox: _showStatusBox,
-                            // P2-04: legend auto-hides above the threshold
-                            // (the user has plainly learned the colour key by
-                            // then) and otherwise honours the persisted
-                            // preference.
-                            showColorLegend: _showColorLegend &&
-                                pipeCount <
-                                    _kColorLegendAutoHideThreshold,
-                            paperMode: _paperMode,
-                            viewOffset: _viewOffset,
-                            viewScale: _viewScale,
+                      child: Listener(
+                        // ScaleStart reports the current focal point after slop;
+                        // retain the actual touch-down so endpoint joins stay exact.
+                        onPointerDown: (e) => _canvasPointerStarts[e.pointer] = e.localPosition,
+                        onPointerUp: (e) => _canvasPointerStarts.remove(e.pointer),
+                        onPointerCancel: (e) => _canvasPointerStarts.remove(e.pointer),
+                        child: GestureDetector(
+                          // Scale = one-finger drag (draw / scroll) + two-finger
+                          // pinch-zoom and pan; see _scaleStart.
+                          onScaleStart: _scaleStart,
+                          onScaleUpdate: _scaleUpdate,
+                          onScaleEnd: _scaleEnd,
+                          onTapUp: _tapUp,
+                          onLongPressStart: _longPress,
+                          child: RepaintBoundary(
+                            key: _canvasKey,
+                            // P1-46: canvas Semantics declares itself a button with
+                            // explicit onTap/onLongPress actions so screen readers
+                            // and Switch Access can trigger the same gestures used
+                            // by the GestureDetector above. Tap centres on the
+                            // visible canvas viewport; long-press fires delete-at-
+                            // centre to match the on-screen long-press behaviour.
+                            child: Semantics(
+                              label: _tr(
+                                'Płótno szkicu izometrycznego — przeciągnij aby rysować, dotknij aby wybrać',
+                                'Isometric sketch canvas — drag to draw, tap to select',
+                              ),
+                              button: true,
+                              container: true,
+                              onTap: () => _semanticCanvasTap(),
+                              onLongPress: () => _semanticCanvasLongPress(),
+                              child: CustomPaint(
+                                painter: _Painter(
+                                  items: _items,
+                                  version: _version,
+                                  dragA: _dragA,
+                                  dragB: _dragB,
+                                  tool: _tool,
+                                  s: _s,
+                                  cs: cs,
+                                  mapping: mapping,
+                                  projectName: _projectName,
+                                  cutBySeg: cutBySeg,
+                                  doubtful: doubtful,
+                                  missingDimLabel: _tr('brak wymiaru', 'no dimension'),
+                                  // Ghost extension shows which iso axis the snap is
+                                  // locked to — only meaningful for the pipe tool with
+                                  // axis-lock on. Other line tools fall back to free
+                                  // grid snap, so the hint would be misleading.
+                                  axisLock: _axisLock && _tool == _Tool.pipe,
+                                  showStatusBox: _showStatusBox,
+                                  // P2-04: legend auto-hides above the threshold
+                                  // (the user has plainly learned the colour key by
+                                  // then) and otherwise honours the persisted
+                                  // preference.
+                                  showColorLegend: _showColorLegend &&
+                                      pipeCount < _kColorLegendAutoHideThreshold,
+                                  paperMode: _paperMode,
+                                  viewOffset: _viewOffset,
+                                  viewScale: _viewScale,
+                                ),
+                                size: Size.infinite,
+                              ),
+                            ),
                           ),
-                          size: Size.infinite,
                         ),
                       ),
                     ),
-                  ),
-                ),
                 // Voice-command preview on its own layer: it repaints on
                 // every animation step without a rebuild of this screen or
                 // a repaint of the drawing. Touches pass through.
@@ -9077,7 +9158,8 @@ class _Painter extends CustomPainter {
       canvas.restore();
       return;
     }
-    canvas.rotate(-c.dir * math.pi / 3.0);
+    final spatial = c.spatialDirection?.projected;
+    canvas.rotate(spatial == null ? -c.dir * math.pi / 3.0 : math.atan2(spatial.y, spatial.x));
     final r = s * 0.46;
     switch (c.t) {
       case _Tool.elbow90:         _symElbow90(canvas, r);   break;
