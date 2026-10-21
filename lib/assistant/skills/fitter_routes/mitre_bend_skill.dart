@@ -152,6 +152,9 @@ Map<String, Object?> _slots(Utterance u) {
 
 class MitreBendSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'mitre.bend';
   @override
   String get toolId => 'mitre_bend';

@@ -81,7 +81,9 @@ Map<String, Object?> _slots(Utterance u, AssistantContext ctx) {
   for (var i = 0; i + 1 < u.items.length; i++) {
     final word = u.items[i].word;
     if (const ['min', 'minimum', 'max', 'maximum'].contains(word)) {
-      final j = i + 1;
+      var j = i + 1;
+      if (j < u.items.length && u.items[j].word == 'minus') j++;
+      if (j >= u.items.length) continue;
       if (u.items[j].isNumber &&
           j + 1 < u.items.length &&
           (u.items[j + 1].word == 's' ||
@@ -106,6 +108,9 @@ Map<String, Object?> _slots(Utterance u, AssistantContext ctx) {
 
 class CoolingTimeSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'cooling.t85';
   @override
   String get toolId => 'cooling_time';
@@ -119,16 +124,16 @@ class CoolingTimeSkill extends AssistantSkill {
         SkillExample(
             'Czas stygnięcia Q 1,5 kJ/mm temperatura 20 C grubość 10 mm napawanie',
             'Cooling time Q 1.5 kJ/mm temperature 20 C thickness 10 mm bead on plate'),
-        SkillExample('Oblicz t8/5', 'Calculate t8/5'),
+        SkillExample(
+            'Oblicz t8/5 MAG EN 28 V 250 A 350 mm/min temperatura 100 C grubość 20 mm wypełnienie',
+            'Calculate t8/5 MAG EN 28 V 250 A 350 mm/min temperature 100 C thickness 20 mm butt fill'),
         SkillExample(
             't8/5 Q 1 kJ/mm temperatura 100 C grubość 5 mm pachwinowa narożna',
             't8/5 Q 1 kJ/mm temperature 100 C thickness 5 mm single-run corner fillet'),
         SkillExample(
             't8/5 Q 1 kJ/mm temperatura 100 C grubość 5 mm pachwinowa teowa min 5 s max 15 s',
             't8/5 Q 1 kJ/mm temperature 100 C thickness 5 mm tee fillet min 5 s max 15 s'),
-        SkillExample(
-            'Oblicz t8/5 MAG EN 28 V 250 A 350 mm/min temperatura 100 C grubość 20 mm wypełnienie',
-            'Calculate t8/5 MAG EN 28 V 250 A 350 mm/min temperature 100 C thickness 20 mm butt fill'),
+        SkillExample('Oblicz t8/5', 'Calculate t8/5'),
       ];
   @override
   List<SkillRejection> get rejections => const [
@@ -208,6 +213,7 @@ class CoolingTimeSkill extends AssistantSkill {
           'Both Q and arc parameters were given. Say “use Q” or “use parameters”.');
     }
     double? q = mode == 'params' ? null : direct;
+    Map<String, Object?>? parameterFields;
     if (q == null && (hasParams || mode == 'params')) {
       final process =
           WeldingProcess.fromCode(m.slots['process'] as String? ?? '');
@@ -229,12 +235,43 @@ class CoolingTimeSkill extends AssistantSkill {
           travelMmPerMin: speed!,
           efficiency: eta ?? process.thermalEfficiency,
           standard: HeatInputStandard.en1011);
+      if (eta == null || eta == process.thermalEfficiency) {
+        parameterFields = {
+          'input_mode': 'parameters',
+          'process': process.code,
+          'volts': volts,
+          'amps': amps,
+          'travel_mm_min': speed
+        };
+      }
     }
     if (q == null || !q.isFinite || q <= 0) {
       return ask(
           'energy',
           'Podaj Q ze sprawnością wg EN 1011-1, z jednostką kJ/mm (np. 1 kJ/mm), albo parametry łuku.',
           'Give Q with efficiency per EN 1011-1 in kJ/mm (e.g. 1 kJ/mm), or arc parameters.');
+    }
+    if (parameterFields == null &&
+        !hasParams &&
+        mode != 'q' &&
+        hasVisibleFormInputs(ctx.modules, toolId)) {
+      final visible = (ctx.modules as FieldModuleContext).inputFields(toolId)!;
+      final currentQ = visible['q_kj_mm'];
+      if (visible['input_mode'] == 'parameters' &&
+          currentQ is num &&
+          currentQ.isFinite &&
+          (q - currentQ).abs() <= 1e-9 * (q.abs() + 1)) {
+        parameterFields = {
+          for (final key in const [
+            'input_mode',
+            'process',
+            'volts',
+            'amps',
+            'travel_mm_min'
+          ])
+            key: visible[key]
+        };
+      }
     }
     final t = n('preheat_c'), d = n('thickness_mm');
     if (t == null || !t.isFinite || t <= -273.15 || t >= 500) {
@@ -297,6 +334,7 @@ class CoolingTimeSkill extends AssistantSkill {
             source: const AssistantText.same(
                 'EN 1011-2:2001 Annex D (Ovako / MIGAL.CO / Lorch); Q: EN 1011-1')),
         show: ShowInModule(toolId, {
+          ...?parameterFields,
           'q_kj_mm': q,
           'preheat_c': t,
           'thickness_mm': d,

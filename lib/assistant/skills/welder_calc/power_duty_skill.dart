@@ -86,6 +86,9 @@ Map<String, Object?> _slots(Utterance original) {
 
 class PowerDutySkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'power.duty';
   @override
   String get toolId => 'power_source';
@@ -212,6 +215,8 @@ class PowerDutySkill extends AssistantSkill {
             source: const AssistantText.same(
                 'Rating plate; AWS Welding Handbook 9th ed. vol. 2; IEC 60974-1 / Lincoln / Miller')),
         show: ShowInModule(toolId, {
+          if (hasVisibleFormInputs(ctx.modules, toolId))
+            'preserve_other_inputs': true,
           'plate': [
             for (final row in rows)
               {'current_a': row.currentA, 'duty_pct': row.dutyPct}

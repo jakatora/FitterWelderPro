@@ -94,6 +94,9 @@ Map<String, Object?> _slots(Utterance original) {
 
 class PowerCableSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'power.cable';
   @override
   String get toolId => 'power_source';
@@ -282,6 +285,8 @@ class PowerCableSkill extends AssistantSkill {
             source: const AssistantText.same(
                 'Copper H01N2-D/H01N2-E; HD 516 / EN 50565-1 Annex D; Top Cable / HVJ / Miller')),
         show: ShowInModule(toolId, {
+          if (hasVisibleFormInputs(ctx.modules, toolId))
+            'preserve_other_inputs': true,
           'cable_mode': mode,
           'weld_current_a': current,
           'weld_lead_m': weld,

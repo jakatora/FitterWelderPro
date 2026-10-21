@@ -15,6 +15,7 @@ import '../../i18n/app_language.dart';
 import 'assistant_text.dart';
 import 'module_context.dart';
 import 'utterance.dart';
+import 'command_words.dart' show requestsCurrentFormEdit;
 
 export 'assistant_text.dart';
 export 'module_context.dart';
@@ -67,9 +68,13 @@ abstract class AssistantSkill {
   /// Opt-in when native continuation would reuse stale conversation fields.
   bool get contextualEditsNeedAi => false;
 
+  /// Use a visible form rather than stale history for edits/continuations.
+  /// Without a visible input port, literal conversation continuations still work.
+  bool get currentFormEditsNeedAi => false;
+
   /// Checks newly supplied quantities before merging earlier fields.
   bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
-      false;
+      currentFormEditsNeedAi && requestsCurrentFormEdit(u);
 
   /// Native skills may refuse a model normalization that changes an explicit
   /// user action (for example, configuring a timer must not start it).

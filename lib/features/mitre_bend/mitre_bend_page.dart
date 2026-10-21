@@ -37,7 +37,26 @@ class MitreBendPage extends StatefulWidget {
 }
 
 class _MitreBendPageState extends State<MitreBendPage>
-    with ToolHandleHost<MitreBendPage> {
+    with ToolHandleHost<MitreBendPage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields {
+    final od = parseDecimal(_od.text);
+    final radius = _radiusFactor != null
+        ? (od == null ? null : od * _radiusFactor!)
+        : parseDecimal(_radius.text);
+    return Map.unmodifiable({
+      'od_mm': od,
+      'angle_deg': parseDecimal(_angle.text),
+      'welds': _welds,
+      'radius_mode': _radiusFactor == null ? 'manual' : 'factor',
+      if (_radiusFactor != null) 'radius_factor': _radiusFactor,
+      'radius_mm': radius != null && radius.isFinite ? radius : null,
+      'tangent_mm':
+          _tangent.text.trim().isEmpty ? 0 : parseDecimal(_tangent.text),
+    });
+  }
+
   @override
   String get toolId => 'mitre_bend';
   @override

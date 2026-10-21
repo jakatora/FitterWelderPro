@@ -133,7 +133,7 @@ class UnitsConvertSkill extends AssistantSkill {
   bool get contextualEditsNeedAi => true;
   @override
   bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
-      pendingReplyNeedsInterpretation(u);
+      pendingReplyNeedsInterpretation(u) || requestsCurrentFormEdit(u);
   @override
   String get id => 'units.convert';
   @override

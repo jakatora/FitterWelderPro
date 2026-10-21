@@ -16,8 +16,19 @@ class QuickConverterScreen extends StatefulWidget {
 }
 
 class _QuickConverterScreenState extends State<QuickConverterScreen>
-    with SingleTickerProviderStateMixin, ToolHandleHost<QuickConverterScreen> {
+    with SingleTickerProviderStateMixin, ToolHandleHost<QuickConverterScreen>
+    implements InputToolHandle {
   late final _tabs = TabController(length: 4, vsync: this);
+  final _tabKeys = {
+    for (final kind in _Kind.values) kind: GlobalKey<_ConversionTabState>()
+  };
+  @override
+  Map<String, Object?> get inputFields {
+    final kind = _Kind.values[_tabs.index];
+    return Map.unmodifiable(
+        _tabKeys[kind]!.currentState?.inputFields ?? {'kind': kind.name});
+  }
+
   int _revision = 0;
   final _inputs = <_Kind, ({double value, String from, int revision})>{};
   @override
@@ -76,7 +87,8 @@ class _QuickConverterScreenState extends State<QuickConverterScreen>
             top: false,
             child: TabBarView(controller: _tabs, children: [
               for (final kind in _Kind.values)
-                _ConversionTab(kind: kind, input: _inputs[kind]),
+                _ConversionTab(
+                    key: _tabKeys[kind], kind: kind, input: _inputs[kind]),
             ])),
       );
 }
@@ -117,7 +129,7 @@ String _fmt(double value) {
 String _label(String unit) => unit == 'in' ? 'in (")' : unit;
 
 class _ConversionTab extends StatefulWidget {
-  const _ConversionTab({required this.kind, this.input});
+  const _ConversionTab({super.key, required this.kind, this.input});
   final ({double value, String from, int revision})? input;
   final _Kind kind;
   @override
@@ -126,6 +138,15 @@ class _ConversionTab extends StatefulWidget {
 
 class _ConversionTabState extends State<_ConversionTab>
     with AutomaticKeepAliveClientMixin {
+  Map<String, Object?> get inputFields {
+    final value = _parse(_ctrl.text);
+    return {
+      'kind': widget.kind.name,
+      'value': value != null && value.isFinite ? value : null,
+      'from': _src
+    };
+  }
+
   final _ctrl = TextEditingController();
   late String _src = _units.first;
   @override

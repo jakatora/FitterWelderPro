@@ -50,7 +50,22 @@ class PowerSourcePage extends StatefulWidget {
 }
 
 class _PowerSourcePageState extends State<PowerSourcePage>
-    with ToolHandleHost<PowerSourcePage> {
+    with ToolHandleHost<PowerSourcePage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        for (var i = 0; i < kPlateRows; i++) ...{
+          'plate_${i + 1}_current_a': parseDecimal(_plateI[i].text),
+          'plate_${i + 1}_duty_pct': parseDecimal(_plateX[i].text),
+        },
+        'weld_current_a': parseDecimal(_current.text),
+        'weld_lead_m': parseDecimal(_leadWeld.text),
+        'return_lead_m': parseDecimal(_leadReturn.text),
+        'section_mm2': _section,
+        'duty_pct': parseDecimal(_cableDuty.text),
+        'ambient_c': _ambient,
+        'drop_limit_v': parseDecimal(_dropLimit.text),
+      });
   @override
   String get toolId => 'power_source';
   static const _cableFields = {
@@ -63,12 +78,20 @@ class _PowerSourcePageState extends State<PowerSourcePage>
     'drop_limit_v'
   };
   @override
-  Set<String> get supportedFields =>
-      const {'plate', 'weld_current_a', ..._cableFields};
+  Set<String> get supportedFields => const {
+        'plate',
+        'weld_current_a',
+        'preserve_other_inputs',
+        ..._cableFields
+      };
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     if (fields.keys.any(_cableFields.contains)) return _applyCable(fields);
     final rejected = fields.keys.toSet().difference(supportedFields);
+    if (fields.containsKey('preserve_other_inputs') &&
+        fields['preserve_other_inputs'] is! bool) {
+      rejected.add('preserve_other_inputs');
+    }
     final points = fields['plate'];
     final current = fields['weld_current_a'];
     final rows = <PlateRowInput>[];
@@ -105,17 +128,23 @@ class _PowerSourcePageState extends State<PowerSourcePage>
       _fillPlate([for (final r in rows) PlatePoint(r.currentA, r.dutyPct)]);
       _current.text = current.toString();
       // A new duty calculation does not supply a cable installation.
-      _leadWeld.clear();
-      _leadReturn.clear();
-      _cableDuty.clear();
-      _dropLimit.clear();
+      if (fields['preserve_other_inputs'] != true) {
+        _leadWeld.clear();
+        _leadReturn.clear();
+        _cableDuty.clear();
+        _dropLimit.clear();
+      }
     });
     return {};
   }
 
   Future<Set<String>> _applyCable(Map<String, Object?> fields) async {
-    final rejected =
-        fields.keys.toSet().difference({..._cableFields, 'weld_current_a'});
+    final rejected = fields.keys.toSet().difference(
+        {..._cableFields, 'weld_current_a', 'preserve_other_inputs'});
+    if (fields.containsKey('preserve_other_inputs') &&
+        fields['preserve_other_inputs'] is! bool) {
+      rejected.add('preserve_other_inputs');
+    }
     final mode = fields['cable_mode'];
     if (!const ['check', 'size'].contains(mode)) rejected.add('cable_mode');
     double n(String k) =>
@@ -155,7 +184,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
         mode == 'size' ? sizeCable(input)!.sectionMm2 : input.sectionMm2;
     setState(() {
       _plateEdited = true;
-      _fillPlate([]);
+      if (fields['preserve_other_inputs'] != true) _fillPlate([]);
       _current.text = input.currentA.toString();
       _leadWeld.text = input.weldLeadM.toString();
       _leadReturn.text = input.returnLeadM.toString();

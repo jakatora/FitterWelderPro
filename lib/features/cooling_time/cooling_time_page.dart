@@ -29,7 +29,25 @@ class CoolingTimePage extends StatefulWidget {
 }
 
 class _CoolingTimePageState extends State<CoolingTimePage>
-    with ToolHandleHost<CoolingTimePage> {
+    with ToolHandleHost<CoolingTimePage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'input_mode': _fromParams ? 'parameters' : 'heat_input',
+        'q_kj_mm': _heatInput,
+        if (_fromParams) ...{
+          'volts': _parse(_u),
+          'amps': _parse(_i),
+          'travel_mm_min': _parse(_v),
+          'process': _process.code,
+        },
+        'preheat_c': _parse(_t0),
+        'thickness_mm': _parse(_d),
+        'shape': _shape.name,
+        'window_min_s': parseDecimal(_wMin.text),
+        'window_max_s': parseDecimal(_wMax.text),
+        'window_source': 'visible_form_unverified',
+      });
   @override
   String get toolId => 'cooling_time';
   @override
@@ -39,7 +57,12 @@ class _CoolingTimePageState extends State<CoolingTimePage>
         'thickness_mm',
         'shape',
         'window_min_s',
-        'window_max_s'
+        'window_max_s',
+        'input_mode',
+        'process',
+        'volts',
+        'amps',
+        'travel_mm_min',
       };
   @override
   void didChangeDependencies() {
@@ -53,6 +76,36 @@ class _CoolingTimePageState extends State<CoolingTimePage>
     double? n(String k) =>
         fields[k] is num ? (fields[k] as num).toDouble() : null;
     final q = n('q_kj_mm'), t = n('preheat_c'), d = n('thickness_mm');
+    final mode = fields['input_mode'] ?? 'heat_input';
+    if (!const ['heat_input', 'parameters'].contains(mode)) {
+      rejected.add('input_mode');
+    }
+    final process = fields['process'] is String
+        ? WeldingProcess.fromCode(fields['process'] as String)
+        : null;
+    const parameterKeys = ['process', 'volts', 'amps', 'travel_mm_min'];
+    if (mode == 'parameters') {
+      if (process == null) rejected.add('process');
+      for (final key in parameterKeys.skip(1)) {
+        final value = n(key);
+        if (value == null || !value.isFinite || value <= 0) rejected.add(key);
+      }
+      if (rejected.isEmpty) {
+        final computed = heatInputKJPerMm(
+            volts: n('volts')!,
+            amps: n('amps')!,
+            travelMmPerMin: n('travel_mm_min')!,
+            efficiency: process!.thermalEfficiency,
+            standard: HeatInputStandard.en1011);
+        if (computed == null ||
+            q == null ||
+            (computed - q).abs() > 1e-9 * (computed.abs() + 1)) {
+          rejected.add('q_kj_mm');
+        }
+      }
+    } else if (parameterKeys.any(fields.containsKey)) {
+      rejected.addAll(parameterKeys.where(fields.containsKey));
+    }
     final shape =
         WeldShape.values.where((s) => s.name == fields['shape']).firstOrNull;
     if (q == null || !q.isFinite || q <= 0) rejected.add('q_kj_mm');
@@ -84,8 +137,15 @@ class _CoolingTimePageState extends State<CoolingTimePage>
       return rejected.isEmpty ? fields.keys.toSet() : rejected;
     }
     setState(() {
-      _fromParams = false;
-      _q.text = q.toString();
+      _fromParams = mode == 'parameters';
+      if (_fromParams) {
+        _process = process!;
+        _u.text = n('volts').toString();
+        _i.text = n('amps').toString();
+        _v.text = n('travel_mm_min').toString();
+      } else {
+        _q.text = q.toString();
+      }
       _t0.text = t.toString();
       _d.text = d.toString();
       _shape = shape!;

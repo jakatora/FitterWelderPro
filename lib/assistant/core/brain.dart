@@ -545,8 +545,11 @@ class AssistantBrain {
     bool needsAi;
     try {
       slots = last.skill.slotsFrom(c, ctx);
+      final visibleForm = last.skill.currentFormEditsNeedAi &&
+          hasVisibleFormInputs(ctx.modules, last.skill.toolId);
       needsAi = last.requiresAiInterpretation ||
           last.skill.contextualEditsNeedAi ||
+          visibleForm ||
           last.skill.requiresInterpretationFor(c, slots);
     } catch (e) {
       debugPrint('Asystent: slotsFrom ${last.skill.id}: $e');
@@ -610,7 +613,13 @@ class AssistantBrain {
       return null;
     }
     try {
-      return s.match(u, ctx);
+      final match = s.match(u, ctx);
+      if (match != null &&
+          !match.requiresAiInterpretation &&
+          s.requiresInterpretationFor(u, match.slots)) {
+        return match.copyWith(requiresAiInterpretation: true);
+      }
+      return match;
     } catch (e) {
       // Błąd jednej umiejętności nie może wyłączyć całego asystenta.
       debugPrint('Asystent: match ${s.id}: $e');

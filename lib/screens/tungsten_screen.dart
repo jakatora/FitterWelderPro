@@ -107,7 +107,11 @@ class TungstenScreen extends StatefulWidget {
 }
 
 class _TungstenScreenState extends State<TungstenScreen>
-    with ToolHandleHost<TungstenScreen> {
+    with ToolHandleHost<TungstenScreen>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable({'amps': parseDecimal(_amps.text)});
   @override
   String get toolId => 'tungsten';
   @override

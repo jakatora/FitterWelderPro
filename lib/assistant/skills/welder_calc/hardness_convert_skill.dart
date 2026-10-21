@@ -5,6 +5,9 @@ import '../core/explain_tool_skill.dart' show explainedTool;
 
 class HardnessConvertSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'hardness.convert';
   @override
   String get toolId => 'hardness';

@@ -34,6 +34,12 @@ abstract interface class FieldModuleContext {
   Map<String, Object?>? inputFields(String toolId);
 }
 
+bool hasVisibleFormInputs(ModuleContext modules, String? toolId) =>
+    toolId != null &&
+    modules.activeToolId == toolId &&
+    modules is FieldModuleContext &&
+    (modules as FieldModuleContext).inputFields(toolId) != null;
+
 /// Explicit, opt-in actions on the visible ready module. Credentials and hidden
 /// forms never participate. Completion comes from execution, not a prediction.
 abstract interface class ModuleActionContext {

@@ -121,6 +121,9 @@ Map<String, Object?> _slots(Utterance original) {
 
 class ShadeNumberSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'shade.number';
   @override
   String get toolId => 'shade';

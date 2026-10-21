@@ -55,7 +55,17 @@ class BoltTorqueScreen extends StatefulWidget {
 }
 
 class _BoltTorqueScreenState extends State<BoltTorqueScreen>
-    with ToolHandleHost<BoltTorqueScreen> {
+    with ToolHandleHost<BoltTorqueScreen>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'bolt_size': _boltSize,
+        'grade': _grade,
+        'lube': _lube,
+        'preload_fraction': _preloadFraction,
+        'flange_dn': _flangeDn,
+        'flange_class': _flangeClass,
+      });
   @override
   String get toolId => 'bolt_torque';
   @override

@@ -95,6 +95,9 @@ Map<String, Object?> _slots(Utterance u) {
 
 class TungstenPickSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'tungsten.pick';
   @override
   String get toolId => 'tungsten';

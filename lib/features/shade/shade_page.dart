@@ -43,7 +43,18 @@ class ShadePage extends StatefulWidget {
   State<ShadePage> createState() => _ShadePageState();
 }
 
-class _ShadePageState extends State<ShadePage> with ToolHandleHost<ShadePage> {
+class _ShadePageState extends State<ShadePage>
+    with ToolHandleHost<ShadePage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'process': _process.name,
+        if (_process.isGas) ...{
+          'flow_lh': parseDecimal(_flow.text),
+          'thickness_mm': parseDecimal(_thickness.text),
+        } else
+          'current_a': parseDecimal(_current.text),
+      });
   @override
   String get toolId => 'shade';
   @override

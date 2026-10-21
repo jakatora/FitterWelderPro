@@ -23,12 +23,28 @@ double? _quantity(Utterance u, Set<String> units, {bool speed = false}) {
     final item = u.items[i];
     if (item.isNumber || !units.contains(item.word)) continue;
     if (speed) {
-      final suffix = u.items
-          .skip(i + 1)
-          .take(2)
-          .where((t) => !t.isNumber)
-          .map((t) => t.word);
-      if (!suffix.any((w) => w.startsWith('min'))) continue;
+      // The denominator belongs to this unit. A later WPS "min 5 s"
+      // must not turn the preceding plate thickness into travel speed.
+      var j = i + 1;
+      if (j < u.items.length && const ['na', 'per'].contains(u.items[j].word)) {
+        j++;
+      }
+      if (j >= u.items.length ||
+          u.items[j].isNumber ||
+          !u.items[j].word.startsWith('min')) {
+        continue;
+      }
+      var valueIndex = j + 1;
+      if (valueIndex < u.items.length && u.items[valueIndex].word == 'minus') {
+        valueIndex++;
+      }
+      if (valueIndex + 1 < u.items.length &&
+          u.items[valueIndex].isNumber &&
+          (u.items[valueIndex + 1].word == 's' ||
+              u.items[valueIndex + 1].word.startsWith('sekund') ||
+              u.items[valueIndex + 1].word.startsWith('second'))) {
+        continue;
+      }
     }
     final previous = u.items[i - 1];
     if (previous.isNumber) {

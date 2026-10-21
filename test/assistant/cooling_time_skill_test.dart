@@ -44,6 +44,19 @@ void main() {
         .result as AnswerResult;
     expect(r.show!.fields['q_kj_mm'], closeTo(.96, .00001));
   });
+  test('WPS minimum after thickness is not a travel-speed denominator',
+      () async {
+    for (final text in [
+      't8/5 Q 1 kJ/mm temperatura 100 C grubość 20 mm min 5 s max 15 s wypełnienie',
+      't8/5 MAG EN 28 V 250 A 350 mm na minutę temperatura 100 C grubość 20 mm wypełnienie min 5 s max 15 s',
+    ]) {
+      final r = (await BrainHarness().say(text)).result as AnswerResult;
+      expect(r.show!.fields['window_min_s'], 5);
+      expect(r.show!.fields['window_max_s'], 15);
+      expect(r.show!.fields['q_kj_mm'],
+          text.contains('MAG') ? closeTo(.96, 1e-12) : 1);
+    }
+  });
   test('ASME energy is not silently treated as EN Q', () async {
     final h = BrainHarness();
     expect((await h.say('$input ASME')).result, isA<AskResult>());

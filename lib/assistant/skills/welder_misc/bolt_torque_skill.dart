@@ -71,6 +71,9 @@ Map<String, Object?> _slots(Utterance original) {
 
 class BoltTorqueSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
   String get id => 'bolt.torque';
   @override
   String get toolId => 'bolt_torque';

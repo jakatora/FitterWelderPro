@@ -142,7 +142,15 @@ class _Row {
 enum _Spot { cap, root, hazA, hazB, base, other }
 
 class _HardnessPageState extends State<HardnessPage>
-    with ToolHandleHost<HardnessPage> {
+    with ToolHandleHost<HardnessPage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'value': parseDecimal(_convValue.text),
+        'scale': _convScale.name,
+        'material': _material.name,
+        'has_measurements': _rows.any((r) => r.value.text.trim().isNotEmpty),
+      });
   @override
   String get toolId => 'hardness';
   @override

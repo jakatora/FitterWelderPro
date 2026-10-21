@@ -104,6 +104,53 @@ bool requestsWeldingCables(Utterance u) =>
             const ['spawal', 'masow', 'weld', 'return', 'ground', 'torch']) ||
         u.hasAny(const ['h01n2']));
 
+/// Explicit references to an existing form or relative changes need its actual
+/// inputs. A literal fraction (bolt size, t8/5) is not an arithmetic request.
+bool requestsCurrentFormEdit(Utterance u) =>
+    u.hasStem(const [
+      'polow',
+      'half',
+      'dwukrot',
+      'podwoj',
+      'double',
+      'twice',
+      'pomnoz',
+      'multiply',
+      'podziel',
+      'divide',
+      'zwieksz',
+      'zmniejsz',
+      'increase',
+      'decrease',
+      'odejm',
+      'subtract',
+      'dodaj',
+      'obniz',
+      'podnies',
+      'zmien',
+      'change',
+      'aktualn',
+      'obecn'
+    ]) ||
+    u.hasAny(const [
+      'tylko',
+      'only',
+      'reszte',
+      'the rest',
+      'razy',
+      'mniej',
+      'wiecej',
+      'less',
+      'more',
+      'na ekranie',
+      'on screen',
+      'current values',
+      'current settings',
+      'current inputs'
+    ]) ||
+    RegExp(r'\d\s*[+*]\s*\d|\d\s*[-−]\s*\d(?![\d.,]*\s*/\s*\d)')
+        .hasMatch(u.raw);
+
 /// Cooling time consumes heat input as a parameter; it is a separate task.
 bool requestsCoolingTime(Utterance u) =>
     RegExp(r'\bt\s*8\s*[/ ]\s*5\b|\bt85\b', caseSensitive: false)
