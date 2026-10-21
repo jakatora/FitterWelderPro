@@ -23,7 +23,7 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
   String get toolId => 'pipe_slope';
   @override
   Set<String> get supportedFields =>
-      const {'mode', 'length_mm', 'rise_mm', 'slope_pct', 'action'};
+      const {'mode', 'length_mm', 'rise_mm', 'slope_pct', 'action', 'preset'};
   @override
   Map<String, Object?> get inputFields => Map.unmodifiable({
         'mode': _mode,
@@ -40,6 +40,29 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
     if (!mounted) {
       return const ModuleActionResult(false,
           AssistantText('Moduł jest zamknięty.', 'The module is closed.'));
+    }
+    if (action.startsWith('preset:') && field == null) {
+      final value = action.substring(7);
+      final preset = pipeSlopePresets.where((p) => p.$1 == value).firstOrNull;
+      if (preset == null || _mode == 'slope_from_lr') {
+        return const ModuleActionResult(
+            false,
+            AssistantText(
+                'Wybierz dostępny skrót w trybie Długość → Wznios lub Wznios → Długość.',
+                'Choose an available preset in Length → Rise or Rise → Length mode.'));
+      }
+      _selectPreset(value);
+      final approximation = value == '0.67';
+      final pl = approximation
+          ? '0,67% (przybliżenie 1:150)'
+          : '$value% (${preset.$2})';
+      final en =
+          approximation ? '0.67% (rounded 1:150)' : '$value% (${preset.$2})';
+      return ModuleActionResult(
+          true,
+          AssistantText(
+              'Wybrano skrót $pl. ${_lastCalculation == null ? 'Uzupełnij poprawne dane, aby otrzymać wynik.' : 'Przeliczono wynik.'}',
+              'Selected preset $en. ${_lastCalculation == null ? 'Enter valid inputs to obtain a result.' : 'Result recalculated.'}'));
     }
     if (action.startsWith('mode:') && field == null) {
       final mode = action.substring(5);
@@ -141,6 +164,12 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     if (!mounted) return fields.keys.toSet();
     if (fields.length == 2 &&
+        fields['action'] == 'preset' &&
+        fields['preset'] is String) {
+      final r = await performAction('preset:${fields['preset']}');
+      return r.completed ? {} : fields.keys.toSet();
+    }
+    if (fields.length == 2 &&
         fields['action'] == 'mode' &&
         fields['mode'] is String) {
       final result = await performAction('mode:${fields['mode']}');
@@ -165,7 +194,9 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
       });
       return {};
     }
-    if (fields.containsKey('action')) return fields.keys.toSet();
+    if (fields.containsKey('action') || fields.containsKey('preset')) {
+      return fields.keys.toSet();
+    }
     final invalidNumbers = fields.entries
         .where((e) =>
             e.key != 'mode' &&
@@ -637,14 +668,14 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
   /// Drainage-slope presets. In food & pharma the line must self-drain, so the
   /// slope is a spec requirement — these are the values that actually appear
   /// on hygienic-piping drawings (1:100 is the common default).
+  void _selectPreset(String value) {
+    setState(() => _slopeController.text = value);
+    _calculate();
+  }
+
   Widget _slopePresets() {
     final cs = Theme.of(context).colorScheme;
-    const presets = <(String, String)>[
-      ('0.5', '1:200'),
-      ('0.67', '1:150'),
-      ('1', '1:100'),
-      ('2', '1:50'),
-    ];
+    const presets = pipeSlopePresets;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -666,15 +697,14 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
                 en: 'Set ${p.$1}% (${p.$2}) and recalc immediately',
               ),
               child: ActionChip(
-                label: Text('${p.$1}%  (${p.$2})',
+                label: Text('${p.$1}%  (${p.$1 == '0.67' ? '≈' : ''}${p.$2})',
                     style: const TextStyle(fontSize: 12)),
                 backgroundColor:
                     selected ? cs.primaryContainer : cs.surfaceContainerHigh,
                 side: BorderSide(
                     color: selected ? cs.primary : cs.outlineVariant),
                 onPressed: () {
-                  setState(() => _slopeController.text = p.$1);
-                  _calculate();
+                  _selectPreset(p.$1);
                 },
               ),
             );

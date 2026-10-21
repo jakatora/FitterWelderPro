@@ -3,20 +3,29 @@ import '../../core/skill.dart';
 import '../core/skill_words.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import 'quantities.dart';
+import 'pipe_slope_ratio.dart';
 
 const _lengthLabels = ['dlugosc', 'dlugosci', 'odcinek', 'length', 'run'];
 const _riseLabels = ['wznios', 'roznica', 'rise', 'drop'];
 Map<String, Object?> _slots(Utterance u) {
   final out = <String, Object?>{};
-  final length = lengthNear(u, _lengthLabels);
-  final rise = lengthNear(u, _riseLabels);
+  final (ratio, dimensionInput) = pipeSlopeRatio(u);
+  final length = lengthNear(dimensionInput, _lengthLabels);
+  final rise = lengthNear(dimensionInput, _riseLabels);
   if (length != null || u.hasStem(_lengthLabels)) {
     out['length_mm'] = length ?? double.nan;
   }
   if (rise != null || u.hasStem(_riseLabels)) {
     out['rise_mm'] = rise ?? double.nan;
   }
-  final percentage = percentValue(u);
+  final explicit = percentValue(u);
+  final percentage = ratio == null
+      ? explicit
+      : explicit != null &&
+              (!explicit.isFinite ||
+                  (explicit - ratio).abs() > 1e-12 * ratio.abs())
+          ? double.nan
+          : ratio;
   if (percentage != null) out['slope_pct'] = percentage;
   if (percentage == null &&
       _edit.hasMatch(u.folded) &&
@@ -26,11 +35,12 @@ Map<String, Object?> _slots(Utterance u) {
   // One unlabelled length, e.g. "spadek 1% na 6 metrów". Never choose
   // arbitrarily between two different lengths.
   if (!out.containsKey('length_mm') && !out.containsKey('rise_mm')) {
+    final dimensionItems = dimensionInput;
     final dimensions = <double>{};
-    for (var i = 0; i + 1 < u.items.length; i++) {
-      final scale = lengthUnitScale(u.items[i + 1].word);
-      if (u.items[i].isNumber && scale != null) {
-        dimensions.add(signedQuantity(u, i) * scale);
+    for (var i = 0; i + 1 < dimensionItems.items.length; i++) {
+      final scale = lengthUnitScale(dimensionItems.items[i + 1].word);
+      if (dimensionItems.items[i].isNumber && scale != null) {
+        dimensions.add(signedQuantity(dimensionItems, i) * scale);
       }
     }
     if (dimensions.length == 1) out['length_mm'] = dimensions.single;
@@ -224,6 +234,32 @@ Set<String> _copyFields(Utterance u) {
   };
 }
 
+String? _requestedPreset(Utterance u, {bool bare = false}) {
+  final text = u.folded.replaceFirst(
+      RegExp(r'\s+(?:w kalkulatorze spadku rury|for pipe slope)$'), '');
+  final prefix = RegExp(
+      r'^(?:(?:prosze|please)\s+)*(?:wybierz|ustaw|select|choose)\s+(?:skrot|preset)(?:\s+|$)');
+  if (!bare && !prefix.hasMatch(text)) return null;
+  final target = u.withRaw(text.replaceFirst(prefix, '').trim());
+  final words = target.items
+      .map((i) => i.isNumber
+          ? i.value.toString().replaceFirst(RegExp(r'\.0$'), '')
+          : i.word)
+      .join(' ');
+  for (final p in pipeSlopePresets) {
+    final denominator = p.$2.split(':').last;
+    if (words == p.$1 ||
+        words == '${p.$1} procent' ||
+        words == '${p.$1} percent' ||
+        words == '1 $denominator' ||
+        words == '1 do $denominator' ||
+        words == '1 in $denominator') {
+      return p.$1;
+    }
+  }
+  return 'missing';
+}
+
 String? _requestedMode(Utterance u) {
   final qualified = u.folded.replaceFirst(
       RegExp(r'\s+(?:w kalkulatorze spadku rury|for pipe slope)$'), '');
@@ -275,6 +311,10 @@ class PipeSlopeSkill extends AssistantSkill {
         SkillExample('Spadek rury długość 1,5 metra wznios 15 mm',
             'Pipe slope length 1.5 meters rise 15 mm'),
         SkillExample('Oblicz spadek rury', 'Calculate pipe slope'),
+        SkillExample('Oblicz spadek 1:150 na 6 metrów',
+            'Calculate pipe slope 1:150 over 6 meters'),
+        SkillExample('Spadek jeden do stu na 6 metrów',
+            'Pipe slope one in one hundred over 6 meters'),
         SkillExample('Ustaw tryb obliczanie wzniosu w kalkulatorze spadku rury',
             'Set mode to calculate rise for pipe slope'),
         SkillExample(
@@ -312,7 +352,13 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     final active = ctx.modules.activeToolId == toolId;
-    if (!_foreign(u) && (active || _topic(u))) {
+    final topic = _topic(u);
+    if (!_foreign(u) && (active || topic)) {
+      final preset = _requestedPreset(u);
+      if (preset != null) {
+        return SkillMatch(this, .98,
+            slots: {'module_action': 'preset:$preset'}, utterance: u);
+      }
       final mode = _requestedMode(u);
       if (mode != null) {
         return SkillMatch(this, .98,
@@ -348,13 +394,13 @@ class PipeSlopeSkill extends AssistantSkill {
       return null;
     }
     if (_clear.hasMatch(u.folded) &&
-        (_topic(u) || active && _clearCurrent.hasMatch(u.folded))) {
+        (topic || active && _clearCurrent.hasMatch(u.folded))) {
       return SkillMatch(this, .96,
           slots: const {'native_action': 'clear'}, utterance: u);
     }
     if (active &&
         (_recalculate.contains(u.folded) ||
-            _topic(u) &&
+            topic &&
                 _slots(u).isEmpty &&
                 u.hasStem(const [
                   'oblicz',
@@ -366,11 +412,12 @@ class PipeSlopeSkill extends AssistantSkill {
       return SkillMatch(this, .96,
           slots: const {'native_edit': <String, Object?>{}}, utterance: u);
     }
+    if (!topic && !(active && _edit.hasMatch(u.folded))) return null;
     final slots = _slots(u);
     if (active && _edit.hasMatch(u.folded) && slots.isNotEmpty) {
       return SkillMatch(this, .96, slots: _intent(u, ctx, slots), utterance: u);
     }
-    if (!_topic(u)) return null;
+    if (!topic) return null;
     final explicitCalculation =
         u.hasStem(const ['oblicz', 'policz', 'calculate', 'compute']);
     return SkillMatch(
@@ -381,6 +428,19 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
+    final preset = _requestedPreset(u, bare: slot == 'preset');
+    if (preset != null) {
+      if (slot == 'preset' && preset == 'missing') return null;
+      return {
+        'module_action': 'preset:$preset',
+        'native_action': null,
+        'native_edit': null,
+        'copy_field': null,
+        'length_mm': null,
+        'rise_mm': null,
+        'slope_pct': null
+      };
+    }
     final requestedMode = _requestedMode(u);
     if (requestedMode != null) {
       return {
@@ -441,9 +501,27 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
     final action = m.slots['module_action'];
+    if (action == 'preset:missing') {
+      return AskResult(
+          'preset',
+          const AssistantText(
+              'Który dostępny skrót wybrać? 0,67% to zaokrąglony skrót 1:150.',
+              'Which available preset should I select? 0.67% is the rounded 1:150 shortcut.'),
+          partial: m,
+          choices: [
+            for (final p in pipeSlopePresets)
+              FollowUp(
+                  AssistantText.same('${p.$1}% (${p.$2})'),
+                  AssistantText(
+                          'wybierz skrót ${p.$2}', 'choose preset ${p.$2}')
+                      .of(ctx.lang))
+          ]);
+    }
+
     if (action == 'copy' ||
         action == 'formula' ||
-        action is String && action.startsWith('mode:')) {
+        action is String &&
+            (action.startsWith('mode:') || action.startsWith('preset:'))) {
       final field = m.slots['copy_field'];
       if (action == 'copy' && field == 'ambiguous') {
         return AskResult(
@@ -460,6 +538,17 @@ class PipeSlopeSkill extends AssistantSkill {
               ])
                 FollowUp(label, label.of(ctx.lang)),
             ]);
+      }
+      if (action is String &&
+          action.startsWith('preset:') &&
+          ctx.modules.activeToolId != toolId) {
+        return AnswerResult(
+            const AssistantAnswer(
+                text: AssistantText(
+                    'Otwieram kalkulator i ustawiam wybrany skrót spadku.',
+                    'Opening the calculator and selecting the slope preset.')),
+            show: ShowInModule(
+                toolId, {'action': 'preset', 'preset': action.substring(7)}));
       }
       if (action is String &&
           action.startsWith('mode:') &&
@@ -594,11 +683,24 @@ class PipeSlopeSkill extends AssistantSkill {
           'Wynik poza zakresem. Sprawdź jednostki.',
           'Result out of range. Check the units.'));
     }
+    var percentDisplay = result.slopePct.toStringAsFixed(6);
+    if (!percentDisplay.contains('e') && percentDisplay.contains('.')) {
+      percentDisplay = percentDisplay
+          .replaceFirst(RegExp(r'0+$'), '')
+          .replaceFirst(RegExp(r'\.$'), '');
+    }
+    if (double.tryParse(percentDisplay) == 0 && result.slopePct > 0) {
+      percentDisplay = result.slopePct.toString();
+    }
+    final approximate = double.tryParse(percentDisplay) != result.slopePct;
+    final percentPl =
+        '${approximate ? 'około ' : ''}${percentDisplay.replaceAll('.', ',')}';
+    final percentEn = '${approximate ? 'about ' : ''}$percentDisplay';
     return AnswerResult(
         AssistantAnswer(
             text: AssistantText(
-                'Dla rzutu poziomego ${fmt(result.lengthMm, ctx.lang)} mm spadek ${fmt(result.slopePct, ctx.lang)}% daje różnicę wysokości ${fmt(result.riseMm, ctx.lang)} mm. To ${fmt(result.mmPerM, ctx.lang)} mm na metr.',
-                'For a horizontal run of ${fmt(result.lengthMm, ctx.lang)} mm, ${fmt(result.slopePct, ctx.lang)}% slope gives ${fmt(result.riseMm, ctx.lang)} mm height difference. That is ${fmt(result.mmPerM, ctx.lang)} mm per meter.')),
+                'Dla rzutu poziomego ${fmt(result.lengthMm, ctx.lang)} mm spadek $percentPl% daje różnicę wysokości ${fmt(result.riseMm, ctx.lang)} mm. To ${fmt(result.mmPerM, ctx.lang)} mm na metr.',
+                'For a horizontal run of ${fmt(result.lengthMm, ctx.lang)} mm, $percentEn% slope gives ${fmt(result.riseMm, ctx.lang)} mm height difference. That is ${fmt(result.mmPerM, ctx.lang)} mm per meter.')),
         show: ShowInModule(toolId, {
           'mode': mode,
           'length_mm': result.lengthMm,
@@ -608,10 +710,12 @@ class PipeSlopeSkill extends AssistantSkill {
         followUps:
             ctx.modules.activeToolId == toolId || ctx.modules.onHomeOrAssistant
                 ? [
-                    for (final label in const [
-                      AssistantText('Kopiuj wynik', 'Copy result'),
+                    for (final label in [
+                      const AssistantText('Kopiuj wynik', 'Copy result'),
                       AssistantText('Kopiuj kąt', 'Copy angle'),
-                      AssistantText('Pokaż wzory', 'Show formulas')
+                      AssistantText('Pokaż wzory', 'Show formulas'),
+                      if (mode != 'slope_from_lr')
+                        AssistantText('Wybierz skrót', 'Choose preset')
                     ])
                       FollowUp(label, label.of(ctx.lang))
                   ]

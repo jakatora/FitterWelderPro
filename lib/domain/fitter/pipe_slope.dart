@@ -116,3 +116,18 @@ double? slopeMmPerM(double slopePct) {
   final v = slopePct * 10.0;
   return v.isFinite ? v : null;
 }
+
+/// Rise : horizontal-run ratio as percent; no rounded preset substitution.
+double? slopePercentFromRatio(double rise, double run) {
+  if (!_positive(rise) || !_positive(run)) return null;
+  final percent = (rise / run) * 100;
+  return _positive(percent) ? percent : null;
+}
+
+/// The actual native input shortcuts; 0.67% is a rounded 1:150 label.
+const pipeSlopePresets = <(String, String)>[
+  ('0.5', '1:200'),
+  ('0.67', '1:150'),
+  ('1', '1:100'),
+  ('2', '1:50'),
+];

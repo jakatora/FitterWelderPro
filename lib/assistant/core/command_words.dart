@@ -70,8 +70,8 @@ bool looksLikeOtherCommand(Utterance u) =>
 final _negatedCommand = RegExp(
     r'^(?:(?:prosze|please|hej|hey|asystencie|asystent)\s+)*'
     r'(?:nie\s+(?:oblicz\w*|policz\w*|przelicz\w*|otwier\w*|otworz\w*|pokaz\w*|'
-    r'uruch\w*|wlacz\w*|rozpocz\w*|wznow\w*|zatrzy\w*|pauz\w*|wyzer\w*|odlicz\w*|znajdz\w*|szukaj\w*|wyszuk\w*|sprawdz\w*|dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
-    r'|(?:do not|dont|don t)\s+(?:start|stop|pause|resume|reset|find|lookup|look up|check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
+    r'wybier\w*|wybierz\w*|wyczys\w*|czys\w*|skopi\w*|kopi\w*|uruch\w*|wlacz\w*|rozpocz\w*|wznow\w*|zatrzy\w*|pauz\w*|wyzer\w*|odlicz\w*|znajdz\w*|szukaj\w*|wyszuk\w*|sprawdz\w*|dobierz\w*|dobier\w*|skroc\w*|skrac\w*|przytn\w*|wylicz\w*|podlicz\w*|licz\w*|tnij\w*|rysuj\w*|narysuj\w*|zapis\w*|dodaw\w*|dodaj\w*|usun\w*|ustaw\w*|zmien\w*|wpis\w*)'
+    r'|(?:do not|dont|don t)\s+(?:copy|choose|clear|start|stop|pause|resume|reset|find|lookup|look up|check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
 
 bool requestsWeldingCables(Utterance u) =>

@@ -8,6 +8,15 @@ void main() {
     'nie obliczaj spadku 2% na 6 metrów': AppLanguage.pl,
     'proszę nie przeliczaj 2 cale na mm': AppLanguage.pl,
     'nie otwieraj fazowania': AppLanguage.pl,
+    'nie wybieraj skrótu 1:150': AppLanguage.pl,
+    'nie wybierz skrótu 1:150': AppLanguage.pl,
+    'nie kopiuj wyniku': AppLanguage.pl,
+    'nie skopiuj wyniku': AppLanguage.pl,
+    'nie wyczyść spadku rury': AppLanguage.pl,
+    'nie czyść danych': AppLanguage.pl,
+    'do not choose preset 1:150': AppLanguage.en,
+    "don't copy the result": AppLanguage.en,
+    'please do not clear the inputs': AppLanguage.en,
     'nie skracaj redukcji duża 100 mm mała 50 mm długość 200 mm docelowa 75 mm':
         AppLanguage.pl,
     'do not trim reducer large 100 mm small 50 mm length 200 mm target 75 mm':

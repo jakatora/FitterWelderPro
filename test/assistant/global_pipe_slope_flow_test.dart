@@ -64,6 +64,19 @@ void main() {
         'rise_to_length');
     await say(t, 'spadek 1% na 6 metrów');
     expect(ToolBridge.instance.current?.toolId, 'pipe_slope');
+    await say(t, 'nie wybieraj skrótu 1:150');
+    expect(
+        t.widget<TextField>(field('Wznios (Rise)')).controller!.text, '60.0');
+    await say(t, 'nie kopiuj wyniku');
+    expect(copied, isEmpty);
+    await say(t, 'wybierz skrót 1:150');
+    expect(
+        t.widget<TextField>(field('Wznios (Rise)')).controller!.text, '40.2');
+    await say(t, 'zmień spadek na 1:150');
+    expect(
+        t.widget<TextField>(field('Wznios (Rise)')).controller!.text, '40.0');
+    await say(t, 'zmień spadek na 1%');
+
     await t.tap(find.text('Kopiuj wynik'));
     await settle(t);
     expect(copied, ['60.0']);
