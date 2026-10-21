@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/filler/filler_catalog.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/filler/filler_selector.dart';
 import '../../domain/filler/schaeffler.dart';
 import '../../i18n/app_language.dart';
@@ -29,8 +30,8 @@ class FillerSelectorPage extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-              context.tr(pl: 'Dobór spoiwa', en: 'Filler metal selector')),
+          title:
+              Text(context.tr(pl: 'Dobór spoiwa', en: 'Filler metal selector')),
           bottom: TabBar(
             tabs: [
               Tab(text: context.tr(pl: 'Dobór', en: 'Selection')),
@@ -56,7 +57,53 @@ class _SelectorTab extends StatefulWidget {
 }
 
 class _SelectorTabState extends State<_SelectorTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, ToolHandleHost<_SelectorTab> {
+  final _scroll = ScrollController();
+  @override
+  String get toolId => 'filler_selector';
+  @override
+  Set<String> get supportedFields =>
+      const {'material_a', 'material_b', 'process'};
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) markReady();
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final a = BaseMaterial.values
+        .where((v) => v.name == fields['material_a'])
+        .firstOrNull;
+    final b = BaseMaterial.values
+        .where((v) => v.name == fields['material_b'])
+        .firstOrNull;
+    final p = FillerProcess.values
+        .where((v) => v.name == fields['process'])
+        .firstOrNull;
+    if (fields.length != 3 || a == null || b == null || p == null) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _a = a;
+      _b = b;
+      _process = p;
+    });
+    DefaultTabController.of(context).animateTo(0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+    return {};
+  }
+
   BaseMaterial _a = BaseMaterial.carbonSteel;
   BaseMaterial _b = BaseMaterial.carbonSteel;
   FillerProcess _process = FillerProcess.tig;
@@ -97,6 +144,7 @@ class _SelectorTabState extends State<_SelectorTab>
     final filler = rec.forProcess(_process);
 
     return ListView(
+      controller: _scroll,
       padding: EdgeInsets.fromLTRB(
           16, 16, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
       children: [
@@ -166,8 +214,8 @@ class _SelectorTabState extends State<_SelectorTab>
             key: const ValueKey('filler-not-weldable'),
             color: kFail,
             icon: Icons.block,
-            title: context.tr(
-                pl: 'Nie spawa się łukowo', en: 'Not arc weldable'),
+            title:
+                context.tr(pl: 'Nie spawa się łukowo', en: 'Not arc weldable'),
             body: rec.summary.of(english: english),
           ),
         ];
@@ -228,7 +276,8 @@ class _SelectorTabState extends State<_SelectorTab>
         const SizedBox(height: 12),
         _Section(
           key: const ValueKey('filler-warnings'),
-          title: context.tr(pl: 'Uwagi i ostrzeżenia', en: 'Notes and warnings'),
+          title:
+              context.tr(pl: 'Uwagi i ostrzeżenia', en: 'Notes and warnings'),
           children: [
             for (final w in rec.warnings)
               _Bullet(
@@ -366,7 +415,8 @@ class _MaterialSheet extends StatelessWidget {
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700)),
                   ),
-                  for (final m in BaseMaterial.values.where((m) => m.group == g))
+                  for (final m
+                      in BaseMaterial.values.where((m) => m.group == g))
                     ListTile(
                       key: ValueKey('filler-pick-${m.name}'),
                       minTileHeight: 56,
@@ -377,7 +427,8 @@ class _MaterialSheet extends StatelessWidget {
                               color: m == current ? kArc : kText,
                               fontWeight: FontWeight.w600)),
                       subtitle: Text(m.grades,
-                          style: const TextStyle(color: kTextSec, fontSize: 12)),
+                          style:
+                              const TextStyle(color: kTextSec, fontSize: 12)),
                       trailing: m == current
                           ? const Icon(Icons.check, color: kArc)
                           : null,
@@ -477,8 +528,7 @@ class _ConsumableBlock extends StatelessWidget {
       children: [
         if (item.use != null) ...[
           Text(item.use!.of(english: english),
-              style: const TextStyle(
-                  color: kText, fontSize: 13, height: 1.4)),
+              style: const TextStyle(color: kText, fontSize: 13, height: 1.4)),
           const SizedBox(height: 8),
         ],
         CopyOnLongPress(
@@ -582,9 +632,7 @@ class _GasRow extends StatelessWidget {
               value: gas.code,
               child: Text(gas.code,
                   style: const TextStyle(
-                      color: kText,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800)),
+                      color: kText, fontSize: 16, fontWeight: FontWeight.w800)),
             ),
           ),
           Expanded(
@@ -989,9 +1037,8 @@ class _DilutionTabState extends State<_DilutionTab>
                         inputFormatters: numberInputFormatters(),
                         textAlign: TextAlign.center,
                         decoration: InputDecoration(
-                          hintText: e == _Element.cr || e == _Element.ni
-                              ? '—'
-                              : '0',
+                          hintText:
+                              e == _Element.cr || e == _Element.ni ? '—' : '0',
                           errorText:
                               _outOfRange(_fields[(c, e)]!) ? '0–100' : null,
                           contentPadding: const EdgeInsets.symmetric(
@@ -1010,7 +1057,8 @@ class _DilutionTabState extends State<_DilutionTab>
           keyboardType: numberKeyboard(),
           inputFormatters: numberInputFormatters(),
           decoration: InputDecoration(
-            labelText: context.tr(pl: 'Rozcieńczenie D, %', en: 'Dilution D, %'),
+            labelText:
+                context.tr(pl: 'Rozcieńczenie D, %', en: 'Dilution D, %'),
             helperText: context.tr(
                 pl: 'Udział materiału rodzimego w spoinie.',
                 en: 'Share of parent metal in the weld.'),
@@ -1039,8 +1087,7 @@ class _DilutionTabState extends State<_DilutionTab>
         _Section(
           key: const ValueKey('dilution-results'),
           title: context.tr(
-              pl: 'Równoważniki (Schaeffler)',
-              en: 'Equivalents (Schaeffler)'),
+              pl: 'Równoważniki (Schaeffler)', en: 'Equivalents (Schaeffler)'),
           children: [
             Row(children: [
               const Expanded(flex: 3, child: SizedBox()),

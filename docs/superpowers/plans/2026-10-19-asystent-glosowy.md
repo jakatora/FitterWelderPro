@@ -1099,3 +1099,32 @@ Dalej grupa2.5: fume.oel i filler.pick. Nadal potrzebne pozostałe sterowanie
 kalkulatorami/rejestrami, rozszerzenia ISO, audyt pokrycia/raportów i etap6.
 Backend bez zmian; fizyczny mikrofon i finalny build nieodebrane.
 Końcowa regresja assistant+rigging+grinding UI/domena:1708PASS (build/colour-reference-final-regression.log).
+
+2026-10-21 — filler.pick: dobór pary materiałów i procesu z selectFiller,
+FillerFamily/ProcessFiller/Consumable oraz nowego czystego fillerReference.
+Odpowiedź zawiera dostępne oznaczenia EN ISO/AWS, gazy, formowanie, uwagi rodziny
+oraz ostrzeżenia obu materiałów; wiążące WPS/projekt. Gatunek pojedynczy wymaga
+pytania o B, „ten sam” jest jawnym wyborem; proces również jawny. Wszystkie14
+materiałów i4procesy wybieralne. Identyczny gatunek podany dwukrotnie rozpoznany.
+Kolejność A/B jest zachowana, także przy mieszanym zapisie słownym/cyfrowym.
+141A nie oznacza procesu141. Sprzeczne procesy i „ten sam” przy różnych
+materiałach wymagają wyjaśnienia. FCAW bez kwalifikatora nie zakłada136;
+114/121/138 oraz nieobjęte gatunki (np.316Ti/904L/S355J2/tytan) nie dostają
+podstawienia zbliżonego materiału, także jako odpowiedź na dopytanie.
+Brak wariantu spoiwa dla procesu -> FailedResult z raportem braku. Znane
+połączenie specjalne/niespawalne łukowo zachowuje werdykt domeny, nie wymyśla
+spoiwa. Deskryptywne „TIG with filler…” nadal trafia do legacy.save (test kolizji).
+FillerSelectorPage: uchwyt material_a/material_b/process atomowy, gotowy po
+zbudowaniu. Wybiera rzeczywiste materiały/proces i zakładkę Dobór, przewija do
+góry. Nie zmienia pól Schaefflera/rozcieńczenia. Test zachowuje wpis37 w drugiej
+zakładce i odrzuca dodatkowe/niepełne pola. Pełny czat otwiera i wypełnia moduł.
+Źródło IMOA3(2014), §12.1.9/tab.16 sprawdzone2026-10-21:
+https://www.imoa.info/download_files/stainless-steel/Duplex_Stainless_Steel_3rd_Edition.pdf
+Nie zmieniano reguł domeny ani klasyfikacji z katalogu.
+Regresja katalog+spoiwo UI/domena+czat671PASS; cała grupa assistant+spoiwo1597PASS.
+Po końcowym zachowaniu kolejności/dwukrotnym gatunku dodatkowe14PASS (nowe
+przypadki, ochrona drugiej zakładki, perf691ms/500tur<1s). Analiza czysta.
+Logi build/filler-assistant-full-regression.log/filler-assistant-final-check2.log/
+filler-assistant-final-analyze2.log. Nadal aktywne: fume.oel, następne etapy
+ISO/rejestrów/pełnego pokrycia/raportów i finalny build+mikrofon. Backend bez zmian.
+Ostatni pełny checkpoint całej aplikacji nadal a1050266489PASS; APK starszy.

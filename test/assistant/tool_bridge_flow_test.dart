@@ -349,17 +349,36 @@ void main() {
     expect(prefs.getString(kElectrodeBatchesPrefsKey), before);
     await close(tester);
   });
-  testWidgets('chat distinguishes sling label material from abrasive stripe code', (tester) async {
+  testWidgets('chat selects filler in the actual module', (tester) async {
+    await boot(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Pokaż dobór spoiwa 304L i 316L MMA');
+    expect(ToolBridge.instance.activeToolId, 'filler_selector');
+    expect(
+        tester
+            .widget<ChoiceChip>(
+                find.byKey(const ValueKey('filler-process-mma')))
+            .selected,
+        isTrue);
+    expect(find.textContaining('316L'), findsWidgets);
+    await close(tester);
+  });
+  testWidgets(
+      'chat distinguishes sling label material from abrasive stripe code',
+      (tester) async {
     await boot(tester);
     await tester.tap(find.byTooltip('Powiedz, co zrobić'));
     await settle(tester);
     await say(tester, 'Pokaż niebieską etykietę zawiesia');
     expect(ToolBridge.instance.activeToolId, 'rigging');
-    expect(find.byKey(const ValueKey('rig-assistant-reference')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('rig-assistant-reference')), findsOneWidget);
     expect(find.textContaining('poliester (PES)'), findsWidgets);
     await say(tester, 'Pokaż czerwony pasek na tarczy');
     expect(ToolBridge.instance.activeToolId, 'grinding');
-    expect(find.byKey(const ValueKey('gr-assistant-reference')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('gr-assistant-reference')), findsOneWidget);
     expect(find.textContaining('80 m/s'), findsWidgets);
     await close(tester);
   });
