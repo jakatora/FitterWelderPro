@@ -115,6 +115,7 @@ class AiChatScreen extends StatefulWidget {
     this.chatSender,
     this.now,
     this.welderStamp,
+    this.skills,
   });
 
   final AssistantMode initialMode;
@@ -138,6 +139,9 @@ class AiChatScreen extends StatefulWidget {
   /// zapisana w telefonie).
   final Future<String> Function()? welderStamp;
 
+  /// Session catalog override, for isolated integrations and previews.
+  final List<AssistantSkill>? skills;
+
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
 }
@@ -148,13 +152,16 @@ class _AiChatScreenState extends State<AiChatScreen>
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
   late final AssistantEngine _engine =
       widget.engine ?? AssistantEngine(remoteAllowed: () async => false);
-  late final _brain = AssistantBrain(skills: buildSkillCatalog());
+  late final _brain =
+      AssistantBrain(skills: widget.skills ?? buildSkillCatalog());
   late final _brainContext = AssistantContext(
       lang: AppLanguage.pl,
       modules:
           widget.embedded ? ToolBridge.instance : const FixedModuleContext(),
       now: widget.now);
   SkillResult? _localResult;
+  UndoAction? _localUndo;
+  bool _localCommitting = false;
   final _feedback = AssistantFeedbackRecorder();
   IsoCommand? _pendingIso;
   bool _awaitingIsoChoice = false;
@@ -383,6 +390,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _offerAsk = false;
     _queryResults = null;
     _localResult = null;
+    _localUndo = null;
     _brain.cancelPending();
     _pendingIso = null;
     _pendingIsoValve = null;
@@ -767,6 +775,51 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
     final utterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    if (const {'cofnij zapis', 'undo save'}.contains(utterance.folded)) {
+      if (_localUndo == null) {
+        setState(() {
+          _busy = false;
+          _notice = _tr('Nie mam zapisu do cofnięcia w tej rozmowie.',
+              'There is no save to undo in this conversation.');
+          _noticeIsError = false;
+        });
+      } else {
+        await _undoLocal(fromCommand: true);
+      }
+      _cmdCtrl.clear();
+      return true;
+    }
+    if (_localResult case final ConfirmResult pending) {
+      if (const {'anuluj', 'nie', 'cancel', 'no', 'stop'}
+          .contains(utterance.folded)) {
+        setState(() {
+          _resetAct();
+          _busy = false;
+          _notice =
+              _tr('Anulowano. Nic nie zapisano.', 'Cancelled. Nothing saved.');
+          _noticeIsError = false;
+        });
+        return true;
+      }
+      if (const {'tak', 'zapisz', 'potwierdz', 'yes', 'save', 'confirm'}
+          .contains(utterance.folded)) {
+        if (pending.touchOnly) {
+          setState(() {
+            _busy = false;
+            _cmdCtrl.clear();
+            _notice = _tr('Ten zapis wymaga dotknięcia przycisku „Zapisz”.',
+                'This save requires tapping the Save button.');
+            _noticeIsError = false;
+          });
+        } else {
+          await _confirmLocal(pending);
+        }
+        return true;
+      }
+      // Any new instruction supersedes the old summary before routing it.
+      _localResult = null;
+    }
+    _localUndo = null;
     if (isNegatedCommand(utterance)) {
       _brain.cancelPending();
       _pendingIso = null;
@@ -792,9 +845,11 @@ class _AiChatScreenState extends State<AiChatScreen>
     if ((legacyIntent == kIntentSaveWeldParameter && !calculationRequest) ||
         legacyIntent == kIntentAddWeldJournalEntry ||
         legacyIntent == kIntentQueryMyParams) {
-      _brain.cancelPending();
-      _localResult = null;
-      return false;
+      if (!_brain.recognizesNewCommand(utterance, _brainContext)) {
+        _brain.cancelPending();
+        _localResult = null;
+        return false;
+      }
     }
     _brainContext.lang = lang;
     final reply = await _brain.handle(
@@ -808,8 +863,6 @@ class _AiChatScreenState extends State<AiChatScreen>
           skill: reply.match?.skill.id,
           lang: lang));
     }
-    // Write skills are intentionally left to the existing confirmation flow.
-    if (result is ConfirmResult) return false;
     setState(() {
       _busy = widget.embedded && result is AnswerResult && result.show != null;
       _localResult = result;
@@ -819,6 +872,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     });
     final spoken = switch (result) {
       AnswerResult(:final answer) => answer.speechText(lang),
+      ConfirmResult(:final summary) => summary.speechText(lang),
       AskResult(:final question) => question.of(lang),
       FailedResult(:final message) => message.of(lang),
       _ => '',
@@ -870,7 +924,11 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   Widget _localAnswerCard(SkillResult result) {
     final lang = context.language;
-    final answer = result is AnswerResult ? result.answer : null;
+    final answer = switch (result) {
+      AnswerResult(:final answer) => answer,
+      ConfirmResult(:final summary) => summary,
+      _ => null,
+    };
     final question = result is AskResult ? result.question.of(lang) : null;
     final choices = switch (result) {
       AnswerResult(:final followUps) => followUps,
@@ -940,8 +998,116 @@ class _AiChatScreenState extends State<AiChatScreen>
                       },
               ),
           ]),
+        if (result is ConfirmResult) ...[
+          if (result.touchOnly)
+            Text(
+                _tr('Potwierdzenie tylko dotykiem.',
+                    'Confirmation by touch only.'),
+                key: const Key('assistant-touch-only')),
+          Wrap(spacing: 8, children: [
+            FilledButton(
+              key: const Key('assistant-local-save'),
+              onPressed: _busy ? null : () => _confirmLocal(result),
+              child: Text(_tr('Zapisz', 'Save')),
+            ),
+            TextButton(
+              key: const Key('assistant-local-cancel'),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                        _resetAct();
+                        _notice = _tr('Anulowano. Nic nie zapisano.',
+                            'Cancelled. Nothing saved.');
+                        _noticeIsError = false;
+                      }),
+              child: Text(_tr('Anuluj', 'Cancel')),
+            ),
+          ]),
+        ],
+        if (_localUndo != null)
+          TextButton.icon(
+            key: const Key('assistant-local-undo'),
+            onPressed: _busy ? null : _undoLocal,
+            icon: const Icon(Icons.undo),
+            label: Text(_tr('Cofnij zapis', 'Undo save')),
+          ),
       ],
     );
+  }
+
+  Future<void> _confirmLocal(ConfirmResult pending) async {
+    if (_localCommitting || !identical(_localResult, pending)) return;
+    setState(() {
+      _busy = true;
+      _localCommitting = true;
+      _notice = null;
+    });
+    var saved = false;
+    try {
+      final undo = await pending.perform();
+      saved = true;
+      if (!mounted) return;
+      setState(() {
+        _localUndo = undo;
+        _localResult = AnswerResult(
+            const AssistantAnswer(text: AssistantText('Zapisano.', 'Saved.')),
+            show: pending.show);
+        _cmdCtrl.clear();
+      });
+      if (pending.show case final show?) {
+        if (widget.embedded) {
+          await _showModule(show);
+        } else if (toolById(show.toolId) case final tool?) {
+          await openTool(_navigationContext, tool, fields: show.fields);
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _notice = saved
+              ? _tr('Zapisano, ale nie udało się otworzyć modułu.',
+                  'Saved, but the module could not be opened.')
+              : _tr(
+                  'Nie udało się potwierdzić zapisu. Sprawdź dane w module przed ponowieniem.',
+                  'Could not confirm the save. Check the module before retrying.');
+          _noticeIsError = true;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _localCommitting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _undoLocal({bool fromCommand = false}) async {
+    final undo = _localUndo;
+    if (undo == null || (_busy && !fromCommand)) return;
+    setState(() => _busy = true);
+    try {
+      await undo();
+      if (!mounted) return;
+      setState(() {
+        _localUndo = null;
+        _localResult = const AnswerResult(AssistantAnswer(
+            text: AssistantText('Zapis cofnięty.', 'Save undone.')));
+        _notice = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _notice = _tr(
+              'Nie udało się cofnąć zapisu. Sprawdź, czy rekord został zmieniony.',
+              'Could not undo the save. Check whether the record has changed.');
+          _noticeIsError = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _handleOutcome(AssistantOutcome out) async {
@@ -2381,16 +2547,22 @@ class _HistoryPage extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          e.kind == kIntentAddWeldJournalEntry
+                          e.kind == 'hot_work.prepare'
                               ? (e.undone
-                                  ? tr('Wpis do dziennika — cofnięty',
-                                      'Journal entry — undone')
-                                  : tr('Wpis do dziennika spoin',
-                                      'Weld journal entry'))
-                              : (e.undone
-                                  ? tr('Zapis parametru — cofnięty',
-                                      'Parameter saved — undone')
-                                  : tr('Zapis parametru', 'Parameter saved')),
+                                  ? tr('Szkic prac gorących — cofnięty',
+                                      'Hot work draft — undone')
+                                  : tr('Szkic prac gorących', 'Hot work draft'))
+                              : e.kind == kIntentAddWeldJournalEntry
+                                  ? (e.undone
+                                      ? tr('Wpis do dziennika — cofnięty',
+                                          'Journal entry — undone')
+                                      : tr('Wpis do dziennika spoin',
+                                          'Weld journal entry'))
+                                  : (e.undone
+                                      ? tr('Zapis parametru — cofnięty',
+                                          'Parameter saved — undone')
+                                      : tr('Zapis parametru',
+                                          'Parameter saved')),
                           style: const TextStyle(
                               color: _kTextPrimary,
                               fontWeight: FontWeight.w800),

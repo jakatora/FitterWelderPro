@@ -167,6 +167,31 @@ class HotWorkStore {
   Future<void> upsert(HotWorkPermit permit) =>
       _serial(() => _upsertNow(permit));
 
+  /// Assistant creation must never replace an existing or damaged record.
+  Future<void> insertNew(HotWorkPermit permit) => _serial(() async {
+        final load = await _loadNow();
+        if (load.damaged || load.permits.any((p) => p.id == permit.id)) {
+          throw StateError(
+              'Cannot insert a new draft over existing/damaged data');
+        }
+        await _upsertNow(permit);
+      });
+
+  /// Undo a new draft only while it is still exactly the confirmed draft.
+  /// A later manual checklist, measurement or text edit must survive Undo.
+  Future<bool> deleteIfUnchanged(HotWorkPermit original) => _serial(() async {
+        final load = await _loadNow();
+        if (load.damaged) return false;
+        final matching = load.permits.where((p) => p.id == original.id);
+        if (matching.isEmpty) return true;
+        if (jsonEncode(matching.single.toJson()) !=
+            jsonEncode(original.toJson())) {
+          return false;
+        }
+        await _write(load.permits.where((p) => p.id != original.id).toList());
+        return true;
+      });
+
   /// „Cofnij” usunięcia protokołu: przywraca go ZAWSZE, także gdy historia
   /// w międzyczasie doszła do limitu (to cofnięcie, nie nowy protokół).
   Future<void> restore(HotWorkPermit permit) =>

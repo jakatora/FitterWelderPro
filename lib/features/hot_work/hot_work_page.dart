@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../domain/hot_work/hot_work_permit.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/hot_work/hot_work_text.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -45,7 +46,29 @@ class HotWorkPage extends StatefulWidget {
 
 enum _ItemAction { duplicate, delete }
 
-class _HotWorkPageState extends State<HotWorkPage> {
+class _HotWorkPageState extends State<HotWorkPage>
+    with ToolHandleHost<HotWorkPage> {
+  @override
+  String get toolId => 'hot_work';
+  @override
+  Set<String> get supportedFields => const {'permit_id'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.length != 1 || fields['permit_id'] is! String) {
+      return fields.keys.toSet();
+    }
+    final load = await _store.loadReport();
+    final found = load.permits.where((p) => p.id == fields['permit_id']);
+    if (!mounted ||
+        load.damaged ||
+        found.length != 1 ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return {'permit_id'};
+    }
+    unawaited(_open(found.single));
+    return {};
+  }
+
   List<HotWorkPermit>? _items;
   bool _loadFailed = false;
 
@@ -92,6 +115,7 @@ class _HotWorkPageState extends State<HotWorkPage> {
         _loadFailed = false;
         if (load.damaged) _damage = load;
       });
+      if (!load.damaged) markReady();
     } catch (e) {
       debugPrint('[hot_work] load failed: $e');
       if (!mounted) return;
@@ -167,8 +191,8 @@ class _HotWorkPageState extends State<HotWorkPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(context.tr(
-            pl: 'Usunąć protokół?', en: 'Delete this record?')),
+        title:
+            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
         content: Text(_titleOf(permit)),
         actions: [
           TextButton(
@@ -192,7 +216,8 @@ class _HotWorkPageState extends State<HotWorkPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.')),
+        content:
+            Text(context.tr(pl: 'Protokół usunięty.', en: 'Record deleted.')),
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () async {

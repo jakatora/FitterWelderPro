@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cut_list_app/assistant/core/brain.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
-import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 
 import 'support/assistant_test_support.dart';
@@ -15,8 +14,10 @@ void main() {
   test('500 wypowiedzi < 1 s', () async {
     final harness = BrainHarness();
     addTearDown(harness.timer.dispose);
-    final catalog =
-        buildSkillCatalog(actions: harness.actions, timer: () => harness.timer);
+    // Reuse the isolated session catalog, including its in-memory readers.
+    // Rebuilding defaults would measure failed platform/database I/O rather
+    // than the pure routing/answer logic this test budgets.
+    final catalog = harness.brain.skills;
     final corpus = <String>[
       for (final s in catalog) ...[
         for (final e in s.examples) ...[e.pl, e.en],
