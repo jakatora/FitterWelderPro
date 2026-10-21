@@ -1,3 +1,5 @@
+import 'assistant_text.dart';
+
 /// Co jest teraz na ekranie — bez zależności od UI. Implementuje `ToolBridge`
 /// (zadanie 1.4); w testach atrapa.
 abstract class ModuleContext {
@@ -30,4 +32,17 @@ abstract interface class RecordModuleContext {
 /// edits may be newer than conversation history. Validate after merging edits.
 abstract interface class FieldModuleContext {
   Map<String, Object?>? inputFields(String toolId);
+}
+
+/// Explicit, opt-in actions on the visible ready module. Credentials and hidden
+/// forms never participate. Completion comes from execution, not a prediction.
+abstract interface class ModuleActionContext {
+  Future<ModuleActionResult> performModuleAction(String toolId, String action,
+      {String? field});
+}
+
+class ModuleActionResult {
+  const ModuleActionResult(this.completed, this.message);
+  final bool completed;
+  final AssistantText message;
 }

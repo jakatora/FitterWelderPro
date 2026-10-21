@@ -117,6 +117,113 @@ Map<String, Object?> _currentEdit(
   return s;
 }
 
+final _copy = RegExp(r'^(?:(?:prosze|please)\s+)*(?:skopiuj|kopiuj|copy)\b');
+final _formula =
+    RegExp(r'^(?:(?:prosze|please)\s+)*(?:pokaz|otworz|show|open)\b');
+bool _copyWords(Utterance u) => u.items.every((i) => const {
+      'prosze',
+      'please',
+      'mi',
+      'me',
+      'skopiuj',
+      'kopiuj',
+      'copy',
+      'wynik',
+      'wyniki',
+      'results',
+      'wszystkie',
+      'all',
+      'do',
+      'schowka',
+      'to',
+      'clipboard',
+      'oraz',
+      'result',
+      'glowny',
+      'main',
+      'spadek',
+      'spadku',
+      'rury',
+      'pipe',
+      'slope',
+      'kalkulatora',
+      'calculator',
+      'the',
+      'aktualny',
+      'current',
+      'wznios',
+      'rise',
+      'dlugosc',
+      'length',
+      'run',
+      'kat',
+      'angle',
+      'nachylenia',
+      'nachylenie',
+      'procent',
+      'percentage',
+      'percent',
+      'mm',
+      'na',
+      'metr',
+      'per',
+      'meter',
+      'metre',
+      'milimetry',
+      'i',
+      'and',
+      'lub',
+      'or',
+    }.contains(i.word));
+bool _formulaWords(Utterance u) => u.items.every((i) => const {
+      'prosze',
+      'please',
+      'mi',
+      'me',
+      'pokaz',
+      'otworz',
+      'show',
+      'open',
+      'wzory',
+      'wzor',
+      'wzorow',
+      'formula',
+      'formulas',
+      'zrodlo',
+      'source',
+      'objasnienie',
+      'explanation',
+      'na',
+      'dla',
+      'for',
+      'spadku',
+      'spadek',
+      'rury',
+      'pipe',
+      'slope',
+      'the',
+      'of',
+    }.contains(i.word));
+Set<String> _copyFields(Utterance u) {
+  final angle = u.hasStem(const ['kat', 'angle']);
+  return {
+    if (u.hasStem(_riseLabels)) 'rise_mm',
+    if (u.hasStem(_lengthLabels)) 'length_mm',
+    if (angle) 'angle_deg',
+    if (!angle &&
+        (u.hasStem(const ['procent', 'percent', 'nachylen']) ||
+            u.hasStem(const ['slope']) && !u.hasStem(const ['result'])))
+      'slope_pct',
+    if (u.hasAny(const [
+      'mm na metr',
+      'milimetry na metr',
+      'mm per meter',
+      'mm per metre'
+    ]))
+      'mm_per_m',
+  };
+}
+
 class PipeSlopeSkill extends AssistantSkill {
   @override
   String get id => 'pipe.slope';
@@ -137,6 +244,7 @@ class PipeSlopeSkill extends AssistantSkill {
         SkillExample('Spadek rury długość 1,5 metra wznios 15 mm',
             'Pipe slope length 1.5 meters rise 15 mm'),
         SkillExample('Oblicz spadek rury', 'Calculate pipe slope'),
+        SkillExample('Pokaż wzory spadku rury', 'Show pipe slope formulas'),
       ];
   @override
   List<SkillRejection> get rejections => const [
@@ -151,6 +259,8 @@ class PipeSlopeSkill extends AssistantSkill {
     return {
       ...slots,
       'native_action': null,
+      'module_action': null,
+      'copy_field': null,
       'native_edit': ctx.modules.activeToolId == toolId &&
               (_edit.hasMatch(u.folded) || u.isContinuation)
           ? Map<String, Object?>.unmodifiable(slots)
@@ -163,13 +273,37 @@ class PipeSlopeSkill extends AssistantSkill {
       _foreign(u) ? const {} : _intent(u, ctx, _slots(u));
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
+    final active = ctx.modules.activeToolId == toolId;
+    if (!_foreign(u) && (active || _topic(u))) {
+      if (_copy.hasMatch(u.folded) && _copyWords(u)) {
+        final fields = _copyFields(u);
+        return SkillMatch(this, .98,
+            slots: {
+              'module_action': 'copy',
+              'copy_field':
+                  u.hasAny(const ['wyniki', 'results', 'wszystkie', 'all'])
+                      ? 'ambiguous'
+                      : fields.isEmpty
+                          ? 'result'
+                          : fields.length == 1
+                              ? fields.single
+                              : 'ambiguous'
+            },
+            utterance: u);
+      }
+      if (_formula.hasMatch(u.folded) &&
+          _formulaWords(u) &&
+          u.hasStem(const ['wzor', 'formula'])) {
+        return SkillMatch(this, .98,
+            slots: const {'module_action': 'formula'}, utterance: u);
+      }
+    }
     if (explainedTool(u) != null ||
         _foreign(u) ||
         kOpenVerbAtStartRe.hasMatch(u.folded) ||
         kCommandVerbRe.hasMatch(u.folded)) {
       return null;
     }
-    final active = ctx.modules.activeToolId == toolId;
     if (_clear.hasMatch(u.folded) &&
         (_topic(u) || active && _clearCurrent.hasMatch(u.folded))) {
       return SkillMatch(this, .96,
@@ -204,6 +338,27 @@ class PipeSlopeSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
+    if (slot == 'copy_field') {
+      if (_edit.hasMatch(u.folded) ||
+          _copy.hasMatch(u.folded) ||
+          _formula.hasMatch(u.folded) ||
+          u.items.any((i) => i.isNumber) ||
+          u.hasStem(const [
+            'oblicz',
+            'policz',
+            'przelicz',
+            'calculate',
+            'recalculate'
+          ])) {
+        return null;
+      }
+      final fields = _copyFields(u);
+      if (fields.length == 1) return {'copy_field': fields.single};
+      if (fields.isEmpty && u.hasStem(const ['wynik', 'result'])) {
+        return {'copy_field': 'result'};
+      }
+      return null;
+    }
     final slots = _slots(u);
     if (slots.containsKey(slot)) return slots;
     if (u.hasStem([..._lengthLabels, ..._riseLabels]) || slot == 'slope_pct') {
@@ -224,6 +379,47 @@ class PipeSlopeSkill extends AssistantSkill {
 
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
+    final action = m.slots['module_action'];
+    if (action == 'copy' || action == 'formula') {
+      final field = m.slots['copy_field'];
+      if (action == 'copy' && field == 'ambiguous') {
+        return AskResult(
+            'copy_field',
+            const AssistantText(
+                'Który jeden wynik skopiować: wynik główny, kąt nachylenia czy mm na metr?',
+                'Which single value should I copy: the main result, slope angle or mm per metre?'),
+            partial: m,
+            choices: [
+              for (final label in const [
+                AssistantText('Wynik główny', 'Main result'),
+                AssistantText('Kąt', 'Angle'),
+                AssistantText('mm na metr', 'mm per metre')
+              ])
+                FollowUp(label, label.of(ctx.lang)),
+            ]);
+      }
+      if (action == 'formula' && ctx.modules.activeToolId != toolId) {
+        return const AnswerResult(
+            AssistantAnswer(
+                text: AssistantText('Otwieram objaśnienie wzorów spadku rury.',
+                    'Opening the pipe-slope formula explanation.')),
+            show: ShowInModule('pipe_slope', {'action': 'formula'}));
+      }
+      final modules = ctx.modules;
+      if (modules is! ModuleActionContext) {
+        return const FailedResult(
+            AssistantText(
+                'Otwórz kalkulator spadku, aby wykonać tę czynność na jego aktualnym wyniku.',
+                'Open the pipe-slope calculator to perform this action on its current result.'),
+            reportMissingCapability: false);
+      }
+      final r = await (modules as ModuleActionContext).performModuleAction(
+          toolId, action as String,
+          field: action == 'copy' ? field as String? : null);
+      return r.completed
+          ? AnswerResult(AssistantAnswer(text: r.message))
+          : FailedResult(r.message, reportMissingCapability: false);
+    }
     if (m.slots['native_action'] == 'clear') {
       return const AnswerResult(
           AssistantAnswer(
@@ -335,6 +531,17 @@ class PipeSlopeSkill extends AssistantSkill {
           'length_mm': result.lengthMm,
           'rise_mm': result.riseMm,
           'slope_pct': result.slopePct
-        }));
+        }),
+        followUps:
+            ctx.modules.activeToolId == toolId || ctx.modules.onHomeOrAssistant
+                ? [
+                    for (final label in const [
+                      AssistantText('Kopiuj wynik', 'Copy result'),
+                      AssistantText('Kopiuj kąt', 'Copy angle'),
+                      AssistantText('Pokaż wzory', 'Show formulas')
+                    ])
+                      FollowUp(label, label.of(ctx.lang))
+                  ]
+                : const []);
   }
 }

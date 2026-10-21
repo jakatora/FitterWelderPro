@@ -7,6 +7,7 @@ import '../widgets/help_button.dart';
 import '../widgets/calculation_guide.dart';
 import '../widgets/number_field.dart';
 import '../assistant/core/tool_bridge.dart';
+import '../assistant/core/skill.dart' show ModuleActionResult, AssistantText;
 
 class PipeSlopeScreen extends StatefulWidget {
   const PipeSlopeScreen({super.key});
@@ -17,7 +18,7 @@ class PipeSlopeScreen extends StatefulWidget {
 
 class _PipeSlopeScreenState extends State<PipeSlopeScreen>
     with ToolHandleHost<PipeSlopeScreen>
-    implements InputToolHandle {
+    implements InputToolHandle, ModuleActionHandle {
   @override
   String get toolId => 'pipe_slope';
   @override
@@ -34,6 +35,83 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
           'slope_pct': parseDecimal(_slopeController.text),
       });
   @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    if (!mounted) {
+      return const ModuleActionResult(false,
+          AssistantText('Moduł jest zamknięty.', 'The module is closed.'));
+    }
+    if (action == 'formula' && field == null) {
+      _showFormulaInfo();
+      return const ModuleActionResult(
+          true,
+          AssistantText('Otworzono objaśnienie wzorów spadku rury.',
+              'Pipe-slope formula explanation opened.'));
+    }
+    if (action != 'copy') {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Ta czynność nie jest dostępna w tym module.',
+              'This action is unavailable in this module.'));
+    }
+    final primary = _mode == 'length_to_rise'
+        ? 'rise_mm'
+        : _mode == 'rise_to_length'
+            ? 'length_mm'
+            : 'slope_pct';
+    final key = field == null || field == 'result' ? primary : field;
+    final selected = switch (key) {
+      'rise_mm' when primary == key => (
+          _riseController,
+          'mm',
+          const AssistantText('Wznios', 'Rise')
+        ),
+      'length_mm' when primary == key => (
+          _lengthController,
+          'mm',
+          const AssistantText('Długość w rzucie poziomym', 'Horizontal run')
+        ),
+      'slope_pct' when primary == key => (
+          _slopeController,
+          '%',
+          const AssistantText('Nachylenie', 'Slope')
+        ),
+      'angle_deg' => (
+          _angleController,
+          '°',
+          const AssistantText('Kąt nachylenia', 'Slope angle')
+        ),
+      'mm_per_m' => (
+          _mmPerMController,
+          'mm/m',
+          const AssistantText('Milimetry na metr', 'Millimetres per metre')
+        ),
+      _ => null,
+    };
+    if (selected == null) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Wybrana wielkość nie jest wynikiem w bieżącym trybie. Wybierz wynik, kąt nachylenia lub mm na metr.',
+              'That quantity is not a result in the current mode. Choose the result, slope angle or mm per metre.'));
+    }
+    final (controller, unit, label) = selected;
+    final text = controller.text.trim();
+    if (_lastCalculation == null || text.isEmpty) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Brak aktualnego wyniku do skopiowania. Najpierw oblicz spadek.',
+              'There is no current result to copy. Calculate the slope first.'));
+    }
+    await copyToClipboard(context, text, label: label.of(context.language));
+    return ModuleActionResult(
+        true,
+        AssistantText('Skopiowano: ${label.pl} — $text $unit.',
+            'Copied: ${label.en} — $text $unit.'));
+  }
+
+  @override
   void initState() {
     super.initState();
     markReady();
@@ -42,6 +120,10 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     if (!mounted) return fields.keys.toSet();
+    if (fields.length == 1 && fields['action'] == 'formula') {
+      final r = await performAction('formula');
+      return r.completed ? {} : {'action'};
+    }
     if (fields.length == 1 && fields['action'] == 'clear') {
       setState(() {
         for (final c in [

@@ -13,6 +13,12 @@ abstract interface class InputToolHandle {
   Map<String, Object?> get inputFields;
 }
 
+/// Only explicitly implemented native actions can be invoked; no widget search
+/// or arbitrary field/text copying is exposed.
+abstract interface class ModuleActionHandle {
+  Future<ModuleActionResult> performAction(String action, {String? field});
+}
+
 abstract class ToolHandle {
   String get toolId;
   Set<String> get supportedFields;
@@ -40,7 +46,38 @@ class _Waiter {
 /// Handles belong to route instances, not tool IDs: hidden copies never
 /// receive a command intended for the visible screen.
 class ToolBridge
-    implements ModuleContext, RecordModuleContext, FieldModuleContext {
+    implements
+        ModuleContext,
+        RecordModuleContext,
+        FieldModuleContext,
+        ModuleActionContext {
+  @override
+  Future<ModuleActionResult> performModuleAction(String toolId, String action,
+      {String? field}) async {
+    final handle = current;
+    if (handle == null ||
+        handle.toolId != toolId ||
+        handle is! ModuleActionHandle ||
+        !isReady(handle) ||
+        appRoutes.top is PopupRoute) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Otwórz właściwy moduł i zamknij okno dialogowe, zanim wykonasz tę czynność.',
+              'Open the matching module and close any dialog before performing this action.'));
+    }
+    try {
+      return await (handle as ModuleActionHandle)
+          .performAction(action, field: field);
+    } catch (_) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Nie udało się wykonać tej czynności. Spróbuj ponownie.',
+              'The action could not be completed. Please try again.'));
+    }
+  }
+
   @override
   Map<String, Object?>? inputFields(String toolId) {
     final handle = current;

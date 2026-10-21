@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/app.dart';
+import 'package:cut_list_app/app_navigator.dart';
 import 'package:cut_list_app/database/weld_quote_dao.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/assistant/core/tool_bridge.dart';
@@ -140,6 +141,14 @@ void main() {
           await done;
           expect(rejected, isEmpty,
               reason: '${tool.id}: $text rejected actual example values');
+          if (show.fields.length == 1 && show.fields['action'] == 'formula') {
+            // Opening a formula dialog is an explicit UI action, not a field
+            // update. Verify the overlay and restoration of the same route.
+            expect(appRoutes.top, isA<PopupRoute>());
+            expect(find.byType(AlertDialog), findsOneWidget);
+            appNavigatorKey.currentState!.pop();
+            await settleFields(t);
+          }
           expect(ToolBridge.instance.current, same(handle),
               reason: 'a field update must not change the target route');
           expect(t.takeException(), isNull, reason: '${tool.id}: $text');

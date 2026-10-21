@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/assistant/core/assistant_panel_controller.dart';
@@ -29,6 +30,17 @@ void main() {
   testWidgets(
       'common chat follows actual slope inputs, changes inverse mode and repairs invalid input without false reports',
       (t) async {
+    final copied = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
     seedFreshInstall();
     ToolBridge.reset();
     expect(
@@ -48,6 +60,10 @@ void main() {
     await settle(t);
     await say(t, 'spadek 1% na 6 metrów');
     expect(ToolBridge.instance.current?.toolId, 'pipe_slope');
+    await t.tap(find.text('Kopiuj wynik'));
+    await settle(t);
+    expect(copied, ['60.0']);
+    expect(find.textContaining('Skopiowano: Wznios'), findsWidgets);
     AssistantPanelController.instance.setExpanded(false);
     await settle(t);
     await t.ensureVisible(field('Długość rury'));
@@ -82,9 +98,13 @@ void main() {
     expect(t.widget<TextField>(field('Nachylenie')).controller!.text, '3.0');
     expect(
         t.widget<TextField>(field('Wznios (Rise)')).controller!.text, '180.0');
+    expect(copied, ['60.0']);
     await say(t, 'wyczyść spadek rury');
     expect(
         t.widget<TextField>(field('Długość rury')).controller!.text, isEmpty);
+    await say(t, 'skopiuj wynik');
+    expect(copied, ['60.0']);
+    expect(find.textContaining('Brak aktualnego wyniku'), findsOneWidget);
     await say(t, 'oblicz');
     expect(find.textContaining('Podaj długość w rzucie'), findsOneWidget);
     await say(t, '6 m');
@@ -93,6 +113,9 @@ void main() {
         double.parse(t.widget<TextField>(field('Nachylenie')).controller!.text),
         1);
     expect(await FeedbackStore.instance.list(), isEmpty);
+    await say(t, 'pokaż wzory');
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Źródło wzorów'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
 }
