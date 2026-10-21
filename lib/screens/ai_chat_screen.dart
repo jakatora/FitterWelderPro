@@ -159,6 +159,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         (!widget.embedded && IsoNotebookController.active != null),
     hasPendingQuestion: () =>
         _pendingIsoBranch != null ||
+        _pendingIsoBend != null ||
         _pendingIsoValve != null ||
         _awaitingIsoChoice,
     execute: _executeIsoSkill,
@@ -187,6 +188,7 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   void _clearIsoQuestion() {
     _pendingIso = null;
+    _pendingIsoBend = null;
     _pendingIsoValve = null;
     _pendingIsoBranch = null;
     _awaitingIsoChoice = false;
@@ -205,6 +207,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   bool _awaitingIsoChoice = false;
   IsoCommand? _pendingIsoValve;
   IsoCommand? _pendingIsoBranch;
+  IsoCommand? _pendingIsoBend;
   BuildContext get _navigationContext => widget.embedded
       ? (appNavigatorKey.currentState?.overlay?.context ?? context)
       : context;
@@ -431,6 +434,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _localUndo = null;
     _brain.cancelPending();
     _pendingIso = null;
+    _pendingIsoBend = null;
     _pendingIsoValve = null;
     _pendingIsoBranch = null;
     _awaitingIsoChoice = false;
@@ -532,6 +536,31 @@ class _AiChatScreenState extends State<AiChatScreen>
     var command = parseIsoCommand(u);
     final onIso = appRoutes.toolId == 'iso_notebook' ||
         (!widget.embedded && IsoNotebookController.active != null);
+    if (_pendingIsoBend case final pending?) {
+      if (const {'anuluj', 'cancel', 'stop', 'nie', 'no'}.contains(u.folded)) {
+        _pendingIsoBend = null;
+        _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
+        return true;
+      }
+      final direction = isoDirectionOf(u), compass = isoCompassOf(u);
+      final index = pending.missingSpatialTurnDirection;
+      if (index != null &&
+          u.tokens.length <= 3 &&
+          (direction != null || compass != null)) {
+        command = pending.withSpatialTurnDirection(index, direction, compass);
+        _pendingIsoBend = null;
+      } else if (command?.explicit == true ||
+          _brain.recognizesNewCommand(u, _brainContext,
+              exceptSkillId: 'iso.draw') ||
+          parseAssistantCommand(text).intent != kIntentUnknown) {
+        _pendingIsoBend = null;
+      } else {
+        _isoReply(
+            'W którą stronę skręcić kolano 45°? Podaj np. „w górę” albo „do tyłu”; możesz też powiedzieć „anuluj”.',
+            'Which way should the 45° elbow turn? Say e.g. “up” or “back”, or say “cancel”.');
+        return true;
+      }
+    }
     if (_pendingIsoBranch case final pending?) {
       if (u.hasAny(const ['anuluj', 'cancel', 'stop', 'nie', 'no']) &&
           u.tokens.length == 1) {
@@ -681,6 +710,13 @@ class _AiChatScreenState extends State<AiChatScreen>
       _askIsoValve();
       return true;
     }
+    if (command.missingSpatialTurnDirection != null) {
+      _pendingIsoBend = command;
+      _isoReply(
+          'W którą stronę skręcić kolano 45°? Podaj np. „w górę” albo „do tyłu”; możesz też powiedzieć „anuluj”.',
+          'Which way should the 45° elbow turn? Say e.g. “up” or “back”, or say “cancel”.');
+      return true;
+    }
     if (command.fromLastTee &&
         command.steps.firstOrNull is IsoPipe &&
         (command.steps.first as IsoPipe).dir == null) {
@@ -789,6 +825,10 @@ class _AiChatScreenState extends State<AiChatScreen>
             'Drawn: ${report.segments} pipes, ${report.elbows} elbows, '
                 '${report.fittings} fittings. ${report.assumedEn.join(' ')}');
       } else {
+        if (report.problem == IsoDrawProblem.spatialFitting) {
+          unawaited(_feedback.missing(text,
+              tool: 'iso_notebook', skill: 'iso.spatial_fitting', lang: lang));
+        }
         if (command.fromLastTee &&
             report.problem == IsoDrawProblem.invalidBranch &&
             command.steps.firstOrNull is IsoPipe) {

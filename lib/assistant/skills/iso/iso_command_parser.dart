@@ -252,6 +252,40 @@ class IsoCommand {
     ]);
   }
 
+  /// A 45-degree bend specifies a plane through a target axis. Ask before
+  /// opening or modifying a sheet if neither it nor its following pipe has one.
+  int? get missingSpatialTurnDirection {
+    for (var i = 0; i < steps.length; i++) {
+      final step = steps[i];
+      if (step is! IsoTurn ||
+          step.degrees != 45 ||
+          step.toDir != null ||
+          compassAt.containsKey(i)) {
+        continue;
+      }
+      final following = i + 1 < steps.length ? steps[i + 1] : null;
+      // Let the controller report a missing downstream pipe first.
+      if (following is! IsoPipe) continue;
+      if ((following.dir != null || compassAt.containsKey(i + 1))) {
+        continue;
+      }
+      return i;
+    }
+    return null;
+  }
+
+  IsoCommand withSpatialTurnDirection(
+      int index, IsoDir? direction, IsoCompass? compass) {
+    final copy = List<IsoStep>.from(steps);
+    final original = copy[index] as IsoTurn;
+    copy[index] =
+        IsoTurn(toDir: direction, dn: original.dn, degrees: original.degrees);
+    return copyWith(steps: copy, compassAt: {
+      ...compassAt,
+      if (compass != null) index: compass,
+    });
+  }
+
   /// Resolves all compass references together. A missing north arrow leaves
   /// the original command untouched; no partial direction is guessed.
   IsoCommand? resolveCompass(IsoDir? Function(IsoCompass) direction) {
@@ -268,7 +302,8 @@ class IsoCommand {
       if (dir == null) return null;
       resolved[e.key] = switch (resolved[e.key]) {
         IsoPipe(:final lengthMm) => IsoPipe(dir: dir, lengthMm: lengthMm),
-        IsoTurn(:final dn) => IsoTurn(toDir: dir, dn: dn),
+        IsoTurn(:final dn, :final degrees) =>
+          IsoTurn(toDir: dir, dn: dn, degrees: degrees),
         IsoFitting(:final tool, :final dn, :final dnOut) =>
           IsoFitting(tool, dn: dn, dnOut: dnOut, symbolOnly: true, dir: dir),
       };
@@ -872,6 +907,8 @@ IsoCommand? parseIsoCommand(Utterance u) {
         pipeDn = null;
         if (symbolOnly && angle == 45) {
           steps.add(IsoFitting('elbow45', dn: dn, symbolOnly: true, dir: dir));
+        } else if (angle == 45 && !symbolOnly) {
+          steps.add(IsoTurn(toDir: dir, dn: dn, degrees: 45));
         } else if (angle != null && angle != 90) {
           warnings.add(IsoParseWarning(IsoParseWarningKind.unsupported45,
               step: index, value: angle));
@@ -1118,6 +1155,7 @@ List<Map<String, Object?>> encodeIsoSteps(List<IsoStep> steps) => [
             },
           IsoTurn() => {
               'kind': 'turn',
+              if (s.degrees != 90) 'degrees': s.degrees,
               if (s.toDir != null) 'dir': s.toDir!.name,
               if (s.dn != null) 'dn': s.dn,
             },
@@ -1144,6 +1182,14 @@ List<IsoStep> decodeIsoSteps(Object? raw) {
     throw FormatException('steps: unknown direction', v);
   }
 
+  int angle(Object? v) {
+    if (v == null) return 90;
+    if (v != 45 && v != 90) {
+      throw FormatException('steps: unsupported bend angle', v);
+    }
+    return (v as num).toInt();
+  }
+
   int? dn(Object? v) => v == null ? null : (v as num).toInt();
 
   return [
@@ -1155,7 +1201,10 @@ List<IsoStep> decodeIsoSteps(Object? raw) {
           'pipe' => IsoPipe(
               dir: dir(e['dir']),
               lengthMm: (e['length_mm'] as num?)?.toDouble()),
-          'turn' => IsoTurn(toDir: dir(e['dir']), dn: dn(e['dn'])),
+          'turn' => IsoTurn(
+              toDir: dir(e['dir']),
+              dn: dn(e['dn']),
+              degrees: angle(e['degrees'])),
           'fitting' => IsoFitting(e['tool'] as String,
               dn: dn(e['dn']), dnOut: dn(e['dn_out'])),
           _ => throw FormatException('steps: unknown kind', e),
@@ -1267,6 +1316,10 @@ String describeIsoStep(IsoStep s, AppLanguage l, {bool spoken = false}) {
       ].join(' '),
     IsoTurn() => [
         en ? 'elbow' : 'kolano',
+        if (s.degrees != 90)
+          spoken
+              ? '${s.degrees} ${en ? 'degrees' : 'stopni'}'
+              : '${s.degrees}°',
         if (s.dn != null) 'DN${s.dn}',
         if (s.toDir != null) isoDir(s.toDir!, l),
       ].join(' '),
@@ -1309,6 +1362,9 @@ String isoStepsToUtterance(List<IsoStep> steps, AppLanguage l,
         if (s.dir != null) words.add(isoDir(s.dir!, l));
       case IsoTurn():
         words.add(en ? 'elbow' : 'kolano');
+        if (s.degrees != 90) {
+          words.add('${s.degrees} ${en ? 'degrees' : 'stopni'}');
+        }
         if (s.dn != null) words.add('dn ${s.dn}');
         if (s.toDir != null) words.add(isoDir(s.toDir!, l));
       case IsoFitting():

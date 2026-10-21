@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:cut_list_app/database/db.dart';
+import 'package:cut_list_app/domain/iso_notebook/spatial_route.dart';
 import 'package:cut_list_app/database/iso_drawing_dao.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/models/prefab/end_connection.dart';
@@ -202,6 +203,109 @@ void main() {
     SharedPreferences.setMockInitialValues({'iso_notebook_hint_hidden': true});
     final db = await AppDatabase.get();
     await db.delete(IsoDrawingDao.table);
+  });
+
+  testWidgets(
+      'two genuine 45 degree bends survive save, reopen, continuation and atomic undo',
+      (tester) async {
+    await _boot(tester);
+    var c = await _open(tester);
+    final report = await c.draw(const [
+      IsoPipe(dir: IsoDir.right, lengthMm: 1000),
+      IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+      IsoPipe(lengthMm: 1500),
+      IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+      IsoPipe(lengthMm: 1000),
+    ], stepDelay: Duration.zero);
+    expect(report.ok, isTrue, reason: report.toString());
+    expect(report.segments, 3);
+    expect(report.elbows, 2);
+    final sketch = await _stored(tester);
+    expect(sketch!['format'], 4);
+    final pipes = _pipes(sketch);
+    final bends = _comps(sketch, 'elbow45');
+    expect(bends, hasLength(2));
+    expect(_comps(sketch, 'elbow90'), isEmpty);
+    final rays = pipes
+        .map((p) => IsoSpatialVector.fromJson(p['spatialDirection'])!)
+        .toList();
+    expect(rays[0].angleTo(rays[1]), closeTo(45, 1e-7));
+    expect(rays[1].angleTo(rays[2]), closeTo(45, 1e-7));
+    expect(rays[2].angleTo(IsoSpatialVector.gridHeading(1)), closeTo(0, 1e-7));
+    expect(
+        pipes.map((p) => (p['calc'] as Map)['iso']), ['1000', '1500', '1000']);
+    expect(
+        bends.every((b) =>
+            b['dn'] == 100 &&
+            b['elbowSubtype'] == 'lr45' &&
+            (b['cteMm'] as num) > 0),
+        isTrue);
+    expect(c.debugPipeAxisTags[1], '3D');
+    expect(find.text('Suma CUT: 3244.0 mm'), findsOneWidget,
+        reason:
+            '3500 mm centreline minus four actual 64 mm take-outs, once each');
+    await _leave(tester);
+    c = await _open(tester);
+    final continuation =
+        await c.draw(const [IsoPipe(lengthMm: 500)], stepDelay: Duration.zero);
+    expect(continuation.ok, isTrue);
+    final appended = _pipes(await _stored(tester));
+    expect(_b(appended[2]), _a(appended[3]));
+    expect(appended[3]['spatialDirection'], rays[2].toJson());
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(await _stored(tester), sketch);
+    await _leave(tester);
+  });
+
+  testWidgets(
+      'diagonal cursor is kept exact across separate commands and failed bends do not mutate it',
+      (tester) async {
+    await _boot(tester);
+    var c = await _open(tester);
+    final report = await c.draw(const [
+      IsoPipe(lengthMm: 1000),
+      IsoTurn(degrees: 45, toDir: IsoDir.back),
+      IsoPipe(lengthMm: 1000)
+    ], stepDelay: Duration.zero);
+    expect(report.ok, isTrue);
+    final before = await _stored(tester);
+    final pipes = _pipes(before);
+    final diagonal = pipes.last['spatialDirection'];
+    await _leave(tester);
+    c = await _open(tester);
+    final invalid = await c.draw(
+        const [IsoTurn(degrees: 90, toDir: IsoDir.back), IsoPipe()],
+        stepDelay: Duration.zero);
+    expect(invalid.problem, IsoDrawProblem.invalidSpatialTurn);
+    expect(await _stored(tester), before);
+    final continued =
+        await c.draw(const [IsoPipe(lengthMm: 500)], stepDelay: Duration.zero);
+    expect(continued.ok, isTrue);
+    final after = _pipes(await _stored(tester));
+    expect(_a(after.last), _b(pipes.last));
+    expect(after.last['spatialDirection'], diagonal);
+    expect(_comps(await _stored(tester), 'elbow90'), isEmpty);
+    c.undo();
+    await tester.pumpAndSettle();
+    expect(await _stored(tester), before);
+    await _leave(tester);
+  });
+
+  testWidgets('45 degree route is atomic for a missing plane and trailing bend',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    for (final steps in <List<IsoStep>>[
+      const [IsoPipe(), IsoTurn(degrees: 45), IsoPipe()],
+      const [IsoPipe(), IsoTurn(degrees: 45, toDir: IsoDir.up)],
+      const [IsoPipe(), IsoTurn(degrees: 45, toDir: IsoDir.left), IsoPipe()],
+    ]) {
+      final report = await c.draw(steps, stepDelay: Duration.zero);
+      expect(report.ok, isFalse);
+      expect(c.hasContent, isFalse);
+    }
+    await _leave(tester);
   });
 
   testWidgets('zmiana ostatniego kolana: błędny kierunek nie rusza szkicu',
@@ -792,7 +896,8 @@ void main() {
       await _leave(tester);
     });
 
-    testWidgets('kolano 45° i olet → poza zakresem, nic nie dodane',
+    testWidgets(
+        'legacy elbow fitting without a bend plane and unsupported olet do not mutate the drawing',
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);

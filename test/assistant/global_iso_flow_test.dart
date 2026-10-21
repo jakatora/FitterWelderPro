@@ -35,6 +35,22 @@ Future<void> _say(WidgetTester t, String text) async {
   await t.enterText(find.byKey(const Key('assistant-command')), text);
   await t.tap(find.byKey(const Key('assistant-go')));
   await settle(t);
+  // Longer routes animate several pipes. Observe the real busy button,
+  // rather than inspecting an autosave taken halfway through the command.
+  bool busy() {
+    final button = t.widget(find.byKey(const Key('assistant-go')));
+    return switch (button) {
+      IconButton(:final onPressed) => onPressed == null,
+      FilledButton(:final onPressed) => onPressed == null,
+      _ => throw StateError('Unexpected assistant execute button'),
+    };
+  }
+
+  for (var i = 0; i < 20 && busy(); i++) {
+    await settle(t);
+  }
+  expect(busy(), isFalse, reason: 'assistant command must finish');
+  await settle(t); // Drain the final SQLite snapshot after animation.
 }
 
 Future<void> _close(WidgetTester t) async {
@@ -48,6 +64,66 @@ void main() {
   setUp(() async {
     final db = await AppDatabase.get();
     await db.delete('iso_drawings');
+  });
+  testWidgets(
+      '45 degree command draws actual spatial elbows through the common assistant',
+      (t) async {
+    await _boot(t);
+    await _say(t,
+        'narysuj rura metr w prawo kolano 45 stopni DN100 w górę rura metr kolano 45 stopni DN100 w górę rura metr');
+    final c = IsoNotebookController.active!;
+    expect(c.debugPipeAxisTags, hasLength(3));
+    expect(c.debugPipeAxisTags[1], '3D');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+    expect(items.where((x) => x['tool'] == 'elbow45'), hasLength(2));
+    expect(items.where((x) => x['tool'] == 'elbow90'), isEmpty);
+    expect(
+        items
+            .where((x) => x['tool'] == 'elbow45')
+            .every((x) => x['spatialBend'] != null),
+        isTrue);
+    await _say(t, 'cofnij');
+    expect(c.hasContent, isFalse);
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    await _close(t);
+  });
+  testWidgets(
+      'missing 45 degree plane asks before any drawing then keeps the complete sequence',
+      (t) async {
+    await _boot(t);
+    await _say(
+        t, 'narysuj rura metr w prawo kolano 45 stopni DN50 rura dwa metry');
+    expect(find.textContaining('W którą stronę skręcić kolano 45'),
+        findsOneWidget);
+    expect(IsoNotebookController.active?.hasContent ?? false, isFalse);
+    await _say(t, 'w górę');
+    final c = IsoNotebookController.active!;
+    expect(c.debugPipeAxisTags, hasLength(2));
+    expect(c.debugPipeAxisTags.last, '3D');
+    await _say(t, 'dorysuj rura metr');
+    expect(c.debugPipeAxisTags, hasLength(3));
+    await _say(t, 'cofnij');
+    expect(c.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'cofnij');
+    expect(c.hasContent, isFalse);
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    await _close(t);
+  });
+  testWidgets(
+      'a pending bend direction yields to another command and cannot execute later',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr kolano 45 rura metr');
+    expect(find.textContaining('W którą stronę skręcić kolano 45'),
+        findsOneWidget);
+    await _say(t, 'NDS manganu');
+    expect(find.textContaining('0,05 mg/m³'), findsWidgets);
+    await _say(t, 'w górę');
+    expect(IsoNotebookController.active?.hasContent ?? false, isFalse);
+    await _close(t);
   });
   testWidgets(
       'compass directions and a short correction follow the actual north arrow',

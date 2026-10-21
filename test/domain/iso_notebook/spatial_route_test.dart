@@ -10,6 +10,18 @@ void expectVector(IsoSpatialVector actual, IsoSpatialVector expected,
 }
 
 void main() {
+  test('angle computation does not invent a bend after unit normalization', () {
+    final diagonal = IsoSpatialVector.gridHeading(0)
+        .turnTowards(IsoSpatialVector.gridHeading(1), 45);
+    expect(diagonal.angleTo(diagonal), 0);
+    expect(diagonal.angleTo(diagonal.unit), closeTo(0, 1e-12));
+    const x = IsoSpatialVector(1, 0, 0);
+    expect(x.angleTo(const IsoSpatialVector(1, 1e-12, 0)),
+        closeTo(1e-12 * 180 / math.pi, 1e-14));
+    expect(x.angleTo(const IsoSpatialVector(-1, 1e-9, 0)),
+        closeTo(180 - 1e-9 * 180 / math.pi, 1e-12));
+  });
+
   test('finite projections avoid intermediate arithmetic overflow', () {
     final p = const IsoSpatialVector(1e308, 1e308, 1e308).projected;
     expect(p.x, closeTo(1e308, 1e293));

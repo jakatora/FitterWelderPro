@@ -63,23 +63,29 @@ class IsoPipe extends IsoStep {
       ].join(', ')})';
 }
 
-/// Zamiar skrętu dla NASTĘPNEJ rury — kolano 90° wstawia się samo na styku.
+/// Zamiar skrętu dla NASTĘPNEJ rury. [degrees] to fizyczny kąt 45/90°.
+/// Dla 45° [toDir] wskazuje stronę/płaszczyznę skrętu, a nie oś końcowej rury.
 /// [dn] trafia do kolana (CTE z [isoStandardElbowCteMm] albo z pamięci
 /// rysunku) i do pamięci ostatniego DN.
 class IsoTurn extends IsoStep {
-  const IsoTurn({this.toDir, this.dn});
+  const IsoTurn({this.toDir, this.dn, this.degrees = 90});
   final IsoDir? toDir;
+  final int degrees;
   final int? dn;
 
   @override
   bool operator ==(Object other) =>
-      other is IsoTurn && other.toDir == toDir && other.dn == dn;
+      other is IsoTurn &&
+      other.toDir == toDir &&
+      other.dn == dn &&
+      other.degrees == degrees;
 
   @override
-  int get hashCode => Object.hash(IsoTurn, toDir, dn);
+  int get hashCode => Object.hash(IsoTurn, toDir, dn, degrees);
 
   @override
   String toString() => 'IsoTurn(${[
+        if (degrees != 90) 'degrees: $degrees',
         if (toDir != null) 'toDir: ${toDir!.name}',
         if (dn != null) 'dn: $dn',
       ].join(', ')})';
@@ -143,6 +149,12 @@ enum IsoDrawProblem {
 
   /// Kolano 45° — poza zakresem tej wersji, do narysowania palcem.
   unsupported45,
+
+  /// A fitting on an oblique spatial ray needs a spatial orientation contract.
+  spatialFitting,
+
+  /// A spatial bend requires an explicit, geometrically valid target plane.
+  invalidSpatialTurn,
 
   /// Unsupported branch grammar / olet; a tee run and explicit branch are supported.
   unsupportedTee,
@@ -475,7 +487,8 @@ class IsoNotebookController extends ChangeNotifier {
           steps[0] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
         } else {
           final turn = steps[index] as IsoTurn;
-          steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
+          steps[index] =
+              IsoTurn(toDir: direction, dn: turn.dn, degrees: turn.degrees);
           for (var i = index + 1; i < steps.length; i++) {
             if (steps[i] case final IsoPipe pipe) {
               steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
@@ -684,7 +697,7 @@ class IsoNotebookController extends ChangeNotifier {
         });
       case _PlannedPipe():
         final dn = op.elbowDn;
-        if (dn != null) {
+        if (dn != null && op.spatialDirection == null) {
           // Through the drawing's take-out memory, exactly like a DN typed
           // in the elbow sheet: _maybeInsertElbows picks it up from there.
           final cte = s._recallCompDim(_Tool.elbow90, dn) ??
@@ -692,10 +705,28 @@ class IsoNotebookController extends ChangeNotifier {
           s._rememberCompDim(_Tool.elbow90, dn, cte);
         }
         final seg = _Seg(plan.world(op.from), plan.world(op.to), _Tool.pipe,
-            calc: op.calc);
+            calc: op.calc, spatialDirection: op.spatialDirection);
         final before = _elbowCount(s);
         s._mutate(() => s._items.add(seg));
-        s._maybeInsertElbows(seg);
+        if (op.spatialDirection == null) {
+          s._maybeInsertElbows(seg);
+        } else if (op.spatialBend != null) {
+          final bend = op.spatialBend!;
+          final is45 = (bend.degrees - 45).abs() < 1e-7;
+          final tool = is45 ? _Tool.elbow45 : _Tool.elbow90;
+          final subtype = is45 ? _ElbowSubtype.lr45 : _ElbowSubtype.lr90;
+          final cte = dn == null
+              ? null
+              : (s._recallCompDim(tool, dn) ??
+                  isoStandardElbowCteMm(dn, subtype.name));
+          s._mutate(() => s._items.add(_Comp(seg.a, tool,
+              dir: s._closestIsoHeading(seg.a - seg.b),
+              dn: dn,
+              elbowSubtype: subtype,
+              cteMm: cte,
+              spatialBend: bend)));
+          if (dn != null && cte != null) s._rememberCompDim(tool, dn, cte);
+        }
         run.segments++;
         run.elbows += _elbowCount(s) - before;
       case _PlannedFitting():
@@ -744,7 +775,7 @@ class IsoNotebookController extends ChangeNotifier {
   }
 
   static int _elbowCount(_IsoState s) =>
-      s._items.where((it) => it is _Comp && it.t == _Tool.elbow90).length;
+      s._items.where((it) => it is _Comp && it.isElbow).length;
 
   // ── planowanie (bez skutków ubocznych) ─────────────────────────────────────
 
@@ -767,6 +798,11 @@ class IsoNotebookController extends ChangeNotifier {
   _VoicePlan _plan(_IsoState s, List<IsoStep> steps,
       {bool fromLastTee = false, bool explicitLastTee = false}) {
     final m = s._currentMapping;
+    final cursor = _cursor(s);
+    if (steps.any((step) => step is IsoTurn && step.degrees != 90) ||
+        cursor?.spatialDirection != null) {
+      return _planSpatial(s, steps, fromLastTee: fromLastTee);
+    }
     final pl = <String>[], en = <String>[];
     void assume(String p, String e) {
       if (pl.contains(p)) return;
@@ -810,7 +846,7 @@ class IsoNotebookController extends ChangeNotifier {
           g == (branchRun + 3) % 6) {
         return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
       }
-      start = (point: branchTee.pos, heading: g);
+      start = (point: branchTee.pos, heading: g, spatialDirection: null);
     }
     final relative = start == null;
     var cur = relative ? (row: 0, half: 0) : _worldToLat(start.point);
@@ -995,6 +1031,178 @@ class IsoNotebookController extends ChangeNotifier {
     return _VoicePlan(ops: ops, origin: origin, assumedPl: pl, assumedEn: en);
   }
 
+  /// Plans genuine spatial rays. Paper coordinates are never quantized back
+  /// to a grid heading: two different physical rays can share a projection.
+  _VoicePlan _planSpatial(_IsoState s, List<IsoStep> steps,
+      {required bool fromLastTee}) {
+    if (fromLastTee) return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+    final cursor = _cursor(s);
+    final relative = cursor == null;
+    final m = s._currentMapping;
+    var point = cursor?.point ?? Offset.zero;
+    IsoSpatialVector? ray = cursor == null
+        ? null
+        : (cursor.spatialDirection ??
+            IsoSpatialVector.gridHeading(cursor.heading));
+    var blocked = cursor != null && _blockingCompAt(s, point);
+    final elbowHere = cursor != null && _elbowAt(s, point);
+    IsoTurn? turn;
+    var turnAt = -1;
+    int? runDn;
+    var noLength = 0;
+    final ops = <_PlannedOp>[];
+    final pl = <String>[], en = <String>[];
+    _Lat at(Offset p) => (row: p.dy / _kRowH, half: p.dx / _kHalfStep);
+    void assume(String p, String e) {
+      if (!pl.contains(p)) {
+        pl.add(p);
+        en.add(e);
+      }
+    }
+
+    int? grid(IsoSpatialVector v) {
+      for (var i = 0; i < 6; i++) {
+        if ((v - IsoSpatialVector.gridHeading(i)).magnitude < 1e-8) return i;
+      }
+      return null;
+    }
+
+    for (var i = 0; i < steps.length; i++) {
+      final step = steps[i];
+      switch (step) {
+        case IsoTurn():
+          if (turn != null ||
+              ray == null ||
+              (step.degrees != 45 && step.degrees != 90)) {
+            return _VoicePlan.failed(IsoDrawProblem.invalidSpatialTurn, i);
+          }
+          turn = step;
+          turnAt = i;
+        case IsoPipe():
+          final incoming = ray;
+          IsoSpatialVector next;
+          if (turn != null) {
+            final target = step.dir ?? turn.toDir;
+            if (target == null ||
+                (step.dir != null &&
+                    turn.toDir != null &&
+                    step.dir != turn.toDir)) {
+              return _VoicePlan.failed(
+                  IsoDrawProblem.invalidSpatialTurn, turnAt);
+            }
+            try {
+              next = incoming!.turnTowards(
+                  IsoSpatialVector.gridHeading(_gridDirOf(target, m)),
+                  turn.degrees.toDouble());
+            } on ArgumentError {
+              return _VoicePlan.failed(
+                  IsoDrawProblem.invalidSpatialTurn, turnAt);
+            }
+          } else if (step.dir != null) {
+            next = IsoSpatialVector.gridHeading(_gridDirOf(step.dir!, m));
+          } else {
+            next = incoming ?? IsoSpatialVector.gridHeading(0);
+            if (incoming == null) {
+              assume('Pierwsza rura bez kierunku: przyjąłem w prawo.',
+                  'First pipe without a direction: drawn to the right.');
+            }
+          }
+          final angle = incoming?.angleTo(next) ?? 0;
+          if ((angle - 180).abs() < 1e-7) {
+            return _VoicePlan.failed(IsoDrawProblem.reversal, i);
+          }
+          if (turn != null && angle < 1e-7) {
+            return _VoicePlan.failed(
+                IsoDrawProblem.sameDirectionAfterTurn, turnAt);
+          }
+          final corner = angle > 1e-7;
+          if (corner &&
+              (angle - 45).abs() > 1e-7 &&
+              (angle - 90).abs() > 1e-7) {
+            return _VoicePlan.failed(IsoDrawProblem.invalidSpatialTurn, i);
+          }
+          if (elbowHere || (blocked && corner)) {
+            return _VoicePlan.failed(IsoDrawProblem.turnAtFitting, i,
+                elbowAtCursor: elbowHere);
+          }
+          final len = step.lengthMm;
+          final hasLen = len != null && len.isFinite && len > 0;
+          final n = hasLen ? (len / 500).round().clamp(2, 8) : 3;
+          if (!hasLen) noLength++;
+          final projected = next.projected;
+          final end =
+              point + Offset(projected.x, projected.y) * (_IsoState._s * n);
+          if (!relative && end.dy < 0) {
+            return _VoicePlan.failed(IsoDrawProblem.outOfCanvas, i);
+          }
+          IsoSpatialElbow? bend;
+          if (corner) {
+            try {
+              bend = IsoSpatialElbow(incoming: incoming!, outgoing: next);
+            } on ArgumentError {
+              return _VoicePlan.failed(IsoDrawProblem.invalidSpatialTurn, i);
+            }
+          }
+          final dn = _validDn(turn?.dn);
+          if (dn != null) runDn = dn;
+          ops.add(_PlannedPipe(i,
+              from: at(point),
+              to: at(end),
+              calc: hasLen ? _CutCalc(_IsoState._fmtMm(len)) : null,
+              elbowDn: corner ? runDn : null,
+              spatialDirection: next,
+              spatialBend: bend));
+          point = end;
+          ray = next;
+          turn = null;
+          blocked = false;
+        case IsoFitting():
+          if (turn != null) {
+            return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
+          }
+          final heading = ray == null ? _lookAheadDir(steps, i, m) : grid(ray);
+          final tool = _kFittings[step.tool];
+          if (heading == null || tool == null || step.symbolOnly) {
+            return _VoicePlan.failed(IsoDrawProblem.spatialFitting, i);
+          }
+          if (elbowHere && !tool.isWeld) {
+            return _VoicePlan.failed(IsoDrawProblem.turnAtFitting, i,
+                elbowAtCursor: true);
+          }
+          if (tool == _Tool.tee &&
+              step.dnOut != null &&
+              (step.dn == null || step.dnOut! > step.dn!)) {
+            return _VoicePlan.failed(IsoDrawProblem.invalidFittingSize, i);
+          }
+          final fitting = _planFitting(s,
+              tool: tool,
+              step: step,
+              index: i,
+              at: at(point),
+              heading: heading,
+              atStart: ray == null,
+              runDn: runDn,
+              assume: assume);
+          ops.add(fitting);
+          if (fitting.dnAfter != null) runDn = fitting.dnAfter;
+          if (!tool.isWeld) blocked = true;
+      }
+    }
+    if (turn != null) {
+      return _VoicePlan.failed(IsoDrawProblem.trailingTurn, turnAt);
+    }
+    if (noLength > 0) {
+      assume(
+          'Bez długości: $noLength ${_pipesPl(noLength)} — wymiar do uzupełnienia.',
+          'No length: $noLength pipes — dimension still to enter.');
+    }
+    return _VoicePlan(
+        ops: ops,
+        origin: relative ? _originFor(s, ops) : (row: 0, half: 0),
+        assumedPl: pl,
+        assumedEn: en);
+  }
+
   _PlannedFitting _planFitting(
     _IsoState s, {
     required _Tool tool,
@@ -1154,7 +1362,8 @@ class IsoNotebookController extends ChangeNotifier {
 
   /// Free end of the last pipe and the heading it arrives with, or null
   /// when the sheet has no pipe yet.
-  static ({Offset point, int heading})? _cursor(_IsoState s) {
+  static ({Offset point, int heading, IsoSpatialVector? spatialDirection})?
+      _cursor(_IsoState s) {
     final tol = _IsoState._s * 0.25;
     _Seg? last;
     for (var i = s._items.length - 1; i >= 0; i--) {
@@ -1174,7 +1383,13 @@ class IsoNotebookController extends ChangeNotifier {
     final fromA = shared(self.b) && !shared(self.a);
     final free = fromA ? self.a : self.b;
     final other = fromA ? self.b : self.a;
-    return (point: free, heading: s._closestIsoHeading(free - other));
+    return (
+      point: free,
+      heading: s._closestIsoHeading(free - other),
+      spatialDirection: self.spatialDirection == null
+          ? null
+          : (fromA ? self.spatialDirection! * -1 : self.spatialDirection)
+    );
   }
 
   static bool _elbowAt(_IsoState s, Offset p) => s._items.any((it) =>
@@ -1206,7 +1421,7 @@ class IsoNotebookController extends ChangeNotifier {
     final cy = (minRow + maxRow) / 2 * _kRowH;
     var row = ((view.center.dy - cy) / _kRowH).round();
     var half = ((view.center.dx - cx) / _kHalfStep).round();
-    if (row + minRow < 1) row = 1 - minRow;
+    if (row + minRow < 1) row = (1 - minRow).ceil();
     // Grid parity: odd rows sit half a step to the right.
     if ((half - row).isOdd) half += 1;
     return (row: row, half: half);
@@ -1291,9 +1506,17 @@ String _dirEn(IsoDir d) => switch (d) {
           'There is no pipe after the elbow — say where the pipe goes after '
               'it.',
         ),
+      IsoDrawProblem.invalidSpatialTurn => (
+          'Podaj kierunek skrętu kolana; kąt musi pasować do przestrzennej trasy i płaszczyzny skrętu.',
+          'Specify the elbow target direction; its angle must fit the spatial route and bend plane.',
+        ),
+      IsoDrawProblem.spatialFitting => (
+          'Podaj prosty odcinek w osi przed kształtką; orientacja kształtek na pochyłej trasie wymaga jeszcze obsługi.',
+          'Specify an axis-aligned run before the fitting; oblique fitting orientation still needs support.',
+        ),
       IsoDrawProblem.unsupported45 => (
-          'Kolana 45° nie rysuję jeszcze głosem — narysuj je palcem.',
-          'I cannot draw a 45° elbow by voice yet — draw it with your finger.',
+          'Podaj kolano 45° jako skręt z kierunkiem i rurą za nim albo poproś o sam symbol kolana.',
+          'Specify the 45° elbow as a turn with a target direction and a following pipe, or ask for its standalone symbol.',
         ),
       IsoDrawProblem.unsupportedTee => (
           'Trasa z odgałęzieniem wymaga dalszego określenia. Sam symbol dodasz poleceniem „wstaw symbol trójnika DN50”.',
@@ -1338,11 +1561,11 @@ String _pipesPl(int n) {
 
 // ── siatka (wiersz, pół-kolumna) ─────────────────────────────────────────────
 //
-// The notebook grid in integers: x = half · s/2, y = row · s·√3/2, with
-// `half` and `row` of equal parity — the points `_snap` produces, computed
-// with the same expression so they compare bit for bit.
+// Axis routes retain integer grid coordinates and their original parity.
+// Spatial routes use fractional grid coordinates: snapping them back to
+// integers would change the physical direction and break joined endpoints.
 
-typedef _Lat = ({int row, int half});
+typedef _Lat = ({num row, num half});
 
 const double _kHalfStep = _IsoState._s / 2.0;
 final double _kRowH = _IsoState._s * math.sqrt(3) / 2.0;
@@ -1365,7 +1588,8 @@ _Lat _latMove(_Lat p, int dir, int n) => (
 _Lat _worldToLat(Offset o) =>
     (row: (o.dy / _kRowH).round(), half: (o.dx / _kHalfStep).round());
 
-Offset _latToWorld(_Lat p) => Offset(p.half * _kHalfStep, p.row * _kRowH);
+Offset _latToWorld(_Lat p) =>
+    Offset((p.half * _kHalfStep).toDouble(), (p.row * _kRowH).toDouble());
 
 // ── plan polecenia ───────────────────────────────────────────────────────────
 
@@ -1380,8 +1604,15 @@ sealed class _PlannedOp {
 
 final class _PlannedPipe extends _PlannedOp {
   const _PlannedPipe(super.step,
-      {required this.from, required this.to, this.calc, this.elbowDn});
+      {required this.from,
+      required this.to,
+      this.calc,
+      this.elbowDn,
+      this.spatialDirection,
+      this.spatialBend});
   final _Lat from, to;
+  final IsoSpatialVector? spatialDirection;
+  final IsoSpatialElbow? spatialBend;
   final _CutCalc? calc;
 
   /// DN for the elbow at [from] (null = the drawing's memory decides).

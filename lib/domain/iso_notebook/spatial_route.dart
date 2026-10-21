@@ -43,8 +43,12 @@ class IsoSpatialVector {
   }
 
   double angleTo(IsoSpatialVector other) {
-    final cosine = unit.dot(other.unit).clamp(-1.0, 1.0);
-    return math.acos(cosine) * 180 / math.pi;
+    final a = unit, b = other.unit;
+    final cross = IsoSpatialVector(a.ii * b.iii - a.iii * b.ii,
+        a.iii * b.i - a.i * b.iii, a.i * b.ii - a.ii * b.i);
+    // atan2 is stable for coincident and nearly opposite unit directions;
+    // acos(dot) invents a small bend from ordinary normalization round-off.
+    return math.atan2(cross.magnitude, a.dot(b)) * 180 / math.pi;
   }
 
   /// Rotate within the plane spanned by this ray and [towards]. The target
