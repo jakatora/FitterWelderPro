@@ -506,6 +506,29 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
   }
 
+  static final _compoundAction = RegExp(
+      r'\b(?:nastepnie|potem|pozniej|then|after that)\s+(?:mi\s+)?'
+      r'(?:przypomnij|pokaz|zapisz|zachowaj|dodaj|dopisz|otworz|narysuj|'
+      r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|'
+      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind)\b');
+
+  bool _compoundNeedsAi({bool needsConsent = false}) {
+    if (!mounted) return true;
+    setState(() {
+      _busy = false;
+      _offerServer = needsConsent;
+      _noticeIsError = !needsConsent;
+      _notice = needsConsent
+          ? _tr(
+              'Polecenie zawiera kilka działań. Włącz AI, aby wykonać je po kolei. Nic nie wykonano.',
+              'This request contains several actions. Enable AI to run them in order. Nothing was executed.')
+          : _tr(
+              'Nie można teraz zaplanować całego polecenia. Nie wykonano żadnego działania. Spróbuj ponownie lub podaj działania osobno.',
+              'The complete request could not be planned. No action was executed. Retry or request each action separately.');
+    });
+    return true;
+  }
+
   Future<bool> _tryAiCommand(String text, AppLanguage lang) async {
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (isNegatedCommand(u) ||
@@ -525,22 +548,29 @@ class _AiChatScreenState extends State<AiChatScreen>
         }.contains(u.folded)) {
       return false;
     }
+    final sequence = _compoundAction.firstMatch(u.folded);
+    final compound = sequence != null && sequence.start > 0;
     _brainContext.lang = lang;
-    if (_aiQuestion == null &&
+    if (!compound &&
+        _aiQuestion == null &&
         _brain.recognizesLocalRequest(u, _brainContext)) {
       return false;
     }
     // Existing local write/query parsers keep native summaries and confirmations.
     final legacy = parseAssistantCommand(text).intent;
-    if (const {
-      kIntentSaveWeldParameter,
-      kIntentAddWeldJournalEntry,
-      kIntentQueryMyParams
-    }.contains(legacy)) {
+    if (!compound &&
+        const {
+          kIntentSaveWeldParameter,
+          kIntentAddWeldJournalEntry,
+          kIntentQueryMyParams
+        }.contains(legacy)) {
       return false;
     }
     await LegalConsent.instance.load();
-    if (!mounted || !LegalConsent.instance.isAccepted) return false;
+    if (!mounted) return true;
+    if (!LegalConsent.instance.isAccepted) {
+      return compound ? _compoundNeedsAi(needsConsent: true) : false;
+    }
     final request = assistantAiRequest(
         text: text,
         context: _brainContext,
@@ -569,8 +599,10 @@ class _AiChatScreenState extends State<AiChatScreen>
       }, _brain.skills.map((s) => s.id).toSet());
     } on AssistantAiUnavailable catch (e) {
       if (epoch == _aiEpoch) _aiUnavailable = e;
+      if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } on FormatException {
+      if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } finally {
       if (mounted && epoch == _aiEpoch) setState(() => _aiThinking = false);

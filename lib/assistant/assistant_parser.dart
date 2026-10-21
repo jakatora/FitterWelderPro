@@ -731,7 +731,7 @@ String? _projectFrom(String original) {
   if (m == null) return null;
   var rest = original.substring(m.end);
   final stop = RegExp(
-    r'[,;]|\s(?:wps|spawacz\S*|welder|spoin\S*|weld|numer\S*|nr\.?|do\s+dziennik\S*|dziennik\S*|to\s+(?:the\s+)?(?:journal|log))(?=$|[\s,;:.])',
+    r'[,;]|\swps(?=$|[\s,;:.\-/])|\s(?:spawacz\S*|welder|spoin\S*|weld|numer\S*|nr\.?|do\s+dziennik\S*|dziennik\S*|to\s+(?:the\s+)?(?:journal|log))(?=$|[\s,;:.])',
     caseSensitive: false,
   ).firstMatch(rest);
   if (stop != null) rest = rest.substring(0, stop.start);

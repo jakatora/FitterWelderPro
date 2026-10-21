@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-10-21",
+  "model": "claude-haiku-5-5",
+  "source": "Actual localhost backend HTTP /api/fitter/ai/assistant to real Anthropic; not production Railway deployment",
+  "text": "Zachowaj dla mnie próbę na później: nierdzewka, TIG, ścianka 2 milimetry, 60 amperów, bez spoiwa. Następnie przypomnij jaki prąd mam zapisany na nierdzewkę 2 mm.",
+  "actual_inputs": {
+    "rise_mm": null,
+    "spread_mm": null,
+    "angle_deg": 45,
+    "dn": null,
+    "gap_mm": 0
+  },
+  "capabilities": 57,
+  "cost_usd": 0.0010647,
+  "proposal": {
+    "kind": "execute",
+    "steps": [
+      {
+        "skill_id": "legacy.save",
+        "command": "Zapisz TIG nierdzewka ścianka 2 mm 60 A bez drutu"
+      },
+      {
+        "skill_id": "params.saved",
+        "command": "Jaki prąd mam zapisany na nierdzewkę 2 mm"
+      }
+    ],
+    "message": ""
+  }
+}

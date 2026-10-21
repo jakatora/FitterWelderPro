@@ -84,6 +84,8 @@ Future<void> mount(WidgetTester t,
     SpeechInput? speech,
     SpeechOutput? voice,
     AssistantChatSender? chatSender,
+    DateTime Function()? now,
+    Future<String> Function()? welderStamp,
     bool consent = true}) async {
   seedFreshInstall();
   ToolBridge.reset();
@@ -109,6 +111,8 @@ Future<void> mount(WidgetTester t,
                   skills: skills,
                   speechInput: speech,
                   speechOutput: voice,
+                  now: now,
+                  welderStamp: welderStamp,
                   chatSender: chatSender),
               child: child!),
           home: const RollingOffsetScreen())));
