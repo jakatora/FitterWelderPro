@@ -20,8 +20,30 @@ final _explainRe = RegExp(
 final _trailRe = RegExp(r'\s+(?:for|do|work|works|used for|tool)$');
 
 const Set<String> _generic = {
-  'the', 'a', 'an', 'narzedzie', 'modul', 'kalkulator', 'kalkulatora',
-  'calculator', 'tool', 'module', 'screen', 'ekran', 'ten', 'to',
+  'the',
+  'a',
+  'an',
+  'narzedzie',
+  'modul',
+  'kalkulator',
+  'kalkulatora',
+  'calculator',
+  'tool',
+  'module',
+  'screen',
+  'ekran',
+  'ten',
+  'to',
+};
+
+const _contextQuestions = {
+  'do czego sluzy',
+  'do czego to sluzy',
+  'do czego sluzy ten modul',
+  'jak dziala ten modul',
+  'what is this tool for',
+  'what is this module for',
+  'how does this tool work',
 };
 
 /// Narzędzie, o które pyta wypowiedź — tylko gdy zapytanie to (prawie)
@@ -53,7 +75,8 @@ bool _coversTitle(List<String> terms, ToolSpec t) {
         if (term.length >= 6) term.substring(0, term.length - 2),
         if (term.length >= 5) term.substring(0, term.length - 1),
       };
-      return words.any((w) => stems.any((s) => s.length >= 2 && w.startsWith(s)));
+      return words
+          .any((w) => stems.any((s) => s.length >= 2 && w.startsWith(s)));
     });
     if (ok) return true;
   }
@@ -76,22 +99,30 @@ class ExplainToolSkill extends AssistantSkill {
 
   @override
   List<SkillExample> get examples => const [
-        SkillExample('Do czego służy rolling offset?', 'What is rolling offset for?'),
+        SkillExample(
+            'Do czego służy rolling offset?', 'What is rolling offset for?'),
         SkillExample('Co to jest heat input?', 'What does heat input do?'),
-        SkillExample('Jak działa zeszyt ISO?', 'How does the ISO notebook work?'),
+        SkillExample(
+            'Jak działa zeszyt ISO?', 'How does the ISO notebook work?'),
         SkillExample('Wyjaśnij dylatację', 'Explain thermal expansion'),
       ];
 
   @override
   List<SkillRejection> get rejections => const [
         SkillRejection('otwórz rolling offset', routesTo: 'tool.open'),
-        SkillRejection('dlaczego pojawia się porowatość', routesTo: 'defects.causes'),
+        SkillRejection('dlaczego pojawia się porowatość',
+            routesTo: 'defects.causes'),
         SkillRejection('jaka jest średnica dn40', routesTo: 'pipe.od'),
       ];
 
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
-    final t = explainedTool(u);
+    final active = ctx.modules.activeToolId;
+    final t = _contextQuestions.contains(u.folded) &&
+            !ctx.modules.onHomeOrAssistant &&
+            active != null
+        ? toolById(active)
+        : explainedTool(u);
     if (t == null) return null;
     return SkillMatch(this, 0.75, slots: {'tool': t.id}, utterance: u);
   }
