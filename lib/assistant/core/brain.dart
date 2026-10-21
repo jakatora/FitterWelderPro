@@ -147,6 +147,114 @@ class AssistantBrain {
     _tie = null;
   }
 
+  /// Exact choices and simple values remain offline. Relational/natural replies
+  /// need interpretation rather than taking the first number mentioned.
+  bool canAnswerPendingDirectly(Utterance u, AssistantContext ctx) {
+    final p = _pending;
+    if (p == null) return false;
+    if (p.slot == 'skill' && _tie != null) return _tieChoice(p, u) != null;
+    Map<String, Object?>? slots;
+    try {
+      slots = p.partial.skill.fillSlot(p.slot, u, ctx);
+    } catch (_) {
+      return false;
+    }
+    if (slots == null) return false;
+    if (p.partial.skill.literalReplySlots.contains(p.slot)) return true;
+    if (p.choices.any((c) =>
+        u.folded == Utterance(c.utterance, lang: u.lang).folded ||
+        u.folded == Utterance(c.label.of(ctx.lang), lang: u.lang).folded)) {
+      return true;
+    }
+    if (u.folded.isNotEmpty &&
+        p.choices
+                .where((c) => Utterance(c.label.of(ctx.lang), lang: u.lang)
+                    .folded
+                    .startsWith('${u.folded} '))
+                .length ==
+            1) {
+      return true;
+    }
+    if (pendingReplyNeedsInterpretation(u)) return false;
+    if (slots['module_action'] is String ||
+        slots['native_action'] is String ||
+        p.slot == 'inputs') {
+      return true;
+    }
+    if (u.items.where((i) => i.isNumber).length <= 1) return true;
+    // Multiple explicit fields are a native composite reply. Multiple numbers
+    // competing for a single field need interpretation instead of first-match.
+    return slots.keys.where((k) => k != 'origin_voice').length > 1;
+  }
+
+  /// A model reply may fill only the still-owned native question. It cannot
+  /// rebuild the old command or replace other validated scalar fields.
+  Future<BrainReply> answerProposal(
+      {required AskResult expected,
+      required String skillId,
+      required Utterance command,
+      required Utterance original,
+      required AssistantContext context}) {
+    final next = _tail.then<BrainReply>((_) async {
+      if (!identical(_pending, expected) ||
+          expected.partial.skill.id != skillId ||
+          isNegatedCommand(original) ||
+          isNegatedCommand(command) ||
+          referencesInstruction(original) ||
+          referencesInstruction(command)) {
+        return const BrainReply(FailedResult(
+            AssistantText('Pytanie zmieniło się. Odpowiedz ponownie.',
+                'The question changed. Please answer again.'),
+            reportMissingCapability: false));
+      }
+      if (expected.slot == 'skill' && _tie != null) {
+        final chosen = _answerTie(expected, [command]);
+        if (chosen == null) {
+          return BrainReply(expected, match: expected.partial);
+        }
+        return _run(chosen.$1, context, null);
+      }
+      Map<String, Object?>? values;
+      try {
+        values =
+            expected.partial.skill.fillSlot(expected.slot, command, context);
+      } catch (_) {
+        return BrainReply(expected, match: expected.partial);
+      }
+      if (values == null ||
+          expected.slot != 'inputs' && !values.containsKey(expected.slot)) {
+        return BrainReply(expected, match: expected.partial);
+      }
+      final allowed = expected.slot == 'inputs'
+          ? {
+              for (final e in values.entries)
+                if (!const {
+                  'module_action',
+                  'native_action',
+                  'native_edit',
+                  'action',
+                  'copy_field'
+                }.contains(e.key))
+                  e.key: e.value
+            }
+          : {
+              expected.slot: values[expected.slot],
+              if (values['origin_voice'] == true) 'origin_voice': true,
+            };
+      if (allowed.isEmpty) return BrainReply(expected, match: expected.partial);
+      cancelPending();
+      return _run(
+          expected.partial.copyWith(
+              slots: {...expected.partial.slots, ...allowed},
+              missing: const [],
+              utterance: command),
+          context,
+          null);
+    });
+    _tail = next.then((_) {}, onError: (Object _) {});
+    return next;
+  }
+
   late final List<AssistantSkill> _regular = [
     for (final s in skills)
       if (s.fallbackOrder == null) s,

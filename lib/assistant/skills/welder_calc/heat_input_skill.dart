@@ -156,14 +156,15 @@ class HeatInputSkill extends AssistantSkill {
     final explicit = heatInputRequested(u);
     final current = _current(ctx);
     final recalculate = current != null &&
-        u.hasAny(const [
+        const {
           'przelicz',
+          'przelicz to',
           'oblicz to',
           'policz to',
           'recalculate',
           'calculate this',
           'calculate these'
-        ]);
+        }.contains(u.folded);
     if (!explicit &&
         !recalculate &&
         !(set && ctx.modules.activeToolId == toolId && fields.isNotEmpty)) {

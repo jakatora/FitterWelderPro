@@ -596,12 +596,28 @@ class _AiChatScreenState extends State<AiChatScreen>
     return true;
   }
 
+  bool _pendingReplyNeedsAi({bool needsConsent = false}) {
+    if (!mounted) return true;
+    setState(() {
+      _busy = false;
+      _offerServer = needsConsent;
+      _noticeIsError = !needsConsent;
+      _notice = needsConsent
+          ? _tr(
+              'Włącz AI, aby zinterpretować tę odpowiedź, albo podaj wartość wprost. Pytanie i poprzednie dane zostają.',
+              'Enable AI to interpret this reply, or give a direct value. The question and previous inputs remain.')
+          : _tr(
+              'Nie udało się zinterpretować tej odpowiedzi. Podaj wartość wprost albo spróbuj ponownie. Nie zmieniłem poprzednich danych.',
+              'Could not interpret this reply. Give a direct value or retry. Previous inputs are unchanged.');
+    });
+    return true;
+  }
+
   Future<bool> _tryAiCommand(String text, AppLanguage lang) async {
     final conversationEpoch = _conversationEpoch;
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (isNegatedCommand(u) ||
         referencesInstruction(u) ||
-        _brain.pending != null ||
         _isoPort.hasPendingQuestion ||
         _localResult is ConfirmResult ||
         _pendingField != null ||
@@ -618,15 +634,24 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     final sequence = _compoundAction.firstMatch(u.folded);
     final compound = sequence != null && sequence.start > 0;
+    final pending = _brain.pending;
     _brainContext.lang = lang;
-    if (!compound &&
+    final relational = pendingReplyNeedsInterpretation(u);
+    if (pending != null &&
+        (_brain.canAnswerPendingDirectly(u, _brainContext) ||
+            !relational && _brain.recognizesNewCommand(u, _brainContext))) {
+      return false;
+    }
+    if (pending == null &&
+        !compound &&
         _aiQuestion == null &&
         _brain.recognizesLocalRequest(u, _brainContext)) {
       return false;
     }
     // Existing local write/query parsers keep native summaries and confirmations.
     final legacy = parseAssistantCommand(text).intent;
-    if (!compound &&
+    if (pending == null &&
+        !compound &&
         const {
           kIntentSaveWeldParameter,
           kIntentAddWeldJournalEntry,
@@ -637,14 +662,18 @@ class _AiChatScreenState extends State<AiChatScreen>
     await LegalConsent.instance.load();
     if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
+      if (pending != null) return _pendingReplyNeedsAi(needsConsent: true);
       return compound ? _compoundNeedsAi(needsConsent: true) : false;
     }
+    final question = pending?.question.of(lang) ?? _aiQuestion;
     final request = assistantAiRequest(
         text: text,
         context: _brainContext,
-        skills: _brain.skills,
-        pendingQuestion:
-            _aiQuestion?.substring(0, _aiQuestion!.length.clamp(0, 500)),
+        skills: pending == null
+            ? _brain.skills
+            : _brain.skills.where((s) => s.id == pending.partial.skill.id),
+        pendingQuestion: question?.substring(0, question.length.clamp(0, 500)),
+        pendingReply: pending,
         history: List.of(_aiHistory));
     final consentAt = LegalConsent.instance.acceptedAt;
     final epoch = _aiEpoch;
@@ -665,11 +694,23 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
         'message': plan.message
       }, _brain.skills.map((s) => s.id).toSet());
+      if (pending != null && plan.kind == 'execute' ||
+          plan.kind == 'reply' &&
+              (pending == null ||
+                  plan.steps.single.skillId != pending.partial.skill.id)) {
+        throw const FormatException('pending reply target');
+      }
     } on AssistantAiUnavailable catch (e) {
       if (epoch == _aiEpoch) _aiUnavailable = e;
+      if (pending != null && mounted && epoch == _aiEpoch) {
+        return _pendingReplyNeedsAi();
+      }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } on FormatException {
+      if (pending != null && mounted && epoch == _aiEpoch) {
+        return _pendingReplyNeedsAi();
+      }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } finally {
@@ -703,8 +744,26 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       return true;
     }
-    _aiQueue.cancel();
-    _aiQuestion = null;
+    if (pending != null && !identical(pending, _brain.pending)) {
+      return _pendingReplyNeedsAi();
+    }
+    if (plan.kind == 'reply') {
+      final command =
+          Utterance(plan.steps.single.command, lang: lang, byVoice: _voiceUsed);
+      final reply = await _brain.answerProposal(
+          expected: pending!,
+          skillId: plan.steps.single.skillId,
+          command: command,
+          original: u,
+          context: _brainContext);
+      if (!mounted || conversationEpoch != _conversationEpoch) return true;
+      _aiQuestion = null;
+      return _presentBrainReply(reply, command, text, lang, aiExecution: true);
+    }
+    if (pending == null) {
+      _aiQueue.cancel();
+      _aiQuestion = null;
+    }
     if (plan.kind == 'execute') {
       _aiQueue.start(text, plan.steps);
       await _runAiPlan(lang);
@@ -1368,6 +1427,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _busy = _runningAiPlan ||
           (widget.embedded && result is AnswerResult && result.show != null);
       _localResult = result;
+      _aiQuestion = null;
       _question = null;
       _notice = null;
       _noticeIsError = false;

@@ -64,6 +64,10 @@ abstract class AssistantSkill {
   /// false = zmienia dane → [ConfirmResult].
   bool get readOnly => true;
 
+  /// These slots accept the user's literal prose. A valid native reply must
+  /// not require cloud interpretation or be rewritten by a language model.
+  Set<String> get literalReplySlots => const {};
+
   /// true = potwierdzenie tylko dotykiem (moduły bezpieczeństwa).
   bool get safetyCritical => false;
 

@@ -230,7 +230,19 @@ class LegacyIntentsSkill extends AssistantSkill {
           choices: _choicesFor(field, lang),
         );
       case AssistantRejected(:final reason, :final field):
-        return FailedResult(_rejectText(reason, field));
+        if (field != null &&
+            kAssistantIntents[intent]!.allFields.contains(field)) {
+          final rejected = _rejectText(reason, field);
+          return AskResult(
+              field,
+              AssistantText(
+                  '${rejected.pl} ${assistantQuestionFor(field, AppLanguage.pl)}',
+                  '${rejected.en} ${assistantQuestionFor(field, AppLanguage.en)}'),
+              partial: m,
+              choices: _choicesFor(field, lang));
+        }
+        return FailedResult(_rejectText(reason, field),
+            reportMissingCapability: false);
       case AssistantReadyToOpen() ||
             AssistantReadyToAnswer() ||
             AssistantReadyToQuery():

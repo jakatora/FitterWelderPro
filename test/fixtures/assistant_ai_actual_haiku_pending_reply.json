@@ -1,0 +1,24 @@
+{
+  "recorded_at": "2026-10-21",
+  "model": "claude-haiku-5-5",
+  "source": "Actual localhost backend HTTP /api/fitter/ai/assistant to real Anthropic; not production Railway deployment",
+  "text": "Połowa czterech milimetrów",
+  "pending_reply": {
+    "skill_id": "legacy.save",
+    "slot": "wall_mm",
+    "choices": []
+  },
+  "pending_question": "Jaka grubość ścianki w mm?",
+  "capabilities": 1,
+  "cost_usd": 0.0002287999999999995,
+  "proposal": {
+    "kind": "reply",
+    "steps": [
+      {
+        "skill_id": "legacy.save",
+        "command": "2 mm"
+      }
+    ],
+    "message": ""
+  }
+}

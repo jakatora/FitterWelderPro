@@ -74,6 +74,30 @@ final _negatedCommand = RegExp(
     r'|(?:do not|dont|don t)\s+(?:copy|choose|clear|start|stop|pause|resume|reset|find|lookup|look up|check|size|select|pick|calculate|compute|convert|trim|cut|open|show|draw|save|add|delete|set|change|insert)\b)');
 bool isNegatedCommand(Utterance u) => _negatedCommand.hasMatch(u.folded);
 
+/// A relation or correction is not a literal scalar, even if a native parser
+/// can find a number in it. Use AI instead of silently taking that number.
+bool pendingReplyNeedsInterpretation(Utterance u) =>
+    u.hasStem(const [
+      'polow',
+      'half',
+      'dwukrot',
+      'twice',
+      'double',
+      'pomnoz',
+      'multiply',
+      'podziel',
+      'divide'
+    ]) ||
+    u.hasAny(const [
+      'razy',
+      'zamiast',
+      'instead',
+      'mam na mysli',
+      'i mean',
+      'jednak'
+    ]) ||
+    RegExp(r'\d\s*[+*/]\s*\d').hasMatch(u.raw);
+
 bool requestsWeldingCables(Utterance u) =>
     u.hasStem(const ['przewod', 'kabel', 'kabl', 'cable', 'lead']) &&
     (u.hasStem(

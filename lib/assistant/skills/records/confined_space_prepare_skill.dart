@@ -79,6 +79,8 @@ class ConfinedSpacePrepareSkill extends AssistantSkill {
   @override
   bool get readOnly => false;
   @override
+  Set<String> get literalReplySlots => const {'location', 'description'};
+  @override
   bool get safetyCritical => true;
   @override
   List<SkillExample> get examples => const [

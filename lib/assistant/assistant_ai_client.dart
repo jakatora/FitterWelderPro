@@ -23,7 +23,8 @@ class AiCommandPlan {
     final kind = value['kind'],
         raw = value['steps'],
         message = value['message'];
-    if (!const {'execute', 'answer', 'clarify', 'unsupported'}.contains(kind) ||
+    if (!const {'execute', 'reply', 'answer', 'clarify', 'unsupported'}
+            .contains(kind) ||
         raw is! List ||
         raw.length > 8 ||
         message is! String ||
@@ -49,7 +50,8 @@ class AiCommandPlan {
       steps.add(AiCommandStep(id, command.trim()));
     }
     if (kind == 'execute' && (steps.isEmpty || message.isNotEmpty) ||
-        kind != 'execute' && steps.isNotEmpty ||
+        kind == 'reply' && (steps.length != 1 || message.isNotEmpty) ||
+        kind != 'execute' && kind != 'reply' && steps.isNotEmpty ||
         const {'clarify', 'unsupported'}.contains(kind) &&
             message.trim().isEmpty) {
       throw const FormatException('plan semantics');
@@ -66,6 +68,7 @@ Map<String, Object?> assistantAiRequest(
     required AssistantContext context,
     required Iterable<AssistantSkill> skills,
     String? pendingQuestion,
+    AskResult? pendingReply,
     List<Map<String, String>> history = const []}) {
   final catalog = skills.where((s) => s.examples.isNotEmpty).toList();
   if (catalog.isEmpty || catalog.length > 160 || history.length > 6) {
@@ -108,6 +111,17 @@ Map<String, Object?> assistantAiRequest(
       'active_tool': active,
       'inputs': inputs,
       'pending_question': pendingQuestion,
+      if (pendingReply != null)
+        'pending_reply': {
+          'skill_id': pendingReply.partial.skill.id,
+          'slot': pendingReply.slot,
+          'choices': [
+            for (final choice in pendingReply.choices.take(6))
+              choice.utterance.length <= 128
+                  ? choice.utterance
+                  : choice.utterance.substring(0, 128)
+          ]
+        },
       'history': history
     },
   };
