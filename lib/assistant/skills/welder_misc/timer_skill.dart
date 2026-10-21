@@ -1,4 +1,6 @@
 import '../../../services/weld_timer_service.dart';
+import '../../../domain/welding/welder_calculator_input.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import '../../core/skill.dart';
 import '../../core/command_words.dart';
 import '../fitter_routes/quantities.dart' show signedQuantity;
@@ -74,6 +76,9 @@ Map<String, Object?> _slots(Utterance original) {
     if (temp != null) 'max_c': temp,
     if (u.hasStem(const ['wznow', 'resume'])) 'resume': true,
     if (u.hasStem(const ['wyzeruj', 'reset'])) 'reset': true,
+    if (u.hasStem(const ['obliczon', 'obliczen', 'wyliczon', 'calculated']) ||
+        u.hasAny(const ['wyniku', 'result']))
+      'calculated': true,
   };
 }
 
@@ -122,6 +127,8 @@ class TimerSkill extends AssistantSkill {
                 'Start purge timer 90 seconds'),
             SkillExample('Uruchom timer', 'Start timer'),
             SkillExample('Rozpocznij stoper spawania', 'Start welding timer'),
+            SkillExample('Uruchom timer formowania na obliczony czas',
+                'Start purge timer using the calculated time'),
           ],
       };
   @override
@@ -192,6 +199,7 @@ class TimerSkill extends AssistantSkill {
     if (action != 'stop' && s['resume'] == true) {
       if (s.containsKey('seconds') ||
           s.containsKey('max_c') ||
+          s['calculated'] == true ||
           (modeName != null && modeName != timer.mode.name)) {
         return const FailedResult(AssistantText(
             'Wznowienie zachowuje tryb i czas. Aby zmienić ustawienia, powiedz „uruchom” z nowym trybem i czasem.',
@@ -218,7 +226,44 @@ class TimerSkill extends AssistantSkill {
         : modeName == 'purge'
             ? WeldTimerMode.purge
             : WeldTimerMode.weld;
-    final seconds = s['seconds'] as double?;
+    var seconds = s['seconds'] as double?;
+    if (s['calculated'] == true &&
+        (mode != WeldTimerMode.purge ||
+            (seconds != null && s['purge_inputs'] == null))) {
+      return const FailedResult(AssistantText(
+          'Wybierz timer formowania według obliczenia albo podaj jego czas wprost.',
+          'Choose the calculated purge countdown or give its duration explicitly.'));
+    }
+    Map<String, Object?>? purgeInputs;
+    if (action != 'stop' &&
+        mode == WeldTimerMode.purge &&
+        (seconds == null || s['purge_inputs'] != null)) {
+      final modules = ctx.modules;
+      final fields = modules is FieldModuleContext
+          ? (modules as FieldModuleContext).inputFields(toolId)
+          : null;
+      final previous = s['purge_inputs'];
+      if (previous is Map<String, Object?> && !mapEquals(previous, fields)) {
+        return const FailedResult(AssistantText(
+            'Dane kalkulatora formowania zmieniły się. Ponownie poproś o uruchomienie timera dla aktualnego wyniku.',
+            'The purge calculator inputs changed. Ask again to start the timer for the current result.'));
+      }
+      if (fields?['tab'] == 'purge') {
+        try {
+          seconds = PurgeCalculatorInput.fromFields(fields!).estimate.timeSec;
+          purgeInputs = Map<String, Object?>.from(fields);
+        } on FormatException {
+          // Incomplete native inputs must never supply an inferred duration.
+        }
+      }
+      if (seconds == null && s['calculated'] == true) {
+        return _ask(
+            m.copyWith(slots: {...s}..remove('calculated')),
+            'seconds',
+            'Brak poprawnego wyniku w otwartym kalkulatorze formowania. Podaj czas timera z jednostką albo uzupełnij kalkulator i ponów polecenie.',
+            'There is no valid result in the open purge calculator. Give a timer duration with a unit, or complete the calculator and repeat the command.');
+      }
+    }
     final max = s['max_c'] as double?;
     if (max != null && (!max.isFinite || max <= 0)) {
       return _ask(
@@ -259,6 +304,10 @@ class TimerSkill extends AssistantSkill {
               'The current timer has progress. Replace it and reset elapsed time?'),
           partial: m.copyWith(slots: {
             ...s,
+            if (purgeInputs != null) ...{
+              'seconds': seconds,
+              'purge_inputs': purgeInputs,
+            },
             'revision': timer.controlRevision,
             'replace': null
           }),
