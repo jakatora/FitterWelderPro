@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 
 import '../assistant/core/tool_bridge.dart';
 import '../domain/welding/purge.dart';
+import '../domain/welding/welder_calculator_input.dart';
 import '../domain/welding/shielding_gas.dart';
 import '../i18n/app_language.dart';
 import '../services/weld_timer_service.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/clipboard_helper.dart';
+import '../utils/decimal_input_text.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
@@ -46,24 +48,89 @@ class WelderToolsScreen extends StatefulWidget {
   State<WelderToolsScreen> createState() => _WelderToolsScreenState();
 }
 
+String _assistantNumberText(Object? value) => value is num ? decimalInputText(value.toDouble()) : '';
+
+abstract interface class _WelderCalculatorTab {
+  Map<String, Object?> get inputFields;
+  void applyInput(Map<String, Object?> fields);
+}
+
 class _WelderToolsScreenState extends State<WelderToolsScreen>
-    with ToolHandleHost<WelderToolsScreen> {
+    with ToolHandleHost<WelderToolsScreen>
+    implements InputToolHandle {
   late TabController _tabs;
   int _timerRevision = 0;
-  @override String get toolId => 'welder_calculators';
-  @override Set<String> get supportedFields => const {'tab'};
-  @override void initState() {
+  final _gasKey = GlobalKey<_GasConsumptionTabState>();
+  final _purgeKey = GlobalKey<_O2PurgeTabState>();
+  @override
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable(switch (_tabs.index) {
+        WelderToolsScreen.tabGas => {
+            'tab': 'gas',
+            ...?_gasKey.currentState?.inputFields
+          },
+        WelderToolsScreen.tabPurge => {
+            'tab': 'purge',
+            ...?_purgeKey.currentState?.inputFields
+          },
+        WelderToolsScreen.tabTimer => {'tab': 'timer'},
+        _ => {'tab': 'pressure'},
+      });
+  @override
+  String get toolId => 'welder_calculators';
+  @override
+  Set<String> get supportedFields =>
+      const {'tab', ...GasCalculatorInput.keys, ...PurgeCalculatorInput.keys};
+  @override
+  void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) markReady();
     });
   }
-  @override Future<Set<String>> apply(Map<String, Object?> fields) async {
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
     if (fields.isEmpty) return {};
-    if (fields.length != 1 || fields['tab'] != 'timer') return fields.keys.toSet();
-    setState(() { _tabs.index = WelderToolsScreen.tabTimer; _timerRevision++; });
+    if (fields.length == 1 && fields['tab'] == 'timer') {
+      setState(() {
+        _tabs.index = WelderToolsScreen.tabTimer;
+        _timerRevision++;
+      });
+      return {};
+    }
+    final Map<String, Object?> validated;
+    final int target;
+    try {
+      if (fields['tab'] == 'gas') {
+        validated = GasCalculatorInput.fromFields(fields).fields;
+        target = WelderToolsScreen.tabGas;
+      } else if (fields['tab'] == 'purge') {
+        validated = PurgeCalculatorInput.fromFields(fields).fields;
+        target = WelderToolsScreen.tabPurge;
+      } else {
+        return fields.keys.toSet();
+      }
+    } on FormatException {
+      return fields.keys.toSet();
+    }
+    setState(() => _tabs.index = target);
+    _WelderCalculatorTab? state() {
+      if (target == WelderToolsScreen.tabGas) return _gasKey.currentState;
+      return _purgeKey.currentState;
+    }
+
+    for (var frame = 0; frame < 4 && state() == null; frame++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || _tabs.index != target) return fields.keys.toSet();
+    }
+    if (!mounted || _tabs.index != target || state() == null) {
+      return fields.keys.toSet();
+    }
+    state()!.applyInput(validated);
     return {};
   }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -72,26 +139,27 @@ class _WelderToolsScreenState extends State<WelderToolsScreen>
       child: Builder(builder: (tabContext) {
         _tabs = DefaultTabController.of(tabContext);
         return Scaffold(
-        appBar: AppBar(
-          title: Text(context.tr(pl: 'Gaz, formowanie i timer', en: 'Gas, purge and timer')),
-          actions: [HelpButton(help: kHelpWelderTools)],
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: [
-              Tab(text: context.tr(pl: 'Gaz', en: 'Gas')),
-              Tab(text: 'O₂ Purge'),
-              Tab(text: 'Timer'),
-              Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
-            ],
+          appBar: AppBar(
+            title: Text(context.tr(
+                pl: 'Gaz, formowanie i timer', en: 'Gas, purge and timer')),
+            actions: [HelpButton(help: kHelpWelderTools)],
+            bottom: TabBar(
+              isScrollable: true,
+              tabs: [
+                Tab(text: context.tr(pl: 'Gaz', en: 'Gas')),
+                Tab(text: 'O₂ Purge'),
+                Tab(text: 'Timer'),
+                Tab(text: context.tr(pl: 'Ciśnienie', en: 'Pressure')),
+              ],
+            ),
           ),
-        ),
-        body: TabBarView(children: [
-          _GasConsumptionTab(),
-          _O2PurgeTab(),
-          _WeldTimerTab(key: ValueKey(_timerRevision)),
-          _PressureConverterTab(),
-        ]),
-      );
+          body: TabBarView(children: [
+            _GasConsumptionTab(key: _gasKey),
+            _O2PurgeTab(key: _purgeKey),
+            _WeldTimerTab(key: ValueKey(_timerRevision)),
+            _PressureConverterTab(),
+          ]),
+        );
       }),
     );
   }
@@ -242,10 +310,33 @@ class _SecLabel extends StatelessWidget {
 // ZAKŁADKA: O₂ PURGE (model wykładniczy, ppm)
 // ═══════════════════════════════════════════════════════════════════════════
 class _O2PurgeTab extends StatefulWidget {
-  @override State<_O2PurgeTab> createState() => _O2PurgeTabState();
+  const _O2PurgeTab({super.key});
+  @override
+  State<_O2PurgeTab> createState() => _O2PurgeTabState();
 }
 
-class _O2PurgeTabState extends State<_O2PurgeTab> {
+class _O2PurgeTabState extends State<_O2PurgeTab>
+    implements _WelderCalculatorTab {
+  @override
+  Map<String, Object?> get inputFields => {
+        'od_mm': _num(_odCtrl),
+        'wall_mm': _num(_tCtrl),
+        'length_mm': _num(_lCtrl),
+        'flow_lpm': _num(_qCtrl),
+        'initial_ppm': _num(_c0Ctrl),
+        'target_ppm': _num(_targetCtrl)
+      };
+  @override
+  void applyInput(Map<String, Object?> f) {
+    _odCtrl.text = _assistantNumberText(f['od_mm']);
+    _tCtrl.text = _assistantNumberText(f['wall_mm']);
+    _lCtrl.text = _assistantNumberText(f['length_mm']);
+    _qCtrl.text = _assistantNumberText(f['flow_lpm']);
+    _c0Ctrl.text = _assistantNumberText(f['initial_ppm']);
+    _targetCtrl.text = _assistantNumberText(f['target_ppm']);
+    _calc();
+  }
+
   final _odCtrl = TextEditingController();
   final _tCtrl  = TextEditingController();
   final _lCtrl  = TextEditingController();  // długość mm
@@ -386,10 +477,43 @@ class _O2PurgeTabState extends State<_O2PurgeTab> {
 // ZAKŁADKA: ZUŻYCIE GAZU
 // ═══════════════════════════════════════════════════════════════════════════
 class _GasConsumptionTab extends StatefulWidget {
-  @override State<_GasConsumptionTab> createState() => _GasConsumptionTabState();
+  const _GasConsumptionTab({super.key});
+  @override
+  State<_GasConsumptionTab> createState() => _GasConsumptionTabState();
 }
 
-class _GasConsumptionTabState extends State<_GasConsumptionTab> {
+class _GasConsumptionTabState extends State<_GasConsumptionTab>
+    implements _WelderCalculatorTab {
+  @override
+  Map<String, Object?> get inputFields => {
+        'welds': _num(_nCtrl),
+        'weld_minutes': _num(_tCtrl),
+        'torch_lpm': _num(_torchCtrl),
+        'pre_flow_s': _num(_preCtrl),
+        'post_flow_s': _num(_postCtrl),
+        'purge_lpm': _num(_purgeCtrl),
+        'purge_minutes': _num(_purgeTCtrl),
+        'water_l': _num(_waterCtrl),
+        'fill_bar': _num(_pressureCtrl),
+        'reserve_bar': _num(_reserveCtrl),
+        'current_bar': _num(_nowCtrl)
+      };
+  @override
+  void applyInput(Map<String, Object?> f) {
+    _nCtrl.text = _assistantNumberText(f['welds']);
+    _tCtrl.text = _assistantNumberText(f['weld_minutes']);
+    _torchCtrl.text = _assistantNumberText(f['torch_lpm']);
+    _preCtrl.text = _assistantNumberText(f['pre_flow_s']);
+    _postCtrl.text = _assistantNumberText(f['post_flow_s']);
+    _purgeCtrl.text = _assistantNumberText(f['purge_lpm']);
+    _purgeTCtrl.text = _assistantNumberText(f['purge_minutes']);
+    _waterCtrl.text = _assistantNumberText(f['water_l']);
+    _pressureCtrl.text = _assistantNumberText(f['fill_bar']);
+    _reserveCtrl.text = _assistantNumberText(f['reserve_bar']);
+    _nowCtrl.text = _assistantNumberText(f['current_bar']);
+    _calc();
+  }
+
   final _nCtrl    = TextEditingController(); // liczba spoin
   final _tCtrl    = TextEditingController(); // czas spawania na spoinę [min]
   final _torchCtrl= TextEditingController(text: '10'); // torch L/min
