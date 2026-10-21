@@ -10,13 +10,22 @@ Map<String, Object?> _slots(Utterance u) {
   final out = <String, Object?>{};
   final length = lengthNear(u, _lengthLabels);
   final rise = lengthNear(u, _riseLabels);
-  if (length != null) out['length_mm'] = length;
-  if (rise != null) out['rise_mm'] = rise;
+  if (length != null || u.hasStem(_lengthLabels)) {
+    out['length_mm'] = length ?? double.nan;
+  }
+  if (rise != null || u.hasStem(_riseLabels)) {
+    out['rise_mm'] = rise ?? double.nan;
+  }
   final percentage = percentValue(u);
   if (percentage != null) out['slope_pct'] = percentage;
+  if (percentage == null &&
+      _edit.hasMatch(u.folded) &&
+      u.hasStem(const ['nachylen', 'slope', 'procent', 'percent'])) {
+    out['slope_pct'] = double.nan;
+  }
   // One unlabelled length, e.g. "spadek 1% na 6 metrów". Never choose
   // arbitrarily between two different lengths.
-  if (length == null && rise == null) {
+  if (!out.containsKey('length_mm') && !out.containsKey('rise_mm')) {
     final dimensions = <double>{};
     for (var i = 0; i + 1 < u.items.length; i++) {
       final scale = lengthUnitScale(u.items[i + 1].word);
@@ -28,6 +37,84 @@ Map<String, Object?> _slots(Utterance u) {
     if (dimensions.length > 1) out['length_mm'] = double.nan;
   }
   return out;
+}
+
+final _edit = RegExp(
+    r'^(?:(?:a|and|prosze|please|teraz|now)\s+)*(?:zmien|ustaw|change|set)\b');
+final _clear =
+    RegExp(r'^(?:(?:prosze|please)\s+)*(?:wyczysc|wyzeruj|clear|reset)\b');
+final _clearCurrent = RegExp(
+    r'^(?:(?:prosze|please)\s+)*(?:wyczysc|wyzeruj|clear|reset)(?:\s+(?:pola|dane|inputs|fields))?$');
+const _recalculate = {
+  'oblicz',
+  'policz',
+  'przelicz',
+  'calculate',
+  'recalculate',
+  'oblicz to',
+  'oblicz aktualny spadek',
+  'przelicz spadek',
+  'calculate current slope',
+  'recalculate slope'
+};
+bool _topic(Utterance u) =>
+    u.hasStem(const ['spad', 'nachylen', 'gradient']) ||
+    u.hasAny(const ['pipe slope']);
+bool _foreign(Utterance u) =>
+    u.hasStem(const [
+      'ciec',
+      'cieci',
+      'cut',
+      'pila',
+      'saw',
+      'rolling',
+      'tras',
+      'route',
+      'ukos',
+      'bevel',
+      'narys',
+      'draw'
+    ]) ||
+    mentionsWeight(u);
+
+// Include only the two independent inputs of the current mode. Editing its
+// computed quantity selects an appropriate inverse calculation, never combines
+// a fresh input with a stale derived result.
+Map<String, Object?> _currentEdit(
+    Map<String, Object?> current, Map<String, Object?> patch) {
+  final mode = current['mode'];
+  final s = <String, Object?>{
+    if (mode != 'rise_to_length') 'length_mm': current['length_mm'],
+    if (mode != 'length_to_rise') 'rise_mm': current['rise_mm'],
+    if (mode != 'slope_from_lr') 'slope_pct': current['slope_pct'],
+    ...patch,
+  };
+  String target = mode is String ? mode : 'length_to_rise';
+  if (patch.length >= 2) {
+    if (patch.containsKey('length_mm') && patch.containsKey('rise_mm')) {
+      target = 'slope_from_lr';
+    } else if (patch.containsKey('length_mm') &&
+        patch.containsKey('slope_pct')) {
+      target = 'length_to_rise';
+    } else if (patch.containsKey('rise_mm') && patch.containsKey('slope_pct')) {
+      target = 'rise_to_length';
+    }
+  } else if (mode == 'length_to_rise' && patch.containsKey('rise_mm') ||
+      mode == 'rise_to_length' && patch.containsKey('length_mm')) {
+    target = 'slope_from_lr';
+  } else if (mode == 'slope_from_lr' && patch.containsKey('slope_pct')) {
+    target = 'length_to_rise';
+  }
+  final derived = target == 'length_to_rise'
+      ? 'rise_mm'
+      : target == 'rise_to_length'
+          ? 'length_mm'
+          : 'slope_pct';
+  if (patch.length < 3) {
+    s.remove(derived);
+  }
+  s['native_mode'] = target;
+  return s;
 }
 
 class PipeSlopeSkill extends AssistantSkill {
@@ -58,28 +145,60 @@ class PipeSlopeSkill extends AssistantSkill {
         SkillRejection('ile waży rura DN50'),
         SkillRejection('otwórz kalkulator spadku', routesTo: 'tool.open'),
       ];
+  Map<String, Object?> _intent(
+      Utterance u, AssistantContext ctx, Map<String, Object?> slots) {
+    if (slots.isEmpty) return slots;
+    return {
+      ...slots,
+      'native_action': null,
+      'native_edit': ctx.modules.activeToolId == toolId &&
+              (_edit.hasMatch(u.folded) || u.isContinuation)
+          ? Map<String, Object?>.unmodifiable(slots)
+          : null,
+    };
+  }
+
   @override
   Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) =>
-      _slots(u);
+      _foreign(u) ? const {} : _intent(u, ctx, _slots(u));
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        u.hasStem(const ['ciec', 'cieci', 'cut', 'pila', 'saw'])) {
+        _foreign(u) ||
+        kOpenVerbAtStartRe.hasMatch(u.folded) ||
+        kCommandVerbRe.hasMatch(u.folded)) {
       return null;
     }
-    if (RegExp(r'^(?:otworz|pokaz|open|show)\b').hasMatch(u.folded)) {
-      return null;
+    final active = ctx.modules.activeToolId == toolId;
+    if (_clear.hasMatch(u.folded) &&
+        (_topic(u) || active && _clearCurrent.hasMatch(u.folded))) {
+      return SkillMatch(this, .96,
+          slots: const {'native_action': 'clear'}, utterance: u);
     }
-    if (!u.hasStem(const ['spadek', 'nachylen', 'gradient']) &&
-        !u.hasAny(const ['pipe slope'])) {
-      return null;
+    if (active &&
+        (_recalculate.contains(u.folded) ||
+            _topic(u) &&
+                _slots(u).isEmpty &&
+                u.hasStem(const [
+                  'oblicz',
+                  'policz',
+                  'przelicz',
+                  'calculate',
+                  'recalculate'
+                ]))) {
+      return SkillMatch(this, .96,
+          slots: const {'native_edit': <String, Object?>{}}, utterance: u);
     }
     final slots = _slots(u);
+    if (active && _edit.hasMatch(u.folded) && slots.isNotEmpty) {
+      return SkillMatch(this, .96, slots: _intent(u, ctx, slots), utterance: u);
+    }
+    if (!_topic(u)) return null;
     final explicitCalculation =
         u.hasStem(const ['oblicz', 'policz', 'calculate', 'compute']);
     return SkillMatch(
         this, slots.isNotEmpty || explicitCalculation ? 0.91 : 0.65,
-        slots: slots, utterance: u);
+        slots: _intent(u, ctx, slots), utterance: u);
   }
 
   @override
@@ -105,7 +224,57 @@ class PipeSlopeSkill extends AssistantSkill {
 
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
+    if (m.slots['native_action'] == 'clear') {
+      return const AnswerResult(
+          AssistantAnswer(
+              text: AssistantText(
+                  'Wyczyszczono dane i wynik kalkulatora spadku.',
+                  'Slope calculator inputs and result cleared.')),
+          show: ShowInModule('pipe_slope', {'action': 'clear'}));
+    }
+    final patch = m.slots['native_edit'];
+    if (patch is Map<String, Object?>) {
+      final modules = ctx.modules;
+      final current = modules is FieldModuleContext
+          ? (modules as FieldModuleContext).inputFields(toolId)
+          : null;
+      if (current == null) {
+        return const FailedResult(
+            AssistantText(
+                'Nie mogę odczytać bieżących danych spadku. Otwórz moduł i poczekaj na wczytanie.',
+                'I cannot read the current slope inputs. Open the module and wait for it to load.'),
+            reportMissingCapability: false);
+      }
+      m = m.copyWith(slots: _currentEdit(current, patch));
+    }
     final s = m.slots;
+    final nativeMode = s['native_mode'];
+    if (nativeMode != null &&
+        ['length_mm', 'rise_mm', 'slope_pct'].where((k) => s[k] is num).length <
+            2) {
+      final required = nativeMode == 'length_to_rise'
+          ? ['length_mm', 'slope_pct']
+          : nativeMode == 'rise_to_length'
+              ? ['rise_mm', 'slope_pct']
+              : ['length_mm', 'rise_mm'];
+      for (final key in required) {
+        if (s[key] is! num) {
+          return AskResult(
+              key,
+              key == 'slope_pct'
+                  ? const AssistantText(
+                      'Podaj procent spadku.', 'Give the slope percentage.')
+                  : key == 'rise_mm'
+                      ? const AssistantText(
+                          'Podaj wznios z jednostką, np. 60 mm.',
+                          'Give the rise with a unit, e.g. 60 mm.')
+                      : const AssistantText(
+                          'Podaj długość w rzucie poziomym z jednostką, np. 6 m.',
+                          'Give the horizontal run with a unit, e.g. 6 m.'),
+              partial: m);
+        }
+      }
+    }
     for (final key in ['length_mm', 'rise_mm', 'slope_pct']) {
       final value = s[key];
       if (value is num && (!value.isFinite || value <= 0)) {

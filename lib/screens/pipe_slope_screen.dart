@@ -16,12 +16,23 @@ class PipeSlopeScreen extends StatefulWidget {
 }
 
 class _PipeSlopeScreenState extends State<PipeSlopeScreen>
-    with ToolHandleHost<PipeSlopeScreen> {
+    with ToolHandleHost<PipeSlopeScreen>
+    implements InputToolHandle {
   @override
   String get toolId => 'pipe_slope';
   @override
   Set<String> get supportedFields =>
-      const {'mode', 'length_mm', 'rise_mm', 'slope_pct'};
+      const {'mode', 'length_mm', 'rise_mm', 'slope_pct', 'action'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'mode': _mode,
+        if (_mode != 'rise_to_length')
+          'length_mm': parseDecimal(_lengthController.text),
+        if (_mode != 'length_to_rise')
+          'rise_mm': parseDecimal(_riseController.text),
+        if (_mode != 'slope_from_lr')
+          'slope_pct': parseDecimal(_slopeController.text),
+      });
   @override
   void initState() {
     super.initState();
@@ -30,6 +41,23 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
 
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted) return fields.keys.toSet();
+    if (fields.length == 1 && fields['action'] == 'clear') {
+      setState(() {
+        for (final c in [
+          _lengthController,
+          _riseController,
+          _slopeController,
+          _angleController,
+          _mmPerMController
+        ]) {
+          c.clear();
+        }
+        _lastCalculation = null;
+      });
+      return {};
+    }
+    if (fields.containsKey('action')) return fields.keys.toSet();
     final invalidNumbers = fields.entries
         .where((e) =>
             e.key != 'mode' &&
@@ -62,6 +90,18 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
           lengthMm: first.toDouble(), riseMm: second.toDouble()),
     };
     if (!mounted || result == null) return {a, b};
+    for (final (key, expected) in [
+      ('length_mm', result.lengthMm),
+      ('rise_mm', result.riseMm),
+      ('slope_pct', result.slopePct)
+    ]) {
+      final value = fields[key];
+      if (value is num &&
+          (value - expected).abs() >
+              1e-9 * expected.abs().clamp(1, double.infinity)) {
+        return {key};
+      }
+    }
     setState(() {
       _mode = mode as String;
       _lengthController.text = result.lengthMm.toString();
