@@ -1228,3 +1228,31 @@ tej zmiany). Następny konkretny brak: draw(newSketch) powinien najpierw
 zweryfikować nową sekwencję na pustym arkuszu; obecny startNew przed draw może
 przełączyć aktywny arkusz nawet dla błędnej trasy. Następnie45/tee, katalogISO/
 pokrycie, rekordy4 i własne dane, audyt5, finalny build i realny mikrofon6.
+
+2026-10-21 — nowe ISO tworzone dopiero po pełnej walidacji pustego arkusza.
+IsoNotebookController.draw(...,newSketch:true) wykonuje synchroniczny
+_planOnBlank przed flush/startNew. Tymczasowo puste items/takeout/lastDN/gap są
+zawsze przywracane w finally; historia, wersja, ID, nazwa i zapis nie są ruszane.
+Błędna trasa (reversal/trailingTurn/tee) pozostawia aktywny stary szkic, bajty
+JSON, lastEdited i undo; także ArgumentError z nieznanego narzędzia przywraca
+oryginał. Poprawny nowy szkic zapisuje poprzedni i zeruje osie/pamięć DN dokładnie
+jak startNew; nie dziedziczy północy ani DN80. Cofnij nie przechodzi do starego.
+Wspólny prywatny _startNew zawiera dotychczasowy zapis przed przełączeniem,
+publiczny startNew zachowuje kontrakt. Pusta nowa sekwencja nic nie przełącza;
+„nowy arkusz” bez elementów nadal używa jawnego startNew.
+Czat przekazuje newSketch do draw zamiast najpierw czyścić arkusz. StateError
+przy zapisie/odmontowaniu nie zostawia busy=true: komunikat zachowuje rysunek
+albo informuje o zamkniętym zeszycie. Nie ma deklaracji narysowania przy błędzie.
+Realna SQLite w testach: BEFORE UPDATE trigger RAISE(FAIL) wymusza błąd zapisu.
+Stare elementy zachowane, pole polecenia ponownie aktywne; po DROP TRIGGER
+kolejne dorysowanie i zapis działają. Trigger dotyczy wyłącznie pamięciowej bazy
+fixture, kasowany w tearDown. Log błędu jest oczekiwanym wynikiem testu.
+Sprawdzenia: build/iso-new-atomic-final-tests.log42PASS; pełna regresja
+assistant+controller+autosave1670PASS (build/iso-new-atomic-regression.log);
+wyjątek osobno1PASS (build/iso-new-atomic-exception-check.log). Analiza całej
+aplikacji czysta (build/iso-new-atomic-final-analyze.log). Starszy pełny
+checkpoint całej aplikacji pozostaje36a2551:6756PASS; nie przypisywać tego
+licznika późniejszej zmianie. Backend bez zmian, APK nadal e7cd1d4.
+Cel ACTIVE. Następne: obsługa45/tee dostępnych ręcznie lub jawna mapa pokrycia
+ISO, brakujący katalog iso.draw, rekordy4.1 i własne dane4.3, computedcoverage4.2,
+audyt raportów5, finalny build i realny mikrofon6. Nie zwężać pełnej wizji.

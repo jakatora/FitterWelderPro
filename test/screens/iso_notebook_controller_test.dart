@@ -82,10 +82,10 @@ List<Map<String, Object?>> _items(Map<String, Object?>? sketch) => [
         (i as Map).cast<String, Object?>(),
     ];
 
-List<Map<String, Object?>> _pipes(Map<String, Object?>? sketch) => _items(
-        sketch)
-    .where((i) => i['kind'] == 'seg' && i['tool'] == 'pipe')
-    .toList();
+List<Map<String, Object?>> _pipes(Map<String, Object?>? sketch) =>
+    _items(sketch)
+        .where((i) => i['kind'] == 'seg' && i['tool'] == 'pipe')
+        .toList();
 
 List<Map<String, Object?>> _comps(Map<String, Object?>? sketch, String tool) =>
     _items(sketch)
@@ -204,11 +204,15 @@ void main() {
     await db.delete(IsoDrawingDao.table);
   });
 
-  testWidgets('zmiana ostatniego kolana: błędny kierunek nie rusza szkicu', (tester) async {
+  testWidgets('zmiana ostatniego kolana: błędny kierunek nie rusza szkicu',
+      (tester) async {
     await _boot(tester);
     final c = await _open(tester);
-    await c.draw(const [IsoPipe(lengthMm: 1000), IsoTurn(toDir: IsoDir.up),
-      IsoPipe(lengthMm: 1000)], stepDelay: Duration.zero);
+    await c.draw(const [
+      IsoPipe(lengthMm: 1000),
+      IsoTurn(toDir: IsoDir.up),
+      IsoPipe(lengthMm: 1000)
+    ], stepDelay: Duration.zero);
     final before = await _stored(tester);
     final report = await c.redirectLastTurn(IsoDir.left);
     expect(report?.problem, IsoDrawProblem.reversal);
@@ -230,8 +234,8 @@ void main() {
       expect(IsoNotebookController.activeListenable.value, same(c));
       expect(c.hasContent, isFalse);
 
-      final r = await c.draw(
-          const [IsoPipe(), IsoTurn(), IsoPipe()], stepDelay: Duration.zero);
+      final r = await c.draw(const [IsoPipe(), IsoTurn(), IsoPipe()],
+          stepDelay: Duration.zero);
       expect(r.problem, isNull);
       expect(r.segments, 2);
       expect(r.elbows, 1);
@@ -266,10 +270,9 @@ void main() {
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);
-      await c.draw(const [IsoPipe(dir: IsoDir.right)],
-          stepDelay: Duration.zero);
-      await c.draw(
-          const [IsoPipe(), IsoTurn(toDir: IsoDir.up), IsoPipe()],
+      await c
+          .draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+      await c.draw(const [IsoPipe(), IsoTurn(toDir: IsoDir.up), IsoPipe()],
           stepDelay: Duration.zero);
       expect(_pipes(await _stored(tester)), hasLength(3));
 
@@ -286,7 +289,8 @@ void main() {
       await _leave(tester);
     });
 
-    testWidgets('lengthMm 1500 → wymiar „1500” i 3 kroki siatki; '
+    testWidgets(
+        'lengthMm 1500 → wymiar „1500” i 3 kroki siatki; '
         'długości przycięte do 2…8 kroków', (tester) async {
       await _boot(tester);
       final c = await _open(tester);
@@ -373,10 +377,10 @@ void main() {
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);
-      final first = c.draw(const [IsoPipe(dir: IsoDir.right)],
-          stepDelay: Duration.zero);
-      final second = c.draw(const [IsoPipe(dir: IsoDir.forward)],
-          stepDelay: Duration.zero);
+      final first =
+          c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+      final second = c
+          .draw(const [IsoPipe(dir: IsoDir.forward)], stepDelay: Duration.zero);
       expect(c.isBusy, isTrue);
       c.undo(); // queued behind `second` → takes `second` back
       expect((await first).segments, 1);
@@ -391,6 +395,92 @@ void main() {
   });
 
   group('niepusty szkic i nowy rysunek', () {
+    testWidgets(
+        'invalid new drawing preserves active sketch, database and undo',
+        (tester) async {
+      final original = await _seed('old', _onePipe());
+      await _boot(tester);
+      final c = await _open(tester);
+      final edited = c.lastEdited;
+      for (final steps in [
+        <IsoStep>[
+          const IsoPipe(dir: IsoDir.right),
+          const IsoPipe(dir: IsoDir.left)
+        ],
+        <IsoStep>[const IsoPipe(), const IsoTurn()],
+        <IsoStep>[const IsoFitting('tee')],
+      ]) {
+        final r =
+            await c.draw(steps, newSketch: true, stepDelay: Duration.zero);
+        expect(r.problem, isNotNull);
+        expect(c.hasContent, isTrue);
+        expect(c.sketchName, 'Linia testowa');
+        expect(c.lastEdited, edited);
+        expect((await IsoDrawingDao().getById('old'))!.json, original.json);
+        expect(await IsoDrawingDao().listAll(), hasLength(1));
+      }
+      await expectLater(
+          c.draw(const [IsoFitting('not-a-tool')],
+              newSketch: true, stepDelay: Duration.zero),
+          throwsArgumentError);
+      expect(c.sketchName, 'Linia testowa');
+      expect((await IsoDrawingDao().getById('old'))!.json, original.json);
+      c.undo();
+      expect(c.hasContent, isTrue,
+          reason: 'failed validation added no undo step');
+      await _leave(tester);
+    });
+    testWidgets(
+        'valid new drawing starts with empty axes and keeps the previous record',
+        (tester) async {
+      final original = await _seed(
+          'old',
+          _sketch('Stary z północą', [
+            _northArrow(Offset(416, 2 * _dy), 1),
+            _seg(Offset(64, 4 * _dy), Offset(192, 4 * _dy)),
+          ]));
+      await _boot(tester);
+      final c = await _open(tester);
+      final r = await c.draw(const [IsoPipe(dir: IsoDir.up, lengthMm: 1500)],
+          newSketch: true, stepDelay: Duration.zero);
+      expect(r.ok, isTrue);
+      final fresh = await _stored(tester);
+      expect(_heading(_b(_pipes(fresh).single) - _a(_pipes(fresh).single)), 1,
+          reason: 'new sheet does not inherit old north mapping');
+      expect(_comps(fresh, 'northArrow'), isEmpty);
+      final old = await IsoDrawingDao().getById('old');
+      expect(old!.json, original.json);
+      expect(old.updatedAt, original.updatedAt);
+      expect(await IsoDrawingDao().listAll(), hasLength(2));
+      c.undo();
+      expect(c.hasContent, isFalse);
+      expect((await IsoDrawingDao().getById('old'))!.json, original.json);
+      await _leave(tester);
+    });
+    testWidgets(
+        'failed new preview restores diameter memory; a valid new sheet clears it',
+        (tester) async {
+      await _boot(tester);
+      final c = await _open(tester);
+      await c.draw(const [
+        IsoPipe(dir: IsoDir.right),
+        IsoTurn(toDir: IsoDir.up, dn: 80),
+        IsoPipe()
+      ], stepDelay: Duration.zero);
+      final r = await c.draw(
+          const [IsoPipe(dir: IsoDir.right), IsoPipe(dir: IsoDir.left)],
+          newSketch: true, stepDelay: Duration.zero);
+      expect(r.problem, IsoDrawProblem.reversal);
+      await c.draw(const [IsoFitting('ballValve')], stepDelay: Duration.zero);
+      final current = await _stored(tester);
+      expect(_comps(current, 'ballValve').single['dn'], 80);
+      await c.draw(const [IsoFitting('ballValve')],
+          newSketch: true, stepDelay: Duration.zero);
+      final fresh = await _stored(tester);
+      expect(_comps(fresh, 'ballValve').single['dn'], isNull);
+      await _leave(tester);
+    });
+
     testWidgets(
         'niepusty szkic: rysunek startuje z wolnego końca ostatniej rury, '
         'stare elementy zostają nietknięte', (tester) async {
@@ -443,16 +533,16 @@ void main() {
       expect(old!.json, original.json);
       expect(old.updatedAt, original.updatedAt);
 
-      final r = await c.draw(const [IsoPipe(lengthMm: 1500)],
-          stepDelay: Duration.zero);
+      final r = await c
+          .draw(const [IsoPipe(lengthMm: 1500)], stepDelay: Duration.zero);
       expect(r.segments, 1);
       await tester.pump(const Duration(milliseconds: 600));
       final all = await IsoDrawingDao().listAll();
       expect(all, hasLength(2));
-      final fresh = await IsoDrawingDao().getById(
-          all.firstWhere((e) => e.id != 'old').id);
-      final pipes = _pipes(
-          (jsonDecode(fresh!.json) as Map).cast<String, Object?>());
+      final fresh = await IsoDrawingDao()
+          .getById(all.firstWhere((e) => e.id != 'old').id);
+      final pipes =
+          _pipes((jsonDecode(fresh!.json) as Map).cast<String, Object?>());
       expect(pipes, hasLength(1));
       expect((pipes.single['calc'] as Map)['iso'], '1500');
       old = await IsoDrawingDao().getById('old');
@@ -498,8 +588,8 @@ void main() {
       final original = await _seed('old', _onePipe());
       await _boot(tester);
       final c = await _open(tester);
-      final r = await c.draw(const [IsoPipe(dir: IsoDir.left)],
-          stepDelay: Duration.zero);
+      final r = await c
+          .draw(const [IsoPipe(dir: IsoDir.left)], stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.reversal);
       expect(r.problemStep, 0);
       await tester.pump(const Duration(milliseconds: 600));
@@ -529,8 +619,8 @@ void main() {
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);
-      var r = await c.draw(const [IsoPipe(), IsoTurn()],
-          stepDelay: Duration.zero);
+      var r =
+          await c.draw(const [IsoPipe(), IsoTurn()], stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.trailingTurn);
       expect(r.problemStep, 1);
       r = await c.draw(
@@ -546,8 +636,7 @@ void main() {
         (tester) async {
       await _boot(tester);
       final c = await _open(tester);
-      var r = await c.draw(
-          const [IsoPipe(), IsoFitting('elbow45'), IsoPipe()],
+      var r = await c.draw(const [IsoPipe(), IsoFitting('elbow45'), IsoPipe()],
           stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.unsupported45);
       expect(r.problemStep, 1);
@@ -577,14 +666,14 @@ void main() {
       await _leave(tester);
     });
 
-    testWidgets('w górę nad górną krawędź siatki na niepustym szkicu → '
+    testWidgets(
+        'w górę nad górną krawędź siatki na niepustym szkicu → '
         'outOfCanvas, zapis bez zmian', (tester) async {
       // Row 1 is odd: grid points sit half a step to the right.
       final original = await _seed('top', _onePipe(row: 1, x0: 48));
       await _boot(tester);
       final c = await _open(tester);
-      final r = await c.draw(
-          const [IsoTurn(toDir: IsoDir.up), IsoPipe()],
+      final r = await c.draw(const [IsoTurn(toDir: IsoDir.up), IsoPipe()],
           stepDelay: Duration.zero);
       expect(r.problem, IsoDrawProblem.outOfCanvas);
       expect(r.problemStep, 1);
@@ -655,14 +744,22 @@ void main() {
       const right = IsoPipe(lengthMm: 1000);
       final r = await c.draw(const [
         IsoPipe(dir: IsoDir.up, lengthMm: 4000),
-        IsoTurn(toDir: IsoDir.right), right,
-        IsoTurn(toDir: IsoDir.up), up,
-        IsoTurn(toDir: IsoDir.right), right,
-        IsoTurn(toDir: IsoDir.up), up,
-        IsoTurn(toDir: IsoDir.right), right,
-        IsoTurn(toDir: IsoDir.up), up,
-        IsoTurn(toDir: IsoDir.right), right,
-        IsoTurn(toDir: IsoDir.up), up,
+        IsoTurn(toDir: IsoDir.right),
+        right,
+        IsoTurn(toDir: IsoDir.up),
+        up,
+        IsoTurn(toDir: IsoDir.right),
+        right,
+        IsoTurn(toDir: IsoDir.up),
+        up,
+        IsoTurn(toDir: IsoDir.right),
+        right,
+        IsoTurn(toDir: IsoDir.up),
+        up,
+        IsoTurn(toDir: IsoDir.right),
+        right,
+        IsoTurn(toDir: IsoDir.up),
+        up,
       ], stepDelay: Duration.zero);
       expect(r.problem, isNull);
       expect(r.segments, 9);
@@ -737,7 +834,8 @@ void main() {
       await _leave(tester);
     });
 
-    testWidgets('uszczypnięcie w trakcie animacji: polecenie kompletne, '
+    testWidgets(
+        'uszczypnięcie w trakcie animacji: polecenie kompletne, '
         'widok należy do palców', (tester) async {
       await _boot(tester);
       final c = await _open(tester);
@@ -768,8 +866,7 @@ void main() {
 
     testWidgets(
         'wyjście z zeszytu w trakcie animacji zapisuje całe polecenie; '
-        'kolejne wywołanie na zamkniętym ekranie → StateError',
-        (tester) async {
+        'kolejne wywołanie na zamkniętym ekranie → StateError', (tester) async {
       await _boot(tester);
       final c = await _open(tester);
       final pending = c.draw(const [IsoPipe(), IsoTurn(), IsoPipe()],
@@ -788,8 +885,7 @@ void main() {
       expect(_pipes(s), hasLength(2));
       expect(_comps(s, 'elbow90'), hasLength(1));
 
-      await expectLater(
-          c.draw(const [IsoPipe()], stepDelay: Duration.zero),
+      await expectLater(c.draw(const [IsoPipe()], stepDelay: Duration.zero),
           throwsStateError);
     });
   });

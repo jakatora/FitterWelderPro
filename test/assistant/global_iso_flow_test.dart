@@ -173,6 +173,63 @@ void main() {
     await _say(t, 'kulowy');
     expect(IsoNotebookController.active, isNull);
   });
+  testWidgets(
+      'an invalid new voice drawing leaves the active sketch and next append intact',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final before = await t.runAsync(() => IsoDrawingDao().latest());
+    await _say(t, 'narysuj rura metr w prawo rura metr w lewo');
+    await _say(t, 'nowy');
+    expect(IsoNotebookController.active!.hasContent, isTrue);
+    final after = await t.runAsync(() => IsoDrawingDao().latest());
+    expect(after!.id, before!.id);
+    expect(after.json, before.json);
+    await _say(t, 'dorysuj rura metr w górę');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final stored = await t.runAsync(() => IsoDrawingDao().latest());
+    expect(stored!.id, before.id);
+    final items = (jsonDecode(stored.json) as Map)['items'] as List;
+    expect(items.where((x) => x['kind'] == 'seg' && x['tool'] == 'pipe'),
+        hasLength(2));
+  });
+  testWidgets(
+      'a failed save keeps the drawing and releases the assistant for retry',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo');
+    await t.runAsync(() async {
+      final db = await AppDatabase.get();
+      await db.execute(
+          "CREATE TRIGGER iso_test_fail BEFORE UPDATE ON iso_drawings BEGIN SELECT RAISE(FAIL, 'test write failure'); END");
+    });
+    addTearDown(() async {
+      final db = await AppDatabase.get();
+      await db.execute('DROP TRIGGER IF EXISTS iso_test_fail');
+    });
+    await IsoNotebookController.active!.draw(
+        const [IsoPipe(dir: IsoDir.up, lengthMm: 1000)],
+        stepDelay: Duration.zero);
+    final before = IsoNotebookController.active!.debugPipeAxisTags.toList();
+    await _say(t, 'narysuj rura metr w prawo');
+    await _say(t, 'nowy');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, before);
+    expect(find.textContaining('Bieżący arkusz pozostaje otwarty'),
+        findsOneWidget);
+    expect(
+        t.widget<TextField>(find.byKey(const Key('assistant-command'))).enabled,
+        isTrue);
+    await t.runAsync(() async {
+      final db = await AppDatabase.get();
+      await db.execute('DROP TRIGGER iso_test_fail');
+    });
+    await _say(t, 'dorysuj rura metr w prawo');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(3));
+    expect(t.takeException(), isNull);
+  });
   testWidgets('jedna rozmowa otwiera ISO, rysuje, dorysowuje i cofa',
       (tester) async {
     seedFreshInstall();

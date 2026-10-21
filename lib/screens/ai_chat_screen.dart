@@ -663,25 +663,37 @@ class _AiChatScreenState extends State<AiChatScreen>
           'Cofnąłem ostatni krok rysunku.', 'Undid the last drawing step.');
       return true;
     }
-    if (command.newSketch || command.kind == IsoCommandKind.newSketch) {
-      await controller.startNew();
-    }
-    if (command.kind == IsoCommandKind.newSketch) {
-      _isoReply('Nowy arkusz. Powiedz, co narysować.',
-          'New sheet. Tell me what to draw.');
-      return true;
-    }
-    final report = await controller.draw(command.steps);
-    if (report.ok) {
+    try {
+      if (command.kind == IsoCommandKind.newSketch) {
+        await controller.startNew();
+        _isoReply('Nowy arkusz. Powiedz, co narysować.',
+            'New sheet. Tell me what to draw.');
+        return true;
+      }
+      final report =
+          await controller.draw(command.steps, newSketch: command.newSketch);
+      if (report.ok) {
+        _isoReply(
+            'Narysowałem: rury ${report.segments}, kolana ${report.elbows}, '
+                'kształtki ${report.fittings}. ${report.assumedPl.join(' ')}',
+            'Drawn: ${report.segments} pipes, ${report.elbows} elbows, '
+                '${report.fittings} fittings. ${report.assumedEn.join(' ')}');
+      } else {
+        _isoReply(
+            report.problemPl ?? 'Nie zmieniłem rysunku. Doprecyzuj polecenie.',
+            report.problemEn ??
+                'Drawing unchanged. Please clarify the command.');
+      }
+    } on StateError {
+      if (!identical(IsoNotebookController.active, controller)) {
+        _isoReply(
+            'Zeszyt ISO został zamknięty przed wykonaniem polecenia. Otwórz go i spróbuj ponownie.',
+            'The ISO notebook closed before the command could run. Open it and try again.');
+        return true;
+      }
       _isoReply(
-          'Narysowałem: rury ${report.segments}, kolana ${report.elbows}, '
-              'kształtki ${report.fittings}. ${report.assumedPl.join(' ')}',
-          'Drawn: ${report.segments} pipes, ${report.elbows} elbows, '
-              '${report.fittings} fittings. ${report.assumedEn.join(' ')}');
-    } else {
-      _isoReply(
-          report.problemPl ?? 'Nie zmieniłem rysunku. Doprecyzuj polecenie.',
-          report.problemEn ?? 'Drawing unchanged. Please clarify the command.');
+          'Nie udało się bezpiecznie rozpocząć nowego rysunku. Bieżący arkusz pozostaje otwarty. Sprawdź komunikat zapisu i spróbuj ponownie.',
+          'Could not safely start the new drawing. The current sheet remains open. Check the save message and try again.');
     }
     return true;
   }

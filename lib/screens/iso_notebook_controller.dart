@@ -336,19 +336,48 @@ class IsoNotebookController extends ChangeNotifier {
   /// wpis powstaje przy pierwszym elemencie). Pusty, zapisany wcześniej
   /// arkusz zostaje usunięty. [StateError], gdy zapis się nie udał (wtedy
   /// nic się nie zmienia).
-  Future<void> startNew() => _enqueue((s) async {
-        if (!await s._flushSave()) {
-          throw StateError('Could not save the current sketch');
-        }
-        if (_state == null) {
-          throw StateError('IsoNotebookScreen is no longer mounted');
-        }
-        await s._dropCurrentIfBlank();
-        if (_state == null) {
-          throw StateError('IsoNotebookScreen is no longer mounted');
-        }
-        s._startBlankSketch(persist: false);
-      });
+  Future<void> startNew() => _enqueue(_startNew);
+
+  Future<void> _startNew(_IsoState s) async {
+    if (!await s._flushSave()) {
+      throw StateError('Could not save the current sketch');
+    }
+    if (_state == null) {
+      throw StateError('IsoNotebookScreen is no longer mounted');
+    }
+    await s._dropCurrentIfBlank();
+    if (_state == null) {
+      throw StateError('IsoNotebookScreen is no longer mounted');
+    }
+    s._startBlankSketch(persist: false);
+  }
+
+  /// Synchronous preview with the same empty geometry and per-sheet settings
+  /// as startNew. The active drawing, undo history and persistence stay intact.
+  _VoicePlan _planOnBlank(_IsoState s, List<IsoStep> steps) {
+    final items = List<_Item>.from(s._items);
+    final dimensions = Map.of(s._compDimCache);
+    final sizes = Map.of(s._lastDnByTool);
+    final gap = s._gapMm;
+    try {
+      s._items.clear();
+      s._compDimCache.clear();
+      s._lastDnByTool.clear();
+      s._gapMm = 0;
+      return _plan(s, steps);
+    } finally {
+      s._items
+        ..clear()
+        ..addAll(items);
+      s._compDimCache
+        ..clear()
+        ..addAll(dimensions);
+      s._lastDnByTool
+        ..clear()
+        ..addAll(sizes);
+      s._gapMm = gap;
+    }
+  }
 
   /// Wykonuje sekwencję jako JEDEN krok Cofnij; zatrzymuje się na pierwszym
   /// problemie (bez częściowego zapisu). Każda rura rośnie w podglądzie w 4
@@ -357,10 +386,29 @@ class IsoNotebookController extends ChangeNotifier {
   List<IsoStep>? _lastVoiceSteps;
   int? _lastVoiceVersion;
 
+  /// With [newSketch], validate against a blank sheet before saving or
+  /// switching the active drawing. Invalid sequences leave the old sheet intact.
   Future<IsoDrawReport> draw(List<IsoStep> steps,
-      {Duration stepDelay = const Duration(milliseconds: 300)}) {
+      {Duration stepDelay = const Duration(milliseconds: 300),
+      bool newSketch = false}) {
     final copy = List<IsoStep>.unmodifiable(steps);
     return _enqueue((s) async {
+      if (newSketch) {
+        final preview = _planOnBlank(s, copy);
+        if (preview.problem case final problem?) {
+          final (pl, en) = _problemText(problem, elbow: preview.elbowAtCursor);
+          return IsoDrawReport(
+              problem: problem,
+              problemStep: preview.problemStep,
+              problemPl: pl,
+              problemEn: en);
+        }
+        if (preview.ops.isEmpty) {
+          return IsoDrawReport(
+              assumedPl: preview.assumedPl, assumedEn: preview.assumedEn);
+        }
+        await _startNew(s);
+      }
       final report = await _draw(s, copy, stepDelay);
       if (report.ok) {
         _lastVoiceSteps = copy;
@@ -372,45 +420,57 @@ class IsoNotebookController extends ChangeNotifier {
 
   /// Correct the latest voice turn only if no manual edit intervened.
   /// The complete replacement is validated before touching the drawing.
-  Future<IsoDrawReport?> redirectLastTurn(IsoDir direction) => _enqueue((s) async {
-    final last = _lastVoiceSteps;
-    if (last == null || s._version != _lastVoiceVersion || s._undo.isEmpty) {
-      return null;
-    }
-    final index = last.lastIndexWhere((step) => step is IsoTurn);
-    if (index < 0) return null;
-    final steps = List<IsoStep>.from(last);
-    final turn = steps[index] as IsoTurn;
-    steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
-    for (var i = index + 1; i < steps.length; i++) {
-      if (steps[i] case final IsoPipe pipe) {
-        steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
-        break;
-      }
-    }
-    final current = List<_Item>.from(s._items);
-    final before = List<_Item>.from(s._undo.last);
-    late final _VoicePlan preview;
-    try {
-      s._items..clear()..addAll(before);
-      preview = _plan(s, steps);
-    } finally {
-      s._items..clear()..addAll(current);
-    }
-    if (preview.problem case final problem?) {
-      final (pl, en) = _problemText(problem, elbow: preview.elbowAtCursor);
-      return IsoDrawReport(problem: problem, problemStep: preview.problemStep,
-          problemPl: pl, problemEn: en);
-    }
-    s._undo.removeLast();
-    s._mutate(() => s._items..clear()..addAll(before));
-    final report = await _draw(s, steps, const Duration(milliseconds: 150));
-    if (report.ok) {
-      _lastVoiceSteps = List.unmodifiable(steps);
-      _lastVoiceVersion = s._version;
-    }
-    return report;
-  });
+  Future<IsoDrawReport?> redirectLastTurn(IsoDir direction) =>
+      _enqueue((s) async {
+        final last = _lastVoiceSteps;
+        if (last == null ||
+            s._version != _lastVoiceVersion ||
+            s._undo.isEmpty) {
+          return null;
+        }
+        final index = last.lastIndexWhere((step) => step is IsoTurn);
+        if (index < 0) return null;
+        final steps = List<IsoStep>.from(last);
+        final turn = steps[index] as IsoTurn;
+        steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
+        for (var i = index + 1; i < steps.length; i++) {
+          if (steps[i] case final IsoPipe pipe) {
+            steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
+            break;
+          }
+        }
+        final current = List<_Item>.from(s._items);
+        final before = List<_Item>.from(s._undo.last);
+        late final _VoicePlan preview;
+        try {
+          s._items
+            ..clear()
+            ..addAll(before);
+          preview = _plan(s, steps);
+        } finally {
+          s._items
+            ..clear()
+            ..addAll(current);
+        }
+        if (preview.problem case final problem?) {
+          final (pl, en) = _problemText(problem, elbow: preview.elbowAtCursor);
+          return IsoDrawReport(
+              problem: problem,
+              problemStep: preview.problemStep,
+              problemPl: pl,
+              problemEn: en);
+        }
+        s._undo.removeLast();
+        s._mutate(() => s._items
+          ..clear()
+          ..addAll(before));
+        final report = await _draw(s, steps, const Duration(milliseconds: 150));
+        if (report.ok) {
+          _lastVoiceSteps = List.unmodifiable(steps);
+          _lastVoiceVersion = s._version;
+        }
+        return report;
+      });
 
   /// Cofa ostatni krok (całe polecenie [draw] naraz). Gdy w kolejce czekają
   /// polecenia, cofnięcie ustawia się za nimi.
@@ -596,9 +656,8 @@ class IsoNotebookController extends ChangeNotifier {
     s._addPhysicalCompWelds(pos: pos, dir: f.dir, endA: a, endB: b);
   }
 
-  static int _elbowCount(_IsoState s) => s._items
-      .where((it) => it is _Comp && it.t == _Tool.elbow90)
-      .length;
+  static int _elbowCount(_IsoState s) =>
+      s._items.where((it) => it is _Comp && it.t == _Tool.elbow90).length;
 
   // ── planowanie (bez skutków ubocznych) ─────────────────────────────────────
 
@@ -782,8 +841,7 @@ class IsoNotebookController extends ChangeNotifier {
               'still to enter.');
     }
     final origin = relative ? _originFor(s, ops) : (row: 0, half: 0);
-    return _VoicePlan(
-        ops: ops, origin: origin, assumedPl: pl, assumedEn: en);
+    return _VoicePlan(ops: ops, origin: origin, assumedPl: pl, assumedEn: en);
   }
 
   _PlannedFitting _planFitting(
@@ -799,9 +857,8 @@ class IsoNotebookController extends ChangeNotifier {
   }) {
     // A flange / cap at the START of a run faces away from its pipe: the
     // weld side (end A, −heading) must look at the pipe leaving it.
-    final terminal = tool == _Tool.flange ||
-        tool == _Tool.blindFlange ||
-        tool == _Tool.cap;
+    final terminal =
+        tool == _Tool.flange || tool == _Tool.blindFlange || tool == _Tool.cap;
     final dir = atStart && terminal ? (heading + 3) % 6 : heading;
     if (tool.isWeld || tool == _Tool.support) {
       return _PlannedFitting(index, at: at, tool: tool, dir: dir);
@@ -810,9 +867,7 @@ class IsoNotebookController extends ChangeNotifier {
     final nameEn = _IsoState.compName(tool, false);
     var dn = _validDn(step.dn);
     if (dn == null) {
-      dn = runDn ??
-          s._lastDnByTool[tool] ??
-          s._lastDnByTool[_Tool.elbow90];
+      dn = runDn ?? s._lastDnByTool[tool] ?? s._lastDnByTool[_Tool.elbow90];
       if (dn != null) {
         assume('$namePl: przyjąłem DN$dn.', '$nameEn: assumed DN$dn.');
       } else {
@@ -1107,7 +1162,12 @@ final double _kRowH = _IsoState._s * math.sqrt(3) / 2.0;
 
 /// (Δrow, Δhalf) of one grid step along each heading of [_isoHeadings].
 const List<(int, int)> _kLatStep = [
-  (0, 2), (-1, 1), (-1, -1), (0, -2), (1, -1), (1, 1),
+  (0, 2),
+  (-1, 1),
+  (-1, -1),
+  (0, -2),
+  (1, -1),
+  (1, 1),
 ];
 
 _Lat _latMove(_Lat p, int dir, int n) => (
