@@ -8,20 +8,43 @@ import '../config/backend_config.dart';
 class AccountService extends ChangeNotifier {
   AccountService._()
       : _client = http.Client(),
+        _storage = const FlutterSecureStorage(),
         _baseUrl = BackendConfig.baseUrl;
   @visibleForTesting
-  AccountService.forTesting(this._client, {String baseUrl = 'http://localhost'})
-      : _baseUrl = baseUrl;
+  AccountService.forTesting(this._client,
+      {String baseUrl = 'http://localhost',
+      FlutterSecureStorage storage = const FlutterSecureStorage()})
+      : _baseUrl = baseUrl,
+        _storage = storage;
   final http.Client _client;
   final String _baseUrl;
   static AccountService instance = AccountService._();
-  static const _storage = FlutterSecureStorage();
+  final FlutterSecureStorage _storage;
   static const _key = 'railway_account_session_v1';
   Map<String, dynamic>? account;
   String? _token;
   Future<void>? _loading;
   bool _loaded = false;
   int _sessionRevision = 0;
+  int _authEpoch = 0;
+  Future<void>? _storageTail;
+
+  Future<T> _stored<T>(Future<T> Function() operation) {
+    final tail = _storageTail;
+    final next = tail == null
+        ? Future<T>.sync(operation)
+        : tail.then((_) => operation());
+    _storageTail =
+        next.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return next;
+  }
+
+  void _requireSession(int revision) {
+    if (revision != _sessionRevision) {
+      throw AccountException(
+          'Sesja zmieniła się. Spróbuj ponownie. / Session changed. Please try again.');
+    }
+  }
 
   /// Changes only when the authenticated session changes, never on profile edits.
   int get sessionRevision => _sessionRevision;
@@ -36,12 +59,17 @@ class AccountService extends ChangeNotifier {
   }
 
   Future<void> _restore() async {
-    _token = await _storage.read(key: _key);
+    final epoch = _authEpoch, revision = _sessionRevision;
+    final stored = await _stored(() => _storage.read(key: _key));
+    if (epoch != _authEpoch || revision != _sessionRevision) return;
+    _token = stored;
     if (_token == null) return;
     _sessionRevision++;
+    final restoredRevision = _sessionRevision;
     notifyListeners();
     try {
       final r = await request('GET', '/me');
+      _requireSession(restoredRevision);
       account = Map<String, dynamic>.from(r['account'] as Map);
       notifyListeners();
     } catch (_) {
@@ -56,6 +84,9 @@ class AccountService extends ChangeNotifier {
 
   Future<Map<String, dynamic>> request(String method, String path,
       [Map<String, dynamic>? body]) async {
+    final revision = _sessionRevision;
+    final epoch = _authEpoch;
+    final credentials = path == '/login' || path == '/register';
     final req =
         http.Request(method, Uri.parse('$_baseUrl/api/fitter/account$path'));
     req.headers.addAll({
@@ -65,17 +96,15 @@ class AccountService extends ChangeNotifier {
     if (body != null) req.body = jsonEncode(body);
     final response = await http.Response.fromStream(
         await _client.send(req).timeout(const Duration(seconds: 20)));
+    if (!credentials) _requireSession(revision);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
       if (response.statusCode == 401 &&
-          path != '/login' &&
+          !credentials &&
+          epoch == _authEpoch &&
           path != '/password' &&
           method != 'DELETE') {
-        _token = null;
-        account = null;
-        _sessionRevision++;
-        notifyListeners();
-        await _storage.delete(key: _key);
+        await forgetSession();
       }
       throw AccountException(data['error']?['message'] as String? ??
           'Błąd serwera / Server error');
@@ -85,6 +114,7 @@ class AccountService extends ChangeNotifier {
 
   Future<void> signIn(String email, String password,
       {String? displayName}) async {
+    final epoch = ++_authEpoch, revision = _sessionRevision;
     final r =
         await request('POST', displayName == null ? '/login' : '/register', {
       'email': email.trim(),
@@ -95,32 +125,53 @@ class AccountService extends ChangeNotifier {
       },
     });
     final token = r['token'] as String;
-    await _storage.write(key: _key, value: token);
-    _token = token;
-    _loaded = true;
-    account = Map<String, dynamic>.from(r['account'] as Map);
-    _sessionRevision++;
-    notifyListeners();
+    final identity = Map<String, dynamic>.from(r['account'] as Map);
+    await _stored(() async {
+      _requireSession(revision);
+      if (epoch != _authEpoch) {
+        throw AccountException('Logowanie anulowane / Sign-in cancelled');
+      }
+      await _storage.write(key: _key, value: token);
+      if (epoch != _authEpoch || revision != _sessionRevision) {
+        // This write cannot race another queued write. Restore the active
+        // session if logout/a newer sign-in superseded it while storage waited.
+        await _storage.write(key: _key, value: _token);
+        throw AccountException('Logowanie anulowane / Sign-in cancelled');
+      }
+      _token = token;
+      _loaded = true;
+      account = identity;
+      _sessionRevision++;
+      notifyListeners();
+    });
   }
 
   Future<void> saveProfile(Map<String, dynamic> profile) async {
+    final revision = _sessionRevision;
     final r = await request('PUT', '/profile', profile);
+    _requireSession(revision);
     account = Map<String, dynamic>.from(r['account'] as Map);
     notifyListeners();
   }
 
   Future<void> signOut() async {
+    _authEpoch++;
+    final revision = _sessionRevision;
     // Revoke server session before clearing its only local copy.
     await request('POST', '/logout');
+    _requireSession(revision);
     await forgetSession();
   }
 
   Future<void> forgetSession() async {
+    _authEpoch++;
+    _loaded = true;
     _token = null;
     account = null;
     _sessionRevision++;
+    final erased = _stored(() => _storage.delete(key: _key));
     notifyListeners();
-    await _storage.delete(key: _key);
+    await erased;
   }
 }
 

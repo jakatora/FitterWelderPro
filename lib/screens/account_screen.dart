@@ -30,11 +30,24 @@ class _AccountScreenState extends State<AccountScreen> {
       publicProfile = false,
       feedbackGranted = false;
   String? error;
+  int _sessionRevision = 0;
   @override
   void initState() {
     super.initState();
     registering = widget.initialRegister;
+    _sessionRevision = service.sessionRevision;
+    service.addListener(_sessionChanged);
     _load();
+  }
+
+  void _sessionChanged() {
+    if (!mounted || _sessionRevision == service.sessionRevision) return;
+    _sessionRevision = service.sessionRevision;
+    setState(() {
+      _fill();
+      password.clear();
+      error = null;
+    });
   }
 
   Future<void> _load() async {
@@ -82,6 +95,7 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   void dispose() {
+    service.removeListener(_sessionChanged);
     for (final c in [
       email,
       password,
@@ -389,6 +403,10 @@ class AdminReportsScreen extends StatefulWidget {
 }
 
 class _AdminReportsScreenState extends State<AdminReportsScreen> {
+  final service = AccountService.instance;
+  int _sessionRevision = 0;
+  bool _wasAdmin = false;
+  int _generation = 0;
   List<dynamic>? items;
   String? error;
   bool saving = false;
@@ -397,19 +415,48 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _sessionRevision = service.sessionRevision;
+    _wasAdmin = service.isAdmin;
+    service.addListener(_sessionChanged);
+    if (service.isAdmin) _load();
+  }
+
+  void _sessionChanged() {
+    if (!mounted ||
+        (_sessionRevision == service.sessionRevision &&
+            _wasAdmin == service.isAdmin)) {
+      return;
+    }
+    _sessionRevision = service.sessionRevision;
+    _wasAdmin = service.isAdmin;
+    _generation++;
+    setState(() {
+      items = null;
+      nextBefore = null;
+      error = null;
+      saving = false;
+      fetching = false;
+    });
+    if (service.isAdmin) _load();
+  }
+
+  @override
+  void dispose() {
+    service.removeListener(_sessionChanged);
+    super.dispose();
   }
 
   Future<void> _load({bool more = false}) async {
-    if (fetching) return;
+    if (fetching || !service.isAdmin) return;
+    final generation = _generation;
     fetching = true;
     try {
-      final r = await AccountService.instance.request(
+      final r = await service.request(
           'GET',
           more && nextBefore != null
               ? '/reports?before=$nextBefore'
               : '/reports');
-      if (mounted) {
+      if (mounted && generation == _generation && service.isAdmin) {
         setState(() {
           items =
               more ? [...?items, ...r['items'] as List] : r['items'] as List;
@@ -418,13 +465,13 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && generation == _generation && service.isAdmin) {
         setState(() => error = context.tr(
             pl: 'Nie udało się pobrać raportów. Sprawdź połączenie i uprawnienia.',
             en: 'Could not load reports. Check connection and permissions.'));
       }
     } finally {
-      fetching = false;
+      if (generation == _generation) fetching = false;
     }
   }
 
@@ -434,92 +481,110 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           title: Text(context.tr(
               pl: 'Raporty administratora', en: 'Administrator reports')),
           actions: [
-            IconButton(onPressed: _load, icon: const Icon(Icons.refresh))
+            IconButton(
+                onPressed: service.isAdmin ? _load : null,
+                icon: const Icon(Icons.refresh))
           ]),
-      body: error != null
-          ? Center(child: Text(error!))
-          : items == null
-              ? const Center(child: CircularProgressIndicator())
-              : items!.isEmpty
-                  ? Center(
-                      child: Text(
-                          context.tr(pl: 'Brak raportów', en: 'No reports')))
-                  : ListView(children: [
-                      for (final raw in items!)
-                        Builder(builder: (_) {
-                          final r = raw as Map;
-                          return Card(
-                              margin: const EdgeInsets.all(12),
-                              child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                            '${r['tool'] ?? r['kind']} · ${r['occurrences']}×',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium),
-                                        const SizedBox(height: 8),
-                                        SelectableText('${r['text']}'),
-                                        Text(
-                                            '${r['receivedAt']} · ${r['app']} · ${r['platform']}'),
-                                        DropdownButton<String>(
-                                            value: r['status'] as String,
-                                            items: [
-                                              DropdownMenuItem(
-                                                  value: 'new',
-                                                  child: Text(context.tr(
-                                                      pl: 'Nowy', en: 'New'))),
-                                              DropdownMenuItem(
-                                                  value: 'in_progress',
-                                                  child: Text(context.tr(
-                                                      pl: 'W realizacji',
-                                                      en: 'In progress'))),
-                                              DropdownMenuItem(
-                                                  value: 'implemented',
-                                                  child: Text(context.tr(
-                                                      pl: 'Wdrożony',
-                                                      en: 'Implemented'))),
-                                            ],
-                                            onChanged: saving
-                                                ? null
-                                                : (v) async {
-                                                    if (v == null) return;
-                                                    setState(
-                                                        () => saving = true);
-                                                    try {
-                                                      await AccountService
-                                                          .instance
-                                                          .request(
+      body: !service.isAdmin
+          ? Center(
+              child: Text(context.tr(
+                  pl: 'Dostęp tylko dla administratora.',
+                  en: 'Administrator access only.')))
+          : error != null
+              ? Center(child: Text(error!))
+              : items == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : items!.isEmpty
+                      ? Center(
+                          child: Text(context.tr(
+                              pl: 'Brak raportów', en: 'No reports')))
+                      : ListView(children: [
+                          for (final raw in items!)
+                            Builder(builder: (_) {
+                              final r = raw as Map;
+                              return Card(
+                                  margin: const EdgeInsets.all(12),
+                                  child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                                '${r['tool'] ?? r['kind']} · ${r['occurrences']}×',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium),
+                                            const SizedBox(height: 8),
+                                            SelectableText('${r['text']}'),
+                                            Text(
+                                                '${r['receivedAt']} · ${r['app']} · ${r['platform']}'),
+                                            DropdownButton<String>(
+                                                value: r['status'] as String,
+                                                items: [
+                                                  DropdownMenuItem(
+                                                      value: 'new',
+                                                      child: Text(context.tr(
+                                                          pl: 'Nowy',
+                                                          en: 'New'))),
+                                                  DropdownMenuItem(
+                                                      value: 'in_progress',
+                                                      child: Text(context.tr(
+                                                          pl: 'W realizacji',
+                                                          en: 'In progress'))),
+                                                  DropdownMenuItem(
+                                                      value: 'implemented',
+                                                      child: Text(context.tr(
+                                                          pl: 'Wdrożony',
+                                                          en: 'Implemented'))),
+                                                ],
+                                                onChanged: saving
+                                                    ? null
+                                                    : (v) async {
+                                                        if (v == null) return;
+                                                        final generation =
+                                                            _generation;
+                                                        setState(() =>
+                                                            saving = true);
+                                                        try {
+                                                          await service.request(
                                                               'PUT',
                                                               '/reports/${r['id']}',
                                                               {'status': v});
-                                                      await _load();
-                                                    } catch (_) {
-                                                      if (mounted) {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(SnackBar(
-                                                                content: Text(
-                                                                    context.tr(
+                                                          if (mounted &&
+                                                              generation ==
+                                                                  _generation &&
+                                                              service.isAdmin) {
+                                                            await _load();
+                                                          }
+                                                        } catch (_) {
+                                                          if (mounted &&
+                                                              generation ==
+                                                                  _generation &&
+                                                              service.isAdmin) {
+                                                            ScaffoldMessenger
+                                                                    .of(context)
+                                                                .showSnackBar(SnackBar(
+                                                                    content: Text(context.tr(
                                                                         pl: 'Nie zapisano statusu.',
                                                                         en: 'Status was not saved.'))));
-                                                      }
-                                                    } finally {
-                                                      if (mounted) {
-                                                        setState(() =>
-                                                            saving = false);
-                                                      }
-                                                    }
-                                                  }),
-                                      ])));
-                        }),
-                      if (nextBefore != null)
-                        TextButton(
-                            onPressed: () => _load(more: true),
-                            child: Text(context.tr(
-                                pl: 'Starsze raporty', en: 'Older reports'))),
-                    ]));
+                                                          }
+                                                        } finally {
+                                                          if (mounted &&
+                                                              generation ==
+                                                                  _generation) {
+                                                            setState(() =>
+                                                                saving = false);
+                                                          }
+                                                        }
+                                                      }),
+                                          ])));
+                            }),
+                          if (nextBefore != null)
+                            TextButton(
+                                onPressed: () => _load(more: true),
+                                child: Text(context.tr(
+                                    pl: 'Starsze raporty',
+                                    en: 'Older reports'))),
+                        ]));
 }
