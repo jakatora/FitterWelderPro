@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/fitter/tube_bending.dart';
+import '../../domain/fitter/tube_bending_command.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -63,7 +65,127 @@ class _Outcome {
   const _Outcome({this.problems = const [], this.run, this.offset});
 }
 
-class _TubeBendingPageState extends State<TubeBendingPage> {
+class _TubeBendingPageState extends State<TubeBendingPage>
+    with ToolHandleHost<TubeBendingPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'tube_bending';
+  @override
+  Set<String> get supportedFields => kTubeCalculationFields;
+
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'mode': _mode.name,
+        'unit': _unit.name,
+        'clr_mm': _clrMm,
+        'min_straight_mm': _minMm,
+        'marker_offset_mm': _offMm,
+        'springback_deg': _sbDeg,
+        if (_mode == TubeBendingMode.single) ...{
+          'angle_deg': _degOf(_sAngle),
+          'leg_a_mm': _mmOf(_sA),
+          'leg_b_mm': _mmOf(_sB),
+        },
+        if (_mode == TubeBendingMode.offset) ...{
+          'angle_deg': _degOf(_oAngle),
+          'leg_a_mm': _mmOf(_oA),
+          'leg_b_mm': _mmOf(_oB),
+          'height_mm': _mmOf(_oH),
+          'spread_mm': _mmOf(_oSpread, optional: true),
+        },
+        if (_mode == TubeBendingMode.multi) ...{
+          'segments_mm':
+              List<double>.unmodifiable([for (final f in _segs) _mmOf(f)]),
+          'angles_deg':
+              List<double>.unmodifiable([for (final c in _angles) _degOf(c)]),
+          'rotations_deg': List<double>.unmodifiable(
+              [for (final c in _rots) _degOf(c, optional: true)]),
+        },
+      });
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !_loaded) return fields.keys.toSet();
+    // Switching display units also works for incomplete native input. It
+    // changes no canonical dimension and never invents a calculated answer.
+    if (fields.length == 1 && fields.containsKey('unit')) {
+      final unit = fields['unit'];
+      if (unit != 'mm' && unit != 'inch') return {'unit'};
+      setState(() {
+        _inch = unit == 'inch';
+        for (final f in _lengthFields) {
+          _show(f);
+        }
+        _touched = true;
+        _damagedNotice = false;
+      });
+      await _save();
+      return {};
+    }
+    final TubeBendingCommand command;
+    try {
+      command = TubeBendingCommand.fromFields(fields);
+    } on FormatException {
+      return fields.keys.toSet();
+    }
+    final input = command.run.input;
+    setState(() {
+      _mode = TubeBendingMode.values.byName(command.mode.name);
+      _inch = command.unit == TubeUnit.inch;
+      _clr.mm = input.clrMm;
+      _minStraight.mm = input.minStraightMm;
+      _markerOffset.mm = input.markerOffsetMm;
+      _springback.text = _deg2(input.springbackDeg);
+      switch (command.mode) {
+        case TubeCalculationMode.single:
+          _sAngle.text = _deg2(input.anglesDeg.single);
+          _sA.mm = input.segmentsMm.first;
+          _sB.mm = input.segmentsMm.last;
+        case TubeCalculationMode.offset:
+          final offset = command.offset!.input;
+          _applyOffsetInput(offset);
+        case TubeCalculationMode.multi:
+          _disposeLater([
+            for (final f in _segs) f.controller,
+            ..._angles,
+            ..._rots,
+          ]);
+          _segs
+            ..clear()
+            ..addAll([for (final v in input.segmentsMm) _LenField(v)]);
+          _angles
+            ..clear()
+            ..addAll([
+              for (final v in input.anglesDeg)
+                TextEditingController(text: _deg2(v)),
+            ]);
+          _rots
+            ..clear()
+            ..addAll([
+              for (final v in input.rotationsDeg)
+                TextEditingController(text: _deg2(v)),
+            ]);
+      }
+      // Only the selected mode's geometry changed. Other modes retain their
+      // canonical values; a unit change merely refreshes their displayed text.
+      for (final f in _lengthFields) {
+        _show(f);
+      }
+      _touched = true;
+      _damagedNotice = false;
+    });
+    await _save();
+    return {};
+  }
+
+  void _applyOffsetInput(TubeOffsetInput input) {
+    _oH.mm = input.heightMm;
+    _oSpread.mm = input.spreadMm;
+    _oAngle.text = _deg2(input.angleDeg);
+    _oA.mm = input.legAMm;
+    _oB.mm = input.legBMm;
+  }
+
   TubeBendingMode _mode = TubeBendingMode.multi;
   bool _inch = false;
 
@@ -158,6 +280,7 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
     // Edycja sprzed końca odczytu nie była zapisana (zapis czekał na
     // odczyt) — zapisz ją teraz, a nie dopiero przy następnej zmianie.
     if (_touched) await _save();
+    if (mounted) markReady();
   }
 
   /// Kontrolery zdjęte z ekranu — pola trzymają je jeszcze w tej klatce.
@@ -183,7 +306,14 @@ class _TubeBendingPageState extends State<TubeBendingPage> {
   void _edited(_LenField f, String text) => _changed(() => f.mm =
       text.trim().isEmpty ? null : (parseDecimal(text) ?? double.nan) * _scale);
 
-  String _deg2(double? v) => v == null || !v.isFinite ? '' : numText(v);
+  // These are editable INPUT values, not display readouts. Rounding a saved
+  // angle/rotation here would change geometry after apply or reopen.
+  String _deg2(double? v) {
+    if (v == null || !v.isFinite) return '';
+    var text = v.toString();
+    if (text.endsWith('.0')) text = text.substring(0, text.length - 2);
+    return AppLanguageController.isEnglish ? text : text.replaceAll('.', ',');
+  }
 
   void _apply(TubeBendingSaved s) {
     _mode = s.mode;

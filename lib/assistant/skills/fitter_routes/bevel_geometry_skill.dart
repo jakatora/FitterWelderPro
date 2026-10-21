@@ -75,6 +75,9 @@ class BevelGeometrySkill extends AssistantSkill {
             'Fazowanie X ścianka 20 mm kąt na stronę 30 próg 2 mm szczelina 2 mm',
             'Bevel X wall 20 mm angle per side 30 root face 2 mm gap 2 mm'),
         SkillExample('Oblicz fazowanie', 'Calculate bevel'),
+        SkillExample(
+            'Oblicz ukosowanie V ścianka 10 mm kąt na stronę 30 próg 1 mm szczelina 2 mm',
+            'Calculate bevel preparation V wall 10 mm angle per side 30 root face 1 mm gap 2 mm'),
         SkillExample('Fazowanie V ścianka 8 mm', 'Bevel V wall 8 mm'),
         SkillExample('Fazowanie X ścianka 12 mm kąt rowka 60',
             'Bevel X wall 12 mm groove angle 60'),
@@ -94,7 +97,7 @@ class BevelGeometrySkill extends AssistantSkill {
         RegExp(r'^(?:otworz|pokaz|open|show)\b').hasMatch(u.folded)) {
       return null;
     }
-    if (!u.hasStem(const ['fazow', 'bevel'])) return null;
+    if (!u.hasStem(const ['fazow', 'ukosow', 'bevel'])) return null;
     final s = _slots(u);
     return SkillMatch(
         this,

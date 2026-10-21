@@ -52,6 +52,12 @@ class RollingOffsetSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null) return null;
+    // Tube-bender geometry includes CLR, gain and physical bend marks. It is
+    // handled by the dedicated native tube calculator, not the pipe offset.
+    if (u.hasStem(const ['rurk', 'rurek', 'tube', 'tubing']) ||
+        u.hasAny(const ['gietarka', 'bender'])) {
+      return null;
+    }
     if (!u.hasAny(const ['rolling offset']) ||
         RegExp(r'^(?:otworz|pokaz|narysuj|dodaj|zapisz|open|show|draw|add|save)\b')
             .hasMatch(u.folded)) {

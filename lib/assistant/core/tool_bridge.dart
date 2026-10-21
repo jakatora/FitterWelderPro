@@ -8,6 +8,11 @@ abstract interface class RecordToolHandle {
   String? get selectedRecordId;
 }
 
+/// Only calculator pages opt in. Credential forms expose no inputs.
+abstract interface class InputToolHandle {
+  Map<String, Object?> get inputFields;
+}
+
 abstract class ToolHandle {
   String get toolId;
   Set<String> get supportedFields;
@@ -34,7 +39,21 @@ class _Waiter {
 
 /// Handles belong to route instances, not tool IDs: hidden copies never
 /// receive a command intended for the visible screen.
-class ToolBridge implements ModuleContext, RecordModuleContext {
+class ToolBridge
+    implements ModuleContext, RecordModuleContext, FieldModuleContext {
+  @override
+  Map<String, Object?>? inputFields(String toolId) {
+    final handle = current;
+    if (handle == null ||
+        handle.toolId != toolId ||
+        handle is! InputToolHandle ||
+        !isReady(handle) ||
+        appRoutes.top is PopupRoute) {
+      return null;
+    }
+    return (handle as InputToolHandle).inputFields;
+  }
+
   @override
   String? selectedRecordId(String toolId) {
     final handle = current;

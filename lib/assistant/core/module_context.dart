@@ -25,3 +25,9 @@ class FixedModuleContext implements ModuleContext {
 abstract interface class RecordModuleContext {
   String? selectedRecordId(String toolId);
 }
+
+/// Opt-in canonical calculator inputs from the visible, ready route. Manual
+/// edits may be newer than conversation history. Validate after merging edits.
+abstract interface class FieldModuleContext {
+  Map<String, Object?>? inputFields(String toolId);
+}
