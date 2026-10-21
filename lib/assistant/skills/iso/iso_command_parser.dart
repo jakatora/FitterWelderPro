@@ -84,7 +84,13 @@ enum IsoParseWarningKind {
   /// „Zawór” bez rodzaju (krok to [kIsoAnyValve]).
   valveTypeMissing,
 
-  /// Explicit symbol size is missing, ambiguous, zero or negative.
+  /// An axial body in a route cannot turn flow by itself.
+  axialDirectionRequiresPipe,
+
+  /// More than one direction was assigned to one drawing element.
+  directionAmbiguous,
+
+  /// Explicit fitting sizes are ambiguous, invalid or not supported by this symbol.
   invalidSymbolSize,
 }
 
@@ -247,14 +253,27 @@ class IsoCommand {
         answer.hasAny(const ['nps']) ||
         answer.tokens.any(isInchUnit);
     final dn = _dnOf(answer);
-    if (sizeMentioned && (dn == null || !knownDns.contains(dn))) return null;
+    if (sizeMentioned && (dn == null || !kIsoNotebookDnChoices.contains(dn))) {
+      return null;
+    }
     if (!sizeMentioned && answer.items.any((item) => item.isNumber)) {
       return null;
     }
+    if (_directionsIn(answer.items).length > 1) return null;
+    final direction = isoDirectionOf(answer), compass = isoCompassOf(answer);
+    if ((direction != null || compass != null) && !original.symbolOnly) {
+      return null;
+    }
     final copy = List<IsoStep>.from(steps);
-    copy[index] =
-        IsoFitting(types.single, dn: dn ?? original.dn, dnOut: original.dnOut);
-    return copyWith(steps: copy, warnings: [
+    copy[index] = IsoFitting(types.single,
+        dn: dn ?? original.dn,
+        dnOut: original.dnOut,
+        symbolOnly: original.symbolOnly,
+        dir: direction ?? (compass == null ? original.dir : null));
+    final directions = Map<int, IsoCompass>.from(compassAt);
+    if (direction != null) directions.remove(index);
+    if (compass != null) directions[index] = compass;
+    return copyWith(steps: copy, compassAt: directions, warnings: [
       for (final w in warnings)
         if (w != missing) w
     ]);
@@ -480,38 +499,25 @@ IsoCompass? _compassOf(String w) {
   return null;
 }
 
-/// Pierwszy kierunek w [items] (słowo kierunku albo strona świata).
+Set<Object> _directionsIn(Iterable<SpokenItem> items) => {
+      for (final it in items)
+        if (!it.isNumber) ...[
+          if (_dirWords[it.word] != null) _dirWords[it.word]!,
+          if (_compassOf(it.word) != null) _compassOf(it.word)!,
+        ],
+    };
+
+/// One unambiguous direction. Different physical/compass directions cannot
+/// be resolved without the drawing's north arrow, so leave them unanswered.
 (IsoDir?, IsoCompass?) _directionIn(Iterable<SpokenItem> items) {
-  for (final it in items) {
-    if (it.isNumber) continue;
-    final d = _dirWords[it.word];
-    if (d != null) return (d, null);
-    final c = _compassOf(it.word);
-    if (c != null) return (null, c);
-  }
-  return (null, null);
+  final values = _directionsIn(items);
+  if (values.length != 1) return (null, null);
+  final value = values.single;
+  return value is IsoDir ? (value, null) : (null, value as IsoCompass);
 }
 
-/// Kierunek z całej wypowiedzi („w górę” jako odpowiedź na pytanie).
-/// Strony świata się nie liczą — [isoCompassOf].
-IsoDir? isoDirectionOf(Utterance u) {
-  for (final it in u.items) {
-    if (it.isNumber) continue;
-    final d = _dirWords[it.word];
-    if (d != null) return d;
-  }
-  return null;
-}
-
-/// Strona świata z wypowiedzi albo null.
-IsoCompass? isoCompassOf(Utterance u) {
-  for (final it in u.items) {
-    if (it.isNumber) continue;
-    final c = _compassOf(it.word);
-    if (c != null) return c;
-  }
-  return null;
-}
+IsoDir? isoDirectionOf(Utterance u) => _directionIn(u.items).$1;
+IsoCompass? isoCompassOf(Utterance u) => _directionIn(u.items).$2;
 
 /// Rodzaj zaworu z wypowiedzi („kulowy”, „zasuwa”, „check”) albo null.
 String? isoValveTypeOf(Utterance u) {
@@ -870,7 +876,6 @@ IsoCommand? parseIsoCommand(Utterance u) {
     for (var i = 0; i < items.length; i++)
       if (owner[i] < 0) items[i],
   ];
-  final (preDir, preCompass) = _directionIn(preamble);
 
   // ── kroki ───────────────────────────────────────────────────────────────
   final steps = <IsoStep>[];
@@ -883,15 +888,45 @@ IsoCommand? parseIsoCommand(Utterance u) {
   for (var k = 0; k < segs.length; k++) {
     final s = segs[k];
     final segItems = [for (final i in s.idx) items[i]];
-    var (dir, compass) = _directionIn(segItems);
-    if (k == 0 && dir == null && compass == null) {
-      dir = preDir;
-      compass = preCompass;
+    final directionItems = [...segItems, if (k == 0) ...preamble];
+    final (dir, compass) = _directionIn(directionItems);
+    if (_directionsIn(directionItems).length > 1) {
+      warnings.add(IsoParseWarning(IsoParseWarningKind.directionAmbiguous,
+          step: steps.length));
     }
     if (dir != null || compass != null) strong = true;
     final sub = Utterance(_textOf(segItems), lang: u.lang);
     final index = steps.length;
     if (compass != null) compassAt[index] = compass;
+    final axialSymbol =
+        segs.length == 1 && (symbolOnly || dir != null || compass != null);
+    final axial = const {
+      _El.flange,
+      _El.cap,
+      _El.reducer,
+      _El.valve,
+      _El.weld,
+      _El.support
+    }.contains(s.el);
+    var invalidAxialSize = false;
+    final axialSizes = axial
+        ? _sizes(segItems, s.idx.indexOf(s.at),
+            onInvalid: () => invalidAxialSize = true)
+        : <(int, bool)>[];
+    final maxSizes = s.el == _El.reducer
+        ? 2
+        : (s.el == _El.weld || s.el == _El.support)
+            ? 0
+            : 1;
+    if (axial && (invalidAxialSize || axialSizes.length > maxSizes)) {
+      warnings.add(
+          IsoParseWarning(IsoParseWarningKind.invalidSymbolSize, step: index));
+    }
+    if (axial && !axialSymbol && (dir != null || compass != null)) {
+      warnings.add(IsoParseWarning(
+          IsoParseWarningKind.axialDirectionRequiresPipe,
+          step: index));
+    }
 
     switch (s.el) {
       case _El.pipe:
@@ -952,7 +987,7 @@ IsoCommand? parseIsoCommand(Utterance u) {
         pipeDn = null;
       case _El.flange:
       case _El.cap:
-        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        final sizes = axialSizes;
         final blind =
             segItems.any((it) => !it.isNumber && _isBlindWord(it.word));
         final tool = s.el == _El.cap
@@ -961,13 +996,14 @@ IsoCommand? parseIsoCommand(Utterance u) {
                 ? 'blindFlange'
                 : 'cap')
             : (blind ? 'blindFlange' : 'flange');
-        compassAt.remove(index);
+        if (!axialSymbol) compassAt.remove(index);
         final dn = sizes.firstOrNull?.$1 ?? pipeDn;
         if (dn != null) strong = true;
-        steps.add(IsoFitting(tool, dn: dn));
+        steps.add(IsoFitting(tool,
+            dn: dn, symbolOnly: axialSymbol, dir: axialSymbol ? dir : null));
         pipeDn = null;
       case _El.reducer:
-        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        final sizes = axialSizes;
         int? dn, out;
         if (sizes.length >= 2) {
           dn = sizes[0].$1;
@@ -984,11 +1020,15 @@ IsoCommand? parseIsoCommand(Utterance u) {
           dn = pipeDn;
         }
         if (dn != null || out != null) strong = true;
-        compassAt.remove(index);
-        steps.add(IsoFitting('reducer', dn: dn, dnOut: out));
+        if (!axialSymbol) compassAt.remove(index);
+        steps.add(IsoFitting('reducer',
+            dn: dn,
+            dnOut: out,
+            symbolOnly: axialSymbol,
+            dir: axialSymbol ? dir : null));
         pipeDn = null;
       case _El.valve:
-        final sizes = _sizes(segItems, s.idx.indexOf(s.at));
+        final sizes = axialSizes;
         String? type;
         for (final it in segItems) {
           if (it.isNumber) continue;
@@ -999,19 +1039,22 @@ IsoCommand? parseIsoCommand(Utterance u) {
           warnings.add(IsoParseWarning(IsoParseWarningKind.valveTypeMissing,
               step: index));
         }
-        compassAt.remove(index);
+        if (!axialSymbol) compassAt.remove(index);
         final dn = sizes.firstOrNull?.$1 ?? pipeDn;
         if (dn != null) strong = true;
-        steps.add(IsoFitting(type ?? kIsoAnyValve, dn: dn));
+        steps.add(IsoFitting(type ?? kIsoAnyValve,
+            dn: dn, symbolOnly: axialSymbol, dir: axialSymbol ? dir : null));
         pipeDn = null;
       case _El.weld:
         final field =
             segItems.any((it) => !it.isNumber && _isFieldWord(it.word));
-        compassAt.remove(index);
-        steps.add(IsoFitting(field ? 'fieldWeld' : 'weld'));
+        if (!axialSymbol) compassAt.remove(index);
+        steps.add(IsoFitting(field ? 'fieldWeld' : 'weld',
+            symbolOnly: axialSymbol, dir: axialSymbol ? dir : null));
       case _El.support:
-        compassAt.remove(index);
-        steps.add(const IsoFitting('support'));
+        if (!axialSymbol) compassAt.remove(index);
+        steps.add(IsoFitting('support',
+            symbolOnly: axialSymbol, dir: axialSymbol ? dir : null));
     }
   }
 
@@ -1025,8 +1068,9 @@ IsoCommand? parseIsoCommand(Utterance u) {
           .add(const IsoParseWarning(IsoParseWarningKind.invalidSymbolSize));
     }
   }
-  // Kształtki osiowe nie mają kierunku — strona świata przy nich nic nie
-  // znaczy (usunięta wyżej); zostają tylko rury i skręty.
+  // Standalone axial symbols retain their explicit orientation. In a routed
+  // sequence their orientation follows the pipe; conflicting direction text
+  // asks for an actual pipe/turn instead of being silently discarded.
   return IsoCommand(
     kind: IsoCommandKind.draw,
     steps: List.unmodifiable(steps),
@@ -1083,7 +1127,8 @@ int? _dnOf(Utterance sub) {
 /// Rozmiary kształtki po kolei: (DN, czy stoi po „na / to / do”). [keyAt] —
 /// pozycja słowa-klucza w [items] (numery spoin itp. przed nim się nie
 /// liczą). „dn 4 0” (dwuznaczne) nie daje rozmiaru.
-List<(int, bool)> _sizes(List<SpokenItem> items, int keyAt) {
+List<(int, bool)> _sizes(List<SpokenItem> items, int keyAt,
+    {void Function()? onInvalid}) {
   final out = <(int, bool)>[];
   final known = knownDns.toSet();
   var after = false;
@@ -1117,10 +1162,13 @@ List<(int, bool)> _sizes(List<SpokenItem> items, int keyAt) {
           if (!ambiguous && v == v.roundToDouble() && v > 0) {
             out.add((v.toInt(), after));
             after = false;
+          } else {
+            onInvalid?.call();
           }
           i = ambiguous ? j + 2 : j + 1;
           continue;
         }
+        onInvalid?.call();
       }
       i++;
       continue;

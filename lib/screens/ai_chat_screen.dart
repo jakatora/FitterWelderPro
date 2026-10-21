@@ -691,18 +691,33 @@ class _AiChatScreenState extends State<AiChatScreen>
           'Command not executed. Give one positive DN; for a tee give the run and branch DN.');
       return true;
     }
+    if (command.has(IsoParseWarningKind.directionAmbiguous)) {
+      _isoReply(
+          'Nie zmieniłem rysunku. Podaj jeden kierunek dla każdego elementu; np. „w górę” albo „na północ”.',
+          'Drawing unchanged. Specify one direction per element, e.g. “up” or “north”.');
+      return true;
+    }
+    if (command.has(IsoParseWarningKind.axialDirectionRequiresPipe)) {
+      _isoReply(
+          'Nie zmieniłem rysunku. Zawór lub kołnierz w trasie biegnie wzdłuż rury. Jeśli trasa skręca, podaj kolano i kierunek następnej rury; sam element ustaw poleceniem „narysuj symbol…”.',
+          'Drawing unchanged. An axial fitting follows its pipe. For a route turn, specify an elbow and the next pipe direction; to orient just the fitting, say “draw symbol…”.');
+      return true;
+    }
     final unsafe = command.warnings.where((w) =>
         w.kind != IsoParseWarningKind.lengthAssumedMeters &&
         w.kind != IsoParseWarningKind.valveTypeMissing);
     if (unsafe.isNotEmpty) {
       unawaited(_feedback.missing(text,
           tool: 'iso_notebook', skill: 'iso.unsupported', lang: lang));
-      _isoReply(
-          'Potrzebuję dokładniejszego polecenia. Podaj długość z jednostką, '
-              'kierunek (prawo, lewo, góra, dół) i rodzaj kształtki. '
-              'Trasy 45° i odgałęzienia wymagają dalszego określenia. Sam element dodasz poleceniem „wstaw symbol kolana 45 DN50” albo „wstaw symbol trójnika DN50”.',
-          'Please specify a length with units, direction (right, left, up, down) '
-              'and fitting type. Sloping and branch routes need further specification. For a standalone element, say “place 45 degree elbow symbol DN50” or “place tee symbol DN50”.');
+      if (command.has(IsoParseWarningKind.unsupported45)) {
+        _isoReply(
+            'Nie zmieniłem rysunku. Trasy obsługują kolana 45° i 90°; podany inny kąt nie jest jeszcze obsługiwany.',
+            'Drawing unchanged. Routes support 45° and 90° elbows; the other specified angle is not supported yet.');
+      } else {
+        _isoReply(
+            'Nie zmieniłem rysunku. Najpierw narysuj przelot trójnika, a kierunek gałęzi podaj osobno poleceniem „od trójnika rura…”. Sam element dodasz poleceniem „wstaw symbol trójnika DN50”.',
+            'Drawing unchanged. Draw the tee run first, then specify its branch with “from the tee pipe…”. For just the fitting, say “place tee symbol DN50”.');
+      }
       return true;
     }
     if (command.has(IsoParseWarningKind.valveTypeMissing)) {

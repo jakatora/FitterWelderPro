@@ -11,6 +11,7 @@ import 'package:cut_list_app/database/iso_drawing_dao.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/screens/iso_notebook_screen.dart';
 import 'package:cut_list_app/feedback/feedback_store.dart';
+import 'package:cut_list_app/feedback/feedback_consent.dart';
 import '../support/test_database.dart';
 import '../test_prefs.dart';
 
@@ -301,6 +302,113 @@ void main() {
     final items = (jsonDecode(saved!.json) as Map)['items'] as List;
     expect(items.where((e) => e['tool'] == 'ballValve'), isEmpty);
     expect(c.debugPipeAxisTags, hasLength(2));
+    await _close(t);
+  });
+  for (final (tool, noun, size) in [
+    ('ballValve', 'zaworu kulowego', 'DN50'),
+    ('gateValve', 'zasuwy', 'DN50'),
+    ('checkValve', 'zaworu zwrotnego', 'DN50'),
+    ('globeValve', 'zaworu grzybkowego', 'DN50'),
+    ('butterflyValve', 'przepustnicy', 'DN50'),
+    ('flange', 'kołnierza', 'DN50'),
+    ('blindFlange', 'kołnierza zaślepiającego', 'DN50'),
+    ('cap', 'zaślepki', 'DN50'),
+    ('reducer', 'redukcji', 'DN100 na DN80'),
+    ('weld', 'spoiny', ''),
+    ('fieldWeld', 'spoiny montażowej', ''),
+    ('support', 'podpory', ''),
+  ]) {
+    testWidgets(
+        'standalone $tool keeps requested direction through chat, native screen and SQLite',
+        (t) async {
+      await _boot(t);
+      await _say(t, 'narysuj symbol $noun $size w górę');
+      await settle(t);
+      final saved = await t.runAsync(() => IsoDrawingDao().latest());
+      final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+      final fitting = items.singleWhere((x) => x['tool'] == tool);
+      expect(fitting['dir'], IsoDir.up.index,
+          reason:
+              'an explicit symbol must not flip like an inferred run terminal');
+      expect(items.where((x) => x['tool'] == 'pipe'), isEmpty);
+      await _say(t, 'cofnij');
+      expect(IsoNotebookController.active!.hasContent, isFalse);
+      await _close(t);
+    });
+  }
+  testWidgets(
+      'valve question preserves compass and size until the actual drawing north arrow resolves it',
+      (t) async {
+    await t.runAsync(() => IsoDrawingDao().upsert(IsoDrawingRecord(
+        id: 'axial-compass',
+        name: 'North',
+        createdAt: 1000,
+        updatedAt: 1000,
+        json: jsonEncode({
+          'format': 1,
+          'name': 'North',
+          'items': [
+            {
+              'kind': 'comp',
+              'tool': 'northArrow',
+              'pos': [416.0, 64.0],
+              'dir': 3,
+              'dir2': null,
+              'label': ''
+            }
+          ]
+        }))));
+    await _boot(t);
+    await _say(t, 'dorysuj symbol zaworu DN50 na północ');
+    expect(find.textContaining('Jaki rodzaj zaworu'), findsWidgets);
+    await _say(t, 'kulowy');
+    await settle(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final valve = ((jsonDecode(saved!.json) as Map)['items'] as List)
+        .singleWhere((x) => x['tool'] == 'ballValve');
+    expect(valve['dir'], 3);
+    expect(valve['dn'], 50);
+    await _close(t);
+  });
+  testWidgets(
+      'conflicting route orientation and alternative directions ask without any drawing or gap report',
+      (t) async {
+    await _boot(t);
+    expect(
+        await FeedbackConsent.instance.grant(now: DateTime.utc(2026, 10, 21)),
+        isTrue);
+    await _say(t, 'narysuj rura metr w prawo');
+    final c = IsoNotebookController.active!;
+    await _say(t, 'dorysuj rura metr zawór kulowy DN50 w górę rura metr');
+    expect(find.textContaining('w trasie biegnie wzdłuż rury'), findsOneWidget);
+    await _say(t, 'dorysuj symbol kołnierza DN50 w lewo albo w prawo');
+    expect(find.textContaining('Podaj jeden kierunek'), findsOneWidget);
+    await _say(t, 'dorysuj symbol zaworu DN50 DN80 w górę');
+    expect(find.textContaining('Podaj jedno dodatnie DN'), findsOneWidget);
+    expect(c.debugPipeAxisTags, hasLength(1));
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    c.undo();
+    await settle(t);
+    expect(c.hasContent, isFalse);
+    await _close(t);
+  });
+  testWidgets(
+      'a genuinely unsupported angle retains the sketch and queues its capability gap with consent',
+      (t) async {
+    await _boot(t);
+    expect(
+        await FeedbackConsent.instance.grant(now: DateTime.utc(2026, 10, 21)),
+        isTrue);
+    await _say(t, 'narysuj rura metr w prawo');
+    final c = IsoNotebookController.active!;
+    await _say(t, 'dorysuj rura metr kolano 30 stopni w górę rura metr');
+    expect(find.textContaining('Trasy obsługują kolana 45° i 90°'),
+        findsOneWidget);
+    expect(c.debugPipeAxisTags, hasLength(1));
+    final reports = await FeedbackStore.instance.list();
+    expect(reports, hasLength(1));
+    expect(reports.single.tool, 'iso_notebook');
+    expect(reports.single.skill, 'iso.unsupported');
     await _close(t);
   });
   testWidgets(

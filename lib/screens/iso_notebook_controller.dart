@@ -1354,8 +1354,9 @@ class IsoNotebookController extends ChangeNotifier {
     // weld side (end A, −heading) must look at the pipe leaving it.
     final terminal =
         tool == _Tool.flange || tool == _Tool.blindFlange || tool == _Tool.cap;
-    final dir = atStart && terminal ? (heading + 3) % 6 : heading;
-    final axis = atStart && terminal
+    final dir =
+        atStart && terminal && !step.symbolOnly ? (heading + 3) % 6 : heading;
+    final axis = atStart && terminal && !step.symbolOnly
         ? spatialDirection == null
             ? null
             : spatialDirection * -1

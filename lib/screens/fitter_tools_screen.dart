@@ -597,10 +597,12 @@ class _ElbowTabState extends State<_ElbowTab> implements _FitterTabInput {
                   Icon(Icons.straighten,
                       size: 16, color: _kAccent.withValues(alpha: 0.8)),
                   const SizedBox(width: 8),
-                  Text(
-                    _tr('Jak zmierzyć kolano:', 'How to measure the elbow:'),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 13),
+                  Expanded(
+                    child: Text(
+                      _tr('Jak zmierzyć kolano:', 'How to measure the elbow:'),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
                   ),
                 ],
               ),
@@ -691,13 +693,15 @@ class _ElbowTabState extends State<_ElbowTab> implements _FitterTabInput {
                     Icon(Icons.info_outline,
                         size: 13, color: _kAccent.withValues(alpha: 0.6)),
                     const SizedBox(width: 6),
-                    Text(
-                      _tr(
-                        'OD wyliczone z pomiaru: ${_odDerived!.toStringAsFixed(1)} mm',
-                        'OD derived from measurement: ${_odDerived!.toStringAsFixed(1)} mm',
+                    Expanded(
+                      child: Text(
+                        _tr(
+                          'OD wyliczone z pomiaru: ${_odDerived!.toStringAsFixed(1)} mm',
+                          'OD derived from measurement: ${_odDerived!.toStringAsFixed(1)} mm',
+                        ),
+                        style: TextStyle(
+                            fontSize: 12, color: _kAccent.withValues(alpha: 0.8)),
                       ),
-                      style: TextStyle(
-                          fontSize: 12, color: _kAccent.withValues(alpha: 0.8)),
                     ),
                   ],
                 ),
