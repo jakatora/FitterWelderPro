@@ -15,6 +15,8 @@ import '../support/test_database.dart';
 import '../test_prefs.dart';
 import 'package:cut_list_app/services/weld_timer_service.dart';
 import '../support/fake_weld_timer_effects.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cut_list_app/domain/welding/electrode_exposure.dart';
 
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 4; i++) {
@@ -330,6 +332,21 @@ void main() {
     expect(ToolBridge.instance.activeToolId, 'iso5817');
     expect(find.textContaining('Pomiar: h = 0,4 mm'), findsOneWidget);
     expect(find.textContaining('Wynik:'), findsOneWidget);
+    await close(tester);
+  });
+  testWidgets(
+      'chat opens electrode reference without creating an exposure batch',
+      (tester) async {
+    await boot(tester);
+    final prefs = await SharedPreferences.getInstance();
+    final before = prefs.getString(kElectrodeBatchesPrefsKey);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Pokaż limit ekspozycji E7018 H4R z piecyka model 2020');
+    expect(ToolBridge.instance.activeToolId, 'electrode_exposure');
+    expect(find.byKey(const ValueKey('electrode-assistant-reference')),
+        findsOneWidget);
+    expect(prefs.getString(kElectrodeBatchesPrefsKey), before);
     await close(tester);
   });
   testWidgets(

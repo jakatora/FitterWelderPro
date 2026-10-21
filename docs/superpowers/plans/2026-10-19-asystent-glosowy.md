@@ -1044,3 +1044,37 @@ Regresja assistant+ISO UI+domena1474PASS; po dopowiedzeniu dodatkowe29PASS
 electrodes.exposure, rigging.colour, grinding.stripe, fume.oel, filler.pick.
 Pełny checkpoint aplikacji nadal a105026:6489PASS. Fizyczny mikrofon, systemowe
 alarmy i nowy build pozostają w etapie6. Backend w tej zmianie bez operacji.
+
+2026-10-21 — `electrodes.exposure`: referencje czasu ekspozycji i suszenia z
+ElectrodeClass/ElectrodeFamily/defaultLimitMinutes/defaultMaxRedries. Wspólny
+nowy electrodeReferenceText służy asystentowi i karcie w module. Pokazuje grupę
+tabeli, nie podmienia nazwy konkretnego produktu. E7018 bez R, -1, H4R/H8R,
+E7018M i grupy niskostopowe mają rozdzielone dane. Bare7018 wymaga wyjaśnienia
+wariantu; A1 wypowiedziane ze spacją zachowuje grupę A5.5, nie dostaje limitu R
+z A5.1. Sprzeczność H4R/bezR i niejednoznaczne E7018-M wymagają wyboru.
+Nieznane/nieobjęte klasy, niskostopowe R i inne wydania/ASME/D1.5 trafiają do
+brakującej możliwości. Zawilgocenie nie dostaje werdyktu z samego czasu modelu.
+Źródło pochodzenia (piecyk / świeże opakowanie) jest jawne. Wartość referencyjna
+wymaga polecenia „model/reference/2020” albo potwierdzenia po wyjaśnieniu zakresu.
+Dla EN to jawnie domyślne ustawienie/analogia, nie ogólny limit ustanowiony przez
+normę EN; wiążące są karta konkretnego produktu, WPS i wymagania projektu.
+Sufiks R i rozbieżność wymagań kodeksu/producenta sprawdzone w pierwotnym
+Lincoln Electric MC22-140 12/22 (odczyt2026-10-21):
+https://ch-delivery.lincolnelectric.com/api/public/content/c9885a12d37149b985327956ca3c9e97?v=d24abe95
+Nie przenoszono danych producenta na tabelę2020 ani nie zmieniano domeny partii.
+ElectrodeExposurePage ma uchwyt gotowy po odczycie dziennika i zbudowaniu tabs.
+Payloadelectrode_class/origin/reference_only=true pokazuje osobną kartę i wraca
+do zakładki stanowiska. Nie tworzy partii, nie zmienia istniejącego limitu,
+zdarzeń QC, ekspozycji ani liczby suszeń. Test z własnym limitem17min zachował
+cały JSON istniejącej partii. Nowy batch nadal wymaga osobnego przepływu zapisu
+(etap4), nie jest ukrytym skutkiem pytania o czas.
+Pełny czat otwiera referencję i zachowuje zapis. Oznaczenie słownie używa
+wspólnego tokenizera, wszystkie12klas z podpowiedzi są wybieralne. Regresja
+assistant+UI/store/domena elektrod1539PASS; osobna końcowa kontrola28PASS obejmuje
+warianty, spacje, inne wydanie, wilgoć, wszystkie klasy i ochronę zapisu.
+Analiza zmienionego kodu czysta. Test wydajności próbuje teraz równomiernie cały
+katalog (zamiast pierwszych500pozycji) po rozgrzaniu indeksów wszystkich grup,
+z zachowaniem progu500tur<1s; wynik699ms w regresji.
+Dalej2.5: rigging.colour, grinding.stripe, fume.oel, filler.pick; później pozostałe
+etapy ISO/rejestrów/pokrycia/raportów i odbiór mikrofonu/build. Ostatni pełny
+checkpoint całej aplikacji nadal a1050266489PASS. Backend w tej zmianie nietknięty.

@@ -11,6 +11,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../domain/welding/electrode_exposure.dart';
+import '../../domain/welding/electrode_reference.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../i18n/app_language.dart';
 import '../../services/electrode_log_export.dart';
 import '../../services/electrode_reminders.dart';
@@ -71,7 +73,41 @@ class ElectrodeExposurePage extends StatefulWidget {
   State<ElectrodeExposurePage> createState() => _ElectrodeExposurePageState();
 }
 
-class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
+class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
+    with ToolHandleHost<ElectrodeExposurePage> {
+  ElectrodeClass? _referenceClass;
+  ElectrodeSource? _referenceOrigin;
+  late TabController _tabs;
+  final _activeScroll = ScrollController();
+  @override
+  String get toolId => 'electrode_exposure';
+  @override
+  Set<String> get supportedFields =>
+      const {'electrode_class', 'origin', 'reference_only'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final rejected = fields.keys.toSet().difference(supportedFields);
+    if (rejected.isNotEmpty) return rejected;
+    final c = ElectrodeClass.values
+        .where((v) => v.name == fields['electrode_class'])
+        .firstOrNull;
+    final origin = ElectrodeSource.values
+        .where((v) => v.name == fields['origin'])
+        .firstOrNull;
+    if (c == null || origin == null || fields['reference_only'] != true) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _referenceClass = c;
+      _referenceOrigin = origin;
+      _tabs.index = 0;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _activeScroll.hasClients) _activeScroll.jumpTo(0);
+    });
+    return {};
+  }
+
   List<ElectrodeBatch> _batches = const [];
   bool _loading = true;
   bool _remindersOn = false;
@@ -95,6 +131,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _activeScroll.dispose();
     super.dispose();
   }
 
@@ -112,6 +149,9 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
       _batches = batches;
       _remindersOn = reminders;
       _loading = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) markReady();
     });
     // Plan mógł się zestarzeć (restart telefonu, zmiana strefy).
     unawaited(_reschedule());
@@ -375,47 +415,50 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
     final active = sortActive(_batches, now);
     return DefaultTabController(
       length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(context.tr(
-              pl: 'Elektrody zasadowe', en: 'Low-hydrogen electrodes')),
-          bottom: TabBar(
-            indicatorColor: kArc,
-            labelColor: kArc,
-            unselectedLabelColor: kTextSec,
-            tabs: [
-              Tab(
-                key: const ValueKey('electrode-tab-active'),
-                text: context.tr(
-                    pl: 'Na stanowisku (${active.length})',
-                    en: 'At the station (${active.length})'),
-              ),
-              Tab(
-                key: const ValueKey('electrode-tab-log'),
-                text: context.tr(pl: 'Dziennik QC', en: 'QC log'),
-              ),
-            ],
+      child: Builder(builder: (tabContext) {
+        _tabs = DefaultTabController.of(tabContext);
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(context.tr(
+                pl: 'Elektrody zasadowe', en: 'Low-hydrogen electrodes')),
+            bottom: TabBar(
+              indicatorColor: kArc,
+              labelColor: kArc,
+              unselectedLabelColor: kTextSec,
+              tabs: [
+                Tab(
+                  key: const ValueKey('electrode-tab-active'),
+                  text: context.tr(
+                      pl: 'Na stanowisku (${active.length})',
+                      en: 'At the station (${active.length})'),
+                ),
+                Tab(
+                  key: const ValueKey('electrode-tab-log'),
+                  text: context.tr(pl: 'Dziennik QC', en: 'QC log'),
+                ),
+              ],
+            ),
           ),
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          key: const ValueKey('electrode-add'),
-          backgroundColor: kArc,
-          foregroundColor: kOnArc,
-          onPressed: _loading ? null : () => unawaited(_add()),
-          icon: const Icon(Icons.outbox_outlined),
-          label: Text(
-              context.tr(pl: 'Wyjąłem elektrody', en: 'Took electrodes out'),
-              style: const TextStyle(fontWeight: FontWeight.w800)),
-        ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator(color: kArc))
-            : TabBarView(
-                children: [
-                  _activeTab(active, now),
-                  _logTab(now),
-                ],
-              ),
-      ),
+          floatingActionButton: FloatingActionButton.extended(
+            key: const ValueKey('electrode-add'),
+            backgroundColor: kArc,
+            foregroundColor: kOnArc,
+            onPressed: _loading ? null : () => unawaited(_add()),
+            icon: const Icon(Icons.outbox_outlined),
+            label: Text(
+                context.tr(pl: 'Wyjąłem elektrody', en: 'Took electrodes out'),
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+          ),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator(color: kArc))
+              : TabBarView(
+                  children: [
+                    _activeTab(active, now),
+                    _logTab(now),
+                  ],
+                ),
+        );
+      }),
     );
   }
 
@@ -425,8 +468,35 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage> {
     final bottom = 96 + MediaQuery.viewPaddingOf(context).bottom;
     return ListView(
       key: const ValueKey('electrode-active-list'),
+      controller: _activeScroll,
       padding: EdgeInsets.fromLTRB(16, 12, 16, bottom),
       children: [
+        if (_referenceClass != null && _referenceOrigin != null)
+          Card(
+              key: const ValueKey('electrode-assistant-reference'),
+              child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            context.tr(
+                                pl: 'Referencja asystenta',
+                                en: 'Assistant reference'),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        SelectableText(electrodeReferenceText(
+                            _referenceClass!, _referenceOrigin!,
+                            en: _en)),
+                        TextButton(
+                            onPressed: () => setState(() {
+                                  _referenceClass = null;
+                                  _referenceOrigin = null;
+                                }),
+                            child: Text(context.tr(
+                                pl: 'Zamknij referencję',
+                                en: 'Close reference'))),
+                      ]))),
         Text(
           context.tr(
             pl: 'Zasadowe (niskowodorowe) elektrody po wyjęciu z piecyka '

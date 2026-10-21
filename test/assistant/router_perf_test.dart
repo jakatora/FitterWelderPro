@@ -30,7 +30,9 @@ void main() {
       'nie wiem co powiedzieć',
     ];
     final utterances = [
-      for (var i = 0; i < 500; i++) corpus[i % corpus.length],
+      // Spread across the full catalog, including later knowledge groups.
+      for (var i = 0; i < 500; i++)
+        corpus[(i * corpus.length ~/ 500) % corpus.length],
     ];
     final brain = AssistantBrain(skills: catalog);
     final ctx = AssistantContext(
@@ -38,7 +40,7 @@ void main() {
 
     // Rozgrzewka: jednorazowe indeksy (słownik, Pomoc) i kompilacja JIT —
     // w aplikacji mózg żyje całą sesję, więc liczy się koszt tury, nie startu.
-    for (final t in corpus.take(20)) {
+    for (final t in corpus) {
       await brain.handle(Utterance(t, lang: AppLanguage.pl), ctx);
       brain.cancelPending();
     }
