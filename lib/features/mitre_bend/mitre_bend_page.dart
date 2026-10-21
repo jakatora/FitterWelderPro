@@ -15,6 +15,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../../data/pipe_schedules.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/fitter/mitre_bend.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
 import '../../i18n/app_language.dart';
@@ -35,7 +36,55 @@ class MitreBendPage extends StatefulWidget {
   State<MitreBendPage> createState() => _MitreBendPageState();
 }
 
-class _MitreBendPageState extends State<MitreBendPage> {
+class _MitreBendPageState extends State<MitreBendPage>
+    with ToolHandleHost<MitreBendPage> {
+  @override
+  String get toolId => 'mitre_bend';
+  @override
+  Set<String> get supportedFields =>
+      const {'od_mm', 'angle_deg', 'welds', 'radius_mm', 'tangent_mm'};
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((key) => !supportedFields.contains(key))) {
+      return fields.keys.toSet();
+    }
+    final rejected = <String>{};
+    for (final key in supportedFields) {
+      final value = fields[key];
+      if (value is! num || !value.isFinite) rejected.add(key);
+    }
+    if (rejected.isNotEmpty) return rejected;
+    double n(String key) => (fields[key] as num).toDouble();
+    final welds = n('welds');
+    if (welds != welds.roundToDouble() || welds < 1 || welds > 12) {
+      return {'welds'};
+    }
+    final input = MitreBendInput(
+        odMm: n('od_mm'),
+        bendAngleDeg: n('angle_deg'),
+        welds: welds.toInt(),
+        radiusMm: n('radius_mm'),
+        tangentMm: n('tangent_mm'));
+    if (computeMitreBend(input) == null) return fields.keys.toSet();
+    setState(() {
+      _dn = null;
+      _od.text = input.odMm.toString();
+      _angle.text = input.bendAngleDeg.toString();
+      _welds = input.welds;
+      _radiusFactor = null;
+      _radius.text = input.radiusMm.toString();
+      _tangent.text = input.tangentMm.toString();
+    });
+    return {};
+  }
+
   final _od = TextEditingController(text: '168,3');
   final _angle = TextEditingController(text: '90');
   final _radius = TextEditingController();
@@ -315,7 +364,7 @@ class _MitreBendPageState extends State<MitreBendPage> {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  for (var w = 1; w <= 6; w++)
+                  for (var w = 1; w <= 12; w++)
                     ChoiceChip(
                       key: ValueKey('mitre-welds-$w'),
                       label: Text('$w'),
@@ -398,7 +447,11 @@ class _MitreBendPageState extends State<MitreBendPage> {
             QuoteNotice(
               color: kFail,
               icon: Icons.error_outline,
-              text: problems.map(_problemText).join('\n'),
+              text: problems.isEmpty
+                  ? context.tr(
+                      pl: 'Wynik poza zakresem. Sprawdź wymiary.',
+                      en: 'Result out of range. Check dimensions.')
+                  : problems.map(_problemText).join('\n'),
             )
           else ...[
             QuoteSection(

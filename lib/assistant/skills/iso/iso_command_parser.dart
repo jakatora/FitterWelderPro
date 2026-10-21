@@ -78,6 +78,9 @@ enum IsoParseWarningKind {
   /// Kolano inne niż 90° ([IsoParseWarning.value] = kąt).
   unsupported45,
 
+  /// A mitred/segmented bend has no native ISO component contract yet.
+  unsupportedSegmentedBend,
+
   /// Trójnik / olet / odgałęzienie.
   unsupportedTee,
 
@@ -945,6 +948,28 @@ IsoCommand? parseIsoCommand(Utterance u) {
         }
         steps.add(IsoPipe(dir: dir, lengthMm: mm));
       case _El.turn:
+        // PL commonly puts the modifier after the noun; EN puts it before
+        // ("mitred bend", "lobster back elbow"). Prefix words may belong to
+        // the preamble or the preceding pipe segment, so inspect both sides.
+        final bendWords = [
+          ...segItems,
+          for (var at = s.at - 3; at < s.at; at++)
+            if (at >= 0) items[at],
+        ];
+        if (bendWords.any((item) =>
+            !item.isNumber &&
+            const [
+              'segmentow',
+              'segmented',
+              'mitre',
+              'miter',
+              'lobster',
+              'gored'
+            ].any(item.word.startsWith))) {
+          warnings.add(IsoParseWarning(
+              IsoParseWarningKind.unsupportedSegmentedBend,
+              step: index));
+        }
         final angle = sub.angleDeg();
         final dn = _dnOf(sub) ?? pipeDn;
         pipeDn = null;

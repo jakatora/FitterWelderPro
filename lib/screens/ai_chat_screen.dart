@@ -713,6 +713,10 @@ class _AiChatScreenState extends State<AiChatScreen>
         _isoReply(
             'Nie zmieniłem rysunku. Trasy obsługują kolana 45° i 90°; podany inny kąt nie jest jeszcze obsługiwany.',
             'Drawing unchanged. Routes support 45° and 90° elbows; the other specified angle is not supported yet.');
+      } else if (command.has(IsoParseWarningKind.unsupportedSegmentedBend)) {
+        _isoReply(
+            'Nie zmieniłem rysunku. Zeszyt ISO nie ma jeszcze symbolu kolana segmentowego. Jego wymiary obliczysz poleceniem „oblicz kolano segmentowe”.',
+            'Drawing unchanged. The ISO notebook does not have a mitred bend symbol yet. Calculate its dimensions with “calculate mitred bend”.');
       } else {
         _isoReply(
             'Nie zmieniłem rysunku. Najpierw narysuj przelot trójnika, a kierunek gałęzi podaj osobno poleceniem „od trójnika rura…”. Sam element dodasz poleceniem „wstaw symbol trójnika DN50”.',

@@ -8,6 +8,7 @@ import 'reducer_cut_skill.dart';
 import 'elbow_cut_skill.dart';
 import 'elbow_rotation_skill.dart';
 import 'insert_length_skill.dart';
+import 'mitre_bend_skill.dart';
 
 List<AssistantSkill> fitterRoutesSkills() => [
       PipeSlopeSkill(),
@@ -18,5 +19,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       ReducerCutSkill(),
       ElbowCutSkill(),
       ElbowRotationSkill(),
-      InsertLengthSkill()
+      InsertLengthSkill(),
+      MitreBendSkill()
     ];

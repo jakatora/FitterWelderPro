@@ -72,13 +72,13 @@ class MitreBendInput {
 
   List<MitreProblem> get problems {
     final out = <MitreProblem>[];
-    if (!(odMm > 0) || odMm > 3000) out.add(MitreProblem.od);
-    if (!(bendAngleDeg > 0) || bendAngleDeg > 180) {
+    if (!odMm.isFinite || !(odMm > 0) || odMm > 3000) out.add(MitreProblem.od);
+    if (!bendAngleDeg.isFinite || !(bendAngleDeg > 0) || bendAngleDeg > 180) {
       out.add(MitreProblem.angle);
     }
     if (welds < 1 || welds > 12) out.add(MitreProblem.welds);
     if (welds > 1) {
-      if (!(radiusMm > 0)) {
+      if (!radiusMm.isFinite || !(radiusMm > 0)) {
         out.add(MitreProblem.radius);
       } else if (odMm > 0 && radiusMm <= odMm / 2) {
         out.add(MitreProblem.radiusTooSmall);
@@ -234,7 +234,7 @@ MitreBendResult? computeMitreBend(MitreBendInput i) {
           heelMm: halfRaw.heelMm + i.tangentMm,
         );
   final fullCount = i.welds - 1;
-  return MitreBendResult(
+  final result = MitreBendResult(
     input: i,
     jointDeflectionDeg: alpha,
     cutAngleDeg: beta,
@@ -247,4 +247,17 @@ MitreBendResult? computeMitreBend(MitreBendInput i) {
         ellipsePerimeter(d / 2, d / (2 * math.cos(beta * math.pi / 180))),
     pipeNeededMm: fullCount * (full?.centreMm ?? 0) + 2 * end.centreMm,
   );
+  // Finite inputs near the floating-point limit may still overflow during
+  // multiplication. Neither the assistant nor the native UI may show infinity.
+  final dimensions = [
+    result.cutDropMm,
+    result.circumferenceMm,
+    result.weldLengthMm,
+    result.pipeNeededMm,
+    end.centreMm,
+    end.throatMm,
+    end.heelMm,
+    if (full != null) ...[full.centreMm, full.throatMm, full.heelMm],
+  ];
+  return dimensions.every((v) => v.isFinite) ? result : null;
 }

@@ -90,6 +90,27 @@ void main() {
     await db.delete('iso_drawings');
   });
   testWidgets(
+      'mitred bend drawing request cannot silently create an ordinary elbow',
+      (t) async {
+    await _boot(t);
+    expect(
+        await FeedbackConsent.instance.grant(now: DateTime.utc(2026, 10, 21)),
+        isTrue);
+    await _say(t, 'narysuj rura metr w prawo');
+    final c = IsoNotebookController.active!;
+    final before = c.debugPipeAxisTags.toList();
+    await _say(t, 'dorysuj rura metr kolano segmentowe w górę rura metr');
+    expect(find.textContaining('nie ma jeszcze symbolu kolana segmentowego'),
+        findsOneWidget);
+    expect(c.debugPipeAxisTags, before);
+    final reports = await FeedbackStore.instance.list();
+    expect(reports, hasLength(1));
+    expect(reports.single.skill, 'iso.unsupported');
+    await _say(t, 'cofnij');
+    expect(c.hasContent, isFalse,
+        reason: 'refused drawing must not consume an Undo step');
+  });
+  testWidgets(
       '45 degree command draws actual spatial elbows through the common assistant',
       (t) async {
     await _boot(t);
