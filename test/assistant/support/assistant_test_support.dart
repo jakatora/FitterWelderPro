@@ -8,6 +8,7 @@ import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/services/weld_timer_service.dart';
 import 'package:cut_list_app/assistant/skills/own_data/instruments_due_skill.dart';
+import 'package:cut_list_app/assistant/skills/own_data/certificates_expiry_skill.dart';
 import '../../support/fake_weld_timer_effects.dart';
 
 /// Atrapa zapisów: nic nie zapisuje naprawdę, liczy wywołania.
@@ -76,6 +77,7 @@ class BrainHarness {
     FakeActionsPort? actions,
     WeldTimerService? timer,
     InstrumentReader? instruments,
+    CertificateReader? certificates,
   })  : actions = actions ?? FakeActionsPort(),
         clock = DateTime(2026, 10, 19, 12) {
     this.timer = timer ??
@@ -88,7 +90,8 @@ class BrainHarness {
         skills: buildSkillCatalog(
             actions: this.actions,
             timer: () => this.timer,
-            instruments: instruments ?? () async => []));
+            instruments: instruments ?? () async => [],
+            certificates: certificates ?? (_) async => []));
     modules = FixedModuleContext(
         activeToolId: activeToolId, onHomeOrAssistant: onHome);
     ctx = AssistantContext(lang: lang, modules: modules, now: () => clock);

@@ -16,12 +16,14 @@ import 'welder_calc/catalog.dart';
 import 'welder_misc/catalog.dart';
 import 'knowledge_modules/catalog.dart';
 import 'own_data/instruments_due_skill.dart';
+import 'own_data/certificates_expiry_skill.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog(
     {AssistantActionsPort? actions,
     WeldTimerService Function()? timer,
-    InstrumentReader? instruments}) {
+    InstrumentReader? instruments,
+    CertificateReader? certificates}) {
   final all = <AssistantSkill>[];
   Iterable<AssistantSkill> catalog() => all;
   all.addAll(coreSkills(actions: actions, catalog: catalog));
@@ -33,6 +35,7 @@ List<AssistantSkill> buildSkillCatalog(
   // Kolejne grupy (koordynator):
   all.addAll(knowledgeModuleSkills());
   all.add(InstrumentsDueSkill(load: instruments));
+  all.add(CertificatesExpirySkill(load: certificates));
   //   all.addAll(isoSkills());            // 3.2
   return List.unmodifiable(all);
 }
