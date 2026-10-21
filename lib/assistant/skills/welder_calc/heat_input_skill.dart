@@ -98,7 +98,24 @@ Map<String, Object?> _slots(Utterance u) {
   return slots;
 }
 
+/// Unit-tagged quantities only; other calculators must not inherit the active
+/// heat-input form or its continuation metadata.
+Map<String, Object?> heatInputQuantities(Utterance u) => _slots(u);
+
 class HeatInputSkill extends AssistantSkill {
+  Map<String, Object?>? _current(AssistantContext ctx) {
+    final modules = ctx.modules;
+    if (modules.activeToolId != toolId || modules is! FieldModuleContext) {
+      return null;
+    }
+    final fields = (modules as FieldModuleContext).inputFields(toolId);
+    return fields != null &&
+            fields.containsKey('amps') &&
+            fields.containsKey('volts')
+        ? fields
+        : null;
+  }
+
   @override
   String get id => 'heat.input';
   @override
@@ -137,7 +154,18 @@ class HeatInputSkill extends AssistantSkill {
     final fields = _slots(u);
     final set = u.hasAny(const ['ustaw', 'wpisz', 'zmien', 'set', 'change']);
     final explicit = heatInputRequested(u);
+    final current = _current(ctx);
+    final recalculate = current != null &&
+        u.hasAny(const [
+          'przelicz',
+          'oblicz to',
+          'policz to',
+          'recalculate',
+          'calculate this',
+          'calculate these'
+        ]);
     if (!explicit &&
+        !recalculate &&
         !(set && ctx.modules.activeToolId == toolId && fields.isNotEmpty)) {
       return null;
     }
@@ -145,12 +173,22 @@ class HeatInputSkill extends AssistantSkill {
       return null;
     }
     return SkillMatch(this, 0.95,
-        slots: {...fields, 'mode': set ? 'set' : 'calculate'}, utterance: u);
+        slots: {
+          if (!set && current != null) 'native_edit': fields else ...fields,
+          'mode': set ? 'set' : 'calculate'
+        },
+        utterance: u);
   }
 
   @override
-  Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) =>
-      _slots(u);
+  Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) {
+    final fields = _slots(u);
+    if (fields.isEmpty) return const {};
+    return _current(ctx) == null
+        ? fields
+        : {'native_edit': fields, 'mode': 'calculate'};
+  }
+
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
@@ -177,6 +215,24 @@ class HeatInputSkill extends AssistantSkill {
       AskResult(slot, question, partial: m, choices: choices);
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
+    if (m.slots['native_edit'] case final Map<String, Object?> edits) {
+      final current = _current(ctx);
+      if (current == null) {
+        return const FailedResult(
+            AssistantText(
+                'Otwórz kartę Heat input i poczekaj na wczytanie danych.',
+                'Open the Heat input tab and wait for inputs to load.'),
+            reportMissingCapability: false);
+      }
+      final merged = {...current, ...edits};
+      if (edits.containsKey('process') &&
+          edits['process'] != current['process'] &&
+          !edits.containsKey('efficiency')) {
+        merged.remove('efficiency');
+      }
+      m = m
+          .copyWith(slots: {...merged, 'mode': m.slots['mode'] ?? 'calculate'});
+    }
     final fields = <String, Object?>{
       for (final e in m.slots.entries)
         if (e.key != 'mode') e.key: e.value
@@ -190,8 +246,10 @@ class HeatInputSkill extends AssistantSkill {
               'Give parameters with units, e.g. 230 A, 24 V and 150 mm/min.'));
     }
     for (final key in const ['amps', 'volts', 'travel_mm_min', 'efficiency']) {
-      if (fields[key] case final num value) {
-        if (!value.isFinite ||
+      if (fields.containsKey(key)) {
+        final value = fields[key];
+        if (value is! num ||
+            !value.isFinite ||
             value <= 0 ||
             (key == 'efficiency' && value > 1)) {
           return _ask(
@@ -289,6 +347,7 @@ class HeatInputSkill extends AssistantSkill {
                 'Energia liniowa ${process.euName}: ${fmt(result, ctx.lang)} kJ/mm ($source). Porównaj z własnym WPS.',
                 'Heat input ${process.euName}: ${fmt(result, ctx.lang)} kJ/mm ($source). Compare with your WPS.'),
             source: AssistantText.same(source)),
-        show: ShowInModule(toolId, fields));
+        show: ShowInModule(toolId, fields),
+        contextSlots: Map.unmodifiable(fields));
   }
 }

@@ -7,7 +7,7 @@ import '../fitter_routes/quantities.dart';
 import 'heat_input_skill.dart';
 
 Map<String, Object?> _slots(Utterance u, AssistantContext ctx) {
-  final s = HeatInputSkill().slotsFrom(u, ctx);
+  final s = heatInputQuantities(u);
   final q = <double>{}, temp = <double>{};
   for (var i = 0; i + 1 < u.items.length; i++) {
     if (!u.items[i].isNumber) continue;

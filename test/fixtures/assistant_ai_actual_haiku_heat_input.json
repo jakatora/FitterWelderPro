@@ -1,0 +1,26 @@
+{
+  "recorded_at": "2026-10-21",
+  "model": "claude-haiku-5-5",
+  "source": "Actual localhost backend HTTP /api/fitter/ai/assistant to real Anthropic; not production Railway deployment",
+  "text": "Pozostałe wartości zostaw jak w formularzu, potrzebuję tylko dwustu amperów i wyniku.",
+  "actual_inputs": {
+    "process": "GTAW",
+    "standard": "en1011",
+    "volts": 24,
+    "amps": 110,
+    "travel_mm_min": 150,
+    "efficiency": 0.7
+  },
+  "capabilities": 57,
+  "cost_usd": 0.0010230000000000005,
+  "proposal": {
+    "kind": "execute",
+    "steps": [
+      {
+        "skill_id": "heat.input",
+        "command": "Oblicz energię liniową TIG EN 24 V 200 A 150 mm/min"
+      }
+    ],
+    "message": ""
+  }
+}

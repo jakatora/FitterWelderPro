@@ -62,7 +62,8 @@ class HeatInputScreen extends StatefulWidget {
 }
 
 class _HeatInputScreenState extends State<HeatInputScreen>
-    with SingleTickerProviderStateMixin, ToolHandleHost<HeatInputScreen> {
+    with SingleTickerProviderStateMixin, ToolHandleHost<HeatInputScreen>
+    implements InputToolHandle {
   late final TabController _assistantTabs;
   bool _assistantNeedsHydrogen = false;
   static const _chemKeys = {
@@ -76,6 +77,19 @@ class _HeatInputScreenState extends State<HeatInputScreen>
   };
   @override
   String get toolId => 'heat_input';
+  @override
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable(_assistantTabs.index != 0
+          ? const <String, Object?>{}
+          : {
+              'process': _process,
+              'standard': _standard.name,
+              'volts': parseDecimal(_voltsCtrl.text),
+              'amps': parseDecimal(_ampsCtrl.text),
+              'travel_mm_min': parseDecimal(_travelCtrl.text),
+              if (_etaCtrl.text.trim().isNotEmpty)
+                'efficiency': parseDecimal(_etaCtrl.text),
+            });
   @override
   Set<String> get supportedFields => const {
         'volts',
