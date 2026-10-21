@@ -152,6 +152,39 @@ class AssistantBrain {
     return next;
   }
 
+  /// AI proposes syntax and capability; only an actual local matcher may
+  /// authorize execution. Never accept model-supplied controller fields.
+  Future<BrainReply> executeProposal({
+    required String skillId,
+    required Utterance command,
+    required Utterance original,
+    required AssistantContext context,
+  }) {
+    final next = _tail.then((_) async {
+      if (isNegatedCommand(original) || isNegatedCommand(command)) {
+        cancelPending();
+        return const BrainReply(FailedResult(AssistantText(
+            'Nie wykonuję tego polecenia.',
+            'I will not execute that command.')));
+      }
+      final candidates = skills.where((s) => s.id == skillId);
+      if (candidates.length != 1) return _notUnderstood(original);
+      final skill = candidates.single;
+      if ((referencesInstruction(original) || referencesInstruction(command)) &&
+          !skill.answersQuestionsOnly) {
+        return _notUnderstood(original);
+      }
+      final match = _safeMatch(skill, command, context);
+      if (match == null || match.score < threshold) {
+        return _notUnderstood(original);
+      }
+      cancelPending();
+      return _run(match, context, null);
+    });
+    _tail = next.then((_) {}, onError: (Object _) {});
+    return next;
+  }
+
   Future<BrainReply> _handle(Utterance u, AssistantContext ctx) async {
     if (referencesInstruction(u)) {
       cancelPending();

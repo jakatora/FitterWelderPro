@@ -1,0 +1,24 @@
+{
+  "recorded_at": "2026-10-21",
+  "model": "claude-haiku-5-5",
+  "source": "Actual localhost backend HTTP /api/fitter/ai/assistant to real Anthropic; not production Railway deployment",
+  "text": "Zostaw pion i bok tak jak mam w formularzu, tylko daj dwa milimetry na spoiny i policz mi ile mam uciac.",
+  "actual_inputs": {
+    "rise_mm": 600,
+    "spread_mm": 400,
+    "angle_deg": 45,
+    "dn": 50,
+    "gap_mm": 3
+  },
+  "proposal": {
+    "kind": "execute",
+    "steps": [
+      {
+        "skill_id": "rolling.offset",
+        "command": "Rolling offset wznios 600 mm odsunięcie 400 mm kąt 45 stopni DN50 szczelina 2 mm"
+      }
+    ],
+    "message": ""
+  },
+  "cost_usd": 0.0010463
+}
