@@ -78,11 +78,11 @@ class _ConsentScreenState extends State<ConsentScreen> {
                   'ask the assistant.',
             )
           : context.tr(
-              pl: 'Na to pytanie odpowiada model AI na naszym serwerze. Zanim '
-                  'je wyślesz, przeczytaj zasady i zaakceptuj je. Polecenia '
+              pl: 'AI pomaga rozumieć polecenia i odpowiadać na pytania. Do serwera '
+                  'wysyłamy treść, kilka ostatnich wymian rozmowy i udostępnione dane bieżącego kalkulatora. Przeczytaj i zaakceptuj zasady. Polecenia '
                   'rozpoznane na telefonie działają bez tego.',
-              en: 'An AI model on our server answers this question. Read and '
-                  'accept the rules before you send it. Commands recognised '
+              en: 'AI helps understand commands and answer questions. We send the text, '
+                  'a few recent conversation turns and shared inputs of the current calculator to our server. Read and accept the rules first. Commands recognised '
                   'on the phone work without this.',
             );
     } else {

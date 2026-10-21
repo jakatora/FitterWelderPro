@@ -126,6 +126,17 @@ class AssistantBrain {
     });
   }
 
+  /// Exact native routing (including active-module continuations) can stay
+  /// offline. Generic knowledge fallback must not swallow free-form AI input.
+  bool recognizesLocalRequest(Utterance u, AssistantContext ctx) {
+    if (isNegatedCommand(u)) return false;
+    if (_scoreRegular([u], ctx).any((s) => s.score >= threshold)) return true;
+    return _fallbacks.where((s) => s.fallbackOrder != 3).any((s) {
+      final match = _safeMatch(s, u, ctx);
+      return match != null && match.score >= threshold;
+    });
+  }
+
   /// Pytanie, na które asystent czeka.
   AskResult? get pending => _pending;
 

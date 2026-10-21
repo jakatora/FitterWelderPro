@@ -9,8 +9,9 @@ import '../assistant_history.dart';
 /// Independent Overlay supplies text selection and tooltips above Navigator.
 /// It does not intercept the uncovered drawing area.
 class AssistantOverlay extends StatefulWidget {
-  const AssistantOverlay({super.key, required this.child});
+  const AssistantOverlay({super.key, required this.child, this.assistant});
   final Widget child;
+  final Widget? assistant;
   @override
   State<AssistantOverlay> createState() => _AssistantOverlayState();
 }
@@ -117,7 +118,9 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
                                 },
                                 icon: const Icon(Icons.keyboard_arrow_down)),
                           ])),
-                      const Expanded(child: AiChatScreen(embedded: true)),
+                      Expanded(
+                          child: widget.assistant ??
+                              const AiChatScreen(embedded: true)),
                     ]),
                   ),
                 )),

@@ -31,11 +31,11 @@ String _all(LegalDocument d) =>
     [d.intro, for (final s in d.sections) '${s.heading}\n${s.body}'].join('\n');
 
 void main() {
-  test('wersja zasad podniesiona do 4 z datą zmiany (skaner + asystent)', () {
-    expect(kLegalVersion, 4);
+  test('wersja zasad podniesiona do 5 z datą zmiany (skaner + asystent)', () {
+    expect(kLegalVersion, 5);
     // 2026-09-26: doprecyzowania bez ponownej akceptacji (imię na czacie,
     // kopia Androida, moderacja) — patrz nagłówek legal_texts.dart.
-    expect(kLegalUpdated, '2026-10-20');
+    expect(kLegalUpdated, '2026-10-21');
   });
 
   testWidgets('polityka PL: skaner rysunków — serwer, Anthropic, bez zapisu',
@@ -49,10 +49,12 @@ void main() {
     expect(text, isNot(contains('skaner rysunków są w tej wersji WYŁĄCZONE')));
   });
 
-  testWidgets('polityka PL: asystent — Wykonaj lokalnie, Odpowiedz przez serwer',
+  testWidgets(
+      'polityka PL: asystent — Wykonaj lokalnie, Odpowiedz przez serwer',
       (tester) async {
     final text = _all(await _build(tester, AppLanguage.pl, privacyPolicy));
     expect(text, contains('Asystent AI'));
+    expect(text, contains('udostępnione pola widocznego kalkulatora'));
     expect(text, contains('„Wykonaj"'));
     expect(text, contains('„Odpowiedz"'));
     expect(text, contains('rozpoznaje polecenia na telefonie'));
@@ -62,12 +64,14 @@ void main() {
     expect(text, contains('Nie zapisujemy treści pytań'));
   });
 
-  testWidgets('polityka EN: scanner and assistant say the same', (tester) async {
+  testWidgets('polityka EN: scanner and assistant say the same',
+      (tester) async {
     final text = _all(await _build(tester, AppLanguage.en, privacyPolicy));
     expect(text, contains('Drawing scanner'));
     expect(text, contains('The server does not store the photo or the result'));
     expect(text, contains('daily limit'));
     expect(text, contains('AI assistant'));
+    expect(text, contains('shared inputs of the visible calculator'));
     expect(text, contains('"Do"'));
     expect(text, contains('"Answer"'));
     expect(text, contains('Google'));

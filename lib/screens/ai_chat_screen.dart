@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart' show mapEquals;
+import '../assistant/assistant_ai_client.dart';
+import '../assistant/ai_execution_queue.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -114,6 +117,7 @@ class AiChatScreen extends StatefulWidget {
     this.speechOutput,
     this.engine,
     this.chatSender,
+    this.aiInterpreter,
     this.now,
     this.welderStamp,
     this.skills,
@@ -133,6 +137,9 @@ class AiChatScreen extends StatefulWidget {
 
   final AssistantChatSender? chatSender;
 
+  /// Real cloud interpretation by default; replace transport in integration tests.
+  final Future<AiCommandPlan> Function(Map<String, Object?>)? aiInterpreter;
+
   /// Zegar do notatki źródłowej (testy).
   final DateTime Function()? now;
 
@@ -149,6 +156,29 @@ class AiChatScreen extends StatefulWidget {
 
 class _AiChatScreenState extends State<AiChatScreen>
     with WidgetsBindingObserver {
+  final _aiQueue = AiExecutionQueue();
+  final _aiHistory = <Map<String, String>>[];
+  AssistantAiClient? _aiClient;
+  bool _runningAiPlan = false;
+  bool _aiThinking = false;
+  int _aiEpoch = 0;
+  AssistantAiUnavailable? _aiUnavailable;
+  String? _aiQuestion;
+  void _rememberAi(String text, String response,
+      {bool addMessages = true, AiReplyKind kind = AiReplyKind.nativeAction}) {
+    String bounded(String v) => v.length <= 1000 ? v : v.substring(0, 1000);
+    if (addMessages) {
+      _messages.add(ChatMessage(role: ChatRole.user, text: bounded(text)));
+      _messages.add(ChatMessage(
+          role: ChatRole.assistant, text: bounded(response), kind: kind));
+    }
+    _aiHistory.addAll([
+      {'role': 'user', 'text': bounded(text)},
+      {'role': 'assistant', 'text': bounded(response)}
+    ]);
+    if (_aiHistory.length > 6) _aiHistory.removeRange(0, _aiHistory.length - 6);
+  }
+
   late final SpeechInput _speech = widget.speechInput ?? SystemSpeechInput();
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
   late final AssistantEngine _engine =
@@ -324,6 +354,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (_listening) _speech.cancel();
     _voice.stop();
+    _aiClient?.close();
+    _aiQueue.cancel();
     _cmdCtrl.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
@@ -422,7 +454,26 @@ class _AiChatScreenState extends State<AiChatScreen>
   // „Wykonaj"
   // ═════════════════════════════════════════════════════════════════════════
 
+  void _cancelAiThinking() {
+    _aiEpoch++;
+    _aiQueue.cancel();
+    _aiQuestion = null;
+    _aiClient?.close();
+    _aiClient = null;
+    setState(() {
+      _aiThinking = false;
+      _busy = false;
+      _notice =
+          _tr('Anulowano interpretację AI.', 'AI interpretation cancelled.');
+      _noticeIsError = false;
+    });
+  }
+
   void _resetAct({bool clearText = true}) {
+    _aiEpoch++;
+    _aiThinking = false;
+    _aiQueue.cancel();
+    _aiQuestion = null;
     _pendingIntent = null;
     _pendingField = null;
     _carried = const {};
@@ -444,9 +495,197 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
   }
 
+  Future<bool> _tryAiCommand(String text, AppLanguage lang) async {
+    final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
+    if (isNegatedCommand(u) ||
+        referencesInstruction(u) ||
+        _brain.pending != null ||
+        _isoPort.hasPendingQuestion ||
+        _localResult is ConfirmResult ||
+        _pendingField != null ||
+        const {
+          'cofnij zapis',
+          'undo save',
+          'anuluj',
+          'cancel',
+          'stop',
+          'nie',
+          'no'
+        }.contains(u.folded)) {
+      return false;
+    }
+    _brainContext.lang = lang;
+    if (_aiQuestion == null &&
+        _brain.recognizesLocalRequest(u, _brainContext)) {
+      return false;
+    }
+    // Existing local write/query parsers keep native summaries and confirmations.
+    final legacy = parseAssistantCommand(text).intent;
+    if (const {
+      kIntentSaveWeldParameter,
+      kIntentAddWeldJournalEntry,
+      kIntentQueryMyParams
+    }.contains(legacy)) {
+      return false;
+    }
+    await LegalConsent.instance.load();
+    if (!mounted || !LegalConsent.instance.isAccepted) return false;
+    final request = assistantAiRequest(
+        text: text,
+        context: _brainContext,
+        skills: _brain.skills,
+        pendingQuestion:
+            _aiQuestion?.substring(0, _aiQuestion!.length.clamp(0, 500)),
+        history: List.of(_aiHistory));
+    final consentAt = LegalConsent.instance.acceptedAt;
+    final epoch = _aiEpoch;
+    setState(() => _aiThinking = true);
+    final originHandle = ToolBridge.instance.current;
+    final originContext = request['context'] as Map;
+    AiCommandPlan plan;
+    try {
+      final interpret =
+          widget.aiInterpreter ?? (_aiClient ??= AssistantAiClient()).interpret;
+      plan = await interpret(request);
+      // Validate injected transports just as strictly as real HTTP responses.
+      plan = AiCommandPlan.fromJson({
+        'kind': plan.kind,
+        'steps': [
+          for (final step in plan.steps)
+            {'skill_id': step.skillId, 'command': step.command}
+        ],
+        'message': plan.message
+      }, _brain.skills.map((s) => s.id).toSet());
+    } on AssistantAiUnavailable catch (e) {
+      if (epoch == _aiEpoch) _aiUnavailable = e;
+      return !mounted || epoch != _aiEpoch;
+    } on FormatException {
+      return !mounted || epoch != _aiEpoch;
+    } finally {
+      if (mounted && epoch == _aiEpoch) setState(() => _aiThinking = false);
+    }
+    if (!mounted || epoch != _aiEpoch) return true;
+    if (!LegalConsent.instance.isAccepted ||
+        LegalConsent.instance.acceptedAt != consentAt) {
+      setState(() {
+        _busy = false;
+        _notice = _tr('Zgoda na AI zmieniła się. Nie wykonano polecenia.',
+            'AI consent changed. The command was not executed.');
+        _noticeIsError = false;
+      });
+      return true;
+    }
+    final currentContext = assistantAiRequest(
+        text: text,
+        context: _brainContext,
+        skills: _brain.skills)['context'] as Map;
+    if (!identical(originHandle, ToolBridge.instance.current) ||
+        originContext['active_tool'] != currentContext['active_tool'] ||
+        !mapEquals(
+            originContext['inputs'] as Map, currentContext['inputs'] as Map)) {
+      setState(() {
+        _busy = false;
+        _notice = _tr(
+            'Ekran lub dane zmieniły się podczas odpowiedzi AI. Powtórz polecenie.',
+            'The screen or inputs changed while AI was responding. Please repeat the request.');
+        _noticeIsError = false;
+      });
+      return true;
+    }
+    _aiQueue.cancel();
+    _aiQuestion = null;
+    if (plan.kind == 'execute') {
+      _aiQueue.start(text, plan.steps);
+      await _runAiPlan(lang);
+      return true;
+    }
+    if (plan.kind == 'answer') {
+      setState(() {
+        _busy = true;
+        _inputCtrl.text = text;
+        _cmdCtrl.clear();
+      });
+      try {
+        await _send();
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      return true;
+    }
+    _rememberAi(text, plan.message, kind: AiReplyKind.live);
+    if (plan.kind == 'clarify') _aiQuestion = plan.message;
+    if (plan.kind == 'unsupported') {
+      unawaited(_feedback.missing(text,
+          tool: _brainContext.modules.activeToolId, lang: lang));
+    }
+    setState(() {
+      _busy = false;
+      _cmdCtrl.clear();
+      _question = null;
+      _notice = null;
+      _localResult =
+          AnswerResult(AssistantAnswer(text: AssistantText.same(plan.message)));
+    });
+    await _speak(plan.message);
+    return true;
+  }
+
+  Future<void> _runAiPlan(AppLanguage lang) async {
+    if (_runningAiPlan) return;
+    _runningAiPlan = true;
+    try {
+      AiCommandStep? step;
+      while (mounted && (step = _aiQueue.takeNext()) != null) {
+        final current = step!;
+        final original = _aiQueue.original!;
+        final u = Utterance(current.command, lang: lang, byVoice: _voiceUsed);
+        final reply = await _brain.executeProposal(
+            skillId: current.skillId,
+            command: u,
+            original: Utterance(original, lang: lang, byVoice: _voiceUsed),
+            context: _brainContext);
+        if (!mounted) return;
+        final handled = await _presentBrainReply(reply, u, original, lang,
+            aiExecution: true);
+        if (!handled ||
+            reply.result is FailedResult ||
+            _noticeIsError == true) {
+          _aiQueue.cancel();
+          if (!handled) {
+            setState(() {
+              _busy = false;
+              _localResult = const FailedResult(AssistantText(
+                  'Nie udało się wykonać tej interpretacji. Doprecyzuj polecenie.',
+                  'Could not execute that interpretation. Please clarify the request.'));
+            });
+          }
+          return;
+        }
+        if (reply.result is AskResult || reply.result is ConfirmResult) {
+          _aiQueue.pause(current.skillId);
+          return;
+        }
+      }
+    } finally {
+      _runningAiPlan = false;
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showAiFallbackNotice() {
+    if (!mounted || _aiUnavailable == null) return;
+    final message = _aiUnavailable!.status == 429
+        ? _tr('Osiągnięto limit AI. Obsługa lokalna jest nadal dostępna.',
+            'AI limit reached. Local commands remain available.')
+        : _tr(
+            'Interpretacja poleceń AI jest chwilowo niedostępna. Polecenia lokalne nadal działają.',
+            'AI command interpretation is temporarily unavailable. Local commands remain available.');
+    setState(() => _notice = _notice == null ? message : '$message\n$_notice');
+  }
+
   Future<void> _submitCommand() async {
     var text = _cmdCtrl.text.trim();
-    if (text.isEmpty || _busy) return;
+    if (text.isEmpty || _busy || _runningAiPlan) return;
     // „Ten sam" na pytanie o projekt = ostatni projekt dziennika.
     if (_pendingField == 'project' &&
         _lastProject.isNotEmpty &&
@@ -464,6 +703,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     setState(() {
       _busy = true;
       _notice = null;
+      _aiUnavailable = null;
       _offerServer = false;
       _offerAsk = false;
       _queryResults = null;
@@ -472,8 +712,14 @@ class _AiChatScreenState extends State<AiChatScreen>
     });
     AssistantOutcome out;
     try {
+      // Negation and existing native workflows retain ownership. Unknown
+      // free-form requests reach AI before generic deterministic fallbacks.
+      if (_pendingField == null && await _tryAiCommand(text, lang)) return;
       // A pending legacy save owns its replies until its summary is ready.
-      if (_pendingField == null && await _tryLocalCommand(text, lang)) return;
+      if (_pendingField == null && await _tryLocalCommand(text, lang)) {
+        _showAiFallbackNotice();
+        return;
+      }
       out = await _engine.interpret(
         text,
         lang: lang,
@@ -495,6 +741,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (!mounted) return;
     setState(() => _busy = false);
     await _handleOutcome(out);
+    _showAiFallbackNotice();
   }
 
   void _isoReply(String pl, String en, {List<FollowUp> choices = const []}) {
@@ -893,6 +1140,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
     final utterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (const {'cofnij zapis', 'undo save'}.contains(utterance.folded)) {
+      _aiQueue.cancel();
       if (_localUndo == null) {
         setState(() {
           _busy = false;
@@ -933,11 +1181,14 @@ class _AiChatScreenState extends State<AiChatScreen>
         }
         return true;
       }
+      _aiQueue.cancel();
       // Any new instruction supersedes the old summary before routing it.
       _localResult = null;
     }
     _localUndo = null;
     if (isNegatedCommand(utterance)) {
+      _aiQueue.cancel();
+      _aiQuestion = null;
       _brain.cancelPending();
       _pendingIso = null;
       _pendingIsoValve = null;
@@ -970,6 +1221,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     _brainContext.lang = lang;
     final reply = await _brain.handle(
         Utterance(text, lang: lang, byVoice: _voiceUsed), _brainContext);
+    return _presentBrainReply(reply, utterance, text, lang);
+  }
+
+  Future<bool> _presentBrainReply(
+      BrainReply reply, Utterance utterance, String text, AppLanguage lang,
+      {bool aiExecution = false}) async {
     if (!mounted) return true;
     final result = reply.result;
     if (reply.match?.skill.id != 'iso.draw') _clearIsoQuestion();
@@ -981,10 +1238,12 @@ class _AiChatScreenState extends State<AiChatScreen>
           lang: lang));
     }
     setState(() {
-      _busy = widget.embedded && result is AnswerResult && result.show != null;
+      _busy = _runningAiPlan ||
+          (widget.embedded && result is AnswerResult && result.show != null);
       _localResult = result;
       _question = null;
       _notice = null;
+      _noticeIsError = false;
       _cmdCtrl.clear();
     });
     final spoken = switch (result) {
@@ -995,7 +1254,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       _ => '',
     };
     if (spoken.isNotEmpty) await _speak(spoken);
-    final explicitOpen = reply.match?.skill.id == 'tool.open' ||
+    final explicitOpen = aiExecution ||
+        reply.match?.skill.id == 'tool.open' ||
         reply.match?.skill.id == 'account.open' ||
         (reply.match?.skill.id.startsWith('timer.') ?? false) ||
         ((reply.match?.skill.answersQuestionsOnly ?? false) &&
@@ -1017,6 +1277,17 @@ class _AiChatScreenState extends State<AiChatScreen>
         if (tool != null) {
           await openTool(_navigationContext, tool, fields: result.show!.fields);
         }
+      }
+    }
+    if (spoken.isNotEmpty) {
+      _rememberAi(text, _noticeIsError ? '$spoken\n${_notice ?? ''}' : spoken);
+    }
+    if (!_runningAiPlan && _aiQueue.waiting) {
+      if (result is FailedResult) {
+        _aiQueue.cancel();
+      } else if (_aiQueue.resolve(reply.match?.skill.id,
+          completed: result is AnswerResult)) {
+        await _runAiPlan(lang);
       }
     }
     return true;
@@ -1124,12 +1395,14 @@ class _AiChatScreenState extends State<AiChatScreen>
           Wrap(spacing: 8, children: [
             FilledButton(
               key: const Key('assistant-local-save'),
-              onPressed: _busy ? null : () => _confirmLocal(result),
+              onPressed: (_busy || _runningAiPlan)
+                  ? null
+                  : () => _confirmLocal(result),
               child: Text(_tr('Zapisz', 'Save')),
             ),
             TextButton(
               key: const Key('assistant-local-cancel'),
-              onPressed: _busy
+              onPressed: (_busy || _runningAiPlan)
                   ? null
                   : () => setState(() {
                         _resetAct();
@@ -1144,7 +1417,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         if (_localUndo != null)
           TextButton.icon(
             key: const Key('assistant-local-undo'),
-            onPressed: _busy ? null : _undoLocal,
+            onPressed: (_busy || _runningAiPlan) ? null : _undoLocal,
             icon: const Icon(Icons.undo),
             label: Text(_tr('Cofnij zapis', 'Undo save')),
           ),
@@ -1153,17 +1426,24 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _confirmLocal(ConfirmResult pending) async {
-    if (_localCommitting || !identical(_localResult, pending)) return;
+    if (_runningAiPlan ||
+        _localCommitting ||
+        !identical(_localResult, pending)) {
+      return;
+    }
     setState(() {
       _busy = true;
       _localCommitting = true;
       _notice = null;
+      _noticeIsError = false;
     });
     var saved = false;
     try {
       final undo = await pending.perform();
       saved = true;
       if (!mounted) return;
+      _rememberAi(
+          _tr('Potwierdzam zapis', 'Confirm save'), _tr('Zapisano.', 'Saved.'));
       setState(() {
         _localUndo = undo;
         _localResult = AnswerResult(
@@ -1198,11 +1478,20 @@ class _AiChatScreenState extends State<AiChatScreen>
         });
       }
     }
+    if (mounted && _aiQueue.waiting && (!saved || _noticeIsError == true)) {
+      _aiQueue.cancel();
+    }
+    if (mounted && saved && _noticeIsError != true && _aiQueue.waiting) {
+      final id = _aiQueue.waitingSkill;
+      if (_aiQueue.resolve(id, completed: true)) {
+        await _runAiPlan(context.language);
+      }
+    }
   }
 
   Future<void> _undoLocal({bool fromCommand = false}) async {
     final undo = _localUndo;
-    if (undo == null || (_busy && !fromCommand)) return;
+    if (_runningAiPlan || undo == null || (_busy && !fromCommand)) return;
     setState(() => _busy = true);
     try {
       await undo();
@@ -1341,8 +1630,10 @@ class _AiChatScreenState extends State<AiChatScreen>
         });
         Haptic.error();
       case null:
-        unawaited(_feedback.missing(_commandSoFar,
-            tool: ToolBridge.instance.activeToolId, lang: lang));
+        if (_aiUnavailable == null) {
+          unawaited(_feedback.missing(_commandSoFar,
+              tool: ToolBridge.instance.activeToolId, lang: lang));
+        }
         setState(() {
           _resetAct(clearText: false);
           _notice = _notUnderstoodText(out);
@@ -1779,6 +2070,10 @@ class _AiChatScreenState extends State<AiChatScreen>
               AssistantAnswer(text: AssistantText.same(reply.text)));
         }
       });
+      if (reply.kind == AiReplyKind.live) {
+        _rememberAi(text, reply.text,
+            addMessages: false, kind: AiReplyKind.live);
+      }
       _typing.value = false;
       _scrollToBottom();
       await _speak(reply.text);
@@ -2023,14 +2318,23 @@ class _AiChatScreenState extends State<AiChatScreen>
                   height: 56,
                   child: IconButton(
                       key: const Key('assistant-go'),
-                      tooltip: _tr('Wykonaj', 'Execute'),
-                      onPressed: _busy ? null : _submitCommand,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.send))),
+                      tooltip: _aiThinking
+                          ? _tr('Anuluj AI', 'Cancel AI')
+                          : _tr('Wykonaj', 'Execute'),
+                      onPressed: _aiThinking
+                          ? _cancelAiThinking
+                          : _busy
+                              ? null
+                              : _submitCommand,
+                      icon: _aiThinking
+                          ? const Icon(Icons.stop)
+                          : _busy
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.send))),
             ])),
       ]);
 

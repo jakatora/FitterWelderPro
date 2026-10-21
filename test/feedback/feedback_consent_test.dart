@@ -1,3 +1,4 @@
+import 'package:cut_list_app/services/legal_consent.dart';
 // Zgoda na feedback (domyślnie brak) i losowy identyfikator X-Feedback-Id.
 
 import 'dart:convert';
@@ -44,8 +45,12 @@ void main() {
       });
     });
 
-    test('zgoda nie zmienia kLegalVersion (zgoda osobna)', () {
-      expect(kLegalVersion, 4);
+    test('zgoda na feedback nie udziela zgody na serwer AI', () async {
+      LegalConsent.instance.resetForTest();
+      await LegalConsent.instance.load();
+      expect(LegalConsent.instance.isAccepted, isFalse);
+      await consent.grant();
+      expect(LegalConsent.instance.isAccepted, isFalse);
     });
 
     test('revoke: brak zgody, identyfikator zostaje (do kasowania na serwerze)',

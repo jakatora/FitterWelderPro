@@ -16,7 +16,7 @@ import 'premium_service.dart';
 // odpowiada 402. Każdy z tych przypadków dostaje własny komunikat
 // ([AiReplyKind]); brak sieci, 404 i inne błędy → wpis z pomocy offline.
 // Co wychodzi z telefonu: treść pytania, najwyżej [kChatHistoryMax] ostatnich
-// wpisów rozmowy (pary pytanie → odpowiedź modelu, bez bieżącego pytania —
+// wpisów rozmowy (pary pytanie → odpowiedź modelu lub potwierdzony wynik aplikacji, bez bieżącego pytania —
 // [chatHistoryForRequest]), język interfejsu, device_id i nagłówki
 // tożsamości instalacji.
 //
@@ -49,6 +49,9 @@ enum ChatRole { user, assistant, system }
 /// od pomocy offline i od komunikatu o limicie (spec §11: błąd AI nie jest
 /// przedstawiany jako wiarygodna odpowiedź).
 enum AiReplyKind {
+  /// Verified response from the native app executor, usable as conversation context.
+  nativeAction,
+
   /// Odpowiedź modelu z serwera.
   live,
 
@@ -92,7 +95,7 @@ class ChatMessage {
 /// Ten sam limit ma backend (CHAT_HISTORY_MAX) — dłuższą historię przycina.
 const int kChatHistoryMax = 6;
 
-/// Historia do wysłania: same pary „pytanie → odpowiedź modelu" (bez
+/// Historia do wysłania: same pary „pytanie → odpowiedź modelu lub potwierdzony wynik aplikacji" (bez
 /// powitania, pomocy offline, komunikatów o limitach i bez pytania, które
 /// jeszcze nie ma odpowiedzi — czyli bez bieżącego), najwyżej
 /// [kChatHistoryMax] ostatnich wpisów, zawsze od pytania użytkownika.
@@ -104,7 +107,7 @@ List<ChatMessage> chatHistoryForRequest(List<ChatMessage> all,
     final a = all[i + 1];
     if (q.role == ChatRole.user &&
         a.role == ChatRole.assistant &&
-        a.kind == AiReplyKind.live) {
+        (a.kind == AiReplyKind.live || a.kind == AiReplyKind.nativeAction)) {
       pairs
         ..add(q)
         ..add(a);
@@ -145,8 +148,7 @@ class AiChatService {
     // piping_knowledge.md (270 KB, 100 iteracji). Server is responsible for
     // holding the Anthropic API key, doing the embeddings retrieval, and
     // returning a structured response including citations.
-    final url =
-        Uri.parse('${BackendConfig.baseUrl}${BackendConfig.aiChat}');
+    final url = Uri.parse('${BackendConfig.baseUrl}${BackendConfig.aiChat}');
     try {
       // Asystent to płatna funkcja: nowy backend wymaga device_id + sekretu
       // instalacji (tryb strict) i aktywnego Premium.
@@ -192,10 +194,9 @@ class AiChatService {
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final text = body['text'] as String? ?? '(empty response)';
-      final cites = (body['citations'] as List?)
-              ?.map((c) => c.toString())
-              .toList() ??
-          const <String>[];
+      final cites =
+          (body['citations'] as List?)?.map((c) => c.toString()).toList() ??
+              const <String>[];
       return ChatMessage(
         role: ChatRole.assistant,
         text: text,
@@ -252,7 +253,8 @@ class AiChatService {
     return ChatMessage(
       role: ChatRole.assistant,
       kind: AiReplyKind.offlineHelp,
-      text: '$prefix\n\n${hit.entry.question(lang)}\n\n${hit.entry.answer(lang)}',
+      text:
+          '$prefix\n\n${hit.entry.question(lang)}\n\n${hit.entry.answer(lang)}',
       citations: [hit.category.title(lang)],
     );
   }
@@ -271,7 +273,8 @@ class AiChatService {
     // retrieval-augmented model arrives in Phase 5b.
     if (lower.contains('preheat') && lower.contains('p91')) {
       // P1-37: dual units — temp °C/°F, PWHT hold time per mm + per inch wall.
-      reply = 'P91 preheat 200-300°C / 390-570°F (wymagany), interpass ≤350°C / ≤660°F, '
+      reply =
+          'P91 preheat 200-300°C / 390-570°F (wymagany), interpass ≤350°C / ≤660°F, '
           'PWHT wg B31.3 (2014+): 705-775°C / 1300-1425°F (projekty często zawężają do 730-760°C), '
           '1 h na 25 mm ścianki, min. 30 min — plan cyklu w „Obróbka cieplna po spawaniu”. '
           'Filler: ER90S-B9 / E9015-B9 (low-H). NIE używać B3 filler — creep mismatch. '
@@ -282,7 +285,8 @@ class AiChatService {
         lower.contains('sour')) {
       // P1-37: split hardness limits — HRC is the base-metal cap, HV10 the
       // weld+HAZ cap (NOT a unit conversion of HRC, two independent rules).
-      reply = 'NACE MR0175 / ISO 15156: H₂S threshold 0.05 psi (0.3 kPa / 0.0035 bar). Wymóg:\n'
+      reply =
+          'NACE MR0175 / ISO 15156: H₂S threshold 0.05 psi (0.3 kPa / 0.0035 bar). Wymóg:\n'
           '• Hardness — CS base metal ≤22 HRC; weld metal + HAZ ≤250 HV10 (osobne limity, nie konwersja)\n'
           '• Ni ≤1% w CS, PWHT mandatory (kontrola twardości po PWHT)\n'
           '• Bolts: B7M/L7M (nigdy B7 lub B16)\n'
@@ -291,7 +295,8 @@ class AiChatService {
     } else if (lower.contains('torque') || lower.contains('moment')) {
       // P1-37: dual-unit torque (N·m + lbf·ft), dual diameter (mm + in),
       // SMYS preload spelled out in MPa + ksi.
-      reply = 'Moment śrub flange (ASME PCC-1): T = K × F × d  →  T [N·m] = K × F [N] × d [m]  /  T [lbf·ft] = K × F [lbf] × d [in] / 12.\n'
+      reply =
+          'Moment śrub flange (ASME PCC-1): T = K × F × d  →  T [N·m] = K × F [N] × d [m]  /  T [lbf·ft] = K × F [lbf] × d [in] / 12.\n'
           '• K = 0.20 (sucha), 0.16 (Cu paste), 0.13 (Ni paste)\n'
           '• F = preload 50-75% SMYS (B7 stud SMYS ≈ 105 ksi / 725 MPa → preload target ≈ 52-79 ksi / 360-545 MPa na rdzeniu)\n'
           '• d = nominalna średnica śruby (np. 1 in = 25.4 mm, 1.25 in = 31.75 mm)\n'
@@ -312,14 +317,21 @@ class AiChatService {
       citations = ['Narzędzie: Szablon siodła do druku (menu MONTER)'];
     } else if (lower.contains('purge') || lower.contains('argon')) {
       // P1-37: standardise to slpm (bracketed scfh), dual temp on trailing shield.
-      reply = 'Back purge SS: 3-5 wymian objętości rury między dams, target O₂ <0.1% '
+      reply =
+          'Back purge SS: 3-5 wymian objętości rury między dams, target O₂ <0.1% '
           '(<50 ppm dla Ti, <20 ppm dla Zr). Argon 99.995% welding grade, flow 8-15 slpm [≈17-32 scfh].\n'
           'Trailing shield obowiązkowy dla all-position pipe — weld cools >200°C / >390°F przez sekundy po przejściu palnika.\n'
           'Konwersja: 1 slpm ≈ 2.12 scfh; 1 scfh ≈ 0.472 slpm.';
-      citations = ['Iteration 83 — SS back-purge dams', 'Iteration 91 — Ti/Zr welding'];
-    } else if (lower.contains('hi') || lower.contains('heat input') || lower.contains('kj')) {
+      citations = [
+        'Iteration 83 — SS back-purge dams',
+        'Iteration 91 — Ti/Zr welding'
+      ];
+    } else if (lower.contains('hi') ||
+        lower.contains('heat input') ||
+        lower.contains('kj')) {
       // P1-37: spell out units in the formula + dual P91 ceiling (kJ/mm + kJ/in).
-      reply = 'Heat input: HI [kJ/mm] = (V [V] × I [A] × 60) / (travel [mm/min] × 1000) × η.\n'
+      reply =
+          'Heat input: HI [kJ/mm] = (V [V] × I [A] × 60) / (travel [mm/min] × 1000) × η.\n'
           '• Travel in mm/min → HI in kJ/mm. Dla travel w in/min pomnóż najpierw × 25.4 (lub HI [kJ/in] = HI [kJ/mm] × 25.4).\n'
           '• η = 0.80 (SMAW/GMAW/FCAW), 0.60 (GTAW), 0.90 (SAW)\n'
           '• P91 WPS range: 1.0-2.5 kJ/mm (≈ 25-64 kJ/in) — NIE przekraczaj górnej granicy\n'
@@ -329,7 +341,8 @@ class AiChatService {
     } else {
       // P1-37: catch-all reply also flags dual units so the welder knows
       // every answer below comes with mm/in + °C/°F + kJ/mm/kJ/in mirrored.
-      reply = '(Tryb demo — wkrótce podłączamy Claude Haiku 4.5 z RAG ponad bazą wiedzy 270 KB. '
+      reply =
+          '(Tryb demo — wkrótce podłączamy Claude Haiku 4.5 z RAG ponad bazą wiedzy 270 KB. '
           'Wszystkie odpowiedzi liczbowe podawane są w jednostkach metrycznych ORAZ imperialnych — '
           'mm + in, °C + °F, kJ/mm + kJ/in, N·m + lbf·ft.)\n\n'
           'Spróbuj zapytań typu:\n'

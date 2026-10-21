@@ -36,9 +36,9 @@ import '../i18n/app_language.dart';
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
 /// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
 /// kalkulatory działają dalej.
-const int kLegalVersion = 4;
+const int kLegalVersion = 5;
 
-const String kLegalUpdated = '2026-10-20';
+const String kLegalUpdated = '2026-10-21';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -321,11 +321,11 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           c.tr(
             pl: 'Asystent ma dwa tryby. „Wykonaj" rozpoznaje polecenia na '
                 'telefonie (np. „otwórz kalkulator", „zapisz parametry '
-                'spawania") — takie polecenie nie opuszcza urządzenia, a każdy '
+                'spawania") — takie polecenie nie wymaga serwera, ale może być częścią kontekstu kolejnej rozmowy z AI, a każdy '
                 'zapis danych pokazuje podsumowanie do potwierdzenia. '
                 '„Odpowiedz" oraz polecenia, których telefon sam nie rozpozna, '
                 'wysyłają na nasz serwer treść pytania, kilka ostatnich '
-                'wiadomości z bieżącej rozmowy (kontekst), wybrany język oraz '
+                'wiadomości z bieżącej rozmowy, listę funkcji aplikacji i udostępnione pola widocznego kalkulatora (kontekst), wybrany język oraz '
                 'identyfikator i sekret instalacji; serwer przekazuje treść do '
                 'Anthropic (model Claude) i odsyła odpowiedź. Nie zapisujemy '
                 'treści pytań, poleceń ani odpowiedzi — zostają tylko liczniki '
@@ -343,11 +343,11 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'prosisz (art. 6 ust. 1 lit. b RODO).',
             en: 'The assistant has two modes. "Do" recognises commands on the '
                 'phone (e.g. "open the calculator", "save welding parameters") '
-                '— such a command never leaves the device, and every data '
-                'change shows a summary to confirm. "Answer", and commands the '
+                '— such a command needs no server, but may be included in later AI conversation context; every record '
+                'save shows a summary to confirm. "Answer", and commands the '
                 'phone cannot recognise by itself, send to our server the '
                 'question, a few recent messages of the current conversation '
-                '(context), the chosen language and the installation identifier '
+                'and the app capability list and shared inputs of the visible calculator (context), the chosen language and the installation identifier '
                 'and secret; the server passes the text to Anthropic (Claude '
                 'model) and returns the answer. We do not store questions, '
                 'commands or answers — only daily-limit counters (HMAC hashes, '
