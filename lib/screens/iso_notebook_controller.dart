@@ -153,6 +153,9 @@ enum IsoDrawProblem {
   /// Another non-weld component already occupies the symbol location.
   occupiedSymbol,
 
+  /// No suitable tee/run or a branch is already present.
+  invalidBranch,
+
   /// Rysunek wyszedłby nad górną krawędź siatki (wiersze < 0).
   outOfCanvas,
 
@@ -404,14 +407,28 @@ class IsoNotebookController extends ChangeNotifier {
   /// Na koniec widok dopasowuje się tak, żeby cały rysunek był widoczny.
   List<IsoStep>? _lastVoiceSteps;
   int? _lastVoiceVersion;
+  bool _lastVoiceFromTee = false;
+  bool _lastVoiceExplicitTee = false;
+  bool get lastCorrectionChangesBranchOrigin =>
+      _lastVoiceFromTee &&
+      !(_lastVoiceSteps?.any((step) => step is IsoTurn) ?? false);
 
   /// With [newSketch], validate against a blank sheet before saving or
   /// switching the active drawing. Invalid sequences leave the old sheet intact.
   Future<IsoDrawReport> draw(List<IsoStep> steps,
       {Duration stepDelay = const Duration(milliseconds: 300),
-      bool newSketch = false}) {
+      bool newSketch = false,
+      bool fromLastTee = false,
+      bool explicitLastTee = false}) {
     final copy = List<IsoStep>.unmodifiable(steps);
     return _enqueue((s) async {
+      if (newSketch && fromLastTee) {
+        final (pl, en) = _problemText(IsoDrawProblem.invalidBranch);
+        return IsoDrawReport(
+            problem: IsoDrawProblem.invalidBranch,
+            problemPl: pl,
+            problemEn: en);
+      }
       if (newSketch) {
         final preview = _planOnBlank(s, copy);
         if (preview.problem case final problem?) {
@@ -428,8 +445,11 @@ class IsoNotebookController extends ChangeNotifier {
         }
         await _startNew(s);
       }
-      final report = await _draw(s, copy, stepDelay);
+      final report = await _draw(s, copy, stepDelay,
+          fromLastTee: fromLastTee, explicitLastTee: explicitLastTee);
       if (report.ok) {
+        _lastVoiceFromTee = fromLastTee;
+        _lastVoiceExplicitTee = explicitLastTee;
         _lastVoiceSteps = copy;
         _lastVoiceVersion = s._version;
       }
@@ -448,14 +468,19 @@ class IsoNotebookController extends ChangeNotifier {
           return null;
         }
         final index = last.lastIndexWhere((step) => step is IsoTurn);
-        if (index < 0) return null;
+        if (index < 0 && !_lastVoiceFromTee) return null;
         final steps = List<IsoStep>.from(last);
-        final turn = steps[index] as IsoTurn;
-        steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
-        for (var i = index + 1; i < steps.length; i++) {
-          if (steps[i] case final IsoPipe pipe) {
-            steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
-            break;
+        if (index < 0 && steps.first is IsoPipe) {
+          final pipe = steps.first as IsoPipe;
+          steps[0] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
+        } else {
+          final turn = steps[index] as IsoTurn;
+          steps[index] = IsoTurn(toDir: direction, dn: turn.dn);
+          for (var i = index + 1; i < steps.length; i++) {
+            if (steps[i] case final IsoPipe pipe) {
+              steps[i] = IsoPipe(dir: direction, lengthMm: pipe.lengthMm);
+              break;
+            }
           }
         }
         final current = List<_Item>.from(s._items);
@@ -465,7 +490,9 @@ class IsoNotebookController extends ChangeNotifier {
           s._items
             ..clear()
             ..addAll(before);
-          preview = _plan(s, steps);
+          preview = _plan(s, steps,
+              fromLastTee: _lastVoiceFromTee,
+              explicitLastTee: _lastVoiceExplicitTee);
         } finally {
           s._items
             ..clear()
@@ -483,7 +510,9 @@ class IsoNotebookController extends ChangeNotifier {
         s._mutate(() => s._items
           ..clear()
           ..addAll(before));
-        final report = await _draw(s, steps, const Duration(milliseconds: 150));
+        final report = await _draw(s, steps, const Duration(milliseconds: 150),
+            fromLastTee: _lastVoiceFromTee,
+            explicitLastTee: _lastVoiceExplicitTee);
         if (report.ok) {
           _lastVoiceSteps = List.unmodifiable(steps);
           _lastVoiceVersion = s._version;
@@ -540,9 +569,10 @@ class IsoNotebookController extends ChangeNotifier {
 
   // ── rysowanie ──────────────────────────────────────────────────────────────
 
-  Future<IsoDrawReport> _draw(
-      _IsoState s, List<IsoStep> steps, Duration delay) async {
-    final plan = _plan(s, steps);
+  Future<IsoDrawReport> _draw(_IsoState s, List<IsoStep> steps, Duration delay,
+      {bool fromLastTee = false, bool explicitLastTee = false}) async {
+    final plan = _plan(s, steps,
+        fromLastTee: fromLastTee, explicitLastTee: explicitLastTee);
     final problem = plan.problem;
     if (problem != null) {
       final (pl, en) = _problemText(problem, elbow: plan.elbowAtCursor);
@@ -634,6 +664,15 @@ class IsoNotebookController extends ChangeNotifier {
     final plan = run.plan;
     final op = plan.ops[run.next++];
     switch (op) {
+      case _PlannedBranch():
+        s._mutate(() {
+          final index = s._items.indexOf(op.tee);
+          if (index >= 0) {
+            s._items[index] =
+                op.tee.withTeeDirections(branch: op.branch, run: op.run);
+          }
+          s._addAutoWeldsAt(op.tee.pos, [op.branch, op.run, (op.run + 3) % 6]);
+        });
       case _PlannedPipe():
         final dn = op.elbowDn;
         if (dn != null) {
@@ -715,7 +754,8 @@ class IsoNotebookController extends ChangeNotifier {
     'support': _Tool.support,
   };
 
-  _VoicePlan _plan(_IsoState s, List<IsoStep> steps) {
+  _VoicePlan _plan(_IsoState s, List<IsoStep> steps,
+      {bool fromLastTee = false, bool explicitLastTee = false}) {
     final m = s._currentMapping;
     final pl = <String>[], en = <String>[];
     void assume(String p, String e) {
@@ -724,7 +764,44 @@ class IsoNotebookController extends ChangeNotifier {
       en.add(e);
     }
 
-    final start = _cursor(s);
+    var start = _cursor(s);
+    _Comp? branchTee;
+    int? branchRun;
+    if (fromLastTee) {
+      if (steps.isEmpty ||
+          steps.first is! IsoPipe ||
+          (steps.first as IsoPipe).dir == null) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      final tees =
+          s._items.whereType<_Comp>().where((c) => c.t == _Tool.tee).toList();
+      if (tees.length > 1 && !explicitLastTee) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      branchTee = tees.lastOrNull;
+      if (branchTee == null) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      final legs = <int>{};
+      for (final pipe
+          in s._items.whereType<_Seg>().where((p) => p.t == _Tool.pipe)) {
+        if ((pipe.a - branchTee.pos).distance < _IsoState._s * .25) {
+          legs.add(s._closestIsoHeading(pipe.b - pipe.a));
+        }
+        if ((pipe.b - branchTee.pos).distance < _IsoState._s * .25) {
+          legs.add(s._closestIsoHeading(pipe.a - pipe.b));
+        }
+      }
+      branchRun = legs.where((g) => legs.contains((g + 3) % 6)).firstOrNull;
+      final g = _gridDirOf((steps.first as IsoPipe).dir!, m);
+      if (branchRun == null ||
+          legs.length != 2 ||
+          g == branchRun ||
+          g == (branchRun + 3) % 6) {
+        return _VoicePlan.failed(IsoDrawProblem.invalidBranch, 0);
+      }
+      start = (point: branchTee.pos, heading: g);
+    }
     final relative = start == null;
     var cur = relative ? (row: 0, half: 0) : _worldToLat(start.point);
     int? heading = start?.heading;
@@ -734,11 +811,15 @@ class IsoNotebookController extends ChangeNotifier {
     // keep it (in its old orientation) and add nothing, so neither a pipe
     // nor a fitting may start there.
     final elbowHere = !relative && _elbowAt(s, start.point);
-    int? runDn;
+    int? runDn = branchTee?.dnOut ?? branchTee?.dn;
     IsoTurn? turn;
     var turnAt = -1;
     var noLength = 0;
-    final ops = <_PlannedOp>[];
+    final ops = <_PlannedOp>[
+      if (branchTee != null)
+        _PlannedBranch(0,
+            at: cur, tee: branchTee, run: branchRun!, branch: heading!),
+    ];
 
     for (var i = 0; i < steps.length; i++) {
       final step = steps[i];
@@ -1215,6 +1296,10 @@ String _dirEn(IsoDir d) => switch (d) {
           'W tym miejscu jest już kształtka. Nie nakładam symboli; dodaj odcinek rury albo wybierz nowy arkusz.',
           'A fitting already occupies this location. Add a pipe segment or choose a new sheet before placing another symbol.',
         ),
+      IsoDrawProblem.invalidBranch => (
+          'Wybierz kierunek odgałęzienia od trójnika z narysowanym prostym przelotem. Przy kilku trójnikach wskaż „od ostatniego trójnika”. Kierunek musi być poza przelotem, a odgałęzienie jeszcze puste.',
+          'Choose a branch direction from a tee with a drawn straight run. With several tees, say “from the last tee”. The direction must differ from the run and the branch must still be empty.',
+        ),
       IsoDrawProblem.outOfCanvas => (
           'Rysunek wyszedłby nad górną krawędź arkusza — zacznij nowy rysunek '
               'albo rysuj w inną stronę.',
@@ -1293,6 +1378,19 @@ final class _PlannedPipe extends _PlannedOp {
 
   @override
   Iterable<_Lat> get points => [from, to];
+}
+
+final class _PlannedBranch extends _PlannedOp {
+  const _PlannedBranch(super.step,
+      {required this.at,
+      required this.tee,
+      required this.run,
+      required this.branch});
+  final _Lat at;
+  final _Comp tee;
+  final int run, branch;
+  @override
+  Iterable<_Lat> get points => [at];
 }
 
 final class _PlannedFitting extends _PlannedOp {

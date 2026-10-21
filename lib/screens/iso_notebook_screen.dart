@@ -496,6 +496,19 @@ class _Comp implements _Item, SketchComponent {
         endB: endB,
       );
 
+  _Comp withTeeDirections({required int branch, required int run}) =>
+      _Comp(pos, t,
+          dir: branch,
+          dir2: run,
+          label: label,
+          dn: dn,
+          dnOut: dnOut,
+          cteMm: cteMm,
+          elbowSubtype: elbowSubtype,
+          physicalLengthMm: physicalLengthMm,
+          endA: endA,
+          endB: endB);
+
   /// Persist physical-length / outlet-DN / end-connection spec captured by
   /// the reducer / valve / flange / cap spec sheets. Mirrors [withElbowSpec]
   /// for axial components — copies pos/t/dir/dir2/label/cte from `this` and
@@ -1946,6 +1959,7 @@ class _IsoState extends State<IsoNotebookScreen> {
           }
         }
         if (runA == null || branch == null) continue;
+        if (hasExisting && !canReplaceElbow) continue;
         _mutate(() {
           if (canReplaceElbow) _items.removeAt(existingIdx);
           _items.add(_Comp(endpoint, _Tool.tee, dir: branch!, dir2: runA));
@@ -9025,6 +9039,16 @@ class _Painter extends CustomPainter {
     // legacy 60°-step rotation still applies.
     if (c.t == _Tool.elbow90 && c.dir2 != null) {
       _symElbowIso(canvas, s * 0.46, c.dir, c.dir2!);
+      canvas.restore();
+      return;
+    }
+    if (c.t == _Tool.tee && c.dir2 != null) {
+      final r = s * .46;
+      for (final g in [c.dir, c.dir2!, (c.dir2! + 3) % 6]) {
+        final h = _isoHeadings[g];
+        canvas.drawLine(Offset.zero, Offset(h.dx * r, h.dy * r), _pipePaint);
+      }
+      canvas.drawCircle(Offset.zero, 4.5, Paint()..color = cs.secondary);
       canvas.restore();
       return;
     }

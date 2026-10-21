@@ -113,6 +113,8 @@ class IsoCommand {
     required this.kind,
     this.steps = const [],
     this.newSketch = false,
+    this.fromLastTee = false,
+    this.explicitLastTee = false,
     this.append = false,
     this.turnDir,
     this.turnCompass,
@@ -130,6 +132,8 @@ class IsoCommand {
 
   /// Padło „nowy rysunek / od nowa / new drawing”.
   final bool newSketch;
+  final bool fromLastTee;
+  final bool explicitLastTee;
 
   /// Padło „dorysuj / do tego rysunku / add to the drawing” — rysuj do
   /// ostatniego szkicu bez pytania.
@@ -174,12 +178,17 @@ class IsoCommand {
     Map<int, IsoCompass>? compassAt,
     List<IsoParseWarning>? warnings,
     bool? newSketch,
+    bool? fromLastTee,
+    bool? explicitLastTee,
+    bool? append,
   }) =>
       IsoCommand(
         kind: kind,
         steps: steps ?? this.steps,
         newSketch: newSketch ?? this.newSketch,
-        append: append,
+        append: append ?? this.append,
+        fromLastTee: fromLastTee ?? this.fromLastTee,
+        explicitLastTee: explicitLastTee ?? this.explicitLastTee,
         turnDir: turnDir,
         turnCompass: turnCompass,
         compassAt: compassAt ?? this.compassAt,
@@ -195,6 +204,8 @@ class IsoCommand {
         steps: steps,
         newSketch: newSketch,
         append: append,
+        fromLastTee: fromLastTee,
+        explicitLastTee: explicitLastTee,
         turnDir: dir,
         compassAt: compassAt,
         warnings: warnings,
@@ -665,6 +676,18 @@ class _Seg {
 /// rysowania (pytanie, zapis, inny moduł, brak elementów).
 IsoCommand? parseIsoCommand(Utterance u) {
   if (referencesInstruction(u)) return null;
+  final branch = RegExp(
+          r'^(?:(?:prosze|please)\s+)*(?:(?:narysuj|dorysuj|poprowadz|draw|add|continue)\s+)?(?:(?:odgalezienie|branch)\s+)?(?:od (?:ostatniego )?trojnika|from (?:the )?(?:last )?tee)\b\s*')
+      .firstMatch(u.folded);
+  if (branch != null) {
+    final remainder = u.folded.substring(branch.end);
+    final parsed = parseIsoCommand(u.withRaw('narysuj $remainder'));
+    return parsed?.copyWith(
+        fromLastTee: true,
+        append: true,
+        explicitLastTee:
+            u.hasStem(const ['ostatni']) || u.hasAny(const ['last']));
+  }
   final items = u.items;
   if (items.isEmpty) return null;
   final f = u.folded;

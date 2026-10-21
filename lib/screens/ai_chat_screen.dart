@@ -159,6 +159,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   IsoCommand? _pendingIso;
   bool _awaitingIsoChoice = false;
   IsoCommand? _pendingIsoValve;
+  IsoCommand? _pendingIsoBranch;
   BuildContext get _navigationContext => widget.embedded
       ? (appNavigatorKey.currentState?.overlay?.context ?? context)
       : context;
@@ -385,6 +386,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _brain.cancelPending();
     _pendingIso = null;
     _pendingIsoValve = null;
+    _pendingIsoBranch = null;
     _awaitingIsoChoice = false;
     if (clearText) {
       _cmdCtrl.clear();
@@ -478,10 +480,41 @@ class _AiChatScreenState extends State<AiChatScreen>
     var command = parseIsoCommand(u);
     final onIso = appRoutes.toolId == 'iso_notebook' ||
         (!widget.embedded && IsoNotebookController.active != null);
+    if (_pendingIsoBranch case final pending?) {
+      if (u.hasAny(const ['anuluj', 'cancel', 'stop', 'nie', 'no']) &&
+          u.tokens.length == 1) {
+        _pendingIsoBranch = null;
+        _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
+        return true;
+      }
+      final direction = isoDirectionOf(u);
+      final compass = isoCompassOf(u);
+      if (u.tokens.length <= 3 && (direction != null || compass != null)) {
+        final pipe = pending.steps.first as IsoPipe;
+        command = pending.copyWith(
+            steps: [
+              IsoPipe(dir: direction, lengthMm: pipe.lengthMm),
+              ...pending.steps.skip(1)
+            ],
+            compassAt: compass == null
+                ? pending.compassAt
+                : {...pending.compassAt, 0: compass});
+        _pendingIsoBranch = null;
+      } else if (command?.explicit == true ||
+          _brain.recognizesNewCommand(u, _brainContext) ||
+          parseAssistantCommand(text).intent != kIntentUnknown) {
+        _pendingIsoBranch = null;
+      } else {
+        _isoReply('Podaj kierunek odgałęzienia albo „anuluj”.',
+            'Give the branch direction or say “cancel”.');
+        return true;
+      }
+    }
     if (_pendingIsoValve case final pending?) {
       if (u.hasAny(const ['anuluj', 'cancel', 'stop', 'nie', 'no']) &&
           u.tokens.length == 1) {
         _pendingIsoValve = null;
+        _pendingIsoBranch = null;
         _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
         return true;
       }
@@ -493,10 +526,12 @@ class _AiChatScreenState extends State<AiChatScreen>
           kIsoValveTools.contains((command.steps.single as IsoFitting).tool);
       if (command?.explicit == true && !singleValveAnswer) {
         _pendingIsoValve = null;
+        _pendingIsoBranch = null;
       } else if (!singleValveAnswer &&
           (_brain.recognizesNewCommand(u, _brainContext) ||
               parseAssistantCommand(text).intent != kIntentUnknown)) {
         _pendingIsoValve = null;
+        _pendingIsoBranch = null;
         return false;
       } else {
         command = pending.chooseValve(u);
@@ -505,6 +540,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           return true;
         }
         _pendingIsoValve = null;
+        _pendingIsoBranch = null;
       }
     }
     if (_awaitingIsoChoice) {
@@ -590,6 +626,17 @@ class _AiChatScreenState extends State<AiChatScreen>
       _askIsoValve();
       return true;
     }
+    if (command.fromLastTee &&
+        command.steps.firstOrNull is IsoPipe &&
+        (command.steps.first as IsoPipe).dir == null) {
+      if (!command.compassAt.containsKey(0)) {
+        _pendingIsoBranch = command;
+        _isoReply(
+            'W jakim kierunku ma iść odgałęzienie od trójnika? Podaj np. „w górę” albo „do tyłu”.',
+            'Which direction should the branch leave the tee? Say e.g. “up” or “back”.');
+        return true;
+      }
+    }
     var controller = onIso ? IsoNotebookController.active : null;
     if (controller == null) {
       final tool = toolById('iso_notebook')!;
@@ -649,13 +696,13 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (report == null) {
         _isoReply(
             'Nie zmieniłem rysunku. Mogę poprawić tylko ostatnie polecenie '
-                'z kolanem, jeśli od tego czasu nie było zmian ręcznych.',
+                'z kolanem lub odgałęzieniem, jeśli od tego czasu nie było zmian ręcznych.',
             'Drawing unchanged. I can only correct the last voice command '
-                'with an elbow, with no manual changes since.');
+                'with an elbow or branch, with no manual changes since.');
       } else if (report.ok) {
         _isoReply(
-            'Zmieniłem kierunek ostatniego kolana. ${report.assumedPl.join(' ')}',
-            'Changed the last elbow direction. ${report.assumedEn.join(' ')}');
+            '${controller.lastCorrectionChangesBranchOrigin ? 'Zmieniłem kierunek odgałęzienia.' : 'Zmieniłem kierunek ostatniego kolana.'} ${report.assumedPl.join(' ')}',
+            '${controller.lastCorrectionChangesBranchOrigin ? 'Changed the branch direction.' : 'Changed the last elbow direction.'} ${report.assumedEn.join(' ')}');
       } else {
         _isoReply(report.problemPl ?? 'Rysunek bez zmian.',
             report.problemEn ?? 'Drawing unchanged.');
@@ -676,8 +723,10 @@ class _AiChatScreenState extends State<AiChatScreen>
             'New sheet. Tell me what to draw.');
         return true;
       }
-      final report =
-          await controller.draw(command.steps, newSketch: command.newSketch);
+      final report = await controller.draw(command.steps,
+          newSketch: command.newSketch,
+          fromLastTee: command.fromLastTee,
+          explicitLastTee: command.explicitLastTee);
       if (report.ok) {
         _isoReply(
             'Narysowałem: rury ${report.segments}, kolana ${report.elbows}, '
@@ -685,6 +734,18 @@ class _AiChatScreenState extends State<AiChatScreen>
             'Drawn: ${report.segments} pipes, ${report.elbows} elbows, '
                 '${report.fittings} fittings. ${report.assumedEn.join(' ')}');
       } else {
+        if (command.fromLastTee &&
+            report.problem == IsoDrawProblem.invalidBranch &&
+            command.steps.firstOrNull is IsoPipe) {
+          final pipe = command.steps.first as IsoPipe;
+          _pendingIsoBranch = command.copyWith(steps: [
+            IsoPipe(lengthMm: pipe.lengthMm),
+            ...command.steps.skip(1)
+          ], compassAt: {
+            for (final e in command.compassAt.entries)
+              if (e.key != 0) e.key: e.value
+          });
+        }
         _isoReply(
             report.problemPl ?? 'Nie zmieniłem rysunku. Doprecyzuj polecenie.',
             report.problemEn ??
@@ -710,6 +771,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _brain.cancelPending();
       _pendingIso = null;
       _pendingIsoValve = null;
+      _pendingIsoBranch = null;
       _awaitingIsoChoice = false;
       _isoReply(
           'Nie wykonuję tego polecenia.', 'I will not execute that command.');
@@ -717,6 +779,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (referencesInstruction(utterance)) {
       _pendingIsoValve = null;
+      _pendingIsoBranch = null;
       _pendingIso = null;
       _awaitingIsoChoice = false;
     } else if (await _tryIsoCommand(text, lang)) {

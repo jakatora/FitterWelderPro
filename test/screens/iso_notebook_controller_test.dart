@@ -409,6 +409,127 @@ void main() {
     expect(c.hasContent, isFalse, reason: 'rejected symbol adds no undo step');
     await _leave(tester);
   });
+  testWidgets(
+      'branch starts at a reducing tee, preserves DN and one undo restores the run',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [IsoPipe(dir: IsoDir.right, lengthMm: 1000)],
+        stepDelay: Duration.zero);
+    await c.draw(const [IsoFitting('tee', dn: 80, dnOut: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    await c.draw(const [IsoPipe(dir: IsoDir.right, lengthMm: 1000)],
+        stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final tee = _comps(before, 'tee').single;
+    final anchor = _pt(tee['pos']);
+    final r = await c.draw(const [IsoPipe(dir: IsoDir.up, lengthMm: 1000)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(r.ok, isTrue);
+    final after = await _stored(tester);
+    final branch = _pipes(after).last;
+    expect(_near(_a(branch), anchor), isTrue);
+    expect(_heading(_b(branch) - _a(branch)), IsoDir.up.index);
+    expect(_comps(after, 'tee').single['dn'], 80);
+    expect(_comps(after, 'tee').single['dnOut'], 50);
+    expect(_comps(after, 'tee').single['dir'], IsoDir.up.index);
+    final duplicate = await c.draw(const [IsoPipe(dir: IsoDir.back)],
+        fromLastTee: true, stepDelay: Duration.zero);
+    expect(duplicate.problem, IsoDrawProblem.invalidBranch);
+    c.undo();
+    final restored = await _stored(tester);
+    expect(_items(restored), _items(before));
+    await _leave(tester);
+  });
+  testWidgets(
+      'branch rejects missing tees, incomplete runs, axial directions and new-sheet conflicts atomically',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    expect(
+        (await c.draw(const [IsoPipe(dir: IsoDir.up)],
+                fromLastTee: true, stepDelay: Duration.zero))
+            .problem,
+        IsoDrawProblem.invalidBranch);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    await c.draw(const [IsoFitting('tee', dn: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    expect(
+        (await c.draw(const [IsoPipe(dir: IsoDir.up)],
+                fromLastTee: true, stepDelay: Duration.zero))
+            .problem,
+        IsoDrawProblem.invalidBranch);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    for (final direction in [IsoDir.right, IsoDir.left]) {
+      expect(
+          (await c.draw([IsoPipe(dir: direction)],
+                  fromLastTee: true, stepDelay: Duration.zero))
+              .problem,
+          IsoDrawProblem.invalidBranch);
+    }
+    expect(
+        (await c.draw(const [IsoPipe(dir: IsoDir.up)],
+                fromLastTee: true, newSketch: true, stepDelay: Duration.zero))
+            .problem,
+        IsoDrawProblem.invalidBranch);
+    expect(_items(await _stored(tester)), _items(before));
+    await _leave(tester);
+  });
+  testWidgets(
+      'multiple tees require an explicit last tee and use its actual position',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    await c.draw(const [IsoFitting('tee', dn: 80, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    await c.draw(const [IsoFitting('tee', dn: 80, dnOut: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final position = _comps(before, 'tee').last['pos'];
+    expect(
+        (await c.draw(const [IsoPipe(dir: IsoDir.up)],
+                fromLastTee: true, stepDelay: Duration.zero))
+            .problem,
+        IsoDrawProblem.invalidBranch);
+    final r = await c.draw(const [IsoPipe(dir: IsoDir.up)],
+        fromLastTee: true, explicitLastTee: true, stepDelay: Duration.zero);
+    expect(r.ok, isTrue);
+    expect(_pipes(await _stored(tester)).last['a'], position);
+    await _leave(tester);
+  });
+  testWidgets(
+      'correcting an elbow on a branch keeps its tee anchor and restores the whole command with undo',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    await c.draw(const [IsoFitting('tee', dn: 80, dnOut: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    await c.draw(const [IsoPipe(dir: IsoDir.right)], stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final position = _comps(before, 'tee').single['pos'];
+    await c.draw(const [
+      IsoPipe(dir: IsoDir.up),
+      IsoTurn(toDir: IsoDir.right, dn: 50),
+      IsoPipe()
+    ], fromLastTee: true, stepDelay: Duration.zero);
+    final pending = c.redirectLastTurn(IsoDir.back);
+    for (var i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    expect((await pending)!.ok, isTrue);
+    final after = await _stored(tester);
+    expect(_pipes(after)[2]['a'], position);
+    expect(_heading(_b(_pipes(after).last) - _a(_pipes(after).last)),
+        IsoDir.back.index);
+    c.undo();
+    expect(_items(await _stored(tester)), _items(before));
+    await _leave(tester);
+  });
   group('niepusty szkic i nowy rysunek', () {
     testWidgets(
         'invalid new drawing preserves active sketch, database and undo',

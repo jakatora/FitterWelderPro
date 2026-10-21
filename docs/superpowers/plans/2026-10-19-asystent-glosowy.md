@@ -1288,3 +1288,40 @@ Cel ACTIVE, backend bez zmian; APK nadal e7cd1d4, pełny checkpoint aplikacji
 36a2551:6756PASS. Ta zmiana NIE kończy pełnego prowadzenia tras45 i odgałęzień.
 Nadal potrzeba katalogu iso.draw/pokrycia i pozostałych operacji ISO, rekordów4.1,
 własnych danych4.3, coverage4.2, audytu raportów5, finalnego build/realnego mikrofonu6.
+
+2026-10-21 — prowadzenie odgałęzienia od istniejącego trójnika. IsoCommand
+fromLastTee/explicitLastTee i controller.draw(...fromLastTee) wskazują rzeczywisty
+węzeł tee, nie wolny koniec ostatniej rury. „Od trójnika rura metr w górę”
+(EN from the last tee pipe...) po zbudowaniu prostego przelotu rysuje3.leg.
+Kierunek jest jawny; brak -> pytanie w czacie z zachowaną długością i dalszymi
+krokami. Błędny kierunek przelotu zachowuje pytanie; krótka poprawka ponawia
+odgałęzienie, nie zmienia poprzedniej trasy. Anulowanie/nowy zamiar/referencja
+czyści pending. Kilka tee wymaga jawnego „od ostatniego trójnika”; wybór nie
+jest zgadywany. Samotny tee, brak prostego przelotu, kierunek w osi, zajęta
+odnoga albo branch+newSketch są odrzucane atomowo, bez wyczyszczenia arkusza.
+Planner wyznacza przeciwległą parę faktycznie podłączonych rur, wymaga2legs,
+ustawia punktstartu tee i DN z dnOut (lubrun). _PlannedBranch aktualizuje
+kierunki i kropki spoin razem z rurą jako1Undo. Kopia tee zachowujeDN80/DN50,
+CTE, etykietę i całą specyfikację. Kierunek i połączenia trójnika renderują się
+wzdłuż rzeczywistych osi. CUT nadal rozpoznaje role run/branch z geometrii.
+Naprawiono znaleziony błąd _maybeInsertElbows: count3 dodawał2.tee pomimo
+istniejącej ręcznej kształtki. Guard hasExisting&&!canReplaceElbow spełnia
+już istniejący komentarz; zachowuje trójnik i jego rozmiary. AutoTEE dla pustego
+węzła i zastąpienie automatycznego kolana nadal działają.
+Korekta kierunku prostej odnogi oraz korekta ostatniego kolana na trasie
+odnogi ponownie planują odTEEniezależnie od ostatniego wolnego końca. Flagi
+ostatniego polecenia i jawnego wyboru tee są zachowane. Cofnij przywraca cały
+przelot i wcześniejszą orientację tee, nie dodaje drugiego trójnika.
+Parent iso_notebook_screen zachował formatowanie poza małymi nowymi blokami
+(uniknięto niezwiązanych1822linii formattera).
+Kontrole: szczegółowe53PASS, pełna aplikacja6782PASS
+(build/iso-branch-full-app-tests.log), ostatnie dialogi/parser/kompas26PASS
+(build/iso-branch-final-dialogue-check.log), ponowienie złego kierunku1PASS.
+Cała analiza czysta build/iso-branch-clean-analyze.log. Trigger testowej awarii
+z poprzedniego zakresu nadal przechodzi, jego log SQL jest oczekiwany.
+Cel ACTIVE/backend bez zmian. Do następnego zakresu: spójny inline mainrun
+„rura-trójnik-rura” (obecnie sam trójnik dodawany przez symbol i dopiero
+przedłużenie przelotu; nie przedstawiać tego jako gotowej1-komendowej trasy),
+pełne trasy45 nadal wymagają modelu pochylenia, katalogiso.draw/pokrycie,
+rekordy4.1/własne dane4.3, audyt5 i końcowe build/głos6. Rozpoczęto świeży APK;
+ADB ostatnio bez telefonu, testy byVoice nie weryfikują fizycznego mikrofonu.

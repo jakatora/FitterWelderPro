@@ -277,6 +277,40 @@ void main() {
     expect(items.singleWhere((x) => x['tool'] == 'elbow45')['dir'],
         IsoDir.up.index);
   });
+  testWidgets(
+      'voice routes a branch from the tee and undo preserves the main run',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo');
+    await _say(t, 'dorysuj symbol trójnika DN80 na DN50');
+    await _say(t, 'dorysuj rura metr w prawo');
+    await _say(t, 'od trójnika rura metr');
+    expect(find.textContaining('W jakim kierunku ma iść odgałęzienie'),
+        findsOneWidget);
+    await _say(t, 'w prawo');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'w górę');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+    final pipes = items.where((x) => x['tool'] == 'pipe').toList();
+    final tee = items.singleWhere((x) => x['tool'] == 'tee');
+    expect(pipes, hasLength(3));
+    expect(pipes.last['a'], tee['pos']);
+    expect(tee['dnOut'], 50);
+    await _say(t, 'w dół');
+    expect(find.textContaining('Zmieniłem kierunek odgałęzienia.'),
+        findsOneWidget);
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final changed = await t.runAsync(() => IsoDrawingDao().latest());
+    final changedItems = (jsonDecode(changed!.json) as Map)['items'] as List;
+    expect(changedItems.singleWhere((x) => x['tool'] == 'tee')['dir'],
+        IsoDir.down.index);
+    await _say(t, 'cofnij');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+  });
   testWidgets('jedna rozmowa otwiera ISO, rysuje, dorysowuje i cofa',
       (tester) async {
     seedFreshInstall();
