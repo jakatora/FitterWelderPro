@@ -1078,3 +1078,24 @@ z zachowaniem progu500tur<1s; wynik699ms w regresji.
 Dalej2.5: rigging.colour, grinding.stripe, fume.oel, filler.pick; później pozostałe
 etapy ISO/rejestrów/pokrycia/raportów i odbiór mikrofonu/build. Ostatni pełny
 checkpoint całej aplikacji nadal a1050266489PASS. Backend w tej zmianie nietknięty.
+
+2026-10-21 — rigging.colour i grinding.stripe: lokalne odpowiedzi z istniejących
+SlingColour/SpeedStripe i wspólne karty referencyjne otwierane przez ToolBridge.
+Kolor tkaniny oznacza referencyjne WLL przy podnoszeniu prostym, kolor etykiety
+materiał PES/PA/PP. Pomarańczowy oznacza 10 t i więcej. Brak etykiety = STOP.
+Nie wylicza się zgody na rzeczywisty udźwig z koloru. Kolor całej tarczy nie
+ustala koloru paska, dwa alternatywne kolory nie oznaczają paska dwukolorowego.
+Dopytania czyszczą poprzedni kolor przy przejściu od tkaniny do etykiety.
+Uchwyty przyjmują wyłącznie pola reference_*, nie zmieniają WLL, prędkości,
+wybranego rzeczywistego koloru, kontroli ani zapisanych preferencji/sprzętu.
+Szczególne tarcze i dobór RPM wymagają osobnej funkcji, zgłaszanej jako brak.
+Źródła porównane 2026-10-21: DGUV209-021(08/2021), DGUV209-013 rozdz.10,
+Klingspor Maximum operating speed; danych liczbowych domeny nie zmieniano.
+Regresja początkowa1707PASS i 1FAIL wydajności1060ms przy równoległej analizie.
+Przeniesiono szybkie bramki tematu przed analizę zaprzeczenia. Kontrola końcowa
+37PASS, w tym pełny czat, doprecyzowania i wydajność579ms/500tur (próg nadal1s).
+Analiza zmienionego kodu czysta. Pełna regresja końcowa zapisana oddzielnie.
+Dalej grupa2.5: fume.oel i filler.pick. Nadal potrzebne pozostałe sterowanie
+kalkulatorami/rejestrami, rozszerzenia ISO, audyt pokrycia/raportów i etap6.
+Backend bez zmian; fizyczny mikrofon i finalny build nieodebrane.
+Końcowa regresja assistant+rigging+grinding UI/domena:1708PASS (build/colour-reference-final-regression.log).

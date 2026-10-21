@@ -349,6 +349,20 @@ void main() {
     expect(prefs.getString(kElectrodeBatchesPrefsKey), before);
     await close(tester);
   });
+  testWidgets('chat distinguishes sling label material from abrasive stripe code', (tester) async {
+    await boot(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Pokaż niebieską etykietę zawiesia');
+    expect(ToolBridge.instance.activeToolId, 'rigging');
+    expect(find.byKey(const ValueKey('rig-assistant-reference')), findsOneWidget);
+    expect(find.textContaining('poliester (PES)'), findsWidgets);
+    await say(tester, 'Pokaż czerwony pasek na tarczy');
+    expect(ToolBridge.instance.activeToolId, 'grinding');
+    expect(find.byKey(const ValueKey('gr-assistant-reference')), findsOneWidget);
+    expect(find.textContaining('80 m/s'), findsWidgets);
+    await close(tester);
+  });
   testWidgets(
       'missing table is queued privately once; invalid input does not create a bug report',
       (tester) async {

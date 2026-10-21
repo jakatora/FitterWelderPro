@@ -18,6 +18,8 @@ import '../../domain/fitter/fitter_calcs.dart' show PipeMaterial;
 import '../../domain/rigging/rigging_calc.dart';
 import '../../domain/rigging/rigging_checklist.dart';
 import '../../domain/rigging/rigging_colors.dart';
+import '../../domain/rigging/colour_reference.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/rigging/rigging_inputs.dart';
 import '../../domain/rigging/rigging_sources.dart';
 import '../../domain/rigging/rigging_text.dart';
@@ -36,7 +38,39 @@ class RiggingPage extends StatefulWidget {
   State<RiggingPage> createState() => _RiggingPageState();
 }
 
-class _RiggingPageState extends State<RiggingPage> {
+class _RiggingPageState extends State<RiggingPage>
+    with ToolHandleHost<RiggingPage> {
+  SlingColour? _referenceColour;
+  bool _referenceTag = false;
+  final _scroll = ScrollController();
+  @override
+  String get toolId => 'rigging';
+  @override
+  Set<String> get supportedFields =>
+      const {'reference_colour', 'reference_part'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final c = SlingColour.values
+        .where((v) => v.name == fields['reference_colour'])
+        .firstOrNull;
+    final tag = fields['reference_part'] == 'tag';
+    if (fields.length != 2 ||
+        c == null ||
+        c.nominalT == null ||
+        !const ['tag', 'body'].contains(fields['reference_part']) ||
+        (tag && !slingTagMaterials.containsKey(c))) {
+      return fields.keys.toSet();
+    }
+    setState(() {
+      _referenceColour = c;
+      _referenceTag = tag;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+    return {};
+  }
+
   static const RiggingStore _store = RiggingStore();
 
   bool _fromPipe = false;
@@ -79,6 +113,7 @@ class _RiggingPageState extends State<RiggingPage> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     for (final c in [_mass, _od, _wall, _length, _extra, _angle, _wll]) {
       c.dispose();
     }
@@ -92,7 +127,9 @@ class _RiggingPageState extends State<RiggingPage> {
   /// i jedno kliknięcie „etykieta czytelna” dałyby fałszywe OK.
   Future<void> _restore() async {
     final loaded = await _store.load();
-    if (!mounted || _touched) return;
+    if (!mounted) return;
+    markReady();
+    if (_touched) return;
     final s = loaded.inputs;
     setState(() {
       _restoreDamaged = loaded.damaged;
@@ -424,9 +461,27 @@ class _RiggingPageState extends State<RiggingPage> {
           title: Text(context.tr(
               pl: 'Zawiesia i podwieszanie', en: 'Slings and rigging'))),
       body: ListView(
+        controller: _scroll,
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (_referenceColour != null)
+            Card(
+                key: const ValueKey('rig-assistant-reference'),
+                child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SelectableText(slingColourReference(_referenceColour!,
+                              tag: _referenceTag, en: _en)),
+                          TextButton(
+                              onPressed: () =>
+                                  setState(() => _referenceColour = null),
+                              child: Text(context.tr(
+                                  pl: 'Zamknij informację o kolorze',
+                                  en: 'Close colour reference'))),
+                        ]))),
           if (_restoreDamaged)
             QuoteNotice(
               key: const ValueKey('rig-restore-damaged'),

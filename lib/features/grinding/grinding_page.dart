@@ -15,6 +15,8 @@ import 'package:flutter/services.dart';
 
 import '../../domain/grinding/grinder_profile.dart';
 import '../../domain/grinding/grinding_check.dart';
+import '../../domain/grinding/stripe_reference.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/grinding/grinding_checklist.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -46,7 +48,29 @@ class GrindingPage extends StatefulWidget {
 }
 
 class _GrindingPageState extends State<GrindingPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, ToolHandleHost<GrindingPage> {
+  SpeedStripe? _referenceStripe;
+  final _checkScroll = ScrollController();
+  @override
+  String get toolId => 'grinding';
+  @override
+  Set<String> get supportedFields => const {'reference_stripe'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final stripe = SpeedStripe.values
+        .where((v) => v.name == fields['reference_stripe'])
+        .firstOrNull;
+    if (fields.length != 1 || stripe == null) return fields.keys.toSet();
+    setState(() {
+      _referenceStripe = stripe;
+      _tabs.index = 0;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _checkScroll.hasClients) _checkScroll.jumpTo(0);
+    });
+    return {};
+  }
+
   static int _seq = 0;
 
   late final TabController _tabs = TabController(length: 3, vsync: this);
@@ -106,6 +130,7 @@ class _GrindingPageState extends State<GrindingPage>
   @override
   void dispose() {
     _tabs.dispose();
+    _checkScroll.dispose();
     _expiry.dispose();
     super.dispose();
   }
@@ -120,6 +145,7 @@ class _GrindingPageState extends State<GrindingPage>
       _grindersUnavailable = r.unavailable;
       _grindersLoaded = true;
     });
+    markReady();
   }
 
   String _newId() =>
@@ -361,8 +387,27 @@ class _GrindingPageState extends State<GrindingPage>
       });
     return ListView(
       key: const ValueKey('gr-check-list'),
+      controller: _checkScroll,
       padding: _listPadding,
       children: [
+        if (_referenceStripe != null)
+          Card(
+              key: const ValueKey('gr-assistant-reference'),
+              child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SelectableText(grindingStripeReference(
+                            _referenceStripe!,
+                            en: _en)),
+                        TextButton(
+                            onPressed: () =>
+                                setState(() => _referenceStripe = null),
+                            child: Text(context.tr(
+                                pl: 'Zamknij informację o pasku',
+                                en: 'Close stripe reference'))),
+                      ]))),
         QuoteNotice(
           icon: Icons.gavel_outlined,
           text: context.tr(
