@@ -27,6 +27,8 @@ import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
 import 'fume_input_store.dart';
+import '../../assistant/core/tool_bridge.dart';
+import '../../domain/fume/fume_reference.dart';
 
 class FumePage extends StatefulWidget {
   const FumePage({super.key, this.store = const FumeInputStore()});
@@ -38,7 +40,28 @@ class FumePage extends StatefulWidget {
   State<FumePage> createState() => _FumePageState();
 }
 
-class _FumePageState extends State<FumePage> {
+class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
+  FumeAgent? _referenceAgent;
+  final _scroll = ScrollController();
+  @override
+  String get toolId => 'fume';
+  @override
+  Set<String> get supportedFields => const {'reference_agent'};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final a = FumeAgent.values
+        .where((v) => v.name == fields['reference_agent'])
+        .firstOrNull;
+    if (fields.length != 1 || a == null) return fields.keys.toSet();
+    setState(() {
+      _referenceAgent = a;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+    return {};
+  }
+
   FumeInputStore get _store => widget.store;
 
   final _flow = TextEditingController();
@@ -83,6 +106,7 @@ class _FumePageState extends State<FumePage> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     for (final c in [_flow, _diameter, _width, _height, _velocity, _distance]) {
       c.dispose();
     }
@@ -100,7 +124,9 @@ class _FumePageState extends State<FumePage> {
     } finally {
       _loaded = true;
     }
-    if (!mounted || _touched) return;
+    if (!mounted) return;
+    markReady();
+    if (_touched) return;
     final i = d.inputs;
     setState(() {
       _material = i.material;
@@ -256,9 +282,27 @@ class _FumePageState extends State<FumePage> {
               en: 'Welding fume and extraction'))),
       body: ListView(
         key: const ValueKey('fume-list'),
+        controller: _scroll,
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
         children: [
+          if (_referenceAgent != null)
+            Card(
+                key: const ValueKey('fume-assistant-reference'),
+                child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SelectableText(
+                              fumeOelReference(_referenceAgent!, en: _en)),
+                          TextButton(
+                              onPressed: () =>
+                                  setState(() => _referenceAgent = null),
+                              child: Text(context.tr(
+                                  pl: 'Zamknij informację',
+                                  en: 'Close reference'))),
+                        ]))),
           KeyedSubtree(
             key: const ValueKey('fume-intro'),
             child: QuoteNotice(
@@ -392,31 +436,7 @@ class _FumePageState extends State<FumePage> {
 
   // ── Zagrożenia ─────────────────────────────────────────────────────────
 
-  String _ndsText(FumeAgent a) {
-    final list = a.nds;
-    if (list == null) {
-      return context.tr(
-          pl: 'NDS: sprawdź aktualny wykaz NDS.',
-          en: 'Polish OEL (NDS): check the current NDS list.');
-    }
-    final parts = <String>[];
-    for (final v in list) {
-      final inside = [
-        if (v.fraction(en: _en) != null) v.fraction(en: _en)!,
-        if (v.ndsch != null)
-          context.tr(
-              pl: 'NDSCh ${_n(v.ndsch!, decimals: 3)} mg/m³',
-              en: 'STEL ${_n(v.ndsch!, decimals: 3)} mg/m³'),
-      ];
-      parts.add('${_n(v.nds, decimals: 3)} mg/m³'
-          '${inside.isEmpty ? '' : ' (${inside.join('; ')})'}');
-    }
-    final note = a.ndsNote(en: _en);
-    final tail = note == null ? '' : '; $note';
-    return context.tr(
-        pl: 'NDS: ${parts.join(' · ')}$tail.',
-        en: 'Polish OEL (NDS): ${parts.join(' · ')}$tail.');
-  }
+  String _ndsText(FumeAgent a) => fumeNdsText(a, en: _en);
 
   Widget _hazardSection() {
     final m = _material;

@@ -1128,3 +1128,35 @@ Logi build/filler-assistant-full-regression.log/filler-assistant-final-check2.lo
 filler-assistant-final-analyze2.log. Nadal aktywne: fume.oel, następne etapy
 ISO/rejestrów/pełnego pokrycia/raportów i finalny build+mikrofon. Backend bez zmian.
 Ostatni pełny checkpoint całej aplikacji nadal a1050266489PASS; APK starszy.
+
+2026-10-21 — fume.oel kończy grupę wiedzy2.5. Lokalne odpowiedzi korzystają z
+FumeAgent.nds/ndsNote i wspólnego fumeNdsText/fumeOelReference. Ten sam formatter
+jest na ekranie i w rozmowie. Polska, mg/m³, frakcje, NDS/NDSCh oraz datowany
+stan prawny są jawne. Brak NDSCh != zero; brak zweryfikowanego NDS -> wyjaśnienie
++ reportMissingCapability, bez wymyślonej liczby. Kadm zachowuje załącznik oraz
+przepis przejściowy0,004 do11.07.2027, ołów datę9.04.2026, CrVI uwagę o2025.
+Oficjalne ELI odczytane2026-10-21: Dz.U.2026/447 (załącznik),2026/1211 (§4),
+Dz.U.2020/61 (§2 ust4), https://eli.gov.pl/eli/DU/2026/447/ogl . Liczby domeny
+niezmienione; nie deklarowano aktualizacji całej tabeli poza jej datą18.10.2026.
+Wybór składnika działa dla wszystkich pozycji. Nie zakładaCrVI dla ogólnego
+chromu, ZnO dla cynku, tlenków dla żelaza ani związków niklu dla metalicznego Ni.
+Obsługa polskich odmian tlenku/tlenków i słownego „chromu sześć”. „co?” nie
+wybiera CO; świadomy wybór z chipu używa jednoznacznego prefiksu składnik.
+Inny kraj, inne wydanie, górnictwo/tunele, nieobjęta substancja i ocena pomiaru
+wymagają osobnej funkcji/źródła, raportują brak. Nie oznacza się stanowiska OK.
+FumePage przyjmuje wyłącznie reference_agent i pokazuje kartę. Nie ustawia
+materiału/procesu/LEV/RPE, nie dotyka pól ani listy/pomiarów. Test zachował
+wpisany przepływ1357 i cały zapis; dodatkowe pole material jest odrzucone.
+Pełny czat pokazuje Mn, scroll do części poza viewportem potwierdza pusty wybór
+materiału; NDS glinu tworzy prywatny raport fume.oel i deduplikuje powtórzenie.
+Początkowy test czatu błędnie szukał niezbudowanego elementu listy poza ekranem;
+naprawiono weryfikację przewinięciem, bez zmiany działania aplikacji.
+Korpus+nowe testy653PASS; końcowa kontrola umiejętności/perf27PASS (740ms/500<1s),
+pełny czat39PASS przed dodatkowym sprawdzeniem raportu, raport osobno1PASS.
+Pełna aplikacja6727PASS (build/knowledge-modules-full-app-tests.log), analiza całej
+aplikacji czysta (build/knowledge-modules-final-analyze.log). Po końcowym guardzie
+niklu i raportowaniu null wykonano dodatkowe27+1PASS. Ta kombinacja zastępuje
+starszy pełny checkpointa1050266489PASS. Backend w tej zmianie bez zmian.
+Cel nadal ACTIVE: audyt/rozszerzenie ISO3, rekordy i własne dane4, pokrycie,
+audyt raportów5 i odbiór głosu/build6. Rozpoczęto przygotowanie świeżego APK;
+nie traktować testów byVoice (transkrypcja) jako testu mikrofonu telefonu.

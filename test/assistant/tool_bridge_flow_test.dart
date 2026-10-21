@@ -349,6 +349,34 @@ void main() {
     expect(prefs.getString(kElectrodeBatchesPrefsKey), before);
     await close(tester);
   });
+  testWidgets(
+      'chat opens Polish OEL reference without asserting measured exposure',
+      (tester) async {
+    await boot(tester);
+    await tester.tap(find.byTooltip('Powiedz, co zrobić'));
+    await settle(tester);
+    await say(tester, 'Pokaż NDS manganu');
+    expect(ToolBridge.instance.activeToolId, 'fume');
+    expect(
+        find.byKey(const ValueKey('fume-assistant-reference')), findsOneWidget);
+    expect(find.textContaining('0,05 mg/m³'), findsWidgets);
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('fume-hazards-prompt')), 400,
+        scrollable: find
+            .descendant(
+                of: find.byKey(const ValueKey('fume-list')),
+                matching: find.byType(Scrollable))
+            .first);
+    expect(find.byKey(const ValueKey('fume-hazards-prompt')), findsOneWidget);
+    await say(tester, 'NDS glinu');
+    final reports = await FeedbackStore.instance.list();
+    expect(reports, hasLength(1));
+    expect(reports.single.tool, 'fume');
+    expect(reports.single.skill, 'fume.oel');
+    await say(tester, 'NDS glinu');
+    expect(await FeedbackStore.instance.list(), hasLength(1));
+    await close(tester);
+  });
   testWidgets('chat selects filler in the actual module', (tester) async {
     await boot(tester);
     await tester.tap(find.byTooltip('Powiedz, co zrobić'));

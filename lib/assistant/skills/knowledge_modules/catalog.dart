@@ -5,6 +5,7 @@ import 'electrodes_exposure_skill.dart';
 import 'rigging_colour_skill.dart';
 import 'grinding_stripe_skill.dart';
 import 'filler_pick_skill.dart';
+import 'fume_oel_skill.dart';
 
 List<AssistantSkill> knowledgeModuleSkills() => [
       DefectsCausesSkill(),
@@ -12,5 +13,6 @@ List<AssistantSkill> knowledgeModuleSkills() => [
       ElectrodesExposureSkill(),
       RiggingColourSkill(),
       GrindingStripeSkill(),
-      FillerPickSkill()
+      FillerPickSkill(),
+      FumeOelSkill()
     ];
