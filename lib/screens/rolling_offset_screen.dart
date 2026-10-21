@@ -24,12 +24,25 @@ class RollingOffsetScreen extends StatefulWidget {
 }
 
 class _RollingOffsetScreenState extends State<RollingOffsetScreen>
-    with ToolHandleHost<RollingOffsetScreen> {
+    with ToolHandleHost<RollingOffsetScreen>
+    implements InputToolHandle {
   @override
   String get toolId => 'rolling_offset';
   @override
   Set<String> get supportedFields =>
-      const {'rise_mm', 'spread_mm', 'angle_deg'};
+      const {...RollingOffsetInput.keys, 'action'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'rise_mm': parseDecimal(_riseController.text),
+        'spread_mm': parseDecimal(_spreadController.text),
+        'angle_deg': parseDecimal(_selectedAngle == 'custom'
+            ? _customAngleController.text
+            : _selectedAngle),
+        'dn': _dn,
+        'gap_mm': _gapController.text.trim().isEmpty
+            ? 0.0
+            : parseDecimal(_gapController.text),
+      });
   @override
   void initState() {
     super.initState();
@@ -38,34 +51,29 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen>
 
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
-    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+    if (!mounted) return fields.keys.toSet();
+    if (fields.length == 1 && fields['action'] == 'clear') {
+      _resetAll();
+      return {};
+    }
+    final RollingOffsetInput input;
+    try {
+      input = RollingOffsetInput.fromFields(fields);
+    } on FormatException {
       return fields.keys.toSet();
     }
-    final rise = fields['rise_mm'];
-    final spread = fields['spread_mm'];
-    final angle = fields['angle_deg'];
-    if (rise is! num || !rise.isFinite || rise <= 0) return {'rise_mm'};
-    if (spread is! num || !spread.isFinite || spread <= 0) return {'spread_mm'};
-    if (angle is! num || !rollingOffsetAngleValid(angle.toDouble())) {
-      return {'angle_deg'};
-    }
-    if (!mounted ||
-        rollingOffset(
-                riseMm: rise.toDouble(),
-                spreadMm: spread.toDouble(),
-                angleDeg: angle.toDouble()) ==
-            null) {
-      return fields.keys.toSet();
-    }
+    final rise = input.fields['rise_mm'],
+        spread = input.fields['spread_mm'],
+        angle = input.fields['angle_deg'];
     setState(() {
       _riseController.text = rise.toString();
       _spreadController.text = spread.toString();
       _selectedAngle = 'custom';
       _customAngleController.text = angle.toString();
-      // A new geometric answer must not reuse a different pipe's DN/gap
-      // and silently present a stale cut length.
-      _dn = null;
-      _gapController.clear();
+      // Fresh geometry omits cut fields; current edits carry the actual
+      // optional native selections explicitly.
+      _dn = input.fields['dn'] as int?;
+      _gapController.text = input.fields['gap_mm']?.toString() ?? '';
     });
     _calculate();
     return {};
@@ -242,11 +250,18 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen>
     // Optional: cut length from the ASME B16.9 LR elbow take-out.
     final dn = _dn;
     if (dn != null) {
+      final gap = _gapController.text.trim().isEmpty
+          ? 0.0
+          : parseDecimal(_gapController.text);
+      if (gap == null || gap < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(context.tr(
+                pl: 'Podaj szczelinę spoiny co najmniej 0 mm.',
+                en: 'Enter a weld root gap of at least 0 mm.'))));
+        return;
+      }
       final cut = rollingOffsetCut(
-          travelMm: result.travelMm,
-          angleDeg: angleDeg,
-          dn: dn,
-          gapMm: _parse(_gapController.text));
+          travelMm: result.travelMm, angleDeg: angleDeg, dn: dn, gapMm: gap);
       if (cut != null) {
         final t = cut.takeout;
         _takeoutController.text = t.mm.toStringAsFixed(1);

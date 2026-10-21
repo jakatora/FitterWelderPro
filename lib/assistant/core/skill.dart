@@ -181,10 +181,16 @@ sealed class SkillResult {
 }
 
 class AnswerResult extends SkillResult {
-  const AnswerResult(this.answer, {this.show, this.followUps = const []});
+  const AnswerResult(this.answer,
+      {this.show, this.followUps = const [], this.contextSlots});
   final AssistantAnswer answer;
   final ShowInModule? show;
   final List<FollowUp> followUps;
+
+  /// Opt-in actual inputs after resolving native readback. They replace raw
+  /// request slots for later cross-module questions; never inferred from UI
+  /// outputs, which may include derived or rounded values.
+  final Map<String, Object?>? contextSlots;
 }
 
 class AskResult extends SkillResult {

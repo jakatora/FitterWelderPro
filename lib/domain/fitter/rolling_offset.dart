@@ -166,3 +166,62 @@ RollingOffsetCut? rollingOffsetCut({
         rollingCutLengthMm(travelMm: travelMm, takeoutMm: t.mm, gapMm: gapMm),
   );
 }
+
+/// Complete assistant/native input, validated before any controller changes.
+class RollingOffsetInput {
+  RollingOffsetInput._(this.fields, this.result, this.cut);
+  final Map<String, Object?> fields;
+  final RollingOffsetResult result;
+  final RollingOffsetCut? cut;
+  static const keys = {'rise_mm', 'spread_mm', 'angle_deg', 'dn', 'gap_mm'};
+  factory RollingOffsetInput.fromFields(Map<String, Object?> fields) {
+    if (fields.keys.any((k) => !keys.contains(k))) {
+      throw const FormatException('fields');
+    }
+    double positive(String key) {
+      final n = fields[key];
+      if (n is! num || !n.isFinite || n <= 0) throw FormatException(key);
+      return n.toDouble();
+    }
+
+    final rise = positive('rise_mm'),
+        spread = positive('spread_mm'),
+        angle = positive('angle_deg');
+    if (!rollingOffsetAngleValid(angle)) {
+      throw const FormatException('angle_deg');
+    }
+    final r = rollingOffset(riseMm: rise, spreadMm: spread, angleDeg: angle);
+    if (r == null) throw const FormatException('geometry');
+    final dn = fields['dn'], gap = fields['gap_mm'];
+    if (dn != null && (dn is! int || dn <= 0)) {
+      throw const FormatException('dn');
+    }
+    if (gap != null && (gap is! num || !gap.isFinite || gap < 0)) {
+      throw const FormatException('gap_mm');
+    }
+    RollingOffsetCut? cut;
+    if (dn != null) {
+      if (gap is! num) throw const FormatException('gap_mm');
+      cut = rollingOffsetCut(
+          travelMm: r.travelMm,
+          angleDeg: angle,
+          dn: dn as int,
+          gapMm: gap.toDouble());
+      if (cut == null) throw const FormatException('dn');
+      if (!cut.cutMm.isFinite || cut.elbowsOverlap) {
+        throw const FormatException('geometry');
+      }
+    }
+    return RollingOffsetInput._(
+        Map.unmodifiable({
+          'rise_mm': rise,
+          'spread_mm': spread,
+          'angle_deg': angle,
+          if (fields.containsKey('dn')) 'dn': dn,
+          if (fields.containsKey('gap_mm'))
+            'gap_mm': gap is num ? gap.toDouble() : null,
+        }),
+        r,
+        cut);
+  }
+}

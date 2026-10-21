@@ -418,7 +418,13 @@ class AssistantBrain {
       case AskResult():
         _pending = r;
         _tie = null;
-      case AnswerResult() || ConfirmResult():
+      case AnswerResult():
+        final slots = r.contextSlots;
+        if (slots != null) {
+          m = m.copyWith(slots: Map<String, Object?>.unmodifiable(slots));
+        }
+        ctx.remember(m);
+      case ConfirmResult():
         ctx.remember(m);
       case NotUnderstood() || FailedResult():
         break;
