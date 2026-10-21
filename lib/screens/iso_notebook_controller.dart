@@ -89,14 +89,23 @@ class IsoTurn extends IsoStep {
 /// okien dialogowych). [tool]: `flange`, `blindFlange`, `cap`, `reducer`,
 /// `gateValve`, `ballValve`, `checkValve`, `globeValve`, `butterflyValve`,
 /// `weld`, `fieldWeld`, `support`. `elbow45` → [IsoDrawProblem.unsupported45],
-/// `tee` / `olet` → [IsoDrawProblem.unsupportedTee]; inna nazwa to błąd
+/// `tee` / `olet` → [IsoDrawProblem.unsupportedTee]. Explicit standalone
+/// `symbolOnly` allows elbow45 and tee placement; it does not infer routing.
+/// Inna nazwa to błąd
 /// programisty ([ArgumentError]).
 class IsoFitting extends IsoStep {
-  const IsoFitting(this.tool, {this.dn, this.dnOut});
+  const IsoFitting(this.tool,
+      {this.dn, this.dnOut, this.symbolOnly = false, this.dir});
   final String tool;
+
+  /// Explicit manual-style symbol placement, with no inferred sloping route.
+  final bool symbolOnly;
+
+  /// Orientation for explicit symbol placement.
+  final IsoDir? dir;
   final int? dn;
 
-  /// Tylko redukcja: DN wylotu.
+  /// Reducer outlet or tee branch DN.
   final int? dnOut;
 
   @override
@@ -104,15 +113,19 @@ class IsoFitting extends IsoStep {
       other is IsoFitting &&
       other.tool == tool &&
       other.dn == dn &&
-      other.dnOut == dnOut;
+      other.dnOut == dnOut &&
+      other.symbolOnly == symbolOnly &&
+      other.dir == dir;
 
   @override
-  int get hashCode => Object.hash(IsoFitting, tool, dn, dnOut);
+  int get hashCode => Object.hash(IsoFitting, tool, dn, dnOut, symbolOnly, dir);
 
   @override
   String toString() => "IsoFitting('$tool'${[
         if (dn != null) ', dn: $dn',
         if (dnOut != null) ', dnOut: $dnOut',
+        if (symbolOnly) ', symbolOnly: true',
+        if (dir != null) ', dir: ${dir!.name}',
       ].join()})";
 }
 
@@ -133,6 +146,12 @@ enum IsoDrawProblem {
 
   /// Trójnik / olet — poza zakresem tej wersji, do narysowania palcem.
   unsupportedTee,
+
+  /// Invalid explicit run/branch sizes for a requested symbol.
+  invalidFittingSize,
+
+  /// Another non-weld component already occupies the symbol location.
+  occupiedSymbol,
 
   /// Rysunek wyszedłby nad górną krawędź siatki (wiersze < 0).
   outOfCanvas,
@@ -538,6 +557,21 @@ class IsoNotebookController extends ChangeNotifier {
       return IsoDrawReport(
           assumedPl: plan.assumedPl, assumedEn: plan.assumedEn);
     }
+    for (final op in plan.ops.whereType<_PlannedFitting>()) {
+      if (op.tool != _Tool.elbow45 && op.tool != _Tool.tee) continue;
+      final at = plan.world(op.at);
+      if (s._items.any((item) =>
+          item is _Comp &&
+          !item.t.isWeld &&
+          (item.pos - at).distance < _IsoState._s * .45)) {
+        final (pl, en) = _problemText(IsoDrawProblem.occupiedSymbol);
+        return IsoDrawReport(
+            problem: IsoDrawProblem.occupiedSymbol,
+            problemStep: op.step,
+            problemPl: pl,
+            problemEn: en);
+      }
+    }
     final run = _VoiceRun(plan);
     // The whole command is ONE undo step — taken here, not through _push(),
     // which would finish this very run.
@@ -623,7 +657,12 @@ class IsoNotebookController extends ChangeNotifier {
               dir: op.dir,
               label: op.tool.isWeld ? '${s._nextWeldNo()}' : op.label);
           final dn = op.dn;
-          if (dn != null) {
+          if (dn != null && op.tool == _Tool.elbow45) {
+            comp = comp.withElbowSpec(
+                dn: dn, subtype: _ElbowSubtype.lr45, cte: op.cte);
+          } else if (dn != null && op.tool == _Tool.tee) {
+            comp = comp.withTeeSpec(dn: dn, dnBranch: op.dnOut, cte: op.cte);
+          } else if (dn != null) {
             comp = comp.withPhysicalSpec(
               dn: dn,
               dnOut: op.dnOut,
@@ -715,7 +754,14 @@ class IsoNotebookController extends ChangeNotifier {
                 'Two elbows in a row counted as one.');
           }
         case IsoFitting():
-          final tool = _kFittings[step.tool];
+          final tool = _kFittings[step.tool] ??
+              (step.symbolOnly && steps.length == 1
+                  ? switch (step.tool) {
+                      'elbow45' => _Tool.elbow45,
+                      'tee' => _Tool.tee,
+                      _ => null
+                    }
+                  : null);
           if (tool == null) {
             if (step.tool == 'elbow45') {
               return _VoicePlan.failed(IsoDrawProblem.unsupported45, i);
@@ -733,13 +779,26 @@ class IsoNotebookController extends ChangeNotifier {
             return _VoicePlan.failed(IsoDrawProblem.turnAtFitting, i,
                 elbowAtCursor: true);
           }
+          if (tool == _Tool.tee &&
+              step.dnOut != null &&
+              (step.dn == null || step.dnOut! > step.dn!)) {
+            return _VoicePlan.failed(IsoDrawProblem.invalidFittingSize, i);
+          }
+          if (step.symbolOnly &&
+              ((step.dn != null && !_IsoState._dnChoices.contains(step.dn)) ||
+                  (step.dnOut != null &&
+                      !_IsoState._dnChoices.contains(step.dnOut)))) {
+            return _VoicePlan.failed(IsoDrawProblem.invalidFittingSize, i);
+          }
           final f = _planFitting(
             s,
             tool: tool,
             step: step,
             index: i,
             at: cur,
-            heading: heading ?? _lookAheadDir(steps, i, m),
+            heading: step.symbolOnly && step.dir != null
+                ? _gridDirOf(step.dir!, m)
+                : heading ?? _lookAheadDir(steps, i, m),
             atStart: heading == null,
             runDn: runDn,
             assume: assume,
@@ -877,6 +936,30 @@ class IsoNotebookController extends ChangeNotifier {
       }
     }
     switch (tool) {
+      case _Tool.elbow45:
+        final value =
+            kElbowTakeouts.where((row) => row.dn == dn).firstOrNull?.lr45;
+        final cte = value != null && value > 0 ? value : null;
+        if (cte == null) _noTableLength(assume, namePl, nameEn, dn);
+        assume(
+            'Umieściłem symbol kolana 45° we wskazanej orientacji. Pochylenie i dalszą trasę trzeba określić osobno.',
+            'Placed a 45° elbow symbol in the specified orientation. Specify slope and further routing separately.');
+        return _PlannedFitting(index,
+            at: at, tool: tool, dir: heading, dn: dn, cte: cte, dnAfter: dn);
+      case _Tool.tee:
+        final cte = TakeoutCatalog.tee[dn];
+        if (cte == null) _noTableLength(assume, namePl, nameEn, dn);
+        assume(
+            'Umieściłem symbol trójnika we wskazanej orientacji. Odgałęzienie nie ma jeszcze narysowanej rury.',
+            'Placed a tee symbol in the specified orientation. Its branch pipe is not drawn yet.');
+        return _PlannedFitting(index,
+            at: at,
+            tool: tool,
+            dir: heading,
+            dn: dn,
+            dnOut: step.dnOut,
+            cte: cte,
+            dnAfter: dn);
       case _Tool.reducer:
         var out = _validDn(step.dnOut);
         if (out == null) {
@@ -1121,8 +1204,16 @@ String _dirEn(IsoDir d) => switch (d) {
           'I cannot draw a 45° elbow by voice yet — draw it with your finger.',
         ),
       IsoDrawProblem.unsupportedTee => (
-          'Trójnika nie rysuję jeszcze głosem — narysuj go palcem.',
-          'I cannot draw a tee by voice yet — draw it with your finger.',
+          'Trasa z odgałęzieniem wymaga dalszego określenia. Sam symbol dodasz poleceniem „wstaw symbol trójnika DN50”.',
+          'Branch routing needs further specification. To place only the symbol, say “place tee symbol DN50”.',
+        ),
+      IsoDrawProblem.invalidFittingSize => (
+          'Podaj DN z listy zeszytu; DN odgałęzienia nie może być większe od przelotu.',
+          'Choose a notebook DN; the branch DN cannot exceed the run DN.',
+        ),
+      IsoDrawProblem.occupiedSymbol => (
+          'W tym miejscu jest już kształtka. Nie nakładam symboli; dodaj odcinek rury albo wybierz nowy arkusz.',
+          'A fitting already occupies this location. Add a pipe segment or choose a new sheet before placing another symbol.',
         ),
       IsoDrawProblem.outOfCanvas => (
           'Rysunek wyszedłby nad górną krawędź arkusza — zacznij nowy rysunek '
@@ -1217,11 +1308,12 @@ final class _PlannedFitting extends _PlannedOp {
     this.endB,
     this.label = '',
     this.dnAfter,
+    this.cte,
   });
   final _Lat at;
   final _Tool tool;
   final int dir;
-  final int? dn, dnOut, lengthMm;
+  final int? dn, dnOut, lengthMm, cte;
   final EndConnection? endA, endB;
   final String label;
 

@@ -394,6 +394,21 @@ void main() {
     });
   });
 
+  testWidgets('a second symbol cannot overlap a symbol already on the sheet',
+      (tester) async {
+    await _boot(tester);
+    final c = await _open(tester);
+    await c.draw(const [IsoFitting('elbow45', dn: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    final before = await _stored(tester);
+    final r = await c.draw(const [IsoFitting('tee', dn: 50, symbolOnly: true)],
+        stepDelay: Duration.zero);
+    expect(r.problem, IsoDrawProblem.occupiedSymbol);
+    expect(await _stored(tester), before);
+    c.undo();
+    expect(c.hasContent, isFalse, reason: 'rejected symbol adds no undo step');
+    await _leave(tester);
+  });
   group('niepusty szkic i nowy rysunek', () {
     testWidgets(
         'invalid new drawing preserves active sketch, database and undo',

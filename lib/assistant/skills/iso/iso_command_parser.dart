@@ -75,6 +75,9 @@ enum IsoParseWarningKind {
 
   /// „Zawór” bez rodzaju (krok to [kIsoAnyValve]).
   valveTypeMissing,
+
+  /// Explicit symbol size is missing, ambiguous, zero or negative.
+  invalidSymbolSize,
 }
 
 @immutable
@@ -244,7 +247,10 @@ class IsoCommand {
     final resolved = List<IsoStep>.from(steps);
     for (final e in compassAt.entries) {
       if (e.key < 0 || e.key >= resolved.length) return null;
-      if (resolved[e.key] is! IsoPipe && resolved[e.key] is! IsoTurn) {
+      if (resolved[e.key] is! IsoPipe &&
+          resolved[e.key] is! IsoTurn &&
+          !(resolved[e.key] is IsoFitting &&
+              (resolved[e.key] as IsoFitting).symbolOnly)) {
         return null;
       }
       final dir = direction(e.value);
@@ -252,7 +258,8 @@ class IsoCommand {
       resolved[e.key] = switch (resolved[e.key]) {
         IsoPipe(:final lengthMm) => IsoPipe(dir: dir, lengthMm: lengthMm),
         IsoTurn(:final dn) => IsoTurn(toDir: dir, dn: dn),
-        _ => resolved[e.key],
+        IsoFitting(:final tool, :final dn, :final dnOut) =>
+          IsoFitting(tool, dn: dn, dnOut: dnOut, symbolOnly: true, dir: dir),
       };
     }
     var command = copyWith(steps: resolved, compassAt: const {});
@@ -631,6 +638,8 @@ bool _known(String w) =>
     _digitsRe.hasMatch(w) ||
     _pairRe.hasMatch(w) ||
     _vocabulary.contains(w) ||
+    w.startsWith('symbol') ||
+    w.startsWith('umiesc') ||
     _dirWords.containsKey(w) ||
     _element(w) != null ||
     _valveTypeOf(w) != null ||
@@ -659,7 +668,10 @@ IsoCommand? parseIsoCommand(Utterance u) {
   final items = u.items;
   if (items.isEmpty) return null;
   final f = u.folded;
-  final drawVerb = _drawVerbRe.hasMatch(f);
+  final drawVerb = _drawVerbRe.hasMatch(f) ||
+      (u.hasStem(const ['symbol']) &&
+          RegExp(r'^(?:(?:prosze|please)\s+)*(?:wstaw|postaw|umiesc|dodaj|place|put|insert|add)\b')
+              .hasMatch(f));
   final explicitPlace = _drawPlaceRe.hasMatch(f);
 
   // ── odrzucenia ──────────────────────────────────────────────────────────
@@ -788,6 +800,7 @@ IsoCommand? parseIsoCommand(Utterance u) {
   final steps = <IsoStep>[];
   final compassAt = <int, IsoCompass>{};
   final warnings = <IsoParseWarning>[];
+  final symbolOnly = u.hasStem(const ['symbol']) && segs.length == 1;
   int? pipeDn; // DN rury powiedziany przy rurze — dla następnej kształtki
   var strong = segs.length >= 2;
 
@@ -824,7 +837,9 @@ IsoCommand? parseIsoCommand(Utterance u) {
         final angle = sub.angleDeg();
         final dn = _dnOf(sub) ?? pipeDn;
         pipeDn = null;
-        if (angle != null && angle != 90) {
+        if (symbolOnly && angle == 45) {
+          steps.add(IsoFitting('elbow45', dn: dn, symbolOnly: true, dir: dir));
+        } else if (angle != null && angle != 90) {
           warnings.add(IsoParseWarning(IsoParseWarningKind.unsupported45,
               step: index, value: angle));
           compassAt.remove(index);
@@ -834,10 +849,16 @@ IsoCommand? parseIsoCommand(Utterance u) {
         }
       case _El.tee:
         final sizes = _sizes(segItems, s.idx.indexOf(s.at));
-        warnings.add(
-            IsoParseWarning(IsoParseWarningKind.unsupportedTee, step: index));
-        compassAt.remove(index);
-        steps.add(IsoFitting('tee', dn: sizes.firstOrNull?.$1 ?? pipeDn));
+        if (!symbolOnly) {
+          warnings.add(
+              IsoParseWarning(IsoParseWarningKind.unsupportedTee, step: index));
+        }
+        if (!symbolOnly) compassAt.remove(index);
+        steps.add(IsoFitting('tee',
+            dn: sizes.firstOrNull?.$1 ?? pipeDn,
+            dnOut: sizes.length == 2 ? sizes[1].$1 : null,
+            symbolOnly: symbolOnly,
+            dir: symbolOnly ? dir : null));
         pipeDn = null;
       case _El.flange:
       case _El.cap:
@@ -904,6 +925,16 @@ IsoCommand? parseIsoCommand(Utterance u) {
     }
   }
 
+  if (symbolOnly) {
+    final fitting = steps.whereType<IsoFitting>().firstOrNull;
+    final invalid = u.items.any((item) => item.isNumber && item.value! <= 0) ||
+        u.hasAny(const ['minus', 'negative']) ||
+        (u.mentionsDn && fitting?.dn == null);
+    if (invalid) {
+      warnings
+          .add(const IsoParseWarning(IsoParseWarningKind.invalidSymbolSize));
+    }
+  }
   // Kształtki osiowe nie mają kierunku — strona świata przy nich nic nie
   // znaczy (usunięta wyżej); zostają tylko rury i skręty.
   return IsoCommand(
@@ -1195,13 +1226,17 @@ String describeIsoStep(IsoStep s, AppLanguage l, {bool spoken = false}) {
         if (s.toDir != null) isoDir(s.toDir!, l),
       ].join(' '),
     IsoFitting() => [
+        if (s.symbolOnly) en ? 'symbol of' : 'symbol',
         isoFittingName(s.tool, l),
-        if (s.tool == 'reducer' && s.dn != null && s.dnOut != null)
+        if ((s.tool == 'reducer' || s.tool == 'tee') &&
+            s.dn != null &&
+            s.dnOut != null)
           'DN${s.dn} → DN${s.dnOut}'
         else if (s.tool == 'reducer' && s.dnOut != null)
           '→ DN${s.dnOut}'
         else if (s.dn != null)
           'DN${s.dn}',
+        if (s.symbolOnly && s.dir != null) isoDir(s.dir!, l),
       ].join(' '),
   };
 }
@@ -1232,13 +1267,15 @@ String isoStepsToUtterance(List<IsoStep> steps, AppLanguage l,
         if (s.dn != null) words.add('dn ${s.dn}');
         if (s.toDir != null) words.add(isoDir(s.toDir!, l));
       case IsoFitting():
+        if (s.symbolOnly) words.add('symbol');
         words.add(isoFittingName(s.tool, l));
-        if (s.tool == 'reducer') {
+        if (s.tool == 'reducer' || s.tool == 'tee') {
           if (s.dn != null) words.add('dn ${s.dn}');
           if (s.dnOut != null) words.add('${en ? 'to' : 'na'} dn ${s.dnOut}');
         } else if (s.dn != null) {
           words.add('dn ${s.dn}');
         }
+        if (s.symbolOnly && s.dir != null) words.add(isoDir(s.dir!, l));
     }
   }
   return words.join(' ');

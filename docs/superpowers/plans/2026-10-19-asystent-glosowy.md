@@ -1256,3 +1256,35 @@ licznika późniejszej zmianie. Backend bez zmian, APK nadal e7cd1d4.
 Cel ACTIVE. Następne: obsługa45/tee dostępnych ręcznie lub jawna mapa pokrycia
 ISO, brakujący katalog iso.draw, rekordy4.1 i własne dane4.3, computedcoverage4.2,
 audyt raportów5, finalny build i realny mikrofon6. Nie zwężać pełnej wizji.
+
+2026-10-21 — ISO: jawne umieszczanie symbolu kolana45 i trójnika, zgodne z
+manualnym narzędziem. Audyt _maybeInsertElbows potwierdził: zmiana każdej osi
+ISO oznacza90° w przestrzeni, kolano45 wymaga osobnej decyzji o pochyleniu.
+Nie zamieniono pełnej trasy45 na trasę90. Nowy IsoFitting.symbolOnly dopuszcza
+wyłącznie samodzielne umieszczenie elbow45/tee, bez automatycznej rury/odnogi.
+Polecenia „wstaw/umieść/narysuj symbol…” i EN place/add/insert/put symbol działają
+bez otwartego ISO. SymbolOnly, DN/DNout i orientacja zachowują się przy opisie,
+serializacji isoStepsToUtterance i ponownym parsowaniu. Zwykłe żądanie trasy
+z kolanem45/trójnikiem nadal jest jawnie nieobsłużone i raportowane. Czat
+podpowiada istniejące polecenie symbolu, nie twierdzi że narysował odnogę.
+IsoFitting.dir oraz resolveCompass obsługują jawną orientację symbolu, także
+strzałkę N. Zwykłe kształtki bez symbolOnly nadal nie przyjmują mapy kompasu.
+Kolano zapisuje elbowSubtype=lr45 i CTE z DOKŁADNEGO wiersza kElbowTakeouts,
+bez closestByDn/przybliżenia. Brak wiersza -> brak CTE, prośba o kartę.
+Trójnik zapisuje withTeeSpec: DN przelotu/odnogi, główne CTE z TakeoutCatalog.tee,
+bez fałszywego elbowSubtype ani długości korpusu. Gałąź nie jest rysowana.
+Samodzielne symbole są edytowalne na ekranie i Cofnij usuwa całą operację.
+DN0/ujemne/niejednoznaczne -> input warning bez raportu funkcji; nieznane DN i
+odgałęzienie większe od przelotu -> invalidFittingSize bez zmiany rysunku.
+Nowa walidacja occupiedSymbol chroni przed nałożeniem na istniejącą kształtkę,
+przed utworzeniem undo/mutacją; przypadek sprawdzony przez bazę i Cofnij.
+Pierwsze testy wykryły brak symbolOnly i DNout w serializacji mowy — naprawione.
+Kontrole: rozbudowana regresja assistant+controller+autosave1682PASS
+(build/iso-symbols-regression.log), końcowe parser/kompas/referencje22PASS
+(build/iso-symbols-final-parser-check.log), jawne wstaw/umieść + zapis + Cofnij
+2PASS (build/iso-symbols-final-placement-check.log). Testy rozmiarów/kierunku i
+rozmowy24PASS wcześniej. Cała analiza czysta (build/iso-symbols-final-analyze2.log).
+Cel ACTIVE, backend bez zmian; APK nadal e7cd1d4, pełny checkpoint aplikacji
+36a2551:6756PASS. Ta zmiana NIE kończy pełnego prowadzenia tras45 i odgałęzień.
+Nadal potrzeba katalogu iso.draw/pokrycia i pozostałych operacji ISO, rekordów4.1,
+własnych danych4.3, coverage4.2, audytu raportów5, finalnego build/realnego mikrofonu6.

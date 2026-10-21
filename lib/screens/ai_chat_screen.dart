@@ -565,6 +565,12 @@ class _AiChatScreenState extends State<AiChatScreen>
       unawaited(AssistantPanelController.instance.submit(text));
       return true;
     }
+    if (command.has(IsoParseWarningKind.invalidSymbolSize)) {
+      _isoReply(
+          'Nie umieściłem symbolu. Podaj jedno dodatnie DN; przy trójniku DN przelotu oraz odgałęzienia.',
+          'Symbol unchanged. Give one positive DN; for a tee give the run and branch DN.');
+      return true;
+    }
     final unsafe = command.warnings.where((w) =>
         w.kind != IsoParseWarningKind.lengthAssumedMeters &&
         w.kind != IsoParseWarningKind.valveTypeMissing);
@@ -574,9 +580,9 @@ class _AiChatScreenState extends State<AiChatScreen>
       _isoReply(
           'Potrzebuję dokładniejszego polecenia. Podaj długość z jednostką, '
               'kierunek (prawo, lewo, góra, dół) i rodzaj kształtki. '
-              'Kolana 45° i trójniki dodaj na razie ręcznie.',
+              'Trasy 45° i odgałęzienia wymagają dalszego określenia. Sam element dodasz poleceniem „wstaw symbol kolana 45 DN50” albo „wstaw symbol trójnika DN50”.',
           'Please specify a length with units, direction (right, left, up, down) '
-              'and fitting type. Add 45° elbows and tees manually for now.');
+              'and fitting type. Sloping and branch routes need further specification. For a standalone element, say “place 45 degree elbow symbol DN50” or “place tee symbol DN50”.');
       return true;
     }
     if (command.has(IsoParseWarningKind.valveTypeMissing)) {

@@ -230,6 +230,53 @@ void main() {
     expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(3));
     expect(t.takeException(), isNull);
   });
+  for (final e in {
+    'wstaw symbol kolana 45 DN50': 'elbow45',
+    'umieść symbol trójnika DN80 na DN50': 'tee'
+  }.entries) {
+    testWidgets(
+        'voice places ${e.value} as an editable symbol and undo removes it',
+        (t) async {
+      await _boot(t);
+      await _say(t, e.key);
+      expect(IsoNotebookController.active!.hasContent, isTrue);
+      await t.pump(const Duration(milliseconds: 600));
+      await flushTestDatabase(t);
+      final saved = await t.runAsync(() => IsoDrawingDao().latest());
+      final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+      final symbol = items.singleWhere((x) => x['tool'] == e.value);
+      expect(items.where((x) => x['tool'] == 'pipe'), isEmpty);
+      if (e.value == 'elbow45') {
+        expect(symbol['dn'], 50);
+        expect(symbol['elbowSubtype'], 'lr45');
+        expect(symbol['cteMm'], isoStandardElbowCteMm(50, 'lr45'));
+      } else {
+        expect(symbol['dn'], 80);
+        expect(symbol['dnOut'], 50);
+        expect(symbol['elbowSubtype'], isNull);
+      }
+      expect(await FeedbackStore.instance.list(), isEmpty);
+      await _say(t, 'cofnij');
+      expect(IsoNotebookController.active!.hasContent, isFalse);
+    });
+  }
+  testWidgets(
+      'invalid tee sizes do not change the drawing or create a gap report',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj symbol trójnika DN50 na DN80');
+    expect(IsoNotebookController.active!.hasContent, isFalse);
+    await _say(t, 'narysuj symbol kolana 45 DN0');
+    expect(IsoNotebookController.active!.hasContent, isFalse);
+    expect(await FeedbackStore.instance.list(), isEmpty);
+    await _say(t, 'narysuj symbol kolana 45 DN50 w górę');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+    expect(items.singleWhere((x) => x['tool'] == 'elbow45')['dir'],
+        IsoDir.up.index);
+  });
   testWidgets('jedna rozmowa otwiera ISO, rysuje, dorysowuje i cofa',
       (tester) async {
     seedFreshInstall();
