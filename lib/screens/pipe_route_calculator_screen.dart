@@ -1,98 +1,77 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/elbow_takeouts.dart';
+import '../domain/fitter/pipe_route.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/takeout_catalog.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
-/// Straight-pipe lengths of the route X (horizontal) → |H1−H2| (vertical) →
-/// Y (horizontal): TWO 90° elbows, three pipe segments, four butt welds at
-/// the elbows (+ two at the route ends when X / Y are measured to a face).
-class PipeRouteResult {
-  /// X − R − g (− g at the start weld): reference → face of elbow 1.
-  final double seg1;
-
-  /// |H1−H2| − 2R − 2g: between the faces of elbow 1 and elbow 2.
-  final double seg2;
-
-  /// Y − R − g (− g at the end weld): face of elbow 2 → reference.
-  final double seg3;
-
-  /// Σ of the (non-negative) straight segments — what goes on the saw.
-  final double total;
-
-  /// Number of 90° elbows in this route.
-  final int elbowCount;
-
-  /// Number of butt welds whose root gap was deducted.
-  final int weldCount;
-
-  /// Centreline arc length of the elbows: 2 × (π·R/2) = π·R.
-  final double arcsMm;
-
-  /// Developed centreline length: straights + weld gaps + arcs
-  /// (= X + |H1−H2| + Y − (4 − π)·R for positive segments).
-  final double developedMm;
-
-  const PipeRouteResult({
-    required this.seg1,
-    required this.seg2,
-    required this.seg3,
-    required this.total,
-    required this.elbowCount,
-    required this.weldCount,
-    required this.arcsMm,
-    required this.developedMm,
-  });
-}
-
-/// Pure calculation behind [PipeRouteCalculatorScreen]; [r] is the take-out
-/// (centre-to-face) of one 90° elbow — for an LR elbow its CLR radius, ASME
-/// B16.9 dimension A. [gapMm] is the weld root gap deducted at every butt
-/// weld: the 4 elbow welds always, the 2 route-end welds when [endWelds]
-/// (X and Y measured to the face of a flange / pipe that gets welded on).
-PipeRouteResult computePipeRoute({
-  required double h1,
-  required double h2,
-  required double x,
-  required double y,
-  required double r,
-  double gapMm = 0,
-  bool endWelds = false,
-}) {
-  const elbows = 2;
-  final endGap = endWelds ? gapMm : 0.0;
-  final seg1 = x - r - gapMm - endGap;
-  final seg2 = (h1 - h2).abs() - 2 * r - 2 * gapMm;
-  final seg3 = y - r - gapMm - endGap;
-  final total = math.max(0.0, seg1) + math.max(0.0, seg2) + math.max(0.0, seg3);
-  final welds = 2 * elbows + (endWelds ? 2 : 0);
-  final arcs = elbows * (math.pi * r / 2);
-  return PipeRouteResult(
-    seg1: seg1,
-    seg2: seg2,
-    seg3: seg3,
-    total: total,
-    elbowCount: elbows,
-    weldCount: welds,
-    arcsMm: arcs,
-    developedMm: total + welds * gapMm + arcs,
-  );
-}
+// Compatibility exports: existing callers use this screen's pure calculator.
+export '../domain/fitter/pipe_route.dart' show PipeRouteResult, computePipeRoute;
 
 class PipeRouteCalculatorScreen extends StatefulWidget {
-  const PipeRouteCalculatorScreen({super.key});
+  const PipeRouteCalculatorScreen({super.key, this.loadPreferences});
+  final Future<SharedPreferences> Function()? loadPreferences;
 
   @override
   State<PipeRouteCalculatorScreen> createState() => _PipeRouteCalculatorScreenState();
 }
 
 class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, ToolHandleHost<PipeRouteCalculatorScreen> implements InputToolHandle {
+  bool _loaded = false, _touched = false, _rZeroExplicit = false;
+  Future<void> _saveTail = Future<void>.value();
+  @override
+  String get toolId => 'pipe_route';
+  @override
+  Set<String> get supportedFields => {...PipeRouteInput.keys, 'action'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'h1_mm': _parseOrNull(_h1Controller.text),
+        'h2_mm': _parseOrNull(_h2Controller.text),
+        'x_mm': _parseOrNull(_xController.text),
+        'y_mm': _parseOrNull(_yController.text),
+        'r_mm': _parseOrNull(_rController.text),
+        'gap_mm': _gapController.text.trim().isEmpty
+            ? 0.0
+            : _parseOrNull(_gapController.text),
+        'end_welds': _endWelds,
+        'dn': _dn,
+      });
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !_loaded) return fields.keys.toSet();
+    if (fields.length == 1 && fields['action'] == 'clear') {
+      _clearAll(save: false);
+      await _saveSettings();
+      return {};
+    }
+    final PipeRouteInput input;
+    try {
+      input = PipeRouteInput.fromFields(fields);
+    } on FormatException {
+      return fields.keys.toSet();
+    }
+    String text(String key) => input.fields[key].toString();
+    _h1Controller.text = text('h1_mm');
+    _h2Controller.text = text('h2_mm');
+    _xController.text = text('x_mm');
+    _yController.text = text('y_mm');
+    _rController.text = text('r_mm');
+    _gapController.text = text('gap_mm');
+    _dn = input.fields['dn'] as int?;
+    _endWelds = input.fields['end_welds'] as bool;
+    _rZeroExplicit = (input.fields['r_mm'] as num) == 0;
+    _touched = true;
+    _calculate(save: false);
+    await _saveSettings();
+    return {};
+  }
+
   final _h1Controller = TextEditingController();
   final _h2Controller = TextEditingController();
   final _xController  = TextEditingController();
@@ -119,6 +98,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   static const _kPrefX  = 'pipe_route.x';
   static const _kPrefY  = 'pipe_route.y';
   static const _kPrefR  = 'pipe_route.r';
+  static const _kPrefExplicitRZero='pipe_route.explicit_zero_r';
   static const _kPrefDn  = 'pipe_route.dn';
   static const _kPrefGap = 'pipe_route.gap';
   static const _kPrefEndWelds = 'pipe_route.end_welds';
@@ -163,6 +143,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
 
   void _pickDn(int? dn) {
     setState(() {
+      _touched=true;_rZeroExplicit=false;
       _dn = dn;
       if (dn != null) {
         final t = b169ElbowTakeout(
@@ -179,7 +160,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   //   Segment2 = |H1−H2| − 2R   (between face of elbow 1 and face of elbow 2)
   //   Segment3 = Y − R          (from face of elbow 2 to wall/reference)
   // where R = elbow takeout (centre-to-face). For LR 90° elbow: takeout = R_CLR.
-  void _calculate() {
+  void _calculate({bool save=true}) {
     final h1 = _parseOrNull(_h1Controller.text);
     final h2 = _parseOrNull(_h2Controller.text);
     final x  = _parseOrNull(_xController.text);
@@ -218,6 +199,10 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
 
     final res = computePipeRoute(
         h1: h1, h2: h2, x: x, y: y, r: r, gapMm: gap, endWelds: _endWelds);
+    if([res.seg1,res.seg2,res.seg3,res.total,res.developedMm].any((v)=>!v.isFinite)) {
+      _error('Wynik poza zakresem. Sprawdź wymiary.', 'Result out of range. Check dimensions.');
+      return;
+    }
     if (res.seg1 < 0 || res.seg2 < 0 || res.seg3 < 0) {
       // No "reset R" shortcut: R = 0 is a C-C route, not a fix — it gives
       // pipes too long by the take-out. The dimensions or the DN are wrong.
@@ -228,6 +213,8 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
               'negative. Check X, Y, H1, H2 and the elbow DN.');
       return;
     }
+    _rZeroExplicit = r == 0;
+    _touched=true;
     _lastR = r;
     final seg1  = res.seg1;
     final seg2  = res.seg2;
@@ -254,7 +241,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
 
     // P1-22: persist all 5 inputs on _calculate success so a fitter who
     // backgrounds the app or kills it mid-shift recovers the spool setup.
-    _saveSettings();
+    if(save) _saveSettings();
 
     // P1-32: keyboard collapses on `setState()` and the TOTAL card renders
     // off-screen on 360-dp phones. ensureVisible scrolls the WYNIKI block
@@ -278,7 +265,8 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   // default) — and the 4 result controllers wipe so the empty-state
   // placeholder reappears. Multi-job shift = 3-4 calcs back-to-back;
   // manual field clearing in gloves is painful and inconsistent.
-  void _clearAll() {
+  void _clearAll({bool save=true}) {
+    _touched=true;_rZeroExplicit=false;
     _h1Controller.clear();
     _h2Controller.clear();
     _xController.clear();
@@ -295,7 +283,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
     _lastR = null;
     setState(() {});
     // P1-22: also wipe persisted inputs so a fresh launch starts clean.
-    _saveSettings();
+    if(save) _saveSettings();
   }
 
   // P1-22: restore prefs on first build, attach lifecycle observer so we can
@@ -339,55 +327,81 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
   // P1-22: snapshot 5 inputs + R + the two display prefs on background — same
   // pattern as bolt_torque_screen._savePrefs. mounted-safe via try/catch (the
   // SharedPreferences future can fail on locked/full storage).
-  Future<void> _saveSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kPrefH1, _h1Controller.text);
-      await prefs.setString(_kPrefH2, _h2Controller.text);
-      await prefs.setString(_kPrefX,  _xController.text);
-      await prefs.setString(_kPrefY,  _yController.text);
-      await prefs.setString(_kPrefR,  _rController.text);
-      await prefs.setString(_kPrefGap, _gapController.text);
-      await prefs.setBool(_kPrefEndWelds, _endWelds);
-      if (_dn == null) {
-        await prefs.remove(_kPrefDn);
-      } else {
-        await prefs.setInt(_kPrefDn, _dn!);
+  Future<void> _saveSettings() {
+    if (!_loaded) return Future<void>.value();
+    final h1 = _h1Controller.text,
+        h2 = _h2Controller.text,
+        x = _xController.text,
+        y = _yController.text;
+    final r = _rController.text,
+        gap = _gapController.text,
+        ends = _endWelds,
+        dn = _dn;
+    final separator = _decimalSeparatorPref,
+        decimals = _routeDecimals,
+        explicitZero = _rZeroExplicit;
+    _saveTail = _saveTail.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kPrefH1, h1);
+        await prefs.setString(_kPrefH2, h2);
+        await prefs.setString(_kPrefX, x);
+        await prefs.setString(_kPrefY, y);
+        await prefs.setString(_kPrefR, r);
+        await prefs.setBool(_kPrefExplicitRZero, explicitZero);
+        await prefs.setString(_kPrefGap, gap);
+        await prefs.setBool(_kPrefEndWelds, ends);
+        if (dn == null) {
+          await prefs.remove(_kPrefDn);
+        } else {
+          await prefs.setInt(_kPrefDn, dn);
+        }
+        await prefs.setString(_kPrefDecimalSeparator, separator);
+        await prefs.setInt(_kPrefRouteDecimals, decimals);
+      } catch (_) {
+        // Storage locked / full — silently skip; next session falls back to
+        // defaults rather than crashing the calc screen.
       }
-      await prefs.setString(_kPrefDecimalSeparator, _decimalSeparatorPref);
-      await prefs.setInt(_kPrefRouteDecimals, _routeDecimals);
-    } catch (_) {
-      // Storage locked / full — silently skip; next session falls back to
-      // defaults rather than crashing the calc screen.
-    }
+    });
+    return _saveTail;
   }
 
   Future<void> _loadSettings() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await (widget.loadPreferences?.call() ??
+          SharedPreferences.getInstance());
       if (!mounted) return;
       final h1 = prefs.getString(_kPrefH1);
       final h2 = prefs.getString(_kPrefH2);
-      final x  = prefs.getString(_kPrefX);
-      final y  = prefs.getString(_kPrefY);
-      final r  = prefs.getString(_kPrefR);
+      final x = prefs.getString(_kPrefX);
+      final y = prefs.getString(_kPrefY);
+      final r = prefs.getString(_kPrefR);
       final gap = prefs.getString(_kPrefGap);
       final endWelds = prefs.getBool(_kPrefEndWelds);
       final dn = prefs.getInt(_kPrefDn);
       final dsep = prefs.getString(_kPrefDecimalSeparator);
-      final dec  = prefs.getInt(_kPrefRouteDecimals);
+      final dec = prefs.getInt(_kPrefRouteDecimals);
       setState(() {
-        if (h1 != null) _h1Controller.text = h1;
-        if (h2 != null) _h2Controller.text = h2;
-        if (x  != null) _xController.text  = x;
-        if (y  != null) _yController.text  = y;
-        // A stored "0" is the old default (C-C), not a choice — start empty.
-        if (r != null && r.isNotEmpty && parseDecimal(r) != 0) {
-          _rController.text = r;
+        if (!_touched) {
+          if (h1 != null) _h1Controller.text = h1;
+          if (h2 != null) _h2Controller.text = h2;
+          if (x != null) _xController.text = x;
+          if (y != null) _yController.text = y;
+          // Only a zero explicitly selected after the legacy default fix is restored.
+          if (r != null &&
+              r.isNotEmpty &&
+              (parseDecimal(r) != 0 ||
+                  prefs.getBool(_kPrefExplicitRZero) == true)) {
+            _rController.text = r;
+          }
+          if (gap != null) _gapController.text = gap;
+          if (endWelds != null) _endWelds = endWelds;
+          if (dn != null &&
+              elbowTakeoutForDn(dn)?.lr90 == parseDecimal(_rController.text)) {
+            _dn = dn;
+          }
+          _rZeroExplicit = parseDecimal(_rController.text) == 0;
         }
-        if (gap != null) _gapController.text = gap;
-        if (endWelds != null) _endWelds = endWelds;
-        if (dn != null && elbowTakeoutForDn(dn) != null) _dn = dn;
         if (dsep == 'auto' || dsep == 'dot' || dsep == 'comma') {
           _decimalSeparatorPref = dsep!;
         }
@@ -395,6 +409,12 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
       });
     } catch (_) {
       // Fall back to defaults on storage error.
+    } finally {
+      if (mounted) {
+        _loaded = true;
+        markReady();
+        if (_touched) await _saveSettings();
+      }
     }
   }
 
@@ -446,10 +466,10 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
           // 168-dp labelText "X – bieg poziomy 1" doesn't ellipsize mid-edit.
           final bool narrow = constraints.maxWidth < 380;
           final h1Field = _field(_h1Controller,
-              focusNode: _h1Focus,
+              focusNode: _h1Focus, signed:true,
               label: context.tr(pl: 'H1 – wys. startu', en: 'H1 – start height'), suffix: 'mm');
           final h2Field = _field(_h2Controller,
-              focusNode: _h2Focus,
+              focusNode: _h2Focus, signed:true,
               label: context.tr(pl: 'H2 – wys. końca', en: 'H2 – end height'), suffix: 'mm');
           final xField = _field(_xController,
               focusNode: _xFocus,
@@ -533,6 +553,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                   en: 'Pick the DN (R = dimension A per ASME B16.9) or type the take-out from the elbow datasheet.',
                 ),
                 onChanged: (v) {
+                  _rZeroExplicit=parseDecimal(v)==0;
                   if (_dn == null) return;
                   final a = elbowTakeoutForDn(_dn!)?.lr90;
                   if (a == null || parseDecimal(v) != a) setState(() => _dn = null);
@@ -550,7 +571,7 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 value: _endWelds,
-                onChanged: (v) => setState(() => _endWelds = v),
+                onChanged: (v) => setState(() { _touched=true;_endWelds = v; }),
                 title: Text(context.tr(
                     pl: 'Spoiny także na obu końcach trasy',
                     en: 'Welds at both route ends too')),
@@ -645,10 +666,10 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Row(children: [
-                          Text(
+                          Expanded(child: Text(
                             context.tr(pl: 'SUMA (bez kolanek)', en: 'TOTAL (excl. elbows)'),
                             style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                          )),
                           IconButton(
                             icon: const Icon(Icons.info_outline, size: 20),
                             tooltip: context.tr(pl: 'Wzór', en: 'Formula'),
@@ -846,13 +867,17 @@ class _PipeRouteCalculatorScreenState extends State<PipeRouteCalculatorScreen>
       String? suffix,
       String? helper,
       FocusNode? focusNode,
-      ValueChanged<String>? onChanged}) {
+      ValueChanged<String>? onChanged,
+      bool signed = false}) {
     return TextField(
       controller: ctrl,
       focusNode: focusNode,
-      onChanged: onChanged,
-      keyboardType: numberKeyboard(),
-      inputFormatters: numberInputFormatters(),
+      onChanged: (value) {
+        _touched = true;
+        onChanged?.call(value);
+      },
+      keyboardType: numberKeyboard(signed: signed),
+      inputFormatters: numberInputFormatters(signed: signed),
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
