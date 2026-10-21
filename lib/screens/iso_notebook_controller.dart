@@ -305,6 +305,9 @@ class IsoNotebookController extends ChangeNotifier {
   /// Czy na arkuszu cokolwiek jest.
   bool get hasContent => _state?._items.isNotEmpty ?? false;
 
+  /// Local mutation marker for rejecting delayed assistant answers after edits.
+  int get revision => _state?._version ?? -1;
+
   /// Nazwa rysunku albo null (bez nazwy).
   String? get sketchName {
     final n = _state?._projectName ?? '';

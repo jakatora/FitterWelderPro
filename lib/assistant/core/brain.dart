@@ -207,6 +207,12 @@ class AssistantBrain {
                 'The question changed. Please answer again.'),
             reportMissingCapability: false));
       }
+      if (const {'anuluj', 'cancel', 'stop'}.contains(command.folded)) {
+        cancelPending();
+        return const BrainReply(AnswerResult(AssistantAnswer(
+            text: AssistantText('Anulowano bieżące polecenie.',
+                'Current request cancelled.'))));
+      }
       if (expected.slot == 'skill' && _tie != null) {
         final chosen = _answerTie(expected, [command]);
         if (chosen == null) {
@@ -216,8 +222,8 @@ class AssistantBrain {
       }
       Map<String, Object?>? values;
       try {
-        values =
-            expected.partial.skill.fillSlot(expected.slot, command, context);
+        values = expected.partial.skill
+            .fillProposalSlot(expected.slot, command, original, context);
       } catch (_) {
         return BrainReply(expected, match: expected.partial);
       }

@@ -104,6 +104,12 @@ abstract class AssistantSkill {
     final s = slotsFrom(u, ctx);
     return s.containsKey(slot) ? s : null;
   }
+
+  /// Domains with textual composite replies can reject model-added data while
+  /// preserving the richer native grammar for the user's direct answer.
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+          Utterance original, AssistantContext ctx) =>
+      fillSlot(slot, command, ctx);
 }
 
 class SkillMatch {
@@ -186,7 +192,13 @@ sealed class SkillResult {
 
 class AnswerResult extends SkillResult {
   const AnswerResult(this.answer,
-      {this.show, this.followUps = const [], this.contextSlots});
+      {this.show,
+      this.followUps = const [],
+      this.contextSlots,
+      this.actionCompleted = true});
+
+  /// Native execution can explain a refusal without advancing an AI plan.
+  final bool actionCompleted;
   final AssistantAnswer answer;
   final ShowInModule? show;
   final List<FollowUp> followUps;

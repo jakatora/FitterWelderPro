@@ -200,6 +200,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIsoBend != null ||
         _pendingIsoValve != null ||
         _awaitingIsoChoice,
+    pendingQuestion: _isoQuestion,
+    acceptsReply: _acceptsIsoReply,
+    acceptsProposalReply: _acceptsIsoProposalReply,
     execute: _executeIsoSkill,
   );
   AssistantActions _createActions() {
@@ -222,26 +225,148 @@ class _AiChatScreenState extends State<AiChatScreen>
           widget.skills ?? buildSkillCatalog(iso: _isoPort, actions: _actions));
   late AssistantBrain _brain = _createBrain();
   bool _collectIsoReply = false;
+  bool _isoDidExecute = false;
   SkillResult? _isoSkillResult;
-  Future<SkillResult> _executeIsoSkill(Utterance u) async {
-    _isoSkillResult = null;
-    _collectIsoReply = true;
-    try {
-      final handled = await _tryIsoCommand(u.raw, u.lang);
-      return _isoSkillResult ??
-          (handled
-              ? const AnswerResult(AssistantAnswer(
-                  text: AssistantText('Polecenie przekazano do Zeszytu ISO.',
-                      'Command sent to the ISO notebook.')))
-              : const FailedResult(AssistantText(
-                  'Nie rozpoznałem polecenia rysowania.',
-                  'I did not recognise the drawing command.')));
-    } finally {
-      _collectIsoReply = false;
+  AssistantText? _isoPendingText;
+  List<FollowUp> _isoPendingChoices = const [];
+  IsoDrawingQuestion? _isoQuestion() {
+    final text = _isoPendingText;
+    if (text == null) return null;
+    final slot = _pendingIsoBend != null
+        ? 'iso_bend'
+        : _pendingIsoBranch != null
+            ? 'iso_branch'
+            : _pendingIsoValve != null
+                ? 'iso_valve'
+                : _awaitingIsoChoice
+                    ? 'iso_mode'
+                    : null;
+    if (slot == null) return null;
+    final choices = _isoPendingChoices.isNotEmpty
+        ? _isoPendingChoices
+        : slot == 'iso_mode'
+            ? const [
+                FollowUp(AssistantText('Dorysuj', 'Append'), 'append'),
+                FollowUp(AssistantText('Nowy', 'New'), 'new'),
+                FollowUp(AssistantText('Anuluj', 'Cancel'), 'cancel'),
+              ]
+            : slot == 'iso_bend' || slot == 'iso_branch'
+                ? const [
+                    FollowUp(AssistantText('Góra', 'Up'), 'up'),
+                    FollowUp(AssistantText('Dół', 'Down'), 'down'),
+                    FollowUp(AssistantText('Prawo', 'Right'), 'right'),
+                    FollowUp(AssistantText('Lewo', 'Left'), 'left'),
+                    FollowUp(AssistantText('Przód', 'Forward'), 'forward'),
+                    FollowUp(AssistantText('Tył', 'Back'), 'back'),
+                  ]
+                : const <FollowUp>[];
+    return IsoDrawingQuestion(slot, text, choices: choices);
+  }
+
+  bool _acceptsIsoReply(Utterance u) {
+    if (const {'anuluj', 'cancel', 'stop', 'nie', 'no'}.contains(u.folded)) {
+      return false;
     }
+    if (_pendingIsoBend != null || _pendingIsoBranch != null) {
+      return u.tokens.length <= 3 &&
+          (isoDirectionOf(u) != null || isoCompassOf(u) != null);
+    }
+    if (_pendingIsoValve case final pending?) {
+      final command = parseIsoCommand(u);
+      final singleValve = command != null &&
+          command.kind == IsoCommandKind.draw &&
+          !command.newSketch &&
+          command.steps.length == 1 &&
+          command.steps.single is IsoFitting &&
+          kIsoValveTools.contains((command.steps.single as IsoFitting).tool);
+      return (command?.explicit != true || singleValve) &&
+          pending.chooseValve(u) != null;
+    }
+    return _awaitingIsoChoice &&
+        const {'dorysuj', 'append', 'nowy', 'new'}.contains(u.folded);
+  }
+
+  bool _acceptsIsoProposalReply(Utterance command, Utterance original) {
+    if (!_acceptsIsoReply(command)) return false;
+    final pending = _pendingIsoValve;
+    if (pending == null) return true;
+    final index =
+        pending.firstWarning(IsoParseWarningKind.valveTypeMissing)?.step;
+    final resolved = pending.chooseValve(command);
+    if (index == null || resolved == null) return false;
+    final before = pending.steps[index] as IsoFitting;
+    final after = resolved.steps[index] as IsoFitting;
+    if (after.dn != before.dn) {
+      final name = const {
+        'ballValve': 'ball',
+        'gateValve': 'gate',
+        'checkValve': 'check',
+        'globeValve': 'globe',
+        'butterflyValve': 'butterfly'
+      }[after.tool];
+      if (name == null) return false;
+      final fromSource = pending
+          .chooseValve(Utterance('$name ${original.raw}', lang: original.lang));
+      if (fromSource == null ||
+          (fromSource.steps[index] as IsoFitting).dn != after.dn) {
+        return false;
+      }
+    }
+    if (after.dir != before.dir && isoDirectionOf(original) != after.dir) {
+      return false;
+    }
+    final compass = resolved.compassAt[index];
+    if (compass != pending.compassAt[index] &&
+        isoCompassOf(original) != compass) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _isoTail = Future<void>.value();
+  int _isoExecutionEpoch = -1;
+  Future<SkillResult> _executeIsoSkill(Utterance u) {
+    final epoch = _conversationEpoch;
+    final next = _isoTail.then<SkillResult>((_) async {
+      if (!mounted || epoch != _conversationEpoch) {
+        return const FailedResult(
+            AssistantText('Polecenie anulowane.', 'Request cancelled.'),
+            reportMissingCapability: false);
+      }
+      _isoSkillResult = null;
+      _isoDidExecute = false;
+      _isoExecutionEpoch = epoch;
+      _collectIsoReply = true;
+      try {
+        final handled = await _tryIsoCommand(u.raw, u.lang);
+        if (!mounted || epoch != _conversationEpoch) {
+          return const FailedResult(
+              AssistantText('Polecenie anulowane.', 'Request cancelled.'),
+              reportMissingCapability: false);
+        }
+        return _isoSkillResult ??
+            (handled
+                ? const AnswerResult(
+                    AssistantAnswer(
+                        text: AssistantText(
+                            'Polecenie przekazano do Zeszytu ISO.',
+                            'Command sent to the ISO notebook.')),
+                    actionCompleted: false)
+                : const FailedResult(
+                    AssistantText('Nie rozpoznałem polecenia rysowania.',
+                        'I did not recognise the drawing command.'),
+                    reportMissingCapability: false));
+      } finally {
+        _collectIsoReply = false;
+      }
+    });
+    _isoTail = next.then((_) {}, onError: (Object _) {});
+    return next;
   }
 
   void _clearIsoQuestion() {
+    _isoPendingText = null;
+    _isoPendingChoices = const [];
     _pendingIso = null;
     _pendingIsoBend = null;
     _pendingIsoValve = null;
@@ -618,7 +743,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (isNegatedCommand(u) ||
         referencesInstruction(u) ||
-        _isoPort.hasPendingQuestion ||
+        (_isoPort.hasPendingQuestion &&
+            _brain.pending?.partial.skill.id != 'iso.draw') ||
         _localResult is ConfirmResult ||
         _pendingField != null ||
         const {
@@ -679,6 +805,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     final epoch = _aiEpoch;
     setState(() => _aiThinking = true);
     final originHandle = ToolBridge.instance.current;
+    final originIso = IsoNotebookController.active;
+    final originIsoRevision = originIso?.revision;
     final originContext = request['context'] as Map;
     AiCommandPlan plan;
     try {
@@ -731,7 +859,12 @@ class _AiChatScreenState extends State<AiChatScreen>
         text: text,
         context: _brainContext,
         skills: _brain.skills)['context'] as Map;
-    if (!identical(originHandle, ToolBridge.instance.current) ||
+    final isoRelevant = pending?.partial.skill.id == 'iso.draw' ||
+        originContext['active_tool'] == 'iso_notebook';
+    if (isoRelevant &&
+            (!identical(originIso, IsoNotebookController.active) ||
+                originIsoRevision != IsoNotebookController.active?.revision) ||
+        !identical(originHandle, ToolBridge.instance.current) ||
         originContext['active_tool'] != currentContext['active_tool'] ||
         !mapEquals(
             originContext['inputs'] as Map, currentContext['inputs'] as Map)) {
@@ -821,6 +954,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         if (!mounted || epoch != _conversationEpoch) return;
         if (!handled ||
             reply.result is FailedResult ||
+            reply.result is AnswerResult &&
+                !(reply.result as AnswerResult).actionCompleted ||
             _noticeIsError == true) {
           _aiQueue.cancel();
           if (!handled) {
@@ -921,9 +1056,12 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _isoReply(String pl, String en, {List<FollowUp> choices = const []}) {
-    if (_collectIsoReply) {
+    _isoPendingText = AssistantText(pl, en);
+    _isoPendingChoices = List.unmodifiable(choices);
+    if (_collectIsoReply && _isoExecutionEpoch == _conversationEpoch) {
       _isoSkillResult = AnswerResult(
           AssistantAnswer(text: AssistantText(pl, en)),
+          actionCompleted: _isoDidExecute,
           followUps: choices);
       return;
     }
@@ -954,6 +1092,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<bool> _tryIsoCommand(String text, AppLanguage lang) async {
+    final epoch = _conversationEpoch;
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
     _brainContext.lang = lang;
     var command = parseIsoCommand(u);
@@ -1185,6 +1324,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       try {
         controller = await ready.future.timeout(const Duration(seconds: 5));
       } on TimeoutException {
+        if (!mounted || epoch != _conversationEpoch) return true;
         _isoReply('Nie udało się otworzyć Zeszytu ISO. Spróbuj ponownie.',
             'Could not open the ISO notebook. Please try again.');
         return true;
@@ -1192,9 +1332,9 @@ class _AiChatScreenState extends State<AiChatScreen>
         IsoNotebookController.activeListenable.removeListener(changed);
       }
     }
-    if (!mounted) return true;
+    if (!mounted || epoch != _conversationEpoch) return true;
     await controller.ready;
-    if (!mounted) return true;
+    if (!mounted || epoch != _conversationEpoch) return true;
     if (_pendingIso != command &&
         controller.hasContent &&
         !command.append &&
@@ -1226,6 +1366,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       final dir = command.turnDir;
       final report =
           dir == null ? null : await controller.redirectLastTurn(dir);
+      if (!mounted || epoch != _conversationEpoch) return true;
       if (report == null) {
         _isoReply(
             'Nie zmieniłem rysunku. Mogę poprawić tylko ostatnie polecenie '
@@ -1233,6 +1374,7 @@ class _AiChatScreenState extends State<AiChatScreen>
             'Drawing unchanged. I can only correct the last voice command '
                 'with an elbow or branch, with no manual changes since.');
       } else if (report.ok) {
+        _isoDidExecute = true;
         _isoReply(
             '${controller.lastCorrectionChangesBranchOrigin ? 'Zmieniłem kierunek odgałęzienia.' : 'Zmieniłem kierunek ostatniego kolana.'} ${report.assumedPl.join(' ')}',
             '${controller.lastCorrectionChangesBranchOrigin ? 'Changed the branch direction.' : 'Changed the last elbow direction.'} ${report.assumedEn.join(' ')}');
@@ -1245,6 +1387,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _pendingIso = null;
     if (command.kind == IsoCommandKind.undo) {
       controller.undo();
+      _isoDidExecute = true;
       _isoReply(
           'Cofnąłem ostatni krok rysunku.', 'Undid the last drawing step.');
       return true;
@@ -1252,6 +1395,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     try {
       if (command.kind == IsoCommandKind.newSketch) {
         await controller.startNew();
+        if (!mounted || epoch != _conversationEpoch) return true;
+        _isoDidExecute = true;
         _isoReply('Nowy arkusz. Powiedz, co narysować.',
             'New sheet. Tell me what to draw.');
         return true;
@@ -1271,7 +1416,9 @@ class _AiChatScreenState extends State<AiChatScreen>
           newSketch: command.newSketch,
           fromLastTee: command.fromLastTee,
           explicitLastTee: command.explicitLastTee);
+      if (!mounted || epoch != _conversationEpoch) return true;
       if (report.ok) {
+        _isoDidExecute = true;
         _isoReply(
             'Narysowałem: rury ${report.segments}, kolana ${report.elbows}, '
                 'kształtki ${report.fittings}. ${report.assumedPl.join(' ')}',
@@ -1300,6 +1447,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 'Drawing unchanged. Please clarify the command.');
       }
     } on StateError {
+      if (!mounted || epoch != _conversationEpoch) return true;
       if (!identical(IsoNotebookController.active, controller)) {
         _isoReply(
             'Zeszyt ISO został zamknięty przed wykonaniem polecenia. Otwórz go i spróbuj ponownie.',
@@ -1403,6 +1551,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     _brainContext.lang = lang;
     final epoch = _conversationEpoch;
+    if (_aiQueue.waiting &&
+        _brain.pending != null &&
+        !_brain.canAnswerPendingDirectly(utterance, _brainContext) &&
+        _brain.recognizesNewCommand(utterance, _brainContext)) {
+      _aiQueue.cancel();
+    }
     final reply = await _brain.handle(
         Utterance(text, lang: lang, byVoice: _voiceUsed), _brainContext);
     if (!mounted || epoch != _conversationEpoch) return true;
@@ -1471,7 +1625,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       _rememberAi(text, _noticeIsError ? '$spoken\n${_notice ?? ''}' : spoken);
     }
     if (!_runningAiPlan && _aiQueue.waiting) {
-      if (result is FailedResult) {
+      if (result is FailedResult ||
+          result is AnswerResult && !result.actionCompleted) {
         _aiQueue.cancel();
       } else if (_aiQueue.resolve(reply.match?.skill.id,
           completed: result is AnswerResult)) {

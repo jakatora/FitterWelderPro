@@ -13,15 +13,44 @@ abstract interface class IsoDrawingPort {
   Future<SkillResult> execute(Utterance utterance);
 }
 
-class CallbackIsoDrawingPort implements IsoDrawingPort {
+class IsoDrawingQuestion {
+  const IsoDrawingQuestion(this.slot, this.question, {this.choices = const []});
+  final String slot;
+  final AssistantText question;
+  final List<FollowUp> choices;
+}
+
+abstract interface class IsoQuestionPort {
+  IsoDrawingQuestion? get pendingQuestion;
+  bool acceptsReply(Utterance utterance);
+  bool acceptsProposalReply(Utterance command, Utterance original);
+}
+
+class CallbackIsoDrawingPort implements IsoDrawingPort, IsoQuestionPort {
   CallbackIsoDrawingPort(
       {required bool Function() isForeground,
       required bool Function() hasPendingQuestion,
+      IsoDrawingQuestion? Function()? pendingQuestion,
+      bool Function(Utterance)? acceptsReply,
+      bool Function(Utterance, Utterance)? acceptsProposalReply,
       required Future<SkillResult> Function(Utterance) execute})
       : _foreground = isForeground,
         _pending = hasPendingQuestion,
+        _question = pendingQuestion,
+        _acceptsReply = acceptsReply,
+        _acceptsProposalReply = acceptsProposalReply,
         _execute = execute;
   final bool Function() _foreground, _pending;
+  final IsoDrawingQuestion? Function()? _question;
+  final bool Function(Utterance)? _acceptsReply;
+  final bool Function(Utterance, Utterance)? _acceptsProposalReply;
+  @override
+  IsoDrawingQuestion? get pendingQuestion => _question?.call();
+  @override
+  bool acceptsReply(Utterance u) => _acceptsReply?.call(u) ?? false;
+  @override
+  bool acceptsProposalReply(Utterance command, Utterance original) =>
+      _acceptsProposalReply?.call(command, original) ?? acceptsReply(command);
   final Future<SkillResult> Function(Utterance) _execute;
   @override
   bool get isForeground => _foreground();
@@ -113,6 +142,37 @@ class IsoDrawSkill extends AssistantSkill {
       return const FailedResult(
           AssistantText('Brak polecenia rysowania.', 'No drawing command.'));
     }
-    return port.execute(u);
+    final result = await port.execute(u);
+    final questions = port;
+    final question = questions is IsoQuestionPort
+        ? (questions as IsoQuestionPort).pendingQuestion
+        : null;
+    return question == null
+        ? result
+        : AskResult(question.slot, question.question,
+            partial: m, choices: question.choices);
+  }
+
+  @override
+  Map<String, Object?>? fillSlot(
+      String slot, Utterance u, AssistantContext ctx) {
+    final questions = port;
+    if (questions is! IsoQuestionPort) return null;
+    final p = questions as IsoQuestionPort;
+    return p.pendingQuestion?.slot == slot && p.acceptsReply(u)
+        ? {slot: u.raw}
+        : null;
+  }
+
+  @override
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+      Utterance original, AssistantContext ctx) {
+    final questions = port;
+    if (questions is! IsoQuestionPort) return null;
+    final p = questions as IsoQuestionPort;
+    return p.pendingQuestion?.slot == slot &&
+            p.acceptsProposalReply(command, original)
+        ? {slot: command.raw}
+        : null;
   }
 }
