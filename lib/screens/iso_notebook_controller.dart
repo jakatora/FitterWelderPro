@@ -1057,7 +1057,7 @@ class IsoNotebookController extends ChangeNotifier {
             i,
             from: cur,
             to: to,
-            calc: hasLen ? _CutCalc(_IsoState._fmtMm(len)) : null,
+            calc: hasLen ? _CutCalc(isoLengthExpression(len)) : null,
             elbowDn: corner ? runDn : null,
           ));
           cur = to;
@@ -1247,7 +1247,7 @@ class IsoNotebookController extends ChangeNotifier {
           ops.add(_PlannedPipe(i,
               from: at(point),
               to: at(end),
-              calc: hasLen ? _CutCalc(_IsoState._fmtMm(len)) : null,
+              calc: hasLen ? _CutCalc(isoLengthExpression(len)) : null,
               elbowDn: corner ? runDn : null,
               spatialDirection: next,
               spatialBend: bend));

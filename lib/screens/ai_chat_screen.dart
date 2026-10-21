@@ -814,6 +814,17 @@ class _AiChatScreenState extends State<AiChatScreen>
             'New sheet. Tell me what to draw.');
         return true;
       }
+      try {
+        // The conversation and structured module input share the same native
+        // field contract; never replace an explicitly requested unsupported DN
+        // with a remembered size in the controller.
+        decodeIsoSteps(encodeIsoSteps(command.steps));
+      } on FormatException {
+        _isoReply(
+            'Nie zmieniłem rysunku. Podaj DN z listy zeszytu oraz dodatnią długość. Kierunek samodzielnej kształtki podaj jako polecenie wstawienia symbolu.',
+            'Drawing unchanged. Choose a notebook DN and a positive length. Specify a standalone fitting direction as a symbol placement command.');
+        return true;
+      }
       final report = await controller.draw(command.steps,
           newSketch: command.newSketch,
           fromLastTee: command.fromLastTee,

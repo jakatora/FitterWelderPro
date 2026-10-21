@@ -4,6 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/app.dart';
 import 'package:cut_list_app/app_navigator.dart';
 import 'package:cut_list_app/assistant/core/assistant_panel_controller.dart';
+import 'package:cut_list_app/assistant/core/tool_bridge.dart';
+import 'package:cut_list_app/assistant/core/skill.dart';
+import 'package:cut_list_app/assistant/skills/iso/iso_command_parser.dart';
 import 'package:cut_list_app/database/iso_drawing_dao.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/screens/iso_notebook_screen.dart';
@@ -57,6 +60,26 @@ Future<void> _close(WidgetTester t) async {
   await t.pumpWidget(const SizedBox.shrink());
   await settle(t);
   AssistantPanelController.instance.setExpanded(false);
+}
+
+Future<ShowOutcome> _showSteps(
+    WidgetTester t, Map<String, Object?> fields) async {
+  ShowOutcome? outcome;
+  Object? error;
+  final done =
+      showInModule(ShowInModule('iso_notebook', fields), explicit: true).then(
+          (value) {
+    outcome = value;
+  }, onError: (Object e) {
+    error = e;
+  });
+  for (var i = 0; i < 40 && outcome == null && error == null; i++) {
+    await settle(t);
+  }
+  expect(error, isNull);
+  expect(outcome, isNotNull, reason: 'native field application must complete');
+  await done;
+  return outcome!;
 }
 
 void main() {
@@ -185,6 +208,99 @@ void main() {
     await _say(t, 'cofnij');
     expect(c.debugPipeAxisTags, hasLength(3));
     expect(await FeedbackStore.instance.list(), isEmpty);
+    await _close(t);
+  });
+  testWidgets(
+      'ShowInModule steps opens the real notebook, preserves symbols and refuses ambiguous or invalid mutations',
+      (t) async {
+    await _boot(t);
+    final symbol = await _showSteps(t, {
+      'steps': encodeIsoSteps(const [
+        IsoFitting('elbow45', dn: 50, symbolOnly: true, dir: IsoDir.up)
+      ])
+    });
+    expect(symbol, ShowOutcome.opened);
+    final c = IsoNotebookController.active!;
+    expect(ToolBridge.instance.current?.toolId, 'iso_notebook');
+    await t.pump(const Duration(milliseconds: 600));
+    await flushTestDatabase(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+    expect(items.single['tool'], 'elbow45');
+    expect(items.single['dir'], IsoDir.up.index);
+    c.undo();
+    await settle(t);
+    expect(c.hasContent, isFalse);
+    final route = await _showSteps(t, {
+      'steps': encodeIsoSteps(const [
+        IsoPipe(lengthMm: 1000.125),
+        IsoTurn(degrees: 45, toDir: IsoDir.up, dn: 100),
+        IsoPipe(lengthMm: 1000)
+      ])
+    });
+    expect(route, ShowOutcome.appliedInPlace);
+    expect(c.debugPipeAxisTags, hasLength(2));
+    await settle(t);
+    final precise = await t.runAsync(() => IsoDrawingDao().latest());
+    final preciseItems = (jsonDecode(precise!.json) as Map)['items'] as List;
+    expect(
+        (preciseItems.firstWhere((e) => e['tool'] == 'pipe')['calc']
+            as Map)['iso'],
+        '1000.125');
+    for (final fields in <Map<String, Object?>>[
+      {
+        'steps': encodeIsoSteps(const [IsoPipe()])
+      },
+      {
+        'new_sketch': true,
+        'steps': [
+          {'kind': 'pipe'},
+          {'kind': 'turn', 'dn': 50.9}
+        ]
+      },
+      {
+        'new_sketch': true,
+        'steps': encodeIsoSteps(const [IsoPipe(), IsoTurn()])
+      },
+      {
+        'steps': encodeIsoSteps(const [IsoPipe()]),
+        'append': 'true'
+      },
+      {
+        'steps': encodeIsoSteps(const [IsoPipe()]),
+        'append': true,
+        'future': 1
+      },
+    ]) {
+      expect(await _showSteps(t, fields), ShowOutcome.unsupportedFields);
+      expect(c.debugPipeAxisTags, hasLength(2));
+    }
+    expect(
+        await _showSteps(t, {
+          'append': true,
+          'steps': encodeIsoSteps(const [IsoPipe(lengthMm: 500)])
+        }),
+        ShowOutcome.appliedInPlace);
+    expect(c.debugPipeAxisTags, hasLength(3));
+    c.undo();
+    await settle(t);
+    expect(c.debugPipeAxisTags, hasLength(2));
+    await _close(t);
+  });
+  testWidgets(
+      'conversation refuses an unsupported explicit DN instead of substituting a remembered fitting size',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo kolano DN50 w górę rura metr');
+    final c = IsoNotebookController.active!;
+    expect(c.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'dorysuj zawór kulowy DN400');
+    expect(find.textContaining('Podaj DN z listy zeszytu'), findsOneWidget);
+    await settle(t);
+    final saved = await t.runAsync(() => IsoDrawingDao().latest());
+    final items = (jsonDecode(saved!.json) as Map)['items'] as List;
+    expect(items.where((e) => e['tool'] == 'ballValve'), isEmpty);
+    expect(c.debugPipeAxisTags, hasLength(2));
     await _close(t);
   });
   testWidgets(

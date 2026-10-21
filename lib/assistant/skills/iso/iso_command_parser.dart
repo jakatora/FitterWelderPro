@@ -6,9 +6,10 @@
 //
 // Gramatyka (kolejność elementów = kolejność rysowania):
 //   rura | rurę | rurka | rury | odcinek | pipe   [długość] [kierunek] [DN]
-//   kolano | kolanko | łuk | skręt | elbow | bend [90] [kierunek] [DN]
+//   kolano | kolanko | łuk | skręt | elbow | bend [45|90] [kierunek] [DN]
 //       — „kolano” to ZAMIAR skrętu następnej rury (kolano wstawia zeszyt);
-//   kolano 45 / łuk 30 … i trójnik / tee / olet  → niewspierane (ostrzeżenie);
+//   kolano 45 wymaga kierunku płaszczyzny skrętu; trójnik wspiera przelot
+//   i osobne odgałęzienie. Inne kąty / olet wymagają dalszej obsługi;
 //   kołnierz [zaślepiający] | zaślepka | dennica | redukcja [DN na DN] |
 //   zawór (kulowy | zasuwa | zwrotny | grzybkowy | przepustnica) | spoina
 //   [montażowa] | podpora   [DN];
@@ -28,7 +29,14 @@ import 'package:flutter/foundation.dart';
 import '../../../domain/fitter/pipe_size_lookup.dart' show dnForNps, knownDns;
 import '../../../i18n/app_language.dart';
 import '../../../screens/iso_notebook_screen.dart'
-    show IsoCompass, IsoDir, IsoFitting, IsoPipe, IsoStep, IsoTurn;
+    show
+        IsoCompass,
+        IsoDir,
+        IsoFitting,
+        IsoPipe,
+        IsoStep,
+        IsoTurn,
+        kIsoNotebookDnChoices;
 import '../../core/spoken_numbers.dart' show SpokenItem, isInchUnit;
 import '../../core/utterance.dart';
 import '../../core/command_words.dart' show referencesInstruction;
@@ -1144,7 +1152,7 @@ List<(int, bool)> _sizes(List<SpokenItem> items, int keyAt) {
 
 /// Kroki jako lista map (pola `ShowInModule('iso_notebook', {'steps': …})`):
 /// `{'kind': 'pipe'|'turn'|'fitting', 'dir', 'length_mm', 'dn', 'dn_out',
-/// 'tool'}` — bez typów z biblioteki ekranu, do logów i zgłoszeń.
+/// 'tool', 'degrees', 'symbol_only'}` — bez typów z biblioteki ekranu, do logów i zgłoszeń.
 List<Map<String, Object?>> encodeIsoSteps(List<IsoStep> steps) => [
       for (final s in steps)
         switch (s) {
@@ -1162,6 +1170,8 @@ List<Map<String, Object?>> encodeIsoSteps(List<IsoStep> steps) => [
           IsoFitting() => {
               'kind': 'fitting',
               'tool': s.tool,
+              if (s.symbolOnly) 'symbol_only': true,
+              if (s.dir != null) 'dir': s.dir!.name,
               if (s.dn != null) 'dn': s.dn,
               if (s.dnOut != null) 'dn_out': s.dnOut,
             },
@@ -1190,28 +1200,90 @@ List<IsoStep> decodeIsoSteps(Object? raw) {
     return (v as num).toInt();
   }
 
-  int? dn(Object? v) => v == null ? null : (v as num).toInt();
+  int? dn(Object? v) {
+    if (v == null) return null;
+    if (v is! num ||
+        !v.isFinite ||
+        v != v.roundToDouble() ||
+        !kIsoNotebookDnChoices.contains(v.toInt())) {
+      throw FormatException('steps: unsupported or inexact DN', v);
+    }
+    return v.toInt();
+  }
 
-  return [
-    for (final e in raw)
-      if (e is IsoStep)
-        e
-      else if (e is Map)
-        switch (e['kind']) {
-          'pipe' => IsoPipe(
-              dir: dir(e['dir']),
-              lengthMm: (e['length_mm'] as num?)?.toDouble()),
-          'turn' => IsoTurn(
-              toDir: dir(e['dir']),
-              dn: dn(e['dn']),
-              degrees: angle(e['degrees'])),
-          'fitting' => IsoFitting(e['tool'] as String,
-              dn: dn(e['dn']), dnOut: dn(e['dn_out'])),
-          _ => throw FormatException('steps: unknown kind', e),
+  double? length(Object? v) {
+    if (v == null) return null;
+    if (v is! num || !v.isFinite || v <= 0) {
+      throw FormatException('steps: length must be finite and positive', v);
+    }
+    return v.toDouble();
+  }
+
+  const fittingTools = {
+    'elbow45',
+    'tee',
+    'olet',
+    'flange',
+    'blindFlange',
+    'cap',
+    'reducer',
+    'gateValve',
+    'ballValve',
+    'checkValve',
+    'globeValve',
+    'butterflyValve',
+    'weld',
+    'fieldWeld',
+    'support'
+  };
+  final result = <IsoStep>[];
+  for (final item in raw) {
+    final e = item is IsoStep ? encodeIsoSteps([item]).single : item;
+    if (e is! Map) throw FormatException('steps: not a step', e);
+    final allowed = switch (e['kind']) {
+      'pipe' => const {'kind', 'dir', 'length_mm'},
+      'turn' => const {'kind', 'dir', 'dn', 'degrees'},
+      'fitting' => const {'kind', 'tool', 'dn', 'dn_out', 'dir', 'symbol_only'},
+      _ => throw FormatException('steps: unknown kind', e['kind']),
+    };
+    if (e.keys.any((k) => !allowed.contains(k))) {
+      throw FormatException('steps: unknown field', e);
+    }
+    switch (e['kind']) {
+      case 'pipe':
+        result
+            .add(IsoPipe(dir: dir(e['dir']), lengthMm: length(e['length_mm'])));
+      case 'turn':
+        result.add(IsoTurn(
+            toDir: dir(e['dir']),
+            dn: dn(e['dn']),
+            degrees: angle(e['degrees'])));
+      case 'fitting':
+        final tool = e['tool'], symbol = e['symbol_only'];
+        if (tool is! String || !fittingTools.contains(tool)) {
+          throw FormatException('steps: unsupported fitting', tool);
         }
-      else
-        throw FormatException('steps: not a step', e),
-  ];
+        if (symbol != null && symbol is! bool) {
+          throw FormatException('steps: symbol_only must be boolean', symbol);
+        }
+        final direction = dir(e['dir']);
+        if (direction != null && symbol != true) {
+          throw FormatException(
+              'steps: fitting direction requires symbol_only', e);
+        }
+        final size = dn(e['dn']), out = dn(e['dn_out']);
+        if (out != null && tool != 'tee' && tool != 'reducer') {
+          throw FormatException(
+              'steps: outlet DN is not supported by this fitting', e);
+        }
+        if (tool == 'tee' && out != null && (size == null || out > size)) {
+          throw FormatException('steps: branch DN exceeds run DN', e);
+        }
+        result.add(IsoFitting(tool,
+            dn: size, dnOut: out, symbolOnly: symbol == true, dir: direction));
+    }
+  }
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

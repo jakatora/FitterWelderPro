@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../assistant/core/assistant_panel_controller.dart';
+import '../assistant/core/tool_bridge.dart';
+import '../assistant/skills/iso/iso_command_parser.dart' show decodeIsoSteps;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,6 +29,7 @@ import '../services/component_classification.dart';
 import '../widgets/iso_expression_keys.dart';
 import '../widgets/number_field.dart';
 import '../domain/iso_notebook/sketch_cut.dart';
+import '../domain/iso_notebook/iso_length_text.dart';
 import '../domain/iso_notebook/spatial_route.dart' show isoSpatialGridTurnDegrees, IsoSpatialVector, IsoSpatialElbow, IsoSpatialTee;
 import '../domain/iso_notebook/sketch_to_project.dart';
 import '../services/iso_sketch_project_writer.dart';
@@ -43,6 +46,12 @@ part 'iso_notebook_saved_sketches.dart';
 part 'iso_notebook_sketch_codec.dart';
 // Voice-assistant control (draw / new sketch / undo) — same reason.
 part 'iso_notebook_controller.dart';
+
+/// Native fitting sizes accepted by both the editor and assistant step input.
+const List<int> kIsoNotebookDnChoices = [
+  15, 20, 25, 32, 40, 50, 65, 80, 100, 150, 200, 250, 300,
+];
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ISO NOTEBOOK — full piping isometric sketch pad with a built-in cut
@@ -894,7 +903,8 @@ class IsoNotebookScreen extends StatefulWidget {
   State<IsoNotebookScreen> createState() => _IsoState();
 }
 
-class _IsoState extends State<IsoNotebookScreen> {
+class _IsoState extends State<IsoNotebookScreen>
+    with ToolHandleHost<IsoNotebookScreen> {
   static const double _s = 32.0;
   static const String _kHintHiddenPref = 'iso_notebook_hint_hidden';
   static const String _kAxisCompassPref = 'iso_notebook_show_axis_compass';
@@ -945,6 +955,55 @@ class _IsoState extends State<IsoNotebookScreen> {
   // ── voice drawing (iso_notebook_controller.dart) ──────────────────────────
   /// This screen's controller; registered as [IsoNotebookController.active]
   /// while mounted.
+  @override
+  String get toolId => 'iso_notebook';
+  @override
+  Set<String> get supportedFields => const {
+        'steps',
+        'append',
+        'new_sketch',
+        'from_last_tee',
+        'explicit_last_tee'
+      };
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    if (!fields.containsKey('steps')) return {'steps'};
+    for (final key in fields.keys.where((k) => k != 'steps')) {
+      if (fields[key] is! bool) return {key};
+    }
+    final fresh = fields['new_sketch'] == true,
+        append = fields['append'] == true,
+        branch = fields['from_last_tee'] == true,
+        last = fields['explicit_last_tee'] == true;
+    if ((fresh && (append || branch)) || (last && !branch)) {
+      return fields.keys.toSet();
+    }
+    final List<IsoStep> steps;
+    try {
+      steps = List.unmodifiable(decodeIsoSteps(fields['steps']));
+    } on FormatException {
+      return {'steps'};
+    }
+    if (steps.isEmpty) return {'steps'};
+    await _voice.ready;
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return fields.keys.toSet();
+    }
+    // Appending or replacing an existing sheet must be explicit, just as in
+    // the conversation's “append or new?” question.
+    if (_voice.hasContent && !fresh && !append && !branch) return {'steps'};
+    try {
+      final report = await _voice.draw(steps,
+          newSketch: fresh, fromLastTee: branch, explicitLastTee: last);
+      return report.ok ? <String>{} : {'steps'};
+    } on StateError {
+      return {'steps'};
+    }
+  }
+
   late final IsoNotebookController _voice = IsoNotebookController._(this);
 
   /// Animation preview of a pipe the voice controller is about to add (A, B).
@@ -1034,6 +1093,9 @@ class _IsoState extends State<IsoNotebookScreen> {
   void initState() {
     super.initState();
     _voice._attach();
+    unawaited(_voice.ready.then((_) {
+      if (mounted) markReady();
+    }));
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _voice._awaitFirstLayout());
     _loadPrefs();
@@ -3928,9 +3990,7 @@ class _IsoState extends State<IsoNotebookScreen> {
     }
   }
 
-  static const List<int> _dnChoices = [
-    15, 20, 25, 32, 40, 50, 65, 80, 100, 150, 200, 250, 300
-  ];
+  static const List<int> _dnChoices = kIsoNotebookDnChoices;
 
   Future<({int dn, int physicalLengthMm, EndConnection type})?> _askFlangeSpec({
     required _Tool kind,
