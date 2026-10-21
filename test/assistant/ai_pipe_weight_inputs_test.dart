@@ -57,7 +57,8 @@ void main() {
     expect(tab.selectTool('slope_cut'), isTrue);
     await settle(t);
     expect(ToolBridge.instance.inputFields('pipe_weight'), isNull);
-    expect(ToolBridge.instance.inputFields('slope_cut'), isEmpty);
+    expect(ToolBridge.instance.inputFields('slope_cut'),
+        {'od_mm': null, 'slope_pct': null});
     expect(tab.selectTool('pipe_weight'), isTrue);
     await settle(t);
     expect(ToolBridge.instance.inputFields('pipe_weight')!['quantity'], 3);

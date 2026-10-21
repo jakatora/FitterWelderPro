@@ -310,7 +310,14 @@ class _SlopeTab extends StatefulWidget {
   State<_SlopeTab> createState() => _SlopeTabState();
 }
 
-class _SlopeTabState extends State<_SlopeTab> implements _FitterTabInput {
+class _SlopeTabState extends State<_SlopeTab>
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'od_mm': parseDecimal(_diameter.text),
+        'slope_pct': parseDecimal(_percent.text)
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final d = _finite(f, 'od_mm'), pct = _finite(f, 'slope_pct');
@@ -451,7 +458,16 @@ class _ElbowTab extends StatefulWidget {
   State<_ElbowTab> createState() => _ElbowTabState();
 }
 
-class _ElbowTabState extends State<_ElbowTab> implements _FitterTabInput {
+class _ElbowTabState extends State<_ElbowTab>
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'base_angle_deg': parseDecimal(_base),
+        'extrados_mm': parseDecimal(_longTotal.text),
+        'intrados_mm': parseDecimal(_shortTotal.text),
+        'target_angle_deg': parseDecimal(_targetAngle.text)
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final base = _finite(f, 'base_angle_deg'),
@@ -874,7 +890,15 @@ class _ElbowRotateTab extends StatefulWidget {
 }
 
 class _ElbowRotateTabState extends State<_ElbowRotateTab>
-    implements _FitterTabInput {
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'od_mm': parseDecimal(_od.text),
+        'circumference_mm': parseDecimal(_circ.text),
+        'degrees': parseDecimal(_deg.text),
+        'percent': parseDecimal(_percent.text)
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final od = _finite(f, 'od_mm'),
@@ -1062,7 +1086,20 @@ class _InsertTab extends StatefulWidget {
   State<_InsertTab> createState() => _InsertTabState();
 }
 
-class _InsertTabState extends State<_InsertTab> implements _FitterTabInput {
+class _InsertTabState extends State<_InsertTab>
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'mode': _rMode,
+        if (_rMode == 'manual')
+          'radius_mm': parseDecimal(_radius.text)
+        else
+          'od_mm': parseDecimal(_od.text),
+        'angle_deg': parseDecimal(_angle.text),
+        'offset_mm': parseDecimal(_offset.text),
+        'gap_mm': _gap.text.trim().isEmpty ? 0.0 : parseDecimal(_gap.text)
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final mode = f['mode'];
@@ -1585,7 +1622,16 @@ class _ReducerTab extends StatefulWidget {
   State<_ReducerTab> createState() => _ReducerTabState();
 }
 
-class _ReducerTabState extends State<_ReducerTab> implements _FitterTabInput {
+class _ReducerTabState extends State<_ReducerTab>
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'd1_mm': parseDecimal(_d1.text),
+        'd2_mm': parseDecimal(_d2.text),
+        'length_mm': parseDecimal(_len.text),
+        'target_mm': parseDecimal(_target.text)
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final d1 = _finite(f, 'd1_mm'),
@@ -1970,7 +2016,18 @@ class _BevelTab extends StatefulWidget {
   State<_BevelTab> createState() => _BevelTabState();
 }
 
-class _BevelTabState extends State<_BevelTab> implements _FitterTabInput {
+class _BevelTabState extends State<_BevelTab>
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields => {
+        'wall_mm': parseDecimal(_t.text),
+        'angle_deg': parseDecimal(_angCtrl.text),
+        'root_face_mm': parseDecimal(_landCtrl.text),
+        'gap_mm': parseDecimal(_gapCtrl.text),
+        'joint': _joint.name,
+        'convention': _conv.name
+      };
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final wall = _finite(f, 'wall_mm'),
@@ -2266,7 +2323,21 @@ class _ThermalExpansionTab extends StatefulWidget {
 }
 
 class _ThermalExpansionTabState extends State<_ThermalExpansionTab>
-    implements _FitterTabInput {
+    implements _FitterTabInput, _FitterTabReadable {
+  @override
+  Map<String, Object?> get inputFields {
+    final start = parseDecimal(_t1.text), end = parseDecimal(_t2.text);
+    return {
+      'length_m': parseDecimal(_l.text),
+      'delta_k': start != null && end != null
+          ? (end - start).abs()
+          : parseDecimal(_dt.text),
+      'temperature_start_c': start,
+      'temperature_end_c': end,
+      'material': _mat.name,
+    };
+  }
+
   @override
   Set<String> applyFields(Map<String, Object?> f) {
     final length = _finite(f, 'length_m'), delta = _finite(f, 'delta_k');
