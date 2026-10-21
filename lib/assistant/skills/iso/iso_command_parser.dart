@@ -492,10 +492,10 @@ final RegExp _appendRe = RegExp(r'\bdorysuj\w*|\bdorysowa\w*|'
     r'(?:rysunku|szkicu|arkusza)\b|'
     r'\b(?:do|na) (?:rysunku|rysunek|szkicu|szkic)\b|'
     r'\b(?:to|on|into) (?:the |this |that |my )?(?:drawing|sketch|existing)\b|'
-    r'\bexisting (?:drawing|sketch)\b|\bcontinue\b');
+    r'\bexisting (?:drawing|sketch)\b|\bcontinue\b|\bappend\b');
 
-final RegExp _drawVerbRe =
-    RegExp(r'\b(?:narysuj\w*|rysuj\w*|dorysuj\w*|naszkicuj\w*|draw|sketch)\b');
+final RegExp _drawVerbRe = RegExp(
+    r'\b(?:narysuj\w*|rysuj\w*|dorysuj\w*|naszkicuj\w*|draw|sketch|append)\b');
 
 final RegExp _drawPlaceRe = RegExp(
     r'\b(?:do|na|w) (?:rysunku|rysunek|szkicu|szkic|zeszycie|zeszytu|'
@@ -583,7 +583,8 @@ const Set<String> _vocabulary = {
   'vertical', 'vertically', 'horizontal', 'horizontally', 'last', 'change',
   'make', 'switch', 'add', 'insert', 'put', 'place', 'drawing', 'notebook',
   'sheet', 'iso', 'isometric', 'new', 'start', 'over', 'fresh', 'undo',
-  'this', 'that', 'existing', 'same', 'old', 'continue', 'going', 'goes',
+  'this', 'that', 'existing', 'same', 'old', 'continue', 'append', 'going',
+  'goes',
   'direction', 'way', 'side', 'end', 'field', 'site', 'blind', 'ball', 'gate',
   'check', 'globe', 'butterfly', 'nonreturn', 'return', 'non', 'draw',
   'sketch', 'lay', 'run', 'runs',
@@ -691,7 +692,16 @@ IsoCommand? parseIsoCommand(Utterance u) {
   final items = u.items;
   if (items.isEmpty) return null;
   final f = u.folded;
-  final drawVerb = _drawVerbRe.hasMatch(f) ||
+  final explicitValveTypes = {
+    for (final it in items)
+      if (!it.isNumber &&
+          (it.word != 'return' || u.hasAny(const ['non return'])))
+        if (_valveTypeOf(it.word) case final type?) type
+  };
+  final explicitValveAdd = explicitValveTypes.length == 1 &&
+      RegExp(r'^(?:(?:prosze|please)\s+)*(?:dodaj|add)\b').hasMatch(f);
+  final drawVerb = explicitValveAdd ||
+      _drawVerbRe.hasMatch(f) ||
       (u.hasStem(const ['symbol']) &&
           RegExp(r'^(?:(?:prosze|please)\s+)*(?:wstaw|postaw|umiesc|dodaj|place|put|insert|add)\b')
               .hasMatch(f));

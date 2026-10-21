@@ -20,7 +20,8 @@ import 'package:cut_list_app/widgets/tool_registry.dart' show toolById;
 import 'support/assistant_test_support.dart';
 
 void main() {
-  final catalog = buildSkillCatalog(actions: FakeActionsPort());
+  final catalog =
+      buildSkillCatalog(actions: FakeActionsPort(), iso: FakeIsoDrawingPort());
 
   test('katalog: unikalne id, przykłady i odrzucenia', () {
     final ids = catalog.map((s) => s.id).toList();

@@ -9,7 +9,7 @@ import 'skills/skill_catalog.dart';
 /// Pass the live catalog when legacy actions are connected. The default
 /// catalog includes writes backed by local module stores; legacy journal and
 /// parameter writes require their separate persistence port.
-/// ISO's separate UI command handler is deliberately not inferred as tier D.
+/// Drawing is tier D only when the session has a connected ISO drawing port.
 Map<String, AssistantTier> assistantCoverage({
   Iterable<AssistantSkill>? skills,
   Iterable<ToolSpec>? tools,

@@ -1,3 +1,5 @@
+import 'iso/catalog.dart';
+import 'iso/iso_draw_skill.dart';
 import 'records/quote_new_skill.dart';
 import 'records/interpass_reading_skill.dart';
 // Katalog wszystkich umiejętności asystenta = suma katalogów grup.
@@ -32,7 +34,8 @@ List<AssistantSkill> buildSkillCatalog(
     InstrumentReader? instruments,
     CertificateReader? certificates,
     JournalReader? journal,
-    ElectrodeReader? electrodes}) {
+    ElectrodeReader? electrodes,
+    IsoDrawingPort? iso}) {
   final all = <AssistantSkill>[];
   Iterable<AssistantSkill> catalog() => all;
   all.addAll(coreSkills(actions: actions, catalog: catalog));
@@ -52,6 +55,6 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(InterpassReadingSkill());
   all.add(HotWorkPrepareSkill());
   all.add(ConfinedSpacePrepareSkill());
-  //   all.addAll(isoSkills());            // 3.2
+  if (iso != null) all.addAll(isoSkills(iso));
   return List.unmodifiable(all);
 }

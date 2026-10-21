@@ -1,3 +1,4 @@
+import 'package:cut_list_app/assistant/skills/iso/iso_draw_skill.dart';
 // Wspólne atrapy dla testów mózgu i umiejętności asystenta.
 
 import 'package:cut_list_app/assistant/assistant_validator.dart';
@@ -83,6 +84,7 @@ class BrainHarness {
     CertificateReader? certificates,
     JournalReader? journal,
     ElectrodeReader? electrodes,
+    IsoDrawingPort? iso,
   })  : actions = actions ?? FakeActionsPort(),
         clock = DateTime(2026, 10, 19, 12) {
     this.timer = timer ??
@@ -93,6 +95,7 @@ class BrainHarness {
             observeLifecycle: false);
     brain = AssistantBrain(
         skills: buildSkillCatalog(
+            iso: iso ?? FakeIsoDrawingPort(),
             actions: this.actions,
             timer: () => this.timer,
             instruments: instruments ?? () async => [],
@@ -132,3 +135,19 @@ String textOf(SkillResult r, [AppLanguage lang = AppLanguage.pl]) =>
       NotUnderstood() => '<nie rozumiem>',
       FailedResult(:final message) => message.of(lang),
     };
+
+/// Routing-only adapter. It never claims a real notebook was changed.
+class FakeIsoDrawingPort implements IsoDrawingPort {
+  final calls = <Utterance>[];
+  @override
+  bool isForeground = false;
+  @override
+  bool hasPendingQuestion = false;
+  @override
+  Future<SkillResult> execute(Utterance u) async {
+    calls.add(u);
+    return const AnswerResult(AssistantAnswer(
+        text:
+            AssistantText.same('Drawing request received by the test port.')));
+  }
+}

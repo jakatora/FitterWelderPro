@@ -152,6 +152,13 @@ void main() {
     expect(IsoNotebookController.active, isNull);
     expect(find.textContaining('Jaki rodzaj zaworu'), findsOneWidget);
     await _say(t, 'dodaj zawór zwrotny');
+    expect(IsoNotebookController.active, isNotNull,
+        reason: find
+            .byType(Text)
+            .evaluate()
+            .map((e) => (e.widget as Text).data)
+            .whereType<String>()
+            .join(' | '));
     expect(IsoNotebookController.active!.hasContent, isTrue);
     await t.pump(const Duration(milliseconds: 600));
     await flushTestDatabase(t);
@@ -173,6 +180,35 @@ void main() {
     await _say(t, 'kulowy');
     expect(IsoNotebookController.active, isNull);
   });
+  testWidgets(
+      'a valve question keeps its sequence after an incomplete drawing reply',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'narysuj rura metr w prawo zawór DN50');
+    await _say(t, 'rura metr');
+    expect(find.textContaining('Jaki rodzaj zaworu'), findsOneWidget);
+    expect(IsoNotebookController.active, isNull);
+    await _say(t, 'kulowy');
+    expect(IsoNotebookController.active!.hasContent, isTrue);
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(1));
+  });
+
+  testWidgets('bare append choice and English append keep the existing sheet',
+      (t) async {
+    await _boot(t);
+    await _say(t, 'Draw pipe one meter right');
+    final id = (await t.runAsync(() => IsoDrawingDao().latest()))!.id;
+    await _say(t, 'narysuj rura metr w górę');
+    expect(find.textContaining('Na arkuszu jest już rysunek'), findsOneWidget);
+    await _say(t, 'dorysuj');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+    await _say(t, 'Append pipe one meter right');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(3));
+    expect((await t.runAsync(() => IsoDrawingDao().latest()))!.id, id);
+    await _say(t, 'undo');
+    expect(IsoNotebookController.active!.debugPipeAxisTags, hasLength(2));
+  });
+
   testWidgets(
       'an invalid new voice drawing leaves the active sketch and next append intact',
       (t) async {

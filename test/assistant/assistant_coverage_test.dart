@@ -33,8 +33,20 @@ void main() {
     expect(assistantCoverage(skills: withoutPipe)['dn_mm'], AssistantTier.a);
     expect(assistantCoverage(skills: const []).values,
         everyElement(AssistantTier.a));
-    // Do not falsely claim full drawing coverage while ISO bypasses catalog.
+    // A catalog without the route drawing port cannot execute drawing.
     expect(assistantCoverage().values, isNot(contains(AssistantTier.d)));
+  });
+
+  test('drawing coverage requires the actual session drawing port', () {
+    final connected = buildSkillCatalog(
+        actions: FakeActionsPort(), iso: FakeIsoDrawingPort());
+    expect(
+        assistantCoverage(skills: connected)['iso_notebook'], AssistantTier.d);
+    expect(assistantCoverage()['iso_notebook'], AssistantTier.a);
+    expect(
+        assistantCoverage(
+            skills: connected.where((s) => s.id != 'iso.draw'))['iso_notebook'],
+        AssistantTier.a);
   });
 
   test('every available module has a nonempty contextual explanation in PL/EN',

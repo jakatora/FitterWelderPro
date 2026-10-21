@@ -116,9 +116,11 @@ class AssistantBrain {
 
   /// Detect an independent command while another UI workflow is asking a
   /// question. Matching never executes the command or changes pending state.
-  bool recognizesNewCommand(Utterance u, AssistantContext ctx) {
+  bool recognizesNewCommand(Utterance u, AssistantContext ctx,
+      {String? exceptSkillId}) {
     if (isNegatedCommand(u)) return false;
     return _regular.any((skill) {
+      if (skill.id == exceptSkillId) return false;
       final match = _safeMatch(skill, u, ctx);
       return match != null && match.score >= _newCommandScore;
     });

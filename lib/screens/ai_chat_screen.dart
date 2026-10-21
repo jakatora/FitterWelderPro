@@ -21,6 +21,7 @@ import '../assistant/core/assistant_feedback_recorder.dart';
 import '../assistant/core/tool_bridge.dart';
 import '../assistant/skills/welder_calc/heat_input_skill.dart';
 import '../assistant/skills/iso/iso_command_parser.dart';
+import '../assistant/skills/iso/iso_draw_skill.dart';
 import 'iso_notebook_screen.dart';
 import '../assistant/core/skill.dart';
 import '../assistant/skills/skill_catalog.dart';
@@ -152,8 +153,45 @@ class _AiChatScreenState extends State<AiChatScreen>
   late final SpeechOutput _voice = widget.speechOutput ?? SystemSpeechOutput();
   late final AssistantEngine _engine =
       widget.engine ?? AssistantEngine(remoteAllowed: () async => false);
+  late final _isoPort = CallbackIsoDrawingPort(
+    isForeground: () =>
+        appRoutes.toolId == 'iso_notebook' ||
+        (!widget.embedded && IsoNotebookController.active != null),
+    hasPendingQuestion: () =>
+        _pendingIsoBranch != null ||
+        _pendingIsoValve != null ||
+        _awaitingIsoChoice,
+    execute: _executeIsoSkill,
+  );
   late final _brain =
-      AssistantBrain(skills: widget.skills ?? buildSkillCatalog());
+      AssistantBrain(skills: widget.skills ?? buildSkillCatalog(iso: _isoPort));
+  bool _collectIsoReply = false;
+  SkillResult? _isoSkillResult;
+  Future<SkillResult> _executeIsoSkill(Utterance u) async {
+    _isoSkillResult = null;
+    _collectIsoReply = true;
+    try {
+      final handled = await _tryIsoCommand(u.raw, u.lang);
+      return _isoSkillResult ??
+          (handled
+              ? const AnswerResult(AssistantAnswer(
+                  text: AssistantText('Polecenie przekazano do Zeszytu ISO.',
+                      'Command sent to the ISO notebook.')))
+              : const FailedResult(AssistantText(
+                  'Nie rozpoznałem polecenia rysowania.',
+                  'I did not recognise the drawing command.')));
+    } finally {
+      _collectIsoReply = false;
+    }
+  }
+
+  void _clearIsoQuestion() {
+    _pendingIso = null;
+    _pendingIsoValve = null;
+    _pendingIsoBranch = null;
+    _awaitingIsoChoice = false;
+  }
+
   late final _brainContext = AssistantContext(
       lang: AppLanguage.pl,
       modules:
@@ -456,6 +494,12 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   void _isoReply(String pl, String en, {List<FollowUp> choices = const []}) {
+    if (_collectIsoReply) {
+      _isoSkillResult = AnswerResult(
+          AssistantAnswer(text: AssistantText(pl, en)),
+          followUps: choices);
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -509,7 +553,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                 : {...pending.compassAt, 0: compass});
         _pendingIsoBranch = null;
       } else if (command?.explicit == true ||
-          _brain.recognizesNewCommand(u, _brainContext) ||
+          _brain.recognizesNewCommand(u, _brainContext,
+              exceptSkillId: 'iso.draw') ||
           parseAssistantCommand(text).intent != kIntentUnknown) {
         _pendingIsoBranch = null;
       } else {
@@ -536,7 +581,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIsoValve = null;
         _pendingIsoBranch = null;
       } else if (!singleValveAnswer &&
-          (_brain.recognizesNewCommand(u, _brainContext) ||
+          (_brain.recognizesNewCommand(u, _brainContext,
+                  exceptSkillId: 'iso.draw') ||
               parseAssistantCommand(text).intent != kIntentUnknown)) {
         _pendingIsoValve = null;
         _pendingIsoBranch = null;
@@ -553,7 +599,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (_awaitingIsoChoice) {
       final folded = u.folded;
-      if (folded == 'anuluj' || folded == 'cancel') {
+      if (const {'anuluj', 'cancel', 'stop', 'nie', 'no'}.contains(folded)) {
         _pendingIso = null;
         _awaitingIsoChoice = false;
         _isoReply('Nic nie zmieniłem.', 'Nothing changed.');
@@ -576,7 +622,8 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIso = command;
         _awaitingIsoChoice = false;
       } else if (command == null || !command.explicit) {
-        if (_brain.recognizesNewCommand(u, _brainContext) ||
+        if (_brain.recognizesNewCommand(u, _brainContext,
+                exceptSkillId: 'iso.draw') ||
             parseAssistantCommand(text).intent != kIntentUnknown) {
           _pendingIso = null;
           _awaitingIsoChoice = false;
@@ -835,8 +882,6 @@ class _AiChatScreenState extends State<AiChatScreen>
       _pendingIsoBranch = null;
       _pendingIso = null;
       _awaitingIsoChoice = false;
-    } else if (await _tryIsoCommand(text, lang)) {
-      return true;
     }
     _brainContext.lang = lang;
     final legacyIntent = parseAssistantCommand(text).intent;
@@ -847,6 +892,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         legacyIntent == kIntentQueryMyParams) {
       if (!_brain.recognizesNewCommand(utterance, _brainContext)) {
         _brain.cancelPending();
+        _clearIsoQuestion();
         _localResult = null;
         return false;
       }
@@ -856,6 +902,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         Utterance(text, lang: lang, byVoice: _voiceUsed), _brainContext);
     if (!mounted) return true;
     final result = reply.result;
+    if (reply.match?.skill.id != 'iso.draw') _clearIsoQuestion();
     if (result is NotUnderstood) return false;
     if (result is FailedResult && result.reportMissingCapability) {
       unawaited(_feedback.missing(text,
