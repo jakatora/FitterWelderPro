@@ -15,6 +15,7 @@ import 'cone_layout_skill.dart';
 import 'transition_layout_skill.dart';
 import 'development_height_skill.dart';
 import 'development_summary_skill.dart';
+import 'development_export_skill.dart';
 
 List<AssistantSkill> fitterRoutesSkills() => [
       PipeSlopeSkill(),
@@ -33,5 +34,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       EccentricConeSkill(),
       TransitionLayoutSkill(),
       DevelopmentHeightSkill(),
-      DevelopmentSummarySkill()
+      DevelopmentSummarySkill(),
+      DevelopmentExportSkill()
     ];

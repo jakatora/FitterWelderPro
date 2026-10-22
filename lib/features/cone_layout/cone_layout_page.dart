@@ -11,7 +11,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,6 +23,7 @@ import '../../domain/fitter/cone_assistant_input.dart';
 import '../../domain/fitter/eccentric_cone_assistant_input.dart';
 import '../../domain/fitter/transition_assistant_input.dart';
 import '../../assistant/core/tool_bridge.dart';
+import '../../assistant/core/skill.dart' show AssistantText, ModuleActionResult;
 import '../../domain/fitter/transition_development.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
 import '../../i18n/app_language.dart';
@@ -89,7 +90,7 @@ class ConeLayoutPage extends StatefulWidget {
 
 class _ConeLayoutPageState extends State<ConeLayoutPage>
     with ToolHandleHost<ConeLayoutPage>
-    implements InputToolHandle {
+    implements InputToolHandle, ModuleActionHandle {
   @override
   String get toolId => 'cone_layout';
   @override
@@ -244,6 +245,91 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
       _t.text = length(i.thicknessMm);
     });
     return {};
+  }
+
+  bool _printTooBig(_Outcome out) {
+    final maxDim = out.partSizes
+        .fold<double>(0, (m, size) => math.max(m, math.max(size.$1, size.$2)));
+    return maxDim > kConeMaxPrintMm ||
+        flatTemplateSheetCount(out.partSizes, _paper) > WrapTileLayout.maxTiles;
+  }
+
+  @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    const unavailable = ModuleActionResult(
+        false,
+        AssistantText(
+            'Otwórz rozwinięcie i zamknij okno dialogowe przed przygotowaniem PDF.',
+            'Open the development and close any dialog before preparing PDF.'));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return unavailable;
+    }
+    if (action != 'export_pdf' || field != null) {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Ta czynność eksportu nie jest obsługiwana.',
+              'This export action is unsupported.'));
+    }
+    if (_exporting) {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Przygotowanie PDF jest już w toku.',
+              'PDF preparation is already in progress.'));
+    }
+    final out = switch (_shape) {
+      ConeShape.concentric => _concentric(),
+      ConeShape.eccentric => _eccentric(),
+      ConeShape.transition => _transition(),
+    };
+    if (out.problems.isNotEmpty || out.spec == null || _printTooBig(out)) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Nie można przygotować PDF: popraw wymiary lub zmniejsz rozmiar wydruku zgodnie z komunikatem kalkulatora.',
+              'Cannot prepare PDF: correct dimensions or reduce print size according to the calculator message.'));
+    }
+    final before = Map<String, Object?>.of(inputFields);
+    final settings = (
+      _paper,
+      _viewPart,
+      _showOrdinates,
+      _step,
+      _sheetW.text,
+      _sheetL.text,
+      _en
+    );
+    final success = await _sharePdf(out.spec!(_paper), out.fileName);
+    if (!mounted ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        !mapEquals(before, inputFields) ||
+        settings !=
+            (
+              _paper,
+              _viewPart,
+              _showOrdinates,
+              _step,
+              _sheetW.text,
+              _sheetL.text,
+              _en
+            )) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Ekran lub dane zmieniły się podczas przygotowania PDF. Dalsze kroki wstrzymano.',
+              'The screen or inputs changed during PDF preparation. Further steps were stopped.'));
+    }
+    return success
+        ? const ModuleActionResult(
+            true,
+            AssistantText(
+                'Przygotowano PDF. Zapis, druk lub udostępnienie wybierasz w oknie systemowym.',
+                'PDF prepared. Choose saving, printing or sharing in the system dialog.'))
+        : const ModuleActionResult(
+            false,
+            AssistantText(
+                'Nie udało się przygotować szablonu PDF. Spróbuj ponownie.',
+                'Could not prepare the PDF template. Please retry.'));
   }
 
   ConeShape _shape = ConeShape.concentric;
@@ -483,13 +569,14 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
             en: 'Flat pattern — dimensions'));
   }
 
-  Future<void> _sharePdf(FlatTemplateSpec spec, String fileName) async {
-    if (_exporting) return;
+  Future<bool> _sharePdf(FlatTemplateSpec spec, String fileName) async {
+    if (_exporting) return false;
     final en = _en;
     setState(() => _exporting = true);
     try {
       await widget.sharePdf(spec, fileName, en);
       unawaited(Haptic.saved());
+      return true;
     } catch (e) {
       debugPrint('[cone_layout] pdf failed: $e');
       if (mounted) {
@@ -498,6 +585,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
                 pl: 'Nie udało się przygotować szablonu.',
                 en: 'Could not prepare the template.'))));
       }
+      return false;
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -1866,10 +1954,8 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
   Widget _printSection(_Outcome out) {
     final sheet = _sheet;
     final sizes = out.partSizes;
-    final maxDim =
-        sizes.fold<double>(0, (m, s) => math.max(m, math.max(s.$1, s.$2)));
     final sheets = flatTemplateSheetCount(sizes, _paper);
-    final tooBig = maxDim > kConeMaxPrintMm || sheets > WrapTileLayout.maxTiles;
+    final tooBig = _printTooBig(out);
     final fits = sheet == null
         ? null
         : sizes.every((s) => fitsRect(s.$1, s.$2, sheet.$1, sheet.$2));
