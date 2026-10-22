@@ -131,6 +131,33 @@ class SourceBoundFixtureSkill extends FixtureSkill {
 }
 
 void main() {
+  for (final voice in [false, true]) {
+    testWidgets('exact native command supersedes AI clarification without another model call voice=$voice', (t) async {
+      final speech = FixtureSpeech();
+      final requests = <Map<String, Object?>>[];
+      await mount(t, speech: speech, interpret: (request) async {
+        requests.add(request);
+        return const AiCommandPlan('clarify', [], 'Jaki wariant poprzedniej sprawy?');
+      });
+      await say(t, 'ogarnij poprzednią sprawę proszę');
+      expect(requests, hasLength(1));
+      const command = 'Rolling offset wznios 300 mm odsunięcie 400 mm kąt 45 stopni DN100 LR szczelina 3 mm';
+      if (voice) {
+        await t.tap(find.byKey(const Key('assistant-mic')));
+        await settle(t);
+        speech.emit(command);
+        await settle(t);
+      } else {
+        await say(t, command);
+      }
+      expect(requests, hasLength(1));
+      expect(find.text('573.1'), findsOneWidget);
+      await say(t, 'ogarnij całkiem nową sprawę proszę');
+      expect(requests, hasLength(2));
+      expect((requests.last['context'] as Map)['pending_question'], isNull);
+    });
+  }
+
   for (final cancel in [false, true]) {
   testWidgets('clarification execution source respects cancellation=$cancel', (t) async {
     var runs = 0;

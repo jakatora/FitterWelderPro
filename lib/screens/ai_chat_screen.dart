@@ -880,8 +880,11 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (pending == null &&
         !boundedRequest &&
         !compound &&
-        _aiQuestion == null &&
+        (_aiQuestion == null ||
+            _brain.recognizesNewCommand(u, _brainContext)) &&
         _brain.recognizesLocalRequest(u, _brainContext)) {
+      _aiClarification = null;
+      _aiQueue.cancel();
       return false;
     }
     // Existing local write/query parsers keep native summaries and confirmations.
