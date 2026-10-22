@@ -8,6 +8,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../assistant/core/tool_bridge.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/welding/weather_conditions.dart';
@@ -56,7 +58,82 @@ class WeatherCheckPage extends StatefulWidget {
   State<WeatherCheckPage> createState() => _WeatherCheckPageState();
 }
 
-class _WeatherCheckPageState extends State<WeatherCheckPage> {
+class _WeatherCheckPageState extends State<WeatherCheckPage>
+    with ToolHandleHost<WeatherCheckPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'weather_check';
+  @override
+  Set<String> get supportedFields => const {
+        'ambient_c',
+        'rh_pct',
+        'wind_ms',
+        'process',
+        'material',
+        'precipitation',
+        'shelter',
+        'surface_state'
+      };
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'ambient_c': _parse(_ambient),
+        'rh_pct': _parse(_rh),
+        'surface_c': _parse(_surface),
+        'wind_ms': _windMs,
+        'process': _process.name,
+        'material': _material.name,
+        'precipitation': _precip.name,
+        'shelter': _shelter.name,
+        'surface_state': _surfaceState.name,
+      });
+
+  /// Asystent wpisuje pomiar i wybory; odhaczone warunki się czyszczą jak
+  /// przy każdej zmianie pomiaru. Wszystko albo nic.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    T? pick<T extends Enum>(List<T> values, String key) =>
+        values.where((v) => v.name == fields[key]).firstOrNull;
+    final process = pick(WeatherProcess.values, 'process');
+    final material = pick(WeatherMaterial.values, 'material');
+    final precip = pick(Precipitation.values, 'precipitation');
+    final shelter = pick(WeatherShelter.values, 'shelter');
+    final surface = pick(SurfaceState.values, 'surface_state');
+    double? n(String key) =>
+        fields[key] is num && (fields[key] as num).isFinite
+            ? (fields[key] as num).toDouble()
+            : null;
+    final ambient = n('ambient_c'), rh = n('rh_pct'), wind = n('wind_ms');
+    final rejected = <String>{
+      if (ambient == null) 'ambient_c',
+      if (rh == null) 'rh_pct',
+      if (wind == null || wind < 0) 'wind_ms',
+      if (process == null) 'process',
+      if (material == null) 'material',
+      if (precip == null) 'precipitation',
+      if (shelter == null) 'shelter',
+      if (surface == null) 'surface_state',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    setState(() {
+      _ambient.text = weatherNumAuto(ambient!, english: _en);
+      _rh.text = weatherNumAuto(rh!, english: _en);
+      _windUnit = WindUnit.ms;
+      _windMs = wind;
+      _beaufort = null;
+      _wind.text = _windField(wind!);
+      _process = process!;
+      _material = material!;
+      _precip = precip!;
+      _shelter = shelter!;
+      _surfaceState = surface!;
+      _checked.clear();
+    });
+    return {};
+  }
+
   final _ambient = TextEditingController();
   final _rh = TextEditingController();
   final _surface = TextEditingController();
@@ -98,6 +175,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage> {
   void initState() {
     super.initState();
     unawaited(_load());
+    markReady();
   }
 
   @override

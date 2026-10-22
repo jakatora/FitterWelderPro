@@ -17,6 +17,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../data/distortion_tips.dart';
 import '../../domain/welding/distortion.dart';
 import '../../i18n/app_language.dart';
@@ -46,7 +47,86 @@ class DistortionPage extends StatefulWidget {
   State<DistortionPage> createState() => _DistortionPageState();
 }
 
-class _DistortionPageState extends State<DistortionPage> {
+class _DistortionPageState extends State<DistortionPage>
+    with ToolHandleHost<DistortionPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'distortion';
+  @override
+  Set<String> get supportedFields => const {
+        'groove',
+        'thickness_mm',
+        'gap_mm',
+        'root_face_mm',
+        'angle_deg',
+        'final_length_mm',
+        'butt_welds',
+        'fillet_welds'
+      };
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'groove': _groove.name,
+        'thickness_mm': parseDecimal(_t.text),
+        'gap_mm': parseDecimal(_gap.text),
+        'root_face_mm': parseDecimal(_rootFace.text),
+        'angle_deg': parseDecimal(
+            (_groove == ButtGroove.halfV ? _bevel : _angle).text),
+        'final_length_mm': parseDecimal(_final.text),
+        'butt_welds': parseDecimal(_buttCount.text),
+        'fillet_welds': parseDecimal(_filletCount.text),
+        'measured': _measuredMode,
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: rowek i szacunek skurczu (nie pomiar z próby); wymiar
+  /// końcowy i liczby spoin tylko, gdy podane. Wszystko albo nic.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final groove =
+        ButtGroove.values.where((g) => g.name == fields['groove']).firstOrNull;
+    bool number(Object? v) => v is num && v.isFinite && v >= 0;
+    final rejected = <String>{
+      if (groove == null) 'groove',
+      for (final key in const [
+        'thickness_mm',
+        'gap_mm',
+        'root_face_mm',
+        'angle_deg'
+      ])
+        if (!number(fields[key])) key,
+      for (final key in const ['final_length_mm', 'butt_welds', 'fillet_welds'])
+        if (fields.containsKey(key) && !number(fields[key])) key,
+    };
+    if (rejected.isNotEmpty) return rejected;
+    String text(String key) => _n((fields[key] as num).toDouble());
+    setState(() {
+      _measuredMode = false;
+      _groove = groove!;
+      _t.text = text('thickness_mm');
+      _gap.text = text('gap_mm');
+      _rootFace.text = text('root_face_mm');
+      (groove == ButtGroove.halfV ? _bevel : _angle).text = text('angle_deg');
+      if (fields.containsKey('final_length_mm')) {
+        _final.text = text('final_length_mm');
+      }
+      if (fields.containsKey('butt_welds')) {
+        _buttCount.text = text('butt_welds');
+      }
+      if (fields.containsKey('fillet_welds')) {
+        _filletCount.text = text('fillet_welds');
+      }
+    });
+    return {};
+  }
+
   // Blacha 10 mm, rowek V 60°, d 2, c 1,5 — typowy start.
   ButtGroove _groove = ButtGroove.v;
   final _t = TextEditingController(text: '10');

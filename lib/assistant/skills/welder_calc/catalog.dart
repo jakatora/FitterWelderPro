@@ -8,6 +8,9 @@ import 'preheat_ce_skill.dart';
 import 'power_duty_skill.dart';
 import 'power_cable_skill.dart';
 import 'tungsten_pick_skill.dart';
+import 'fillet_strength_skill.dart';
+import 'distortion_skill.dart';
+import 'weather_check_skill.dart';
 
 List<AssistantSkill> welderCalcSkills() => [
       GasConsumptionSkill(),
@@ -21,4 +24,7 @@ List<AssistantSkill> welderCalcSkills() => [
       PowerDutySkill(),
       PowerCableSkill(),
       TungstenPickSkill(),
+      FilletStrengthSkill(),
+      DistortionShrinkageSkill(),
+      WeatherCheckSkill(),
     ];

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/saddle_geometry.dart';
 import '../utils/clipboard_helper.dart';
@@ -15,9 +16,45 @@ class SaddleCutScreen extends StatefulWidget {
   State<SaddleCutScreen> createState() => _SaddleCutScreenState();
 }
 
-class _SaddleCutScreenState extends State<SaddleCutScreen> {
+class _SaddleCutScreenState extends State<SaddleCutScreen>
+    with ToolHandleHost<SaddleCutScreen>
+    implements InputToolHandle {
   final _headerOdController = TextEditingController();
   final _branchOdController = TextEditingController();
+
+  @override
+  String get toolId => 'saddle_cut';
+  @override
+  Set<String> get supportedFields => const {'header_od_mm', 'branch_od_mm'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'header_od_mm': parseDecimal(_headerOdController.text),
+        'branch_od_mm': parseDecimal(_branchOdController.text),
+      });
+
+  /// Asystent wpisuje obie średnice i liczy tak jak przycisk „Oblicz”.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final rejected = <String>{
+      for (final key in supportedFields)
+        if (fields[key] is! num ||
+            !(fields[key] as num).isFinite ||
+            (fields[key] as num) <= 0 ||
+            (fields[key] as num) > 2000)
+          key
+    };
+    if (rejected.isNotEmpty) return rejected;
+    final header = (fields['header_od_mm'] as num).toDouble();
+    final branch = (fields['branch_od_mm'] as num).toDouble();
+    if (branch > header) return {'branch_od_mm'};
+    _headerOdController.text = header.toString();
+    _branchOdController.text = branch.toString();
+    _calculate();
+    return {};
+  }
   _SaddleResult? _result;
   bool _submitted = false;
   String _lastHeaderText = '';
@@ -28,6 +65,7 @@ class _SaddleCutScreenState extends State<SaddleCutScreen> {
     super.initState();
     _headerOdController.addListener(_inputChanged);
     _branchOdController.addListener(_inputChanged);
+    markReady();
   }
 
   void _inputChanged() {

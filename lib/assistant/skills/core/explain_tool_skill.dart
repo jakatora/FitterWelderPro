@@ -56,7 +56,8 @@ ToolSpec? explainedTool(Utterance u) {
   q = q.replaceFirst(_trailRe, '');
   final terms = [
     for (final w in q.split(' '))
-      if (w.isNotEmpty && !_generic.contains(w)) w,
+      // Jednoliterowe spójniki („i”, „a”, „z”) z tytułu nie zawężają.
+      if (w.length > 1 && !_generic.contains(w)) w,
   ];
   if (terms.isEmpty) return null;
   final hits = findTools(terms.join(' '), u.lang);

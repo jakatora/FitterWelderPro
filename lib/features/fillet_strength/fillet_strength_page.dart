@@ -14,6 +14,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/welding/fillet_weld_strength.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
@@ -42,7 +43,82 @@ class FilletStrengthPage extends StatefulWidget {
   State<FilletStrengthPage> createState() => _FilletStrengthPageState();
 }
 
-class _FilletStrengthPageState extends State<FilletStrengthPage> {
+class _FilletStrengthPageState extends State<FilletStrengthPage>
+    with ToolHandleHost<FilletStrengthPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'fillet_strength';
+  @override
+  Set<String> get supportedFields => const {
+        'steel',
+        'throat_mm',
+        'part_thickness_mm',
+        'length_mm',
+        'welds',
+        'force_kn'
+      };
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'steel': _steel.name,
+        'throat_mm': _throatMm.isFinite ? _throatMm : null,
+        'part_thickness_mm': parseDecimal(_t.text),
+        'layout': _layout.name,
+        'length_mm': parseDecimal(_length.text),
+        'welds': _welds,
+        'method': _method.name,
+        'force_kn': parseDecimal(_force.text),
+        'force_kind': _forceKind.name,
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: spoina liniowa, metoda uproszczona, siła obliczeniowa F_Ed.
+  /// Wszystko albo nic — odrzucone pole nie zmienia ekranu.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    bool positive(Object? v) => v is num && v.isFinite && v > 0;
+    final steel = WeldSteelGrade.values
+        .where((g) => g.name == fields['steel'])
+        .firstOrNull;
+    final welds = fields['welds'];
+    final rejected = <String>{
+      if (steel == null) 'steel',
+      for (final key in const ['throat_mm', 'part_thickness_mm', 'length_mm'])
+        if (!positive(fields[key])) key,
+      if (welds is! num ||
+          welds != welds.roundToDouble() ||
+          welds < 1 ||
+          welds > 8)
+        'welds',
+      if (fields.containsKey('force_kn') && !positive(fields['force_kn']))
+        'force_kn',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    double n(String key) => (fields[key] as num).toDouble();
+    setState(() {
+      _legMode = false;
+      _throatMm = n('throat_mm');
+      _size.text = _v(_throatMm);
+      _t.text = _v(n('part_thickness_mm'));
+      _length.text = _v(n('length_mm'));
+      _welds = (welds as num).toInt();
+      _steel = steel!;
+      _layout = WeldLayout.linear;
+      _method = FilletMethod.simplified;
+      _forceKind = ForceKind.design;
+      _force.text =
+          fields.containsKey('force_kn') ? _v(n('force_kn')) : '';
+    });
+    return {};
+  }
+
   // Wspornik z blachy 10 mm na dwie spoiny a4 po 100 mm — typowy start.
   final _size = TextEditingController(text: '4');
   final _t = TextEditingController(text: '10');
