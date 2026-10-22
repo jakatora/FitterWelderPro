@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n/app_language.dart';
 import '../services/account_service.dart';
+import '../services/ai_professional_context.dart';
 import '../legal/legal_texts.dart';
 import 'legal_screen.dart';
 import '../widgets/number_field.dart';
@@ -53,6 +54,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _load() async {
     await _run(() async {
       await service.load();
+      await AiProfessionalContext.instance.load();
       if (service.needsIdentityRefresh) await service.refreshIdentity();
       feedbackGranted = await FeedbackConsent.instance.isGranted();
       _fill();
@@ -286,6 +288,16 @@ class _AccountScreenState extends State<AccountScreen> {
                         en: 'Show professional profile in chat')),
                     value: publicProfile,
                     onChanged: (v) => setState(() => publicProfile = v)),
+                SwitchListTile(
+                    key: const Key('account-ai-professional-context'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(context.tr(pl: 'Dopasuj asystenta AI do mojego zawodu',
+                        en: 'Adapt the AI assistant to my profession')),
+                    subtitle: Text(context.tr(
+                        pl: 'Po włączeniu Railway i Anthropic otrzymają z zapisanego profilu zawód, procesy i lata doświadczenia. Bez nazwiska, e-maila, kwalifikacji i stempla. Ustawienie dotyczy tego konta na tym telefonie.',
+                        en: 'When enabled, Railway and Anthropic receive your saved profession, processes and years of experience. Your name, email, qualifications and stamp are excluded. This setting applies to this account on this phone.')),
+                    value: AiProfessionalContext.instance.enabled,
+                    onChanged: (value) => _run(() => AiProfessionalContext.instance.setEnabled(value))),
                 FilledButton(
                     onPressed: () => _run(() async {
                           final experience = int.tryParse(years.text);

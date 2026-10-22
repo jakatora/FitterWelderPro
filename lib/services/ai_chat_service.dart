@@ -8,6 +8,7 @@ import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import 'help_search.dart';
 import 'premium_service.dart';
+import 'ai_professional_context.dart';
 
 // AI chat service — tryb „Odpowiedz" asystenta (lib/screens/ai_chat_screen.dart).
 //
@@ -156,14 +157,17 @@ class AiChatService {
       // Asystent to płatna funkcja: nowy backend wymaga device_id + sekretu
       // instalacji (tryb strict) i aktywnego Premium.
       final identity = await PremiumService.instance.authHeaders();
+      final profile = await AiProfessionalContext.instance.capture();
       final resp = await http
           .post(
             url,
             headers: {
               'Content-Type': 'application/json',
               ...identity,
+              ...profile.headers,
             },
             body: jsonEncode({
+              ...profile.body,
               'message': trimmed,
               'history': chatHistoryForRequest(history)
                   .map((m) => {
@@ -177,6 +181,7 @@ class AiChatService {
             }),
           )
           .timeout(const Duration(seconds: 25));
+      profile.requireCurrent();
       if (resp.statusCode != 200) {
         debugPrint('AiChatService: backend ${resp.statusCode}: '
             '${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}');

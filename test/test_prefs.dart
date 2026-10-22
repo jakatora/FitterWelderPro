@@ -17,6 +17,7 @@ import 'package:cut_list_app/services/blocked_users.dart';
 import 'package:cut_list_app/services/legal_consent.dart';
 import 'package:cut_list_app/services/tool_usage.dart';
 import 'package:cut_list_app/services/user_profile.dart';
+import 'package:cut_list_app/services/ai_professional_context.dart';
 
 /// Użytkownik, który już się przedstawił i zaakceptował zasady.
 void seedOnboardedUser({
@@ -75,6 +76,7 @@ void _resetSingletons() {
   LegalConsent.instance.resetForTest();
   BlockedUsers.instance.resetForTest();
   ToolUsageStore.instance.resetForTest();
+  AiProfessionalContext.instance.resetForTest();
   // Język jest statyczny i przeżywa między testami w jednym pliku. Asercje
   // w tych testach są po polsku — zaczynamy zawsze od PL.
   AppLanguageController.current = AppLanguage.pl;

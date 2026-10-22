@@ -1,0 +1,13 @@
+# Dobrowolny kontekst zawodowy AI — 2026-10-22
+
+W Konto dodano przełącznik „Dopasuj asystenta AI do mojego zawodu”. Jest domyślnie wyłączony, osobny dla każdego konta na danym telefonie, niezależny od widoczności profilu na publicznym czacie. Opis informuje o Railway i Anthropic oraz zakresie danych. Polityka w aplikacji i backendzie uzupełniona o to ustawienie.
+
+Telefon przesyła `use_professional_profile: true` i token konta, obok istniejącej tożsamości instalacji. Nie przesyła lokalnej kopii profilu. Serwer sprawdza aktywną sesję i odczytuje aktualny profil: wyłącznie zawód, procesy i lata doświadczenia. Nie przekazuje do modelu identyfikatora konta, nazwiska, e-maila, stempla ani kwalifikacji. Brak lub cofnięcie sesji przy włączonej funkcji powoduje 401 przed wywołaniem modelu. Bez przełącznika konta nie trzeba podawać.
+
+Kontekst trafia do interpretatora poleceń i odpowiedzi wiedzy jako dane. Instrukcja modelu ogranicza użycie do słownictwa i poziomu wyjaśnień: profil nie uzupełnia brakujących parametrów, procesu, wymiarów czy WPS ani nie potwierdza kwalifikacji. Bieżąca wypowiedź ma pierwszeństwo. Brak dodatkowego wywołania AI. Rozmiar kontekstu objęty istniejącą rezerwacją budżetu, bez zmiany modelu/cennika; Haiku 5.5 z niskim wysiłkiem pozostaje domyślny.
+
+Telefon wiąże odpowiedź z rewizją sesji i ustawienia: późna odpowiedź po zmianie konta lub wyłączeniu opcji jest odrzucana. Zapis preferencji jest kolejkowany i wiązany z kontem w chwili kliknięcia. Nieczytelna pamięć preferencji oznacza brak włączenia. Ustawienie nie synchronizuje się między urządzeniami. Dla odpowiedzi czatu odrzucenie korzysta z istniejącej ścieżki pomocy offline; nie pokazuje starej odpowiedzi modelu.
+
+Dowody lokalne: 214 testów backendu bez pominięć (HTTP aplikacji, rzeczywiste sesje i SQLite, kontrolowany dostawca modelu), 68 testów Flutter bez pominięć, analiza siedmiu plików bez uwag. Osiem nowych testów Flutter obejmuje ustawienie gość/A/B i ponowny odczyt, cofnięcie zgody, oba transporty, spóźnioną odpowiedź oraz klikalny przełącznik 320px/1.3× w PL i EN. Logi: `build/professional-context-acceptance-test.log`, `build/professional-context-acceptance-analyze.log`; log backendu w katalogu outputs zadania.
+
+Funkcja wymaga wdrożenia nowego backendu przed użyciem przełącznika. Ostatni sprawdzony backend nadal nie ma endpointu interpretatora (404), CLI Railway nie ma autoryzacji. Nie wykonano płatnego wywołania modelu ani testów fizycznego telefonu. Testy transportu nie dowodzą jakości personalizacji prawdziwego modelu. Cały cel asystenta pozostaje otwarty, w tym ISO, pozostałe działania i własność lokalnych rekordów.

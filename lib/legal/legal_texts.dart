@@ -225,7 +225,7 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
         LegalSection(
           c.tr(pl: 'Kto przetwarza dane', en: 'Who processes the data'),
           c.tr(
-            pl: 'Serwer działa na infrastrukturze Railway. Treść pytań do '
+            pl: 'Po osobnym włączeniu dopasowania AI w koncie przekazujemy też zawód, procesy i lata doświadczenia z zapisanego profilu, bez nazwiska, e-maila, kwalifikacji i stempla. Możesz to wyłączyć w koncie. Serwer działa na infrastrukturze Railway. Treść pytań do '
                 'asystenta AI, polecenia wysłane na serwer (po rozpoznaniu mowy '
                 'na tekst) oraz zdjęcia skanowanych rysunków przetwarza w naszym '
                 'imieniu Anthropic PBC (USA) — dostawca modelu Claude — wyłącznie '
@@ -237,7 +237,7 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'ani nie udostępniamy danych nikomu innemu. Nie używamy reklam, '
                 'analityki, pikseli śledzących ani zewnętrznych SDK '
                 'marketingowych.',
-            en: 'The server runs on Railway infrastructure. Questions to the AI '
+            en: 'If you separately enable AI personalization in your account, we also send your saved profession, processes and years of experience, excluding name, email, qualifications and stamp. You can disable this in your account. The server runs on Railway infrastructure. Questions to the AI '
                 'assistant, commands sent to the server (after speech-to-text) '
                 'and photos of scanned drawings are processed on our behalf by '
                 'Anthropic PBC (USA) — the provider of the Claude model — only '

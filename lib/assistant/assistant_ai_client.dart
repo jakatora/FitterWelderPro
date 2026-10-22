@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
+import '../services/ai_professional_context.dart';
 import 'core/skill.dart';
 
 class AiCommandStep {
@@ -149,14 +150,18 @@ class AssistantAiClient {
     final catalog = request['capabilities'] as List;
     final allowed = {for (final c in catalog) (c as Map)['id'] as String};
     try {
+      final identity = await _identity();
+      final profile = await AiProfessionalContext.instance.capture();
       final response = await _client
           .post(Uri.parse('${BackendConfig.baseUrl}/api/fitter/ai/assistant'),
               headers: {
                 'Content-Type': 'application/json',
-                ...await _identity()
+                ...identity,
+                ...profile.headers,
               },
-              body: jsonEncode(request))
+              body: jsonEncode({...request, ...profile.body}))
           .timeout(const Duration(seconds: 30));
+      profile.requireCurrent();
       if (response.statusCode != 200) {
         throw AssistantAiUnavailable(response.statusCode);
       }
