@@ -1,4 +1,5 @@
 import '../../core/skill.dart';
+import '../../core/command_words.dart';
 import 'iso_draw_skill.dart';
 
 /// Read-only native facts, never an estimate from paper-space segment lengths.
@@ -21,9 +22,17 @@ class IsoSummarySkill extends AssistantSkill {
         SkillExample('Jaka jest suma długości CUT w tym rysunku',
             'What is the total CUT length in this drawing'),
       ];
-  bool _requested(Utterance u) => RegExp(
-          r'^(?:(?:prosze|please) )?(?:podsumuj (?:ten )?(?:rysunek(?: iso)?|iso|szkic)|summari[sz]e (?:the |this )?(?:iso drawing|drawing|sketch)|ile rur (?:jest|mam) (?:w tym rysunku|w iso)|how many pipes are in (?:this|the) drawing|jaka jest suma dlugosci cut w tym rysunku|what is the total cut length in this drawing)$')
-      .hasMatch(u.folded);
+  bool _requested(Utterance u) {
+    if (referencesInstruction(u)) return false;
+    final text = u.folded.replaceFirst(
+        RegExp(
+            r'^(?:prosze |please |(?:czy )?mozesz (?:prosze )?|czy moglbys (?:prosze )?|czy moglabys (?:prosze )?|(?:can|could|would|will) you (?:please )?|powiedz mi |tell me )'),
+        '');
+    return RegExp(
+            r'^(?:podsum(?:uj|owac) (?:ten |aktualny |obecny )?(?:rysunek(?: iso)?|iso|szkic)|summari[sz]e (?:the |this )?(?:current )?(?:iso drawing|drawing|sketch)|ile rur (?:jest|mam) (?:w (?:tym|aktualnym|obecnym) (?:rysunku|szkicu)|w iso)|how many pipes are in (?:this|the) (?:current )?(?:iso )?drawing|jaka jest suma dlugosci cut w tym rysunku|what is the total cut length in this drawing)$')
+        .hasMatch(text);
+  }
+
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) => _requested(u)
       ? SkillMatch(this, .99, utterance: u, explicitToolTarget: true)
@@ -34,7 +43,10 @@ class IsoSummarySkill extends AssistantSkill {
       _requested(command) && _summaryIntent(original);
 
   bool _summaryIntent(Utterance source) {
-    if (source.hasAny(const ['nie', 'not', 'dont', 'never'])) return false;
+    if (referencesInstruction(source) ||
+        source.hasAny(const ['nie', 'not', 'dont', 'don t', 'never'])) {
+      return false;
+    }
     if (_requested(source)) return true;
     final drawing = source.hasAny(const ['iso']) ||
         source

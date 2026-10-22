@@ -10,10 +10,16 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useTestDatabase();
   setUp(() async => (await AppDatabase.get()).delete('iso_drawings'));
-  for (final scenario in [(true, false), (false, false), (true, true)]) {
-    final (measured, natural) = scenario;
+  for (final scenario in [
+    (true, 'Podsumuj rysunek ISO', 0),
+    (false, 'Podsumuj rysunek ISO', 0),
+    (true, 'Czy możesz podsumować aktualny rysunek ISO?', 0),
+    (true, 'Could you please summarize the current ISO drawing?', 0),
+    (true, 'Zrób zestawienie ile rur mam w aktualnym rysunku ISO', 1),
+  ]) {
+    final (measured, request, expectedCalls) = scenario;
     testWidgets(
-        'summary reads current native CUT without changing sheet: $measured natural: $natural',
+        'summary reads current native CUT without changing sheet: $measured request: $request',
         (t) async {
       var calls = 0;
       await mount(t, interpret: (_) async {
@@ -42,12 +48,8 @@ void main() {
           .fold<double>(0, (a, b) => a + b);
       expect(snapshot.computedCutTotalMm, closeTo(expected, 1e-9));
       expect(calls, 0);
-      await say(
-          t,
-          natural
-              ? 'Czy możesz podsumować aktualny rysunek ISO?'
-              : 'Podsumuj rysunek ISO');
-      expect(calls, natural ? 1 : 0);
+      await say(t, request);
+      expect(calls, expectedCalls);
       expect(find.textContaining('Odcinki rur: 2'), findsOneWidget);
       expect(find.textContaining('ich suma: ${expected.toStringAsFixed(1)} mm'),
           findsOneWidget);

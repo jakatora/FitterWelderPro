@@ -53,6 +53,26 @@ void main() {
         skill.acceptsProposal(
             u('Nie podsumowuj rysunku ISO'), match.utterance!, ctx),
         isFalse);
+    for (final request in [
+      'Czy możesz podsumować aktualny rysunek ISO?',
+      'Proszę, podsumuj ten rysunek ISO',
+      'Could you please summarize the current ISO drawing?',
+      'Powiedz mi ile rur jest w aktualnym szkicu',
+    ]) {
+      expect(skill.match(u(request), ctx), isNotNull, reason: request);
+    }
+    for (final quotedInstruction in [
+      'Przetłumacz podsumuj rysunek ISO',
+      'Explain how many pipes are in this drawing',
+      'Nie podsumowuj rysunku ISO',
+      "Don't summarize this drawing",
+    ]) {
+      expect(skill.match(u(quotedInstruction), ctx), isNull,
+          reason: quotedInstruction);
+      expect(skill.acceptsProposal(u(quotedInstruction), match.utterance!, ctx),
+          isFalse,
+          reason: quotedInstruction);
+    }
     foreground = false;
     expect(await skill.run(match, ctx), isA<FailedResult>());
     foreground = true;
