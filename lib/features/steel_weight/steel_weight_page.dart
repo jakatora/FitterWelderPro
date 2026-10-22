@@ -49,7 +49,30 @@ class SteelWeightPage extends StatefulWidget {
 }
 
 class _SteelWeightPageState extends State<SteelWeightPage>
-    with SingleTickerProviderStateMixin, ToolHandleHost<SteelWeightPage> {
+    with SingleTickerProviderStateMixin, ToolHandleHost<SteelWeightPage>
+    implements InputToolHandle {
+  @override
+  Map<String, Object?> get inputFields {
+    if (!mounted ||
+        _loading ||
+        _tabs.index != 0 ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return const {};
+    }
+    final item = _draft;
+    return {
+      'shape': item.shape.name,
+      'material': item.material.name,
+      if (item.section != null) 'section': item.section,
+      'a_mm': item.a,
+      'b_mm': item.b,
+      't_mm': item.t,
+      'length_mm': item.lengthMm,
+      // Expose the actual input, not _draft's rounded display count.
+      'quantity': _count,
+    };
+  }
+
   int _assistantGen = 0;
   @override
   String get toolId => 'steel_weight';
@@ -58,7 +81,10 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
     final item = steelDraftFromFields(fields);
-    if (item == null || !mounted || _loading) {
+    if (item == null ||
+        !mounted ||
+        _loading ||
+        ModalRoute.of(context)?.isCurrent != true) {
       return fields.isEmpty ? supportedFields : fields.keys.toSet();
     }
     FocusManager.instance.primaryFocus?.unfocus();

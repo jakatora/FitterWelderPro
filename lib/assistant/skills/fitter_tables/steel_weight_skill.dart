@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show mapEquals;
 import '../../../domain/steel_weight/steel_sections.dart';
 import '../../../domain/steel_weight/steel_weight.dart';
 import '../../../domain/steel_weight/steel_draft_fields.dart';
@@ -132,10 +133,29 @@ Map<String, Object?> _slots(Utterance u, {String? hint}) {
   if (counts.isNotEmpty) {
     out['quantity'] = counts.length == 1 ? counts.single : double.nan;
   }
+  if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(u.raw.toLowerCase())) {
+    out['length_mm'] = double.nan;
+  }
   return out;
 }
 
 class SteelWeightSkill extends AssistantSkill {
+  @override
+  bool get currentFormEditsNeedAi => true;
+
+  @override
+  bool acceptsProposal(
+      Utterance original, Utterance command, AssistantContext context) {
+    if (referencesInstruction(original) ||
+        isNegatedCommand(original) ||
+        pendingReplyNeedsInterpretation(original) ||
+        requestsCurrentFormEdit(original)) {
+      return false;
+    }
+    final source = _slots(original), target = _slots(command);
+    return source.isNotEmpty && target.isNotEmpty && mapEquals(source, target);
+  }
+
   @override
   String get id => 'steel.weight';
   @override
