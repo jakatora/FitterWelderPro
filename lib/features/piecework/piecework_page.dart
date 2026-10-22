@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../database/weld_journal_dao.dart';
 import '../../domain/piecework/piecework.dart';
 import '../../domain/progress/progress_report.dart' show progressNum, weldsCount;
@@ -71,7 +72,39 @@ class PieceworkPage extends StatefulWidget {
 /// Wartość listy spawaczy oznaczająca całą brygadę.
 const String _kCrew = '';
 
-class _PieceworkPageState extends State<PieceworkPage> {
+class _PieceworkPageState extends State<PieceworkPage>
+    with ToolHandleHost<PieceworkPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'piecework';
+  @override
+  Set<String> get supportedFields => const {'period', 'crew'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'period': _period.name,
+        'crew': _welder == null,
+        'welder': _welder,
+      });
+
+  /// Asystent: okres i „ja / brygada”. Własny zakres dat zostaje na ekranie.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final period = PieceworkPeriod.values
+        .where((p) => p.name == fields['period'] && p != PieceworkPeriod.custom)
+        .firstOrNull;
+    if (!mounted ||
+        fields.keys.any((k) => !supportedFields.contains(k)) ||
+        period == null ||
+        (fields.containsKey('crew') && fields['crew'] is! bool)) {
+      return fields.keys.toSet();
+    }
+    _setPeriod(period);
+    if (fields['crew'] is bool) {
+      setState(() => _welder = fields['crew'] == true ? null : _me ?? _welder);
+    }
+    return {};
+  }
+
   /// Nieusunięte wpisy dziennika.
   List<WeldEntry> _all = const [];
   PieceworkRates _rates = const PieceworkRates();
@@ -99,6 +132,7 @@ class _PieceworkPageState extends State<PieceworkPage> {
   void initState() {
     super.initState();
     unawaited(_load(first: true));
+    markReady();
   }
 
   Future<void> _load({bool first = false}) async {

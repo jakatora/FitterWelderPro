@@ -14,6 +14,7 @@ import 'weather_check_skill.dart';
 import 'pwht_plan_skill.dart';
 import 'orbital_tig_skill.dart';
 import 'heat_tint_skill.dart';
+import 'pass_plan_skill.dart';
 
 List<AssistantSkill> welderCalcSkills() => [
       GasConsumptionSkill(),
@@ -33,4 +34,5 @@ List<AssistantSkill> welderCalcSkills() => [
       PwhtPlanSkill(),
       OrbitalTigSkill(),
       HeatTintCheckSkill(),
+      PassPlanSkill(),
     ];

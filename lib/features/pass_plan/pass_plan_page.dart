@@ -16,6 +16,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../data/pipe_schedules.dart';
 import '../../domain/pass_plan/pass_plan.dart';
 import '../../domain/pass_plan/pass_plan_form.dart';
@@ -74,7 +75,46 @@ class PassPlanPage extends StatefulWidget {
   State<PassPlanPage> createState() => _PassPlanPageState();
 }
 
-class _PassPlanPageState extends State<PassPlanPage> {
+class _PassPlanPageState extends State<PassPlanPage>
+    with ToolHandleHost<PassPlanPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'pass_plan';
+  @override
+  Set<String> get supportedFields => const {'dn', 'sch', 'count'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'kind': _choice(PassPlanField.kind),
+        'dn': int.tryParse(_choice(PassPlanField.dn)),
+        'sch': _choice(PassPlanField.sch),
+        'od_mm': parseDecimal(_c[PassPlanField.od]!.text),
+        'wall_mm': parseDecimal(_c[PassPlanField.wall]!.text),
+        'count': parseDecimal(_c[PassPlanField.count]!.text),
+      });
+
+  /// Asystent: rura doczołowa z typoszeregu (DN + Sch) i liczba złączy —
+  /// założenia warstw zostają z zapisu. Wpisy wygrywają z późnym odczytem.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final dn = fields['dn'], count = fields['count'], sch = fields['sch'];
+    final row = dn is num ? kPipeWalls.where((r) => r.dn == dn).firstOrNull : null;
+    final rejected = <String>{
+      if (row == null) 'dn',
+      if (sch is! String || row?.walls[sch] == null) 'sch',
+      if (count is! num || count < 1 || count != count.roundToDouble()) 'count',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    _choices[PassPlanField.kind] = kPassPlanJointKinds.first.code;
+    _pickDn(row!.dn);
+    _pickSch(sch as String);
+    _setNumber(PassPlanField.count, (count as num).toDouble());
+    _changed();
+    return {};
+  }
+
   final Map<String, TextEditingController> _c = {
     for (final k in PassPlanField.numeric) k: TextEditingController(),
   };
@@ -94,6 +134,7 @@ class _PassPlanPageState extends State<PassPlanPage> {
     super.initState();
     _applyForm(passPlanDefaultForm());
     unawaited(_load());
+    markReady();
   }
 
   @override
