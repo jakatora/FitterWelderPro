@@ -36,9 +36,9 @@ import '../i18n/app_language.dart';
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
 /// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
 /// kalkulatory działają dalej.
-const int kLegalVersion = 5;
+const int kLegalVersion = 6;
 
-const String kLegalUpdated = '2026-10-21';
+const String kLegalUpdated = '2026-10-22';
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
@@ -321,17 +321,17 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
           c.tr(
             pl: 'Asystent ma dwa tryby. „Wykonaj" rozpoznaje polecenia na '
                 'telefonie (np. „otwórz kalkulator", „zapisz parametry '
-                'spawania") — takie polecenie nie wymaga serwera, ale może być częścią kontekstu kolejnej rozmowy z AI, a każdy '
-                'zapis danych pokazuje podsumowanie do potwierdzenia. '
+                'spawania") — takie polecenie nie wymaga serwera, ale może być częścią kontekstu kolejnej rozmowy z AI. '
                 '„Odpowiedz" oraz polecenia, których telefon sam nie rozpozna, '
                 'wysyłają na nasz serwer treść pytania, kilka ostatnich '
-                'wiadomości z bieżącej rozmowy, listę funkcji aplikacji i udostępnione pola widocznego kalkulatora (kontekst), wybrany język oraz '
+                'wiadomości z bieżącej rozmowy, listę funkcji aplikacji i udostępnione pola widocznego kalkulatora lub rysunku ISO (kontekst), wybrany język oraz '
                 'identyfikator i sekret instalacji; serwer przekazuje treść do '
                 'Anthropic (model Claude) i odsyła odpowiedź. Nie zapisujemy '
                 'treści pytań, poleceń ani odpowiedzi — zostają tylko liczniki '
                 'dziennych limitów (skróty HMAC, usuwane po 2 dobach) i zbiorczy '
                 'koszt wywołań (bez treści i bez identyfikatora). Nie wpisuj w '
                 'pytaniach danych osobowych.\n\n'
+                'Profil zawodowy jest opcjonalny i domyślnie wyłączony. Po włączeniu go w ustawieniach asystenta serwer dołącza do zapytania AI zawód, procesy spawania i lata doświadczenia z zalogowanego konta. Nie dołącza imienia, nazwiska, adresu e-mail, stempla ani kwalifikacji. Token sesji służy tylko do uwierzytelnienia na naszym serwerze, nie trafia do modelu. Możesz wyłączyć tę opcję przed kolejnym zapytaniem.\n\n'
                 'Mowa: mikrofon włącza się tylko po naciśnięciu przycisku '
                 'mikrofonu. Mowę na tekst zamienia system telefonu (Google na '
                 'Androidzie, Apple na iPhonie), który może w tym celu przesyłać '
@@ -343,17 +343,17 @@ LegalDocument privacyPolicy(BuildContext c) => LegalDocument(
                 'prosisz (art. 6 ust. 1 lit. b RODO).',
             en: 'The assistant has two modes. "Do" recognises commands on the '
                 'phone (e.g. "open the calculator", "save welding parameters") '
-                '— such a command needs no server, but may be included in later AI conversation context; every record '
-                'save shows a summary to confirm. "Answer", and commands the '
+                '— such a command needs no server, but may be included in later AI conversation context. "Answer", and commands the '
                 'phone cannot recognise by itself, send to our server the '
                 'question, a few recent messages of the current conversation '
-                'and the app capability list and shared inputs of the visible calculator (context), the chosen language and the installation identifier '
+                'and the app capability list and shared inputs of the visible calculator or ISO drawing (context), the chosen language and the installation identifier '
                 'and secret; the server passes the text to Anthropic (Claude '
                 'model) and returns the answer. We do not store questions, '
                 'commands or answers — only daily-limit counters (HMAC hashes, '
                 'deleted after 2 days) and the total cost of calls (without '
                 'content or identifier) remain. Do not put personal data in '
                 'your questions.\n\n'
+                'Professional profile context is optional and off by default. When enabled in assistant settings, the server adds the profession, welding processes and years of experience from the signed-in account to the AI request. It does not add your name, email address, welder stamp or qualifications. The session token authenticates you only to our server and is not sent to the model. You can disable this option before the next request.\n\n'
                 'Speech: the microphone turns on only when you press the '
                 'microphone button. Speech is turned into text by the phone\'s '
                 'system (Google on Android, Apple on iPhone), which may send the '

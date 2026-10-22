@@ -31,11 +31,11 @@ String _all(LegalDocument d) =>
     [d.intro, for (final s in d.sections) '${s.heading}\n${s.body}'].join('\n');
 
 void main() {
-  test('wersja zasad podniesiona do 5 z datą zmiany (skaner + asystent)', () {
-    expect(kLegalVersion, 5);
+  test('wersja zasad podniesiona do 6 z datą zmiany (skaner + asystent)', () {
+    expect(kLegalVersion, 6);
     // 2026-09-26: doprecyzowania bez ponownej akceptacji (imię na czacie,
     // kopia Androida, moderacja) — patrz nagłówek legal_texts.dart.
-    expect(kLegalUpdated, '2026-10-21');
+    expect(kLegalUpdated, '2026-10-22');
   });
 
   testWidgets('polityka PL: skaner rysunków — serwer, Anthropic, bez zapisu',
