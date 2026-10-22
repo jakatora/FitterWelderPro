@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 
 const kAssistantRouteOrigin = 'assistant';
 
+/// A presentation of the existing global conversation, without a second engine.
+class AssistantPanelPage extends StatelessWidget {
+  const AssistantPanelPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Scaffold();
+}
+
+const kAssistantPanelPresentation = 'global-assistant-presentation';
+
 final appNavigatorKey = GlobalKey<NavigatorState>();
 final appRoutes = AppRouteObserver();
 
@@ -9,12 +19,16 @@ final appRoutes = AppRouteObserver();
 class AppRouteObserver extends NavigatorObserver with ChangeNotifier {
   final _routes = <Route<dynamic>>[];
   Route<dynamic>? get top => _routes.lastOrNull;
+  bool get assistantPresentation =>
+      top?.settings.name == 'tool:assistant' &&
+      top?.settings.arguments == kAssistantPanelPresentation;
   bool get assistantAvailable =>
       top != null &&
       top is! PopupRoute &&
       (top!.isFirst || (top!.settings.name?.startsWith('tool:') ?? false)) &&
-      !const {'tool:assistant', 'tool:iso_scanner'}
-          .contains(top!.settings.name);
+      (assistantPresentation ||
+          !const {'tool:assistant', 'tool:iso_scanner'}
+              .contains(top!.settings.name));
   String? get toolId {
     final name = top?.settings.name;
     return name != null && name.startsWith('tool:') ? name.substring(5) : null;

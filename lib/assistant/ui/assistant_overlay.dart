@@ -30,6 +30,12 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
 
   void _refresh() {
     if (!mounted) return;
+    if (appRoutes.assistantPresentation && !_controller.expanded) {
+      // Back from a calculator can return to the dedicated conversation page
+      // after the compact panel was collapsed. Never expose an empty page.
+      _controller.setExpanded(true);
+      return;
+    }
     final top = appRoutes.top;
     final route = top is ModalRoute<dynamic> ? top : null;
     if (!identical(route, _route)) {
@@ -37,8 +43,9 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
       _route = route;
       _route?.registerPopEntry(_popEntry);
     }
-    _popEntry.canPopNotifier.value =
-        !_controller.expanded || !appRoutes.assistantAvailable;
+    _popEntry.canPopNotifier.value = appRoutes.assistantPresentation ||
+        !_controller.expanded ||
+        !appRoutes.assistantAvailable;
     _entry.markNeedsBuild();
   }
 
@@ -54,6 +61,7 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
   Widget _buildPanel(BuildContext context) {
     final visible = appRoutes.assistantAvailable;
     final expanded = _controller.expanded;
+    final fullPage = appRoutes.assistantPresentation;
     final media = MediaQuery.of(context);
     return Positioned(
       left: 8,
@@ -79,17 +87,28 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
             Offstage(
                 offstage: !expanded,
                 child: SizedBox(
-                  height: math.min(
-                      media.size.height * .4,
-                      math.max(180,
-                          media.size.height - media.viewInsets.bottom - 100)),
+                  height: fullPage
+                      ? math.max(
+                          0,
+                          media.size.height -
+                              math.max(media.viewInsets.bottom,
+                                  media.padding.bottom) -
+                              media.padding.top -
+                              24)
+                      : math.min(
+                          media.size.height * .4,
+                          math.max(
+                              180,
+                              media.size.height -
+                                  media.viewInsets.bottom -
+                                  100)),
                   child: Material(
                     elevation: 12,
                     borderRadius: BorderRadius.circular(16),
                     clipBehavior: Clip.antiAlias,
                     child: Column(children: [
                       SizedBox(
-                          height: 44,
+                          height: 48,
                           child: Row(children: [
                             const SizedBox(width: 12),
                             Expanded(
@@ -114,6 +133,9 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
                                 tooltip: context.tr(pl: 'Zwiń', en: 'Collapse'),
                                 onPressed: () {
                                   FocusManager.instance.primaryFocus?.unfocus();
+                                  if (appRoutes.assistantPresentation) {
+                                    appNavigatorKey.currentState?.pop();
+                                  }
                                   _controller.setExpanded(false);
                                 },
                                 icon: const Icon(Icons.keyboard_arrow_down)),

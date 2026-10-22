@@ -2795,10 +2795,18 @@ Future<void> openTool(BuildContext context, ToolSpec tool,
     bool byAssistant = false,
     bool replace = false}) async {
   if (tool.id == 'assistant' &&
-      AssistantPanelController.instance.onCommand != null &&
-      appRoutes.assistantAvailable) {
+      AssistantPanelController.instance.onCommand != null) {
     AssistantPanelController.instance.setExpanded(true);
     unawaited(ToolUsageStore.instance.recordOpen(tool.id));
+    if (!appRoutes.assistantAvailable) {
+      // Preserve the underlying page (including checkout verification), while
+      // the root overlay continues to own the same conversation state.
+      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+        settings: const RouteSettings(
+            name: 'tool:assistant', arguments: kAssistantPanelPresentation),
+        builder: (_) => const AssistantPanelPage(),
+      )));
+    }
     return;
   }
   if (tool.needsAccount) {

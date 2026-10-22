@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
-import 'ai_chat_screen.dart';
+import '../widgets/tool_registry.dart';
 import '../theme/app_theme.dart' show kTextMut;
 
 // Persisted across cold starts so that if the user kills the app after being
@@ -304,14 +304,10 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
         children: [
           _Hero(),
           const SizedBox(height: 16),
-          // Try AI button — direct path to the killer feature. When the
-          // gate is enforced the PremiumGate around AiChatScreen will route
-          // non-PRO users back here automatically.
+          // Continue the global conversation without replacing this page's
+          // checkout verification state. AI limits remain server controlled.
           GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AiChatScreen()),
-            ),
+            onTap: () => openTool(context, toolById('assistant')!),
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -339,11 +335,6 @@ class _PremiumScreenState extends State<PremiumScreen> with WidgetsBindingObserv
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // P1-41: dropped the fake "DEMO" badge — there is no
-                        // real demo behind it (the tile already routes through
-                        // the PremiumGate to AiChatScreen). Showing mockup
-                        // content on a paywall screen erodes trust; leave the
-                        // title bare and let the actual gate behaviour speak.
                         Text(
                           context.tr(pl: 'Wypróbuj AI Asystenta', en: 'Try the AI Assistant'),
                           style: const TextStyle(
