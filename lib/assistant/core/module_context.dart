@@ -1,3 +1,4 @@
+import 'calculator_result_readback.dart';
 import 'assistant_text.dart';
 
 /// Co jest teraz na ekranie — bez zależności od UI. Implementuje `ToolBridge`
@@ -32,6 +33,11 @@ abstract interface class RecordModuleContext {
 /// edits may be newer than conversation history. Validate after merging edits.
 abstract interface class FieldModuleContext {
   Map<String, Object?>? inputFields(String toolId);
+}
+
+/// Opt-in native calculator output, independent of model inference or records.
+abstract interface class CalculatorResultModuleContext {
+  CalculatorResultReadback? calculatorResult(String toolId);
 }
 
 bool hasVisibleFormInputs(ModuleContext modules, String? toolId) =>

@@ -1,3 +1,4 @@
+import '../assistant/core/calculator_result_readback.dart';
 // ignore_for_file: prefer_const_constructors
 
 import 'package:flutter/material.dart';
@@ -63,7 +64,7 @@ class HeatInputScreen extends StatefulWidget {
 
 class _HeatInputScreenState extends State<HeatInputScreen>
     with SingleTickerProviderStateMixin, ToolHandleHost<HeatInputScreen>
-    implements InputToolHandle {
+    implements InputToolHandle, CalculatorResultToolHandle {
   late final TabController _assistantTabs;
   bool _assistantNeedsHydrogen = false;
   static const _chemKeys = {
@@ -90,6 +91,28 @@ class _HeatInputScreenState extends State<HeatInputScreen>
               if (_etaCtrl.text.trim().isNotEmpty)
                 'efficiency': parseDecimal(_etaCtrl.text),
             });
+  @override
+  HeatInputResultReadback? get questionResult {
+    if (_assistantTabs.index != 0) return null;
+    final value = _heatInputKjPerMm;
+    if (value != null &&
+        (!value.isFinite || !_unit.fromKjPerMm(value).isFinite)) {
+      return null;
+    }
+    final asme = _standard == HeatInputStandard.asmeIx;
+    return HeatInputResultReadback(
+      valueKjPerMm: value,
+      displayValue: value == null ? null : double.tryParse(_unit.format(value)),
+      unit: _unit,
+      efficiency: asme || value == null ? null : _eta,
+      efficiencySource: asme
+          ? EfficiencyReadbackSource.notUsed
+          : _etaOverride == null
+              ? EfficiencyReadbackSource.processDefault
+              : EfficiencyReadbackSource.explicitOverride,
+    );
+  }
+
   @override
   Set<String> get supportedFields => const {
         'volts',

@@ -235,6 +235,7 @@ void main() {
     await t.tap(find.text('Preheat / CE'));
     await settle(t);
     expect(CalculatorQuestionContext.capture(ToolBridge.instance), isNull);
+    expect(ToolBridge.instance.calculatorResult('heat_input'), isNull);
     expect(t.takeException(), isNull);
   });
 }

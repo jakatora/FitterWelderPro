@@ -1,13 +1,21 @@
+import 'core/calculator_result_readback.dart';
 import 'core/skill.dart';
 
 // Explicit visible numeric/choice ports only. No records, text fields, accounts
-// or inferred outputs. Keep the server contract in calculatorQuestionContext.js.
+// or inferred outputs. Explicit native output is separately opted in. Keep the server contract in calculatorQuestionContext.js.
 class CalculatorQuestionContext {
-  CalculatorQuestionContext._(this.toolId, Map<String, Object?> inputs)
-      : inputs = Map.unmodifiable(inputs);
+  CalculatorQuestionContext._(
+      this.toolId, Map<String, Object?> inputs, Map<String, Object?>? results)
+      : inputs = Map.unmodifiable(inputs),
+        results = results == null ? null : Map.unmodifiable(results);
   final String toolId;
   final Map<String, Object?> inputs;
-  Map<String, Object?> toJson() => {'tool_id': toolId, 'inputs': inputs};
+  final Map<String, Object?>? results;
+  Map<String, Object?> toJson() => {
+        'tool_id': toolId,
+        'inputs': inputs,
+        if (results != null) 'results': results
+      };
 
   static const _numeric = {
     'heat_input': {'volts', 'amps', 'travel_mm_min', 'efficiency'},
@@ -49,6 +57,14 @@ class CalculatorQuestionContext {
       final value = fields['end_welds'];
       values['end_welds'] = value is bool ? value : null;
     }
-    return values.isEmpty ? null : CalculatorQuestionContext._(id, values);
+    final readback =
+        id == 'heat_input' && modules is CalculatorResultModuleContext
+            ? (modules as CalculatorResultModuleContext).calculatorResult(id)
+            : null;
+    final results =
+        readback is HeatInputResultReadback ? readback.toJson() : null;
+    return values.isEmpty
+        ? null
+        : CalculatorQuestionContext._(id, values, results);
   }
 }

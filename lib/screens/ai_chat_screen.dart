@@ -2700,7 +2700,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             CalculatorQuestionContext.capture(_brainContext.modules);
         if (!identical(calculatorHandle, ToolBridge.instance.current) ||
             calculatorContext.toolId != current?.toolId ||
-            !mapEquals(calculatorContext.inputs, current?.inputs)) {
+            !mapEquals(calculatorContext.inputs, current?.inputs) ||
+            !mapEquals(calculatorContext.results, current?.results)) {
           final notice = _tr(
               'Kalkulator lub dane zmieniły się podczas przygotowywania odpowiedzi. Zapytaj ponownie o aktualny stan.',
               'The calculator or inputs changed while the answer was being prepared. Ask again about the current state.');

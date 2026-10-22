@@ -55,6 +55,8 @@ void main() {
     final text = _all(await _build(tester, AppLanguage.pl, privacyPolicy));
     expect(text, contains('Asystent AI'));
     expect(text, contains('udostępnione pola widocznego kalkulatora'));
+    expect(text, contains('natywny wynik wyświetlony'));
+    expect(text, contains('mogą zostać dołączone do pytania'));
     expect(text, contains('„Wykonaj"'));
     expect(text, contains('„Odpowiedz"'));
     expect(text, contains('rozpoznaje polecenia na telefonie'));
@@ -72,6 +74,8 @@ void main() {
     expect(text, contains('daily limit'));
     expect(text, contains('AI assistant'));
     expect(text, contains('shared inputs of the visible calculator'));
+    expect(text, contains('native result displayed'));
+    expect(text, contains('may be included in the question'));
     expect(text, contains('"Do"'));
     expect(text, contains('"Answer"'));
     expect(text, contains('Google'));

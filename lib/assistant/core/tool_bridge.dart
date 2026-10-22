@@ -1,3 +1,4 @@
+import 'calculator_result_readback.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../app_navigator.dart';
@@ -11,6 +12,10 @@ abstract interface class RecordToolHandle {
 /// Explicit native read ports only. Credential forms expose no inputs.
 abstract interface class InputToolHandle {
   Map<String, Object?> get inputFields;
+}
+
+abstract interface class CalculatorResultToolHandle {
+  CalculatorResultReadback? get questionResult;
 }
 
 /// Only explicitly implemented native actions can be invoked; no widget search
@@ -54,6 +59,7 @@ class ToolBridge
         ModuleContext,
         RecordModuleContext,
         FieldModuleContext,
+        CalculatorResultModuleContext,
         ModuleActionContext,
         RecordActionModuleContext {
   @override
@@ -94,6 +100,19 @@ class ToolBridge
               'Nie udało się wykonać tej czynności. Spróbuj ponownie.',
               'The action could not be completed. Please try again.'));
     }
+  }
+
+  @override
+  CalculatorResultReadback? calculatorResult(String toolId) {
+    final handle = current;
+    if (handle == null ||
+        handle.toolId != toolId ||
+        handle is! CalculatorResultToolHandle ||
+        !isReady(handle) ||
+        appRoutes.top is PopupRoute) {
+      return null;
+    }
+    return (handle as CalculatorResultToolHandle).questionResult;
   }
 
   @override
