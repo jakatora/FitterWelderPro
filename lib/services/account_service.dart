@@ -1,3 +1,4 @@
+import '../legal/legal_version.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -242,7 +243,7 @@ class AccountService extends ChangeNotifier {
       'password': password,
       if (displayName != null) ...{
         'displayName': displayName.trim(),
-        'legalVersion': 4
+        'legalVersion': kLegalVersion
       },
     });
     final token = r['token'] as String;

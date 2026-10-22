@@ -36,9 +36,7 @@ import '../i18n/app_language.dart';
 /// Podniesienie tej liczby wymusza ponowną akceptację u wszystkich użytkowników.
 /// Blokuje to czat (community_gate.dart) i skaner (scan_consent_gate.dart) —
 /// kalkulatory działają dalej.
-const int kLegalVersion = 6;
-
-const String kLegalUpdated = '2026-10-22';
+export 'legal_version.dart' show kLegalVersion, kLegalUpdated;
 
 /// Minimalny wiek. Czat jest publiczny i nie moderujemy go całodobowo.
 const int kMinimumAge = 16;
