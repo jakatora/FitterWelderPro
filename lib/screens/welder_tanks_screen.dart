@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../database/tandem_tig_param_dao.dart';
 import '../domain/welding/tandem_currents.dart';
 import '../i18n/app_language.dart';
 import '../models/tandem_tig_param.dart';
+import '../services/tandem_tig_estimate.dart';
 import 'welder_pipes_screen.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
@@ -76,8 +78,63 @@ class _TandemTab extends StatefulWidget {
   State<_TandemTab> createState() => _TandemTabState();
 }
 
-class _TandemTabState extends State<_TandemTab> {
+class _TandemTabState extends State<_TandemTab>
+    with ToolHandleHost<_TandemTab>
+    implements InputToolHandle {
   final _dao = TandemTigParamDao();
+
+  @override
+  String get toolId => 'welder_tanks';
+  @override
+  Set<String> get supportedFields =>
+      const {'t1_mm', 't2_mm', 'position', 'joint_type', 'gap_mm', 'land_mm'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        't1_mm': parseDecimal(_t1Ctrl.text),
+        't2_mm': parseDecimal(_t2Ctrl.text),
+        'position': _position,
+        'joint_type': _jointType,
+        'gap_mm': parseDecimal(_gapCtrl.text),
+        'land_mm': _land,
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: grubości, pozycja, złącze (+ szczelina albo land).
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    bool positive(Object? v) => v is num && v.isFinite && v > 0;
+    final joint = fields['joint_type'];
+    final rejected = <String>{
+      if (!positive(fields['t1_mm'])) 't1_mm',
+      if (!positive(fields['t2_mm'])) 't2_mm',
+      if (fields['position'] != 'HORIZONTAL' && fields['position'] != 'VERTICAL')
+        'position',
+      if (joint != 'BUTT' && joint != 'GAP' && joint != 'BEVEL') 'joint_type',
+      if (joint == 'GAP' && !positive(fields['gap_mm'])) 'gap_mm',
+      if (joint == 'BEVEL' && !const [1, 2, 3].contains(fields['land_mm']))
+        'land_mm',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    setState(() {
+      _t1Ctrl.text = (fields['t1_mm'] as num).toString();
+      _t2Ctrl.text = (fields['t2_mm'] as num).toString();
+      _position = fields['position'] as String;
+      _jointType = joint as String;
+      _gapCtrl.text = joint == 'GAP'
+          ? (fields['gap_mm'] as num).toString()
+          : '0.0';
+      if (joint == 'BEVEL') _land = (fields['land_mm'] as num).toDouble();
+    });
+    return {};
+  }
 
   String _position = 'HORIZONTAL';
   String _jointType = 'BUTT';
@@ -156,7 +213,9 @@ class _TandemTabState extends State<_TandemTab> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  key: ValueKey('tandem-joint-$_jointType'),
                   initialValue: _jointType,
+                  isExpanded: true,
                   items: [
                     DropdownMenuItem(value: 'BUTT', child: Text(_tr('Na styk (bez szczeliny)', 'Butt joint (no gap)'))),
                     DropdownMenuItem(value: 'GAP', child: Text(_tr('Na szczelinę', 'Gap joint'))),
@@ -186,7 +245,9 @@ class _TandemTabState extends State<_TandemTab> {
                 if (_jointType == 'BEVEL') ...[
                   const SizedBox(height: 10),
                   DropdownButtonFormField<double>(
+                    key: ValueKey('tandem-land-$_land'),
                     initialValue: _land,
+                    isExpanded: true,
                     items: const [
                       DropdownMenuItem(value: 1.0, child: Text('Land 1 mm')),
                       DropdownMenuItem(value: 2.0, child: Text('Land 2 mm')),
@@ -222,13 +283,6 @@ class _TandemTabState extends State<_TandemTab> {
     );
   }
 
-  static TandemPoint _pt(TandemTigParam p) => TandemPoint(
-        t1: p.wallThicknessMm,
-        t2: p.wallThickness2Mm ?? p.wallThicknessMm,
-        outsideA: p.outsideAmps,
-        insideA: p.insideAmps,
-      );
-
   Future<_TandemResult> _calcTandem({
     required double t1,
     required double t2,
@@ -237,27 +291,14 @@ class _TandemTabState extends State<_TandemTab> {
     required double? landMm,
     required double? gapMm,
   }) async {
-    Future<List<TandemPoint>> load(String pos) async => (await _dao.listApprovedFiltered(
-          materialGroup: 'SS',
-          position: pos,
-          jointType: jointType,
-          landMm: landMm,
-          gapMm: gapMm,
-        ))
-            .map(_pt)
-            .toList();
-
-    final hPts = await load('HORIZONTAL');
-    final TandemEstimate est;
-    if (position == 'HORIZONTAL') {
-      est = estimateTandem(hPts, t1, t2);
-    } else {
-      final vPts = await load('VERTICAL');
-      final own = estimateTandem(vPts, t1, t2);
-      est = own.hasResult
-          ? own
-          : estimateTandemVerticalFromHorizontal(horizontal: hPts, vertical: vPts, t1: t1, t2: t2);
-    }
+    final est = await estimateTandemFromApproved(
+        dao: _dao,
+        t1: t1,
+        t2: t2,
+        position: position,
+        jointType: jointType,
+        landMm: landMm,
+        gapMm: gapMm);
     return _TandemResult(est: est, source: describeTandem(est));
   }
 

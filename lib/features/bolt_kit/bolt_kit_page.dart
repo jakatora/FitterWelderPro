@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/bolting/bolt_kit.dart';
 import '../../i18n/app_language.dart';
 import '../../screens/bolt_torque_screen.dart';
@@ -48,7 +49,48 @@ class BoltKitPage extends StatefulWidget {
 }
 
 class _BoltKitPageState extends State<BoltKitPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, ToolHandleHost<BoltKitPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'bolt_kit';
+  @override
+  Set<String> get supportedFields => const {'dn', 'class', 'facing', 'joints'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'mode': _mode.name,
+        'dn': _dn,
+        'class': _cls,
+        'facing': _facing.name,
+        'joints': int.tryParse(_count.text.trim()),
+      });
+
+  /// Asystent: tabela ASME B16.5 (DN × Class × przylga) i liczba połączeń.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final dn = fields['dn'], cls = fields['class'], joints = fields['joints'];
+    final rejected = <String>{
+      if (dn is! num || !FlangeCatalog.dns.contains(dn)) 'dn',
+      if (cls is! num || !FlangeCatalog.classes.contains(cls)) 'class',
+      if (fields['facing'] != 'rf' && fields['facing'] != 'rtj') 'facing',
+      if (fields.containsKey('joints') &&
+          (joints is! num || joints < 1 || joints != joints.roundToDouble()))
+        'joints',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    setState(() {
+      _tabs.index = 0;
+      _mode = _LengthMode.asme;
+      _dn = (dn as num).toInt();
+      _cls = (cls as num).toInt();
+      _facing = fields['facing'] == 'rf' ? FlangeFacing.rf : FlangeFacing.rtj;
+      _count.text = joints is num ? '${joints.toInt()}' : '1';
+    });
+    return {};
+  }
+
   static int _seq = 0;
 
   late final TabController _tabs = TabController(length: 2, vsync: this);
@@ -94,6 +136,7 @@ class _BoltKitPageState extends State<BoltKitPage>
   void initState() {
     super.initState();
     unawaited(_load());
+    markReady();
   }
 
   Future<void> _load() async {

@@ -10,6 +10,7 @@ import 'elbow_rotation_skill.dart';
 import 'insert_length_skill.dart';
 import 'mitre_bend_skill.dart';
 import 'saddle_cut_skill.dart';
+import 'saddle_template_skill.dart';
 import 'tube_bending_skill.dart';
 import 'pipe_route_skill.dart';
 import 'cone_layout_skill.dart';
@@ -31,6 +32,7 @@ List<AssistantSkill> fitterRoutesSkills() => [
       InsertLengthSkill(),
       MitreBendSkill(),
       SaddleCutSkill(),
+      SaddleTemplateSkill(),
       TubeBendingSkill(),
       PipeRouteSkill(),
       ConeLayoutSkill(),

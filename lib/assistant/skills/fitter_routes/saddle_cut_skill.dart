@@ -14,7 +14,7 @@ double? _odOfDn(int dn) => kPipeWalls.where((r) => r.dn == dn).firstOrNull?.od;
 /// Średnice z wypowiedzi: jawne etykiety (rura główna / odgałęzienie) albo
 /// dwie średnice bez etykiet — mniejsza to zawsze odgałęzienie (większe od
 /// rury głównej nie istnieje). Sprzeczne wartości → NaN, żeby dopytać.
-Map<String, Object?> _slots(Utterance u) {
+Map<String, Object?> saddleDiameterSlots(Utterance u) {
   final out = <String, Object?>{};
   final header = lengthNear(u, _headerLabels);
   final branch = lengthNear(u, _branchLabels);
@@ -93,15 +93,16 @@ class SaddleCutSkill extends AssistantSkill {
       return null;
     }
     // Dowolny kąt i wydruk należą do szablonu siodła.
+    final angle = angleValue(u);
     if (u.hasStem(const ['szablon', 'template', 'druk', 'print', 'pdf']) ||
-        angleValue(u) != null) {
+        (angle != null && angle != 90)) {
       return null;
     }
     if (!u.hasStem(const ['siodl', 'siodel', 'wcink', 'saddle']) &&
         !u.hasAny(const ['fish mouth', 'fishmouth'])) {
       return null;
     }
-    final s = _slots(u);
+    final s = saddleDiameterSlots(u);
     return SkillMatch(
         this,
         s.isNotEmpty || u.hasStem(const ['oblicz', 'policz', 'calculate'])
@@ -113,12 +114,12 @@ class SaddleCutSkill extends AssistantSkill {
 
   @override
   Map<String, Object?> slotsFrom(Utterance u, AssistantContext ctx) =>
-      _slots(u);
+      saddleDiameterSlots(u);
 
   @override
   Map<String, Object?>? fillSlot(
       String slot, Utterance u, AssistantContext ctx) {
-    final s = _slots(u);
+    final s = saddleDiameterSlots(u);
     if (s.containsKey(slot)) return {slot: s[slot]};
     // Odpowiedź na pytanie o jedną średnicę: „114,3 mm” albo „DN100”.
     final single = s['header_od_mm'];

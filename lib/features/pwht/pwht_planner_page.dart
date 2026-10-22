@@ -15,6 +15,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/pwht/pwht_plan.dart';
 import '../../domain/pwht/pwht_plan_text.dart';
 import '../../i18n/app_language.dart';
@@ -52,13 +53,70 @@ class PwhtPlannerPage extends StatefulWidget {
   State<PwhtPlannerPage> createState() => _PwhtPlannerPageState();
 }
 
-class _PwhtPlannerPageState extends State<PwhtPlannerPage> {
+class _PwhtPlannerPageState extends State<PwhtPlannerPage>
+    with ToolHandleHost<PwhtPlannerPage>
+    implements InputToolHandle {
   PwhtCode _code = PwhtCode.values.first;
   PwhtMaterial _material = PwhtMaterial.p1;
   final _t = TextEditingController();
   final _od = TextEditingController();
   final _ww = TextEditingController();
   bool _busy = false;
+
+  @override
+  String get toolId => 'pwht_planner';
+  @override
+  Set<String> get supportedFields =>
+      const {'code', 'material', 'thickness_mm', 'od_mm', 'weld_width_mm'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'code': _code.name,
+        'material': _material.name,
+        'thickness_mm': parseDecimal(_t.text),
+        'od_mm': parseDecimal(_od.text),
+        'weld_width_mm': parseDecimal(_ww.text),
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: norma, grupa (tylko z tabeli tej normy), grubość, opcjonalnie
+  /// OD i szerokość lica. Puste opcjonalne pola są czyszczone.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final code =
+        PwhtCode.values.where((c) => c.name == fields['code']).firstOrNull;
+    final material = PwhtMaterial.values
+        .where((m) => m.name == fields['material'])
+        .firstOrNull;
+    bool positive(Object? v) => v is num && v.isFinite && v > 0;
+    final rejected = <String>{
+      if (code == null) 'code',
+      if (material == null ||
+          (code != null && !pwhtMaterialsFor(code).contains(material)))
+        'material',
+      if (!positive(fields['thickness_mm'])) 'thickness_mm',
+      for (final key in const ['od_mm', 'weld_width_mm'])
+        if (fields.containsKey(key) && !positive(fields[key])) key,
+    };
+    if (rejected.isNotEmpty) return rejected;
+    String text(String key) =>
+        fields[key] is num ? (fields[key] as num).toString() : '';
+    setState(() {
+      _code = code!;
+      _material = material!;
+      _t.text = text('thickness_mm');
+      _od.text = text('od_mm');
+      _ww.text = text('weld_width_mm');
+    });
+    return {};
+  }
 
   @override
   void dispose() {

@@ -21,9 +21,13 @@ import 'package:cut_list_app/widgets/tool_registry.dart' show toolById;
 
 import 'support/assistant_test_support.dart';
 import '../support/test_account.dart';
+import '../support/test_database.dart';
 
 void main() {
   useGuestAccount();
+  // Umiejętności czytające lokalne dane (np. punkty startowe tandemu) liczą
+  // na prawdziwej bazie testowej, nie na wyjątku braku bazy.
+  useTestDatabase();
   final catalog =
       buildSkillCatalog(actions: FakeActionsPort(), iso: FakeIsoDrawingPort());
 

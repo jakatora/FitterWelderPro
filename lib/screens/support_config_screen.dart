@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../data/support_spacing.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -60,9 +61,58 @@ class _CalcTab extends StatefulWidget {
   State<_CalcTab> createState() => _CalcTabState();
 }
 
-class _CalcTabState extends State<_CalcTab> {
+class _CalcTabState extends State<_CalcTab>
+    with ToolHandleHost<_CalcTab>
+    implements InputToolHandle {
   int _dn = 50;
   bool _waterFilled = true;
+
+  @override
+  String get toolId => 'pipe_supports';
+  @override
+  Set<String> get supportedFields => const {'dn', 'service', 'run_m'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'dn': _dn,
+        'service': _waterFilled ? 'water' : 'vapor',
+        'run_m': parseDecimal(_length.text),
+        'own_margin': _ownMargin,
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: DN z tabeli, czynnik i (opcjonalnie) długość odcinka; bez
+  /// własnego zapasu, żeby ekran pokazał liczbę z odpowiedzi.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final dn = fields['dn'];
+    final run = fields['run_m'];
+    final rejected = <String>{
+      if (dn is! num || supportSpanForDn(dn.toInt()) == null || dn != dn.toInt())
+        'dn',
+      if (fields['service'] != 'water' && fields['service'] != 'vapor')
+        'service',
+      if (fields.containsKey('run_m') &&
+          (run is! num || !run.isFinite || run <= 0 || run > 500))
+        'run_m',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    setState(() {
+      _dn = (dn as num).toInt();
+      _waterFilled = fields['service'] == 'water';
+      // Odpowiedź asystenta podaje wartość z tabeli — ekran pokazuje tę samą.
+      _ownMargin = false;
+      if (run is num) _length.text = run.toString();
+    });
+    return {};
+  }
   /// User's own, non-normative margin (off by default — the table already
   /// assumes insulated pipe per ASME B31.1 Table 121.5).
   bool _ownMargin = false;
@@ -116,6 +166,8 @@ class _CalcTabState extends State<_CalcTab> {
                 letterSpacing: 1)),
         const SizedBox(height: 8),
         DropdownButtonFormField<int>(
+          // Klucz z wartością: zmiana DN z asystenta przebudowuje pole.
+          key: ValueKey('support-dn-$_dn'),
           initialValue: _dn,
           items: kSupportSpans
               .map((s) => DropdownMenuItem(
@@ -213,9 +265,10 @@ class _CalcTabState extends State<_CalcTab> {
             children: [
               Row(
                 children: [
-                  Text(_tr('Maks. rozstaw', 'Max. spacing'),
-                      style: const TextStyle(color: _kSec, fontSize: 13)),
-                  const Spacer(),
+                  Expanded(
+                    child: Text(_tr('Maks. rozstaw', 'Max. spacing'),
+                        style: const TextStyle(color: _kSec, fontSize: 13)),
+                  ),
                   _CopyValue(
                     value: spacingMm.toString(),
                     label: 'DN$_dn ${_waterFilled ? "water" : "vapor"}',
@@ -234,9 +287,13 @@ class _CalcTabState extends State<_CalcTab> {
                 const Divider(height: 18, color: _kBorder),
                 Row(
                   children: [
-                    Text(_tr('Liczba podpór na linii', 'Supports on the run'),
-                        style: const TextStyle(color: _kSec, fontSize: 13)),
-                    const Spacer(),
+                    // Expanded: na wąskim telefonie etykieta się zawija
+                    // zamiast wypychać liczbę poza ekran.
+                    Expanded(
+                      child: Text(
+                          _tr('Liczba podpór na linii', 'Supports on the run'),
+                          style: const TextStyle(color: _kSec, fontSize: 13)),
+                    ),
                     _CopyValue(
                       value: supportCount.toString(),
                       label: 'supports',

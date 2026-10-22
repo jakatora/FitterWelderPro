@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/saddle_template.dart';
 import '../services/saddle_print_layout.dart';
@@ -114,7 +115,45 @@ class SaddleTemplateScreen extends StatefulWidget {
   State<SaddleTemplateScreen> createState() => _SaddleTemplateScreenState();
 }
 
-class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
+class _SaddleTemplateScreenState extends State<SaddleTemplateScreen>
+    with ToolHandleHost<SaddleTemplateScreen>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'saddle_template';
+  @override
+  Set<String> get supportedFields =>
+      const {'header_od_mm', 'branch_od_mm', 'angle_deg'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'header_od_mm': parseDecimal(_headerCtrl.text),
+        'branch_od_mm': parseDecimal(_branchCtrl.text),
+        'angle_deg': _angleDeg,
+      });
+
+  /// Asystent: średnice i kąt 15–90°; szablon przelicza się od razu.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    double? n(String key) => fields[key] is num && (fields[key] as num).isFinite
+        ? (fields[key] as num).toDouble()
+        : null;
+    final h = n('header_od_mm'), b = n('branch_od_mm'), a = n('angle_deg');
+    final rejected = <String>{
+      if (h == null || h <= 0 || h > 2000) 'header_od_mm',
+      if (b == null || b <= 0 || b > 2000 || (h != null && b > h))
+        'branch_od_mm',
+      if (a == null || a < 15 || a > 90) 'angle_deg',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    _angleDeg = a!;
+    _headerCtrl.text = h!.toString();
+    _branchCtrl.text = b!.toString();
+    _recompute();
+    return {};
+  }
+
   final _headerCtrl = TextEditingController(text: '114.3');
   final _branchCtrl = TextEditingController(text: '60.3');
   final _projectCtrl = TextEditingController();
@@ -144,6 +183,7 @@ class _SaddleTemplateScreenState extends State<SaddleTemplateScreen> {
     super.initState();
     _headerCtrl.addListener(_inputChanged);
     _branchCtrl.addListener(_inputChanged);
+    markReady();
   }
 
   void _inputChanged() {

@@ -11,6 +11,7 @@ import 'tungsten_pick_skill.dart';
 import 'fillet_strength_skill.dart';
 import 'distortion_skill.dart';
 import 'weather_check_skill.dart';
+import 'pwht_plan_skill.dart';
 
 List<AssistantSkill> welderCalcSkills() => [
       GasConsumptionSkill(),
@@ -27,4 +28,5 @@ List<AssistantSkill> welderCalcSkills() => [
       FilletStrengthSkill(),
       DistortionShrinkageSkill(),
       WeatherCheckSkill(),
+      PwhtPlanSkill(),
     ];
