@@ -1021,9 +1021,16 @@ class _DryRunRollback implements Exception {
 
 /// Call only on a staged snapshot. VACUUM also removes other owners' bytes
 /// from free SQLite pages, not merely from query results inside the ZIP.
-const _ownedLocalTables = {'weld_params', 'iso_drawings'};
+const _ownedLocalTables = {
+  'weld_params',
+  'iso_drawings',
+  'weld_journal',
+  'weld_journal_history',
+  'weld_repairs',
+  'weld_journal_projects'
+};
 
-// Historical function name retained for callers. Both account-owned tables
+// Historical function name retained for callers. All account-owned tables
 // must be pruned, including their bytes in SQLite free pages.
 Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
   var found = false;
@@ -1087,6 +1094,42 @@ Future<void> _refill(
       liveTables = await liveTableNames();
     }
 
+    final journalIdMap = <Object?, String>{};
+    final validJournalIds = <Object?>{};
+    if (weldParamsOwner != null && liveTables.contains('weld_journal')) {
+      final parentColumns =
+          (await txn.rawQuery('PRAGMA table_info(weld_journal)'))
+              .map((r) => r['name'])
+              .toSet();
+      if (parentColumns.contains('owner_scope')) {
+        final existing =
+            await txn.query('weld_journal', columns: ['id', 'owner_scope']);
+        final foreign = existing
+            .where((r) => r['owner_scope'] != weldParamsOwner)
+            .map((r) => r['id'])
+            .toSet();
+        if (tables.containsKey('weld_journal') || wipeTablesNotInBackup) {
+          for (final row
+              in tables['weld_journal'] ?? const <Map<String, Object?>>[]) {
+            if (preserveWeldParamOwner &&
+                (row['owner_scope'] ?? LocalRecordOwner.guest) !=
+                    weldParamsOwner) {
+              continue;
+            }
+            final sourceId = row['id'];
+            if (foreign.contains(sourceId)) {
+              journalIdMap.putIfAbsent(sourceId, () => const Uuid().v4());
+            }
+            validJournalIds.add(journalIdMap[sourceId] ?? sourceId);
+          }
+        } else {
+          validJournalIds.addAll(existing
+              .where((r) => r['owner_scope'] == weldParamsOwner)
+              .map((r) => r['id']));
+        }
+      }
+    }
+
     final batch = txn.batch();
     for (final table in liveTables) {
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
@@ -1126,21 +1169,36 @@ Future<void> _refill(
         heatPhotosDir: heatPhotosDir,
         restoredPhotoNames: restoredPhotoNames,
       );
-      final foreignIds =
-          _ownedLocalTables.contains(entry.key) && weldParamsOwner != null
-              ? (await txn.query(entry.key,
-                      columns: ['id'],
-                      where: 'owner_scope != ?',
-                      whereArgs: [weldParamsOwner]))
-                  .map((r) => r['id'])
-                  .toSet()
-              : const <Object?>{};
+      final foreignIds = _ownedLocalTables.contains(entry.key) &&
+              weldParamsOwner != null &&
+              columns.contains('id')
+          ? (await txn.query(entry.key,
+                  columns: ['id'],
+                  where: 'owner_scope != ?',
+                  whereArgs: [weldParamsOwner]))
+              .map((r) => r['id'])
+              .toSet()
+          : const <Object?>{};
       for (final row in rows) {
         final ownedRow = Map<String, Object?>.of(row);
         if (_ownedLocalTables.contains(entry.key) && weldParamsOwner != null) {
           ownedRow['owner_scope'] = weldParamsOwner;
-          if (foreignIds.contains(ownedRow['id'])) {
+          if (entry.key == 'weld_journal') {
+            ownedRow['id'] = journalIdMap[ownedRow['id']] ?? ownedRow['id'];
+          } else if (foreignIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
+          }
+          if (const {'weld_journal_history', 'weld_repairs'}
+              .contains(entry.key)) {
+            ownedRow['weld_id'] =
+                journalIdMap[ownedRow['weld_id']] ?? ownedRow['weld_id'];
+            if (!validJournalIds.contains(ownedRow['weld_id'])) {
+              throw const BackupFormatException(
+                  messagePl:
+                      'Historia lub naprawa wskazuje na brakującą spoinę. Nic nie zmieniono.',
+                  messageEn:
+                      'History or a repair references a missing weld. Nothing changed.');
+            }
           }
         }
         batch.insert(entry.key, ownedRow,

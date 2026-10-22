@@ -1,3 +1,4 @@
+import '../../../utils/decimal_parse.dart';
 import '../../../domain/fitter/pipe_slope.dart';
 import '../../core/skill.dart';
 import 'quantities.dart';
@@ -9,8 +10,8 @@ import 'quantities.dart';
   final values = <double>[];
   final pattern = RegExp(r'(-?\d+(?:[.,]\d+)?)\s*:\s*(-?\d+(?:[.,]\d+)?)');
   final text = u.raw.replaceAllMapped(pattern, (m) {
-    final a = double.parse(m[1]!.replaceAll(',', '.')),
-        b = double.parse(m[2]!.replaceAll(',', '.'));
+    final a = (parseDecimal(m[1]!) ?? double.nan),
+        b = (parseDecimal(m[2]!) ?? double.nan);
     final before = u.raw.substring(0, m.start).toLowerCase();
     values.add(slopePercentFromRatio(
             RegExp(r'minus\s*$').hasMatch(before) ? -a.abs() : a, b) ??

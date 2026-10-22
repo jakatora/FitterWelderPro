@@ -1,3 +1,4 @@
+import '../../../utils/decimal_parse.dart';
 import '../../../domain/welding/hardness.dart';
 import '../../core/skill.dart';
 import '../core/skill_words.dart';
@@ -39,9 +40,8 @@ class HardnessConvertSkill extends AssistantSkill {
         .allMatches(u.raw)
         .toList();
     if (matches.isNotEmpty) {
-      s['value'] = matches.length == 1
-          ? double.tryParse(matches.single[1]!.replaceAll(',', '.'))
-          : double.nan;
+      s['value'] =
+          matches.length == 1 ? parseDecimal(matches.single[1]!) : double.nan;
       s['from'] = matches.first[2]!.toLowerCase();
       if (RegExp(r'(?:minus|\u2212)\s*$', caseSensitive: false)
           .hasMatch(u.raw.substring(0, matches.first.start))) {

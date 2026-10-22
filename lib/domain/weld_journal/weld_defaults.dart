@@ -21,6 +21,12 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'weld_entry.dart';
+import '../../database/local_record_owner.dart';
+
+String _ownerKey(String base, LocalRecordOwner owner) =>
+    owner.key == LocalRecordOwner.guest
+        ? base
+        : '$base.owner.${Uri.encodeComponent(owner.key)}';
 
 // ── Last project ─────────────────────────────────────────────────────────
 
@@ -36,8 +42,13 @@ const String kLastWeldProjectPrefsKey = 'weld_journal.last_project_v1';
 /// not a reason to keep a welder from logging a joint.
 Future<String> loadLastWeldProject() async {
   try {
+    final owner = await LocalRecordOwner.capture();
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(kLastWeldProjectPrefsKey)?.trim() ?? '';
+    owner.requireCurrent();
+    return prefs
+            .getString(_ownerKey(kLastWeldProjectPrefsKey, owner))
+            ?.trim() ??
+        '';
   } catch (e) {
     debugPrint('[weld_journal] read last project failed: $e');
     return '';
@@ -47,14 +58,19 @@ Future<String> loadLastWeldProject() async {
 /// Remembers [name] as the project to pre-fill next time. An empty name
 /// CLEARS the memory: a welder who deliberately saved a weld with no project
 /// is telling us the old one no longer applies.
-Future<void> saveLastWeldProject(String name) async {
+Future<void> saveLastWeldProject(String name,
+    {LocalRecordOwner? expectedOwner}) async {
   final trimmed = name.trim();
   try {
+    final owner = expectedOwner ?? await LocalRecordOwner.capture();
+    owner.requireCurrent();
     final prefs = await SharedPreferences.getInstance();
+    owner.requireCurrent();
     if (trimmed.isEmpty) {
-      await prefs.remove(kLastWeldProjectPrefsKey);
+      await prefs.remove(_ownerKey(kLastWeldProjectPrefsKey, owner));
     } else {
-      await prefs.setString(kLastWeldProjectPrefsKey, trimmed);
+      await prefs.setString(
+          _ownerKey(kLastWeldProjectPrefsKey, owner), trimmed);
     }
   } catch (e) {
     debugPrint('[weld_journal] persist last project failed: $e');
@@ -193,8 +209,10 @@ class WeldEntryDefaults {
 /// stored JSON is damaged. Never throws.
 Future<WeldEntryDefaults> loadWeldDefaults() async {
   try {
+    final owner = await LocalRecordOwner.capture();
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(kWeldDefaultsPrefsKey);
+    owner.requireCurrent();
+    final raw = prefs.getString(_ownerKey(kWeldDefaultsPrefsKey, owner));
     if (raw == null || raw.isEmpty) return const WeldEntryDefaults();
     final decoded = jsonDecode(raw);
     if (decoded is! Map) return const WeldEntryDefaults();
@@ -205,10 +223,15 @@ Future<WeldEntryDefaults> loadWeldDefaults() async {
   }
 }
 
-Future<void> saveWeldDefaults(WeldEntryDefaults d) async {
+Future<void> saveWeldDefaults(WeldEntryDefaults d,
+    {LocalRecordOwner? expectedOwner}) async {
   try {
+    final owner = expectedOwner ?? await LocalRecordOwner.capture();
+    owner.requireCurrent();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kWeldDefaultsPrefsKey, jsonEncode(d.toJson()));
+    owner.requireCurrent();
+    await prefs.setString(
+        _ownerKey(kWeldDefaultsPrefsKey, owner), jsonEncode(d.toJson()));
   } catch (e) {
     debugPrint('[weld_journal] persist defaults failed: $e');
   }

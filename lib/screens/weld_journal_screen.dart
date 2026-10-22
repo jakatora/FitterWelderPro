@@ -22,6 +22,7 @@
 //     change history as an appendix;
 //   * a banner asks for the welder stamp when none is set (after a restore).
 import 'package:flutter/material.dart';
+import '../widgets/weld_journal/journal_session_view.dart';
 import 'package:uuid/uuid.dart';
 
 import '../database/coupon_dao.dart';
@@ -70,16 +71,25 @@ String _localizedNum(String raw) => AppLanguageController.isEnglish
     ? raw.replaceAll(',', '.')
     : raw.replaceAll('.', ',');
 
-class WeldJournalScreen extends StatefulWidget {
+class WeldJournalScreen extends StatelessWidget {
   const WeldJournalScreen({super.key});
   @override
-  State<WeldJournalScreen> createState() => _WeldJournalScreenState();
+  Widget build(BuildContext context) => JournalAccountView(
+      builder: (context, session) => _JournalScreen(session: session));
 }
 
-class _WeldJournalScreenState extends State<WeldJournalScreen> {
+class _JournalScreen extends StatefulWidget {
+  const _JournalScreen({required this.session});
+  final JournalViewSession session;
+  @override
+  State<_JournalScreen> createState() => _WeldJournalScreenState();
+}
+
+class _WeldJournalScreenState extends State<_JournalScreen> {
   static const _uuid = Uuid();
-  final _dao = WeldJournalDao();
-  final _settingsDao = WeldJournalSettingsDao();
+  late final _dao = WeldJournalDao(owner: widget.session.captureOwner);
+  late final _settingsDao =
+      WeldJournalSettingsDao(owner: widget.session.captureOwner);
 
   /// Every entry, soft-deleted included, in natural weld-number order.
   List<WeldEntry> _entries = [];
@@ -109,14 +119,15 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     _load();
     // Hydrates the identity cache so the stamp is there for the first save.
     WelderIdentityService.instance.get().then((_) {
-      if (mounted) setState(() {});
+      if (mounted && widget.session.isCurrent) setState(() {});
     }).catchError((Object e) {
       debugPrint('[weld_journal] identity load failed: $e');
     });
   }
 
   Future<void> _load() async {
-    if (!mounted) return;
+    if (!widget.session.isCurrent) return;
+    if ((!mounted || !widget.session.isCurrent)) return;
     setState(() => _loading = true);
     try {
       // Log kuponów czytany równolegle z dziennikiem (bez dodatkowego
@@ -139,7 +150,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       final couponList = await couponsFuture;
       final coupons =
           couponList == null ? null : {for (final c in couponList) c.id: c};
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       setState(() {
         _entries = all;
         _settings = settings;
@@ -152,7 +163,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       // A locked DB or a half-applied migration used to strand the spinner
       // forever. Surface a retry instead.
       debugPrint('WeldJournal load error: $e');
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr('Nie udało się wczytać dziennika. Spróbuj ponownie.',
@@ -224,11 +235,12 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _openIdentity() async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => const WelderIdentitySetupScreen(),
     ));
     await WelderIdentityService.instance.get();
-    if (mounted) await _load();
+    if (mounted && widget.session.isCurrent) await _load();
   }
 
   /// Everything the filter selects except the status — what the badges and
@@ -308,8 +320,8 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
             onSelected: (v) => switch (v) {
               'new' => _newWeld(),
               'settings' => _openProjectSettings(),
-              'progress' => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const ProgressPage())),
+              'progress' => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ProgressPage())),
               _ => null,
             },
             itemBuilder: (_) => [
@@ -506,13 +518,16 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   // ── Actions ─────────────────────────────────────────────────────────────
 
   Future<void> _openFilters() async {
+    if (!widget.session.isCurrent) return;
     final f = await showWeldFilterSheet(
       context,
       filter: _filter,
       projects: _journalProjects,
       welders: _journalWelders,
     );
-    if (f != null && mounted) setState(() => _filter = f);
+    if (f != null && mounted && widget.session.isCurrent) {
+      setState(() => _filter = f);
+    }
   }
 
   String? _projectIdFor(String projectName) {
@@ -529,11 +544,12 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// A new weld pre-filled with the last used values (never an invented
   /// material) and the next number of the last project.
   Future<void> _newWeld() async {
+    if (!widget.session.isCurrent) return;
     final defaults = await loadWeldDefaults();
     final project = _filter.project.isNotEmpty
         ? _filter.project
         : await loadLastWeldProject();
-    if (!mounted) return;
+    if ((!mounted || !widget.session.isCurrent)) return;
     final e = newWeldFromDefaults(
       defaults,
       id: _uuid.v4(),
@@ -549,6 +565,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   /// "Następna spoina": copies [prev] and increments its number; falls back
   /// to the project's next free number when that one is taken.
   Future<void> _nextAfter(WeldEntry prev) async {
+    if (!widget.session.isCurrent) return;
     final inc = incrementWeldNo(prev.weldNo);
     final project = prev.projectName.trim().toLowerCase();
     // Taken = used in the project by any entry, deleted ones included.
@@ -568,6 +585,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _openEditor(WeldEntry e, {required bool isNew}) async {
+    if (!widget.session.isCurrent) return;
     final result = await showWeldEditor(
       context,
       initial: e,
@@ -577,16 +595,17 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       stamp: _stamp,
       dao: _dao,
     );
-    if (!mounted || result == null) return;
+    if ((!mounted || !widget.session.isCurrent) || result == null) return;
     await _load();
-    if (!mounted) return;
+    if ((!mounted || !widget.session.isCurrent)) return;
     if (result.next) await _nextAfter(result.saved);
   }
 
   Future<void> _changeStatus(WeldEntry e) async {
+    if (!widget.session.isCurrent) return;
     final picked = await showWeldStatusDialog(context,
         weldNo: e.weldNo, current: e.status);
-    if (picked == null || !mounted) return;
+    if (picked == null || (!mounted || !widget.session.isCurrent)) return;
     // Status OK przy NDT NOK / badaniu bez wyniku / kuponie NOK itd. — jawne
     // ostrzeżenie; „Zmień mimo to” trafia do historii.
     final fresh = newConsistencyIssues(
@@ -594,7 +613,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     String? warning;
     if (fresh.isNotEmpty) {
       final en = AppLanguageController.isEnglish;
-      final go = await showDialog<bool>(
+      final go = await showJournalDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: Text(_tr('Niespójny dokument odbiorowy',
@@ -612,14 +631,14 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
           ],
         ),
       );
-      if (go != true || !mounted) return;
+      if (go != true || (!mounted || !widget.session.isCurrent)) return;
       warning = consistencyHistoryText(fresh, en: en);
     }
     try {
       await _dao.setStatus(e.id, picked, by: _stamp, warning: warning);
     } catch (err) {
       debugPrint('WeldJournal setStatus error: $err');
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr('Nie udało się zmienić statusu spoiny.',
             'Failed to update weld status.')),
@@ -630,6 +649,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _onTileAction(WeldEntry e, _TileAction a) async {
+    if (!widget.session.isCurrent) return;
     switch (a) {
       case _TileAction.status:
         await _changeStatus(e);
@@ -648,15 +668,16 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _repair(WeldEntry e) async {
+    if (!widget.session.isCurrent) return;
     final next = 'R${e.repairs.length + 1}';
     final input = await showWeldRepairDialog(context,
         weldNo: e.weldNo, nextLabel: next, repairsSoFar: e.repairs.length);
-    if (input == null || !mounted) return;
+    if (input == null || (!mounted || !widget.session.isCurrent)) return;
     try {
       final r = await _dao.addRepair(e.id,
           date: input.date, reason: input.reason, by: _stamp);
       await _load();
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr(
             'Zapisano naprawę ${r.label} spoiny ${e.weldNo}. Spoina czeka na '
@@ -666,7 +687,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       ));
     } catch (err) {
       debugPrint('WeldJournal repair error: $err');
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_tr(
             'Nie udało się zapisać naprawy.', 'Failed to save the repair.')),
@@ -675,7 +696,8 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _delete(WeldEntry e) async {
-    final ok = await showDialog<bool>(
+    if (!widget.session.isCurrent) return;
+    final ok = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(_tr('Usuń spoinę', 'Delete weld')),
@@ -699,12 +721,12 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
         ],
       ),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || (!mounted || !widget.session.isCurrent)) return;
     try {
       await _dao.softDelete(e.id, by: _stamp);
     } catch (err) {
       debugPrint('WeldJournal delete error: $err');
-      if (!mounted) return;
+      if ((!mounted || !widget.session.isCurrent)) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content:
             Text(_tr('Nie udało się usunąć spoiny.', 'Failed to delete weld.')),
@@ -712,7 +734,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       return;
     }
     await _load();
-    if (!mounted) return;
+    if ((!mounted || !widget.session.isCurrent)) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
           _tr('Usunięto spoinę ${e.weldNo}.', 'Weld ${e.weldNo} deleted.')),
@@ -724,13 +746,14 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _restore(WeldEntry e, {bool quiet = false}) async {
+    if (!widget.session.isCurrent) return;
     try {
       await _dao.restore(e.id, by: _stamp);
     } catch (err) {
       debugPrint('WeldJournal restore error: $err');
     }
     await _load();
-    if (quiet || !mounted) return;
+    if (quiet || (!mounted || !widget.session.isCurrent)) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
           _tr('Przywrócono spoinę ${e.weldNo}.', 'Weld ${e.weldNo} restored.')),
@@ -738,6 +761,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _openProjectSettings() async {
+    if (!widget.session.isCurrent) return;
     var project = _filter.project;
     if (project.isEmpty) {
       final projects = _journalProjects;
@@ -750,7 +774,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
       }
       final picked = projects.length == 1
           ? projects.single
-          : await showDialog<String>(
+          : await showJournalDialog<String>(
               context: context,
               builder: (ctx) => SimpleDialog(
                 title: Text(_tr('Który projekt?', 'Which project?')),
@@ -766,7 +790,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
                 ],
               ),
             );
-      if (picked == null || !mounted) return;
+      if (picked == null || (!mounted || !widget.session.isCurrent)) return;
       project = picked;
     }
     final saved = await showWeldProjectSettingsSheet(context,
@@ -797,20 +821,23 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _runExport(Future<void> Function() job) async {
+    if (!widget.session.isCurrent) return;
     if (_exporting) return;
     setState(() => _exporting = true);
     try {
       await job();
     } catch (err) {
       debugPrint('WeldJournal export error: $err');
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(_tr('Nie udało się wyeksportować dziennika.',
               'Failed to export the journal.')),
         ));
       }
     } finally {
-      if (mounted) setState(() => _exporting = false);
+      if (mounted && widget.session.isCurrent) {
+        setState(() => _exporting = false);
+      }
     }
   }
 
@@ -842,6 +869,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
   }
 
   Future<void> _exportCsv() async {
+    if (!widget.session.isCurrent) return;
     if (!_hasSomethingToExport()) return;
     final (remarks, _) = await _exportExtras();
     final records =
@@ -849,10 +877,12 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     await _runExport(() => WeldJournalExport.shareCsv(
           records: records,
           filterLabel: _filter.fileTag,
+          validateOwner: widget.session.requireCurrent,
         ));
   }
 
   Future<void> _exportPdf() async {
+    if (!widget.session.isCurrent) return;
     if (!_hasSomethingToExport()) return;
     final (remarks, history) = await _exportExtras();
     final records = weldJournalExportRecords(_entries, _filter,
@@ -861,6 +891,7 @@ class _WeldJournalScreenState extends State<WeldJournalScreen> {
     await _runExport(() => WeldJournalExport.sharePdf(
           records: records,
           filterLabel: _filter.fileTag,
+          validateOwner: widget.session.requireCurrent,
           filterDescription: description,
           header: _pdfHeader(records),
           welderFallback: _stamp,

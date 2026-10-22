@@ -1,3 +1,4 @@
+import 'package:cut_list_app/legal/legal_version.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -15,7 +16,8 @@ void main() {
     'role': 'user'
   };
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
-  test('Railway login stores only session token and revokes it on logout',
+  test(
+      'Railway login protects session and verified owner binding and erases both on logout',
       () async {
     final calls = <String>[];
     final client = MockClient((req) async {
@@ -33,7 +35,13 @@ void main() {
     expect(service.sessionRevision, 1);
     expect(service.isAdmin, false);
     final saved = await const FlutterSecureStorage().readAll();
-    expect(saved.values, [token]);
+    expect(saved.keys.toSet(),
+        {'railway_account_session_v1', 'railway_account_local_owner_v1'});
+    expect(saved['railway_account_session_v1'], token);
+    expect(jsonDecode(saved['railway_account_local_owner_v1']!),
+        {'token': token, 'id': 'id'});
+    expect(saved.toString(), isNot(contains('welder@example.com')));
+    expect(saved.toString(), isNot(contains('Jan Kowalski')));
     expect(saved.toString(), isNot(contains('a-private-password')));
     expect(await service.headers(), {'Authorization': 'Bearer $token'});
     await service.signOut();
@@ -66,7 +74,7 @@ void main() {
     final service = AccountService.forTesting(MockClient((req) async {
       expect(req.url.path, endsWith('/register'));
       final body = jsonDecode(req.body) as Map;
-      expect(body['legalVersion'], 4);
+      expect(body['legalVersion'], kLegalVersion);
       expect(body.containsKey('role'), false);
       return http.Response(
           jsonEncode({'account': account, 'token': token}), 201);

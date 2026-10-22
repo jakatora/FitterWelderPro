@@ -24,6 +24,7 @@
 // („zapisz spawam rurę…”) i słowa innych modułów (ścianka, waga, prąd)
 // odrzucamy tutaj, żeby rysowanie nie podkradało cudzych zamiarów.
 
+import '../../../utils/decimal_parse.dart';
 import 'package:flutter/foundation.dart';
 import '../../../domain/iso_notebook/sketch_settings.dart';
 
@@ -751,7 +752,7 @@ IsoCommand? parseIsoCommand(Utterance u) {
     if(RegExp(r'[-−]\s*\d').hasMatch(u.raw)) return null;
     final match=RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:ustaw|zmien) szczeline (?:spoiny )?(?:w (?:tym )?(?:rysunku|szkicu|iso)|iso) na|(?:set|change) (?:(?:weld|root) )?gap (?:in|for) (?:the |this )?(?:drawing|sketch|iso) to) (\d+(?:[.,]\d+)?)\s*(mm|cm|m)$').firstMatch(u.folded);
     if(match==null) return null;
-    final value=double.tryParse(match[1]!.replaceAll(',', '.'));
+    final value=parseDecimal(match[1]!);
     final mm=value==null ? null : value * switch(match[2]) {'m'=>1000,'cm'=>10,_=>1};
     if(mm==null || !isValidSketchGapMm(mm)) return null;
     return IsoCommand(kind:IsoCommandKind.setRootGap,gapMm:mm,explicit:true,strong:true);
@@ -772,7 +773,7 @@ IsoCommand? parseIsoCommand(Utterance u) {
     if (RegExp(r'[-−]\s*\d').hasMatch(u.raw)) return null;
     final match=RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw|popraw) wymiar iso (?:ostatniej rury|rury numer (?<plIndex>[1-9]\d{0,3})) na|(?:set|change|correct) (?:the )?iso dimension of (?:the )?(?:last pipe|pipe (?:number )?(?<enIndex>[1-9]\d{0,3})) to) (?<value>\d+(?:[.,]\d+)?)\s*(?<unit>mm|cm|m)$').firstMatch(u.folded);
     if (match==null) return null;
-    final value=double.tryParse(match.namedGroup('value')!.replaceAll(',', '.'));
+    final value=parseDecimal(match.namedGroup('value')!);
     final mm=value==null ? null : value * switch(match.namedGroup('unit')) {'m'=>1000,'cm'=>10,_=>1};
     if (mm==null || !mm.isFinite || mm<=0) return null;
     return IsoCommand(kind:IsoCommandKind.setPipeDimension,dimensionMm:mm,

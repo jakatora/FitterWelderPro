@@ -45,8 +45,17 @@ class AssistantActions extends AssistantActionsPort
   final _parameterSnapshots = Expando<_ParameterSnapshot>();
   final _journalSaves = Expando<Future<UndoAction?>>();
   String _lastProject = '';
+  LocalRecordOwner? _lastProjectOwner;
   @override
-  String get lastJournalProject => _projectContext?.call() ?? _lastProject;
+  String get lastJournalProject {
+    try {
+      _lastProjectOwner?.requireCurrent();
+    } catch (_) {
+      return '';
+    }
+    return _projectContext?.call() ?? _lastProject;
+  }
+
   static const _uuid = Uuid();
 
   static Map<String, Object?> _fields(WeldParamDraft d) => {
@@ -205,8 +214,11 @@ class AssistantActions extends AssistantActionsPort
       throw const FormatException('journal');
     }
     try {
+      final recordOwner = await LocalRecordOwner.capture();
       final all = await journal.listAll();
+      recordOwner.requireCurrent();
       final who = await stamp();
+      recordOwner.requireCurrent();
       final project = canonicalJournalProject(all, d.project);
       if (isWeldNoTaken(all, project: project, weldNo: d.weldNo)) {
         return JournalWeldNoTaken(
@@ -230,7 +242,8 @@ class AssistantActions extends AssistantActionsPort
                   AnswerLine(const AssistantText('WPS', 'WPS'), e.wpsRef),
                 AnswerLine(const AssistantText('Data', 'Date'), e.date),
               ]),
-          payload: AssistantJournalSnapshot._(e, who, at, this, byVoice, lang));
+          payload: AssistantJournalSnapshot._(
+              e, who, at, this, byVoice, lang, recordOwner));
     } catch (_) {
       return const JournalUnavailable(AssistantText(
           'Nie udało się odczytać dziennika. Nic nie zapisano.',
@@ -241,6 +254,10 @@ class AssistantActions extends AssistantActionsPort
   @override
   Future<UndoAction?> saveJournal(PreparedJournal prepared,
       {required bool byVoice, required AppLanguage lang}) {
+    final snapshot = prepared.payload;
+    if (snapshot is AssistantJournalSnapshot) {
+      snapshot.recordOwner.requireCurrent();
+    }
     final prior = _journalSaves[prepared];
     if (prior != null) return prior;
     final p = prepared.payload;
@@ -263,21 +280,28 @@ class AssistantActions extends AssistantActionsPort
 
   Future<UndoAction?> _saveJournal(AssistantJournalSnapshot p) async {
     final e = p.entry;
-    if (!await journal.insertAssistantIfAvailable(e, by: p.stamp)) {
+    p.recordOwner.requireCurrent();
+    if (!await journal.insertAssistantIfAvailable(e,
+        by: p.stamp, expectedOwner: p.recordOwner)) {
       throw StateError('Journal project or weld number changed');
     }
+    p.recordOwner.requireCurrent();
     _lastProject = e.projectName;
+    _lastProjectOwner = p.recordOwner;
     try {
       _onProjectSaved?.call(e.projectName);
     } catch (_) {
       debugPrint('Assistant project context not updated');
     }
     try {
-      await saveLastWeldProject(e.projectName);
+      await saveLastWeldProject(e.projectName, expectedOwner: p.recordOwner);
+      p.recordOwner.requireCurrent();
     } catch (_) {
       debugPrint('Assistant project metadata not saved');
     }
+    p.recordOwner.requireCurrent();
     final h = AssistantHistoryEntry(
+        ownerScope: p.recordOwner.key,
         id: _uuid.v4(),
         kind: kIntentAddWeldJournalEntry,
         summary: [
@@ -290,10 +314,13 @@ class AssistantActions extends AssistantActionsPort
         at: p.at,
         byVoice: p.byVoice);
     await _addHistory(h);
+    p.recordOwner.requireCurrent();
     var undone = false;
     return () async {
+      p.recordOwner.requireCurrent();
       if (undone) return;
-      if (!await journal.softDeleteAssistantIfUnchanged(e, by: p.stamp)) {
+      if (!await journal.softDeleteAssistantIfUnchanged(e,
+          by: p.stamp, expectedOwner: p.recordOwner)) {
         throw StateError('Saved journal entry changed');
       }
       undone = true;
@@ -320,9 +347,10 @@ class AssistantActions extends AssistantActionsPort
 
 /// Read-only native summary data; snapshots cannot be forged outside this library.
 class AssistantJournalSnapshot {
-  AssistantJournalSnapshot._(
-      this.entry, this.stamp, this.at, this.owner, this.byVoice, this.lang);
+  AssistantJournalSnapshot._(this.entry, this.stamp, this.at, this.owner,
+      this.byVoice, this.lang, this.recordOwner);
   final WeldEntry entry;
+  final LocalRecordOwner recordOwner;
   final String stamp;
   final DateTime at;
   final AssistantActions owner;

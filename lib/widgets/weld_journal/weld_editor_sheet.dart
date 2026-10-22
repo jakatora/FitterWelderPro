@@ -30,6 +30,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../database/coupon_dao.dart';
 import '../../database/weld_journal_dao.dart';
@@ -83,7 +84,7 @@ Future<WeldEditorResult?> showWeldEditor(
   WeldComplianceCheck? check,
   CouponDao? coupons,
 }) =>
-    showModalBottomSheet<WeldEditorResult>(
+    showJournalModalBottomSheet<WeldEditorResult>(
       context: context,
       isScrollControlled: true,
       // One stray tap on the scrim, or a gloved thumb brushing downwards,
@@ -364,7 +365,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
 
   Future<void> _unlock() async {
     final ctrl = TextEditingController();
-    final reason = await showDialog<String>(
+    final reason = await showJournalDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(
@@ -420,7 +421,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   /// Ostrzeżenie o nowych niespójnościach: `true` = „Zapisz mimo to”.
   Future<bool> _confirmConsistency(List<WeldConsistencyIssue> issues) async {
     final en = AppLanguageController.isEnglish;
-    final ok = await showDialog<bool>(
+    final ok = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(
@@ -565,7 +566,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   }
 
   Future<bool> _confirmDiscard() async {
-    final ok = await showDialog<bool>(
+    final ok = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(pl: 'Porzucić wpis?', en: 'Discard entry?')),
@@ -603,7 +604,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
   }
 
   Future<bool> _confirmDuplicate(List<WeldEntry> dups) async {
-    final ok = await showDialog<bool>(
+    final ok = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(
@@ -636,6 +637,7 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
 
   Future<void> _save({bool next = false}) async {
     if (_saving) return;
+    final session = JournalViewSession.capture();
     final no = _no.text.trim();
     final date = normalizeWeldDate(_date.text);
     final inspected = normalizeWeldDate(_inspectedAt.text);
@@ -720,6 +722,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       if (consistencyWarning != null) consistencyWarning,
     ].join('\n\n');
     try {
+      final owner = await session.captureOwner();
+      session.requireCurrent();
       if (widget.isNew) {
         await widget.dao.insert(entry, by: widget.stamp, warning: allWarnings);
       } else {
@@ -728,9 +732,12 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
             warning: allWarnings,
             unlockReason: _unlockReason);
       }
+      session.requireCurrent();
       // Remember for the next joint — a name typed by hand too.
-      await saveLastWeldProject(entry.projectName);
-      await saveWeldDefaults(WeldEntryDefaults.fromEntry(entry));
+      await saveLastWeldProject(entry.projectName, expectedOwner: owner);
+      await saveWeldDefaults(WeldEntryDefaults.fromEntry(entry),
+          expectedOwner: owner);
+      session.requireCurrent();
       if (!mounted) return;
       Navigator.pop(context, WeldEditorResult(entry, next: next));
     } catch (err) {
@@ -1410,7 +1417,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
       WeldRootBacking.nb => context.tr(
           pl: 'jednostronnie bez podkładki', en: 'single side, no backing'),
       WeldRootBacking.mb => context.tr(
-          pl: 'jednostronnie na podkładce', en: 'single side, material backing'),
+          pl: 'jednostronnie na podkładce',
+          en: 'single side, material backing'),
       WeldRootBacking.bs => context.tr(
           pl: 'dwustronnie (podpawanie / żłobienie)',
           en: 'both sides (back weld / gouging)'),
@@ -1491,7 +1499,8 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
             ),
             (
               WeldMetalTransfer.other,
-              context.tr(pl: 'inne (natrysk, puls)', en: 'other (spray, pulse)'),
+              context.tr(
+                  pl: 'inne (natrysk, puls)', en: 'other (spray, pulse)'),
               kArc
             ),
           ], _transfer, (v) => _transfer = v),
@@ -1499,10 +1508,16 @@ class _WeldEditorSheetState extends State<WeldEditorSheet> {
         _label(context.tr(pl: 'Wyrób (§5.3)', en: 'Product (cl. 5.3)')),
         _chips<String>([
           ('', notGiven, kTextSec),
-          (WeldProductKind.pipe, context.tr(pl: 'rura (T)', en: 'pipe (T)'),
-              kArc),
-          (WeldProductKind.plate,
-              context.tr(pl: 'blacha (P)', en: 'plate (P)'), kArc),
+          (
+            WeldProductKind.pipe,
+            context.tr(pl: 'rura (T)', en: 'pipe (T)'),
+            kArc
+          ),
+          (
+            WeldProductKind.plate,
+            context.tr(pl: 'blacha (P)', en: 'plate (P)'),
+            kArc
+          ),
         ], _productForm, (v) {
           _productForm = v;
           _productTouched = true;

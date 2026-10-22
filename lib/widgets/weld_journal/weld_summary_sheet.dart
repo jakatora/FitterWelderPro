@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../domain/weld_journal/weld_ndt.dart';
 import '../../domain/weld_journal/weld_stats.dart';
@@ -33,7 +34,7 @@ Future<void> showWeldSummarySheet(
   required WeldJournalStats stats,
   required String scopeDescription,
 }) =>
-    showModalBottomSheet<void>(
+    showJournalModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,

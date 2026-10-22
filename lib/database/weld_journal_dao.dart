@@ -27,61 +27,110 @@ import '../domain/weld_journal/weld_journal_settings.dart';
 import '../domain/weld_journal/weld_numbering.dart';
 import '../domain/weld_journal/weld_repair.dart';
 import 'db.dart';
+import 'local_record_owner.dart';
 
-class WeldJournalDao {
+/// Shared transaction-safe read for compliance/qualification consumers.
+Future<List<Map<String, Object?>>> readOwnedWeldJournalRows(
+    DatabaseExecutor db, LocalRecordOwner owner) async {
+  owner.requireCurrent();
+  final rows = await db
+      .query('weld_journal', where: 'owner_scope = ?', whereArgs: [owner.key]);
+  owner.requireCurrent();
+  return rows;
+}
+
+mixin _JournalOwnerAccess {
+  Future<LocalRecordOwner> Function() get _owner;
+  Future<T> _ownedRead<T>(
+      Future<T> Function(DatabaseExecutor db, LocalRecordOwner owner)
+          read) async {
+    final owner = await _owner();
+    final db = await AppDatabase.get();
+    owner.requireCurrent();
+    final result = await read(db, owner);
+    owner.requireCurrent();
+    return result;
+  }
+
+  Future<T> _ownedTransaction<T>(
+      Future<T> Function(Transaction txn, LocalRecordOwner owner) write,
+      {LocalRecordOwner? expectedOwner}) async {
+    final owner = expectedOwner ?? await _owner();
+    owner.requireCurrent();
+    final db = await AppDatabase.get();
+    owner.requireCurrent();
+    final result = await db.transaction((txn) async {
+      owner.requireCurrent();
+      final result = await write(txn, owner);
+      owner.requireCurrent();
+      return result;
+    });
+    owner.requireCurrent();
+    return result;
+  }
+}
+
+class WeldJournalDao with _JournalOwnerAccess {
   static const String table = 'weld_journal';
   static const String historyTable = 'weld_journal_history';
   static const String repairsTable = 'weld_repairs';
 
   static const Uuid _uuid = Uuid();
 
+  @override
+  final Future<LocalRecordOwner> Function() _owner;
   final int Function() _clock;
   final String Function() _newId;
 
   /// [clock] (epoch ms) and [newId] are injectable for tests.
-  WeldJournalDao({int Function()? clock, String Function()? newId})
-      : _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch),
+  WeldJournalDao(
+      {int Function()? clock,
+      String Function()? newId,
+      Future<LocalRecordOwner> Function()? owner})
+      : _owner = owner ?? LocalRecordOwner.capture,
+        _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch),
         _newId = newId ?? (() => _uuid.v4());
 
   /// Every entry, soft-deleted ones included (the screen filters), with
   /// their repairs attached, in natural weld-number order.
-  Future<List<WeldEntry>> listAll() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(table);
-    final repairs = await _repairsByWeld(db);
-    return sortWeldEntries(rows.map((r) {
-      final e = WeldEntry.fromRow(r);
-      final rs = repairs[e.id];
-      return rs == null ? e : e.copyWith(repairs: rs);
-    }));
-  }
-
-  Future<WeldEntry?> getById(String id) async {
-    final db = await AppDatabase.get();
-    return _read(db, id);
-  }
+  Future<List<WeldEntry>> listAll() => _ownedRead((db, owner) async {
+        final rows = await db
+            .query(table, where: 'owner_scope = ?', whereArgs: [owner.key]);
+        final repairs = await _repairsByWeld(db, owner);
+        return sortWeldEntries(rows.map((r) {
+          final e = WeldEntry.fromRow(r);
+          return e.copyWith(repairs: repairs[e.id] ?? const []);
+        }));
+      });
+  Future<WeldEntry?> getById(String id) =>
+      _ownedRead((db, owner) => _read(db, id, owner));
 
   /// [warning] — the WPS / qualification warning the welder saved over
   /// (`WeldCompliance.historyText`); logged as `CHECK` in the same
   /// transaction.
   Future<void> insert(WeldEntry e, {String by = '', String? warning}) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      await txn.insert(table, e.toRow());
-      await _log(txn, e.id, by, WeldHistoryAction.create, newValue: e.weldNo);
-      await _logWarning(txn, e.id, by, warning);
+    await _ownedTransaction((txn, owner) async {
+      await txn.insert(table, {...e.toRow(), 'owner_scope': owner.key});
+      await _log(txn, owner, e.id, by, WeldHistoryAction.create,
+          newValue: e.weldNo);
+      await _logWarning(txn, owner, e.id, by, warning);
     });
   }
 
   /// The assistant rechecks the approved project/number in the write transaction.
   Future<bool> insertAssistantIfAvailable(WeldEntry e,
-      {required String by}) async {
-    final db = await AppDatabase.get();
-    return db.transaction((txn) async {
-      if (await _read(txn, e.id) != null) {
-        return _unchangedAssistantCreation(txn, e);
+      {required String by, LocalRecordOwner? expectedOwner}) async {
+    return _ownedTransaction((txn, owner) async {
+      final existing = await txn.query(table,
+          columns: ['owner_scope'], where: 'id = ?', whereArgs: [e.id]);
+      if (existing.isNotEmpty) {
+        return existing.single['owner_scope'] == owner.key &&
+            await _unchangedAssistantCreation(txn, e, owner);
       }
-      final rows = await txn.query(table, columns: ['project_name', 'weld_no']);
+      final rows = await txn.query(table,
+          columns: ['project_name', 'weld_no'],
+          where: 'owner_scope = ?',
+          whereArgs: [owner.key]);
       final project = e.projectName.trim().toLowerCase();
       for (final row in rows) {
         final name = (row['project_name'] as String).trim();
@@ -92,37 +141,41 @@ class WeldJournalDao {
           return false;
         }
       }
-      await txn.insert(table, e.toRow());
-      await _log(txn, e.id, by, WeldHistoryAction.create, newValue: e.weldNo);
+      await txn.insert(table, {...e.toRow(), 'owner_scope': owner.key});
+      await _log(txn, owner, e.id, by, WeldHistoryAction.create,
+          newValue: e.weldNo);
       return true;
-    });
+    }, expectedOwner: expectedOwner);
   }
 
   /// Undo only the original unedited creation, preserving the journal evidence.
   Future<bool> softDeleteAssistantIfUnchanged(WeldEntry expected,
-      {required String by}) async {
-    final db = await AppDatabase.get();
-    return db.transaction((txn) async {
-      if (!await _unchangedAssistantCreation(txn, expected)) return false;
+      {required String by, LocalRecordOwner? expectedOwner}) async {
+    return _ownedTransaction((txn, owner) async {
+      if (!await _unchangedAssistantCreation(txn, expected, owner)) {
+        return false;
+      }
       await txn.update(table, {'deleted_at': _clock()},
-          where: 'id = ?', whereArgs: [expected.id]);
-      await _log(txn, expected.id, by, WeldHistoryAction.delete,
+          where: 'id = ? AND owner_scope = ?',
+          whereArgs: [expected.id, owner.key]);
+      await _log(txn, owner, expected.id, by, WeldHistoryAction.delete,
           oldValue: expected.weldNo);
       return true;
-    });
+    }, expectedOwner: expectedOwner);
   }
 
   Future<bool> _unchangedAssistantCreation(
-      DatabaseExecutor txn, WeldEntry expected) async {
-    final current = await _read(txn, expected.id);
+      DatabaseExecutor txn, WeldEntry expected, LocalRecordOwner owner) async {
+    final current = await _read(txn, expected.id, owner);
     if (current == null ||
         current.isDeleted ||
         current.repairs.isNotEmpty ||
         !mapEquals(current.toRow(), expected.toRow())) {
       return false;
     }
-    final history = await txn
-        .query(historyTable, where: 'weld_id = ?', whereArgs: [expected.id]);
+    final history = await txn.query(historyTable,
+        where: 'weld_id = ? AND owner_scope = ?',
+        whereArgs: [expected.id, owner.key]);
     return history.length == 1 &&
         history.single['action'] == WeldHistoryAction.create;
   }
@@ -136,9 +189,8 @@ class WeldJournalDao {
   /// `UNLOCK` before the field changes.
   Future<List<WeldChange>> update(WeldEntry e,
       {String by = '', String? warning, String? unlockReason}) async {
-    final db = await AppDatabase.get();
-    return db.transaction((txn) async {
-      final before = await _read(txn, e.id);
+    return _ownedTransaction((txn, owner) async {
+      final before = await _read(txn, e.id, owner);
       if (before == null) {
         throw StateError('weld ${e.id} does not exist');
       }
@@ -146,15 +198,17 @@ class WeldJournalDao {
       final after = e.copyWith(deletedAt: before.deletedAt);
       final changes = diffWeldEntries(before, after);
       if (changes.isEmpty) return const <WeldChange>[];
-      await txn
-          .update(table, after.toRow(), where: 'id = ?', whereArgs: [e.id]);
+      await txn.update(table, after.toRow(),
+          where: 'id = ? AND owner_scope = ?', whereArgs: [e.id, owner.key]);
       final reason = unlockReason?.trim() ?? '';
       if (reason.isNotEmpty) {
-        await _log(txn, e.id, by, WeldHistoryAction.unlock, newValue: reason);
+        await _log(txn, owner, e.id, by, WeldHistoryAction.unlock,
+            newValue: reason);
       }
       for (final c in changes) {
         await _log(
           txn,
+          owner,
           e.id,
           by,
           c.field == 'status'
@@ -165,7 +219,7 @@ class WeldJournalDao {
           newValue: c.newValue,
         );
       }
-      await _logWarning(txn, e.id, by, warning);
+      await _logWarning(txn, owner, e.id, by, warning);
       return changes;
     });
   }
@@ -175,41 +229,38 @@ class WeldJournalDao {
   /// user confirmed (logged as `CHECK`).
   Future<bool> setStatus(String id, String status,
       {String by = '', String? warning}) async {
-    final db = await AppDatabase.get();
-    return db.transaction((txn) async {
-      final before = await _read(txn, id);
+    return _ownedTransaction((txn, owner) async {
+      final before = await _read(txn, id, owner);
       if (before == null) throw StateError('weld $id does not exist');
       if (before.status == status) return false;
       await txn.update(table, {'status': status},
-          where: 'id = ?', whereArgs: [id]);
-      await _log(txn, id, by, WeldHistoryAction.status,
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      await _log(txn, owner, id, by, WeldHistoryAction.status,
           field: 'status', oldValue: before.status, newValue: status);
-      await _logWarning(txn, id, by, warning);
+      await _logWarning(txn, owner, id, by, warning);
       return true;
     });
   }
 
   /// Marks the weld deleted. The row, its history and repairs stay.
   Future<void> softDelete(String id, {String by = ''}) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      final before = await _read(txn, id);
+    await _ownedTransaction((txn, owner) async {
+      final before = await _read(txn, id, owner);
       if (before == null || before.isDeleted) return;
       await txn.update(table, {'deleted_at': _clock()},
-          where: 'id = ?', whereArgs: [id]);
-      await _log(txn, id, by, WeldHistoryAction.delete,
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      await _log(txn, owner, id, by, WeldHistoryAction.delete,
           oldValue: before.weldNo);
     });
   }
 
   Future<void> restore(String id, {String by = ''}) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      final before = await _read(txn, id);
+    await _ownedTransaction((txn, owner) async {
+      final before = await _read(txn, id, owner);
       if (before == null || !before.isDeleted) return;
       await txn.update(table, {'deleted_at': null},
-          where: 'id = ?', whereArgs: [id]);
-      await _log(txn, id, by, WeldHistoryAction.restore,
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      await _log(txn, owner, id, by, WeldHistoryAction.restore,
           newValue: before.weldNo);
     });
   }
@@ -221,9 +272,8 @@ class WeldJournalDao {
     required String reason,
     String by = '',
   }) async {
-    final db = await AppDatabase.get();
-    return db.transaction((txn) async {
-      final before = await _read(txn, id);
+    return _ownedTransaction((txn, owner) async {
+      final before = await _read(txn, id, owner);
       if (before == null) throw StateError('weld $id does not exist');
       final plan = planWeldRepair(
         before,
@@ -233,13 +283,14 @@ class WeldJournalDao {
         byStamp: by,
         createdAt: _clock(),
       );
-      await txn.insert(repairsTable, plan.repair.toRow());
-      await txn
-          .update(table, plan.weld.toRow(), where: 'id = ?', whereArgs: [id]);
-      await _log(txn, id, by, WeldHistoryAction.repair,
+      await txn.insert(
+          repairsTable, {...plan.repair.toRow(), 'owner_scope': owner.key});
+      await txn.update(table, plan.weld.toRow(),
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      await _log(txn, owner, id, by, WeldHistoryAction.repair,
           field: 'repair', newValue: plan.repair.summary());
       for (final c in diffWeldEntries(before, plan.weld)) {
-        await _log(txn, id, by, WeldHistoryAction.repair,
+        await _log(txn, owner, id, by, WeldHistoryAction.repair,
             field: c.field, oldValue: c.oldValue, newValue: c.newValue);
       }
       return plan.repair;
@@ -248,67 +299,84 @@ class WeldJournalDao {
 
   /// Records a completed pre-weld checklist on weld [id] (`CHECKLIST`).
   Future<void> addChecklist(String id, String summary, {String by = ''}) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      await _log(txn, id, by, WeldHistoryAction.checklist, newValue: summary);
+    await _ownedTransaction((txn, owner) async {
+      if (await _read(txn, id, owner) == null) {
+        throw StateError('weld $id does not exist');
+      }
+      await _log(txn, owner, id, by, WeldHistoryAction.checklist,
+          newValue: summary);
     });
   }
 
   /// History of many welds at once (PDF appendix): weld id → entries,
   /// oldest first.
-  Future<Map<String, List<WeldHistoryEntry>>> historyFor(
-      Iterable<String> ids) async {
+  Future<Map<String, List<WeldHistoryEntry>>> historyFor(Iterable<String> ids) {
     final wanted = ids.toSet();
-    if (wanted.isEmpty) return const {};
-    final db = await AppDatabase.get();
-    final rows = await db.query(historyTable, orderBy: 'at ASC, rowid ASC');
-    final out = <String, List<WeldHistoryEntry>>{};
-    for (final r in rows) {
-      final h = WeldHistoryEntry.fromRow(r);
-      if (!wanted.contains(h.weldId)) continue;
-      (out[h.weldId] ??= <WeldHistoryEntry>[]).add(h);
-    }
-    return out;
+    return _ownedRead((db, owner) async {
+      if (wanted.isEmpty) return <String, List<WeldHistoryEntry>>{};
+      final rows = await db.query(historyTable,
+          where:
+              'owner_scope = ? AND weld_id IN (SELECT id FROM weld_journal WHERE owner_scope = ?)',
+          whereArgs: [owner.key, owner.key],
+          orderBy: 'at ASC, rowid ASC');
+      final out = <String, List<WeldHistoryEntry>>{};
+      for (final row in rows) {
+        final h = WeldHistoryEntry.fromRow(row);
+        if (wanted.contains(h.weldId)) (out[h.weldId] ??= []).add(h);
+      }
+      return out;
+    });
   }
 
-  /// History of weld [id], newest first.
-  Future<List<WeldHistoryEntry>> history(String id) async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(historyTable,
-        where: 'weld_id = ?', whereArgs: [id], orderBy: 'at DESC, rowid DESC');
-    return rows.map(WeldHistoryEntry.fromRow).toList();
-  }
-
-  Future<WeldEntry?> _read(DatabaseExecutor db, String id) async {
-    final rows =
-        await db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
+  Future<List<WeldHistoryEntry>> history(String id) =>
+      _ownedRead((db, owner) async {
+        final rows = await db.query(historyTable,
+            where:
+                'weld_id = ? AND owner_scope = ? AND weld_id IN (SELECT id FROM weld_journal WHERE owner_scope = ?)',
+            whereArgs: [id, owner.key, owner.key],
+            orderBy: 'at DESC, rowid DESC');
+        return rows.map(WeldHistoryEntry.fromRow).toList();
+      });
+  Future<WeldEntry?> _read(
+      DatabaseExecutor db, String id, LocalRecordOwner owner) async {
+    final rows = await db.query(table,
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: [id, owner.key],
+        limit: 1);
     if (rows.isEmpty) return null;
     final repairs = await db.query(repairsTable,
-        where: 'weld_id = ?', whereArgs: [id], orderBy: 'seq ASC');
+        where: 'weld_id = ? AND owner_scope = ?',
+        whereArgs: [id, owner.key],
+        orderBy: 'seq ASC');
     return WeldEntry.fromRow(rows.single)
         .copyWith(repairs: repairs.map(WeldRepair.fromRow).toList());
   }
 
   Future<Map<String, List<WeldRepair>>> _repairsByWeld(
-      DatabaseExecutor db) async {
-    final rows = await db.query(repairsTable, orderBy: 'weld_id, seq ASC');
+      DatabaseExecutor db, LocalRecordOwner owner) async {
+    final rows = await db.query(repairsTable,
+        where:
+            'owner_scope = ? AND weld_id IN (SELECT id FROM weld_journal WHERE owner_scope = ?)',
+        whereArgs: [owner.key, owner.key],
+        orderBy: 'weld_id, seq ASC');
     final out = <String, List<WeldRepair>>{};
-    for (final r in rows) {
-      final repair = WeldRepair.fromRow(r);
+    for (final row in rows) {
+      final repair = WeldRepair.fromRow(row);
       (out[repair.weldId] ??= []).add(repair);
     }
     return out;
   }
 
-  Future<void> _logWarning(
-      DatabaseExecutor txn, String weldId, String by, String? warning) async {
+  Future<void> _logWarning(DatabaseExecutor txn, LocalRecordOwner owner,
+      String weldId, String by, String? warning) async {
     final text = warning?.trim() ?? '';
     if (text.isEmpty) return;
-    await _log(txn, weldId, by, WeldHistoryAction.check, newValue: text);
+    await _log(txn, owner, weldId, by, WeldHistoryAction.check, newValue: text);
   }
 
   Future<void> _log(
     DatabaseExecutor txn,
+    LocalRecordOwner owner,
     String weldId,
     String by,
     String action, {
@@ -318,47 +386,52 @@ class WeldJournalDao {
   }) =>
       txn.insert(
         historyTable,
-        WeldHistoryEntry(
-          id: _newId(),
-          weldId: weldId,
-          at: _clock(),
-          byStamp: by.trim(),
-          action: action,
-          field: field,
-          oldValue: oldValue,
-          newValue: newValue,
-        ).toRow(),
+        {
+          ...WeldHistoryEntry(
+            id: _newId(),
+            weldId: weldId,
+            at: _clock(),
+            byStamp: by.trim(),
+            action: action,
+            field: field,
+            oldValue: oldValue,
+            newValue: newValue,
+          ).toRow(),
+          'owner_scope': owner.key
+        },
       );
 }
 
 /// Per-project journal settings (PDF header, RT/UT target).
-class WeldJournalSettingsDao {
+class WeldJournalSettingsDao with _JournalOwnerAccess {
   static const String table = 'weld_journal_projects';
-
-  /// Every project's settings, keyed by [WeldJournalProjectSettings.keyFor].
-  Future<Map<String, WeldJournalProjectSettings>> listAll() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(table);
-    return {
-      for (final r in rows)
-        (r['project_key'] as String): WeldJournalProjectSettings.fromRow(r),
-    };
-  }
-
-  Future<WeldJournalProjectSettings?> forProject(String projectName) async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(table,
-        where: 'project_key = ?',
-        whereArgs: [WeldJournalProjectSettings.keyFor(projectName)],
-        limit: 1);
-    return rows.isEmpty
-        ? null
-        : WeldJournalProjectSettings.fromRow(rows.single);
-  }
-
-  Future<void> save(WeldJournalProjectSettings s) async {
-    final db = await AppDatabase.get();
-    await db.insert(table, s.toRow(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  WeldJournalSettingsDao({Future<LocalRecordOwner> Function()? owner})
+      : _owner = owner ?? LocalRecordOwner.capture;
+  @override
+  final Future<LocalRecordOwner> Function() _owner;
+  Future<Map<String, WeldJournalProjectSettings>> listAll() =>
+      _ownedRead((db, owner) async {
+        final rows = await db
+            .query(table, where: 'owner_scope = ?', whereArgs: [owner.key]);
+        return {
+          for (final row in rows)
+            (row['project_key'] as String):
+                WeldJournalProjectSettings.fromRow(row)
+        };
+      });
+  Future<WeldJournalProjectSettings?> forProject(String name) =>
+      _ownedRead((db, owner) async {
+        final rows = await db.query(table,
+            where: 'project_key = ? AND owner_scope = ?',
+            whereArgs: [WeldJournalProjectSettings.keyFor(name), owner.key],
+            limit: 1);
+        return rows.isEmpty
+            ? null
+            : WeldJournalProjectSettings.fromRow(rows.single);
+      });
+  Future<void> save(WeldJournalProjectSettings settings) =>
+      _ownedTransaction((txn, owner) async {
+        await txn.insert(table, {...settings.toRow(), 'owner_scope': owner.key},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      });
 }

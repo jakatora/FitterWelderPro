@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../database/weld_journal_dao.dart';
 import '../../domain/weld_journal/weld_journal_settings.dart';
@@ -17,7 +18,7 @@ Future<bool?> showWeldProjectSettingsSheet(
   required String projectName,
   WeldJournalSettingsDao? dao,
 }) =>
-    showModalBottomSheet<bool>(
+    showJournalModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,

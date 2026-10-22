@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../domain/weld_journal/weld_compliance.dart';
 import '../../i18n/app_language.dart';
@@ -117,7 +118,7 @@ Future<bool> confirmWeldCompliance(
   final en = AppLanguageController.isEnglish;
   final warnings = compliance.warningLines(en: en);
   final infos = compliance.infoLines(en: en);
-  final ok = await showDialog<bool>(
+  final ok = await showJournalDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text(ctx.tr(

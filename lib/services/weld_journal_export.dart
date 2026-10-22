@@ -410,8 +410,8 @@ final List<_CsvColumn> _csvColumns = <_CsvColumn>[
   _CsvColumn('Międzyściegowa °C / Interpass °C', (r) => r.interpassC),
   _CsvColumn('Energia liniowa kJ/mm / Heat input kJ/mm', (r) => r.heatInput),
   for (final m in NdtMethod.values) ...[
-    _CsvColumn('${m.code} zakres / scope',
-        (r) => NdtScope.tag(r.ndtOf(m).scope)),
+    _CsvColumn(
+        '${m.code} zakres / scope', (r) => NdtScope.tag(r.ndtOf(m).scope)),
     _CsvColumn('${m.code} wynik / result', (r) => r.ndtOf(m).result),
     _CsvColumn('${m.code} raport / report', (r) => r.ndtOf(m).reportNo),
     _CsvColumn('${m.code} data / date', (r) => r.ndtOf(m).date),
@@ -652,7 +652,9 @@ class WeldJournalExport {
     required List<WeldJournalRecord> records,
     String? filterLabel,
     DateTime? generatedAt,
+    void Function()? validateOwner,
   }) async {
+    validateOwner?.call();
     final now = generatedAt ?? DateTime.now();
     final csv = buildWeldJournalCsv(records);
     final name = weldJournalFileName(
@@ -661,8 +663,12 @@ class WeldJournalExport {
       filterLabel: filterLabel,
     );
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name');
+    validateOwner?.call();
+    final exportDir = await Directory(dir.path).createTemp('fwp_journal_');
+    validateOwner?.call();
+    final file = File('${exportDir.path}/$name');
     await file.writeAsBytes(utf8.encode(csv), flush: true);
+    validateOwner?.call();
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'text/csv', name: name)],
       subject: _subject(records, filterLabel),
@@ -682,7 +688,9 @@ class WeldJournalExport {
     WeldJournalPdfHeader header = const WeldJournalPdfHeader(),
     String welderFallback = '',
     DateTime? generatedAt,
+    void Function()? validateOwner,
   }) async {
+    validateOwner?.call();
     final now = generatedAt ?? DateTime.now();
 
     // Bundled Roboto covers Latin-2, so Polish text (ą/ć/ę/ł/ń/ó/ś/ź/ż) in
@@ -706,7 +714,10 @@ class WeldJournalExport {
       filterLabel: filterLabel,
     );
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name');
+    validateOwner?.call();
+    final exportDir = await Directory(dir.path).createTemp('fwp_journal_');
+    validateOwner?.call();
+    final file = File('${exportDir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
     // Same guard as iso_pdf_export: a truncated write (full disk) would
     // otherwise be shared as a corrupt attachment and only discovered by the
@@ -716,6 +727,7 @@ class WeldJournalExport {
         'PDF zapisany niepoprawnie — sprawdź miejsce na dysku (${dir.path}).',
       );
     }
+    validateOwner?.call();
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: _subject(records, filterLabel),
@@ -878,8 +890,7 @@ class WeldJournalExport {
     return 'Dziennik spoin / Weld journal$filter$span';
   }
 
-  static String _isoDate(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
+  static String _isoDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 
@@ -909,7 +920,8 @@ class WeldJournalExport {
         'Projekt / Project: ${header.projectTitle}',
     ].join('     ');
     final doc = [
-      if (header.documentNo.isNotEmpty) 'Nr dok. / Doc. no.: ${header.documentNo}',
+      if (header.documentNo.isNotEmpty)
+        'Nr dok. / Doc. no.: ${header.documentNo}',
       if (header.revision.isNotEmpty) 'Rew. / Rev.: ${header.revision}',
     ].join('   ');
     return pw.Container(
@@ -1267,8 +1279,7 @@ class WeldJournalExport {
                       fontWeight: pw.FontWeight.bold,
                       color: color)),
               pw.TextSpan(
-                  text: text,
-                  style: pw.TextStyle(fontSize: 7, color: _kInk)),
+                  text: text, style: pw.TextStyle(fontSize: 7, color: _kInk)),
             ]),
           ),
         );
@@ -1287,19 +1298,34 @@ class WeldJournalExport {
           pw.Wrap(children: [
             item('OK', 'spoina przyjęta / weld accepted', _kOkInk),
             item('NOK', 'spoina odrzucona / weld rejected', _kNokInk),
-            item('PENDING', 'czeka na badanie lub odbiór / awaiting '
-                'examination or acceptance', _kPendingInk),
-            item('USUN./DEL.', 'wpis usunięty (zachowany w historii) / '
-                'deleted entry (kept in history)', _kInkMuted),
+            item(
+                'PENDING',
+                'czeka na badanie lub odbiór / awaiting '
+                    'examination or acceptance',
+                _kPendingInk),
+            item(
+                'USUN./DEL.',
+                'wpis usunięty (zachowany w historii) / '
+                    'deleted entry (kept in history)',
+                _kInkMuted),
           ]),
           pw.Wrap(children: [
             item('wym./req.', 'badanie wymagane (100 %) / required', _kInk),
-            item('wyb./sel.', 'wybrana do badania wyrywkowego / '
-                'selected for random examination', _kInk),
-            item('dod./add.', 'badanie dodatkowe ASME B31.3 §341.3.4 / '
-                'progressive examination', _kInk),
-            item('R1, R2', 'naprawa: data, przyczyna, stan przed naprawą / '
-                'repair: date, cause, state before repair', _kInk),
+            item(
+                'wyb./sel.',
+                'wybrana do badania wyrywkowego / '
+                    'selected for random examination',
+                _kInk),
+            item(
+                'dod./add.',
+                'badanie dodatkowe ASME B31.3 §341.3.4 / '
+                    'progressive examination',
+                _kInk),
+            item(
+                'R1, R2',
+                'naprawa: data, przyczyna, stan przed naprawą / '
+                    'repair: date, cause, state before repair',
+                _kInk),
             item('W/S · M/F', 'warsztat / montaż — shop / field', _kInk),
             item('HI', 'energia liniowa kJ/mm / heat input kJ/mm', _kInk),
             if (isoDetails)

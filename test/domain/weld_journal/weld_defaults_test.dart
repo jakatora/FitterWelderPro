@@ -1,3 +1,4 @@
+import '../../support/test_account.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,6 +13,7 @@ import '../../support/weld_fixtures.dart';
 /// zamiast "316L / TIG / puste OD i t" wpisanych na sztywno.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  useGuestAccount();
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -41,7 +43,8 @@ void main() {
     couponRef: 'K-7',
   );
 
-  test('następna spoina kopiuje projekt, linię, WPS, materiał, OD/t, proces, '
+  test(
+      'następna spoina kopiuje projekt, linię, WPS, materiał, OD/t, proces, '
       'spoiwo i zwiększa numer', () {
     final next = nextWeldFrom(prev,
         id: 'w2', weldNo: 'SP-001-W006', date: '2026-09-24', stamp: 'JK-12');
@@ -61,7 +64,8 @@ void main() {
     expect(next.fillerBatch, 'B-778');
   });
 
-  test('v28: następna spoina i zapamiętane wartości niosą grań, '
+  test(
+      'v28: następna spoina i zapamiętane wartości niosą grań, '
       'przenoszenie i wyrób', () async {
     final mag = prev.copyWith(
       method: 'MIG/MAG',

@@ -10,6 +10,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../domain/weld_journal/weld_entry.dart';
 import '../../i18n/app_language.dart';
@@ -22,7 +23,7 @@ Future<String?> showWeldStatusDialog(
   required String weldNo,
   required String current,
 }) =>
-    showDialog<String>(
+    showJournalDialog<String>(
       context: context,
       builder: (_) => _WeldStatusDialog(weldNo: weldNo, current: current),
     );

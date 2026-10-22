@@ -65,8 +65,7 @@ void main() {
 
   test('po polsku wysyła lang=pl', () async {
     AppLanguageController.current = AppLanguage.pl;
-    await send('Preheat P91?',
-        http.Response(jsonEncode({'text': 'OK'}), 200));
+    await send('Preheat P91?', http.Response(jsonEncode({'text': 'OK'}), 200));
     expect((jsonDecode(requests.single.body) as Map)['lang'], 'pl');
   });
 
@@ -79,7 +78,8 @@ void main() {
           }),
           401),
     );
-    expect(reply.text, startsWith('(Tryb offline'));
+    expect(reply.text, contains('Nie udało się uwierzytelnić'));
+    expect(reply.text, contains('(Tryb offline'));
     expect(reply.text, contains('nie odpowiedź AI'));
     expect(reply.kind, AiReplyKind.offlineHelp);
     expect(reply.text, isNot(contains('INSTALL_SECRET')));
@@ -106,14 +106,19 @@ void main() {
     });
 
     test('429 → dzienny limit, jutro znowu', () async {
-      final r = await send('Preheat P91?',
-          http.Response(jsonEncode({'error': {'code': 'RATE_LIMITED'}}), 429));
+      final r = await send(
+          'Preheat P91?',
+          http.Response(
+              jsonEncode({
+                'error': {'code': 'RATE_LIMITED'}
+              }),
+              429));
       expect(r.kind, AiReplyKind.dailyLimit);
       expect(r.text, contains('Dzienny limit'));
       expect(r.text, contains('jutro'));
     });
 
-    test('503 AI_BUDGET_EXCEEDED → chwilowo niedostępny', () async {
+    test('503 AI_BUDGET_EXCEEDED → miesięczny limit kosztów AI', () async {
       final r = await send(
           'Preheat P91?',
           http.Response(
@@ -122,7 +127,8 @@ void main() {
               }),
               503));
       expect(r.kind, AiReplyKind.unavailable);
-      expect(r.text, contains('chwilowo niedostępny'));
+      expect(r.text, contains('miesięczny limit kosztów AI'));
+      expect(r.text, contains('po odnowieniu budżetu'));
     });
 
     test('po angielsku', () async {
@@ -138,7 +144,7 @@ void main() {
       () => MockClient((_) async => throw const SocketException('offline')),
     );
     expect(reply.kind, AiReplyKind.offlineHelp);
-    expect(reply.text, startsWith('(Tryb offline'));
+    expect(reply.text, contains('(Tryb offline'));
     // Poza nagłówkiem jest treść wpisu pomocy, nie komunikat „nie znalazłem".
     expect(reply.text, isNot(contains('Nie znalazłem')));
     expect(reply.citations, isNotEmpty);
@@ -160,7 +166,8 @@ void main() {
     expect(saddle.text, isNot(contains('Saddle / Coping')));
     expect(saddle.citations.single, contains('Szablon siodła do druku'));
 
-    final torque = AiChatService.instance.demoReplyForTest('moment śrub flange');
+    final torque =
+        AiChatService.instance.demoReplyForTest('moment śrub flange');
     expect(torque.text, contains('"Moment śrub" w menu MONTER'));
     expect(torque.text, isNot(contains('menu FITTER')));
   });

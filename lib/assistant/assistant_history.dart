@@ -107,7 +107,9 @@ class AssistantHistoryStore extends ChangeNotifier {
         : (account.needsIdentityRefresh ? null : 'guest');
     return _entries
         .where((entry) =>
-            entry.kind != 'save_weld_parameter' || entry.ownerScope == owner)
+            !const {'save_weld_parameter', 'add_weld_journal_entry'}
+                .contains(entry.kind) ||
+            entry.ownerScope == owner)
         .toList(growable: false);
   }
 

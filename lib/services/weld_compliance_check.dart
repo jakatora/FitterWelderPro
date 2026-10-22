@@ -6,6 +6,9 @@
 /// karta spoiny i lista nie mogą się różnić werdyktem.
 library;
 
+import '../database/local_record_owner.dart';
+import '../database/weld_journal_dao.dart';
+
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../database/db.dart';
@@ -29,6 +32,7 @@ Future<WeldCompliance> checkWeldCompliance(
   String? wpsId,
   DateTime? now,
 }) async {
+  final recordOwner = await LocalRecordOwner.capture();
   final wpsDao = WpsDao();
   final library = await wpsDao.listAll();
   final versions = await wpsDao.versionsByWps();
@@ -37,10 +41,11 @@ Future<WeldCompliance> checkWeldCompliance(
   final owner = (await WelderIdentityService.instance.get())?.stamp;
   var rows = const <Map<String, Object?>>[];
   try {
-    rows = await (await AppDatabase.get()).query('weld_journal');
+    rows = await readOwnedWeldJournalRows(await AppDatabase.get(), recordOwner);
   } catch (e) {
     debugPrint('[weld_journal] journal read failed: $e');
   }
+  recordOwner.requireCurrent();
   return assessWeldCompliance(
     entry: entry,
     wpsLibrary: library,

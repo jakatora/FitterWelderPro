@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../data/heat_tint.dart';
 import '../../database/coupon_dao.dart';
@@ -27,7 +28,7 @@ Future<CouponEntry?> showCouponEditor(
   required bool isNew,
   CouponDao? dao,
 }) =>
-    showModalBottomSheet<CouponEntry>(
+    showJournalModalBottomSheet<CouponEntry>(
       context: context,
       isScrollControlled: true,
       isDismissible: false,
@@ -128,7 +129,7 @@ class _CouponEditorState extends State<_CouponEditor> {
       return;
     }
     _closing = true;
-    final discard = await showDialog<bool>(
+    final discard = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(pl: 'Porzucić zmiany?', en: 'Discard changes?')),
@@ -147,7 +148,7 @@ class _CouponEditorState extends State<_CouponEditor> {
   }
 
   Future<bool> _confirm(String title, List<String> lines, String okLabel) async {
-    final ok = await showDialog<bool>(
+    final ok = await showJournalDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),

@@ -36,6 +36,7 @@ class StartupFactory implements SqfliteDatabaseFactoryLogger {
     }
     return databaseFactoryFfi.getDatabasesPath();
   }
+
   @override
   Future<void> setDatabasesPath(String path) =>
       databaseFactoryFfi.setDatabasesPath(path);
@@ -66,6 +67,10 @@ class StartupDatabase implements Database {
   String get path => real.path;
   @override
   Future<void> close() => real.close();
+  @override
+  Future<T> transaction<T>(Future<T> Function(Transaction txn) action,
+          {bool? exclusive}) =>
+      real.transaction(action, exclusive: exclusive);
   @override
   Future<void> execute(String sql, [List<Object?>? arguments]) async {
     if (firstStatement) {
@@ -171,8 +176,7 @@ void main() {
     expect(seeds.single['n'], greaterThan(0));
   });
 
-  test(
-      'a failure thrown synchronously does not poison every later get()',
+  test('a failure thrown synchronously does not poison every later get()',
       () async {
     // _open() used to reset `_opening` in its finally BEFORE get() stored the
     // future (a synchronous throw runs the whole try/catch/finally inside the

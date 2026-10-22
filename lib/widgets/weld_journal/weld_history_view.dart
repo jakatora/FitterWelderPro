@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../database/weld_journal_dao.dart';
 import '../../domain/weld_journal/weld_history.dart';
@@ -87,7 +88,7 @@ Future<void> showWeldHistorySheet(
   required String weldNo,
   WeldJournalDao? dao,
 }) =>
-    showModalBottomSheet<void>(
+    showJournalModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,

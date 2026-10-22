@@ -164,8 +164,8 @@ Future<void> _insertComponentHeat(String id, String? imagePath) async {
 
 Future<String?> _componentHeatPath(String id) async {
   final db = await AppDatabase.get();
-  final rows = await db.query('component_heats',
-      where: 'id = ?', whereArgs: <Object?>[id]);
+  final rows = await db
+      .query('component_heats', where: 'id = ?', whereArgs: <Object?>[id]);
   return rows.single['image_path'] as String?;
 }
 
@@ -238,7 +238,8 @@ void main() {
     expect(tests.map((t) => t.toRow()), [_hydro.toRow()]);
   });
 
-  test('v23: heat przypięty do segmentu, numer na zdjęciu i odhaczone cięcia '
+  test(
+      'v23: heat przypięty do segmentu, numer na zdjęciu i odhaczone cięcia '
       'jadą z kopią', () async {
     await _insertProject('project-1');
     final db = await AppDatabase.get();
@@ -362,7 +363,8 @@ void main() {
       options: OpenDatabaseOptions(singleInstance: false),
     );
     addTearDown(live.close);
-    await live.execute('CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)');
+    await live
+        .execute('CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT)');
 
     final result = await restoreTablesInto(
       live,
@@ -381,7 +383,8 @@ void main() {
       ensureKnownTables: AppDatabase.ensureTables,
     );
 
-    expect((await live.query('weld_journal')).single, _weld().toRow());
+    expect((await live.query('weld_journal')).single,
+        {..._weld().toRow(), 'owner_scope': 'guest'});
     expect(result.skippedTables, {'future_register': 2});
     expect(result.rowsWritten, 2);
     expect(await live.query('projects'), hasLength(1));
@@ -508,13 +511,19 @@ void main() {
       options: OpenDatabaseOptions(singleInstance: false),
     );
     addTearDown(live.close);
-    await live.execute('CREATE TABLE weld_coupons (id TEXT PRIMARY KEY, date TEXT)');
+    await live
+        .execute('CREATE TABLE weld_coupons (id TEXT PRIMARY KEY, date TEXT)');
 
     final result = await restoreTablesInto(
       live,
       <String, List<Map<String, Object?>>>{
         'weld_coupons': [
-          <String, Object?>{'id': 'c1', 'date': '2026-09-20', 'machine': 'M-3', 'notes': null},
+          <String, Object?>{
+            'id': 'c1',
+            'date': '2026-09-20',
+            'machine': 'M-3',
+            'notes': null
+          },
         ],
       },
       heatPhotosDir: phoneA.heatPhotos.path,
@@ -616,8 +625,8 @@ void main() {
       confirmedBy: 'J. Koordynator',
       createdAt: 2,
     ));
-    await CouponDao().insert(_coupon().copyWith(acceptedBy: 'QC Nowak'),
-        by: 'JK-12');
+    await CouponDao()
+        .insert(_coupon().copyWith(acceptedBy: 'QC Nowak'), by: 'JK-12');
     await WpsDao().upsert(const WpsRecord(
         id: 'wps-25',
         wpsNo: 'WPS-25',
@@ -625,10 +634,13 @@ void main() {
         createdAt: 1,
         updatedAt: 1));
     await PassivationDao().save(const PassivationRecord(
-        id: 'pas-1', date: '2026-09-25', line: 'L-7', createdAt: 1,
+        id: 'pas-1',
+        date: '2026-09-25',
+        line: 'L-7',
+        createdAt: 1,
         updatedAt: 1));
-    await WeldJournalDao().insert(_weld().copyWith(
-        inspector: 'J. Inspektor', inspectedAt: '2026-09-21'));
+    await WeldJournalDao().insert(
+        _weld().copyWith(inspector: 'J. Inspektor', inspectedAt: '2026-09-21'));
     await WeldJournalDao()
         .addRepair(_weld().id, date: '2026-09-22', reason: 'x', by: 'JK-12');
 
@@ -645,8 +657,8 @@ void main() {
     expect(coupon.acceptedBy, 'QC Nowak');
     expect(await CouponDao().history(coupon.id), hasLength(1));
     expect((await WpsDao().versionsOf('wps-25')), hasLength(1));
-    expect((await WpsDao().getById('wps-25'))!.docStatus,
-        WpsDocStatus.approved);
+    expect(
+        (await WpsDao().getById('wps-25'))!.docStatus, WpsDocStatus.approved);
     expect((await PassivationDao().listAll()).single.line, 'L-7');
     final weld = (await WeldJournalDao().getById(_weld().id))!;
     expect(weld.inspector, isEmpty);

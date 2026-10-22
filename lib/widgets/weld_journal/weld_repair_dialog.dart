@@ -2,6 +2,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../domain/weld_journal/weld_dates.dart';
 import '../../i18n/app_language.dart';
@@ -22,7 +23,7 @@ Future<WeldRepairInput?> showWeldRepairDialog(
   required String nextLabel,
   required int repairsSoFar,
 }) =>
-    showDialog<WeldRepairInput>(
+    showJournalDialog<WeldRepairInput>(
       context: context,
       builder: (_) => _WeldRepairDialog(
         weldNo: weldNo,

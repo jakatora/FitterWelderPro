@@ -11,6 +11,9 @@
 /// zostają (nic nie kasujemy) — tylko nie są już edytowane ani pokazywane.
 library;
 
+import '../database/local_record_owner.dart';
+import '../database/weld_journal_dao.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -172,7 +175,8 @@ class WelderQualificationService {
     if (stamp == null || stamp.trim().isEmpty) return const <JournalWeld>[];
     try {
       final db = await AppDatabase.get();
-      final rows = await db.query('weld_journal');
+      final owner = await LocalRecordOwner.capture();
+      final rows = await readOwnedWeldJournalRows(db, owner);
       return journalWeldsFromRows(rows, stamp: stamp, today: today);
     } catch (e) {
       debugPrint('[qualification] journal read failed: $e');
@@ -271,11 +275,13 @@ class WelderQualificationService {
     if (key.isEmpty) return 0;
     try {
       final db = await AppDatabase.get();
+      final recordOwner = await LocalRecordOwner.capture();
       final rows = await db.rawQuery(
-          'SELECT COUNT(*) AS n FROM weld_journal WHERE deleted_at IS NULL '
+          'SELECT COUNT(*) AS n FROM weld_journal WHERE owner_scope = ? AND deleted_at IS NULL '
           'AND (UPPER(TRIM(welder)) = ? OR UPPER(TRIM(root_welder)) = ? '
           'OR UPPER(TRIM(cap_welder)) = ?)',
-          <Object?>[key, key, key]);
+          <Object?>[recordOwner.key, key, key, key]);
+      recordOwner.requireCurrent();
       return (rows.single['n'] as num?)?.toInt() ?? 0;
     } catch (e) {
       debugPrint('[qualification] journal count failed: $e');
@@ -376,13 +382,13 @@ class WelderQualificationService {
         : owner;
     // Certyfikat bez stempla należy do właściciela telefonu — nie do
     // każdego spawacza brygady (patrz certificatesForStamp).
-    final certificates = certificatesForStamp(
-        await listCertificates(), stamp,
+    final certificates = certificatesForStamp(await listCertificates(), stamp,
         ownerStamp: owner);
     final journal = await readJournalWelds(stamp: stamp, today: weldDate);
     return WeldCheckReport(
       wps: wps,
-      wpsIssues: wps == null ? const <RangeIssue>[] : checkWeldAgainstWps(weld, wps),
+      wpsIssues:
+          wps == null ? const <RangeIssue>[] : checkWeldAgainstWps(weld, wps),
       welder: checkWelderCoverage(
         weld: weld,
         weldDate: weldDate,

@@ -1,3 +1,4 @@
+import '../support/test_account.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,6 +10,7 @@ import 'package:cut_list_app/screens/weld_journal_screen.dart';
 /// into two projects that no longer reconcile at an audit — which is why the
 /// last project is remembered and why the memory is trimmed and clearable.
 void main() {
+  useGuestAccount();
   // SharedPreferences.setMockInitialValues needs the binding.
   TestWidgetsFlutterBinding.ensureInitialized();
 

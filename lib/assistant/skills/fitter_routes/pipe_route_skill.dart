@@ -1,3 +1,4 @@
+import '../../../utils/decimal_parse.dart';
 import '../../../data/elbow_takeouts.dart';
 import '../../../domain/fitter/pipe_route.dart';
 import '../../core/skill.dart';
@@ -129,7 +130,7 @@ String? _shape(Utterance u) {
   final angles = <double>{}, counts = <double>{};
   final degreeValues = <double>{
     for (final m in RegExp(r'(-?\d+(?:[.,]\d+)?)\s*°').allMatches(u.raw))
-      double.parse(m[1]!.replaceAll(',', '.'))
+      (parseDecimal(m[1]!) ?? double.nan)
   };
   var dimension = false, angleContext = false, angleLabel = false;
   for (var i = 0; i < u.items.length; i++) {

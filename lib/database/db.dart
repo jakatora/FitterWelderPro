@@ -88,7 +88,8 @@ class AppDatabase {
   //   kontrola mówi „nie da się porównać”, nie „poza zakresem”.
   // v29: saved welding parameters belong to an account or the offline guest.
   // v30: ISO sketches follow the same account/guest partition.
-  static const int _dbVersion = 30;
+  // v31: journal, history, repairs and project headers belong to account/guest.
+  static const int _dbVersion = 31;
 
   /// The schema version [get] opens the database at.
   ///
@@ -142,6 +143,7 @@ class AppDatabase {
           "TEXT NOT NULL DEFAULT 'guest'");
       await _ensureColumn(connection, 'iso_drawings', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
+      await connection.transaction((txn) => _ensureJournalOwners(txn));
       await _seedApprovedData(connection);
       _db = connection;
       return connection;
@@ -509,8 +511,61 @@ CREATE TABLE IF NOT EXISTS projects (
           db, 'iso_drawings', 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
     }
 
+    if (oldVersion < 31) {
+      await _ensureJournalOwners(db);
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
+  }
+
+  static Future<void> _ensureJournalOwners(DatabaseExecutor db) async {
+    for (final table in [
+      'weld_journal',
+      'weld_journal_history',
+      'weld_repairs'
+    ]) {
+      await _ensureColumn(
+          db, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
+    }
+    final info = await db.rawQuery('PRAGMA table_info(weld_journal_projects)');
+    final pk = info
+        .where((r) => (r['pk'] as num? ?? 0) > 0)
+        .map((r) => r['name'])
+        .toSet();
+    if (pk.length == 2 &&
+        pk.contains('owner_scope') &&
+        pk.contains('project_key')) {
+      return;
+    }
+    const temp = 'weld_journal_projects_owned_v31';
+    // Recreate the old global project-name PK as an owner/project composite.
+    // Preserve every existing column, including extensions, rather than
+    // projecting away values from a previously repaired database.
+    String quoted(String name) => '"${name.replaceAll('"', '""')}"';
+    final definitions = <String>[];
+    for (final row in info) {
+      final name = row['name'] as String;
+      if (name == 'owner_scope') continue;
+      final type = (row['type'] as String?) ?? '';
+      if (!RegExp(r'^[a-zA-Z0-9_ (),]*$').hasMatch(type)) {
+        throw StateError('Unsupported journal project column type');
+      }
+      final notNull =
+          (row['notnull'] as num? ?? 0) > 0 || name == 'project_key';
+      definitions.add(
+          '${quoted(name)} $type${notNull ? ' NOT NULL' : ''}${row['dflt_value'] == null ? '' : ' DEFAULT ${row['dflt_value']}'}');
+    }
+    definitions.add("owner_scope TEXT NOT NULL DEFAULT 'guest'");
+    definitions.add('PRIMARY KEY(owner_scope, project_key)');
+    await db.execute('CREATE TABLE $temp (${definitions.join(',')})');
+    final columns = info.map((r) => quoted(r['name'] as String)).toList();
+    if (columns.isNotEmpty) {
+      await db.execute(
+          'INSERT INTO $temp (${columns.join(',')}) SELECT ${columns.join(',')} FROM weld_journal_projects');
+    }
+    await db.execute('DROP TABLE weld_journal_projects');
+    await db.execute('ALTER TABLE $temp RENAME TO weld_journal_projects');
   }
 
   /// Krok v25 (patrz komentarz przy [_dbVersion]). Publiczny dla testu.
@@ -913,6 +968,7 @@ CREATE TABLE IF NOT EXISTS tandem_tig_params (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_journal (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   weld_no TEXT,
   project_name TEXT,
   pipe_name TEXT,
@@ -942,6 +998,7 @@ ${_columnsDdl(kWeldJournalV28Columns)}
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_journal_history (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   weld_id TEXT NOT NULL,
   at INTEGER NOT NULL,
   by_stamp TEXT,
@@ -956,6 +1013,7 @@ CREATE TABLE IF NOT EXISTS weld_journal_history (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_repairs (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   weld_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
   date TEXT,
@@ -971,14 +1029,16 @@ ${_columnsDdl(kWeldRepairsV25Columns)}
     // from the project specification. Keyed by lower-case project name.
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_journal_projects (
-  project_key TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
+  project_key TEXT NOT NULL,
   project_name TEXT,
   company TEXT,
   client TEXT,
   project_title TEXT,
   document_no TEXT,
   revision TEXT,
-  rt_target_pct REAL
+  rt_target_pct REAL,
+  PRIMARY KEY(owner_scope, project_key)
 );
 ''');
     // Daily test-coupon log — coupon_log_screen.dart (CouponDao).
@@ -1325,6 +1385,27 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
         'CREATE INDEX IF NOT EXISTS idx_iso_drawings_updated ON iso_drawings(updated_at);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_iso_drawings_owner ON iso_drawings(owner_scope, updated_at DESC);');
+    for (final (table, index, columns) in [
+      (
+        'weld_journal',
+        'idx_weld_journal_owner',
+        'owner_scope, project_name, weld_no'
+      ),
+      (
+        'weld_journal_history',
+        'idx_weld_history_owner',
+        'owner_scope, weld_id, at'
+      ),
+      ('weld_repairs', 'idx_weld_repairs_owner', 'owner_scope, weld_id, seq'),
+    ]) {
+      // createSchema can fill a legacy file before its version migration.
+      // Only migrated/current tables have the new owner column at that point.
+      final info = await db.rawQuery('PRAGMA table_info($table)');
+      if (info.any((r) => r['name'] == 'owner_scope')) {
+        await db
+            .execute('CREATE INDEX IF NOT EXISTS $index ON $table($columns)');
+      }
+    }
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_weld_history_weld ON weld_journal_history(weld_id, at);');
     await db.execute(
@@ -2034,7 +2115,7 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
   /// this should not trigger, but a column added here for a table that
   /// [createSchema] does not define must degrade to a no-op, never to a brick.
   static Future<bool> _ensureColumn(
-      Database db, String table, String column, String sqlType) async {
+      DatabaseExecutor db, String table, String column, String sqlType) async {
     final tables = await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?;",
       [table],

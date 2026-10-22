@@ -40,8 +40,9 @@ class LostJournalReply extends WeldJournalDao {
   bool first = true;
   @override
   Future<bool> insertAssistantIfAvailable(WeldEntry e,
-      {required String by}) async {
-    final ok = await super.insertAssistantIfAvailable(e, by: by);
+      {required String by, LocalRecordOwner? expectedOwner}) async {
+    final ok = await super
+        .insertAssistantIfAvailable(e, by: by, expectedOwner: expectedOwner);
     if (first) {
       first = false;
       throw StateError('completion lost');

@@ -13,6 +13,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../database/coupon_dao.dart';
 import '../../domain/weld_journal/coupon_entry.dart';
@@ -25,7 +26,7 @@ Future<CouponEntry?> showCouponPickerSheet(
   CouponDao? dao,
   String weldDate = '',
 }) =>
-    showModalBottomSheet<CouponEntry>(
+    showJournalModalBottomSheet<CouponEntry>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,
@@ -66,7 +67,7 @@ class _CouponPickerListState extends State<CouponPickerList> {
 
   Future<void> _pick(CouponEntry c) async {
     if (c.isRejected || c.isPending) {
-      final ok = await showDialog<bool>(
+      final ok = await showJournalDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: Text(c.isRejected

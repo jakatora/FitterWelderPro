@@ -4,6 +4,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../domain/weld_journal/weld_dates.dart';
 import '../../domain/weld_journal/weld_filter.dart';
@@ -17,7 +18,7 @@ Future<WeldJournalFilter?> showWeldFilterSheet(
   required List<String> projects,
   required List<String> welders,
 }) =>
-    showModalBottomSheet<WeldJournalFilter>(
+    showJournalModalBottomSheet<WeldJournalFilter>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,

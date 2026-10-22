@@ -1,3 +1,4 @@
+import '../../../utils/decimal_parse.dart';
 import 'package:uuid/uuid.dart';
 import '../../../domain/welding/interpass_log.dart';
 import '../../../domain/welding/interpass_text.dart';
@@ -79,7 +80,7 @@ class InterpassReadingSkill extends AssistantSkill {
     final temps = _temperature.allMatches(u.raw).toList();
     if (temps.isNotEmpty) {
       final t = temps.first;
-      var value = double.tryParse(t[1]!.replaceAll(',', '.')) ?? double.nan;
+      var value = parseDecimal(t[1]!) ?? double.nan;
       if (RegExp(r'(?:minus|\u2212)\s*$', caseSensitive: false)
           .hasMatch(u.raw.substring(0, t.start))) {
         value = -value.abs();
@@ -95,9 +96,8 @@ class InterpassReadingSkill extends AssistantSkill {
         .allMatches(u.raw.replaceAll('ś', 's').replaceAll('Ś', 'S'))
         .toList();
     if (passes.isNotEmpty) {
-      s['pass'] = passes.length == 1
-          ? double.tryParse(passes.single[1]!.replaceAll(',', '.'))
-          : double.nan;
+      s['pass'] =
+          passes.length == 1 ? parseDecimal(passes.single[1]!) : double.nan;
     }
     if (temps.isEmpty) {
       final spokenTemps = <(double, String)>[];
@@ -221,7 +221,12 @@ class InterpassReadingSkill extends AssistantSkill {
       s['weld'] = u.raw.trim();
     }
     if (slot == 'pass' && s.isEmpty) {
-      s['pass'] = double.tryParse(u.raw.trim().replaceAll(',', '.'));
+      final text = u.raw.trim();
+      // Unlike a plain form field, two spoken tokens must not become24.
+      if (!RegExp(r'\s').hasMatch(text)) {
+        final value = parseDecimal(text);
+        if (value != null) s['pass'] = value;
+      }
     }
     return s.containsKey(slot) ? s : null;
   }

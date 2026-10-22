@@ -10,6 +10,8 @@
 /// says is NOK or gone.
 library;
 
+import 'local_record_owner.dart';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -119,7 +121,9 @@ class CouponDao {
   /// refreshes the reference of linked welds. Returns the number of welds
   /// whose coupon reference changed.
   Future<int> update(CouponEntry e, {String by = ''}) async {
+    final owner = await LocalRecordOwner.capture();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     return db.transaction((txn) async {
       final before = await _read(txn, e.id);
       if (before == null) {
@@ -132,19 +136,22 @@ class CouponDao {
       final after = e.copyWith(deletedAt: before.deletedAt);
       final changes = diffCoupons(before, after);
       if (changes.isEmpty) return 0;
-      await txn.update(table, after.toRow(), where: 'id = ?', whereArgs: [e.id]);
+      await txn
+          .update(table, after.toRow(), where: 'id = ?', whereArgs: [e.id]);
       for (final (field, oldValue, newValue) in changes) {
         await _log(txn, e.id, by, CouponHistoryAction.update,
             field: field, oldValue: oldValue, newValue: newValue);
       }
-      return _propagate(txn, after, by);
+      return _propagate(txn, after, by, owner);
     });
   }
 
   /// Soft delete: the row, its history and the links of welds stay; every
   /// linked weld's reference gets [kCouponDeletedMarker].
   Future<int> softDelete(String id, {String by = ''}) async {
+    final owner = await LocalRecordOwner.capture();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     return db.transaction((txn) async {
       final before = await _read(txn, id);
       if (before == null || before.isDeleted) return 0;
@@ -153,12 +160,14 @@ class CouponDao {
           where: 'id = ?', whereArgs: [id]);
       await _log(txn, id, by, CouponHistoryAction.delete,
           oldValue: before.reference);
-      return _propagate(txn, after, by);
+      return _propagate(txn, after, by, owner);
     });
   }
 
   Future<int> restore(String id, {String by = ''}) async {
+    final owner = await LocalRecordOwner.capture();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     return db.transaction((txn) async {
       final before = await _read(txn, id);
       if (before == null || !before.isDeleted) return 0;
@@ -167,18 +176,21 @@ class CouponDao {
           where: 'id = ?', whereArgs: [id]);
       await _log(txn, id, by, CouponHistoryAction.restore,
           newValue: after.reference);
-      return _propagate(txn, after, by);
+      return _propagate(txn, after, by, owner);
     });
   }
 
   /// Welds (live and deleted) linked to coupon [id]: `(id, weld_no)`.
   Future<List<(String, String)>> linkedWelds(String id) async {
+    final owner = await LocalRecordOwner.capture();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     final rows = await db.query('weld_journal',
         columns: ['id', 'weld_no'],
-        where: 'coupon_id = ? AND deleted_at IS NULL',
-        whereArgs: [id],
+        where: 'coupon_id = ? AND owner_scope = ? AND deleted_at IS NULL',
+        whereArgs: [id, owner.key],
         orderBy: 'weld_no');
+    owner.requireCurrent();
     return [
       for (final r in rows)
         (r['id'] as String, (r['weld_no'] as String?) ?? ''),
@@ -198,35 +210,40 @@ class CouponDao {
   /// Writes the current reference of [c] into every weld linked to it
   /// whose text differs, with an `UPDATE coupon_ref` row in the weld
   /// history. Returns the number of welds changed.
-  Future<int> _propagate(
-      DatabaseExecutor txn, CouponEntry c, String by) async {
+  Future<int> _propagate(DatabaseExecutor txn, CouponEntry c, String by,
+      LocalRecordOwner owner) async {
+    owner.requireCurrent();
     final ref = c.reference;
     final rows = await txn.query('weld_journal',
         columns: ['id', 'coupon_ref'],
-        where: 'coupon_id = ?',
-        whereArgs: [c.id]);
+        where: 'coupon_id = ? AND owner_scope = ?',
+        whereArgs: [c.id, owner.key]);
     var n = 0;
     for (final r in rows) {
       final old = (r['coupon_ref'] as String?) ?? '';
       if (old == ref) continue;
       final weldId = r['id'] as String;
       await txn.update('weld_journal', {'coupon_ref': ref},
-          where: 'id = ?', whereArgs: [weldId]);
+          where: 'id = ? AND owner_scope = ?', whereArgs: [weldId, owner.key]);
       await txn.insert(
         'weld_journal_history',
-        WeldHistoryEntry(
-          id: _newId(),
-          weldId: weldId,
-          at: _clock(),
-          byStamp: by.trim(),
-          action: WeldHistoryAction.update,
-          field: 'coupon_ref',
-          oldValue: old,
-          newValue: ref,
-        ).toRow(),
+        {
+          ...WeldHistoryEntry(
+            id: _newId(),
+            weldId: weldId,
+            at: _clock(),
+            byStamp: by.trim(),
+            action: WeldHistoryAction.update,
+            field: 'coupon_ref',
+            oldValue: old,
+            newValue: ref,
+          ).toRow(),
+          'owner_scope': owner.key
+        },
       );
       n++;
     }
+    owner.requireCurrent();
     return n;
   }
 

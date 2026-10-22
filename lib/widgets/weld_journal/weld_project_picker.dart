@@ -13,6 +13,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'journal_session_view.dart';
 
 import '../../database/project_dao.dart';
 import '../../i18n/app_language.dart';
@@ -30,7 +31,7 @@ Future<WeldProjectPick?> showWeldProjectPicker(
   required List<String> journalProjects,
   required String current,
 }) =>
-    showModalBottomSheet<WeldProjectPick>(
+    showJournalModalBottomSheet<WeldProjectPick>(
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,

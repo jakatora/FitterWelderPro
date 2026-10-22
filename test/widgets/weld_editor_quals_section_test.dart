@@ -3,6 +3,7 @@
 // blacha (rura sama po wpisaniu OD). Bez bazy: DAO i kontrola zgodności są
 // podstawione, sprawdzamy, co formularz oddaje do zapisu.
 
+import '../support/test_account.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -58,6 +59,7 @@ Finder _field(String label) => find.byWidgetPredicate(
     (w) => w is TextField && w.decoration?.labelText == label);
 
 void main() {
+  useGuestAccount();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<_FakeDao> openEditor(
@@ -151,8 +153,7 @@ void main() {
   testWidgets(
       'MIG/MAG: przenoszenie widoczne i zapisane; po zmianie procesu na TIG '
       'znika i nie trafia do spoiny', (tester) async {
-    final dao =
-        await openEditor(tester, initial: _initial(method: 'MIG/MAG'));
+    final dao = await openEditor(tester, initial: _initial(method: 'MIG/MAG'));
     await openSection(tester, _sectionPl);
     expect(find.text(_transferLabelPl), findsOneWidget);
     await tapChip(tester, 'zwarciowe (dip)');
@@ -176,8 +177,7 @@ void main() {
   });
 
   testWidgets('MIG/MAG: wybrane przenoszenie zapisuje się', (tester) async {
-    final dao =
-        await openEditor(tester, initial: _initial(method: 'MIG/MAG'));
+    final dao = await openEditor(tester, initial: _initial(method: 'MIG/MAG'));
     await openSection(tester, _sectionPl);
     await tapChip(tester, 'inne (natrysk, puls)');
     await save(tester);
@@ -196,13 +196,11 @@ void main() {
     await tester.enterText(_field('OD (mm)'), '60.3');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('weld-product-auto')), findsOneWidget);
-    expect(
-        tester.widget<WjChoiceChip>(_chip('rura (T)')).selected, isTrue);
+    expect(tester.widget<WjChoiceChip>(_chip('rura (T)')).selected, isTrue);
 
     await tester.enterText(_field('OD (mm)'), '');
     await tester.pumpAndSettle();
-    expect(
-        tester.widget<WjChoiceChip>(_chip('rura (T)')).selected, isFalse);
+    expect(tester.widget<WjChoiceChip>(_chip('rura (T)')).selected, isFalse);
 
     await tester.enterText(_field('OD (mm)'), '88.9');
     await tester.pumpAndSettle();
@@ -210,8 +208,7 @@ void main() {
     // Wybór spawacza — kolejna zmiana OD go nie nadpisuje.
     await tester.enterText(_field('OD (mm)'), '114.3');
     await tester.pumpAndSettle();
-    expect(
-        tester.widget<WjChoiceChip>(_chip('blacha (P)')).selected, isTrue);
+    expect(tester.widget<WjChoiceChip>(_chip('blacha (P)')).selected, isTrue);
     expect(find.byKey(const ValueKey('weld-product-auto')), findsNothing);
 
     await save(tester);
@@ -264,8 +261,8 @@ void main() {
               ? 'other (spray, pulse)'
               : 'inne (natrysk, puls)');
       // Przewinięcie przez całą sekcję — każdy chip faktycznie się układa.
-      await tester.ensureVisible(_chip(
-          language == AppLanguage.en ? 'plate (P)' : 'blacha (P)'));
+      await tester.ensureVisible(
+          _chip(language == AppLanguage.en ? 'plate (P)' : 'blacha (P)'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     });

@@ -268,4 +268,13 @@ void main() {
     expect(jsonEncode((await saved('other')).toJson()),
         jsonEncode(other.toJson()));
   });
+  test('a pass reply does not merge two separate numeric tokens', () {
+    final skill = InterpassReadingSkill();
+    final ctx = AssistantContext(
+        lang: AppLanguage.pl, modules: const FixedModuleContext());
+    expect(skill.fillSlot('pass', Utterance('2 4', lang: AppLanguage.pl), ctx),
+        isNull);
+    expect(skill.fillSlot('pass', Utterance('2,0', lang: AppLanguage.pl), ctx),
+        {'pass': 2.0});
+  });
 }

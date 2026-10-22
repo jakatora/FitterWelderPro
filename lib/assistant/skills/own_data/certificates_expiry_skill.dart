@@ -1,3 +1,5 @@
+import '../../../database/local_record_owner.dart';
+import '../../../database/weld_journal_dao.dart';
 import '../../../database/db.dart';
 import '../../../database/welder_certificate_dao.dart';
 import '../../../domain/qualification/certificate_status.dart';
@@ -19,21 +21,27 @@ typedef CertificateReader = Future<List<CertificateEvaluation>> Function(
 Future<List<CertificateEvaluation>> readLocalCertificateEvaluations(
     DateTime asOf,
     {required String? ownerStamp}) async {
+  final recordOwner = await LocalRecordOwner.capture();
   final db = await AppDatabase.get();
-  return db.transaction((txn) async {
+  final result = await db.transaction((txn) async {
+    recordOwner.requireCurrent();
     final certificates = certificatesForStamp(
       await WelderCertificateDao().listAll(db: txn),
       ownerStamp,
       ownerStamp: ownerStamp,
     );
-    final journal = journalWeldsFromRows(await txn.query('weld_journal'),
-        stamp: ownerStamp, today: asOf);
+    final journal = journalWeldsFromRows(
+        await readOwnedWeldJournalRows(txn, recordOwner),
+        stamp: ownerStamp,
+        today: asOf);
     return [
       for (final c in certificates)
         evaluateCertificate(c,
             asOf: asOf, journalWelds: journalWeldsFor(c, journal)),
     ];
   });
+  recordOwner.requireCurrent();
+  return result;
 }
 
 Future<List<CertificateEvaluation>> _readCurrent(DateTime asOf) async =>
