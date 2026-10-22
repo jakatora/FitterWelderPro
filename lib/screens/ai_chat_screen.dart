@@ -404,6 +404,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           widget.embedded ? ToolBridge.instance : const FixedModuleContext(),
       now: widget.now);
   SkillResult? _localResult;
+  String? _pendingKnowledgeAnswer;
   UndoAction? _localUndo;
   bool _localCommitting = false;
   final _feedback = AssistantFeedbackRecorder();
@@ -729,6 +730,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _aiThinking = false;
     _aiQueue.cancel();
     _aiQuestion = null;
+    _pendingKnowledgeAnswer = null;
     _pendingIntent = null;
     _pendingField = null;
     _carried = const {};
@@ -1051,6 +1053,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     if (plan.kind == 'answer') {
       setState(() {
+        if (pending != null) _commandSoFar = _commandBeforeAnswer;
         _busy = true;
         _inputCtrl.text = text;
         _cmdCtrl.clear();
@@ -1260,6 +1263,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final lang = context.language;
     setState(() {
       _busy = true;
+      _pendingKnowledgeAnswer = null;
       _notice = null;
       _aiUnavailable = null;
       _offerServer = false;
@@ -1887,6 +1891,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _busy = _runningAiPlan ||
           (widget.embedded && result is AnswerResult && result.show != null);
       _localResult = result;
+      _pendingKnowledgeAnswer = null;
       _aiQuestion = null;
       _question = null;
       _notice = null;
@@ -2616,6 +2621,26 @@ class _AiChatScreenState extends State<AiChatScreen>
   // „Odpowiedz"
   // ═════════════════════════════════════════════════════════════════════════
 
+  bool get _awaitingNativeInput =>
+      _brain.pending != null ||
+      _pendingField != null ||
+      _localResult is ConfirmResult ||
+      _isoPort.hasPendingQuestion;
+
+  // Knowledge is a side conversation while a native action awaits a value or
+  // confirmation. Keep its question/controls and queued steps visible.
+  void _appendKnowledgeReply(ChatMessage reply) {
+    _messages.add(reply);
+    if (!widget.embedded) return;
+    if (_awaitingNativeInput) {
+      _pendingKnowledgeAnswer = reply.text;
+    } else {
+      _pendingKnowledgeAnswer = null;
+      _localResult =
+          AnswerResult(AssistantAnswer(text: AssistantText.same(reply.text)));
+    }
+  }
+
   Future<void> _send() async {
     final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
@@ -2643,11 +2668,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (!consented) {
       final offline = AiChatService.instance.offlineReply(text);
       setState(() {
-        _messages.add(offline);
-        if (widget.embedded) {
-          _localResult = AnswerResult(
-              AssistantAnswer(text: AssistantText.same(offline.text)));
-        }
+        _appendKnowledgeReply(offline);
       });
       _scrollToBottom();
       await _speak(offline.text);
@@ -2665,33 +2686,29 @@ class _AiChatScreenState extends State<AiChatScreen>
           ? await widget.contextChatSender!(text, history, summary)
           : widget.chatSender != null
               ? await widget.chatSender!(text, history)
-              : await AiChatService.instance.sendMessage(text,
-                  history: history, isoSummary: summary);
+              : await AiChatService.instance
+                  .sendMessage(text, history: history, isoSummary: summary);
       if (!mounted || epoch != _conversationEpoch) return;
-      if (summary != null && (!_isoPort.isForeground ||
-          !identical(iso, IsoNotebookController.active) || iso!.revision != revision)) {
+      if (summary != null &&
+          (!_isoPort.isForeground ||
+              !identical(iso, IsoNotebookController.active) ||
+              iso!.revision != revision)) {
         final notice = _tr(
             'Rysunek zmienił się podczas przygotowywania odpowiedzi. Zapytaj ponownie o aktualny stan.',
             'The drawing changed while the answer was being prepared. Ask again about its current state.');
         setState(() {
-          _messages.add(ChatMessage(role: ChatRole.assistant,
-              text: notice, kind: AiReplyKind.localDialogue));
+          _appendKnowledgeReply(ChatMessage(
+              role: ChatRole.assistant,
+              text: notice,
+              kind: AiReplyKind.localDialogue));
           _typing.value = false;
-          if (widget.embedded) {
-            _localResult = AnswerResult(
-                AssistantAnswer(text: AssistantText.same(notice)));
-          }
         });
         _scrollToBottom();
         await _speak(notice);
         return;
       }
       setState(() {
-        _messages.add(reply);
-        if (widget.embedded) {
-          _localResult = AnswerResult(
-              AssistantAnswer(text: AssistantText.same(reply.text)));
-        }
+        _appendKnowledgeReply(reply);
       });
       if (reply.kind == AiReplyKind.live) {
         _rememberAi(text, reply.text,
@@ -2704,11 +2721,12 @@ class _AiChatScreenState extends State<AiChatScreen>
       debugPrint('AiChatScreen.send error: $e');
       if (!mounted || epoch != _conversationEpoch) return;
       setState(() {
-        _messages.add(ChatMessage(
+        _appendKnowledgeReply(ChatMessage(
           role: ChatRole.assistant,
           text: _tr(
               'Nie udało się pobrać odpowiedzi. Sprawdź połączenie i spróbuj ponownie.',
               "Couldn't fetch a reply. Check your connection and try again."),
+          kind: AiReplyKind.unavailable,
         ));
       });
       _typing.value = false;
@@ -2901,6 +2919,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 children: [
+              if (_pendingKnowledgeAnswer != null)
+                Text(_pendingKnowledgeAnswer!, key: const Key('assistant-side-answer')),
               if (_localResult case final result?) _localAnswerCard(result),
               if (_question != null) Text(_question!),
               if (_notice != null) Text(_notice!),

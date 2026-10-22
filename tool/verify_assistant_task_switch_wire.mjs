@@ -6,10 +6,12 @@ import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 const navigation = process.argv.includes('--navigation');
-const skillId = navigation ? 'tool.open' : 'iso.summary.copy';
+const knowledge = process.argv.includes('--knowledge');
+assert.ok(!(navigation && knowledge), 'Choose one fixture mode');
+const skillId = knowledge ? 'iso.draw' : navigation ? 'tool.open' : 'iso.summary.copy';
 const command = navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
-const fixture = navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
-const proofPath = navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
+const fixture = knowledge ? 'build/assistant-pending-knowledge-wire.json' : navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
+const proofPath = knowledge ? 'build/assistant-pending-knowledge-backend-proof.json' : navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
 const backend = path.resolve('backend');
 const load = relative => import(pathToFileURL(path.join(backend,relative)).href);
 const {startTestServer,api,newDeviceId,newSecret}=await load('test/helpers/server.js');
@@ -22,9 +24,14 @@ try {
   assert.equal(request.capabilities.length,1);
   assert.equal(request.capabilities[0].id,skillId);
   assert.equal(request.context.active_tool,'iso_notebook');
-  assert.equal(request.context.pending_reply,undefined);
-  assert.equal(request.context.pending_question,null);
-  const proposal={kind:'execute',steps:[{skill_id:skillId,command}],message:''};
+  if (knowledge) {
+    assert.equal(request.context.pending_reply.skill_id,'iso.draw');
+    assert.ok(request.context.pending_question.length > 0);
+  } else {
+    assert.equal(request.context.pending_reply,undefined);
+    assert.equal(request.context.pending_question,null);
+  }
+  const proposal=knowledge ? {kind:'answer',steps:[],message:''} : {kind:'execute',steps:[{skill_id:skillId,command}],message:''};
   const fake=fakeAnthropic(()=>({stop_reason:'end_turn',usage:{input_tokens:1500,output_tokens:100},content:[{type:'text',text:JSON.stringify(proposal)}]}));
   setAnthropicClientForTests(fake.client);
   const headers={'x-device-id':newDeviceId(),'x-install-secret':newSecret()};
@@ -35,7 +42,9 @@ try {
   assert.equal(fake.calls.length,1);
   assert.equal(fake.calls[0].model,'claude-haiku-5-5');
   assert.equal(fake.calls[0].output_config.effort,'low');
-  assert.deepEqual(JSON.parse(fake.calls[0].messages[0].content).capabilities,request.capabilities);
+  const sent=JSON.parse(fake.calls[0].messages[0].content);
+  assert.deepEqual(sent.capabilities,request.capabilities);
+  assert.deepEqual(sent.context.pending_reply,request.context.pending_reply);
   assert.deepEqual(fake.requestOptions[0],{maxRetries:0,timeout:25000});
   assert.equal(budgetState().inFlightUsd,0);
   const proof={checkedAt:new Date().toISOString(),backendHead:execFileSync('git',['rev-parse','HEAD'],{cwd:backend,encoding:'utf8'}).trim(),capabilities:1,bytes:Buffer.byteLength(JSON.stringify(request)),status:response.status,provider:'injected fake; zero paid calls'};
