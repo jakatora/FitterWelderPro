@@ -10,6 +10,7 @@ import 'qualification_range_skill.dart';
 import 'weld_symbol_skill.dart';
 import 'exam_question_skill.dart';
 import 'ferrite_range_skill.dart';
+import 'flange_alignment_skill.dart';
 
 List<AssistantSkill> knowledgeModuleSkills() => [
       DefectsCausesSkill(),
@@ -22,5 +23,6 @@ List<AssistantSkill> knowledgeModuleSkills() => [
       QualificationRangeSkill(),
       WeldSymbolSkill(),
       ExamQuestionSkill(),
-      FerriteRangeSkill()
+      FerriteRangeSkill(),
+      FlangeAlignmentSkill()
     ];
