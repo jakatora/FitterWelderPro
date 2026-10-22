@@ -931,7 +931,20 @@ class _AiChatScreenState extends State<AiChatScreen>
       _aiQuestion = null;
     }
     if (plan.kind == 'execute') {
-      _aiQueue.start(text, plan.steps);
+      if (!_aiQueue.start(text, plan.steps)) {
+        final notice = _tr(
+            'Nie mogę jednoznacznie przypisać kroków do części polecenia. Podaj je jako osobne polecenia; niczego nie zmieniłem.',
+            'I cannot unambiguously match the steps to the request clauses. Give separate requests; nothing was changed.');
+        setState(() {
+          _busy = false;
+          _cmdCtrl.clear();
+          _notice = notice;
+          _noticeIsError = false;
+          _localResult = FailedResult(AssistantText.same(notice));
+        });
+        await _speak(notice);
+        return true;
+      }
       await _runAiPlan(lang);
       return true;
     }
@@ -1012,7 +1025,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         final reply = await _brain.executeProposal(
             skillId: current.skillId,
             command: u,
-            original: Utterance(original, lang: lang, byVoice: _voiceUsed),
+            original: Utterance(current.sourceClause ?? original, lang: lang, byVoice: _voiceUsed),
             context: _brainContext);
         if (!mounted || epoch != _conversationEpoch) return;
         final afterAction =

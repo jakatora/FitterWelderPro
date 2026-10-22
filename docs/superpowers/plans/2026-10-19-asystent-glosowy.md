@@ -1547,3 +1547,6 @@ Next task candidate from actualsourceinventory: WelderToolsScreen gas,purge,pres
 
 
 2026-10-22: [Native ISO summary](2026-10-22-iso-native-summary.md) — read-only actual pipe/CUT count and total, with explicit incomplete segments.
+
+
+2026-10-22: [Multi-action source clauses](2026-10-22-ai-multi-action-source.md) — preserve native per-step validation for explicit sequential requests.

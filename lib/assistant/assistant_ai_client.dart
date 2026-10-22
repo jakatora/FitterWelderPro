@@ -9,8 +9,11 @@ import '../services/account_service.dart';
 import 'core/skill.dart';
 
 class AiCommandStep {
-  const AiCommandStep(this.skillId, this.command);
+  const AiCommandStep(this.skillId, this.command, {this.sourceClause});
   final String skillId, command;
+
+  /// Native-only binding; never accepted from model JSON or sent on the wire.
+  final String? sourceClause;
 }
 
 class AiCommandPlan {
