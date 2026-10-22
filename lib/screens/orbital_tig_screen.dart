@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/orbital_tig.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -55,10 +56,56 @@ class OrbitalTigScreen extends StatefulWidget {
   State<OrbitalTigScreen> createState() => _OrbitalTigScreenState();
 }
 
-class _OrbitalTigScreenState extends State<OrbitalTigScreen> {
+class _OrbitalTigScreenState extends State<OrbitalTigScreen>
+    with ToolHandleHost<OrbitalTigScreen>
+    implements InputToolHandle {
   final _od = TextEditingController();
   final _wall = TextEditingController();
   final _volts = TextEditingController(text: '10');
+
+  @override
+  String get toolId => 'orbital_tig';
+  @override
+  Set<String> get supportedFields => const {'od_mm', 'wall_mm', 'volts'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'od_mm': _p(_od.text),
+        'wall_mm': _p(_wall.text),
+        'volts': _p(_volts.text) ?? 10,
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: OD, ścianka i (opcjonalnie) napięcie; liczy od razu, bez
+  /// opóźnienia z pisania.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    double? n(String key) => fields[key] is num && (fields[key] as num).isFinite
+        ? (fields[key] as num).toDouble()
+        : null;
+    final od = n('od_mm'), wall = n('wall_mm'), volts = n('volts');
+    final rejected = <String>{
+      if (od == null || od <= 0 || od > 1000) 'od_mm',
+      if (wall == null || wall <= 0 || wall > 25) 'wall_mm',
+      if (fields.containsKey('volts') &&
+          (volts == null || volts < 6 || volts > 20))
+        'volts',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    _debounce?.cancel();
+    _od.text = od!.toString();
+    _wall.text = wall!.toString();
+    _volts.text = (volts ?? 10).toString();
+    _calc();
+    return {};
+  }
   // Welder stamp / WPS ref — optional traceability tag stamped onto the
   // copied parameter string so a foreman receiving the paste knows WHO ran
   // the head and against WHICH procedure. Kept as one free-text field to

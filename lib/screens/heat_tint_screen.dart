@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../data/heat_tint.dart';
 import '../i18n/app_language.dart';
 import '../theme/app_theme.dart' show kTextMut;
@@ -21,8 +22,46 @@ class HeatTintScreen extends StatefulWidget {
   State<HeatTintScreen> createState() => _HeatTintScreenState();
 }
 
-class _HeatTintScreenState extends State<HeatTintScreen> {
+class _HeatTintScreenState extends State<HeatTintScreen>
+    with ToolHandleHost<HeatTintScreen>
+    implements InputToolHandle {
   int _limit = kDefaultHeatTintLimit;
+
+  /// Poziom wskazany przez asystenta (wyróżniony kafel); null — brak.
+  int? _highlight;
+  final _tileKeys = {for (final l in kHeatTintLevels) l.level: GlobalKey()};
+
+  @override
+  String get toolId => 'heat_tint';
+  @override
+  Set<String> get supportedFields => const {'level'};
+  @override
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable({'level': _highlight, 'limit': _limit});
+
+  /// Asystent wskazuje poziom wzorca: kafel dostaje ramkę i przewija się
+  /// na ekran. Limit projektu zostaje bez zmian.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final level = fields['level'];
+    if (!mounted ||
+        fields.keys.any((k) => !supportedFields.contains(k)) ||
+        level is! num ||
+        level != level.roundToDouble() ||
+        level < 1 ||
+        level > 10) {
+      return fields.keys.toSet();
+    }
+    setState(() => _highlight = level.toInt());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _tileKeys[_highlight]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        Scrollable.ensureVisible(ctx,
+            alignment: .3, duration: const Duration(milliseconds: 250));
+      }
+    });
+    return {};
+  }
 
   @override
   void initState() {
@@ -30,6 +69,7 @@ class _HeatTintScreenState extends State<HeatTintScreen> {
     loadHeatTintLimit().then((v) {
       if (mounted) setState(() => _limit = v);
     });
+    markReady();
   }
 
   Future<void> _setLimit(int v) async {
@@ -60,8 +100,12 @@ class _HeatTintScreenState extends State<HeatTintScreen> {
           const SizedBox(height: 14),
           _LimitCard(limit: _limit, onChanged: _setLimit),
           const SizedBox(height: 12),
-          ...kHeatTintLevels
-              .map((l) => _LevelTile(level: l, aboveLimit: l.level > _limit)),
+          ...kHeatTintLevels.map((l) => KeyedSubtree(
+              key: _tileKeys[l.level],
+              child: _LevelTile(
+                  level: l,
+                  aboveLimit: l.level > _limit,
+                  highlighted: l.level == _highlight))),
           const SizedBox(height: 14),
           _LegendCard(),
           const SizedBox(height: 12),
@@ -131,7 +175,11 @@ class _LevelTile extends StatelessWidget {
 
   /// Poziom ponad limitem akceptacji projektu.
   final bool aboveLimit;
-  const _LevelTile({required this.level, this.aboveLimit = false});
+
+  /// Kafel wskazany przez asystenta.
+  final bool highlighted;
+  const _LevelTile(
+      {required this.level, this.aboveLimit = false, this.highlighted = false});
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +190,9 @@ class _LevelTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: _kCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _kBorder),
+        border: highlighted
+            ? Border.all(color: _kOrange, width: 3)
+            : Border.all(color: _kBorder),
       ),
       clipBehavior: Clip.hardEdge,
       child: Row(

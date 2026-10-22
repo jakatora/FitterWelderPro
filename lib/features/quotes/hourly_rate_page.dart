@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/quotes/hourly_rate.dart';
 import '../../domain/quotes/quote_calculator.dart'
     show formatPln, formatQty, toGrosze;
@@ -32,11 +33,74 @@ class HourlyRatePage extends StatefulWidget {
   State<HourlyRatePage> createState() => _HourlyRatePageState();
 }
 
-class _HourlyRatePageState extends State<HourlyRatePage> {
+class _HourlyRatePageState extends State<HourlyRatePage>
+    with ToolHandleHost<HourlyRatePage>
+    implements InputToolHandle {
   HourlyRateInput _in = const HourlyRateInput();
   bool _loading = true;
   Timer? _save;
   int _gen = 0;
+
+  @override
+  String get toolId => 'hourly_rate';
+  @override
+  Set<String> get supportedFields => const {
+        'net_income',
+        'tax_base',
+        'tax_pct',
+        'work_days',
+        'hours_per_day'
+      };
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'net_income': _in.netIncome,
+        'tax_base': _in.taxBase.name,
+        'tax_pct': _in.taxPct,
+        'work_days': _in.workDaysPerMonth,
+        'hours_per_day': _in.hoursPerDay,
+        'utilization_pct': _in.utilizationPct,
+        'weeks_off': _in.weeksOff,
+        'reserve_pct': _in.reservePct,
+      });
+
+  /// Asystent zmienia tylko podane wartości; reszta zostaje z zapisu.
+  /// Gotowość dopiero po wczytaniu zapisu — inaczej odczyt nadpisałby zmianę.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted ||
+        _loading ||
+        fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    double? n(String key) => fields[key] is num &&
+            (fields[key] as num).isFinite &&
+            (fields[key] as num) >= 0
+        ? (fields[key] as num).toDouble()
+        : null;
+    final base = TaxBase.values
+        .where((b) => b.name == fields['tax_base'])
+        .firstOrNull;
+    final rejected = <String>{
+      for (final key in const [
+        'net_income',
+        'tax_pct',
+        'work_days',
+        'hours_per_day'
+      ])
+        if (fields.containsKey(key) && n(key) == null) key,
+      if (fields.containsKey('tax_base') && base == null) 'tax_base',
+    };
+    if (rejected.isNotEmpty) return rejected;
+    _set(_in.copyWith(
+        netIncome: n('net_income'),
+        taxBase: base,
+        taxPct: n('tax_pct'),
+        workDaysPerMonth: n('work_days'),
+        hoursPerDay: n('hours_per_day')));
+    // Pola liczbowe trzymają własny tekst — nowy klucz je odświeża.
+    setState(() => _gen++);
+    return {};
+  }
 
   @override
   void initState() {
@@ -64,6 +128,7 @@ class _HourlyRatePageState extends State<HourlyRatePage> {
       _loading = false;
       _gen++;
     });
+    markReady();
   }
 
   void _set(HourlyRateInput i) {

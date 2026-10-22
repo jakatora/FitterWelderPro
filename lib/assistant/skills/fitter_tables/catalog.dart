@@ -8,6 +8,7 @@ import 'elbow_takeout_skill.dart';
 import 'sanitary_tube_skill.dart';
 import 'steel_weight_skill.dart';
 import 'pipe_supports_skill.dart';
+import 'pressure_test_skill.dart';
 
 List<AssistantSkill> fitterTablesSkills() => [
       UnitsConvertSkill(),
@@ -16,6 +17,7 @@ List<AssistantSkill> fitterTablesSkills() => [
       SanitaryTubeSkill(),
       SteelWeightSkill(),
       PipeSupportsSkill(),
+      PressureTestSkill(),
       SteelDraftEditSkill(),
       SteelDraftSummarySkill(),
       SteelListSummarySkill(),

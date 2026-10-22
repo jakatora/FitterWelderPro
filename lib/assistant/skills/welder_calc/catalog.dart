@@ -12,6 +12,8 @@ import 'fillet_strength_skill.dart';
 import 'distortion_skill.dart';
 import 'weather_check_skill.dart';
 import 'pwht_plan_skill.dart';
+import 'orbital_tig_skill.dart';
+import 'heat_tint_skill.dart';
 
 List<AssistantSkill> welderCalcSkills() => [
       GasConsumptionSkill(),
@@ -29,4 +31,6 @@ List<AssistantSkill> welderCalcSkills() => [
       DistortionShrinkageSkill(),
       WeatherCheckSkill(),
       PwhtPlanSkill(),
+      OrbitalTigSkill(),
+      HeatTintCheckSkill(),
     ];

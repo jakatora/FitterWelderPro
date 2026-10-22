@@ -8,6 +8,7 @@ import '../database/instrument_dao.dart';
 import '../domain/instruments/instrument.dart';
 import '../domain/pressure_test/hydrotest_protocol_meta.dart';
 import '../domain/pressure_test/test_pressure.dart';
+import '../assistant/core/tool_bridge.dart';
 import '../i18n/app_language.dart';
 import '../services/hydrotest_export.dart';
 import '../utils/clipboard_helper.dart';
@@ -120,7 +121,59 @@ class HydrotestScreen extends StatefulWidget {
   State<HydrotestScreen> createState() => _HydrotestScreenState();
 }
 
-class _HydrotestScreenState extends State<HydrotestScreen> {
+class _HydrotestScreenState extends State<HydrotestScreen>
+    with ToolHandleHost<HydrotestScreen>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'hydrotest';
+  @override
+  Set<String> get supportedFields =>
+      const {'preset', 'design_bar', 'ratio', 'od_mm', 'wall_mm', 'length_m'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'preset': _preset.id,
+        'design_bar': _designBarFromInput(_p(_designCtrl)),
+        'design_unit': _designUnit,
+        'ratio': _p(_ratioCtrl),
+        'od_mm': _p(_odCtrl),
+        'wall_mm': _p(_wallCtrl),
+        'length_m': _p(_lengthCtrl),
+      });
+
+  /// Asystent: norma/metoda, ciśnienie obliczeniowe w barach, opcjonalnie
+  /// stosunek naprężeń i geometria rury do objętości wody.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    final preset = PressureTestPreset.values
+        .where((p) => p.id == fields['preset'])
+        .firstOrNull;
+    bool positive(Object? v) => v is num && v.isFinite && v > 0;
+    final rejected = <String>{
+      if (preset == null) 'preset',
+      if (!positive(fields['design_bar']) ||
+          (fields['design_bar'] as num) > _kMaxDesignBar)
+        'design_bar',
+      for (final key in const ['ratio', 'od_mm', 'wall_mm', 'length_m'])
+        if (fields.containsKey(key) && !positive(fields[key])) key,
+    };
+    if (rejected.isNotEmpty) return rejected;
+    String text(String key) =>
+        fields[key] is num ? (fields[key] as num).toString() : '';
+    setState(() {
+      _preset = preset!;
+      _designUnit = 'bar';
+      _designCtrl.text = text('design_bar');
+      _ratioCtrl.text = text('ratio');
+      if (fields.containsKey('od_mm')) _odCtrl.text = text('od_mm');
+      if (fields.containsKey('wall_mm')) _wallCtrl.text = text('wall_mm');
+      if (fields.containsKey('length_m')) _lengthCtrl.text = text('length_m');
+    });
+    return {};
+  }
+
   final _odCtrl     = TextEditingController();
   final _wallCtrl   = TextEditingController();
   final _lengthCtrl = TextEditingController();
@@ -174,6 +227,7 @@ class _HydrotestScreenState extends State<HydrotestScreen> {
   void initState() {
     super.initState();
     _refreshRegisterCount();
+    markReady();
   }
 
   /// Refreshes the filed-test counter.
