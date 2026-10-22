@@ -15,3 +15,10 @@ Dowody: 1570 zaliczonych bez pominięć (`build/iso-reference-acceptance-test.lo
 Pierwszy przebieg testu przełączania arkusza utknął na kolejnej operacji kontrolera oczekiwanej w `tester.runAsync` mimo zależności od zegara testowego. Zweryfikowano właściwy proces testów i zatrzymano tylko jego drzewo. Fixture teraz uruchamia tę operację w normalnej strefie testu i pompuje bazę/klatki do potwierdzonego wyniku. Nie zmieniono produkcyjnego kontrolera z powodu tego problemu i zachowano asercję zapisu drugiego arkusza.
 
 Nie wykonano płatnego wywołania modelu ani wdrożenia backendu; transport AI jest kontrolowany w testach. To nie dowodzi jakości rozpoznania dowolnej wypowiedzi przez rzeczywisty Haiku. Nadal potrzebne są dostęp Railway, wdrożenie i testy telefonu, a także dalsze działania, odniesienia do innych pól/elementów i podział pozostałych danych na konta. Pełna wizja pozostaje otwarta.
+
+
+## Natural requests (2026-10-22)
+
+ISO gap source validation now accepts assistant-directed requests such as "Czy możesz zmniejszyć szczelinę w ISO o 1 mm" and "Could you please decrease the gap in ISO by 1 mm" after AI normalization. Infinitives are normalized only behind an explicit assistant-directed request prefix. Advice, explanation and permission questions remain non-actions. Raw negative signs are checked before folding. Existing scope, numeric, unit and bound-reference checks remain required.
+
+Verification: 53 tests passed, including mounted assistant/real SQLite persistence, unchanged pipe geometry, CUT engine effects and Undo for polite requests, rejection of incorrect model amounts, session isolation and main AI execution. Fatal analysis of three modified Dart files clean. Controlled interpreter fixtures prove execution and guard behavior, not live model language quality. Railway deployment and real provider acceptance remain open.

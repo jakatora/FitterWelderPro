@@ -54,6 +54,11 @@ class IsoGapSkill extends AssistantSkill {
   @override
   bool acceptsProposal(
       Utterance original, Utterance command, AssistantContext context) {
+    // Retain the unmodified source for signs: folded speech drops punctuation.
+    if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(original.raw.toLowerCase())) {
+      return false;
+    }
+    original = _requestedAction(original);
     final proposed = parseIsoCommand(command);
     if (proposed?.kind != IsoCommandKind.setRootGap) return false;
     final literal = parseIsoCommand(original);
@@ -61,8 +66,7 @@ class IsoGapSkill extends AssistantSkill {
       return literal!.gapMm == proposed!.gapMm;
     }
     final indirect = _hasBoundReference(context) && _isPronounRequest(original);
-    if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(original.raw.toLowerCase()) ||
-        original.hasAny(const ['albo', 'lub', 'or', 'either']) ||
+    if (original.hasAny(const ['albo', 'lub', 'or', 'either']) ||
         (!original.hasStem(const ['szczelin', 'gap']) && !indirect) ||
         !RegExp(r'^(?:(?:prosze|please)\s+)*(?:ustaw|zmien|zmniejsz|zwieksz|set|change|reduce|decrease|increase)\b')
             .hasMatch(original.folded) ||
@@ -104,6 +108,22 @@ class IsoGapSkill extends AssistantSkill {
         (expected - proposed!.gapMm!).abs() < 1e-9;
   }
 
+  /// Normalize only a request addressed to the assistant. Questions about
+  /// permission, instructions and hypothetical changes remain questions.
+  Utterance _requestedAction(Utterance original) {
+    final request = RegExp(
+            r'^(?:(?:czy )?mozesz|czy moglbys|czy moglabys|can you|could you|would you) (?:prosze |please )?(ustawic|zmienic|zmniejszyc|zwiekszyc|ustaw|zmien|zmniejsz|zwieksz|set|change|reduce|decrease|increase) (.+)$')
+        .firstMatch(original.folded);
+    if (request == null) return original;
+    const verbs = {
+      'ustawic': 'ustaw',
+      'zmienic': 'zmien',
+      'zmniejszyc': 'zmniejsz',
+      'zwiekszyc': 'zwieksz',
+    };
+    return original.withRaw('${verbs[request[1]] ?? request[1]} ${request[2]}');
+  }
+
   bool _hasBoundReference(AssistantContext context) {
     if (context.modules.activeToolId != toolId ||
         !port.isForeground ||
@@ -130,6 +150,7 @@ class IsoGapSkill extends AssistantSkill {
           : null;
 
   bool _isPronounRequest(Utterance original) {
+    original = _requestedAction(original);
     final match = RegExp(
             r'^(?:(?:prosze|please)\s+)*(?:(?:zmniejsz|zwieksz) (?:ja|jej|to) o|(?:decrease|reduce|increase) (?:it|that) by) (.+)$')
         .firstMatch(original.folded);

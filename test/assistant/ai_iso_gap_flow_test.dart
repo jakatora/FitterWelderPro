@@ -27,8 +27,15 @@ void main() {
     expect(find.textContaining('Podaj jedną szczelinę ISO od 0 do 10 mm'),
         findsOneWidget);
   });
-  for (final correct in [true, false]) {
-    testWidgets('relative ISO gap uses native form and CUT engine: $correct',
+  for (final scenario in [
+    (true, false),
+    (false, false),
+    (true, true),
+    (false, true),
+  ]) {
+    final (correct, polite) = scenario;
+    testWidgets(
+        'relative ISO gap uses native form and CUT engine: $correct polite: $polite',
         (t) async {
       var calls = 0;
       await mount(t, interpret: (request) async {
@@ -58,7 +65,11 @@ void main() {
       expect(
           c.debugPipeCutsMm, [for (final cut in cuts) closeTo(cut - 3, 1e-9)]);
       expect(ToolBridge.instance.inputFields('iso_notebook'), {'gap_mm': 3.0});
-      await say(t, 'Zmniejsz szczelinę w ISO o 1 mm');
+      await say(
+          t,
+          polite
+              ? 'Czy możesz zmniejszyć szczelinę w ISO o 1 mm'
+              : 'Zmniejsz szczelinę w ISO o 1 mm');
       expect(calls, 1);
       expect(c.rootGapMm, correct ? 2 : 3);
       await settle(t);

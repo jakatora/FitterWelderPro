@@ -42,6 +42,10 @@ void main() {
     expect(skill.acceptsProposal(source, proposal, context), isFalse);
     commit();
     expect(skill.acceptsProposal(source, proposal, context), isTrue);
+    expect(
+        skill.acceptsProposal(
+            u('Czy możesz zmniejszyć ją o 1 mm'), proposal, context),
+        isTrue);
     expect(skill.acceptsProposal(u('Decrease it by 1 mm'), proposal, context),
         isTrue);
     expect(
@@ -73,6 +77,50 @@ void main() {
     commit();
     foreground = false;
     expect(skill.acceptsProposal(source, proposal, context), isFalse);
+  });
+  test('AI may normalize requests addressed to it, never advice or permission',
+      () {
+    final port = CallbackIsoDrawingPort(
+        isForeground: () => true,
+        hasPendingQuestion: () => false,
+        execute: (_) async => throw StateError('validation only'));
+    final skill = IsoGapSkill(port);
+    final context =
+        AssistantContext(lang: AppLanguage.pl, modules: const VisibleGap(3));
+    final proposed = u('Ustaw szczelinę ISO na 2 mm');
+    for (final text in [
+      'Czy możesz zmniejszyć szczelinę w ISO o 1 mm',
+      'Możesz proszę ustawić szczelinę w szkicu na 2 mm',
+      'Czy mógłbyś zmienić szczelinę ISO na 2 mm',
+      'Czy mogłabyś zmniejszyć szczelinę w ISO o 1 mm',
+      'Could you please decrease the gap in ISO by 1 mm',
+      'Would you set root gap in this drawing to 2 mm',
+      'Can you change the gap in ISO to 2 mm',
+    ]) {
+      expect(skill.acceptsProposal(u(text), proposed, context), isTrue,
+          reason: text);
+      expect(
+          skill.acceptsProposal(
+              u(text), u('Ustaw szczelinę ISO na 4 mm'), context),
+          isFalse,
+          reason: 'model changed amount: $text');
+    }
+    for (final text in [
+      'Czy mogę zmniejszyć szczelinę w ISO o 1 mm',
+      'Jak mogę ustawić szczelinę ISO na 2 mm',
+      'Czy możesz wyjaśnić jak ustawić szczelinę ISO na 2 mm',
+      'Could you explain how to set the gap in ISO to 2 mm',
+      'Can I set the gap in ISO to 2 mm',
+      'Czy możesz ustawić szczelinę ISO na −2 mm',
+      'Czy możesz ustawić szczelinę ISO na -2 mm',
+      'Czy możesz ustawić szczelinę w kalkulatorze na 2 mm',
+      'Czy możesz ustawić szczelinę według ISO 5817 na 2 mm',
+      'Czy możesz ustawić szczelinę ISO na 2 mm albo 4 mm',
+      'Czy możesz ustawić szczelinę ISO na 2',
+    ]) {
+      expect(skill.acceptsProposal(u(text), proposed, context), isFalse,
+          reason: text);
+    }
   });
   for (final (text, gap) in [
     ('Ustaw szczelinę w tym rysunku na 3 mm', 3.0),
