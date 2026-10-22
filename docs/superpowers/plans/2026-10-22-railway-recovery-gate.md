@@ -1,0 +1,15 @@
+# Railway recovery gate — 2026-10-22
+
+New authoritative evidence changes the deployment order. Railway's official [incident](https://status.railway.com/incident/QH8L8B3E) reports invalidated OAuth sessions and, at2026-10-22T04:17Z, all Railway API tokens. Its06:01Z update still limits builds to Enterprise workspaces while other tiers are being restored. The [security disclosure](https://blog.railway.com/p/security-disclosure-wednesday-october-21st) recommends rotating secrets stored on Railway and reviewing service activity. This does not establish that this particular FWP account was accessed.
+
+The connected owner's mailbox received the general Railway notice dated2026-10-22T00:26:09Z. Two older FWP deployment-crash notices match this project's known service IDs; these are historical notices from2026-10-20, not proof of current runtime failure.
+
+Only IAB and MCP Apps browser surfaces are available. IAB is signed out. Email sign-in for the existing owner account has reached the Magic verification-code form. The mailbox connector masks authentication codes; no code was used or saved. The browser is marked for handoff and a pending user question asks the owner to enter the code directly there. Do not reuse an expired code or repeatedly create new ones unattended.
+
+After authentication, inspect only projectf477e18c-72f2-47e7-a2c0-125fe40cff45, production34d1812a-cb46-4330-a80a-a962908526ac, service74c13727-a0db-43c4-98ea-3255e3bff8c5 and private data volume046a6f51-92ca-49a6-9c7a-71985dc901b8. Confirm plan/build availability, existing variables and service activity. Do not treat old API tokens as current credentials.
+
+Inventory relevant configured secrets before coordinated recovery: ANTHROPIC_API_KEY, ADMIN_TOKEN, JWT_SECRET, PSEUDONYM_SECRET, and any enabled Stripe secret/webhook keys or registry credentials. Variable names here come from source, not a verified current Railway environment. The vault has no separately named FWP Anthropic key; this alone does not prove what is configured on the service. Do not use another project's provider key.
+
+Source review matters for rotation: FWP account sessions are random bearer tokens stored as hashes in fitter_session, not JWTs. Changing JWT_SECRET alone will not revoke those sessions. PSEUDONYM_SECRET (or its fallback from JWT_SECRET) controls public-chat author IDs, IP/report hashes and rate keys; changing it changes those identities and needs a migration/moderation plan. A credential reset must preserve the private SQLite volume and account records. No secrets, account passwords, sessions, payment state or other projects were changed during this read-only audit.
+
+The merged backend remains mainc05432031707f00bb7892f39f40ab6ed8a4adca9, locally verified by220 backend tests and both complete Flutter-catalog HTTP fixtures. Those tests do not verify current production credentials or actual Haiku quality. Production rollout and distribution of the registration-version6 app remain pending recovery, then health/schema/account/admin-report and real-device/model acceptance.
