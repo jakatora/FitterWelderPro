@@ -156,6 +156,10 @@ class ElectrodesExposureSkill extends AssistantSkill {
   AssistantTier get tier => AssistantTier.b;
   @override
   List<SkillExample> get examples => const [
+        // Najpierw postać minimalna: model ma ją wysłać bez zgadywania klasy,
+        // a o klasę elektrody zapyta ta umiejętność (AskResult 'classes').
+        SkillExample('Ile elektroda zasadowa może leżeć poza piecykiem',
+            'How long can a low-hydrogen electrode stay out of the oven'),
         SkillExample('Ile E7018 bez R może leżeć poza piecykiem model 2020',
             'E7018 without R exposure out of oven reference 2020'),
         SkillExample('Limit ekspozycji E7018 H4R z piecyka model 2020',
