@@ -1,9 +1,14 @@
 import '../../../i18n/app_language.dart';
 import '../../core/skill.dart';
-import '../../core/command_words.dart' show pendingReplyNeedsInterpretation;
+import '../../core/command_words.dart'
+    show
+        pendingReplyNeedsInterpretation,
+        isNegatedCommand,
+        referencesInstruction;
 import '../core/skill_words.dart' show fmt;
 import '../fitter_routes/quantities.dart' show signedQuantity, lengthUnitScale;
 import '../../../domain/welding/welder_calculator_input.dart';
+import '../../../domain/welding/shielding_gas.dart';
 
 const _names = <String, (String, String)>{
   'welds': ('liczbę spoin', 'number of welds'),
@@ -289,6 +294,127 @@ abstract class _WelderGasCalculation extends AssistantSkill {
 
   AskResult ask(SkillMatch m, String slot, String pl, String en) =>
       AskResult(slot, AssistantText(pl, en), partial: m);
+}
+
+/// A separate question: no weld count, weld duration or fill pressure is
+/// needed to estimate the gas remaining at the current gauge pressure.
+class CylinderRemainingSkill extends _WelderGasCalculation {
+  @override
+  String get id => 'gas.remaining';
+  @override
+  Map<String, _Field> get _definitions => {
+        'water_l': _gasFields['water_l']!,
+        'current_bar': _gasFields['current_bar']!,
+        'torch_lpm': (
+          labels: ['palnik', 'torch', 'przeplyw', 'flow'],
+          unit: _Unit.flow
+        ),
+        'reserve_bar': _gasFields['reserve_bar']!,
+      };
+  @override
+  List<SkillExample> get examples => const [
+        SkillExample('Ile gazu zostało w butli?',
+            'How much gas is left in the cylinder?'),
+        SkillExample(
+            'Oblicz zapas gazu butla 50 L manometr 60 bar palnik 10 L/min rezerwa 10 bar',
+            'Calculate gas remaining cylinder 50 L gauge 60 bar torch 10 L/min reserve 10 bar'),
+        SkillExample('Oblicz zapas gazu', 'Calculate gas remaining'),
+        SkillExample(
+            'Na ile wystarczy butla?', 'How long will the cylinder last?'),
+        SkillExample(
+            'Oblicz zapas gazu butla 20 L manometr 100 bar przepływ 8 L/min rezerwa 5 bar',
+            'Calculate gas remaining cylinder 20 L gauge 100 bar flow 8 L/min reserve 5 bar'),
+        SkillExample(
+            'Ile gazu zostało w butli? Butla 10 L manometr 80 bar palnik 6 L/min rezerwa 0 bar',
+            'How much gas is left in the cylinder? Cylinder 10 L gauge 80 bar torch 6 L/min reserve 0 bar'),
+      ];
+  @override
+  List<SkillRejection> get rejections => const [
+        SkillRejection('Oblicz zużycie gazu', routesTo: 'gas.consumption'),
+        SkillRejection('Otwórz heat input', routesTo: 'tool.open'),
+        SkillRejection('Jak dobrać butlę do gazu?'),
+      ];
+  @override
+  SkillMatch? match(Utterance u, AssistantContext ctx) {
+    if (isNegatedCommand(u) ||
+        referencesInstruction(u) ||
+        RegExp(r'^(?:otworz|open|wyjasnij|explain|co to|what is)\b')
+            .hasMatch(u.folded) ||
+        !u.hasAny(const [
+          'ile gazu zostalo',
+          'zapas gazu',
+          'na ile wystarczy butla',
+          'gas remaining',
+          'gas is left in the cylinder',
+          'remaining cylinder gas',
+          'how long will the cylinder last'
+        ])) {
+      return null;
+    }
+    final slots = slotsFrom(u, ctx);
+    return SkillMatch(this, .95,
+        slots: slots,
+        utterance: u,
+        requiresAiInterpretation: _requiresInterpretation(u, slots));
+  }
+
+  @override
+  Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
+    final values = m.slots;
+    for (final entry in _definitions.entries) {
+      final value = values[entry.key];
+      final zeroAllowed = entry.key == 'reserve_bar';
+      if (value is! num ||
+          !value.isFinite ||
+          (zeroAllowed ? value < 0 : value <= 0)) {
+        final unit = entry.value.unit == _Unit.litres
+            ? 'L'
+            : entry.value.unit == _Unit.flow
+                ? 'L/min'
+                : 'bar';
+        return ask(
+            m,
+            entry.key,
+            'Podaj ${_names[entry.key]!.$1} w $unit. ${zeroAllowed ? "Możesz podać 0." : "Wartość musi być większa od 0."}',
+            'Give ${_names[entry.key]!.$2} in $unit. ${zeroAllowed ? "You may enter 0." : "Value must be above 0."}');
+      }
+    }
+    final reserve = (values['reserve_bar'] as num).toDouble();
+    final current = (values['current_bar'] as num).toDouble();
+    if (reserve >= current) {
+      return ask(
+          m,
+          'reserve_bar',
+          'Podaj rezerwę mniejszą od aktualnego wskazania manometru.',
+          'Give reserve pressure below the current gauge pressure.');
+    }
+    final result = cylinderRemaining(
+        waterCapacityL: (values['water_l'] as num).toDouble(),
+        currentPressureBar: current,
+        torchLpm: (values['torch_lpm'] as num).toDouble(),
+        reserveBar: reserve);
+    if (result == null ||
+        !result.gasL.isFinite ||
+        !result.flowMinutes.isFinite) {
+      return const FailedResult(
+          AssistantText('Nie obliczyłem zapasu. Sprawdź zakres danych.',
+              'Could not calculate remaining gas. Check input ranges.'),
+          reportMissingCapability: false);
+    }
+    return AnswerResult(AssistantAnswer(
+        text: const AssistantText(
+            'Szacowany zapas gazu do podanej rezerwy i czas ciągłego przepływu palnika:',
+            'Estimated gas above the specified reserve and continuous torch flow time:'),
+        lines: [
+          AnswerLine(const AssistantText('Gaz [L]', 'Gas [L]'),
+              fmt(result.gasL, ctx.lang)),
+          AnswerLine(const AssistantText('Czas [min]', 'Time [min]'),
+              fmt(result.flowMinutes, ctx.lang)),
+        ],
+        source: const AssistantText(
+            'Przybliżenie gazu doskonałego. Czas nie uwzględnia dodatkowego zużycia gazu formującego.',
+            'Ideal-gas estimate. Time excludes additional purge gas consumption.')));
+  }
 }
 
 class GasConsumptionSkill extends _WelderGasCalculation {

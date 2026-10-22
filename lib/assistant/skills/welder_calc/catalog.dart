@@ -11,6 +11,7 @@ import 'tungsten_pick_skill.dart';
 
 List<AssistantSkill> welderCalcSkills() => [
       GasConsumptionSkill(),
+      CylinderRemainingSkill(),
       PurgeEstimateSkill(),
       HardnessConvertSkill(),
       HeatInputSkill(),

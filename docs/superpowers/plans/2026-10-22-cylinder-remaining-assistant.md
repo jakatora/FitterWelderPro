@@ -1,0 +1,11 @@
+# Zapas gazu w butli — 2026-10-22
+
+Dodano gas.remaining do rzeczywistego katalogu asystenta PL/EN. Pytanie o zapas gazu lub czas pozostałego przepływu nie wymaga danych całego planu spawania. Cztery jawne dane: pojemność wodna, aktualne wskazanie manometru, przepływ palnika i rezerwa. Braki prowadzą do kolejnych pytań, bez domyślnych 50 L / 200 bar. Rezerwa musi być mniejsza od aktualnego ciśnienia; wartości ujemne, zerowy przepływ, alternatywy i obce jednostki nie dają wyniku. Obsługiwane są wspólne przeliczenia jednostek przepływu.
+
+Obliczenie używa cylinderRemaining z domain/welding/shielding_gas.dart, tej samej funkcji co ekran. Wynik w czacie to litry do rezerwy i minuty ciągłego przepływu palnika. Nie zmienia formularza ani timera; nie podaje liczby spoin bez czasu spoiny. Tekst wskazuje przybliżenie gazu doskonałego i nieuwzględnienie dodatkowego gazu formującego.
+
+RED: trzy nowe przypadki nie znajdowały umiejętności. Katalog/router/nowa funkcja/export: 1130 PASS. Po końcowej poprawce nawiasów i wykluczeniu pytań opisowych: 50 PASS (nowa funkcja, pytania AI, istniejące gas/purge i naturalne polecenia). Nowe próby obejmują prawdziwy widżet czatu tekstem i końcową transkrypcją głosu oraz kontrolowany wybór nowej umiejętności przez interpreter AI. Analiza trzech plików --fatal-infos bez uwag.
+
+Lokalne HTTP Flutter-katalog → Express/SQLite → kontrolowany dostawca: nowa umiejętność w katalogu 81 pozycji, odpowiedź execute/gas.remaining HTTP200 PL/EN. tool/verify_cylinder_remaining_wire.mjs: build/cylinder-remaining-wire-proof.json, 2026-10-22T16:00:41.828Z, backend main6bb7dad. Pełny katalog UTF8 37120/36372 B oraz doprecyzowanie31 poprzednich wypowiedzi 27082/26334 B również przechodzą. Nie jest to dowód semantycznej trafności prawdziwego modelu ani mikrofonu telefonu.
+
+Koszty: brak zmiany modelu, cen lub limitów. Standardowe dane liczą się lokalnie; naturalne sformułowanie korzysta z istniejącego interpretera Haiku5.5 effort low, rezerwacji i retry0. Próby HTTP używają fałszywych testowych poświadczeń i kontrolowanego dostawcy; zero płatnych wywołań. Nie wykonano deploy ani nowego APK. Railway czeka na nowy udany login; poprzedni83643 wygasł. Cały cel asystenta pozostaje aktywny: reszta działań, spójność danych kont, ISO oraz próby prawdziwego AI/urządzeń i wdrożenie nadal wymagają weryfikacji.
