@@ -1,3 +1,4 @@
+import 'steel_list_share_skill.dart';
 import 'steel_list_summary_skill.dart';
 import 'steel_draft_skill.dart';
 import '../../core/skill.dart';
@@ -15,5 +16,6 @@ List<AssistantSkill> fitterTablesSkills() => [
       SteelWeightSkill(),
       SteelDraftEditSkill(),
       SteelDraftSummarySkill(),
-      SteelListSummarySkill()
+      SteelListSummarySkill(),
+      SteelListShareSkill()
     ];

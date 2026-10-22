@@ -112,4 +112,16 @@ void main() {
           ['Zmien wysokosc o 10 cm', 'eksportuj szablon PDF']);
     }
   });
+  test('share clauses keep save confirmation and negation as native boundaries',
+      () {
+    for (final verb in ['udostepnij', 'udostępnij', 'share']) {
+      expect(aiSourceClauses('Dodaj pozycje i $verb liste'),
+          ['Dodaj pozycje', '$verb liste']);
+      expect(aiSourceClauses('Add item and do not $verb list'), isNull);
+      expect(aiSourceClauses('Dodaj pozycje i nie $verb liste'), isNull);
+      expect(
+          aiSourceClauses('Dodaj pozycje i $verb liste „Linia i share list”'),
+          isNull);
+    }
+  });
 }

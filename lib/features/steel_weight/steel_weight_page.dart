@@ -61,6 +61,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   @override
   Future<ModuleActionResult> performAction(String action,
       {String? field}) async {
+    if (action == 'share_list' && field == null) return _shareSavedList();
     const unavailable = ModuleActionResult(
         false,
         AssistantText(
@@ -757,12 +758,71 @@ class _SteelWeightPageState extends State<SteelWeightPage>
 
   // ── Udostępnianie ──────────────────────────────────────────────────────
 
+  Future<ModuleActionResult> _shareSavedList() async {
+    const unavailable = ModuleActionResult(
+        false,
+        AssistantText(
+            'Nie można teraz udostępnić listy. Otwórz Ciężar stali i sprawdź zapis listy.',
+            'The list cannot be shared now. Open Steel weight and check the saved list.'));
+    if (!mounted ||
+        _loading ||
+        _loadError ||
+        _saveError ||
+        _sessionFrozen ||
+        !_hasCurrentOwner ||
+        _store == null ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return unavailable;
+    }
+    final owner = _owner!, generation = _loadGeneration;
+    final english = _en;
+    return _recordOperation(() async {
+      try {
+        // Complete already-authorized manual edits before exporting durable data.
+        await _flushOrder();
+        _requireRecordOwner(owner, generation);
+        final saved = await _store!.readLatest();
+        _requireRecordOwner(owner, generation);
+        if (_dirty || _saveError) return unavailable;
+        if (saved.items.isEmpty) {
+          return const ModuleActionResult(
+              false,
+              AssistantText(
+                  'Zapisana lista stali jest pusta. Dodaj pozycje przed udostępnieniem.',
+                  'The saved steel list is empty. Add items before sharing.'));
+        }
+        final text =
+            steelOrderText(saved, english: english, date: DateTime.now());
+        final subject =
+            english ? 'Steel material list' : 'Lista materiałowa — stal';
+        await widget.shareText(text, subject);
+        _requireRecordOwner(owner, generation);
+        return const ModuleActionResult(
+            true,
+            AssistantText(
+                'Przekazano listę do systemowego udostępniania. Odbiorcę wybierasz w oknie telefonu; asystent nie potwierdza wysłania.',
+                'The list was passed to system sharing. Choose a recipient in the phone dialog; the assistant does not confirm delivery.'));
+      } catch (_) {
+        return const ModuleActionResult(
+            false,
+            AssistantText(
+                'Nie udało się przygotować udostępniania listy. Sprawdź listę i spróbuj ponownie.',
+                'The list could not be prepared for sharing. Check the list and try again.'));
+      }
+    });
+  }
+
   Future<void> _share() async {
-    if (_order.items.isEmpty) return;
-    unawaited(Haptic.tap());
-    final text = steelOrderText(_order, english: _en, date: DateTime.now());
-    await widget.shareText(text,
-        context.tr(pl: 'Lista materiałowa — stal', en: 'Steel material list'));
+    final generation = _loadGeneration;
+    final result = await _shareSavedList();
+    if (!result.completed &&
+        mounted &&
+        generation == _loadGeneration &&
+        _hasCurrentOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text(result.message.of(_en ? AppLanguage.en : AppLanguage.pl))));
+    }
   }
 
   Future<T?> _showOrderDialog<T>(WidgetBuilder builder) async {
