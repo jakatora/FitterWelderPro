@@ -894,13 +894,17 @@ class _AiChatScreenState extends State<AiChatScreen>
         }.contains(legacy)) {
       return false;
     }
+    final awaitingAiClarification =
+        pending == null && _aiQuestion != null && !boundedRequest;
     await LegalConsent.instance.load();
     if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
       if (observedPending != null) {
         return _pendingReplyNeedsAi(needsConsent: true, taskSwitch: taskSwitch);
       }
-      if (boundedRequest) return _boundedRequestNeedsAi(needsConsent: true);
+      if (boundedRequest || awaitingAiClarification) {
+        return _boundedRequestNeedsAi(needsConsent: true);
+      }
       return compound ? _compoundNeedsAi(needsConsent: true) : false;
     }
     final question =
@@ -964,7 +968,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (observedPending != null && mounted && epoch == _aiEpoch) {
         return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
       }
-      if (boundedRequest && mounted && epoch == _aiEpoch) {
+      if ((boundedRequest || awaitingAiClarification) &&
+          mounted && epoch == _aiEpoch) {
         return _boundedRequestNeedsAi();
       }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
@@ -973,7 +978,8 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (observedPending != null && mounted && epoch == _aiEpoch) {
         return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
       }
-      if (boundedRequest && mounted && epoch == _aiEpoch) {
+      if ((boundedRequest || awaitingAiClarification) &&
+          mounted && epoch == _aiEpoch) {
         return _boundedRequestNeedsAi();
       }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();

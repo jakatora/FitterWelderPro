@@ -122,6 +122,34 @@ Future<void> mount(WidgetTester t,
 }
 
 void main() {
+  for (final failure in ['unavailable', 'malformed']) {
+    testWidgets('AI clarification survives $failure without a second chat call', (t) async {
+      final requests = <Map<String, Object?>>[];
+      var chats = 0;
+      await mount(t, interpret: (request) async {
+        requests.add(request);
+        if (requests.length == 2) {
+          if (failure == 'malformed') throw const FormatException('invalid plan');
+          throw const AssistantAiUnavailable(503);
+        }
+        return const AiCommandPlan('clarify', [], 'Który wariant mam wybrać?');
+      }, chatSender: (text, history) async {
+        chats++;
+        return ChatMessage(role: ChatRole.assistant, text: 'Nieoczekiwane zapytanie');
+      });
+      await say(t, 'pomóż mi dobrać wariant do mojego zadania');
+      expect(requests, hasLength(1));
+      await say(t, 'ten drugi wariant');
+      expect(requests, hasLength(2));
+      expect(chats, 0);
+      expect(find.textContaining('Nie udało się zinterpretować polecenia'), findsOneWidget);
+      await say(t, 'spróbujmy drugi wariant');
+      expect(requests, hasLength(3));
+      expect((requests.last['context'] as Map)['pending_question'], 'Który wariant mam wybrać?');
+      expect(chats, 0);
+    });
+  }
+
   useTestDatabase();
   testWidgets(
       'main embedded chat executes captured real model output using actual visible inputs',
