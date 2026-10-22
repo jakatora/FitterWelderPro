@@ -23,6 +23,7 @@ import '../../domain/fitter/cone_assistant_input.dart';
 import '../../domain/fitter/eccentric_cone_assistant_input.dart';
 import '../../domain/fitter/transition_assistant_input.dart';
 import '../../assistant/core/tool_bridge.dart';
+import '../../services/account_service.dart';
 import '../../assistant/core/skill.dart' show AssistantText, ModuleActionResult;
 import '../../domain/fitter/transition_development.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
@@ -153,8 +154,142 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
     markReady();
   }
 
+  final _undoHistory = <(Map<String, Object?>, VoidCallback)>[];
+  AccountService? _undoAccount;
+  int _undoAccountRevision = -1;
+  int _manualEditRevision = 0;
+
+  void _syncUndoSession() {
+    final account = AccountService.instance;
+    if (!identical(account, _undoAccount) ||
+        account.sessionRevision != _undoAccountRevision) {
+      _undoHistory.clear();
+      _undoAccount = account;
+      _undoAccountRevision = account.sessionRevision;
+    }
+  }
+
+  void _manualChange(VoidCallback change) {
+    _undoHistory.clear();
+    _manualEditRevision++;
+    setState(change);
+  }
+
+  void _validateSnapshot(Map<String, Object?> fields) {
+    switch (fields['shape']) {
+      case 'concentric':
+        ConeAssistantInput.fromFields(fields);
+      case 'eccentric':
+        EccentricConeAssistantInput.fromFields(fields);
+      case 'transition':
+        TransitionAssistantInput.fromFields(fields);
+      default:
+        throw const FormatException('unknown development');
+    }
+  }
+
+  VoidCallback _captureGeometryRestore() {
+    final controllers = [
+      _dL,
+      _dS,
+      _h,
+      _alpha,
+      _slant,
+      _t,
+      _allow,
+      _e,
+      _a,
+      _b,
+      _dT,
+      _hT,
+      _ex,
+      _ey
+    ];
+    final texts = controllers.map((c) => c.text).toList();
+    final settings = (
+      _shape,
+      _mode,
+      _ref,
+      _coneParts,
+      _parts,
+      _div,
+      _vertical,
+      _seamShort,
+      _seam,
+      _viewPart
+    );
+    return () => setState(() {
+          for (var i = 0; i < controllers.length; i++) {
+            controllers[i].text = texts[i];
+          }
+          _shape = settings.$1;
+          _mode = settings.$2;
+          _ref = settings.$3;
+          _coneParts = settings.$4;
+          _parts = settings.$5;
+          _div = settings.$6;
+          _vertical = settings.$7;
+          _seamShort = settings.$8;
+          _seam = settings.$9;
+          _viewPart = settings.$10;
+        });
+  }
+
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    _syncUndoSession();
+    final account = AccountService.instance, session = account.sessionRevision;
+    final manual = _manualEditRevision;
+    final before = Map<String, Object?>.of(inputFields);
+    VoidCallback? restore;
+    try {
+      _validateSnapshot(before);
+      restore = _captureGeometryRestore();
+    } on FormatException {/* An invalid previous form is not an undo target. */}
+    final rejected = await _applyFields(fields);
+    if (rejected.isEmpty &&
+        mounted &&
+        restore != null &&
+        manual == _manualEditRevision &&
+        identical(account, AccountService.instance) &&
+        session == account.sessionRevision) {
+      final after = Map<String, Object?>.of(inputFields);
+      if (!mapEquals(before, after)) {
+        _undoHistory.add((after, restore));
+        if (_undoHistory.length > 20) {
+          _undoHistory.removeAt(0);
+        }
+      }
+    }
+    return rejected;
+  }
+
+  ModuleActionResult _undoDevelopment() {
+    _syncUndoSession();
+    if (_undoHistory.isEmpty) {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Brak zmiany asystenta do cofnięcia w tym rozwinięciu.',
+              'There is no assistant change to undo in this development.'));
+    }
+    final last = _undoHistory.last;
+    if (!mapEquals(last.$1, inputFields)) {
+      _undoHistory.clear();
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Dane zostały zmienione ręcznie. Nie nadpiszę ich cofnięciem.',
+              'Inputs were changed manually. Undo will not overwrite them.'));
+    }
+    _undoHistory.removeLast();
+    last.$2();
+    return const ModuleActionResult(
+        true,
+        AssistantText('Cofnięto ostatnią zmianę asystenta w rozwinięciu.',
+            'Undid the last assistant change in the development.'));
+  }
+
+  Future<Set<String>> _applyFields(Map<String, Object?> fields) async {
     if (fields['shape'] == 'transition') return _applyTransition(fields);
     if (fields['shape'] == 'eccentric') return _applyEccentric(fields);
     ConeAssistantInput parsed;
@@ -265,7 +400,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
     if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
       return unavailable;
     }
-    if (action != 'export_pdf' || field != null) {
+    if (!const {'export_pdf', 'undo'}.contains(action) || field != null) {
       return const ModuleActionResult(
           false,
           AssistantText('Ta czynność eksportu nie jest obsługiwana.',
@@ -277,6 +412,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
           AssistantText('Przygotowanie PDF jest już w toku.',
               'PDF preparation is already in progress.'));
     }
+    if (action == 'undo') return _undoDevelopment();
     final out = switch (_shape) {
       ConeShape.concentric => _concentric(),
       ConeShape.eccentric => _eccentric(),
@@ -425,6 +561,8 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
 
   void _setUnit(bool inch) {
     if (inch == _inch) return;
+    _undoHistory.clear();
+    _manualEditRevision++;
     final from = _scale;
     final to = inch ? 25.4 : 1.0;
     for (final c in _lengthFields) {
@@ -646,7 +784,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
           key: ValueKey('cone-shape-${s.name}'),
           label: Text(context.tr(pl: pl, en: en)),
           selected: _shape == s,
-          onSelected: (_) => setState(() {
+          onSelected: (_) => _manualChange(() {
             _shape = s;
             _viewPart = 0;
           }),
@@ -701,7 +839,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
         controller: c,
         keyboardType: numberKeyboard(signed: signed),
         inputFormatters: numberInputFormatters(signed: signed),
-        onChanged: (_) => setState(() {}),
+        onChanged: (_) => _manualChange(() {}),
         decoration: InputDecoration(
           labelText: label,
           suffixText: unit ?? _u,
@@ -729,7 +867,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
               key: ValueKey(key),
               label: Text(label),
               selected: value == selected,
-              onSelected: (_) => setState(() => onPick(value)),
+              onSelected: (_) => _manualChange(() => onPick(value)),
             ),
         ],
       );

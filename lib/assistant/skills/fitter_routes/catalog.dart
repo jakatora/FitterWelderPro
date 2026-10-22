@@ -16,6 +16,7 @@ import 'transition_layout_skill.dart';
 import 'development_height_skill.dart';
 import 'development_summary_skill.dart';
 import 'development_export_skill.dart';
+import 'development_undo_skill.dart';
 
 List<AssistantSkill> fitterRoutesSkills() => [
       PipeSlopeSkill(),
@@ -35,5 +36,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       TransitionLayoutSkill(),
       DevelopmentHeightSkill(),
       DevelopmentSummarySkill(),
-      DevelopmentExportSkill()
+      DevelopmentExportSkill(),
+      DevelopmentUndoSkill()
     ];
