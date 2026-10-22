@@ -36,6 +36,7 @@ enum IsoDir { right, up, back, left, down, forward }
 /// Strona świata — działa tylko przy strzałce północy na rysunku
 /// ([IsoNotebookController.dirForCompass]).
 enum IsoCompass { north, south, east, west }
+enum IsoNameResult { saved, rejected, unsaved }
 
 /// Jeden krok polecenia rysowania.
 sealed class IsoStep {
@@ -500,7 +501,7 @@ class IsoNotebookController extends ChangeNotifier {
           }
         }
         final current = List<_Item>.from(s._items);
-        final before = List<_Item>.from(s._undo.last);
+        final before = List<_Item>.from(s._undo.last.items);
         late final _VoicePlan preview;
         try {
           s._items
@@ -535,6 +536,26 @@ class IsoNotebookController extends ChangeNotifier {
         }
         return report;
       });
+
+  /// Change only the current sheet name, retaining its ID and geometry.
+  /// Success means the same real persistence flush as leaving the editor.
+  Future<IsoNameResult> renameSketch(String name,
+      {required int expectedRevision}) => _enqueue((s) async {
+    if(expectedRevision!=s._version || name.trim().isEmpty || name.length>200 ||
+      RegExp(r'[\u0000-\u001f\u007f]').hasMatch(name)) {
+      return IsoNameResult.rejected;
+    }
+    if(s._projectName!=name) {
+      s._push();
+      s._mutate(()=>s._projectName=name);
+    }
+    final appliedRevision=s._version;
+    final saved=await s._flushSave();
+    if(!identical(_state,s) || s._version!=appliedRevision || s._projectName!=name) {
+      return IsoNameResult.rejected;
+    }
+    return saved ? IsoNameResult.saved : IsoNameResult.unsaved;
+  });
 
   /// Replace one entered ISO dimension using native dimension semantics.
   /// Paper geometry, endpoint references and all take-outs remain unchanged.
@@ -652,7 +673,7 @@ class IsoNotebookController extends ChangeNotifier {
     final run = _VoiceRun(plan);
     // The whole command is ONE undo step — taken here, not through _push(),
     // which would finish this very run.
-    s._undo.add(List<_Item>.from(s._items));
+    s._undo.add(_SketchUndo(s._items, s._projectName, s._gapMm));
     _run = run;
     // Fit before drawing, so the fitter watches the route grow.
     s._showWorldRect(plan.boundsWith(s._drawingBounds()),

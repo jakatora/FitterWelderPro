@@ -199,6 +199,36 @@ void main() {
   });
   tearDownAll(AppDatabase.clearTestingConfiguration);
 
+  testWidgets('manual sheet name and gap use chronological undo without deleting pipes', (tester) async {
+    await _boot(tester);
+    final c=await _open(tester);
+    await c.draw(const [IsoPipe(lengthMm:1000)],stepDelay:Duration.zero);
+    final before=await _stored(tester);
+    final revision=c.revision;
+    await tester.tap(find.byTooltip('Dotknij, aby zmienić nazwę projektu'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.descendant(of:find.byType(AlertDialog),matching:find.byType(TextField)),'Native CW');
+    await tester.tap(find.widgetWithText(ElevatedButton,'OK'));
+    await tester.pumpAndSettle();
+    expect(c.revision,greaterThan(revision));
+    expect(c.sketchName,'Native CW');
+    await tester.tap(find.byTooltip('Szkice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Szczelina spoiny:'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('sketch-gap-field')),'3');
+    await tester.tap(find.byKey(const ValueKey('sketch-gap-save')));
+    await tester.pumpAndSettle();
+    expect((await _stored(tester))!['gapMm'],3);
+    c.undo();await tester.pumpAndSettle();
+    final undoGap=await _stored(tester);
+    expect(undoGap!['gapMm'],before!['gapMm']);expect(undoGap['name'],'Native CW');
+    expect(_items(undoGap),_items(before));
+    c.undo();await tester.pumpAndSettle();
+    final undoName=await _stored(tester);
+    expect(undoName!['name'],before['name']);expect(_items(undoName),_items(before));
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({'iso_notebook_hint_hidden': true});
     final db = await AppDatabase.get();

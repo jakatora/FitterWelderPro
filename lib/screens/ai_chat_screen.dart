@@ -1460,6 +1460,25 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       command = resolved;
     }
+    if (command.kind == IsoCommandKind.renameSketch) {
+      final name=command.sketchName!;
+      final result=await controller.renameSketch(name,expectedRevision:controller.revision);
+      if(!mounted || epoch!=_conversationEpoch) return true;
+      _pendingIso=null;
+      switch(result) {
+        case IsoNameResult.saved:
+          _isoDidExecute=true;
+          _isoReply('Zapisałem nazwę rysunku: $name. To ten sam szkic, z zachowaniem jego geometrii.',
+            'Saved the drawing name: $name. This is the same sheet, with its geometry preserved.');
+        case IsoNameResult.rejected:
+          _isoReply('Nie potwierdziłem zmiany nazwy. Rysunek zmienił się podczas polecenia albo nazwa jest niepoprawna.',
+            'Name change not confirmed. The drawing changed during the request or the name is invalid.');
+        case IsoNameResult.unsaved:
+          _isoReply('Nazwa jest zmieniona na ekranie, ale nie udało się zapisać rysunku. Pozostaw edytor otwarty i ponów zapis.',
+            'The name changed on screen, but saving the drawing failed. Keep the editor open and retry saving.');
+      }
+      return true;
+    }
     if (command.kind == IsoCommandKind.setPipeDimension) {
       final number=await controller.setPipeIsoDimension(command.dimensionMm!,
         ordinal:command.pipeOrdinal,expectedRevision:controller.revision);

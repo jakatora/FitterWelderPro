@@ -70,6 +70,7 @@ enum IsoCommandKind {
   changeLastTurn,
   /// Replace only the entered ISO dimension, preserving geometry and take-outs.
   setPipeDimension,
+  renameSketch,
 }
 
 enum IsoParseWarningKind {
@@ -144,12 +145,14 @@ class IsoCommand {
     this.unknownWords = 0,
     this.dimensionMm,
     this.pipeOrdinal,
+    this.sketchName,
   });
 
   final IsoCommandKind kind;
   final double? dimensionMm;
   /// One-based creation order; null identifies the last pipe.
   final int? pipeOrdinal;
+  final String? sketchName;
 
   /// Kroki do narysowania ([IsoCommandKind.draw]).
   final List<IsoStep> steps;
@@ -210,6 +213,7 @@ class IsoCommand {
         kind: kind,
         dimensionMm: dimensionMm,
         pipeOrdinal: pipeOrdinal,
+        sketchName: sketchName,
         steps: steps ?? this.steps,
         newSketch: newSketch ?? this.newSketch,
         append: append ?? this.append,
@@ -738,6 +742,18 @@ class _Seg {
 /// rysowania (pytanie, zapis, inny moduł, brak elementów).
 IsoCommand? parseIsoCommand(Utterance u) {
   if (referencesInstruction(u)) return null;
+  if (RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:nazwij|name|rename)\s+(?:(?:ten|te|to|this|the)\s+)?(?:rysunek|szkic|drawing|sketch|iso|izometrie)|zmien\s+nazwe\s+(?:rysunku|szkicu)\s+na)\b').hasMatch(u.folded)) {
+    final match=RegExp(r'^(?:(?:proszę|prosze|please)\s+)*(?:(?:nazwij|name)\s+(?:(?:ten|tę|te|to|this|the)\s+)?(?:rysunek|szkic|drawing|sketch|iso|izometrię|izometrie)\s+|(?:zmień|zmien)\s+(?:nazwę|nazwe)\s+(?:rysunku|szkicu)\s+na\s+|rename\s+(?:(?:this|the)\s+)?(?:drawing|sketch|iso)\s+(?:to\s+)?)(.+)$',caseSensitive:false).firstMatch(u.raw.trim());
+    if(match==null) return null;
+    var name=match[1]!.trim();
+    for(final (a,b) in [('"','"'),('„','”'),('“','”')]) {
+      if(name.startsWith(a) && name.endsWith(b) && name.length>=2) {
+        name=name.substring(1,name.length-1).trim();break;
+      }
+    }
+    if(name.isEmpty || name.length>200 || RegExp(r'[\u0000-\u001f\u007f]').hasMatch(name)) return null;
+    return IsoCommand(kind:IsoCommandKind.renameSketch,sketchName:name,explicit:true,strong:true);
+  }
   if (RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw|popraw)\s+wymiar\s+iso|(?:set|change|correct)\s+(?:the\s+)?iso\s+dimension)\b').hasMatch(u.folded)) {
     if (RegExp(r'[-−]\s*\d').hasMatch(u.raw)) return null;
     final match=RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw|popraw) wymiar iso (?:ostatniej rury|rury numer (?<plIndex>[1-9]\d{0,3})) na|(?:set|change|correct) (?:the )?iso dimension of (?:the )?(?:last pipe|pipe (?:number )?(?<enIndex>[1-9]\d{0,3})) to) (?<value>\d+(?:[.,]\d+)?)\s*(?<unit>mm|cm|m)$').firstMatch(u.folded);

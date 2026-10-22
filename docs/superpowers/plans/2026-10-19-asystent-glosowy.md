@@ -4,6 +4,7 @@ Aktualizacja 2026-10-22: [parametry spawania przypisane do konta](2026-10-22-own
 Aktualizacja 2026-10-22: [dobrowolny kontekst zawodowy AI](2026-10-22-assistant-professional-context.md).
 Aktualizacja 2026-10-22: [poprawianie wymiarów ISO w rozmowie](2026-10-22-iso-dimension-dialogue.md).
 Aktualizacja 2026-10-22: [przyczyny niedostępności AI](2026-10-22-ai-availability-diagnostics.md).
+Aktualizacja 2026-10-22: [nazwa ISO, zapis i Cofnij](2026-10-22-iso-sheet-name-and-undo.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

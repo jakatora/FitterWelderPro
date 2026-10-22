@@ -119,6 +119,42 @@ void main() {
     expect(t.takeException(),isNull);
   });
   useTestDatabase();
+  testWidgets('naming a drawing flushes the same record and preserves its geometry', (t) async {
+    await _boot(t);
+    await _say(t,'narysuj rura metr w prawo');
+    final before=await t.runAsync(()=>IsoDrawingDao().latest());
+    final items=(jsonDecode(before!.json) as Map)['items'];
+    await _say(t,'Nazwij tę izometrię „Rurociąg chłodzący CW-123”');
+    expect(find.textContaining('Zapisałem nazwę rysunku: Rurociąg chłodzący CW-123'),findsOneWidget);
+    final after=await t.runAsync(()=>IsoDrawingDao().latest());
+    expect(after!.id,before.id);expect(after.name,'Rurociąg chłodzący CW-123');
+    expect((jsonDecode(after.json) as Map)['items'],items);
+    final controller=IsoNotebookController.active!;
+    final stale=await t.runAsync(()=>controller.renameSketch('Wrong',expectedRevision:controller.revision-1));
+    expect(stale,IsoNameResult.rejected);
+    expect((await t.runAsync(()=>IsoDrawingDao().latest()))!.name,after.name);
+    expect((await t.runAsync(()=>IsoDrawingDao().listAll()))!,hasLength(1));
+    await _say(t,'cofnij');
+    final undone=await t.runAsync(()=>IsoDrawingDao().latest());
+    expect(undone!.id,before.id);expect(undone.name,before.name);
+    expect((jsonDecode(undone.json) as Map)['items'],items);
+  });
+  testWidgets('failed name flush is not presented as a successful save', (t) async {
+    await _boot(t);await _say(t,'narysuj rura metr w prawo');
+    await t.runAsync(() async {
+      final db=await AppDatabase.get();
+      await db.execute("CREATE TRIGGER fail_iso_name BEFORE UPDATE ON iso_drawings BEGIN SELECT RAISE(FAIL, 'test name failure'); END");
+    });
+    try {
+      await _say(t,'Nazwij rysunek CW-ERROR');
+      expect(find.textContaining('Nazwa jest zmieniona na ekranie, ale nie udało się zapisać'),findsOneWidget);
+      expect(find.textContaining('Zapisałem nazwę rysunku:'),findsNothing);
+      expect((await t.runAsync(()=>IsoDrawingDao().latest()))!.name,isEmpty);
+      expect(IsoNotebookController.active!.sketchName,'CW-ERROR');
+    } finally {
+      await t.runAsync(() async=>(await AppDatabase.get()).execute('DROP TRIGGER fail_iso_name'));
+    }
+  });
   testWidgets('dimension edit retains reference status, stops, deductions and pipe annotations', (t) async {
     await t.runAsync(()=>IsoDrawingDao().upsert(IsoDrawingRecord(
       id:'dimension-reference',name:'Reference',createdAt:1,updatedAt:1,

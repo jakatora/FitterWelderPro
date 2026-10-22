@@ -108,7 +108,7 @@ class IsoDrawSkill extends AssistantSkill {
       return SkillMatch(this, .99, utterance: u);
     }
     final command = parseIsoCommand(u);
-    if (command?.kind == IsoCommandKind.setPipeDimension) return null;
+    if (command?.kind == IsoCommandKind.setPipeDimension || command?.kind == IsoCommandKind.renameSketch) return null;
     final onIso = ctx.modules.activeToolId == toolId || port.isForeground;
     if (command != null &&
         (command.explicit || onIso || port.hasPendingQuestion)) {

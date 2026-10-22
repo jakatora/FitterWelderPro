@@ -35,6 +35,7 @@ import '../domain/iso_notebook/sketch_to_project.dart';
 import '../services/iso_sketch_project_writer.dart';
 import 'fitter_screen.dart';
 import 'iso_notebook_project_dialogs.dart';
+import 'iso_notebook_name_dialog.dart';
 
 // The shared deduct-label table moved to the domain layer with the CUT rule;
 // re-exported so existing callers keep importing it from here.
@@ -82,6 +83,15 @@ extension _ToolX on _Tool {
 }
 
 abstract class _Item {}
+
+/// Undo is chronological across geometry and editable sheet metadata.
+class _SketchUndo {
+  _SketchUndo(Iterable<_Item> items, this.name, this.gapMm)
+      : items = List<_Item>.from(items);
+  final List<_Item> items;
+  final String name;
+  final double gapMm;
+}
 
 /// One component whose take-out is subtracted from the ISO dimension to
 /// arrive at the cut length.
@@ -921,7 +931,7 @@ class _IsoState extends State<IsoNotebookScreen>
   static const int _kColorLegendAutoHideThreshold = 10;
 
   final List<_Item> _items = [];
-  final List<List<_Item>> _undo = [];
+  final List<_SketchUndo> _undo = [];
   int _version = 0; // bumped on every mutation → forces a repaint
 
   /// `true` while the drawing on screen has changes the database does not
@@ -4670,44 +4680,10 @@ class _IsoState extends State<IsoNotebookScreen>
   }
 
   Future<void> _editName() async {
-    final ctrl = TextEditingController(text: _projectName);
-    try {
-      final name = await showDialog<String>(
-        context: context,
-        builder: (dctx) => AlertDialog(
-          title: Text(_tr('Nazwa rysunku / nr linii', 'Drawing name / line no.')),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            decoration: InputDecoration(
-              hintText: _tr('np. 6"-CWS-1234', 'e.g. 6"-CWS-1234'),
-            ),
-            onSubmitted: (v) => Navigator.pop(dctx, v.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dctx, null),
-              child: Text(_tr('Anuluj', 'Cancel')),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dctx, ctrl.text.trim()),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      // The line number is part of the unsaved drawing, not a view setting —
-      // it has to arm the same leave-guard the sketch does.
-      if (name != null) {
-        setState(() {
-          _projectName = name;
-          _markEdited();
-        });
-        _scheduleSave();
-      }
-    } finally {
-      ctrl.dispose();
+    final name = await showIsoSketchNameDialog(context, current: _projectName);
+    if (mounted && name != null && name != _projectName) {
+      _push();
+      _mutate(() => _projectName = name);
     }
   }
 
@@ -4716,12 +4692,8 @@ class _IsoState extends State<IsoNotebookScreen>
   Future<void> _editGap() async {
     final v = await showSketchGapDialog(context, current: _gapMm);
     if (v == null || !mounted || (v - _gapMm).abs() < 1e-9) return;
-    setState(() {
-      _gapMm = v;
-      _version++;
-      _markEdited();
-    });
-    _scheduleSave();
+    _push();
+    _mutate(() => _gapMm = v);
   }
 
   /// "Utwórz projekt CUT": the dimensioned pipes of the sketch become the
@@ -5495,13 +5467,18 @@ class _IsoState extends State<IsoNotebookScreen>
     // A voice command still animating lands first, so this snapshot (and
     // the command's own one before it) each hold a settled drawing.
     _voice._finishNow();
-    _undo.add(List.from(_items));
+    _undo.add(_SketchUndo(_items, _projectName, _gapMm));
   }
 
   void _undoAction() {
     _voice._finishNow();
     if (_undo.isEmpty) return;
-    _mutate(() => _items..clear()..addAll(_undo.removeLast()));
+    final before = _undo.removeLast();
+    _mutate(() {
+      _items..clear()..addAll(before.items);
+      _projectName = before.name;
+      _gapMm = before.gapMm;
+    });
   }
 
   Future<void> _clear() async {
