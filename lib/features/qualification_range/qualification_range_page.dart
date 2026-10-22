@@ -17,6 +17,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/qualification/iso9606_range.dart';
 import '../../i18n/app_language.dart';
 import '../../services/qualification_range_export.dart';
@@ -70,7 +71,58 @@ class _ProcessState {
   }
 }
 
-class _QualificationRangePageState extends State<QualificationRangePage> {
+class _QualificationRangePageState extends State<QualificationRangePage>
+    with ToolHandleHost<QualificationRangePage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'qualification_range';
+  @override
+  Set<String> get supportedFields =>
+      const {'weld_type', 'thickness_mm', 'diameter_mm'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'product': _product.name,
+        'weld_type': _type.name,
+        'thickness_mm': _num(_first.thickness),
+        'diameter_mm': _num(_diameter),
+      });
+
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  /// Asystent: rodzaj spoiny, grubość (pierwszy proces) i — dla rury —
+  /// średnica. Proces, spoiwo i pozycja zostają do wyboru na ekranie.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+      return fields.keys.toSet();
+    }
+    bool positive(Object? v) => v is num && v.isFinite && v > 0 && v < 1000;
+    final type = Iso9606WeldType.values
+        .where((t) => t.name == fields['weld_type'])
+        .firstOrNull;
+    final rejected = <String>{
+      if (type == null) 'weld_type',
+      for (final key in const ['thickness_mm', 'diameter_mm'])
+        if (fields.containsKey(key) && !positive(fields[key])) key,
+    };
+    if (rejected.isNotEmpty) return rejected;
+    setState(() {
+      _type = type!;
+      if (fields['thickness_mm'] is num) {
+        _first.thickness.text = (fields['thickness_mm'] as num).toString();
+      }
+      if (fields['diameter_mm'] is num) {
+        _product = Iso9606Product.pipe;
+        _diameter.text = (fields['diameter_mm'] as num).toString();
+      }
+    });
+    return {};
+  }
+
   Iso9606Product _product = Iso9606Product.plate;
   Iso9606WeldType _type = Iso9606WeldType.bw;
   Iso6947Position? _position;
