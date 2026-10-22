@@ -90,6 +90,8 @@ Map<String, Object?> _slots(Utterance original) {
 
 class TransitionLayoutSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+  @override
   String get id => 'transition.layout';
   @override
   String get toolId => 'cone_layout';

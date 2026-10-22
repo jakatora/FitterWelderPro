@@ -129,6 +129,11 @@ bool _needsInterpretation(Utterance source) {
 
 class ConeLayoutSkill extends AssistantSkill {
   @override
+  bool get currentFormEditsNeedAi => true;
+  @override
+  bool requiresInterpretationFor(Utterance u, Map<String, Object?> supplied) =>
+      _needsInterpretation(u);
+  @override
   String get id => 'cone.layout';
   @override
   String get toolId => 'cone_layout';
