@@ -1,3 +1,4 @@
+import 'records/steel_add_skill.dart';
 import 'own_data/my_params_skill.dart';
 import 'iso/catalog.dart';
 import 'iso/iso_draw_skill.dart';
@@ -55,6 +56,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(ElectrodesStatusSkill(load: electrodes));
   all.add(ProgressTodaySkill(load: journal));
   all.add(QuoteNewSkill());
+  all.add(SteelAddSkill());
   all.add(InterpassReadingSkill());
   all.add(HotWorkPrepareSkill());
   all.add(ConfinedSpacePrepareSkill());

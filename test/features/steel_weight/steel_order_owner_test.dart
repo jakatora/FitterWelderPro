@@ -175,6 +175,103 @@ void main() {
     await prefs.reload();
     expect((await const SteelOrderStore().load()).items, isEmpty);
   });
+
+  test(
+      'stale bound screen cannot overwrite a newer list and readLatest does not rebase it',
+      () async {
+    final owner = await LocalRecordOwner.capture();
+    final first = SteelOrderStore.forOwner(owner),
+        second = SteelOrderStore.forOwner(owner);
+    await first.load();
+    await second.load();
+    final tagged = original.copyWith(
+        items: [original.items.single.copyWith(recordId: 'fixture-record')]);
+    await first.save(tagged);
+    await expectLater(second.save(changed), throwsA(isA<SteelOrderConflict>()));
+    expect((await second.readLatest()).toJson(), tagged.toJson());
+    await expectLater(second.save(changed), throwsA(isA<SteelOrderConflict>()));
+    final refreshed = await second.load();
+    await second.save(refreshed.copyWith(pricePerKg: 8.25));
+    final persisted = await const SteelOrderStore().load();
+    expect(persisted.items.single.recordId, 'fixture-record');
+    expect(persisted.pricePerKg, 8.25);
+  });
+  test(
+      'malformed quantities, prices and identities are never normalized into an overwrite',
+      () async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final invalid in [
+      {...original.toJson(), 'priceKg': 'invalid'},
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'price': 'invalid'}
+        ]
+      },
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'mat': 'unknown'}
+        ]
+      },
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'pu': 'unknown'}
+        ]
+      },
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'n': 1.5}
+        ]
+      },
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'recordId': 12}
+        ]
+      },
+      {
+        ...original.toJson(),
+        'items': [
+          {...original.items.single.toJson(), 'recordId': 'duplicate'},
+          {...original.items.single.toJson(), 'recordId': 'duplicate'}
+        ]
+      },
+    ]) {
+      final raw = jsonEncode(invalid);
+      await prefs.setString(SteelOrderStore.key, raw);
+      await expectLater(const SteelOrderStore().load(), throwsFormatException);
+      await expectLater(
+          const SteelOrderStore().save(changed), throwsFormatException);
+      expect(prefs.getString(SteelOrderStore.key), raw);
+    }
+  });
+
+  test(
+      'invalid target data is rejected before overwriting valid saved prices and items',
+      () async {
+    await const SteelOrderStore().save(original);
+    for (final target in [
+      original.copyWith(items: [original.items.single.copyWith(count: 0)]),
+      original.copyWith(pricePerKg: double.infinity),
+      original.copyWith(pricePerKg: 1e300),
+      original.copyWith(wastePct: 1e300),
+      original.copyWith(
+          items: [original.items.single.copyWith(lengthMm: double.infinity)]),
+      original.copyWith(items: [
+        original.items.single.copyWith(recordId: 'same'),
+        original.items.single.copyWith(recordId: 'same')
+      ]),
+    ]) {
+      await expectLater(
+          const SteelOrderStore().save(target), throwsFormatException);
+      expect(
+          (await const SteelOrderStore().load()).toJson(), original.toJson());
+    }
+  });
+
   testWidgets('open page clears A list on B switch and restores A later',
       (t) async {
     await finish(t, login('A'));

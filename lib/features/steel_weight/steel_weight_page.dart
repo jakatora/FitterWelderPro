@@ -1,3 +1,4 @@
+import '../../assistant/core/skill.dart' show PreparedModuleRecord, ModuleRecordUndo, AssistantText;
 // Ciężar stali — profile, blachy, pręty.
 //
 // Monter / spawacz konstrukcji sprawdza, ile waży belka (dźwig, wciągarka,
@@ -10,6 +11,10 @@
 // liczy zakładka „Ciężar rury" (fitter_tools_screen.dart).
 
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:uuid/uuid.dart';
+import '../../assistant/assistant_validator.dart' show assistantNumber;
 import '../../database/local_record_owner.dart';
 import '../../services/account_service.dart';
 
@@ -52,7 +57,7 @@ class SteelWeightPage extends StatefulWidget {
 
 class _SteelWeightPageState extends State<SteelWeightPage>
     with SingleTickerProviderStateMixin, ToolHandleHost<SteelWeightPage>
-    implements InputToolHandle {
+    implements InputToolHandle, RecordActionHandle {
   @override
   Map<String, Object?> get inputFields {
     if (!mounted ||
@@ -63,6 +68,10 @@ class _SteelWeightPageState extends State<SteelWeightPage>
         ModalRoute.of(context)?.isCurrent != true) {
       return const {};
     }
+    return _draftFields;
+  }
+
+  Map<String, Object?> get _draftFields {
     final item = _draft;
     return {
       'shape': item.shape.name,
@@ -176,10 +185,11 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   LocalRecordOwner? _owner;
   SteelOrderStore? _store;
   int _loadGeneration = 0, _editRevision = 0, _freezeDepth = 0;
-  bool _dirty = false, _saveError = false, _loadError = false, _popPending = false;
+  bool _dirty = false, _saveError = false, _saveConflict = false, _loadError = false, _popPending = false;
+  Future<void>? _recordTask;
   Future<void>? _saveTail;
   Route<dynamic>? _orderDialogRoute;
-  bool get _sessionFrozen => _freezeDepth > 0;
+  bool get _sessionFrozen => _freezeDepth > 0 || _recordTask != null;
   bool get _hasCurrentOwner {
     try {
       _owner?.requireCurrent();
@@ -242,6 +252,8 @@ class _SteelWeightPageState extends State<SteelWeightPage>
       _saveError = false;
       _loadError = false;
       _saveTail = null;
+      _recordTask = null;
+      _saveConflict = false;
       _freezeDepth = 0;
       _loading = true;
       _resetDraft();
@@ -252,6 +264,16 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   Future<VoidCallback> _prepareSessionChange() async {
     if (!mounted) return () {};
     final revision = _sessionAccount.sessionRevision;
+    final pendingRecord = _recordTask;
+    if (pendingRecord != null) {
+      try {
+        await pendingRecord;
+      } catch (_) {
+        throw AccountException(
+            'Nie udało się potwierdzić zapisu pozycji stali. Ponów operację przed zmianą konta. / Could not confirm the steel record. Retry before switching accounts.');
+      }
+    }
+    if (!mounted) return () {};
     setState(() => _freezeDepth++);
     var released = false;
     void release() {
@@ -326,11 +348,15 @@ class _SteelWeightPageState extends State<SteelWeightPage>
           setState(() {
             _dirty = false;
             _saveError = false;
+            _saveConflict = false;
           });
         }
-      } catch (_) {
+      } catch (error) {
         if (mounted && generation == _loadGeneration) {
-          setState(() => _saveError = true);
+          setState(() {
+            _saveError = true;
+            _saveConflict = error is SteelOrderConflict;
+          });
         }
         rethrow;
       }
@@ -348,9 +374,14 @@ class _SteelWeightPageState extends State<SteelWeightPage>
     _popPending = true;
     final route = ModalRoute.of(context), generation = _loadGeneration;
     try {
+      final record = _recordTask;
+      if (record != null) await record;
       await _flushOrder();
       await WidgetsBinding.instance.endOfFrame;
-      if (mounted && generation == _loadGeneration && !_dirty && route?.isCurrent == true) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          !_dirty &&
+          route?.isCurrent == true) {
         await Navigator.of(context).maybePop();
       }
     } catch (_) {/* The save banner remains available for retry. */} finally {
@@ -369,6 +400,239 @@ class _SteelWeightPageState extends State<SteelWeightPage>
     _save = Timer(const Duration(milliseconds: 400),
         () => unawaited(_flushOrder().catchError((Object _) {})));
   }
+
+  Future<T> _recordOperation<T>(Future<T> Function() operation) {
+    if (!mounted ||
+        !_hasCurrentOwner ||
+        _recordTask != null ||
+        _freezeDepth > 0) {
+      throw StateError('Steel list is busy');
+    }
+    final generation = _loadGeneration;
+    final result = Future<T>.sync(operation);
+    final drain = result.then<void>((_) {});
+    setState(() {
+      _recordTask = drain;
+    });
+    void release() {
+      if (mounted &&
+          generation == _loadGeneration &&
+          identical(_recordTask, drain)) {
+        setState(() => _recordTask = null);
+      }
+    }
+
+    unawaited(
+        drain.then<void>((_) => release(), onError: (Object _) => release()));
+    return result;
+  }
+
+  void _requireRecordOwner(LocalRecordOwner owner, int generation,
+      {bool visible = true}) {
+    owner.requireCurrent();
+    if (!mounted ||
+        generation != _loadGeneration ||
+        _loading ||
+        _loadError ||
+        visible && ModalRoute.of(context)?.isCurrent != true) {
+      throw StateError('The steel record context changed');
+    }
+  }
+
+  void _showRecordFailure(SteelOrder before, int generation, Object error,
+      {required bool restore}) {
+    if (!mounted || generation != _loadGeneration || !_hasCurrentOwner) return;
+    _save?.cancel();
+    setState(() {
+      if (restore) {
+        _order = before;
+        _dirty = false;
+        _editRevision++;
+      }
+      _saveError = restore || error is SteelOrderConflict;
+      _saveConflict = _saveError;
+    });
+  }
+
+  @override
+  PreparedModuleRecord? prepareRecordAction(String action) {
+    if (action != 'add_draft' ||
+        _sessionFrozen ||
+        inputFields.isEmpty ||
+        _store == null) {
+      return null;
+    }
+    final parsed = steelDraftFromFields(_draftFields);
+    if (parsed == null) return null;
+    final owner = _owner!, store = _store!, generation = _loadGeneration;
+    final snapshot = Map<String, Object?>.of(_draftFields);
+    final item = parsed.copyWith(recordId: const Uuid().v4());
+    var expectedEdit = _editRevision, committed = false;
+    Future<ModuleRecordUndo?>? pending;
+    void validate() {
+      _requireRecordOwner(owner, generation);
+      if (_tabs.index != 0 ||
+          !mapEquals(snapshot, _draftFields) ||
+          expectedEdit != _editRevision) {
+        throw StateError('The item or list changed after preparation');
+      }
+    }
+
+    Future<void> undo() => _recordOperation<void>(() async {
+          _requireRecordOwner(owner, generation);
+          await _flushOrder();
+          _requireRecordOwner(owner, generation);
+          var before = _order;
+          var changed = false;
+          try {
+            final latest = await store.readLatest();
+            _requireRecordOwner(owner, generation);
+            final matches = latest.items
+                .where((row) => row.recordId == item.recordId)
+                .toList();
+            if (matches.length > 1 ||
+                matches.isNotEmpty &&
+                    jsonEncode(matches.single.toJson()) !=
+                        jsonEncode(item.toJson())) {
+              throw StateError('The added record was edited');
+            }
+            await store.save(
+                latest); // Acknowledge the fresh base without overwriting other records.
+            _requireRecordOwner(owner, generation);
+            before = latest;
+            setState(() {
+              _order = latest;
+              _dirty = false;
+            });
+            final next = latest.copyWith(
+                items: latest.items
+                    .where((row) => row.recordId != item.recordId)
+                    .toList());
+            setState(() {
+              _order = next;
+              _dirty = true;
+              _editRevision++;
+            });
+            changed = true;
+            await _flushOrder();
+            _requireRecordOwner(owner, generation, visible: false);
+            if ((await store.readLatest())
+                .items
+                .any((row) => row.recordId == item.recordId)) {
+              throw StateError('Undo could not be verified');
+            }
+          } catch (error) {
+            _showRecordFailure(before, generation, error, restore: changed);
+            rethrow;
+          }
+        });
+    Future<ModuleRecordUndo?> commit() async {
+      validate();
+      await _flushOrder();
+      validate();
+      var before = _order;
+      var changed = false;
+      try {
+        final latest = await store.readLatest();
+        validate();
+        final existing =
+            latest.items.where((row) => row.recordId == item.recordId).toList();
+        if (existing.isNotEmpty &&
+            (existing.length != 1 ||
+                jsonEncode(existing.single.toJson()) !=
+                    jsonEncode(item.toJson()))) {
+          throw StateError('Record identity conflict');
+        }
+        await store.save(
+            latest); // Merge into the persisted list, retaining its price and allowance.
+        _requireRecordOwner(owner, generation, visible: false);
+        before = latest;
+        setState(() {
+          _order = latest;
+          _dirty = false;
+        });
+        validate();
+        final next = existing.isNotEmpty
+            ? latest
+            : latest.copyWith(items: [...latest.items, item]);
+        setState(() {
+          _order = next;
+          _dirty = true;
+          _editRevision++;
+        });
+        changed = true;
+        expectedEdit = _editRevision;
+        await _flushOrder();
+        _requireRecordOwner(owner, generation, visible: false);
+        final verified = await store.readLatest();
+        if (verified.items
+                .where((row) =>
+                    row.recordId == item.recordId &&
+                    jsonEncode(row.toJson()) == jsonEncode(item.toJson()))
+                .length !=
+            1) {
+          throw StateError('Record persistence could not be verified');
+        }
+        committed = true;
+        return undo;
+      } catch (error) {
+        _showRecordFailure(before, generation, error, restore: changed);
+        expectedEdit = _editRevision;
+        rethrow;
+      }
+    }
+
+    final quantity = item.count,
+        length = assistantNumber(item.lengthMm, context.language);
+    final mass = assistantNumber(item.totalKg, context.language);
+    return PreparedModuleRecord(
+        AssistantText(
+            'Dodać ${item.label()} (${item.material.label(false)}) do listy: $quantity szt., każda $length mm, razem $mass kg? Cena i zapas pozostaną z bieżącej listy.',
+            'Add ${item.label(english: true)} (${item.material.label(true)}) to the list: $quantity pieces, $length mm each, $mass kg total? The current list price and allowance will be kept.'),
+        () {
+      validate();
+      if (committed) return Future.value(undo);
+      return pending ??= _recordOperation<ModuleRecordUndo?>(commit)
+          .whenComplete(() => pending = null);
+    });
+  }
+
+  Future<void> _reloadConflictingList() async {
+    final generation = _loadGeneration;
+    if (_dirty) {
+      final accepted = await _showOrderDialog<bool>((ctx) => AlertDialog(
+              title: Text(context.tr(
+                  pl: 'Wczytać zapisaną listę?', en: 'Reload saved list?')),
+              content: Text(context.tr(
+                  pl: 'Niezapisane zmiany tego ekranu zostaną odrzucone.',
+                  en: 'Unsaved changes on this screen will be discarded.')),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: Text(context.tr(pl: 'Anuluj', en: 'Cancel'))),
+                FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: Text(context.tr(pl: 'Wczytaj', en: 'Reload')))
+              ]));
+      if (accepted != true) return;
+    }
+    if (!mounted || generation != _loadGeneration || !_hasCurrentOwner) return;
+    _save?.cancel();
+    setState(() {
+      _dirty = false;
+      _saveError = false;
+      _saveConflict = false;
+      _loading = true;
+    });
+    await _load();
+  }
+
+  Widget _protectBack(Widget child) => PopScope(
+      canPop: !_dirty && _recordTask == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_flushAndPop());
+      },
+      child: child);
 
   bool get _en => context.language == AppLanguage.en;
 
@@ -503,7 +767,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   Widget build(BuildContext context) {
     final title = context.tr(pl: 'Ciężar stali', en: 'Steel weight');
     if (_loading || _loadError || _sessionFrozen) {
-      return Scaffold(
+      return _protectBack(Scaffold(
         appBar: AppBar(title: Text(title)),
         body: Center(
             child: _loadError
@@ -523,68 +787,69 @@ class _SteelWeightPageState extends State<SteelWeightPage>
                             context.tr(pl: 'Spróbuj ponownie', en: 'Retry'))),
                   ])
                 : const CircularProgressIndicator(color: kArc)),
-      );
+      ));
     }
     final n = _order.items.length;
-    return PopScope(
-        canPop: !_dirty,
-        onPopInvokedWithResult: (didPop, result) {
-          if (!didPop) unawaited(_flushAndPop());
-        },
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(title),
-            actions: [
-              IconButton(
-                key: const ValueKey('sw-appbar-share'),
-                tooltip: context.tr(pl: 'Udostępnij listę', en: 'Share list'),
-                constraints: const BoxConstraints(
-                    minWidth: kMinTapTarget, minHeight: kMinTapTarget),
-                onPressed: n == 0 ? null : _share,
-                icon: const Icon(Icons.ios_share),
-              ),
-            ],
-            bottom: TabBar(
-              controller: _tabs,
-              indicatorColor: kArc,
-              labelColor: kText,
-              unselectedLabelColor: kTextSec,
-              tabs: [
-                Tab(
-                    key: const ValueKey('sw-tab-profile'),
-                    text: context.tr(pl: 'Profil', en: 'Section')),
-                Tab(
-                    key: const ValueKey('sw-tab-list'),
-                    text: context.tr(pl: 'Lista ($n)', en: 'List ($n)')),
-              ],
-            ),
+    return _protectBack(Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(
+            key: const ValueKey('sw-appbar-share'),
+            tooltip: context.tr(pl: 'Udostępnij listę', en: 'Share list'),
+            constraints: const BoxConstraints(
+                minWidth: kMinTapTarget, minHeight: kMinTapTarget),
+            onPressed: n == 0 ? null : _share,
+            icon: const Icon(Icons.ios_share),
           ),
-          body: Column(children: [
-            if (_saveError)
-              MaterialBanner(
-                  content: Text(context.tr(
-                      pl: 'Lista nie została zapisana. Ponów zapis przed zmianą konta.',
-                      en: 'The list was not saved. Retry before switching accounts.')),
-                  actions: [
-                    TextButton(
-                        key: const ValueKey('sw-retry-save'),
-                        onPressed: () =>
-                            unawaited(_flushOrder().catchError((Object _) {})),
-                        child: Text(
-                            context.tr(pl: 'Ponów zapis', en: 'Retry save')))
-                  ]),
-            Expanded(
-                child: TabBarView(
-              controller: _tabs,
-              children: [
-                KeyedSubtree(
-                    key: ValueKey('sw-assistant-$_assistantGen'),
-                    child: _profileTab()),
-                _listTab()
-              ],
-            )),
-          ]),
-        ));
+        ],
+        bottom: TabBar(
+          controller: _tabs,
+          indicatorColor: kArc,
+          labelColor: kText,
+          unselectedLabelColor: kTextSec,
+          tabs: [
+            Tab(
+                key: const ValueKey('sw-tab-profile'),
+                text: context.tr(pl: 'Profil', en: 'Section')),
+            Tab(
+                key: const ValueKey('sw-tab-list'),
+                text: context.tr(pl: 'Lista ($n)', en: 'List ($n)')),
+          ],
+        ),
+      ),
+      body: Column(children: [
+        if (_saveError)
+          MaterialBanner(
+              content: Text(context.tr(
+                  pl: _saveConflict
+                      ? 'Nie udało się potwierdzić aktualnej listy. Wczytaj zapisaną wersję.'
+                      : 'Lista nie została zapisana. Ponów zapis przed zmianą konta.',
+                  en: _saveConflict
+                      ? 'The current list could not be confirmed. Reload the saved version.'
+                      : 'The list was not saved. Retry before switching accounts.')),
+              actions: [
+                TextButton(
+                    key: const ValueKey('sw-retry-save'),
+                    onPressed: () => _saveConflict
+                        ? unawaited(_reloadConflictingList())
+                        : unawaited(_flushOrder().catchError((Object _) {})),
+                    child: Text(context.tr(
+                        pl: _saveConflict ? 'Wczytaj listę' : 'Ponów zapis',
+                        en: _saveConflict ? 'Reload list' : 'Retry save')))
+              ]),
+        Expanded(
+            child: TabBarView(
+          controller: _tabs,
+          children: [
+            KeyedSubtree(
+                key: ValueKey('sw-assistant-$_assistantGen'),
+                child: _profileTab()),
+            _listTab()
+          ],
+        )),
+      ]),
+    ));
   }
 
   EdgeInsets get _pagePadding => EdgeInsets.fromLTRB(

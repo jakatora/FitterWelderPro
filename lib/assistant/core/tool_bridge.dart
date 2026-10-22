@@ -19,6 +19,10 @@ abstract interface class ModuleActionHandle {
   Future<ModuleActionResult> performAction(String action, {String? field});
 }
 
+abstract interface class RecordActionHandle {
+  PreparedModuleRecord? prepareRecordAction(String action);
+}
+
 abstract class ToolHandle {
   String get toolId;
   Set<String> get supportedFields;
@@ -50,7 +54,21 @@ class ToolBridge
         ModuleContext,
         RecordModuleContext,
         FieldModuleContext,
-        ModuleActionContext {
+        ModuleActionContext,
+        RecordActionModuleContext {
+  @override
+  PreparedModuleRecord? prepareModuleRecord(String toolId, String action) {
+    final handle = current;
+    if (handle == null ||
+        handle.toolId != toolId ||
+        handle is! RecordActionHandle ||
+        !isReady(handle) ||
+        appRoutes.top is PopupRoute) {
+      return null;
+    }
+    return (handle as RecordActionHandle).prepareRecordAction(action);
+  }
+
   @override
   Future<ModuleActionResult> performModuleAction(String toolId, String action,
       {String? field}) async {

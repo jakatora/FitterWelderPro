@@ -52,3 +52,17 @@ class ModuleActionResult {
   final bool completed;
   final AssistantText message;
 }
+
+/// A native screen prepares a bounded record snapshot; only confirmation calls
+/// perform. No model-supplied record IDs or persistence callbacks are accepted.
+typedef ModuleRecordUndo = Future<void> Function();
+
+class PreparedModuleRecord {
+  const PreparedModuleRecord(this.summary, this.perform);
+  final AssistantText summary;
+  final Future<ModuleRecordUndo?> Function() perform;
+}
+
+abstract interface class RecordActionModuleContext {
+  PreparedModuleRecord? prepareModuleRecord(String toolId, String action);
+}

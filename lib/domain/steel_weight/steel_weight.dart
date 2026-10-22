@@ -81,6 +81,8 @@ enum SteelItemProblem {
 /// - blacha: a = szerokość arkusza, t = grubość ([lengthMm] = długość arkusza).
 /// Dla kształtownika z tabeli wymiar wskazuje [section] (nazwa wiersza).
 class SteelItem {
+  /// Native record identity; absent on legacy/manual drafts and AI inputs.
+  final String? recordId;
   final SteelShape shape;
   final String? section;
   final double a;
@@ -97,6 +99,7 @@ class SteelItem {
   final PriceUnit priceUnit;
 
   const SteelItem({
+    this.recordId,
     required this.shape,
     this.section,
     this.a = 0,
@@ -110,6 +113,7 @@ class SteelItem {
   });
 
   SteelItem copyWith({
+    String? recordId,
     SteelShape? shape,
     String? section,
     double? a,
@@ -123,6 +127,7 @@ class SteelItem {
     PriceUnit? priceUnit,
   }) =>
       SteelItem(
+        recordId: recordId ?? this.recordId,
         shape: shape ?? this.shape,
         section: section ?? this.section,
         a: a ?? this.a,
@@ -243,6 +248,7 @@ class SteelItem {
   String get groupKey => '${label()}|${material.name}';
 
   Map<String, dynamic> toJson() => {
+        if (recordId != null) 'recordId': recordId,
         'shape': shape.name,
         if (section != null) 'section': section,
         'a': a,
@@ -266,6 +272,11 @@ class SteelItem {
     double d(Object? v) => v is num ? v.toDouble() : 0;
     final price = raw['price'];
     final item = SteelItem(
+      recordId: raw['recordId'] is String &&
+              (raw['recordId'] as String).isNotEmpty &&
+              (raw['recordId'] as String).length <= 128
+          ? raw['recordId'] as String
+          : null,
       shape: shape,
       section: raw['section'] is String ? raw['section'] as String : null,
       a: d(raw['a']),

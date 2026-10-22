@@ -1957,12 +1957,18 @@ class _AiChatScreenState extends State<AiChatScreen>
               key: const Key('assistant-local-cancel'),
               onPressed: (_busy || _runningAiPlan)
                   ? null
-                  : () => setState(() {
+                  : () {
+                      final failedAttempt = _noticeIsError == true;
+                      setState(() {
                         _resetAct();
-                        _notice = _tr('Anulowano. Nic nie zapisano.',
-                            'Cancelled. Nothing saved.');
+                        _notice = failedAttempt
+                            ? _tr('Anulowano dalsze próby. Sprawdź dane w module.',
+                                'Further attempts cancelled. Check the module data.')
+                            : _tr('Anulowano. Nic nie zapisano.',
+                                'Cancelled. Nothing saved.');
                         _noticeIsError = false;
-                      }),
+                      });
+                    },
               child: Text(_tr('Anuluj', 'Cancel')),
             ),
           ]),
