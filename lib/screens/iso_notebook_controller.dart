@@ -316,7 +316,7 @@ class IsoNotebookController extends ChangeNotifier {
   /// partially animated or queued edits as a completed drawing.
   SketchSummary? get summary {
     final state = _state;
-    if (state == null || isBusy) return null;
+    if (state == null || isBusy || !_sketchLoaded.isCompleted) return null;
     final pipes = state._pipes;
     final cuts = [for (final pipe in pipes) state._resolvedCut(pipe)]
         .where((cut) => cut.isFinite && cut >= 0).toList();

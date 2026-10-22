@@ -1,3 +1,7 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:cut_list_app/i18n/app_language.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -13,6 +17,73 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 
 void main() {
   useTestDatabase();
+  testWidgets('summary waits for owner and persisted sheet restoration',
+      (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final reply = Completer<http.Response>(), entered = Completer<void>();
+    FlutterSecureStorage.setMockInitialValues({
+      'railway_account_session_v1': 'fixture-A',
+      'railway_account_local_owner_v1':
+          jsonEncode({'token': 'fixture-A', 'id': 'A'}),
+    });
+    final account = AccountService.forTesting(MockClient((_) {
+      entered.complete();
+      return reply.future;
+    }));
+    AccountService.instance = account;
+    await t.runAsync(() async {
+      await const FlutterSecureStorage()
+          .write(key: 'railway_account_session_v1', value: 'fixture-A');
+      expect(
+          await const FlutterSecureStorage()
+              .read(key: 'railway_account_session_v1'),
+          'fixture-A');
+      final db = await AppDatabase.get();
+      await db.delete('iso_drawings');
+      await db.insert('iso_drawings', {
+        'id': 'waiting-sheet',
+        'owner_scope': 'account:A',
+        'name': 'Loaded A',
+        'created_at': 1,
+        'updated_at': 2,
+        'json': jsonEncode({
+          'format': 1,
+          'name': 'Loaded A',
+          'items': [
+            {
+              'kind': 'seg',
+              'tool': 'pipe',
+              'a': [64, 100],
+              'b': [128, 100],
+              'calc': {'iso': '1000', 'ref': 'centreToCentre', 'deducts': []}
+            }
+          ]
+        })
+      });
+      unawaited(account.load());
+    });
+    await t.pumpWidget(AppLanguageScope(
+        controller: AppLanguageController(),
+        child: const MaterialApp(home: IsoNotebookScreen())));
+    for (var i = 0; i < 8 && !entered.isCompleted; i++) {
+      await flushTestDatabase(t);
+      await t.pump(const Duration(milliseconds: 20));
+    }
+    expect(entered.isCompleted, isTrue);
+    expect(IsoNotebookController.active, isNotNull);
+    expect(IsoNotebookController.active!.summary, isNull);
+    reply.complete(http.Response(
+        jsonEncode({
+          'account': {'id': 'A'}
+        }),
+        200));
+    await settle(t);
+    expect(IsoNotebookController.active!.summary!.pipeCount, 1);
+    expect(IsoNotebookController.active!.sketchId, 'waiting-sheet');
+    await t.pumpWidget(const SizedBox.shrink());
+    await settle(t);
+    expect(t.takeException(), isNull);
+  });
   testWidgets(
       'mounted ISO switches sheets by account and old controller cannot edit new account',
       (t) async {
