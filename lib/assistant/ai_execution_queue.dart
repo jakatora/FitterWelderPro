@@ -50,7 +50,7 @@ class AiExecutionQueue {
 /// original clause, including signs and negation. No model-chosen spans.
 List<String>? aiSourceClauses(String source) {
   final boundary = RegExp(
-      r"(?:\s+(?:(?:a|i)\s+(?:potem|nast[eę]pnie)|and\s+then|i|oraz|potem|nast[eę]pnie|and|then|after that)\s+|[,;]\s*)(?=(?:(?:prosz[eę]|please)\s+)?(?:(?:nie|do not|not|don['’]t)\s+)?(?:ustaw\w*|zmie[ńn]\w*|zmniejsz\w*|zwi[eę]ksz\w*|narysuj|dorysuj|nazwij|podsumuj|otw[oó]rz|dodaj|zapisz|odczytaj|oblicz|policz|set|change|reduce|decrease|increase|draw|append|name|rename|summari[sz]e|open|add|save|read|calculate|copy|clear|reset|przygotuj|eksportuj|wydrukuj|prepare|export|print|udost[eę]pnij|share)(?=\s|$))",
+      r"(?:\s+(?:(?:a|i)\s+(?:potem|nast[eę]pnie)|and\s+then|i|oraz|potem|nast[eę]pnie|and|then|after that)\s+|[,;]\s*)(?=(?:(?:prosz[eę]|please)\s+)?(?:(?:nie|do not|not|don['’]t)\s+)?(?:ustaw\w*|zmie[ńn]\w*|zmniejsz\w*|zwi[eę]ksz\w*|narysuj|dorysuj|nazwij|podsumuj|otw[oó]rz|dodaj|zapisz|odczytaj|oblicz|policz|set|change|reduce|decrease|increase|draw|append|name|rename|summari[sz]e|open|add|save|read|calculate|copy|kopiuj|skopiuj|clear|reset|przygotuj|eksportuj|wydrukuj|prepare|export|print|udost[eę]pnij|share)(?=\s|$))",
       caseSensitive: false);
   final matches = boundary.allMatches(source).toList();
   if (matches.isEmpty) return [source];

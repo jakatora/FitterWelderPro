@@ -1,3 +1,4 @@
+import 'iso_copy_summary_skill.dart';
 import 'iso_summary_skill.dart';
 import '../../core/skill.dart';
 import 'iso_draw_skill.dart';
@@ -10,5 +11,6 @@ List<AssistantSkill> isoSkills(IsoDrawingPort port) => [
       IsoDimensionSkill(port),
       IsoNameSkill(port),
       IsoGapSkill(port),
-      IsoSummarySkill(port)
+      IsoSummarySkill(port),
+      IsoCopySummarySkill()
     ];

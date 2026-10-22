@@ -1,3 +1,4 @@
+import '../assistant/core/skill.dart' show ModuleActionResult, AssistantText;
 import '../services/account_service.dart';
 import '../database/local_record_owner.dart';
 import 'dart:async';
@@ -928,7 +929,27 @@ class _IsoNotebookContent extends StatefulWidget {
 }
 
 class _IsoState extends State<_IsoNotebookContent>
-    with ToolHandleHost<_IsoNotebookContent> implements InputToolHandle {
+    with ToolHandleHost<_IsoNotebookContent> implements InputToolHandle, ModuleActionHandle {
+  @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    final copied =
+        action == 'copy_summary' && field == null && await _copySummary();
+    return copied
+        ? const ModuleActionResult(
+            true,
+            AssistantText(
+                'Skopiowano zestawienie bieżącego rysunku ISO do schowka.',
+                'The current ISO drawing summary was copied to the clipboard.'))
+        : const ModuleActionResult(
+            false,
+            AssistantText(
+                'Nie udało się skopiować zestawienia. Otwórz gotowy rysunek ISO, zamknij okna dialogowe i spróbuj ponownie.',
+                'The summary could not be copied. Open the completed ISO drawing, close dialogs and try again.'));
+  }
+
+  bool _copyPending = false;
+
   static const double _s = 32.0;
   static const String _kHintHiddenPref = 'iso_notebook_hint_hidden';
   static const String _kAxisCompassPref = 'iso_notebook_show_axis_compass';
@@ -5365,151 +5386,182 @@ class _IsoState extends State<_IsoNotebookContent>
     }
   }
 
-  Future<void> _copySummary() async {
-    final isPl = context.language == AppLanguage.pl;
-    final buf = StringBuffer();
-    buf.writeln(_projectName.isEmpty
-        ? _tr('Szkic izometryczny', 'Isometric sketch')
-        : _projectName);
-    buf.writeln('═' * 32);
-
-    final pipes = _pipes;
-    if (pipes.isNotEmpty) {
-      buf.writeln(_tr('CUT LIST', 'CUT LIST'));
-      var n = 0;
-      for (final s in pipes) {
-        n++;
-        final c = s.calc;
-        if (c == null) {
-          buf.writeln('  $n. ${_tr('(bez wymiaru)', '(no dimension)')}');
-          continue;
-        }
-        // Was `c.cutMm` — the clipboard summary reported the pre-engine
-        // number while the "Suma CUT" line right below it came from
-        // `_totalMm` (the engine). The two disagreed by every automatic
-        // take-out on the drawing.
-        final cut = _resolvedCut(s);
-        final cutStr = c.isReference
-            ? _tr('(wymiar odniesienia)', '(reference dimension)')
-            : cut.isFinite
-                ? '${cut.toStringAsFixed(1)} mm'
-                : _tr('(nieczytelne)', '(unreadable)');
-        if (c.hasDeducts) {
-          buf.writeln('  $n. ${_tr('ISO', 'ISO')}: ${c.iso}');
-          for (final d in c.deducts) {
-            final tag = d.name.isEmpty ? '?' : d.name;
-            buf.writeln('       − $tag: ${d.value}');
-          }
-          buf.writeln('     ${_tr('CUT', 'CUT')}: $cutStr');
-        } else {
-          buf.writeln('  $n. ${c.iso}'
-              '${cut.isFinite ? ' = $cutStr' : ''}');
-        }
-      }
-      buf.writeln('  ${'─' * 24}');
-      buf.writeln('  ${_tr('Suma CUT', 'Total CUT')}: '
-          '${_totalMm.toStringAsFixed(1)} mm');
-      // P0r-01: Surface the count of excluded segments so the welder
-      // knows the headline total is exclusive — without this the missing
-      // rows look like the math just disagrees with the visible drawing.
-      final invalidCount = _invalidPipeCount;
-      if (invalidCount > 0) {
-        buf.writeln('  ${_tr(
-          '⚠ $invalidCount odcinek/odcinki do sprawdzenia — wymiary nieczytelne lub ujemne, wyłączone z sumy.',
-          '⚠ $invalidCount segment(s) need checking — unreadable or negative cuts excluded from total.',
-        )}');
-      }
-      buf.writeln('');
-    }
-
-    final counts = <_Tool, int>{};
-    for (final it in _items) {
-      if (it is _Comp && it.t != _Tool.northArrow && it.t != _Tool.flowArrow) {
-        counts[it.t] = (counts[it.t] ?? 0) + 1;
-      }
-    }
-    if (counts.isNotEmpty) {
-      buf.writeln(_tr('ZESTAWIENIE MATERIAŁOWE (BOM)', 'MATERIAL LIST (BOM)'));
-      for (final e in counts.entries) {
-        buf.writeln('  ${compName(e.key, isPl)}: ${e.value}');
-      }
-      buf.writeln('');
-    }
-
-    final welds = _items.whereType<_Comp>().where((c) => c.t.isWeld).toList();
-    if (welds.isNotEmpty) {
-      buf.writeln('${_tr('Spoiny razem', 'Total welds')}: ${welds.length}');
-    }
-
-    final notes = _items.whereType<_Note>().toList();
-    if (notes.isNotEmpty) {
-      buf.writeln('');
-      buf.writeln(_tr('OPISY', 'NOTES'));
-      for (final nt in notes) {
-        buf.writeln('  • ${nt.text}');
-      }
-    }
-
-    // The summary can be ~1 KB — calling copyToClipboard directly would
-    // dump the whole blob into the snackbar. Copy quietly + show a short
-    // confirmation chip instead.
-    final payload = buf.toString();
+  Future<bool> _copySummary() async {
+    bool available() =>
+        mounted &&
+        !_disposing &&
+        !_sessionFrozen &&
+        !_voice.isBusy &&
+        _voice._sketchLoaded.isCompleted &&
+        _items.isNotEmpty &&
+        ModalRoute.of(context)?.isCurrent == true;
+    if (_copyPending || !available()) return false;
+    _copyPending = true;
     try {
-      await Clipboard.setData(ClipboardData(text: payload));
-    } catch (e) {
-      // Platform clipboard can fail when another app holds focus (Android
-      // background restriction) or on locked-down MDM devices. Surface a
-      // recoverable message instead of a raw PlatformException.
-      debugPrint('Copy summary clipboard error: $e');
-      if (!mounted) return;
+      final owner = await _drawingOwner;
+      owner.requireCurrent();
+      if (!mounted || !available()) return false;
+      final version = _version, drawingId = _drawingId;
+      final isPl = context.language == AppLanguage.pl;
+      final buf = StringBuffer();
+      buf.writeln(_projectName.isEmpty
+          ? _tr('Szkic izometryczny', 'Isometric sketch')
+          : _projectName);
+      buf.writeln('═' * 32);
+
+      final pipes = _pipes;
+      if (pipes.isNotEmpty) {
+        buf.writeln(_tr('CUT LIST', 'CUT LIST'));
+        var n = 0;
+        for (final s in pipes) {
+          n++;
+          final c = s.calc;
+          if (c == null) {
+            buf.writeln('  $n. ${_tr('(bez wymiaru)', '(no dimension)')}');
+            continue;
+          }
+          // Was `c.cutMm` — the clipboard summary reported the pre-engine
+          // number while the "Suma CUT" line right below it came from
+          // `_totalMm` (the engine). The two disagreed by every automatic
+          // take-out on the drawing.
+          final cut = _resolvedCut(s);
+          final cutStr = c.isReference
+              ? _tr('(wymiar odniesienia)', '(reference dimension)')
+              : cut.isFinite
+                  ? '${cut.toStringAsFixed(1)} mm'
+                  : _tr('(nieczytelne)', '(unreadable)');
+          if (c.hasDeducts) {
+            buf.writeln('  $n. ${_tr('ISO', 'ISO')}: ${c.iso}');
+            for (final d in c.deducts) {
+              final tag = d.name.isEmpty ? '?' : d.name;
+              buf.writeln('       − $tag: ${d.value}');
+            }
+            buf.writeln('     ${_tr('CUT', 'CUT')}: $cutStr');
+          } else {
+            buf.writeln('  $n. ${c.iso}'
+                '${cut.isFinite ? ' = $cutStr' : ''}');
+          }
+        }
+        buf.writeln('  ${'─' * 24}');
+        buf.writeln('  ${_tr('Suma CUT', 'Total CUT')}: '
+            '${_totalMm.toStringAsFixed(1)} mm');
+        // P0r-01: Surface the count of excluded segments so the welder
+        // knows the headline total is exclusive — without this the missing
+        // rows look like the math just disagrees with the visible drawing.
+        final invalidCount = _invalidPipeCount;
+        if (invalidCount > 0) {
+          buf.writeln('  ${_tr(
+            '⚠ $invalidCount odcinek/odcinki do sprawdzenia — wymiary nieczytelne lub ujemne, wyłączone z sumy.',
+            '⚠ $invalidCount segment(s) need checking — unreadable or negative cuts excluded from total.',
+          )}');
+        }
+        buf.writeln('');
+      }
+
+      final counts = <_Tool, int>{};
+      for (final it in _items) {
+        if (it is _Comp &&
+            it.t != _Tool.northArrow &&
+            it.t != _Tool.flowArrow) {
+          counts[it.t] = (counts[it.t] ?? 0) + 1;
+        }
+      }
+      if (counts.isNotEmpty) {
+        buf.writeln(
+            _tr('ZESTAWIENIE MATERIAŁOWE (BOM)', 'MATERIAL LIST (BOM)'));
+        for (final e in counts.entries) {
+          buf.writeln('  ${compName(e.key, isPl)}: ${e.value}');
+        }
+        buf.writeln('');
+      }
+
+      final welds = _items.whereType<_Comp>().where((c) => c.t.isWeld).toList();
+      if (welds.isNotEmpty) {
+        buf.writeln('${_tr('Spoiny razem', 'Total welds')}: ${welds.length}');
+      }
+
+      final notes = _items.whereType<_Note>().toList();
+      if (notes.isNotEmpty) {
+        buf.writeln('');
+        buf.writeln(_tr('OPISY', 'NOTES'));
+        for (final nt in notes) {
+          buf.writeln('  • ${nt.text}');
+        }
+      }
+
+      // The summary can be ~1 KB — calling copyToClipboard directly would
+      // dump the whole blob into the snackbar. Copy quietly + show a short
+      // confirmation chip instead.
+      final payload = buf.toString();
+      try {
+        await Clipboard.setData(ClipboardData(text: payload));
+      } catch (e) {
+        // Platform clipboard can fail when another app holds focus (Android
+        // background restriction) or on locked-down MDM devices. Surface a
+        // recoverable message instead of a raw PlatformException.
+        debugPrint('Copy summary clipboard error: $e');
+        if (!mounted) return false;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(_tr(
+              'Nie udało się skopiować — schowek jest zajęty przez inną aplikację.',
+              'Copy failed — clipboard is busy or blocked by another app.',
+            )),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: _tr('Ponów', 'Retry'),
+              onPressed: _copySummary,
+            ),
+          ));
+        return false;
+      }
+      unawaited(Haptic.copied().catchError((Object _) {}));
+      owner.requireCurrent();
+      if (!mounted ||
+          !available() ||
+          version != _version ||
+          drawingId != _drawingId) {
+        return false;
+      }
+      final lineCount = payload.split('\n').length;
+      // Polish has three plural forms (1 / few 2-4 / many 5+, with the 12-14
+      // teens trap landing in the "many" bucket). English just needs 1 vs n.
+      final mod10 = lineCount % 10;
+      final mod100 = lineCount % 100;
+      final plLine = lineCount == 1
+          ? 'linia'
+          : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+              ? 'linie'
+              : 'linii';
+      final enLine = lineCount == 1 ? 'line' : 'lines';
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: Text(_tr(
-            'Nie udało się skopiować — schowek jest zajęty przez inną aplikację.',
-            'Copy failed — clipboard is busy or blocked by another app.',
-          )),
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: _tr('Ponów', 'Retry'),
-            onPressed: _copySummary,
+          content: Row(
+            children: [
+              const ExcludeSemantics(
+                child: Icon(Icons.check_circle,
+                    color: Colors.greenAccent, size: 18),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(_tr(
+                  'Skopiowano zestawienie ($lineCount $plLine) do schowka.',
+                  'Copied summary ($lineCount $enLine) to clipboard.',
+                )),
+              ),
+            ],
           ),
+          duration: const Duration(milliseconds: 1600),
         ));
-      return;
+
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _copyPending = false;
     }
-    await Haptic.copied();
-    if (!mounted) return;
-    final lineCount = payload.split('\n').length;
-    // Polish has three plural forms (1 / few 2-4 / many 5+, with the 12-14
-    // teens trap landing in the "many" bucket). English just needs 1 vs n.
-    final mod10 = lineCount % 10;
-    final mod100 = lineCount % 100;
-    final plLine = lineCount == 1
-        ? 'linia'
-        : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
-            ? 'linie'
-            : 'linii';
-    final enLine = lineCount == 1 ? 'line' : 'lines';
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Row(
-          children: [
-            const ExcludeSemantics(
-              child: Icon(Icons.check_circle,
-                  color: Colors.greenAccent, size: 18),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(_tr(
-                'Skopiowano zestawienie ($lineCount $plLine) do schowka.',
-                'Copied summary ($lineCount $enLine) to clipboard.',
-              )),
-            ),
-          ],
-        ),
-        duration: const Duration(milliseconds: 1600),
-      ));
   }
 
   // ── undo / clear ────────────────────────────────────────────────────────────

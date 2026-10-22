@@ -43,6 +43,9 @@ class IsoSummarySkill extends AssistantSkill {
       _requested(command) && _summaryIntent(original);
 
   bool _summaryIntent(Utterance source) {
+    if (source.hasStem(const ['skopiuj', 'kopiuj', 'copy', 'schow', 'clipboard', 'wyslij', 'send', 'udostepnij', 'share'])) {
+      return false;
+    }
     if (referencesInstruction(source) ||
         source.hasAny(const ['nie', 'not', 'dont', 'don t', 'never'])) {
       return false;

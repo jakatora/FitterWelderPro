@@ -124,4 +124,13 @@ void main() {
           isNull);
     }
   });
+  test('Polish clipboard clauses remain distinct from drawing commands', () {
+    for (final verb in ['kopiuj', 'skopiuj', 'copy']) {
+      expect(aiSourceClauses('Narysuj rura metr a potem $verb zestawienie'),
+          ['Narysuj rura metr', '$verb zestawienie']);
+      expect(
+          aiSourceClauses('Narysuj rura metr i nie $verb zestawienie'), isNull);
+      expect(aiSourceClauses('Draw pipe and do not $verb summary'), isNull);
+    }
+  });
 }

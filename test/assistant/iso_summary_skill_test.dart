@@ -73,6 +73,10 @@ void main() {
           isFalse,
           reason: quotedInstruction);
     }
+    expect(
+        skill.acceptsProposal(u('Skopiuj podsumowanie rysunku ISO do schowka'),
+            match.utterance!, ctx),
+        false);
     foreground = false;
     expect(await skill.run(match, ctx), isA<FailedResult>());
     foreground = true;
