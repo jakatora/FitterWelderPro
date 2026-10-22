@@ -9,6 +9,7 @@ import 'sanitary_tube_skill.dart';
 import 'steel_weight_skill.dart';
 import 'pipe_supports_skill.dart';
 import 'pressure_test_skill.dart';
+import 'spool_tolerance_skill.dart';
 
 List<AssistantSkill> fitterTablesSkills() => [
       UnitsConvertSkill(),
@@ -18,6 +19,7 @@ List<AssistantSkill> fitterTablesSkills() => [
       SteelWeightSkill(),
       PipeSupportsSkill(),
       PressureTestSkill(),
+      SpoolToleranceSkill(),
       SteelDraftEditSkill(),
       SteelDraftSummarySkill(),
       SteelListSummarySkill(),

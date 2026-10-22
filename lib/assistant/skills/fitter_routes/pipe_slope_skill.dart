@@ -83,7 +83,11 @@ bool _foreign(Utterance u) =>
       'ukos',
       'bevel',
       'narys',
-      'draw'
+      'draw',
+      // Nachylenie czoła kołnierza spoola to tolerancja prefabrykacji.
+      'spool',
+      'czola',
+      'czolo'
     ]) ||
     mentionsWeight(u);
 

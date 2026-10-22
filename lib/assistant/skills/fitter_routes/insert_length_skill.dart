@@ -87,6 +87,8 @@ class InsertLengthSkill extends AssistantSkill {
     if (!u.hasStem(const ['wstawk', 'spool']) && !u.hasAny(const ['insert'])) {
       return null;
     }
+    // Tolerancje / odchyłki spoola to moduł „Tolerancje spoola”.
+    if (u.hasStem(const ['toleranc', 'odchyl', 'deviation'])) return null;
     final s = _slots(u);
     return SkillMatch(
         this,
