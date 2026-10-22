@@ -192,6 +192,14 @@ class CalculatorActionSkill extends AssistantSkill {
   @override
   String? get toolId => null;
   @override
+  SkillActionScope get actionScope => const SkillActionScope(
+        toolIds: fitterCalculatorActionToolIds,
+        actions: {
+          'copy': NativeActionTarget.allResults,
+          'clear': NativeActionTarget.allInputs,
+        },
+      );
+  @override
   AssistantTier get tier => AssistantTier.a;
   @override
   List<SkillExample> get examples => const [

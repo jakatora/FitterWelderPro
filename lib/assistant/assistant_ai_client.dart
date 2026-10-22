@@ -101,6 +101,12 @@ Map<String, Object?> assistantAiRequest(
           'tier': s.tier.name,
           'read_only': s.readOnly,
           'safety_critical': s.safetyCritical,
+          if (s.actionScope case final scope?)
+            'action_scope': {
+              'tool_ids': scope.toolIds,
+              'actions': scope.actions
+                  .map((key, target) => MapEntry(key, target.wireName)),
+            },
           'examples': s.examples
               .take(3)
               .map((e) => context.lang == AppLanguage.pl ? e.pl : e.en)

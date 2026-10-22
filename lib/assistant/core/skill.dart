@@ -52,11 +52,29 @@ class SkillRejection {
 /// A otwórz/wyjaśnij, B licz + wypełnij, C rekord, D rysuj.
 enum AssistantTier { a, b, c, d }
 
+enum NativeActionTarget {
+  allInputs('all_inputs'),
+  allResults('all_results');
+
+  const NativeActionTarget(this.wireName);
+  final String wireName;
+}
+
+/// Explicit multi-tool action scope, independent of the currently visible tool.
+/// This describes native support; it does not grant execution permission.
+class SkillActionScope {
+  const SkillActionScope({required this.toolIds, required this.actions});
+  final List<String> toolIds;
+  final Map<String, NativeActionTarget> actions;
+}
+
 abstract class AssistantSkill {
   String get id;
 
   /// Narzędzie z rejestru (`kToolRegistry`), którego dotyczy umiejętność.
   String? get toolId;
+
+  SkillActionScope? get actionScope => null;
 
   AssistantTier get tier;
 

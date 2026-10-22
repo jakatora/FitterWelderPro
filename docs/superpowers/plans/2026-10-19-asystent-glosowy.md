@@ -1532,3 +1532,5 @@ Next task candidate from actualsourceinventory: WelderToolsScreen gas,purge,pres
 2026-10-22: [Jedna rozmowa przy wejściu z Premium](2026-10-22-single-assistant-presentation.md): wspólna instancja panelu, duża prezentacja i powrót z kalkulatora bez pustej strony. Rzeczywiste logowanie właściciela, rola admin, odczyt raportów i unieważnienie sesji potwierdzone na Railway; nowy endpoint sterowania AI nadal 404. Pełny cel ACTIVE.
 
 2026-10-22: [Własne konto w nagłówku asystenta](2026-10-22-assistant-own-profile.md): nazwa i zawód z konta Railway, odtwarzanie istniejącej sesji, aktualizacja po edycji profilu i prywatna nawigacja do konta. Konwersacja nadal jest czyszczona przy zmianie sesji. Pełny cel ACTIVE.
+
+2026-10-22: [Jawny zakres działań dla modelu](2026-10-22-assistant-action-scope.md): typowany opis kopiowania całych wyników i czyszczenia całych pól w ośmiu kalkulatorach; zgodny opcjonalny kontrakt backendu połączony w PR7. Aplikacja 1032PASS0skip, backend204PASS0skip. Produkcyjna trasa sterowania AI nadal404; pełny cel ACTIVE.

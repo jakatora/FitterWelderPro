@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/assistant/core/brain.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
+import 'package:cut_list_app/assistant/core/calculator_action_tools.dart';
 import 'package:cut_list_app/assistant/core/tool_bridge.dart';
 import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -31,6 +32,32 @@ Map<String, Object?> plan(String command, {String id = 'rolling.offset'}) => {
 const canonical =
     'Rolling offset wznios 300 mm odsunięcie 400 mm kąt 45 stopni DN100 LR szczelina 3 mm';
 void main() {
+  for (final language in AppLanguage.values) {
+    test(
+        'catalog advertises native whole-form action scope in ${language.name}',
+        () {
+      final request = assistantAiRequest(
+          text: 'copy',
+          context: AssistantContext(lang: language, modules: Visible()),
+          skills: buildSkillCatalog());
+      final capabilities = (request['capabilities'] as List).cast<Map>();
+      final action =
+          capabilities.singleWhere((c) => c['id'] == 'calculator.action');
+      expect(action['tool_id'], isNull);
+      expect(action['action_scope'], {
+        'tool_ids': fitterCalculatorActionToolIds,
+        'actions': {'copy': 'all_results', 'clear': 'all_inputs'},
+      });
+      expect((action['action_scope'] as Map)['tool_ids'],
+          isNot(contains('rolling_offset')));
+      expect(
+          capabilities
+              .where((c) => c['id'] != 'calculator.action')
+              .every((c) => !c.containsKey('action_scope')),
+          isTrue);
+      expect(utf8.encode(jsonEncode(request)).length, lessThan(64000));
+    });
+  }
   test(
       'request uses actual public catalog, bounded history and opt-in visible values',
       () {
