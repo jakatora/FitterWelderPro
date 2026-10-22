@@ -1,3 +1,4 @@
+import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
 import '../assistant/navigation_plan_guard.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
@@ -2682,13 +2683,38 @@ class _AiChatScreenState extends State<AiChatScreen>
       final iso = _isoPort.isForeground ? IsoNotebookController.active : null;
       final summary = iso?.summary;
       final revision = iso?.revision;
+      final calculatorHandle = ToolBridge.instance.current;
+      final calculatorContext =
+          CalculatorQuestionContext.capture(_brainContext.modules);
       final reply = widget.contextChatSender != null
           ? await widget.contextChatSender!(text, history, summary)
           : widget.chatSender != null
               ? await widget.chatSender!(text, history)
-              : await AiChatService.instance
-                  .sendMessage(text, history: history, isoSummary: summary);
+              : await AiChatService.instance.sendMessage(text,
+                  history: history,
+                  isoSummary: summary,
+                  calculatorContext: calculatorContext);
       if (!mounted || epoch != _conversationEpoch) return;
+      if (calculatorContext != null) {
+        final current =
+            CalculatorQuestionContext.capture(_brainContext.modules);
+        if (!identical(calculatorHandle, ToolBridge.instance.current) ||
+            calculatorContext.toolId != current?.toolId ||
+            !mapEquals(calculatorContext.inputs, current?.inputs)) {
+          final notice = _tr(
+              'Kalkulator lub dane zmieniły się podczas przygotowywania odpowiedzi. Zapytaj ponownie o aktualny stan.',
+              'The calculator or inputs changed while the answer was being prepared. Ask again about the current state.');
+          setState(() {
+            _appendKnowledgeReply(ChatMessage(
+                role: ChatRole.assistant,
+                text: notice,
+                kind: AiReplyKind.localDialogue));
+            _typing.value = false;
+          });
+          await _speak(notice);
+          return;
+        }
+      }
       if (summary != null &&
           (!_isoPort.isForeground ||
               !identical(iso, IsoNotebookController.active) ||

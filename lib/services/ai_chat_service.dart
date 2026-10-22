@@ -1,3 +1,4 @@
+import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
 import 'dart:async';
@@ -138,6 +139,7 @@ class AiChatService {
     String userText, {
     List<ChatMessage> history = const [],
     SketchSummary? isoSummary,
+    CalculatorQuestionContext? calculatorContext,
   }) async {
     final trimmed = userText.trim();
     if (containsCredentialValue(trimmed)) {
@@ -160,7 +162,7 @@ class AiChatService {
     }
 
     // Live mode (Phase 5b): POST conversation to Railway backend, which
-    // proxies Anthropic Claude Haiku 4.5 with retrieval over the bundled
+    // proxies the configured Anthropic Claude Haiku with retrieval over the bundled
     // piping_knowledge.md (270 KB, 100 iteracji). Server is responsible for
     // holding the Anthropic API key, doing the embeddings retrieval, and
     // returning a structured response including citations.
@@ -182,6 +184,7 @@ class AiChatService {
               ...profile.body,
               'message': trimmed,
               if (isoSummary != null) 'iso_summary': isoSummary.toJson(),
+              if (calculatorContext != null) 'calculator_context': calculatorContext.toJson(),
               'history': chatHistoryForRequest(history)
                   .map((m) => {
                         'role': m.role.name,
@@ -223,6 +226,13 @@ class AiChatService {
       }
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      if (calculatorContext != null && body['calculator_context_used'] != true) {
+        return ChatMessage(role: ChatRole.assistant,
+            text: AppLanguageController.isEnglish
+                ? 'The server has not confirmed calculator context support. Ask again after the backend update.'
+                : 'Serwer nie potwierdził obsługi danych kalkulatora. Zapytaj ponownie po aktualizacji backendu.',
+            kind: AiReplyKind.unavailable);
+      }
       if (isoSummary != null && body['iso_summary_used'] != true) {
         return ChatMessage(
             role: ChatRole.assistant,
