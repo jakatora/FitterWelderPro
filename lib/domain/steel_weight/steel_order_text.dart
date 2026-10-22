@@ -96,3 +96,37 @@ String steelOrderText(SteelOrder order,
             'product standard tolerance.'));
   return b.toString();
 }
+
+/// Compact spoken/chat summary, using exactly the native order calculations.
+String steelOrderSummaryText(SteelOrder order, {bool english = false}) {
+  String tr(String pl, String en) => english ? en : pl;
+  final s = summarizeOrder(order, english: english);
+  if (order.items.isEmpty) {
+    return tr(
+        'Zapisana lista stali jest pusta.', 'The saved steel list is empty.');
+  }
+  final pieces = order.items.fold<int>(0, (total, item) => total + item.count);
+  final b = StringBuffer(tr('Zapisana lista stali', 'Saved steel list'))
+    ..write(
+        ': ${order.items.length} ${tr('poz.', 'rows')}, $pieces ${tr('szt.', 'pieces')}. ')
+    ..write(
+        '${tr('Masa netto', 'Net mass')}: ${fmtKg(s.netKg, english: english)} kg. ')
+    ..write(
+        '${tr('Zapas', 'Allowance')}: ${fmtNum(order.wastePct, decimals: 2, english: english)} %. ')
+    ..write(
+        '${tr('Do zamówienia', 'To order')}: ${fmtKg(s.orderKg, english: english)} kg.');
+  if (s.netGrosze == null) {
+    b.write(tr(' Brak cen — koszt nie jest określony.',
+        ' No prices — cost is unspecified.'));
+  } else {
+    b.write(
+        ' ${tr('Koszt netto wycenionych pozycji', 'Net cost of priced items')}: ${formatPln(s.netGrosze!)}. ');
+    b.write(
+        '${tr('Koszt z zapasem', 'Cost with allowance')}: ${formatPln(s.orderGrosze!)}.');
+  }
+  if (s.unpricedItems > 0) {
+    b.write(
+        ' ${tr('Pozycje bez ceny', 'Items without a price')}: ${s.unpricedItems} — ${tr('poza kosztem', 'excluded from cost')}.');
+  }
+  return b.toString();
+}

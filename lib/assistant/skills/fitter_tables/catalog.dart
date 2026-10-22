@@ -1,3 +1,4 @@
+import 'steel_list_summary_skill.dart';
 import 'steel_draft_skill.dart';
 import '../../core/skill.dart';
 import 'units_convert_skill.dart';
@@ -13,5 +14,6 @@ List<AssistantSkill> fitterTablesSkills() => [
       SanitaryTubeSkill(),
       SteelWeightSkill(),
       SteelDraftEditSkill(),
-      SteelDraftSummarySkill()
+      SteelDraftSummarySkill(),
+      SteelListSummarySkill()
     ];

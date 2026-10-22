@@ -1,4 +1,4 @@
-import '../../assistant/core/skill.dart' show PreparedModuleRecord, ModuleRecordUndo, AssistantText;
+import '../../assistant/core/skill.dart' show PreparedModuleRecord, ModuleRecordUndo, AssistantText, ModuleActionResult;
 // Ciężar stali — profile, blachy, pręty.
 //
 // Monter / spawacz konstrukcji sprawdza, ile waży belka (dźwig, wciągarka,
@@ -57,7 +57,48 @@ class SteelWeightPage extends StatefulWidget {
 
 class _SteelWeightPageState extends State<SteelWeightPage>
     with SingleTickerProviderStateMixin, ToolHandleHost<SteelWeightPage>
-    implements InputToolHandle, RecordActionHandle {
+    implements InputToolHandle, RecordActionHandle, ModuleActionHandle {
+  @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    const unavailable = ModuleActionResult(
+        false,
+        AssistantText(
+            'Otwórz Ciężar stali i poczekaj na zakończenie zapisu listy. Jeśli zapis się nie udał, ponów go albo wczytaj listę.',
+            'Open Steel weight and wait for the list to finish saving. If saving failed, retry or reload the list.'));
+    bool available() =>
+        mounted &&
+        !_loading &&
+        !_loadError &&
+        !_sessionFrozen &&
+        !_dirty &&
+        !_saveError &&
+        _hasCurrentOwner &&
+        _store != null &&
+        ModalRoute.of(context)?.isCurrent == true;
+    if (action != 'summarize_list' || field != null || !available()) {
+      return unavailable;
+    }
+    final generation = _loadGeneration;
+    final owner = _owner!;
+    try {
+      // Read durable account-scoped data; a summary never writes or rebases it.
+      final saved = await _store!.readLatest();
+      owner.requireCurrent();
+      if (generation != _loadGeneration || !available()) return unavailable;
+      return ModuleActionResult(
+          true,
+          AssistantText(steelOrderSummaryText(saved),
+              steelOrderSummaryText(saved, english: true)));
+    } catch (_) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Nie udało się odczytać zapisanej listy stali. Sprawdź listę w module; nie podaję niepewnego wyniku.',
+              'The saved steel list could not be read. Check the list in the module; no uncertain result is reported.'));
+    }
+  }
+
   @override
   Map<String, Object?> get inputFields {
     if (!mounted ||
