@@ -1,6 +1,8 @@
 // ignore_for_file: prefer_const_constructors
 
 import 'dart:math' as math;
+import '../assistant/core/calculator_action_tools.dart';
+import '../assistant/core/skill.dart' show AssistantText, ModuleActionResult;
 import '../assistant/core/tool_bridge.dart';
 
 import 'package:flutter/material.dart';
@@ -30,16 +32,7 @@ class FitterToolsScreen extends StatefulWidget {
   State<FitterToolsScreen> createState() => _FitterToolsScreenState();
 }
 
-const _fitterTabIds = [
-  'slope_cut',
-  'elbow_cut',
-  'elbow_rotation',
-  'insert',
-  'reducer',
-  'pipe_weight',
-  'bevel',
-  'thermal_expansion'
-];
+const _fitterTabIds = fitterCalculatorActionToolIds;
 const _fitterFields = <String, Set<String>>{
   'slope_cut': {'od_mm', 'slope_pct'},
   'elbow_cut': {
@@ -72,6 +65,81 @@ abstract interface class _FitterTabInput {
   Set<String> applyFields(Map<String, Object?> fields);
 }
 
+class _CopyResult {
+  const _CopyResult(this.label, this.value, this.unit, this.decimals);
+  final String label, unit;
+  final double? value;
+  final int decimals;
+}
+
+/// Both toolbar and assistant use these native controls and calculated values.
+/// No widget traversal, arbitrary text copying or second formula is involved.
+mixin _FitterTabActions<W extends StatefulWidget> on State<W>
+    implements ModuleActionHandle {
+  List<TextEditingController> get actionInputs;
+  String get actionTitle;
+  bool get actionHasError;
+  List<_CopyResult> get actionResults;
+  void recalculateAction();
+  void clearActionError();
+
+  @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    if (!mounted || field != null && field != 'result') {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Ta czynność nie jest dostępna dla wybranego pola.',
+              'This action is unavailable for the selected field.'));
+    }
+    if (action == 'clear' && field == null) {
+      for (final controller in actionInputs) {
+        controller.clear();
+      }
+      recalculateAction();
+      clearActionError();
+      return const ModuleActionResult(
+          true,
+          AssistantText('Wyczyszczono wpisane pola bieżącego kalkulatora.',
+              'Cleared the current calculator input fields.'));
+    }
+    if (action != 'copy') {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Ta czynność nie jest dostępna w tym kalkulatorze.',
+              'This action is unavailable in this calculator.'));
+    }
+    recalculateAction();
+    final values = actionResults.where((r) => r.value != null).toList();
+    if (actionHasError ||
+        values.isEmpty ||
+        values.any((r) => !r.value!.isFinite)) {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Uzupełnij poprawne dane, aby skopiować wyniki.',
+              'Enter valid inputs before copying the results.'));
+    }
+    final summary = [
+      actionTitle,
+      for (final r in values)
+        '${r.label}: ${r.value!.toStringAsFixed(r.decimals)} ${r.unit}'
+    ].join('\n');
+    try {
+      await copyToClipboard(context, summary,
+          label: context.tr(pl: 'Skopiowano wyniki', en: 'Results copied'));
+    } catch (_) {
+      return const ModuleActionResult(
+          false,
+          AssistantText('Nie udało się skopiować wyników do schowka.',
+              'The results could not be copied to the clipboard.'));
+    }
+    return const ModuleActionResult(
+        true,
+        AssistantText('Skopiowano wyniki bieżącego kalkulatora.',
+            'Copied the current calculator results.'));
+  }
+}
+
 double? _finite(Map<String, Object?> fields, String key) {
   final value = fields[key];
   return value is num && value.isFinite ? value.toDouble() : null;
@@ -81,7 +149,7 @@ bool _positive(double? v) => v != null && v > 0;
 
 class _FitterToolsScreenState extends State<FitterToolsScreen>
     with SingleTickerProviderStateMixin, ToolHandleHost<FitterToolsScreen>
-    implements TabbedToolHandle, InputToolHandle {
+    implements TabbedToolHandle, InputToolHandle, ModuleActionHandle {
   late final TabController _tabs;
   final _keys = List.generate(8, (_) => GlobalKey());
   @override
@@ -96,6 +164,47 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
     return state is _FitterTabReadable
         ? Map.unmodifiable((state as _FitterTabReadable).inputFields)
         : const {};
+  }
+
+  @override
+  Future<ModuleActionResult> performAction(String action,
+      {String? field}) async {
+    final target = _tabs.index;
+    final clock = Stopwatch()..start();
+    while (mounted &&
+        _tabs.index == target &&
+        _keys[target].currentState == null &&
+        clock.elapsed < const Duration(seconds: 2)) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted ||
+        _tabs.index != target ||
+        !identical(ToolBridge.instance.current, this) ||
+        ToolBridge.instance.inputFields(_fitterTabIds[target]) == null) {
+      return const ModuleActionResult(
+          false,
+          AssistantText(
+              'Kalkulator zmienił się. Powtórz polecenie w widocznej zakładce.',
+              'The calculator changed. Repeat the command in the visible tab.'));
+    }
+    final state = _keys[target].currentState;
+    return state is ModuleActionHandle
+        ? await (state as ModuleActionHandle)
+            .performAction(action, field: field)
+        : const ModuleActionResult(
+            false,
+            AssistantText(
+                'Poczekaj na otwarcie kalkulatora i spróbuj ponownie.',
+                'Wait for the calculator to open and try again.'));
+  }
+
+  Future<void> _runUiAction(String action) async {
+    final result = await performAction(action);
+    if (!mounted || result.completed && action == 'copy') return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+          SnackBar(content: Text(result.message.of(context.language))));
   }
 
   @override
@@ -148,7 +257,19 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
       appBar: AppBar(
         title: Text(
             context.tr(pl: 'Kalkulatory montera', en: 'Fitter calculators')),
-        actions: [HelpButton(help: kHelpFitterTools)],
+        actions: [
+          IconButton(
+              key: const Key('fitter-copy-results'),
+              tooltip: context.tr(pl: 'Kopiuj wyniki', en: 'Copy results'),
+              onPressed: () => _runUiAction('copy'),
+              icon: const Icon(Icons.copy)),
+          IconButton(
+              key: const Key('fitter-clear-inputs'),
+              tooltip: context.tr(pl: 'Wyczyść pola', en: 'Clear inputs'),
+              onPressed: () => _runUiAction('clear'),
+              icon: const Icon(Icons.clear_all)),
+          HelpButton(help: kHelpFitterTools),
+        ],
         bottom: TabBar(
           controller: _tabs,
           isScrollable: true,
@@ -167,17 +288,38 @@ class _FitterToolsScreenState extends State<FitterToolsScreen>
       body: TabBarView(
         controller: _tabs,
         children: [
-          _SlopeTab(key: _keys[0]),
-          _ElbowTab(key: _keys[1]),
-          _ElbowRotateTab(key: _keys[2]),
-          _InsertTab(key: _keys[3]),
-          _ReducerTab(key: _keys[4]),
-          _PipeWeightTab(key: _keys[5]),
-          _BevelTab(key: _keys[6]),
-          _ThermalExpansionTab(key: _keys[7]),
+          for (final (index, child) in <Widget>[
+            _SlopeTab(key: _keys[0]),
+            _ElbowTab(key: _keys[1]),
+            _ElbowRotateTab(key: _keys[2]),
+            _InsertTab(key: _keys[3]),
+            _ReducerTab(key: _keys[4]),
+            _PipeWeightTab(key: _keys[5]),
+            _BevelTab(key: _keys[6]),
+            _ThermalExpansionTab(key: _keys[7]),
+          ].indexed)
+            _KeepFitterTab(key: ValueKey(_fitterTabIds[index]), child: child),
         ],
       ),
     );
+  }
+}
+
+class _KeepFitterTab extends StatefulWidget {
+  const _KeepFitterTab({super.key, required this.child});
+  final Widget child;
+  @override
+  State<_KeepFitterTab> createState() => _KeepFitterTabState();
+}
+
+class _KeepFitterTabState extends State<_KeepFitterTab>
+    with AutomaticKeepAliveClientMixin<_KeepFitterTab> {
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 
@@ -311,7 +453,30 @@ class _SlopeTab extends StatefulWidget {
 }
 
 class _SlopeTabState extends State<_SlopeTab>
+    with _FitterTabActions<_SlopeTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs => [_diameter, _percent];
+  @override
+  String get actionTitle => _tr('Cięcie pod spadek', 'Slope cut');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(
+            _tr('Odchylenie od cięcia prostopadłego', 'Tilt off square'),
+            _alphaDeg,
+            '°',
+            3),
+        _CopyResult(_tr('Skala piły 90° = prosto', 'Saw scale 90° = square'),
+            _sawAngleDeg, '°', 3),
+        _CopyResult(
+            _tr('Różnica wysokości', 'Height difference'), _deltaH, 'mm', 2),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'od_mm': parseDecimal(_diameter.text),
@@ -459,7 +624,34 @@ class _ElbowTab extends StatefulWidget {
 }
 
 class _ElbowTabState extends State<_ElbowTab>
+    with _FitterTabActions<_ElbowTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs =>
+      [_longTotal, _shortTotal, _targetAngle];
+  @override
+  String get actionTitle => _tr('Cięcie kolanka', 'Elbow cut');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(
+            _tr('Cięcie — długi bok', 'Cut — extrados'), _lCut, 'mm', 1),
+        _CopyResult(
+            _tr('Cięcie — krótki bok', 'Cut — intrados'), _sCut, 'mm', 1),
+        _CopyResult(_tr('Pozostałość — długi bok', 'Remaining — extrados'),
+            _lRemain, 'mm', 1),
+        _CopyResult(_tr('Pozostałość — krótki bok', 'Remaining — intrados'),
+            _sRemain, 'mm', 1),
+        _CopyResult(
+            _tr('Kąt pozostałości', 'Remaining angle'), _remainAngle, '°', 1),
+        _CopyResult(
+            _tr('OD z pomiarów', 'OD from measurements'), _odDerived, 'mm', 1),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'base_angle_deg': parseDecimal(_base),
@@ -890,7 +1082,23 @@ class _ElbowRotateTab extends StatefulWidget {
 }
 
 class _ElbowRotateTabState extends State<_ElbowRotateTab>
+    with _FitterTabActions<_ElbowRotateTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs => [_od, _circ, _percent, _deg];
+  @override
+  String get actionTitle => _tr('Obrót kolanka', 'Elbow rotation');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(_tr('Łuk obrotu', 'Rotation arc'), _resultMm, 'mm', 1),
+        _CopyResult(_tr('Kąt obrotu', 'Rotation angle'), _resultDeg, '°', 1),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'od_mm': parseDecimal(_od.text),
@@ -1087,7 +1295,32 @@ class _InsertTab extends StatefulWidget {
 }
 
 class _InsertTabState extends State<_InsertTab>
+    with _FitterTabActions<_InsertTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs =>
+      [_od, _radius, _angle, _offset, _gap];
+  @override
+  String get actionTitle => _tr('Wstawka (offset)', 'Insert (offset)');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult('Take-out', _takeoff, 'mm', 1),
+        _CopyResult('Travel', _travel, 'mm', 1),
+        _CopyResult('Run', _run, 'mm', 1),
+        if (_gapMm > 0)
+          _CopyResult(
+              _tr('Wstawka między końcami kolan', 'Insert between elbow ends'),
+              _insert,
+              'mm',
+              1),
+        _CopyResult(_tr('Wstawka do cięcia', 'Insert to cut'), _cut, 'mm', 1),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'mode': _rMode,
@@ -1623,7 +1856,23 @@ class _ReducerTab extends StatefulWidget {
 }
 
 class _ReducerTabState extends State<_ReducerTab>
+    with _FitterTabActions<_ReducerTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs => [_d1, _d2, _len, _target];
+  @override
+  String get actionTitle => _tr('Redukcja', 'Reducer');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(_tr('Cięcie od dużego końca', 'Cut from the large end'),
+            _cutFromLarge, 'mm', 1),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'd1_mm': parseDecimal(_d1.text),
@@ -1787,7 +2036,24 @@ class _PipeWeightTab extends StatefulWidget {
 }
 
 class _PipeWeightTabState extends State<_PipeWeightTab>
+    with _FitterTabActions<_PipeWeightTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs => [_od, _t, _l, _qty];
+  @override
+  String get actionTitle => _tr('Ciężar rury', 'Pipe weight');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(_tr('Masa na metr', 'Mass per metre'), _kgm, 'kg/m', 3),
+        _CopyResult(_tr('Masa sztuki', 'Mass per piece'), _kgPiece, 'kg', 3),
+        _CopyResult(_tr('Masa łączna', 'Total mass'), _kgTotal, 'kg', 2),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'od_mm': parseDecimal(_od.text),
@@ -2017,7 +2283,36 @@ class _BevelTab extends StatefulWidget {
 }
 
 class _BevelTabState extends State<_BevelTab>
+    with _FitterTabActions<_BevelTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs =>
+      [_t, _angCtrl, _landCtrl, _gapCtrl];
+  @override
+  String get actionTitle => _tr('Fazowanie', 'Bevel');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(_tr('Kąt fazy na stronę β', 'Bevel angle per side β'),
+            _geo?.perSideDeg, '°', 2),
+        _CopyResult(
+            _tr('Kąt rowka α', 'Groove angle α'), _geo?.grooveDeg, '°', 2),
+        _CopyResult(_tr('Głębokość fazy na stronę', 'Bevel depth per face'),
+            _geo?.depthPerFaceMm, 'mm', 2),
+        _CopyResult(_tr('Szerokość fazy na stronę', 'Bevel width per side'),
+            _geo?.widthPerSideMm, 'mm', 2),
+        _CopyResult(
+            _tr('Szerokość rowka na powierzchni',
+                'Groove width at the surface'),
+            _geo?.grooveOpeningMm,
+            'mm',
+            2),
+      ];
   @override
   Map<String, Object?> get inputFields => {
         'wall_mm': parseDecimal(_t.text),
@@ -2323,7 +2618,23 @@ class _ThermalExpansionTab extends StatefulWidget {
 }
 
 class _ThermalExpansionTabState extends State<_ThermalExpansionTab>
+    with _FitterTabActions<_ThermalExpansionTab>
     implements _FitterTabInput, _FitterTabReadable {
+  @override
+  List<TextEditingController> get actionInputs => [_l, _dt, _t1, _t2];
+  @override
+  String get actionTitle => _tr('Dylatacja', 'Expansion');
+  @override
+  bool get actionHasError => _error != null;
+  @override
+  void recalculateAction() => _calc();
+  @override
+  void clearActionError() => setState(() => _error = null);
+  @override
+  List<_CopyResult> get actionResults => [
+        _CopyResult(_tr('Wydłużenie', 'Expansion'), _dLmm, 'mm', 1),
+        _CopyResult(_tr('Wydłużenie', 'Expansion'), _dLm, 'm', 4),
+      ];
   @override
   Map<String, Object?> get inputFields {
     final start = parseDecimal(_t1.text), end = parseDecimal(_t2.text);

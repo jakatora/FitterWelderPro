@@ -111,6 +111,12 @@ enum AssistantMode { act, answer }
 typedef AssistantChatSender = Future<ChatMessage> Function(
     String text, List<ChatMessage> history);
 
+typedef _CalculatorActionState = ({
+  ToolHandle? handle,
+  String? toolId,
+  Map<String, Object?>? inputs,
+});
+
 class AiChatScreen extends StatefulWidget {
   const AiChatScreen({
     super.key,
@@ -699,10 +705,10 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   static final _compoundAction = RegExp(
-      r'\b(?:nastepnie|potem|pozniej|then|after that)\s+(?:mi\s+)?'
+      r'\b(?:nastepnie|potem|pozniej|then|after that|oraz|i|and)\s+(?:mi\s+)?'
       r'(?:przypomnij|pokaz|zapisz|zachowaj|dodaj|dopisz|otworz|narysuj|'
-      r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|uruchom|wlacz|zatrzymaj|wznow|'
-      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind|start|pause|stop|resume)\b');
+      r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|uruchom|wlacz|zatrzymaj|wznow|kopiuj|skopiuj|wyczysc|wyzeruj|'
+      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind|start|pause|stop|resume|copy|clear|reset)\b');
 
   bool _compoundNeedsAi({bool needsConsent = false}) {
     if (!mounted) return true;
@@ -946,14 +952,46 @@ class _AiChatScreenState extends State<AiChatScreen>
     return true;
   }
 
+  _CalculatorActionState _calculatorActionState() {
+    final bridge = ToolBridge.instance;
+    final id = bridge.activeToolId;
+    final fields = id == null ? null : bridge.inputFields(id);
+    return (
+      handle: bridge.current,
+      toolId: id,
+      inputs: fields == null ? null : Map.of(fields)
+    );
+  }
+
+  bool _sameCalculatorActionState(
+          _CalculatorActionState a, _CalculatorActionState b) =>
+      identical(a.handle, b.handle) &&
+      a.toolId == b.toolId &&
+      mapEquals(a.inputs, b.inputs);
+
   Future<void> _runAiPlan(AppLanguage lang) async {
     if (_runningAiPlan) return;
     final epoch = _conversationEpoch;
+    final consentAt = LegalConsent.instance.acceptedAt;
     _runningAiPlan = true;
     try {
       AiCommandStep? step;
       while (mounted && (step = _aiQueue.takeNext()) != null) {
+        if (!LegalConsent.instance.isAccepted ||
+            LegalConsent.instance.acceptedAt != consentAt) {
+          _aiQueue.cancel();
+          setState(() {
+            _notice = _tr(
+                'Zgoda na AI zmieniła się. Pozostałe kroki anulowano.',
+                'AI consent changed. The remaining steps were cancelled.');
+            _noticeIsError = false;
+          });
+          return;
+        }
         final current = step!;
+        final beforeAction = current.skillId == 'calculator.action'
+            ? _calculatorActionState()
+            : null;
         final original = _aiQueue.original!;
         final u = Utterance(current.command, lang: lang, byVoice: _voiceUsed);
         final reply = await _brain.executeProposal(
@@ -962,6 +1000,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             original: Utterance(original, lang: lang, byVoice: _voiceUsed),
             context: _brainContext);
         if (!mounted || epoch != _conversationEpoch) return;
+        final afterAction =
+            beforeAction == null ? null : _calculatorActionState();
         final handled = await _presentBrainReply(reply, u, original, lang,
             aiExecution: true);
         if (!mounted || epoch != _conversationEpoch) return;
@@ -979,6 +1019,24 @@ class _AiChatScreenState extends State<AiChatScreen>
                   'Could not execute that interpretation. Please clarify the request.'));
             });
           }
+          return;
+        }
+        // Copy may await a platform callback while the user switches tabs or
+        // edits inputs. A later clear must never follow them to the new form.
+        if (_aiQueue.hasNext &&
+            beforeAction != null &&
+            afterAction != null &&
+            (reply.match?.slots['module_action'] == 'copy' &&
+                    !_sameCalculatorActionState(beforeAction, afterAction) ||
+                !_sameCalculatorActionState(
+                    afterAction, _calculatorActionState()))) {
+          _aiQueue.cancel();
+          setState(() {
+            _notice = _tr(
+                'Ekran lub dane zmieniły się. Pozostałe kroki anulowano.',
+                'The screen or inputs changed. The remaining steps were cancelled.');
+            _noticeIsError = false;
+          });
           return;
         }
         if (reply.result is AskResult || reply.result is ConfirmResult) {

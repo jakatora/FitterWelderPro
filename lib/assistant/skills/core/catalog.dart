@@ -4,6 +4,7 @@ import '../own_data/my_params_skill.dart';
 import '../../core/assistant_actions_port.dart';
 import '../../core/skill.dart';
 import 'capabilities_skill.dart';
+import 'calculator_action_skill.dart';
 import 'explain_tool_skill.dart';
 import 'knowledge_skill.dart';
 import 'legacy_intents_skill.dart';
@@ -29,6 +30,7 @@ List<AssistantSkill> coreSkills({
   out.addAll([
     PipeOdSkill(),
     PipeWallSkill(),
+    CalculatorActionSkill(),
     MyParamsSkill(load: savedParams),
     if (actions != null) ...[
       LegacyIntentsSkill.weldParam(actions),
