@@ -170,6 +170,9 @@ class WelderQualificationService {
     _accountRevision = revision;
     _generation++;
     overview.value = null;
+    // Powiadomienia z certyfikatami poprzedniego konta nie mogą przyjść
+    // nowemu — anulowane, gdy zmienił się faktyczny właściciel danych.
+    unawaited(QualificationReminders.instance.syncWithAccount());
   }
 
   final WelderCertificateDao _dao = WelderCertificateDao();

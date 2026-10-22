@@ -30,6 +30,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import '../database/local_record_owner.dart';
 import '../domain/qualification/reminder_plan.dart';
 
 /// Co warstwa usług potrzebuje od platformy. Interfejs, żeby testy mogły
@@ -151,33 +152,83 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
 
 /// Włącznik przypomnień + przechowywanie identyfikatorów zaplanowanych
 /// powiadomień (żeby umieć je anulować po zmianie rejestru).
+///
+/// [ownerScoped] (rejestr uprawnień — dane konta, schema32): włącznik należy
+/// do właściciela danych (gość zostaje na dawnym kluczu), a harmonogram
+/// pamięta, dla kogo go ułożono. Po zmianie konta [syncWithAccount] anuluje
+/// powiadomienia poprzedniego właściciela — z numerami JEGO certyfikatów.
 class QualificationReminders {
   QualificationReminders({
     ReminderPlatform? platform,
     this.enabledKey = enabledPrefsKey,
     this.idsKey = idsPrefsKey,
-  }) : _platform = platform ?? LocalNotificationsReminderPlatform();
+    this.ownerScoped = false,
+    Future<LocalRecordOwner> Function()? captureOwner,
+  })  : _platform = platform ?? LocalNotificationsReminderPlatform(),
+        _captureOwner = captureOwner ?? LocalRecordOwner.capture;
 
   /// Klucze SharedPreferences tego rejestru (uprawnienia — domyślne).
   final String enabledKey;
   final String idsKey;
+  final bool ownerScoped;
+  final Future<LocalRecordOwner> Function() _captureOwner;
 
-  static QualificationReminders instance = QualificationReminders();
+  static QualificationReminders instance =
+      QualificationReminders(ownerScoped: true);
 
   final ReminderPlatform _platform;
 
   static const String enabledPrefsKey = 'welder_cert_reminders_enabled_v1';
   static const String idsPrefsKey = 'welder_cert_reminder_ids_v1';
 
+  /// Właściciel, dla którego ułożono obecny harmonogram (tylko [ownerScoped]).
+  String get scheduleOwnerKey => '${idsKey}_owner';
+
   bool get supported => _platform.supported;
+
+  /// Klucz włącznika bieżącego właściciela; `null` = właściciela nie da się
+  /// ustalić (sesja w trakcie zmiany) — traktujemy jak wyłączone.
+  Future<({String key, String? owner})?> _enabledKeyNow() async {
+    if (!ownerScoped) return (key: enabledKey, owner: null);
+    try {
+      final owner = await _captureOwner();
+      owner.requireCurrent();
+      final key = owner.key == LocalRecordOwner.guest
+          ? enabledKey
+          : '$enabledKey.owner.${Uri.encodeComponent(owner.key)}';
+      return (key: key, owner: owner.key);
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<bool> isEnabled() async {
     if (!supported) return false;
+    final current = await _enabledKeyNow();
+    if (current == null) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(enabledKey) ?? false;
+      return prefs.getBool(current.key) ?? false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Po zmianie konta: harmonogram ułożony dla INNEGO właściciela jest
+  /// anulowany od razu (nie czeka na następne przeliczenie rejestru). Ten
+  /// sam właściciel po ponownym uruchomieniu aplikacji — nic się nie dzieje.
+  Future<void> syncWithAccount() async {
+    if (!ownerScoped || !supported) return;
+    final current = await _enabledKeyNow();
+    if (current == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final scheduledFor = prefs.getString(scheduleOwnerKey);
+      if (scheduledFor != null && scheduledFor != current.owner) {
+        await _cancelStored();
+      }
+    } catch (e) {
+      debugPrint('[reminders] account sync failed: $e');
     }
   }
 
@@ -194,9 +245,11 @@ class QualificationReminders {
       granted = false;
     }
     if (!granted) return false;
+    final current = await _enabledKeyNow();
+    if (current == null) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(enabledKey, true);
+      await prefs.setBool(current.key, true);
     } catch (_) {
       return false;
     }
@@ -204,11 +257,13 @@ class QualificationReminders {
     return true;
   }
 
-  /// Wyłącza i anuluje wszystko, co zaplanowaliśmy.
+  /// Wyłącza (dla bieżącego właściciela) i anuluje wszystko, co
+  /// zaplanowaliśmy.
   Future<void> disable() async {
+    final current = await _enabledKeyNow();
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(enabledKey, false);
+      if (current != null) await prefs.setBool(current.key, false);
     } catch (_) {
       // Anulujemy mimo to.
     }
@@ -219,13 +274,22 @@ class QualificationReminders {
   /// wyłączone. Nigdy nie rzuca — błąd platformy nie może zablokować zapisu
   /// certyfikatu.
   Future<void> reschedule(List<PlannedReminder> plan) async {
-    if (!await isEnabled()) return;
+    if (!await isEnabled()) {
+      // Wyłączone dla tego właściciela — harmonogram innego nie zostaje.
+      await syncWithAccount();
+      return;
+    }
+    final current = await _enabledKeyNow();
+    if (current == null) return;
     try {
       await _cancelStored();
       await _platform.schedule(plan);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
           idsKey, [for (final r in plan) r.id.toString()]);
+      if (ownerScoped && current.owner != null) {
+        await prefs.setString(scheduleOwnerKey, current.owner!);
+      }
     } catch (e) {
       debugPrint('[reminders] reschedule failed: $e');
     }
@@ -240,6 +304,7 @@ class QualificationReminders {
           .toList();
       if (ids.isNotEmpty) await _platform.cancel(ids);
       await prefs.remove(idsKey);
+      if (ownerScoped) await prefs.remove(scheduleOwnerKey);
     } catch (e) {
       debugPrint('[reminders] cancel failed: $e');
     }
