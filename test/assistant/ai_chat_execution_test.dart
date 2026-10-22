@@ -131,6 +131,47 @@ class SourceBoundFixtureSkill extends FixtureSkill {
 }
 
 void main() {
+  testWidgets('exhausted clarification can recover with a new full request without a paid retry', (t) async {
+    var calls=0;
+    final skill=FixtureSkill('fixture.bound','fixture bound',(_) async =>const AnswerResult(AssistantAnswer(text:AssistantText.same('Done'))));
+    await mount(t,skills:[skill],interpret:(request) async {
+      calls++;
+      if(calls==33) {
+        expect((request['context'] as Map)['clarification'],isNull);
+        expect((request['context'] as Map)['pending_question'],isNull);
+        expect((request['context'] as Map)['history'],isEmpty);
+      }
+      return const AiCommandPlan('clarify',[],'Which variant?');
+    });
+    for(var i=0;i<32;i++) {await say(t,'odpowiedz na etap $i');}
+    expect(calls,32);
+    await say(t,'jeszcze jeden szczegół');
+    expect(calls,32);
+    expect(find.textContaining('Doprecyzowanie jest zbyt długie'),findsOneWidget);
+    await say(t,'zupełnie nowa sprawa z kompletem szczegółów');
+    expect(calls,33);
+  });
+
+  testWidgets('long clarification retains original user turns after rolling history expires', (t) async {
+    final turns=['ogarnij zamówiony wariant','wariant do rury','opis dodatkowy','jeszcze jeden szczegół'];
+    var calls=0,runs=0;
+    final skill=SourceBoundFixtureSkill('fixture.bound','fixture bound',(_) async {
+      runs++;return const AnswerResult(AssistantAnswer(text:AssistantText.same('Wykonano wariant')));
+    });
+    await mount(t,skills:[skill],interpret:(request) async {
+      calls++;
+      if(calls<5) return AiCommandPlan('clarify',[],'Pytanie numer $calls');
+      final context=request['context'] as Map;
+      expect((context['history'] as List).any((m)=>(m as Map)['text']==turns.first),false);
+      expect(context['clarification'],{'user_turns':turns});
+      expect(request['text'],'drugi wariant');
+      return const AiCommandPlan('execute',[AiCommandStep('fixture.bound','fixture bound')],'');
+    });
+    for(final turn in turns) {await say(t,turn);}
+    await say(t,'drugi wariant');
+    expect(calls,5);expect(runs,1);
+  });
+
   for (final voice in [false, true]) {
     testWidgets('exact native command supersedes AI clarification without another model call voice=$voice', (t) async {
       final speech = FixtureSpeech();

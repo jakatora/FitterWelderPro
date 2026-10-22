@@ -906,8 +906,20 @@ class _AiChatScreenState extends State<AiChatScreen>
         ? _aiClarification!.sourceWithReply(text)
         : text;
     if (executionSource == null) {
-      return _boundedRequestNeedsAi();
+      setState(() {
+        _aiClarification = null;
+        _aiHistory.clear();
+        _busy = false;
+        _cmdCtrl.clear();
+        _notice = null;
+        _localResult = FailedResult(AssistantText(
+            'Doprecyzowanie jest zbyt długie. Podaj teraz całe polecenie z potrzebnymi szczegółami.',
+            'This clarification is too long. Give the complete request with the necessary details now.'));
+      });
+      return true;
     }
+    final executionTurns = awaitingAiClarification
+        ? [..._aiClarification!.userTurns, text] : [text];
     await LegalConsent.instance.load();
     if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
@@ -931,6 +943,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 : _brain.skills.where((s) => s.id == pending.partial.skill.id),
         pendingQuestion: question?.substring(0, question.length.clamp(0, 500)),
         pendingReply: pending,
+        clarification: awaitingAiClarification ? _aiClarification : null,
         history: List.of(_aiHistory));
     final consentAt = LegalConsent.instance.acceptedAt;
     final epoch = _aiEpoch;
@@ -1089,7 +1102,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _rememberAi(text, plan.message, kind: AiReplyKind.live);
     if (plan.kind == 'clarify') {
       _aiClarification = AiClarification(
-          question: plan.message, userSource: executionSource);
+          question: plan.message, userTurns: executionTurns);
     }
     if (plan.kind == 'unsupported') {
       unawaited(_feedback.missing(text,

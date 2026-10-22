@@ -1,3 +1,4 @@
+import 'ai_clarification.dart';
 import '../security/credential_text.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -76,9 +77,18 @@ Map<String, Object?> assistantAiRequest(
     required Iterable<AssistantSkill> skills,
     String? pendingQuestion,
     AskResult? pendingReply,
+    AiClarification? clarification,
     List<Map<String, String>> history = const []}) {
   if (containsCredentialValue(text)) {
     throw const FormatException('credential input');
+  }
+  if (clarification != null &&
+      (pendingQuestion == null ||
+          pendingQuestion.trim().isEmpty ||
+          pendingReply != null ||
+          clarification.sourceWithReply(text) == null ||
+          clarification.userTurns.any(containsCredentialValue))) {
+    throw const FormatException('clarification context');
   }
   final catalog = skills.where((s) => s.examples.isNotEmpty).toList();
   if (catalog.isEmpty || catalog.length > 160 || history.length > 6) {
@@ -134,6 +144,8 @@ Map<String, Object?> assistantAiRequest(
       'active_tool': active,
       'inputs': inputs,
       'pending_question': pendingQuestion,
+      if (clarification != null)
+        'clarification': {'user_turns': clarification.userTurns},
       if (pendingReply != null)
         'pending_reply': {
           'skill_id': pendingReply.partial.skill.id,
@@ -173,6 +185,12 @@ class AssistantAiClient {
       throw const AssistantAiUnavailable(null, code: 'AI_SENSITIVE_INPUT');
     }
     final context = request['context'];
+    final previous = context is Map ? context['clarification'] : null;
+    final turns = previous is Map ? previous['user_turns'] : null;
+    if (turns is List &&
+        turns.any((t) => t is String && containsCredentialValue(t))) {
+      throw const AssistantAiUnavailable(null, code: 'AI_SENSITIVE_INPUT');
+    }
     final safeRequest = {...request};
     if (context is Map && context['history'] is List) {
       safeRequest['context'] = {
