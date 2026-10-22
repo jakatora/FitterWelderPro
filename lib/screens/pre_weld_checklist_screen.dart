@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../assistant/core/tool_bridge.dart';
 import '../database/weld_journal_dao.dart';
 import '../domain/weld_journal/coupon_entry.dart' show parseO2Ppm, formatO2Ppm;
 import '../domain/weld_journal/weld_entry.dart';
@@ -295,7 +296,36 @@ class PreWeldChecklistScreen extends StatefulWidget {
   State<PreWeldChecklistScreen> createState() => _PreWeldChecklistScreenState();
 }
 
-class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
+class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
+    with ToolHandleHost<PreWeldChecklistScreen>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'pre_weld_checklist';
+  @override
+  Set<String> get supportedFields => const {'process'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'process': _process.id,
+        'done': _done.length,
+        'not_applicable': _na.length,
+      });
+
+  /// Asystent wybiera tylko proces (zestaw punktów). Odhaczanie zostaje
+  /// spawaczowi — lista bezpieczeństwa nie jest wypełniana głosem.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final p = WeldingProcessKind.values
+        .where((k) => k.id == fields['process'])
+        .firstOrNull;
+    if (!mounted ||
+        fields.keys.any((k) => !supportedFields.contains(k)) ||
+        p == null) {
+      return fields.keys.toSet();
+    }
+    if (p != _process) _setProcess(p);
+    return {};
+  }
+
   /// P0-12: persistent set of check IDs (was: index-based int set). Indexed
   /// state silently drifted when material changed (P-No 8 → P-No 10
   /// reshuffled indices 11+ to point at Duplex-critical items pre-ticked
@@ -335,7 +365,10 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen> {
   @override
   void initState() {
     super.initState();
-    _hydrate();
+    // Gotowość po odczycie zapisu dnia — inaczej odczyt nadpisałby proces.
+    _hydrate().whenComplete(() {
+      if (mounted) markReady();
+    });
   }
 
   Future<void> _hydrate() async {

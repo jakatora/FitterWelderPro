@@ -7,6 +7,7 @@ import 'iso/iso_draw_skill.dart';
 import 'records/quote_new_skill.dart';
 import 'records/interpass_reading_skill.dart';
 import 'records/hourly_rate_skill.dart';
+import 'records/preweld_checklist_skill.dart';
 // Katalog wszystkich umiejętności asystenta = suma katalogów grup.
 //
 // Każda grupa rejestruje się we własnym `skills/<grupa>/catalog.dart`;
@@ -72,6 +73,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(PassivationStatusSkill());
   all.add(QuoteNewSkill());
   all.add(HourlyRateSkill());
+  all.add(PreweldChecklistSkill());
   all.add(SteelAddSkill());
   all.add(InterpassReadingSkill());
   all.add(HotWorkPrepareSkill());

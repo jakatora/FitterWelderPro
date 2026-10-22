@@ -88,6 +88,8 @@ class OrbitalTigSkill extends AssistantSkill {
       return null;
     }
     if (!u.hasStem(const ['orbital'])) return null;
+    // „Checklista przed spawaniem orbitalnym” to lista kontrolna, nie prąd.
+    if (u.hasStem(const ['checklist', 'list', 'sprawdz', 'kontrol'])) return null;
     final s = _slots(u);
     return SkillMatch(this, s.isNotEmpty ? .93 : .75, slots: s, utterance: u);
   }
