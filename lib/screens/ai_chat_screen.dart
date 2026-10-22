@@ -1,3 +1,4 @@
+import '../security/credential_text.dart';
 import '../assistant/navigation_plan_guard.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
 import '../assistant/assistant_actions.dart';
@@ -187,7 +188,11 @@ class _AiChatScreenState extends State<AiChatScreen>
   String? _aiQuestion;
   void _rememberAi(String text, String response,
       {bool addMessages = true, AiReplyKind kind = AiReplyKind.nativeAction}) {
-    String bounded(String v) => v.length <= 1000 ? v : v.substring(0, 1000);
+    String bounded(String v) {
+      final safe = redactCredentialText(v);
+      return safe.length <= 1000 ? safe : safe.substring(0, 1000);
+    }
+
     if (addMessages) {
       _messages.add(ChatMessage(role: ChatRole.user, text: bounded(text)));
       _messages.add(ChatMessage(
@@ -1183,9 +1188,32 @@ class _AiChatScreenState extends State<AiChatScreen>
     setState(() => _notice = _notice == null ? message : '$message\n$_notice');
   }
 
+  bool _blockCredentialInput(String text) {
+    if (!containsCredentialValue(text)) return false;
+    _cancelMic();
+    final notice = _tr(credentialInputNoticePl, credentialInputNoticeEn);
+    setState(() {
+      _listening = false;
+      _cmdCtrl.clear();
+      _inputCtrl.clear();
+      _voiceUsed = false;
+      _notice = notice;
+      _noticeIsError = false;
+      _offerServer = false;
+      _offerAsk = false;
+      _messages.add(ChatMessage(
+          role: ChatRole.assistant,
+          text: notice,
+          kind: AiReplyKind.localDialogue));
+    });
+    unawaited(_speak(notice));
+    return true;
+  }
+
   Future<void> _submitCommand() async {
     final text = _cmdCtrl.text.trim();
     if (text.isEmpty || _busy || _runningAiPlan) return;
+    if (_blockCredentialInput(text)) return;
     final epoch = _conversationEpoch, before = _messages.length;
     try {
       await _submitCommandImpl();
@@ -2592,6 +2620,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
+    if (_blockCredentialInput(text)) return;
     _brainContext.invalidateActionReference();
     if (_listening) {
       await _speech.stop();

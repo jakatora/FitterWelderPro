@@ -20,6 +20,8 @@
 // reszta tekstu zostaje bez zmian. Trafienia wszystkich wzorców są łączone
 // (suma zakresów), każdy spójny zakres → jedno `***`.
 
+import '../security/credential_text.dart';
+
 const String kRedactedMark = '***';
 
 final RegExp _email = RegExp(
@@ -80,6 +82,7 @@ bool _isSpace(int c) =>
 /// Zastępuje dane kontaktowe i długie ciągi cyfr znakiem [kRedactedMark].
 String redactPersonalData(String text) {
   if (text.isEmpty) return text;
+  if (containsCredentialValue(text)) return kRedactedMark;
 
   // Kopia do dopasowania: każdy ciąg białych znaków = jedna spacja.
   // [from]/[to] — zakres w oryginale odpowiadający znakowi kopii.

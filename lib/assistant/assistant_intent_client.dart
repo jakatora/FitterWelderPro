@@ -1,3 +1,4 @@
+import '../security/credential_text.dart';
 // Klient `POST /api/fitter/ai/intent` — klasyfikacja polecenia przez model na
 // serwerze, gdy parser lokalny nie dał rady.
 //
@@ -67,6 +68,9 @@ class AssistantIntentClient {
   const AssistantIntentClient();
 
   Future<RemoteIntentResult> classify(String text, AppLanguage lang) async {
+    if (containsCredentialValue(text)) {
+      return const RemoteIntentUnavailable(RemoteUnavailableKind.notAllowed);
+    }
     final url = Uri.parse('${BackendConfig.baseUrl}${BackendConfig.aiIntent}');
     http.Response resp;
     try {
@@ -93,7 +97,8 @@ class AssistantIntentClient {
       case 404:
         return const RemoteIntentUnavailable(RemoteUnavailableKind.offline);
       case 401:
-        return const RemoteIntentUnavailable(RemoteUnavailableKind.unauthorized);
+        return const RemoteIntentUnavailable(
+            RemoteUnavailableKind.unauthorized);
       case 402:
         return const RemoteIntentUnavailable(
             RemoteUnavailableKind.premiumRequired);
@@ -118,7 +123,9 @@ class AssistantIntentClient {
       return RemoteIntentProposal(
         intent,
         {for (final e in fields.entries) e.key.toString(): e.value},
-        question is String && question.trim().isNotEmpty ? question.trim() : null,
+        question is String && question.trim().isNotEmpty
+            ? question.trim()
+            : null,
       );
     } catch (e) {
       debugPrint('AssistantIntentClient: malformed response ($e)');

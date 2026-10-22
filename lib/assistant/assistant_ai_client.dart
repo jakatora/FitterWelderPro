@@ -1,3 +1,4 @@
+import '../security/credential_text.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/backend_config.dart';
@@ -76,6 +77,9 @@ Map<String, Object?> assistantAiRequest(
     String? pendingQuestion,
     AskResult? pendingReply,
     List<Map<String, String>> history = const []}) {
+  if (containsCredentialValue(text)) {
+    throw const FormatException('credential input');
+  }
   final catalog = skills.where((s) => s.examples.isNotEmpty).toList();
   if (catalog.isEmpty || catalog.length > 160 || history.length > 6) {
     throw const FormatException('catalog/context size');
@@ -134,7 +138,10 @@ Map<String, Object?> assistantAiRequest(
                   : choice.utterance.substring(0, 128)
           ]
         },
-      'history': history
+      'history': [
+        for (final item in history)
+          {...item, 'text': redactCredentialText(item['text'] ?? '')}
+      ]
     },
   };
 }
@@ -154,6 +161,24 @@ class AssistantAiClient {
   final http.Client _client;
   final Future<Map<String, String>> Function() _identity;
   Future<AiCommandPlan> interpret(Map<String, Object?> request) async {
+    final text = request['text'];
+    if (text is String && containsCredentialValue(text)) {
+      throw const AssistantAiUnavailable(null, code: 'AI_SENSITIVE_INPUT');
+    }
+    final context = request['context'];
+    final safeRequest = {...request};
+    if (context is Map && context['history'] is List) {
+      safeRequest['context'] = {
+        ...context,
+        'history': [
+          for (final item in context['history'] as List)
+            if (item is Map && item['text'] is String)
+              {...item, 'text': redactCredentialText(item['text'] as String)}
+            else
+              item
+        ]
+      };
+    }
     final catalog = request['capabilities'] as List;
     final allowed = {for (final c in catalog) (c as Map)['id'] as String};
     try {
@@ -166,7 +191,7 @@ class AssistantAiClient {
                 ...identity,
                 ...profile.headers,
               },
-              body: jsonEncode({...request, ...profile.body}))
+              body: jsonEncode({...safeRequest, ...profile.body}))
           .timeout(const Duration(seconds: 30));
       profile.requireCurrent();
       if (response.statusCode != 200) {

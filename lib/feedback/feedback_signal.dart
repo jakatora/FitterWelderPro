@@ -1,3 +1,4 @@
+import '../security/credential_text.dart';
 // Sygnał feedbacku — jeden element partii `POST /api/fitter/feedback`.
 //
 // Kontrakt z backendem (wersja 1, wzorzec: test/fixtures/feedback_signal_v1.json,
@@ -198,7 +199,7 @@ class FeedbackSignal {
     return FeedbackSignal(
       id: id,
       kind: kind,
-      text: text,
+      text: redactCredentialText(text),
       tool: tool,
       skill: skill,
       skillsVersion: skillsVersion,

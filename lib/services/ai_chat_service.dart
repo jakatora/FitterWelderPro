@@ -1,3 +1,4 @@
+import '../security/credential_text.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -113,6 +114,8 @@ List<ChatMessage> chatHistoryForRequest(List<ChatMessage> all,
     final a = all[i + 1];
     if (q.role == ChatRole.user &&
         a.role == ChatRole.assistant &&
+        !containsCredentialValue(q.text) &&
+        !containsCredentialValue(a.text) &&
         (a.kind == AiReplyKind.live || a.kind == AiReplyKind.nativeAction)) {
       pairs
         ..add(q)
@@ -137,6 +140,12 @@ class AiChatService {
     SketchSummary? isoSummary,
   }) async {
     final trimmed = userText.trim();
+    if (containsCredentialValue(trimmed)) {
+      return ChatMessage(
+          role: ChatRole.assistant,
+          text: credentialInputNoticePl,
+          kind: AiReplyKind.localDialogue);
+    }
     if (trimmed.isEmpty) {
       return ChatMessage(
         role: ChatRole.assistant,
