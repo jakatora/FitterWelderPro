@@ -1,3 +1,4 @@
+import 'package:cut_list_app/services/ai_chat_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -561,4 +562,281 @@ void main() {
       expect(t.takeException(), isNull);
     });
   }
+  testWidgets(
+      'a short MAG code reply completes the original AI-normalized add without repeating the request',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (r) async {
+      calls++;
+      File('build/assistant-professional-mag-wire.json')
+          .writeAsStringSync(jsonEncode(r));
+      return AiCommandPlan(
+          'execute',
+          [
+            AiCommandStep(
+                'account.professional.edit',
+                calls == 1
+                    ? 'Dodaj w moim profilu procesy MAG'
+                    : 'Dodaj w moim profilu procesy 135')
+          ],
+          '');
+    });
+    await say(t, 'Dodaj MAG do mojego profilu');
+    expect(writes, isEmpty);
+    await say(t, '135');
+    expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+    expect(writes, isEmpty);
+    await confirm(t);
+    expect(account.account!['processes'], ['135', '141']);
+    expect(writes, hasLength(1));
+    File('build/assistant-professional-mag-write.json')
+        .writeAsStringSync(writes.single.body);
+    expect(calls, 1);
+    expect(t.takeException(), isNull);
+  });
+  test(
+      'MAG questions bind operation and explicit codes; model cannot guess the missing choice',
+      () {
+    final skill = ProfessionalProfileEditSkill();
+    final ctx = AssistantContext(
+        lang: AppLanguage.pl, modules: const FixedModuleContext());
+    Utterance u(String text) => Utterance(text, lang: AppLanguage.pl);
+    final source = u('Dodaj TIG i MAG do mojego profilu');
+    const canonical = 'Dodaj w moim profilu procesy 141 i MAG';
+    expect(skill.aiTaskSwitchCommands(source, ctx), [canonical]);
+    expect(skill.acceptsProposal(source, u(canonical), ctx), true);
+    expect(
+        skill.acceptsProposal(u('Remove MAG from my professional profile'),
+            u('Remove profile processes MAG'), ctx),
+        true);
+    for (final command in [
+      'Dodaj w moim profilu procesy 141 i 135',
+      'Dodaj w moim profilu procesy MAG',
+      'Ustaw w moim profilu procesy na 141 i MAG',
+      'Usuń w moim profilu procesy 141 i MAG',
+      'Dodaj w moim profilu procesy 111 i MAG',
+    ]) {
+      expect(skill.acceptsProposal(source, u(command), ctx), false,
+          reason: command);
+    }
+    for (final text in [
+      'Dodaj MAG 141 do mojego profilu',
+      'Dodaj TIG 135 i MAG do mojego profilu',
+      'Dodaj MAG albo TIG do mojego profilu',
+      'Nie dodawaj MAG do mojego profilu',
+      'Jak dodać MAG do mojego profilu'
+    ]) {
+      expect(skill.aiTaskSwitchCommands(u(text), ctx), isEmpty, reason: text);
+    }
+    expect(skill.fillProposalSlot('profile_mag_code', u('135'), u('136'), ctx),
+        isNull);
+    expect(
+        skill.fillProposalSlot('profile_mag_code', u('135'), u('MAG 135'), ctx),
+        {'profile_mag_code': '135'});
+    for (final text in [
+      '141',
+      '135 i 136',
+      'nie 135',
+      'Otwórz 135',
+      'Anuluj',
+      'tak'
+    ]) {
+      expect(skill.fillSlot('profile_mag_code', u(text), ctx), isNull,
+          reason: text);
+    }
+  });
+  for (final voice in [false, true]) {
+    for (final row in <(String, String, String, List<String>)>[
+      (
+        'Dodaj TIG i MAG do mojego profilu',
+        'Dodaj w moim profilu procesy 141 i MAG',
+        '136',
+        ['111', '135', '136', '141']
+      ),
+      (
+        'Usuń MAG i TIG z mojego profilu',
+        'Usuń w moim profilu procesy 141 i MAG',
+        '135',
+        ['111']
+      ),
+      (
+        'Wpisz w moim profilu procesy MMA i MAG',
+        'Ustaw w moim profilu procesy na 111 i MAG',
+        '138',
+        ['111', '138']
+      ),
+    ]) {
+      testWidgets(
+          'MAG dialogue retains process operation and explicit codes voice=$voice ${row.$1}',
+          (t) async {
+        stored = {
+          ...stored,
+          'processes': ['111', '135', '141']
+        };
+        await login(t);
+        var calls = 0;
+        final speech = FixtureSpeech();
+        await mount(t, speech: speech, interpret: (r) async {
+          calls++;
+          expect(
+              (r['capabilities'] as List)
+                  .single['professional_process_questions'],
+              true);
+          expect(jsonEncode(r), isNot(contains('Private qualifications')));
+          return AiCommandPlan('execute',
+              [AiCommandStep('account.professional.edit', row.$2)], '');
+        });
+        Future<void> send(String text) async {
+          if (!voice) {
+            await say(t, text);
+            return;
+          }
+          await t.tap(find.byKey(const Key('assistant-mic')));
+          await settle(t);
+          speech.emit(text);
+          await settle(t);
+        }
+
+        await send(row.$1);
+        expect(find.textContaining('Który proces MAG'), findsWidgets);
+        expect(writes, isEmpty);
+        await send(row.$3);
+        expect(writes, isEmpty);
+        expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+        if (voice) {
+          await send('Tak');
+        } else {
+          await confirm(t);
+        }
+        expect(calls, 1);
+        expect(writes, hasLength(1));
+        expect(account.account!['processes'], row.$4);
+        expect(t.takeException(), isNull);
+      });
+    }
+  }
+  testWidgets(
+      'MAG native question refuses a reply after the account session changes',
+      (t) async {
+    await login(t);
+    final skill = ProfessionalProfileEditSkill();
+    final ctx = AssistantContext(
+        lang: AppLanguage.pl, modules: const FixedModuleContext());
+    final match = skill.match(
+        Utterance('Dodaj w moim profilu procesy MAG', lang: AppLanguage.pl),
+        ctx)!;
+    final question = await skill.run(match, ctx) as AskResult;
+    await finish(
+        t, account.signIn('other@example.invalid', 'fixture-password'));
+    final result = await skill.run(
+        question.partial.copyWith(
+            slots: {...question.partial.slots, 'profile_mag_code': '135'}),
+        ctx);
+    expect(result, isA<AnswerResult>());
+    expect((result as AnswerResult).actionCompleted, false);
+    expect(result.answer.text.pl, contains('Sesja'));
+    expect(writes, isEmpty);
+  });
+  testWidgets(
+      'a model-invented MAG choice cannot consume an invalid user reply',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (r) async {
+      calls++;
+      if (calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep('account.professional.edit',
+                  'Dodaj w moim profilu procesy MAG')
+            ],
+            '');
+      }
+      expect((r['context'] as Map)['pending_reply'], {
+        'skill_id': 'account.professional.edit',
+        'slot': 'profile_mag_code',
+        'choices': ['135', '136', '138']
+      });
+      return const AiCommandPlan(
+          'reply', [AiCommandStep('account.professional.edit', '135')], '');
+    });
+    await say(t, 'Dodaj MAG do mojego profilu');
+    await say(t, '141');
+    expect(writes, isEmpty);
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(find.textContaining('Który proces MAG'), findsWidgets);
+    await say(t, '136');
+    await confirm(t);
+    expect(calls, 2);
+    expect(writes, hasLength(1));
+    expect(account.account!['processes'], ['136', '141']);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'knowledge question during MAG dialogue preserves the choice and final confirmation',
+      (t) async {
+    await login(t);
+    var calls = 0, answers = 0;
+    await mount(t, interpret: (r) async {
+      calls++;
+      if (calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep('account.professional.edit',
+                  'Dodaj w moim profilu procesy MAG')
+            ],
+            '');
+      }
+      expect((r['context'] as Map)['pending_reply'], isNotNull);
+      expect(jsonEncode(r), isNot(contains('Private stamp')));
+      return const AiCommandPlan('answer', [], '');
+    }, chatSender: (_, __) async {
+      answers++;
+      return ChatMessage(
+          role: ChatRole.assistant,
+          text: 'Fixture explanation of process codes',
+          kind: AiReplyKind.live);
+    });
+    await say(t, 'Dodaj MAG do mojego profilu');
+    await say(t, 'Co oznaczają te kody procesów?');
+    expect(find.textContaining('Fixture explanation'), findsWidgets);
+    expect(find.textContaining('Który proces MAG'), findsWidgets);
+    expect(writes, isEmpty);
+    await say(t, '135');
+    await confirm(t);
+    expect(calls, 2);
+    expect(answers, 1);
+    expect(writes, hasLength(1));
+    expect(account.account!['processes'], ['135', '141']);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'cancelling a MAG question does not let a later bare code save it',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      if (++calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep('account.professional.edit',
+                  'Dodaj w moim profilu procesy MAG')
+            ],
+            '');
+      }
+      return const AiCommandPlan(
+          'clarify', [], 'Którego polecenia dotyczy ta liczba?');
+    });
+    await say(t, 'Dodaj MAG do mojego profilu');
+    await say(t, 'Anuluj');
+    await say(t, '135');
+    expect(writes, isEmpty);
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(account.account!['processes'], ['141']);
+    expect(t.takeException(), isNull);
+  });
 }

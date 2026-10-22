@@ -24,12 +24,19 @@ String? _literal(String raw) {
   return value;
 }
 
-ProfessionalProfilePatch? _processPatch(
-    String raw, Utterance u, ProfileProcessEdit operation) {
+class _ProcessSelection {
+  _ProcessSelection(Iterable<String> codes, this.needsMag)
+      : codes = List.unmodifiable(codes.toList()..sort());
+  final List<String> codes;
+  final bool needsMag;
+}
+
+_ProcessSelection? _processSelection(String raw, Utterance u) {
   final normalized = u.withRaw(raw).folded.replaceAllMapped(
       RegExp(r'\b(tig|mma|mig|saw|mag)(\d{3})\b'), (m) => '${m[1]} ${m[2]}');
   final words = normalized.split(RegExp(r'\s+'));
   final selected = <String>{};
+  var needsMag = false;
   const aliases = {'tig': '141', 'mma': '111', 'mig': '131', 'saw': '121'};
   for (var i = 0; i < words.length; i++) {
     final word = words[i];
@@ -38,9 +45,13 @@ ProfessionalProfilePatch? _processPatch(
     }
     final next = i + 1 < words.length ? words[i + 1] : '';
     if (word == 'mag') {
-      if (!const {'135', '136', '138'}.contains(next)) return null;
-      selected.add(next);
-      i++;
+      if (const {'135', '136', '138'}.contains(next)) {
+        selected.add(next);
+        i++;
+      } else {
+        if (professionalProcessCodes.contains(next)) return null;
+        needsMag = true;
+      }
       continue;
     }
     final code = aliases[word] ?? word;
@@ -51,8 +62,80 @@ ProfessionalProfilePatch? _processPatch(
     }
     selected.add(code);
   }
-  if (selected.isEmpty) return null;
-  return ProfessionalProfilePatch.processes(selected, operation: operation);
+  if (selected.isEmpty && !needsMag) return null;
+  return _ProcessSelection(selected, needsMag);
+}
+
+ProfessionalProfilePatch? _processPatch(
+    String raw, Utterance u, ProfileProcessEdit operation) {
+  final selection = _processSelection(raw, u);
+  if (selection == null || selection.needsMag) return null;
+  return ProfessionalProfilePatch.processes(selection.codes,
+      operation: operation);
+}
+
+/// Native question state retains the requested operation and explicit codes.
+/// It never contains the private existing process list or crosses the AI wire.
+class _MagQuestion {
+  _MagQuestion(this.selection, this.operation);
+  final _ProcessSelection selection;
+  final ProfileProcessEdit operation;
+  bool sameAs(_MagQuestion other) =>
+      operation == other.operation &&
+      jsonEncode(selection.codes) == jsonEncode(other.selection.codes);
+  String canonical(AppLanguage lang) {
+    final prefix = switch ((lang, operation)) {
+      (AppLanguage.en, ProfileProcessEdit.add) => 'Add profile processes',
+      (AppLanguage.en, ProfileProcessEdit.remove) => 'Remove profile processes',
+      (AppLanguage.en, _) => 'Set my profile processes to',
+      (_, ProfileProcessEdit.add) => 'Dodaj w moim profilu procesy',
+      (_, ProfileProcessEdit.remove) => 'Usuń w moim profilu procesy',
+      _ => 'Ustaw w moim profilu procesy na',
+    };
+    return '$prefix ${[
+      ...selection.codes,
+      'MAG'
+    ].join(lang == AppLanguage.en ? ' and ' : ' i ')}';
+  }
+}
+
+_MagQuestion? _magQuestion(Utterance u, {bool natural = false}) {
+  if (referencesInstruction(u) || isNegatedCommand(u)) return null;
+  for (final entry in <(ProfileProcessEdit, String)>[
+    (
+      ProfileProcessEdit.replace,
+      r'^(?:ustaw w moim profilu procesy na|set my profile processes to) (.+)$'
+    ),
+    (
+      ProfileProcessEdit.add,
+      r'^(?:dodaj w moim profilu procesy|add profile processes) (.+)$'
+    ),
+    (
+      ProfileProcessEdit.remove,
+      r'^(?:usun w moim profilu procesy|remove profile processes) (.+)$'
+    ),
+    if (natural) ...[
+      (
+        ProfileProcessEdit.replace,
+        r'^(?:wpisz w moim profilu procesy|set the welding processes in my profile to) (.+)$'
+      ),
+      (
+        ProfileProcessEdit.add,
+        r'^(?:dodaj|dopisz) (.+) do mojego profilu$|^add (.+) to my professional profile$'
+      ),
+      (
+        ProfileProcessEdit.remove,
+        r'^usun (.+) z mojego profilu$|^remove (.+) from my professional profile$'
+      ),
+    ],
+  ]) {
+    final match = RegExp(entry.$2).firstMatch(u.folded);
+    if (match == null) continue;
+    final selection = _processSelection(match[1] ?? match[2]!, u);
+    if (selection == null || !selection.needsMag) return null;
+    return _MagQuestion(selection, entry.$1);
+  }
+  return null;
 }
 
 ProfessionalProfilePatch? _patch(Utterance u, {bool natural = false}) {
@@ -218,6 +301,31 @@ String _canonical(ProfessionalProfilePatch patch, AppLanguage lang) {
 
 class ProfessionalProfileEditSkill extends AssistantSkill {
   @override
+  bool get professionalProcessQuestions => true;
+
+  @override
+  Map<String, Object?>? fillSlot(
+      String slot, Utterance u, AssistantContext ctx) {
+    if (slot != 'profile_mag_code' ||
+        referencesInstruction(u) ||
+        isNegatedCommand(u)) {
+      return null;
+    }
+    final match = RegExp(r'^(?:mag )?(135|136|138)$').firstMatch(u.folded);
+    return match == null ? null : {slot: match[1]!};
+  }
+
+  @override
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+      Utterance original, AssistantContext ctx) {
+    final source = fillSlot(slot, original, ctx);
+    final proposed = fillSlot(slot, command, ctx);
+    return source != null && proposed != null && source[slot] == proposed[slot]
+        ? source
+        : null;
+  }
+
+  @override
   List<ProfessionalProfileField> get professionalProfileFields =>
       ProfessionalProfileField.values;
   @override
@@ -254,41 +362,86 @@ class ProfessionalProfileEditSkill extends AssistantSkill {
   Iterable<String> aiTaskSwitchCommands(
       Utterance source, AssistantContext ctx) {
     final patch = _patch(source, natural: true);
-    if (patch == null) return const [];
-    return [_canonical(patch, ctx.lang)];
+    if (patch != null) return [_canonical(patch, ctx.lang)];
+    final question = _magQuestion(source, natural: true);
+    return question == null ? const [] : [question.canonical(ctx.lang)];
   }
 
   @override
   bool acceptsProposal(
       Utterance original, Utterance command, AssistantContext context) {
     final source = _patch(original, natural: true), proposed = _patch(command);
-    return source != null && proposed != null && source.sameAs(proposed);
+    if (source != null && proposed != null) return source.sameAs(proposed);
+    final sourceQuestion = _magQuestion(original, natural: true);
+    final proposedQuestion = _magQuestion(command);
+    return sourceQuestion != null &&
+        proposedQuestion != null &&
+        sourceQuestion.sameAs(proposedQuestion);
   }
 
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) =>
-      _patch(u) == null ? null : SkillMatch(this, .98, utterance: u);
+      (_patch(u) == null && _magQuestion(u) == null)
+          ? null
+          : SkillMatch(this, .98, utterance: u);
   @override
   Future<SkillResult> run(SkillMatch m, AssistantContext ctx) async {
-    final patch = _patch(m.utterance!);
+    var patch = _patch(m.utterance!);
+    final question =
+        m.slots['_mag_question'] as _MagQuestion? ?? _magQuestion(m.utterance!);
     final account = AccountService.instance;
     final revision = account.sessionRevision;
     await account.load();
     if (!identical(account, AccountService.instance) ||
-        revision != account.sessionRevision) {
+        revision != account.sessionRevision ||
+        (m.slots.containsKey('_profile_owner') &&
+            (!identical(m.slots['_profile_owner'], account) ||
+                m.slots['_profile_revision'] != revision))) {
       return const AnswerResult(
           AssistantAnswer(
               text: AssistantText('Sesja zmieniła się. Powtórz zmianę profilu.',
                   'The session changed. Repeat the profile change.')),
           actionCompleted: false);
     }
-    if (account.account == null || patch == null) {
+    if (account.account == null) {
       return const AnswerResult(
           AssistantAnswer(
               text: AssistantText(
                   'Zaloguj się w formularzu konta, aby zmienić profil zawodowy.',
                   'Sign in using the account form to change your professional profile.')),
           show: ShowInModule('account'),
+          actionCompleted: false);
+    }
+    if (question != null) {
+      final reply = m.slots['profile_mag_code'];
+      if (reply is String && const {'135', '136', '138'}.contains(reply)) {
+        patch = ProfessionalProfilePatch.processes(
+            {...question.selection.codes, reply},
+            operation: question.operation);
+      } else {
+        return AskResult(
+            'profile_mag_code',
+            const AssistantText(
+                'Który proces MAG masz na myśli: 135, 136 czy 138?',
+                'Which MAG process do you mean: 135, 136 or 138?'),
+            partial: m.copyWith(slots: {
+              ...m.slots,
+              '_mag_question': question,
+              '_profile_owner': account,
+              '_profile_revision': revision
+            }),
+            choices: const [
+              FollowUp(AssistantText('135', '135'), '135'),
+              FollowUp(AssistantText('136', '136'), '136'),
+              FollowUp(AssistantText('138', '138'), '138'),
+            ]);
+      }
+    }
+    if (patch == null) {
+      return const AnswerResult(
+          AssistantAnswer(
+              text: AssistantText(
+                  'Powtórz zmianę profilu.', 'Repeat the profile change.')),
           actionCompleted: false);
     }
     return prepareProfessionalProfileEdit(patch, account, revision);

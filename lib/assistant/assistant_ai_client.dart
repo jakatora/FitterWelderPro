@@ -111,6 +111,8 @@ Map<String, Object?> assistantAiRequest(
           'tier': s.tier.name,
           'read_only': s.readOnly,
           'safety_critical': s.safetyCritical,
+          if (s.professionalProcessQuestions)
+            'professional_process_questions': true,
           if (s.professionalProfileFields.isNotEmpty)
             'professional_profile_fields':
                 s.professionalProfileFields.map((f) => f.name).toList(),
