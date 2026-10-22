@@ -175,7 +175,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   late final _account = AccountService.instance;
   int _sessionRevision = 0;
   StreamSubscription<UserProfile?>? _profileChanges;
-  final _summaryRoutes = <Route<bool>>{};
+  final _conversationRoutes = <Route<bool>>{};
   AssistantAiUnavailable? _aiUnavailable;
   String? _aiQuestion;
   void _rememberAi(String text, String response,
@@ -471,10 +471,10 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   void _clearConversation() {
     _conversationEpoch++;
-    for (final route in List.of(_summaryRoutes)) {
+    for (final route in List.of(_conversationRoutes)) {
       route.navigator?.removeRoute(route, false);
     }
-    _summaryRoutes.clear();
+    _conversationRoutes.clear();
     ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
     _resetAct();
     _aiClient?.close();
@@ -1064,6 +1064,35 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Future<void> _submitCommand() async {
+    final text = _cmdCtrl.text.trim();
+    if (text.isEmpty || _busy || _runningAiPlan) return;
+    final epoch = _conversationEpoch, before = _messages.length;
+    try {
+      await _submitCommandImpl();
+    } finally {
+      if (mounted &&
+          epoch == _conversationEpoch &&
+          _messages.length == before) {
+        final response = [
+          if (_question?.isNotEmpty == true) _question!,
+          if (_notice?.isNotEmpty == true) _notice!,
+          if (_queryResults != null)
+            '${_tr('Moje parametry', 'My parameters')}: $_queryTitle (${_queryResults!.length})',
+        ].join('\n');
+        if (response.isNotEmpty) {
+          _messages.addAll([
+            ChatMessage(role: ChatRole.user, text: text),
+            ChatMessage(
+                role: ChatRole.assistant,
+                text: response,
+                kind: AiReplyKind.localDialogue),
+          ]);
+        }
+      }
+    }
+  }
+
+  Future<void> _submitCommandImpl() async {
     final epoch = _conversationEpoch;
     var text = _cmdCtrl.text.trim();
     if (text.isEmpty || _busy || _runningAiPlan) return;
@@ -1945,7 +1974,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           _question = null;
           _pendingField = null;
         });
-        final confirmed = await _showRecordSummary(_SaveSummaryPage(
+        final confirmed = await _showPrivateConversationPage(_SaveSummaryPage(
           draft: draft,
           note: draft.sourceNote(at: _now(), byVoice: _voiceUsed, lang: lang),
         ));
@@ -2063,13 +2092,16 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   DateTime _now() => (widget.now ?? DateTime.now)();
 
-  Future<bool?> _showRecordSummary(Widget summary) async {
-    final route = MaterialPageRoute<bool>(builder: (_) => summary);
-    _summaryRoutes.add(route);
+  Future<bool?> _showPrivateConversationPage(Widget page) =>
+      _showPrivateConversationRoute(
+          MaterialPageRoute<bool>(builder: (_) => page));
+
+  Future<bool?> _showPrivateConversationRoute(Route<bool> route) async {
+    _conversationRoutes.add(route);
     try {
       return await Navigator.of(_navigationContext).push(route);
     } finally {
-      _summaryRoutes.remove(route);
+      _conversationRoutes.remove(route);
     }
   }
 
@@ -2225,7 +2257,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         return;
       case PreparedJournal():
         final snapshot = prep.payload as AssistantJournalSnapshot;
-        final confirmed = await _showRecordSummary(
+        final confirmed = await _showPrivateConversationPage(
             _JournalSummaryPage(entry: snapshot.entry));
         if (!mounted || epoch != _conversationEpoch) return;
         if (confirmed != true) {
@@ -2475,8 +2507,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   Future<void> _clearChat() async {
     final epoch = _conversationEpoch;
     if (_messages.length > 1) {
-      final confirmed = await showDialog<bool>(
-        context: context,
+      final confirmed = await _showPrivateConversationRoute(DialogRoute<bool>(
+        context: _navigationContext,
         builder: (dctx) => AlertDialog(
           backgroundColor: _kCard,
           title: Text(
@@ -2504,10 +2536,22 @@ class _AiChatScreenState extends State<AiChatScreen>
             ),
           ],
         ),
-      );
+      ));
       if (confirmed != true || !mounted || epoch != _conversationEpoch) return;
     }
     _clearConversation();
+  }
+
+  Future<void> _openConversation() async {
+    if (_busy || _runningAiPlan || _typing.value || _listening) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final messages = List<ChatMessage>.unmodifiable(_messages);
+    // Read-only view: no second engine, provider request or native action.
+    // Like record summaries, this private snapshot closes on a session change.
+    await _showPrivateConversationPage(_ConversationPage(
+      messages: messages,
+      onClear: _clearChat,
+    ));
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -2644,6 +2688,19 @@ class _AiChatScreenState extends State<AiChatScreen>
         Padding(
             padding: const EdgeInsets.all(8),
             child: Row(children: [
+              ValueListenableBuilder<bool>(
+                  valueListenable: _typing,
+                  builder: (context, typing, _) => SizedBox.square(
+                      dimension: 48,
+                      child: IconButton(
+                          key: const Key('assistant-conversation'),
+                          tooltip:
+                              _tr('Bieżąca rozmowa', 'Current conversation'),
+                          onPressed:
+                              _busy || _runningAiPlan || typing || _listening
+                                  ? null
+                                  : _openConversation,
+                          icon: const Icon(Icons.forum_outlined)))),
               if (_speech.isSupported)
                 SizedBox(
                     width: 56,
@@ -3509,9 +3566,76 @@ void _showCitation(BuildContext context, String citation) {
   );
 }
 
+class _ConversationPage extends StatelessWidget {
+  const _ConversationPage({required this.messages, required this.onClear});
+  final List<ChatMessage> messages;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        key: const Key('assistant-conversation-page'),
+        backgroundColor: _kBg,
+        appBar: AppBar(
+          title: Text(
+              context.tr(pl: 'Bieżąca rozmowa', en: 'Current conversation'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
+          actions: [
+            IconButton(
+              key: const Key('assistant-conversation-clear'),
+              tooltip: context.tr(pl: 'Wyczyść rozmowę', en: 'Clear chat'),
+              onPressed: onClear,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            )
+          ],
+        ),
+        body: SafeArea(
+            child: ListView.builder(
+          key: const Key('assistant-conversation-messages'),
+          padding: const EdgeInsets.all(12),
+          reverse: true,
+          itemCount: messages.length,
+          itemBuilder: (context, index) {
+            final message = messages[messages.length - 1 - index];
+            final label = message.role == ChatRole.user
+                ? context.tr(pl: 'Ty', en: 'You')
+                : switch (message.kind) {
+                    AiReplyKind.live =>
+                      context.tr(pl: 'Asystent · AI', en: 'Assistant · AI'),
+                    AiReplyKind.nativeAction ||
+                    AiReplyKind.localDialogue =>
+                      context.tr(
+                          pl: 'Asystent · aplikacja', en: 'Assistant · app'),
+                    AiReplyKind.offlineHelp =>
+                      context.tr(pl: 'Pomoc w aplikacji', en: 'In-app help'),
+                    AiReplyKind.dailyLimit ||
+                    AiReplyKind.premiumRequired ||
+                    AiReplyKind.unavailable =>
+                      context.tr(
+                          pl: 'Komunikat o dostępności AI',
+                          en: 'AI availability notice'),
+                    AiReplyKind.demo =>
+                      context.tr(pl: 'Asystent', en: 'Assistant'),
+                  };
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(label,
+                          style: Theme.of(context).textTheme.labelSmall)),
+                  _MessageBubble(message: message, interactiveCitations: false),
+                ]);
+          },
+        )),
+      );
+}
+
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  const _MessageBubble({required this.message});
+  final bool interactiveCitations;
+  const _MessageBubble(
+      {required this.message, this.interactiveCitations = true});
 
   @override
   Widget build(BuildContext context) {
@@ -3568,7 +3692,9 @@ class _MessageBubble extends StatelessWidget {
                       runSpacing: 4,
                       children: message.citations
                           .map((c) => InkWell(
-                                onTap: () => _showCitation(context, c),
+                                onTap: interactiveCitations
+                                    ? () => _showCitation(context, c)
+                                    : null,
                                 borderRadius: BorderRadius.circular(6),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(

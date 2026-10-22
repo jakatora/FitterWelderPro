@@ -1534,3 +1534,5 @@ Next task candidate from actualsourceinventory: WelderToolsScreen gas,purge,pres
 2026-10-22: [Własne konto w nagłówku asystenta](2026-10-22-assistant-own-profile.md): nazwa i zawód z konta Railway, odtwarzanie istniejącej sesji, aktualizacja po edycji profilu i prywatna nawigacja do konta. Konwersacja nadal jest czyszczona przy zmianie sesji. Pełny cel ACTIVE.
 
 2026-10-22: [Jawny zakres działań dla modelu](2026-10-22-assistant-action-scope.md): typowany opis kopiowania całych wyników i czyszczenia całych pól w ośmiu kalkulatorach; zgodny opcjonalny kontrakt backendu połączony w PR7. Aplikacja 1032PASS0skip, backend204PASS0skip. Produkcyjna trasa sterowania AI nadal404; pełny cel ACTIVE.
+
+2026-10-22: [Podgląd bieżącej rozmowy](2026-10-22-assistant-conversation-view.md): dostęp do wcześniejszych wiadomości, źródła odpowiedzi, lokalne pytania/statusy bez przekazywania ich jako faktów AI, zachowany moduł/szkic/oczekujący plan, zamykanie prywatnych widoków przy zmianie sesji. Regresja100PASS0skip, końcowy zestaw27PASS0skip; pełny cel ACTIVE.

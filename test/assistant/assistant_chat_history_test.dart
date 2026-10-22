@@ -47,6 +47,8 @@ void main() {
         _ai('Witaj!', AiReplyKind.demo),
         _user('q1'),
         _ai('pomoc offline', AiReplyKind.offlineHelp),
+        _user('lokalne pytanie'),
+        _ai('Jaki prąd w amperach?', AiReplyKind.localDialogue),
         _user('q2'),
         _ai('a2'),
         _user('q3'),

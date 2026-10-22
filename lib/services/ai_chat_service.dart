@@ -52,6 +52,9 @@ enum AiReplyKind {
   /// Verified response from the native app executor, usable as conversation context.
   nativeAction,
 
+  /// Local clarification/status for display, excluded from verified AI context.
+  localDialogue,
+
   /// Odpowiedź modelu z serwera.
   live,
 
