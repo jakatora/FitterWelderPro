@@ -49,6 +49,20 @@ class AccountService extends ChangeNotifier {
   /// Changes only when the authenticated session changes, never on profile edits.
   int get sessionRevision => _sessionRevision;
   bool get isAdmin => account?['role'] == 'admin';
+
+  /// A retained token whose identity could not yet be verified, e.g. offline.
+  bool get needsIdentityRefresh => _token != null && account == null;
+
+  Future<void> refreshIdentity() async {
+    await load();
+    if (!needsIdentityRefresh) return;
+    final revision = _sessionRevision;
+    final response = await request('GET', '/me');
+    _requireSession(revision);
+    account = Map<String, dynamic>.from(response['account'] as Map);
+    notifyListeners();
+  }
+
   Future<void> load() {
     if (_loaded) return Future.value();
     return _loading ??= _restore().then((_) {

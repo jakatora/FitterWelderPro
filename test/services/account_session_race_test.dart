@@ -37,6 +37,43 @@ class DelayedTokenStorage extends FlutterSecureStorage {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  for (final code in [200, 401]) {
+    test('late profile retry $code cannot replace or revoke a newer login',
+        () async {
+      FlutterSecureStorage.setMockInitialValues(
+          {'railway_account_session_v1': 'fixture-old-token'});
+      var reads = 0;
+      final pending = Completer<http.Response>();
+      final started = Completer<void>();
+      final service = AccountService.forTesting(MockClient((request) async {
+        if (request.url.path.endsWith('/login')) return identity('B');
+        if (++reads == 1) {
+          return http.Response('{"error":{"message":"Offline"}}', 503);
+        }
+        started.complete();
+        return pending.future;
+      }));
+      await service.load();
+      expect(service.needsIdentityRefresh, isTrue);
+      final retry = service.refreshIdentity();
+      final rejected = expectLater(retry, throwsA(isA<AccountException>()));
+      await started.future;
+      await service.signIn('B', 'fixture-password');
+      final revision = service.sessionRevision;
+      pending.complete(code == 200
+          ? identity('A')
+          : http.Response('{"error":{"message":"Expired"}}', 401));
+      await rejected;
+      expect(service.account!['id'], 'B');
+      expect(service.sessionRevision, revision);
+      expect(
+          await service.headers(), {'Authorization': 'Bearer fixture-token-B'});
+      expect(
+          await const FlutterSecureStorage()
+              .read(key: 'railway_account_session_v1'),
+          'fixture-token-B');
+    });
+  }
   for (final replace in [false, true]) {
     test('queued token write respects ${replace ? 'new login' : 'logout'}',
         () async {

@@ -53,6 +53,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _load() async {
     await _run(() async {
       await service.load();
+      if (service.needsIdentityRefresh) await service.refreshIdentity();
       feedbackGranted = await FeedbackConsent.instance.isGranted();
       _fill();
     });
@@ -169,7 +170,18 @@ class _AccountScreenState extends State<AccountScreen> {
                           await FeedbackUploader.instance.flush();
                         }
                       })),
-              if (a == null) ...[
+              if (a == null && service.needsIdentityRefresh) ...[
+                Text(context.tr(
+                    pl: 'Nie udało się pobrać profilu. Twoja sesja została zachowana. Spróbuj ponownie po odzyskaniu połączenia.',
+                    en: 'Could not load your profile. Your session has been retained. Try again when the connection is restored.')),
+                const SizedBox(height: 16),
+                OutlinedButton(
+                    key: const Key('account-retry-profile'),
+                    onPressed: _load,
+                    child: Text(context.tr(
+                        pl: 'Ponów odczyt profilu',
+                        en: 'Retry loading profile'))),
+              ] else if (a == null) ...[
                 Text(context.tr(
                     pl: 'Konto synchronizuje Twój profil. Kalkulatory działają też bez konta.',
                     en: 'Your account synchronizes your profile. Calculators also work without an account.')),

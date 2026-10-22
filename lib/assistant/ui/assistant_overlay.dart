@@ -5,6 +5,7 @@ import '../../i18n/app_language.dart';
 import '../../screens/ai_chat_screen.dart';
 import '../core/assistant_panel_controller.dart';
 import '../assistant_history.dart';
+import 'assistant_account_header.dart';
 
 /// Independent Overlay supplies text selection and tooltips above Navigator.
 /// It does not intercept the uncovered drawing area.
@@ -108,38 +109,42 @@ class _AssistantOverlayState extends State<AssistantOverlay> {
                     clipBehavior: Clip.antiAlias,
                     child: Column(children: [
                       SizedBox(
-                          height: 48,
-                          child: Row(children: [
-                            const SizedBox(width: 12),
-                            Expanded(
-                                child: Text(context.tr(
-                                    pl: 'Asystent', en: 'Assistant'))),
-                            ListenableBuilder(
-                                listenable: AssistantHistoryStore.instance,
-                                builder: (context, _) {
-                                  final history =
-                                      AssistantHistoryStore.instance;
-                                  return IconButton(
-                                      tooltip: context.tr(
-                                          pl: 'Czytaj odpowiedzi na głos',
-                                          en: 'Read replies aloud'),
-                                      icon: Icon(history.speakReplies
-                                          ? Icons.volume_up
-                                          : Icons.volume_off),
-                                      onPressed: () => history.setSpeakReplies(
-                                          !history.speakReplies));
-                                }),
-                            IconButton(
-                                tooltip: context.tr(pl: 'Zwiń', en: 'Collapse'),
-                                onPressed: () {
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                  if (appRoutes.assistantPresentation) {
-                                    appNavigatorKey.currentState?.pop();
-                                  }
-                                  _controller.setExpanded(false);
-                                },
-                                icon: const Icon(Icons.keyboard_arrow_down)),
-                          ])),
+                          height: math.max(56, media.textScaler.scale(36) + 8),
+                          child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const SizedBox(width: 12),
+                                const Expanded(child: AssistantAccountHeader()),
+                                ListenableBuilder(
+                                    listenable: AssistantHistoryStore.instance,
+                                    builder: (context, _) {
+                                      final history =
+                                          AssistantHistoryStore.instance;
+                                      return IconButton(
+                                          tooltip: context.tr(
+                                              pl: 'Czytaj odpowiedzi na głos',
+                                              en: 'Read replies aloud'),
+                                          icon: Icon(history.speakReplies
+                                              ? Icons.volume_up
+                                              : Icons.volume_off),
+                                          onPressed: () =>
+                                              history.setSpeakReplies(
+                                                  !history.speakReplies));
+                                    }),
+                                IconButton(
+                                    tooltip:
+                                        context.tr(pl: 'Zwiń', en: 'Collapse'),
+                                    onPressed: () {
+                                      FocusManager.instance.primaryFocus
+                                          ?.unfocus();
+                                      if (appRoutes.assistantPresentation) {
+                                        appNavigatorKey.currentState?.pop();
+                                      }
+                                      _controller.setExpanded(false);
+                                    },
+                                    icon:
+                                        const Icon(Icons.keyboard_arrow_down)),
+                              ])),
                       Expanded(
                           child: widget.assistant ??
                               const AiChatScreen(embedded: true)),
