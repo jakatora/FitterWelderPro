@@ -32,6 +32,8 @@ import 'own_data/progress_today_skill.dart';
 import 'own_data/piecework_skill.dart';
 import 'own_data/wps_find_skill.dart';
 import 'own_data/ndt_plan_skill.dart';
+import 'own_data/coupons_status_skill.dart';
+import 'own_data/passivation_status_skill.dart';
 import 'records/hot_work_prepare_skill.dart';
 import 'records/confined_space_prepare_skill.dart';
 
@@ -66,6 +68,8 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(PieceworkEarningsSkill());
   all.add(WpsFindSkill());
   all.add(NdtPlanSkill());
+  all.add(CouponsStatusSkill());
+  all.add(PassivationStatusSkill());
   all.add(QuoteNewSkill());
   all.add(HourlyRateSkill());
   all.add(SteelAddSkill());

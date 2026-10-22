@@ -9,6 +9,7 @@ import 'fume_oel_skill.dart';
 import 'qualification_range_skill.dart';
 import 'weld_symbol_skill.dart';
 import 'exam_question_skill.dart';
+import 'ferrite_range_skill.dart';
 
 List<AssistantSkill> knowledgeModuleSkills() => [
       DefectsCausesSkill(),
@@ -20,5 +21,6 @@ List<AssistantSkill> knowledgeModuleSkills() => [
       FumeOelSkill(),
       QualificationRangeSkill(),
       WeldSymbolSkill(),
-      ExamQuestionSkill()
+      ExamQuestionSkill(),
+      FerriteRangeSkill()
     ];
