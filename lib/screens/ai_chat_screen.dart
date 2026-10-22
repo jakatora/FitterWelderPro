@@ -1462,6 +1462,21 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       command = resolved;
     }
+    if (command.kind == IsoCommandKind.setPipeDimension) {
+      final number=await controller.setPipeIsoDimension(command.dimensionMm!,
+        ordinal:command.pipeOrdinal,expectedRevision:controller.revision);
+      if (!mounted || epoch != _conversationEpoch) return true;
+      _pendingIso=null;
+      if(number==null) {
+        _isoReply('Nie zmieniłem rysunku. Nie ma wskazanej rury albo rysunek zmienił się podczas polecenia. Numer oznacza kolejność rysowania rur.',
+          'Drawing unchanged. The pipe was not found or the drawing changed during the request. Numbers follow pipe creation order.');
+      } else {
+        _isoDidExecute=true;
+        _isoReply('Ustawiłem wymiar ISO rury numer $number (kolejność rysowania) na ${command.dimensionMm} mm. Połączenia i potrącenia zachowane. Możesz cofnąć zmianę.',
+          'Set the ISO dimension of pipe $number (creation order) to ${command.dimensionMm} mm. Connections and take-outs preserved. You can undo this change.');
+      }
+      return true;
+    }
     if (command.kind == IsoCommandKind.changeLastTurn) {
       final dir = command.turnDir;
       final report =

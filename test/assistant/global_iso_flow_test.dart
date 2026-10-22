@@ -84,7 +84,61 @@ Future<ShowOutcome> _showSteps(
 }
 
 void main() {
+  testWidgets('assistant edits only numbered ISO dimension and undo preserves the run', (t) async {
+    await _boot(t);
+    await _say(t,'narysuj rura metr w prawo kolano DN50 w górę rura dwa metry');
+    final controller=IsoNotebookController.active!;
+    Future<List<Map<String,dynamic>>> items() async {
+      await settle(t);
+      final record=await t.runAsync(()=>IsoDrawingDao().latest());
+      return ((jsonDecode(record!.json) as Map)['items'] as List).cast<Map<String,dynamic>>();
+    }
+    final before=await items();
+    expect(before.where((e)=>e['tool']=='pipe'),hasLength(2));
+    await _say(t,'Zmień wymiar ISO rury numer 1 na 500 mm');
+    expect(find.textContaining('Ustawiłem wymiar ISO rury numer 1'),findsOneWidget);
+    final edited=await items();
+    final expected=jsonDecode(jsonEncode(before)) as List;
+    (expected.firstWhere((e)=>e['tool']=='pipe')['calc'] as Map)['iso']='500';
+    expect(edited,expected);
+    final revision=controller.revision;
+    await _say(t,'Zmień wymiar ISO rury numer 99 na 500 mm');
+    expect(controller.revision,revision);
+    expect(await items(),edited);
+    await _say(t,'cofnij');
+    expect(await items(),before);
+    final stale=await t.runAsync(()=>controller.setPipeIsoDimension(700,
+      ordinal:1,expectedRevision:revision));
+    expect(stale,isNull);
+    expect(await items(),before);
+    await _say(t,'Zmień wymiar ISO ostatniej rury na 250 cm');
+    final lastEdit=await items();
+    final pipes=lastEdit.where((e)=>e['tool']=='pipe').toList();
+    expect(pipes.first['calc'],before.firstWhere((e)=>e['tool']=='pipe')['calc']);
+    expect((pipes.last['calc'] as Map)['iso'],'2500');
+    expect(t.takeException(),isNull);
+  });
   useTestDatabase();
+  testWidgets('dimension edit retains reference status, stops, deductions and pipe annotations', (t) async {
+    await t.runAsync(()=>IsoDrawingDao().upsert(IsoDrawingRecord(
+      id:'dimension-reference',name:'Reference',createdAt:1,updatedAt:1,
+      json:jsonEncode({'format':2,'name':'Reference','items':[
+        {'kind':'seg','tool':'pipe','a':[64.0,200.0],'b':[192.0,200.0],
+          'slope':'1:100','insulated':true,'calc':{'iso':'(1000)',
+            'ref':'centreToEnd','stopA':'centre','stopB':'end',
+            'deducts':[{'name':'Gasket','value':'3+2'}]}}
+      ]}))));
+    await _boot(t);
+    await _say(t,'Zmień wymiar ISO ostatniej rury na 500 mm');
+    final stored=await t.runAsync(()=>IsoDrawingDao().latest());
+    final pipe=((jsonDecode(stored!.json) as Map)['items'] as List).single;
+    expect(pipe['slope'],'1:100');expect(pipe['insulated'],isTrue);
+    expect(pipe['calc'],{'iso':'(500)','ref':'centreToEnd','stopA':'centre','stopB':'end',
+      'deducts':[{'name':'Gasket','value':'3+2'}]});
+    await _say(t,'cofnij');
+    final undone=await t.runAsync(()=>IsoDrawingDao().latest());
+    expect(((jsonDecode(undone!.json) as Map)['items'] as List).single['calc']['iso'],'(1000)');
+  });
   setUp(() async {
     final db = await AppDatabase.get();
     await db.delete('iso_drawings');

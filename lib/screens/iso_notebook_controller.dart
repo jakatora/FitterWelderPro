@@ -536,6 +536,28 @@ class IsoNotebookController extends ChangeNotifier {
         return report;
       });
 
+  /// Replace one entered ISO dimension using native dimension semantics.
+  /// Paper geometry, endpoint references and all take-outs remain unchanged.
+  /// A stale queued request never selects a different segment after an edit.
+  Future<int?> setPipeIsoDimension(double mm,
+      {int? ordinal, required int expectedRevision}) => _enqueue((s) async {
+    if (!mm.isFinite || mm<=0 || expectedRevision!=s._version) return null;
+    final indices=[for(var i=0;i<s._items.length;i++)
+      if(s._items[i] case _Seg(t:_Tool.pipe)) i];
+    final number=ordinal ?? indices.length;
+    if(number<1 || number>indices.length) return null;
+    final index=indices[number-1];
+    final pipe=s._items[index] as _Seg;
+    final old=pipe.calc;
+    final value=mm==mm.roundToDouble() ? mm.toStringAsFixed(0) : mm.toString();
+    final dimension=_CutCalc(old?.isReference==true ? '($value)' : value,
+      deducts:old?.deducts ?? const [], ref:old?.ref ?? DimRef.centreToCentre,
+      stopA:old?.stopA,stopB:old?.stopB);
+    s._push();
+    s._mutate(()=>s._items[index]=pipe.withCalc(dimension));
+    return number;
+  });
+
   /// Cofa ostatni krok (całe polecenie [draw] naraz). Gdy w kolejce czekają
   /// polecenia, cofnięcie ustawia się za nimi.
   void undo() {

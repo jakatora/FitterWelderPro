@@ -68,6 +68,8 @@ enum IsoCommandKind {
   /// „Zmień ostatnie kolano w górę” — cofnij ostatnie polecenie i narysuj je
   /// jeszcze raz z innym skrętem.
   changeLastTurn,
+  /// Replace only the entered ISO dimension, preserving geometry and take-outs.
+  setPipeDimension,
 }
 
 enum IsoParseWarningKind {
@@ -140,9 +142,14 @@ class IsoCommand {
     this.explicit = false,
     this.strong = false,
     this.unknownWords = 0,
+    this.dimensionMm,
+    this.pipeOrdinal,
   });
 
   final IsoCommandKind kind;
+  final double? dimensionMm;
+  /// One-based creation order; null identifies the last pipe.
+  final int? pipeOrdinal;
 
   /// Kroki do narysowania ([IsoCommandKind.draw]).
   final List<IsoStep> steps;
@@ -201,6 +208,8 @@ class IsoCommand {
   }) =>
       IsoCommand(
         kind: kind,
+        dimensionMm: dimensionMm,
+        pipeOrdinal: pipeOrdinal,
         steps: steps ?? this.steps,
         newSketch: newSketch ?? this.newSketch,
         append: append ?? this.append,
@@ -729,6 +738,17 @@ class _Seg {
 /// rysowania (pytanie, zapis, inny moduł, brak elementów).
 IsoCommand? parseIsoCommand(Utterance u) {
   if (referencesInstruction(u)) return null;
+  if (RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw|popraw)\s+wymiar\s+iso|(?:set|change|correct)\s+(?:the\s+)?iso\s+dimension)\b').hasMatch(u.folded)) {
+    if (RegExp(r'[-−]\s*\d').hasMatch(u.raw)) return null;
+    final match=RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:zmien|ustaw|popraw) wymiar iso (?:ostatniej rury|rury numer (?<plIndex>[1-9]\d{0,3})) na|(?:set|change|correct) (?:the )?iso dimension of (?:the )?(?:last pipe|pipe (?:number )?(?<enIndex>[1-9]\d{0,3})) to) (?<value>\d+(?:[.,]\d+)?)\s*(?<unit>mm|cm|m)$').firstMatch(u.folded);
+    if (match==null) return null;
+    final value=double.tryParse(match.namedGroup('value')!.replaceAll(',', '.'));
+    final mm=value==null ? null : value * switch(match.namedGroup('unit')) {'m'=>1000,'cm'=>10,_=>1};
+    if (mm==null || !mm.isFinite || mm<=0) return null;
+    return IsoCommand(kind:IsoCommandKind.setPipeDimension,dimensionMm:mm,
+      pipeOrdinal:int.tryParse(match.namedGroup('plIndex') ?? match.namedGroup('enIndex') ?? ''),
+      explicit:true,strong:true);
+  }
   final branch = RegExp(
           r'^(?:(?:prosze|please)\s+)*(?:(?:narysuj|dorysuj|poprowadz|draw|add|continue)\s+)?(?:(?:odgalezienie|branch)\s+)?(?:od (?:ostatniego )?trojnika|from (?:the )?(?:last )?tee)\b\s*')
       .firstMatch(u.folded);
