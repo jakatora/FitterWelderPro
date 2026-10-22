@@ -29,8 +29,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../database/local_record_owner.dart';
+import 'account_service.dart';
 import 'welder_qualification_service.dart';
 
 /// Body that issued the welder's qualification certificate.
@@ -174,61 +177,146 @@ final RegExp kStampRegex = RegExp(r'^[A-Z0-9-]{2,12}$');
 
 class WelderIdentityService {
   WelderIdentityService._();
+
+  /// Fresh instance for tests (no state shared with [instance]).
+  @visibleForTesting
+  WelderIdentityService.forTesting();
+
   static final WelderIdentityService instance = WelderIdentityService._();
 
   static const _kPrefsKey = 'welder_identity_v1';
 
-  WelderIdentity? _cache;
-  bool _hydrated = false;
+  /// Guest keeps the pre-account key (`welder_identity_v1`), so a device's
+  /// identity from before accounts stays exactly where it was. Each account
+  /// gets its own key — like the certificate register (schema32), a stamp
+  /// never follows the user into another account.
+  @visibleForTesting
+  static String prefsKeyFor(LocalRecordOwner owner) =>
+      owner.key == LocalRecordOwner.guest
+          ? _kPrefsKey
+          : '$_kPrefsKey.owner.${Uri.encodeComponent(owner.key)}';
+
+  /// Identity of ONE captured owner; valid only while that session is current.
+  _IdentitySnapshot? _snapshot;
+  AccountService? _watched;
+  bool _refreshing = false;
 
   final _changeController = StreamController<WelderIdentity?>.broadcast();
 
-  /// Emits the new identity (or null when cleared). The weld_journal
-  /// editor subscribes so any change instantly re-pre-fills the welder
-  /// field.
-  Stream<WelderIdentity?> get changes => _changeController.stream;
+  /// Emits the new identity (or null when cleared or when the account
+  /// changed and the new one has none). The weld_journal editor subscribes
+  /// so any change instantly re-pre-fills the welder field.
+  Stream<WelderIdentity?> get changes {
+    _watchAccount();
+    return _changeController.stream;
+  }
 
+  /// Identity of the current account (guest or signed in). Never throws:
+  /// when the owner cannot be established (session changing, identity of
+  /// a signed-in account not verified yet) it returns null — an empty
+  /// welder field is safe, another person's stamp is not.
   Future<WelderIdentity?> get() async {
-    if (!_hydrated) {
-      await _hydrate();
-    }
-    return _cache;
-  }
-
-  /// Sync access for hot paths (UI build) — returns null until [get] has
-  /// been awaited at least once at app startup.
-  WelderIdentity? get current => _cache;
-
-  Future<void> _hydrate() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_kPrefsKey);
-      if (raw == null || raw.isEmpty) {
-        _cache = null;
-      } else {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map<String, Object?>) {
-          _cache = WelderIdentity.fromJson(decoded);
-        } else if (decoded is Map) {
-          _cache = WelderIdentity.fromJson(Map<String, Object?>.from(decoded));
-        } else {
-          _cache = null;
+    _watchAccount();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final owner = await LocalRecordOwner.capture();
+        final cached = _snapshot;
+        if (cached != null &&
+            cached.owner.isCurrent &&
+            cached.owner.key == owner.key) {
+          return cached.value;
         }
+        final value = await _read(owner);
+        if (!owner.isCurrent) continue; // account changed mid-read: retry
+        _snapshot = _IdentitySnapshot(owner, value);
+        return value;
+      } on AccountException {
+        return null;
       }
+    }
+    return null;
+  }
+
+  /// Sync access for hot paths (UI build). Null until [get] has resolved for
+  /// the CURRENT session — after a sign-in/out it is null (and a refresh is
+  /// scheduled, announced on [changes]) instead of the previous account's
+  /// identity.
+  WelderIdentity? get current {
+    _watchAccount();
+    final cached = _snapshot;
+    if (cached == null || !cached.owner.isCurrent) {
+      _scheduleRefresh();
+      return null;
+    }
+    return cached.value;
+  }
+
+  Future<WelderIdentity?> _read(LocalRecordOwner owner) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(prefsKeyFor(owner));
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, Object?>) {
+        return WelderIdentity.fromJson(decoded);
+      }
+      if (decoded is Map) {
+        return WelderIdentity.fromJson(Map<String, Object?>.from(decoded));
+      }
+      return null;
     } catch (_) {
-      _cache = null;
-    } finally {
-      _hydrated = true;
+      return null;
     }
   }
 
-  Future<bool> save(WelderIdentity identity) async {
+  void _watchAccount() {
+    final account = AccountService.instance;
+    if (identical(account, _watched)) return;
+    _watched?.removeListener(_onAccountChanged);
+    _watched = account;
+    account.addListener(_onAccountChanged);
+  }
+
+  void _onAccountChanged() {
+    final cached = _snapshot;
+    if (cached != null && cached.owner.isCurrent) return; // profile edit only
+    _scheduleRefresh();
+  }
+
+  void _scheduleRefresh() {
+    if (_refreshing) return;
+    _refreshing = true;
+    unawaited(Future<void>(() async {
+      try {
+        final value = await get();
+        final cached = _snapshot;
+        if (cached != null && cached.owner.isCurrent) {
+          _changeController.add(value);
+        }
+      } finally {
+        _refreshing = false;
+      }
+    }));
+  }
+
+  /// Saves the identity of [expectedOwner] (the account the editor was
+  /// opened for) or of the current account. Refused — `false`, nothing
+  /// written — when that session is no longer current.
+  Future<bool> save(WelderIdentity identity,
+      {LocalRecordOwner? expectedOwner}) async {
+    _watchAccount();
     try {
+      final owner = expectedOwner ?? await LocalRecordOwner.capture();
+      owner.requireCurrent();
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kPrefsKey, jsonEncode(identity.toJson()));
-      _cache = identity;
-      _hydrated = true;
-      _changeController.add(identity);
+      owner.requireCurrent();
+      final ok = await prefs.setString(
+          prefsKeyFor(owner), jsonEncode(identity.toJson()));
+      if (!ok) return false;
+      if (owner.isCurrent) {
+        _snapshot = _IdentitySnapshot(owner, identity);
+        _changeController.add(identity);
+      }
       return true;
     } catch (_) {
       return false;
@@ -236,22 +324,45 @@ class WelderIdentityService {
   }
 
   /// "Delete my data": the identity AND the welder's certificate register
-  /// (numbers, dates, scanned certificates, scheduled reminders). Since v21
-  /// the certificate data lives in the register, and the profile's delete
-  /// dialog promises to erase the qualification number and expiry — calling
-  /// only the preferences half would silently break that promise.
-  Future<void> clear() async {
+  /// (numbers, dates, scanned certificates, scheduled reminders) of ONE
+  /// owner. Since v21 the certificate data lives in the register, and the
+  /// profile's delete dialog promises to erase the qualification number and
+  /// expiry — calling only the preferences half would silently break that
+  /// promise.
+  ///
+  /// The owner is captured once, before any I/O; the register is cleared
+  /// first (owner-bound transaction). If the session changed in between,
+  /// nothing of the NEW account is touched and the identity is kept so the
+  /// state is never half-deleted — returns false and the user can retry.
+  Future<bool> clear({LocalRecordOwner? expectedOwner}) async {
+    _watchAccount();
+    LocalRecordOwner owner;
+    try {
+      owner = expectedOwner ?? await LocalRecordOwner.capture();
+      owner.requireCurrent();
+    } catch (_) {
+      return false;
+    }
+    if (!await WelderQualificationService.instance.clearAll(owner: owner)) {
+      return false;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_kPrefsKey);
+      await prefs.remove(prefsKeyFor(owner));
     } catch (_) {
       // Even if the remove fails, drop the in-memory cache so the user
       // sees an empty form next time — they can re-save.
     }
-    _cache = null;
-    _hydrated = true;
-    _changeController.add(null);
-    // Never throws: a missing database must not block the rest of the wipe.
-    await WelderQualificationService.instance.clearAll();
+    if (owner.isCurrent) {
+      _snapshot = _IdentitySnapshot(owner, null);
+      _changeController.add(null);
+    }
+    return true;
   }
+}
+
+class _IdentitySnapshot {
+  _IdentitySnapshot(this.owner, this.value);
+  final LocalRecordOwner owner;
+  final WelderIdentity? value;
 }

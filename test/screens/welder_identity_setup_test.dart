@@ -5,14 +5,24 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:cut_list_app/services/account_service.dart';
 
 import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/screens/welder_identity_setup_screen.dart';
 import 'package:cut_list_app/services/welder_qualification_service.dart';
 
+import '../support/test_account.dart';
+
 void main() {
+  // Tożsamość należy do właściciela danych (gość / konto) — test działa jako
+  // gość, więc czyta i zapisuje dawny klucz `welder_identity_v1`.
+  useGuestAccount();
   // UWAGA: WelderIdentityService to singleton bez resetu — w tym pliku tylko
   // ten jeden test czyta tożsamość z zasianych preferencji.
   testWidgets(
@@ -76,5 +86,56 @@ void main() {
         DateTime.parse('2028-06-09T00:00:00.000Z'));
     expect(saved['certBody'], 'udt');
     expect(saved['gdprConsentAt'], '2026-06-09T14:32:00.000');
+  });
+
+  testWidgets(
+      'po zmianie konta formularz poprzedniego chowa się i nic nie zapisuje',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'welder_identity_v1': jsonEncode({
+        'stamp': 'GUEST-1',
+        'gdprConsentAt': '2026-06-09T14:32:00.000',
+        'qualificationDeclaredAt': '2026-06-09T14:33:00.000',
+      }),
+      kLegacyCertMigratedPrefsKey: true,
+    });
+    // Jeden obiekt konta, jak w aplikacji: gość, potem logowanie na nim.
+    final previous = AccountService.instance;
+    FlutterSecureStorage.setMockInitialValues({});
+    final client = MockClient((_) async => http.Response(
+        jsonEncode({
+          'token': 'test-b',
+          'account': {'id': 'b', 'role': 'user'}
+        }),
+        200));
+    final account = AccountService.forTesting(client);
+    AccountService.instance = account;
+    addTearDown(() {
+      AccountService.instance = previous;
+      account.dispose();
+      client.close();
+    });
+
+    await tester.pumpWidget(AppLanguageScope(
+      controller: AppLanguageController(AppLanguage.pl),
+      child: const MaterialApp(home: WelderIdentitySetupScreen()),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('GUEST-1'), findsOneWidget);
+
+    await account.signIn('b@example.test', 'test-password');
+    await tester.pumpAndSettle();
+
+    expect(find.text('GUEST-1'), findsNothing,
+        reason: 'dane gościa nie mogą zostać na ekranie innego konta');
+    expect(find.text('Konto zmieniło się. Otwórz rejestr ponownie.'),
+        findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getKeys().where((k) => k.startsWith('welder_identity_v1.')),
+        isEmpty,
+        reason: 'konto B nie dostało tożsamości gościa');
   });
 }

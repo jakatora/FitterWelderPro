@@ -31,9 +31,13 @@ class LocalRecordOwner {
         id is String ? 'account:$id' : guest, account, account.sessionRevision);
   }
 
+  /// The captured session is still the one in use (no sign-in/out since).
+  bool get isCurrent =>
+      identical(_account, AccountService.instance) &&
+      _revision == _account.sessionRevision;
+
   void requireCurrent() {
-    if (!identical(_account, AccountService.instance) ||
-        _revision != _account.sessionRevision) {
+    if (!isCurrent) {
       throw AccountException(
           'Sesja zmieniła się. Spróbuj ponownie. / Session changed. Please try again.');
     }

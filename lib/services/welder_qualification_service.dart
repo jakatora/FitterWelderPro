@@ -330,8 +330,16 @@ class WelderQualificationService {
 
   /// Zmiana stempla w tożsamości: przepisuje stempel certyfikatów ze
   /// [from] na [to] (tylko za zgodą spawacza — spoin nie ruszamy, to dowód).
-  Future<int> reassignStamp(String from, String to) async {
-    final n = await _dao.reassignStamp(from, to);
+  ///
+  /// [owner] — właściciel, dla którego otwarto edytor tożsamości. Przy
+  /// zmianie konta w międzyczasie rzuca `AccountException` i nie dotyka
+  /// certyfikatów nowego konta.
+  Future<int> reassignStamp(String from, String to,
+      {LocalRecordOwner? owner}) async {
+    final dao = owner == null
+        ? _dao
+        : WelderCertificateDao(captureOwner: () async => owner);
+    final n = await dao.reassignStamp(from, to);
     await refresh();
     return n;
   }
@@ -344,33 +352,44 @@ class WelderQualificationService {
   }
 
   /// „Usuń moje dane": cały rejestr, zdjęcia certyfikatów i zaplanowane
-  /// przypomnienia. Nigdy nie rzuca (baza może być niedostępna).
-  Future<void> clearAll() async {
-    LocalRecordOwner? owner;
+  /// przypomnienia JEDNEGO właściciela — [owner] (np. ten, którego tożsamość
+  /// właśnie kasujemy) albo bieżącego. Nigdy nie rzuca (baza może być
+  /// niedostępna); `false` = rejestr nie został skasowany (błąd albo zmiana
+  /// konta w trakcie — wtedy nic nowego konta nie jest ruszane).
+  Future<bool> clearAll({LocalRecordOwner? owner}) async {
+    final LocalRecordOwner captured;
     try {
-      owner = await LocalRecordOwner.capture();
-      owner.requireCurrent();
-      final boundOwner = owner;
+      captured = owner ?? await LocalRecordOwner.capture();
+      captured.requireCurrent();
+    } catch (e) {
+      debugPrint('[qualification] clear: owner unavailable: $e');
+      return false;
+    }
+    try {
       final removed =
-          await WelderCertificateDao(captureOwner: () async => boundOwner)
+          await WelderCertificateDao(captureOwner: () async => captured)
               .deleteAll();
       for (final c in removed) {
         await deleteOwnedFile(c.photoPath);
       }
+    } on AccountException catch (e) {
+      debugPrint('[qualification] clear aborted, account changed: $e');
+      return false;
     } catch (e) {
+      // Brak bazy nie może zablokować reszty kasowania (jak dotąd).
       debugPrint('[qualification] clear failed: $e');
     }
     try {
-      if (owner == null) return;
-      owner.requireCurrent();
+      captured.requireCurrent();
       await QualificationReminders.instance.disable();
-      owner.requireCurrent();
+      captured.requireCurrent();
     } catch (e) {
       debugPrint('[qualification] reminders disable failed: $e');
-      return;
+      return true; // rejestr skasowany; przypomnienia odświeży kolejny odczyt
     }
     _generation++; // przeliczenie w toku nie przywróci skasowanych wpisów
     overview.value = QualificationOverview.empty;
+    return true;
   }
 
   /// Kasuje plik tylko wtedy, gdy leży w `heat_photos` — nigdy oryginału

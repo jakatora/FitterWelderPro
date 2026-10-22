@@ -14,22 +14,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../database/local_record_owner.dart';
 import '../features/qualification/certificate_register_page.dart';
 import '../i18n/app_language.dart';
 import '../services/welder_identity.dart';
 import '../services/welder_qualification_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/local_record_scope.dart';
 
-class WelderIdentitySetupScreen extends StatefulWidget {
+/// Tożsamość należy do konta (albo gościa), dla którego otwarto ekran. Po
+/// zmianie konta formularz z danymi poprzedniego chowa się (jak edytory
+/// rejestru uprawnień), a zapis nieaktualnej sesji jest odrzucany.
+class WelderIdentitySetupScreen extends StatelessWidget {
   const WelderIdentitySetupScreen({super.key});
 
   @override
-  State<WelderIdentitySetupScreen> createState() =>
-      _WelderIdentitySetupScreenState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      builder: (_, session) => _WelderIdentityForm(session: session));
 }
 
-class _WelderIdentitySetupScreenState
-    extends State<WelderIdentitySetupScreen> {
+class _WelderIdentityForm extends StatefulWidget {
+  const _WelderIdentityForm({required this.session});
+  final LocalRecordSession session;
+
+  @override
+  State<_WelderIdentityForm> createState() => _WelderIdentitySetupScreenState();
+}
+
+class _WelderIdentitySetupScreenState extends State<_WelderIdentityForm> {
   final _formKey = GlobalKey<FormState>();
 
   final _stampCtrl = TextEditingController();
@@ -40,6 +53,11 @@ class _WelderIdentitySetupScreenState
   bool _qualDeclared = false;
   bool _saving = false;
 
+  /// Owner captured when the form loaded; save and stamp reassignment are
+  /// bound to it. Null until loaded (save waits for it).
+  LocalRecordOwner? _owner;
+  WelderIdentity? _existing;
+
   String _tr(String pl, String en) => context.tr(pl: pl, en: en);
 
   @override
@@ -49,8 +67,17 @@ class _WelderIdentitySetupScreenState
   }
 
   Future<void> _hydrate() async {
+    LocalRecordOwner owner;
+    try {
+      owner = await widget.session.captureOwner();
+    } catch (_) {
+      return; // konto zmieniło się — LocalRecordScope chowa formularz
+    }
     final existing = await WelderIdentityService.instance.get();
-    if (!mounted || existing == null) return;
+    if (!mounted || !owner.isCurrent) return;
+    _owner = owner;
+    _existing = existing;
+    if (existing == null) return;
     setState(() {
       _stampCtrl.text = existing.stamp;
       _nameCtrl.text = existing.displayName ?? '';
@@ -97,13 +124,33 @@ class _WelderIdentitySetupScreenState
       ));
       return;
     }
-    final existing = WelderIdentityService.instance.current;
+    var owner = _owner;
+    if (owner == null) {
+      // Zapis przed końcem wczytywania: ustal właściciela teraz.
+      try {
+        owner = await widget.session.captureOwner();
+        _existing = await WelderIdentityService.instance.get();
+      } catch (_) {
+        _showStaleSession();
+        return;
+      }
+      if (!mounted) return;
+    }
+    if (!owner.isCurrent) {
+      _showStaleSession();
+      return;
+    }
+    final existing = _existing;
     final newStamp = _stampCtrl.text.trim().toUpperCase();
     final oldStamp = existing?.stamp.trim().toUpperCase() ?? '';
     var reassign = false;
     if (oldStamp.isNotEmpty && oldStamp != newStamp) {
       final decision = await _confirmStampChange(oldStamp, newStamp);
       if (decision == null || !mounted) return;
+      if (!owner.isCurrent) {
+        _showStaleSession();
+        return;
+      }
       reassign = decision;
     }
     setState(() => _saving = true);
@@ -125,11 +172,12 @@ class _WelderIdentitySetupScreenState
       gdprConsentAt: existing?.gdprConsentAt ?? now,
       qualificationDeclaredAt: existing?.qualificationDeclaredAt ?? now,
     );
-    final ok = await WelderIdentityService.instance.save(identity);
+    final ok = await WelderIdentityService.instance
+        .save(identity, expectedOwner: owner);
     if (ok && reassign) {
       try {
         await WelderQualificationService.instance
-            .reassignStamp(oldStamp, newStamp);
+            .reassignStamp(oldStamp, newStamp, owner: owner);
       } catch (e) {
         debugPrint('[identity] stamp reassign failed: $e');
       }
@@ -152,6 +200,16 @@ class _WelderIdentitySetupScreenState
       )),
     ));
     Navigator.pop(context, true);
+  }
+
+  void _showStaleSession() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr(
+        'Konto zmieniło się. Otwórz tożsamość ponownie — nic nie zapisano.',
+        'The account changed. Reopen the identity — nothing was saved.',
+      )),
+    ));
   }
 
   /// Zmiana stempla: `null` = anuluj, `false` = zmień tylko stempel,
