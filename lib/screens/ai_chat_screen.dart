@@ -1,3 +1,4 @@
+import '../assistant/ai_clarification.dart';
 import '../assistant/skills/core/account_sign_out_skill.dart';
 import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
@@ -187,7 +188,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   StreamSubscription<UserProfile?>? _profileChanges;
   final _conversationRoutes = <Route<bool>>{};
   AssistantAiUnavailable? _aiUnavailable;
-  String? _aiQuestion;
+  AiClarification? _aiClarification;
+  String? get _aiQuestion => _aiClarification?.question;
   void _rememberAi(String text, String response,
       {bool addMessages = true, AiReplyKind kind = AiReplyKind.nativeAction}) {
     String bounded(String v) {
@@ -715,7 +717,7 @@ class _AiChatScreenState extends State<AiChatScreen>
   void _cancelAiThinking() {
     _aiEpoch++;
     _aiQueue.cancel();
-    _aiQuestion = null;
+    _aiClarification = null;
     _aiClient?.close();
     _aiClient = null;
     setState(() {
@@ -731,7 +733,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _aiEpoch++;
     _aiThinking = false;
     _aiQueue.cancel();
-    _aiQuestion = null;
+    _aiClarification = null;
     _pendingKnowledgeAnswer = null;
     _pendingIntent = null;
     _pendingField = null;
@@ -860,7 +862,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _clearIsoQuestion();
       setState(() {
         _localResult = null;
-        _aiQuestion = null;
+        _aiClarification = null;
         _question = null;
       });
     }
@@ -895,7 +897,14 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     final awaitingAiClarification =
-        pending == null && _aiQuestion != null && !boundedRequest;
+        pending == null && _aiQuestion != null && !boundedRequest &&
+        !_brain.recognizesNewCommand(u, _brainContext);
+    final executionSource = awaitingAiClarification
+        ? _aiClarification!.sourceWithReply(text)
+        : text;
+    if (executionSource == null) {
+      return _boundedRequestNeedsAi();
+    }
     await LegalConsent.instance.load();
     if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
@@ -1034,15 +1043,15 @@ class _AiChatScreenState extends State<AiChatScreen>
           original: u,
           context: _brainContext);
       if (!mounted || conversationEpoch != _conversationEpoch) return true;
-      _aiQuestion = null;
+      _aiClarification = null;
       return _presentBrainReply(reply, command, text, lang, aiExecution: true);
     }
     if (pending == null) {
       _aiQueue.cancel();
-      _aiQuestion = null;
+      _aiClarification = null;
     }
     if (plan.kind == 'execute') {
-      if (!_aiQueue.start(text, plan.steps)) {
+      if (!_aiQueue.start(executionSource, plan.steps)) {
         final notice = _tr(
             'Nie mogę jednoznacznie przypisać kroków do części polecenia. Podaj je jako osobne polecenia; niczego nie zmieniłem.',
             'I cannot unambiguously match the steps to the request clauses. Give separate requests; nothing was changed.');
@@ -1075,7 +1084,10 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
     _brainContext.invalidateActionReference();
     _rememberAi(text, plan.message, kind: AiReplyKind.live);
-    if (plan.kind == 'clarify') _aiQuestion = plan.message;
+    if (plan.kind == 'clarify') {
+      _aiClarification = AiClarification(
+          question: plan.message, userSource: executionSource);
+    }
     if (plan.kind == 'unsupported') {
       unawaited(_feedback.missing(text,
           tool: _brainContext.modules.activeToolId, lang: lang));
@@ -1850,7 +1862,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _localUndo = null;
     if (isNegatedCommand(utterance)) {
       _aiQueue.cancel();
-      _aiQuestion = null;
+      _aiClarification = null;
       _brain.cancelPending();
       _pendingIso = null;
       _pendingIsoValve = null;
@@ -1920,7 +1932,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           (widget.embedded && result is AnswerResult && result.show != null);
       _localResult = result;
       _pendingKnowledgeAnswer = null;
-      _aiQuestion = null;
+      _aiClarification = null;
       _question = null;
       _notice = null;
       _noticeIsError = false;

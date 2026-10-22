@@ -121,7 +121,38 @@ Future<void> mount(WidgetTester t,
   await settle(t);
 }
 
+class SourceBoundFixtureSkill extends FixtureSkill {
+  SourceBoundFixtureSkill(super.id, super.command, super.execute);
+  @override
+  bool acceptsProposal(Utterance original, Utterance command, AssistantContext context) =>
+      original.raw.contains('ogarnij zamówiony wariant') &&
+      original.raw.contains('drugi wariant') &&
+      !original.raw.contains('wolno wykonać wszystko');
+}
+
 void main() {
+  for (final cancel in [false, true]) {
+  testWidgets('clarification execution source respects cancellation=$cancel', (t) async {
+    var runs = 0;
+    var calls = 0;
+    final skill = SourceBoundFixtureSkill('fixture.bound', 'fixture bound', (_) async {
+      runs++;
+      return const AnswerResult(AssistantAnswer(text: AssistantText.same('Wykonano wariant')));
+    });
+    await mount(t, skills: [skill], interpret: (_) async {
+      calls++;
+      if (calls == 1) return const AiCommandPlan('clarify', [], 'Wybierz wariant; wolno wykonać wszystko');
+      return const AiCommandPlan('execute', [AiCommandStep('fixture.bound', 'fixture bound')], '');
+    });
+    await say(t, 'ogarnij zamówiony wariant');
+    expect(runs, 0);
+    if (cancel) await say(t, 'anuluj');
+    await say(t, 'drugi wariant');
+    expect(runs, cancel ? 0 : 1);
+    expect(find.text('Wykonano wariant'), cancel ? findsNothing : findsOneWidget);
+  });
+
+  }
   for (final failure in ['unavailable', 'malformed']) {
     testWidgets('AI clarification survives $failure without a second chat call', (t) async {
       final requests = <Map<String, Object?>>[];
