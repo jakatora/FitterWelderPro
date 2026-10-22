@@ -422,6 +422,8 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   late AssistantMode _mode = widget.initialMode;
   bool _listening = false;
+  bool _startingMic = false;
+  int _micEpoch = 0;
 
   // ── „Wykonaj" ───────────────────────────────────────────────────────────
   final _cmdCtrl = TextEditingController();
@@ -491,7 +493,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     _resetAct();
     _aiClient?.close();
     _aiClient = null;
-    _speech.cancel();
+    _cancelMic();
     _voice.stop();
     _actions = _createActions();
     _brain = _createBrain();
@@ -525,8 +527,8 @@ class _AiChatScreenState extends State<AiChatScreen>
             appRoutes.assistantAvailable)) {
       return;
     }
-    if (_listening) {
-      _speech.cancel();
+    if (_listening || _startingMic) {
+      _cancelMic();
       setState(() => _listening = false);
     }
     _voice.stop();
@@ -552,8 +554,8 @@ class _AiChatScreenState extends State<AiChatScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Nigdy w tle: ani mikrofon, ani czytanie na głos.
     if (state != AppLifecycleState.resumed) {
-      if (_listening) {
-        _speech.cancel();
+      if (_listening || _startingMic) {
+        _cancelMic();
         if (mounted) setState(() => _listening = false);
       }
       _voice.stop();
@@ -570,7 +572,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       AssistantPanelController.instance.removeListener(_panelChanged);
       appRoutes.removeListener(_panelChanged);
     }
-    if (_listening) _speech.cancel();
+    if (_listening || _startingMic) _cancelMic();
     _voice.stop();
     _aiClient?.close();
     _aiQueue.cancel();
@@ -606,13 +608,27 @@ class _AiChatScreenState extends State<AiChatScreen>
   // Mikrofon (oba tryby)
   // ═════════════════════════════════════════════════════════════════════════
 
+  void _cancelMic() {
+    _micEpoch++;
+    _startingMic = false;
+    _speech.cancel();
+  }
+
   Future<void> _toggleMic(TextEditingController target) async {
     final epoch = _conversationEpoch;
+    if (_startingMic) return;
     if (_listening) {
+      final micEpoch = _micEpoch;
       await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+      if (mounted && micEpoch == _micEpoch) {
+        setState(() => _listening = false);
+      }
       return;
     }
+    final micEpoch = ++_micEpoch;
+    _startingMic = true;
+    bool current() =>
+        mounted && epoch == _conversationEpoch && micEpoch == _micEpoch;
     final lang = context.language;
     final messenger = ScaffoldMessenger.of(context);
     final noMic = _tr(
@@ -625,9 +641,16 @@ class _AiChatScreenState extends State<AiChatScreen>
       'Rozpoznawanie przerwane — tekst zostaje, możesz go poprawić.',
       'Recognition stopped — the text stays, you can edit it.',
     );
-    await _voice.stop(); // nie mówimy do własnego mikrofonu
-    final ok = await _speech.initialize();
-    if (!mounted || epoch != _conversationEpoch) return;
+    bool ok;
+    try {
+      await _voice.stop(); // nie mówimy do własnego mikrofonu
+      if (!current()) return;
+      ok = await _speech.initialize();
+    } catch (_) {
+      ok = false;
+    }
+    if (!current()) return;
+    _startingMic = false;
     if (!ok) {
       messenger.showSnackBar(SnackBar(content: Text(noMic)));
       return;
@@ -638,32 +661,37 @@ class _AiChatScreenState extends State<AiChatScreen>
       _voiceUsed = true;
     });
     var submitted = false;
-    await _speech.listen(
-      language: lang,
-      onResult: (text, isFinal) {
-        if (!mounted || epoch != _conversationEpoch || submitted) return;
-        final joined = before.isEmpty ? text : '$before $text';
-        setState(() {
-          target.value = TextEditingValue(
-            text: joined,
-            selection: TextSelection.collapsed(offset: joined.length),
-          );
-        });
-        if (widget.embedded && isFinal && joined.trim().isNotEmpty) {
-          submitted = true;
-          scheduleMicrotask(() {
-            if (mounted && epoch == _conversationEpoch) _submitCommand();
+    void done(String? error) {
+      if (!current()) return;
+      setState(() => _listening = false);
+      if (error != null) {
+        messenger.showSnackBar(SnackBar(content: Text(interrupted)));
+      }
+    }
+    try {
+      await _speech.listen(
+        language: lang,
+        onResult: (text, isFinal) {
+          if (!current() || submitted) return;
+          final joined = before.isEmpty ? text : '$before $text';
+          setState(() {
+            target.value = TextEditingValue(
+              text: joined,
+              selection: TextSelection.collapsed(offset: joined.length),
+            );
           });
-        }
-      },
-      onDone: (error) {
-        if (!mounted || epoch != _conversationEpoch) return;
-        setState(() => _listening = false);
-        if (error != null) {
-          messenger.showSnackBar(SnackBar(content: Text(interrupted)));
-        }
-      },
-    );
+          if (widget.embedded && isFinal && joined.trim().isNotEmpty) {
+            submitted = true;
+            scheduleMicrotask(() {
+              if (current()) _submitCommand();
+            });
+          }
+        },
+        onDone: done,
+      );
+    } catch (_) {
+      done('recognition_failed');
+    }
   }
 
   Future<void> _speak(String text) async {
@@ -2747,10 +2775,8 @@ class _AiChatScreenState extends State<AiChatScreen>
                   ],
                   selected: {_mode},
                   onSelectionChanged: (s) {
-                    if (_listening) {
-                      _speech.stop();
-                      _listening = false;
-                    }
+                    _cancelMic();
+                    _listening = false;
                     setState(() => _mode = s.first);
                   },
                 ),

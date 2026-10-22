@@ -1,0 +1,9 @@
+# Microphone session lifecycle — 2026-10-22
+
+The assistant now captures a distinct microphone generation as well as the account/conversation generation. A retired recognition result, completion/error callback or queued automatic submission cannot update or submit into a newer microphone session. Stop completion checks the captured generation before clearing listening state.
+
+Initialization has a synchronous pending guard, preventing repeated taps from starting overlapping initializations. Account clear, panel hide, background lifecycle and disposal invalidate pending initialization as well as active listening. Mode change cancels and invalidates the old target. Initialization/listen exceptions leave a recoverable state and an existing localized error, rather than an uncaught exception or stuck microphone.
+
+Evidence: failing widget fixtures reproduced stale old transcript auto-submission and two initialization attempts from rapid taps. Four new mounted assistant cases cover stale callbacks after restart, pending initialization/background/retry, initialize exception/retry and listen exception/retry. Final 44 tests passed across these cases and existing full chat execution, standalone assistant and account-session isolation flows. Existing final voice transcript reaches mocked AI and the actual native calculator, and partial text remains editable on recognition interruption. Two-file fatal analysis clean. Logs build/speech-session-final-test.log and build/speech-session-analyze.log.
+
+This verifies UI session handling with injected speech callbacks, not Android/iOS hardware recognition, provider status-event ordering or real microphone permissions. No model/budget changes or paid calls. No APK released while the preceding legal-version change still needs the updated Railway backend.
