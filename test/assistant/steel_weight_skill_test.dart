@@ -1,3 +1,4 @@
+import '../support/test_account.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:cut_list_app/app_navigator.dart';
@@ -27,6 +28,7 @@ class MemoryOrderStore extends SteelOrderStore {
 }
 
 void main() {
+  useGuestAccount();
   for (final designation in [
     'IPE200',
     'HEA200',

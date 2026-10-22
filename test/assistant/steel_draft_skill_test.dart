@@ -1,3 +1,4 @@
+import '../support/test_account.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,7 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 import 'steel_weight_skill_test.dart' show MemoryOrderStore;
 
 void main() {
+  useGuestAccount();
   useTestDatabase();
   test('AI source guards preserve dimensions, quantity and draft scope', () {
     final edit = SteelDraftEditSkill(), weight = SteelWeightSkill();

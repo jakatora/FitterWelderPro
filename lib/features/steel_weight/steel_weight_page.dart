@@ -10,6 +10,8 @@
 // liczy zakładka „Ciężar rury" (fitter_tools_screen.dart).
 
 import 'dart:async';
+import '../../database/local_record_owner.dart';
+import '../../services/account_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -37,11 +39,11 @@ Future<void> _defaultShareText(String text, String subject) async {
 class SteelWeightPage extends StatefulWidget {
   const SteelWeightPage({
     super.key,
-    this.store = const SteelOrderStore(),
+    this.store,
     this.shareText = _defaultShareText,
   });
 
-  final SteelOrderStore store;
+  final SteelOrderStore? store;
   final SteelShareText shareText;
 
   @override
@@ -55,6 +57,8 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   Map<String, Object?> get inputFields {
     if (!mounted ||
         _loading ||
+        _sessionFrozen ||
+        !_hasCurrentOwner ||
         _tabs.index != 0 ||
         ModalRoute.of(context)?.isCurrent != true) {
       return const {};
@@ -84,6 +88,8 @@ class _SteelWeightPageState extends State<SteelWeightPage>
     if (item == null ||
         !mounted ||
         _loading ||
+        _sessionFrozen ||
+        !_hasCurrentOwner ||
         ModalRoute.of(context)?.isCurrent != true) {
       return fields.isEmpty ? supportedFields : fields.keys.toSet();
     }
@@ -133,7 +139,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
 
   // ── Pozycja w budowie (zakładka Profil) ─────────────────────────────────
   SteelShape _shape = SteelShape.heb;
-  final Map<SteelShape, String> _picked = {
+  static const _defaultPicked = {
     SteelShape.ipe: 'IPE 200',
     SteelShape.hea: 'HEA 200',
     SteelShape.heb: 'HEB 200',
@@ -143,6 +149,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
     SteelShape.angleEqual: 'L 50×50×5',
     SteelShape.angleUnequal: 'L 60×40×5',
   };
+  final Map<SteelShape, String> _picked = Map.of(_defaultPicked);
   SteelMaterial _material = SteelMaterial.carbon;
   double? _lengthMm = 6000;
   double? _count = 1;
@@ -162,43 +169,205 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   /// Zmiana klucza pola długości — po kliknięciu „6 m" / „12 m".
   int _draftGen = 0;
 
+  late final AccountService _sessionAccount = AccountService.instance;
+  late final Future<VoidCallback> Function() _sessionPreparer =
+      _prepareSessionChange;
+  late int _sessionRevision;
+  LocalRecordOwner? _owner;
+  SteelOrderStore? _store;
+  int _loadGeneration = 0, _editRevision = 0, _freezeDepth = 0;
+  bool _dirty = false, _saveError = false, _loadError = false, _popPending = false;
+  Future<void>? _saveTail;
+  Route<dynamic>? _orderDialogRoute;
+  bool get _sessionFrozen => _freezeDepth > 0;
+  bool get _hasCurrentOwner {
+    try {
+      _owner?.requireCurrent();
+      return _owner != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _resetDraft() {
+    _shape = SteelShape.heb;
+    _picked
+      ..clear()
+      ..addAll(_defaultPicked);
+    _material = SteelMaterial.carbon;
+    _lengthMm = 6000;
+    _count = 1;
+    _flatW = 80;
+    _flatT = 10;
+    _roundD = 20;
+    _squareA = 20;
+    _plateT = 10;
+    _plateW = 1500;
+    _plateL = 3000;
+    _hollowCustom = false;
+    _hollowStd = (100, 100, 4);
+    _hollowH = 100;
+    _hollowB = 100;
+    _hollowT = 4;
+    _assistantGen++;
+    _draftGen++;
+    _tabs.index = 0;
+  }
+
   @override
   void initState() {
     super.initState();
+    _sessionRevision = _sessionAccount.sessionRevision;
+    _sessionAccount.addListener(_accountChanged);
+    _sessionAccount.addSessionPreparer(_sessionPreparer);
     unawaited(_load());
+  }
+
+  void _accountChanged() {
+    if (!mounted) return;
+    if (_sessionRevision == _sessionAccount.sessionRevision) {
+      if (_loadError) unawaited(_load());
+      return;
+    }
+    _sessionRevision = _sessionAccount.sessionRevision;
+    final dialog = _orderDialogRoute;
+    if (dialog != null && dialog.isActive) dialog.navigator?.removeRoute(dialog);
+    _save?.cancel();
+    setState(() {
+      _loadGeneration++;
+      _owner = null;
+      _store = null;
+      _order = const SteelOrder();
+      _dirty = false;
+      _saveError = false;
+      _loadError = false;
+      _saveTail = null;
+      _freezeDepth = 0;
+      _loading = true;
+      _resetDraft();
+    });
+    unawaited(_load());
+  }
+
+  Future<VoidCallback> _prepareSessionChange() async {
+    if (!mounted) return () {};
+    final revision = _sessionAccount.sessionRevision;
+    setState(() => _freezeDepth++);
+    var released = false;
+    void release() {
+      if (released) return;
+      released = true;
+      if (mounted && revision == _sessionAccount.sessionRevision) {
+        setState(() => _freezeDepth--);
+      }
+    }
+
+    try {
+      await _flushOrder();
+    } catch (_) {
+      release();
+      throw AccountException(
+          'Nie udało się zapisać listy stali. Ponów zapis przed zmianą konta. / Could not save the steel list. Retry saving before switching accounts.');
+    }
+    return release;
   }
 
   @override
   void dispose() {
+    _sessionAccount.removeListener(_accountChanged);
+    _sessionAccount.removeSessionPreparer(_sessionPreparer);
+    _save?.cancel();
+    if (_dirty) unawaited(_flushOrder().catchError((Object _) {}));
     _tabs.dispose();
-    if (_save?.isActive ?? false) {
-      _save!.cancel();
-      unawaited(widget.store.save(_order));
-    }
     super.dispose();
   }
 
   Future<void> _load() async {
-    SteelOrder o;
+    final generation = ++_loadGeneration;
     try {
-      o = await widget.store.load();
+      final owner = await LocalRecordOwner.capture();
+      owner.requireCurrent();
+      final store = widget.store ?? SteelOrderStore.forOwner(owner);
+      final order = await store.load();
+      owner.requireCurrent();
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _owner = owner;
+        _store = store;
+        _order = order;
+        _loading = false;
+        _loadError = false;
+        _listGen++;
+      });
+      markReady();
     } catch (_) {
-      o = const SteelOrder();
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _loadError = true;
+        _loading = false;
+      });
     }
-    if (!mounted) return;
-    setState(() {
-      _order = o;
-      _loading = false;
-      _listGen++;
-    });
-    markReady();
   }
 
-  void _setOrder(SteelOrder o) {
-    setState(() => _order = o);
+  Future<void> _flushOrder() {
+    _save?.cancel();
+    if (!_dirty) return Future.value();
+    final owner = _owner, store = _store, order = _order;
+    final generation = _loadGeneration, edit = _editRevision;
+    Future<void> write() async {
+      try {
+        if (owner == null || store == null) {
+          throw StateError('No steel list owner');
+        }
+        owner.requireCurrent();
+        await store.save(order);
+        owner.requireCurrent();
+        if (mounted && generation == _loadGeneration && edit == _editRevision) {
+          setState(() {
+            _dirty = false;
+            _saveError = false;
+          });
+        }
+      } catch (_) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() => _saveError = true);
+        }
+        rethrow;
+      }
+    }
+
+    final tail = _saveTail;
+    final result =
+        tail == null ? Future<void>.sync(write) : tail.then((_) => write());
+    _saveTail = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  Future<void> _flushAndPop() async {
+    if (_popPending || !mounted) return;
+    _popPending = true;
+    final route = ModalRoute.of(context), generation = _loadGeneration;
+    try {
+      await _flushOrder();
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted && generation == _loadGeneration && !_dirty && route?.isCurrent == true) {
+        await Navigator.of(context).maybePop();
+      }
+    } catch (_) {/* The save banner remains available for retry. */} finally {
+      _popPending = false;
+    }
+  }
+
+  void _setOrder(SteelOrder order) {
+    if (_loading || _loadError || _sessionFrozen || !_hasCurrentOwner) return;
+    setState(() {
+      _order = order;
+      _dirty = true;
+      _editRevision++;
+    });
     _save?.cancel();
     _save = Timer(const Duration(milliseconds: 400),
-        () => unawaited(widget.store.save(_order)));
+        () => unawaited(_flushOrder().catchError((Object _) {})));
   }
 
   bool get _en => context.language == AppLanguage.en;
@@ -291,10 +460,21 @@ class _SteelWeightPageState extends State<SteelWeightPage>
         context.tr(pl: 'Lista materiałowa — stal', en: 'Steel material list'));
   }
 
+  Future<T?> _showOrderDialog<T>(WidgetBuilder builder) async {
+    if (_orderDialogRoute != null || !_hasCurrentOwner) return null;
+    final route = DialogRoute<T>(context: context, builder: builder);
+    _orderDialogRoute = route;
+    try {
+      return await Navigator.of(context, rootNavigator: true).push(route);
+    } finally {
+      if (identical(_orderDialogRoute, route)) _orderDialogRoute = null;
+    }
+  }
+
   Future<void> _confirmClear() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
+    final generation = _loadGeneration;
+    final ok = await _showOrderDialog<bool>(
+      (ctx) => AlertDialog(
         title: Text(context.tr(pl: 'Wyczyścić listę?', en: 'Clear the list?')),
         content: Text(context.tr(
             pl: 'Usuniesz wszystkie pozycje. Cena i zapas zostają.',
@@ -312,7 +492,9 @@ class _SteelWeightPageState extends State<SteelWeightPage>
         ],
       ),
     );
-    if (ok == true) _setOrder(_order.copyWith(items: const []));
+    if (ok == true && mounted && generation == _loadGeneration) {
+      _setOrder(_order.copyWith(items: const []));
+    }
   }
 
   // ── Budowa ekranu ──────────────────────────────────────────────────────
@@ -320,51 +502,89 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   @override
   Widget build(BuildContext context) {
     final title = context.tr(pl: 'Ciężar stali', en: 'Steel weight');
-    if (_loading) {
+    if (_loading || _loadError || _sessionFrozen) {
       return Scaffold(
         appBar: AppBar(title: Text(title)),
-        body: const Center(child: CircularProgressIndicator(color: kArc)),
+        body: Center(
+            child: _loadError
+                ? Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(context.tr(
+                        pl: 'Nie udało się wczytać listy dla bieżącego konta.',
+                        en: 'Could not load the list for the current account.')),
+                    TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _loadError = false;
+                            _loading = true;
+                          });
+                          unawaited(_load());
+                        },
+                        child: Text(
+                            context.tr(pl: 'Spróbuj ponownie', en: 'Retry'))),
+                  ])
+                : const CircularProgressIndicator(color: kArc)),
       );
     }
     final n = _order.items.length;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        actions: [
-          IconButton(
-            key: const ValueKey('sw-appbar-share'),
-            tooltip: context.tr(pl: 'Udostępnij listę', en: 'Share list'),
-            constraints: const BoxConstraints(
-                minWidth: kMinTapTarget, minHeight: kMinTapTarget),
-            onPressed: n == 0 ? null : _share,
-            icon: const Icon(Icons.ios_share),
+    return PopScope(
+        canPop: !_dirty,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) unawaited(_flushAndPop());
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(title),
+            actions: [
+              IconButton(
+                key: const ValueKey('sw-appbar-share'),
+                tooltip: context.tr(pl: 'Udostępnij listę', en: 'Share list'),
+                constraints: const BoxConstraints(
+                    minWidth: kMinTapTarget, minHeight: kMinTapTarget),
+                onPressed: n == 0 ? null : _share,
+                icon: const Icon(Icons.ios_share),
+              ),
+            ],
+            bottom: TabBar(
+              controller: _tabs,
+              indicatorColor: kArc,
+              labelColor: kText,
+              unselectedLabelColor: kTextSec,
+              tabs: [
+                Tab(
+                    key: const ValueKey('sw-tab-profile'),
+                    text: context.tr(pl: 'Profil', en: 'Section')),
+                Tab(
+                    key: const ValueKey('sw-tab-list'),
+                    text: context.tr(pl: 'Lista ($n)', en: 'List ($n)')),
+              ],
+            ),
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabs,
-          indicatorColor: kArc,
-          labelColor: kText,
-          unselectedLabelColor: kTextSec,
-          tabs: [
-            Tab(
-                key: const ValueKey('sw-tab-profile'),
-                text: context.tr(pl: 'Profil', en: 'Section')),
-            Tab(
-                key: const ValueKey('sw-tab-list'),
-                text: context.tr(pl: 'Lista ($n)', en: 'List ($n)')),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabs,
-        children: [
-          KeyedSubtree(
-              key: ValueKey('sw-assistant-$_assistantGen'),
-              child: _profileTab()),
-          _listTab()
-        ],
-      ),
-    );
+          body: Column(children: [
+            if (_saveError)
+              MaterialBanner(
+                  content: Text(context.tr(
+                      pl: 'Lista nie została zapisana. Ponów zapis przed zmianą konta.',
+                      en: 'The list was not saved. Retry before switching accounts.')),
+                  actions: [
+                    TextButton(
+                        key: const ValueKey('sw-retry-save'),
+                        onPressed: () =>
+                            unawaited(_flushOrder().catchError((Object _) {})),
+                        child: Text(
+                            context.tr(pl: 'Ponów zapis', en: 'Retry save')))
+                  ]),
+            Expanded(
+                child: TabBarView(
+              controller: _tabs,
+              children: [
+                KeyedSubtree(
+                    key: ValueKey('sw-assistant-$_assistantGen'),
+                    child: _profileTab()),
+                _listTab()
+              ],
+            )),
+          ]),
+        ));
   }
 
   EdgeInsets get _pagePadding => EdgeInsets.fromLTRB(
@@ -1319,15 +1539,14 @@ class _SteelWeightPageState extends State<SteelWeightPage>
   }
 
   Future<void> _editItem(int i) async {
+    final generation = _loadGeneration;
     final item = _order.items[i];
     final plate = item.shape == SteelShape.plate;
     double? len = item.lengthMm;
     double? n = item.count.toDouble();
     double? price = item.unitPrice;
     var unit = item.priceUnit;
-    final result = await showDialog<SteelItem>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+    final result = await _showOrderDialog<SteelItem>( (ctx) => StatefulBuilder(builder: (ctx, setD) {
         final draft = item.copyWith(
           lengthMm: len ?? 0,
           count: (n ?? 0).round(),
@@ -1422,7 +1641,7 @@ class _SteelWeightPageState extends State<SteelWeightPage>
         );
       }),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || generation != _loadGeneration) return;
     final list = [..._order.items];
     if (i < list.length) list[i] = result;
     _setOrder(_order.copyWith(items: list));

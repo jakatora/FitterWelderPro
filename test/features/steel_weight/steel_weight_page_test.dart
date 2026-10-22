@@ -1,3 +1,4 @@
+import '../../support/test_account.dart';
 // Ekran „Ciężar stali": wybór profilu i długości zmienia masę, dodanie do
 // listy (zapis w SharedPreferences), suma z zapasem i koszt, udostępnianie
 // (wstrzyknięte), wąski ekran z dużą czcionką.
@@ -60,6 +61,7 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
 }
 
 void main() {
+  useGuestAccount();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets('wybór profilu i długości zmienia masę', (tester) async {

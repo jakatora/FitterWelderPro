@@ -1,3 +1,4 @@
+import 'package:flutter_test/flutter_test.dart';
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -31,4 +32,21 @@ Future<void> seedSignedInAccount() async {
   AccountService.instance = AccountService.forTesting(client);
   await AccountService.instance
       .signIn('fixture@example.com', 'fixture-password');
+}
+
+/// Fresh offline guest identity for tests which now open account-scoped data.
+void useGuestAccount() {
+  setUp(() {
+    final previous = AccountService.instance;
+    FlutterSecureStorage.setMockInitialValues({});
+    final client =
+        MockClient((_) async => throw StateError('Unexpected account HTTP'));
+    final account = AccountService.forTesting(client);
+    AccountService.instance = account;
+    addTearDown(() {
+      AccountService.instance = previous;
+      account.dispose();
+      client.close();
+    });
+  });
 }
