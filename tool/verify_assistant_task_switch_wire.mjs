@@ -8,11 +8,12 @@ import {execFileSync} from 'node:child_process';
 const navigation = process.argv.includes('--navigation');
 const knowledge = process.argv.includes('--knowledge');
 const signOut = process.argv.includes('--sign-out');
-assert.ok([navigation, knowledge, signOut].filter(Boolean).length <= 1, 'Choose one fixture mode');
-const skillId = signOut ? 'account.sign_out' : knowledge ? 'iso.draw' : navigation ? 'tool.open' : 'iso.summary.copy';
-const command = signOut ? 'Wyloguj mnie' : navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
-const fixture = signOut ? 'build/assistant-account-signout-wire.json' : knowledge ? 'build/assistant-pending-knowledge-wire.json' : navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
-const proofPath = signOut ? 'build/assistant-account-signout-backend-proof.json' : knowledge ? 'build/assistant-pending-knowledge-backend-proof.json' : navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
+const calculatorAction = process.argv.includes('--calculator-action');
+assert.ok([navigation, knowledge, signOut, calculatorAction].filter(Boolean).length <= 1, 'Choose one fixture mode');
+const skillId = calculatorAction ? 'calculator.action' : signOut ? 'account.sign_out' : knowledge ? 'iso.draw' : navigation ? 'tool.open' : 'iso.summary.copy';
+const command = calculatorAction ? 'Wyczyść pola bieżącego kalkulatora' : signOut ? 'Wyloguj mnie' : navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
+const fixture = calculatorAction ? 'build/assistant-calculator-action-switch-wire.json' : signOut ? 'build/assistant-account-signout-wire.json' : knowledge ? 'build/assistant-pending-knowledge-wire.json' : navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
+const proofPath = calculatorAction ? 'build/assistant-calculator-action-switch-backend-proof.json' : signOut ? 'build/assistant-account-signout-backend-proof.json' : knowledge ? 'build/assistant-pending-knowledge-backend-proof.json' : navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
 const backend = path.resolve('backend');
 const load = relative => import(pathToFileURL(path.join(backend,relative)).href);
 const {startTestServer,api,newDeviceId,newSecret}=await load('test/helpers/server.js');
@@ -24,7 +25,7 @@ try {
   const request=JSON.parse(fs.readFileSync(fixture,'utf8'));
   assert.equal(request.capabilities.length,1);
   assert.equal(request.capabilities[0].id,skillId);
-  assert.equal(request.context.active_tool,signOut ? 'rolling_offset' : 'iso_notebook');
+  assert.equal(request.context.active_tool,calculatorAction ? 'pipe_weight' : signOut ? 'rolling_offset' : 'iso_notebook');
   if (knowledge) {
     assert.equal(request.context.pending_reply.skill_id,'iso.draw');
     assert.ok(request.context.pending_question.length > 0);
@@ -46,6 +47,7 @@ try {
   const sent=JSON.parse(fake.calls[0].messages[0].content);
   assert.deepEqual(sent.capabilities,request.capabilities);
   assert.deepEqual(sent.context.pending_reply,request.context.pending_reply);
+  assert.deepEqual(sent.context,request.context);
   assert.deepEqual(fake.requestOptions[0],{maxRetries:0,timeout:25000});
   assert.equal(budgetState().inFlightUsd,0);
   const proof={checkedAt:new Date().toISOString(),backendHead:execFileSync('git',['rev-parse','HEAD'],{cwd:backend,encoding:'utf8'}).trim(),capabilities:1,bytes:Buffer.byteLength(JSON.stringify(request)),status:response.status,provider:'injected fake; zero paid calls'};

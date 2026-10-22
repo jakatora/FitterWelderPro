@@ -1,6 +1,7 @@
 import '../../core/command_words.dart'
     show referencesInstruction, isNegatedCommand;
 import '../../core/calculator_action_tools.dart';
+import '../../../i18n/app_language.dart';
 import '../../core/skill.dart';
 import '../../core/tool_lookup.dart' show findTools, kAssistantStopWords;
 
@@ -41,8 +42,14 @@ const _clearObjects = {
   'the current calculator inputs',
 };
 
-final _scopeVerb =
-    RegExp(r'\b(skopiuj|kopiuj|copy|wyczysc|wyzeruj|clear|reset)\b');
+const _copyVerbPattern =
+    r'(?:skopiuj|kopiuj|skopiowac|kopiowac|copy|wrzuc(?:ic|aj)?|umiesc(?:ic)?|przenies(?:c)?|put)';
+const _clearVerbPattern =
+    r'(?:wyczysc(?:ic|my)?|wyzeruj(?:my)?|wyzerowac|clear|reset)';
+final _scopeVerb = RegExp('\\b($_copyVerbPattern|$_clearVerbPattern)\\b');
+final _copyVerb = RegExp('^$_copyVerbPattern\$');
+final _negatedScopeVerb = RegExp(
+    '\\b(?:nie|not|never|dont|don t)\\s+(?:$_copyVerbPattern|$_clearVerbPattern)\\b');
 final _clauses =
     RegExp(r'\b(?:nastepnie|potem|pozniej|then|after that|oraz|i|and)\b');
 const _scopeFillers = {
@@ -93,7 +100,58 @@ const _scopeFillers = {
   'my',
   'only',
   'tylko',
+  'these',
+  'those',
+  'tych',
+  'cale',
+  'caly',
+  'wszystkich',
+  'into',
 };
+
+/// AI may normalize an explicit whole-form/result request, but cannot create
+/// permission to clear from a question, an unrelated sentence or a copy request.
+String? _sourceAction(Utterance source) {
+  if (referencesInstruction(source) ||
+      isNegatedCommand(source) ||
+      _savedObject(source) ||
+      _accountObject(source) ||
+      source.hasStem(const [
+        'wyjasn',
+        'wytlumacz',
+        'explain',
+        'przetlumacz',
+        'translate',
+        'interpret'
+      ]) ||
+      _negatedScopeVerb.hasMatch(source.folded) ||
+      RegExp(r'\b(?:nie (?:chce|chcialbym|chcialabym|nalezy|trzeba)|(?:do not|dont|don t|never) (?:want|need)|bez (?:kopiowania|czyszczenia)|without (?:copying|clearing))\b')
+          .hasMatch(source.folded) ||
+      RegExp(r'^(?:(?:prosze|please|hej|hey|asystencie)\s+)*(?:jak|how|should i|can i|could i|may i|czy (?:powinienem|powinnam|moge|mozna)|what (?:does|happens))\b')
+          .hasMatch(source.folded)) {
+    return null;
+  }
+  final verbs = _scopeVerb.allMatches(source.folded).toList();
+  if (verbs.isEmpty) return null;
+  final actions = {
+    for (final verb in verbs) _copyVerb.hasMatch(verb[1]!) ? 'copy' : 'clear'
+  };
+  if (actions.length != 1) return null;
+  final action = actions.single;
+  if (_action(source) == action) return action;
+  if (action == 'copy' && !source.hasStem(const ['wynik', 'result']) ||
+      action == 'clear' && !_formObject(source)) {
+    return null;
+  }
+  if (verbs.any((v) =>
+          !const {'skopiuj', 'kopiuj', 'skopiowac', 'kopiowac', 'copy'}
+              .contains(v[1]) &&
+          _copyVerb.hasMatch(v[1]!)) &&
+      !source.hasStem(const ['schow', 'clipboard'])) {
+    return null;
+  }
+  return action;
+}
 
 bool _savedObject(Utterance u) => u.hasStem(const [
       'projekt',
@@ -140,7 +198,7 @@ bool _sourceTargetsCurrent(Utterance original, String action, String? active) {
   for (final clause in original.folded.split(_clauses)) {
     final verb = _scopeVerb.firstMatch(clause);
     if (verb == null) continue;
-    final copy = const {'skopiuj', 'kopiuj', 'copy'}.contains(verb.group(1));
+    final copy = _copyVerb.hasMatch(verb.group(1)!);
     if ((copy ? 'copy' : 'clear') != action) continue;
     explicitAction = true;
     final source = original.withRaw(clause);
@@ -160,7 +218,7 @@ bool _sourceTargetsCurrent(Utterance original, String action, String? active) {
         .join(' ');
     if (query.isEmpty) continue;
     final hits = findTools(query, original.lang);
-    if (hits.isEmpty) continue;
+    if (hits.isEmpty) return false;
     // Incidental subtitle words are not an explicit calculator reference.
     if (hits.first.score < query.split(' ').length * 8) continue;
     final top = hits.where((h) => h.score == hits.first.score).toList();
@@ -174,7 +232,7 @@ bool _sourceTargetsCurrent(Utterance original, String action, String? active) {
                   _savedObject(original) && !_formObject(original)))) {
     return false;
   }
-  return targets.isEmpty || targets.contains(active);
+  return targets.isEmpty || targets.length == 1 && targets.single == active;
 }
 
 String? _action(Utterance u) {
@@ -232,6 +290,22 @@ String? _action(Utterance u) {
 /// Acts only on the visible opt-in calculator, through its actual native port.
 class CalculatorActionSkill extends AssistantSkill {
   @override
+  bool get canInterruptPendingWithAi => true;
+  @override
+  Iterable<String> aiTaskSwitchCommands(
+      Utterance source, AssistantContext ctx) {
+    final active = ctx.modules.activeToolId;
+    final action = _sourceAction(source);
+    if (action == null ||
+        !fitterCalculatorActionToolIds.contains(active) ||
+        !_sourceTargetsCurrent(source, action, active)) {
+      return const [];
+    }
+    final example = examples[action == 'copy' ? 0 : 1];
+    return [ctx.lang == AppLanguage.en ? example.en : example.pl];
+  }
+
+  @override
   String get id => 'calculator.action';
   @override
   String? get toolId => null;
@@ -288,14 +362,8 @@ class CalculatorActionSkill extends AssistantSkill {
   bool acceptsProposal(
       Utterance original, Utterance command, AssistantContext context) {
     final proposed = _action(command);
-    final copy = original.hasStem(const ['skopi', 'kopiuj', 'copy']);
-    final clear =
-        original.hasStem(const ['wyczysc', 'wyzeruj', 'clear', 'reset']);
-    if (copy && !clear && proposed != 'copy' ||
-        clear && !copy && proposed != 'clear') {
-      return false;
-    }
     return proposed != null &&
+        _sourceAction(original) == proposed &&
         _sourceTargetsCurrent(original, proposed, context.modules.activeToolId);
   }
 

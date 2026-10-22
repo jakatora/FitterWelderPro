@@ -316,7 +316,7 @@ void main() {
     await ToolBridge.instance.current!.apply(native.cases['pipe_weight']!);
     await settle(t);
     await t.enterText(find.byKey(const Key('assistant-command')),
-        'Zrób porządek z wpisanymi wartościami');
+        'Możesz wyczyścić wszystkie pola tego kalkulatora?');
     await t.tap(find.byKey(const Key('assistant-go')));
     await t.pump(const Duration(milliseconds: 200));
     expect(calls, 1);
