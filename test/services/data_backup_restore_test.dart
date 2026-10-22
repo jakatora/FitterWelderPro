@@ -31,6 +31,7 @@ import 'package:cut_list_app/domain/wps/wps_record.dart';
 import 'package:cut_list_app/screens/coupon_log_screen.dart';
 import 'package:cut_list_app/screens/weld_journal_screen.dart';
 import 'package:cut_list_app/services/data_backup.dart';
+import '../support/test_account.dart';
 
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -181,6 +182,7 @@ void main() {
   });
 
   setUp(() async {
+    await seedGuestAccount();
     sandbox = await Directory.systemTemp.createTemp('fwp_restore_');
     phoneA = _Phone(Directory(p.join(sandbox.path, 'phone_a')));
     phoneB = _Phone(Directory(p.join(sandbox.path, 'phone_b')));

@@ -1,5 +1,7 @@
 # Asystent głosowy sterujący modułami — plan wdrożenia (v2)
 
+Aktualizacja 2026-10-22: [parametry spawania przypisane do konta](2026-10-22-owned-weld-parameters.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Jeden asystent głosowy dostępny na każdym ekranie, który:

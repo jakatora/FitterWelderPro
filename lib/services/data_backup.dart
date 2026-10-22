@@ -8,9 +8,9 @@
 ///
 /// ## Nothing is uploaded
 /// The archive is written to the app's temporary directory and handed to the
-/// OS share sheet ([Share.shareXFiles]). There is no cloud, no backend, no
-/// network call anywhere in this file. Where the file goes afterwards is the
-/// user's decision, made in the system share sheet.
+/// OS share sheet ([Share.shareXFiles]). The archive is never uploaded to the
+/// backend. Resolving an existing session may refresh account identity; where
+/// the archive goes is the user's decision in the system share sheet.
 ///
 /// ## Why a hand-written ZIP writer
 /// The task allowed `package:archive` "if it is in pubspec.lock". It IS in
@@ -111,9 +111,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../data/app_database.dart' as module_db;
 import '../database/db.dart' as cutlist_db;
+import '../database/local_record_owner.dart';
 import 'heat_photo_storage.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -167,7 +169,8 @@ class BackupFormatException implements Exception {
   final String messagePl;
   final String messageEn;
 
-  const BackupFormatException({required this.messagePl, required this.messageEn});
+  const BackupFormatException(
+      {required this.messagePl, required this.messageEn});
 
   @override
   String toString() => 'BackupFormatException: $messageEn';
@@ -487,7 +490,8 @@ BackupContents describeBackup({
   if (databaseEntries.isEmpty) {
     throw const BackupFormatException(
       messagePl: 'Ta kopia nie zawiera bazy danych — nie ma czego przywrócić.',
-      messageEn: 'This backup contains no database — there is nothing to restore.',
+      messageEn:
+          'This backup contains no database — there is nothing to restore.',
     );
   }
 
@@ -613,7 +617,8 @@ class ZipBuilder {
     }
     if (data.length > _kMaxUint32 || _offset > _kMaxUint32) {
       throw const BackupFormatException(
-        messagePl: 'Kopia przekracza 4 GB — tyle nie zmieści się w tym formacie.',
+        messagePl:
+            'Kopia przekracza 4 GB — tyle nie zmieści się w tym formacie.',
         messageEn: 'The backup exceeds 4 GB, which this format cannot hold.',
       );
     }
@@ -812,7 +817,8 @@ List<ZipEntry> readZipDirectory(ZipSource source) {
   final entries = <ZipEntry>[];
   var pos = 0;
   for (var i = 0; i < count; i++) {
-    if (pos + 46 > directory.length || _rd32(directory, pos) != _kCentralHeaderSig) {
+    if (pos + 46 > directory.length ||
+        _rd32(directory, pos) != _kCentralHeaderSig) {
       throw _damagedArchive;
     }
     final flags = _rd16(directory, pos + 8);
@@ -978,6 +984,9 @@ Future<TableRestoreResult> restoreTablesInto(
   Future<void> Function(DatabaseExecutor txn)? ensureKnownTables,
   bool dryRun = false,
   bool wipeTablesNotInBackup = false,
+  String? weldParamsOwner,
+  bool preserveWeldParamOwner = false,
+  void Function()? validateOwner,
 }) async {
   var written = 0;
   final skipped = <String, int>{};
@@ -989,6 +998,9 @@ Future<TableRestoreResult> restoreTablesInto(
         ensureKnownTables: ensureKnownTables,
         dryRun: dryRun,
         wipeTablesNotInBackup: wipeTablesNotInBackup,
+        weldParamsOwner: weldParamsOwner,
+        preserveWeldParamOwner: preserveWeldParamOwner,
+        validateOwner: validateOwner,
         onWritten: (n) => written += n,
         skipped: skipped,
         dropped: dropped);
@@ -1007,6 +1019,23 @@ class _DryRunRollback implements Exception {
   const _DryRunRollback();
 }
 
+/// Call only on a staged snapshot. VACUUM also removes other owners' bytes
+/// from free SQLite pages, not merely from query results inside the ZIP.
+Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
+  final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='weld_params'");
+  if (tables.isEmpty) return;
+  final columns = await db.rawQuery('PRAGMA table_info(weld_params)');
+  await db.execute('PRAGMA secure_delete = ON');
+  if (columns.any((r) => r['name'] == 'owner_scope')) {
+    await db
+        .delete('weld_params', where: 'owner_scope != ?', whereArgs: [owner]);
+  } else if (owner != LocalRecordOwner.guest) {
+    await db.delete('weld_params');
+  }
+  await db.execute('VACUUM');
+}
+
 Future<void> _refill(
   Database db,
   Map<String, List<Map<String, Object?>>> tables, {
@@ -1015,12 +1044,16 @@ Future<void> _refill(
   required Future<void> Function(DatabaseExecutor txn)? ensureKnownTables,
   required bool dryRun,
   required bool wipeTablesNotInBackup,
+  required String? weldParamsOwner,
+  required bool preserveWeldParamOwner,
+  required void Function()? validateOwner,
   required void Function(int rows) onWritten,
   required Map<String, int> skipped,
   required Map<String, List<String>> dropped,
 }) async {
   var written = 0;
   await db.transaction((txn) async {
+    validateOwner?.call();
     // `cut_list_app.db` switches `foreign_keys` ON, so deleting parents
     // before children (or inserting children before parents) would trip a
     // constraint mid-restore. Deferring the check to COMMIT lets the whole
@@ -1033,8 +1066,8 @@ Future<void> _refill(
       // as a whole, we just lose the ordering freedom.
     }
 
-    Future<Set<String>> liveTableNames() async => (await txn.rawQuery(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+    Future<Set<String>> liveTableNames() async => (await txn
+            .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
         .map((row) => row['name'] as String)
         .where(isRestorableTable)
         .toSet();
@@ -1049,7 +1082,12 @@ Future<void> _refill(
     final batch = txn.batch();
     for (final table in liveTables) {
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
-        batch.delete(table);
+        if (table == 'weld_params' && weldParamsOwner != null) {
+          batch.delete(table,
+              where: 'owner_scope = ?', whereArgs: [weldParamsOwner]);
+        } else {
+          batch.delete(table);
+        }
       }
     }
     for (final entry in tables.entries) {
@@ -1064,20 +1102,45 @@ Future<void> _refill(
           .toSet();
       final lost = droppedColumnsWithData(entry.value, columns);
       if (lost.isNotEmpty) dropped[entry.key] = lost;
+      final sourceRows = entry.key == 'weld_params' &&
+              weldParamsOwner != null &&
+              preserveWeldParamOwner
+          ? entry.value
+              .where((r) =>
+                  (r['owner_scope'] ?? LocalRecordOwner.guest) ==
+                  weldParamsOwner)
+              .toList()
+          : entry.value;
       final rows = prepareRows(
         table: entry.key,
-        rows: entry.value,
+        rows: sourceRows,
         liveColumns: columns,
         heatPhotosDir: heatPhotosDir,
         restoredPhotoNames: restoredPhotoNames,
       );
+      final foreignIds = entry.key == 'weld_params' && weldParamsOwner != null
+          ? (await txn.query('weld_params',
+                  columns: ['id'],
+                  where: 'owner_scope != ?',
+                  whereArgs: [weldParamsOwner]))
+              .map((r) => r['id'])
+              .toSet()
+          : const <Object?>{};
       for (final row in rows) {
-        batch.insert(entry.key, row,
+        final ownedRow = Map<String, Object?>.of(row);
+        if (entry.key == 'weld_params' && weldParamsOwner != null) {
+          ownedRow['owner_scope'] = weldParamsOwner;
+          if (foreignIds.contains(ownedRow['id'])) {
+            ownedRow['id'] = const Uuid().v4();
+          }
+        }
+        batch.insert(entry.key, ownedRow,
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
       written += rows.length;
     }
     await batch.commit(noResult: true);
+    validateOwner?.call();
 
     if (dryRun) {
       final enforced =
@@ -1164,6 +1227,7 @@ class _ArchivedPhoto {
 }
 
 class DataBackup {
+  static final _archiveOwners = Expando<LocalRecordOwner>();
   DataBackup._();
 
   /// Test hook: called right before each database is written during a
@@ -1200,8 +1264,8 @@ class DataBackup {
   static Future<String> _cutListDbPath() async =>
       p.join(await getDatabasesPath(), 'cutlist.db');
 
-  static Future<String> _moduleDbPath() async =>
-      p.join((await getApplicationDocumentsDirectory()).path, 'cut_list_app.db');
+  static Future<String> _moduleDbPath() async => p.join(
+      (await getApplicationDocumentsDirectory()).path, 'cut_list_app.db');
 
   /// `<documents>/heat_photos`: where `heat_photos_screen.dart` and the
   /// component-heat picker (via `heat_photo_storage.dart`) copy picked
@@ -1213,6 +1277,7 @@ class DataBackup {
   /// Split from [shareBackupFile] so the file-producing half can be driven
   /// from a driver test without opening a share sheet nobody can dismiss.
   static Future<File> createBackupFile({DateTime? now}) async {
+    final owner = await LocalRecordOwner.capture();
     final stamp = now ?? DateTime.now();
     final tempDir = await getTemporaryDirectory();
     final target = File(p.join(tempDir.path, backupFileName(stamp)));
@@ -1228,7 +1293,16 @@ class DataBackup {
       for (final db in _databases) {
         final live = File(await db.resolvePath());
         if (!await live.exists()) continue;
-        snapshots[db.fileName] = await _snapshot(db, live, staging);
+        final snapshot = await _snapshot(db, live, staging);
+        final stagedDb = await databaseFactory.openDatabase(snapshot.path,
+            options: OpenDatabaseOptions(singleInstance: false));
+        try {
+          await pruneWeldParamsSnapshot(stagedDb, owner.key);
+        } finally {
+          await stagedDb.close();
+        }
+        owner.requireCurrent();
+        snapshots[db.fileName] = snapshot;
       }
 
       final heatDir = await _heatPhotosDir();
@@ -1270,8 +1344,8 @@ class DataBackup {
         zip.addFile(kManifestEntry, utf8.encode(manifest.encode()),
             modified: stamp);
         for (final entry in snapshots.entries) {
-          zip.addFile('$kDbEntryPrefix${entry.key}',
-              await entry.value.readAsBytes(),
+          zip.addFile(
+              '$kDbEntryPrefix${entry.key}', await entry.value.readAsBytes(),
               modified: stamp);
           // Flush between entries so the sink's buffer never grows past one
           // file; without this the whole archive would queue up in RAM.
@@ -1297,6 +1371,8 @@ class DataBackup {
               'free storage.',
         );
       }
+      owner.requireCurrent();
+      _archiveOwners[target] = owner;
       return target;
     } finally {
       if (await staging.exists()) await staging.delete(recursive: true);
@@ -1357,8 +1433,8 @@ class DataBackup {
         snapshot.path,
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      final tables = (await db.rawQuery(
-              "SELECT name FROM sqlite_master WHERE type = 'table'"))
+      final tables = (await db
+              .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
           .map((row) => row['name'] as String)
           .toSet();
       final targets = <(String, String)>[]; // (table, column) to rewrite
@@ -1436,6 +1512,15 @@ class DataBackup {
   /// `iso_pdf_export.dart` documents: without it some Android launchers offer
   /// only text targets and the file appears unshareable.
   static Future<void> shareBackupFile(File file) async {
+    final owner = _archiveOwners[file];
+    try {
+      if (owner == null) throw StateError('Unbound backup');
+      owner.requireCurrent();
+    } catch (_) {
+      throw const BackupFormatException(
+          messagePl: 'Sesja zmieniła się. Utwórz kopię ponownie przed udostępnieniem.',
+          messageEn: 'The session changed. Create the backup again before sharing.');
+    }
     final name = p.basename(file.path);
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/zip', name: name)],
@@ -1464,8 +1549,9 @@ class DataBackup {
     final manifestEntry = entries[kManifestEntry];
     return describeBackup(
       entryNames: entries.keys.toList(growable: false),
-      manifestBytes:
-          manifestEntry == null ? null : readZipEntryBytes(source, manifestEntry),
+      manifestBytes: manifestEntry == null
+          ? null
+          : readZipEntryBytes(source, manifestEntry),
     );
   }
 
@@ -1473,11 +1559,14 @@ class DataBackup {
   ///
   /// See the library doc for the two-phase guarantee: everything that can fail
   /// because of the *file* fails before any live write happens.
-  static Future<RestoreReport> restore(String path) async {
+  static Future<RestoreReport> restore(String path, {LocalRecordOwner? expectedOwner}) async {
+    final owner = expectedOwner ?? await LocalRecordOwner.capture();
+    owner.requireCurrent();
     final source = FileZipSource.open(File(path));
     final tempDir = await getTemporaryDirectory();
     final staging = Directory(
-      p.join(tempDir.path, 'fwp_restore_${DateTime.now().millisecondsSinceEpoch}'),
+      p.join(
+          tempDir.path, 'fwp_restore_${DateTime.now().millisecondsSinceEpoch}'),
     );
 
     try {
@@ -1486,7 +1575,8 @@ class DataBackup {
       await staging.create(recursive: true);
 
       // ---- Phase 1: read the whole archive. Live data still untouched.
-      final tablesByDatabase = <String, Map<String, List<Map<String, Object?>>>>{};
+      final tablesByDatabase =
+          <String, Map<String, List<Map<String, Object?>>>>{};
       for (final db in contents.databaseEntries.entries) {
         final bytes = readZipEntryBytes(source, entries[db.value]!);
         if (!looksLikeSqliteDatabase(bytes)) {
@@ -1511,7 +1601,8 @@ class DataBackup {
         // writes such an entry, so it can only come from a doctored file.
         if (base.isEmpty || base == '.' || base == '..') continue;
         final bytes = readZipEntryBytes(source, entries[name]!);
-        await File(p.join(stagedPhotos.path, base)).writeAsBytes(bytes, flush: true);
+        await File(p.join(stagedPhotos.path, base))
+            .writeAsBytes(bytes, flush: true);
         photoNames.add(base);
       }
 
@@ -1531,6 +1622,8 @@ class DataBackup {
           restoredPhotoNames: photoNames,
           ensureKnownTables: db.ensureKnownTables,
           dryRun: true,
+          weldParamsOwner: owner.key,
+          validateOwner: owner.requireCurrent,
         );
       }
 
@@ -1570,6 +1663,8 @@ class DataBackup {
             heatPhotosDir: heatDir.path,
             restoredPhotoNames: photoNames,
             ensureKnownTables: db.ensureKnownTables,
+            weldParamsOwner: owner.key,
+            validateOwner: owner.requireCurrent,
           );
           committed.add(db);
           rows += result.rowsWritten;
@@ -1592,6 +1687,8 @@ class DataBackup {
               heatPhotosDir: heatDir.path,
               restoredPhotoNames: const <String>{},
               wipeTablesNotInBackup: true,
+              weldParamsOwner: owner.key,
+              preserveWeldParamOwner: true,
             );
           } catch (e) {
             rollbackErrors.add(e);
@@ -1605,7 +1702,8 @@ class DataBackup {
         if (rollbackErrors.isNotEmpty) {
           debugPrint('Restore rollback failed: $rollbackErrors (after $error)');
           throw BackupFormatException(
-            messagePl: 'Przywracanie przerwane ($error) i nie udało się w pełni '
+            messagePl:
+                'Przywracanie przerwane ($error) i nie udało się w pełni '
                 'cofnąć zmian. Nie usuwaj kopii — przywróć ją ponownie, gdy '
                 'zwolnisz miejsce w telefonie.',
             messageEn: 'The restore was interrupted ($error) and could not be '
@@ -1659,8 +1757,8 @@ class DataBackup {
       options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
     );
     try {
-      final names = (await db.rawQuery(
-              "SELECT name FROM sqlite_master WHERE type = 'table'"))
+      final names = (await db
+              .rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'"))
           .map((row) => row['name'] as String)
           .where(isRestorableTable)
           .toList();

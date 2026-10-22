@@ -103,6 +103,7 @@ const Map<String, List<String>> _expectedSchema = <String, List<String>>{
   ],
   'weld_params': <String>[
     'id',
+    'owner_scope',
     'method',
     'base_material',
     'welder_model',
@@ -971,6 +972,31 @@ void main() {
   }
 
   // ── Schema completeness from each historical starting point ─────────────
+
+  test('v28 parameters survive v29 upgrade as guest without assignment to an account', () async {
+    final db = await migrateFrom(28, (db) async {
+      await _buildV27(db);
+      for (final c in AppDatabase.kWeldJournalV28Columns.entries) {
+        await db.execute('ALTER TABLE weld_journal ADD COLUMN "${c.key}" ${c.value}');
+      }
+    }, seedData: (db) async {
+      await db.insert('weld_params', {
+        'id': 'legacy-ownerless', 'method': 'MAG', 'base_material': 'CS',
+        'diameter_mm': 60.3, 'wall_thickness_mm': 2.0, 'electrode_mm': 1.6,
+        'torch_gas_lpm': 8.0, 'purge_lpm': 4.0, 'amps': 100.0,
+        'created_at': 1, 'updated_at': 2,
+      });
+    });
+    addTearDown(db.close);
+    final row = (await db.query('weld_params')).single;
+    expect(row['id'], 'legacy-ownerless');
+    expect(row['amps'], 100.0);
+    expect(row['owner_scope'], 'guest');
+    final column = (await db.rawQuery('PRAGMA table_info(weld_params)'))
+        .singleWhere((c) => c['name'] == 'owner_scope');
+    expect(column['notnull'], 1);
+    expect(column['dflt_value'], "'guest'");
+  });
 
   for (final start in <int, Future<void> Function(Database)>{
     1: _buildV1,

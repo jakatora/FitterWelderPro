@@ -34,9 +34,52 @@ class DelayedTokenStorage extends FlutterSecureStorage {
   }
 }
 
+class DelayedOwnerStorage extends FlutterSecureStorage {
+  final started = Completer<void>(), release = Completer<void>();
+  @override
+  Future<void> write(
+      {required String key,
+      required String? value,
+      AppleOptions? iOptions,
+      AndroidOptions? aOptions,
+      LinuxOptions? lOptions,
+      WebOptions? webOptions,
+      AppleOptions? mOptions,
+      WindowsOptions? wOptions}) async {
+    if (key == 'railway_account_local_owner_v1' &&
+        value != null &&
+        jsonDecode(value)['id'] == 'A' &&
+        !started.isCompleted) {
+      started.complete();
+      await release.future;
+    }
+    await super.write(key: key, value: value);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  test('superseded owner-cache write cannot bind old owner to the new token',
+      () async {
+    final storage = DelayedOwnerStorage();
+    final service = AccountService.forTesting(
+        MockClient((r) async => identity(jsonDecode(r.body)['email'])),
+        storage: storage);
+    final old = service.signIn('A', 'fixture-password');
+    final rejected = expectLater(old, throwsA(isA<AccountException>()));
+    await storage.started.future;
+    final next = service.signIn('B', 'fixture-password');
+    storage.release.complete();
+    await rejected;
+    await next;
+    final owner = jsonDecode(
+        (await storage.read(key: 'railway_account_local_owner_v1'))!);
+    expect(owner, {'id': 'B', 'token': 'fixture-token-B'});
+    expect(service.localOwnerId, 'B');
+    expect(await storage.read(key: 'railway_account_session_v1'),
+        'fixture-token-B');
+  });
   for (final code in [200, 401]) {
     test('late profile retry $code cannot replace or revoke a newer login',
         () async {

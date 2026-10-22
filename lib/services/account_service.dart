@@ -21,8 +21,29 @@ class AccountService extends ChangeNotifier {
   static AccountService instance = AccountService._();
   final FlutterSecureStorage _storage;
   static const _key = 'railway_account_session_v1';
+  static const _ownerKey = 'railway_account_local_owner_v1';
   Map<String, dynamic>? account;
   String? _token;
+  String? _localOwnerId;
+
+  /// Previously verified ID bound to this exact OS-stored session token.
+  /// For local data partitioning only; never grants server access/admin role.
+  String? get localOwnerId => _localOwnerId;
+
+  Future<void> _writeOwnerCache(String? token, String? id) async {
+    try {
+      if (token == null || id == null) {
+        await _storage.delete(key: _ownerKey);
+      } else {
+        await _storage.write(
+            key: _ownerKey, value: jsonEncode({'token': token, 'id': id}));
+      }
+    } catch (_) {
+      // Optional offline cache: failure must not break sign-in. A stale cache
+      // cannot match a different token and is ignored during restoration.
+    }
+  }
+
   Future<void>? _loading;
   bool _loaded = false;
   int _sessionRevision = 0;
@@ -60,7 +81,21 @@ class AccountService extends ChangeNotifier {
     final response = await request('GET', '/me');
     _requireSession(revision);
     account = Map<String, dynamic>.from(response['account'] as Map);
+    await _cacheVerifiedOwner(revision);
     notifyListeners();
+  }
+
+  Future<void> _cacheVerifiedOwner(int revision) async {
+    final id = account?['id'];
+    _localOwnerId = id is String && id.isNotEmpty ? id : null;
+    await _stored(() async {
+      _requireSession(revision);
+      await _writeOwnerCache(_token, _localOwnerId);
+      if (revision != _sessionRevision) {
+        await _writeOwnerCache(_token, _localOwnerId);
+      }
+    });
+    _requireSession(revision);
   }
 
   Future<void> load() {
@@ -78,6 +113,18 @@ class AccountService extends ChangeNotifier {
     if (epoch != _authEpoch || revision != _sessionRevision) return;
     _token = stored;
     if (_token == null) return;
+    String? cached;
+    try {
+      cached = await _stored(() => _storage.read(key: _ownerKey));
+    } catch (_) {/* optional */}
+    if (epoch != _authEpoch || revision != _sessionRevision) return;
+    try {
+      final owner = jsonDecode(cached ?? '{}');
+      final id = owner is Map && owner['token'] == stored ? owner['id'] : null;
+      _localOwnerId = id is String && id.isNotEmpty ? id : null;
+    } catch (_) {
+      _localOwnerId = null;
+    }
     _sessionRevision++;
     final restoredRevision = _sessionRevision;
     notifyListeners();
@@ -85,6 +132,7 @@ class AccountService extends ChangeNotifier {
       final r = await request('GET', '/me');
       _requireSession(restoredRevision);
       account = Map<String, dynamic>.from(r['account'] as Map);
+      await _cacheVerifiedOwner(restoredRevision);
       notifyListeners();
     } catch (_) {
       // A network failure must not erase a valid session.
@@ -146,13 +194,17 @@ class AccountService extends ChangeNotifier {
         throw AccountException('Logowanie anulowane / Sign-in cancelled');
       }
       await _storage.write(key: _key, value: token);
+      final id = identity['id'];
+      await _writeOwnerCache(token, id is String && id.isNotEmpty ? id : null);
       if (epoch != _authEpoch || revision != _sessionRevision) {
         // This write cannot race another queued write. Restore the active
         // session if logout/a newer sign-in superseded it while storage waited.
         await _storage.write(key: _key, value: _token);
+        await _writeOwnerCache(_token, _localOwnerId);
         throw AccountException('Logowanie anulowane / Sign-in cancelled');
       }
       _token = token;
+      _localOwnerId = id is String && id.isNotEmpty ? id : null;
       _loaded = true;
       account = identity;
       _sessionRevision++;
@@ -181,9 +233,13 @@ class AccountService extends ChangeNotifier {
     _authEpoch++;
     _loaded = true;
     _token = null;
+    _localOwnerId = null;
     account = null;
     _sessionRevision++;
-    final erased = _stored(() => _storage.delete(key: _key));
+    final erased = _stored(() async {
+      await _storage.delete(key: _key);
+      await _writeOwnerCache(null, null);
+    });
     notifyListeners();
     await erased;
   }

@@ -181,6 +181,12 @@ class _AccountScreenState extends State<AccountScreen> {
                     child: Text(context.tr(
                         pl: 'Ponów odczyt profilu',
                         en: 'Retry loading profile'))),
+                TextButton(
+                    key: const Key('account-offline-guest'),
+                    onPressed: () => _run(service.forgetSession),
+                    child: Text(context.tr(
+                        pl: 'Wyloguj na tym telefonie i korzystaj jako gość',
+                        en: 'Sign out on this phone and continue as guest'))),
               ] else if (a == null) ...[
                 Text(context.tr(
                     pl: 'Konto synchronizuje Twój profil. Kalkulatory działają też bez konta.',

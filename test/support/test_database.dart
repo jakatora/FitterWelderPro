@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:cut_list_app/database/db.dart';
+import 'test_account.dart';
 
 /// Real SQLite, privately owned by this test suite/isolate. Never opens the
 /// shared cutlist.db or any user file. Initialize outside widget fake-async.
 void useTestDatabase() {
   setUpAll(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    await seedGuestAccount();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);
@@ -29,9 +32,7 @@ Future<void> flushTestDatabase(WidgetTester tester) async {
   await tester.runAsync(() async {
     final db = await AppDatabase.get();
     try {
-      await db
-          .rawQuery('SELECT 1')
-          .timeout(const Duration(milliseconds: 300));
+      await db.rawQuery('SELECT 1').timeout(const Duration(milliseconds: 300));
     } on TimeoutException {
       // Transaction in flight in the fake zone — see above.
     }

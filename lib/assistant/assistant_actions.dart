@@ -2,6 +2,7 @@ import '../models/weld_param.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../database/weld_param_dao.dart';
+import '../database/local_record_owner.dart';
 import '../database/weld_journal_dao.dart';
 import '../domain/weld_journal/weld_entry.dart';
 import '../domain/weld_journal/weld_defaults.dart';
@@ -165,10 +166,22 @@ class AssistantActions extends AssistantActionsPort
   }
 
   Future<UndoAction?> _saveParameter(_ParameterSnapshot snapshot) async {
-    final record = snapshot.record, entry = snapshot.history;
-    if (!await parameters.insertAssistantIdempotent(record)) {
+    final owner = await LocalRecordOwner.capture();
+    final record = snapshot.record, original = snapshot.history;
+    final entry = AssistantHistoryEntry(
+      id: original.id,
+      kind: original.kind,
+      summary: original.summary,
+      recordId: original.recordId,
+      at: original.at,
+      byVoice: original.byVoice,
+      ownerScope: owner.key,
+    );
+    if (!await parameters.insertAssistantIdempotent(record,
+        expectedOwner: owner)) {
       throw StateError('Saved parameter identity changed');
     }
+    owner.requireCurrent();
     await _addHistory(entry);
     var undone = false;
     return () async {

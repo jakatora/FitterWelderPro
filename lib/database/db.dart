@@ -86,7 +86,8 @@ class AppDatabase {
   //   `metal_transfer` (MIG/MAG: dip / other) i `product_form` (T rura /
   //   P blacha). TEXT, NULL, bez domyślnych — stara spoina „nie podaje”, więc
   //   kontrola mówi „nie da się porównać”, nie „poza zakresem”.
-  static const int _dbVersion = 28;
+  // v29: saved welding parameters belong to an account or the offline guest.
+  static const int _dbVersion = 29;
 
   /// The schema version [get] opens the database at.
   ///
@@ -136,6 +137,8 @@ class AppDatabase {
       // it finishes. Indexes may reference missing legacy columns, so only
       // repair tables here, as before.
       await _createTables(connection);
+      await _ensureColumn(connection, 'weld_params', 'owner_scope',
+          "TEXT NOT NULL DEFAULT 'guest'");
       await _seedApprovedData(connection);
       _db = connection;
       return connection;
@@ -248,6 +251,7 @@ CREATE TABLE IF NOT EXISTS component_heats (
       await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_params (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   method TEXT NOT NULL,
   base_material TEXT NOT NULL,
   welder_model TEXT,
@@ -490,6 +494,11 @@ CREATE TABLE IF NOT EXISTS projects (
       for (final c in kWeldJournalV28Columns.entries) {
         await _ensureColumn(db, 'weld_journal', c.key, c.value);
       }
+    }
+
+    if (oldVersion < 29) {
+      await _ensureColumn(
+          db, 'weld_params', 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
     }
 
     // Last, now that every column the indexes reference exists.
@@ -832,6 +841,7 @@ CREATE TABLE IF NOT EXISTS cut_marks (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_params (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   method TEXT NOT NULL,
   base_material TEXT NOT NULL,
   welder_model TEXT,
@@ -1277,6 +1287,8 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
   /// whole migration - and the app launch - down with it. [migrate]
   /// therefore calls it last, once every column is in place.
   static Future<void> _createIndexes(DatabaseExecutor db) async {
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_weld_params_owner ON weld_params(owner_scope, updated_at DESC);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_library_d_w ON component_library(material_group, diameter_mm, wall_thickness_mm);');
     await db.execute(

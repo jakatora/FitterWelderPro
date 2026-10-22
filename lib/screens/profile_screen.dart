@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../assistant/assistant_history.dart';
+import '../database/local_record_owner.dart';
 import '../config/app_links.dart';
 import '../i18n/app_language.dart';
 import '../legal/legal_texts.dart';
@@ -248,7 +249,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     messenger.showSnackBar(SnackBar(content: Text(ready)));
     // Sharing happens with the progress dialog already dismissed, so the
     // system sheet is the only thing on screen.
-    await DataBackup.shareBackupFile(file);
+    try {
+      await DataBackup.shareBackupFile(file);
+    } catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(_describeBackupError(error))));
+      }
+    }
   }
 
   Future<void> _restore() async {
@@ -267,14 +274,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final pickedName = picked.name;
 
     BackupContents? found;
+    LocalRecordOwner? approvedOwner;
     final read = await _runBlocking(
       context.tr(pl: 'Sprawdzam plik…', en: 'Checking the file…'),
       () async {
+        approvedOwner = await LocalRecordOwner.capture();
         found = await DataBackup.inspect(path);
+        approvedOwner!.requireCurrent();
       },
     );
     final contents = found;
-    if (!read || contents == null || !mounted) return;
+    final ownerAtApproval = approvedOwner;
+    if (!read || contents == null || ownerAtApproval == null || !mounted) return;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -290,10 +301,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           pl: 'Plik: $pickedName\n'
               'Zapisany: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
               'Zdjęcia wytopów w pliku: ${contents.photoCount}.\n\n'
-              'Przywracanie SKASUJE wszystko, co masz teraz w tym telefonie — '
+              'Przywracanie NADPISZE lokalne dane z kopii — '
               'projekty, cut listy, dziennik spoin, zdjęcia, rejestr uprawnień '
               'spawacza i Bibliotekę WPS — i wstawi w to miejsce zawartość '
-              'pliku. Tego nie da się cofnąć, więc jeśli '
+              'pliku. Parametry spawania zastąpi tylko na obecnym koncie '
+              'lub w trybie gościa; zapisy parametrów innych kont pozostaną '
+              'bez zmian. Tego nie da się cofnąć, więc jeśli '
               'masz tu coś, czego w pliku nie ma, najpierw zrób kopię.\n\n'
               'Nic nie ruszymy, dopóki nie przeczytamy całego pliku do końca. '
               'Jeśli jest uszkodzony albo obcy — powiemy o tym i zostawimy '
@@ -303,10 +316,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           en: 'File: $pickedName\n'
               'Created: ${formatBackupTimestamp(contents.manifest.createdAt)}\n'
               'Heat photos in the file: ${contents.photoCount}.\n\n'
-              'Restoring will ERASE everything currently on this phone — '
+              'Restoring will OVERWRITE the local data covered by this backup — '
               'projects, cut lists, weld journal, photos, the welder '
               'qualification register and the WPS library — and replace it '
-              'with the contents of the file. This cannot be undone, so if '
+              'with the contents of the file. Welding parameters are replaced '
+              'only for the current account or guest; other accounts’ saved '
+              'parameters remain unchanged. This cannot be undone, so if '
               'you have anything here that is not in the file, back it up '
               'first.\n\n'
               'Nothing is touched until the whole file has been read. If it '
@@ -337,7 +352,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final restored = await _runBlocking(
       context.tr(pl: 'Przywracam dane…', en: 'Restoring your data…'),
       () async {
-        outcome = await DataBackup.restore(path);
+        outcome = await DataBackup.restore(path, expectedOwner: ownerAtApproval);
       },
     );
     final report = outcome;

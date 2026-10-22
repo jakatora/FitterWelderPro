@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/account_service.dart';
 
 class AssistantHistoryEntry {
   final String id;
@@ -20,6 +21,7 @@ class AssistantHistoryEntry {
   final DateTime at;
   final bool byVoice;
   final bool undone;
+  final String ownerScope;
 
   const AssistantHistoryEntry({
     required this.id,
@@ -29,6 +31,7 @@ class AssistantHistoryEntry {
     required this.at,
     required this.byVoice,
     this.undone = false,
+    this.ownerScope = 'guest',
   });
 
   AssistantHistoryEntry markUndone() => AssistantHistoryEntry(
@@ -39,6 +42,7 @@ class AssistantHistoryEntry {
         at: at,
         byVoice: byVoice,
         undone: true,
+        ownerScope: ownerScope,
       );
 
   Map<String, Object> toJson() => {
@@ -49,6 +53,7 @@ class AssistantHistoryEntry {
         'at': at.millisecondsSinceEpoch,
         'byVoice': byVoice,
         'undone': undone,
+        'ownerScope': ownerScope,
       };
 
   static AssistantHistoryEntry? fromJson(Object? raw) {
@@ -73,6 +78,8 @@ class AssistantHistoryEntry {
       at: DateTime.fromMillisecondsSinceEpoch(at.toInt()),
       byVoice: raw['byVoice'] == true,
       undone: raw['undone'] == true,
+      ownerScope:
+          raw['ownerScope'] is String ? raw['ownerScope'] as String : 'guest',
     );
   }
 }
@@ -92,7 +99,17 @@ class AssistantHistoryStore extends ChangeNotifier {
   bool _loaded = false;
 
   /// Najnowsze pierwsze.
-  List<AssistantHistoryEntry> get entries => _entries;
+  List<AssistantHistoryEntry> get entries {
+    final account = AccountService.instance;
+    final id = account.account?['id'] ?? account.localOwnerId;
+    final owner = id is String
+        ? 'account:$id'
+        : (account.needsIdentityRefresh ? null : 'guest');
+    return _entries
+        .where((entry) =>
+            entry.kind != 'save_weld_parameter' || entry.ownerScope == owner)
+        .toList(growable: false);
+  }
 
   /// Czytanie odpowiedzi na głos — domyślnie WYŁĄCZONE.
   bool get speakReplies => _speakReplies;

@@ -18,6 +18,13 @@ import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/screens/weld_journal_screen.dart';
 import 'package:cut_list_app/services/data_backup.dart';
+import '../support/test_account.dart';
+import 'package:cut_list_app/services/account_service.dart';
+import 'package:cut_list_app/database/weld_param_dao.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import '../database/weld_param_owner_test.dart' show param;
 
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -265,6 +272,7 @@ void main() {
   });
 
   setUp(() async {
+    await seedGuestAccount();
     sandbox = await Directory.systemTemp.createTemp('fwp_atomic_restore_');
     phoneA = _Phone(Directory(p.join(sandbox.path, 'phone_a')));
     phoneB = _Phone(Directory(p.join(sandbox.path, 'phone_b')));
@@ -290,6 +298,72 @@ void main() {
         await DataBackup.createBackupFile(now: DateTime(2026, 9, 24, 10));
     return archive.copy(p.join(sandbox.path, 'carried-backup.zip'));
   }
+
+  test('a prepared archive and an old import approval cannot follow a new account', () async {
+    final account = AccountService.forTesting(MockClient((r) async {
+      final id = jsonDecode(r.body)['email'];
+      return http.Response(jsonEncode({'token': 'fixture-$id', 'account': {'id': id}}), 200);
+    }));
+    AccountService.instance = account;
+    await account.signIn('A', 'fixture-password');
+    await WeldParamDao().insert(param('a'));
+    final approval = await LocalRecordOwner.capture();
+    final archive = await DataBackup.createBackupFile();
+    await account.signIn('B', 'fixture-password');
+    await expectLater(DataBackup.shareBackupFile(archive), throwsA(isA<BackupFormatException>()));
+    await expectLater(DataBackup.restore(archive.path, expectedOwner: approval), throwsA(isA<AccountException>()));
+    expect(await WeldParamDao().listAll(), isEmpty);
+    await account.signIn('A', 'fixture-password');
+    expect((await WeldParamDao().listAll()).single.id, 'a');
+  });
+
+  test('real ZIP exports current owner only and restore never replaces other owners', () async {
+    final account = AccountService.forTesting(MockClient((r) async {
+      final id = jsonDecode(r.body)['email'];
+      return http.Response(jsonEncode({'token': 'fixture-$id', 'account': {'id': id}}), 200);
+    }));
+    AccountService.instance = account;
+    await account.signIn('A', 'fixture-password');
+    final dao = WeldParamDao();
+    await dao.insert(param('a'));
+    await account.signIn('B', 'fixture-password');
+    await dao.insert(param('b'));
+    await account.signIn('A', 'fixture-password');
+    final archive = await backupAndCarry();
+    final bytes = latin1.decode(await archive.readAsBytes());
+    expect(bytes.contains('private-a'), isTrue);
+    expect(bytes.contains('private-b'), isFalse);
+    await account.signIn('B', 'fixture-password');
+    await DataBackup.restore(archive.path);
+    final imported = (await dao.listAll()).single;
+    expect(imported.note, 'private-a');
+    expect(imported.id, isNot('a'));
+    await account.signIn('A', 'fixture-password');
+    expect((await dao.listAll()).single.id, 'a');
+  });
+
+  test('session switch between database commits rolls back only the original owner parameters', () async {
+    final account = AccountService.forTesting(MockClient((r) async {
+      final id = jsonDecode(r.body)['email'];
+      return http.Response(jsonEncode({'token': 'fixture-$id', 'account': {'id': id}}), 200);
+    }));
+    AccountService.instance = account;
+    final dao = WeldParamDao();
+    await account.signIn('A', 'fixture-password');
+    await dao.insert(param('a'));
+    await account.signIn('B', 'fixture-password');
+    await dao.insert(param('b', amps: 120));
+    await account.signIn('A', 'fixture-password');
+    final archive = await backupAndCarry();
+    await dao.update(param('a', amps: 200));
+    DataBackup.debugBeforeDatabaseCommit = (file) async {
+      if (file == 'cut_list_app.db') await account.signIn('B', 'fixture-password');
+    };
+    await expectLater(DataBackup.restore(archive.path), throwsA(isA<BackupFormatException>()));
+    expect((await dao.listAll()).single.amps, 120);
+    await account.signIn('A', 'fixture-password');
+    expect((await dao.listAll()).single.amps, 200);
+  });
 
   /// Telefon B ma już własne dane w obu bazach i własne zdjęcie
   /// `shared.jpg` — o tej samej nazwie co zdjęcie w kopii.

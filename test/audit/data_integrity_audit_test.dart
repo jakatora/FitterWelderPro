@@ -17,6 +17,7 @@ import 'package:cut_list_app/models/project.dart' as cut_model;
 import 'package:cut_list_app/models/weld_param.dart';
 import 'package:cut_list_app/services/cut_calculator.dart';
 import 'package:cut_list_app/services/user_profile.dart';
+import '../support/test_account.dart';
 
 const _pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -167,6 +168,7 @@ void main() {
   late String repositoryPath;
 
   setUpAll(() async {
+    await seedGuestAccount();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     tempDir = await Directory.systemTemp.createTemp('fwp-data-audit-');

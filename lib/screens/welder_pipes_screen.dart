@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../data/heat_tint.dart';
 import '../data/tungsten.dart';
 import '../database/weld_param_dao.dart';
+import '../services/account_service.dart';
 import '../services/weld_timer_service.dart';
 import 'welder_tools_screen.dart' show startPurgeCountdown;
 import '../database/approved_weld_param_dao.dart';
@@ -98,6 +99,7 @@ class _WelderPipesScreenState extends State<WelderPipesScreen> with SingleTicker
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<WeldingMethod>(
+                        isExpanded: true,
                         initialValue: _method,
                         items: [
                           DropdownMenuItem(value: WeldingMethod.tigWire, child: Text(_tr('TIG z drutem', 'TIG with filler'))),
@@ -137,6 +139,9 @@ class _MyParamsTab extends StatefulWidget {
 
 class _MyParamsTabState extends State<_MyParamsTab> {
   final _dao = WeldParamDao();
+  final _account = AccountService.instance;
+  final _privateDialogs = <Route<bool>>{};
+  late int _sessionRevision;
   final _uuid = const Uuid();
   late Future<List<WeldParam>> _future;
 
@@ -145,11 +150,55 @@ class _MyParamsTabState extends State<_MyParamsTab> {
   @override
   void initState() {
     super.initState();
+    _sessionRevision = _account.sessionRevision;
+    _account.addListener(_accountChanged);
     _refresh();
+  }
+
+  void _accountChanged() {
+    if (!mounted || _sessionRevision == _account.sessionRevision) return;
+    _sessionRevision = _account.sessionRevision;
+    for (final route in List.of(_privateDialogs)) {
+      route.navigator?.removeRoute(route, false);
+    }
+    _privateDialogs.clear();
+    setState(_refresh);
+  }
+
+  Future<bool?> _ownedDialog(
+      {required BuildContext context, required WidgetBuilder builder}) async {
+    final route = DialogRoute<bool>(context: context, builder: builder);
+    _privateDialogs.add(route);
+    try {
+      return await Navigator.of(context, rootNavigator: true).push(route);
+    } finally {
+      _privateDialogs.remove(route);
+    }
+  }
+
+  @override
+  void dispose() {
+    _account.removeListener(_accountChanged);
+    super.dispose();
   }
 
   void _refresh() {
     _future = _dao.listAll();
+  }
+
+  Future<bool> _tryWrite(BuildContext feedbackContext, Future<void> Function() write) async {
+    if (!mounted || !feedbackContext.mounted) return false;
+    final revision = _sessionRevision;
+    try {
+      await write();
+      return mounted && revision == _account.sessionRevision;
+    } catch (_) {
+      if (mounted && feedbackContext.mounted && revision == _account.sessionRevision) {
+        ScaffoldMessenger.of(feedbackContext).showSnackBar(SnackBar(content: Text(
+          _tr('Nie udało się zmienić zapisu. Spróbuj ponownie.', 'Could not change the saved record. Please try again.'))));
+      }
+      return false;
+    }
   }
 
   @override
@@ -211,7 +260,10 @@ class _MyParamsTabState extends State<_MyParamsTab> {
 
           if (items.isEmpty) {
             return Center(
-              child: Text(_tr('Brak zapisanych pozycji. Dodaj swoje parametry (plus).', 'No saved entries. Add your own parameters (plus button).')),
+              child: Text(_account.localOwnerId != null
+                  ? _tr('Na tym koncie nie ma zapisanych parametrów. Wpisy utworzone bez logowania pozostają w trybie gościa.',
+                      'This account has no saved parameters. Entries created without signing in remain in guest mode.')
+                  : _tr('Brak zapisanych pozycji. Dodaj swoje parametry (plus).', 'No saved entries. Add your own parameters (plus button).')),
             );
           }
 
@@ -243,7 +295,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     tooltip: _tr('Usuń', 'Delete'),
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () async {
-                      final confirm = await showDialog<bool>(
+                      final confirm = await _ownedDialog(
                         context: context,
                         builder: (dctx) => AlertDialog(
                           title: Text(_tr('Usunąć zapisane parametry?', 'Delete saved parameters?')),
@@ -259,9 +311,10 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                           ],
                         ),
                       );
-                      if (confirm != true) return;
-                      await _dao.deleteById(p.id);
-                      setState(() => _refresh());
+                      if (confirm != true || !mounted || !context.mounted) return;
+                      if (await _tryWrite(context, () => _dao.deleteById(p.id)) && mounted) {
+                        setState(() => _refresh());
+                      }
                     },
                   ),
                 ),
@@ -348,14 +401,14 @@ class _MyParamsTabState extends State<_MyParamsTab> {
       return false;
     }
 
-    return showDialog<bool>(
+    return _ownedDialog(
       context: context,
       builder: (ctx) {
         return PopScope(
           canPop: !isDirty(),
           onPopInvokedWithResult: (didPop, result) async {
             if (didPop) return;
-            final discard = await showDialog<bool>(
+            final discard = await _ownedDialog(
               context: ctx,
               builder: (dctx) => AlertDialog(
                 title: Text(_tr('Porzucić zmiany?', 'Discard changes?')),
@@ -391,6 +444,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: baseMaterial,
                             decoration: InputDecoration(labelText: _tr('Materiał spawany', 'Welded material')),
                             items: [
@@ -403,6 +457,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<WeldingMethod>(
+                            isExpanded: true,
                             initialValue: method,
                             decoration: InputDecoration(labelText: _tr('Metoda', 'Method')),
                             items: [
@@ -439,6 +494,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<double>(
+                      isExpanded: true,
                       initialValue: electrode,
                       decoration: InputDecoration(labelText: _tr('Rozmiar elektrody [mm]', 'Electrode size [mm]')),
                       items: const [
@@ -518,6 +574,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: tempo,
                       items: [
                         DropdownMenuItem(value: 'SLOW', child: Text(_tr('Tempo: wolne', 'Pace: slow'))),
@@ -567,8 +624,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                   updatedAt: now,
                 );
 
-                await _dao.insert(p);
-                if (context.mounted) Navigator.pop(ctx, true);
+                if (!await _tryWrite(ctx, () => _dao.insert(p))) return;
+                if (ctx.mounted) Navigator.pop(ctx, true);
               },
               child: Text(_tr('Zapisz', 'Save')),
             ),
@@ -621,7 +678,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
     double optValue(String text) =>
         text.trim().isEmpty ? 0 : (parseDecimal(text) ?? 0);
 
-    return showDialog<bool>(
+    return _ownedDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
@@ -638,6 +695,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: baseMaterial,
                             decoration: InputDecoration(labelText: _tr('Materiał spawany', 'Welded material')),
                             items: [
@@ -653,8 +711,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            initialValue: methodDb,
                             isExpanded: true,
+                            initialValue: methodDb,
                             decoration: InputDecoration(labelText: _tr('Metoda', 'Method')),
                             items: [
                               for (final m in [
@@ -696,6 +754,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<double>(
+                      isExpanded: true,
                       initialValue: electrode,
                       decoration: InputDecoration(labelText: _tr('Rozmiar elektrody [mm]', 'Electrode size [mm]')),
                       items: [
@@ -779,6 +838,7 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: tempo,
                       items: [
                         DropdownMenuItem(value: 'SLOW', child: Text(_tr('Tempo: wolne', 'Pace: slow'))),
@@ -826,8 +886,8 @@ class _MyParamsTabState extends State<_MyParamsTab> {
                   updatedAt: now,
                 );
 
-                await _dao.update(updated);
-                if (context.mounted) Navigator.pop(ctx, true);
+                if (!await _tryWrite(ctx, () => _dao.update(updated))) return;
+                if (ctx.mounted) Navigator.pop(ctx, true);
               },
               child: Text(_tr('Zapisz zmiany', 'Save changes')),
             ),
@@ -904,6 +964,7 @@ class _AmpTabState extends State<_AmpTab> {
             'AMP calculator — manual TIG, single-pass')),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _material,
           decoration: InputDecoration(labelText: _tr('Materiał spawany', 'Welded material')),
           items: [
@@ -1665,6 +1726,7 @@ class _ApprovedAmpTabState extends State<_ApprovedAmpTab> {
           padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + MediaQuery.viewPaddingOf(context).bottom),
           children: [
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _material,
               decoration: InputDecoration(labelText: _tr('Materiał', 'Material')),
               items: [

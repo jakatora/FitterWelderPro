@@ -5,6 +5,13 @@ import 'package:http/testing.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/user_profile.dart';
 
+Future<void> seedGuestAccount() async {
+  FlutterSecureStorage.setMockInitialValues({});
+  AccountService.instance = AccountService.forTesting(
+      MockClient((_) async => http.Response('{}', 500)));
+  await AccountService.instance.load();
+}
+
 /// Explicit account fixture for chat tests. No request reaches the network.
 Future<void> seedSignedInAccount() async {
   FlutterSecureStorage.setMockInitialValues({});

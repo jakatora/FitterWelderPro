@@ -2097,6 +2097,7 @@ class _AiChatScreenState extends State<AiChatScreen>
           MaterialPageRoute<bool>(builder: (_) => page));
 
   Future<bool?> _showPrivateConversationRoute(Route<bool> route) async {
+    ScaffoldMessenger.maybeOf(_navigationContext)?.clearSnackBars();
     _conversationRoutes.add(route);
     try {
       return await Navigator.of(_navigationContext).push(route);
@@ -3338,7 +3339,7 @@ class _HistoryPage extends StatelessWidget {
         title: Text(tr('Historia operacji', 'Operation history')),
       ),
       body: ListenableBuilder(
-        listenable: store,
+        listenable: Listenable.merge([store, AccountService.instance]),
         builder: (context, _) {
           final entries = store.entries;
           if (entries.isEmpty) {

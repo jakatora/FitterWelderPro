@@ -272,8 +272,13 @@ void main() {
     expect(find.byKey(const Key('assistant-journal-summary')), findsOneWidget);
     expect(find.text('13'), findsOneWidget);
     // „Popraw" → nic nie zapisano.
-    await tester.tap(find.byKey(const Key('assistant-journal-edit')));
+    final edit = find.byKey(const Key('assistant-journal-edit'));
+    await tester.ensureVisible(edit);
     await _settle(tester);
+    expect(edit.hitTestable(), findsOneWidget);
+    await tester.tap(edit);
+    await _settle(tester);
+    expect(find.byKey(const Key('assistant-journal-summary')), findsNothing);
     expect((await _journal(tester, 'Asystent A')).length, 1);
   });
 

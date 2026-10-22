@@ -9,6 +9,7 @@ import 'package:cut_list_app/assistant/skills/skill_catalog.dart';
 import 'package:cut_list_app/assistant/skills/own_data/my_params_skill.dart';
 import 'package:cut_list_app/database/db.dart';
 import 'package:cut_list_app/database/weld_param_dao.dart';
+import 'package:cut_list_app/database/local_record_owner.dart';
 import 'package:cut_list_app/database/weld_journal_dao.dart';
 import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
 import 'package:cut_list_app/i18n/app_language.dart';
@@ -23,8 +24,10 @@ final at = DateTime(2026, 10, 21, 12, 34);
 class LostParameterReply extends WeldParamDao {
   bool first = true;
   @override
-  Future<bool> insertAssistantIdempotent(WeldParam p) async {
-    final ok = await super.insertAssistantIdempotent(p);
+  Future<bool> insertAssistantIdempotent(WeldParam p,
+      {LocalRecordOwner? expectedOwner}) async {
+    final ok =
+        await super.insertAssistantIdempotent(p, expectedOwner: expectedOwner);
     if (first) {
       first = false;
       throw StateError('completion lost');
