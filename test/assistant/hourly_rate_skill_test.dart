@@ -54,4 +54,16 @@ void main() {
     expect((await h.say('ile zarobię akordem za 40 cali')).match?.skill.id,
         isNot('hourly.rate'));
   });
+
+  test('a flow per hour is not an hourly rate', () async {
+    final h = BrainHarness();
+    addTearDown(h.timer.dispose);
+    expect(
+        (await h.say(
+                'Oblicz zużycie gazu spoiny 10 spawanie 2 min palnik 600 litres per hour'))
+            .match
+            ?.skill
+            .id,
+        isNot('hourly.rate'));
+  });
 }

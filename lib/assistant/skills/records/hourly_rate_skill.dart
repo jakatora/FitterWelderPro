@@ -96,7 +96,10 @@ class HourlyRateSkill extends AssistantSkill {
           'stawke godzinowa',
           'stawka za godzine',
           'stawkowe godzinowa',
-          'per hour',
+          // Samo „per hour” to też przepływ („600 litres per hour”).
+          'charge per hour',
+          'rate per hour',
+          'earn per hour',
           'hourly rate',
           'minimalna stawke godzinowa',
           'minimalna stawka godzinowa'
