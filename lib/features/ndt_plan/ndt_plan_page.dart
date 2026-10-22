@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../database/weld_journal_dao.dart';
 import '../../domain/ndt/ndt_plan.dart';
 import '../../domain/progress/progress_report.dart' show weldsCount;
@@ -68,7 +69,33 @@ class NdtPlanPage extends StatefulWidget {
   State<NdtPlanPage> createState() => _NdtPlanPageState();
 }
 
-class _NdtPlanPageState extends State<NdtPlanPage> {
+class _NdtPlanPageState extends State<NdtPlanPage>
+    with ToolHandleHost<NdtPlanPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'ndt_plan';
+  @override
+  Set<String> get supportedFields => const {'project'};
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({'project': _project});
+
+  /// Asystent wybiera projekt z dziennika — reguły wczytują się jak przy
+  /// wyborze z listy. Gotowość dopiero po pierwszym odczycie dziennika.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final p = fields['project'];
+    final match = p is String
+        ? _projects.where((x) => x.toLowerCase() == p.toLowerCase()).firstOrNull
+        : null;
+    if (!mounted ||
+        fields.keys.any((k) => !supportedFields.contains(k)) ||
+        match == null) {
+      return fields.keys.toSet();
+    }
+    await _changeProject(match);
+    return {};
+  }
+
   /// Nieusunięte wpisy dziennika.
   List<WeldEntry> _all = const [];
   List<String> _projects = const [];
@@ -101,7 +128,9 @@ class _NdtPlanPageState extends State<NdtPlanPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load(first: true));
+    unawaited(_load(first: true).whenComplete(() {
+      if (mounted) markReady();
+    }));
   }
 
   String? _match(String project, List<String> projects) {
