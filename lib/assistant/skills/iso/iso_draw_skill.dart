@@ -1,3 +1,4 @@
+import '../../../domain/iso_notebook/sketch_summary.dart';
 import '../../core/skill.dart';
 import '../../core/command_words.dart' show looksLikeOtherCommand;
 import 'iso_command_parser.dart';
@@ -27,6 +28,10 @@ class IsoDrawingReference {
   final int revision;
 }
 
+abstract interface class IsoSummaryPort {
+  SketchSummary? get summary;
+}
+
 abstract interface class IsoReferencePort {
   IsoDrawingReference? get reference;
 }
@@ -38,12 +43,17 @@ abstract interface class IsoQuestionPort {
 }
 
 class CallbackIsoDrawingPort
-    implements IsoDrawingPort, IsoQuestionPort, IsoReferencePort {
+    implements
+        IsoDrawingPort,
+        IsoQuestionPort,
+        IsoReferencePort,
+        IsoSummaryPort {
   CallbackIsoDrawingPort(
       {required bool Function() isForeground,
       required bool Function() hasPendingQuestion,
       IsoDrawingQuestion? Function()? pendingQuestion,
       IsoDrawingReference? Function()? reference,
+      SketchSummary? Function()? summary,
       bool Function(Utterance)? acceptsReply,
       bool Function(Utterance, Utterance)? acceptsProposalReply,
       required Future<SkillResult> Function(Utterance) execute})
@@ -51,12 +61,16 @@ class CallbackIsoDrawingPort
         _pending = hasPendingQuestion,
         _question = pendingQuestion,
         _reference = reference,
+        _summary = summary,
         _acceptsReply = acceptsReply,
         _acceptsProposalReply = acceptsProposalReply,
         _execute = execute;
   final bool Function() _foreground, _pending;
   final IsoDrawingQuestion? Function()? _question;
   final IsoDrawingReference? Function()? _reference;
+  final SketchSummary? Function()? _summary;
+  @override
+  SketchSummary? get summary => isForeground ? _summary?.call() : null;
   @override
   IsoDrawingReference? get reference =>
       isForeground ? _reference?.call() : null;

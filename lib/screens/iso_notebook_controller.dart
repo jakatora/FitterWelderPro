@@ -312,6 +312,20 @@ class IsoNotebookController extends ChangeNotifier {
   String? get sketchId => _state?._drawingId;
   double get rootGapMm => _state?._gapMm ?? 0;
 
+  /// Snapshot from the same CUT engine used by canvas/BOM/export. Do not read
+  /// partially animated or queued edits as a completed drawing.
+  SketchSummary? get summary {
+    final state = _state;
+    if (state == null || isBusy) return null;
+    final pipes = state._pipes;
+    final cuts = [for (final pipe in pipes) state._resolvedCut(pipe)]
+        .where((cut) => cut.isFinite && cut >= 0).toList();
+    return SketchSummary(pipeCount: pipes.length, computedCutCount: cuts.length,
+        computedCutTotalMm: cuts.fold<double>(0, (sum, cut) => sum + cut),
+        gapMm: state._gapMm);
+  }
+
+
   /// Nazwa rysunku albo null (bez nazwy).
   String? get sketchName {
     final n = _state?._projectName ?? '';

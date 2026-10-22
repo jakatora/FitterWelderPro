@@ -37,6 +37,7 @@ import 'fitter_screen.dart';
 import 'iso_notebook_project_dialogs.dart';
 import 'iso_notebook_name_dialog.dart';
 import '../domain/iso_notebook/sketch_settings.dart';
+import '../domain/iso_notebook/sketch_summary.dart';
 
 // The shared deduct-label table moved to the domain layer with the CUT rule;
 // re-exported so existing callers keep importing it from here.

@@ -1,3 +1,5 @@
+import 'package:cut_list_app/assistant/skills/iso/iso_draw_skill.dart';
+import 'package:cut_list_app/domain/iso_notebook/sketch_summary.dart';
 // GLOBALNY test routera (plan 1.3, Review Focus 1–2): każdy przykład i każde
 // odrzucenie KAŻDEJ umiejętności z buildSkillCatalog() przez cały mózg.
 //
@@ -46,7 +48,15 @@ void main() {
           (AppLanguage.en, ex.en),
         ]) {
           test('trafia: [${lang.name}] $text', () async {
-            final h = BrainHarness(lang: lang);
+            // Summary requires a visible sheet, unlike a drawing command that
+            // can open one. Supply an explicit empty-sheet readback fixture.
+            final h = BrainHarness(lang: lang, iso: skill.id == 'iso.summary'
+                ? CallbackIsoDrawingPort(isForeground: () => true,
+                    hasPendingQuestion: () => false,
+                    summary: () => const SketchSummary(pipeCount: 0,
+                        computedCutCount: 0, computedCutTotalMm: 0, gapMm: 0),
+                    execute: (_) async => throw StateError('summary is read only'))
+                : null);
             final r = await h.say(text);
             expect(r.match?.skill.id, skill.id,
                 reason: 'wynik: ${textOf(r.result, lang)}');

@@ -207,6 +207,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIsoValve != null ||
         _awaitingIsoChoice,
     pendingQuestion: _isoQuestion,
+    summary: () => IsoNotebookController.active?.summary,
     reference: () {
       final controller=IsoNotebookController.active;
       final id=controller?.sketchId;
