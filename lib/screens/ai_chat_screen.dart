@@ -207,6 +207,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         _pendingIsoValve != null ||
         _awaitingIsoChoice,
     pendingQuestion: _isoQuestion,
+    reference: () {
+      final controller=IsoNotebookController.active;
+      final id=controller?.sketchId;
+      return id==null ? null : IsoDrawingReference(id,controller!.revision);
+    },
     acceptsReply: _acceptsIsoReply,
     acceptsProposalReply: _acceptsIsoProposalReply,
     execute: _executeIsoSkill,
@@ -936,6 +941,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       return true;
     }
+    _brainContext.invalidateActionReference();
     _rememberAi(text, plan.message, kind: AiReplyKind.live);
     if (plan.kind == 'clarify') _aiQuestion = plan.message;
     if (plan.kind == 'unsupported') {
@@ -1153,13 +1159,15 @@ class _AiChatScreenState extends State<AiChatScreen>
     _showAiFallbackNotice();
   }
 
-  void _isoReply(String pl, String en, {List<FollowUp> choices = const []}) {
+  void _isoReply(String pl, String en, {List<FollowUp> choices = const [],
+      Map<String,Object?>? contextSlots}) {
     _isoPendingText = AssistantText(pl, en);
     _isoPendingChoices = List.unmodifiable(choices);
     if (_collectIsoReply && _isoExecutionEpoch == _conversationEpoch) {
       _isoSkillResult = AnswerResult(
           AssistantAnswer(text: AssistantText(pl, en)),
           actionCompleted: _isoDidExecute,
+          contextSlots: contextSlots,
           followUps: choices);
       return;
     }
@@ -1468,7 +1476,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         case IsoGapResult.saved:
           _isoDidExecute=true;
           _isoReply('Szczelina spoiny w szkicu: ${command.gapMm} mm. Długości CUT korzystają z tej wartości i istniejących połączeń.',
-            'Drawing weld gap: ${command.gapMm} mm. CUT lengths use this value and the existing connections.');
+            'Drawing weld gap: ${command.gapMm} mm. CUT lengths use this value and the existing connections.',
+            contextSlots:{'gap_mm':controller.rootGapMm,
+              'iso_gap_sheet_id':controller.sketchId,
+              'iso_gap_sheet_revision':controller.revision,
+              'iso_gap_reference_generation':_brainContext.actionReferenceGeneration});
         case IsoGapResult.rejected:
           _isoReply('Nie potwierdziłem zmiany szczeliny. Rysunek zmienił się albo wartość jest poza zakresem edytora.',
             'Gap change not confirmed. The drawing changed or the value is outside the editor range.');
@@ -2458,6 +2470,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
+    _brainContext.invalidateActionReference();
     if (_listening) {
       await _speech.stop();
       if (!mounted) return;

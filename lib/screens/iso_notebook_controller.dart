@@ -309,6 +309,7 @@ class IsoNotebookController extends ChangeNotifier {
 
   /// Local mutation marker for rejecting delayed assistant answers after edits.
   int get revision => _state?._version ?? -1;
+  String? get sketchId => _state?._drawingId;
   double get rootGapMm => _state?._gapMm ?? 0;
 
   /// Nazwa rysunku albo null (bez nazwy).

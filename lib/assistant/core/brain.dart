@@ -341,16 +341,20 @@ class AssistantBrain {
       }
       try {
         if (!skill.acceptsProposal(original, command, context)) {
+          final hint = skill.proposalRejectionHint(original, command, context);
+          context.invalidateActionReference();
           return BrainReply(
-              const FailedResult(AssistantText(
-                  'Propozycja AI zmienia rodzaj polecenia. Doprecyzuj zadanie.',
-                  'The AI proposal changes the requested action. Please clarify the task.')),
+              FailedResult(hint ??
+                  const AssistantText(
+                      'Propozycja AI zmienia rodzaj polecenia. Doprecyzuj zadanie.',
+                      'The AI proposal changes the requested action. Please clarify the task.')),
               match: match);
         }
       } catch (_) {
         return _notUnderstood(original);
       }
       cancelPending();
+      context.invalidateActionReference();
       return _run(match, context, null);
     });
     _tail = next.then((_) {}, onError: (Object _) {});
@@ -358,6 +362,7 @@ class AssistantBrain {
   }
 
   Future<BrainReply> _handle(Utterance u, AssistantContext ctx) async {
+    ctx.invalidateActionReference();
     if (referencesInstruction(u)) {
       cancelPending();
     }

@@ -100,6 +100,11 @@ abstract class AssistantSkill {
           Utterance original, Utterance command, AssistantContext context) =>
       true;
 
+  /// Optional native guidance when an AI proposal cannot be tied to its source.
+  AssistantText? proposalRejectionHint(
+          Utterance original, Utterance command, AssistantContext context) =>
+      null;
+
   /// These slots accept the user's literal prose. A valid native reply must
   /// not require cloud interpretation or be rewritten by a language model.
   Set<String> get literalReplySlots => const {};
@@ -321,6 +326,11 @@ class AssistantContext {
   /// (8 s).
   SkillMatch? lastMatch;
   DateTime? lastAt;
+
+  /// Separate from numeric continuation: a knowledge/clarification turn may
+  /// change what a bare pronoun refers to without discarding calculator data.
+  int actionReferenceGeneration = 0;
+  void invalidateActionReference() => actionReferenceGeneration++;
 
   /// Zapamiętuje trafienie jako „ostatnie" (woła mózg po udanej turze).
   void remember(SkillMatch m) {

@@ -60,16 +60,18 @@ class IsoGapSkill extends AssistantSkill {
     if (literal?.kind == IsoCommandKind.setRootGap) {
       return literal!.gapMm == proposed!.gapMm;
     }
+    final indirect = _hasBoundReference(context) && _isPronounRequest(original);
     if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(original.raw.toLowerCase()) ||
         original.hasAny(const ['albo', 'lub', 'or', 'either']) ||
-        !original.hasStem(const ['szczelin', 'gap']) ||
+        (!original.hasStem(const ['szczelin', 'gap']) && !indirect) ||
         !RegExp(r'^(?:(?:prosze|please)\s+)*(?:ustaw|zmien|zmniejsz|zwieksz|set|change|reduce|decrease|increase)\b')
             .hasMatch(original.folded) ||
         !RegExp(r'(?:\b|\d)(?:mm|cm|m|milimetr\w*|centymetr\w*|metr\w*|millimet\w*|centimet\w*|meter\w*|metre\w*)\b')
             .hasMatch(original.folded)) {
       return false;
     }
-    if (!(original.hasAny(const ['iso']) &&
+    if (!indirect &&
+        !(original.hasAny(const ['iso']) &&
             !RegExp(r'\biso\s*\d').hasMatch(original.folded)) &&
         !original.hasStem(const [
           'rysun',
@@ -100,5 +102,42 @@ class IsoGapSkill extends AssistantSkill {
     }
     return isValidSketchGapMm(expected) &&
         (expected - proposed!.gapMm!).abs() < 1e-9;
+  }
+
+  bool _hasBoundReference(AssistantContext context) {
+    if (context.modules.activeToolId != toolId ||
+        !port.isForeground ||
+        port is! IsoReferencePort) {
+      return false;
+    }
+    final reference = (port as IsoReferencePort).reference;
+    final previous = context.recentMatch();
+    return reference != null &&
+        previous?.skill.id == id &&
+        previous!.slots['iso_gap_sheet_id'] == reference.id &&
+        previous.slots['iso_gap_sheet_revision'] == reference.revision &&
+        previous.slots['iso_gap_reference_generation'] ==
+            context.actionReferenceGeneration;
+  }
+
+  @override
+  AssistantText? proposalRejectionHint(
+          Utterance original, Utterance command, AssistantContext context) =>
+      _isPronounRequest(original) && !_hasBoundReference(context)
+          ? const AssistantText(
+              'Co mam zmniejszyć lub zwiększyć? Podaj pełne polecenie z nazwą pola, np. „zmniejsz szczelinę w ISO o 1 mm”. Niczego nie zmieniłem.',
+              'What should I decrease or increase? Give the complete request with the field name, e.g. “decrease the gap in ISO by 1 mm”. Nothing was changed.')
+          : null;
+
+  bool _isPronounRequest(Utterance original) {
+    final match = RegExp(
+            r'^(?:(?:prosze|please)\s+)*(?:(?:zmniejsz|zwieksz) (?:ja|jej|to) o|(?:decrease|reduce|increase) (?:it|that) by) (.+)$')
+        .firstMatch(original.folded);
+    if (match == null) return false;
+    final quantity = original.withRaw(match[1]!).items;
+    return quantity.length == 2 &&
+        quantity.first.isNumber &&
+        RegExp(r'^(?:mm|cm|m|milimetr\w*|centymetr\w*|metr\w*|millimet\w*|centimet\w*|meter\w*|metre\w*)$')
+            .hasMatch(quantity.last.word);
   }
 }

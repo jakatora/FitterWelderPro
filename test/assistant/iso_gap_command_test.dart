@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:convert';
+import 'package:cut_list_app/assistant/assistant_ai_client.dart';
 import 'package:cut_list_app/assistant/core/skill.dart';
 import 'package:cut_list_app/assistant/skills/iso/iso_command_parser.dart';
 import 'package:cut_list_app/assistant/skills/iso/iso_draw_skill.dart';
@@ -15,6 +17,63 @@ class VisibleGap extends FixedModuleContext implements FieldModuleContext {
 
 void main() {
   Utterance u(String text) => Utterance(text, lang: AppLanguage.pl);
+  test(
+      'pronoun requires fresh committed sheet reference and never leaks its private identity',
+      () {
+    var time = DateTime(2026, 10, 22, 12);
+    var reference = const IsoDrawingReference('sheet-private-A', 7);
+    var foreground = true;
+    final port = CallbackIsoDrawingPort(
+        isForeground: () => foreground,
+        hasPendingQuestion: () => false,
+        reference: () => reference,
+        execute: (_) async => throw StateError('no mutation'));
+    final skill = IsoGapSkill(port);
+    final context = AssistantContext(
+        lang: AppLanguage.pl, modules: const VisibleGap(3), now: () => time);
+    void commit() => context.remember(SkillMatch(skill, .99, slots: {
+          'iso_gap_sheet_id': 'sheet-private-A',
+          'iso_gap_sheet_revision': 7,
+          'iso_gap_reference_generation': context.actionReferenceGeneration,
+          'gap_mm': 3.0
+        }));
+    final source = u('Zmniejsz ją o 1 mm'),
+        proposal = u('Ustaw szczelinę ISO na 2 mm');
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+    commit();
+    expect(skill.acceptsProposal(source, proposal, context), isTrue);
+    expect(skill.acceptsProposal(u('Decrease it by 1 mm'), proposal, context),
+        isTrue);
+    expect(
+        skill.acceptsProposal(
+            source, u('Ustaw szczelinę ISO na 1 mm'), context),
+        isFalse);
+    expect(
+        skill.acceptsProposal(
+            u('Zmniejsz ją w rolling offset o 1 mm'), proposal, context),
+        isFalse);
+    expect(
+        skill.acceptsProposal(
+            u('Zmniejsz ją o 1 mm i usuń rysunek'), proposal, context),
+        isFalse);
+    final wire = jsonEncode(assistantAiRequest(
+        text: source.raw, context: context, skills: [skill]));
+    expect(wire, isNot(contains('sheet-private-A')));
+    expect(wire, isNot(contains('iso_gap_sheet_id')));
+    reference = const IsoDrawingReference('sheet-private-B', 7);
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+    reference = const IsoDrawingReference('sheet-private-A', 8);
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+    reference = const IsoDrawingReference('sheet-private-A', 7);
+    context.invalidateActionReference();
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+    commit();
+    time = time.add(const Duration(minutes: 3));
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+    commit();
+    foreground = false;
+    expect(skill.acceptsProposal(source, proposal, context), isFalse);
+  });
   for (final (text, gap) in [
     ('Ustaw szczelinę w tym rysunku na 3 mm', 3.0),
     ('Ustaw szczelinę ISO na 0 mm', 0.0),

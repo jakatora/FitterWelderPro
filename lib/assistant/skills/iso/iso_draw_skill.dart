@@ -20,28 +20,46 @@ class IsoDrawingQuestion {
   final List<FollowUp> choices;
 }
 
+/// Local identity only; never included in the model's visible-input payload.
+class IsoDrawingReference {
+  const IsoDrawingReference(this.id, this.revision);
+  final String id;
+  final int revision;
+}
+
+abstract interface class IsoReferencePort {
+  IsoDrawingReference? get reference;
+}
+
 abstract interface class IsoQuestionPort {
   IsoDrawingQuestion? get pendingQuestion;
   bool acceptsReply(Utterance utterance);
   bool acceptsProposalReply(Utterance command, Utterance original);
 }
 
-class CallbackIsoDrawingPort implements IsoDrawingPort, IsoQuestionPort {
+class CallbackIsoDrawingPort
+    implements IsoDrawingPort, IsoQuestionPort, IsoReferencePort {
   CallbackIsoDrawingPort(
       {required bool Function() isForeground,
       required bool Function() hasPendingQuestion,
       IsoDrawingQuestion? Function()? pendingQuestion,
+      IsoDrawingReference? Function()? reference,
       bool Function(Utterance)? acceptsReply,
       bool Function(Utterance, Utterance)? acceptsProposalReply,
       required Future<SkillResult> Function(Utterance) execute})
       : _foreground = isForeground,
         _pending = hasPendingQuestion,
         _question = pendingQuestion,
+        _reference = reference,
         _acceptsReply = acceptsReply,
         _acceptsProposalReply = acceptsProposalReply,
         _execute = execute;
   final bool Function() _foreground, _pending;
   final IsoDrawingQuestion? Function()? _question;
+  final IsoDrawingReference? Function()? _reference;
+  @override
+  IsoDrawingReference? get reference =>
+      isForeground ? _reference?.call() : null;
   final bool Function(Utterance)? _acceptsReply;
   final bool Function(Utterance, Utterance)? _acceptsProposalReply;
   @override
@@ -108,7 +126,11 @@ class IsoDrawSkill extends AssistantSkill {
       return SkillMatch(this, .99, utterance: u);
     }
     final command = parseIsoCommand(u);
-    if (command?.kind == IsoCommandKind.setPipeDimension || command?.kind == IsoCommandKind.renameSketch || command?.kind == IsoCommandKind.setRootGap) return null;
+    if (command?.kind == IsoCommandKind.setPipeDimension ||
+        command?.kind == IsoCommandKind.renameSketch ||
+        command?.kind == IsoCommandKind.setRootGap) {
+      return null;
+    }
     final onIso = ctx.modules.activeToolId == toolId || port.isForeground;
     if (command != null &&
         (command.explicit || onIso || port.hasPendingQuestion)) {
@@ -119,7 +141,8 @@ class IsoDrawSkill extends AssistantSkill {
               : port.hasPendingQuestion
                   ? .94
                   : .65,
-          utterance: u, explicitToolTarget: command.explicit);
+          utterance: u,
+          explicitToolTarget: command.explicit);
     }
     if (onIso &&
         u.tokens.length <= 3 &&
