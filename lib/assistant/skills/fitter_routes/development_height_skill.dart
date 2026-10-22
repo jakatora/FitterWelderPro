@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show mapEquals;
 import '../../../domain/fitter/cone_assistant_input.dart';
 import '../../../domain/fitter/eccentric_cone_assistant_input.dart';
 import '../../../domain/fitter/transition_assistant_input.dart';
@@ -68,6 +69,45 @@ double? _height(Utterance source, {bool natural = false}) {
   return n;
 }
 
+// Conversational wording is normalized by AI, then independently checked here.
+// An unspecified amount stays unspecified and becomes a native follow-up.
+Map<String, Object?>? _conversationalHeight(Utterance source) {
+  if (referencesInstruction(source) || isNegatedCommand(source)) return null;
+  final text = source.folded.replaceFirst(RegExp(r'^(?:prosze|please) '), '');
+  final pl = RegExp(
+          r'^zrob (?:go|to|ten stozek|to przejscie) (?:troche )?(wyzsz(?:y|ego)|nizsz(?:y|ego))(?: o (.+))?$')
+      .firstMatch(text);
+  final en = RegExp(
+          r'^make (?:it|this cone|this transition) (?:a little )?(taller|shorter)(?: by (.+))?$')
+      .firstMatch(text);
+  final m = pl ?? en;
+  if (m == null) return null;
+  final add = m[1]!.startsWith('wyzsz') || m[1] == 'taller';
+  final amountText = m[2];
+  if (amountText == null) return {'height_operation': add ? 'add' : 'subtract'};
+  final amount = _heightDelta(source.withRaw(amountText));
+  if (amount == null) return null;
+  // Folding removes minus punctuation; reject the original negative sign too.
+  if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(source.raw.toLowerCase())) {
+    return null;
+  }
+  return {'height_operation': add ? 'add' : 'subtract', 'amount': amount};
+}
+
+double? _heightDelta(Utterance source) {
+  if (referencesInstruction(source) ||
+      isNegatedCommand(source) ||
+      RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(source.raw.toLowerCase())) {
+    return null;
+  }
+  final u =
+      source.withRaw(source.folded.replaceFirst(RegExp(r'^(?:o|by) '), ''));
+  if (u.items.length != 2 || !u.items.first.isNumber) return null;
+  final scale = lengthUnitScale(u.items.last.word);
+  final n = u.items.first.value! * (scale ?? 0);
+  return scale != null && n.isFinite && n > 0 ? n : null;
+}
+
 Map<String, Object?>? _relative(Utterance source, {bool natural = false}) {
   if (referencesInstruction(source) || isNegatedCommand(source)) return null;
   var text = source.folded.replaceFirst(RegExp(r'^(?:prosze|please) '), '');
@@ -75,6 +115,18 @@ Map<String, Object?>? _relative(Utterance source, {bool natural = false}) {
     text = text.replaceFirst(
         RegExp(r'^(?:chce zeby|potrzebuje zeby|i want you to|i need you to) '),
         '');
+  }
+  if (const ['zwieksz wysokosc', 'increase height', 'increase the height']
+      .contains(text)) {
+    return {'height_operation': 'add'};
+  }
+  if (const ['zmniejsz wysokosc', 'decrease height', 'decrease the height']
+      .contains(text)) {
+    return {'height_operation': 'subtract'};
+  }
+  if (natural) {
+    final conversational = _conversationalHeight(source);
+    if (conversational != null) return conversational;
   }
   if (const ['podwoj wysokosc', 'double height', 'double the height']
       .contains(text)) {
@@ -162,6 +214,7 @@ class DevelopmentHeightSkill extends AssistantSkill {
         SkillExample(
             'Zmień tylko wysokość na 500 mm', 'Change only height to 500 mm'),
         SkillExample('Zwiększ wysokość o 100 mm', 'Increase height by 100 mm'),
+        SkillExample('Zwiększ wysokość', 'Increase height'),
         SkillExample('Zmniejsz wysokość o połowę', 'Halve height'),
         SkillExample('Podwój wysokość', 'Double height'),
         SkillExample('Ustaw wysokość na 60 cm', 'Set height to 60 cm'),
@@ -191,6 +244,11 @@ class DevelopmentHeightSkill extends AssistantSkill {
         ? <String, Object?>{'height_mm': proposed}
         : _relative(command);
     if (source == null || target == null) return false;
+    if (!source.containsKey('amount') && !source.containsKey('height_mm')) {
+      return !target.containsKey('amount') &&
+          !target.containsKey('height_mm') &&
+          source['height_operation'] == target['height_operation'];
+    }
     try {
       final base = _visible(context);
       final expected = _resolve(source, base), actual = _resolve(target, base);
@@ -198,6 +256,22 @@ class DevelopmentHeightSkill extends AssistantSkill {
     } on FormatException {
       return false;
     }
+  }
+
+  @override
+  Map<String, Object?>? fillSlot(
+      String slot, Utterance u, AssistantContext ctx) {
+    if (slot != 'amount') return null;
+    final amount = _heightDelta(u);
+    return amount == null ? null : {'amount': amount};
+  }
+
+  @override
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+      Utterance original, AssistantContext ctx) {
+    final source = fillSlot(slot, original, ctx);
+    final target = fillSlot(slot, command, ctx);
+    return source != null && mapEquals(source, target) ? target : null;
   }
 
   @override
@@ -210,6 +284,38 @@ class DevelopmentHeightSkill extends AssistantSkill {
                   'Otwórz rozwinięcie stożka lub przejścia i powtórz zmianę wysokości.',
                   'Open a cone or transition development and repeat the height change.')),
           actionCompleted: false);
+    }
+    final savedBase = m.slots['expected_inputs'];
+    if (savedBase is Map && !mapEquals(savedBase, base)) {
+      return const FailedResult(
+          AssistantText(
+              'Dane rozwinięcia zmieniły się od pytania. Powtórz zmianę dla aktualnych danych.',
+              'Development inputs changed since the question. Repeat the change for the current inputs.'),
+          reportMissingCapability: false);
+    }
+    if (m.slots['height_operation'] != null && m.slots['amount'] == null) {
+      try {
+        _currentHeight(base);
+      } on FormatException {
+        return const FailedResult(
+            AssistantText('Najpierw popraw dane rozwinięcia.',
+                'Correct the development inputs first.'),
+            reportMissingCapability: false);
+      }
+      final add = m.slots['height_operation'] == 'add';
+      return AskResult(
+          'amount',
+          AssistantText(
+              add
+                  ? 'O ile zwiększyć wysokość? Podaj wymiar, np. 10 cm.'
+                  : 'O ile zmniejszyć wysokość? Podaj wymiar, np. 10 cm.',
+              add
+                  ? 'How much taller? Give a length, for example 10 cm.'
+                  : 'How much shorter? Give a length, for example 10 cm.'),
+          partial: m.copyWith(slots: {
+            ...m.slots,
+            'expected_inputs': Map<String, Object?>.of(base)
+          }));
     }
     final next = <String, Object?>{...base};
     try {
