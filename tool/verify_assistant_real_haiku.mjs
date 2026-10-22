@@ -89,8 +89,16 @@ const CASES = [
   ['pl', 'podsumuj mi rysunek izometryczny', ['iso.summary']],
   ['pl', 'chcę się zarejestrować', ['account.open']],
   ['pl', 'jaki przepływ argonu ustawić do tiga', ['knowledge', 'answer']],
+  ['pl', 'nie działa mi zapis wyceny, zgłoś to', ['unsupported']],
+  ['pl', 'ta aplikacja jest bez sensu, rysunek mi się nie zapisuje', ['unsupported']],
+  ['en', 'the slope calculator gives wrong results, please report it', ['unsupported']],
 ];
 
+// FWP_REAL_ONLY=<fragment> — tylko pasujące przypadki, FWP_REAL_REPEAT=n powtórzeń.
+const only = process.env.FWP_REAL_ONLY;
+const repeat = Math.max(1, Number(process.env.FWP_REAL_REPEAT || 1));
+const selected = CASES.filter(([, text]) => !only || text.includes(only))
+  .flatMap(c => Array(repeat).fill(c));
 const template = JSON.parse(fs.readFileSync(path.join(root, 'build/assistant-full-wire-pl.json'), 'utf8'));
 const results = [];
 let failures = 0;
@@ -104,7 +112,7 @@ try {
     if (reg.status !== 201) throw new Error(`register ${reg.status}`);
   };
   await freshDevice();
-  for (const [lang, text, expect] of CASES) {
+  for (const [lang, text, expect] of selected) {
     const body = {
       ...template,
       text,
@@ -124,7 +132,11 @@ try {
     const steps = kind === 'execute' ? (json.steps || []).map(st => st.skill_id) : [];
     // Plan wielokrokowy (np. najpierw `tool.open`, potem właściwa umiejętność)
     // jest poprawny, jeśli oczekiwana umiejętność jest w krokach.
-    const ok = res.status === 200 && expect.some(e =>
+    // Zgłoszenie problemu aplikacja zapisuje dla twórcy — odmowa „nie mogę
+    // zgłaszać” wprowadza użytkownika w błąd.
+    const refusesReport = /nie mog\w* (?:zgłasza|zgłosić|przekaza)|cannot (?:report|pass on)/i
+      .test(String(json.message || ''));
+    const ok = res.status === 200 && !refusesReport && expect.some(e =>
       steps.includes(e) || e === kind || (e === 'not-execute' && kind !== 'execute'));
     if (!ok) failures++;
     results.push({lang, text, expect, status: res.status, kind, skill,
