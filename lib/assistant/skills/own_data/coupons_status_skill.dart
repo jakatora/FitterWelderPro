@@ -3,6 +3,7 @@ import '../../../domain/weld_journal/coupon_entry.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
+import '../core/skill_guards.dart';
 
 String _day(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -44,7 +45,7 @@ class CouponsStatusSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['kupon', 'coupon'])) return null;

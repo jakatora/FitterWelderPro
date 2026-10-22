@@ -5,6 +5,7 @@ import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/labelled_numbers.dart';
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
+import '../core/skill_guards.dart';
 
 /// Grubości ścianek: „blacha 4 mm” → 4/4, „4 i 6 mm” / „4 mm i 6 mm” → 4/6.
 (double, double)? _thicknesses(Utterance u) {
@@ -98,7 +99,7 @@ class TandemTigSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['tandem'])) return null;

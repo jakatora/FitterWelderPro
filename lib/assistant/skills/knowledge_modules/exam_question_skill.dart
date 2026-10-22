@@ -1,6 +1,7 @@
 import '../../../domain/exam/exam_questions.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 const _letters = ['A', 'B', 'C', 'D', 'E', 'F'];
 
@@ -93,7 +94,7 @@ class ExamQuestionSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     final quiz = u.hasStem(const ['przepytaj', 'quiz']) ||

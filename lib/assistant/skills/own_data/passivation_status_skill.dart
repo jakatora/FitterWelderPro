@@ -3,6 +3,7 @@ import '../../../domain/passivation/passivation_record.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
+import '../core/skill_guards.dart';
 
 /// Rejestr trawienia/pasywacji: ostatni zabieg (opcjonalnie dla linii)
 /// i wyniki prób. Tylko odczyt — nowy wpis robi się w module.
@@ -38,7 +39,7 @@ class PassivationStatusSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['pasywac', 'trawien', 'passivat', 'pickling'])) return null;

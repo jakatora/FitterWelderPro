@@ -4,6 +4,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
+import '../core/skill_guards.dart';
 
 final _processRe = RegExp(r'\b(111|114|121|131|135|136|138|141|142|311|15)\b');
 final _wpsNoRe = RegExp(r'\bwps\s*(?:nr|numer|no)?\s*([a-z0-9][a-z0-9.\-/]*)');
@@ -81,7 +82,7 @@ class WpsFindSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasAny(const ['wps']) && !u.hasStem(const ['wps'])) return null;

@@ -2,6 +2,7 @@ import '../../../data/heat_tint.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/labelled_numbers.dart';
+import '../core/skill_guards.dart';
 
 /// Kolor → poziom wzorca AWS D18.2. Kolejność ma znaczenie: „czerwono-
 /// fioletowy” przed „fioletowy”, „szaroniebieski” przed „niebieski”/„szary”.
@@ -78,7 +79,7 @@ class HeatTintCheckSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     final tint = u.hasStem(const ['przebarw', 'nalot', 'tint', 'discolo']) ||

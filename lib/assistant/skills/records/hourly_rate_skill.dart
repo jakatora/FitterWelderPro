@@ -5,6 +5,7 @@ import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/labelled_numbers.dart';
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
+import '../core/skill_guards.dart';
 
 bool _zl(String w) => w == 'zl' || w.startsWith('zlot') || w == 'pln';
 
@@ -86,7 +87,7 @@ class HourlyRateSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (u.hasStem(const ['akord', 'piecework'])) return null;

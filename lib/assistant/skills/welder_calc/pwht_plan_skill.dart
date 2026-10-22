@@ -3,6 +3,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
+import '../core/skill_guards.dart';
 
 PwhtMaterial? _material(Utterance u) {
   final f = u.folded;
@@ -82,7 +83,7 @@ class PwhtPlanSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (u.hasStem(const ['podgrzew', 'preheat']) && !u.hasStem(const ['pwht'])) {

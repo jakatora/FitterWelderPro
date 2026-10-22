@@ -7,6 +7,7 @@ import '../../../features/piecework/piecework_store.dart';
 import '../../../services/welder_identity.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 PieceworkPeriod? _period(Utterance u) {
   final f = u.folded;
@@ -79,7 +80,7 @@ class PieceworkEarningsSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['akord', 'piecework'])) return null;

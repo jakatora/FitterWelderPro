@@ -1,5 +1,6 @@
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 String? _process(Utterance u) {
   final f = u.folded;
@@ -48,7 +49,7 @@ class PreweldChecklistSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     final before = u.hasAny(const ['przed spawaniem', 'pre weld', 'pre-weld']) ||

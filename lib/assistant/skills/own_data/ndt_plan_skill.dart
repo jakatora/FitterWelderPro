@@ -6,6 +6,7 @@ import '../../../domain/weld_journal/weld_ndt.dart';
 import '../../../features/ndt_plan/ndt_plan_store.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 final _projectRe = RegExp(
     r'\s+(?:w\s+projekcie|dla\s+projektu|projekt|in\s+(?:the\s+)?project|for\s+project)\s+(.+?)\s*\??$',
@@ -53,7 +54,7 @@ class NdtPlanSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     final ndt = u.hasStem(const ['badan', 'ndt', 'przeswietl', 'radiogra']) ||

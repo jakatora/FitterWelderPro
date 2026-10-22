@@ -4,6 +4,7 @@ import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import 'quantities.dart';
 import 'saddle_cut_skill.dart' show saddleDiameterSlots;
+import '../core/skill_guards.dart';
 
 Map<String, Object?> _slots(Utterance u) {
   final out = saddleDiameterSlots(u);
@@ -46,7 +47,7 @@ class SaddleTemplateSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     final saddle = u.hasStem(const ['siodl', 'siodel', 'wcink', 'saddle']) ||

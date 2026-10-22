@@ -6,6 +6,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/labelled_numbers.dart';
 import '../core/skill_words.dart';
+import '../core/skill_guards.dart';
 
 /// Schedule po słowie „sch/schedule/szedziul”: „40”, „80”, „STD”, „XS”.
 String? _schedule(Utterance u) {
@@ -77,7 +78,7 @@ class PassPlanSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (u.hasStem(const ['moze lezec', 'poza piec', 'poza suszar', 'ekspozyc'])) {

@@ -2,6 +2,7 @@ import '../../../domain/weld_symbols/weld_symbol.dart';
 import '../../../domain/weld_symbols/weld_symbol_catalog.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 /// Opis słowny → rodzaj symbolu. Najpierw dłuższe/węższe nazwy (½Y przed Y,
 /// ½V przed V, ½U/J przed U).
@@ -67,7 +68,7 @@ class WeldSymbolSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|pokaz|open|show|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStart.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['symbol', 'oznacz', 'znak', 'rysunk', 'drawing', 'mean'])) {

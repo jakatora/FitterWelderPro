@@ -5,6 +5,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../fitter_routes/quantities.dart';
+import '../core/skill_guards.dart';
 
 String? _type(Utterance u) {
   final f = u.folded;
@@ -67,7 +68,7 @@ class ComponentFindSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['bibliotec', 'bibliotek', 'library'])) return null;

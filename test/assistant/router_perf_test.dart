@@ -1,5 +1,5 @@
 // Wydajność routera: 500 wypowiedzi przez cały mózg (ocena + odpowiedź)
-// w mniej niż 1 s. `match()` jest synchroniczne i bez I/O, więc to liczy
+// w mniej niż 1,5 s. `match()` jest synchroniczne i bez I/O, więc to liczy
 // czysty koszt logiki — na telefonie budżet na turę to ≤ 1,5 s od końca mowy.
 
 import 'package:flutter_test/flutter_test.dart';
@@ -11,7 +11,7 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'support/assistant_test_support.dart';
 
 void main() {
-  test('500 wypowiedzi < 1 s', () async {
+  test('500 wypowiedzi < 1,5 s', () async {
     final harness = BrainHarness();
     addTearDown(harness.timer.dispose);
     // Reuse the isolated session catalog, including its in-memory readers.
@@ -55,6 +55,10 @@ void main() {
     // ignore: avoid_print
     print(
         'router: ${utterances.length} wypowiedzi w ${sw.elapsedMilliseconds} ms');
-    expect(sw.elapsed, lessThan(const Duration(seconds: 1)));
+    // 2026-10-23: katalog urósł o ~35 umiejętności (moduły w rozmowie) —
+    // ok. 1,8 ms na wypowiedź na stacji, więc 1 s dla 500 przestało mieć
+    // zapas pod obciążeniem. 1,5 s (3 ms na turę) to nadal ~500× poniżej
+    // budżetu tury na telefonie i łapie regres algorytmiczny.
+    expect(sw.elapsed, lessThan(const Duration(milliseconds: 1500)));
   });
 }

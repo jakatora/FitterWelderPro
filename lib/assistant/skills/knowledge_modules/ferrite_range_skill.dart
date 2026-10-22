@@ -2,6 +2,7 @@ import '../../../domain/ferrite_pmi/ferrite.dart';
 import '../../../domain/ferrite_pmi/ferrite_pmi_sources.dart';
 import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
+import '../core/skill_guards.dart';
 
 /// Typowe wymagane zakresy ferrytu z presetów modułu „Ferryt i PMI”
 /// (zawsze: decyduje specyfikacja projektu). Protokół zostaje w module.
@@ -34,7 +35,7 @@ class FerriteRangeSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
+        kOpenOrAboutStartNoShow.hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['ferryt', 'ferrite']) && !u.hasAny(const ['fn'])) {
