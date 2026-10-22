@@ -29,15 +29,25 @@ import '../../theme/app_theme.dart';
 import '../../widgets/help_button.dart';
 import '../qualification/form_bits.dart';
 import 'wps_edit_page.dart';
+import '../../widgets/local_record_scope.dart';
 
-class WpsLibraryPage extends StatefulWidget {
+/// v33: biblioteka należy do konta — po zmianie konta lista startuje od nowa.
+class WpsLibraryPage extends StatelessWidget {
   const WpsLibraryPage({super.key});
 
   @override
-  State<WpsLibraryPage> createState() => _WpsLibraryPageState();
+  Widget build(BuildContext context) =>
+      LocalRecordScope(builder: (_, __) => const _WpsLibrary());
 }
 
-class _WpsLibraryPageState extends State<WpsLibraryPage> {
+class _WpsLibrary extends StatefulWidget {
+  const _WpsLibrary();
+
+  @override
+  State<_WpsLibrary> createState() => _WpsLibraryPageState();
+}
+
+class _WpsLibraryPageState extends State<_WpsLibrary> {
   final _dao = WpsDao();
   final _search = TextEditingController();
   List<WpsRecord> _all = const [];

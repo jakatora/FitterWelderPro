@@ -390,6 +390,10 @@ void main() {
   test(
       'shared-coupon propagation cannot reveal or rewrite another account journal',
       () async {
+    // schema33: log kuponów należy do właściciela (tu: gościa). Spoiny kont A
+    // i B wskazują ten sam id kuponu (stare dane sprzed podziału) — zmiana
+    // kuponu nigdy nie ujawnia ani nie przepisuje dziennika innego konta,
+    // a konto nie może zmienić cudzego kuponu.
     const coupon = CouponEntry(
         id: 'shared-coupon',
         date: '2026-10-22',
@@ -407,13 +411,20 @@ void main() {
     await dao.insert(
         weld('b').copyWith(couponId: coupon.id, couponRef: 'B original ref'));
     expect((await coupons.linkedWelds(coupon.id)).map((e) => e.$1), ['b']);
-    expect(await coupons.update(coupon.copyWith(result: CouponResult.nok)), 1);
-    expect((await dao.getById('b'))!.couponRef,
-        coupon.copyWith(result: CouponResult.nok).reference);
-    expect(await dao.history('b'), hasLength(2));
+    await expectLater(
+        coupons.update(coupon.copyWith(result: CouponResult.nok)),
+        throwsA(isA<AccountException>()),
+        reason: 'konto B nie zmienia kuponu gościa');
+    expect((await dao.getById('b'))!.couponRef, 'B original ref');
+    await account.forgetSession();
+    expect(await coupons.update(coupon.copyWith(result: CouponResult.nok)), 0,
+        reason: 'gość nie ma spoin z tym kuponem — kont nie przepisuje');
     await login('A');
     expect((await dao.getById('a'))!.couponRef, 'A original ref');
     expect(await dao.history('a'), hasLength(1));
+    await login('B');
+    expect((await dao.getById('b'))!.couponRef, 'B original ref');
+    expect(await dao.history('b'), hasLength(1));
   });
   test(
       'qualification continuity reads only the current account journal even for a repeated stamp',

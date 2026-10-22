@@ -12,6 +12,7 @@ import '../services/welder_identity.dart';
 import '../theme/app_theme.dart';
 import '../utils/haptic.dart';
 import '../widgets/weld_journal/coupon_editor_sheet.dart';
+import '../widgets/local_record_scope.dart';
 
 // The model and DAO moved to lib/domain/weld_journal/coupon_entry.dart and
 // lib/database/coupon_dao.dart; kept importable from here.
@@ -29,14 +30,23 @@ export '../domain/weld_journal/coupon_entry.dart';
 /// reversible ("Pokaż usunięte" → Przywróć), a new coupon starts "to be
 /// assessed" instead of OK, and deleting a coupon that welds refer to says
 /// which welds will show it as deleted.
-class CouponLogScreen extends StatefulWidget {
+/// v33: log należy do konta — po zmianie konta lista startuje od nowa.
+class CouponLogScreen extends StatelessWidget {
   const CouponLogScreen({super.key});
 
   @override
-  State<CouponLogScreen> createState() => _CouponLogScreenState();
+  Widget build(BuildContext context) =>
+      LocalRecordScope(builder: (_, __) => const _CouponLog());
 }
 
-class _CouponLogScreenState extends State<CouponLogScreen> {
+class _CouponLog extends StatefulWidget {
+  const _CouponLog();
+
+  @override
+  State<_CouponLog> createState() => _CouponLogScreenState();
+}
+
+class _CouponLogScreenState extends State<_CouponLog> {
   static const _uuid = Uuid();
   final _dao = CouponDao();
   List<CouponEntry> _items = [];

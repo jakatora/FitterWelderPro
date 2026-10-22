@@ -1030,12 +1030,44 @@ const _ownedLocalTables = {
   'weld_journal_projects',
   // schema32: rejestr uprawnień należy do konta (owner_scope).
   'welder_certificates',
+  // schema33: log kuponów i biblioteka WPS.
+  'weld_coupons',
+  'wps_library',
 };
 
-/// Historia potwierdzeń nie ma własnego owner_scope — należy do właściciela
-/// certyfikatu-rodzica (WelderCertificateDao). Eksport i restore idą za nim.
-const _certificatesTable = 'welder_certificates';
-const _confirmationsTable = 'welder_cert_confirmations';
+/// Tabela właściciela, której wiersze mają tabelę-dziecko BEZ owner_scope
+/// (historia / wersje należą do właściciela rodzica, jak w DAO) i do której
+/// inne tabele właściciela odwołują się po id. Gdy przy przywracaniu id
+/// rodzica jest zajęte przez inne konto, rodzic dostaje nowe id, a dziecko
+/// i odwołania idą za nim.
+class _OwnedParent {
+  const _OwnedParent(this.child, this.childKey,
+      {this.references = const <String, String>{}});
+
+  final String child;
+  final String childKey;
+
+  /// Inna tabela właściciela → kolumna z id tego rodzica.
+  final Map<String, String> references;
+}
+
+const _ownedParents = <String, _OwnedParent>{
+  'welder_certificates':
+      _OwnedParent('welder_cert_confirmations', 'certificate_id'),
+  'weld_coupons': _OwnedParent('weld_coupon_history', 'coupon_id',
+      references: {'weld_journal': 'coupon_id'}),
+  'wps_library': _OwnedParent('wps_versions', 'wps_id',
+      references: {'weld_journal': 'wps_id'}),
+};
+
+/// Stan jednego rodzica w trakcie restore.
+class _ParentRestore {
+  final idMap = <Object?, String>{};
+  final restored = <Object?>{};
+  final dropped = <Object?>{};
+  final owned = <Object?>{};
+  final foreignChildIds = <Object?>{};
+}
 
 // Historical function name retained for callers. All account-owned tables
 // must be pruned, including their bytes in SQLite free pages.
@@ -1055,20 +1087,22 @@ Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
       await db.delete(table);
     }
   }
-  final children = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-      [_confirmationsTable]);
-  if (children.isNotEmpty) {
+  for (final entry in _ownedParents.entries) {
+    final child = entry.value.child;
+    final children = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [child]);
+    if (children.isEmpty) continue;
     found = true;
     await db.execute('PRAGMA secure_delete = ON');
     final parents = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [_certificatesTable]);
+        [entry.key]);
     if (parents.isEmpty) {
-      await db.delete(_confirmationsTable);
+      await db.delete(child);
     } else {
-      await db.rawDelete('DELETE FROM $_confirmationsTable WHERE '
-          'certificate_id NOT IN (SELECT id FROM $_certificatesTable)');
+      await db.rawDelete('DELETE FROM $child WHERE '
+          '${entry.value.childKey} NOT IN (SELECT id FROM ${entry.key})');
     }
   }
   if (found) await db.execute('VACUUM');
@@ -1178,74 +1212,78 @@ Future<void> _refill(
       }
     }
 
-    // Rejestr uprawnień (schema32): certyfikat z kopii, którego id na
-    // telefonie należy do INNEGO właściciela, dostaje nowe id, a historia
-    // potwierdzeń idzie za nim. Potwierdzenia certyfikatów innych właścicieli
-    // ze starej kopii (sprzed przycinania eksportu) są świadomie pomijane.
-    final certIdMap = <Object?, String>{};
-    final restoredCertIds = <Object?>{};
-    final droppedCertIds = <Object?>{};
-    final ownedCertIds = <Object?>{};
-    final foreignConfirmationIds = <Object?>{};
-    var certOwnerAware = false;
-    if (weldParamsOwner != null && liveTables.contains(_certificatesTable)) {
-      final certColumns =
-          (await txn.rawQuery('PRAGMA table_info($_certificatesTable)'))
-              .map((r) => r['name'])
-              .toSet();
-      if (certColumns.contains('owner_scope')) {
-        certOwnerAware = true;
-        final existing = await txn
-            .query(_certificatesTable, columns: ['id', 'owner_scope']);
+    // Rejestr uprawnień (schema32), log kuponów i biblioteka WPS (schema33):
+    // wiersz z kopii, którego id na telefonie należy do INNEGO właściciela,
+    // dostaje nowe id, a jego historia / wersje i odwołania z dziennika idą
+    // za nim. Historia wierszy innych właścicieli ze starej kopii (sprzed
+    // przycinania eksportu) jest świadomie pomijana.
+    final parentStates = <String, _ParentRestore>{};
+    if (weldParamsOwner != null) {
+      for (final spec in _ownedParents.entries) {
+        final parent = spec.key;
+        if (!liveTables.contains(parent)) continue;
+        final parentColumns =
+            (await txn.rawQuery('PRAGMA table_info($parent)'))
+                .map((r) => r['name'])
+                .toSet();
+        if (!parentColumns.contains('owner_scope')) continue;
+        final state = parentStates[parent] = _ParentRestore();
+        final existing =
+            await txn.query(parent, columns: ['id', 'owner_scope']);
         final foreign = existing
             .where((r) => r['owner_scope'] != weldParamsOwner)
             .map((r) => r['id'])
             .toSet();
-        if (tables.containsKey(_certificatesTable) || wipeTablesNotInBackup) {
-          for (final row in tables[_certificatesTable] ??
-              const <Map<String, Object?>>[]) {
+        if (tables.containsKey(parent) || wipeTablesNotInBackup) {
+          for (final row
+              in tables[parent] ?? const <Map<String, Object?>>[]) {
             final sourceId = row['id'];
             if (preserveWeldParamOwner &&
                 (row['owner_scope'] ?? LocalRecordOwner.guest) !=
                     weldParamsOwner) {
-              droppedCertIds.add(sourceId);
+              state.dropped.add(sourceId);
               continue;
             }
             if (foreign.contains(sourceId)) {
-              certIdMap.putIfAbsent(sourceId, () => const Uuid().v4());
+              state.idMap.putIfAbsent(sourceId, () => const Uuid().v4());
             }
-            restoredCertIds.add(certIdMap[sourceId] ?? sourceId);
+            state.restored.add(state.idMap[sourceId] ?? sourceId);
           }
         } else {
-          ownedCertIds.addAll(existing
+          state.owned.addAll(existing
               .where((r) => r['owner_scope'] == weldParamsOwner)
               .map((r) => r['id']));
         }
-        if (liveTables.contains(_confirmationsTable)) {
-          foreignConfirmationIds.addAll((await txn.rawQuery(
-                  'SELECT id FROM $_confirmationsTable WHERE certificate_id '
-                  'NOT IN (SELECT id FROM $_certificatesTable '
-                  'WHERE owner_scope = ?)',
+        final child = spec.value.child;
+        if (liveTables.contains(child)) {
+          state.foreignChildIds.addAll((await txn.rawQuery(
+                  'SELECT id FROM $child WHERE ${spec.value.childKey} '
+                  'NOT IN (SELECT id FROM $parent WHERE owner_scope = ?)',
                   [weldParamsOwner]))
               .map((r) => r['id']));
         }
       }
     }
+    final childParent = <String, String>{
+      for (final parent in parentStates.keys) _ownedParents[parent]!.child: parent,
+    };
 
     final batch = txn.batch();
-    if (certOwnerAware &&
-        liveTables.contains(_confirmationsTable) &&
-        (wipeTablesNotInBackup ||
-            tables.containsKey(_certificatesTable) ||
-            tables.containsKey(_confirmationsTable))) {
-      // Przed kasowaniem certyfikatów — podzapytanie musi je jeszcze widzieć.
-      batch.rawDelete(
-          'DELETE FROM $_confirmationsTable WHERE certificate_id IN '
-          '(SELECT id FROM $_certificatesTable WHERE owner_scope = ?)',
-          [weldParamsOwner]);
+    for (final parent in parentStates.keys) {
+      final spec = _ownedParents[parent]!;
+      if (liveTables.contains(spec.child) &&
+          (wipeTablesNotInBackup ||
+              tables.containsKey(parent) ||
+              tables.containsKey(spec.child))) {
+        // Przed kasowaniem rodziców — podzapytanie musi ich jeszcze widzieć.
+        batch.rawDelete(
+            'DELETE FROM ${spec.child} WHERE ${spec.childKey} IN '
+            '(SELECT id FROM $parent WHERE owner_scope = ?)',
+            [weldParamsOwner]);
+      }
     }
     for (final table in liveTables) {
-      if (table == _confirmationsTable && certOwnerAware) continue;
+      if (childParent.containsKey(table)) continue;
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
         if (_ownedLocalTables.contains(table) && weldParamsOwner != null) {
           batch.delete(table,
@@ -1296,22 +1334,26 @@ Future<void> _refill(
       var skippedChildren = 0;
       for (final row in rows) {
         final ownedRow = Map<String, Object?>.of(row);
-        if (entry.key == _confirmationsTable && certOwnerAware) {
-          final sourceCert = ownedRow['certificate_id'];
-          if (droppedCertIds.contains(sourceCert)) {
-            skippedChildren++; // historia certyfikatu innego właściciela
+        final parentOfChild = childParent[entry.key];
+        if (parentOfChild != null) {
+          final state = parentStates[parentOfChild]!;
+          final key = _ownedParents[parentOfChild]!.childKey;
+          final source = ownedRow[key];
+          if (state.dropped.contains(source)) {
+            skippedChildren++; // historia wiersza innego właściciela
             continue;
           }
-          final cert = certIdMap[sourceCert] ?? sourceCert;
-          if (!restoredCertIds.contains(cert) && !ownedCertIds.contains(cert)) {
+          final mapped = state.idMap[source] ?? source;
+          if (!state.restored.contains(mapped) &&
+              !state.owned.contains(mapped)) {
             throw const BackupFormatException(
-                messagePl: 'Historia potwierdzeń wskazuje na brakujący '
-                    'certyfikat. Nic nie zmieniono.',
-                messageEn: 'A confirmation references a missing certificate. '
-                    'Nothing changed.');
+                messagePl: 'Historia lub wersja wskazuje na brakujący wpis '
+                    '(certyfikat, kupon albo WPS). Nic nie zmieniono.',
+                messageEn: 'History or a version references a missing entry '
+                    '(certificate, coupon or WPS). Nothing changed.');
           }
-          ownedRow['certificate_id'] = cert;
-          if (foreignConfirmationIds.contains(ownedRow['id'])) {
+          ownedRow[key] = mapped;
+          if (state.foreignChildIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
           }
         }
@@ -1319,10 +1361,17 @@ Future<void> _refill(
           ownedRow['owner_scope'] = weldParamsOwner;
           if (entry.key == 'weld_journal') {
             ownedRow['id'] = journalIdMap[ownedRow['id']] ?? ownedRow['id'];
-          } else if (entry.key == _certificatesTable) {
-            ownedRow['id'] = certIdMap[ownedRow['id']] ?? ownedRow['id'];
+          } else if (parentStates.containsKey(entry.key)) {
+            ownedRow['id'] =
+                parentStates[entry.key]!.idMap[ownedRow['id']] ?? ownedRow['id'];
           } else if (foreignIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
+          }
+          for (final parent in parentStates.entries) {
+            final column = _ownedParents[parent.key]!.references[entry.key];
+            if (column == null) continue;
+            final mapped = parent.value.idMap[ownedRow[column]];
+            if (mapped != null) ownedRow[column] = mapped;
           }
           if (const {'weld_journal_history', 'weld_repairs'}
               .contains(entry.key)) {

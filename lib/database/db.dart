@@ -90,7 +90,9 @@ class AppDatabase {
   // v30: ISO sketches follow the same account/guest partition.
   // v31: journal, history, repairs and project headers belong to account/guest.
   // v32: qualification certificates belong to account/guest; confirmations follow their parent.
-  static const int _dbVersion = 32;
+  // v33: coupon log and WPS library belong to account/guest; their history /
+  //   versions follow the parent row (CouponDao / WpsDao).
+  static const int _dbVersion = 33;
 
   /// The schema version [get] opens the database at.
   ///
@@ -98,6 +100,9 @@ class AppDatabase {
   /// app actually ships instead of to a hard-coded 17 that silently stops
   /// matching the next time someone bumps [_dbVersion].
   static int get schemaVersion => _dbVersion;
+
+  /// Tables partitioned by owner since v33 (legacy rows stay with the guest).
+  static const List<String> kOwnedV33Tables = ['weld_coupons', 'wps_library'];
 
   static Future<Database> get() {
     final ready = _db;
@@ -147,6 +152,10 @@ class AppDatabase {
       await connection.transaction((txn) => _ensureJournalOwners(txn));
       await _ensureColumn(connection, 'welder_certificates', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
+      for (final table in kOwnedV33Tables) {
+        await _ensureColumn(
+            connection, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
+      }
       await _seedApprovedData(connection);
       _db = connection;
       return connection;
@@ -521,6 +530,13 @@ CREATE TABLE IF NOT EXISTS projects (
     if (oldVersion < 32) {
       await _ensureColumn(db, 'welder_certificates', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
+    }
+
+    if (oldVersion < 33) {
+      for (final table in kOwnedV33Tables) {
+        await _ensureColumn(
+            db, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
+      }
     }
 
     // Last, now that every column the indexes reference exists.
@@ -1060,7 +1076,8 @@ CREATE TABLE IF NOT EXISTS weld_coupons (
   result TEXT,
   notes TEXT,
 ${_columnsDdl(_kWeldCouponsV20Columns)},
-${_columnsDdl(kWeldCouponsV25Columns)}
+${_columnsDdl(kWeldCouponsV25Columns)},
+  owner_scope TEXT NOT NULL DEFAULT 'guest'
 );
 ''');
     // Pressure-test register — hydrotest_dao.dart. Units: bar, °C, minutes,
@@ -1349,7 +1366,8 @@ CREATE TABLE IF NOT EXISTS wps_library (
   attachment_path TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-${_columnsDdl(kWpsLibraryV25Columns)}
+${_columnsDdl(kWpsLibraryV25Columns)},
+  owner_scope TEXT NOT NULL DEFAULT 'guest'
 );
 ''');
   }
@@ -1406,6 +1424,8 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
         'owner_scope, weld_id, at'
       ),
       ('weld_repairs', 'idx_weld_repairs_owner', 'owner_scope, weld_id, seq'),
+      ('weld_coupons', 'idx_weld_coupons_owner', 'owner_scope, date'),
+      ('wps_library', 'idx_wps_library_owner', 'owner_scope, wps_no'),
     ]) {
       // createSchema can fill a legacy file before its version migration.
       // Only migrated/current tables have the new owner column at that point.

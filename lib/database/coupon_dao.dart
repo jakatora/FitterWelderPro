@@ -8,8 +8,14 @@
 /// weld in that transaction too, with a history row on the weld: the weld
 /// journal and its PDF can no longer show "· OK" for a coupon the log
 /// says is NOK or gone.
+///
+/// v33: the log belongs to the data owner (account or offline guest) via
+/// `weld_coupons.owner_scope`; legacy rows stay with the guest and the
+/// history follows its coupon. A foreign coupon id is never read, replaced,
+/// deleted or restored.
 library;
 
+import '../services/account_service.dart';
 import 'local_record_owner.dart';
 
 import 'package:sqflite/sqflite.dart';
@@ -81,39 +87,80 @@ class CouponDao {
 
   final int Function() _clock;
   final String Function() _newId;
+  final Future<LocalRecordOwner> Function() _captureOwner;
 
-  CouponDao({int Function()? clock, String Function()? newId})
+  CouponDao(
+      {int Function()? clock,
+      String Function()? newId,
+      Future<LocalRecordOwner> Function()? captureOwner})
       : _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch),
-        _newId = newId ?? (() => _uuid.v4());
+        _newId = newId ?? (() => _uuid.v4()),
+        _captureOwner = captureOwner ?? LocalRecordOwner.capture;
+
+  Future<(LocalRecordOwner, Database)> _ownerAndDb() async {
+    final owner = await _captureOwner();
+    owner.requireCurrent();
+    final db = await AppDatabase.get();
+    owner.requireCurrent();
+    return (owner, db);
+  }
 
   /// Newest first. Soft-deleted coupons only with [includeDeleted] (the log
   /// screen's "show deleted" view, the weld card resolving a link).
   Future<List<CouponEntry>> listAll({bool includeDeleted = false}) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     final rows = await db.query(table,
-        where: includeDeleted ? null : 'deleted_at IS NULL',
+        where: includeDeleted
+            ? 'owner_scope = ?'
+            : 'owner_scope = ? AND deleted_at IS NULL',
+        whereArgs: [owner.key],
         orderBy: 'date DESC, rowid DESC');
+    owner.requireCurrent();
     return rows.map(CouponEntry.fromRow).toList();
   }
 
-  /// Any coupon, deleted ones included (a weld still points at it).
+  /// Any coupon of the current owner, deleted ones included (a weld still
+  /// points at it).
   Future<CouponEntry?> getById(String id) async {
-    final db = await AppDatabase.get();
-    return _read(db, id);
+    final (owner, db) = await _ownerAndDb();
+    final found = await _read(db, id, owner);
+    owner.requireCurrent();
+    return found;
   }
 
-  Future<CouponEntry?> _read(DatabaseExecutor db, String id) async {
-    final rows =
-        await db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
+  Future<CouponEntry?> _read(
+      DatabaseExecutor db, String id, LocalRecordOwner owner) async {
+    final rows = await db.query(table,
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: [id, owner.key],
+        limit: 1);
     return rows.isEmpty ? null : CouponEntry.fromRow(rows.single);
   }
 
+  /// A row with [id] that belongs to ANOTHER owner must never be replaced:
+  /// the id is taken, not free.
+  Future<void> _refuseForeign(
+      DatabaseExecutor db, String id, LocalRecordOwner owner) async {
+    final rows = await db.query(table,
+        columns: ['owner_scope'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isNotEmpty && rows.single['owner_scope'] != owner.key) {
+      throw AccountException('Ten kupon należy do innego konta. / '
+          'This coupon belongs to another account.');
+    }
+  }
+
+  Map<String, Object?> _ownedRow(CouponEntry e, LocalRecordOwner owner) =>
+      {...e.toRow(), 'owner_scope': owner.key};
+
   Future<void> insert(CouponEntry e, {String by = ''}) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     await db.transaction((txn) async {
-      await txn.insert(table, e.toRow());
+      owner.requireCurrent();
+      await _refuseForeign(txn, e.id, owner);
+      await txn.insert(table, _ownedRow(e, owner));
       await _log(txn, e.id, by, CouponHistoryAction.create,
           newValue: e.reference);
+      owner.requireCurrent();
     });
   }
 
@@ -121,13 +168,13 @@ class CouponDao {
   /// refreshes the reference of linked welds. Returns the number of welds
   /// whose coupon reference changed.
   Future<int> update(CouponEntry e, {String by = ''}) async {
-    final owner = await LocalRecordOwner.capture();
-    final db = await AppDatabase.get();
-    owner.requireCurrent();
+    final (owner, db) = await _ownerAndDb();
     return db.transaction((txn) async {
-      final before = await _read(txn, e.id);
+      owner.requireCurrent();
+      final before = await _read(txn, e.id, owner);
       if (before == null) {
-        await txn.insert(table, e.toRow());
+        await _refuseForeign(txn, e.id, owner);
+        await txn.insert(table, _ownedRow(e, owner));
         await _log(txn, e.id, by, CouponHistoryAction.create,
             newValue: e.reference);
         return 0;
@@ -136,8 +183,8 @@ class CouponDao {
       final after = e.copyWith(deletedAt: before.deletedAt);
       final changes = diffCoupons(before, after);
       if (changes.isEmpty) return 0;
-      await txn
-          .update(table, after.toRow(), where: 'id = ?', whereArgs: [e.id]);
+      await txn.update(table, _ownedRow(after, owner),
+          where: 'id = ? AND owner_scope = ?', whereArgs: [e.id, owner.key]);
       for (final (field, oldValue, newValue) in changes) {
         await _log(txn, e.id, by, CouponHistoryAction.update,
             field: field, oldValue: oldValue, newValue: newValue);
@@ -149,15 +196,14 @@ class CouponDao {
   /// Soft delete: the row, its history and the links of welds stay; every
   /// linked weld's reference gets [kCouponDeletedMarker].
   Future<int> softDelete(String id, {String by = ''}) async {
-    final owner = await LocalRecordOwner.capture();
-    final db = await AppDatabase.get();
-    owner.requireCurrent();
+    final (owner, db) = await _ownerAndDb();
     return db.transaction((txn) async {
-      final before = await _read(txn, id);
+      owner.requireCurrent();
+      final before = await _read(txn, id, owner);
       if (before == null || before.isDeleted) return 0;
       final after = before.copyWith(deletedAt: _clock());
       await txn.update(table, {'deleted_at': after.deletedAt},
-          where: 'id = ?', whereArgs: [id]);
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
       await _log(txn, id, by, CouponHistoryAction.delete,
           oldValue: before.reference);
       return _propagate(txn, after, by, owner);
@@ -165,15 +211,14 @@ class CouponDao {
   }
 
   Future<int> restore(String id, {String by = ''}) async {
-    final owner = await LocalRecordOwner.capture();
-    final db = await AppDatabase.get();
-    owner.requireCurrent();
+    final (owner, db) = await _ownerAndDb();
     return db.transaction((txn) async {
-      final before = await _read(txn, id);
+      owner.requireCurrent();
+      final before = await _read(txn, id, owner);
       if (before == null || !before.isDeleted) return 0;
       final after = before.copyWith(deletedAt: null);
       await txn.update(table, {'deleted_at': null},
-          where: 'id = ?', whereArgs: [id]);
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
       await _log(txn, id, by, CouponHistoryAction.restore,
           newValue: after.reference);
       return _propagate(txn, after, by, owner);
@@ -182,9 +227,7 @@ class CouponDao {
 
   /// Welds (live and deleted) linked to coupon [id]: `(id, weld_no)`.
   Future<List<(String, String)>> linkedWelds(String id) async {
-    final owner = await LocalRecordOwner.capture();
-    final db = await AppDatabase.get();
-    owner.requireCurrent();
+    final (owner, db) = await _ownerAndDb();
     final rows = await db.query('weld_journal',
         columns: ['id', 'weld_no'],
         where: 'coupon_id = ? AND owner_scope = ? AND deleted_at IS NULL',
@@ -197,13 +240,15 @@ class CouponDao {
     ];
   }
 
-  /// History of coupon [id], newest first.
+  /// History of coupon [id] (of the current owner), newest first.
   Future<List<CouponHistoryEntry>> history(String id) async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(historyTable,
-        where: 'coupon_id = ?',
-        whereArgs: [id],
-        orderBy: 'at DESC, rowid DESC');
+    final (owner, db) = await _ownerAndDb();
+    final rows = await db.rawQuery(
+        'SELECT h.* FROM $historyTable h JOIN $table c ON c.id = h.coupon_id '
+        'WHERE h.coupon_id = ? AND c.owner_scope = ? '
+        'ORDER BY h.at DESC, h.rowid DESC',
+        [id, owner.key]);
+    owner.requireCurrent();
     return rows.map(CouponHistoryEntry.fromRow).toList();
   }
 

@@ -12,7 +12,13 @@ import 'dart:io';
 
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
+import 'package:cut_list_app/database/coupon_dao.dart';
+import 'package:cut_list_app/database/weld_journal_dao.dart';
 import 'package:cut_list_app/database/welder_certificate_dao.dart';
+import 'package:cut_list_app/database/wps_dao.dart';
+import 'package:cut_list_app/domain/weld_journal/coupon_entry.dart';
+import 'package:cut_list_app/domain/weld_journal/weld_entry.dart';
+import 'package:cut_list_app/domain/wps/wps_record.dart';
 import 'package:cut_list_app/domain/qualification/welder_certificate.dart';
 import 'package:cut_list_app/services/account_service.dart';
 import 'package:cut_list_app/services/data_backup.dart';
@@ -24,6 +30,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/test_account.dart';
+import '../support/weld_fixtures.dart';
 
 const _pathProvider = MethodChannel('plugins.flutter.io/path_provider');
 
@@ -223,5 +230,70 @@ void main() {
     final all = await db.query('welder_cert_confirmations');
     expect(all.map((r) => r['id']), ['conf-old-b'],
         reason: 'historia certyfikatów innych kont nie wpada do bazy');
+  });
+
+  test('kupony i WPS: eksport tylko właściciela, restore przemapowuje id '
+      'i odwołania spoiny', () async {
+    final coupons = CouponDao();
+    final wpsDao = WpsDao();
+    AccountService.instance = account;
+    await account.signIn('A', 'fixture-password');
+    await coupons.insert(const CouponEntry(
+        id: 'c-a',
+        date: '2026-10-22',
+        welder: 'SAME',
+        machine: 'M1',
+        size: '60.3x2',
+        result: CouponResult.ok,
+        notes: 'COUPON-a'));
+    await wpsDao.upsert(const WpsRecord(
+        id: 'w-a', wpsNo: 'WPS-A', notes: 'WPSNOTE-a', createdAt: 1, updatedAt: 1));
+    final welded = weld('s-a');
+    await WeldJournalDao().insert(WeldEntry.fromRow({
+      ...welded.toRow(),
+      'coupon_id': 'c-a',
+      'wps_id': 'w-a',
+    }));
+    await account.signIn('B', 'fixture-password');
+    await coupons.insert(const CouponEntry(
+        id: 'c-b',
+        date: '2026-10-22',
+        welder: 'SAME',
+        machine: 'M1',
+        size: '60.3x2',
+        result: CouponResult.ok,
+        notes: 'COUPON-b'));
+    await wpsDao.upsert(const WpsRecord(
+        id: 'w-b', wpsNo: 'WPS-B', notes: 'WPSNOTE-b', createdAt: 1, updatedAt: 1));
+    await account.signIn('A', 'fixture-password');
+
+    final archive = await (await DataBackup.createBackupFile(
+            now: DateTime(2026, 10, 22, 11)))
+        .copy(p.join(sandbox.path, 'carried-coupons.zip'));
+    final bytes = latin1.decode(await archive.readAsBytes());
+    expect(bytes.contains('COUPON-a'), isTrue);
+    expect(bytes.contains('WPSNOTE-a'), isTrue);
+    expect(bytes.contains('COUPON-b'), isFalse, reason: 'cudzy kupon');
+    expect(bytes.contains('WPSNOTE-b'), isFalse, reason: 'cudza WPS');
+
+    await account.signIn('B', 'fixture-password');
+    await DataBackup.restore(archive.path);
+    final copy = (await coupons.listAll()).single;
+    expect(copy.notes, 'COUPON-a');
+    expect(copy.id, isNot('c-a'), reason: 'id zajęte przez konto A');
+    expect((await coupons.history(copy.id)), isNotEmpty,
+        reason: 'historia kuponu idzie za nowym id');
+    final wpsCopy = (await wpsDao.listAll()).single;
+    expect(wpsCopy.id, isNot('w-a'));
+    expect((await wpsDao.versionsOf(wpsCopy.id)), isNotEmpty);
+    final restoredWeld = (await WeldJournalDao().listAll()).single;
+    expect(restoredWeld.couponId, copy.id,
+        reason: 'spoina wskazuje kopię kuponu, nie kupon konta A');
+    expect(restoredWeld.wpsId, wpsCopy.id);
+
+    await account.signIn('A', 'fixture-password');
+    expect((await coupons.listAll()).single.id, 'c-a');
+    expect((await wpsDao.listAll()).single.id, 'w-a');
+    expect((await WeldJournalDao().listAll()).single.couponId, 'c-a');
   });
 }

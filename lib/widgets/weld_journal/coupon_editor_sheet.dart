@@ -20,6 +20,7 @@ import '../../services/welder_identity.dart';
 import '../../theme/app_theme.dart';
 import 'wj_ui.dart';
 import '../number_field.dart';
+import '../local_record_scope.dart';
 
 /// Opens the editor; returns the saved coupon or null.
 Future<CouponEntry?> showCouponEditor(
@@ -37,8 +38,12 @@ Future<CouponEntry?> showCouponEditor(
       backgroundColor: kCard,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _CouponEditor(
-          initial: initial, isNew: isNew, dao: dao ?? CouponDao()),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          builder: (_, session) => _CouponEditor(
+              initial: initial,
+              isNew: isNew,
+              dao: dao ?? CouponDao(captureOwner: session.captureOwner))),
     );
 
 /// Ten sam kolor oceny co na ekranie przebarwień.

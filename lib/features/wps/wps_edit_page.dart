@@ -24,18 +24,33 @@ import '../../services/welder_identity.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
 import '../qualification/form_bits.dart';
+import '../../widgets/local_record_scope.dart';
 
-class WpsEditPage extends StatefulWidget {
+/// v33: edytor należy do konta, dla którego go otwarto — po zmianie konta
+/// dane chowają się, a zapis idzie wyłącznie do właściciela tej sesji.
+class WpsEditPage extends StatelessWidget {
   /// `null` = nowa WPS.
   final WpsRecord? wps;
 
   const WpsEditPage({super.key, this.wps});
 
   @override
-  State<WpsEditPage> createState() => _WpsEditPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      builder: (_, session) => _WpsEditForm(wps: wps, session: session));
 }
 
-class _WpsEditPageState extends State<WpsEditPage> {
+class _WpsEditForm extends StatefulWidget {
+  final WpsRecord? wps;
+  final LocalRecordSession session;
+
+  const _WpsEditForm({this.wps, required this.session});
+
+  @override
+  State<_WpsEditForm> createState() => _WpsEditPageState();
+}
+
+class _WpsEditPageState extends State<_WpsEditForm> {
   final _formKey = GlobalKey<FormState>();
 
   late WpsStandard _standard;
@@ -288,7 +303,7 @@ class _WpsEditPageState extends State<WpsEditPage> {
       ));
       return;
     }
-    final dao = WpsDao();
+    final dao = WpsDao(captureOwner: widget.session.captureOwner);
     // Zmiana treści zapisanej WPS: nowa rewizja albo poprawka bieżącej
     // (obie zostawiają ślad w wersjach).
     var keepOldFile = false;

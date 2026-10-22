@@ -14,13 +14,20 @@
 /// Dla dziennika spoin (inny moduł): [listAll] do listy wyboru WPS,
 /// [findByNumber] do dopasowania starego wolnego tekstu
 /// `weld_journal.wps_ref` do rekordu, [versionsByWps] do oceny wg daty.
+///
+/// v33: biblioteka należy do właściciela danych (konto albo gość offline) —
+/// `wps_library.owner_scope`; dawne wiersze zostają gościowi, wersje idą za
+/// swoją WPS. Cudzego identyfikatora nie da się odczytać, nadpisać ani
+/// usunąć.
 library;
 
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/wps/wps_record.dart';
+import '../services/account_service.dart';
 import 'db.dart';
+import 'local_record_owner.dart';
 
 class WpsDao {
   static const String table = 'wps_library';
@@ -30,23 +37,42 @@ class WpsDao {
 
   final int Function() _clock;
   final String Function() _newId;
+  final Future<LocalRecordOwner> Function() _captureOwner;
 
-  WpsDao({int Function()? clock, String Function()? newId})
+  WpsDao(
+      {int Function()? clock,
+      String Function()? newId,
+      Future<LocalRecordOwner> Function()? captureOwner})
       : _clock = clock ?? (() => DateTime.now().millisecondsSinceEpoch),
-        _newId = newId ?? (() => _uuid.v4());
+        _newId = newId ?? (() => _uuid.v4()),
+        _captureOwner = captureOwner ?? LocalRecordOwner.capture;
 
-  /// Wszystkie WPS po numerze i rewizji.
-  Future<List<WpsRecord>> listAll() async {
+  Future<(LocalRecordOwner, Database)> _ownerAndDb() async {
+    final owner = await _captureOwner();
+    owner.requireCurrent();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
+    return (owner, db);
+  }
+
+  /// Wszystkie WPS bieżącego właściciela po numerze i rewizji.
+  Future<List<WpsRecord>> listAll() async {
+    final (owner, db) = await _ownerAndDb();
     final rows = await db.query(table,
+        where: 'owner_scope = ?',
+        whereArgs: <Object?>[owner.key],
         orderBy: 'wps_no COLLATE NOCASE ASC, revision COLLATE NOCASE ASC');
+    owner.requireCurrent();
     return rows.map(WpsRecord.fromRow).toList();
   }
 
   Future<WpsRecord?> getById(String id) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     final rows = await db.query(table,
-        where: 'id = ?', whereArgs: <Object?>[id], limit: 1);
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: <Object?>[id, owner.key],
+        limit: 1);
+    owner.requireCurrent();
     return rows.isEmpty ? null : WpsRecord.fromRow(rows.single);
   }
 
@@ -55,18 +81,23 @@ class WpsDao {
   Future<WpsRecord?> findByNumber(String wpsNo, {String? revision}) async {
     final no = wpsNo.trim();
     if (no.isEmpty) return null;
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     final rev = revision?.trim();
     final rows = await db.query(
       table,
       where: rev == null || rev.isEmpty
-          ? 'TRIM(wps_no) = ? COLLATE NOCASE'
-          : 'TRIM(wps_no) = ? COLLATE NOCASE AND '
+          ? 'owner_scope = ? AND TRIM(wps_no) = ? COLLATE NOCASE'
+          : 'owner_scope = ? AND TRIM(wps_no) = ? COLLATE NOCASE AND '
               'TRIM(COALESCE(revision, \'\')) = ? COLLATE NOCASE',
-      whereArgs: <Object?>[no, if (rev != null && rev.isNotEmpty) rev],
+      whereArgs: <Object?>[
+        owner.key,
+        no,
+        if (rev != null && rev.isNotEmpty) rev
+      ],
       orderBy: 'updated_at DESC',
       limit: 1,
     );
+    owner.requireCurrent();
     return rows.isEmpty ? null : WpsRecord.fromRow(rows.single);
   }
 
@@ -87,14 +118,20 @@ class WpsDao {
   /// Zapis WPS z wersjonowaniem treści. Zwraca numer wersji, która po
   /// zapisie obowiązuje (nowej albo — bez zmiany treści — ostatniej).
   Future<int> upsert(WpsRecord wps, {String by = ''}) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     return db.transaction((txn) async {
+      owner.requireCurrent();
       final storedRows = await txn.query(table,
           where: 'id = ?', whereArgs: <Object?>[wps.id], limit: 1);
+      if (storedRows.isNotEmpty &&
+          storedRows.single['owner_scope'] != owner.key) {
+        throw AccountException('Ta WPS należy do innego konta. / '
+            'This WPS belongs to another account.');
+      }
       final stored =
           storedRows.isEmpty ? null : WpsRecord.fromRow(storedRows.single);
       final versions = await _versionsOf(txn, wps.id);
-      await txn.insert(table, wps.toRow(),
+      await txn.insert(table, {...wps.toRow(), 'owner_scope': owner.key},
           conflictAlgorithm: ConflictAlgorithm.replace);
       var last = versions.isEmpty ? 0 : versions.last.versionNo;
       if (versions.isEmpty && stored != null && !stored.sameContentAs(wps)) {
@@ -128,10 +165,18 @@ class WpsDao {
         createdAt: _clock(),
       );
 
-  /// Wersje WPS [wpsId], od najstarszej.
+  /// Wersje WPS [wpsId] bieżącego właściciela, od najstarszej.
   Future<List<WpsVersion>> versionsOf(String wpsId) async {
-    final db = await AppDatabase.get();
-    return _versionsOf(db, wpsId);
+    final (owner, db) = await _ownerAndDb();
+    final own = await db.query(table,
+        columns: ['id'],
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: <Object?>[wpsId, owner.key],
+        limit: 1);
+    if (own.isEmpty) return const <WpsVersion>[];
+    final versions = await _versionsOf(db, wpsId);
+    owner.requireCurrent();
+    return versions;
   }
 
   Future<List<WpsVersion>> _versionsOf(
@@ -149,8 +194,12 @@ class WpsDao {
   /// Wszystkie wersje, pogrupowane po WPS — jedno czytanie na całą listę
   /// dziennika.
   Future<Map<String, List<WpsVersion>>> versionsByWps() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(versionsTable, orderBy: 'wps_id, version_no');
+    final (owner, db) = await _ownerAndDb();
+    final rows = await db.rawQuery(
+        'SELECT v.* FROM $versionsTable v JOIN $table w ON w.id = v.wps_id '
+        'WHERE w.owner_scope = ? ORDER BY v.wps_id, v.version_no',
+        <Object?>[owner.key]);
+    owner.requireCurrent();
     final out = <String, List<WpsVersion>>{};
     for (final r in rows) {
       final v = WpsVersion.fromRow(r);
@@ -160,12 +209,19 @@ class WpsDao {
     return out;
   }
 
+  /// Usuwa WPS bieżącego właściciela (cudzy identyfikator: nic się nie
+  /// dzieje — wiersz innego konta zostaje nietknięty).
   Future<void> delete(String id) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _ownerAndDb();
     await db.transaction((txn) async {
-      await txn.delete(table, where: 'id = ?', whereArgs: <Object?>[id]);
+      owner.requireCurrent();
+      final removed = await txn.delete(table,
+          where: 'id = ? AND owner_scope = ?',
+          whereArgs: <Object?>[id, owner.key]);
+      if (removed == 0) return;
       await txn.delete(versionsTable,
           where: 'wps_id = ?', whereArgs: <Object?>[id]);
+      owner.requireCurrent();
     });
   }
 }
