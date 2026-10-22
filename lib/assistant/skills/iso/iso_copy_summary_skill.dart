@@ -22,6 +22,13 @@ bool _requested(Utterance u, {bool natural = false}) {
       Utterance(u.raw, lang: AppLanguage.en).items.any((i) => i.isNumber) ||
       u.hasStem(const [
         'tylko',
+        'otworz',
+        'open',
+        'narysuj',
+        'rysuj',
+        'wyczysc',
+        'clear',
+        'reset',
         'only',
         'without',
         'bez',
@@ -60,10 +67,13 @@ bool _requested(Utterance u, {bool natural = false}) {
   return drawing &&
       summary &&
       copy &&
-      !RegExp(r'^(?:jak|how)\b|\b(?:czy moge|can i)\b').hasMatch(text);
+      !RegExp(r'^(?:jak|how|kiedy|when|dlaczego|why|did you|have you)\b|\b(?:czy moge|can i|draw)\b')
+          .hasMatch(text);
 }
 
 class IsoCopySummarySkill extends AssistantSkill {
+  @override
+  bool get canInterruptPendingWithAi => true;
   @override
   String get id => 'iso.summary.copy';
   @override

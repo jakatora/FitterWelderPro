@@ -768,19 +768,28 @@ class _AiChatScreenState extends State<AiChatScreen>
     return true;
   }
 
-  bool _pendingReplyNeedsAi({bool needsConsent = false}) {
+  bool _pendingReplyNeedsAi(
+      {bool needsConsent = false, bool taskSwitch = false}) {
     if (!mounted) return true;
     setState(() {
       _busy = false;
       _offerServer = needsConsent;
       _noticeIsError = !needsConsent;
-      _notice = needsConsent
-          ? _tr(
-              'Włącz AI, aby zinterpretować tę odpowiedź, albo podaj wartość wprost. Pytanie i poprzednie dane zostają.',
-              'Enable AI to interpret this reply, or give a direct value. The question and previous inputs remain.')
-          : _tr(
-              'Nie udało się zinterpretować tej odpowiedzi. Podaj wartość wprost albo spróbuj ponownie. Nie zmieniłem poprzednich danych.',
-              'Could not interpret this reply. Give a direct value or retry. Previous inputs are unchanged.');
+      _notice = taskSwitch
+          ? needsConsent
+              ? _tr(
+                  'Włącz AI, aby zmienić zadanie. Poprzednie pytanie i dane zostają.',
+                  'Enable AI to switch tasks. The previous question and inputs remain.')
+              : _tr(
+                  'Nie udało się zmienić zadania. Poprzednie pytanie zostaje; odpowiedz na nie albo ponów nowe polecenie.',
+                  'Could not switch tasks. The previous question remains; answer it or retry the new request.')
+          : needsConsent
+              ? _tr(
+                  'Włącz AI, aby zinterpretować tę odpowiedź, albo podaj wartość wprost. Pytanie i poprzednie dane zostają.',
+                  'Enable AI to interpret this reply, or give a direct value. The question and previous inputs remain.')
+              : _tr(
+                  'Nie udało się zinterpretować tej odpowiedzi. Podaj wartość wprost albo spróbuj ponownie. Nie zmieniłem poprzednich danych.',
+                  'Could not interpret this reply. Give a direct value or retry. Previous inputs are unchanged.');
     });
     if (!needsConsent) _showAiFallbackNotice();
     return true;
@@ -822,7 +831,14 @@ class _AiChatScreenState extends State<AiChatScreen>
         _question = null;
       });
     }
-    final pending = supersedesPending ? null : currentPending;
+    final switchCandidates = supersedesPending || currentPending == null
+        ? <AssistantSkill>[]
+        : _brain.aiTaskSwitchCandidates(u, _brainContext);
+    final taskSwitch = switchCandidates.isNotEmpty;
+    // Keep the old native question and queued remainder until AI's bounded
+    // new step passes independent native validation. No cancellation on outage.
+    final observedPending = supersedesPending ? null : currentPending;
+    final pending = supersedesPending || taskSwitch ? null : currentPending;
     final relational = pendingReplyNeedsInterpretation(u);
     if (pending != null &&
         (_brain.canAnswerPendingDirectly(u, _brainContext) ||
@@ -830,6 +846,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     if (pending == null &&
+        !taskSwitch &&
         !compound &&
         _aiQuestion == null &&
         _brain.recognizesLocalRequest(u, _brainContext)) {
@@ -838,6 +855,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     // Existing local write/query parsers keep native summaries and confirmations.
     final legacy = parseAssistantCommand(text).intent;
     if (pending == null &&
+        !taskSwitch &&
         !compound &&
         const {
           kIntentSaveWeldParameter,
@@ -849,16 +867,21 @@ class _AiChatScreenState extends State<AiChatScreen>
     await LegalConsent.instance.load();
     if (!mounted || conversationEpoch != _conversationEpoch) return true;
     if (!LegalConsent.instance.isAccepted) {
-      if (pending != null) return _pendingReplyNeedsAi(needsConsent: true);
+      if (observedPending != null) {
+        return _pendingReplyNeedsAi(needsConsent: true, taskSwitch: taskSwitch);
+      }
       return compound ? _compoundNeedsAi(needsConsent: true) : false;
     }
-    final question = pending?.question.of(lang) ?? _aiQuestion;
+    final question =
+        taskSwitch ? null : pending?.question.of(lang) ?? _aiQuestion;
     final request = assistantAiRequest(
         text: text,
         context: _brainContext,
-        skills: pending == null
-            ? _brain.skills
-            : _brain.skills.where((s) => s.id == pending.partial.skill.id),
+        skills: taskSwitch
+            ? switchCandidates
+            : pending == null
+                ? _brain.skills
+                : _brain.skills.where((s) => s.id == pending.partial.skill.id),
         pendingQuestion: question?.substring(0, question.length.clamp(0, 500)),
         pendingReply: pending,
         history: List.of(_aiHistory));
@@ -883,6 +906,18 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
         'message': plan.message
       }, _brain.skills.map((s) => s.id).toSet());
+      if (taskSwitch &&
+          (plan.kind != 'execute' ||
+              plan.steps.length != 1 ||
+              !switchCandidates.any((s) => s.id == plan.steps.single.skillId) ||
+              !_brain.acceptsAiTaskSwitch(
+                  plan.steps.single.skillId,
+                  u,
+                  Utterance(plan.steps.single.command,
+                      lang: lang, byVoice: _voiceUsed),
+                  _brainContext))) {
+        throw const FormatException('unverified task switch');
+      }
       if (pending != null && plan.kind == 'execute' ||
           plan.kind == 'reply' &&
               (pending == null ||
@@ -891,14 +926,14 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
     } on AssistantAiUnavailable catch (e) {
       if (epoch == _aiEpoch) _aiUnavailable = e;
-      if (pending != null && mounted && epoch == _aiEpoch) {
-        return _pendingReplyNeedsAi();
+      if (observedPending != null && mounted && epoch == _aiEpoch) {
+        return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
       }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } on FormatException {
-      if (pending != null && mounted && epoch == _aiEpoch) {
-        return _pendingReplyNeedsAi();
+      if (observedPending != null && mounted && epoch == _aiEpoch) {
+        return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
       }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
@@ -938,8 +973,9 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       return true;
     }
-    if (pending != null && !identical(pending, _brain.pending)) {
-      return _pendingReplyNeedsAi();
+    if (observedPending != null &&
+        !identical(observedPending, _brain.pending)) {
+      return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
     }
     if (plan.kind == 'reply') {
       final command =

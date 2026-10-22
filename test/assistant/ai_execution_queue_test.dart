@@ -133,4 +133,12 @@ void main() {
       expect(aiSourceClauses('Draw pipe and do not $verb summary'), isNull);
     }
   });
+  test('Polish calculate copy clear keeps three exact action clauses', () {
+    for (final clear in ['wyczysc', 'wyczyść', 'wyzeruj']) {
+      expect(
+          aiSourceClauses('Oblicz ciezar rury i skopiuj wyniki i $clear pola'),
+          ['Oblicz ciezar rury', 'skopiuj wyniki', '$clear pola']);
+      expect(aiSourceClauses('Oblicz ciezar rury i nie $clear pola'), isNull);
+    }
+  });
 }

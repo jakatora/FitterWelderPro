@@ -116,6 +116,11 @@ abstract class AssistantSkill {
   /// handle requests to explain quoted text, unlike calculators and writes.
   bool get answersQuestionsOnly => false;
 
+  /// Opt-in only with a source-aware acceptsProposal guard. A new bounded
+  /// request may be normalized while another skill is asking a question.
+  /// The pending action stays intact until the actual proposed step validates.
+  bool get canInterruptPendingWithAi => false;
+
   /// Synchronicznie, bez I/O. null = to nie do mnie.
   SkillMatch? match(Utterance u, AssistantContext ctx);
 

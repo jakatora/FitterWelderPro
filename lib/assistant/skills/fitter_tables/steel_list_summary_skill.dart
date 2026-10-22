@@ -26,6 +26,14 @@ bool _requested(Utterance u, {bool natural = false}) {
       Utterance(u.raw, lang: AppLanguage.en).items.any((i) => i.isNumber) ||
       u.hasStem(const [
         'tylko',
+        'skopiuj',
+        'kopiuj',
+        'copy',
+        'schow',
+        'clipboard',
+        'wyczysc',
+        'clear',
+        'reset',
         'only',
         'wybran',
         'selected',
@@ -90,6 +98,8 @@ bool _requested(Utterance u, {bool natural = false}) {
 }
 
 class SteelListSummarySkill extends AssistantSkill {
+  @override
+  bool get canInterruptPendingWithAi => true;
   @override
   String get id => 'steel.list.summary';
   @override

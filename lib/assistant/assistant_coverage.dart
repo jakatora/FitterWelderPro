@@ -17,11 +17,21 @@ Map<String, AssistantTier> assistantCoverage({
   final coverage = <String, AssistantTier>{
     for (final tool in tools ?? kToolRegistry) tool.id: AssistantTier.a,
   };
-  for (final skill in skills ?? buildSkillCatalog()) {
+  final catalog = (skills ?? buildSkillCatalog()).toList(growable: false);
+  final canDraw = catalog.any((s) =>
+      s.id == 'iso.draw' &&
+      s.toolId == 'iso_notebook' &&
+      s.tier == AssistantTier.d);
+  for (final skill in catalog) {
     final id = skill.toolId;
     final previous = coverage[id];
-    if (id != null && previous != null && skill.tier.index > previous.index) {
-      coverage[id] = skill.tier;
+    // Naming, dimensions and summaries alone do not confer drawing support.
+    final tier =
+        id == 'iso_notebook' && !canDraw && skill.tier == AssistantTier.d
+            ? AssistantTier.a
+            : skill.tier;
+    if (id != null && previous != null && tier.index > previous.index) {
+      coverage[id] = tier;
     }
   }
   return Map.unmodifiable(coverage);

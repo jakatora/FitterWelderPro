@@ -46,6 +46,14 @@ bool _naturalCurrentItem(Utterance u, AssistantContext context) {
   }
   if (u.hasStem(const [
     'cena',
+    'skopiuj',
+    'kopiuj',
+    'copy',
+    'schow',
+    'clipboard',
+    'wyczysc',
+    'clear',
+    'reset',
     'cene',
     'price',
     'cost',
@@ -137,6 +145,8 @@ bool _naturalCurrentItem(Utterance u, AssistantContext context) {
 }
 
 class SteelAddSkill extends AssistantSkill {
+  @override
+  bool get canInterruptPendingWithAi => true;
   @override
   String get id => 'steel.item.add';
   @override

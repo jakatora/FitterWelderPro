@@ -94,7 +94,10 @@ void main() {
       'Skopiuj zestawienie rysunku ISO jako CSV',
       'Skopiuj zestawienie rysunku ISO bez notatek',
       'Copy the summary of five pipes in this drawing',
-      'Copy the first drawing summary'
+      'Copy the first drawing summary',
+      'Did you copy the summary of this drawing',
+      'When did you copy this drawing summary',
+      'Copy the summary of this drawing and draw a pipe'
     ]) {
       expect(s.acceptsProposal(u(text), u(command), ctx), false, reason: text);
     }

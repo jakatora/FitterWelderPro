@@ -22,6 +22,14 @@ bool _requested(Utterance u, {bool natural = false}) {
       Utterance(u.raw, lang: AppLanguage.en).items.any((i) => i.isNumber) ||
       u.hasStem(const [
         'tylko',
+        'skopiuj',
+        'kopiuj',
+        'copy',
+        'schow',
+        'clipboard',
+        'wyczysc',
+        'clear',
+        'reset',
         'only',
         'selected',
         'wybran',
@@ -71,6 +79,8 @@ bool _requested(Utterance u, {bool natural = false}) {
 }
 
 class SteelListShareSkill extends AssistantSkill {
+  @override
+  bool get canInterruptPendingWithAi => true;
   @override
   String get id => 'steel.list.share';
   @override

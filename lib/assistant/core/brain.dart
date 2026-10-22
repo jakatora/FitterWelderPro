@@ -128,6 +128,55 @@ class AssistantBrain {
     });
   }
 
+  /// Source-backed candidates only: no execution or pending-state mutation.
+  /// Normal replies keep the existing one-skill request and local slot guards.
+  List<AssistantSkill> aiTaskSwitchCandidates(
+      Utterance original, AssistantContext ctx) {
+    if (_pending == null ||
+        canAnswerPendingDirectly(original, ctx) ||
+        recognizesNewCommand(original, ctx,
+            exceptSkillId: _pending!.partial.skill.id) ||
+        isNegatedCommand(original) ||
+        referencesInstruction(original)) {
+      return const [];
+    }
+    return [
+      for (final skill in _regular)
+        if (skill.id != _pending!.partial.skill.id &&
+            skill.canInterruptPendingWithAi &&
+            skill.examples.any((e) => acceptsAiTaskSwitch(
+                skill.id,
+                original,
+                Utterance(ctx.lang == AppLanguage.en ? e.en : e.pl,
+                    lang: ctx.lang),
+                ctx)))
+          skill
+    ];
+  }
+
+  bool acceptsAiTaskSwitch(String skillId, Utterance original,
+      Utterance command, AssistantContext ctx) {
+    final candidates =
+        _regular.where((s) => s.id == skillId && s.canInterruptPendingWithAi);
+    if (candidates.length != 1 ||
+        isNegatedCommand(original) ||
+        referencesInstruction(original)) {
+      return false;
+    }
+    final skill = candidates.single;
+    final match = _safeMatch(skill, command, ctx);
+    if (match == null ||
+        match.score < _newCommandScore ||
+        match.requiresAiInterpretation) {
+      return false;
+    }
+    try {
+      return skill.acceptsProposal(original, command, ctx);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Exact native routing (including active-module continuations) can stay
   /// offline. Generic knowledge fallback must not swallow free-form AI input.
   bool recognizesLocalRequest(Utterance u, AssistantContext ctx) {
