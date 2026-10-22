@@ -1,3 +1,5 @@
+import '../../core/command_words.dart'
+    show referencesInstruction, isNegatedCommand;
 import '../../core/calculator_action_tools.dart';
 import '../../core/skill.dart';
 import '../../core/tool_lookup.dart' show findTools, kAssistantStopWords;
@@ -182,6 +184,48 @@ String? _action(Utterance u) {
   final object = match.group(2) ?? '';
   return (copy ? _copyObjects : _clearObjects).contains(object)
       ? (copy ? 'copy' : 'clear')
+      : null;
+}
+
+/// A named whole-form/result action may require opening that calculator first.
+/// No saved records, partial fields, accounts or guessed targets qualify.
+({String toolId, String action})? calculatorNavigationPrerequisite(
+    Utterance source) {
+  if (referencesInstruction(source) ||
+      isNegatedCommand(source) ||
+      _accountObject(source) ||
+      _savedObject(source)) {
+    return null;
+  }
+  final verb = _verb.firstMatch(source.folded);
+  if (verb == null) {
+    return null;
+  }
+  final action =
+      const {'skopiuj', 'kopiuj', 'copy'}.contains(verb[1]) ? 'copy' : 'clear';
+  if (action == 'clear' && _partialClear(source)) {
+    return null;
+  }
+  final query = (verb[2] ?? '')
+      .split(' ')
+      .where((w) =>
+          w.isNotEmpty &&
+          !_scopeFillers.contains(w) &&
+          !kAssistantStopWords.contains(w))
+      .join(' ');
+  if (query.isEmpty) {
+    return null;
+  }
+  final hits = findTools(query, source.lang);
+  if (hits.isEmpty ||
+      hits.first.score < query.split(' ').length * 8 ||
+      hits.length > 1 && hits[1].score == hits.first.score) {
+    return null;
+  }
+  final target = hits.first.tool.id;
+  return fitterCalculatorActionToolIds.contains(target) &&
+          _sourceTargetsCurrent(source, action, target)
+      ? (toolId: target, action: action)
       : null;
 }
 

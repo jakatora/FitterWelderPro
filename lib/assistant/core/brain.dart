@@ -119,7 +119,9 @@ class AssistantBrain {
   bool recognizesNewCommand(Utterance u, AssistantContext ctx,
       {String? exceptSkillId, Set<String> exceptSkillIds = const {}}) {
     if (isNegatedCommand(u)) return false;
-    return _regular.any((skill) {
+    return skills
+        .where((s) => s.fallbackOrder == null || s.canInterruptPendingWithAi)
+        .any((skill) {
       if (skill.id == exceptSkillId || exceptSkillIds.contains(skill.id)) {
         return false;
       }
@@ -130,34 +132,42 @@ class AssistantBrain {
 
   /// Source-backed candidates only: no execution or pending-state mutation.
   /// Normal replies keep the existing one-skill request and local slot guards.
-  List<AssistantSkill> aiTaskSwitchCandidates(
+  List<AssistantSkill> aiNormalizationCandidates(
       Utterance original, AssistantContext ctx) {
-    if (_pending == null ||
-        canAnswerPendingDirectly(original, ctx) ||
-        recognizesNewCommand(original, ctx,
-            exceptSkillId: _pending!.partial.skill.id) ||
+    if (canAnswerPendingDirectly(original, ctx) ||
         isNegatedCommand(original) ||
         referencesInstruction(original)) {
       return const [];
     }
-    return [
-      for (final skill in _regular)
-        if (skill.id != _pending!.partial.skill.id &&
-            skill.canInterruptPendingWithAi &&
-            skill.examples.any((e) => acceptsAiTaskSwitch(
-                skill.id,
-                original,
-                Utterance(ctx.lang == AppLanguage.en ? e.en : e.pl,
-                    lang: ctx.lang),
-                ctx)))
-          skill
-    ];
+    final result = <AssistantSkill>[];
+    for (final skill in skills) {
+      if (!skill.canInterruptPendingWithAi ||
+          skill.id == _pending?.partial.skill.id) {
+        continue;
+      }
+      // Exact native commands stay offline. Strong source-backed prose may
+      // override a weaker calculator match caused by a module name alone.
+      final native = _safeMatch(skill, original, ctx);
+      if (native != null &&
+          native.score >= _newCommandScore &&
+          !native.requiresAiInterpretation) {
+        continue;
+      }
+      try {
+        if (skill.aiTaskSwitchCommands(original, ctx).any((command) =>
+            acceptsAiTaskSwitch(
+                skill.id, original, Utterance(command, lang: ctx.lang), ctx))) {
+          result.add(skill);
+        }
+      } catch (_) {/* A broken probe cannot mutate or discard a question. */}
+    }
+    return result;
   }
 
   bool acceptsAiTaskSwitch(String skillId, Utterance original,
       Utterance command, AssistantContext ctx) {
     final candidates =
-        _regular.where((s) => s.id == skillId && s.canInterruptPendingWithAi);
+        skills.where((s) => s.id == skillId && s.canInterruptPendingWithAi);
     if (candidates.length != 1 ||
         isNegatedCommand(original) ||
         referencesInstruction(original)) {
@@ -446,6 +456,19 @@ class AssistantBrain {
           s.score >= _newCommandScore &&
           !identical(s.match.skill, p.partial.skill));
       if (!newCommand) {
+        // Explicit opt-in fallback commands (registry navigation) can also
+        // supersede a question. Literal text replies still own their data.
+        if (!p.partial.skill.literalReplySlots.contains(p.slot)) {
+          for (final candidate in cands) {
+            for (final skill
+                in _fallbacks.where((s) => s.canInterruptPendingWithAi)) {
+              final match = _safeMatch(skill, candidate, ctx);
+              if (match != null && match.score >= _newCommandScore) {
+                return _run(match, ctx, candidate == u ? null : candidate.raw);
+              }
+            }
+          }
+        }
         final answered = _answerPending(p, cands, ctx);
         if (answered != null) return _run(answered.$1, ctx, answered.$2);
       }

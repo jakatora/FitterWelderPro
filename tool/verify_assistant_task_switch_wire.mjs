@@ -5,6 +5,11 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
+const navigation = process.argv.includes('--navigation');
+const skillId = navigation ? 'tool.open' : 'iso.summary.copy';
+const command = navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
+const fixture = navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
+const proofPath = navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
 const backend = path.resolve('backend');
 const load = relative => import(pathToFileURL(path.join(backend,relative)).href);
 const {startTestServer,api,newDeviceId,newSecret}=await load('test/helpers/server.js');
@@ -13,13 +18,13 @@ try {
   const {fakeAnthropic}=await load('test/helpers/fakes.js');
   const {setAnthropicClientForTests}=await load('src/services/anthropicClient.js');
   const {budgetState}=await load('src/services/aiBudget.js');
-  const request=JSON.parse(fs.readFileSync('build/assistant-task-switch-wire.json','utf8'));
+  const request=JSON.parse(fs.readFileSync(fixture,'utf8'));
   assert.equal(request.capabilities.length,1);
-  assert.equal(request.capabilities[0].id,'iso.summary.copy');
+  assert.equal(request.capabilities[0].id,skillId);
   assert.equal(request.context.active_tool,'iso_notebook');
   assert.equal(request.context.pending_reply,undefined);
   assert.equal(request.context.pending_question,null);
-  const proposal={kind:'execute',steps:[{skill_id:'iso.summary.copy',command:'Skopiuj zestawienie rysunku ISO'}],message:''};
+  const proposal={kind:'execute',steps:[{skill_id:skillId,command}],message:''};
   const fake=fakeAnthropic(()=>({stop_reason:'end_turn',usage:{input_tokens:1500,output_tokens:100},content:[{type:'text',text:JSON.stringify(proposal)}]}));
   setAnthropicClientForTests(fake.client);
   const headers={'x-device-id':newDeviceId(),'x-install-secret':newSecret()};
@@ -34,6 +39,6 @@ try {
   assert.deepEqual(fake.requestOptions[0],{maxRetries:0,timeout:25000});
   assert.equal(budgetState().inFlightUsd,0);
   const proof={checkedAt:new Date().toISOString(),backendHead:execFileSync('git',['rev-parse','HEAD'],{cwd:backend,encoding:'utf8'}).trim(),capabilities:1,bytes:Buffer.byteLength(JSON.stringify(request)),status:response.status,provider:'injected fake; zero paid calls'};
-  fs.writeFileSync('build/assistant-task-switch-backend-proof.json',JSON.stringify(proof,null,2));
+  fs.writeFileSync(proofPath,JSON.stringify(proof,null,2));
   console.log(JSON.stringify(proof));
 } finally {await server.close();}

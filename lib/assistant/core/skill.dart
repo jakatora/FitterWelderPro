@@ -121,6 +121,12 @@ abstract class AssistantSkill {
   /// The pending action stays intact until the actual proposed step validates.
   bool get canInterruptPendingWithAi => false;
 
+  /// Pure canonical probes for source-backed task switching. Dynamic registry
+  /// skills may derive a target from the source instead of fixed examples.
+  Iterable<String> aiTaskSwitchCommands(
+          Utterance source, AssistantContext ctx) =>
+      examples.map((e) => ctx.lang == AppLanguage.en ? e.en : e.pl);
+
   /// Synchronicznie, bez I/O. null = to nie do mnie.
   SkillMatch? match(Utterance u, AssistantContext ctx);
 

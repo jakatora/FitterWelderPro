@@ -1,3 +1,4 @@
+import 'calculator_action_skill.dart' show calculatorNavigationPrerequisite;
 // `tool.open` — fallback: „otwórz / pokaż / włącz X", „gdzie jest X".
 //
 // Szuka w rejestrze narzędzi (`searchTools`). Dwa narzędzia z tym samym
@@ -10,17 +11,45 @@ import '../../core/skill.dart';
 import '../../core/tool_lookup.dart';
 import 'skill_words.dart';
 
-final _whereRe = RegExp(
-    r'^(?:(?:a|i|hej|hey|ok|okej|asystencie|asystent)\s+)*'
+final _whereRe = RegExp(r'^(?:(?:a|i|hej|hey|ok|okej|asystencie|asystent)\s+)*'
     r'(?:gdzie (?:jest|sa|znajde|mam|znalezc|szukac)|'
     r'where (?:is|are|do i find|can i find)|how do i (?:find|get to))\b');
 
 /// Słowa ogólne, które nie są częścią nazwy narzędzia.
 const Set<String> _generic = {
-  'mi', 'me', 'the', 'a', 'an', 'prosze', 'please', 'modul', 'modulu',
-  'narzedzie', 'narzedzia', 'ekran', 'kalkulator', 'kalkulatora', 'calculator',
-  'tool', 'screen', 'module', 'app', 'okno', 'zakladke', 'zakladka', 'tab',
-  'moj', 'moje', 'moja', 'my', 'do', 'na', 'to', 'teraz', 'now', 'szybko',
+  'mi',
+  'me',
+  'the',
+  'a',
+  'an',
+  'prosze',
+  'please',
+  'modul',
+  'modulu',
+  'narzedzie',
+  'narzedzia',
+  'ekran',
+  'kalkulator',
+  'kalkulatora',
+  'calculator',
+  'tool',
+  'screen',
+  'module',
+  'app',
+  'okno',
+  'zakladke',
+  'zakladka',
+  'tab',
+  'moj',
+  'moje',
+  'moja',
+  'my',
+  'do',
+  'na',
+  'to',
+  'teraz',
+  'now',
+  'szybko',
 };
 
 /// Zapytanie po czasowniku „otwórz/gdzie jest", bez słów ogólnych.
@@ -36,7 +65,55 @@ String? openQuery(Utterance u) {
   return words.join(' ');
 }
 
+String? _navigationQuery(Utterance u) {
+  if (referencesInstruction(u) || isNegatedCommand(u)) return null;
+  final direct = openQuery(u);
+  if (direct != null) return direct;
+  final natural = RegExp(
+          r'^(?:(?:prosze|please|hej|hey) )?(?:przejdzmy (?:teraz )?do|wejdzmy (?:teraz )?(?:do|w)|przenies mnie (?:teraz )?do|chce (?:teraz )?(?:przejsc do|wejsc w|otworzyc)|(?:czy )?mozesz (?:mi )?(?:otworzyc|pokazac)|let s (?:now )?go to|take me (?:now )?to|i (?:want|would like) to (?:open|go to)|(?:could|can|would) you (?:please )?(?:open|show)) (.+)$')
+      .firstMatch(u.folded);
+  return natural == null ? null : openQuery(u.withRaw('open ${natural[1]}'));
+}
+
+ToolSpec? _uniqueNavigationTarget(String? query, AppLanguage lang) {
+  if (query == null || query.isEmpty) return null;
+  final hits = findTools(query, lang);
+  if (hits.isEmpty || hits.length > 1 && hits[1].score == hits.first.score) {
+    return null;
+  }
+  return hits.first.tool;
+}
+
 class OpenToolSkill extends AssistantSkill {
+  @override
+  bool get canInterruptPendingWithAi => true;
+  @override
+  Iterable<String> aiTaskSwitchCommands(
+      Utterance source, AssistantContext ctx) {
+    final target =
+        _uniqueNavigationTarget(_navigationQuery(source), source.lang);
+    return target == null
+        ? const []
+        : [
+            ctx.lang == AppLanguage.en
+                ? 'open ${target.titleEn}'
+                : 'otwórz ${target.titlePl}'
+          ];
+  }
+
+  @override
+  bool acceptsProposal(
+      Utterance original, Utterance command, AssistantContext context) {
+    final source =
+        _uniqueNavigationTarget(_navigationQuery(original), original.lang);
+    final prerequisite = calculatorNavigationPrerequisite(original);
+    final target = _uniqueNavigationTarget(openQuery(command), command.lang);
+    return target != null &&
+        (source?.id ?? prerequisite?.toolId) == target.id &&
+        !referencesInstruction(command) &&
+        !isNegatedCommand(command);
+  }
+
   @override
   String get id => 'tool.open';
   @override
@@ -54,7 +131,8 @@ class OpenToolSkill extends AssistantSkill {
         SkillExample('Włącz tabelę DN', 'Open the DN table'),
         SkillExample('Gdzie jest kalkulator heat input?',
             'Where is the heat input calculator?'),
-        SkillExample('Uruchom konwerter jednostek', 'Launch the unit converter'),
+        SkillExample(
+            'Uruchom konwerter jednostek', 'Launch the unit converter'),
       ];
 
   @override
@@ -79,7 +157,7 @@ class OpenToolSkill extends AssistantSkill {
       for (final h in hits.skip(1))
         if (h.score == top.score) h.tool.id,
     ];
-    return SkillMatch(this, where ? 0.7 : 0.8,
+    return SkillMatch(this, where && tied.isNotEmpty ? 0.7 : 0.8,
         slots: {
           'tool': top.tool.id,
           'query': q,
@@ -102,9 +180,27 @@ class OpenToolSkill extends AssistantSkill {
         return {'tool': t.id, 'tied': null};
       }
     }
-    final hits = findTools(q, u.lang);
-    if (hits.isEmpty) return null;
-    return {'tool': hits.first.tool.id, 'tied': null};
+    final target = _uniqueNavigationTarget(q, u.lang);
+    return target == null ? null : {'tool': target.id, 'tied': null};
+  }
+
+  @override
+  Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
+      Utterance original, AssistantContext ctx) {
+    if (slot != 'tool' ||
+        referencesInstruction(original) ||
+        isNegatedCommand(original) ||
+        referencesInstruction(command) ||
+        isNegatedCommand(command)) {
+      return null;
+    }
+    final source = _uniqueNavigationTarget(
+        _navigationQuery(original) ?? original.folded, original.lang);
+    final target = _uniqueNavigationTarget(
+        openQuery(command) ?? command.folded, command.lang);
+    return source != null && target != null && source.id == target.id
+        ? {'tool': target.id, 'tied': null}
+        : null;
   }
 
   @override
@@ -114,7 +210,8 @@ class OpenToolSkill extends AssistantSkill {
     if (id == null) {
       return AskResult(
         'tool',
-        const AssistantText('Które narzędzie otworzyć?', 'Which tool should I open?'),
+        const AssistantText(
+            'Które narzędzie otworzyć?', 'Which tool should I open?'),
         partial: m,
       );
     }
@@ -130,7 +227,8 @@ class OpenToolSkill extends AssistantSkill {
         AssistantText('Które otworzyć: $namesPl?', 'Which one: $namesEn?'),
         partial: m,
         choices: [
-          for (final t in tools) FollowUp(toolTitleText(t), toolTitle(t, ctx.lang)),
+          for (final t in tools)
+            FollowUp(toolTitleText(t), toolTitle(t, ctx.lang)),
         ],
       );
     }
@@ -143,12 +241,13 @@ class OpenToolSkill extends AssistantSkill {
     final en = ctx.lang == AppLanguage.en;
     return AnswerResult(
       AssistantAnswer(
-        text: AssistantText('Otwieram „${tool.titlePl}”.',
-            'Opening "${tool.titleEn}".'),
+        text: AssistantText(
+            'Otwieram „${tool.titlePl}”.', 'Opening "${tool.titleEn}".'),
       ),
       show: ShowInModule(tool.id),
       followUps: [
-        FollowUp(const AssistantText('Do czego służy?', 'What is it for?'),
+        FollowUp(
+            const AssistantText('Do czego służy?', 'What is it for?'),
             en
                 ? 'what is ${tool.titleEn} for?'
                 : 'do czego służy ${tool.titlePl}?'),

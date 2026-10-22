@@ -1,3 +1,4 @@
+import '../assistant/navigation_plan_guard.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
 import '../assistant/assistant_actions.dart';
 import '../assistant/core/assistant_actions_port.dart';
@@ -795,6 +796,24 @@ class _AiChatScreenState extends State<AiChatScreen>
     return true;
   }
 
+  bool _boundedRequestNeedsAi({bool needsConsent = false}) {
+    if (!mounted) return true;
+    setState(() {
+      _busy = false;
+      _offerServer = needsConsent;
+      _noticeIsError = !needsConsent;
+      _notice = needsConsent
+          ? _tr(
+              'Włącz AI, aby zinterpretować to polecenie, albo podaj je wprost. Dane pozostają bez zmian.',
+              'Enable AI to interpret this request, or give a direct command. Inputs remain unchanged.')
+          : _tr(
+              'Nie udało się zinterpretować polecenia. Ponów je albo podaj wprost. Nie wykonałem zmian.',
+              'Could not interpret the request. Retry or give a direct command. Nothing was changed.');
+    });
+    if (!needsConsent) _showAiFallbackNotice();
+    return true;
+  }
+
   Future<bool> _tryAiCommand(String text, AppLanguage lang) async {
     final conversationEpoch = _conversationEpoch;
     final u = Utterance(text, lang: lang, byVoice: _voiceUsed);
@@ -819,7 +838,12 @@ class _AiChatScreenState extends State<AiChatScreen>
     final compound = sequence != null && sequence.start > 0;
     final currentPending = _brain.pending;
     _brainContext.lang = lang;
+    final switchCandidates = compound
+        ? <AssistantSkill>[]
+        : _brain.aiNormalizationCandidates(u, _brainContext);
+    final boundedRequest = switchCandidates.isNotEmpty;
     final supersedesPending = currentPending != null &&
+        !boundedRequest &&
         _brain.requiresInterpretation(u, _brainContext);
     if (supersedesPending) {
       _aiQueue.cancel();
@@ -831,14 +855,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         _question = null;
       });
     }
-    final switchCandidates = supersedesPending || currentPending == null
-        ? <AssistantSkill>[]
-        : _brain.aiTaskSwitchCandidates(u, _brainContext);
-    final taskSwitch = switchCandidates.isNotEmpty;
+    final taskSwitch = boundedRequest && currentPending != null;
     // Keep the old native question and queued remainder until AI's bounded
     // new step passes independent native validation. No cancellation on outage.
     final observedPending = supersedesPending ? null : currentPending;
-    final pending = supersedesPending || taskSwitch ? null : currentPending;
+    final pending = supersedesPending || boundedRequest ? null : currentPending;
     final relational = pendingReplyNeedsInterpretation(u);
     if (pending != null &&
         (_brain.canAnswerPendingDirectly(u, _brainContext) ||
@@ -846,7 +867,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       return false;
     }
     if (pending == null &&
-        !taskSwitch &&
+        !boundedRequest &&
         !compound &&
         _aiQuestion == null &&
         _brain.recognizesLocalRequest(u, _brainContext)) {
@@ -855,7 +876,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     // Existing local write/query parsers keep native summaries and confirmations.
     final legacy = parseAssistantCommand(text).intent;
     if (pending == null &&
-        !taskSwitch &&
+        !boundedRequest &&
         !compound &&
         const {
           kIntentSaveWeldParameter,
@@ -870,14 +891,15 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (observedPending != null) {
         return _pendingReplyNeedsAi(needsConsent: true, taskSwitch: taskSwitch);
       }
+      if (boundedRequest) return _boundedRequestNeedsAi(needsConsent: true);
       return compound ? _compoundNeedsAi(needsConsent: true) : false;
     }
     final question =
-        taskSwitch ? null : pending?.question.of(lang) ?? _aiQuestion;
+        boundedRequest ? null : pending?.question.of(lang) ?? _aiQuestion;
     final request = assistantAiRequest(
         text: text,
         context: _brainContext,
-        skills: taskSwitch
+        skills: boundedRequest
             ? switchCandidates
             : pending == null
                 ? _brain.skills
@@ -906,7 +928,11 @@ class _AiChatScreenState extends State<AiChatScreen>
         ],
         'message': plan.message
       }, _brain.skills.map((s) => s.id).toSet());
-      if (taskSwitch &&
+      if (plan.kind == 'execute' &&
+          !validNavigationPrerequisites(text, plan.steps, lang)) {
+        throw const FormatException('incomplete navigation prerequisite');
+      }
+      if (boundedRequest &&
           (plan.kind != 'execute' ||
               plan.steps.length != 1 ||
               !switchCandidates.any((s) => s.id == plan.steps.single.skillId) ||
@@ -929,11 +955,17 @@ class _AiChatScreenState extends State<AiChatScreen>
       if (observedPending != null && mounted && epoch == _aiEpoch) {
         return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
       }
+      if (boundedRequest && mounted && epoch == _aiEpoch) {
+        return _boundedRequestNeedsAi();
+      }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
     } on FormatException {
       if (observedPending != null && mounted && epoch == _aiEpoch) {
         return _pendingReplyNeedsAi(taskSwitch: taskSwitch);
+      }
+      if (boundedRequest && mounted && epoch == _aiEpoch) {
+        return _boundedRequestNeedsAi();
       }
       if (compound && mounted && epoch == _aiEpoch) return _compoundNeedsAi();
       return !mounted || epoch != _aiEpoch;
