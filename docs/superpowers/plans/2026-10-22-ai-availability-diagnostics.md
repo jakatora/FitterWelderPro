@@ -1,0 +1,11 @@
+# Czytelne przyczyny niedostępności AI — 2026-10-22
+
+`AiFailure` rozróżnia brak uruchomionej funkcji na serwerze (404), uwierzytelnienie (401/403), limit dzienny (429), miesięczny budżet (`503 AI_BUDGET_EXCEEDED`), konfigurację, błędną propozycję i chwilową niedostępność. Wiadomości są lokalne PL/EN. Z odpowiedzi HTTP odczytywana jest wyłącznie krótka dozwolona wartość `error.code`, nigdy treść błędu dostawcy; HTML, nieznane kody i koperty powyżej 16 KiB nie są interpretowane.
+
+Interpreter zachowuje ten kod w `AssistantAiUnavailable`. Błędna koperta przy HTTP 200 oznacza niepoprawną propozycję, nie błąd sieci. Zmiana konta lub zgody na profil jest osobną przyczyną. Komunikat obejmuje zwykłe polecenia, nieudany plan złożony oraz naturalną odpowiedź na oczekujące pytanie. Dane i pytanie zachowują wcześniejsze zabezpieczenia, nie ma automatycznej powtórki ani częściowego wykonywania planu.
+
+Wiedza rozróżnia miesięczny budżet od awarii; przy starszej usłudze lub problemie uwierzytelnienia pokazuje przyczynę przed dotychczasową pomocą lokalną. Odpowiedź pozostaje oznaczona jako pomoc offline albo dostępność, nigdy jako wynik modelu, i nie trafia do zweryfikowanego kontekstu AI. Usunięto logowanie surowej odpowiedzi błędu serwera. Awaria nie staje się raportem brakującej funkcji.
+
+Dowody: 47 testów bez pominięć (`build/ai-diagnostics-test.log`), w tym 16 nowych przypadków transportu, bezpiecznych kodów, rozróżnień PL/EN oraz rzeczywistego interfejsu przy 404/budżecie/auth z zachowaniem pól i pustej kolejki brakujących funkcji. Analiza sześciu plików bez uwag (`build/ai-diagnostics-analyze.log`). Żadnego płatnego wywołania, dodatkowego żądania diagnostycznego, zmiany modelu/cennika, Stripe ani operacji finansowej.
+
+Próba odblokowania wdrożenia: dostępna jest wyłącznie przeglądarka IAB, bez zalogowanej sesji Railway/GitHub. Odczyt vaulta potwierdził brak danych logowania do Railway oraz osobnego klucza Anthropic FWP (klucza innego projektu nie użyto). Otwarto zwykły wybór logowania Railway i pozostawiono asynchroniczną prośbę o zalogowanie. Nie utworzono nowego konta, projektu, uprawnień ani kodu aktywacji, nie wdrożono backendu. Komunikaty nie zastępują wdrożenia i testu prawdziwego modelu; pełny cel pozostaje otwarty.

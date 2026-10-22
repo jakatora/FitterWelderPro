@@ -4,6 +4,8 @@ import '../config/backend_config.dart';
 import '../i18n/app_language.dart';
 import '../services/premium_service.dart';
 import '../services/ai_professional_context.dart';
+import '../services/ai_failure.dart';
+import '../services/account_service.dart';
 import 'core/skill.dart';
 
 class AiCommandStep {
@@ -135,8 +137,10 @@ Map<String, Object?> assistantAiRequest(
 }
 
 class AssistantAiUnavailable implements Exception {
-  const AssistantAiUnavailable(this.status);
+  const AssistantAiUnavailable(this.status, {this.code});
   final int? status;
+  final String? code;
+  AiFailure get failure => AiFailure(status, code: code);
 }
 
 class AssistantAiClient {
@@ -163,12 +167,18 @@ class AssistantAiClient {
           .timeout(const Duration(seconds: 30));
       profile.requireCurrent();
       if (response.statusCode != 200) {
-        throw AssistantAiUnavailable(response.statusCode);
+        throw AssistantAiUnavailable(response.statusCode,
+            code: AiFailure.fromHttp(response.statusCode, response.bodyBytes)
+                .code);
       }
       return AiCommandPlan.fromJson(
           jsonDecode(utf8.decode(response.bodyBytes)), allowed);
     } on AssistantAiUnavailable {
       rethrow;
+    } on FormatException {
+      throw const AssistantAiUnavailable(200, code: 'AI_PLAN_INVALID');
+    } on AccountException {
+      throw const AssistantAiUnavailable(null, code: 'AI_CONTEXT_CHANGED');
     } catch (_) {
       throw const AssistantAiUnavailable(null);
     }

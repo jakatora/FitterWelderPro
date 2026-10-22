@@ -454,6 +454,20 @@ void main() {
     expect(await FeedbackStore.instance.list(), isEmpty,
         reason: 'AI outage is not a missing app feature');
   });
+  for(final (status,code,message) in [
+    (404,null,'AI nie jest jeszcze uruchomione'),
+    (503,'AI_BUDGET_EXCEEDED','miesięczny limit kosztów AI'),
+    (401,'INSTALL_SECRET_INVALID','uwierzytelnić połączenia z AI'),
+  ]) {
+    testWidgets('AI diagnostic $status/$code does not blame a missing feature',(t) async {
+      await mount(t,interpret:(_) async=>throw AssistantAiUnavailable(status,code:code));
+      final before=Map.of(ToolBridge.instance.inputFields('rolling_offset')!);
+      await say(t,'ogarnij mi obejscie przeszkody');
+      expect(find.textContaining(message),findsOneWidget);
+      expect(ToolBridge.instance.inputFields('rolling_offset'),before);
+      expect(await FeedbackStore.instance.list(),isEmpty);
+    });
+  }
   testWidgets('revoked consent prevents a pending AI answer from executing',
       (t) async {
     final pending = Completer<AiCommandPlan>();

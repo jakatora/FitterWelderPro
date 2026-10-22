@@ -724,6 +724,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               'Nie można teraz zaplanować całego polecenia. Nie wykonano żadnego działania. Spróbuj ponownie lub podaj działania osobno.',
               'The complete request could not be planned. No action was executed. Retry or request each action separately.');
     });
+    if (!needsConsent) _showAiFallbackNotice();
     return true;
   }
 
@@ -741,6 +742,7 @@ class _AiChatScreenState extends State<AiChatScreen>
               'Nie udało się zinterpretować tej odpowiedzi. Podaj wartość wprost albo spróbuj ponownie. Nie zmieniłem poprzednich danych.',
               'Could not interpret this reply. Give a direct value or retry. Previous inputs are unchanged.');
     });
+    if (!needsConsent) _showAiFallbackNotice();
     return true;
   }
 
@@ -1054,12 +1056,8 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   void _showAiFallbackNotice() {
     if (!mounted || _aiUnavailable == null) return;
-    final message = _aiUnavailable!.status == 429
-        ? _tr('Osiągnięto limit AI. Obsługa lokalna jest nadal dostępna.',
-            'AI limit reached. Local commands remain available.')
-        : _tr(
-            'Interpretacja poleceń AI jest chwilowo niedostępna. Polecenia lokalne nadal działają.',
-            'AI command interpretation is temporarily unavailable. Local commands remain available.');
+    final message = '${_aiUnavailable!.failure.message(context.language, commands: true)} '
+        '${_tr('Polecenia lokalne nadal działają.', 'Local commands remain available.')}';
     setState(() => _notice = _notice == null ? message : '$message\n$_notice');
   }
 

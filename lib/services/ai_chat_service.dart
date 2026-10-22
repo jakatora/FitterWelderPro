@@ -9,6 +9,7 @@ import '../i18n/app_language.dart';
 import 'help_search.dart';
 import 'premium_service.dart';
 import 'ai_professional_context.dart';
+import 'ai_failure.dart';
 
 // AI chat service — tryb „Odpowiedz" asystenta (lib/screens/ai_chat_screen.dart).
 //
@@ -183,8 +184,8 @@ class AiChatService {
           .timeout(const Duration(seconds: 25));
       profile.requireCurrent();
       if (resp.statusCode != 200) {
-        debugPrint('AiChatService: backend ${resp.statusCode}: '
-            '${resp.body.length > 200 ? resp.body.substring(0, 200) : resp.body}');
+        debugPrint('AiChatService: backend ${resp.statusCode}');
+        final failure=AiFailure.fromHttp(resp.statusCode, resp.bodyBytes);
         switch (resp.statusCode) {
           // Limity i płatność to NIE awaria — mówimy wprost, co się stało i
           // co dalej, zamiast udawać odpowiedź.
@@ -193,11 +194,15 @@ class AiChatService {
           case 429:
             return _notice(AiReplyKind.dailyLimit);
           case 503:
-            return _notice(AiReplyKind.unavailable);
+            return ChatMessage(role:ChatRole.assistant,
+                text:failure.message(AppLanguageController.current),kind:AiReplyKind.unavailable);
         }
         // 401 (brak/zły sekret instalacji), 404 (stary backend bez trasy),
         // inne 4xx/5xx → pomoc offline z aplikacji.
-        return offlineReply(trimmed);
+        final help=offlineReply(trimmed);
+        return ChatMessage(role:ChatRole.assistant,
+          text:'${failure.message(AppLanguageController.current)}\n\n${help.text}',
+          citations:help.citations,kind:AiReplyKind.offlineHelp);
       }
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
