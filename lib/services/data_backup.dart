@@ -1027,8 +1027,15 @@ const _ownedLocalTables = {
   'weld_journal',
   'weld_journal_history',
   'weld_repairs',
-  'weld_journal_projects'
+  'weld_journal_projects',
+  // schema32: rejestr uprawnień należy do konta (owner_scope).
+  'welder_certificates',
 };
+
+/// Historia potwierdzeń nie ma własnego owner_scope — należy do właściciela
+/// certyfikatu-rodzica (WelderCertificateDao). Eksport i restore idą za nim.
+const _certificatesTable = 'welder_certificates';
+const _confirmationsTable = 'welder_cert_confirmations';
 
 // Historical function name retained for callers. All account-owned tables
 // must be pruned, including their bytes in SQLite free pages.
@@ -1048,7 +1055,48 @@ Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
       await db.delete(table);
     }
   }
+  final children = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      [_confirmationsTable]);
+  if (children.isNotEmpty) {
+    found = true;
+    await db.execute('PRAGMA secure_delete = ON');
+    final parents = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [_certificatesTable]);
+    if (parents.isEmpty) {
+      await db.delete(_confirmationsTable);
+    } else {
+      await db.rawDelete('DELETE FROM $_confirmationsTable WHERE '
+          'certificate_id NOT IN (SELECT id FROM $_certificatesTable)');
+    }
+  }
   if (found) await db.execute('VACUUM');
+}
+
+/// Basenames of the photos [db] points at through [kPhotoPathColumns].
+/// Compared before and after pruning, it tells which files only another
+/// account's rows referenced — those must not travel with this backup.
+@visibleForTesting
+Future<Set<String>> referencedPhotoNames(Database db) async {
+  final names = <String>{};
+  for (final entry in kPhotoPathColumns.entries) {
+    final exists = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [entry.key]);
+    if (exists.isEmpty) continue;
+    final columns = (await db.rawQuery('PRAGMA table_info("${entry.key}")'))
+        .map((r) => r['name'])
+        .toSet();
+    if (!columns.contains(entry.value)) continue;
+    for (final row in await db.query(entry.key, columns: [entry.value])) {
+      final path = row[entry.value];
+      if (path is String && path.trim().isNotEmpty) {
+        names.add(p.basename(path.replaceAll(r'\', '/')));
+      }
+    }
+  }
+  return names;
 }
 
 Future<void> _refill(
@@ -1130,8 +1178,74 @@ Future<void> _refill(
       }
     }
 
+    // Rejestr uprawnień (schema32): certyfikat z kopii, którego id na
+    // telefonie należy do INNEGO właściciela, dostaje nowe id, a historia
+    // potwierdzeń idzie za nim. Potwierdzenia certyfikatów innych właścicieli
+    // ze starej kopii (sprzed przycinania eksportu) są świadomie pomijane.
+    final certIdMap = <Object?, String>{};
+    final restoredCertIds = <Object?>{};
+    final droppedCertIds = <Object?>{};
+    final ownedCertIds = <Object?>{};
+    final foreignConfirmationIds = <Object?>{};
+    var certOwnerAware = false;
+    if (weldParamsOwner != null && liveTables.contains(_certificatesTable)) {
+      final certColumns =
+          (await txn.rawQuery('PRAGMA table_info($_certificatesTable)'))
+              .map((r) => r['name'])
+              .toSet();
+      if (certColumns.contains('owner_scope')) {
+        certOwnerAware = true;
+        final existing = await txn
+            .query(_certificatesTable, columns: ['id', 'owner_scope']);
+        final foreign = existing
+            .where((r) => r['owner_scope'] != weldParamsOwner)
+            .map((r) => r['id'])
+            .toSet();
+        if (tables.containsKey(_certificatesTable) || wipeTablesNotInBackup) {
+          for (final row in tables[_certificatesTable] ??
+              const <Map<String, Object?>>[]) {
+            final sourceId = row['id'];
+            if (preserveWeldParamOwner &&
+                (row['owner_scope'] ?? LocalRecordOwner.guest) !=
+                    weldParamsOwner) {
+              droppedCertIds.add(sourceId);
+              continue;
+            }
+            if (foreign.contains(sourceId)) {
+              certIdMap.putIfAbsent(sourceId, () => const Uuid().v4());
+            }
+            restoredCertIds.add(certIdMap[sourceId] ?? sourceId);
+          }
+        } else {
+          ownedCertIds.addAll(existing
+              .where((r) => r['owner_scope'] == weldParamsOwner)
+              .map((r) => r['id']));
+        }
+        if (liveTables.contains(_confirmationsTable)) {
+          foreignConfirmationIds.addAll((await txn.rawQuery(
+                  'SELECT id FROM $_confirmationsTable WHERE certificate_id '
+                  'NOT IN (SELECT id FROM $_certificatesTable '
+                  'WHERE owner_scope = ?)',
+                  [weldParamsOwner]))
+              .map((r) => r['id']));
+        }
+      }
+    }
+
     final batch = txn.batch();
+    if (certOwnerAware &&
+        liveTables.contains(_confirmationsTable) &&
+        (wipeTablesNotInBackup ||
+            tables.containsKey(_certificatesTable) ||
+            tables.containsKey(_confirmationsTable))) {
+      // Przed kasowaniem certyfikatów — podzapytanie musi je jeszcze widzieć.
+      batch.rawDelete(
+          'DELETE FROM $_confirmationsTable WHERE certificate_id IN '
+          '(SELECT id FROM $_certificatesTable WHERE owner_scope = ?)',
+          [weldParamsOwner]);
+    }
     for (final table in liveTables) {
+      if (table == _confirmationsTable && certOwnerAware) continue;
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
         if (_ownedLocalTables.contains(table) && weldParamsOwner != null) {
           batch.delete(table,
@@ -1179,12 +1293,34 @@ Future<void> _refill(
               .map((r) => r['id'])
               .toSet()
           : const <Object?>{};
+      var skippedChildren = 0;
       for (final row in rows) {
         final ownedRow = Map<String, Object?>.of(row);
+        if (entry.key == _confirmationsTable && certOwnerAware) {
+          final sourceCert = ownedRow['certificate_id'];
+          if (droppedCertIds.contains(sourceCert)) {
+            skippedChildren++; // historia certyfikatu innego właściciela
+            continue;
+          }
+          final cert = certIdMap[sourceCert] ?? sourceCert;
+          if (!restoredCertIds.contains(cert) && !ownedCertIds.contains(cert)) {
+            throw const BackupFormatException(
+                messagePl: 'Historia potwierdzeń wskazuje na brakujący '
+                    'certyfikat. Nic nie zmieniono.',
+                messageEn: 'A confirmation references a missing certificate. '
+                    'Nothing changed.');
+          }
+          ownedRow['certificate_id'] = cert;
+          if (foreignConfirmationIds.contains(ownedRow['id'])) {
+            ownedRow['id'] = const Uuid().v4();
+          }
+        }
         if (_ownedLocalTables.contains(entry.key) && weldParamsOwner != null) {
           ownedRow['owner_scope'] = weldParamsOwner;
           if (entry.key == 'weld_journal') {
             ownedRow['id'] = journalIdMap[ownedRow['id']] ?? ownedRow['id'];
+          } else if (entry.key == _certificatesTable) {
+            ownedRow['id'] = certIdMap[ownedRow['id']] ?? ownedRow['id'];
           } else if (foreignIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
           }
@@ -1204,7 +1340,7 @@ Future<void> _refill(
         batch.insert(entry.key, ownedRow,
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
-      written += rows.length;
+      written += rows.length - skippedChildren;
     }
     await batch.commit(noResult: true);
     validateOwner?.call();
@@ -1357,6 +1493,11 @@ class DataBackup {
 
     try {
       final snapshots = <String, File>{};
+      // Zdjęcia wskazywane WYŁĄCZNIE przez wiersze innych właścicieli (np. skan
+      // cudzego certyfikatu) zostają na telefonie. Reszta katalogu leci jak
+      // dotąd — także pliki, na które nie wskazuje znana kolumna.
+      final before = <String>{};
+      final kept = <String>{};
       for (final db in _databases) {
         final live = File(await db.resolvePath());
         if (!await live.exists()) continue;
@@ -1364,7 +1505,9 @@ class DataBackup {
         final stagedDb = await databaseFactory.openDatabase(snapshot.path,
             options: OpenDatabaseOptions(singleInstance: false));
         try {
+          before.addAll(await referencedPhotoNames(stagedDb));
           await pruneWeldParamsSnapshot(stagedDb, owner.key);
+          kept.addAll(await referencedPhotoNames(stagedDb));
         } finally {
           await stagedDb.close();
         }
@@ -1372,12 +1515,15 @@ class DataBackup {
         snapshots[db.fileName] = snapshot;
       }
 
+      final foreignOnly = before.difference(kept);
       final heatDir = await _heatPhotosDir();
       final photos = <_ArchivedPhoto>[];
       if (await heatDir.exists()) {
         final owned = <File>[
           for (final item in heatDir.listSync(followLinks: false))
-            if (item is File) item,
+            if (item is File &&
+                !foreignOnly.contains(p.basename(item.path)))
+              item,
         ];
         // Stable order keeps two backups of unchanged data byte-comparable,
         // which is how a user can tell nothing was lost between them.
