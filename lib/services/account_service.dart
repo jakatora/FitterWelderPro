@@ -48,6 +48,65 @@ class AccountService extends ChangeNotifier {
   bool _loaded = false;
   int _sessionRevision = 0;
   int _authEpoch = 0;
+  final Set<Future<VoidCallback> Function()> _sessionPreparers = {};
+  Future<void>? _sessionChangeTail;
+
+  /// Local editors can flush and freeze their old-owner data before an explicit
+  /// session replacement. The returned callback unlocks after success/failure.
+  void addSessionPreparer(Future<VoidCallback> Function() prepare) =>
+      _sessionPreparers.add(prepare);
+  void removeSessionPreparer(Future<VoidCallback> Function() prepare) =>
+      _sessionPreparers.remove(prepare);
+
+  Future<List<VoidCallback>> _prepareSessionData(void Function() validate) {
+    Future<List<VoidCallback>> prepare() async {
+      validate();
+      final releases = <VoidCallback>[];
+      try {
+        for (final prepareEditor in List.of(_sessionPreparers)) {
+          releases.add(await prepareEditor());
+        }
+        validate();
+        return releases;
+      } catch (_) {
+        for (final release in releases.reversed) {
+          release();
+        }
+        rethrow;
+      }
+    }
+
+    final tail = _sessionChangeTail;
+    final result = tail == null
+        ? Future<List<VoidCallback>>.sync(prepare)
+        : tail.then((_) => prepare());
+    _sessionChangeTail = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
+
+  Future<T> _withPreparedSession<T>(Future<T> Function() change,
+      {required void Function() validate}) async {
+    // Serialize local preparation only. A superseding sign-in must not wait
+    // for an obsolete logout HTTP response; token writes remain serialized.
+    final releases = await _prepareSessionData(validate);
+    try {
+      validate();
+      return await change();
+    } finally {
+      for (final release in releases.reversed) {
+        release();
+      }
+    }
+  }
+
+  void _validateTransition(int epoch, int revision) {
+    _requireSession(revision);
+    if (epoch != _authEpoch) {
+      throw AccountException(
+          'Zmiana konta anulowana / Account change cancelled');
+    }
+  }
+
   Future<void>? _storageTail;
 
   Future<T> _stored<T>(Future<T> Function() operation) {
@@ -166,7 +225,7 @@ class AccountService extends ChangeNotifier {
           epoch == _authEpoch &&
           path != '/password' &&
           method != 'DELETE') {
-        await forgetSession();
+        await _eraseSession();
       }
       throw AccountException(data['error']?['message'] as String? ??
           'Błąd serwera / Server error');
@@ -188,28 +247,33 @@ class AccountService extends ChangeNotifier {
     });
     final token = r['token'] as String;
     final identity = Map<String, dynamic>.from(r['account'] as Map);
-    await _stored(() async {
-      _requireSession(revision);
-      if (epoch != _authEpoch) {
-        throw AccountException('Logowanie anulowane / Sign-in cancelled');
-      }
-      await _storage.write(key: _key, value: token);
-      final id = identity['id'];
-      await _writeOwnerCache(token, id is String && id.isNotEmpty ? id : null);
-      if (epoch != _authEpoch || revision != _sessionRevision) {
-        // This write cannot race another queued write. Restore the active
-        // session if logout/a newer sign-in superseded it while storage waited.
-        await _storage.write(key: _key, value: _token);
-        await _writeOwnerCache(_token, _localOwnerId);
-        throw AccountException('Logowanie anulowane / Sign-in cancelled');
-      }
-      _token = token;
-      _localOwnerId = id is String && id.isNotEmpty ? id : null;
-      _loaded = true;
-      account = identity;
-      _sessionRevision++;
-      notifyListeners();
-    });
+    await _withPreparedSession(
+        () => _stored(() async {
+              _requireSession(revision);
+              if (epoch != _authEpoch) {
+                throw AccountException(
+                    'Logowanie anulowane / Sign-in cancelled');
+              }
+              await _storage.write(key: _key, value: token);
+              final id = identity['id'];
+              await _writeOwnerCache(
+                  token, id is String && id.isNotEmpty ? id : null);
+              if (epoch != _authEpoch || revision != _sessionRevision) {
+                // This write cannot race another queued write. Restore the active
+                // session if logout/a newer sign-in superseded it while storage waited.
+                await _storage.write(key: _key, value: _token);
+                await _writeOwnerCache(_token, _localOwnerId);
+                throw AccountException(
+                    'Logowanie anulowane / Sign-in cancelled');
+              }
+              _token = token;
+              _localOwnerId = id is String && id.isNotEmpty ? id : null;
+              _loaded = true;
+              account = identity;
+              _sessionRevision++;
+              notifyListeners();
+            }),
+        validate: () => _validateTransition(epoch, revision));
   }
 
   Future<void> saveProfile(Map<String, dynamic> profile) async {
@@ -221,15 +285,26 @@ class AccountService extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    _authEpoch++;
-    final revision = _sessionRevision;
-    // Revoke server session before clearing its only local copy.
-    await request('POST', '/logout');
-    _requireSession(revision);
-    await forgetSession();
+    final epoch = ++_authEpoch, revision = _sessionRevision;
+    await _withPreparedSession(() async {
+      // Flush succeeds before revoking the only server credential we hold.
+      await request('POST', '/logout');
+      _validateTransition(epoch, revision);
+      await _eraseSession();
+    }, validate: () => _validateTransition(epoch, revision));
   }
 
   Future<void> forgetSession() async {
+    final epoch = ++_authEpoch, revision = _sessionRevision;
+    await _withPreparedSession(_eraseSession,
+        validate: () => _validateTransition(epoch, revision));
+  }
+
+  /// The server has already revoked/deleted this identity. Local write errors
+  /// must not keep a revoked identity active or block credential erasure.
+  Future<void> invalidateSession() => _eraseSession();
+
+  Future<void> _eraseSession() async {
     _authEpoch++;
     _loaded = true;
     _token = null;

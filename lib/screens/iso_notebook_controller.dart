@@ -316,7 +316,7 @@ class IsoNotebookController extends ChangeNotifier {
   /// partially animated or queued edits as a completed drawing.
   SketchSummary? get summary {
     final state = _state;
-    if (state == null || isBusy || !_sketchLoaded.isCompleted) return null;
+    if (state == null || state._sessionFrozen || isBusy || !_sketchLoaded.isCompleted) return null;
     final pipes = state._pipes;
     final cuts = [for (final pipe in pipes) state._resolvedCut(pipe)]
         .where((cut) => cut.isFinite && cut >= 0).toList();
@@ -368,6 +368,9 @@ class IsoNotebookController extends ChangeNotifier {
   _VoiceRun? _run;
 
   Future<T> _enqueue<T>(Future<T> Function(_IsoState s) op) {
+    if (_state?._sessionFrozen == true) {
+      return Future<T>.error(StateError('Account change in progress; drawing is frozen'));
+    }
     _queued++;
     final result = _tail.then((_) async {
       try {
@@ -375,6 +378,9 @@ class IsoNotebookController extends ChangeNotifier {
         final s = _state;
         if (s == null) {
           throw StateError('IsoNotebookScreen is no longer mounted');
+        }
+        if (s._sessionFrozen) {
+          throw StateError('Account change in progress; drawing is frozen');
         }
         return await op(s);
       } finally {

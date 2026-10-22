@@ -394,7 +394,7 @@ class _AccountScreenState extends State<AccountScreen> {
     await _run(() async {
       await service.request('POST', '/password',
           {'currentPassword': values[0], 'password': values[1]});
-      await service.forgetSession();
+      await service.invalidateSession();
       password.clear();
     });
   }
@@ -419,7 +419,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (yes == true && mounted) {
       await _run(() async {
         await service.request('DELETE', '/me', {'password': password.text});
-        await service.forgetSession();
+        await service.invalidateSession();
         password.clear();
       });
     }

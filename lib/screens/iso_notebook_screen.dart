@@ -953,6 +953,36 @@ class _IsoState extends State<_IsoNotebookContent>
   /// last write failed). Guards the [PopScope] in [build]: leaving first
   /// flushes the save, and only a FAILED save asks the fitter anything.
   bool _dirty = false;
+  int _sessionFreezeDepth = 0;
+  bool get _sessionFrozen => _sessionFreezeDepth > 0;
+  late final AccountService _sessionAccount = AccountService.instance;
+  late final Future<VoidCallback> Function() _sessionPreparer = _prepareSessionChange;
+
+  Future<VoidCallback> _prepareSessionChange() async {
+    if (!mounted) return () {};
+    final revision = _sessionAccount.sessionRevision;
+    _voice._finishNow();
+    _sessionFreezeDepth++;
+    var released = false;
+    void release() {
+      if (released) return;
+      released = true;
+      if (mounted && _sessionAccount.sessionRevision == revision &&
+          identical(_sessionAccount, AccountService.instance)) {
+        _sessionFreezeDepth--;
+      }
+    }
+    try {
+      if (!await _flushSave()) {
+        throw AccountException(
+            'Nie udało się zapisać rysunku ISO. Konto nie zostało zmienione; wróć do rysunku i ponów zapis. / Could not save the ISO drawing. The account was not changed; return to the drawing and retry saving.');
+      }
+    } catch (_) {
+      release();
+      rethrow;
+    }
+    return release;
+  }
 
   // ── autosave state (see "autosave" section below) ──────────────────────────
   final Future<LocalRecordOwner> _drawingOwner = LocalRecordOwner.capture();
@@ -1119,6 +1149,7 @@ class _IsoState extends State<_IsoNotebookContent>
   @override
   void initState() {
     super.initState();
+    _sessionAccount.addSessionPreparer(_sessionPreparer);
     _voice._attach();
     unawaited(_voice.ready.then((_) {
       if (mounted) markReady();
@@ -1142,6 +1173,7 @@ class _IsoState extends State<_IsoNotebookContent>
   @override
   void dispose() {
     _disposing = true;
+    _sessionAccount.removeSessionPreparer(_sessionPreparer);
     // A voice command still animating lands in full before the flush below.
     _voice._detach();
     _lifecycle?.dispose();
@@ -1296,6 +1328,7 @@ class _IsoState extends State<_IsoNotebookContent>
   }
 
   void _mutate(VoidCallback f) {
+    if (_sessionFrozen) return;
     if (_disposing || !mounted) {
       // Only a voice command finishing while the route goes away gets here
       // (see IsoNotebookController._detach): no rebuild, and dispose()
@@ -5481,6 +5514,7 @@ class _IsoState extends State<_IsoNotebookContent>
 
   // ── undo / clear ────────────────────────────────────────────────────────────
   void _push() {
+    if (_sessionFrozen) return;
     // A voice command still animating lands first, so this snapshot (and
     // the command's own one before it) each hold a settled drawing.
     _voice._finishNow();
@@ -5488,6 +5522,7 @@ class _IsoState extends State<_IsoNotebookContent>
   }
 
   void _undoAction() {
+    if (_sessionFrozen) return;
     _voice._finishNow();
     if (_undo.isEmpty) return;
     final before = _undo.removeLast();

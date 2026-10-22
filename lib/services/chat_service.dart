@@ -168,11 +168,21 @@ class ChatService {
   ChatService._();
   static final ChatService instance = ChatService._();
 
-  Future<Map<String, dynamic>> _accountError(Object error) async {
+  void _requireChatSession(AccountService account, int revision) {
+    if (!identical(account, AccountService.instance) ||
+        account.sessionRevision != revision) {
+      throw AccountException(
+          'Sesja zmieniła się. Spróbuj ponownie. / Session changed. Please try again.');
+    }
+  }
+
+  Future<Map<String, dynamic>> _accountError(
+      Object error, AccountService account, int revision) async {
+    _requireChatSession(account, revision);
     if (error is ApiException &&
         error.statusCode == 401 &&
         !error.isInstallSecretError) {
-      await AccountService.instance.forgetSession();
+      await account.invalidateSession();
       throw AccountException(
           'Sesja wygasła. Zaloguj się ponownie / Session expired. Sign in again.');
     }
@@ -270,13 +280,18 @@ class ChatService {
   Future<List<ChatMessage>> listMessages(String room,
       {String? sinceIso, int limit = 100}) async {
     if (!BackendConfig.chatBackendLive) return const [];
+    final account = AccountService.instance;
+    final revision = account.sessionRevision;
+    await account.load();
+    _requireChatSession(account, revision);
     // Nagłówki tożsamości: dzięki nim nowy backend odsyła `mine` i surowy
     // device_id przy NASZYCH wiadomościach. Do pokoju wchodzi się tylko przez
     // bramkę zgody (community_gate.dart), więc nic nie wychodzi przed zgodą.
     final headers = {
       ...await PremiumService.instance.authHeaders(),
-      ...await AccountService.instance.headers()
+      ...await account.headers()
     };
+    _requireChatSession(account, revision);
     final body = await ApiClient.instance
         .getJson(
           BackendConfig.chatMessages,
@@ -288,7 +303,8 @@ class ChatService {
           headers: headers,
           timeout: const Duration(seconds: 8),
         )
-        .catchError(_accountError);
+        .catchError((Object error) => _accountError(error, account, revision));
+    _requireChatSession(account, revision);
     final raw = body['messages'] as List<dynamic>? ?? const [];
     return raw
         .map((j) => ChatMessage.fromJson(j as Map<String, dynamic>))
@@ -307,18 +323,23 @@ class ChatService {
     required String text,
     String? idempotencyKey,
   }) async {
-    await AccountService.instance.load();
-    if (AccountService.instance.account == null) {
+    final account = AccountService.instance;
+    final revision = account.sessionRevision;
+    await account.load();
+    _requireChatSession(account, revision);
+    if (account.account == null) {
       throw AccountException(
           'Zaloguj się w Profil → Konto / Sign in under Profile → Account');
     }
-    final fullName = AccountService.instance.account!['displayName'] as String;
+    final fullName = account.account!['displayName'] as String;
     final nick = fullName.length > 32 ? fullName.substring(0, 32) : fullName;
     final headers = {
       ...await PremiumService.instance.authHeaders(),
-      ...await AccountService.instance.headers()
+      ...await account.headers()
     };
+    _requireChatSession(account, revision);
     final deviceId = PremiumService.instance.deviceId;
+    _requireChatSession(account, revision);
     final body = await ApiClient.instance
         .postJson(
           BackendConfig.chatMessages,
@@ -334,7 +355,8 @@ class ChatService {
           },
           timeout: const Duration(seconds: 8),
         )
-        .catchError(_accountError);
+        .catchError((Object error) => _accountError(error, account, revision));
+    _requireChatSession(account, revision);
     return ChatMessage.fromJson(body['message'] as Map<String, dynamic>);
   }
 
@@ -343,10 +365,15 @@ class ChatService {
   /// widział „Zgłoszono." także wtedy, gdy nic nie dotarło na serwer).
   Future<void> report(int messageId) async {
     if (!BackendConfig.chatBackendLive) return;
+    final account = AccountService.instance;
+    final revision = account.sessionRevision;
+    await account.load();
+    _requireChatSession(account, revision);
     final headers = {
       ...await PremiumService.instance.authHeaders(),
-      ...await AccountService.instance.headers()
+      ...await account.headers()
     };
+    _requireChatSession(account, revision);
     final deviceId = PremiumService.instance.deviceId;
     await ApiClient.instance
         .postJson(
@@ -355,7 +382,8 @@ class ChatService {
           headers: {...headers, kIdempotencyKeyHeader: newIdempotencyKey()},
           timeout: const Duration(seconds: 8),
         )
-        .catchError(_accountError);
+        .catchError((Object error) => _accountError(error, account, revision));
+    _requireChatSession(account, revision);
   }
 
   /// Rejestruje sekret instalacji na serwerze — ale TYLKO wtedy, gdy monter

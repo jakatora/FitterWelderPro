@@ -14,3 +14,6 @@ Open lifecycle edge: session changes intentionally detach the old editor and rej
 
 
 Follow-up: summary readback returns null until the controller sketch-loaded gate completes, so a temporary empty editor cannot be presented to AI as a restored zero-pipe sheet. A controlled persisted-account /me response is held while a real ISO row awaits restoration; the test asserts null summary before release and the actual accountA sheet/pipe afterwards. The fixture must advance both native I/O and widget microtasks: waiting for MockClient entry exclusively in runAsync deadlocked the opposite zone; bounded alternating flush/pump keeps real assertions and does not weaken the scenario. Explicit prefs/storage fixtures avoid platform dependencies. Final32 tests passed0skip for ownership/readiness/summary/current knowledge/main AI/session paths, followed by clean two-file fatal analysis. The preceding707-test acceptance remains valid for the larger ownership migration; it was not rerun after this one-line readiness guard.
+
+
+2026-10-22 lifecycle follow-up: [Save before explicit transitions](2026-10-22-iso-session-flush.md) fixes the pending-autosave/animation edge for explicit signIn/signOut/forgetSession, with failure blocking the transition. Forced server revocation and discarded unconfirmed dialog drafts remain outside the lossless-save claim.
