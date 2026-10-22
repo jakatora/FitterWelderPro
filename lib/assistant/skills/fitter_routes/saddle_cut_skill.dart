@@ -38,6 +38,23 @@ Map<String, Object?> saddleDiameterSlots(Utterance u) {
       sizes.add(signedQuantity(u, i) * scale);
     }
   }
+  // „60 na 114” bez jednostek: milimetry OD, chyba że obie liczby wyglądają
+  // jak DN z tabeli („50 na 100”) — wtedy nie zgadujemy (pytanie o średnicę).
+  if (sizes.isEmpty && header == null && branch == null) {
+    final items = u.items;
+    for (var i = 0; i + 2 < items.length; i++) {
+      if (items[i].isNumber &&
+          const {'na', 'x', 'i', 'and', 'on', 'into', 'w'}
+              .contains(items[i + 1].word) &&
+          items[i + 2].isNumber) {
+        final a = items[i].value!, b = items[i + 2].value!;
+        bool dnLike(double v) =>
+            v == v.roundToDouble() && kPipeWalls.any((r) => r.dn == v);
+        if (!(dnLike(a) && dnLike(b))) sizes.addAll([a, b]);
+        break;
+      }
+    }
+  }
   if (sizes.length > 2) {
     out['header_od_mm'] = double.nan;
     return out;

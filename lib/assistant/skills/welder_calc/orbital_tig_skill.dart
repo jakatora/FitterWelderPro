@@ -7,9 +7,28 @@ import '../fitter_routes/quantities.dart';
 
 Map<String, Object?> _slots(Utterance u) {
   final out = <String, Object?>{};
-  final od = lengthNear(u, const ['od', 'rur', 'srednic', 'tube', 'diameter']);
+  // Rurki orbitalne zawsze w mm — liczba po etykiecie bez jednostki to mm
+  // (z jednostką liczy wyżej lengthNear).
+  final od = lengthNear(u, const ['od', 'rur', 'srednic', 'tube', 'diameter']) ??
+      numberAfterLabel(
+          u,
+          (w) =>
+              w == 'od' ||
+              w.startsWith('rur') ||
+              w.startsWith('srednic') ||
+              w == 'tube' ||
+              w == 'diameter',
+          skip: const {'zewnetrzna', 'outside'});
   if (od != null) out['od_mm'] = od;
-  final wall = lengthNear(u, const ['scian', 'grubos', 'wall', 'thickness']);
+  final wall = lengthNear(u, const ['scian', 'grubos', 'wall', 'thickness']) ??
+      numberAfterLabel(
+          u,
+          (w) =>
+              w.startsWith('scian') ||
+              w.startsWith('grubos') ||
+              w == 'wall' ||
+              w == 'thickness',
+          skip: const {'scianki'});
   if (wall != null) out['wall_mm'] = wall;
   final volts = numberBeforeUnit(u, (w) => w == 'v' || w.startsWith('wolt') || w.startsWith('volt'));
   if (volts != null) out['volts'] = volts;

@@ -68,4 +68,15 @@ void main() {
           reason: text);
     }
   });
+
+  test('unitless pair: OD in mm, but DN-like integers are not guessed',
+      () async {
+    final h = BrainHarness();
+    addTearDown(h.timer.dispose);
+    final mm = (await h.say('siodło 60,3 na 114,3')).result as AnswerResult;
+    expect(mm.show!.fields, {'header_od_mm': 114.3, 'branch_od_mm': 60.3});
+    final ask = (await h.say('siodło 50 na 100')).result;
+    expect(ask, isA<AskResult>(),
+        reason: '50 na 100 może znaczyć DN50 na DN100 albo milimetry');
+  });
 }

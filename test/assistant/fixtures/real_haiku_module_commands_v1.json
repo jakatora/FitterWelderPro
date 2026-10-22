@@ -1,0 +1,122 @@
+{
+  "source": "REAL Claude Haiku 5.5 via local FWP backend 823b8e7ce06217a48e16f5fd55027e5fedafdb96, 2026-10-22T22:30:51.585Z",
+  "cases": [
+    {
+      "utterance": "ile wyciąć na siodło rury pięćdziesiątki na setkę",
+      "steps": [
+        {
+          "skill_id": "saddle.cut",
+          "command": "Wycięcie siodłowe DN50 na DN100"
+        }
+      ]
+    },
+    {
+      "utterance": "zrób mi szablon siodła 60 na 114 pod kątem 45 stopni",
+      "steps": [
+        {
+          "skill_id": "saddle.template",
+          "command": "Szablon siodła 60 na 114 kąt 45 stopni"
+        }
+      ]
+    },
+    {
+      "utterance": "czy spoina a4 po sto milimetrów dwie strony S355 blacha 10 wytrzyma 150 kN",
+      "steps": [
+        {
+          "skill_id": "fillet.strength",
+          "command": "Czy spoina a4 długość 100 mm 2 spoiny S355 blacha 10 mm przeniesie 150 kN"
+        }
+      ]
+    },
+    {
+      "utterance": "ile się skurczy spoina V na blasze 10 mm kąt 60 szczelina 2 próg półtora",
+      "steps": [
+        {
+          "skill_id": "distortion.shrinkage",
+          "command": "Skurcz spoiny czołowej blacha 10 mm rowek V kąt 60 stopni szczelina 2 mm próg 1,5 mm"
+        }
+      ]
+    },
+    {
+      "utterance": "czy mogę dziś spawać na dworze jest minus 3 wilgotność 80 procent wiatr 5 metrów na sekundę migomag",
+      "steps": [
+        {
+          "skill_id": "weather.check",
+          "command": "Czy da się spawać migomagiem na dworze temperatura minus 3 stopnie wilgotność 80% wiatr 5 m/s"
+        }
+      ]
+    },
+    {
+      "utterance": "co ile dać podpory na rurze DN100 z wodą",
+      "steps": [
+        {
+          "skill_id": "pipe.supports",
+          "command": "Rozstaw podpór DN100 woda"
+        }
+      ]
+    },
+    {
+      "utterance": "jaki prąd na tandem przy zbiorniku 3 mm na styk w poziomie",
+      "steps": [
+        {
+          "skill_id": "tandem.tig",
+          "command": "Prąd tandem TIG zbiornik poziom blacha 3 mm na styk"
+        }
+      ]
+    },
+    {
+      "utterance": "jakie szpilki do kołnierza DN100 klasa 300 RF",
+      "steps": [
+        {
+          "skill_id": "bolt.kit",
+          "command": "Jakie szpilki do kołnierza DN100 klasa 300 RF"
+        }
+      ]
+    },
+    {
+      "utterance": "czy trzeba wyżarzać P91 30 mm według B31.1",
+      "steps": [
+        {
+          "skill_id": "pwht.plan",
+          "command": "Plan PWHT B31.1 P91 grubość 30 mm"
+        }
+      ]
+    },
+    {
+      "utterance": "parametry orbitala na rurkę 25,4 ścianka 1,65",
+      "steps": [
+        {
+          "skill_id": "orbital.tig",
+          "command": "Parametry orbitala rura 25,4 ścianka 1,65"
+        }
+      ]
+    },
+    {
+      "utterance": "spoina od środka wyszła niebieska, przejdzie?",
+      "steps": [
+        {
+          "skill_id": "heat_tint.check",
+          "command": "Przebarwienie spoiny od środka niebieski czy przejdzie"
+        }
+      ]
+    },
+    {
+      "utterance": "jakie ciśnienie próby wodnej B31.3 przy 16 bar projektowego",
+      "steps": [
+        {
+          "skill_id": "pressure.test",
+          "command": "Ciśnienie próby B31.3 hydro ciśnienie projektowe 16 bar"
+        }
+      ]
+    },
+    {
+      "utterance": "ile mam brać za godzinę żeby mieć 10 tysięcy na rękę",
+      "steps": [
+        {
+          "skill_id": "hourly.rate",
+          "command": "Ile brać za godzinę żeby mieć 10000 zł na rękę"
+        }
+      ]
+    }
+  ]
+}

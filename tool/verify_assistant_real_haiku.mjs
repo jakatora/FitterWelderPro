@@ -92,12 +92,25 @@ const CASES = [
   ['pl', 'nie działa mi zapis wyceny, zgłoś to', ['unsupported']],
   ['pl', 'ta aplikacja jest bez sensu, rysunek mi się nie zapisuje', ['unsupported']],
   ['en', 'the slope calculator gives wrong results, please report it', ['unsupported']],
+  ['pl', 'ile wyciąć na siodło rury pięćdziesiątki na setkę', ['saddle.cut']],
+  ['pl', 'zrób mi szablon siodła 60 na 114 pod kątem 45 stopni', ['saddle.template']],
+  ['pl', 'czy spoina a4 po sto milimetrów dwie strony S355 blacha 10 wytrzyma 150 kN', ['fillet.strength']],
+  ['pl', 'ile się skurczy spoina V na blasze 10 mm kąt 60 szczelina 2 próg półtora', ['distortion.shrinkage']],
+  ['pl', 'czy mogę dziś spawać na dworze jest minus 3 wilgotność 80 procent wiatr 5 metrów na sekundę migomag', ['weather.check']],
+  ['pl', 'co ile dać podpory na rurze DN100 z wodą', ['pipe.supports']],
+  ['pl', 'jaki prąd na tandem przy zbiorniku 3 mm na styk w poziomie', ['tandem.tig']],
+  ['pl', 'jakie szpilki do kołnierza DN100 klasa 300 RF', ['bolt.kit']],
+  ['pl', 'czy trzeba wyżarzać P91 30 mm według B31.1', ['pwht.plan']],
+  ['pl', 'parametry orbitala na rurkę 25,4 ścianka 1,65', ['orbital.tig']],
+  ['pl', 'spoina od środka wyszła niebieska, przejdzie?', ['heat_tint.check']],
+  ['pl', 'jakie ciśnienie próby wodnej B31.3 przy 16 bar projektowego', ['pressure.test']],
+  ['pl', 'ile mam brać za godzinę żeby mieć 10 tysięcy na rękę', ['hourly.rate']],
 ];
 
 // FWP_REAL_ONLY=<fragment> — tylko pasujące przypadki, FWP_REAL_REPEAT=n powtórzeń.
 const only = process.env.FWP_REAL_ONLY;
 const repeat = Math.max(1, Number(process.env.FWP_REAL_REPEAT || 1));
-const selected = CASES.filter(([, text]) => !only || text.includes(only))
+const selected = CASES.filter(([, text]) => !only || only.split('|').some(o => text.includes(o)))
   .flatMap(c => Array(repeat).fill(c));
 const template = JSON.parse(fs.readFileSync(path.join(root, 'build/assistant-full-wire-pl.json'), 'utf8'));
 const results = [];
@@ -141,6 +154,9 @@ try {
     if (!ok) failures++;
     results.push({lang, text, expect, status: res.status, kind, skill,
       steps,
+      commands: kind === 'execute'
+        ? (json.steps || []).map(st => ({skill_id: st.skill_id, command: st.command}))
+        : [],
       message: typeof json.message === 'string' ? json.message.slice(0, 160) : null, ms, ok});
     console.log(`${ok ? 'OK  ' : 'FAIL'} ${kind}${skill ? `:${skill}` : ''}  <- ${text}`);
     if (res.status === 503) break; // budżet albo dostawca — nie mnożyć wywołań
