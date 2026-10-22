@@ -1021,19 +1021,27 @@ class _DryRunRollback implements Exception {
 
 /// Call only on a staged snapshot. VACUUM also removes other owners' bytes
 /// from free SQLite pages, not merely from query results inside the ZIP.
+const _ownedLocalTables = {'weld_params', 'iso_drawings'};
+
+// Historical function name retained for callers. Both account-owned tables
+// must be pruned, including their bytes in SQLite free pages.
 Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
-  final tables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='weld_params'");
-  if (tables.isEmpty) return;
-  final columns = await db.rawQuery('PRAGMA table_info(weld_params)');
-  await db.execute('PRAGMA secure_delete = ON');
-  if (columns.any((r) => r['name'] == 'owner_scope')) {
-    await db
-        .delete('weld_params', where: 'owner_scope != ?', whereArgs: [owner]);
-  } else if (owner != LocalRecordOwner.guest) {
-    await db.delete('weld_params');
+  var found = false;
+  for (final table in _ownedLocalTables) {
+    final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [table]);
+    if (tables.isEmpty) continue;
+    found = true;
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    await db.execute('PRAGMA secure_delete = ON');
+    if (columns.any((r) => r['name'] == 'owner_scope')) {
+      await db.delete(table, where: 'owner_scope != ?', whereArgs: [owner]);
+    } else if (owner != LocalRecordOwner.guest) {
+      await db.delete(table);
+    }
   }
-  await db.execute('VACUUM');
+  if (found) await db.execute('VACUUM');
 }
 
 Future<void> _refill(
@@ -1082,7 +1090,7 @@ Future<void> _refill(
     final batch = txn.batch();
     for (final table in liveTables) {
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
-        if (table == 'weld_params' && weldParamsOwner != null) {
+        if (_ownedLocalTables.contains(table) && weldParamsOwner != null) {
           batch.delete(table,
               where: 'owner_scope = ?', whereArgs: [weldParamsOwner]);
         } else {
@@ -1102,7 +1110,7 @@ Future<void> _refill(
           .toSet();
       final lost = droppedColumnsWithData(entry.value, columns);
       if (lost.isNotEmpty) dropped[entry.key] = lost;
-      final sourceRows = entry.key == 'weld_params' &&
+      final sourceRows = _ownedLocalTables.contains(entry.key) &&
               weldParamsOwner != null &&
               preserveWeldParamOwner
           ? entry.value
@@ -1118,17 +1126,18 @@ Future<void> _refill(
         heatPhotosDir: heatPhotosDir,
         restoredPhotoNames: restoredPhotoNames,
       );
-      final foreignIds = entry.key == 'weld_params' && weldParamsOwner != null
-          ? (await txn.query('weld_params',
-                  columns: ['id'],
-                  where: 'owner_scope != ?',
-                  whereArgs: [weldParamsOwner]))
-              .map((r) => r['id'])
-              .toSet()
-          : const <Object?>{};
+      final foreignIds =
+          _ownedLocalTables.contains(entry.key) && weldParamsOwner != null
+              ? (await txn.query(entry.key,
+                      columns: ['id'],
+                      where: 'owner_scope != ?',
+                      whereArgs: [weldParamsOwner]))
+                  .map((r) => r['id'])
+                  .toSet()
+              : const <Object?>{};
       for (final row in rows) {
         final ownedRow = Map<String, Object?>.of(row);
-        if (entry.key == 'weld_params' && weldParamsOwner != null) {
+        if (_ownedLocalTables.contains(entry.key) && weldParamsOwner != null) {
           ownedRow['owner_scope'] = weldParamsOwner;
           if (foreignIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
@@ -1518,8 +1527,10 @@ class DataBackup {
       owner.requireCurrent();
     } catch (_) {
       throw const BackupFormatException(
-          messagePl: 'Sesja zmieniła się. Utwórz kopię ponownie przed udostępnieniem.',
-          messageEn: 'The session changed. Create the backup again before sharing.');
+          messagePl:
+              'Sesja zmieniła się. Utwórz kopię ponownie przed udostępnieniem.',
+          messageEn:
+              'The session changed. Create the backup again before sharing.');
     }
     final name = p.basename(file.path);
     await Share.shareXFiles(
@@ -1559,7 +1570,8 @@ class DataBackup {
   ///
   /// See the library doc for the two-phase guarantee: everything that can fail
   /// because of the *file* fails before any live write happens.
-  static Future<RestoreReport> restore(String path, {LocalRecordOwner? expectedOwner}) async {
+  static Future<RestoreReport> restore(String path,
+      {LocalRecordOwner? expectedOwner}) async {
     final owner = expectedOwner ?? await LocalRecordOwner.capture();
     owner.requireCurrent();
     final source = FileZipSource.open(File(path));

@@ -1550,3 +1550,6 @@ Next task candidate from actualsourceinventory: WelderToolsScreen gas,purge,pres
 
 
 2026-10-22: [Multi-action source clauses](2026-10-22-ai-multi-action-source.md) — preserve native per-step validation for explicit sequential requests.
+
+
+2026-10-22: [ISO ownership](2026-10-22-iso-account-ownership.md) — account/guest records, session-bound editor/popups and scoped backup; pending-autosave transition edge remains open.

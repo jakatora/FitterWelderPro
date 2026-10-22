@@ -41,7 +41,7 @@ class _SavedSketchesSheetState extends State<_SavedSketchesSheet> {
   Future<void> _delete(IsoDrawingSummary e) async {
     final tr = widget.tr;
     final label = e.name.isEmpty ? tr('bez nazwy', 'untitled') : e.name;
-    final ok = await showDialog<bool>(
+    final ok = await showOwnerBoundDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(tr('Usunąć szkic?', 'Delete sketch?')),
@@ -108,8 +108,8 @@ class _SavedSketchesSheetState extends State<_SavedSketchesSheet> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 child: Text(
-                  tr('Nie ma jeszcze zapisanych szkiców.',
-                      'No saved sketches yet.'),
+                  tr('Nie ma jeszcze szkiców na tym koncie lub w trybie gościa. Starsze szkice sprzed rozdzielenia kont pozostają w trybie gościa.',
+                      'No sketches for this account or guest yet. Legacy sketches from before account separation remain with the guest.'),
                   style: TextStyle(color: cs.onSurfaceVariant),
                 ),
               )

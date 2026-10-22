@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:cut_list_app/services/account_service.dart';
 // ISO notebook → "Utwórz projekt CUT" and "Szczelina spoiny", driven through
 // the real screen and real SQLite: the CUT the notebook shows, the CUT it
 // writes into the project and the gap it keeps with the sketch.
@@ -88,6 +90,9 @@ Map<String, Object?> _sketch({double gap = 3}) => <String, Object?>{
 
 void main() {
   setUpAll(() async {
+    // Resolve the guest identity outside the widget fake-async clock.
+    FlutterSecureStorage.setMockInitialValues({});
+    await AccountService.instance.load();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfiNoIsolate;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);

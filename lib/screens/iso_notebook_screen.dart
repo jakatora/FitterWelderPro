@@ -1,3 +1,5 @@
+import '../services/account_service.dart';
+import '../database/local_record_owner.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5,6 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../widgets/account_session_popup.dart';
 import '../assistant/core/assistant_panel_controller.dart';
 import '../assistant/core/tool_bridge.dart';
 import '../assistant/skills/iso/iso_command_parser.dart' show decodeIsoSteps;
@@ -909,14 +912,23 @@ class _AxisMapping {
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
-class IsoNotebookScreen extends StatefulWidget {
+class IsoNotebookScreen extends StatelessWidget {
   const IsoNotebookScreen({super.key});
   @override
-  State<IsoNotebookScreen> createState() => _IsoState();
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: AccountService.instance,
+      builder: (context, _) => _IsoNotebookContent(
+          key: ValueKey(AccountService.instance.sessionRevision)));
 }
 
-class _IsoState extends State<IsoNotebookScreen>
-    with ToolHandleHost<IsoNotebookScreen> implements InputToolHandle {
+class _IsoNotebookContent extends StatefulWidget {
+  const _IsoNotebookContent({super.key});
+  @override
+  State<_IsoNotebookContent> createState() => _IsoState();
+}
+
+class _IsoState extends State<_IsoNotebookContent>
+    with ToolHandleHost<_IsoNotebookContent> implements InputToolHandle {
   static const double _s = 32.0;
   static const String _kHintHiddenPref = 'iso_notebook_hint_hidden';
   static const String _kAxisCompassPref = 'iso_notebook_show_axis_compass';
@@ -943,7 +955,8 @@ class _IsoState extends State<IsoNotebookScreen>
   bool _dirty = false;
 
   // ── autosave state (see "autosave" section below) ──────────────────────────
-  final IsoDrawingDao _drawingDao = IsoDrawingDao();
+  final Future<LocalRecordOwner> _drawingOwner = LocalRecordOwner.capture();
+  late final IsoDrawingDao _drawingDao = IsoDrawingDao(owner: () => _drawingOwner);
 
   /// Row id of the sketch on screen. Fresh until a stored sketch is loaded.
   String _drawingId = const Uuid().v4();
@@ -1444,7 +1457,7 @@ class _IsoState extends State<IsoNotebookScreen>
 
   /// Shown only when the autosave could not write the latest changes.
   Future<bool> _confirmLeaveUnsaved() async {
-    final ok = await showDialog<bool>(
+    final ok = await showOwnerBoundDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(_tr('Nie udało się zapisać szkicu',
@@ -1616,7 +1629,7 @@ class _IsoState extends State<IsoNotebookScreen>
       _snack(_tr('Arkusz jest już pusty.', 'The sheet is already empty.'));
       return;
     }
-    final ok = await showDialog<bool>(
+    final ok = await showOwnerBoundDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(_tr('Zacząć nowy szkic?', 'Start a new sketch?')),
@@ -1674,7 +1687,7 @@ class _IsoState extends State<IsoNotebookScreen>
       return;
     }
     if (!mounted) return;
-    final chosen = await showModalBottomSheet<String>(
+    final chosen = await showOwnerBoundBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -3350,7 +3363,7 @@ class _IsoState extends State<IsoNotebookScreen>
   Future<String?> _askText(String current, {bool instrument = false}) async {
     final ctrl = TextEditingController(text: current);
     try {
-      return await showDialog<String>(
+      return await showOwnerBoundDialog<String>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(instrument
@@ -3425,7 +3438,7 @@ class _IsoState extends State<IsoNotebookScreen>
     final cteCtrl = TextEditingController(
         text: (comp.cteMm ?? TakeoutCatalog.tee[dn])?.toString() ?? '');
     try {
-      final action = await showModalBottomSheet<String>(
+      final action = await showOwnerBoundBottomSheet<String>(
         context: context,
         isScrollControlled: true,
         builder: (sheetCtx) => Padding(
@@ -3614,7 +3627,7 @@ class _IsoState extends State<IsoNotebookScreen>
       cteCtrl.text = _stdCte(dn, subtype).toString();
     }
 
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showOwnerBoundBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -3824,7 +3837,7 @@ class _IsoState extends State<IsoNotebookScreen>
     final lenCtrl = TextEditingController(
         text: '${_reducerLenDefault[from] ?? 100}');
     try {
-      return await showModalBottomSheet<
+      return await showOwnerBoundBottomSheet<
           ({int dnIn, int dnOut, int physicalLengthMm, String label})>(
         context: context,
         backgroundColor: Theme.of(context).colorScheme.surface,
@@ -4029,7 +4042,7 @@ class _IsoState extends State<IsoNotebookScreen>
 
     applyTableLen();
     try {
-      return await showModalBottomSheet<
+      return await showOwnerBoundBottomSheet<
           ({int dn, int physicalLengthMm, EndConnection type})>(
         context: context,
         backgroundColor: Theme.of(context).colorScheme.surface,
@@ -4247,7 +4260,7 @@ class _IsoState extends State<IsoNotebookScreen>
 
     applyTableLen();
     try {
-      return await showModalBottomSheet<({
+      return await showOwnerBoundBottomSheet<({
         int dn,
         int physicalLengthMm,
         EndConnection endA,
@@ -4430,7 +4443,7 @@ class _IsoState extends State<IsoNotebookScreen>
     final lenCtrl =
         TextEditingController(text: '${TakeoutCatalog.cap[dn] ?? 35}');
     try {
-      return await showModalBottomSheet<({int dn, int physicalLengthMm})>(
+      return await showOwnerBoundBottomSheet<({int dn, int physicalLengthMm})>(
         context: context,
         backgroundColor: Theme.of(context).colorScheme.surface,
         shape: const RoundedRectangleBorder(
@@ -4568,7 +4581,7 @@ class _IsoState extends State<IsoNotebookScreen>
   }
 
   Future<TakeoutEntry?> _pickFromCatalog(BuildContext outer) async {
-    final dn = await showModalBottomSheet<int>(
+    final dn = await showOwnerBoundBottomSheet<int>(
       context: outer,
       backgroundColor: Theme.of(outer).colorScheme.surface,
       shape: const RoundedRectangleBorder(
@@ -4613,7 +4626,7 @@ class _IsoState extends State<IsoNotebookScreen>
 
     if (!outer.mounted) return null;
     final entries = TakeoutCatalog.entriesForDn(dn);
-    return showModalBottomSheet<TakeoutEntry>(
+    return showOwnerBoundBottomSheet<TakeoutEntry>(
       context: outer,
       backgroundColor: Theme.of(outer).colorScheme.surface,
       shape: const RoundedRectangleBorder(
@@ -5493,7 +5506,7 @@ class _IsoState extends State<IsoNotebookScreen>
     // snackbar in seconds and silently wipe real work. Gate non-trivial wipes
     // behind an explicit confirmation; small drawings stay frictionless.
     if (wiped >= 3) {
-      final ok = await showDialog<bool>(
+      final ok = await showOwnerBoundDialog<bool>(
         context: context,
         builder: (dctx) => AlertDialog(
           title: Text(_tr('Wyczyścić rysunek?', 'Clear drawing?')),
@@ -5642,7 +5655,7 @@ class _IsoState extends State<IsoNotebookScreen>
     };
 
     try {
-      final saved = await showModalBottomSheet<bool>(
+      final saved = await showOwnerBoundBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
         builder: (sheetCtx) {
@@ -5757,7 +5770,7 @@ class _IsoState extends State<IsoNotebookScreen>
   Future<void> _showCutListResult() async {
     final lines = _cutListLines();
     if (lines.isEmpty) return;
-    await showModalBottomSheet<void>(
+    await showOwnerBoundBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
@@ -5930,7 +5943,7 @@ class _IsoState extends State<IsoNotebookScreen>
   ];
 
   void _showNotePrefixHelp(BuildContext context) {
-    showModalBottomSheet<void>(
+    showOwnerBoundBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {

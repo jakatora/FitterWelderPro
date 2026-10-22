@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:cut_list_app/services/account_service.dart';
 // IsoNotebookController — rysowanie Zeszytu ISO poleceniem (asystent głosowy,
 // zadanie 3.1). Prawdziwy ekran, prawdziwy SQLite; asercje przez kodek z bazy
 // jak w iso_notebook_autosave_test: to, co poszło do `iso_drawings`, jest
@@ -193,6 +195,9 @@ Map<String, Object?> _onePipe({int row = 4, double x0 = 64}) => _sketch(
 
 void main() {
   setUpAll(() async {
+    // Resolve the guest identity outside the widget fake-async clock.
+    FlutterSecureStorage.setMockInitialValues({});
+    await AccountService.instance.load();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfiNoIsolate;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);

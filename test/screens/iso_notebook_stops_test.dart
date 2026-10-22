@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:cut_list_app/services/account_service.dart';
 // Zeszyt ISO na prawdziwym ekranie: okno wymiaru przy kołnierzu (punkt
 // odniesienia widoczny i opisany słowami, domyślnie jak w kreatorze),
 // nieczytelny wiersz odliczenia blokuje OK, pinch-zoom na płótnie i pasek
@@ -100,6 +102,9 @@ Map<String, Object?> _sketch({List<Object?> deducts = const []}) =>
 
 void main() {
   setUpAll(() async {
+    // Resolve the guest identity outside the widget fake-async clock.
+    FlutterSecureStorage.setMockInitialValues({});
+    await AccountService.instance.load();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfiNoIsolate;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);

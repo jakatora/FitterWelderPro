@@ -15,6 +15,7 @@ library;
 import 'package:sqflite/sqflite.dart';
 
 import 'db.dart';
+import 'local_record_owner.dart';
 
 /// One stored sketch.
 class IsoDrawingRecord {
@@ -74,31 +75,47 @@ class IsoDrawingSummary {
 
 class IsoDrawingDao {
   static const String table = 'iso_drawings';
+  IsoDrawingDao({Future<LocalRecordOwner> Function()? owner})
+      : _owner = owner ?? LocalRecordOwner.capture;
+  final Future<LocalRecordOwner> Function() _owner;
 
   /// The most recently saved sketch, or null when there is none.
   Future<IsoDrawingRecord?> latest() async {
+    final owner = await _owner();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     final rows = await db.query(
       table,
+      where: 'owner_scope = ?',
+      whereArgs: [owner.key],
       orderBy: 'updated_at DESC, created_at DESC',
       limit: 1,
     );
+    owner.requireCurrent();
     return rows.isEmpty ? null : IsoDrawingRecord.fromRow(rows.first);
   }
 
   Future<IsoDrawingRecord?> getById(String id) async {
+    final owner = await _owner();
     final db = await AppDatabase.get();
-    final rows = await db.query(table, where: 'id = ?', whereArgs: [id]);
+    owner.requireCurrent();
+    final rows = await db.query(table,
+        where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+    owner.requireCurrent();
     return rows.isEmpty ? null : IsoDrawingRecord.fromRow(rows.first);
   }
 
   /// Newest first.
   Future<List<IsoDrawingSummary>> listAll() async {
+    final owner = await _owner();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     final rows = await db.rawQuery(
       'SELECT id, name, updated_at, LENGTH(json) AS json_length '
-      'FROM $table ORDER BY updated_at DESC, created_at DESC',
+      'FROM $table WHERE owner_scope = ? ORDER BY updated_at DESC, created_at DESC',
+      [owner.key],
     );
+    owner.requireCurrent();
     return rows
         .map((r) => IsoDrawingSummary(
               id: r['id'] as String,
@@ -116,23 +133,36 @@ class IsoDrawingDao {
   /// upsert clause needs SQLite 3.24, newer than the system library on the
   /// oldest Android versions this app still installs on.
   Future<void> upsert(IsoDrawingRecord r) async {
+    final owner = await _owner();
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     await db.transaction((txn) async {
+      owner.requireCurrent();
       final updated = await txn.update(
         table,
         {'name': r.name, 'json': r.json, 'updated_at': r.updatedAt},
-        where: 'id = ?',
-        whereArgs: [r.id],
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: [r.id, owner.key],
       );
       if (updated == 0) {
-        await txn.insert(table, r.toRow(),
+        await txn.insert(table, {...r.toRow(), 'owner_scope': owner.key},
             conflictAlgorithm: ConflictAlgorithm.abort);
       }
+      owner.requireCurrent();
     });
+    owner.requireCurrent();
   }
 
   Future<void> deleteById(String id) async {
+    final owner = await _owner();
     final db = await AppDatabase.get();
-    await db.delete(table, where: 'id = ?', whereArgs: [id]);
+    owner.requireCurrent();
+    await db.transaction((txn) async {
+      owner.requireCurrent();
+      await txn.delete(table,
+          where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      owner.requireCurrent();
+    });
+    owner.requireCurrent();
   }
 }

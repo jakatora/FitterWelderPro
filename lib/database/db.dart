@@ -87,7 +87,8 @@ class AppDatabase {
   //   P blacha). TEXT, NULL, bez domyślnych — stara spoina „nie podaje”, więc
   //   kontrola mówi „nie da się porównać”, nie „poza zakresem”.
   // v29: saved welding parameters belong to an account or the offline guest.
-  static const int _dbVersion = 29;
+  // v30: ISO sketches follow the same account/guest partition.
+  static const int _dbVersion = 30;
 
   /// The schema version [get] opens the database at.
   ///
@@ -138,6 +139,8 @@ class AppDatabase {
       // repair tables here, as before.
       await _createTables(connection);
       await _ensureColumn(connection, 'weld_params', 'owner_scope',
+          "TEXT NOT NULL DEFAULT 'guest'");
+      await _ensureColumn(connection, 'iso_drawings', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
       await _seedApprovedData(connection);
       _db = connection;
@@ -501,6 +504,11 @@ CREATE TABLE IF NOT EXISTS projects (
           db, 'weld_params', 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
     }
 
+    if (oldVersion < 30) {
+      await _ensureColumn(
+          db, 'iso_drawings', 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -699,9 +707,9 @@ WHERE c.last_confirmed_date IS NOT NULL
   /// does not follow the old pattern — stays unlinked: nothing is guessed,
   /// nothing is deleted, the screen lists it as "no place".
   static Future<void> relinkLegacyHeatKeys(DatabaseExecutor db) async {
-    final rows = await db.rawQuery(
-        'SELECT id, project_id, component_key FROM component_heats '
-        'WHERE segment_id IS NULL');
+    final rows = await db
+        .rawQuery('SELECT id, project_id, component_key FROM component_heats '
+            'WHERE segment_id IS NULL');
     final pattern = RegExp(r'^S(\d+)_(START|END)$');
     for (final r in rows) {
       final m = pattern.firstMatch((r['component_key'] as String?) ?? '');
@@ -733,9 +741,8 @@ WHERE c.last_confirmed_date IS NOT NULL
   };
 
   /// `  name TYPE,\n  name TYPE` for a CREATE TABLE body.
-  static String _columnsDdl(Map<String, String> columns) => columns.entries
-      .map((c) => '  ${c.key} ${c.value}')
-      .join(',\n');
+  static String _columnsDdl(Map<String, String> columns) =>
+      columns.entries.map((c) => '  ${c.key} ${c.value}').join(',\n');
 
   /// CREATE TABLE IF NOT EXISTS for every table, and nothing else.
   ///
@@ -1033,6 +1040,7 @@ CREATE TABLE IF NOT EXISTS hydrotest_records (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS iso_drawings (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   name TEXT NOT NULL DEFAULT '',
   json TEXT NOT NULL,
   created_at INTEGER NOT NULL,
@@ -1315,6 +1323,8 @@ ${_columnsDdl(kWpsLibraryV25Columns)}
         'CREATE INDEX IF NOT EXISTS idx_hydrotest_created ON hydrotest_records(created_at DESC);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_iso_drawings_updated ON iso_drawings(updated_at);');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_iso_drawings_owner ON iso_drawings(owner_scope, updated_at DESC);');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_weld_history_weld ON weld_journal_history(weld_id, at);');
     await db.execute(

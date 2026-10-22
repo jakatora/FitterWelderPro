@@ -10,6 +10,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../widgets/account_session_popup.dart';
 
 import '../data/pipe_schedules.dart';
 import '../domain/iso_notebook/sketch_to_project.dart';
@@ -29,7 +30,7 @@ Future<double?> showSketchGapDialog(
   BuildContext context, {
   required double current,
 }) {
-  return showDialog<double>(
+  return showOwnerBoundDialog<double>(
     context: context,
     builder: (_) => _GapDialog(current: current),
   );
@@ -142,7 +143,7 @@ Future<SketchProjectSettings?> showSketchProjectDialog(
   required SketchProjectPlan plan,
   required String sketchName,
 }) {
-  return showDialog<SketchProjectSettings>(
+  return showOwnerBoundDialog<SketchProjectSettings>(
     context: context,
     builder: (_) => _ProjectDialog(plan: plan, sketchName: sketchName),
   );

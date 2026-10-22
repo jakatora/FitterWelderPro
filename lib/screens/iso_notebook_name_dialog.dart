@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import '../widgets/account_session_popup.dart';
 import '../i18n/app_language.dart';
 
 Future<String?> showIsoSketchNameDialog(BuildContext context,
         {required String current}) =>
-    showDialog<String>(
+    showOwnerBoundDialog<String>(
         context: context, builder: (_) => _SketchNameDialog(current: current));
 
 class _SketchNameDialog extends StatefulWidget {

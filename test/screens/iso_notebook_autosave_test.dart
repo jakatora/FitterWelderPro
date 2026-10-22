@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:cut_list_app/services/account_service.dart';
 // ISO notebook autosave, driven through the real screen and real SQLite.
 //
 // The drawing used to live only in RAM; leaving the screen threw it away.
@@ -74,6 +76,9 @@ Future<void> _leaveNotebook(WidgetTester tester) async {
 
 void main() {
   setUpAll(() async {
+    // Resolve the guest identity outside the widget fake-async clock.
+    FlutterSecureStorage.setMockInitialValues({});
+    await AccountService.instance.load();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfiNoIsolate;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);

@@ -1,3 +1,5 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:cut_list_app/services/account_service.dart';
 // Zeszyt ISO na prawdziwych szerokościach telefonów: 360×640 przy skali
 // tekstu 1,3 i 412×860. Pasek podsumowania i pasek akcji nie mogą się
 // przepełniać, przycisk Wstecz musi być trafialny, a każda akcja paska
@@ -94,6 +96,9 @@ Future<IsoNotebookController> _openBusySketch(WidgetTester tester) async {
 
 void main() {
   setUpAll(() async {
+    // Resolve the guest identity outside the widget fake-async clock.
+    FlutterSecureStorage.setMockInitialValues({});
+    await AccountService.instance.load();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfiNoIsolate;
     await AppDatabase.configureForTesting(inMemoryDatabasePath);
