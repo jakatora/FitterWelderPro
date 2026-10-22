@@ -57,12 +57,14 @@ class CalculatorQuestionContext {
       final value = fields['end_welds'];
       values['end_welds'] = value is bool ? value : null;
     }
-    final readback =
-        id == 'heat_input' && modules is CalculatorResultModuleContext
-            ? (modules as CalculatorResultModuleContext).calculatorResult(id)
-            : null;
-    final results =
-        readback is HeatInputResultReadback ? readback.toJson() : null;
+    final readback = modules is CalculatorResultModuleContext
+        ? (modules as CalculatorResultModuleContext).calculatorResult(id)
+        : null;
+    final permitted =
+        id == 'heat_input' && readback is HeatInputResultReadback ||
+            id == 'rolling_offset' && readback is RollingOffsetResultReadback ||
+            id == 'pipe_slope' && readback is PipeSlopeResultReadback;
+    final results = permitted ? readback!.toJson() : null;
     return values.isEmpty
         ? null
         : CalculatorQuestionContext._(id, values, results);

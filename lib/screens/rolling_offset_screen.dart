@@ -1,3 +1,4 @@
+import '../assistant/core/calculator_result_readback.dart';
 import 'package:flutter/material.dart';
 
 import '../data/elbow_takeouts.dart';
@@ -25,7 +26,7 @@ class RollingOffsetScreen extends StatefulWidget {
 
 class _RollingOffsetScreenState extends State<RollingOffsetScreen>
     with ToolHandleHost<RollingOffsetScreen>
-    implements InputToolHandle {
+    implements InputToolHandle, CalculatorResultToolHandle {
   @override
   String get toolId => 'rolling_offset';
   @override
@@ -43,6 +44,22 @@ class _RollingOffsetScreenState extends State<RollingOffsetScreen>
             ? 0.0
             : parseDecimal(_gapController.text),
       });
+  @override
+  RollingOffsetResultReadback get questionResult {
+    if (_lastCalculation == null) return const RollingOffsetResultReadback();
+    return RollingOffsetResultReadback(
+      trueOffsetMm: parseDecimal(_trueOffsetController.text),
+      travelMm: parseDecimal(_travelController.text),
+      runMm: parseDecimal(_runController.text),
+      multiplier: parseDecimal(_multiplierController.text),
+      rollVerticalDeg: parseDecimal(_rollVController.text),
+      rollHorizontalDeg: parseDecimal(_rollHController.text),
+      takeoutMm: parseDecimal(_takeoutController.text),
+      cutMm: parseDecimal(_cutController.text),
+      cutElbowsOverlap: _cutController.text.isEmpty ? null : _cutNegative,
+    );
+  }
+
   @override
   void initState() {
     super.initState();

@@ -200,8 +200,11 @@ void main() {
       await settle(t);
       await say(t, 'Wyjaśnij mi proszę te parametry');
       expect(calls, 1);
-      expect(sent!['calculator_context'],
-          {'tool_id': 'rolling_offset', 'inputs': fields});
+      final context = sent!['calculator_context'] as Map;
+      expect(context['tool_id'], 'rolling_offset');
+      expect(context['inputs'], fields);
+      expect((context['results'] as Map)['precision'], 'displayed');
+      expect((context['results'] as Map)['travel_mm'], 707.1);
       expect(find.text('Fixture actual HTTP answer'), findsOneWidget);
       expect(ToolBridge.instance.inputFields('rolling_offset'), fields);
       expect(t.takeException(), isNull);

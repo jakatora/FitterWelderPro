@@ -1,3 +1,4 @@
+import '../assistant/core/calculator_result_readback.dart';
 import 'package:flutter/material.dart';
 
 import '../domain/fitter/pipe_slope.dart';
@@ -18,7 +19,7 @@ class PipeSlopeScreen extends StatefulWidget {
 
 class _PipeSlopeScreenState extends State<PipeSlopeScreen>
     with ToolHandleHost<PipeSlopeScreen>
-    implements InputToolHandle, ModuleActionHandle {
+    implements InputToolHandle, ModuleActionHandle, CalculatorResultToolHandle {
   @override
   String get toolId => 'pipe_slope';
   @override
@@ -34,6 +35,17 @@ class _PipeSlopeScreenState extends State<PipeSlopeScreen>
         if (_mode != 'slope_from_lr')
           'slope_pct': parseDecimal(_slopeController.text),
       });
+  @override
+  PipeSlopeResultReadback get questionResult {
+    if (_lastCalculation == null) return const PipeSlopeResultReadback();
+    return PipeSlopeResultReadback(
+        lengthMm: parseDecimal(_lengthController.text),
+        riseMm: parseDecimal(_riseController.text),
+        slopePct: parseDecimal(_slopeController.text),
+        angleDeg: parseDecimal(_angleController.text),
+        mmPerM: parseDecimal(_mmPerMController.text));
+  }
+
   @override
   Future<ModuleActionResult> performAction(String action,
       {String? field}) async {
