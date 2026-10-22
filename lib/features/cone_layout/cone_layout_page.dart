@@ -19,6 +19,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../../domain/fitter/cone_development.dart';
+import '../../domain/fitter/cone_assistant_input.dart';
+import '../../assistant/core/tool_bridge.dart';
 import '../../domain/fitter/transition_development.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
 import '../../i18n/app_language.dart';
@@ -83,7 +85,76 @@ class ConeLayoutPage extends StatefulWidget {
   State<ConeLayoutPage> createState() => _ConeLayoutPageState();
 }
 
-class _ConeLayoutPageState extends State<ConeLayoutPage> {
+class _ConeLayoutPageState extends State<ConeLayoutPage>
+    with ToolHandleHost<ConeLayoutPage>
+    implements InputToolHandle {
+  @override
+  String get toolId => 'cone_layout';
+  @override
+  Set<String> get supportedFields => ConeAssistantInput.fields;
+  @override
+  Map<String, Object?> get inputFields => Map.unmodifiable({
+        'shape': _shape.name,
+        if (_shape == ConeShape.concentric) ...{
+          'mode': _mode.name,
+          'large_dia_mm': _mmOf(_dL),
+          'small_dia_mm': _mmOf(_dS),
+          'thickness_mm': _mmOf(_t),
+          'reference': _ref.name,
+          'parts': _coneParts,
+          'allowance_mm': _mmOf(_allow),
+          switch (_mode) {
+            ConeSizeMode.height => 'height_mm',
+            ConeSizeMode.halfAngle => 'half_angle_deg',
+            ConeSizeMode.slant => 'slant_mm',
+          }: switch (_mode) {
+            ConeSizeMode.height => _mmOf(_h),
+            ConeSizeMode.halfAngle => parseDecimal(_alpha.text),
+            ConeSizeMode.slant => _mmOf(_slant),
+          },
+        },
+      });
+  @override
+  void initState() {
+    super.initState();
+    markReady();
+  }
+
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    ConeAssistantInput parsed;
+    try {
+      parsed = ConeAssistantInput.fromFields(fields);
+    } on FormatException {
+      return fields.keys.isEmpty ? {'shape'} : fields.keys.toSet();
+    }
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return fields.keys.toSet();
+    }
+    final i = parsed.input;
+    // Preserve the selected display unit; canonical payload values are mm.
+    String length(double mm) => (mm / _scale).toString();
+    setState(() {
+      _shape = ConeShape.concentric;
+      _mode = i.mode;
+      _ref = i.ref;
+      _coneParts = i.parts;
+      _dL.text = length(i.largeDiaMm);
+      _dS.text = length(i.smallDiaMm);
+      _t.text = length(i.thicknessMm);
+      _allow.text = length(i.allowanceMm);
+      switch (i.mode) {
+        case ConeSizeMode.height:
+          _h.text = length(i.heightMm);
+        case ConeSizeMode.halfAngle:
+          _alpha.text = i.halfAngleDeg.toString();
+        case ConeSizeMode.slant:
+          _slant.text = length(i.slantMm);
+      }
+    });
+    return {};
+  }
+
   ConeShape _shape = ConeShape.concentric;
   bool _inch = false;
 
