@@ -1,4 +1,5 @@
 import 'core/account_sign_out_skill.dart';
+import 'core/professional_profile_edit_skill.dart';
 import 'records/steel_add_skill.dart';
 import 'own_data/my_params_skill.dart';
 import 'iso/catalog.dart';
@@ -48,6 +49,7 @@ List<AssistantSkill> buildSkillCatalog(
   all.addAll(welderMiscSkills(timer: timer));
   all.add(AccountNavigationSkill());
   all.add(AccountSignOutSkill());
+  all.add(ProfessionalProfileEditSkill());
   all.addAll(fitterRoutesSkills());
   all.addAll(fitterTablesSkills());
   // Kolejne grupy (koordynator):

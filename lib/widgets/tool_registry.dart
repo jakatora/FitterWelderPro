@@ -3043,6 +3043,20 @@ final List<NavEntry> kNavEntries = [
     open: (context) => _pushScreen(context, const AccountScreen(initialRegister: true)),
   ),
   NavEntry(
+    id: 'professional_profile',
+    titlePl: 'Profil zawodowy z asystentem',
+    titleEn: 'Professional profile with assistant',
+    subtitlePl: 'Zawód, doświadczenie i kwalifikacje',
+    subtitleEn: 'Profession, experience and qualifications',
+    icon: Icons.badge_outlined,
+    color: const Color(0xFF9BA3C7),
+    keywordsPl: const ['zawod', 'doswiadczenie', 'profil zawodowy z asystentem'],
+    keywordsEn: const ['profession', 'experience', 'professional profile with assistant'],
+    open: (context) => Navigator.of(context).push(MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'tool:professional_profile'),
+        builder: (_) => const AccountScreen(professionalOnly: true))),
+  ),
+  NavEntry(
     id: 'profile',
     titlePl: 'Twój profil',
     titleEn: 'Your profile',

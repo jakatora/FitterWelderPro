@@ -1,3 +1,7 @@
+import '../app_navigator.dart';
+import '../assistant/core/tool_bridge.dart';
+import '../assistant/core/skill.dart';
+import '../assistant/core/professional_profile_edit.dart';
 import 'package:flutter/material.dart';
 import '../i18n/app_language.dart';
 import '../services/account_service.dart';
@@ -9,13 +13,36 @@ import '../feedback/feedback_consent.dart';
 import '../feedback/feedback_uploader.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key, this.initialRegister = false});
+  const AccountScreen(
+      {super.key, this.initialRegister = false, this.professionalOnly = false});
+  final bool professionalOnly;
   final bool initialRegister;
   @override
   State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen> {
+class _AccountScreenState extends State<AccountScreen>
+    implements ToolHandle, ProfessionalProfileEditorHandle {
+  Map<String, dynamic>? _profileBaseline;
+  bool _savingProfile = false;
+  bool _profileConflict = false;
+  bool _profileSessionFrozen = false;
+  @override
+  String get toolId => 'professional_profile';
+  @override
+  Set<String> get supportedFields => const {};
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async =>
+      fields.keys.toSet();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.professionalOnly) {
+      ToolBridge.instance
+          .attach(this, route: ModalRoute.of(context), ready: !busy);
+    }
+  }
+
   final service = AccountService.instance;
   final email = TextEditingController();
   final password = TextEditingController();
@@ -38,17 +65,157 @@ class _AccountScreenState extends State<AccountScreen> {
     registering = widget.initialRegister;
     _sessionRevision = service.sessionRevision;
     service.addListener(_sessionChanged);
+    service.addSessionPreparer(_prepareProfileSessionChange);
     _load();
   }
 
+  Future<VoidCallback> _prepareProfileSessionChange() async {
+    if (!mounted || service.account == null) return () {};
+    if (_profileDirty || _savingProfile) {
+      throw AccountException(context.tr(
+          pl: 'Zapisz profil lub wczytaj zapisany profil przed zmianą konta.',
+          en: 'Save your profile or reload the saved profile before switching accounts.'));
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _profileSessionFrozen = true);
+    return () {
+      if (mounted) setState(() => _profileSessionFrozen = false);
+    };
+  }
+
+  Map<String, dynamic> _profileDraft() => {
+        'displayName': name.text.trim(),
+        'profession': profession.text.trim(),
+        'experienceYears': int.tryParse(years.text),
+        'processes': processes.toList()..sort(),
+        'qualifications': qualifications.text.trim(),
+        'stamp': stamp.text.trim(),
+        'publicProfile': publicProfile,
+      };
+  bool get _profileDirty =>
+      _profileBaseline != null &&
+      !sameProfessionalProfile(_profileDraft(), _profileBaseline!);
   void _sessionChanged() {
-    if (!mounted || _sessionRevision == service.sessionRevision) return;
-    _sessionRevision = service.sessionRevision;
+    if (!mounted) return;
+    final changedOwner = _sessionRevision != service.sessionRevision;
+    if (!changedOwner && _savingProfile) return;
+    if (!changedOwner &&
+        _profileBaseline != null &&
+        sameProfessionalProfile(
+            professionalProfileValues(service.account), _profileBaseline!)) {
+      return;
+    }
     setState(() {
-      _fill();
-      password.clear();
-      error = null;
+      if (changedOwner || !_profileDirty) {
+        _fill();
+        error = null;
+      } else {
+        _profileConflict = true;
+        error = context.tr(
+            pl: 'Profil zmienił się. Wczytaj aktualny profil przed zapisem.',
+            en: 'The profile changed. Reload the current profile before saving.');
+      }
+      _sessionRevision = service.sessionRevision;
+      if (changedOwner) password.clear();
     });
+  }
+
+  @override
+  SkillResult prepareProfessionalProfileEdit(ProfessionalProfilePatch patch) {
+    const refused = AnswerResult(
+        AssistantAnswer(
+            text: AssistantText(
+                'Zapisz lub wczytaj ponownie ręczne zmiany profilu, zamknij okna i powtórz polecenie.',
+                'Save or reload manual profile edits, close dialogs and repeat the request.')),
+        actionCompleted: false);
+    bool active() =>
+        mounted &&
+        widget.professionalOnly &&
+        !busy &&
+        !_profileSessionFrozen &&
+        identical(service, AccountService.instance) &&
+        service.account != null &&
+        ModalRoute.of(context)?.isCurrent == true &&
+        appRoutes.top is! PopupRoute;
+    if (!active() || !patch.valid || _profileDirty || _profileConflict) {
+      return refused;
+    }
+    final revision = service.sessionRevision;
+    final baseline = professionalProfileValues(service.account);
+    final draft = _profileDraft();
+    var completed = false;
+    Future<UndoAction?>? inFlight;
+    Future<UndoAction?> perform() async {
+      if (completed) return null;
+      if (!active() ||
+          revision != service.sessionRevision ||
+          !sameProfessionalProfile(
+              baseline, professionalProfileValues(service.account)) ||
+          !sameProfessionalProfile(draft, _profileDraft())) {
+        throw AccountException(
+            'Profil lub sesja zmieniły się / Profile or session changed');
+      }
+      final field = patch.fields.entries.single;
+      setState(() {
+        busy = true;
+        _savingProfile = true;
+        error = null;
+      });
+      try {
+        await service.saveProfessionalProfileField(
+            field.key, field.value, baseline[field.key] as Object);
+        if (!mounted ||
+            revision != service.sessionRevision ||
+            !identical(service, AccountService.instance)) {
+          throw AccountException('Sesja zmieniła się / Session changed');
+        }
+        completed = true;
+        setState(_fill);
+        return null;
+      } on AccountException catch (e) {
+        if (mounted && revision == service.sessionRevision && e.status == 409) {
+          setState(() {
+            _profileConflict = true;
+            error = context.tr(
+                pl: 'Profil zmienił się na serwerze. Wczytaj zapisany profil i ponownie przygotuj zmianę.',
+                en: 'The profile changed on the server. Reload the saved profile and prepare the change again.');
+          });
+        }
+        rethrow;
+      } finally {
+        _savingProfile = false;
+        if (mounted) setState(() => busy = false);
+      }
+    }
+
+    return ConfirmResult(
+        AssistantAnswer(
+            text: patch.profession != null
+                ? AssistantText(
+                    'Zapisać zawód w Twoim profilu: ${patch.profession}?',
+                    'Save this profession in your profile: ${patch.profession}?')
+                : AssistantText(
+                    'Zapisać doświadczenie w Twoim profilu: ${patch.experienceYears} lat?',
+                    'Save this experience in your profile: ${patch.experienceYears} years?')),
+        () => inFlight ??= perform().whenComplete(() => inFlight = null));
+  }
+
+  Future<void> _saveProfile() async {
+    if (_profileConflict ||
+        _profileBaseline == null ||
+        !sameProfessionalProfile(
+            _profileBaseline!, professionalProfileValues(service.account))) {
+      throw AccountException(context.tr(
+          pl: 'Wczytaj aktualny profil przed zapisem.',
+          en: 'Reload the current profile before saving.'));
+    }
+    _savingProfile = true;
+    try {
+      await service.saveProfile(_profileDraft());
+      if (mounted) _fill();
+    } finally {
+      _savingProfile = false;
+    }
   }
 
   Future<void> _load() async {
@@ -62,6 +229,8 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   void _fill() {
+    _profileConflict = false;
+    _profileBaseline = professionalProfileValues(service.account);
     final a = service.account;
     name.text = a?['displayName'] as String? ?? '';
     profession.text = a?['profession'] as String? ?? '';
@@ -92,12 +261,15 @@ class _AccountScreenState extends State<AccountScreen> {
     } finally {
       if (mounted) {
         setState(() => busy = false);
+        if (widget.professionalOnly) ToolBridge.instance.markReady(this);
       }
     }
   }
 
   @override
   void dispose() {
+    if (widget.professionalOnly) ToolBridge.instance.detach(this);
+    service.removeSessionPreparer(_prepareProfileSessionChange);
     service.removeListener(_sessionChanged);
     for (final c in [
       email,
@@ -120,6 +292,7 @@ class _AccountScreenState extends State<AccountScreen> {
         child: TextField(
             controller: c,
             obscureText: secret,
+            readOnly: busy || _profileSessionFrozen,
             enableSuggestions: !secret,
             autocorrect: !secret,
             maxLength: max,
@@ -136,10 +309,15 @@ class _AccountScreenState extends State<AccountScreen> {
     final a = service.account;
     return Scaffold(
         appBar: AppBar(
-            title: Text(
-                context.tr(pl: 'Konto i zawód', en: 'Account and profession'))),
+            title: Text(context.tr(
+                pl: widget.professionalOnly
+                    ? 'Profil zawodowy'
+                    : 'Konto i zawód',
+                en: widget.professionalOnly
+                    ? 'Professional profile'
+                    : 'Account and profession'))),
         body: AbsorbPointer(
-            absorbing: busy,
+            absorbing: busy || _profileSessionFrozen,
             child: ListView(padding: const EdgeInsets.all(20), children: [
               if (busy) const LinearProgressIndicator(),
               if (error != null)
@@ -172,7 +350,17 @@ class _AccountScreenState extends State<AccountScreen> {
                           await FeedbackUploader.instance.flush();
                         }
                       })),
-              if (a == null && service.needsIdentityRefresh) ...[
+              if (widget.professionalOnly && a == null) ...[
+                Text(context.tr(
+                    pl: 'Zaloguj się, aby edytować profil zawodowy.',
+                    en: 'Sign in to edit your professional profile.')),
+                FilledButton(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const AccountScreen())),
+                    child: Text(context.tr(
+                        pl: 'Otwórz logowanie', en: 'Open sign-in'))),
+              ] else if (a == null && service.needsIdentityRefresh) ...[
                 Text(context.tr(
                     pl: 'Nie udało się pobrać profilu. Twoja sesja została zachowana. Spróbuj ponownie po odzyskaniu połączenia.',
                     en: 'Could not load your profile. Your session has been retained. Try again when the connection is restored.')),
@@ -248,7 +436,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         : context.tr(
                             pl: 'Utwórz konto', en: 'Create an account'))),
               ] else ...[
-                Text(a['email'] as String),
+                if (!widget.professionalOnly) Text(a['email'] as String),
                 const SizedBox(height: 20),
                 field(name, 'Imię i nazwisko na czacie', 'Chat display name'),
                 field(profession, 'Zawód (np. spawacz, monter)',
@@ -291,13 +479,17 @@ class _AccountScreenState extends State<AccountScreen> {
                 SwitchListTile(
                     key: const Key('account-ai-professional-context'),
                     contentPadding: EdgeInsets.zero,
-                    title: Text(context.tr(pl: 'Dopasuj asystenta AI do mojego zawodu',
+                    title: Text(context.tr(
+                        pl: 'Dopasuj asystenta AI do mojego zawodu',
                         en: 'Adapt the AI assistant to my profession')),
                     subtitle: Text(context.tr(
-                        pl: 'Po włączeniu Railway i Anthropic otrzymają z zapisanego profilu zawód, procesy i lata doświadczenia. Bez nazwiska, e-maila, kwalifikacji i stempla. Ustawienie dotyczy tego konta na tym telefonie.',
-                        en: 'When enabled, Railway and Anthropic receive your saved profession, processes and years of experience. Your name, email, qualifications and stamp are excluded. This setting applies to this account on this phone.')),
+                        pl:
+                            'Po włączeniu Railway i Anthropic otrzymają z zapisanego profilu zawód, procesy i lata doświadczenia. Bez nazwiska, e-maila, kwalifikacji i stempla. Ustawienie dotyczy tego konta na tym telefonie.',
+                        en:
+                            'When enabled, Railway and Anthropic receive your saved profession, processes and years of experience. Your name, email, qualifications and stamp are excluded. This setting applies to this account on this phone.')),
                     value: AiProfessionalContext.instance.enabled,
-                    onChanged: (value) => _run(() => AiProfessionalContext.instance.setEnabled(value))),
+                    onChanged: (value) => _run(() =>
+                        AiProfessionalContext.instance.setEnabled(value))),
                 FilledButton(
                     onPressed: () => _run(() async {
                           final experience = int.tryParse(years.text);
@@ -308,15 +500,7 @@ class _AccountScreenState extends State<AccountScreen> {
                                 pl: 'Podaj doświadczenie od 0 do 80 lat.',
                                 en: 'Enter experience from 0 to 80 years.'));
                           }
-                          await service.saveProfile({
-                            'displayName': name.text,
-                            'profession': profession.text,
-                            'experienceYears': experience,
-                            'processes': processes.toList(),
-                            'qualifications': qualifications.text,
-                            'stamp': stamp.text,
-                            'publicProfile': publicProfile
-                          });
+                          await _saveProfile();
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                                 content: Text(context.tr(
@@ -326,33 +510,47 @@ class _AccountScreenState extends State<AccountScreen> {
                         }),
                     child: Text(
                         context.tr(pl: 'Zapisz profil', en: 'Save profile'))),
-                if (service.isAdmin)
-                  ListTile(
-                      leading: const Icon(Icons.admin_panel_settings_outlined),
-                      title: Text(context.tr(
-                          pl: 'Raporty administratora',
-                          en: 'Administrator reports')),
-                      onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                              builder: (_) => const AdminReportsScreen()))),
-                TextButton(
-                    onPressed: _changePassword,
-                    child: Text(
-                        context.tr(pl: 'Zmień hasło', en: 'Change password'))),
-                TextButton(
-                    onPressed: () => _run(() async {
-                          await service.signOut();
-                          password.clear();
-                        }),
-                    child: Text(context.tr(pl: 'Wyloguj się', en: 'Sign out'))),
-                const Divider(),
-                field(password, 'Hasło — wymagane do usunięcia konta',
-                    'Password — required to delete account',
-                    secret: true, max: 128),
-                TextButton(
-                    onPressed: () => _delete(),
-                    child: Text(
-                        context.tr(pl: 'Usuń konto', en: 'Delete account'))),
+                if (!widget.professionalOnly) ...[
+                  if (service.isAdmin)
+                    ListTile(
+                        leading:
+                            const Icon(Icons.admin_panel_settings_outlined),
+                        title: Text(context.tr(
+                            pl: 'Raporty administratora',
+                            en: 'Administrator reports')),
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                                builder: (_) => const AdminReportsScreen()))),
+                  TextButton(
+                      onPressed: _changePassword,
+                      child: Text(context.tr(
+                          pl: 'Zmień hasło', en: 'Change password'))),
+                  TextButton(
+                      onPressed: () => _run(() async {
+                            await service.signOut();
+                            password.clear();
+                          }),
+                      child:
+                          Text(context.tr(pl: 'Wyloguj się', en: 'Sign out'))),
+                  const Divider(),
+                  field(password, 'Hasło — wymagane do usunięcia konta',
+                      'Password — required to delete account',
+                      secret: true, max: 128),
+                  TextButton(
+                      onPressed: () => _delete(),
+                      child: Text(
+                          context.tr(pl: 'Usuń konto', en: 'Delete account'))),
+                ],
+                if (_profileConflict || widget.professionalOnly)
+                  TextButton(
+                      key: const Key('professional-profile-reload'),
+                      onPressed: () => _run(() async {
+                            await service.refreshProfile();
+                            _fill();
+                          }),
+                      child: Text(context.tr(
+                          pl: 'Wczytaj zapisany profil — porzuć edycję',
+                          en: 'Reload saved profile — discard edits'))),
               ],
             ])));
   }

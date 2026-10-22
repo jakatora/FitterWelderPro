@@ -48,6 +48,8 @@ class AccountService extends ChangeNotifier {
   Future<void>? _loading;
   bool _loaded = false;
   int _sessionRevision = 0;
+  int _profileRevision = 0;
+  int get profileRevision => _profileRevision;
   int _authEpoch = 0;
   final Set<Future<VoidCallback> Function()> _sessionPreparers = {};
   Future<void>? _sessionChangeTail;
@@ -158,6 +160,21 @@ class AccountService extends ChangeNotifier {
     _requireSession(revision);
   }
 
+  Future<void> refreshProfile() async {
+    final revision = _sessionRevision, owner = account?['id'];
+    if (owner == null) throw AccountException('Zaloguj się / Sign in');
+    final response = await request('GET', '/me');
+    _requireSession(revision);
+    final updated = response['account'];
+    if (updated is! Map || updated['id'] != owner) {
+      throw AccountException(
+          'Nie potwierdzono profilu / Profile was not confirmed');
+    }
+    account = Map<String, dynamic>.from(updated);
+    _profileRevision++;
+    notifyListeners();
+  }
+
   Future<void> load() {
     if (_loaded) return Future.value();
     return _loading ??= _restore().then((_) {
@@ -228,8 +245,9 @@ class AccountService extends ChangeNotifier {
           method != 'DELETE') {
         await _eraseSession();
       }
-      throw AccountException(data['error']?['message'] as String? ??
-          'Błąd serwera / Server error');
+      throw AccountException(
+          data['error']?['message'] as String? ?? 'Błąd serwera / Server error',
+          status: response.statusCode);
     }
     return data;
   }
@@ -282,6 +300,29 @@ class AccountService extends ChangeNotifier {
     final r = await request('PUT', '/profile', profile);
     _requireSession(revision);
     account = Map<String, dynamic>.from(r['account'] as Map);
+    _profileRevision++;
+    notifyListeners();
+  }
+
+  /// A confirmed professional edit never sends unrelated profile fields.
+  Future<void> saveProfessionalProfileField(
+      String field, Object value, Object expected) async {
+    final revision = _sessionRevision, owner = account?['id'];
+    if (owner == null ||
+        !const {'profession', 'experienceYears'}.contains(field)) {
+      throw AccountException(
+          'Nieprawidłowa zmiana profilu / Invalid profile change');
+    }
+    final response = await request('POST', '/profile/assistant',
+        {'field': field, 'value': value, 'expected': expected});
+    _requireSession(revision);
+    final updated = response['account'];
+    if (updated is! Map || updated['id'] != owner || updated[field] != value) {
+      throw AccountException(
+          'Nie potwierdzono zmiany profilu / Profile change was not confirmed');
+    }
+    account = Map<String, dynamic>.from(updated);
+    _profileRevision++;
     notifyListeners();
   }
 
@@ -323,7 +364,8 @@ class AccountService extends ChangeNotifier {
 
 class AccountException implements Exception {
   final String message;
-  AccountException(this.message);
+  final int? status;
+  AccountException(this.message, {this.status});
   @override
   String toString() => message;
 }

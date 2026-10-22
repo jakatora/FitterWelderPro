@@ -75,8 +75,13 @@ class AiProfessionalContext extends ChangeNotifier {
     final account = AccountService.instance;
     final session = account.sessionRevision;
     await load();
-    final capture = AiProfessionalRequest._(account, session, _revision,
-        enabled, enabled ? await account.headers() : const {});
+    final capture = AiProfessionalRequest._(
+        account,
+        session,
+        _revision,
+        account.profileRevision,
+        enabled,
+        enabled ? await account.headers() : const {});
     capture.requireCurrent();
     return capture;
   }
@@ -92,10 +97,10 @@ class AiProfessionalContext extends ChangeNotifier {
 }
 
 class AiProfessionalRequest {
-  AiProfessionalRequest._(
-      this._account, this._session, this._revision, this.enabled, this.headers);
+  AiProfessionalRequest._(this._account, this._session, this._revision,
+      this._profileRevision, this.enabled, this.headers);
   final AccountService _account;
-  final int _session, _revision;
+  final int _session, _revision, _profileRevision;
   final bool enabled;
   final Map<String, String> headers;
   Map<String, Object> get body =>
@@ -103,6 +108,7 @@ class AiProfessionalRequest {
   void requireCurrent() {
     if (!identical(_account, AccountService.instance) ||
         _session != _account.sessionRevision ||
+        enabled && _profileRevision != _account.profileRevision ||
         _revision != AiProfessionalContext.instance._revision) {
       throw AccountException(
           'Sesja lub zgoda na profil AI zmieniła się. / Session or AI profile consent changed.');
