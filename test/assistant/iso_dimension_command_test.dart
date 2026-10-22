@@ -33,6 +33,38 @@ void main() {
             u('Set ISO dimension of last pipe to 500 mm')),
         isTrue);
   });
+  test('AI dimension proposals distinguish a request from advice or negation',
+      () {
+    Utterance u(String text) => Utterance(text, lang: AppLanguage.pl);
+    final command = u('Zmień wymiar ISO rury numer 2 na 500 mm');
+    for (final text in [
+      'Czy możesz zmienić drugi odcinek na 500 mm?',
+      'Could you please set the second pipe to 500 mm?',
+      'Chciałbym żeby drugi odcinek miał 500 mm',
+      'Ten drugi odcinek powinien mieć pół metra',
+    ]) {
+      expect(acceptsIsoDimensionProposal(u(text), command), isTrue,
+          reason: text);
+    }
+    for (final text in [
+      'Nie zmieniaj drugiego odcinka na 500 mm',
+      'Proszę nie zmieniaj drugiego odcinka na 500 mm',
+      'Jak zmienić drugi odcinek na 500 mm?',
+      'Czy mogę zmienić drugi odcinek na 500 mm?',
+      'Czy drugi odcinek powinien mieć 500 mm?',
+      'Czy możesz wyjaśnić jak zmienić drugi odcinek na 500 mm?',
+      'How do I set the second pipe to 500 mm?',
+      'Can I set the second pipe to 500 mm?',
+      'Should the second pipe be 500 mm?',
+      'Could you explain setting the second pipe to 500 mm?',
+      'Please do not set the second pipe to 500 mm',
+      "Don't change the second pipe to 500 mm",
+      'Please don’t change the second pipe to 500 mm',
+    ]) {
+      expect(acceptsIsoDimensionProposal(u(text), command), isFalse,
+          reason: text);
+    }
+  });
   for (final (text, index, mm, lang) in [
     ('Zmień wymiar ISO ostatniej rury na 500 mm', null, 500.0, AppLanguage.pl),
     ('Ustaw wymiar ISO rury numer 2 na 1,5 m', 2, 1500.0, AppLanguage.pl),

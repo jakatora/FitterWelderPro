@@ -11,9 +11,18 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useTestDatabase();
   setUp(() async => (await AppDatabase.get()).delete('iso_drawings'));
-  for (final correct in [true, false]) {
+  for (final scenario in [
+    (true, 'Ten drugi odcinek powinien mieć pół metra', 2, 1),
+    (false, 'Ten drugi odcinek powinien mieć pół metra', 1, 1),
+    (true, 'Czy możesz zmienić drugi odcinek na 500 mm?', 2, 1),
+    (true, 'Could you please set the second pipe to 500 mm?', 2, 1),
+    (false, 'Nie zmieniaj drugiego odcinka na 500 mm', 2, 0),
+    (false, 'Jak zmienić drugi odcinek na 500 mm?', 2, 1),
+    (false, 'Czy mogę zmienić drugi odcinek na 500 mm?', 2, 1),
+  ]) {
+    final (correct, source, proposedOrdinal, expectedCalls) = scenario;
     testWidgets(
-        'AI proposed dimension edits actual pipe only when original target agrees: $correct',
+        'AI proposed dimension edits actual pipe only when original target agrees: $correct $source',
         (t) async {
       var calls = 0;
       await mount(t, interpret: (request) async {
@@ -26,7 +35,7 @@ void main() {
             'execute',
             [
               AiCommandStep('iso.dimension',
-                  'Zmień wymiar ISO rury numer ${correct ? 2 : 1} na 500 mm')
+                  'Zmień wymiar ISO rury numer $proposedOrdinal na 500 mm')
             ],
             '');
       });
@@ -36,8 +45,8 @@ void main() {
         await settle(t);
       }
       expect(calls, 0);
-      await say(t, 'Ten drugi odcinek powinien mieć pół metra');
-      expect(calls, 1);
+      await say(t, source);
+      expect(calls, expectedCalls);
       await settle(t);
       await flushTestDatabase(t);
       final stored = await t.runAsync(() => IsoDrawingDao().latest());

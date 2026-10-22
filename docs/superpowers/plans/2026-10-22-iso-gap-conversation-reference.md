@@ -29,3 +29,10 @@ Verification: 53 tests passed, including mounted assistant/real SQLite persisten
 The iso.name proposal guard now separates one exact quoted title from the request header. Assistant-directed PL/EN requests (including Czy możesz/mógłbyś/mogłabyś and Can/Could/Would you) name or rename the explicitly named drawing/sketch. Question words inside the literal title are data. Permission/advice questions, other entities such as projects, multiple alternative titles, trailing actions, and rewritten titles cannot rename a sheet. Existing canonical literal naming remains unchanged.
 
 49 tests passed across name parser/guard, mounted name flows, main AI execution, session isolation and sheet references. Mounted flows use controlled interpreter plans and real SQLite to verify same record ID, exact saved title and unchanged geometry, including wrong-title, unrelated-project and permission-question rejections. Three-file fatal analysis clean. No live provider test or Railway deployment in this step.
+
+
+## Dimension request intent (2026-10-22)
+
+A failing test demonstrated that iso.dimension accepted an AI execute proposal even for "Nie zmieniaj drugiego odcinka na 500 mm". Proposal validation now rejects source negation (including English apostrophe contractions), explanation/advice and permission questions. Assistant-directed requests (Czy możesz / Could you...) and declarative corrections (Ten drugi odcinek powinien mieć pół metra) remain valid, subject to existing numeric/unit/pipe ordinal checks. This validates model proposals locally; it does not claim to change the live model response.
+
+47 tests passed, including controlled-interpreter mounted flows with actual SQLite dimensions for polite PL/EN requests, wrong-ordinal rejection and advice/permission non-mutation. The existing native negation route makes zero AI calls; fixture expectation corrected to assert that behavior and unchanged stored dimensions. Straight and typographic English contractions covered by unit tests. Three-file fatal analysis clean. No live AI call, backend changes or physical device acceptance.

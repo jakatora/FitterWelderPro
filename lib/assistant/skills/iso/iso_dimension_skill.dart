@@ -44,6 +44,9 @@ bool acceptsIsoDimensionProposal(Utterance original, Utterance command) {
   if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(original.raw.toLowerCase())) {
     return false;
   }
+  // A model's execute plan does not override the user's negation or turn
+  // advice/permission questions into mutations. Preserve declarative requests.
+  if (_dimensionSourceIsQuestionOrNegation(original)) return false;
   final proposed = parseIsoCommand(command);
   if (proposed?.kind != IsoCommandKind.setPipeDimension) return false;
   final literal = parseIsoCommand(original);
@@ -90,4 +93,23 @@ bool acceptsIsoDimensionProposal(Utterance original, Utterance command) {
   return last
       ? proposed.pipeOrdinal == null && ordinals.isEmpty
       : ordinals.length == 1 && ordinals.single == proposed.pipeOrdinal;
+}
+
+bool _dimensionSourceIsQuestionOrNegation(Utterance source) {
+  if (RegExp(r"\b[a-z]+n['’]t\b", caseSensitive: false).hasMatch(source.raw)) {
+    return true;
+  }
+  if (source.hasAny(
+          const ['nie', 'nigdy', 'not', 'dont', 'never', 'jak', 'how']) ||
+      source.hasStem(const ['wyjasn', 'explain'])) {
+    return true;
+  }
+  final text = source.folded.replaceFirst(RegExp(r'^(?:prosze|please)\s+'), '');
+  final addressedRequest = RegExp(
+          r'^(?:(?:czy )?mozesz|czy moglbys|czy moglabys) (?:prosze )?(?:zmienic|zmien|ustawic|ustaw|skrocic|skroc|wydluzyc|wydluz)\b|^(?:can|could|would|will) you (?:please )?(?:set|change|make|shorten|lengthen)\b')
+      .hasMatch(text);
+  if (addressedRequest) return false;
+  return source.raw.trimRight().endsWith('?') ||
+      RegExp(r'^(?:czy|jak|dlaczego|kiedy|ktory|jaki|can|could|would|will|should|is|are|does|do|what|why|when|which)\b')
+          .hasMatch(text);
 }
