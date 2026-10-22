@@ -1,3 +1,4 @@
+import '../assistant/ai_clarification.dart';
 import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
 import '../domain/iso_notebook/sketch_summary.dart';
@@ -140,9 +141,11 @@ class AiChatService {
     List<ChatMessage> history = const [],
     SketchSummary? isoSummary,
     CalculatorQuestionContext? calculatorContext,
+    AiClarification? questionClarification,
   }) async {
     final trimmed = userText.trim();
-    if (containsCredentialValue(trimmed)) {
+    if (containsCredentialValue(trimmed) ||
+        questionClarification?.userTurns.any(containsCredentialValue) == true) {
       return ChatMessage(
           role: ChatRole.assistant,
           text: credentialInputNoticePl,
@@ -155,10 +158,17 @@ class AiChatService {
       );
     }
 
+    final completeQuestion = questionClarification?.sourceWithReply(trimmed);
+    if (questionClarification != null && completeQuestion == null) {
+      return ChatMessage(role: ChatRole.assistant,
+          text: AppLanguageController.isEnglish ? 'Give the complete question again.' : 'Podaj ponownie całe pytanie.',
+          kind: AiReplyKind.localDialogue);
+    }
+    final fallbackQuestion = completeQuestion ?? trimmed;
     if (!kAiBackendAvailable) {
       // Simulated latency so the typing indicator feels real.
       await Future<void>.delayed(const Duration(milliseconds: 700));
-      return _demoReply(trimmed);
+      return _demoReply(fallbackQuestion);
     }
 
     // Live mode (Phase 5b): POST conversation to Railway backend, which
@@ -183,6 +193,8 @@ class AiChatService {
             body: jsonEncode({
               ...profile.body,
               'message': trimmed,
+              if (questionClarification != null)
+                'question_clarification': {'user_turns': questionClarification.userTurns},
               if (isoSummary != null) 'iso_summary': isoSummary.toJson(),
               if (calculatorContext != null) 'calculator_context': calculatorContext.toJson(),
               'history': chatHistoryForRequest(history)
@@ -216,7 +228,7 @@ class AiChatService {
         }
         // 401 (brak/zły sekret instalacji), 404 (stary backend bez trasy),
         // inne 4xx/5xx → pomoc offline z aplikacji.
-        final help = offlineReply(trimmed);
+        final help = offlineReply(fallbackQuestion);
         return ChatMessage(
             role: ChatRole.assistant,
             text:
@@ -226,6 +238,13 @@ class AiChatService {
       }
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      if (questionClarification != null && body['question_clarification_used'] != true) {
+        return ChatMessage(role: ChatRole.assistant,
+            text: AppLanguageController.isEnglish
+                ? 'The earlier details could not be included. Please ask the complete question again.'
+                : 'Nie udało się uwzględnić wcześniejszych szczegółów. Zadaj całe pytanie ponownie.',
+            kind: AiReplyKind.localDialogue);
+      }
       if (calculatorContext != null && body['calculator_context_used'] != true) {
         return ChatMessage(role: ChatRole.assistant,
             text: AppLanguageController.isEnglish
@@ -255,7 +274,7 @@ class AiChatService {
       // Network down, timeout, TLS failure, etc. — pomoc offline, żeby monter
       // dostał coś użytecznego zamiast czerwonego wyjątku.
       debugPrint('AiChatService offline: $e');
-      return offlineReply(trimmed);
+      return offlineReply(fallbackQuestion);
     }
   }
 

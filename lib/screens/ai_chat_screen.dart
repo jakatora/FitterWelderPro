@@ -902,6 +902,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     final awaitingAiClarification =
         pending == null && _aiQuestion != null && !boundedRequest &&
         !_brain.recognizesNewCommand(u, _brainContext);
+    final questionClarification = awaitingAiClarification ? _aiClarification : null;
     final executionSource = awaitingAiClarification
         ? _aiClarification!.sourceWithReply(text)
         : text;
@@ -1092,7 +1093,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         _cmdCtrl.clear();
       });
       try {
-        await _send();
+        await _send(questionClarification: questionClarification);
       } finally {
         if (mounted && epoch == _aiEpoch) setState(() => _busy = false);
       }
@@ -2721,7 +2722,26 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
   }
 
-  Future<void> _send() async {
+  void _offerKnowledgeRetry(String text, AiClarification? clarification, int epoch) {
+    var started = false;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_tr('Nie otrzymałem odpowiedzi AI.', 'No AI answer was received.')),
+      duration: const Duration(seconds: 6),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: _kCard,
+      action: SnackBarAction(
+        label: _tr('Ponów', 'Retry'), textColor: _kAccent,
+        onPressed: () {
+          if (started || !mounted || epoch != _conversationEpoch) return;
+          started = true;
+          _inputCtrl.text = text;
+          unawaited(_send(questionClarification: clarification));
+        },
+      ),
+    ));
+  }
+
+  Future<void> _send({AiClarification? questionClarification}) async {
     final epoch = _conversationEpoch;
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _typing.value) return;
@@ -2746,7 +2766,7 @@ class _AiChatScreenState extends State<AiChatScreen>
     });
 
     if (!consented) {
-      final offline = AiChatService.instance.offlineReply(text);
+      final offline = AiChatService.instance.offlineReply(questionClarification?.sourceWithReply(text) ?? text);
       setState(() {
         _appendKnowledgeReply(offline);
       });
@@ -2772,7 +2792,8 @@ class _AiChatScreenState extends State<AiChatScreen>
               : await AiChatService.instance.sendMessage(text,
                   history: history,
                   isoSummary: summary,
-                  calculatorContext: calculatorContext);
+                  calculatorContext: calculatorContext,
+                  questionClarification: questionClarification);
       if (!mounted || epoch != _conversationEpoch) return;
       if (calculatorContext != null) {
         final current =
@@ -2821,6 +2842,10 @@ class _AiChatScreenState extends State<AiChatScreen>
             addMessages: false, kind: AiReplyKind.live);
       }
       _typing.value = false;
+      if (questionClarification != null &&
+          const {AiReplyKind.unavailable, AiReplyKind.offlineHelp}.contains(reply.kind)) {
+        _offerKnowledgeRetry(text, questionClarification, epoch);
+      }
       _scrollToBottom();
       await _speak(reply.text);
     } catch (e) {
@@ -2837,22 +2862,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       });
       _typing.value = false;
       _scrollToBottom();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            _tr('Połączenie z AI nie powiodło się.', 'AI connection failed.')),
-        duration: const Duration(seconds: 6),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: _kCard,
-        action: SnackBarAction(
-          label: _tr('Ponów', 'Retry'),
-          textColor: _kAccent,
-          onPressed: () {
-            if (!mounted || epoch != _conversationEpoch) return;
-            _inputCtrl.text = text;
-            _send();
-          },
-        ),
-      ));
+      _offerKnowledgeRetry(text, questionClarification, epoch);
     }
   }
 
