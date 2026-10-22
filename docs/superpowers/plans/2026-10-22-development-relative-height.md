@@ -1,0 +1,11 @@
+# Relative development height — 2026-10-22
+
+Extended development.height with literal PL/EN add/subtract length, double and halve operations. Native calculation uses the current visible form and validates both the starting geometry and resulting complete payload. For concentric angle/slant mode, the starting height comes from computeCone's result, not a missing/default height input. The edit then uses explicit height mode. Other dimensions/settings remain unchanged.
+
+The model may normalize a supported natural relative directive, but source and proposed target heights are independently resolved from the native current input. A wrong model result is rejected; a relative canonical command also works without forcing the model to print a rounded irrational height. Missing form, negative/zero delta, absent/duplicated units, multiple requested quantities, advice/translation/negation, nonpositive target and out-of-domain target do not produce an update. Existing request-snapshot checks still discard responses after manual field changes.
+
+Examples: “Zwiększ wysokość o100mm”, “Zmniejsz wysokość o10cm”, “Podwój wysokość”, “Zmniejsz wysokość o połowę”, with English equivalents. Plain supported commands execute locally with no AI interpretation request. Broader natural wording can use the existing AI route. Only height operations are covered; this is not arbitrary arithmetic or arbitrary field editing.
+
+Final1161PASS0skip across absolute/relative height integration, all three development integrations and full router corpus (build/development-relative-height-regression.log). New tests use expected numeric results, actual mounted form sequences on all three shapes after manual height/thickness edits, angle/slant derived starting heights, invalid limits, missing live input, mocked phone speech, natural AI normalization and wrong-arithmetic rejection. The held-response snapshot regressions from the preceding change remain green. Three-file fatal analysis clean (build/development-relative-height-final-analyze.log). No semantic edits after checks.
+
+No paid API/model/budget/backend change, deployment or new APK. Latest delivered APK remains5806c1e while registration-version6 backend rollout is pending. Real Haiku quality, physical microphone, Railway deployment, remaining native field/action coverage and the overall assistant goal remain open.
