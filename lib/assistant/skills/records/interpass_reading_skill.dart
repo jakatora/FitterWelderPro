@@ -1,3 +1,4 @@
+import '../../../database/local_record_owner.dart';
 import '../../../utils/decimal_parse.dart';
 import 'package:uuid/uuid.dart';
 import '../../../domain/welding/interpass_log.dart';
@@ -321,8 +322,11 @@ class InterpassReadingSkill extends AssistantSkill {
           'Which weld is this for? Give its number or open its temperature record.');
     }
     InterpassLoad load;
+    LocalRecordOwner owner;
     try {
+      owner = await LocalRecordOwner.capture();
       load = await store.load();
+      owner.requireCurrent();
     } catch (_) {
       return const FailedResult(AssistantText(
           'Nie udało się odczytać rejestru temperatury. Spróbuj ponownie.',
@@ -410,6 +414,7 @@ class InterpassReadingSkill extends AssistantSkill {
         ]);
     final historyId = 'interpass.reading:${_newId()}';
     return ConfirmResult(summary, () async {
+      owner.requireCurrent();
       final now = ctx.now();
       if (interpassAtInFuture(DateTime.fromMillisecondsSinceEpoch(at), now)) {
         throw StateError('Measurement time is in the future');
@@ -425,11 +430,14 @@ class InterpassReadingSkill extends AssistantSkill {
       final after = before
           .addReading(reading)
           .copyWith(updatedAt: now.millisecondsSinceEpoch);
-      if (!await store.replaceIfUnchanged(before, after)) {
+      if (!await store.replaceIfUnchanged(before, after,
+          expectedOwner: owner)) {
         throw StateError('The weld changed after the preview');
       }
+      owner.requireCurrent();
       await AssistantHistoryStore.instance.add(AssistantHistoryEntry(
           id: historyId,
+          ownerScope: owner.key,
           kind: id,
           summary:
               '${before.weldNo} · ${reading.pass} · ${interpassReadingValue(reading, unit, en: en)}',
@@ -437,11 +445,16 @@ class InterpassReadingSkill extends AssistantSkill {
           at: now,
           byVoice:
               s['origin_voice'] == true || (m.utterance?.byVoice ?? false)));
+      owner.requireCurrent();
       return () async {
-        if (!await store.replaceIfUnchanged(after, before)) {
+        owner.requireCurrent();
+        if (!await store.replaceIfUnchanged(after, before,
+            expectedOwner: owner)) {
           throw StateError('The reading was changed after confirmation');
         }
+        owner.requireCurrent();
         await AssistantHistoryStore.instance.markUndone(historyId);
+        owner.requireCurrent();
       };
     }, show: ShowInModule(toolId, {'weld_id': before.id}));
   }

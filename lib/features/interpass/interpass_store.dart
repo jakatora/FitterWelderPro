@@ -1,3 +1,4 @@
+import '../../database/local_record_owner.dart';
 // Rejestr temperatury podgrzania i międzyściegowej w SharedPreferences
 // (JSON z wersją w kluczu i w treści) — bez zmian schematu bazy.
 //
@@ -112,11 +113,15 @@ class InterpassStore {
     await prefs.setString(free ?? corruptBackupKeys.last, text);
   }
 
-  Future<void> _write(List<InterpassWeld> list) async {
+  Future<void> _write(List<InterpassWeld> list,
+      {LocalRecordOwner? expectedOwner}) async {
+    expectedOwner?.requireCurrent();
     final prefs = await SharedPreferences.getInstance();
+    expectedOwner?.requireCurrent();
     final ok = await prefs.setString(
         key, jsonEncode(interpassLogToJson(sortInterpassWelds(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
+    expectedOwner?.requireCurrent();
     changes.value++;
   }
 
@@ -152,10 +157,13 @@ class InterpassStore {
   /// Optimistic, serialised replacement for a previewed assistant operation.
   /// A corrupt log, removed record or later manual edit must never be replaced.
   Future<bool> replaceIfUnchanged(
-          InterpassWeld expected, InterpassWeld replacement) =>
+          InterpassWeld expected, InterpassWeld replacement,
+          {LocalRecordOwner? expectedOwner}) =>
       _serial(() async {
+        expectedOwner?.requireCurrent();
         if (expected.id != replacement.id || replacement.isBlank) return false;
         final load = await _loadNow();
+        expectedOwner?.requireCurrent();
         if (load.corrupt) return false;
         final list = [...load.welds];
         final matches =
@@ -166,7 +174,7 @@ class InterpassStore {
           return false;
         }
         list[matches.single.$1] = replacement;
-        await _write(list);
+        await _write(list, expectedOwner: expectedOwner);
         return true;
       });
 
