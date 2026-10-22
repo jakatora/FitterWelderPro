@@ -12,6 +12,7 @@ import 'mitre_bend_skill.dart';
 import 'tube_bending_skill.dart';
 import 'pipe_route_skill.dart';
 import 'cone_layout_skill.dart';
+import 'transition_layout_skill.dart';
 
 List<AssistantSkill> fitterRoutesSkills() => [
       PipeSlopeSkill(),
@@ -27,5 +28,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       TubeBendingSkill(),
       PipeRouteSkill(),
       ConeLayoutSkill(),
-      EccentricConeSkill()
+      EccentricConeSkill(),
+      TransitionLayoutSkill()
     ];

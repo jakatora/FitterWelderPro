@@ -21,6 +21,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../domain/fitter/cone_development.dart';
 import '../../domain/fitter/cone_assistant_input.dart';
 import '../../domain/fitter/eccentric_cone_assistant_input.dart';
+import '../../domain/fitter/transition_assistant_input.dart';
 import '../../assistant/core/tool_bridge.dart';
 import '../../domain/fitter/transition_development.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
@@ -92,11 +93,27 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
   @override
   String get toolId => 'cone_layout';
   @override
-  Set<String> get supportedFields =>
-      {...ConeAssistantInput.fields, ...EccentricConeAssistantInput.fields};
+  Set<String> get supportedFields => {
+        ...ConeAssistantInput.fields,
+        ...EccentricConeAssistantInput.fields,
+        ...TransitionAssistantInput.fields
+      };
   @override
   Map<String, Object?> get inputFields => Map.unmodifiable({
         'shape': _shape.name,
+        if (_shape == ConeShape.transition) ...{
+          'side_a_mm': _mmOf(_a),
+          'side_b_mm': _mmOf(_b),
+          'diameter_mm': _mmOf(_dT),
+          'height_mm': _mmOf(_hT),
+          'offset_x_mm': _ex.text.trim().isEmpty ? 0 : _mmOf(_ex),
+          'offset_y_mm': _ey.text.trim().isEmpty ? 0 : _mmOf(_ey),
+          'thickness_mm': _mmOf(_t),
+          'reference': _ref.name,
+          'parts': _parts,
+          'divisions': _div,
+          'seam': _seam.name,
+        },
         if (_shape == ConeShape.eccentric) ...{
           'mode': 'height',
           'large_dia_mm': _mmOf(_dL),
@@ -137,6 +154,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
 
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields['shape'] == 'transition') return _applyTransition(fields);
     if (fields['shape'] == 'eccentric') return _applyEccentric(fields);
     ConeAssistantInput parsed;
     try {
@@ -195,6 +213,35 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
       _h.text = length(i.heightMm);
       _t.text = length(i.thicknessMm);
       if (!i.verticalSide) _e.text = length(i.offsetMm);
+    });
+    return {};
+  }
+
+  Future<Set<String>> _applyTransition(Map<String, Object?> fields) async {
+    TransitionAssistantInput parsed;
+    try {
+      parsed = TransitionAssistantInput.fromFields(fields);
+    } on FormatException {
+      return fields.keys.toSet();
+    }
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return fields.keys.toSet();
+    }
+    final i = parsed.input;
+    String length(double mm) => (mm / _scale).toString();
+    setState(() {
+      _shape = ConeShape.transition;
+      _ref = i.ref;
+      _parts = i.parts;
+      _div = i.divisions;
+      _seam = i.seam;
+      _a.text = length(i.sideAMm);
+      _b.text = length(i.sideBMm);
+      _dT.text = length(i.diameterMm);
+      _hT.text = length(i.heightMm);
+      _ex.text = length(i.offsetXMm);
+      _ey.text = length(i.offsetYMm);
+      _t.text = length(i.thicknessMm);
     });
     return {};
   }
