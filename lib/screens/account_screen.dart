@@ -155,7 +155,7 @@ class _AccountScreenState extends State<AccountScreen>
         throw AccountException(
             'Profil lub sesja zmieniły się / Profile or session changed');
       }
-      final field = patch.fields.entries.single;
+      final field = patch.resolve(baseline).entries.single;
       setState(() {
         busy = true;
         _savingProfile = true;
@@ -188,15 +188,7 @@ class _AccountScreenState extends State<AccountScreen>
       }
     }
 
-    return ConfirmResult(
-        AssistantAnswer(
-            text: patch.profession != null
-                ? AssistantText(
-                    'Zapisać zawód w Twoim profilu: ${patch.profession}?',
-                    'Save this profession in your profile: ${patch.profession}?')
-                : AssistantText(
-                    'Zapisać doświadczenie w Twoim profilu: ${patch.experienceYears} lat?',
-                    'Save this experience in your profile: ${patch.experienceYears} years?')),
+    return ConfirmResult(AssistantAnswer(text: patch.confirmation),
         () => inFlight ??= perform().whenComplete(() => inFlight = null));
   }
 

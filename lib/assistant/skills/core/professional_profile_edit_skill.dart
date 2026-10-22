@@ -1,35 +1,126 @@
 import '../../../i18n/app_language.dart';
 import '../../../services/account_service.dart';
+import 'dart:convert';
 import '../../core/professional_profile_edit.dart';
 import '../../core/skill.dart';
 import '../../core/command_words.dart';
 
-ProfessionalProfilePatch? _patch(Utterance u, {bool natural = false}) {
-  if (referencesInstruction(u) || isNegatedCommand(u)) return null;
-  final text = u.raw.trim().replaceFirst(RegExp(r'[.!?]+$'), '').trim();
-  final profession = RegExp(
-          r'^(?:ustaw w moim profilu zaw[oó]d na|set my profile profession to) (.+)$',
-          caseSensitive: false)
-      .firstMatch(text);
-  final experience = RegExp(
-          r'^(?:ustaw w moim profilu do[sś]wiadczenie na|set my profile experience to) (\d+) (?:lat|lata|rok|years?|year)$',
-          caseSensitive: false)
-      .firstMatch(text);
-  if (profession != null) {
-    final value = profession[1]!.trim();
-    if (RegExp(
-            r'\b(?:usun|usuń|delete|wyloguj|zapisz|ustaw|zmien|zmień|password|hasło|haslo|email)\b',
-            caseSensitive: false)
-        .hasMatch(value)) {
+String? _literal(String raw) {
+  final value = raw.trim();
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is String ? decoded.trim() : null;
+    } catch (_) {
       return null;
     }
-    final result = ProfessionalProfilePatch.profession(value);
-    return result.valid ? result : null;
   }
+  if (RegExp(
+          r'\b(?:usun|usuń|delete|wyloguj|zapisz|ustaw|zmien|zmień|password|hasło|haslo|email|set|change|save)\b',
+          caseSensitive: false)
+      .hasMatch(value)) {
+    return null;
+  }
+  return value;
+}
+
+ProfessionalProfilePatch? _processPatch(
+    String raw, Utterance u, ProfileProcessEdit operation) {
+  final normalized = u.withRaw(raw).folded.replaceAllMapped(
+      RegExp(r'\b(tig|mma|mig|saw|mag)(\d{3})\b'), (m) => '${m[1]} ${m[2]}');
+  final words = normalized.split(RegExp(r'\s+'));
+  final selected = <String>{};
+  const aliases = {'tig': '141', 'mma': '111', 'mig': '131', 'saw': '121'};
+  for (var i = 0; i < words.length; i++) {
+    final word = words[i];
+    if (word.isEmpty || const {'i', 'oraz', 'and', 'plus'}.contains(word)) {
+      continue;
+    }
+    final next = i + 1 < words.length ? words[i + 1] : '';
+    if (word == 'mag') {
+      if (!const {'135', '136', '138'}.contains(next)) return null;
+      selected.add(next);
+      i++;
+      continue;
+    }
+    final code = aliases[word] ?? word;
+    if (!professionalProcessCodes.contains(code)) return null;
+    if (aliases.containsKey(word) && professionalProcessCodes.contains(next)) {
+      if (next != code) return null;
+      i++;
+    }
+    selected.add(code);
+  }
+  if (selected.isEmpty) return null;
+  return ProfessionalProfilePatch.processes(selected, operation: operation);
+}
+
+ProfessionalProfilePatch? _patch(Utterance u, {bool natural = false}) {
+  if (referencesInstruction(u) || isNegatedCommand(u)) return null;
+  final raw = u.raw.trim();
+  final text = raw.replaceFirst(RegExp(r'[.!?]+$'), '').trim();
+  final clear = RegExp(
+          r'^(?:wyczysc w moim profilu (zawod|kwalifikacje|stempel|procesy)|clear my profile (profession|qualifications|stamp|processes))$')
+      .firstMatch(u.folded);
+  if (clear != null) {
+    return switch (clear[1] ?? clear[2]) {
+      'zawod' || 'profession' => const ProfessionalProfilePatch.profession(''),
+      'kwalifikacje' ||
+      'qualifications' =>
+        const ProfessionalProfilePatch.qualifications(''),
+      'stempel' || 'stamp' => const ProfessionalProfilePatch.stamp(''),
+      _ => ProfessionalProfilePatch.processes(const []),
+    };
+  }
+  final experience = RegExp(
+          r'^(?:ustaw w moim profilu do[sś]wiadczenie na|set my profile experience to) (\d+) (?:lat|lata|rok|years?)$',
+          caseSensitive: false)
+      .firstMatch(text);
   if (experience != null) {
     final result =
-        ProfessionalProfilePatch.experience(int.parse(experience[1]!));
+        ProfessionalProfilePatch.experience(int.tryParse(experience[1]!) ?? -1);
     return result.valid ? result : null;
+  }
+  for (final entry in <(String, String)>[
+    (
+      'profession',
+      r'(?:ustaw w moim profilu zaw[oó]d na|set my profile profession to)'
+    ),
+    (
+      'qualifications',
+      r'(?:ustaw w moim profilu kwalifikacje na|set my profile qualifications to)'
+    ),
+    ('stamp', r'(?:ustaw w moim profilu stempel na|set my profile stamp to)'),
+  ]) {
+    final match = RegExp('^${entry.$2} (.+)' r'$', caseSensitive: false)
+        .firstMatch(entry.$1 == 'profession' ? text : raw);
+    if (match == null) continue;
+    final value = _literal(match[1]!);
+    if (value == null) return null;
+    final patch = switch (entry.$1) {
+      'profession' => ProfessionalProfilePatch.profession(value),
+      'qualifications' => ProfessionalProfilePatch.qualifications(value),
+      _ => ProfessionalProfilePatch.stamp(value),
+    };
+    return patch.valid ? patch : null;
+  }
+  for (final entry in <(ProfileProcessEdit, String)>[
+    (
+      ProfileProcessEdit.replace,
+      r'(?:ustaw w moim profilu procesy na|set my profile processes to)'
+    ),
+    (
+      ProfileProcessEdit.add,
+      r'(?:dodaj w moim profilu procesy|add profile processes)'
+    ),
+    (
+      ProfileProcessEdit.remove,
+      r'(?:usu[nń] w moim profilu procesy|remove profile processes)'
+    ),
+  ]) {
+    final match =
+        RegExp('^${entry.$2} (.+)' r'$', caseSensitive: false).firstMatch(text);
+    if (match != null) return _processPatch(match[1]!, u, entry.$1);
   }
   if (!natural) return null;
   final naturalProfession = RegExp(
@@ -48,10 +139,87 @@ ProfessionalProfilePatch? _patch(Utterance u, {bool natural = false}) {
     return _patch(u.withRaw(
         'Ustaw w moim profilu doświadczenie na ${naturalYears[1] ?? naturalYears[2]} lat'));
   }
+  for (final entry in <(String, String)>[
+    (
+      'kwalifikacje',
+      r'(?:wpisz w moim profilu kwalifikacje|put my profile qualifications as)'
+    ),
+    ('stempel', r'(?:wpisz w moim profilu stempel|put my profile stamp as)'),
+  ]) {
+    final match =
+        RegExp('^${entry.$2} (.+)' r'$', caseSensitive: false).firstMatch(raw);
+    if (match != null) {
+      return _patch(
+          u.withRaw('Ustaw w moim profilu ${entry.$1} na ${match[1]}'));
+    }
+  }
+  final replace = RegExp(
+          r'^(?:wpisz w moim profilu procesy|set the welding processes in my profile to) (.+)$',
+          caseSensitive: false)
+      .firstMatch(text);
+  if (replace != null) {
+    return _processPatch(replace[1]!, u, ProfileProcessEdit.replace);
+  }
+  final add = RegExp(
+          r'^(?:dodaj|dopisz) (.+) do mojego profilu$|^add (.+) to my professional profile$',
+          caseSensitive: false)
+      .firstMatch(text);
+  if (add != null) {
+    return _processPatch(add[1] ?? add[2]!, u, ProfileProcessEdit.add);
+  }
+  final remove = RegExp(
+          r'^usu[nń] (.+) z mojego profilu$|^remove (.+) from my professional profile$',
+          caseSensitive: false)
+      .firstMatch(text);
+  if (remove != null) {
+    return _processPatch(remove[1] ?? remove[2]!, u, ProfileProcessEdit.remove);
+  }
   return null;
 }
 
+String _canonical(ProfessionalProfilePatch patch, AppLanguage lang) {
+  final field = patch.fields.entries.single;
+  if (patch.processes != null) {
+    if (patch.processes!.isEmpty) {
+      return lang == AppLanguage.en
+          ? 'Clear my profile processes'
+          : 'Wyczyść w moim profilu procesy';
+    }
+    final codes = patch.processes!.toList()..sort();
+    return switch ((lang, patch.processEdit)) {
+      (AppLanguage.en, ProfileProcessEdit.add) =>
+        'Add profile processes ${codes.join(' and ')}',
+      (AppLanguage.en, ProfileProcessEdit.remove) =>
+        'Remove profile processes ${codes.join(' and ')}',
+      (AppLanguage.en, _) =>
+        'Set my profile processes to ${codes.join(' and ')}',
+      (_, ProfileProcessEdit.add) =>
+        'Dodaj w moim profilu procesy ${codes.join(' i ')}',
+      (_, ProfileProcessEdit.remove) =>
+        'Usuń w moim profilu procesy ${codes.join(' i ')}',
+      _ => 'Ustaw w moim profilu procesy na ${codes.join(' i ')}',
+    };
+  }
+  if (patch.experienceYears != null) {
+    return lang == AppLanguage.en
+        ? 'Set my profile experience to ${patch.experienceYears} years'
+        : 'Ustaw w moim profilu doświadczenie na ${patch.experienceYears} lat';
+  }
+  if (lang == AppLanguage.en) {
+    return 'Set my profile ${field.key} to ${jsonEncode(field.value)}';
+  }
+  final label = switch (field.key) {
+    'profession' => 'zawód',
+    'qualifications' => 'kwalifikacje',
+    _ => 'stempel'
+  };
+  return 'Ustaw w moim profilu $label na ${jsonEncode(field.value)}';
+}
+
 class ProfessionalProfileEditSkill extends AssistantSkill {
+  @override
+  List<ProfessionalProfileField> get professionalProfileFields =>
+      ProfessionalProfileField.values;
   @override
   String get id => 'account.professional.edit';
   @override
@@ -68,6 +236,12 @@ class ProfessionalProfileEditSkill extends AssistantSkill {
             'Set my profile profession to pipe fitter'),
         SkillExample('Ustaw w moim profilu doświadczenie na 8 lat',
             'Set my profile experience to 8 years'),
+        SkillExample('Ustaw w moim profilu procesy na 141 i 111',
+            'Set my profile processes to 141 and 111'),
+        SkillExample('Ustaw w moim profilu kwalifikacje na szkolenie TIG',
+            'Set my profile qualifications to TIG training'),
+        SkillExample('Ustaw w moim profilu stempel na AB7',
+            'Set my profile stamp to AB7'),
       ];
   @override
   List<SkillRejection> get rejections => const [
@@ -81,15 +255,7 @@ class ProfessionalProfileEditSkill extends AssistantSkill {
       Utterance source, AssistantContext ctx) {
     final patch = _patch(source, natural: true);
     if (patch == null) return const [];
-    return [
-      ctx.lang == AppLanguage.en
-          ? patch.profession != null
-              ? 'Set my profile profession to ${patch.profession}'
-              : 'Set my profile experience to ${patch.experienceYears} years'
-          : patch.profession != null
-              ? 'Ustaw w moim profilu zawód na ${patch.profession}'
-              : 'Ustaw w moim profilu doświadczenie na ${patch.experienceYears} lat'
-    ];
+    return [_canonical(patch, ctx.lang)];
   }
 
   @override

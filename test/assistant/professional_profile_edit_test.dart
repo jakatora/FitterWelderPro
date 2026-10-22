@@ -69,8 +69,12 @@ void main() {
       final body = jsonDecode(r.body) as Map;
       expectSync(body.keys.toSet(), {'field', 'value', 'expected'});
       if (status != 200) return http.Response('{}', status);
-      if (stored[body['field']] != body['expected'] &&
-          stored[body['field']] != body['value']) {
+      bool same(Object? a, Object? b) => a is List && b is List
+          ? jsonEncode(a.cast<String>().toList()..sort()) ==
+              jsonEncode(b.cast<String>().toList()..sort())
+          : a == b;
+      if (!same(stored[body['field']], body['expected']) &&
+          !same(stored[body['field']], body['value'])) {
         return http.Response('{}', 409);
       }
       if (!wrongAck) {
@@ -333,4 +337,228 @@ void main() {
     expect(writes, isEmpty);
     expect(t.takeException(), isNull);
   });
+  test('new fields preserve the field, literal content and process operation',
+      () {
+    final skill = ProfessionalProfileEditSkill();
+    final ctx = AssistantContext(
+        lang: AppLanguage.pl, modules: const FixedModuleContext());
+    Utterance u(String s) => Utterance(s, lang: AppLanguage.pl);
+    for (final pair in [
+      ('Dodaj TIG do mojego profilu', 'Dodaj w moim profilu procesy 141'),
+      ('Usuń 111 z mojego profilu', 'Usuń w moim profilu procesy 111'),
+      (
+        'Wpisz w moim profilu procesy TIG i MMA',
+        'Ustaw w moim profilu procesy na 111 i 141'
+      ),
+      (
+        'Wpisz w moim profilu stempel "AB.7?"',
+        'Set my profile stamp to "AB.7?"'
+      ),
+      (
+        'Wpisz w moim profilu kwalifikacje "Szkolenie TIG, grupa A."',
+        'Ustaw w moim profilu kwalifikacje na "Szkolenie TIG, grupa A."'
+      ),
+      (
+        'Ustaw w moim profilu procesy na MAG135',
+        'Set my profile processes to 135'
+      ),
+    ]) {
+      expect(skill.acceptsProposal(u(pair.$1), u(pair.$2), ctx), true,
+          reason: pair.$1);
+      expect(skill.aiTaskSwitchCommands(u(pair.$1), ctx), hasLength(1));
+    }
+    for (final pair in [
+      ('Dodaj TIG do mojego profilu', 'Ustaw w moim profilu procesy na 141'),
+      ('Usuń 111 z mojego profilu', 'Wyczyść w moim profilu procesy'),
+      ('Dodaj MAG do mojego profilu', 'Dodaj w moim profilu procesy 135'),
+      (
+        'Ustaw w moim profilu procesy na TIG 135',
+        'Ustaw w moim profilu procesy na 135 i 141'
+      ),
+      ('Wpisz w moim profilu stempel "AB.7?"', 'Set my profile stamp to "AB7"'),
+      (
+        'Wpisz w moim profilu kwalifikacje "Szkolenie TIG"',
+        'Set my profile qualifications to "Certified TIG welder"'
+      ),
+      ('Nie wyczyść w moim profilu stempel', 'Clear my profile stamp'),
+    ]) {
+      expect(skill.acceptsProposal(u(pair.$1), u(pair.$2), ctx), false,
+          reason: pair.$1);
+    }
+    final values = ['141'];
+    final patch = ProfessionalProfilePatch.processes(values,
+        operation: ProfileProcessEdit.add);
+    values.add('111');
+    expect(patch.fields['processes'], ['141']);
+    expect(
+        patch.resolve({
+          'processes': ['135']
+        }),
+        {
+          'processes': ['135', '141']
+        });
+  });
+  for (final row in <(String, String, String, String, Object)>[
+    (
+      'add',
+      'Dodaj TIG do mojego profilu',
+      'Dodaj w moim profilu procesy 141',
+      'processes',
+      ['111', '135', '141']
+    ),
+    (
+      'remove',
+      'Usuń 111 z mojego profilu',
+      'Usuń w moim profilu procesy 111',
+      'processes',
+      ['135']
+    ),
+    (
+      'replace',
+      'Wpisz w moim profilu procesy TIG i MMA',
+      'Ustaw w moim profilu procesy na 111 i 141',
+      'processes',
+      ['111', '141']
+    ),
+    (
+      'qualifications',
+      'Wpisz w moim profilu kwalifikacje "Szkolenie TIG, grupa A."',
+      'Ustaw w moim profilu kwalifikacje na "Szkolenie TIG, grupa A."',
+      'qualifications',
+      'Szkolenie TIG, grupa A.'
+    ),
+    (
+      'stamp',
+      'Wpisz w moim profilu stempel "AB.7?"',
+      'Ustaw w moim profilu stempel na "AB.7?"',
+      'stamp',
+      'AB.7?'
+    ),
+  ]) {
+    testWidgets(
+        'confirmed professional field update uses native values and a narrow write: ${row.$1}',
+        (t) async {
+      stored = {
+        ...stored,
+        'processes': ['135', '111']
+      };
+      await login(t);
+      var calls = 0;
+      final speech = FixtureSpeech();
+      await mount(t, speech: speech, interpret: (request) async {
+        if (++calls > 1) {
+          final context = jsonEncode(request['context']);
+          expect(context, isNot(contains('135')));
+          expect(context, isNot(contains('Private qualifications')));
+          expect(context, isNot(contains('Private stamp')));
+          return const AiCommandPlan('clarify', [], 'Doprecyzuj pytanie.');
+        }
+        final cap = (request['capabilities'] as List).single as Map;
+        expect(cap['professional_profile_fields'], [
+          'profession',
+          'experienceYears',
+          'processes',
+          'qualifications',
+          'stamp'
+        ]);
+        File('build/assistant-professional-${row.$1}-wire.json')
+            .writeAsStringSync(jsonEncode(request));
+        return AiCommandPlan('execute',
+            [AiCommandStep('account.professional.edit', row.$3)], '');
+      });
+      final byVoice = row.$1 == 'add' || row.$1 == 'stamp';
+      if (byVoice) {
+        await t.tap(find.byKey(const Key('assistant-mic')));
+        await settle(t);
+        speech.emit(row.$2);
+        await settle(t);
+      } else {
+        await say(t, row.$2);
+      }
+      expect(calls, 1);
+      expect(writes, isEmpty);
+      expect(ToolBridge.instance.inputFields('professional_profile'), isNull);
+      if (byVoice) {
+        await t.tap(find.byKey(const Key('assistant-mic')));
+        await settle(t);
+        speech.emit('Tak');
+        await settle(t);
+      } else {
+        await confirm(t);
+      }
+      expect(writes, hasLength(1));
+      final body = jsonDecode(writes.single.body) as Map;
+      expect(body['field'], row.$4);
+      expect(body['value'], row.$5);
+      expect(account.account![row.$4], row.$5);
+      expect(account.account!['profession'], 'Spawacz');
+      expect(account.account!['role'], 'user');
+      expect(account.account!['publicProfile'], false);
+      File('build/assistant-professional-${row.$1}-write.json')
+          .writeAsStringSync(writes.single.body);
+      expect(find.text('Zapisano.'), findsWidgets);
+      if (row.$1 == 'add') {
+        await say(t, 'Pomóż mi z innym pytaniem');
+        expect(calls, 2);
+      }
+      expect(t.takeException(), isNull);
+    });
+  }
+  for (final pair in <(String, String, Object)>[
+    ('zawód', 'profession', ''),
+    ('kwalifikacje', 'qualifications', ''),
+    ('stempel', 'stamp', ''),
+    ('procesy', 'processes', <String>[]),
+  ]) {
+    testWidgets(
+        'clearing only the explicitly selected professional field needs confirmation: ${pair.$1}',
+        (t) async {
+      await login(t);
+      await mount(t,
+          interpret: (_) async => throw StateError('Exact clear stays local'));
+      await say(t, 'Wyczyść w moim profilu ${pair.$1}');
+      expect(writes, isEmpty);
+      await confirm(t);
+      expect(writes, hasLength(1));
+      expect(account.account![pair.$2], pair.$3);
+      File('build/assistant-professional-clear-${pair.$2}-write.json')
+          .writeAsStringSync(writes.single.body);
+      expect(account.account!['role'], 'user');
+      expect(account.account!['publicProfile'], false);
+      expect(t.takeException(), isNull);
+    });
+  }
+  for (final fail in ['ack', 'conflict']) {
+    testWidgets(
+        'a process write cannot claim success after a mismatched ack or concurrent set edit: $fail',
+        (t) async {
+      stored = {
+        ...stored,
+        'processes': ['111', '135']
+      };
+      await login(t);
+      await mount(t,
+          interpret: (_) async => const AiCommandPlan(
+              'execute',
+              [
+                AiCommandStep('account.professional.edit',
+                    'Dodaj w moim profilu procesy 141')
+              ],
+              ''));
+      await say(t, 'Dodaj TIG do mojego profilu');
+      if (fail == 'ack') {
+        wrongAck = true;
+      } else {
+        stored = {
+          ...stored,
+          'processes': ['135', '141']
+        };
+      }
+      await confirm(t);
+      expect(writes, hasLength(1));
+      expect(find.text('Zapisano.'), findsNothing);
+      expect(account.account!['processes'], ['111', '135']);
+      expect(t.takeException(), isNull);
+    });
+  }
 }

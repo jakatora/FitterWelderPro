@@ -309,15 +309,35 @@ class AccountService extends ChangeNotifier {
       String field, Object value, Object expected) async {
     final revision = _sessionRevision, owner = account?['id'];
     if (owner == null ||
-        !const {'profession', 'experienceYears'}.contains(field)) {
+        !const {
+          'profession',
+          'experienceYears',
+          'processes',
+          'qualifications',
+          'stamp'
+        }.contains(field)) {
       throw AccountException(
           'Nieprawidłowa zmiana profilu / Invalid profile change');
     }
+    final requested =
+        value is List ? List<String>.unmodifiable(value.cast<String>()) : value;
+    final previous = expected is List
+        ? List<String>.unmodifiable(expected.cast<String>())
+        : expected;
     final response = await request('POST', '/profile/assistant',
-        {'field': field, 'value': value, 'expected': expected});
+        {'field': field, 'value': requested, 'expected': previous});
     _requireSession(revision);
     final updated = response['account'];
-    if (updated is! Map || updated['id'] != owner || updated[field] != value) {
+    final actual = updated is Map ? updated[field] : null;
+    final matching = requested is List<String>
+        ? actual is List &&
+            actual.every((v) => v is String) &&
+            actual.length == requested.length &&
+            actual.toSet().length == actual.length &&
+            listEquals(actual.cast<String>().toList()..sort(),
+                requested.toList()..sort())
+        : actual == requested;
+    if (updated is! Map || updated['id'] != owner || !matching) {
       throw AccountException(
           'Nie potwierdzono zmiany profilu / Profile change was not confirmed');
     }

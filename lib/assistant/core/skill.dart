@@ -52,6 +52,14 @@ class SkillRejection {
 /// A otwórz/wyjaśnij, B licz + wypełnij, C rekord, D rysuj.
 enum AssistantTier { a, b, c, d }
 
+enum ProfessionalProfileField {
+  profession,
+  experienceYears,
+  processes,
+  qualifications,
+  stamp
+}
+
 enum NativeActionTarget {
   allInputs('all_inputs'),
   allResults('all_results');
@@ -75,6 +83,7 @@ abstract class AssistantSkill {
   String? get toolId;
 
   SkillActionScope? get actionScope => null;
+  List<ProfessionalProfileField> get professionalProfileFields => const [];
 
   AssistantTier get tier;
 
