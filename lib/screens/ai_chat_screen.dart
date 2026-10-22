@@ -1,3 +1,4 @@
+import '../assistant/skills/core/account_sign_out_skill.dart';
 import '../assistant/calculator_question_context.dart';
 import '../security/credential_text.dart';
 import '../assistant/navigation_plan_guard.dart';
@@ -1772,6 +1773,19 @@ class _AiChatScreenState extends State<AiChatScreen>
     return true;
   }
 
+  String _confirmationCancelledNotice(ConfirmResult pending) {
+    if (pending is AccountSignOutConfirmation) {
+      return (_noticeIsError == true
+              ? AccountSignOutConfirmation.cancelledAfterFailure
+              : AccountSignOutConfirmation.cancelled)
+          .of(context.language);
+    }
+    return _noticeIsError == true
+        ? _tr('Anulowano dalsze próby. Sprawdź dane w module.',
+            'Further attempts cancelled. Check the module data.')
+        : _tr('Anulowano. Nic nie zapisano.', 'Cancelled. Nothing saved.');
+  }
+
   Future<bool> _tryLocalCommand(String text, AppLanguage lang) async {
     final utterance = Utterance(text, lang: lang, byVoice: _voiceUsed);
     if (const {'cofnij zapis', 'undo save'}.contains(utterance.folded)) {
@@ -1792,17 +1806,24 @@ class _AiChatScreenState extends State<AiChatScreen>
     if (_localResult case final ConfirmResult pending) {
       if (const {'anuluj', 'nie', 'cancel', 'no', 'stop'}
           .contains(utterance.folded)) {
+        final cancelled = _confirmationCancelledNotice(pending);
         setState(() {
           _resetAct();
           _busy = false;
-          _notice =
-              _tr('Anulowano. Nic nie zapisano.', 'Cancelled. Nothing saved.');
+          _notice = cancelled;
           _noticeIsError = false;
         });
         return true;
       }
       if (const {'tak', 'zapisz', 'potwierdz', 'yes', 'save', 'confirm'}
-          .contains(utterance.folded)) {
+              .contains(utterance.folded) ||
+          pending is AccountSignOutConfirmation &&
+              const {
+                'tak wyloguj',
+                'potwierdz wylogowanie',
+                'yes sign me out',
+                'confirm sign out'
+              }.contains(utterance.folded)) {
         if (pending.touchOnly) {
           setState(() {
             _busy = false;
@@ -2053,21 +2074,19 @@ class _AiChatScreenState extends State<AiChatScreen>
               onPressed: (_busy || _runningAiPlan)
                   ? null
                   : () => _confirmLocal(result),
-              child: Text(_tr('Zapisz', 'Save')),
+              child: Text(result is AccountSignOutConfirmation
+                  ? _tr('Wyloguj', 'Sign out')
+                  : _tr('Zapisz', 'Save')),
             ),
             TextButton(
               key: const Key('assistant-local-cancel'),
               onPressed: (_busy || _runningAiPlan)
                   ? null
                   : () {
-                      final failedAttempt = _noticeIsError == true;
+                      final cancelled = _confirmationCancelledNotice(result);
                       setState(() {
                         _resetAct();
-                        _notice = failedAttempt
-                            ? _tr('Anulowano dalsze próby. Sprawdź dane w module.',
-                                'Further attempts cancelled. Check the module data.')
-                            : _tr('Anulowano. Nic nie zapisano.',
-                                'Cancelled. Nothing saved.');
+                        _notice = cancelled;
                         _noticeIsError = false;
                       });
                     },
@@ -2103,6 +2122,30 @@ class _AiChatScreenState extends State<AiChatScreen>
     try {
       final undo = await pending.perform();
       saved = true;
+      if (pending is AccountSignOutConfirmation) {
+        // Only a generic completion may enter the new guest conversation.
+        // Never resurrect the old request/history/queue after identity changes.
+        if (mounted &&
+            pending.completedForCurrentGuest &&
+            epoch != _conversationEpoch &&
+            _messages.length == 1 &&
+            !_busy &&
+            !_typing.value &&
+            _localResult == null) {
+          final notice =
+              AccountSignOutConfirmation.success.of(context.language);
+          setState(() {
+            _notice = notice;
+            _noticeIsError = false;
+            _messages.add(ChatMessage(
+                role: ChatRole.assistant,
+                text: notice,
+                kind: AiReplyKind.localDialogue));
+          });
+          unawaited(_speak(notice));
+        }
+        return;
+      }
       if (!mounted || epoch != _conversationEpoch) return;
       _rememberAi(
           _tr('Potwierdzam zapis', 'Confirm save'), _tr('Zapisano.', 'Saved.'));
@@ -2126,9 +2169,11 @@ class _AiChatScreenState extends State<AiChatScreen>
           _notice = saved
               ? _tr('Zapisano, ale nie udało się otworzyć modułu.',
                   'Saved, but the module could not be opened.')
-              : _tr(
-                  'Nie udało się potwierdzić zapisu. Sprawdź dane w module przed ponowieniem.',
-                  'Could not confirm the save. Check the module before retrying.');
+              : pending is AccountSignOutConfirmation
+                  ? AccountSignOutConfirmation.failure.of(context.language)
+                  : _tr(
+                      'Nie udało się potwierdzić zapisu. Sprawdź dane w module przed ponowieniem.',
+                      'Could not confirm the save. Check the module before retrying.');
           _noticeIsError = true;
         });
       }

@@ -20,8 +20,10 @@ import 'package:cut_list_app/i18n/app_language.dart';
 import 'package:cut_list_app/widgets/tool_registry.dart' show toolById;
 
 import 'support/assistant_test_support.dart';
+import '../support/test_account.dart';
 
 void main() {
+  useGuestAccount();
   final catalog =
       buildSkillCatalog(actions: FakeActionsPort(), iso: FakeIsoDrawingPort());
 

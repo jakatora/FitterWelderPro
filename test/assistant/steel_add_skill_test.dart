@@ -339,6 +339,23 @@ void main() {
     controlled.failAfterWrite = false;
   });
   testWidgets(
+      'voice cancellation after a persisted but unacknowledged save preserves the record',
+      (t) async {
+    await start(t);
+    final controlled = await disk();
+    controlled.failAfterWrite = true;
+    await say(t, addCommand);
+    await save(t);
+    expect((await const SteelOrderStore().load()).items, hasLength(2));
+    await say(t, 'Nie');
+    expect(find.text('Anulowano. Nic nie zapisano.'), findsNothing);
+    expect(find.textContaining('Anulowano dalsze próby'), findsOneWidget);
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(controlled.writes, 1);
+    expect((await const SteelOrderStore().load()).items, hasLength(2));
+    controlled.failAfterWrite = false;
+  });
+  testWidgets(
       'speech can edit quantity and prepare add, then confirm without another AI call',
       (t) async {
     final speech = FixtureSpeech();

@@ -7,11 +7,12 @@ import {pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 const navigation = process.argv.includes('--navigation');
 const knowledge = process.argv.includes('--knowledge');
-assert.ok(!(navigation && knowledge), 'Choose one fixture mode');
-const skillId = knowledge ? 'iso.draw' : navigation ? 'tool.open' : 'iso.summary.copy';
-const command = navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
-const fixture = knowledge ? 'build/assistant-pending-knowledge-wire.json' : navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
-const proofPath = knowledge ? 'build/assistant-pending-knowledge-backend-proof.json' : navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
+const signOut = process.argv.includes('--sign-out');
+assert.ok([navigation, knowledge, signOut].filter(Boolean).length <= 1, 'Choose one fixture mode');
+const skillId = signOut ? 'account.sign_out' : knowledge ? 'iso.draw' : navigation ? 'tool.open' : 'iso.summary.copy';
+const command = signOut ? 'Wyloguj mnie' : navigation ? 'Otwórz heat input' : 'Skopiuj zestawienie rysunku ISO';
+const fixture = signOut ? 'build/assistant-account-signout-wire.json' : knowledge ? 'build/assistant-pending-knowledge-wire.json' : navigation ? 'build/assistant-navigation-wire.json' : 'build/assistant-task-switch-wire.json';
+const proofPath = signOut ? 'build/assistant-account-signout-backend-proof.json' : knowledge ? 'build/assistant-pending-knowledge-backend-proof.json' : navigation ? 'build/assistant-navigation-backend-proof.json' : 'build/assistant-task-switch-backend-proof.json';
 const backend = path.resolve('backend');
 const load = relative => import(pathToFileURL(path.join(backend,relative)).href);
 const {startTestServer,api,newDeviceId,newSecret}=await load('test/helpers/server.js');
@@ -23,7 +24,7 @@ try {
   const request=JSON.parse(fs.readFileSync(fixture,'utf8'));
   assert.equal(request.capabilities.length,1);
   assert.equal(request.capabilities[0].id,skillId);
-  assert.equal(request.context.active_tool,'iso_notebook');
+  assert.equal(request.context.active_tool,signOut ? 'rolling_offset' : 'iso_notebook');
   if (knowledge) {
     assert.equal(request.context.pending_reply.skill_id,'iso.draw');
     assert.ok(request.context.pending_question.length > 0);
