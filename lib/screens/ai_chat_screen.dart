@@ -1,3 +1,4 @@
+import '../domain/iso_notebook/sketch_summary.dart';
 import '../assistant/assistant_actions.dart';
 import '../assistant/core/assistant_actions_port.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
@@ -108,6 +109,9 @@ const _kCitationTextStyle = TextStyle(
 enum AssistantMode { act, answer }
 
 /// Wysyłka pytania w trybie „Odpowiedz" — do podmiany w testach.
+typedef AssistantContextChatSender = Future<ChatMessage> Function(
+    String text, List<ChatMessage> history, SketchSummary? isoSummary);
+
 typedef AssistantChatSender = Future<ChatMessage> Function(
     String text, List<ChatMessage> history);
 
@@ -126,6 +130,7 @@ class AiChatScreen extends StatefulWidget {
     this.speechOutput,
     this.engine,
     this.chatSender,
+    this.contextChatSender,
     this.aiInterpreter,
     this.now,
     this.welderStamp,
@@ -145,6 +150,7 @@ class AiChatScreen extends StatefulWidget {
   final AssistantEngine? engine;
 
   final AssistantChatSender? chatSender;
+  final AssistantContextChatSender? contextChatSender;
 
   /// Real cloud interpretation by default; replace transport in integration tests.
   final Future<AiCommandPlan> Function(Map<String, Object?>)? aiInterpreter;
@@ -2508,10 +2514,34 @@ class _AiChatScreenState extends State<AiChatScreen>
     _scrollToBottom();
 
     try {
-      final sender = widget.chatSender ??
-          (t, h) => AiChatService.instance.sendMessage(t, history: h);
-      final reply = await sender(text, history);
+      final iso = _isoPort.isForeground ? IsoNotebookController.active : null;
+      final summary = iso?.summary;
+      final revision = iso?.revision;
+      final reply = widget.contextChatSender != null
+          ? await widget.contextChatSender!(text, history, summary)
+          : widget.chatSender != null
+              ? await widget.chatSender!(text, history)
+              : await AiChatService.instance.sendMessage(text,
+                  history: history, isoSummary: summary);
       if (!mounted || epoch != _conversationEpoch) return;
+      if (summary != null && (!_isoPort.isForeground ||
+          !identical(iso, IsoNotebookController.active) || iso!.revision != revision)) {
+        final notice = _tr(
+            'Rysunek zmienił się podczas przygotowywania odpowiedzi. Zapytaj ponownie o aktualny stan.',
+            'The drawing changed while the answer was being prepared. Ask again about its current state.');
+        setState(() {
+          _messages.add(ChatMessage(role: ChatRole.assistant,
+              text: notice, kind: AiReplyKind.localDialogue));
+          _typing.value = false;
+          if (widget.embedded) {
+            _localResult = AnswerResult(
+                AssistantAnswer(text: AssistantText.same(notice)));
+          }
+        });
+        _scrollToBottom();
+        await _speak(notice);
+        return;
+      }
       setState(() {
         _messages.add(reply);
         if (widget.embedded) {

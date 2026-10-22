@@ -1,3 +1,4 @@
+import 'package:cut_list_app/domain/iso_notebook/sketch_summary.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
@@ -141,17 +142,54 @@ void main() {
     await preferences.setEnabled(true);
     final requests = <http.Request>[];
     final result = await http.runWithClient(
-        () => AiChatService.instance.sendMessage('Jak działa TIG?'),
+        () => AiChatService.instance.sendMessage('Jak działa TIG?',
+            isoSummary: const SketchSummary(
+                pipeCount: 3,
+                computedCutCount: 2,
+                computedCutTotalMm: 1988,
+                gapMm: 3)),
         () => MockClient((r) async {
               requests.add(r);
-              return http.Response('{"text":"Odpowiedź"}', 200,
+              return http.Response(
+                  '{"text":"Odpowiedź","iso_summary_used":true}', 200,
                   headers: {'content-type': 'application/json; charset=utf-8'});
             }));
     expect(result.kind, AiReplyKind.live);
     expect(requests.single.headers['Authorization'], 'Bearer fixture-A');
     expect(
         jsonDecode(requests.single.body)['use_professional_profile'], isTrue);
+    expect(jsonDecode(requests.single.body)['iso_summary'], {
+      'pipe_count': 3,
+      'computed_cut_count': 2,
+      'computed_cut_total_mm': 1988,
+      'gap_mm': 3
+    });
     expect(requests.single.body, isNot(contains('Private name')));
+  });
+
+  test('old server cannot silently answer using missing drawing context',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'fitter_device_id': '0123456789abcdef0123456789abcdef',
+      'fitter_install_secret': 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE',
+    });
+    PremiumService.instance.resetForTest();
+    await http.runWithClient(() async {
+      final rejected = await AiChatService.instance.sendMessage(
+          'Co z rysunkiem?',
+          isoSummary: const SketchSummary(
+              pipeCount: 3,
+              computedCutCount: 2,
+              computedCutTotalMm: 1988,
+              gapMm: 3));
+      expect(rejected.kind, AiReplyKind.unavailable);
+      expect(rejected.text, isNot(contains('unverified reply')));
+      final ordinary = await AiChatService.instance.sendMessage('Co to TIG?');
+      expect(ordinary.kind, AiReplyKind.live);
+      expect(ordinary.text, 'unverified reply');
+    },
+        () => MockClient(
+            (_) async => http.Response('{"text":"unverified reply"}', 200)));
   });
 
   for (final language in AppLanguage.values) {

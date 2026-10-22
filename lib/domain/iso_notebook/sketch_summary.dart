@@ -7,4 +7,12 @@ class SketchSummary {
       required this.gapMm});
   final int pipeCount, computedCutCount;
   final double computedCutTotalMm, gapMm;
+
+  /// Exact bounded wire contract; metadata and drawing identity stay local.
+  Map<String, Object?> toJson() => {
+        'pipe_count': pipeCount,
+        'computed_cut_count': computedCutCount,
+        'computed_cut_total_mm': computedCutTotalMm,
+        'gap_mm': gapMm,
+      };
 }

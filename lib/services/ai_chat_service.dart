@@ -1,3 +1,4 @@
+import '../domain/iso_notebook/sketch_summary.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -133,6 +134,7 @@ class AiChatService {
   Future<ChatMessage> sendMessage(
     String userText, {
     List<ChatMessage> history = const [],
+    SketchSummary? isoSummary,
   }) async {
     final trimmed = userText.trim();
     if (trimmed.isEmpty) {
@@ -170,6 +172,7 @@ class AiChatService {
             body: jsonEncode({
               ...profile.body,
               'message': trimmed,
+              if (isoSummary != null) 'iso_summary': isoSummary.toJson(),
               'history': chatHistoryForRequest(history)
                   .map((m) => {
                         'role': m.role.name,
@@ -185,7 +188,7 @@ class AiChatService {
       profile.requireCurrent();
       if (resp.statusCode != 200) {
         debugPrint('AiChatService: backend ${resp.statusCode}');
-        final failure=AiFailure.fromHttp(resp.statusCode, resp.bodyBytes);
+        final failure = AiFailure.fromHttp(resp.statusCode, resp.bodyBytes);
         switch (resp.statusCode) {
           // Limity i płatność to NIE awaria — mówimy wprost, co się stało i
           // co dalej, zamiast udawać odpowiedź.
@@ -194,18 +197,31 @@ class AiChatService {
           case 429:
             return _notice(AiReplyKind.dailyLimit);
           case 503:
-            return ChatMessage(role:ChatRole.assistant,
-                text:failure.message(AppLanguageController.current),kind:AiReplyKind.unavailable);
+            return ChatMessage(
+                role: ChatRole.assistant,
+                text: failure.message(AppLanguageController.current),
+                kind: AiReplyKind.unavailable);
         }
         // 401 (brak/zły sekret instalacji), 404 (stary backend bez trasy),
         // inne 4xx/5xx → pomoc offline z aplikacji.
-        final help=offlineReply(trimmed);
-        return ChatMessage(role:ChatRole.assistant,
-          text:'${failure.message(AppLanguageController.current)}\n\n${help.text}',
-          citations:help.citations,kind:AiReplyKind.offlineHelp);
+        final help = offlineReply(trimmed);
+        return ChatMessage(
+            role: ChatRole.assistant,
+            text:
+                '${failure.message(AppLanguageController.current)}\n\n${help.text}',
+            citations: help.citations,
+            kind: AiReplyKind.offlineHelp);
       }
       final body =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      if (isoSummary != null && body['iso_summary_used'] != true) {
+        return ChatMessage(
+            role: ChatRole.assistant,
+            text: AppLanguageController.isEnglish
+                ? 'The server has not confirmed ISO drawing context support. Update the backend or use the native drawing summary.'
+                : 'Serwer nie potwierdził obsługi kontekstu rysunku ISO. Zaktualizuj backend lub użyj podsumowania rysunku w aplikacji.',
+            kind: AiReplyKind.unavailable);
+      }
       final text = body['text'] as String? ?? '(empty response)';
       final cites =
           (body['citations'] as List?)?.map((c) => c.toString()).toList() ??
