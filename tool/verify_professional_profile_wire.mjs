@@ -109,9 +109,38 @@ try {
       requestBytes:Buffer.byteLength(JSON.stringify(input)),writeBytes:Buffer.byteLength(JSON.stringify(body)),
       providerCalls:provider.calls.length,reply:'native choice 135; captured confirmed write'};
   }
+  const questionProofs=[];
+  if(process.argv.includes('--questions')) {
+    const commands={profession:'Ustaw w moim profilu zawód',experience:'Ustaw w moim profilu doświadczenie',
+      qualifications:'Ustaw w moim profilu kwalifikacje',stamp:'Ustaw w moim profilu stempel',
+      replace:'Ustaw w moim profilu procesy',add:'Dodaj w moim profilu procesy',remove:'Usuń w moim profilu procesy'};
+    for(const [name,command] of Object.entries(commands)) {
+      const input=JSON.parse(fs.readFileSync(`build/assistant-professional-question-${name}-wire.json`,'utf8'));
+      const body=JSON.parse(fs.readFileSync(`build/assistant-professional-question-${name}-write.json`,'utf8'));
+      assert.equal(input.capabilities[0].professional_field_questions,true);
+      assert.equal(input.capabilities[0].id,'account.professional.edit');
+      assert.ok(!JSON.stringify(input.context).includes('Private'));
+      const output={kind:'execute',steps:[{skill_id:'account.professional.edit',command}],message:''};
+      const provider=fakeAnthropic(()=>({stop_reason:'end_turn',usage:{input_tokens:1500,output_tokens:100},content:[{type:'text',text:JSON.stringify(output)}]}));
+      setAnthropicClientForTests(provider.client);
+      const interpretation=await api(server.base,'POST','/api/fitter/ai/assistant',{headers:device,body:input});
+      assert.equal(interpretation.status,200,interpretation.text);assert.deepEqual(interpretation.json,output);
+      assert.equal(provider.calls.length,1);assert.equal(provider.calls[0].model,'claude-haiku-5-5');
+      assert.equal(provider.calls[0].output_config.effort,'low');assert.deepEqual(provider.requestOptions[0],{maxRetries:0,timeout:25000});
+      const nativeBaseline={displayName:'Fixture name',profession:'Spawacz',experienceYears:4,processes:['141'],qualifications:'Private qualifications',stamp:'Private stamp',publicProfile:false};
+      assert.equal((await api(server.base,'PUT','/api/fitter/account/profile',{headers,body:nativeBaseline})).status,200);
+      assert.deepEqual(body.expected,nativeBaseline[body.field]);
+      const persisted=await api(server.base,'POST',endpoint,{headers,body});assert.equal(persisted.status,200,persisted.text);
+      const read=await api(server.base,'GET','/api/fitter/account/me',{headers});assert.equal(read.status,200);
+      for(const [field,value] of Object.entries(nativeBaseline)) assert.deepEqual(read.json.account[field],field===body.field?body.value:value);
+      assert.equal(read.json.account.role,'user');assert.equal(budgetState().inFlightUsd,0);
+      questionProofs.push({name,interpreterStatus:interpretation.status,writeStatus:persisted.status,readStatus:read.status,
+        requestBytes:Buffer.byteLength(JSON.stringify(input)),writeBytes:Buffer.byteLength(JSON.stringify(body)),providerCalls:provider.calls.length});
+    }
+  }
   const proof={checkedAt:new Date().toISOString(),backendHead:execFileSync('git',['rev-parse','HEAD'],{cwd:backend,encoding:'utf8'}).trim(),
     interpreterStatus:interpreted.status,writeStatus:saved.status,readbackStatus:actual.status,conflictStatus:409,retryStatus:200,anonymousStatus:401,injectedRoleStatus:400,reportsStatus:403,
-    requestBytes:Buffer.byteLength(JSON.stringify(request)),writeBytes:Buffer.byteLength(JSON.stringify(write)),fieldProofs,magProof,provider:'injected fake; zero paid calls',target:'local Express/SQLite; no production changes'};
+    requestBytes:Buffer.byteLength(JSON.stringify(request)),writeBytes:Buffer.byteLength(JSON.stringify(write)),fieldProofs,magProof,questionProofs,provider:'injected fake; zero paid calls',target:'local Express/SQLite; no production changes'};
   fs.writeFileSync('build/professional-profile-wire-proof.json',JSON.stringify(proof,null,2));
   console.log(JSON.stringify(proof));
 } finally {await server.close();}

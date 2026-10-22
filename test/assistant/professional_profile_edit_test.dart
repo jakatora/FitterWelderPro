@@ -839,4 +839,558 @@ void main() {
     expect(account.account!['processes'], ['141']);
     expect(t.takeException(), isNull);
   });
+  testWidgets(
+      'missing profession is asked natively and literal reply completes the requested change',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan(
+          'execute',
+          [
+            AiCommandStep(
+                'account.professional.edit', 'Ustaw w moim profilu zawód')
+          ],
+          '');
+    });
+    await say(t, 'Zmień mój zawód');
+    expect(writes, isEmpty);
+    await say(t, 'Monter rurociągów');
+    expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+    expect(writes, isEmpty);
+    await confirm(t);
+    expect(account.account!['profession'], 'Monter rurociągów');
+    expect(writes, hasLength(1));
+    expect(calls, 1);
+    expect(t.takeException(), isNull);
+  });
+  for (final voice in [false, true]) {
+    for (final row in <(String, String, String, String, String, Object)>[
+      (
+        'profession',
+        'Zmień mój zawód',
+        'Ustaw w moim profilu zawód',
+        'Monter rurociągów',
+        'profession',
+        'Monter rurociągów'
+      ),
+      (
+        'experience',
+        'Zmień moje doświadczenie',
+        'Ustaw w moim profilu doświadczenie',
+        'osiem lat',
+        'experienceYears',
+        8
+      ),
+      (
+        'qualifications',
+        'Zmień moje kwalifikacje',
+        'Ustaw w moim profilu kwalifikacje',
+        'Szkolenie TIG, grupa A.',
+        'qualifications',
+        'Szkolenie TIG, grupa A.'
+      ),
+      (
+        'stamp',
+        'Zmień mój stempel',
+        'Ustaw w moim profilu stempel',
+        'AB.7?',
+        'stamp',
+        'AB.7?'
+      ),
+      (
+        'replace',
+        'Zmień moje procesy',
+        'Ustaw w moim profilu procesy',
+        'TIG i MMA',
+        'processes',
+        ['111', '141']
+      ),
+      (
+        'add',
+        'Dodaj proces do mojego profilu',
+        'Dodaj w moim profilu procesy',
+        '111 i 135',
+        'processes',
+        ['111', '135', '141']
+      ),
+      (
+        'remove',
+        'Usuń proces z mojego profilu',
+        'Usuń w moim profilu procesy',
+        '141',
+        'processes',
+        <String>[]
+      ),
+    ]) {
+      testWidgets(
+          'missing profile field ${row.$1} retains literal reply and native confirmation voice=$voice',
+          (t) async {
+        await login(t);
+        var calls = 0;
+        final speech = FixtureSpeech();
+        await mount(t, speech: speech, interpret: (r) async {
+          calls++;
+          expect(
+              (r['capabilities'] as List)
+                  .single['professional_field_questions'],
+              true);
+          expect(jsonEncode(r['context']), isNot(contains('Private')));
+          if (!voice) {
+            File('build/assistant-professional-question-${row.$1}-wire.json')
+                .writeAsStringSync(jsonEncode(r));
+          }
+          return AiCommandPlan('execute',
+              [AiCommandStep('account.professional.edit', row.$3)], '');
+        });
+        Future<void> send(String text) async {
+          if (!voice) {
+            await say(t, text);
+            return;
+          }
+          await t.tap(find.byKey(const Key('assistant-mic')));
+          await settle(t);
+          speech.emit(text);
+          await settle(t);
+        }
+
+        await send(row.$2);
+        expect(writes, isEmpty);
+        await send(row.$4);
+        expect(writes, isEmpty);
+        expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+        if (voice) {
+          await send('Tak');
+        } else {
+          await confirm(t);
+        }
+        expect(calls, 1);
+        expect(writes, hasLength(1));
+        expect(jsonDecode(writes.single.body),
+            {'field': row.$5, 'value': row.$6, 'expected': fixture[row.$5]});
+        expect(account.account![row.$5], row.$6);
+        if (!voice) {
+          File('build/assistant-professional-question-${row.$1}-write.json')
+              .writeAsStringSync(writes.single.body);
+        }
+        expect(t.takeException(), isNull);
+      });
+    }
+  }
+  for (final operation in ['Dodaj', 'Usuń']) {
+    testWidgets(
+        'missing process list can ask a second MAG question without losing $operation',
+        (t) async {
+      stored = {
+        ...stored,
+        'processes': ['111', '135', '141']
+      };
+      await login(t);
+      var calls = 0;
+      await mount(t, interpret: (_) async {
+        calls++;
+        return AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep('account.professional.edit',
+                  '$operation w moim profilu procesy')
+            ],
+            '');
+      });
+      await say(t,
+          '$operation proces ${operation == 'Dodaj' ? 'do' : 'z'} mojego profilu');
+      await say(t, 'TIG i MAG');
+      expect(find.textContaining('Który proces MAG'), findsWidgets);
+      expect(writes, isEmpty);
+      await say(t, '136');
+      expect(writes, isEmpty);
+      await confirm(t);
+      expect(calls, 1);
+      expect(writes, hasLength(1));
+      expect(account.account!['processes'],
+          operation == 'Dodaj' ? ['111', '135', '136', '141'] : ['111', '135']);
+      expect(t.takeException(), isNull);
+    });
+  }
+  test(
+      'native missing field parser binds scope and never lets the model invent a new value',
+      () {
+    final skill = ProfessionalProfileEditSkill();
+    final ctx = AssistantContext(
+        lang: AppLanguage.pl, modules: const FixedModuleContext());
+    Utterance u(String text) => Utterance(text, lang: AppLanguage.pl);
+    for (final pair in [
+      ('Zmień mój zawód', 'Ustaw w moim profilu zawód'),
+      ('Czy możesz mi zmienić mój zawód', 'Ustaw w moim profilu zawód'),
+      (
+        'Chciałbym zmienić kwalifikacje w moim profilu',
+        'Ustaw w moim profilu kwalifikacje'
+      ),
+      ('Change my profile stamp', 'Set my profile stamp'),
+      ('Set my experience', 'Set my profile experience'),
+      ('Dodaj proces do mojego profilu', 'Dodaj w moim profilu procesy'),
+    ]) {
+      expect(skill.acceptsProposal(u(pair.$1), u(pair.$2), ctx), true,
+          reason: pair.$1);
+      final target =
+          pair.$1.startsWith('Change') || pair.$1.startsWith('Set my')
+              ? AssistantContext(
+                  lang: AppLanguage.en, modules: const FixedModuleContext())
+              : ctx;
+      expect(skill.aiTaskSwitchCommands(u(pair.$1), target), [pair.$2]);
+    }
+    for (final pair in [
+      ('Zmień mój zawód', 'Ustaw w moim profilu zawód na Spawacz'),
+      ('Zmień mój zawód', 'Ustaw w moim profilu stempel'),
+      ('Zmień moje procesy', 'Dodaj w moim profilu procesy'),
+      ('Dodaj proces do mojego profilu', 'Usuń w moim profilu procesy'),
+      ('Jak zmienić mój zawód', 'Ustaw w moim profilu zawód'),
+      ('Nie zmieniaj mojego zawodu', 'Ustaw w moim profilu zawód'),
+      ('Dodaj proces z mojego profilu', 'Dodaj w moim profilu procesy'),
+      ('Ustaw w moim profilu rolę', 'Ustaw w moim profilu zawód'),
+    ]) {
+      expect(skill.acceptsProposal(u(pair.$1), u(pair.$2), ctx), false,
+          reason: pair.$1);
+    }
+    expect(
+        skill.fillProposalSlot(
+            'profile_profession', u('Spawacz'), u('Monter'), ctx),
+        isNull);
+    expect(skill.fillProposalSlot('profile_stamp', u('AB7'), u('AB.7?'), ctx),
+        isNull);
+    expect(
+        skill.fillProposalSlot(
+            'profile_experience_years', u('8'), u('osiem lat'), ctx),
+        {'profile_experience_years': 8});
+    expect(
+        skill.fillProposalSlot(
+            'profile_experience_years', u('8'), u('połowa z 16 lat'), ctx),
+        isNull);
+    for (final text in [
+      '8 albo 10 lat',
+      '-1',
+      '81',
+      '8.5',
+      'dwa razy cztery',
+      '8 lat i 3 miesiące'
+    ]) {
+      expect(skill.fillSlot('profile_experience_years', u(text), ctx), isNull,
+          reason: text);
+    }
+    expect(skill.fillSlot('profile_profession', u('"Change Manager"'), ctx),
+        {'profile_profession': 'Change Manager'});
+    expect(skill.fillSlot('profile_qualifications', u('"Anuluj"'), ctx),
+        {'profile_qualifications': 'Anuluj'});
+    expect(
+        skill.acceptsProposal(u('Zmień mój zawód na Change Manager'),
+            u('Set my profile profession to "Change Manager"'), ctx),
+        true);
+    expect(
+        skill.acceptsProposal(u('Zmień mój zawód na Monter i usuń konto'),
+            u('Set my profile profession to "Monter"'), ctx),
+        false);
+    for (final text in [
+      'Anuluj',
+      'tak',
+      'Nie wiem',
+      'Otwórz heat input',
+      'Narysuj rurę',
+      'Jak zmienić stempel?',
+      'A co oznaczają kwalifikacje?',
+      'Powiedz mi więcej',
+      'Wróć',
+      'Mógłbyś mi wyjaśnić ten wynik?',
+      'Możesz mi pomóc?',
+      'A możesz mi pokazać rysunek?',
+      'Can I ask you a question?',
+      'I need help with this result',
+      'Proszę powiedz mi więcej',
+      'hasło abc123456',
+      'line\nbreak'
+    ]) {
+      expect(skill.fillSlot('profile_profession', u(text), ctx), isNull,
+          reason: text);
+    }
+  });
+  for (final row in <(String, String)>[
+    ('Ustaw w moim profilu zawód', 'Monter'),
+    ('Ustaw w moim profilu doświadczenie', '8'),
+    ('Ustaw w moim profilu procesy', 'TIG'),
+    ('Ustaw w moim profilu kwalifikacje', 'Szkolenie TIG'),
+    ('Ustaw w moim profilu stempel', 'AB7'),
+  ]) {
+    testWidgets(
+        'all missing profile questions remain bound to the original account ${row.$1}',
+        (t) async {
+      await login(t);
+      final skill = ProfessionalProfileEditSkill();
+      final ctx = AssistantContext(
+          lang: AppLanguage.pl, modules: const FixedModuleContext());
+      final match = skill.match(Utterance(row.$1, lang: AppLanguage.pl), ctx)!;
+      final question = await skill.run(match, ctx) as AskResult;
+      final values = skill.fillSlot(
+          question.slot, Utterance(row.$2, lang: AppLanguage.pl), ctx)!;
+      await finish(
+          t, account.signIn('other@example.invalid', 'fixture-password'));
+      final result = await skill.run(
+          question.partial
+              .copyWith(slots: {...question.partial.slots, ...values}),
+          ctx);
+      expect(result, isA<AnswerResult>());
+      expect((result as AnswerResult).actionCompleted, false);
+      expect(result.answer.text.pl, contains('Sesja'));
+      expect(writes, isEmpty);
+    });
+  }
+  testWidgets(
+      'a side knowledge question is not mistaken for a literal profession value',
+      (t) async {
+    await login(t);
+    var calls = 0, answers = 0;
+    await mount(t, interpret: (_) async {
+      if (++calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep(
+                  'account.professional.edit', 'Ustaw w moim profilu zawód')
+            ],
+            '');
+      }
+      return const AiCommandPlan('answer', [], '');
+    }, chatSender: (_, __) async {
+      answers++;
+      return ChatMessage(
+          role: ChatRole.assistant,
+          text: 'Fixture profile field explanation',
+          kind: AiReplyKind.live);
+    });
+    await say(t, 'Zmień mój zawód');
+    await say(t, 'Jakie informacje mogę tu wpisać?');
+    expect(
+        find.textContaining('Fixture profile field explanation'), findsWidgets);
+    expect(find.textContaining('Jaki zawód zapisać'), findsWidgets);
+    expect(writes, isEmpty);
+    await say(t, 'Monter');
+    await confirm(t);
+    expect(calls, 2);
+    expect(answers, 1);
+    expect(writes, hasLength(1));
+    expect(account.account!['profession'], 'Monter');
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'an explicit navigation command is not swallowed by a literal profession question',
+      (t) async {
+    await login(t);
+    await mount(t,
+        interpret: (_) async => const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep(
+                  'account.professional.edit', 'Ustaw w moim profilu zawód')
+            ],
+            ''));
+    await say(t, 'Zmień mój zawód');
+    await say(t, 'Otwórz heat input');
+    expect(ToolBridge.instance.activeToolId, 'heat_input');
+    expect(writes, isEmpty);
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'unknown literal answer cannot be replaced with a model-invented profession',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      if (++calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep(
+                  'account.professional.edit', 'Ustaw w moim profilu zawód')
+            ],
+            '');
+      }
+      return const AiCommandPlan(
+          'reply', [AiCommandStep('account.professional.edit', 'Spawacz')], '');
+    });
+    await say(t, 'Zmień mój zawód');
+    await say(t, 'Nie wiem');
+    expect(writes, isEmpty);
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(find.textContaining('Jaki zawód zapisać'), findsWidgets);
+    await say(t, 'Monter');
+    await confirm(t);
+    expect(calls, 2);
+    expect(writes, hasLength(1));
+    expect(account.account!['profession'], 'Monter');
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'cancelling a literal field question prevents a later reply from saving the old intent',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      if (++calls == 1) {
+        return const AiCommandPlan(
+            'execute',
+            [
+              AiCommandStep(
+                  'account.professional.edit', 'Ustaw w moim profilu stempel')
+            ],
+            '');
+      }
+      return const AiCommandPlan(
+          'clarify', [], 'Którego pola dotyczy ta odpowiedź?');
+    });
+    await say(t, 'Zmień mój stempel');
+    await say(t, 'Anuluj');
+    await say(t, 'AB7');
+    expect(writes, isEmpty);
+    expect(account.account!['stamp'], 'Private stamp');
+    expect(find.byKey(const Key('assistant-local-save')), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  for (final row in <(String, String, String, Object)>[
+    (
+      'Zmień mój zawód na Monter',
+      'Ustaw w moim profilu zawód na "Monter"',
+      'profession',
+      'Monter'
+    ),
+    (
+      'Zmień moje doświadczenie na osiem lat',
+      'Ustaw w moim profilu doświadczenie na 8 lat',
+      'experienceYears',
+      8
+    ),
+    (
+      'Zmień moje procesy na TIG i MMA',
+      'Ustaw w moim profilu procesy na 111 i 141',
+      'processes',
+      ['111', '141']
+    ),
+    (
+      'Zmień moje kwalifikacje na Szkolenie TIG, grupa A.',
+      'Ustaw w moim profilu kwalifikacje na "Szkolenie TIG, grupa A."',
+      'qualifications',
+      'Szkolenie TIG, grupa A.'
+    ),
+    (
+      'Zmień mój stempel na AB.7?',
+      'Ustaw w moim profilu stempel na "AB.7?"',
+      'stamp',
+      'AB.7?'
+    ),
+  ]) {
+    testWidgets(
+        'a natural profile edit with an explicit value needs no unnecessary question ${row.$3}',
+        (t) async {
+      await login(t);
+      var calls = 0;
+      await mount(t, interpret: (_) async {
+        calls++;
+        return AiCommandPlan('execute',
+            [AiCommandStep('account.professional.edit', row.$2)], '');
+      });
+      await say(t, row.$1);
+      expect(writes, isEmpty);
+      expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+      await confirm(t);
+      expect(calls, 1);
+      expect(writes, hasLength(1));
+      expect(account.account![row.$3], row.$4);
+      expect(t.takeException(), isNull);
+    });
+  }
+  testWidgets(
+      'a natural process replacement with MAG retains explicit TIG while asking for its code',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan(
+          'execute',
+          [
+            AiCommandStep('account.professional.edit',
+                'Ustaw w moim profilu procesy na 141 i MAG')
+          ],
+          '');
+    });
+    await say(t, 'Zmień moje procesy na TIG i MAG');
+    expect(find.textContaining('Który proces MAG'), findsWidgets);
+    await say(t, '136');
+    expect(writes, isEmpty);
+    await confirm(t);
+    expect(calls, 1);
+    expect(writes, hasLength(1));
+    expect(account.account!['processes'], ['136', '141']);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'two requested profile changes ask separately and advance only after each actual confirmed save',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan(
+          'execute',
+          [
+            AiCommandStep(
+                'account.professional.edit', 'Ustaw w moim profilu zawód'),
+            AiCommandStep(
+                'account.professional.edit', 'Ustaw w moim profilu stempel'),
+          ],
+          '');
+    });
+    await say(t, 'Zmień mój zawód i potem zmień mój stempel');
+    expect(find.textContaining('Jaki zawód zapisać'), findsWidgets);
+    await say(t, 'Monter');
+    expect(writes, isEmpty);
+    await confirm(t);
+    expect(writes, hasLength(1));
+    expect(jsonDecode(writes.single.body)['field'], 'profession');
+    expect(find.textContaining('Jaki stempel wpisać'), findsWidgets);
+    expect(account.account!['stamp'], 'Private stamp');
+    await say(t, 'AB.7?');
+    expect(writes, hasLength(1));
+    await confirm(t);
+    expect(calls, 1);
+    expect(writes, hasLength(2));
+    expect(jsonDecode(writes.last.body)['field'], 'stamp');
+    expect(account.account!['profession'], 'Monter');
+    expect(account.account!['stamp'], 'AB.7?');
+    expect(t.takeException(), isNull);
+  });
+  testWidgets(
+      'a quoted job title beginning with a command word remains literal profile data',
+      (t) async {
+    await login(t);
+    var calls = 0;
+    await mount(t, interpret: (_) async {
+      calls++;
+      return const AiCommandPlan(
+          'execute',
+          [
+            AiCommandStep(
+                'account.professional.edit', 'Ustaw w moim profilu zawód')
+          ],
+          '');
+    });
+    await say(t, 'Zmień mój zawód');
+    await say(t, '"Change Manager"');
+    expect(writes, isEmpty);
+    expect(find.byKey(const Key('assistant-local-save')), findsOneWidget);
+    await confirm(t);
+    expect(calls, 1);
+    expect(writes, hasLength(1));
+    expect(account.account!['profession'], 'Change Manager');
+    expect(t.takeException(), isNull);
+  });
 }

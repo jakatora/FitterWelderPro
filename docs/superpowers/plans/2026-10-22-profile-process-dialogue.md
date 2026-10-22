@@ -18,7 +18,7 @@ A natural request such as “Dodaj MAG do mojego profilu” is normalized by Hai
 - Real local Express/SQLite replay: run `node --disable-warning=ExperimentalWarning tool/verify_professional_profile_wire.mjs --fields --mag` after native capture. Provider alone is injected: no paid cloud call, production profile edit or physical-phone proof.
 
 ## Remaining full goal
-Generic incomplete-field conversations beyond this MAG choice, broad natural-language coverage, dedicated-provider evaluation, production route deployment and physical phone/voice/ISO/account/report acceptance remain. This is not completion of the whole assistant vision.
+Five-field missing-value conversations were subsequently implemented in `2026-10-22-profile-field-dialogue.md`. Broad natural-language/action coverage, dedicated-provider evaluation, production route deployment and physical phone/voice/ISO/account/report acceptance remain. This is not completion of the whole assistant vision.
 
 
 Local proof 2026-10-22T12:49:51.002Z: exact captured MAG request (654 bytes) and confirmed process write (62 bytes) return interpreter/write/readback 200, one injected Haiku request, low effort, no retry or paid calls. Existing five-field operations and four clears also return write/readback 200; narrow-write auth/role/conflict checks remain 401/403/400/409 as expected.

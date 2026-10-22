@@ -84,6 +84,7 @@ abstract class AssistantSkill {
 
   SkillActionScope? get actionScope => null;
   bool get professionalProcessQuestions => false;
+  bool get professionalFieldQuestions => false;
   List<ProfessionalProfileField> get professionalProfileFields => const [];
 
   AssistantTier get tier;
