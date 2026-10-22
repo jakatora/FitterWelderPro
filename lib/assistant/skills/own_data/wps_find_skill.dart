@@ -81,11 +81,21 @@ class WpsFindSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|do czego)\b').hasMatch(u.folded)) {
+        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasAny(const ['wps']) && !u.hasStem(const ['wps'])) return null;
-    if (u.hasStem(const ['dodaj', 'zapisz', 'nowa', 'nowy', 'add', 'new'])) {
+    // Zapis (także spoiny z numerem WPS) i słownik/tłumaczenie to inne
+    // moduły — „WPS” jest tam tylko słowem albo polem wpisu.
+    if (u.hasStem(const [
+      'dodaj', 'zapisz', 'dopisz', 'wpisz', 'nowa', 'nowy', 'add', 'new', 'log',
+      'slownik', 'slowniku', 'przetlumacz', 'tlumacz', 'dictionar', 'glossar',
+      'translat'
+    ])) {
+      return null;
+    }
+    if (RegExp(r'po (?:niemiecku|angielsku|norwesku|holendersku|polsku)')
+        .hasMatch(u.folded)) {
       return null;
     }
     return SkillMatch(this, .9, slots: _slots(u), utterance: u);

@@ -37,7 +37,7 @@ void main() {
     });
     test('w module poziomu A: uczciwie, że liczenie głosem jeszcze nie działa',
         () async {
-      final r = await BrainHarness(activeToolId: 'passivation', onHome: false)
+      final r = await BrainHarness(activeToolId: 'iso_scanner', onHome: false)
           .say('co mogę tu zrobić');
       expect(textOf(r.result), contains('jeszcze nie'));
     });

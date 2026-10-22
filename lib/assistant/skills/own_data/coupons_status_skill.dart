@@ -44,7 +44,7 @@ class CouponsStatusSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) {
     if (explainedTool(u) != null ||
-        RegExp(r'^(?:otworz|do czego)\b').hasMatch(u.folded)) {
+        RegExp(r'^(?:otworz|open|do czego)\b').hasMatch(u.folded)) {
       return null;
     }
     if (!u.hasStem(const ['kupon', 'coupon'])) return null;

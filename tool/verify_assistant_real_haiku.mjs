@@ -105,6 +105,19 @@ const CASES = [
   ['pl', 'spoina od środka wyszła niebieska, przejdzie?', ['heat_tint.check']],
   ['pl', 'jakie ciśnienie próby wodnej B31.3 przy 16 bar projektowego', ['pressure.test']],
   ['pl', 'ile mam brać za godzinę żeby mieć 10 tysięcy na rękę', ['hourly.rate']],
+  ['pl', 'ile wolno odchyłki na spoolu DN200, mam 1500 na rysunku a zmierzyłem 1503', ['spool.tolerance']],
+  ['pl', 'co oznacza chorągiewka przy symbolu spoiny na rysunku', ['weld.symbol']],
+  ['pl', 'mam jakąś WPS-kę na TIG do ośmiu milimetrów?', ['wps.find']],
+  ['pl', 'przepytaj mnie z BHP przed egzaminem', ['exam.question']],
+  ['pl', 'ile spoin muszę zlecić do prześwietlenia', ['ndt.plan']],
+  ['pl', 'ile dzisiaj zrobiliśmy kuponów i czy ostatni przeszedł', ['coupons.status']],
+  ['pl', 'kiedy ostatnio pasywowaliśmy linię L-12', ['passivation.status']],
+  ['pl', 'ile ferrytu powinno być w spoinie duplex', ['ferrite.range']],
+  ['pl', 'kołnierze mają klina jeden milimetr, czy to przejdzie przed skręceniem', ['flange.alignment']],
+  ['pl', 'daj mi listę rzeczy do sprawdzenia przed spawaniem tigiem', ['checklist.preweld']],
+  ['pl', 'ile metrów rury mam do pocięcia w liście cięć', ['cutlist.summary']],
+  ['pl', 'jaki mam w bibliotece wymiar do osi kolana stówki', ['component.find']],
+  ['pl', 'na jakie grubości dostanę uprawnienia jak zdam na rurze 60 ścianka 5', ['qualification.range']],
 ];
 
 // FWP_REAL_ONLY=<fragment> — tylko pasujące przypadki, FWP_REAL_REPEAT=n powtórzeń.
