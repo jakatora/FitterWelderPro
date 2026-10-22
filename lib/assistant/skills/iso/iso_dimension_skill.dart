@@ -26,7 +26,7 @@ class IsoDimensionSkill extends AssistantSkill {
   @override
   SkillMatch? match(Utterance u, AssistantContext ctx) =>
       parseIsoCommand(u)?.kind == IsoCommandKind.setPipeDimension
-          ? SkillMatch(this, .99, utterance: u)
+          ? SkillMatch(this, .99, utterance: u, explicitToolTarget: true)
           : null;
   @override
   Future<SkillResult> run(SkillMatch match, AssistantContext ctx) =>

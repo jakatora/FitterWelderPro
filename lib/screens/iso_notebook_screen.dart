@@ -36,6 +36,7 @@ import '../services/iso_sketch_project_writer.dart';
 import 'fitter_screen.dart';
 import 'iso_notebook_project_dialogs.dart';
 import 'iso_notebook_name_dialog.dart';
+import '../domain/iso_notebook/sketch_settings.dart';
 
 // The shared deduct-label table moved to the domain layer with the CUT rule;
 // re-exported so existing callers keep importing it from here.
@@ -914,7 +915,7 @@ class IsoNotebookScreen extends StatefulWidget {
 }
 
 class _IsoState extends State<IsoNotebookScreen>
-    with ToolHandleHost<IsoNotebookScreen> {
+    with ToolHandleHost<IsoNotebookScreen> implements InputToolHandle {
   static const double _s = 32.0;
   static const String _kHintHiddenPref = 'iso_notebook_hint_hidden';
   static const String _kAxisCompassPref = 'iso_notebook_show_axis_compass';
@@ -967,6 +968,8 @@ class _IsoState extends State<IsoNotebookScreen>
   /// while mounted.
   @override
   String get toolId => 'iso_notebook';
+  @override
+  Map<String,Object?> get inputFields => Map.unmodifiable({'gap_mm':_gapMm});
   @override
   Set<String> get supportedFields => const {
         'steps',
@@ -1369,7 +1372,7 @@ class _IsoState extends State<IsoNotebookScreen>
     _saveTimer = null;
     final seq = _editSeq;
     if (seq == _savedSeq) return true;
-    if (!_drawingStored && _items.isEmpty && _projectName.isEmpty) {
+    if (!_drawingStored && _sheetIsBlank) {
       // An empty sheet that was never stored (drawn and undone before its
       // first save) is not worth a row.
       _savedSeq = seq;
@@ -1564,7 +1567,7 @@ class _IsoState extends State<IsoNotebookScreen>
       ));
   }
 
-  bool get _sheetIsBlank => _items.isEmpty && _projectName.isEmpty;
+  bool get _sheetIsBlank => _items.isEmpty && _projectName.isEmpty && _gapMm == 0;
 
   /// A stored sketch the fitter emptied and never named is not worth
   /// keeping once they move on to another one.

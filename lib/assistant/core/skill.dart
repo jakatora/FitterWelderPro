@@ -153,6 +153,7 @@ class SkillMatch {
       {this.slots = const {},
       this.missing = const [],
       this.utterance,
+      this.explicitToolTarget = false,
       this.requiresAiInterpretation = false});
 
   final AssistantSkill skill;
@@ -165,6 +166,10 @@ class SkillMatch {
   final List<String> missing;
   final Utterance? utterance;
 
+  /// A native parser verified an explicit target module in this utterance.
+  /// Never set from model output or inherited by a bare continuation.
+  final bool explicitToolTarget;
+
   /// The topic matches, but executing would omit part of the user's input.
   final bool requiresAiInterpretation;
 
@@ -174,11 +179,13 @@ class SkillMatch {
     List<String>? missing,
     Utterance? utterance,
     bool? requiresAiInterpretation,
+    bool? explicitToolTarget,
   }) =>
       SkillMatch(skill, score ?? this.score,
           slots: slots ?? this.slots,
           missing: missing ?? this.missing,
           utterance: utterance ?? this.utterance,
+          explicitToolTarget: explicitToolTarget ?? this.explicitToolTarget,
           requiresAiInterpretation:
               requiresAiInterpretation ?? this.requiresAiInterpretation);
 

@@ -13,12 +13,10 @@ import 'package:flutter/material.dart';
 
 import '../data/pipe_schedules.dart';
 import '../domain/iso_notebook/sketch_to_project.dart';
+import '../domain/iso_notebook/sketch_settings.dart';
+export '../domain/iso_notebook/sketch_settings.dart' show kSketchMaxGapMm;
 import '../i18n/app_language.dart';
 import '../widgets/number_field.dart';
-
-/// Largest root gap the notebook accepts (mm). Real butt-weld root gaps are
-/// 0–6 mm; anything above this is a typo (30 for 3,0).
-const double kSketchMaxGapMm = 10;
 
 String _fmt(double v) {
   final r = v.roundToDouble();
@@ -59,7 +57,7 @@ class _GapDialogState extends State<_GapDialog> {
   void _save() {
     final text = _ctrl.text.trim();
     final v = text.isEmpty ? 0.0 : parseDecimal(text);
-    if (v == null || v < 0 || v > kSketchMaxGapMm) {
+    if (v == null || !isValidSketchGapMm(v)) {
       setState(() => _error = context.tr(
             pl: 'Podaj liczbę od 0 do ${_fmt(kSketchMaxGapMm)} mm',
             en: 'Enter a number from 0 to ${_fmt(kSketchMaxGapMm)} mm',

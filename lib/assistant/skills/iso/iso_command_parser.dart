@@ -25,6 +25,7 @@
 // odrzucamy tutaj, żeby rysowanie nie podkradało cudzych zamiarów.
 
 import 'package:flutter/foundation.dart';
+import '../../../domain/iso_notebook/sketch_settings.dart';
 
 import '../../../domain/fitter/pipe_size_lookup.dart' show dnForNps, knownDns;
 import '../../../i18n/app_language.dart';
@@ -71,6 +72,7 @@ enum IsoCommandKind {
   /// Replace only the entered ISO dimension, preserving geometry and take-outs.
   setPipeDimension,
   renameSketch,
+  setRootGap,
 }
 
 enum IsoParseWarningKind {
@@ -146,6 +148,7 @@ class IsoCommand {
     this.dimensionMm,
     this.pipeOrdinal,
     this.sketchName,
+    this.gapMm,
   });
 
   final IsoCommandKind kind;
@@ -153,6 +156,7 @@ class IsoCommand {
   /// One-based creation order; null identifies the last pipe.
   final int? pipeOrdinal;
   final String? sketchName;
+  final double? gapMm;
 
   /// Kroki do narysowania ([IsoCommandKind.draw]).
   final List<IsoStep> steps;
@@ -214,6 +218,7 @@ class IsoCommand {
         dimensionMm: dimensionMm,
         pipeOrdinal: pipeOrdinal,
         sketchName: sketchName,
+        gapMm: gapMm,
         steps: steps ?? this.steps,
         newSketch: newSketch ?? this.newSketch,
         append: append ?? this.append,
@@ -742,6 +747,15 @@ class _Seg {
 /// rysowania (pytanie, zapis, inny moduł, brak elementów).
 IsoCommand? parseIsoCommand(Utterance u) {
   if (referencesInstruction(u)) return null;
+  if(RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:ustaw|zmien)\s+szczeline|(?:set|change)\s+(?:(?:weld|root)\s+)?gap)\b').hasMatch(u.folded)) {
+    if(RegExp(r'[-−]\s*\d').hasMatch(u.raw)) return null;
+    final match=RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:ustaw|zmien) szczeline (?:spoiny )?(?:w (?:tym )?(?:rysunku|szkicu|iso)|iso) na|(?:set|change) (?:(?:weld|root) )?gap (?:in|for) (?:the |this )?(?:drawing|sketch|iso) to) (\d+(?:[.,]\d+)?)\s*(mm|cm|m)$').firstMatch(u.folded);
+    if(match==null) return null;
+    final value=double.tryParse(match[1]!.replaceAll(',', '.'));
+    final mm=value==null ? null : value * switch(match[2]) {'m'=>1000,'cm'=>10,_=>1};
+    if(mm==null || !isValidSketchGapMm(mm)) return null;
+    return IsoCommand(kind:IsoCommandKind.setRootGap,gapMm:mm,explicit:true,strong:true);
+  }
   if (RegExp(r'^(?:(?:prosze|please)\s+)*(?:(?:nazwij|name|rename)\s+(?:(?:ten|te|to|this|the)\s+)?(?:rysunek|szkic|drawing|sketch|iso|izometrie)|zmien\s+nazwe\s+(?:rysunku|szkicu)\s+na)\b').hasMatch(u.folded)) {
     final match=RegExp(r'^(?:(?:proszę|prosze|please)\s+)*(?:(?:nazwij|name)\s+(?:(?:ten|tę|te|to|this|the)\s+)?(?:rysunek|szkic|drawing|sketch|iso|izometrię|izometrie)\s+|(?:zmień|zmien)\s+(?:nazwę|nazwe)\s+(?:rysunku|szkicu)\s+na\s+|rename\s+(?:(?:this|the)\s+)?(?:drawing|sketch|iso)\s+(?:to\s+)?)(.+)$',caseSensitive:false).firstMatch(u.raw.trim());
     if(match==null) return null;

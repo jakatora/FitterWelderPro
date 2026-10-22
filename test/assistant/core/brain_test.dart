@@ -14,7 +14,13 @@ import '../support/assistant_test_support.dart';
 /// Atrapa: trafia, gdy padło [word]; stały wynik; liczy uruchomienia.
 class _WordSkill extends AssistantSkill {
   _WordSkill(this.id, this.word, this.score,
-      {this.toolId, this.fallbackOrder, this.throws = false, this.ask});
+      {this.toolId,
+      this.fallbackOrder,
+      this.throws = false,
+      this.ask,
+      this.explicitTarget = false,
+      this.needsAi = false});
+  final bool explicitTarget, needsAi;
 
   @override
   final String id;
@@ -41,7 +47,10 @@ class _WordSkill extends AssistantSkill {
     if (!u.hasAny([word])) return null;
     final n = u.dn();
     return SkillMatch(this, score,
-        slots: {if (n != null) 'dn': n}, utterance: u);
+        slots: {if (n != null) 'dn': n},
+        utterance: u,
+        explicitToolTarget: explicitTarget,
+        requiresAiInterpretation: needsAi);
   }
 
   @override
@@ -86,6 +95,39 @@ void main() {
   setUp(() {
     clock = DateTime(2026, 10, 19, 12);
     ctx = makeCtx();
+  });
+  test(
+      'explicit native target beats active form and its interpretation requirement',
+      () async {
+    final iso = _WordSkill('iso', 'rura', .9,
+        toolId: 'iso_notebook', explicitTarget: true);
+    final active = _WordSkill('active', 'rura', .99,
+        toolId: 'rolling_offset', needsAi: true);
+    final brain = AssistantBrain(skills: [active, iso]);
+    final context = makeCtx(active: 'rolling_offset');
+    expect(brain.recognizesLocalRequest(pl('rura'), context), isTrue);
+    expect(brain.requiresInterpretation(pl('rura'), context), isFalse);
+    expect((await brain.handle(pl('rura'), context)).match!.skill.id, 'iso');
+    expect(iso.runs, 1);
+    expect(active.runs, 0);
+  });
+  test('two explicit native modules still require disambiguation', () async {
+    final a = _WordSkill('a', 'rura', .99,
+        toolId: 'iso_notebook', explicitTarget: true);
+    final b = _WordSkill('b', 'rura', .99,
+        toolId: 'rolling_offset', explicitTarget: true);
+    final reply = await AssistantBrain(skills: [a, b]).handle(pl('rura'), ctx);
+    expect((reply.result as AskResult).slot, 'skill');
+    expect(a.runs + b.runs, 0);
+  });
+  test('continuation does not inherit explicit module targeting', () async {
+    final skill = _WordSkill('iso', 'rura', .99,
+        toolId: 'iso_notebook', explicitTarget: true);
+    final brain = AssistantBrain(skills: [skill]);
+    await brain.handle(pl('rura DN20'), ctx);
+    final reply = await brain.handle(pl('DN50'), ctx);
+    expect(reply.match!.explicitToolTarget, isFalse);
+    expect(reply.match!.slots['dn'], 50);
   });
 
   test(

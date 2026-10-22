@@ -150,12 +150,10 @@ class AssistantBrain {
   /// question while still needing AI to normalize the rest of its parameters.
   bool requiresInterpretation(Utterance u, AssistantContext ctx) {
     if (isNegatedCommand(u)) return false;
-    return _regular.any((skill) {
-      final match = _safeMatch(skill, u, ctx);
-      return match != null &&
-          match.score >= _newCommandScore &&
-          match.requiresAiInterpretation;
-    });
+    return _scoreRegular([u], ctx).any((scored) =>
+        scored.order >= 0 &&
+        scored.match.score >= _newCommandScore &&
+        scored.match.requiresAiInterpretation);
   }
 
   static const _interpretationRequired = FailedResult(
@@ -523,6 +521,19 @@ class AssistantBrain {
       if (cont != null) {
         scored.add(_Scored(cont, cont.score, ci, -1));
       }
+      final explicitTargets = {
+        for (final item in scored)
+          if (item.candidate == ci &&
+              item.match.explicitToolTarget &&
+              item.match.score >= threshold &&
+              item.match.skill.toolId != null)
+            item.match.skill.toolId!
+      };
+      if (explicitTargets.length == 1) {
+        final target = explicitTargets.single;
+        scored.removeWhere((item) =>
+            item.candidate == ci && item.match.skill.toolId != target);
+      }
     }
     scored.sort((a, b) {
       final s = b.score.compareTo(a.score);
@@ -562,6 +573,7 @@ class AssistantBrain {
       missing: const [],
       utterance: c,
       requiresAiInterpretation: needsAi,
+      explicitToolTarget: false,
     );
   }
 

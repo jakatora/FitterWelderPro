@@ -1460,6 +1460,24 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       command = resolved;
     }
+    if(command.kind==IsoCommandKind.setRootGap) {
+      final result=await controller.setRootGap(command.gapMm!,expectedRevision:controller.revision);
+      if(!mounted || epoch!=_conversationEpoch) return true;
+      _pendingIso=null;
+      switch(result) {
+        case IsoGapResult.saved:
+          _isoDidExecute=true;
+          _isoReply('Szczelina spoiny w szkicu: ${command.gapMm} mm. Długości CUT korzystają z tej wartości i istniejących połączeń.',
+            'Drawing weld gap: ${command.gapMm} mm. CUT lengths use this value and the existing connections.');
+        case IsoGapResult.rejected:
+          _isoReply('Nie potwierdziłem zmiany szczeliny. Rysunek zmienił się albo wartość jest poza zakresem edytora.',
+            'Gap change not confirmed. The drawing changed or the value is outside the editor range.');
+        case IsoGapResult.unsaved:
+          _isoReply('Szczelina zmieniła się na ekranie, ale zapis rysunku nie powiódł się. Pozostaw edytor otwarty i ponów zapis.',
+            'The gap changed on screen, but saving failed. Keep the editor open and retry saving.');
+      }
+      return true;
+    }
     if (command.kind == IsoCommandKind.renameSketch) {
       final name=command.sketchName!;
       final result=await controller.renameSketch(name,expectedRevision:controller.revision);

@@ -8,7 +8,7 @@ abstract interface class RecordToolHandle {
   String? get selectedRecordId;
 }
 
-/// Only calculator pages opt in. Credential forms expose no inputs.
+/// Explicit native read ports only. Credential forms expose no inputs.
 abstract interface class InputToolHandle {
   Map<String, Object?> get inputFields;
 }

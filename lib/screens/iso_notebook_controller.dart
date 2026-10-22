@@ -37,6 +37,7 @@ enum IsoDir { right, up, back, left, down, forward }
 /// ([IsoNotebookController.dirForCompass]).
 enum IsoCompass { north, south, east, west }
 enum IsoNameResult { saved, rejected, unsaved }
+enum IsoGapResult { saved, rejected, unsaved }
 
 /// Jeden krok polecenia rysowania.
 sealed class IsoStep {
@@ -308,6 +309,7 @@ class IsoNotebookController extends ChangeNotifier {
 
   /// Local mutation marker for rejecting delayed assistant answers after edits.
   int get revision => _state?._version ?? -1;
+  double get rootGapMm => _state?._gapMm ?? 0;
 
   /// Nazwa rysunku albo null (bez nazwy).
   String? get sketchName {
@@ -537,6 +539,19 @@ class IsoNotebookController extends ChangeNotifier {
         return report;
       });
 
+  Future<IsoGapResult> setRootGap(double mm, {required int expectedRevision}) =>
+      _enqueue((s) async {
+    if(expectedRevision!=s._version || !isValidSketchGapMm(mm)) return IsoGapResult.rejected;
+    if(s._gapMm!=mm) {
+      s._push();
+      s._mutate(()=>s._gapMm=mm);
+    }
+    final revision=s._version;
+    final saved=await s._flushSave();
+    if(!identical(_state,s) || revision!=s._version || s._gapMm!=mm) return IsoGapResult.rejected;
+    return saved ? IsoGapResult.saved : IsoGapResult.unsaved;
+  });
+
   /// Change only the current sheet name, retaining its ID and geometry.
   /// Success means the same real persistence flush as leaving the editor.
   Future<IsoNameResult> renameSketch(String name,
@@ -600,6 +615,12 @@ class IsoNotebookController extends ChangeNotifier {
     final g = _state?._ghost.value;
     return g == null ? null : (a: g.$1, b: g.$2);
   }
+
+  /// The same native CUT function used by the canvas, BOM and export.
+  @visibleForTesting
+  List<double> get debugPipeCutsMm => [
+    for(final pipe in _state?._pipes ?? const <_Seg>[]) _state!._resolvedCut(pipe)
+  ];
 
   /// Ile razy ekran zeszytu wykonał `build` (podgląd nie może go wołać).
   @visibleForTesting
