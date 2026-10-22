@@ -26,5 +26,6 @@ List<AssistantSkill> fitterRoutesSkills() => [
       MitreBendSkill(),
       TubeBendingSkill(),
       PipeRouteSkill(),
-      ConeLayoutSkill()
+      ConeLayoutSkill(),
+      EccentricConeSkill()
     ];

@@ -20,6 +20,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../domain/fitter/cone_development.dart';
 import '../../domain/fitter/cone_assistant_input.dart';
+import '../../domain/fitter/eccentric_cone_assistant_input.dart';
 import '../../assistant/core/tool_bridge.dart';
 import '../../domain/fitter/transition_development.dart';
 import '../../domain/quotes/quote_calculator.dart' show formatQty;
@@ -91,10 +92,24 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
   @override
   String get toolId => 'cone_layout';
   @override
-  Set<String> get supportedFields => ConeAssistantInput.fields;
+  Set<String> get supportedFields =>
+      {...ConeAssistantInput.fields, ...EccentricConeAssistantInput.fields};
   @override
   Map<String, Object?> get inputFields => Map.unmodifiable({
         'shape': _shape.name,
+        if (_shape == ConeShape.eccentric) ...{
+          'mode': 'height',
+          'large_dia_mm': _mmOf(_dL),
+          'small_dia_mm': _mmOf(_dS),
+          'height_mm': _mmOf(_h),
+          'thickness_mm': _mmOf(_t),
+          'reference': _ref.name,
+          'parts': _parts,
+          'divisions': _div,
+          'vertical_side': _vertical,
+          if (!_vertical) 'offset_mm': _mmOf(_e),
+          'seam_on_short_side': _seamShort,
+        },
         if (_shape == ConeShape.concentric) ...{
           'mode': _mode.name,
           'large_dia_mm': _mmOf(_dL),
@@ -122,6 +137,7 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
 
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (fields['shape'] == 'eccentric') return _applyEccentric(fields);
     ConeAssistantInput parsed;
     try {
       parsed = ConeAssistantInput.fromFields(fields);
@@ -151,6 +167,34 @@ class _ConeLayoutPageState extends State<ConeLayoutPage>
         case ConeSizeMode.slant:
           _slant.text = length(i.slantMm);
       }
+    });
+    return {};
+  }
+
+  Future<Set<String>> _applyEccentric(Map<String, Object?> fields) async {
+    EccentricConeAssistantInput parsed;
+    try {
+      parsed = EccentricConeAssistantInput.fromFields(fields);
+    } on FormatException {
+      return fields.keys.toSet();
+    }
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return fields.keys.toSet();
+    }
+    final i = parsed.input;
+    String length(double mm) => (mm / _scale).toString();
+    setState(() {
+      _shape = ConeShape.eccentric;
+      _ref = i.ref;
+      _parts = i.parts;
+      _div = i.divisions;
+      _vertical = i.verticalSide;
+      _seamShort = i.seamOnShortSide;
+      _dL.text = length(i.largeDiaMm);
+      _dS.text = length(i.smallDiaMm);
+      _h.text = length(i.heightMm);
+      _t.text = length(i.thicknessMm);
+      if (!i.verticalSide) _e.text = length(i.offsetMm);
     });
     return {};
   }

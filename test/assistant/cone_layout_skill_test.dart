@@ -112,7 +112,7 @@ void main() {
     final s = ConeLayoutSkill();
     final ctx = AssistantContext(
         lang: AppLanguage.pl, modules: const FixedModuleContext());
-    final u = Utterance('Oblicz stożek mimośrodowy', lang: AppLanguage.pl);
+    final u = Utterance('Oblicz stożek przejście', lang: AppLanguage.pl);
     expect(await s.run(s.match(u, ctx)!, ctx), isA<FailedResult>());
   });
   test(

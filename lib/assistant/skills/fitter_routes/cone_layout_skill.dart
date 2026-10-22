@@ -1,4 +1,5 @@
 import '../../../domain/fitter/cone_assistant_input.dart';
+import '../../../domain/fitter/eccentric_cone_assistant_input.dart';
 import '../../../domain/fitter/cone_development.dart';
 import '../../core/skill.dart';
 import '../../core/command_words.dart';
@@ -17,6 +18,7 @@ Map<String, Object?> _slots(Utterance original) {
     'slant_mm': ['tworzac', 'slant'],
     'thickness_mm': ['grubosc', 'blacha', 'thickness'],
     'allowance_mm': ['naddat', 'allowance'],
+    'offset_mm': ['przesunie', 'offset'],
   }.entries) {
     final value = lengthNear(u, entry.value);
     if (value != null) s[entry.key] = value;
@@ -46,8 +48,47 @@ Map<String, Object?> _slots(Utterance original) {
     s['reference'] = refs.length == 1 ? refs.single : 'ambiguous';
   }
   if (u.hasStem(const ['wspolosiow', 'concentric'])) s['shape'] = 'concentric';
-  if (u.hasStem(const ['mimosrod', 'eccentric', 'przejsc', 'transition'])) {
+  if (u.hasStem(const ['mimosrod', 'eccentric'])) s['shape'] = 'eccentric';
+  if (u.hasStem(const ['przejsc', 'transition'])) {
     s['shape'] = 'unsupported';
+  }
+  if (u.hasAny(const ['scianka pionowa', 'pionowa scianka', 'vertical side'])) {
+    s['vertical_side'] = true;
+    s['offset_mm'] = null;
+  }
+  if (u.hasStem(const ['przesunie', 'offset'])) {
+    if (s['vertical_side'] == true) {
+      s['vertical_side'] = 'ambiguous';
+    } else {
+      s['vertical_side'] = false;
+    }
+    if (!s.containsKey('offset_mm')) s['offset_mm'] = double.nan;
+  }
+  if (u.hasStem(const ['szew', 'seam'])) {
+    final short = u.hasStem(const ['krotk', 'short']);
+    final long = u.hasStem(const ['dlug', 'long']);
+    s['seam_on_short_side'] = short == long ? 'ambiguous' : short;
+  }
+  final divisions = <double>{};
+  for (var i = 0; i < u.items.length; i++) {
+    if (!u.items[i].word.startsWith('podzial') &&
+        !u.items[i].word.startsWith('division')) {
+      continue;
+    }
+    if (i + 1 < u.items.length &&
+        u.items[i + 1].isNumber &&
+        !(i + 2 < u.items.length &&
+            (u.items[i + 2].word.startsWith('czesc') ||
+                u.items[i + 2].word.startsWith('part')))) {
+      divisions.add(signedQuantity(u, i + 1));
+    }
+    if (i > 0 && u.items[i - 1].isNumber) {
+      divisions.add(signedQuantity(u, i - 1));
+    }
+  }
+  if (u.hasStem(const ['podzial', 'division'])) {
+    final n = divisions.length == 1 ? divisions.single : double.nan;
+    s['divisions'] = n.isFinite && n == n.roundToDouble() ? n.toInt() : -1;
   }
   final parts = <double>{};
   for (var i = 0; i < u.items.length; i++) {
@@ -56,7 +97,11 @@ Map<String, Object?> _slots(Utterance original) {
       continue;
     }
     if (i > 0 && u.items[i - 1].isNumber) parts.add(signedQuantity(u, i - 1));
-    if (i + 1 < u.items.length && u.items[i + 1].isNumber) {
+    if (i + 1 < u.items.length &&
+        u.items[i + 1].isNumber &&
+        !(i + 2 < u.items.length &&
+            (u.items[i + 2].word.startsWith('podzial') ||
+                u.items[i + 2].word.startsWith('division')))) {
       parts.add(signedQuantity(u, i + 1));
     }
   }
@@ -124,8 +169,13 @@ class ConeLayoutSkill extends AssistantSkill {
       return null;
     }
     if (!u.hasStem(const ['stoz', 'cone'])) return null;
+    final slots = _slots(u);
+    if (id == 'cone.layout' && slots['shape'] == 'eccentric' ||
+        id == 'cone.eccentric' && slots['shape'] != 'eccentric') {
+      return null;
+    }
     return SkillMatch(this, .94,
-        slots: _slots(u),
+        slots: slots,
         utterance: u,
         explicitToolTarget: true,
         requiresAiInterpretation: _needsInterpretation(u));
@@ -141,8 +191,14 @@ class ConeLayoutSkill extends AssistantSkill {
     if (RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(u.raw.toLowerCase())) {
       return {slot: double.nan};
     }
+    if (slot == 'eccentric_offset' && s.containsKey('vertical_side')) return s;
     if (s.containsKey(slot) || slot == 'inputs' && s.isNotEmpty) return s;
-    if (const ['large_dia_mm', 'small_dia_mm', 'thickness_mm'].contains(slot)) {
+    if (const [
+      'large_dia_mm',
+      'small_dia_mm',
+      'thickness_mm',
+      'eccentric_offset'
+    ].contains(slot)) {
       final values = <double>{};
       for (var i = 0; i + 1 < u.items.length; i++) {
         final scale = lengthUnitScale(u.items[i + 1].word);
@@ -150,7 +206,11 @@ class ConeLayoutSkill extends AssistantSkill {
           values.add(signedQuantity(u, i) * scale);
         }
       }
-      if (values.length == 1) return {slot: values.single};
+      if (values.length == 1) {
+        return slot == 'eccentric_offset'
+            ? {'offset_mm': values.single, 'vertical_side': false}
+            : {slot: values.single};
+      }
     }
     return null;
   }
@@ -177,10 +237,10 @@ class ConeLayoutSkill extends AssistantSkill {
     final s = m.slots;
     if (s['shape'] == 'unsupported') {
       return const FailedResult(AssistantText(
-          'Sterowanie stożkiem mimośrodowym i przejściem nie jest jeszcze podłączone. Otwórz moduł i wybierz ten kształt ręcznie.',
-          'Assistant control of eccentric cones and transitions is not connected yet. Open the module and select that shape manually.'));
+          'Sterowanie przejściem nie jest jeszcze podłączone. Otwórz moduł i wybierz ten kształt ręcznie.',
+          'Assistant control of transitions is not connected yet. Open the module and select that shape manually.'));
     }
-    if (s['shape'] != 'concentric') {
+    if (s['shape'] != 'concentric' && s['shape'] != 'eccentric') {
       return ask('shape', 'Czy chodzi o stożek współosiowy?',
           'Is this a concentric cone?');
     }
@@ -212,6 +272,7 @@ class ConeLayoutSkill extends AssistantSkill {
           'Czy średnice są zewnętrzne, wewnętrzne czy średnie?',
           'Are the diameters outside, inside or mean?');
     }
+    if (s['shape'] == 'eccentric') return _runEccentric(m);
     if (!ConeSizeMode.values.any((v) => v.name == s['mode'])) {
       return ask(
           'inputs',
@@ -240,4 +301,63 @@ class ConeLayoutSkill extends AssistantSkill {
                 'Concentric cone: outer radius ${r.outerRadiusMm.toStringAsFixed(2)} mm, inner radius ${r.innerRadiusMm.toStringAsFixed(2)} mm, sector angle ${r.sectorAngleDeg.toStringAsFixed(2)}°. Parts: ${r.parts}, allowance ${parsed.input.allowanceMm} mm. Dimensions use the selected diameter reference.')),
         show: ShowInModule(toolId, fields));
   }
+}
+
+Future<SkillResult> _runEccentric(SkillMatch m) async {
+  AskResult ask(String pl, String en) =>
+      AskResult('inputs', AssistantText(pl, en), partial: m);
+  final s = m.slots;
+  if (s['vertical_side'] is! bool) {
+    return AskResult(
+        'eccentric_offset',
+        const AssistantText(
+            'Podaj przesunięcie osi w mm albo wybierz jedną ściankę pionową; nie łącz obu wariantów.',
+            'Give the axis offset in mm or choose one vertical side; do not combine both variants.'),
+        partial: m);
+  }
+  final fields = <String, Object?>{
+    ...s,
+    'parts': s['parts'] ?? 1,
+    'divisions': s['divisions'] ?? 16,
+    'seam_on_short_side': s['seam_on_short_side'] ?? true
+  };
+  EccentricConeAssistantInput parsed;
+  try {
+    parsed = EccentricConeAssistantInput.fromFields(fields);
+  } on FormatException {
+    return ask(
+        'Sprawdź wysokość, przesunięcie, średnice i grubość. Części: 1, 2 lub 4; podziały: 12, 16, 24, 32 lub 48; szew po krótkiej lub długiej stronie. Naddatek nie jest obsługiwany dla tego kształtu.',
+        'Check height, offset, diameters and thickness. Parts: 1, 2 or 4; divisions: 12, 16, 24, 32 or 48; seam on short or long side. Allowance is unsupported for this shape.');
+  }
+  final r = parsed.result;
+  return AnswerResult(
+      AssistantAnswer(
+          text: AssistantText(
+              'Stożek mimośrodowy: przesunięcie ${r.offsetMm.toStringAsFixed(2)} mm, najkrótsza tworząca ${r.shortestGeneratorMm.toStringAsFixed(2)} mm, najdłuższa ${r.longestGeneratorMm.toStringAsFixed(2)} mm. Części: ${parsed.input.parts}, podziały: ${parsed.input.divisions}, szew: ${parsed.input.seamOnShortSide ? "krótka" : "długa"} strona. Rozwinięcie korzysta z przybliżenia osi obojętnej dla grubości blachy; sprawdź tabelę triangulacji.',
+              'Eccentric cone: offset ${r.offsetMm.toStringAsFixed(2)} mm, shortest generator ${r.shortestGeneratorMm.toStringAsFixed(2)} mm, longest ${r.longestGeneratorMm.toStringAsFixed(2)} mm. Parts: ${parsed.input.parts}, divisions: ${parsed.input.divisions}, seam: ${parsed.input.seamOnShortSide ? "short" : "long"} side. Development uses a neutral-surface approximation for plate thickness; check the triangulation table.')),
+      show: ShowInModule('cone_layout', fields));
+}
+
+class EccentricConeSkill extends ConeLayoutSkill {
+  @override
+  String get id => 'cone.eccentric';
+  @override
+  List<SkillExample> get examples => const [
+        SkillExample(
+            'Stożek mimośrodowy duża 600 mm mała 200 mm wysokość 400 mm grubość 4 mm zewnętrzne przesunięcie 100 mm',
+            'Eccentric cone large 600 mm small 200 mm height 400 mm thickness 4 mm outside offset 100 mm'),
+        SkillExample(
+            'Stożek mimośrodowy duża 600 mm mała 200 mm wysokość 400 mm grubość 4 mm wewnętrzne ścianka pionowa',
+            'Eccentric cone large 600 mm small 200 mm height 400 mm thickness 4 mm inside vertical side'),
+        SkillExample(
+            'Stożek mimośrodowy duża 600 mm mała 200 mm wysokość 400 mm grubość 0 mm średnie przesunięcie 50 mm 2 części 24 podziały szew po długiej stronie',
+            'Eccentric cone large 600 mm small 200 mm height 400 mm thickness 0 mm mean offset 50 mm 2 parts 24 divisions seam long side'),
+        SkillExample('Oblicz stożek mimośrodowy', 'Calculate eccentric cone'),
+        SkillExample(
+            'Stożek mimośrodowy duża 60 cm mała 0 mm wysokość 40 cm grubość 0 mm średnie przesunięcie 100 mm',
+            'Eccentric cone large 60 cm small 0 mm height 40 cm thickness 0 mm mean offset 100 mm'),
+        SkillExample(
+            'Stożek mimośrodowy duża 600 mm mała 200 mm wysokość 400 mm grubość 4 mm zewnętrzne',
+            'Eccentric cone large 600 mm small 200 mm height 400 mm thickness 4 mm outside'),
+      ];
 }
