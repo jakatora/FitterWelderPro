@@ -28,6 +28,8 @@ import '../assistant/core/command_words.dart';
 import '../app_navigator.dart';
 import '../assistant/core/assistant_panel_controller.dart';
 import '../assistant/core/assistant_feedback_recorder.dart';
+import '../feedback/complaint_detector.dart';
+import '../feedback/feedback_signal.dart';
 import '../assistant/core/tool_bridge.dart';
 import '../assistant/skills/welder_calc/heat_input_skill.dart';
 import '../assistant/skills/iso/iso_command_parser.dart';
@@ -1099,15 +1101,26 @@ class _AiChatScreenState extends State<AiChatScreen>
       }
       return true;
     }
+    var message = plan.message;
+    if (plan.kind == 'unsupported') {
+      final tool = _brainContext.modules.activeToolId;
+      final reported = classifyFeedback(text, lastTurnFailed: false);
+      if (reported == null || reported == FeedbackKind.notUnderstood) {
+        unawaited(_feedback.missing(text, tool: tool, lang: lang));
+      } else {
+        // A problem report for the author: the receipt says what really
+        // happened to it, whatever the model wrote.
+        final sent =
+            await _feedback.report(text, reported, tool: tool, lang: lang);
+        if (!mounted || epoch != _aiEpoch) return true;
+        if (sent != null) message = _reportReceipt(sent);
+      }
+    }
     _brainContext.invalidateActionReference();
-    _rememberAi(text, plan.message, kind: AiReplyKind.live);
+    _rememberAi(text, message, kind: AiReplyKind.live);
     if (plan.kind == 'clarify') {
       _aiClarification = AiClarification(
           question: plan.message, userTurns: executionTurns);
-    }
-    if (plan.kind == 'unsupported') {
-      unawaited(_feedback.missing(text,
-          tool: _brainContext.modules.activeToolId, lang: lang));
     }
     setState(() {
       _busy = false;
@@ -1115,11 +1128,42 @@ class _AiChatScreenState extends State<AiChatScreen>
       _question = null;
       _notice = null;
       _localResult =
-          AnswerResult(AssistantAnswer(text: AssistantText.same(plan.message)));
+          AnswerResult(AssistantAnswer(text: AssistantText.same(message)));
     });
-    await _speak(plan.message);
+    await _speak(message);
     return true;
   }
+
+  /// Records an explicit problem report without a paid AI call and without
+  /// touching the current module or its pending question.
+  Future<void> _reportProblem(String text, AppLanguage lang) async {
+    final epoch = _conversationEpoch;
+    final sent = await _feedback.report(text, FeedbackKind.explicit,
+        tool: _brainContext.modules.activeToolId, lang: lang);
+    if (!mounted || epoch != _conversationEpoch) return;
+    final message = sent == null
+        ? _tr('Nie udało się zapisać zgłoszenia. Spróbuj ponownie.',
+            'The report could not be saved. Please try again.')
+        : _reportReceipt(sent);
+    _rememberAi(text, message, kind: AiReplyKind.localDialogue);
+    setState(() {
+      _busy = false;
+      _cmdCtrl.clear();
+      _notice = null;
+      _localResult = sent == null
+          ? FailedResult(AssistantText.same(message))
+          : AnswerResult(AssistantAnswer(text: AssistantText.same(message)));
+    });
+    await _speak(message);
+  }
+
+  String _reportReceipt(bool sent) => sent
+      ? _tr(
+          'Zapisałem zgłoszenie dla twórcy aplikacji. Dziękuję — to pomaga ją poprawić.',
+          'I logged this report for the app author. Thank you — it helps improve the app.')
+      : _tr(
+          'Zapisałem zgłoszenie na tym telefonie. Twórca je zobaczy, gdy włączysz „Pomóż ulepszać asystenta” w ekranie Konto.',
+          'I saved this report on this phone. The author will see it once you turn on "Help improve the assistant" on the Account screen.');
 
   _CalculatorActionState _calculatorActionState() {
     final bridge = ToolBridge.instance;
@@ -1311,6 +1355,14 @@ class _AiChatScreenState extends State<AiChatScreen>
     });
     AssistantOutcome out;
     try {
+      // An explicit report for the author is not a module command, even when
+      // it names one („zgłoś problem: kalkulator spadku źle liczy”).
+      if (_pendingField == null &&
+          classifyFeedback(text, lastTurnFailed: false) ==
+              FeedbackKind.explicit) {
+        await _reportProblem(text, lang);
+        return;
+      }
       // Negation and existing native workflows retain ownership. Unknown
       // free-form requests reach AI before generic deterministic fallbacks.
       if (_pendingField == null && await _tryAiCommand(text, lang)) return;

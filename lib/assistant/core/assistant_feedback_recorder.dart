@@ -33,4 +33,30 @@ class AssistantFeedbackRecorder {
       // Reporting a failure must never break the user's task.
     }
   }
+
+  /// A problem the user reported to the author (explicit report, complaint,
+  /// "can't find"). Returns whether it will leave the phone (upload consent),
+  /// or `null` when it could not be stored — the caller must not claim it was.
+  Future<bool?> report(String text, FeedbackKind kind,
+      {String? tool, required AppLanguage lang}) async {
+    try {
+      final signal =
+          FeedbackSignal.create(kind: kind, text: text, tool: tool, lang: lang);
+      final key = '${signal.kind.name}:${signal.tool}:${signal.text}';
+      if (!_seen.contains(key)) {
+        if (_seen.length >= 50 || !await FeedbackStore.instance.add(signal)) {
+          return null;
+        }
+        _seen.add(key);
+      }
+      final granted = (await FeedbackConsent.instance.read()).granted;
+      if (granted) {
+        // The upload retries later on failure; the report is already stored.
+        _upload().catchError((_) {});
+      }
+      return granted;
+    } catch (_) {
+      return null;
+    }
+  }
 }
