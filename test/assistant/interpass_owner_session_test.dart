@@ -55,6 +55,8 @@ void main() {
         store.replaceIfUnchanged(before, before.copyWith(description: 'stale'),
             expectedOwner: owner),
         throwsA(isA<AccountException>()));
+    expect((await store.load()).welds, isEmpty);
+    await seedGuestAccount();
     expect((await store.load()).welds.single.description, isEmpty);
   });
   test('queued storage CAS rechecks owner when its turn begins', () async {
@@ -62,16 +64,18 @@ void main() {
     final owner = await LocalRecordOwner.capture();
     final outcome = Completer<Object>();
     Future<void>? erasure;
-    await store.update('w1', (w) {
-      store
-          .replaceIfUnchanged(
-              before, before.copyWith(description: 'stale queued write'),
-              expectedOwner: owner)
-          .then((value) => outcome.complete(value),
-              onError: (Object error) => outcome.complete(error));
-      erasure = AccountService.instance.invalidateSession();
-      return w;
-    });
+    await expectLater(
+        store.update('w1', (w) {
+          store
+              .replaceIfUnchanged(
+                  before, before.copyWith(description: 'stale queued write'),
+                  expectedOwner: owner)
+              .then((value) => outcome.complete(value),
+                  onError: (Object error) => outcome.complete(error));
+          erasure = AccountService.instance.invalidateSession();
+          return w;
+        }),
+        throwsA(isA<AccountException>()));
     await erasure;
     expect(await outcome.future, isA<AccountException>());
     expect((await store.load()).welds.single.description, isEmpty);
@@ -80,12 +84,16 @@ void main() {
     final result = await preview() as ConfirmResult;
     await seedSignedInAccount();
     await expectLater(result.perform(), throwsA(isA<AccountException>()));
-    expect((await store.load()).welds.single.readings, isEmpty);
+    expect((await store.load()).welds, isEmpty);
     expect(AssistantHistoryStore.instance.entries, isEmpty);
+    await seedGuestAccount();
+    expect((await store.load()).welds.single.readings, isEmpty);
   });
   test('committed reading history and undo stay with the preview owner',
       () async {
     await seedSignedInAccount();
+    await store.upsert(InterpassWeld.blank(id: 'w1', now: now)
+        .copyWith(weldNo: 'W-12', passCount: 3));
     final result = await preview() as ConfirmResult;
     final undo = await result.perform();
     expect(AssistantHistoryStore.instance.entries.single.ownerScope,
@@ -93,6 +101,8 @@ void main() {
     await seedGuestAccount();
     expect(AssistantHistoryStore.instance.entries, isEmpty);
     await expectLater(undo!(), throwsA(isA<AccountException>()));
+    expect((await store.load()).welds.single.readings, isEmpty);
+    await seedSignedInAccount();
     expect((await store.load()).welds.single.readings, hasLength(1));
   });
   test('delayed read cannot produce a preview for a different account',
@@ -103,6 +113,8 @@ void main() {
     await seedSignedInAccount();
     delayed.release.complete();
     expect(await result, isA<FailedResult>());
+    expect((await store.load()).welds, isEmpty);
+    await seedGuestAccount();
     expect((await store.load()).welds.single.readings, isEmpty);
   });
 }

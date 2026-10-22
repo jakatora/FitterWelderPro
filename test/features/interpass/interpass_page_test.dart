@@ -1,3 +1,4 @@
+import '../../support/test_account.dart';
 // Ekran „Temperatura podgrzania i międzyściegowa”: ustawienia → pomiary →
 // werdykt (zielony tylko z kompletem ściegów w limitach), przekroczenie =
 // czerwony, przełączenie °F nie zmienia danych ani werdyktu, kredka (próg
@@ -180,6 +181,7 @@ Future<String?> _shareTextOf(WidgetTester tester) async {
 String? _lastShared;
 
 void main() {
+  useGuestAccount();
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     _clock = _now;

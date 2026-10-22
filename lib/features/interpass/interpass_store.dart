@@ -1,3 +1,4 @@
+import '../../services/account_service.dart';
 import '../../database/local_record_owner.dart';
 // Rejestr temperatury podgrzania i międzyściegowej w SharedPreferences
 // (JSON z wersją w kluczu i w treści) — bez zmian schematu bazy.
@@ -56,7 +57,46 @@ class InterpassStore {
   static const int maxWelds = 200;
   static const int warnAt = 180;
 
-  const InterpassStore();
+  const InterpassStore({Future<LocalRecordOwner> Function()? captureOwner})
+      : _captureOwner = captureOwner;
+  final Future<LocalRecordOwner> Function()? _captureOwner;
+
+  InterpassStore scoped(Future<LocalRecordOwner> Function() capture) =>
+      InterpassStore(captureOwner: () async {
+        final previous = _captureOwner == null ? null : await _captureOwner();
+        previous?.requireCurrent();
+        final owner = await capture();
+        previous?.requireCurrent();
+        owner.requireCurrent();
+        if (previous != null && previous.key != owner.key) {
+          throw AccountException('Sesja rejestru temperatury zmieniła się.');
+        }
+        return owner;
+      });
+
+  static String ownerKey(String base, LocalRecordOwner owner) =>
+      owner.key == LocalRecordOwner.guest
+          ? base
+          : '$base.owner.${Uri.encodeComponent(owner.key)}';
+
+  Future<T> _owned<T>(Future<T> Function(LocalRecordOwner) op,
+      {LocalRecordOwner? expectedOwner}) async {
+    expectedOwner?.requireCurrent();
+    final owner = await (_captureOwner ?? LocalRecordOwner.capture)();
+    owner.requireCurrent();
+    expectedOwner?.requireCurrent();
+    if (expectedOwner != null && expectedOwner.key != owner.key) {
+      throw AccountException('Właściciel rejestru temperatury zmienił się.');
+    }
+    return _serial(() async {
+      owner.requireCurrent();
+      expectedOwner?.requireCurrent();
+      final result = await op(owner);
+      owner.requireCurrent();
+      expectedOwner?.requireCurrent();
+      return result;
+    });
+  }
 
   static Future<void>? _tail;
   static int _inFlight = 0;
@@ -72,13 +112,14 @@ class InterpassStore {
   }
 
   /// Spoiny od ostatnio zmienionej.
-  Future<InterpassLoad> load() => _serial(_loadNow);
+  Future<InterpassLoad> load() => _owned(_loadNow);
 
-  Future<InterpassLoad> _loadNow() async {
+  Future<InterpassLoad> _loadNow(LocalRecordOwner owner) async {
     final prefs = await SharedPreferences.getInstance();
+    owner.requireCurrent();
     Object? raw;
     try {
-      raw = prefs.get(key);
+      raw = prefs.get(ownerKey(key, owner));
       if (raw == null || (raw is String && raw.isEmpty)) {
         return const InterpassLoad([]);
       }
@@ -87,22 +128,27 @@ class InterpassStore {
       // Pominięte spoiny, pomiary albo nieczytelne pola — pierwszy zapis
       // usunąłby je na stałe, więc najpierw kopia surowego tekstu.
       if (parsed.lossy) {
-        await _backup(prefs, raw);
+        await _backup(prefs, raw, owner);
         return InterpassLoad(sortInterpassWelds(parsed.welds), corrupt: true);
       }
       return InterpassLoad(sortInterpassWelds(parsed.welds));
+    } on AccountException {
+      rethrow;
     } catch (_) {
-      if (raw != null) await _backup(prefs, raw);
+      if (raw != null) await _backup(prefs, raw, owner);
       return const InterpassLoad([], corrupt: true);
     }
   }
 
   /// Kopia surowego tekstu: ta sama treść — bez nowej kopii; inna — do
   /// następnego wolnego miejsca, a przy komplecie zamiast ostatniej.
-  static Future<void> _backup(SharedPreferences prefs, Object raw) async {
+  static Future<void> _backup(
+      SharedPreferences prefs, Object raw, LocalRecordOwner owner) async {
+    owner.requireCurrent();
     final text = raw.toString();
     String? free;
-    for (final k in corruptBackupKeys) {
+    for (final base in corruptBackupKeys) {
+      final k = ownerKey(base, owner);
       final saved = prefs.get(k);
       if (saved == null) {
         free ??= k;
@@ -110,26 +156,27 @@ class InterpassStore {
         return;
       }
     }
-    await prefs.setString(free ?? corruptBackupKeys.last, text);
+    await prefs.setString(
+        free ?? ownerKey(corruptBackupKeys.last, owner), text);
+    owner.requireCurrent();
   }
 
-  Future<void> _write(List<InterpassWeld> list,
-      {LocalRecordOwner? expectedOwner}) async {
-    expectedOwner?.requireCurrent();
+  Future<void> _write(List<InterpassWeld> list, LocalRecordOwner owner) async {
+    owner.requireCurrent();
     final prefs = await SharedPreferences.getInstance();
-    expectedOwner?.requireCurrent();
-    final ok = await prefs.setString(
-        key, jsonEncode(interpassLogToJson(sortInterpassWelds(list))));
+    owner.requireCurrent();
+    final ok = await prefs.setString(ownerKey(key, owner),
+        jsonEncode(interpassLogToJson(sortInterpassWelds(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
-    expectedOwner?.requireCurrent();
+    owner.requireCurrent();
     changes.value++;
   }
 
   /// Zapisuje (nową albo zmienioną) spoinę. Pusta spoina (nic nie wpisano)
   /// nie trafia do rejestru — a jeśli była zapisana, znika. Nowa spoina
   /// przy pełnym rejestrze → [InterpassStoreFull].
-  Future<void> upsert(InterpassWeld weld) => _serial(() async {
-        final list = [...(await _loadNow()).welds];
+  Future<void> upsert(InterpassWeld weld) => _owned((owner) async {
+        final list = [...(await _loadNow(owner)).welds];
         final existed = list.any((w) => w.id == weld.id);
         list.removeWhere((w) => w.id == weld.id);
         if (!weld.isBlank) {
@@ -138,19 +185,19 @@ class InterpassStore {
           }
           list.add(weld);
         }
-        await _write(list);
+        await _write(list, owner);
       });
 
   /// Zmienia zapisaną spoinę [id] (np. „Cofnij” po zamknięciu jej ekranu).
   /// `false`, gdy spoiny już nie ma.
   Future<bool> update(
           String id, InterpassWeld Function(InterpassWeld w) change) =>
-      _serial(() async {
-        final list = [...(await _loadNow()).welds];
+      _owned((owner) async {
+        final list = [...(await _loadNow(owner)).welds];
         final i = list.indexWhere((w) => w.id == id);
         if (i < 0) return false;
         list[i] = change(list[i]);
-        await _write(list);
+        await _write(list, owner);
         return true;
       });
 
@@ -159,10 +206,10 @@ class InterpassStore {
   Future<bool> replaceIfUnchanged(
           InterpassWeld expected, InterpassWeld replacement,
           {LocalRecordOwner? expectedOwner}) =>
-      _serial(() async {
+      _owned((owner) async {
         expectedOwner?.requireCurrent();
         if (expected.id != replacement.id || replacement.isBlank) return false;
-        final load = await _loadNow();
+        final load = await _loadNow(owner);
         expectedOwner?.requireCurrent();
         if (load.corrupt) return false;
         final list = [...load.welds];
@@ -174,28 +221,30 @@ class InterpassStore {
           return false;
         }
         list[matches.single.$1] = replacement;
-        await _write(list, expectedOwner: expectedOwner);
+        await _write(list, owner);
         return true;
-      });
+      }, expectedOwner: expectedOwner);
 
-  Future<void> delete(String id) => _serial(() async {
-        final list = [...(await _loadNow()).welds]
+  Future<void> delete(String id) => _owned((owner) async {
+        final list = [...(await _loadNow(owner)).welds]
           ..removeWhere((w) => w.id == id);
-        await _write(list);
+        await _write(list, owner);
       });
 
-  Future<InterpassUnit> loadUnit() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return InterpassUnit.byName(prefs.get(unitKey)) ?? InterpassUnit.c;
-    } catch (_) {
-      return InterpassUnit.c;
-    }
-  }
+  Future<InterpassUnit> loadUnit() => _owned((owner) async {
+        final prefs = await SharedPreferences.getInstance();
+        owner.requireCurrent();
+        return InterpassUnit.byName(prefs.get(ownerKey(unitKey, owner))) ??
+            InterpassUnit.c;
+      });
 
-  Future<void> saveUnit(InterpassUnit unit) async {
-    final prefs = await SharedPreferences.getInstance();
-    final ok = await prefs.setString(unitKey, unit.name);
-    if (!ok) throw StateError('SharedPreferences.setString($unitKey) failed');
-  }
+  Future<void> saveUnit(InterpassUnit unit) => _owned((owner) async {
+        final prefs = await SharedPreferences.getInstance();
+        owner.requireCurrent();
+        final ok = await prefs.setString(ownerKey(unitKey, owner), unit.name);
+        owner.requireCurrent();
+        if (!ok) {
+          throw StateError('SharedPreferences.setString($unitKey) failed');
+        }
+      });
 }

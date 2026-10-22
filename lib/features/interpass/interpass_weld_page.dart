@@ -1,3 +1,4 @@
+import '../../widgets/local_record_scope.dart';
 // Temperatura podgrzania i międzyściegowa — jedna spoina: ustawienia (nr,
 // opis, WPS, limity z WPS, metoda, liczba ściegów), pomiary przed ściegami,
 // werdykt i udostępnianie (tekst, PDF). Zapisuje się sam przy każdej
@@ -25,9 +26,10 @@ import '../quotes/quote_widgets.dart' show FieldPair, QuoteNotice, QuoteSection;
 import 'interpass_page.dart';
 import 'interpass_store.dart';
 
-class InterpassWeldPage extends StatefulWidget {
+class InterpassWeldPage extends StatelessWidget {
   const InterpassWeldPage({
     super.key,
+    this.originSession,
     required this.initial,
     this.unit = InterpassUnit.c,
     this.store = const InterpassStore(),
@@ -38,6 +40,7 @@ class InterpassWeldPage extends StatefulWidget {
     this.onStoreChanged,
   });
 
+  final LocalRecordSession? originSession;
   final InterpassWeld initial;
   final InterpassUnit unit;
   final InterpassStore store;
@@ -51,11 +54,68 @@ class InterpassWeldPage extends StatefulWidget {
   final Future<void> Function()? onStoreChanged;
 
   @override
-  State<InterpassWeldPage> createState() => _InterpassWeldPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      originSession: originSession,
+      builder: (context, session) => _OwnedInterpassWeldPage(
+          session: session,
+          initial: initial,
+          unit: unit,
+          store: store.scoped(session.captureOwner),
+          now: now,
+          shareText: (text, subject) async {
+            session.requireCurrent();
+            await shareText(text, subject);
+            session.requireCurrent();
+          },
+          sharePdf: (weld, english, unit) async {
+            session.requireCurrent();
+            if (identical(sharePdf, interpassDefaultSharePdf)) {
+              await InterpassExport.sharePdf(weld,
+                  english: english,
+                  unit: unit,
+                  validateOwner: session.requireCurrent);
+            } else {
+              await sharePdf(weld, english, unit);
+            }
+            session.requireCurrent();
+          },
+          loadWelds: loadWelds,
+          onStoreChanged: onStoreChanged));
 }
 
-class _InterpassWeldPageState extends State<InterpassWeldPage>
-    with ToolHandleHost<InterpassWeldPage>
+class _OwnedInterpassWeldPage extends StatefulWidget {
+  const _OwnedInterpassWeldPage({
+    required this.session,
+    required this.initial,
+    this.unit = InterpassUnit.c,
+    this.store = const InterpassStore(),
+    this.now = DateTime.now,
+    this.shareText = interpassDefaultShareText,
+    this.sharePdf = interpassDefaultSharePdf,
+    this.loadWelds = interpassDefaultJournalWelds,
+    this.onStoreChanged,
+  });
+
+  final LocalRecordSession session;
+  final InterpassWeld initial;
+  final InterpassUnit unit;
+  final InterpassStore store;
+  final DateTime Function() now;
+  final InterpassShareText shareText;
+  final InterpassSharePdf sharePdf;
+  final InterpassJournalSource loadWelds;
+
+  /// Wołane po zmianie zapisu, gdy ekranu już nie ma (np. „Cofnij” kliknięte
+  /// na liście spoin) — lista się odświeża.
+  final Future<void> Function()? onStoreChanged;
+
+  @override
+  State<_OwnedInterpassWeldPage> createState() => _InterpassWeldPageState();
+}
+
+class _InterpassWeldPageState extends State<_OwnedInterpassWeldPage>
+    with ToolHandleHost<_OwnedInterpassWeldPage>
     implements RecordToolHandle {
   @override
   String get toolId => 'interpass';
@@ -432,6 +492,10 @@ class _InterpassWeldPageState extends State<InterpassWeldPage>
     final now = widget.now();
     final picked = await showDatePicker(
       context: context,
+      builder: (context, child) => LocalRecordScope(
+          restartOnAccountChange: false,
+          originSession: widget.session,
+          builder: (_, __) => child!),
       initialDate: _mDate ?? now,
       firstDate: DateTime(2020),
       lastDate: DateTime(now.year, now.month, now.day),
@@ -449,7 +513,13 @@ class _InterpassWeldPageState extends State<InterpassWeldPage>
       final m = int.tryParse(parts[1]);
       if (h != null && m != null) initial = TimeOfDay(hour: h, minute: m);
     }
-    final picked = await showTimePicker(context: context, initialTime: initial);
+    final picked = await showTimePicker(
+        context: context,
+        initialTime: initial,
+        builder: (context, child) => LocalRecordScope(
+            restartOnAccountChange: false,
+            originSession: widget.session,
+            builder: (_, __) => child!));
     if (picked == null || !mounted) return;
     String two(int v) => v.toString().padLeft(2, '0');
     setState(() => _mTime = '${two(picked.hour)}:${two(picked.minute)}');
@@ -480,7 +550,10 @@ class _InterpassWeldPageState extends State<InterpassWeldPage>
       context: context,
       isScrollControlled: true,
       backgroundColor: kCard,
-      builder: (_) => _JournalPicker(welds: welds),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          originSession: widget.session,
+          builder: (_, __) => _JournalPicker(welds: welds)),
     );
     if (picked == null || !mounted) return;
     final desc = [

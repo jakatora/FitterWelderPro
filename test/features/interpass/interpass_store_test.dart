@@ -1,3 +1,4 @@
+import '../../support/test_account.dart';
 // Zapis rejestru temperatur w SharedPreferences: kopia surowego zapisu
 // przed pierwszym nadpisaniem (uszkodzony JSON, inny typ pod kluczem,
 // pojedyncze nieczytelne wpisy), limit spoin bez cichego wypadania,
@@ -24,6 +25,7 @@ InterpassWeld _weld(String id, {int updatedAt = 1}) => InterpassWeld(
     );
 
 void main() {
+  useGuestAccount();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('uszkodzony JSON: kopia surowego zapisu przed nadpisaniem', () async {

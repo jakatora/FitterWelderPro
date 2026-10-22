@@ -17,3 +17,5 @@ To NIE jest pełna partycja Interpass według kont. Dane SharedPreferences, uszk
 Brak model/pricing/budget/retry/backend zmian, zero paid API, brak nowego Railway deploy/APK/physical voice acceptance. Pełny cel pozostaje aktywny.
 
 Final broad: flutter test --no-pub test/assistant test/features/interpass test/domain/welding/interpass_log_test.dart: 3483 PASS, 37 wcześniejszych field-contract skips, exit0 (1:36). To nie dowód pełnego pokrycia pominiętych modułów ani pełnej partycji danych. git diff --check czysty.
+
+Dalsza implementacja partycji store i UI: patrz 2026-10-22-interpass-owner-isolation.md. Historyczne granice powyżej opisują commit0484ef2.

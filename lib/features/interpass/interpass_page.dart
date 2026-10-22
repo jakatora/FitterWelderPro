@@ -1,3 +1,4 @@
+import '../../widgets/local_record_scope.dart';
 // Temperatura podgrzania i międzyściegowa — rejestr pomiarów spoin dla QC:
 // lista spoin (SharedPreferences, bez zmian schematu bazy), nowa spoina,
 // usuwanie z cofnięciem. Edycja jednej spoiny: interpass_weld_page.dart.
@@ -54,7 +55,7 @@ Color interpassStatusColor(InterpassAssessment a) => switch (a.status) {
       _ => kWarn,
     };
 
-class InterpassPage extends StatefulWidget {
+class InterpassPage extends StatelessWidget {
   const InterpassPage({
     super.key,
     this.store = const InterpassStore(),
@@ -75,11 +76,44 @@ class InterpassPage extends StatefulWidget {
   final InterpassJournalSource loadWelds;
 
   @override
-  State<InterpassPage> createState() => _InterpassPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (context, session) => _OwnedInterpassPage(
+          session: session,
+          store: store.scoped(session.captureOwner),
+          now: now,
+          newId: newId,
+          shareText: shareText,
+          sharePdf: sharePdf,
+          loadWelds: loadWelds));
 }
 
-class _InterpassPageState extends State<InterpassPage>
-    with ToolHandleHost<InterpassPage> {
+class _OwnedInterpassPage extends StatefulWidget {
+  const _OwnedInterpassPage({
+    required this.session,
+    this.store = const InterpassStore(),
+    this.now = DateTime.now,
+    this.newId,
+    this.shareText = interpassDefaultShareText,
+    this.sharePdf = interpassDefaultSharePdf,
+    this.loadWelds = interpassDefaultJournalWelds,
+  });
+
+  final LocalRecordSession session;
+  final InterpassStore store;
+  final DateTime Function() now;
+
+  /// Identyfikator nowej spoiny — wstrzykiwany w testach.
+  final String Function()? newId;
+  final InterpassShareText shareText;
+  final InterpassSharePdf sharePdf;
+  final InterpassJournalSource loadWelds;
+
+  @override
+  State<_OwnedInterpassPage> createState() => _InterpassPageState();
+}
+
+class _InterpassPageState extends State<_OwnedInterpassPage>
+    with ToolHandleHost<_OwnedInterpassPage> {
   @override
   String get toolId => 'interpass';
   @override
@@ -160,6 +194,7 @@ class _InterpassPageState extends State<InterpassPage>
     await Navigator.of(context).push(MaterialPageRoute<void>(
       settings: const RouteSettings(name: 'tool:interpass'),
       builder: (_) => InterpassWeldPage(
+        originSession: widget.session,
         initial: weld,
         unit: _unit,
         store: widget.store,
@@ -194,28 +229,32 @@ class _InterpassPageState extends State<InterpassPage>
   Future<void> _delete(InterpassWeld weld) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(context.tr(pl: 'Usunąć spoinę?', en: 'Delete this weld?')),
-        content: Text(context.tr(
-          pl: '${_titleOf(weld)} — razem z pomiarami. Najpierw udostępnij '
-              'protokół, jeśli QC go potrzebuje.',
-          en: '${_titleOf(weld)} — with its readings. Share the record '
-              'first if QC needs it.',
-        )),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx, false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          FilledButton(
-            key: const ValueKey('ip-delete-confirm'),
-            style: FilledButton.styleFrom(
-                backgroundColor: kFail, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(dialogCtx, true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-          ),
-        ],
-      ),
+      builder: (dialogCtx) => LocalRecordScope(
+          restartOnAccountChange: false,
+          originSession: widget.session,
+          builder: (dialogCtx, _) => AlertDialog(
+                title: Text(
+                    context.tr(pl: 'Usunąć spoinę?', en: 'Delete this weld?')),
+                content: Text(context.tr(
+                  pl: '${_titleOf(weld)} — razem z pomiarami. Najpierw udostępnij '
+                      'protokół, jeśli QC go potrzebuje.',
+                  en: '${_titleOf(weld)} — with its readings. Share the record '
+                      'first if QC needs it.',
+                )),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx, false),
+                    child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('ip-delete-confirm'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: kFail, foregroundColor: Colors.white),
+                    onPressed: () => Navigator.pop(dialogCtx, true),
+                    child: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                  ),
+                ],
+              )),
     );
     if (ok != true || !mounted) return;
     try {

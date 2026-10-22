@@ -52,7 +52,10 @@ class InterpassExport {
   const InterpassExport._();
 
   static Future<void> sharePdf(InterpassWeld weld,
-      {required bool english, required InterpassUnit unit}) async {
+      {required bool english,
+      required InterpassUnit unit,
+      void Function()? validateOwner}) async {
+    validateOwner?.call();
     final doc = await buildPdfDocument(
       weld: weld,
       english: english,
@@ -63,11 +66,17 @@ class InterpassExport {
           pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf')),
       generatedAt: DateTime.now(),
     );
+    validateOwner?.call();
     final bytes = await doc.save();
+    validateOwner?.call();
     final name = interpassFileName(weld, english: english);
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name');
+    validateOwner?.call();
+    final exportDir = await Directory(dir.path).createTemp('fwp_interpass_');
+    validateOwner?.call();
+    final file = File('${exportDir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    validateOwner?.call();
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: interpassSubject(english: english),
