@@ -748,7 +748,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       r'\b(?:nastepnie|potem|pozniej|then|after that|oraz|i|and)\s+(?:mi\s+)?'
       r'(?:przypomnij|pokaz|zapisz|zachowaj|dodaj|dopisz|otworz|narysuj|'
       r'dorysuj|oblicz|policz|ustaw|zmien|usun|wyjasnij|odczytaj|uruchom|wlacz|zatrzymaj|wznow|kopiuj|skopiuj|wyczysc|wyzeruj|'
-      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind|start|pause|stop|resume|copy|clear|reset)\b');
+      r'show|save|add|open|draw|calculate|set|change|delete|explain|read|remind|start|pause|stop|resume|copy|clear|reset|przygotuj|eksportuj|wydrukuj|prepare|export|print)\b');
 
   bool _compoundNeedsAi({bool needsConsent = false}) {
     if (!mounted) return true;

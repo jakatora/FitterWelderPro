@@ -80,4 +80,36 @@ void main() {
     expect(q.original, isNull);
     expect(q.waiting, isFalse);
   });
+  test(
+      'PDF workflow preserves exact source clauses and refuses negated exports',
+      () {
+    for (final verb in [
+      'przygotuj',
+      'eksportuj',
+      'wydrukuj',
+      'prepare',
+      'export',
+      'print'
+    ]) {
+      final source = 'Zrob go wyzszego. Nastepnie $verb PDF';
+      expect(aiSourceClauses(source), ['Zrob go wyzszego.', '$verb PDF']);
+      expect(aiSourceClauses('Make it taller and do not $verb PDF'), isNull);
+    }
+  });
+  test(
+      'joined sequencing words belong to the native boundary, not user parameters',
+      () {
+    for (final connector in [
+      'a nastepnie',
+      'a potem',
+      'i nastepnie',
+      'i potem',
+      'and then'
+    ]) {
+      expect(
+          aiSourceClauses(
+              'Zmien wysokosc o 10 cm $connector eksportuj szablon PDF'),
+          ['Zmien wysokosc o 10 cm', 'eksportuj szablon PDF']);
+    }
+  });
 }

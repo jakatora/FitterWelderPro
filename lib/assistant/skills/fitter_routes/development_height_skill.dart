@@ -108,6 +108,42 @@ double? _heightDelta(Utterance source) {
   return scale != null && n.isFinite && n > 0 ? n : null;
 }
 
+// AI may resolve an explicit correction or half of an explicit length in the
+// still-owned amount question. Check the user's operands independently; never
+// accept the first number found in arbitrary prose or evaluate arbitrary math.
+double? _interpretedHeightDelta(Utterance source) {
+  if (referencesInstruction(source) ||
+      isNegatedCommand(source) ||
+      RegExp(r'[-−]\s*\d|\bminus\b').hasMatch(source.raw.toLowerCase())) {
+    return null;
+  }
+  final literal = _heightDelta(source);
+  if (literal != null) return literal;
+  final text = source.folded;
+  final prefix =
+      RegExp(r'^(?:jednak|wlasciwie|mam na mysli|actually|i mean) (.+)$')
+          .firstMatch(text);
+  if (prefix != null) return _heightDelta(source.withRaw(prefix[1]!));
+  for (final pattern in [
+    (RegExp(r'^(.+) (?:zamiast|instead of) (.+)$'), 1),
+    (RegExp(r'^(?:nie|not) (.+) (?:tylko|but) (.+)$'), 2),
+  ]) {
+    final m = pattern.$1.firstMatch(text);
+    if (m == null) continue;
+    final first = _heightDelta(source.withRaw(m[1]!));
+    final second = _heightDelta(source.withRaw(m[2]!));
+    if (first == null || second == null) return null;
+    return pattern.$2 == 1 ? first : second;
+  }
+  final half = RegExp(r'^(?:polowa|half(?: of)?) (.+)$').firstMatch(text);
+  if (half != null) {
+    final full = _heightDelta(source.withRaw(half[1]!));
+    final value = full == null ? null : full / 2;
+    return value != null && value.isFinite && value > 0 ? value : null;
+  }
+  return null;
+}
+
 Map<String, Object?>? _relative(Utterance source, {bool natural = false}) {
   if (referencesInstruction(source) || isNegatedCommand(source)) return null;
   var text = source.folded.replaceFirst(RegExp(r'^(?:prosze|please) '), '');
@@ -269,9 +305,10 @@ class DevelopmentHeightSkill extends AssistantSkill {
   @override
   Map<String, Object?>? fillProposalSlot(String slot, Utterance command,
       Utterance original, AssistantContext ctx) {
-    final source = fillSlot(slot, original, ctx);
+    if (slot != 'amount') return null;
+    final expected = _interpretedHeightDelta(original);
     final target = fillSlot(slot, command, ctx);
-    return source != null && mapEquals(source, target) ? target : null;
+    return expected != null && target?['amount'] == expected ? target : null;
   }
 
   @override
