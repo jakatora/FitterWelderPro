@@ -1,0 +1,11 @@
+# Read current development — 2026-10-22
+
+Added development.summary to the live catalog. Literal PL/EN requests summarize the foreground cone/transition or answer its current height without AI interpretation, navigation or field application. Natural summary wording may be normalized by AI, but the answer itself reads the native current input map and the existing validated domain engines. Source guards distinguish a height question from a full summary and reject translation, negation, planning for a new shape and mixed mutation requests.
+
+Concentric height comes from computeCone, including angle/slant-defined geometry. Summary rows include dimensions/reference/thickness/parts/allowance and native radii/sector angle. Eccentric summary includes the engine's effective offset (including vertical-side derivation), generators, division count and seam. Transition summary includes signed X/Y, dimensions, division count/seam and native edge totals. Shared assistantNumber preserves PL/EN formatting and nonzero tiny values. The summary refers to the existing neutral-surface approximation.
+
+Missing, invalid or wrong-module input cannot fall back to remembered values. Popup-hidden input produces an unavailable-read response. No ShowInModule payload is returned, so the skill cannot write, change modes or navigate as a side effect of a read.
+
+Evidence:1175PASS0skip across new summary integration, absolute/relative height, all three developments and entire router corpus (build/development-summary-regression.log). New8 cases verify angle-mode native height, invalid/missing/foreign port handling, source guards, actual manually edited height/thickness for all3 shapes with unchanged native input maps and route identity, popup-hidden read, mocked phone speech and AI paraphrase to native summary. Three-file fatal analysis clean (build/development-summary-analyze.log). No semantic edits after checks.
+
+No paid call, model/budget/backend modification, deployment or APK. The branch still requires registration-version6 backend rollout before distribution; latest delivered APK remains5806c1e. Full assistant vision, production Haiku quality, device voice, Railway deployment, other fields/actions and assistant export/printing remain open.
