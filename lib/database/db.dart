@@ -89,7 +89,8 @@ class AppDatabase {
   // v29: saved welding parameters belong to an account or the offline guest.
   // v30: ISO sketches follow the same account/guest partition.
   // v31: journal, history, repairs and project headers belong to account/guest.
-  static const int _dbVersion = 31;
+  // v32: qualification certificates belong to account/guest; confirmations follow their parent.
+  static const int _dbVersion = 32;
 
   /// The schema version [get] opens the database at.
   ///
@@ -144,6 +145,8 @@ class AppDatabase {
       await _ensureColumn(connection, 'iso_drawings', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
       await connection.transaction((txn) => _ensureJournalOwners(txn));
+      await _ensureColumn(connection, 'welder_certificates', 'owner_scope',
+          "TEXT NOT NULL DEFAULT 'guest'");
       await _seedApprovedData(connection);
       _db = connection;
       return connection;
@@ -513,6 +516,11 @@ CREATE TABLE IF NOT EXISTS projects (
 
     if (oldVersion < 31) {
       await _ensureJournalOwners(db);
+    }
+
+    if (oldVersion < 32) {
+      await _ensureColumn(db, 'welder_certificates', 'owner_scope',
+          "TEXT NOT NULL DEFAULT 'guest'");
     }
 
     // Last, now that every column the indexes reference exists.
@@ -1288,6 +1296,7 @@ CREATE TABLE IF NOT EXISTS iso_scans (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS welder_certificates (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   welder_stamp TEXT,
   standard TEXT NOT NULL DEFAULT 'ISO_9606_1',
   standard_label TEXT,

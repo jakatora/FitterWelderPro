@@ -1,6 +1,7 @@
 // Zasady, zgoda i filtr treści — trzy rzeczy, których Apple wymaga przy
 // treściach tworzonych przez użytkowników (wytyczna 1.2).
 
+import 'support/test_account.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import 'package:cut_list_app/services/user_profile.dart';
 import 'package:cut_list_app/services/welder_identity.dart';
 
 void main() {
+  useGuestAccount();
   group('filtr treści', () {
     test('przepuszcza normalną rozmowę montera', () {
       const ok = [
@@ -29,14 +31,16 @@ void main() {
         'Chełm, Kraków, Gdańsk — wszędzie ta sama stal.',
       ];
       for (final t in ok) {
-        expect(ContentFilter.isObjectionable(t), isFalse, reason: 'zablokowano: "$t"');
+        expect(ContentFilter.isObjectionable(t), isFalse,
+            reason: 'zablokowano: "$t"');
       }
     });
 
     test('zatrzymuje wyzwiska', () {
       const bad = ['ty debilu', 'kurwa mać', 'chujowa robota', 'fuck this'];
       for (final t in bad) {
-        expect(ContentFilter.isObjectionable(t), isTrue, reason: 'przepuszczono: "$t"');
+        expect(ContentFilter.isObjectionable(t), isTrue,
+            reason: 'przepuszczono: "$t"');
       }
     });
 
@@ -46,15 +50,18 @@ void main() {
       // test/services/content_filter_jargon_test.dart.)
       expect(ContentFilter.isObjectionable('kurwą'), isTrue);
       expect(ContentFilter.isObjectionable('pedał od TIG-a'), isFalse);
-      expect(ContentFilter.isObjectionable('ch0j'), isFalse); // 0->o daje "choj"
+      expect(
+          ContentFilter.isObjectionable('ch0j'), isFalse); // 0->o daje "choj"
       expect(ContentFilter.isObjectionable('deb1l'), isTrue); // 1->i
-      expect(ContentFilter.isObjectionable('f4ck'), isFalse); // 4->a daje "fack"
+      expect(
+          ContentFilter.isObjectionable('f4ck'), isFalse); // 4->a daje "fack"
       expect(ContentFilter.isObjectionable('fu4k'), isFalse);
     });
 
     test('dopasowuje całe słowa, nie fragmenty', () {
       // „ciotka" nie zawiera zabronionego „ciota".
-      expect(ContentFilter.isObjectionable('moja ciotka spawa lepiej'), isFalse);
+      expect(
+          ContentFilter.isObjectionable('moja ciotka spawa lepiej'), isFalse);
     });
 
     test('zwraca dopasowany rdzeń do logu moderacji', () {

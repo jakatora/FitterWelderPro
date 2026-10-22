@@ -6,6 +6,7 @@ import '../../domain/qualification/qualification_dates.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/number_field.dart';
+import '../../widgets/local_record_scope.dart';
 
 /// Liczba wpisana w polu formularza („1,5" albo „1.5"); `null` dla pustego.
 /// Tekst, który nie jest liczbą, też daje `null` — walidator [decimalValidator]
@@ -103,12 +104,14 @@ class PlainField extends StatelessWidget {
 /// Data z kalendarza, z możliwością wyczyszczenia.
 class DateField extends StatelessWidget {
   final String label;
+  final LocalRecordSession? session;
   final DateTime? value;
   final ValueChanged<DateTime?> onChanged;
   final String? helper;
 
   const DateField({
     super.key,
+    this.session,
     required this.label,
     required this.value,
     required this.onChanged,
@@ -116,6 +119,8 @@ class DateField extends StatelessWidget {
   });
 
   Future<void> _pick(BuildContext context) async {
+    final origin = session ?? LocalRecordSession.capture();
+    if (!origin.isCurrent) return;
     final now = DateTime.now();
     final first = DateTime(now.year - 15);
     final last = DateTime(now.year + 10, 12, 31);
@@ -126,11 +131,17 @@ class DateField extends StatelessWidget {
     if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
+      builder: (_, child) => LocalRecordScope(
+          restartOnAccountChange: false,
+          originSession: origin,
+          builder: (_, __) => child!),
       initialDate: initial,
       firstDate: first,
       lastDate: last,
     );
-    if (picked != null) onChanged(dateOnly(picked));
+    if (picked != null && context.mounted && origin.isCurrent) {
+      onChanged(dateOnly(picked));
+    }
   }
 
   @override

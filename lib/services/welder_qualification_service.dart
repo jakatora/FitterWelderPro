@@ -12,6 +12,7 @@
 library;
 
 import '../database/local_record_owner.dart';
+import 'account_service.dart';
 import '../database/weld_journal_dao.dart';
 
 import 'dart:async';
@@ -73,9 +74,11 @@ Future<WelderCertificate?> migrateLegacyQualification(
   DateTime? now,
   String Function()? newId,
 }) async {
+  final owner = await LocalRecordOwner.capture();
+  if (owner.key != LocalRecordOwner.guest) return null;
   if (prefs.getBool(kLegacyCertMigratedPrefsKey) ?? false) return null;
   WelderCertificate? migrated;
-  final dao = WelderCertificateDao();
+  final dao = WelderCertificateDao(captureOwner: () async => owner);
   final raw = prefs.getString(_kIdentityPrefsKey);
   Map<String, Object?>? identity;
   if (raw != null && raw.isNotEmpty) {
@@ -141,8 +144,33 @@ class WeldCheckReport {
 
 class WelderQualificationService {
   WelderQualificationService._();
-  static final WelderQualificationService instance =
+  static final WelderQualificationService _instance =
       WelderQualificationService._();
+  static WelderQualificationService get instance {
+    _instance._bindAccount();
+    return _instance;
+  }
+
+  AccountService? _account;
+  int? _accountRevision;
+  void _bindAccount() {
+    final current = AccountService.instance;
+    if (!identical(current, _account)) {
+      _account?.removeListener(_accountChanged);
+      _account = current;
+      current.addListener(_accountChanged);
+      _accountRevision = null;
+    }
+    _accountChanged();
+  }
+
+  void _accountChanged() {
+    final revision = _account?.sessionRevision;
+    if (_accountRevision == revision) return;
+    _accountRevision = revision;
+    _generation++;
+    overview.value = null;
+  }
 
   final WelderCertificateDao _dao = WelderCertificateDao();
 
@@ -154,15 +182,23 @@ class WelderQualificationService {
   /// Jednorazowe przeniesienie starych pól WPQR (patrz
   /// [migrateLegacyQualification]).
   Future<void> ensureLegacyMigrated() async {
+    final owner = await LocalRecordOwner.capture();
+    if (owner.key != LocalRecordOwner.guest) return;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(kLegacyCertMigratedPrefsKey) ?? false) return;
     final db = await AppDatabase.get();
+    owner.requireCurrent();
     await migrateLegacyQualification(db, prefs);
+    owner.requireCurrent();
   }
 
   Future<List<WelderCertificate>> listCertificates() async {
+    final owner = await LocalRecordOwner.capture();
     await ensureLegacyMigrated();
-    return _dao.listAll();
+    owner.requireCurrent();
+    final result = await _dao.listAll();
+    owner.requireCurrent();
+    return result;
   }
 
   /// Spoiny spawacza [stamp] z dziennika — TYLKO ODCZYT tabeli
@@ -203,6 +239,7 @@ class WelderQualificationService {
   Future<QualificationOverview> _refresh(DateTime now) async {
     final generation = ++_generation;
     try {
+      final owner = await LocalRecordOwner.capture();
       final certificates = await listCertificates();
       final identity = await WelderIdentityService.instance.get();
       final journal =
@@ -212,6 +249,7 @@ class WelderQualificationService {
           evaluateCertificate(c,
               asOf: now, journalWelds: journalWeldsFor(c, journal)),
       ]);
+      owner.requireCurrent();
       if (generation != _generation) return result;
       overview.value = result;
       await QualificationReminders.instance.reschedule(
@@ -223,6 +261,7 @@ class WelderQualificationService {
       // Brak bazy (np. test widżetu bez SQLite) albo uszkodzony wiersz: baner
       // po prostu nic nie pokaże, reszta aplikacji działa.
       debugPrint('[qualification] refresh failed: $e');
+      if (generation != _generation) return QualificationOverview.empty;
       return overview.value ?? QualificationOverview.empty;
     }
   }
@@ -307,8 +346,14 @@ class WelderQualificationService {
   /// „Usuń moje dane": cały rejestr, zdjęcia certyfikatów i zaplanowane
   /// przypomnienia. Nigdy nie rzuca (baza może być niedostępna).
   Future<void> clearAll() async {
+    LocalRecordOwner? owner;
     try {
-      final removed = await _dao.deleteAll();
+      owner = await LocalRecordOwner.capture();
+      owner.requireCurrent();
+      final boundOwner = owner;
+      final removed =
+          await WelderCertificateDao(captureOwner: () async => boundOwner)
+              .deleteAll();
       for (final c in removed) {
         await deleteOwnedFile(c.photoPath);
       }
@@ -316,9 +361,13 @@ class WelderQualificationService {
       debugPrint('[qualification] clear failed: $e');
     }
     try {
+      if (owner == null) return;
+      owner.requireCurrent();
       await QualificationReminders.instance.disable();
+      owner.requireCurrent();
     } catch (e) {
       debugPrint('[qualification] reminders disable failed: $e');
+      return;
     }
     _generation++; // przeliczenie w toku nie przywróci skasowanych wpisów
     overview.value = QualificationOverview.empty;

@@ -24,24 +24,43 @@ import '../../services/welder_identity.dart';
 import '../../services/welder_qualification_service.dart';
 import '../../theme/app_theme.dart';
 import 'form_bits.dart';
+import '../../widgets/local_record_scope.dart';
 
-class CertificateEditPage extends StatefulWidget {
-  /// `null` = nowy certyfikat.
+class CertificateEditPage extends StatelessWidget {
+  const CertificateEditPage(
+      {super.key, this.certificate, this.initial, this.originSession});
   final WelderCertificate? certificate;
-
-  /// Szkic NOWEGO certyfikatu (np. zakres wyliczony z próbki): wypełnia
-  /// formularz, ale zapis tworzy nowy wpis (nowe id, bez historii
-  /// potwierdzeń). Ignorowany, gdy podano [certificate]. Wyjście bez zapisu
-  /// pyta, czy porzucić — wypełnione pola to praca do stracenia.
   final WelderCertificate? initial;
-
-  const CertificateEditPage({super.key, this.certificate, this.initial});
-
+  final LocalRecordSession? originSession;
   @override
-  State<CertificateEditPage> createState() => _CertificateEditPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      originSession: originSession,
+      builder: (_, session) => _CertificateEditPage(
+          certificate: certificate, initial: initial, session: session));
 }
 
-class _CertificateEditPageState extends State<CertificateEditPage> {
+class _CertificateEditPage extends StatefulWidget {
+  const _CertificateEditPage(
+      {this.certificate, this.initial, required this.session});
+  final WelderCertificate? certificate;
+  final WelderCertificate? initial;
+  final LocalRecordSession session;
+  @override
+  State<_CertificateEditPage> createState() => _CertificateEditPageState();
+}
+
+class _CertificateEditPageState extends State<_CertificateEditPage> {
+  LocalRecordSession get _session => widget.session;
+  Future<T?> _showOwnedDialog<T>(
+          {required BuildContext context, required WidgetBuilder builder}) =>
+      showDialog<T>(
+          context: context,
+          builder: (dialogContext) => LocalRecordScope(
+              restartOnAccountChange: false,
+              originSession: _session,
+              builder: (_, __) => builder(dialogContext)));
+
   final _formKey = GlobalKey<FormState>();
 
   late QualificationStandard _standard;
@@ -143,7 +162,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
       return;
     }
     _closing = true;
-    final discard = await showDialog<bool>(
+    final discard = await _showOwnedDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(ctx.tr(pl: 'Porzucić zmiany?', en: 'Discard changes?')),
@@ -181,10 +200,10 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
       // Kopia do <documents>/heat_photos — katalogu, który obejmuje kopia
       // zapasowa; ścieżka z pickera znika przy czyszczeniu pamięci podręcznej.
       final stored = await persistPickedHeatPhoto(path);
-      if (!mounted) return;
+      if (!mounted || !_session.isCurrent) return;
       setState(() => _photoPath = stored);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !_session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
           pl: 'Nie udało się skopiować zdjęcia.',
@@ -253,7 +272,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
       final deadline =
           addMonthsClamped(dateOnly(_testDate!), kContinuityMonths);
       if (firstConfirmation.isAfter(deadline)) {
-        final keep = await showDialog<bool>(
+        final keep = await _showOwnedDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: Text(ctx.tr(
@@ -313,18 +332,21 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
       updatedAt: now,
     );
     try {
+      if (!mounted || !_session.isCurrent) return;
       await WelderQualificationService.instance.save(certificate);
+      _session.requireCurrent();
       if (firstConfirmation != null) {
         await WelderQualificationService.instance
             .addConfirmation(certificate, date: firstConfirmation);
       }
+      _session.requireCurrent();
       // Zastąpione / usunięte zdjęcie — skasuj starą kopię z heat_photos.
       final oldPhoto = old?.photoPath;
       if (oldPhoto != null && oldPhoto != _photoPath) {
         await WelderQualificationService.instance.deleteOwnedFile(oldPhoto);
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !_session.isCurrent) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
@@ -334,7 +356,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
       ));
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !_session.isCurrent) return;
     Navigator.pop(context, true);
   }
 
@@ -434,6 +456,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
               ),
               FormSectionTitle(context.tr(pl: 'Daty', en: 'Dates')),
               DateField(
+                session: _session,
                 label: context.tr(
                     pl: 'Data egzaminu (spawania złącza próbnego)',
                     en: 'Test date (test piece welded)'),
@@ -442,6 +465,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
               ),
               const SizedBox(height: 12),
               DateField(
+                session: _session,
                 label: context.tr(pl: 'Ważny do', en: 'Valid until'),
                 value: _expiryDate,
                 helper: context.tr(
@@ -455,6 +479,7 @@ class _CertificateEditPageState extends State<CertificateEditPage> {
               const SizedBox(height: 12),
               if (widget.certificate == null)
                 DateField(
+                  session: _session,
                   label: iso
                       ? context.tr(
                           pl: 'Ostatnie potwierdzenie 6 mies. (§9.2)',

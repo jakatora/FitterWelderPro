@@ -3,6 +3,7 @@
 // zniknęło. Stary backend (404), brak sieci i limit (429) mają własne ścieżki.
 // Atrapa HTTP — zero prawdziwych połączeń.
 
+import '../support/test_account.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -79,6 +80,7 @@ Finder _inDialog(String text) => find.descendant(
     );
 
 void main() {
+  useGuestAccount();
   final requests = <http.Request>[];
 
   void backend(Future<http.Response> Function(http.Request) respond) {
@@ -104,7 +106,8 @@ void main() {
     expect(_inDialog('from the server your chat messages'), findsOneWidget);
     expect(_inDialog('welder identity'), findsOneWidget);
     // Od v21 numer i ważność uprawnienia są w rejestrze, nie w tożsamości.
-    expect(_inDialog('welder qualification register (certificates, photos, '
+    expect(
+        _inDialog('welder qualification register (certificates, photos, '
             'reminders)'),
         findsOneWidget);
     expect(_inDialog('WPQR number'), findsNothing);
@@ -180,7 +183,8 @@ void main() {
     expect(prefs.getString('user_profile_v1'), isNull);
   });
 
-  testWidgets('bez sieci: pyta; Anuluj nic nie kasuje, „tylko z telefonu" kasuje',
+  testWidgets(
+      'bez sieci: pyta; Anuluj nic nie kasuje, „tylko z telefonu" kasuje',
       (tester) async {
     backend((_) async => throw http.ClientException('brak zasięgu'));
     await _openProfile(tester);
@@ -194,7 +198,8 @@ void main() {
     var prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('user_profile_v1'), isNotNull);
     expect(prefs.getString('fitter_device_id'), _deviceId,
-        reason: 'bez identyfikatora nie dałoby się ponowić usunięcia z serwera');
+        reason:
+            'bez identyfikatora nie dałoby się ponowić usunięcia z serwera');
     expect(find.byType(ProfileScreen), findsOneWidget);
 
     await _confirmDelete(tester);
@@ -204,8 +209,8 @@ void main() {
     prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('user_profile_v1'), isNull);
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(_inDialog('We did NOT delete your data on the server'),
-        findsOneWidget);
+    expect(
+        _inDialog('We did NOT delete your data on the server'), findsOneWidget);
   });
 
   testWidgets(
@@ -301,7 +306,8 @@ void main() {
     await _openProfile(tester);
     await _confirmDelete(tester);
 
-    expect(requests, isEmpty, reason: 'pierwszym kontaktem nie może być DELETE');
+    expect(requests, isEmpty,
+        reason: 'pierwszym kontaktem nie może być DELETE');
     expect(_inDialog('No connection'), findsNothing);
     expect(_inDialog('Data deleted'), findsOneWidget);
     expect(_inDialog('never sent data to the server'), findsOneWidget);

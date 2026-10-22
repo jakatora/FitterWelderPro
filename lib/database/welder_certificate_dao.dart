@@ -1,147 +1,179 @@
-/// Rejestr uprawnień spawacza — tabela `welder_certificates` (schemat v21).
-///
-/// Mieszka w `cutlist.db`, więc kopia zapasowa (`data_backup.dart`) zabiera
-/// ją bez dodatkowego kodu, a zdjęcie certyfikatu (kolumna `photo_path`,
-/// kopia w `<documents>/heat_photos`) jest przepinane przy odtwarzaniu tak jak
-/// zdjęcia wytopów (`kPhotoPathColumns`).
+/// Account-owned qualification register. Pre-account records remain guest data.
 library;
 
 import 'package:sqflite/sqflite.dart';
-
 import '../domain/qualification/welder_certificate.dart';
+import '../services/account_service.dart';
 import 'db.dart';
+import 'local_record_owner.dart';
 
 class WelderCertificateDao {
+  WelderCertificateDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _captureOwner = captureOwner ?? LocalRecordOwner.capture;
+  final Future<LocalRecordOwner> Function() _captureOwner;
   static const String table = 'welder_certificates';
-
-  /// Historia potwierdzeń (v25).
   static const String confirmationsTable = 'welder_cert_confirmations';
 
-  /// Wszystkie certyfikaty: najpierw z najwcześniejszą datą ważności (te bez
-  /// daty na końcu), potem po dacie dodania — z dołączoną historią
-  /// potwierdzeń.
-  Future<List<WelderCertificate>> listAll({DatabaseExecutor? db}) async {
+  Future<T> _owned<T>(
+      Future<T> Function(DatabaseExecutor, LocalRecordOwner) action,
+      {DatabaseExecutor? db,
+      bool write = false}) async {
+    final owner = await _captureOwner();
+    owner.requireCurrent();
     final executor = db ?? await AppDatabase.get();
-    final rows = await executor.query(
-      table,
-      orderBy: 'CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END, '
-          'expiry_date ASC, created_at ASC',
-    );
-    final history = await _confirmationsByCert(executor);
-    return rows.map((r) {
-      final c = WelderCertificate.fromRow(r);
-      final h = history[c.id];
-      return h == null ? c : c.copyWith(confirmations: h);
-    }).toList();
+    owner.requireCurrent();
+    Future<T> run(DatabaseExecutor executor) async {
+      owner.requireCurrent();
+      final result = await action(executor, owner);
+      owner.requireCurrent();
+      return result;
+    }
+
+    // A caller-supplied executor already belongs to its outer transaction.
+    return write && db == null
+        ? (executor as Database).transaction(run)
+        : run(executor);
   }
 
-  Future<WelderCertificate?> getById(String id) async {
-    final db = await AppDatabase.get();
+  Future<void> _requireCertificate(
+      DatabaseExecutor db, LocalRecordOwner owner, String id) async {
     final rows = await db.query(table,
-        where: 'id = ?', whereArgs: <Object?>[id], limit: 1);
-    if (rows.isEmpty) return null;
-    return WelderCertificate.fromRow(rows.single)
-        .copyWith(confirmations: await confirmationsOf(id, db: db));
+        columns: ['id'],
+        where: 'id = ? AND owner_scope = ?',
+        whereArgs: [id, owner.key],
+        limit: 1);
+    owner.requireCurrent();
+    if (rows.isEmpty) {
+      throw AccountException(
+          'Nie znaleziono uprawnienia na tym koncie. / Qualification not found for this account.');
+    }
   }
 
-  /// Potwierdzenia certyfikatu [certificateId], od najstarszego.
-  Future<List<CertificateConfirmation>> confirmationsOf(String certificateId,
-      {DatabaseExecutor? db}) async {
-    final executor = db ?? await AppDatabase.get();
-    final rows = await executor.query(confirmationsTable,
-        where: 'certificate_id = ?',
-        whereArgs: <Object?>[certificateId],
-        orderBy: 'date ASC, created_at ASC');
+  Future<List<WelderCertificate>> _list(
+      DatabaseExecutor db, LocalRecordOwner owner) async {
+    final rows = await db.query(table,
+        where: 'owner_scope = ?',
+        whereArgs: [owner.key],
+        orderBy:
+            'CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END, expiry_date ASC, created_at ASC');
+    final history = await db.rawQuery(
+        'SELECT h.* FROM $confirmationsTable h JOIN $table c ON c.id = h.certificate_id '
+        'WHERE c.owner_scope = ? ORDER BY h.certificate_id, h.date ASC, h.created_at ASC',
+        [owner.key]);
+    final byCert = <String, List<CertificateConfirmation>>{};
+    for (final row in history) {
+      final c = CertificateConfirmation.fromRow(row);
+      if (c != null) (byCert[c.certificateId] ??= []).add(c);
+    }
     return [
-      for (final r in rows)
-        if (CertificateConfirmation.fromRow(r) case final c?) c,
+      for (final row in rows)
+        WelderCertificate.fromRow(row)
+            .copyWith(confirmations: byCert[row['id']] ?? const [])
     ];
   }
 
-  Future<Map<String, List<CertificateConfirmation>>> _confirmationsByCert(
-      DatabaseExecutor db) async {
-    final rows = await db.query(confirmationsTable,
-        orderBy: 'certificate_id, date ASC, created_at ASC');
-    final out = <String, List<CertificateConfirmation>>{};
-    for (final r in rows) {
-      final c = CertificateConfirmation.fromRow(r);
-      if (c == null) continue;
-      (out[c.certificateId] ??= <CertificateConfirmation>[]).add(c);
-    }
-    return out;
+  Future<List<WelderCertificate>> listAll({DatabaseExecutor? db}) =>
+      _owned(_list, db: db);
+
+  Future<WelderCertificate?> getById(String id) => _owned((db, owner) async {
+        final rows = await _list(db, owner);
+        for (final c in rows) {
+          if (c.id == id) return c;
+        }
+        return null;
+      });
+
+  Future<List<CertificateConfirmation>> confirmationsOf(String certificateId,
+          {DatabaseExecutor? db}) =>
+      _owned((executor, owner) async {
+        final rows = await executor.rawQuery(
+            'SELECT h.* FROM $confirmationsTable h JOIN $table c ON c.id = h.certificate_id '
+            'WHERE c.owner_scope = ? AND c.id = ? ORDER BY h.date ASC, h.created_at ASC',
+            [owner.key, certificateId]);
+        return [
+          for (final row in rows)
+            if (CertificateConfirmation.fromRow(row) case final c?) c
+        ];
+      }, db: db);
+
+  Future<void> addConfirmation(CertificateConfirmation confirmation) =>
+      _owned((db, owner) async {
+        await _requireCertificate(db, owner, confirmation.certificateId);
+        await db.insert(confirmationsTable, confirmation.toRow());
+        await _syncLastConfirmed(db, owner, confirmation.certificateId);
+      }, write: true);
+
+  Future<void> deleteConfirmation(CertificateConfirmation confirmation) =>
+      _owned((db, owner) async {
+        await _requireCertificate(db, owner, confirmation.certificateId);
+        await db.delete(confirmationsTable,
+            where: 'id = ? AND certificate_id = ?',
+            whereArgs: [confirmation.id, confirmation.certificateId]);
+        await _syncLastConfirmed(db, owner, confirmation.certificateId);
+      }, write: true);
+
+  Future<void> _syncLastConfirmed(
+      DatabaseExecutor db, LocalRecordOwner owner, String id) async {
+    final rows = await db.rawQuery(
+        'SELECT MAX(date) AS d FROM $confirmationsTable WHERE certificate_id = ?',
+        [id]);
+    await db.update(table, {'last_confirmed_date': rows.single['d']},
+        where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
   }
 
-  /// Dopisuje potwierdzenie i ustawia `last_confirmed_date` na najnowszą
-  /// datę historii — w jednej transakcji.
-  Future<void> addConfirmation(CertificateConfirmation confirmation) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      await txn.insert(confirmationsTable, confirmation.toRow());
-      await _syncLastConfirmed(txn, confirmation.certificateId);
-    });
-  }
+  Future<int> reassignStamp(String from, String to) => _owned(
+      (db, owner) => db.update(table, {'welder_stamp': to},
+          where: 'owner_scope = ? AND UPPER(TRIM(welder_stamp)) = ?',
+          whereArgs: [owner.key, from.trim().toUpperCase()]),
+      write: true);
 
-  /// Usuwa błędnie wpisane potwierdzenie (literówka w dacie).
-  Future<void> deleteConfirmation(CertificateConfirmation confirmation) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      await txn.delete(confirmationsTable,
-          where: 'id = ?', whereArgs: <Object?>[confirmation.id]);
-      await _syncLastConfirmed(txn, confirmation.certificateId);
-    });
-  }
+  Future<int> count({DatabaseExecutor? db}) => _owned(
+      (executor, owner) async =>
+          Sqflite.firstIntValue(await executor.rawQuery(
+              'SELECT COUNT(*) FROM $table WHERE owner_scope = ?',
+              [owner.key])) ??
+          0,
+      db: db);
 
-  Future<void> _syncLastConfirmed(DatabaseExecutor txn, String certId) async {
-    final rows = await txn.rawQuery(
-        'SELECT MAX(date) AS d FROM $confirmationsTable '
-        'WHERE certificate_id = ?',
-        <Object?>[certId]);
-    final last = rows.isEmpty ? null : rows.single['d'] as String?;
-    await txn.update(table, <String, Object?>{'last_confirmed_date': last},
-        where: 'id = ?', whereArgs: <Object?>[certId]);
-  }
+  Future<void> upsert(WelderCertificate certificate, {DatabaseExecutor? db}) =>
+      _owned((executor, owner) async {
+        final existing = await executor.query(table,
+            columns: ['owner_scope'],
+            where: 'id = ?',
+            whereArgs: [certificate.id],
+            limit: 1);
+        if (existing.isNotEmpty &&
+            existing.single['owner_scope'] != owner.key) {
+          throw AccountException(
+              'Uprawnienie należy do innego konta. / Qualification belongs to another account.');
+        }
+        if (existing.isEmpty) {
+          await executor.insert(
+              table, {...certificate.toRow(), 'owner_scope': owner.key});
+        } else {
+          await executor.update(table, certificate.toRow(),
+              where: 'id = ? AND owner_scope = ?',
+              whereArgs: [certificate.id, owner.key]);
+        }
+      }, db: db, write: true);
 
-  /// Przepisuje stempel z [from] na [to] we wszystkich certyfikatach
-  /// (zmiana stempla w tożsamości, za zgodą spawacza). Zwraca liczbę
-  /// zmienionych certyfikatów.
-  Future<int> reassignStamp(String from, String to) async {
-    final db = await AppDatabase.get();
-    return db.update(table, <String, Object?>{'welder_stamp': to},
-        where: 'UPPER(TRIM(welder_stamp)) = ?',
-        whereArgs: <Object?>[from.trim().toUpperCase()]);
-  }
+  Future<void> delete(String id) => _owned((db, owner) async {
+        await _requireCertificate(db, owner, id);
+        await db.delete(confirmationsTable,
+            where: 'certificate_id = ?', whereArgs: [id]);
+        await db.delete(table,
+            where: 'id = ? AND owner_scope = ?', whereArgs: [id, owner.key]);
+      }, write: true);
 
-  Future<int> count({DatabaseExecutor? db}) async {
-    final executor = db ?? await AppDatabase.get();
-    return Sqflite.firstIntValue(
-            await executor.rawQuery('SELECT COUNT(*) FROM $table')) ??
-        0;
-  }
-
-  /// Wstawia albo nadpisuje (po `id`).
-  Future<void> upsert(WelderCertificate certificate,
-      {DatabaseExecutor? db}) async {
-    final executor = db ?? await AppDatabase.get();
-    await executor.insert(table, certificate.toRow(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<void> delete(String id) async {
-    final db = await AppDatabase.get();
-    await db.transaction((txn) async {
-      await txn.delete(table, where: 'id = ?', whereArgs: <Object?>[id]);
-      await txn.delete(confirmationsTable,
-          where: 'certificate_id = ?', whereArgs: <Object?>[id]);
-    });
-  }
-
-  /// „Usuń moje dane" — cały rejestr. Zwraca skasowane wiersze (ścieżki zdjęć
-  /// do usunięcia z dysku).
-  Future<List<WelderCertificate>> deleteAll() async {
-    final db = await AppDatabase.get();
-    final all = await listAll(db: db);
-    await db.delete(table);
-    await db.delete(confirmationsTable);
-    return all;
-  }
+  /// Only this owner's rows and their photo paths, atomically.
+  Future<List<WelderCertificate>> deleteAll() => _owned((db, owner) async {
+        final all = await _list(db, owner);
+        await db.rawDelete(
+            'DELETE FROM $confirmationsTable WHERE certificate_id IN '
+            '(SELECT id FROM $table WHERE owner_scope = ?)',
+            [owner.key]);
+        await db
+            .delete(table, where: 'owner_scope = ?', whereArgs: [owner.key]);
+        return all;
+      }, write: true);
 }

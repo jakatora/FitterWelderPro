@@ -24,16 +24,34 @@ import '../../widgets/help_button.dart';
 import '../../widgets/wpqr_chip.dart';
 import 'certificate_edit_page.dart';
 import 'form_bits.dart';
+import '../../widgets/local_record_scope.dart';
 
-class CertificateRegisterPage extends StatefulWidget {
+class CertificateRegisterPage extends StatelessWidget {
   const CertificateRegisterPage({super.key});
-
   @override
-  State<CertificateRegisterPage> createState() =>
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (_, session) => _CertificateRegisterPage(session: session));
+}
+
+class _CertificateRegisterPage extends StatefulWidget {
+  const _CertificateRegisterPage({required this.session});
+  final LocalRecordSession session;
+  @override
+  State<_CertificateRegisterPage> createState() =>
       _CertificateRegisterPageState();
 }
 
-class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
+class _CertificateRegisterPageState extends State<_CertificateRegisterPage> {
+  LocalRecordSession get _session => widget.session;
+  Future<T?> _showOwnedDialog<T>(
+          {required BuildContext context, required WidgetBuilder builder}) =>
+      showDialog<T>(
+          context: context,
+          builder: (dialogContext) => LocalRecordScope(
+              restartOnAccountChange: false,
+              originSession: _session,
+              builder: (_, __) => builder(dialogContext)));
+
   QualificationOverview? _overview;
   bool _loading = true;
   bool _loadFailed = false;
@@ -50,6 +68,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted || !_session.isCurrent) return;
     QualificationOverview? overview;
     var failed = false;
     try {
@@ -61,7 +80,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       failed = true;
     }
     final on = await _reminders.isEnabled();
-    if (!mounted) return;
+    if (!mounted || !_session.isCurrent) return;
     setState(() {
       _overview = overview;
       _loadFailed = failed;
@@ -72,7 +91,8 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
 
   Future<void> _openEditor([WelderCertificate? certificate]) async {
     final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
-      builder: (_) => CertificateEditPage(certificate: certificate),
+      builder: (_) => CertificateEditPage(
+          certificate: certificate, originSession: _session),
     ));
     if (saved == true) await _load();
   }
@@ -87,6 +107,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
         now: DateTime.now(),
         english: AppLanguageController.isEnglish,
       );
+      if (!mounted || !_session.isCurrent) return;
       result = await _reminders.enable(plan);
       if (!result && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -99,9 +120,10 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
         ));
       }
     } else {
+      if (!mounted || !_session.isCurrent) return;
       await _reminders.disable();
     }
-    if (!mounted) return;
+    if (!mounted || !_session.isCurrent) return;
     setState(() {
       _remindersOn = result;
       _togglingReminders = false;
@@ -111,9 +133,9 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
   Future<void> _recordConfirmation(CertificateEvaluation e) async {
     final c = e.certificate;
     final asme = c.standard == QualificationStandard.asmeIx;
-    final input = await showDialog<_ConfirmationInput>(
+    final input = await _showOwnedDialog<_ConfirmationInput>(
       context: context,
-      builder: (_) => _ConfirmationDialog(evaluation: e),
+      builder: (_) => _ConfirmationDialog(evaluation: e, session: _session),
     );
     if (input == null || !mounted) return;
     final picked = input.date;
@@ -145,7 +167,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
     final onDay = evaluateCertificate(c, asOf: picked);
     final deadline = onDay.continuityDeadline;
     if (deadline != null && picked.isAfter(deadline)) {
-      final keep = await showDialog<bool>(
+      final keep = await _showOwnedDialog<bool>(
         context: context,
         builder: (dctx) => AlertDialog(
           title: Text(context.tr(
@@ -186,13 +208,14 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       );
       if (keep != true) return;
     }
+    if (!mounted || !_session.isCurrent) return;
     await _service.addConfirmation(c,
         date: picked, confirmedBy: byText, notes: notesText);
     await _load();
   }
 
   Future<void> _deleteConfirmation(CertificateConfirmation k) async {
-    final ok = await showDialog<bool>(
+    final ok = await _showOwnedDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(context.tr(
@@ -217,12 +240,13 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       ),
     );
     if (ok != true) return;
+    if (!mounted || !_session.isCurrent) return;
     await _service.deleteConfirmation(k);
     await _load();
   }
 
   Future<void> _delete(WelderCertificate c) async {
-    final ok = await showDialog<bool>(
+    final ok = await _showOwnedDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(context.tr(
@@ -247,6 +271,7 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
       ),
     );
     if (ok != true) return;
+    if (!mounted || !_session.isCurrent) return;
     await _service.delete(c);
     await _load();
   }
@@ -267,9 +292,11 @@ class _CertificateRegisterPageState extends State<CertificateRegisterPage> {
             onSelected: (v) async {
               try {
                 if (v == 'pdf') {
-                  await QualificationExport.sharePdf(items);
+                  await QualificationExport.sharePdf(items,
+                      mayShare: () => mounted && _session.isCurrent);
                 } else {
-                  await QualificationExport.shareCsv(items);
+                  await QualificationExport.shareCsv(items,
+                      mayShare: () => mounted && _session.isCurrent);
                 }
               } catch (e) {
                 debugPrint('[qualification] export failed: $e');
@@ -793,7 +820,8 @@ class _ConfirmationInput {
 /// długo jak dialog (także w animacji zamykania).
 class _ConfirmationDialog extends StatefulWidget {
   final CertificateEvaluation evaluation;
-  const _ConfirmationDialog({required this.evaluation});
+  final LocalRecordSession session;
+  const _ConfirmationDialog({required this.evaluation, required this.session});
 
   @override
   State<_ConfirmationDialog> createState() => _ConfirmationDialogState();
@@ -865,6 +893,7 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
           ],
           const SizedBox(height: 14),
           DateField(
+            session: widget.session,
             label: context.tr(pl: 'Data', en: 'Date'),
             value: _picked,
             onChanged: (d) {
