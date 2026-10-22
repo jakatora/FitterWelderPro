@@ -36,15 +36,22 @@ class IsoNameSkill extends AssistantSkill {
     if (source?.kind == IsoCommandKind.renameSketch) {
       return source!.sketchName == proposed!.sketchName;
     }
-    if (!RegExp(r'^(?:chce|chcialbym|chcialabym|prosze|please|i want|i would like)\b')
-            .hasMatch(original.folded) ||
-        !original.hasStem(const ['nazw', 'nazyw', 'name', 'renam', 'call']) ||
-        original.hasAny(const ['jak', 'czy', 'how', 'which', 'whether'])) {
-      return false;
-    }
     final names =
         RegExp(r'["„“]([^"”]+)["”]').allMatches(original.raw).toList();
-    return names.length == 1 && names.single[1]!.trim() == proposed!.sketchName;
+    if (names.length != 1 || names.single[1]!.trim() != proposed!.sketchName) {
+      return false;
+    }
+    final name = names.single;
+    // Treat the title as literal data. Words such as "czy" or "how" inside it
+    // do not turn a request into a question; trailing actions are not ignored.
+    if (!RegExp(r'^[\s.!?]*$').hasMatch(original.raw.substring(name.end))) {
+      return false;
+    }
+    final prefix =
+        original.withRaw(original.raw.substring(0, name.start)).folded;
+    return RegExp(
+            r'^(?:(?:(?:chce|chcialbym|chcialabym) |prosze |(?:(?:czy )?mozesz|czy moglbys|czy moglabys) (?:prosze )?)(?:(?:nazwac|nazwij) (?:ten |te |ta |tym )?(?:rysunek|szkic|izometrie)(?: jako| na)?|(?:zmienic|zmien) nazwe (?:tego )?(?:rysunku|szkicu|izometrii) na)|(?:(?:i want to|i would like to|please|can you|could you|would you) )(?:please )?(?:(?:name|call) (?:this |the )?(?:drawing|sketch)(?: as)?|rename (?:this |the )?(?:drawing|sketch)(?: to)?))$')
+        .hasMatch(prefix);
   }
 
   @override

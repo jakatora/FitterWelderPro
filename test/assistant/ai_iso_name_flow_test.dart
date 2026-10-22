@@ -10,9 +10,18 @@ import 'global_pipe_slope_flow_test.dart' show say, settle;
 void main() {
   useTestDatabase();
   setUp(() async => (await AppDatabase.get()).delete('iso_drawings'));
-  for (final correct in [true, false]) {
+  for (final scenario in [
+    (true, 'Chciałbym nazwać ten rysunek „Łódź CW-123”'),
+    (false, 'Chciałbym nazwać ten rysunek „Łódź CW-123”'),
+    (true, 'Czy możesz nazwać ten rysunek „Łódź CW-123”?'),
+    (false, 'Czy możesz nazwać ten rysunek „Łódź CW-123”?'),
+    (true, 'Could you please name this drawing “Łódź CW-123”?'),
+    (false, 'Czy możesz nazwać projekt „Łódź CW-123”?'),
+    (false, 'Czy mogę nazwać rysunek „Łódź CW-123”?'),
+  ]) {
+    final (correct, source) = scenario;
     testWidgets(
-        'AI names the actual sheet only with the exact user title: $correct',
+        'AI names the actual sheet only with the exact user title: $correct $source',
         (t) async {
       var calls = 0;
       await mount(t, interpret: (request) async {
@@ -26,7 +35,7 @@ void main() {
             'execute',
             [
               AiCommandStep('iso.name',
-                  'Nazwij rysunek ${correct ? 'Łódź CW-123' : 'Lodz CW-123'}')
+                  'Nazwij rysunek ${source.contains('projekt') || source.contains('mogę') || correct ? 'Łódź CW-123' : 'Lodz CW-123'}')
             ],
             '');
       });
@@ -35,7 +44,7 @@ void main() {
       await flushTestDatabase(t);
       final before = await t.runAsync(() => IsoDrawingDao().latest());
       expect(calls, 0);
-      await say(t, 'Chciałbym nazwać ten rysunek „Łódź CW-123”');
+      await say(t, source);
       await settle(t);
       await flushTestDatabase(t);
       expect(calls, 1);

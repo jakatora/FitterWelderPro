@@ -22,3 +22,10 @@ Nie wykonano płatnego wywołania modelu ani wdrożenia backendu; transport AI j
 ISO gap source validation now accepts assistant-directed requests such as "Czy możesz zmniejszyć szczelinę w ISO o 1 mm" and "Could you please decrease the gap in ISO by 1 mm" after AI normalization. Infinitives are normalized only behind an explicit assistant-directed request prefix. Advice, explanation and permission questions remain non-actions. Raw negative signs are checked before folding. Existing scope, numeric, unit and bound-reference checks remain required.
 
 Verification: 53 tests passed, including mounted assistant/real SQLite persistence, unchanged pipe geometry, CUT engine effects and Undo for polite requests, rejection of incorrect model amounts, session isolation and main AI execution. Fatal analysis of three modified Dart files clean. Controlled interpreter fixtures prove execution and guard behavior, not live model language quality. Railway deployment and real provider acceptance remain open.
+
+
+## Natural sheet names (2026-10-22)
+
+The iso.name proposal guard now separates one exact quoted title from the request header. Assistant-directed PL/EN requests (including Czy możesz/mógłbyś/mogłabyś and Can/Could/Would you) name or rename the explicitly named drawing/sketch. Question words inside the literal title are data. Permission/advice questions, other entities such as projects, multiple alternative titles, trailing actions, and rewritten titles cannot rename a sheet. Existing canonical literal naming remains unchanged.
+
+49 tests passed across name parser/guard, mounted name flows, main AI execution, session isolation and sheet references. Mounted flows use controlled interpreter plans and real SQLite to verify same record ID, exact saved title and unchanged geometry, including wrong-title, unrelated-project and permission-question rejections. Three-file fatal analysis clean. No live provider test or Railway deployment in this step.

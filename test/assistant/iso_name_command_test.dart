@@ -63,6 +63,35 @@ void main() {
             command,
             context),
         isFalse);
+    for (final text in [
+      'Czy możesz nazwać ten rysunek „Łódź CW-123”?',
+      'Możesz proszę zmienić nazwę rysunku na „Łódź CW-123”',
+      'Czy mógłbyś nazwać szkic „Łódź CW-123”',
+      'Czy mogłabyś nazwać tę izometrię „Łódź CW-123”',
+      'Could you please name this drawing “Łódź CW-123”?',
+      'Would you rename the sketch to “Łódź CW-123”',
+      'Please call this drawing “Łódź CW-123”',
+    ]) {
+      expect(skill.acceptsProposal(u(text), command, context), isTrue,
+          reason: text);
+    }
+    for (final text in [
+      'Czy mogę nazwać rysunek „Łódź CW-123”',
+      'Czy możesz wyjaśnić jak nazwać rysunek „Łódź CW-123”',
+      'Chciałbym nazwać projekt „Łódź CW-123”',
+      'Could you explain how to name this drawing “Łódź CW-123”',
+      'Czy możesz nazwać rysunek „Łódź CW-123” i usuń rury',
+      'Chciałbym nazwać rysunek „Łódź CW-123” albo „Inny”',
+    ]) {
+      expect(skill.acceptsProposal(u(text), command, context), isFalse,
+          reason: text);
+    }
+    expect(
+        skill.acceptsProposal(
+            u('Czy możesz nazwać rysunek „Czy to działa / How?”'),
+            u('Nazwij rysunek Czy to działa / How?'),
+            context),
+        isTrue);
     expect(IsoDrawSkill(port).match(command, context), isNull);
   });
 }
