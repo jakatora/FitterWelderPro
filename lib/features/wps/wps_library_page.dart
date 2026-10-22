@@ -18,6 +18,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../assistant/core/tool_bridge.dart';
 import '../../database/wps_dao.dart';
 import '../../domain/qualification/weld_process.dart';
 import '../../domain/welding/heat_input.dart';
@@ -47,7 +48,9 @@ class _WpsLibrary extends StatefulWidget {
   State<_WpsLibrary> createState() => _WpsLibraryPageState();
 }
 
-class _WpsLibraryPageState extends State<_WpsLibrary> {
+class _WpsLibraryPageState extends State<_WpsLibrary>
+    with ToolHandleHost<_WpsLibrary>
+    implements InputToolHandle {
   final _dao = WpsDao();
   final _search = TextEditingController();
   List<WpsRecord> _all = const [];
@@ -55,10 +58,33 @@ class _WpsLibraryPageState extends State<_WpsLibrary> {
   bool _failed = false;
 
   @override
+  String get toolId => 'wps_library';
+  @override
+  Set<String> get supportedFields => const {'query'};
+  @override
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable({'query': _search.text});
+
+  /// Asystent wpisuje to, czego szukał — lista zawęża się jak przy pisaniu.
+  @override
+  Future<Set<String>> apply(Map<String, Object?> fields) async {
+    final q = fields['query'];
+    if (!mounted ||
+        fields.keys.any((k) => !supportedFields.contains(k)) ||
+        q is! String ||
+        q.length > 120) {
+      return fields.keys.toSet();
+    }
+    _search.text = q;
+    return {};
+  }
+
+  @override
   void initState() {
     super.initState();
     _search.addListener(() => setState(() {}));
     unawaited(_load());
+    markReady();
   }
 
   @override

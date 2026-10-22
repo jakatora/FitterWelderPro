@@ -8,6 +8,7 @@ import 'filler_pick_skill.dart';
 import 'fume_oel_skill.dart';
 import 'qualification_range_skill.dart';
 import 'weld_symbol_skill.dart';
+import 'exam_question_skill.dart';
 
 List<AssistantSkill> knowledgeModuleSkills() => [
       DefectsCausesSkill(),
@@ -18,5 +19,6 @@ List<AssistantSkill> knowledgeModuleSkills() => [
       FillerPickSkill(),
       FumeOelSkill(),
       QualificationRangeSkill(),
-      WeldSymbolSkill()
+      WeldSymbolSkill(),
+      ExamQuestionSkill()
     ];
