@@ -4,6 +4,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../core/skill_guards.dart';
+import '../records/coupon_add_skill.dart' show isCouponAddRequest;
 
 String _day(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -49,6 +50,7 @@ class CouponsStatusSkill extends AssistantSkill {
       return null;
     }
     if (!u.hasStem(const ['kupon', 'coupon'])) return null;
+    if (isCouponAddRequest(u.folded)) return null;
     if (u.hasStem(const ['dodaj', 'zapisz', 'nowy', 'add', 'new', 'usun', 'delete'])) {
       return null;
     }

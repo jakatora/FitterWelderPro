@@ -4,6 +4,7 @@ import '../../core/skill.dart';
 import '../core/explain_tool_skill.dart' show explainedTool;
 import '../core/skill_words.dart';
 import '../core/skill_guards.dart';
+import '../records/passivation_add_skill.dart' show isPassivationAddRequest;
 
 /// Rejestr trawienia/pasywacji: ostatni zabieg (opcjonalnie dla linii)
 /// i wyniki prób. Tylko odczyt — nowy wpis robi się w module.
@@ -43,6 +44,7 @@ class PassivationStatusSkill extends AssistantSkill {
       return null;
     }
     if (!u.hasStem(const ['pasywac', 'trawien', 'passivat', 'pickling'])) return null;
+    if (isPassivationAddRequest(u.folded)) return null;
     if (u.hasStem(const ['dodaj', 'zapisz', 'nowy', 'nowa', 'add', 'new'])) return null;
     final line = RegExp(r'\b(?:linii|linia|line)\s+([A-Za-z0-9][\w\-/.]*)',
             caseSensitive: false)

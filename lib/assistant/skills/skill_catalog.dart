@@ -39,6 +39,8 @@ import 'own_data/cutlist_summary_skill.dart';
 import 'own_data/component_find_skill.dart';
 import 'records/hot_work_prepare_skill.dart';
 import 'records/confined_space_prepare_skill.dart';
+import 'records/coupon_add_skill.dart';
+import 'records/passivation_add_skill.dart';
 
 /// Pełny katalog. [actions] — zapisy (bez nich brak umiejętności `legacy.*`).
 List<AssistantSkill> buildSkillCatalog(
@@ -82,6 +84,8 @@ List<AssistantSkill> buildSkillCatalog(
   all.add(InterpassReadingSkill());
   all.add(HotWorkPrepareSkill());
   all.add(ConfinedSpacePrepareSkill());
+  all.add(CouponAddSkill());
+  all.add(PassivationAddSkill());
   if (iso != null) all.addAll(isoSkills(iso));
   return List.unmodifiable(all);
 }

@@ -61,7 +61,14 @@ class _CouponLogScreenState extends State<_CouponLog> {
   @override
   void initState() {
     super.initState();
+    CouponDao.changes.addListener(_load);
     _load();
+  }
+
+  @override
+  void dispose() {
+    CouponDao.changes.removeListener(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {

@@ -18,6 +18,7 @@ library;
 import '../services/account_service.dart';
 import 'local_record_owner.dart';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -84,6 +85,10 @@ class CouponDao {
   static const String historyTable = 'weld_coupon_history';
 
   static const Uuid _uuid = Uuid();
+
+  /// Bumped after every committed write, so an open log refreshes when the
+  /// assistant adds or undoes a coupon behind it.
+  static final changes = ValueNotifier<int>(0);
 
   final int Function() _clock;
   final String Function() _newId;
@@ -161,7 +166,7 @@ class CouponDao {
       await _log(txn, e.id, by, CouponHistoryAction.create,
           newValue: e.reference);
       owner.requireCurrent();
-    });
+    });    changes.value++;
   }
 
   /// Saves [e] over the stored coupon, logs every changed field and
@@ -169,7 +174,7 @@ class CouponDao {
   /// whose coupon reference changed.
   Future<int> update(CouponEntry e, {String by = ''}) async {
     final (owner, db) = await _ownerAndDb();
-    return db.transaction((txn) async {
+    final n = await db.transaction((txn) async {
       owner.requireCurrent();
       final before = await _read(txn, e.id, owner);
       if (before == null) {
@@ -191,13 +196,15 @@ class CouponDao {
       }
       return _propagate(txn, after, by, owner);
     });
+    changes.value++;
+    return n;
   }
 
   /// Soft delete: the row, its history and the links of welds stay; every
   /// linked weld's reference gets [kCouponDeletedMarker].
   Future<int> softDelete(String id, {String by = ''}) async {
     final (owner, db) = await _ownerAndDb();
-    return db.transaction((txn) async {
+    final n = await db.transaction((txn) async {
       owner.requireCurrent();
       final before = await _read(txn, id, owner);
       if (before == null || before.isDeleted) return 0;
@@ -208,11 +215,13 @@ class CouponDao {
           oldValue: before.reference);
       return _propagate(txn, after, by, owner);
     });
+    changes.value++;
+    return n;
   }
 
   Future<int> restore(String id, {String by = ''}) async {
     final (owner, db) = await _ownerAndDb();
-    return db.transaction((txn) async {
+    final n = await db.transaction((txn) async {
       owner.requireCurrent();
       final before = await _read(txn, id, owner);
       if (before == null || !before.isDeleted) return 0;
@@ -223,6 +232,8 @@ class CouponDao {
           newValue: after.reference);
       return _propagate(txn, after, by, owner);
     });
+    changes.value++;
+    return n;
   }
 
   /// Welds (live and deleted) linked to coupon [id]: `(id, weld_no)`.

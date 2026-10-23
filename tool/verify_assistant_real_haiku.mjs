@@ -118,6 +118,12 @@ const CASES = [
   ['pl', 'ile metrów rury mam do pocięcia w liście cięć', ['cutlist.summary']],
   ['pl', 'jaki mam w bibliotece wymiar do osi kolana stówki', ['component.find']],
   ['pl', 'na jakie grubości dostanę uprawnienia jak zdam na rurze 60 ścianka 5', ['qualification.range']],
+  ['pl', 'dodaj kupon, spawał JK-12 na głowicy M-3, rura dwa cale', ['coupon.add']],
+  ['pl', 'zapisz w logu nowy kupon próbny, tlen wyszedł dwadzieścia ppm', ['coupon.add', 'clarify']],
+  ['en', 'log a new test coupon, welder AB-1, it passed', ['coupon.add']],
+  ['pl', 'zapisz pasywację linii WFI-101 pastą Avesta, sześćdziesiąt minut, test ferroksylowy wyszedł dobrze', ['passivation.add']],
+  ['pl', 'wpisz że trawiliśmy dziś spoiny od W-001 do W-040 na pakiecie TP-12', ['passivation.add']],
+  ['en', 'log a passivation on line PW-3, ferroxyl test passed', ['passivation.add']],
 ];
 
 // FWP_REAL_ONLY=<fragment> — tylko pasujące przypadki, FWP_REAL_REPEAT=n powtórzeń.

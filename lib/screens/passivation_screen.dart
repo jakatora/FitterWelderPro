@@ -270,7 +270,14 @@ class _PassivationRegisterState extends State<PassivationRegister> {
   @override
   void initState() {
     super.initState();
+    PassivationDao.changes.addListener(_load);
     _load();
+  }
+
+  @override
+  void dispose() {
+    PassivationDao.changes.removeListener(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {

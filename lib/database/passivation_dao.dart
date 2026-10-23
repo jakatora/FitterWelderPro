@@ -3,12 +3,18 @@
 /// v34: wpisy należą do konta (`owner_scope`; dawne — gościa).
 library;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
 import '../domain/passivation/passivation_record.dart';
 import 'local_record_owner.dart';
 import 'owned_table.dart';
 
 class PassivationDao {
   static const String table = 'passivation_records';
+
+  /// Bumped after every committed write (an open register refreshes when the
+  /// assistant adds or undoes an entry behind it).
+  static final changes = ValueNotifier<int>(0);
 
   final int Function() _clock;
   final OwnedTable _owned;
@@ -44,6 +50,16 @@ class PassivationDao {
       if (n == 0) await txn.insert(table, row);
       owner.requireCurrent();
     });
+    changes.value++;
+  }
+
+  /// One entry of this account (also a deleted one), or null.
+  Future<PassivationRecord?> byId(String id) async {
+    final (owner, db) = await _owned.ownerAndDb();
+    final rows = await db.query(table,
+        where: _owned.where('id = ?'), whereArgs: [owner.key, id], limit: 1);
+    owner.requireCurrent();
+    return rows.isEmpty ? null : PassivationRecord.fromRow(rows.single);
   }
 
   Future<void> softDelete(String id) async {
@@ -51,6 +67,7 @@ class PassivationDao {
     await db.update(table, {'deleted_at': _clock()},
         where: _owned.where('id = ?'), whereArgs: [owner.key, id]);
     owner.requireCurrent();
+    changes.value++;
   }
 
   Future<void> restore(String id) async {
@@ -58,5 +75,6 @@ class PassivationDao {
     await db.update(table, {'deleted_at': null},
         where: _owned.where('id = ?'), whereArgs: [owner.key, id]);
     owner.requireCurrent();
+    changes.value++;
   }
 }
