@@ -92,7 +92,7 @@ class AppDatabase {
   // v32: qualification certificates belong to account/guest; confirmations follow their parent.
   // v33: coupon log and WPS library belong to account/guest; their history /
   //   versions follow the parent row (CouponDao / WpsDao).
-  static const int _dbVersion = 33;
+  static const int _dbVersion = 34;
 
   /// The schema version [get] opens the database at.
   ///
@@ -103,6 +103,18 @@ class AppDatabase {
 
   /// Tables partitioned by owner since v33 (legacy rows stay with the guest).
   static const List<String> kOwnedV33Tables = ['weld_coupons', 'wps_library'];
+
+  /// Tables partitioned by owner since v34 (legacy rows stay with the guest):
+  /// offers, registers and the fitter's projects / library / scans.
+  static const List<String> kOwnedV34Tables = [
+    'weld_quotes',
+    'hydrotest_records',
+    'passivation_records',
+    'instruments',
+    'projects',
+    'component_library',
+    'iso_scans',
+  ];
 
   static Future<Database> get() {
     final ready = _db;
@@ -152,7 +164,7 @@ class AppDatabase {
       await connection.transaction((txn) => _ensureJournalOwners(txn));
       await _ensureColumn(connection, 'welder_certificates', 'owner_scope',
           "TEXT NOT NULL DEFAULT 'guest'");
-      for (final table in kOwnedV33Tables) {
+      for (final table in [...kOwnedV33Tables, ...kOwnedV34Tables]) {
         await _ensureColumn(
             connection, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
       }
@@ -539,6 +551,13 @@ CREATE TABLE IF NOT EXISTS projects (
       }
     }
 
+    if (oldVersion < 34) {
+      for (final table in kOwnedV34Tables) {
+        await _ensureColumn(
+            db, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
+      }
+    }
+
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
   }
@@ -833,6 +852,7 @@ WHERE c.last_confirmed_date IS NOT NULL
     await db.execute('''
 CREATE TABLE IF NOT EXISTS component_library (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   material_group TEXT NOT NULL DEFAULT 'SS',
   type TEXT NOT NULL,
   diameter_mm REAL NOT NULL,
@@ -849,6 +869,7 @@ CREATE TABLE IF NOT EXISTS component_library (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   name TEXT,
   material_group TEXT NOT NULL DEFAULT 'SS',
   diameter_mm REAL NOT NULL,
@@ -1085,6 +1106,7 @@ ${_columnsDdl(kWeldCouponsV25Columns)},
     await db.execute('''
 CREATE TABLE IF NOT EXISTS hydrotest_records (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   system_name TEXT,
   test_date TEXT,
   gauge TEXT,
@@ -1144,6 +1166,7 @@ CREATE TABLE IF NOT EXISTS iso_drawings (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS instruments (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   kind TEXT,
   name TEXT,
   serial_no TEXT,
@@ -1168,6 +1191,7 @@ CREATE TABLE IF NOT EXISTS instruments (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS weld_quotes (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   number TEXT,
   title TEXT,
   client TEXT,
@@ -1263,6 +1287,7 @@ CREATE TABLE IF NOT EXISTS wps_versions (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS passivation_records (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   date TEXT,
   treatment TEXT,
   line TEXT,
@@ -1292,6 +1317,7 @@ CREATE TABLE IF NOT EXISTS passivation_records (
     await db.execute('''
 CREATE TABLE IF NOT EXISTS iso_scans (
   id TEXT PRIMARY KEY,
+  owner_scope TEXT NOT NULL DEFAULT 'guest',
   name TEXT,
   image_path TEXT,
   envelope_json TEXT NOT NULL,
@@ -1426,6 +1452,17 @@ ${_columnsDdl(kWpsLibraryV25Columns)},
       ('weld_repairs', 'idx_weld_repairs_owner', 'owner_scope, weld_id, seq'),
       ('weld_coupons', 'idx_weld_coupons_owner', 'owner_scope, date'),
       ('wps_library', 'idx_wps_library_owner', 'owner_scope, wps_no'),
+      ('weld_quotes', 'idx_weld_quotes_owner', 'owner_scope, updated_at'),
+      (
+        'hydrotest_records',
+        'idx_hydrotest_owner',
+        'owner_scope, test_date'
+      ),
+      ('passivation_records', 'idx_passivation_owner', 'owner_scope, date'),
+      ('instruments', 'idx_instruments_owner', 'owner_scope'),
+      ('projects', 'idx_projects_owner', 'owner_scope, updated_at'),
+      ('component_library', 'idx_component_library_owner', 'owner_scope'),
+      ('iso_scans', 'idx_iso_scans_owner', 'owner_scope'),
     ]) {
       // createSchema can fill a legacy file before its version migration.
       // Only migrated/current tables have the new owner column at that point.

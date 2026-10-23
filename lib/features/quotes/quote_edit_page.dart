@@ -21,6 +21,7 @@ import 'quote_help.dart';
 import 'quote_scope_tab.dart';
 import 'quote_summary_tab.dart';
 import 'quote_widgets.dart';
+import '../../widgets/local_record_scope.dart';
 
 typedef QuoteChanged = void Function(WeldQuote q);
 
@@ -50,15 +51,42 @@ class QuoteEditPage extends StatefulWidget {
     this.isNew = false,
   });
 
+  /// v34: edytor należy do konta, dla którego go otwarto — po zmianie
+  /// konta dane się chowają, a zapis idzie wyłącznie do tego właściciela.
   @override
-  State<QuoteEditPage> createState() => _QuoteEditPageState();
+  State<QuoteEditPage> createState() => _QuoteEditScopeState();
 }
 
-class _QuoteEditPageState extends State<QuoteEditPage>
+class _QuoteEditScopeState extends State<QuoteEditPage> {
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      builder: (_, session) => _QuoteEditBody(
+          page: widget,
+          dao: widget.dao ?? WeldQuoteDao(captureOwner: session.captureOwner)));
+}
+
+class _QuoteEditBody extends StatefulWidget {
+  final QuoteEditPage page;
+  final WeldQuoteDao dao;
+
+  const _QuoteEditBody({required this.page, required this.dao});
+
+  WeldQuote get quote => page.quote;
+  QuoteSettings get settings => page.settings;
+  int get initialTab => page.initialTab;
+  Duration get saveDelay => page.saveDelay;
+  bool get isNew => page.isNew;
+
+  @override
+  State<_QuoteEditBody> createState() => _QuoteEditPageState();
+}
+
+class _QuoteEditPageState extends State<_QuoteEditBody>
     with SingleTickerProviderStateMixin {
   late WeldQuote _q = widget.quote;
   late QuoteSettings _settings = widget.settings;
-  late final WeldQuoteDao _dao = widget.dao ?? WeldQuoteDao();
+  late final WeldQuoteDao _dao = widget.dao;
   late final TabController _tabs =
       TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
   Timer? _saveTimer;

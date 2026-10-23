@@ -17,8 +17,11 @@ import '../../widgets/help_button.dart';
 import 'quote_edit_page.dart';
 import 'quote_help.dart';
 import 'quote_settings_page.dart';
+import '../../widgets/local_record_scope.dart';
 
-class QuoteListPage extends StatefulWidget {
+/// v34: wyceny należą do konta — po zmianie konta lista startuje od nowa,
+/// a odczyt i zapis idą do właściciela tej sesji.
+class QuoteListPage extends StatelessWidget {
   final WeldQuoteDao? dao;
   final QuoteSettingsStore store;
 
@@ -29,11 +32,24 @@ class QuoteListPage extends StatefulWidget {
   });
 
   @override
-  State<QuoteListPage> createState() => _QuoteListPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (_, session) => _QuoteList(
+          dao: dao ?? WeldQuoteDao(captureOwner: session.captureOwner),
+          store: store));
 }
 
-class _QuoteListPageState extends State<QuoteListPage>
-    with ToolHandleHost<QuoteListPage> {
+class _QuoteList extends StatefulWidget {
+  final WeldQuoteDao dao;
+  final QuoteSettingsStore store;
+
+  const _QuoteList({required this.dao, required this.store});
+
+  @override
+  State<_QuoteList> createState() => _QuoteListPageState();
+}
+
+class _QuoteListPageState extends State<_QuoteList>
+    with ToolHandleHost<_QuoteList> {
   @override
   String get toolId => 'weld_quotes';
   @override
@@ -55,7 +71,7 @@ class _QuoteListPageState extends State<QuoteListPage>
     }
   }
 
-  late final WeldQuoteDao _dao = widget.dao ?? WeldQuoteDao();
+  late final WeldQuoteDao _dao = widget.dao;
   final _search = TextEditingController();
   List<WeldQuote> _all = const [];
   QuoteSettings _settings = const QuoteSettings();
