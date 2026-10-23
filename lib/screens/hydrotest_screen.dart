@@ -16,6 +16,7 @@ import '../utils/haptic.dart';
 import '../widgets/help_button.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../widgets/number_field.dart';
+import '../widgets/local_record_scope.dart';
 
 // P1-14: lokalna definicja pomocy dla ekranu hydrotest
 // (kHelpHydrotest nie istnieje w help_button.dart — dodajemy lokalnie,
@@ -114,15 +115,26 @@ double pressureFromBar(double bar, String unit) {
 ///   • water volume    needed to fill the run
 ///   • minimum hold time for the code (B31.3 §345.2.2(a): 10 min)
 ///   • estimated time to fill at a given pump flow
-class HydrotestScreen extends StatefulWidget {
+///
+/// v34: rejestr prób należy do konta — po zmianie konta ekran startuje od
+/// nowa (licznik i lista prób nowego właściciela).
+class HydrotestScreen extends StatelessWidget {
   const HydrotestScreen({super.key});
 
   @override
-  State<HydrotestScreen> createState() => _HydrotestScreenState();
+  Widget build(BuildContext context) =>
+      LocalRecordScope(builder: (_, __) => const _HydrotestBody());
 }
 
-class _HydrotestScreenState extends State<HydrotestScreen>
-    with ToolHandleHost<HydrotestScreen>
+class _HydrotestBody extends StatefulWidget {
+  const _HydrotestBody();
+
+  @override
+  State<_HydrotestBody> createState() => _HydrotestScreenState();
+}
+
+class _HydrotestScreenState extends State<_HydrotestBody>
+    with ToolHandleHost<_HydrotestBody>
     implements InputToolHandle {
   @override
   String get toolId => 'hydrotest';

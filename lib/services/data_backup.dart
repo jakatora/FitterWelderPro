@@ -1033,8 +1033,11 @@ const _ownedLocalTables = {
   // schema33: log kuponów i biblioteka WPS.
   'weld_coupons',
   'wps_library',
-  // schema34: wyceny.
+  // schema34: wyceny i rejestry.
   'weld_quotes',
+  'hydrotest_records',
+  'passivation_records',
+  'instruments',
 };
 
 /// Tabela właściciela, której wiersze mają tabelę-dziecko BEZ owner_scope

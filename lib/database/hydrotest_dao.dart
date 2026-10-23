@@ -30,6 +30,8 @@ library;
 
 import '../domain/pressure_test/hydrotest_protocol_meta.dart';
 import 'db.dart';
+import 'local_record_owner.dart';
+import 'owned_table.dart';
 
 /// Test passed — no leakage, pressure held.
 const String kHydrotestPass = 'PASS';
@@ -244,9 +246,17 @@ class HydrotestRecord {
 
 /// Register of hydrostatic tests. Same shape as the other DAOs in this folder
 /// (`AppDatabase.get()` per call, no cached handle) so a reader who knows one
-/// knows all of them.
+/// knows all of them. v34: a test belongs to the account that filed it
+/// (`owner_scope`; legacy rows stay with the guest).
 class HydrotestDao {
   static const String table = 'hydrotest_records';
+
+  HydrotestDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _owned = OwnedTable(table,
+            captureOwner: captureOwner,
+            foreignMessage: 'Ta próba należy do innego konta. / '
+                'This test belongs to another account.');
+  final OwnedTable _owned;
 
   /// Makes sure the table exists — by opening the database, whose schema
   /// (v18+) defines it. Kept, and kept public, for callers that want to
@@ -257,34 +267,49 @@ class HydrotestDao {
   }
 
   Future<void> insert(HydrotestRecord r) async {
-    final db = await AppDatabase.get();
-    await db.insert(table, r.toRow());
+    final (owner, db) = await _owned.ownerAndDb();
+    await db.transaction((txn) async {
+      owner.requireCurrent();
+      await _owned.refuseForeign(txn, r.id, owner);
+      await txn.insert(table, _owned.owned(r.toRow(), owner));
+      owner.requireCurrent();
+    });
   }
 
   /// Newest first — a welder opening the register wants the test just filed,
   /// not the one from three weeks ago.
   Future<List<HydrotestRecord>> listAll() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(table, orderBy: 'created_at DESC');
+    final (owner, db) = await _owned.ownerAndDb();
+    final rows = await db.query(table,
+        where: _owned.where(),
+        whereArgs: [owner.key],
+        orderBy: 'created_at DESC');
+    owner.requireCurrent();
     return rows.map(HydrotestRecord.fromRow).toList();
   }
 
   Future<void> update(HydrotestRecord r) async {
-    final db = await AppDatabase.get();
-    await db.update(table, r.toRow(), where: 'id = ?', whereArgs: [r.id]);
+    final (owner, db) = await _owned.ownerAndDb();
+    await db.update(table, _owned.owned(r.toRow(), owner),
+        where: _owned.where('id = ?'), whereArgs: [owner.key, r.id]);
+    owner.requireCurrent();
   }
 
   Future<void> deleteById(String id) async {
-    final db = await AppDatabase.get();
-    await db.delete(table, where: 'id = ?', whereArgs: [id]);
+    final (owner, db) = await _owned.ownerAndDb();
+    await db.delete(table,
+        where: _owned.where('id = ?'), whereArgs: [owner.key, id]);
+    owner.requireCurrent();
   }
 
   /// Number of filed tests, for the register badge on the calculator screen.
   /// Counted in SQL rather than by reading every row — the badge is rebuilt
   /// on every save and does not need the payload.
   Future<int> count() async {
-    final db = await AppDatabase.get();
-    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM $table');
+    final (owner, db) = await _owned.ownerAndDb();
+    final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS n FROM $table WHERE owner_scope = ?', [owner.key]);
+    owner.requireCurrent();
     if (rows.isEmpty) return 0;
     return (rows.first['n'] as num?)?.toInt() ?? 0;
   }

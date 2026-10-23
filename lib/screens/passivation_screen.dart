@@ -9,6 +9,7 @@ import '../services/passivation_export.dart';
 import '../services/welder_identity.dart';
 import '../theme/app_theme.dart' show kTextMut, kArc, kOnArc, kPass, kFail;
 import '../widgets/number_field.dart';
+import '../widgets/local_record_scope.dart';
 
 const _kCard = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -115,7 +116,8 @@ class PassivationScreen extends StatelessWidget {
               steps: _passivation,
               showHfWarning: false,
             ),
-            const PassivationRegister(),
+            // v34: rejestr należy do konta — po zmianie konta od nowa.
+            LocalRecordScope(builder: (_, __) => const PassivationRegister()),
           ],
         ),
       ),

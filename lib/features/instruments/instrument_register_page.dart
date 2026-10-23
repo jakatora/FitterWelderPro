@@ -15,6 +15,7 @@ import '../../services/instrument_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
 import 'instrument_edit_page.dart';
+import '../../widgets/local_record_scope.dart';
 
 Color _statusColor(InstrumentStatus s) => switch (s) {
       InstrumentStatus.ok => kPass,
@@ -23,7 +24,8 @@ Color _statusColor(InstrumentStatus s) => switch (s) {
       InstrumentStatus.unknown => kTextMut,
     };
 
-class InstrumentRegisterPage extends StatefulWidget {
+/// v34: rejestr należy do konta — po zmianie konta lista startuje od nowa.
+class InstrumentRegisterPage extends StatelessWidget {
   final InstrumentDao? dao;
 
   /// Do testów — „dziś”.
@@ -32,11 +34,24 @@ class InstrumentRegisterPage extends StatefulWidget {
   const InstrumentRegisterPage({super.key, this.dao, this.clock});
 
   @override
-  State<InstrumentRegisterPage> createState() => _InstrumentRegisterPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (_, session) => _InstrumentRegister(
+          dao: dao ?? InstrumentDao(captureOwner: session.captureOwner),
+          clock: clock));
 }
 
-class _InstrumentRegisterPageState extends State<InstrumentRegisterPage> {
-  late final InstrumentDao _dao = widget.dao ?? InstrumentDao();
+class _InstrumentRegister extends StatefulWidget {
+  final InstrumentDao dao;
+  final DateTime Function()? clock;
+
+  const _InstrumentRegister({required this.dao, this.clock});
+
+  @override
+  State<_InstrumentRegister> createState() => _InstrumentRegisterPageState();
+}
+
+class _InstrumentRegisterPageState extends State<_InstrumentRegister> {
+  late final InstrumentDao _dao = widget.dao;
   List<Instrument> _all = const [];
   bool _loading = true;
   bool _failed = false;
