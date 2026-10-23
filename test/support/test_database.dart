@@ -38,3 +38,14 @@ Future<void> flushTestDatabase(WidgetTester tester) async {
     }
   });
 }
+
+/// A cut-list project row of the offline guest (v34: segments, photos, heat
+/// numbers and saw ticks belong to the account of their project — rows of a
+/// project that does not exist belong to no one and are never listed).
+Future<void> insertTestProject(String id) async {
+  final db = await AppDatabase.get();
+  await db.rawInsert(
+      'INSERT OR IGNORE INTO projects (id, name, diameter_mm, wall_thickness_mm, '
+      'current_diameter_mm, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, 'Test $id', 114.3, 3.05, 114.3, 1, 1]);
+}

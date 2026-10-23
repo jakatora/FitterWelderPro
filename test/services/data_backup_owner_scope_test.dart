@@ -12,7 +12,16 @@ import 'dart:io';
 
 import 'package:cut_list_app/data/app_database.dart' as module_db;
 import 'package:cut_list_app/database/db.dart';
+import 'package:cut_list_app/database/component_heat_dao.dart';
+import 'package:cut_list_app/database/component_library_dao.dart';
 import 'package:cut_list_app/database/coupon_dao.dart';
+import 'package:cut_list_app/database/cut_mark_dao.dart';
+import 'package:cut_list_app/database/heat_photo_dao.dart';
+import 'package:cut_list_app/database/project_dao.dart';
+import 'package:cut_list_app/database/segment_dao.dart';
+import 'package:cut_list_app/models/component_heat.dart';
+import 'package:cut_list_app/models/library_component.dart';
+import 'package:cut_list_app/models/project.dart';
 import 'package:cut_list_app/database/weld_journal_dao.dart';
 import 'package:cut_list_app/database/welder_certificate_dao.dart';
 import 'package:cut_list_app/database/wps_dao.dart';
@@ -295,5 +304,104 @@ void main() {
     expect((await coupons.listAll()).single.id, 'c-a');
     expect((await wpsDao.listAll()).single.id, 'w-a');
     expect((await WeldJournalDao().listAll()).single.couponId, 'c-a');
+  });
+
+  test('projekty listy cięć: kopia A przywrócona na B dostaje nowe id, '
+      'odwołania idą za nią, A nietknięte', () async {
+    AccountService.instance = account;
+    await account.signIn('A', 'fixture-password');
+    await ComponentLibraryDao().insert(LibraryComponent(
+        id: 'el-a',
+        materialGroup: 'SS',
+        type: 'ELB90',
+        diameterMm: 114.3,
+        wallThicknessMm: 3.05,
+        axisMm: 152.4,
+        lengthMm: null,
+        measurementMode: null,
+        diameterOutMm: null,
+        createdAt: 1,
+        updatedAt: 1));
+    Project project(String id) => Project(
+        id: id,
+        name: 'Rack $id',
+        materialGroup: 'SS',
+        diameterMm: 114.3,
+        wallThicknessMm: 3.05,
+        currentDiameterMm: 114.3,
+        stockLengthMm: 6000,
+        sawKerfMm: 1,
+        gapMm: 0,
+        createdAt: 1,
+        updatedAt: 1);
+    Map<String, Object?> segment(String id, String projectId) => {
+          'id': id,
+          'project_id': projectId,
+          'seq_no': 1,
+          'diameter_mm': 114.3,
+          'wall_thickness_mm': 3.05,
+          'start_kind': 'logical',
+          'start_library_id': null,
+          'start_value_mm': 0.0,
+          'end_kind': 'axial',
+          'end_library_id': 'el-a',
+          'end_value_mm': 152.4,
+          'iso_ref': 'OPEN|AXIS',
+          'iso_expr': '1000',
+          'iso_mm': 1000.0,
+          'cut_mm': 847.6,
+          'created_at': 1,
+          'updated_at': 1,
+        };
+    await ProjectDao().insert(project('pa'));
+    await SegmentDao().insert(segment('sa', 'pa'));
+    await ComponentHeatDao().add(
+        projectId: 'pa', segmentId: 'sa', side: TraceSide.end, heatNo: 'H-A');
+    await CutMarkDao()
+        .mark(projectId: 'pa', segmentId: 'sa', part: 1, cutMm: 847.6);
+    await HeatPhotoDao().insert({
+      'id': 'ph-a',
+      'project_id': 'pa',
+      'library_component_id': 'el-a',
+      'image_path': await photo('heat-a.jpg'),
+      'note': null,
+      'created_at': 1,
+    });
+    final archive = await (await DataBackup.createBackupFile(
+            now: DateTime(2026, 10, 23, 10)))
+        .copy(p.join(sandbox.path, 'carried-projects.zip'));
+
+    await account.signIn('B', 'fixture-password');
+    await ProjectDao().insert(project('pb'));
+    await DataBackup.restore(archive.path);
+
+    final copy = (await ProjectDao().listAll()).single;
+    expect(copy.name, 'Rack pa');
+    expect(copy.id, isNot('pa'), reason: 'id A nie może przejąć projektu A');
+    final seg = (await SegmentDao().listForProject(copy.id)).single;
+    expect(seg.id, isNot('sa'));
+    final lib = (await ComponentLibraryDao().listAll()).single;
+    expect(lib.id, isNot('el-a'));
+    expect(seg.endLibraryId, lib.id, reason: 'segment wskazuje kopię kształtki');
+    final heat = (await ComponentHeatDao().listForProject(copy.id)).single;
+    expect(heat.heatNo, 'H-A');
+    expect(heat.segmentId, seg.id);
+    expect(heat.componentKey, startsWith('${seg.id}_'));
+    expect((await CutMarkDao().forProject(copy.id)).keys,
+        [CutMarkDao.keyOf(seg.id, 1)]);
+    final ph = (await HeatPhotoDao().listForProject(copy.id)).single;
+    expect(ph.id, isNot('ph-a'));
+    expect(ph.libraryComponentId, lib.id);
+
+    await account.signIn('A', 'fixture-password');
+    expect((await ProjectDao().listAll()).map((x) => x.id), ['pa']);
+    final ownSeg = (await SegmentDao().listForProject('pa')).single;
+    expect(ownSeg.id, 'sa');
+    expect(ownSeg.endLibraryId, 'el-a');
+    expect((await ComponentHeatDao().listForProject('pa')).single.segmentId,
+        'sa');
+    expect(await CutMarkDao().forProject('pa'), hasLength(1));
+    expect((await HeatPhotoDao().listForProject('pa')).single.id, 'ph-a');
+    expect((await ComponentLibraryDao().listAll()).single.id, 'el-a');
   });
 }

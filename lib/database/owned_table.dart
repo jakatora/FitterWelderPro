@@ -46,3 +46,29 @@ class OwnedTable {
   Map<String, Object?> owned(Map<String, Object?> row, LocalRecordOwner owner) =>
       {...row, 'owner_scope': owner.key};
 }
+
+/// Projekty listy cięć (v34 `projects.owner_scope`) i ich dzieci — segmenty,
+/// znaczniki cięcia, wytopy, zdjęcia — które NIE mają własnego właściciela:
+/// należą do właściciela projektu (jak historia kuponu do kuponu).
+class OwnedProjects {
+  OwnedProjects({Future<LocalRecordOwner> Function()? captureOwner})
+      : table = OwnedTable('projects',
+            captureOwner: captureOwner,
+            foreignMessage: 'Ten projekt należy do innego konta. / '
+                'This project belongs to another account.');
+
+  final OwnedTable table;
+
+  /// Warunek dla tabel-dzieci: wiersz należy do projektu właściciela.
+  static const String childOfOwnedProject =
+      'project_id IN (SELECT id FROM projects WHERE owner_scope = ?)';
+
+  Future<(LocalRecordOwner, Database)> ownerAndDb() => table.ownerAndDb();
+
+  /// Dziecko można dopisać do projektu właściciela; projekt innego konta
+  /// jest zajęty. Brak projektu (np. usunięty w międzyczasie) nie jest
+  /// cudzy — zachowanie jak przed v34.
+  Future<void> requireProject(
+          DatabaseExecutor db, String projectId, LocalRecordOwner owner) =>
+      table.refuseForeign(db, projectId, owner);
+}

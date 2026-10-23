@@ -15,7 +15,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'db.dart';
+import 'local_record_owner.dart';
+import 'owned_table.dart';
 
 /// One stored reading.
 class IsoScanRecord {
@@ -69,7 +70,16 @@ class IsoScanRecord {
       );
 }
 
+/// v34: odczyty należą do konta (`owner_scope`); limit [keep] liczy się
+/// osobno dla każdego konta.
 class IsoScanDao {
+  IsoScanDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _owned = OwnedTable(table,
+            captureOwner: captureOwner,
+            foreignMessage: 'Ten odczyt należy do innego konta. / '
+                'This reading belongs to another account.');
+  final OwnedTable _owned;
+
   static const String table = 'iso_scans';
 
   /// How many readings are kept; older ones are dropped on insert. The
@@ -77,17 +87,28 @@ class IsoScanDao {
   static const int keep = 30;
 
   Future<void> insert(IsoScanRecord r) async {
-    final db = await AppDatabase.get();
-    await db.insert(table, r.toRow());
-    final stale = await db.query(
-      table,
-      columns: ['id', 'image_path'],
-      orderBy: 'created_at DESC, id DESC',
-      offset: keep,
-      limit: -1,
-    );
+    final (owner, db) = await _owned.ownerAndDb();
+    final stale = await db.transaction((txn) async {
+      owner.requireCurrent();
+      await _owned.refuseForeign(txn, r.id, owner);
+      await txn.insert(table, _owned.owned(r.toRow(), owner));
+      final stale = await txn.query(
+        table,
+        columns: ['id', 'image_path'],
+        where: _owned.where(),
+        whereArgs: [owner.key],
+        orderBy: 'created_at DESC, id DESC',
+        offset: keep,
+        limit: -1,
+      );
+      for (final row in stale) {
+        await txn.delete(table, where: 'id = ?', whereArgs: [row['id']]);
+      }
+      owner.requireCurrent();
+      return stale;
+    });
+    // Files only after the commit — a rollback cannot un-delete a photo.
     for (final row in stale) {
-      await db.delete(table, where: 'id = ?', whereArgs: [row['id']]);
       final path = row['image_path'];
       if (path is String && path.isNotEmpty) {
         try {
@@ -102,22 +123,26 @@ class IsoScanDao {
 
   /// The most recent reading, or null when there is none.
   Future<IsoScanRecord?> latest() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query(table,
-        orderBy: 'created_at DESC, id DESC', limit: 1);
-    return rows.isEmpty ? null : IsoScanRecord.fromRow(rows.first);
+    final rows = await listRecent(limit: 1);
+    return rows.isEmpty ? null : rows.first;
   }
 
   /// Newest first.
   Future<List<IsoScanRecord>> listRecent({int limit = keep}) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _owned.ownerAndDb();
     final rows = await db.query(table,
-        orderBy: 'created_at DESC, id DESC', limit: limit);
+        where: _owned.where(),
+        whereArgs: [owner.key],
+        orderBy: 'created_at DESC, id DESC',
+        limit: limit);
+    owner.requireCurrent();
     return rows.map(IsoScanRecord.fromRow).toList();
   }
 
   Future<void> deleteById(String id) async {
-    final db = await AppDatabase.get();
-    await db.delete(table, where: 'id = ?', whereArgs: [id]);
+    final (owner, db) = await _owned.ownerAndDb();
+    await db.delete(table,
+        where: _owned.where('id = ?'), whereArgs: [owner.key, id]);
+    owner.requireCurrent();
   }
 }

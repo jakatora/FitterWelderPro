@@ -1,13 +1,18 @@
-import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
-import 'db.dart';
 import '../models/component_heat.dart';
+import 'local_record_owner.dart';
+import 'owned_table.dart';
 
 /// Heat numbers (material traceability) of a CUT project, pinned to a
-/// segment's stable id and a place on it (schema v23).
+/// segment's stable id and a place on it (schema v23). v34: they belong to
+/// the owner of their project.
 class ComponentHeatDao {
-  Future<Database> _db() => AppDatabase.get();
+  ComponentHeatDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _projects = OwnedProjects(captureOwner: captureOwner);
+  final OwnedProjects _projects;
+
+  static const _owned = OwnedProjects.childOfOwnedProject;
 
   /// Heat number is trimmed (the field capitalises as typed, the value is
   /// not rewritten); a blank one is refused — it would prove nothing.
@@ -25,17 +30,22 @@ class ComponentHeatDao {
     final heat = normalizeHeatNo(heatNo);
     if (heat.isEmpty) throw ArgumentError.value(heatNo, 'heatNo', 'blank');
     final id = const Uuid().v4();
-    final db = await _db();
-    await db.insert('component_heats', {
-      'id': id,
-      'project_id': projectId,
-      'component_key': '${segmentId}_${side.code}',
-      'heat_no': heat,
-      'image_path': imagePath,
-      'note': _blankToNull(note),
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-      'segment_id': segmentId,
-      'side': side.code,
+    final (owner, db) = await _projects.ownerAndDb();
+    await db.transaction((txn) async {
+      owner.requireCurrent();
+      await _projects.requireProject(txn, projectId, owner);
+      await txn.insert('component_heats', {
+        'id': id,
+        'project_id': projectId,
+        'component_key': '${segmentId}_${side.code}',
+        'heat_no': heat,
+        'image_path': imagePath,
+        'note': _blankToNull(note),
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+        'segment_id': segmentId,
+        'side': side.code,
+      });
+      owner.requireCurrent();
     });
     return id;
   }
@@ -44,42 +54,49 @@ class ComponentHeatDao {
   Future<int> update(String id, {required String heatNo, String? note}) async {
     final heat = normalizeHeatNo(heatNo);
     if (heat.isEmpty) throw ArgumentError.value(heatNo, 'heatNo', 'blank');
-    final db = await _db();
-    return db.update(
+    final (owner, db) = await _projects.ownerAndDb();
+    final n = await db.update(
       'component_heats',
       {'heat_no': heat, 'note': _blankToNull(note)},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND $_owned',
+      whereArgs: [id, owner.key],
     );
+    owner.requireCurrent();
+    return n;
   }
 
   /// Puts a legacy entry that lost its place (segment deleted) on [side] of
   /// [segmentId].
   Future<int> reassign(String id,
       {required String segmentId, required TraceSide side}) async {
-    final db = await _db();
-    return db.update(
+    final (owner, db) = await _projects.ownerAndDb();
+    final n = await db.update(
       'component_heats',
       {'segment_id': segmentId, 'side': side.code},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND $_owned',
+      whereArgs: [id, owner.key],
     );
+    owner.requireCurrent();
+    return n;
   }
 
   Future<void> deleteById(String id) async {
-    final db = await _db();
-    await db.delete('component_heats', where: 'id = ?', whereArgs: [id]);
+    final (owner, db) = await _projects.ownerAndDb();
+    await db.delete('component_heats',
+        where: 'id = ? AND $_owned', whereArgs: [id, owner.key]);
+    owner.requireCurrent();
   }
 
   /// Every heat entry of the project, oldest first.
   Future<List<ComponentHeat>> listForProject(String projectId) async {
-    final db = await _db();
+    final (owner, db) = await _projects.ownerAndDb();
     final rows = await db.query(
       'component_heats',
-      where: 'project_id = ?',
-      whereArgs: [projectId],
+      where: 'project_id = ? AND $_owned',
+      whereArgs: [projectId, owner.key],
       orderBy: 'created_at ASC, id ASC',
     );
+    owner.requireCurrent();
     return rows.map(ComponentHeat.fromMap).toList();
   }
 

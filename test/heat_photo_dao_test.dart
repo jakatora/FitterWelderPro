@@ -13,6 +13,7 @@ void main() {
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final projectId = 'test_project_$stamp';
     final id = 'heat_$stamp';
+    await insertTestProject(projectId);
 
     await dao.insert({
       'id': id,

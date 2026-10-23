@@ -46,6 +46,7 @@ void main() {
   });
 
   test('odhaczenie zapisuje się i znika po zmianie CUT segmentu', () async {
+    await insertTestProject('p-undo');
     await marks.mark(projectId: 'p-undo', segmentId: 's1', part: 1, cutMm: 1000);
     final m = await marks.forProject('p-undo');
     expect(CutMarkDao.stillValid(m[CutMarkDao.keyOf('s1', 1)], 1000), isTrue);
@@ -59,6 +60,7 @@ void main() {
 
   test('Cofnij usunięcia: ten sam id i numer; zajęty numer → na koniec',
       () async {
+    await insertTestProject('p-undo');
     await segments.insert(_row('s1', 1));
     await segments.insert(_row('s2', 2));
 

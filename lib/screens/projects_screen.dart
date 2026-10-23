@@ -6,19 +6,31 @@ import '../i18n/app_language.dart';
 import '../database/project_dao.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
+import '../widgets/local_record_scope.dart';
 import '../models/project.dart';
 import 'new_project_screen.dart';
 import 'fitter_screen.dart';
 
-class ProjectsScreen extends StatefulWidget {
+/// Projekty bieżącego konta; po zmianie konta lista startuje od nowa.
+class ProjectsScreen extends StatelessWidget {
   const ProjectsScreen({super.key});
 
   @override
-  State<ProjectsScreen> createState() => _ProjectsScreenState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (_, session) =>
+          _ProjectsList(dao: ProjectDao(captureOwner: session.captureOwner)));
 }
 
-class _ProjectsScreenState extends State<ProjectsScreen> {
-  final _dao = ProjectDao();
+class _ProjectsList extends StatefulWidget {
+  const _ProjectsList({required this.dao});
+  final ProjectDao dao;
+
+  @override
+  State<_ProjectsList> createState() => _ProjectsScreenState();
+}
+
+class _ProjectsScreenState extends State<_ProjectsList> {
+  ProjectDao get _dao => widget.dao;
   List<Project> _projects = [];
   bool _loading = true;
 

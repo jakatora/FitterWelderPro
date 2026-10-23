@@ -4,10 +4,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../database/db.dart';
 import '../models/project.dart';
 import '../models/segment.dart';
+import '../services/account_service.dart' show AccountException;
 import '../services/prefab_engine.dart';
+import 'local_record_owner.dart';
+import 'owned_table.dart';
 
 /// Everything a cascade delete took out, kept as raw rows so it can be put
 /// back byte for byte.
@@ -78,35 +80,54 @@ class GapMakesCutImpossible implements Exception {
       'GapMakesCutImpossible(segment $seqNo, gap $gapMm mm)';
 }
 
+/// v34: projekty należą do konta (`owner_scope`), a z nimi segmenty,
+/// wytopy, zdjęcia i znaczniki cięcia — zob. [OwnedProjects].
 class ProjectDao {
+  ProjectDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _projects = OwnedProjects(captureOwner: captureOwner);
+  final OwnedProjects _projects;
+
+  OwnedTable get _owned => _projects.table;
+
   Future<void> insert(Project p) async {
-    final db = await AppDatabase.get();
-    await db.insert('projects', {
-      'id': p.id,
-      'name': p.name,
-      'material_group': p.materialGroup,
-      'diameter_mm': p.diameterMm,
-      'wall_thickness_mm': p.wallThicknessMm,
-      'current_diameter_mm': p.currentDiameterMm,
-      'stock_length_mm': p.stockLengthMm,
-      'saw_kerf_mm': p.sawKerfMm,
-      'gap_mm': p.gapMm,
-      'created_at': p.createdAt,
-      'updated_at': p.updatedAt,
-      ...p.identity.toRow(),
+    final (owner, db) = await _projects.ownerAndDb();
+    await db.transaction((txn) async {
+      owner.requireCurrent();
+      await _owned.refuseForeign(txn, p.id, owner);
+      await txn.insert('projects', {
+        'id': p.id,
+        'owner_scope': owner.key,
+        'name': p.name,
+        'material_group': p.materialGroup,
+        'diameter_mm': p.diameterMm,
+        'wall_thickness_mm': p.wallThicknessMm,
+        'current_diameter_mm': p.currentDiameterMm,
+        'stock_length_mm': p.stockLengthMm,
+        'saw_kerf_mm': p.sawKerfMm,
+        'gap_mm': p.gapMm,
+        'created_at': p.createdAt,
+        'updated_at': p.updatedAt,
+        ...p.identity.toRow(),
+      });
+      owner.requireCurrent();
     });
   }
 
   Future<List<Project>> listAll() async {
-    final db = await AppDatabase.get();
-    final rows = await db.query('projects', orderBy: 'updated_at DESC');
+    final (owner, db) = await _projects.ownerAndDb();
+    final rows = await db.query('projects',
+        where: _owned.where(),
+        whereArgs: [owner.key],
+        orderBy: 'updated_at DESC');
+    owner.requireCurrent();
     return rows.map(Project.fromRow).toList();
   }
 
   Future<Project?> getById(String id) async {
-    final db = await AppDatabase.get();
-    final rows =
-        await db.query('projects', where: 'id = ?', whereArgs: [id], limit: 1);
+    final (owner, db) = await _projects.ownerAndDb();
+    final rows = await db.query('projects',
+        where: _owned.where('id = ?'), whereArgs: [owner.key, id], limit: 1);
+    owner.requireCurrent();
     if (rows.isEmpty) return null;
     return Project.fromRow(rows.first);
   }
@@ -138,9 +159,14 @@ class ProjectDao {
   /// heat_photos, component_heats and their .jpg files were all left orphaned
   /// by the old two-step delete: rows pointing at a project that no longer
   /// exists, and photo files no screen can ever reach again.
+  ///
+  /// v34: a project of another account is refused ([AccountException]) and
+  /// nothing is touched.
   Future<DeletedProject> deleteProjectCascade(String projectId) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _projects.ownerAndDb();
     return db.transaction<DeletedProject>((txn) async {
+      owner.requireCurrent();
+      await _owned.refuseForeign(txn, projectId, owner);
       // Snapshot before deleting: the caller needs the rows for Undo and the
       // image paths for the file cleanup, and after the DELETEs they are gone.
       // txn.query hands back read-only maps, so copy them to stay insertable.
@@ -169,6 +195,7 @@ class ProjectDao {
       await txn.delete('component_heats', where: 'project_id = ?', whereArgs: [projectId]);
       await txn.delete('cut_marks', where: 'project_id = ?', whereArgs: [projectId]);
       await txn.delete('projects', where: 'id = ?', whereArgs: [projectId]);
+      owner.requireCurrent();
 
       return DeletedProject(
         projectId: projectId,
@@ -186,9 +213,22 @@ class ProjectDao {
   /// Also a single transaction: a half-restored Undo is the same orphan-making
   /// bug from the other direction. Only meaningful while the photo files are
   /// still on disk, i.e. before [purgePhotoFiles] has run.
+  ///
+  /// v34: only the account that deleted it gets it back — after switching
+  /// accounts the Undo is refused instead of planting the project in the
+  /// other account.
   Future<void> restore(DeletedProject deleted) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _projects.ownerAndDb();
+    for (final row in deleted.projects) {
+      if ((row['owner_scope'] ?? LocalRecordOwner.guest) != owner.key) {
+        throw AccountException(_owned.foreignMessage);
+      }
+    }
     await db.transaction((txn) async {
+      owner.requireCurrent();
+      for (final row in deleted.projects) {
+        await _owned.refuseForeign(txn, row['id'] as String, owner);
+      }
       Future<void> putBack(String table, List<Map<String, Object?>> rows) async {
         for (final row in rows) {
           // replace, not abort: if something re-used the id in the meantime,
@@ -206,6 +246,7 @@ class ProjectDao {
       await putBack('heat_photos', deleted.heatPhotos);
       await putBack('component_heats', deleted.componentHeats);
       await putBack('cut_marks', deleted.cutMarks);
+      owner.requireCurrent();
     });
   }
 
@@ -287,10 +328,13 @@ class ProjectDao {
     required double gapMm,
     ProjectIdentity? identity,
   }) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _projects.ownerAndDb();
     return db.transaction<ProjectSettingsUpdate>((txn) async {
+      owner.requireCurrent();
       final current = await txn.query('projects',
-          where: 'id = ?', whereArgs: [projectId], limit: 1);
+          where: _owned.where('id = ?'),
+          whereArgs: [owner.key, projectId],
+          limit: 1);
       if (current.isEmpty) {
         throw StateError('project $projectId does not exist');
       }
@@ -354,6 +398,7 @@ class ProjectDao {
           whereArgs: [seg.id],
         );
       }
+      owner.requireCurrent();
       return ProjectSettingsUpdate(
         recomputed: rows.length,
         changedBeyondGap: beyond,
@@ -363,53 +408,33 @@ class ProjectDao {
 
   /// Writes line / ISO / revision / client / class (schema v22) of a project.
   /// Returns the number of rows changed — 0 when the project is gone.
-  Future<int> updateIdentity(String projectId, ProjectIdentity identity) async {
-    final db = await AppDatabase.get();
-    return db.update(
-      'projects',
-      {
-        ...identity.toRow(),
-        'updated_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'id = ?',
-      whereArgs: [projectId],
-    );
-  }
+  Future<int> updateIdentity(String projectId, ProjectIdentity identity) =>
+      _updateOwned(projectId, identity.toRow());
 
   /// Marks the project as just worked on: the project list is sorted by
   /// `updated_at`, and adding / editing / deleting a segment used not to
   /// move it — the project the fitter worked on today sank down the list.
-  Future<void> touch(String projectId) async {
-    final db = await AppDatabase.get();
-    await db.update(
-      'projects',
-      {'updated_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ?',
-      whereArgs: [projectId],
-    );
-  }
+  Future<void> touch(String projectId) => _updateOwned(projectId, const {});
 
-  Future<void> updateName(String projectId, String name) async {
-    final db = await AppDatabase.get();
-    await db.update(
-      'projects',
-      {'name': name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ?',
-      whereArgs: [projectId],
-    );
-  }
+  Future<void> updateName(String projectId, String name) =>
+      _updateOwned(projectId, {'name': name});
 
   Future<void> updateCurrentDiameter(
-      String projectId, double currentDiameter) async {
-    final db = await AppDatabase.get();
-    await db.update(
+          String projectId, double currentDiameter) =>
+      _updateOwned(projectId, {'current_diameter_mm': currentDiameter});
+
+  /// [values] + `updated_at` on the project, only if it is this account's.
+  /// Returns rows changed — 0 when the project is gone or another account's.
+  Future<int> _updateOwned(
+      String projectId, Map<String, Object?> values) async {
+    final (owner, db) = await _projects.ownerAndDb();
+    final n = await db.update(
       'projects',
-      {
-        'current_diameter_mm': currentDiameter,
-        'updated_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'id = ?',
-      whereArgs: [projectId],
+      {...values, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: _owned.where('id = ?'),
+      whereArgs: [owner.key, projectId],
     );
+    owner.requireCurrent();
+    return n;
   }
 }

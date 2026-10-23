@@ -1038,7 +1038,144 @@ const _ownedLocalTables = {
   'hydrotest_records',
   'passivation_records',
   'instruments',
+  // schema34: projekty listy cięć, biblioteka kształtek, odczyty ISO.
+  'projects',
+  'component_library',
+  'iso_scans',
 };
+
+/// Dzieci projektu listy cięć (schema34): bez własnego owner_scope, należą
+/// do konta projektu (`project_id`).
+const _projectChildren = {
+  'segments',
+  'heat_photos',
+  'component_heats',
+  'cut_marks',
+};
+
+/// Przywracanie drzewa projektów do konta. Projekt, segment, kształtka albo
+/// wpis-dziecko z kopii, którego id na telefonie należy do INNEGO konta,
+/// dostaje nowe id, a odwołania (`project_id`, `segment_id`,
+/// `start/end_library_id`, `library_component_id`, `component_key`) idą za
+/// nim. Dzieci projektów innego konta (stara kopia sprzed przycinania,
+/// cofnięcie restore) są pomijane — nigdy nie trafiają do cudzego projektu.
+class _ProjectTree {
+  final projectMap = <Object?, String>{};
+  final segmentMap = <Object?, String>{};
+  final libraryMap = <Object?, String>{};
+  final droppedProjects = <Object?>{};
+  final foreignProjects = <Object?>{};
+  final foreignChildIds = <String, Set<Object?>>{};
+
+  static const _ownedProject =
+      'project_id IN (SELECT id FROM projects WHERE owner_scope = ?)';
+
+  static Future<_ProjectTree?> prepare(
+    DatabaseExecutor txn,
+    Map<String, List<Map<String, Object?>>> tables,
+    Set<String> liveTables, {
+    required String owner,
+    required bool preserveOwner,
+  }) async {
+    if (!liveTables.contains('projects')) return null;
+    final columns = (await txn.rawQuery('PRAGMA table_info(projects)'))
+        .map((r) => r['name'])
+        .toSet();
+    if (!columns.contains('owner_scope')) return null;
+    bool otherOwner(Map<String, Object?> row) =>
+        preserveOwner &&
+        (row['owner_scope'] ?? LocalRecordOwner.guest) != owner;
+
+    final tree = _ProjectTree();
+    tree.foreignProjects.addAll((await txn.query('projects',
+            columns: ['id'], where: 'owner_scope != ?', whereArgs: [owner]))
+        .map((r) => r['id']));
+    for (final row in tables['projects'] ?? const <Map<String, Object?>>[]) {
+      final id = row['id'];
+      if (otherOwner(row)) {
+        tree.droppedProjects.add(id);
+      } else if (tree.foreignProjects.contains(id)) {
+        tree.projectMap.putIfAbsent(id, () => const Uuid().v4());
+      }
+    }
+    Future<Set<Object?>> notOwned(String table) async =>
+        !liveTables.contains(table)
+            ? <Object?>{}
+            : (await txn.rawQuery(
+                    'SELECT id FROM $table WHERE NOT ($_ownedProject)',
+                    [owner]))
+                .map((r) => r['id'])
+                .toSet();
+    final foreignSegments = await notOwned('segments');
+    for (final row in tables['segments'] ?? const <Map<String, Object?>>[]) {
+      if (foreignSegments.contains(row['id'])) {
+        tree.segmentMap.putIfAbsent(row['id'], () => const Uuid().v4());
+      }
+    }
+    for (final child in const ['heat_photos', 'component_heats']) {
+      tree.foreignChildIds[child] = await notOwned(child);
+    }
+    if (liveTables.contains('component_library')) {
+      final foreignLibrary = (await txn.query('component_library',
+              columns: ['id'], where: 'owner_scope != ?', whereArgs: [owner]))
+          .map((r) => r['id'])
+          .toSet();
+      for (final row
+          in tables['component_library'] ?? const <Map<String, Object?>>[]) {
+        if (otherOwner(row)) continue;
+        if (foreignLibrary.contains(row['id'])) {
+          tree.libraryMap.putIfAbsent(row['id'], () => const Uuid().v4());
+        }
+      }
+    }
+    return tree;
+  }
+
+  /// Usuwa dzieci projektów [owner] (przed samymi projektami).
+  static void deleteOwnedChildren(Batch batch, String table, String owner) =>
+      batch.rawDelete('DELETE FROM $table WHERE $_ownedProject', [owner]);
+
+  /// Wiersz dziecka po przemapowaniu id, albo null, gdy należy do projektu
+  /// innego konta.
+  Map<String, Object?>? child(String table, Map<String, Object?> row) {
+    final project = row['project_id'];
+    if (droppedProjects.contains(project)) return null;
+    if (foreignProjects.contains(project) && !projectMap.containsKey(project)) {
+      return null;
+    }
+    final out = Map<String, Object?>.of(row);
+    out['project_id'] = projectMap[project] ?? project;
+    Object? mapped(Map<Object?, String> map, Object? id) => map[id] ?? id;
+    if (table == 'segments') {
+      out['id'] = mapped(segmentMap, row['id']);
+      for (final column in const ['start_library_id', 'end_library_id']) {
+        if (out.containsKey(column)) {
+          out[column] = mapped(libraryMap, out[column]);
+        }
+      }
+    } else {
+      final segment = row['segment_id'];
+      if (segment != null) out['segment_id'] = mapped(segmentMap, segment);
+      final key = row['component_key'];
+      final newSegment = segmentMap[segment];
+      if (table == 'component_heats' &&
+          key is String &&
+          segment is String &&
+          newSegment != null &&
+          key.startsWith('${segment}_')) {
+        out['component_key'] = '$newSegment${key.substring(segment.length)}';
+      }
+      if (out.containsKey('library_component_id')) {
+        out['library_component_id'] =
+            mapped(libraryMap, out['library_component_id']);
+      }
+    }
+    if (foreignChildIds[table]?.contains(out['id']) ?? false) {
+      out['id'] = const Uuid().v4();
+    }
+    return out;
+  }
+}
 
 /// Tabela właściciela, której wiersze mają tabelę-dziecko BEZ owner_scope
 /// (historia / wersje należą do właściciela rodzica, jak w DAO) i do której
@@ -1088,8 +1225,28 @@ Future<void> pruneWeldParamsSnapshot(Database db, String owner) async {
     await db.execute('PRAGMA secure_delete = ON');
     if (columns.any((r) => r['name'] == 'owner_scope')) {
       await db.delete(table, where: 'owner_scope != ?', whereArgs: [owner]);
+    } else if (table == 'projects') {
+      // The module database's own legacy `projects` (integer ids, no owner):
+      // device data, not the cut-list projects of an account.
+      continue;
     } else if (owner != LocalRecordOwner.guest) {
       await db.delete(table);
+    }
+  }
+  final projectsLeft = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'");
+  for (final child in _projectChildren) {
+    final exists = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [child]);
+    if (exists.isEmpty) continue;
+    found = true;
+    await db.execute('PRAGMA secure_delete = ON');
+    if (projectsLeft.isEmpty) {
+      if (owner != LocalRecordOwner.guest) await db.delete(child);
+    } else {
+      await db.rawDelete('DELETE FROM $child WHERE '
+          'project_id NOT IN (SELECT id FROM projects)');
     }
   }
   for (final entry in _ownedParents.entries) {
@@ -1180,6 +1337,16 @@ Future<void> _refill(
       await ensureKnownTables(txn);
       liveTables = await liveTableNames();
     }
+
+    // Tables of the account by name AND by column: the module database has
+    // its own legacy `projects` without an owner — that one is device data.
+    final ownedLive = <String>{
+      for (final table in liveTables)
+        if (_ownedLocalTables.contains(table) &&
+            (await txn.rawQuery('PRAGMA table_info("$table")'))
+                .any((r) => r['name'] == 'owner_scope'))
+          table,
+    };
 
     final journalIdMap = <Object?, String>{};
     final validJournalIds = <Object?>{};
@@ -1272,8 +1439,21 @@ Future<void> _refill(
     final childParent = <String, String>{
       for (final parent in parentStates.keys) _ownedParents[parent]!.child: parent,
     };
+    final projectTree = weldParamsOwner == null
+        ? null
+        : await _ProjectTree.prepare(txn, tables, liveTables,
+            owner: weldParamsOwner, preserveOwner: preserveWeldParamOwner);
 
     final batch = txn.batch();
+    if (projectTree != null) {
+      for (final child in _projectChildren) {
+        if (liveTables.contains(child) &&
+            (wipeTablesNotInBackup || tables.containsKey(child))) {
+          // Przed kasowaniem projektów — podzapytanie musi je jeszcze widzieć.
+          _ProjectTree.deleteOwnedChildren(batch, child, weldParamsOwner!);
+        }
+      }
+    }
     for (final parent in parentStates.keys) {
       final spec = _ownedParents[parent]!;
       if (liveTables.contains(spec.child) &&
@@ -1289,8 +1469,9 @@ Future<void> _refill(
     }
     for (final table in liveTables) {
       if (childParent.containsKey(table)) continue;
+      if (projectTree != null && _projectChildren.contains(table)) continue;
       if (wipeTablesNotInBackup || tables.containsKey(table)) {
-        if (_ownedLocalTables.contains(table) && weldParamsOwner != null) {
+        if (ownedLive.contains(table) && weldParamsOwner != null) {
           batch.delete(table,
               where: 'owner_scope = ?', whereArgs: [weldParamsOwner]);
         } else {
@@ -1310,7 +1491,7 @@ Future<void> _refill(
           .toSet();
       final lost = droppedColumnsWithData(entry.value, columns);
       if (lost.isNotEmpty) dropped[entry.key] = lost;
-      final sourceRows = _ownedLocalTables.contains(entry.key) &&
+      final sourceRows = ownedLive.contains(entry.key) &&
               weldParamsOwner != null &&
               preserveWeldParamOwner
           ? entry.value
@@ -1326,7 +1507,7 @@ Future<void> _refill(
         heatPhotosDir: heatPhotosDir,
         restoredPhotoNames: restoredPhotoNames,
       );
-      final foreignIds = _ownedLocalTables.contains(entry.key) &&
+      final foreignIds = ownedLive.contains(entry.key) &&
               weldParamsOwner != null &&
               columns.contains('id')
           ? (await txn.query(entry.key,
@@ -1338,7 +1519,15 @@ Future<void> _refill(
           : const <Object?>{};
       var skippedChildren = 0;
       for (final row in rows) {
-        final ownedRow = Map<String, Object?>.of(row);
+        var ownedRow = Map<String, Object?>.of(row);
+        if (projectTree != null && _projectChildren.contains(entry.key)) {
+          final child = projectTree.child(entry.key, ownedRow);
+          if (child == null) {
+            skippedChildren++; // dziecko projektu innego konta
+            continue;
+          }
+          ownedRow = child;
+        }
         final parentOfChild = childParent[entry.key];
         if (parentOfChild != null) {
           final state = parentStates[parentOfChild]!;
@@ -1362,13 +1551,19 @@ Future<void> _refill(
             ownedRow['id'] = const Uuid().v4();
           }
         }
-        if (_ownedLocalTables.contains(entry.key) && weldParamsOwner != null) {
+        if (ownedLive.contains(entry.key) && weldParamsOwner != null) {
           ownedRow['owner_scope'] = weldParamsOwner;
           if (entry.key == 'weld_journal') {
             ownedRow['id'] = journalIdMap[ownedRow['id']] ?? ownedRow['id'];
           } else if (parentStates.containsKey(entry.key)) {
             ownedRow['id'] =
                 parentStates[entry.key]!.idMap[ownedRow['id']] ?? ownedRow['id'];
+          } else if (projectTree != null && entry.key == 'projects') {
+            ownedRow['id'] =
+                projectTree.projectMap[ownedRow['id']] ?? ownedRow['id'];
+          } else if (projectTree != null && entry.key == 'component_library') {
+            ownedRow['id'] =
+                projectTree.libraryMap[ownedRow['id']] ?? ownedRow['id'];
           } else if (foreignIds.contains(ownedRow['id'])) {
             ownedRow['id'] = const Uuid().v4();
           }

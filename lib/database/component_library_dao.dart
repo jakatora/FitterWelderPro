@@ -1,7 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../database/db.dart';
 import '../models/library_component.dart';
+import 'local_record_owner.dart';
+import 'owned_table.dart';
 
 /// One saved segment that uses a component-library entry.
 class LibraryUsage {
@@ -37,7 +38,16 @@ const double kLibraryMatchToleranceMm = 0.05;
 /// on the operands, and a value exactly on the ±0.05 edge must match both ways.
 const double _kToleranceSlack = 1e-9;
 
+/// v34: biblioteka należy do konta (`owner_scope`); dwa konta mogą mieć
+/// tę samą kształtkę (UNIQUE obejmuje właściciela).
 class ComponentLibraryDao {
+  ComponentLibraryDao({Future<LocalRecordOwner> Function()? captureOwner})
+      : _owned = OwnedTable('component_library',
+            captureOwner: captureOwner,
+            foreignMessage: 'Ta kształtka należy do innego konta. / '
+                'This component belongs to another account.');
+  final OwnedTable _owned;
+
   /// Components for project diameter+wall, matched within
   /// ±[kLibraryMatchToleranceMm] (see there for why not `=`).
   /// Reducer is special:
@@ -50,10 +60,11 @@ class ComponentLibraryDao {
     required double wallThickness,
   }) async {
     const tol = kLibraryMatchToleranceMm + _kToleranceSlack;
-    final db = await AppDatabase.get();
+    final (owner, db) = await _owned.ownerAndDb();
     final rows = await db.rawQuery('''
 SELECT * FROM component_library
-WHERE material_group = ?
+WHERE owner_scope = ?
+  AND material_group = ?
   AND ABS(wall_thickness_mm - ?) <= ?
   AND (
     (type = 'REDUCER' AND (ABS(diameter_mm - ?) <= ? OR ABS(diameter_out_mm - ?) <= ?))
@@ -62,36 +73,47 @@ WHERE material_group = ?
   )
 ORDER BY type ASC;
 ''', [
+      owner.key,
       materialGroup,
       wallThickness, tol,
       currentDiameter, tol, currentDiameter, tol,
       currentDiameter, tol,
     ]);
+    owner.requireCurrent();
 
     return rows.map(LibraryComponent.fromRow).toList();
   }
 
   Future<void> insert(LibraryComponent c) async {
-    final db = await AppDatabase.get();
-    await db.insert('component_library', {
-      'id': c.id,
-      'material_group': c.materialGroup,
-      'type': c.type,
-      'diameter_mm': c.diameterMm,
-      'wall_thickness_mm': c.wallThicknessMm,
-      'axis_mm': c.axisMm,
-      'length_mm': c.lengthMm,
-      'measurement_mode': c.measurementMode,
-      'diameter_out_mm': c.diameterOutMm,
-      'created_at': c.createdAt,
-      'updated_at': c.updatedAt,
+    final (owner, db) = await _owned.ownerAndDb();
+    await db.transaction((txn) async {
+      owner.requireCurrent();
+      await _owned.refuseForeign(txn, c.id, owner);
+      await txn.insert('component_library', {
+        'id': c.id,
+        'owner_scope': owner.key,
+        'material_group': c.materialGroup,
+        'type': c.type,
+        'diameter_mm': c.diameterMm,
+        'wall_thickness_mm': c.wallThicknessMm,
+        'axis_mm': c.axisMm,
+        'length_mm': c.lengthMm,
+        'measurement_mode': c.measurementMode,
+        'diameter_out_mm': c.diameterOutMm,
+        'created_at': c.createdAt,
+        'updated_at': c.updatedAt,
+      });
+      owner.requireCurrent();
     });
   }
 
   Future<List<LibraryComponent>> listAll() async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _owned.ownerAndDb();
     final rows = await db.query('component_library',
+        where: _owned.where(),
+        whereArgs: [owner.key],
         orderBy: 'type ASC, material_group ASC, diameter_mm ASC');
+    owner.requireCurrent();
     return rows.map(LibraryComponent.fromRow).toList();
   }
 
@@ -104,8 +126,8 @@ ORDER BY type ASC;
   /// Editing the entry in place is the fix; a change that would collide with
   /// ANOTHER entry's key still throws (the caller says so).
   Future<int> update(LibraryComponent c) async {
-    final db = await AppDatabase.get();
-    return db.update(
+    final (owner, db) = await _owned.ownerAndDb();
+    final n = await db.update(
       'component_library',
       {
         'material_group': c.materialGroup,
@@ -118,9 +140,11 @@ ORDER BY type ASC;
         'diameter_out_mm': c.diameterOutMm,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
-      where: 'id = ?',
-      whereArgs: [c.id],
+      where: _owned.where('id = ?'),
+      whereArgs: [owner.key, c.id],
     );
+    owner.requireCurrent();
+    return n;
   }
 
   /// Entry with the same material, type and sizes as [c] (within
@@ -130,13 +154,21 @@ ORDER BY type ASC;
   /// same fitting as 60.3→114.3).
   Future<LibraryComponent?> findSameKind(LibraryComponent c) async {
     const tol = kLibraryMatchToleranceMm + _kToleranceSlack;
-    final db = await AppDatabase.get();
+    final (owner, db) = await _owned.ownerAndDb();
     final rows = await db.query(
       'component_library',
-      where: 'material_group = ? AND type = ? AND id <> ? '
-          'AND ABS(wall_thickness_mm - ?) <= ?',
-      whereArgs: [c.materialGroup, c.type, c.id, c.wallThicknessMm, tol],
+      where: _owned.where('material_group = ? AND type = ? AND id <> ? '
+          'AND ABS(wall_thickness_mm - ?) <= ?'),
+      whereArgs: [
+        owner.key,
+        c.materialGroup,
+        c.type,
+        c.id,
+        c.wallThicknessMm,
+        tol
+      ],
     );
+    owner.requireCurrent();
     bool near(double? a, double? b) =>
         a == null || b == null ? a == b : (a - b).abs() <= tol;
     for (final r in rows.map(LibraryComponent.fromRow)) {
@@ -153,20 +185,23 @@ ORDER BY type ASC;
     return null;
   }
 
-  /// Segments (in any project) that use entry [id] as START or END.
+  /// Segments (in any project of this account) that use entry [id] as
+  /// START or END.
   Future<List<LibraryUsage>> usages(String id) async {
-    final db = await AppDatabase.get();
-    return _usages(db, id);
+    final (owner, db) = await _owned.ownerAndDb();
+    final used = await _usages(db, id, owner);
+    owner.requireCurrent();
+    return used;
   }
 
   static Future<List<LibraryUsage>> _usages(
-      DatabaseExecutor db, String id) async {
+      DatabaseExecutor db, String id, LocalRecordOwner owner) async {
     final rows = await db.rawQuery('''
 SELECT s.project_id AS project_id, p.name AS project_name, s.seq_no AS seq_no
-FROM segments s LEFT JOIN projects p ON p.id = s.project_id
-WHERE s.start_library_id = ? OR s.end_library_id = ?
+FROM segments s JOIN projects p ON p.id = s.project_id
+WHERE (s.start_library_id = ? OR s.end_library_id = ?) AND p.owner_scope = ?
 ORDER BY p.name, s.seq_no;
-''', [id, id]);
+''', [id, id, owner.key]);
     return [
       for (final r in rows)
         LibraryUsage(
@@ -185,18 +220,23 @@ ORDER BY p.name, s.seq_no;
   /// CUT of those segments was computed from — and what reopening one of
   /// them recomputes from.
   Future<List<LibraryUsage>> deleteIfUnused(String id) async {
-    final db = await AppDatabase.get();
+    final (owner, db) = await _owned.ownerAndDb();
     return db.transaction<List<LibraryUsage>>((txn) async {
-      final used = await _usages(txn, id);
+      owner.requireCurrent();
+      final used = await _usages(txn, id, owner);
       if (used.isNotEmpty) return used;
-      await txn.delete('component_library', where: 'id = ?', whereArgs: [id]);
+      await txn.delete('component_library',
+          where: _owned.where('id = ?'), whereArgs: [owner.key, id]);
+      owner.requireCurrent();
       return const [];
     });
   }
 
   Future<LibraryComponent?> getById(String id) async {
-    final db = await AppDatabase.get();
-    final rows = await db.query('component_library', where: 'id = ?', whereArgs: [id], limit: 1);
+    final (owner, db) = await _owned.ownerAndDb();
+    final rows = await db.query('component_library',
+        where: _owned.where('id = ?'), whereArgs: [owner.key, id], limit: 1);
+    owner.requireCurrent();
     if (rows.isEmpty) return null;
     return LibraryComponent.fromRow(rows.first);
   }

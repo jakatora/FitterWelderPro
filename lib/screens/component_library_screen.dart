@@ -7,6 +7,7 @@ import '../models/library_component.dart';
 import '../utils/clipboard_helper.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/help_button.dart';
+import '../widgets/local_record_scope.dart';
 import '../widgets/number_field.dart';
 import '../widgets/reducer_spec_dialog.dart' show suggestedReducerLength;
 
@@ -30,15 +31,26 @@ String describeLibraryUsages(List<LibraryUsage> usages, {int max = 6}) {
   return more > 0 ? '${parts.join(', ')} (+$more)' : parts.join(', ');
 }
 
-class ComponentLibraryScreen extends StatefulWidget {
+/// Biblioteka bieżącego konta; po zmianie konta lista startuje od nowa.
+class ComponentLibraryScreen extends StatelessWidget {
   const ComponentLibraryScreen({super.key});
 
   @override
-  State<ComponentLibraryScreen> createState() => _ComponentLibraryScreenState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      builder: (_, session) => _ComponentLibrary(
+          dao: ComponentLibraryDao(captureOwner: session.captureOwner)));
 }
 
-class _ComponentLibraryScreenState extends State<ComponentLibraryScreen> {
-  final _dao = ComponentLibraryDao();
+class _ComponentLibrary extends StatefulWidget {
+  const _ComponentLibrary({required this.dao});
+  final ComponentLibraryDao dao;
+
+  @override
+  State<_ComponentLibrary> createState() => _ComponentLibraryScreenState();
+}
+
+class _ComponentLibraryScreenState extends State<_ComponentLibrary> {
+  ComponentLibraryDao get _dao => widget.dao;
   final _search = TextEditingController();
   List<LibraryComponent> _items = [];
   bool _loading = true;

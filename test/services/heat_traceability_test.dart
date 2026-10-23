@@ -173,6 +173,7 @@ void main() {
     setUp(() async {
       final db = await AppDatabase.get();
       await db.delete('component_heats');
+      await insertTestProject('p');
     });
 
     test('dodaj → lista → popraw → usuń; pusty numer odrzucony', () async {

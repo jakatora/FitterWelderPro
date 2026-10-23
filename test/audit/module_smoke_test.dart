@@ -369,6 +369,11 @@ void main() {
     smokeDatabasePath =
         '${smokeDirectory.path}${Platform.pathSeparator}cutlist-smoke.db';
     await production_db.AppDatabase.configureForTesting(smokeDatabasePath);
+    // Projekty należą do konta (v34): fixture zapisuje gość offline, ten sam
+    // właściciel, którego każdy test dostaje w setUp.
+    FlutterSecureStorage.setMockInitialValues({});
+    AccountService.instance = AccountService.forTesting(MockClient((_) async =>
+        http.Response('{"error":{"message":"Login required"}}', 401)));
 
     final now = DateTime.now().millisecondsSinceEpoch;
     await ProjectDao().insert(Project(

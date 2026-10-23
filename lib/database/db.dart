@@ -168,6 +168,7 @@ class AppDatabase {
         await _ensureColumn(
             connection, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
       }
+      await connection.transaction((txn) => _ensureLibraryOwnerUnique(txn));
       await _seedApprovedData(connection);
       _db = connection;
       return connection;
@@ -556,10 +557,59 @@ CREATE TABLE IF NOT EXISTS projects (
         await _ensureColumn(
             db, table, 'owner_scope', "TEXT NOT NULL DEFAULT 'guest'");
       }
+      await _ensureLibraryOwnerUnique(db);
     }
 
     // Last, now that every column the indexes reference exists.
     await _createIndexes(db);
+  }
+
+  /// v34: the component library's UNIQUE key includes the owner, so two
+  /// accounts on one phone can each keep the same elbow. SQLite cannot alter
+  /// a constraint in place: the table is rebuilt with every column and row
+  /// as it was (same pattern as the journal projects' key in v31).
+  @visibleForTesting
+  static Future<void> ensureLibraryOwnerUnique(DatabaseExecutor db) =>
+      _ensureLibraryOwnerUnique(db);
+
+  static Future<void> _ensureLibraryOwnerUnique(DatabaseExecutor db) async {
+    final info = await db.rawQuery('PRAGMA table_info(component_library)');
+    if (!info.any((r) => r['name'] == 'owner_scope')) return;
+    var globalKey = false;
+    for (final ix in await db.rawQuery('PRAGMA index_list(component_library)')) {
+      if ((ix['unique'] as num? ?? 0) == 0 || ix['origin'] != 'u') continue;
+      final name = (ix['name'] as String).replaceAll("'", "''");
+      final cols = await db.rawQuery("PRAGMA index_info('$name')");
+      if (!cols.any((c) => c['name'] == 'owner_scope')) globalKey = true;
+    }
+    if (!globalKey) return;
+    const temp = 'component_library_owned_v34';
+    String quoted(String name) => '"${name.replaceAll('"', '""')}"';
+    final definitions = <String>[];
+    for (final row in info) {
+      final name = row['name'] as String;
+      final type = (row['type'] as String?) ?? '';
+      if (!RegExp(r'^[a-zA-Z0-9_ (),]*$').hasMatch(type)) {
+        throw StateError('Unsupported component library column type');
+      }
+      final notNull = (row['notnull'] as num? ?? 0) > 0;
+      final pk = (row['pk'] as num? ?? 0) > 0;
+      definitions.add('${quoted(name)} $type'
+          '${pk ? ' PRIMARY KEY' : ''}'
+          '${notNull ? ' NOT NULL' : ''}'
+          '${row['dflt_value'] == null ? '' : ' DEFAULT ${row['dflt_value']}'}');
+    }
+    definitions.add('UNIQUE (owner_scope, material_group, type, diameter_mm, '
+        'wall_thickness_mm, diameter_out_mm)');
+    await db.execute('DROP TABLE IF EXISTS $temp');
+    await db.execute('CREATE TABLE $temp (${definitions.join(',')})');
+    final columns = info.map((r) => quoted(r['name'] as String)).join(',');
+    await db.execute(
+        'INSERT INTO $temp ($columns) SELECT $columns FROM component_library');
+    await db.execute('DROP TABLE component_library');
+    await db.execute('ALTER TABLE $temp RENAME TO component_library');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_component_library_owner '
+        'ON component_library(owner_scope)');
   }
 
   static Future<void> _ensureJournalOwners(DatabaseExecutor db) async {
@@ -863,7 +913,7 @@ CREATE TABLE IF NOT EXISTS component_library (
   diameter_out_mm REAL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  UNIQUE (material_group, type, diameter_mm, wall_thickness_mm, diameter_out_mm)
+  UNIQUE (owner_scope, material_group, type, diameter_mm, wall_thickness_mm, diameter_out_mm)
 );
 ''');
     await db.execute('''

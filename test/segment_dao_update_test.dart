@@ -58,6 +58,7 @@ void main() {
     final projectId = 'test_project_$stamp';
     final first = 'seg_a_$stamp';
     final second = 'seg_b_$stamp';
+    await insertTestProject(projectId);
 
     await dao.insert(_row(
       id: first,

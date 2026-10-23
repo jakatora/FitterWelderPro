@@ -125,6 +125,7 @@ void main() {
   testWidgets('wpisu użytego w segmencie nie da się usunąć', (tester) async {
     await tester.runAsync(() async {
       await ComponentLibraryDao().insert(_reducer(length: 102));
+      await insertTestProject('p-lib');
       final db = await AppDatabase.get();
       await db.insert('segments', {
         'id': 'seg-red',

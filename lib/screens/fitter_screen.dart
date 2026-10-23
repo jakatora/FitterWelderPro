@@ -15,6 +15,7 @@ import 'cut_list_summary_screen.dart';
 import 'project_components_screen.dart';
 import 'heat_photos_screen.dart';
 import 'new_project_screen.dart' show showProjectSettingsDialog, projectSettingsSavedMessage;
+import '../widgets/local_record_scope.dart';
 import '../widgets/help_button.dart';
 import '../widgets/number_field.dart';
 
@@ -109,17 +110,33 @@ RoutePosition routeAfterSegments({
   );
 }
 
-class FitterScreen extends StatefulWidget {
+/// Projekt należy do konta, które go otworzyło: po zmianie konta ekran nie
+/// pokazuje już jego segmentów, tylko prosi o ponowne otwarcie.
+class FitterScreen extends StatelessWidget {
   final String projectId;
   const FitterScreen({super.key, required this.projectId});
 
   @override
-  State<FitterScreen> createState() => _FitterScreenState();
+  Widget build(BuildContext context) => LocalRecordScope(
+      restartOnAccountChange: false,
+      builder: (_, session) =>
+          _FitterBody(projectId: projectId, session: session));
 }
 
-class _FitterScreenState extends State<FitterScreen> {
-  final _projectDao = ProjectDao();
-  final _segmentDao = SegmentDao();
+class _FitterBody extends StatefulWidget {
+  const _FitterBody({required this.projectId, required this.session});
+  final String projectId;
+  final LocalRecordSession session;
+
+  @override
+  State<_FitterBody> createState() => _FitterScreenState();
+}
+
+class _FitterScreenState extends State<_FitterBody> {
+  late final _projectDao =
+      ProjectDao(captureOwner: widget.session.captureOwner);
+  late final _segmentDao =
+      SegmentDao(captureOwner: widget.session.captureOwner);
   final _libDao = ComponentLibraryDao();
 
   Project? _project;
