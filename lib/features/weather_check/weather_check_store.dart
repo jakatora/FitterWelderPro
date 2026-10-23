@@ -10,6 +10,7 @@
 // kluczem tekstu) nie rzuca, tylko liczy się jako uszkodzenie.
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/weather_conditions.dart';
 
@@ -26,7 +27,7 @@ class WeatherCheckStore {
   const WeatherCheckStore();
 
   Future<WeatherHistoryDecode> loadHistoryDetailed() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     return decodeWeatherHistoryDetailed(prefs.get(historyKey));
   }
 
@@ -45,7 +46,7 @@ class WeatherCheckStore {
   /// Zapisuje historię (najnowsze pierwsze, najwyżej [maxRecords]).
   /// Zwraca liczbę usuniętych najstarszych wpisów.
   Future<int> saveHistory(List<WeatherCheckRecord> records) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await _backupIfDamaged(prefs);
     final sorted = [...records]..sort((a, b) => b.takenAt.compareTo(a.takenAt));
     final kept = sorted.take(maxRecords).toList(growable: false);
@@ -71,7 +72,7 @@ class WeatherCheckStore {
 
   Future<({WeatherThresholds thresholds, bool repaired})>
       loadThresholdsDetailed() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.get(thresholdsKey);
     if (raw != null && raw is! String) {
       return (thresholds: WeatherThresholds.defaults, repaired: true);
@@ -84,7 +85,7 @@ class WeatherCheckStore {
 
   /// Rzuca, gdy zapis się nie uda — ekran pokazuje to spawaczowi.
   Future<void> saveThresholds(WeatherThresholds t) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final ok = t.isDefault
         ? await prefs.remove(thresholdsKey)
         : await prefs.setString(thresholdsKey, encodeWeatherThresholds(t));

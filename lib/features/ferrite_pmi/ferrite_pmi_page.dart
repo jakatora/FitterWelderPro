@@ -19,6 +19,7 @@ import '../../theme/app_theme.dart';
 import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
 import 'ferrite_pmi_edit_page.dart';
 import 'ferrite_pmi_store.dart';
+import '../../widgets/local_record_scope.dart';
 
 class FerritePmiPage extends StatefulWidget {
   const FerritePmiPage({
@@ -98,12 +99,14 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
 
   Future<void> _open(FerritePmiProtocol p) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => FerritePmiEditPage(
-        initial: p,
-        store: widget.store,
-        now: widget.now,
-        shareText: widget.shareText,
-      ),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          builder: (_, __) => FerritePmiEditPage(
+                initial: p,
+                store: widget.store,
+                now: widget.now,
+                shareText: widget.shareText,
+              )),
     ));
     await _reload();
   }
@@ -130,8 +133,8 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: Text(
-            context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
+        title:
+            Text(context.tr(pl: 'Usunąć protokół?', en: 'Delete this record?')),
         content: Text(_titleOf(p)),
         actions: [
           TextButton(
@@ -201,7 +204,8 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
   String _titleOf(FerritePmiProtocol p) {
     final t = p.title.trim();
     if (t.isNotEmpty) return t;
-    final firstPmi = p.filledPmi.map((e) => e.label.trim()).where((e) => e.isNotEmpty);
+    final firstPmi =
+        p.filledPmi.map((e) => e.label.trim()).where((e) => e.isNotEmpty);
     if (firstPmi.isNotEmpty) return firstPmi.first;
     return context.tr(pl: '(bez oznaczenia)', en: '(no designation)');
   }
@@ -222,8 +226,7 @@ class _FerritePmiPageState extends State<FerritePmiPage> {
           if (items != null && items.length >= FerritePmiStore.warnAt)
             QuoteNotice(
               key: const ValueKey('fp-store-warn'),
-              color:
-                  items.length >= FerritePmiStore.maxEntries ? kFail : kWarn,
+              color: items.length >= FerritePmiStore.maxEntries ? kFail : kWarn,
               icon: Icons.inventory_2_outlined,
               text: context.tr(
                 pl: 'Historia: ${items.length}/${FerritePmiStore.maxEntries} '
@@ -374,8 +377,10 @@ class _HistoryTile extends StatelessWidget {
       final what = item.label.trim().isNotEmpty
           ? item.label.trim()
           : (r.grade?.title ?? 'PMI');
-      lines.add(('PMI $what: ${pmiVerdictLabel(r.verdict, en: en)}',
-          pmiVerdictColor(r.verdict)));
+      lines.add((
+        'PMI $what: ${pmiVerdictLabel(r.verdict, en: en)}',
+        pmiVerdictColor(r.verdict)
+      ));
     }
     final worst = lines.any((l) => l.$2 == kFail)
         ? kFail

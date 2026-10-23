@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../database/local_record_owner.dart';
 import '../services/account_service.dart';
 
 class AssistantHistoryEntry {
@@ -21,6 +22,10 @@ class AssistantHistoryEntry {
   final DateTime at;
   final bool byVoice;
   final bool undone;
+
+  /// Konto, którego to operacja. Pusty = jeszcze nieprzypisany:
+  /// [AssistantHistoryStore.add] wpisuje bieżące konto. Wpisy sprzed kont
+  /// (bez pola w JSON) należą do gościa.
   final String ownerScope;
 
   const AssistantHistoryEntry({
@@ -31,18 +36,23 @@ class AssistantHistoryEntry {
     required this.at,
     required this.byVoice,
     this.undone = false,
-    this.ownerScope = 'guest',
+    this.ownerScope = '',
   });
 
-  AssistantHistoryEntry markUndone() => AssistantHistoryEntry(
+  AssistantHistoryEntry markUndone() => _copy(undone: true);
+
+  AssistantHistoryEntry withOwner(String owner) => _copy(ownerScope: owner);
+
+  AssistantHistoryEntry _copy({bool? undone, String? ownerScope}) =>
+      AssistantHistoryEntry(
         id: id,
         kind: kind,
         summary: summary,
         recordId: recordId,
         at: at,
         byVoice: byVoice,
-        undone: true,
-        ownerScope: ownerScope,
+        undone: undone ?? this.undone,
+        ownerScope: ownerScope ?? this.ownerScope,
       );
 
   Map<String, Object> toJson() => {
@@ -98,22 +108,22 @@ class AssistantHistoryStore extends ChangeNotifier {
   bool _speakReplies = false;
   bool _loaded = false;
 
-  /// Najnowsze pierwsze.
+  /// Operacje bieżącego konta, najnowsze pierwsze. Historia opisuje zapisy
+  /// zawodowe (spoiny, protokoły, wyceny) — inne konto na tym telefonie jej
+  /// nie widzi.
   List<AssistantHistoryEntry> get entries {
+    final owner = _currentOwner();
+    return _entries
+        .where((entry) => entry.ownerScope == owner)
+        .toList(growable: false);
+  }
+
+  static String? _currentOwner() {
     final account = AccountService.instance;
     final id = account.account?['id'] ?? account.localOwnerId;
-    final owner = id is String
+    return id is String
         ? 'account:$id'
-        : (account.needsIdentityRefresh ? null : 'guest');
-    return _entries
-        .where((entry) =>
-            !const {
-              'save_weld_parameter',
-              'add_weld_journal_entry',
-              'interpass.reading'
-            }.contains(entry.kind) ||
-            entry.ownerScope == owner)
-        .toList(growable: false);
+        : (account.needsIdentityRefresh ? null : LocalRecordOwner.guest);
   }
 
   /// Czytanie odpowiedzi na głos — domyślnie WYŁĄCZONE.
@@ -142,8 +152,18 @@ class AssistantHistoryStore extends ChangeNotifier {
   }
 
   Future<void> add(AssistantHistoryEntry entry) async {
+    if (entry.ownerScope.isEmpty) {
+      entry = entry.withOwner((await LocalRecordOwner.capture()).key);
+    }
     await load();
-    _entries = [entry, ..._entries].take(maxEntries).toList(growable: false);
+    // [maxEntries] na konto — wpisy jednego konta nie wypychają drugiego.
+    final perOwner = <String, int>{};
+    _entries = [
+      for (final e in [entry, ..._entries])
+        if ((perOwner[e.ownerScope] = (perOwner[e.ownerScope] ?? 0) + 1) <=
+            maxEntries)
+          e,
+    ];
     notifyListeners();
     await _save();
   }
@@ -181,10 +201,18 @@ class AssistantHistoryStore extends ChangeNotifier {
 
   /// Kasuje historię operacji (pamięć i dysk) — „Usuń moje dane" w profilu.
   /// Ustawienie czytania na głos zostaje: to preferencja, nie dane.
+  ///
+  /// Tylko wpisy bieżącego konta — „moje dane” nie obejmują operacji innego
+  /// konta na tym samym telefonie.
   Future<void> clear() async {
-    _entries = const [];
-    _loaded = true;
+    await load();
+    final owner = _currentOwner();
+    _entries = [
+      for (final e in _entries)
+        if (e.ownerScope != owner) e
+    ];
     notifyListeners();
+    if (_entries.isNotEmpty) return _save();
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_kKey);

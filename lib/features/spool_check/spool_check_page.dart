@@ -15,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
 import 'spool_check_edit_page.dart';
 import 'spool_check_store.dart';
+import '../../widgets/local_record_scope.dart';
 
 class SpoolCheckPage extends StatefulWidget {
   const SpoolCheckPage({
@@ -102,13 +103,15 @@ class _SpoolCheckPageState extends State<SpoolCheckPage> {
 
   Future<void> _open(SpoolCheck check) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => SpoolCheckEditPage(
-        initial: check,
-        store: widget.store,
-        now: widget.now,
-        shareText: widget.shareText,
-        newId: widget.newId,
-      ),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          builder: (_, __) => SpoolCheckEditPage(
+                initial: check,
+                store: widget.store,
+                now: widget.now,
+                shareText: widget.shareText,
+                newId: widget.newId,
+              )),
     ));
     await _reload();
   }

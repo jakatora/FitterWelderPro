@@ -18,6 +18,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/grinding/grinder_profile.dart';
 
@@ -57,7 +58,7 @@ class GrinderStore {
   const GrinderStore({
     this.key = kGrindersPrefsKey,
     this.corruptKey = kGrindersCorruptPrefsKey,
-    this.openPrefs = SharedPreferences.getInstance,
+    this.openPrefs = OwnedPrefs.instance,
   });
 
   final String key;

@@ -19,6 +19,7 @@ import '../../theme/app_theme.dart';
 import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
 import 'confined_space_edit_page.dart';
 import 'confined_space_store.dart';
+import '../../widgets/local_record_scope.dart';
 
 class ConfinedSpacePage extends StatefulWidget {
   const ConfinedSpacePage({
@@ -149,14 +150,16 @@ class _ConfinedSpacePageState extends State<ConfinedSpacePage>
 
   Future<void> _open(ConfinedSpaceRecord record) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => ConfinedSpaceEditPage(
-        initial: record,
-        store: _store,
-        now: widget.now,
-        shareText: widget.shareText,
-        sharePdf: widget.sharePdf,
-        pickTime: widget.pickTime,
-      ),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          builder: (_, __) => ConfinedSpaceEditPage(
+                initial: record,
+                store: _store,
+                now: widget.now,
+                shareText: widget.shareText,
+                sharePdf: widget.sharePdf,
+                pickTime: widget.pickTime,
+              )),
     ));
     await _reload();
   }

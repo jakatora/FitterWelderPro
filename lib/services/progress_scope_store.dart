@@ -4,7 +4,7 @@
 library;
 
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'owned_prefs.dart';
 
 import '../domain/progress/progress_forecast.dart';
 
@@ -19,7 +19,7 @@ class ProgressScopeStore {
   /// Nigdy nie rzuca: nieczytelne preferencje = pusty zakres.
   Future<ProgressScope> load(String project, String testPackage) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       return ProgressScope.decode(prefs.getString(keyFor(project, testPackage)));
     } catch (e) {
       debugPrint('[work_progress] read scope failed: $e');
@@ -29,7 +29,7 @@ class ProgressScopeStore {
 
   Future<void> save(
       String project, String testPackage, ProgressScope scope) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await prefs.setString(keyFor(project, testPackage), scope.encode());
   }
 }

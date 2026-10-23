@@ -17,6 +17,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/ndt/ndt_plan.dart';
 
@@ -29,7 +30,7 @@ class NdtPlanStore {
 
   final NdtPrefsGetter prefs;
 
-  const NdtPlanStore({this.prefs = SharedPreferences.getInstance});
+  const NdtPlanStore({this.prefs = OwnedPrefs.instance});
 
   /// Klucz projektu: nazwa bez spacji na brzegach, małymi literami (jak
   /// ustawienia projektu w dzienniku).

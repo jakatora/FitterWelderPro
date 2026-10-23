@@ -16,6 +16,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/exam/exam_session.dart';
 
@@ -42,7 +43,7 @@ class WelderExamStore {
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
   Future<Object?> readRaw() async =>
-      (await SharedPreferences.getInstance()).get(key);
+      (await OwnedPrefs.instance()).get(key);
 
   /// Nigdy nie rzuca.
   Future<WelderExamLoad> load() async {
@@ -61,7 +62,7 @@ class WelderExamStore {
   }
 
   Future<void> save(ExamStats stats, {bool afterFailedRead = false}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await _backup(prefs, always: afterFailedRead);
     await prefs.setString(key, encodeExamStats(stats));
   }

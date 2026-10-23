@@ -18,6 +18,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/spool_check/spool_check.dart';
 
@@ -80,7 +81,7 @@ class SpoolCheckStore {
   /// która odmawia zapisu).
   final Future<SharedPreferences> Function() prefs;
 
-  const SpoolCheckStore({this.prefs = SharedPreferences.getInstance});
+  const SpoolCheckStore({this.prefs = OwnedPrefs.instance});
 
   /// Kolejka operacji (wspólna dla wszystkich instancji).
   static Future<void>? _tail;

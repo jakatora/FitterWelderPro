@@ -21,6 +21,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/bolting/bolt_kit.dart';
 
@@ -56,7 +57,7 @@ class BoltKitStore {
   /// rzuca).
   @protected
   Future<Object?> readRaw() async =>
-      (await SharedPreferences.getInstance()).get(key);
+      (await OwnedPrefs.instance()).get(key);
 
   /// Nigdy nie rzuca: brak, uszkodzony JSON albo błąd odczytu → pusty stan
   /// (z flagą `damaged`, gdy coś było, a nie dało się odczytać; przy
@@ -80,7 +81,7 @@ class BoltKitStore {
   /// surową wartość niezależnie od tego, czy jest nienaruszona (patrz opis
   /// biblioteki). Może rzucić [BoltKitSaveBlocked].
   Future<void> save(BoltKitState state, {bool afterFailedRead = false}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     if (afterFailedRead) {
       await _backupUnread(prefs);
     } else {

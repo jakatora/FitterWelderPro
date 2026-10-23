@@ -9,7 +9,7 @@
 library;
 
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/rigging/rigging_inputs.dart';
 
@@ -27,7 +27,7 @@ class RiggingStore {
 
   Future<RiggingStoreLoad> load() async {
     try {
-      final prefs = await SharedPreferences.getInstance()
+      final prefs = await OwnedPrefs.instance()
           .timeout(const Duration(seconds: 2));
       final raw = prefs.get(key);
       if (raw == null) return const RiggingStoreLoad(null);
@@ -44,7 +44,7 @@ class RiggingStore {
 
   Future<void> save(RiggingSavedInputs inputs) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       await prefs.setString(key, encodeRiggingInputs(inputs));
     } catch (e) {
       // Kalkulator działa dalej w tej sesji.

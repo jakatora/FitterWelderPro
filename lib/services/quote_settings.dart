@@ -11,7 +11,7 @@ library;
 
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'owned_prefs.dart';
 
 import '../domain/quotes/hourly_rate.dart';
 import '../domain/quotes/quote_process.dart';
@@ -24,7 +24,7 @@ class HourlyRateStore {
   const HourlyRateStore();
 
   Future<HourlyRateInput> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return const HourlyRateInput();
     try {
@@ -35,7 +35,7 @@ class HourlyRateStore {
   }
 
   Future<void> save(HourlyRateInput i) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await prefs.setString(key, jsonEncode(i.toJson()));
   }
 }
@@ -218,7 +218,7 @@ class QuoteSettingsStore {
   const QuoteSettingsStore();
 
   Future<QuoteSettings> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return const QuoteSettings();
     try {
@@ -231,7 +231,7 @@ class QuoteSettingsStore {
   /// Assistant previews must not silently replace damaged saved prices with
   /// defaults. Missing fields from older templates keep the native defaults.
   Future<({QuoteSettings settings, bool saved})> loadForAssistant() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.get(key);
     if (raw == null || raw == '') {
       return (settings: const QuoteSettings(), saved: false);
@@ -262,7 +262,7 @@ class QuoteSettingsStore {
   }
 
   Future<void> save(QuoteSettings s) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await prefs.setString(key, jsonEncode(s.toJson()));
   }
 }

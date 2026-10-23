@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/owned_prefs.dart';
 
 import '../assistant/core/tool_bridge.dart';
 import '../database/weld_journal_dao.dart';
@@ -373,7 +373,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
 
   Future<void> _hydrate() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       // P0-12: also sweep any preweld_* entries from previous days so the
       // device doesn't accumulate stale safety state. Auto-clears at
       // midnight is the implicit guarantee.
@@ -425,7 +425,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       await prefs.setStringList('$_kDoneKeyPrefix$_todayKey', _done.toList());
       await prefs.setStringList('$_kNaKeyPrefix$_todayKey', _na.toList());
       await prefs.setString('$_kProcessKeyPrefix$_todayKey', _process.id);

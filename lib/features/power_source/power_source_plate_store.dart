@@ -6,6 +6,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/power_source.dart';
 
@@ -26,7 +27,7 @@ class PowerSourcePlateStore {
     final SharedPreferences prefs;
     final Object? raw;
     try {
-      prefs = await SharedPreferences.getInstance();
+      prefs = await OwnedPrefs.instance();
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
       raw = prefs.get(key);
     } catch (_) {
@@ -43,7 +44,7 @@ class PowerSourcePlateStore {
   }
 
   Future<void> save(List<PlatePoint> points) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await prefs.setString(key, encodePlate(points));
   }
 

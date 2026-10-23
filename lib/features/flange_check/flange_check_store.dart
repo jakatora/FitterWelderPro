@@ -14,6 +14,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/flange/flange_check.dart';
 
@@ -37,7 +38,7 @@ class FlangeCheckStore {
   /// wtedy komunikat). Nigdy nie rzuca.
   Future<FlangeHistoryLoad> loadWithStatus() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       final raw = prefs.get(key);
       if (raw == null) return const FlangeHistoryLoad([]);
       if (raw is! String) return const FlangeHistoryLoad([], damaged: true);
@@ -50,7 +51,7 @@ class FlangeCheckStore {
   }
 
   Future<void> save(List<FlangeCheck> checks) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await _backupIfDamaged(prefs);
     await prefs.setString(key, encodeFlangeChecks(checks));
   }

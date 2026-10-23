@@ -85,6 +85,7 @@ import '../screens/welder_tools_screen.dart';
 import '../services/help_search.dart' show normalizeForSearch;
 import '../services/tool_usage.dart';
 import 'community_gate.dart';
+import 'local_record_scope.dart';
 
 // Jeden rejestr narzędzi dla menu montera, menu spawacza, wyszukiwarki,
 // „ostatnio używanych" i przypiętych na ekranie głównym.
@@ -2819,14 +2820,18 @@ Future<void> openTool(BuildContext context, ToolSpec tool,
     settings: RouteSettings(
         name: 'tool:${tool.id}',
         arguments: byAssistant ? kAssistantRouteOrigin : null),
-    builder: (context) => switch (tool.id) {
-      'dn_mm' when fields['dn'] is int =>
-        DnMmScreen(initialDn: fields['dn'] as int),
-      'wall_thickness' when fields['dn'] is int => PipeScheduleScreen(
-          initialDn: fields['dn'] as int,
-          initialSchedule: fields['schedule'] as String?),
-      _ => tool.builder(context),
-    },
+    // Dane narzędzi należą do konta: po zmianie konta ekran startuje od nowa
+    // i czyta zapisy nowego właściciela (nie zapisze cudzego formularza).
+    builder: (context) => LocalRecordScope(
+      builder: (context, _) => switch (tool.id) {
+        'dn_mm' when fields['dn'] is int =>
+          DnMmScreen(initialDn: fields['dn'] as int),
+        'wall_thickness' when fields['dn'] is int => PipeScheduleScreen(
+            initialDn: fields['dn'] as int,
+            initialSchedule: fields['schedule'] as String?),
+        _ => tool.builder(context),
+      },
+    ),
   );
   if (replace) {
     await Navigator.of(context).pushReplacement(route);
@@ -3026,8 +3031,24 @@ final List<NavEntry> kNavEntries = [
     subtitleEn: 'Sign in, profession, experience and chat visibility',
     icon: Icons.account_circle_outlined,
     color: const Color(0xFF9BA3C7),
-    keywordsPl: const ['konto', 'logowanie', 'zaloguj', 'rejestracja', 'profil zawodowy', 'kwalifikacje', 'stempel'],
-    keywordsEn: const ['account', 'login', 'sign in', 'registration', 'professional profile', 'qualifications', 'stamp'],
+    keywordsPl: const [
+      'konto',
+      'logowanie',
+      'zaloguj',
+      'rejestracja',
+      'profil zawodowy',
+      'kwalifikacje',
+      'stempel'
+    ],
+    keywordsEn: const [
+      'account',
+      'login',
+      'sign in',
+      'registration',
+      'professional profile',
+      'qualifications',
+      'stamp'
+    ],
     open: (context) => _pushScreen(context, const AccountScreen()),
   ),
   NavEntry(
@@ -3040,7 +3061,8 @@ final List<NavEntry> kNavEntries = [
     color: const Color(0xFF9BA3C7),
     keywordsPl: const ['zaloz konto', 'utworz konto', 'rejestracja'],
     keywordsEn: const ['create account', 'sign up', 'register'],
-    open: (context) => _pushScreen(context, const AccountScreen(initialRegister: true)),
+    open: (context) =>
+        _pushScreen(context, const AccountScreen(initialRegister: true)),
   ),
   NavEntry(
     id: 'professional_profile',
@@ -3050,8 +3072,16 @@ final List<NavEntry> kNavEntries = [
     subtitleEn: 'Profession, experience and qualifications',
     icon: Icons.badge_outlined,
     color: const Color(0xFF9BA3C7),
-    keywordsPl: const ['zawod', 'doswiadczenie', 'profil zawodowy z asystentem'],
-    keywordsEn: const ['profession', 'experience', 'professional profile with assistant'],
+    keywordsPl: const [
+      'zawod',
+      'doswiadczenie',
+      'profil zawodowy z asystentem'
+    ],
+    keywordsEn: const [
+      'profession',
+      'experience',
+      'professional profile with assistant'
+    ],
     open: (context) => Navigator.of(context).push(MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'tool:professional_profile'),
         builder: (_) => const AccountScreen(professionalOnly: true))),

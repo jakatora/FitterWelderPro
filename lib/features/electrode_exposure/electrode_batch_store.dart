@@ -7,6 +7,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/electrode_exposure.dart';
 
@@ -22,7 +23,7 @@ class ElectrodeBatchStore {
   final String corruptKey;
 
   Future<List<ElectrodeBatch>> load() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     // `get`, nie `getString`: pod kluczem może leżeć inny typ (ręczna
     // edycja, stara wersja) — `getString` by wtedy rzucił.
     final Object? raw;
@@ -42,7 +43,7 @@ class ElectrodeBatchStore {
   }
 
   Future<void> save(List<ElectrodeBatch> batches) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await prefs.setString(key, encodeBatches(batches));
   }
 

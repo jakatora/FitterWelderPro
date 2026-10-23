@@ -14,6 +14,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/hot_work/hot_work_permit.dart';
 
@@ -98,7 +99,7 @@ class HotWorkStore {
   static const String corruptLastBackupKey = '${key}_corrupt_last';
 
   Future<HotWorkLoad> _loadNow() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     Object? raw;
     try {
       raw = prefs.get(key);
@@ -133,7 +134,7 @@ class HotWorkStore {
 
   /// Zapis całej listy — bez przycinania (limit pilnuje [upsert]).
   Future<void> _write(List<HotWorkPermit> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final ok = await prefs.setString(
         key, jsonEncode(hotWorkPermitsToJson(sortHotWorkPermits(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');

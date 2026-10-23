@@ -15,6 +15,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/ferrite_pmi/ferrite_pmi_protocol.dart';
 
@@ -78,7 +79,7 @@ class FerritePmiStore {
   Future<FerritePmiLoad> loadReport() => _serial(_loadNow);
 
   Future<FerritePmiLoad> _loadNow() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     Object? raw;
     try {
       raw = prefs.get(key);
@@ -110,7 +111,7 @@ class FerritePmiStore {
   }
 
   Future<void> _write(List<FerritePmiProtocol> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final ok = await prefs.setString(
         key, jsonEncode(ferritePmiToJson(sortFerritePmi(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');

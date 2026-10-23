@@ -19,6 +19,7 @@ import '../../theme/app_theme.dart';
 import '../quotes/quote_widgets.dart' show QuoteNotice, QuoteSection;
 import 'hot_work_edit_page.dart';
 import 'hot_work_store.dart';
+import '../../widgets/local_record_scope.dart';
 
 class HotWorkPage extends StatefulWidget {
   const HotWorkPage({
@@ -148,14 +149,16 @@ class _HotWorkPageState extends State<HotWorkPage>
 
   Future<void> _open(HotWorkPermit permit) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HotWorkEditPage(
-        initial: permit,
-        store: _store,
-        now: widget.now,
-        shareText: widget.shareText,
-        sharePdf: widget.sharePdf,
-        pickTime: widget.pickTime,
-      ),
+      builder: (_) => LocalRecordScope(
+          restartOnAccountChange: false,
+          builder: (_, __) => HotWorkEditPage(
+                initial: permit,
+                store: _store,
+                now: widget.now,
+                shareText: widget.shareText,
+                sharePdf: widget.sharePdf,
+                pickTime: widget.pickTime,
+              )),
     ));
     await _reload();
   }

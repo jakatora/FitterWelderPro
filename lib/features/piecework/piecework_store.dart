@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/piecework/piecework.dart';
 import '../../domain/quotes/hourly_rate.dart';
@@ -34,7 +35,7 @@ class PieceworkRatesStore {
   /// w uszkodzonych polach i `damaged`.
   Future<PieceworkRatesLoad> load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await OwnedPrefs.instance();
       final raw = prefs.get(key);
       if (raw == null) return const PieceworkRatesLoad(PieceworkRates());
       if (raw is! String) {
@@ -49,7 +50,7 @@ class PieceworkRatesStore {
   }
 
   Future<void> save(PieceworkRates rates) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     await _backupIfDamaged(prefs);
     await prefs.setString(key, rates.encode());
   }
@@ -78,7 +79,7 @@ class PieceworkRatesStore {
 /// policzyć; inaczej null. Nigdy nie rzuca.
 Future<int?> loadSavedHourlyMinimum() async {
   try {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.getString(HourlyRateStore.key);
     if (raw == null || raw.trim().isEmpty) return null;
     final r = computeHourlyRate(await const HourlyRateStore().load());

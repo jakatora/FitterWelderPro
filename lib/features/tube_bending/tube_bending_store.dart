@@ -14,7 +14,7 @@ library;
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint, protected;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/fitter/tube_bending.dart';
 
@@ -180,7 +180,7 @@ class TubeBendingStore {
   /// Surowa wartość spod [key] (punkt podmiany w teście).
   @protected
   Future<Object?> readRaw() async =>
-      (await SharedPreferences.getInstance()).get(key);
+      (await OwnedPrefs.instance()).get(key);
 
   /// Nigdy nie rzuca.
   Future<TubeBendingLoad> load() async {
@@ -201,7 +201,7 @@ class TubeBendingStore {
   /// kopii jeszcze nie ma.
   Future<void> save(TubeBendingSaved state,
       {bool afterFailedRead = false}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final raw = prefs.get(key);
     if (raw != null && !prefs.containsKey(corruptKey)) {
       final damaged = raw is! String || !decodeTubeBending(raw).intact;

@@ -17,6 +17,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/owned_prefs.dart';
 
 import '../../domain/confined_space/confined_space_record.dart';
 
@@ -98,7 +99,7 @@ class ConfinedSpaceStore {
   Future<ConfinedSpaceLoad> load() => _serial(_loadNow);
 
   Future<ConfinedSpaceLoad> _loadNow() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     Object? raw;
     try {
       raw = prefs.get(key);
@@ -133,7 +134,7 @@ class ConfinedSpaceStore {
 
   /// Zapis całej listy — bez przycinania (limit pilnuje [_upsertNow]).
   Future<void> _write(List<ConfinedSpaceRecord> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await OwnedPrefs.instance();
     final ok = await prefs.setString(key,
         jsonEncode(confinedSpaceRecordsToJson(sortConfinedSpaceRecords(list))));
     if (!ok) throw StateError('SharedPreferences.setString($key) failed');
