@@ -7,6 +7,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/pass_plan/pass_plan_form.dart';
@@ -15,6 +16,7 @@ class PassPlanStore {
   const PassPlanStore({
     this.key = kPassPlanPrefsKey,
     this.corruptKey = kPassPlanCorruptPrefsKey,
+    this.captureOwner,
   });
 
   final String key;
@@ -22,12 +24,14 @@ class PassPlanStore {
   /// Kopia surowego zapisu odczytanego ze stratą (tylko pierwsza).
   final String corruptKey;
 
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
   /// Zapisany formularz; `null` — nic nie zapisano albo prefs niedostępne.
   Future<({Map<String, String> form, bool lossy})?> load() async {
     final SharedPreferences prefs;
     final Object? raw;
     try {
-      prefs = await OwnedPrefs.instance();
+      prefs = await OwnedPrefs.instance(captureOwner);
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
       raw = prefs.get(key);
     } catch (_) {
@@ -47,7 +51,7 @@ class PassPlanStore {
   /// (np. zapis nie zdążył się wczytać), najpierw trafia to pod klucz kopii
   /// — nadpisanie nie może zgubić surowego zapisu.
   Future<void> save(Map<String, String> form) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     Object? raw;
     try {
       raw = prefs.get(key);

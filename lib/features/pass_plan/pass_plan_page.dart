@@ -30,6 +30,7 @@ import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
@@ -61,22 +62,43 @@ const _kBevels = [
       1.6, 3.0),
 ];
 
-class PassPlanPage extends StatefulWidget {
+class PassPlanPage extends StatelessWidget {
   const PassPlanPage({
     super.key,
     this.shareText = _defaultShareText,
-    this.store = const PassPlanStore(),
+    this.store,
   });
 
+  final PassPlanShareText shareText;
+  final PassPlanStore? store;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _PassPlanBody(
+          session: session,
+          shareText: shareText,
+          store: store ?? PassPlanStore(captureOwner: session.captureOwner),
+        ),
+      );
+}
+
+class _PassPlanBody extends StatefulWidget {
+  const _PassPlanBody({
+    required this.session,
+    required this.shareText,
+    required this.store,
+  });
+
+  final LocalRecordSession session;
   final PassPlanShareText shareText;
   final PassPlanStore store;
 
   @override
-  State<PassPlanPage> createState() => _PassPlanPageState();
+  State<_PassPlanBody> createState() => _PassPlanPageState();
 }
 
-class _PassPlanPageState extends State<PassPlanPage>
-    with ToolHandleHost<PassPlanPage>
+class _PassPlanPageState extends State<_PassPlanBody>
+    with ToolHandleHost<_PassPlanBody>
     implements InputToolHandle {
   @override
   String get toolId => 'pass_plan';
@@ -96,11 +118,14 @@ class _PassPlanPageState extends State<PassPlanPage>
   /// założenia warstw zostają z zapisu. Wpisy wygrywają z późnym odczytem.
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
-    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+    if (!mounted ||
+        !widget.session.isCurrent ||
+        fields.keys.any((k) => !supportedFields.contains(k))) {
       return fields.keys.toSet();
     }
     final dn = fields['dn'], count = fields['count'], sch = fields['sch'];
-    final row = dn is num ? kPipeWalls.where((r) => r.dn == dn).firstOrNull : null;
+    final row =
+        dn is num ? kPipeWalls.where((r) => r.dn == dn).firstOrNull : null;
     final rejected = <String>{
       if (row == null) 'dn',
       if (sch is! String || row?.walls[sch] == null) 'sch',
@@ -177,7 +202,7 @@ class _PassPlanPageState extends State<PassPlanPage>
     } catch (_) {
       saved = null;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     // Dopiero teraz wolno zapisywać: odczyt zdążył zachować kopię
     // uszkodzonego zapisu, a zapis nie nadpisze go wartościami domyślnymi.
     _loaded = true;
@@ -194,10 +219,12 @@ class _PassPlanPageState extends State<PassPlanPage>
   }
 
   void _save() {
+    if (!widget.session.isCurrent) return;
     unawaited(widget.store.save(_form).catchError((Object _) {}));
   }
 
   void _changed() {
+    if (!mounted || !widget.session.isCurrent) return;
     _edited = true;
     setState(() {});
     if (_loaded) _save();
@@ -297,19 +324,19 @@ class _PassPlanPageState extends State<PassPlanPage>
   // ── Akcje ──────────────────────────────────────────────────────────────
 
   Future<void> _share(PassPlanResult r) async {
-    if (_sharing) return;
+    if (!widget.session.isCurrent || _sharing) return;
     setState(() => _sharing = true);
     try {
       final text = passPlanShareText(r, en: _en);
       unawaited(Haptic.tap());
       await widget.shareText(text, passPlanTitle(en: _en));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się udostępnić.', en: 'Could not share.'))));
     } finally {
-      if (mounted) setState(() => _sharing = false);
+      if (mounted && widget.session.isCurrent) setState(() => _sharing = false);
     }
   }
 
