@@ -490,15 +490,21 @@ class _InterpassWeldPageState extends State<_OwnedInterpassWeldPage>
 
   Future<void> _pickDate() async {
     final now = widget.now();
+    final last = DateTime(now.year, now.month, now.day);
+    final lowerBound = DateTime(2020);
+    final first = last.isBefore(lowerBound) ? last : lowerBound;
+    var initial = _mDate ?? now;
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
       builder: (context, child) => LocalRecordScope(
           restartOnAccountChange: false,
           originSession: widget.session,
           builder: (_, __) => child!),
-      initialDate: _mDate ?? now,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(now.year, now.month, now.day),
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     setState(() => _mDate = picked);

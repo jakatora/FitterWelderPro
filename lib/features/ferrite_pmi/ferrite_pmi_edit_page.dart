@@ -168,12 +168,16 @@ class _FerritePmiEditPageState extends State<FerritePmiEditPage> {
   }
 
   Future<void> _pickDate() async {
-    final current = DateTime.tryParse(_p.date) ?? widget.now();
+    final first = DateTime(2000);
+    final last = widget.now().add(const Duration(days: 1));
+    var current = DateTime.tryParse(_p.date) ?? widget.now();
+    if (current.isBefore(first)) current = first;
+    if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(2000),
-      lastDate: widget.now().add(const Duration(days: 1)),
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     _set((p) => p.copyWith(date: ferritePmiDate(picked)));

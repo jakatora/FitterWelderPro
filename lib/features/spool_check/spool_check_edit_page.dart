@@ -250,12 +250,16 @@ class _SpoolCheckEditPageState extends State<SpoolCheckEditPage> {
   }
 
   Future<void> _pickDate() async {
-    final current = DateTime.tryParse(_p.date) ?? widget.now();
+    final first = DateTime(2000);
+    final last = DateTime(2100);
+    var current = DateTime.tryParse(_p.date) ?? widget.now();
+    if (current.isBefore(first)) current = first;
+    if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     _set((p) => p.copyWith(date: spoolDate(picked)));

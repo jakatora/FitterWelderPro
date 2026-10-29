@@ -301,4 +301,34 @@ void main() {
     expect(find.textContaining('to be confirmed in the standard'),
         findsWidgets);
   });
+
+  testWidgets('kalendarz ogranicza datę początkową próby ciśnieniowej',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'Design pressure (bar)', '10');
+    await _tapText(tester, 'Save test');
+    final year = DateTime.now().year;
+    await _enter(tester, 'Test date', '${year - 10}-01-01');
+    await tester.ensureVisible(find.byIcon(Icons.calendar_month_outlined));
+    await tester.tap(find.byIcon(Icons.calendar_month_outlined));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+        .initialDate, DateTime(year - 5));
+  });
+
+  testWidgets('kalendarz ogranicza datę początkową kalibracji manometru',
+      (tester) async {
+    await _pump(tester);
+    await _enter(tester, 'Design pressure (bar)', '10');
+    await _tapText(tester, 'Save test');
+    final year = DateTime.now().year;
+    await _enter(tester, 'Calibration due', '${year + 10}-01-01');
+    await tester.ensureVisible(find.byIcon(Icons.event_available_outlined));
+    await tester.tap(find.byIcon(Icons.event_available_outlined));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+        .initialDate, DateTime(year + 5));
+  });
 }

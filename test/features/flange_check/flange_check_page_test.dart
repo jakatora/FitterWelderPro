@@ -653,4 +653,25 @@ void main() {
     }
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
   });
+
+  for (final (date, expected) in [
+    ('1999-12-31', DateTime(2000)),
+    ('2101-01-01', DateTime(2100)),
+  ]) {
+    testWidgets('kalendarz ogranicza datę początkową kołnierza $date',
+        (tester) async {
+      final old = _saved('a', 'F-1', 1);
+      await _pump(tester, prefs: {
+        FlangeCheckStore.key: encodeFlangeChecks(
+            [old.copyWith(joint: old.joint.copyWith(date: date))]),
+      });
+      await _tap(tester, 'flange-tab-history');
+      await tester.tap(find.text('F-1'));
+      await tester.pumpAndSettle();
+      await _tap(tester, 'flange-date');
+      expect(tester.takeException(), isNull);
+      expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+          .initialDate, expected);
+    });
+  }
 }

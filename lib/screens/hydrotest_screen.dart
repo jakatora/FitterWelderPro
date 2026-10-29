@@ -2188,11 +2188,16 @@ class _HydrotestSaveSheetState extends State<_HydrotestSaveSheet> {
   Future<void> _pickDate(TextEditingController ctrl,
       {required int yearsBack, required int yearsAhead}) async {
     final now = DateTime.now();
+    final first = DateTime(now.year - yearsBack);
+    final last = DateTime(now.year + yearsAhead);
+    var initial = DateTime.tryParse(ctrl.text.trim()) ?? now;
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.tryParse(ctrl.text.trim()) ?? now,
-      firstDate: DateTime(now.year - yearsBack),
-      lastDate: DateTime(now.year + yearsAhead),
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null) return;
     setState(() => ctrl.text = _iso(picked));

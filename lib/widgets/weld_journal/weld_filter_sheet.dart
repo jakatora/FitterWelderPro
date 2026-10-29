@@ -60,12 +60,16 @@ class _WeldFilterSheetState extends State<_WeldFilterSheet> {
 
   Future<void> _pickDate(bool from) async {
     final now = DateTime.now();
-    final current = DateTime.tryParse(from ? _from : _to);
+    final first = DateTime(now.year - 20);
+    final last = DateTime(now.year + 2);
+    var current = DateTime.tryParse(from ? _from : _to) ?? now;
+    if (current.isBefore(first)) current = first;
+    if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
-      initialDate: current ?? now,
-      firstDate: DateTime(now.year - 20),
-      lastDate: DateTime(now.year + 2),
+      initialDate: current,
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     setState(() => from ? _from = isoDate(picked) : _to = isoDate(picked));

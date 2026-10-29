@@ -485,4 +485,19 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(kMinTapTarget), reason: k);
     }
   });
+
+  for (final (date, expected) in [
+    ('1999-12-31', DateTime(2000)),
+    ('2101-01-01', DateTime(2100)),
+  ]) {
+    testWidgets('kalendarz ogranicza datę początkową spoola $date',
+        (tester) async {
+      await _pump(tester,
+          initial: SpoolCheck.blank(id: 'c1', now: _now).copyWith(date: date));
+      await _tapKey(tester, 'sc-date');
+      expect(tester.takeException(), isNull);
+      expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+          .initialDate, expected);
+    });
+  }
 }

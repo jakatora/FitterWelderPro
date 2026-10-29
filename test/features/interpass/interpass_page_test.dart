@@ -733,6 +733,23 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(InterpassStore.corruptBackupKey), '[zepsute');
   });
+
+  testWidgets('kalendarz międzyściegowy po cofnięciu zegara nadal się otwiera',
+      (tester) async {
+    var now = DateTime(2026, 10, 18, 9);
+    await _pump(tester, now: () => now);
+    await _tapKey(tester, 'ip-new');
+    await _tapKey(tester, 'ip-m-date');
+    Navigator.of(tester.element(find.byType(DatePickerDialog)))
+        .pop(DateTime(2026, 10, 18));
+    await tester.pumpAndSettle();
+
+    now = DateTime(2026, 10, 17, 9);
+    await _tapKey(tester, 'ip-m-date');
+    expect(tester.takeException(), isNull);
+    expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+        .initialDate, DateTime(2026, 10, 17));
+  });
 }
 
 /// Limity 100 / 250 w już otwartej nowej spoinie (wersja EN).

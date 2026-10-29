@@ -515,4 +515,27 @@ void main() {
     expect(_has('fp-edit-list'), isTrue);
     expect(PmiElement.values.length, greaterThanOrEqualTo(8));
   });
+
+  for (final (date, expected) in [
+    ('1999-12-31', DateTime(2000)),
+    ('2027-01-01', DateTime(2026, 10, 19)),
+  ]) {
+    testWidgets('kalendarz ogranicza datę początkową ferrytu $date',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(_app(FerritePmiEditPage(
+        initial: FerritePmiProtocol.blank(id: 'x', now: _now)
+            .copyWith(date: date),
+        now: () => _now,
+      )));
+      await tester.pumpAndSettle();
+      await _tapKey(tester, 'fp-date');
+      expect(tester.takeException(), isNull);
+      expect(tester.widget<DatePickerDialog>(find.byType(DatePickerDialog))
+          .initialDate, expected);
+    });
+  }
 }

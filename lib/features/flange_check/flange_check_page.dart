@@ -337,12 +337,16 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _pickDate() async {
-    final current = DateTime.tryParse(_draft.joint.date) ?? _now;
+    final first = DateTime(2000);
+    final last = DateTime(2100);
+    var current = DateTime.tryParse(_draft.joint.date) ?? _now;
+    if (current.isBefore(first)) current = first;
+    if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     final iso = '${picked.year.toString().padLeft(4, '0')}-'
