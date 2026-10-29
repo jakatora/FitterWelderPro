@@ -248,7 +248,8 @@ class WeatherCheckExport {
   const WeatherCheckExport._();
 
   static Future<void> sharePdf(WeatherCheckRecord record,
-      {required bool english}) async {
+      {required bool english, bool Function()? mayShare}) async {
+    if (mayShare != null && !mayShare()) return;
     final doc = await buildPdfDocument(
       record: record,
       english: english,
@@ -258,7 +259,9 @@ class WeatherCheckExport {
           pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf')),
       generatedAt: DateTime.now(),
     );
+    if (mayShare != null && !mayShare()) return;
     final bytes = await doc.save();
+    if (mayShare != null && !mayShare()) return;
     final name = weatherCheckFileName(takenAt: record.takenAt);
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$name');
@@ -267,6 +270,7 @@ class WeatherCheckExport {
       throw StateError(
           'PDF zapisany niepoprawnie — sprawdź miejsce na dysku (${dir.path}).');
     }
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: weatherCheckSubject(english: english),

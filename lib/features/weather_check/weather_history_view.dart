@@ -10,17 +10,20 @@ import '../../i18n/app_language.dart';
 import '../../services/weather_check_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../quotes/quote_widgets.dart';
 import 'weather_check_store.dart';
 
 class WeatherHistoryView extends StatefulWidget {
   const WeatherHistoryView({
     super.key,
+    required this.session,
     required this.store,
     required this.shareText,
     required this.sharePdf,
   });
 
+  final LocalRecordSession session;
   final WeatherCheckStore store;
   final Future<void> Function(String text, String subject) shareText;
   final Future<void> Function(WeatherCheckRecord record, bool english) sharePdf;
@@ -52,7 +55,7 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
       list = const [];
       skipped = -1;
     }
-    if (mounted) {
+    if (mounted && widget.session.isCurrent) {
       setState(() {
         _records = list;
         _skipped = skipped;
@@ -77,31 +80,37 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
   }
 
   Future<void> _delete(WeatherCheckRecord r) async {
+    if (!widget.session.isCurrent) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(context.tr(pl: 'Usunąć pomiar?', en: 'Delete this check?')),
-        content: Text(
-            '${weatherStamp(r.takenAt)}${r.place.isEmpty ? '' : ' · ${r.place}'}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
-          ),
-          TextButton(
-            key: const ValueKey('wx-rec-delete-confirm'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(context.tr(pl: 'Usuń', en: 'Delete'),
-                style: const TextStyle(color: kFail)),
-          ),
-        ],
+      builder: (ctx) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (_, __) => AlertDialog(
+          title:
+              Text(context.tr(pl: 'Usunąć pomiar?', en: 'Delete this check?')),
+          content: Text(
+              '${weatherStamp(r.takenAt)}${r.place.isEmpty ? '' : ' · ${r.place}'}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(context.tr(pl: 'Anuluj', en: 'Cancel')),
+            ),
+            TextButton(
+              key: const ValueKey('wx-rec-delete-confirm'),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(context.tr(pl: 'Usuń', en: 'Delete'),
+                  style: const TextStyle(color: kFail)),
+            ),
+          ],
+        ),
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !widget.session.isCurrent) return;
     unawaited(Haptic.tap());
     try {
       final list = await widget.store.remove(r.id);
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         setState(() {
           _records = list;
           // Uszkodzony zapis skopiowano (…_corrupt) i nadpisano.
@@ -114,64 +123,74 @@ class _WeatherHistoryViewState extends State<WeatherHistoryView> {
   }
 
   Future<void> _open(WeatherCheckRecord r) async {
+    if (!widget.session.isCurrent) return;
     final en = _en;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: ConstrainedBox(
-          constraints:
-              BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
-          child: ListView(
-            key: const ValueKey('wx-rec-sheet'),
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            shrinkWrap: true,
-            children: [
-              SelectableText(
-                weatherCheckText(r, english: en),
-                style: const TextStyle(fontSize: 13, color: kText, height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    key: const ValueKey('wx-rec-share-text'),
-                    onPressed: () => widget.shareText(
-                        weatherCheckText(r, english: en),
-                        weatherCheckSubject(english: en)),
-                    icon: const Icon(Icons.ios_share),
-                    label: Text(context.tr(pl: 'Tekst', en: 'Text')),
-                  ),
-                  OutlinedButton.icon(
-                    key: const ValueKey('wx-rec-share-pdf'),
-                    onPressed: () async {
-                      try {
-                        await widget.sharePdf(r, en);
-                      } catch (e) {
-                        debugPrint('[weather] pdf export failed: $e');
-                      }
-                    },
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('PDF'),
-                  ),
-                  TextButton.icon(
-                    key: const ValueKey('wx-rec-delete'),
-                    style: TextButton.styleFrom(
-                        foregroundColor: kFail,
-                        minimumSize: const Size(0, kMinTapTarget)),
-                    onPressed: () {
-                      Navigator.of(ctx).pop();
-                      unawaited(_delete(r));
-                    },
-                    icon: const Icon(Icons.delete_outline),
-                    label: Text(context.tr(pl: 'Usuń', en: 'Delete')),
-                  ),
-                ],
-              ),
-            ],
+      builder: (ctx) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (_, __) => SafeArea(
+          child: ConstrainedBox(
+            constraints:
+                BoxConstraints(maxHeight: MediaQuery.sizeOf(ctx).height * 0.85),
+            child: ListView(
+              key: const ValueKey('wx-rec-sheet'),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              shrinkWrap: true,
+              children: [
+                SelectableText(
+                  weatherCheckText(r, english: en),
+                  style:
+                      const TextStyle(fontSize: 13, color: kText, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const ValueKey('wx-rec-share-text'),
+                      onPressed: () {
+                        if (!widget.session.isCurrent) return;
+                        widget.shareText(weatherCheckText(r, english: en),
+                            weatherCheckSubject(english: en));
+                      },
+                      icon: const Icon(Icons.ios_share),
+                      label: Text(context.tr(pl: 'Tekst', en: 'Text')),
+                    ),
+                    OutlinedButton.icon(
+                      key: const ValueKey('wx-rec-share-pdf'),
+                      onPressed: () async {
+                        if (!widget.session.isCurrent) return;
+                        try {
+                          await widget.sharePdf(r, en);
+                        } catch (e) {
+                          debugPrint('[weather] pdf export failed: $e');
+                        }
+                      },
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('PDF'),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('wx-rec-delete'),
+                      style: TextButton.styleFrom(
+                          foregroundColor: kFail,
+                          minimumSize: const Size(0, kMinTapTarget)),
+                      onPressed: () {
+                        if (!widget.session.isCurrent) return;
+                        Navigator.of(ctx).pop();
+                        unawaited(_delete(r));
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                      label: Text(context.tr(pl: 'Usuń', en: 'Delete')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

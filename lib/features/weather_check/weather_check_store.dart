@@ -10,6 +10,7 @@
 // kluczem tekstu) nie rzuca, tylko liczy się jako uszkodzenie.
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/weather_conditions.dart';
@@ -24,10 +25,12 @@ class WeatherCheckStore {
   static const int maxRecords = 300;
   static const int warnRecords = 270;
 
-  const WeatherCheckStore();
+  const WeatherCheckStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   Future<WeatherHistoryDecode> loadHistoryDetailed() async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     return decodeWeatherHistoryDetailed(prefs.get(historyKey));
   }
 
@@ -46,7 +49,7 @@ class WeatherCheckStore {
   /// Zapisuje historię (najnowsze pierwsze, najwyżej [maxRecords]).
   /// Zwraca liczbę usuniętych najstarszych wpisów.
   Future<int> saveHistory(List<WeatherCheckRecord> records) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     await _backupIfDamaged(prefs);
     final sorted = [...records]..sort((a, b) => b.takenAt.compareTo(a.takenAt));
     final kept = sorted.take(maxRecords).toList(growable: false);
@@ -72,7 +75,7 @@ class WeatherCheckStore {
 
   Future<({WeatherThresholds thresholds, bool repaired})>
       loadThresholdsDetailed() async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     final raw = prefs.get(thresholdsKey);
     if (raw != null && raw is! String) {
       return (thresholds: WeatherThresholds.defaults, repaired: true);
@@ -85,7 +88,7 @@ class WeatherCheckStore {
 
   /// Rzuca, gdy zapis się nie uda — ekran pokazuje to spawaczowi.
   Future<void> saveThresholds(WeatherThresholds t) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     final ok = t.isDefault
         ? await prefs.remove(thresholdsKey)
         : await prefs.setString(thresholdsKey, encodeWeatherThresholds(t));

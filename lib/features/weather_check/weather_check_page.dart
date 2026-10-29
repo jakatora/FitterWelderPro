@@ -18,6 +18,7 @@ import '../../services/weather_check_export.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
@@ -36,30 +37,56 @@ Future<void> _defaultShareText(String text, String subject) async {
   await Share.share(text, subject: subject);
 }
 
-Future<void> _defaultSharePdf(WeatherCheckRecord record, bool english) =>
-    WeatherCheckExport.sharePdf(record, english: english);
-
-class WeatherCheckPage extends StatefulWidget {
+class WeatherCheckPage extends StatelessWidget {
   const WeatherCheckPage({
     super.key,
     this.now,
     this.shareText = _defaultShareText,
-    this.sharePdf = _defaultSharePdf,
-    this.store = const WeatherCheckStore(),
+    this.sharePdf,
+    this.store,
   });
 
   /// Zegar (test podaje stałą datę).
+  final DateTime Function()? now;
+  final WeatherShareText shareText;
+  final WeatherSharePdf? sharePdf;
+  final WeatherCheckStore? store;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _WeatherCheckBody(
+          session: session,
+          now: now,
+          shareText: shareText,
+          sharePdf: sharePdf ??
+              (record, english) => WeatherCheckExport.sharePdf(record,
+                  english: english, mayShare: () => session.isCurrent),
+          store: store ?? WeatherCheckStore(captureOwner: session.captureOwner),
+        ),
+      );
+}
+
+class _WeatherCheckBody extends StatefulWidget {
+  const _WeatherCheckBody({
+    required this.session,
+    required this.now,
+    required this.shareText,
+    required this.sharePdf,
+    required this.store,
+  });
+
+  final LocalRecordSession session;
   final DateTime Function()? now;
   final WeatherShareText shareText;
   final WeatherSharePdf sharePdf;
   final WeatherCheckStore store;
 
   @override
-  State<WeatherCheckPage> createState() => _WeatherCheckPageState();
+  State<_WeatherCheckBody> createState() => _WeatherCheckPageState();
 }
 
-class _WeatherCheckPageState extends State<WeatherCheckPage>
-    with ToolHandleHost<WeatherCheckPage>
+class _WeatherCheckPageState extends State<_WeatherCheckBody>
+    with ToolHandleHost<_WeatherCheckBody>
     implements InputToolHandle {
   @override
   String get toolId => 'weather_check';
@@ -91,7 +118,9 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
   /// przy każdej zmianie pomiaru. Wszystko albo nic.
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
-    if (!mounted || fields.keys.any((k) => !supportedFields.contains(k))) {
+    if (!mounted ||
+        !widget.session.isCurrent ||
+        fields.keys.any((k) => !supportedFields.contains(k))) {
       return fields.keys.toSet();
     }
     T? pick<T extends Enum>(List<T> values, String key) =>
@@ -101,10 +130,9 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
     final precip = pick(Precipitation.values, 'precipitation');
     final shelter = pick(WeatherShelter.values, 'shelter');
     final surface = pick(SurfaceState.values, 'surface_state');
-    double? n(String key) =>
-        fields[key] is num && (fields[key] as num).isFinite
-            ? (fields[key] as num).toDouble()
-            : null;
+    double? n(String key) => fields[key] is num && (fields[key] as num).isFinite
+        ? (fields[key] as num).toDouble()
+        : null;
     final ambient = n('ambient_c'), rh = n('rh_pct'), wind = n('wind_ms');
     final rejected = <String>{
       if (ambient == null) 'ambient_c',
@@ -205,7 +233,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
     } catch (_) {
       skipped = -1;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _thresholds = t;
       _thresholdsRepaired = repaired;
@@ -328,6 +356,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
   // ── Akcje ──────────────────────────────────────────────────────────────
 
   Future<void> _save(WeatherAssessment a) async {
+    if (!widget.session.isCurrent) return;
     final r = _record(a);
     unawaited(Haptic.saved());
     ({List<WeatherCheckRecord> records, int dropped})? res;
@@ -336,7 +365,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
     } catch (e) {
       debugPrint('[weather] save failed: $e');
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     const max = WeatherCheckStore.maxRecords;
     final String message;
     if (res == null) {
@@ -369,6 +398,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
   }
 
   Future<void> _shareText(WeatherAssessment a) async {
+    if (!widget.session.isCurrent) return;
     unawaited(Haptic.tap());
     final en = _en;
     await widget.shareText(weatherCheckText(_record(a), english: en),
@@ -376,14 +406,14 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
   }
 
   Future<void> _sharePdf(WeatherAssessment a) async {
-    if (_busyPdf) return;
+    if (_busyPdf || !widget.session.isCurrent) return;
     final en = _en;
     setState(() => _busyPdf = true);
     try {
       await widget.sharePdf(_record(a), en);
     } catch (e) {
       debugPrint('[weather] pdf export failed: $e');
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się przygotować PDF.',
@@ -391,15 +421,21 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
         ));
       }
     } finally {
-      if (mounted) setState(() => _busyPdf = false);
+      if (mounted && widget.session.isCurrent) setState(() => _busyPdf = false);
     }
   }
 
   Future<void> _openThresholds() async {
-    final t = await Navigator.of(context).push<WeatherThresholds>(
-        MaterialPageRoute(
-            builder: (_) => WeatherThresholdsView(initial: _thresholds)));
-    if (t == null || !mounted) return;
+    if (!widget.session.isCurrent) return;
+    final t =
+        await Navigator.of(context).push<WeatherThresholds>(MaterialPageRoute(
+            builder: (_) => LocalRecordScope(
+                  originSession: widget.session,
+                  restartOnAccountChange: false,
+                  builder: (_, __) =>
+                      WeatherThresholdsView(initial: _thresholds),
+                )));
+    if (t == null || !mounted || !widget.session.isCurrent) return;
     setState(() {
       _thresholds = t;
       _checked.clear();
@@ -411,7 +447,7 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
       debugPrint('[weather] thresholds save failed: $e');
       saved = false;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     if (saved) {
       setState(() => _thresholdsRepaired = false);
     } else {
@@ -426,16 +462,22 @@ class _WeatherCheckPageState extends State<WeatherCheckPage>
   }
 
   Future<void> _openHistory() async {
+    if (!widget.session.isCurrent) return;
     await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => WeatherHistoryView(
-              store: widget.store,
-              shareText: widget.shareText,
-              sharePdf: widget.sharePdf,
+        builder: (_) => LocalRecordScope(
+              originSession: widget.session,
+              restartOnAccountChange: false,
+              builder: (_, __) => WeatherHistoryView(
+                session: widget.session,
+                store: widget.store,
+                shareText: widget.shareText,
+                sharePdf: widget.sharePdf,
+              ),
             )));
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     try {
       final h = await widget.store.loadHistoryDetailed();
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         setState(() {
           _historyCount = h.records.length;
           _historySkipped = h.unreadable ? -1 : h.skipped;
