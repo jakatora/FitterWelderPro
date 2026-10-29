@@ -19,31 +19,57 @@ import '../../services/flange_check_export.dart';
 import '../../services/user_profile.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart';
 import 'flange_check_store.dart';
 import 'flange_check_widgets.dart';
 
-class FlangeCheckPage extends StatefulWidget {
+class FlangeCheckPage extends StatelessWidget {
   /// Udostępnianie protokołu — test podmienia, żeby nie wołać platformy.
-  final FlangeShareFn share;
-  final FlangeCheckStore store;
+  final FlangeShareFn? share;
+  final FlangeCheckStore? store;
 
   /// „Dziś” — do testów.
   final DateTime Function()? clock;
 
   const FlangeCheckPage({
     super.key,
-    this.share = shareFlangeCheck,
-    this.store = const FlangeCheckStore(),
+    this.share,
+    this.store,
     this.clock,
   });
 
   @override
-  State<FlangeCheckPage> createState() => _FlangeCheckPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _FlangeCheckBody(
+          session: session,
+          share: share ??
+              (check, format, en) => shareFlangeCheck(check, format, en,
+                  mayShare: () => session.isCurrent),
+          store: store ?? FlangeCheckStore(captureOwner: session.captureOwner),
+          clock: clock,
+        ),
+      );
 }
 
-class _FlangeCheckPageState extends State<FlangeCheckPage>
+class _FlangeCheckBody extends StatefulWidget {
+  const _FlangeCheckBody({
+    required this.session,
+    required this.share,
+    required this.store,
+    this.clock,
+  });
+  final LocalRecordSession session;
+  final FlangeShareFn share;
+  final FlangeCheckStore store;
+  final DateTime Function()? clock;
+
+  @override
+  State<_FlangeCheckBody> createState() => _FlangeCheckPageState();
+}
+
+class _FlangeCheckPageState extends State<_FlangeCheckBody>
     with SingleTickerProviderStateMixin {
   static int _seq = 0;
 
@@ -149,7 +175,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     } catch (_) {
       name = '';
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _history = loaded.checks;
       _historyDamaged = loaded.damaged;
@@ -222,10 +248,13 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
         : '';
   }
 
-  void _update(FlangeCheck next) => setState(() {
-        _draft = next;
-        _dirty = true;
-      });
+  void _update(FlangeCheck next) {
+    if (!widget.session.isCurrent) return;
+    setState(() {
+      _draft = next;
+      _dirty = true;
+    });
+  }
 
   void _updateJoint(FlangeJoint j) => _update(_draft.copyWith(joint: j));
 
@@ -242,6 +271,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   /// dokładnym przeliczeniem, więc samo przełączenie nie może zmienić
   /// werdyktu (np. 1,55 mm „poza” → 0,061" „OK”).
   Future<void> _setUnit(LengthUnit u) async {
+    if (!widget.session.isCurrent) return;
     if (u == _draft.unit) return;
     if (_draft.measurements.hasLengthReadings) {
       final ok = await _confirm(
@@ -258,7 +288,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
         confirmLabel: context.tr(pl: 'Zmień i wyczyść', en: 'Change and clear'),
         confirmKey: const ValueKey('flange-unit-confirm'),
       );
-      if (!ok || !mounted) return;
+      if (!ok || !mounted || !widget.session.isCurrent) return;
     }
     setState(() {
       _draft = _draft.withUnit(u);
@@ -269,6 +299,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
 
   /// 8 → 4 punkty usuwa odczyty z 45°, 135°… — tylko za zgodą.
   Future<void> _setGapPoints(int n) async {
+    if (!widget.session.isCurrent) return;
     final lost = _draft.measurements.readingsLostBy(n);
     if (lost.isNotEmpty) {
       final en = _en;
@@ -287,7 +318,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
         confirmLabel: context.tr(pl: 'Usuń odczyty', en: 'Delete readings'),
         confirmKey: const ValueKey('flange-points-confirm'),
       );
-      if (!ok || !mounted) return;
+      if (!ok || !mounted || !widget.session.isCurrent) return;
     }
     setState(() {
       _draft =
@@ -323,6 +354,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   void _setDn(int? dn) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       var m = _draft.measurements;
       // Bez odczytów szczeliny: liczba punktów idzie za średnicą.
@@ -337,6 +369,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _pickDate() async {
+    if (!widget.session.isCurrent) return;
     final first = DateTime(2000);
     final last = DateTime(2100);
     var current = DateTime.tryParse(_draft.joint.date) ?? _now;
@@ -344,11 +377,16 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
+      builder: (_, child) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => child!,
+      ),
       initialDate: current,
       firstDate: first,
       lastDate: last,
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !widget.session.isCurrent) return;
     final iso = '${picked.year.toString().padLeft(4, '0')}-'
         '${picked.month.toString().padLeft(2, '0')}-'
         '${picked.day.toString().padLeft(2, '0')}';
@@ -358,6 +396,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   // ── Akcje ─────────────────────────────────────────────────────────────────
 
   void _snack(String text, {SnackBarAction? action}) {
+    if (!widget.session.isCurrent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text), action: action));
@@ -366,11 +405,12 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   /// Zapis [list] — `false` (z komunikatem) przy błędzie. Stan ekranu
   /// zmieniamy dopiero po udanym zapisie.
   Future<bool> _persist(List<FlangeCheck> list) async {
+    if (!widget.session.isCurrent) return false;
     try {
       await widget.store.save(list);
-      return true;
+      return widget.session.isCurrent;
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         _snack(context.tr(
             pl: 'Nie udało się zapisać na telefonie.',
             en: 'Could not save on the phone.'));
@@ -380,6 +420,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _save() async {
+    if (!widget.session.isCurrent) return;
     if (_draft.joint.tag.trim().isEmpty) {
       setState(() => _tagError = true);
       _tabs.animateTo(0);
@@ -399,7 +440,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       next.insert(0, saved);
     }
     // Nieudany zapis: protokół zostaje „niezapisany” — wyjście nadal pyta.
-    if (!await _persist(next) || !mounted) return;
+    if (!await _persist(next) || !mounted || !widget.session.isCurrent) return;
     setState(() {
       _history = next;
       _tagError = false;
@@ -419,9 +460,13 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
     required String confirmLabel,
     required Key confirmKey,
   }) async {
+    if (!widget.session.isCurrent) return false;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => AlertDialog(
         title: Text(title),
         content: Text(body),
         actions: [
@@ -433,9 +478,10 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(confirmLabel)),
         ],
+        ),
       ),
     );
-    return ok ?? false;
+    return widget.session.isCurrent && (ok ?? false);
   }
 
   Future<bool> _confirmDiscard() async {
@@ -451,7 +497,10 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _openDraft(FlangeCheck next) async {
-    if (!await _confirmDiscard() || !mounted) return;
+    if (!widget.session.isCurrent || !await _confirmDiscard() ||
+        !mounted || !widget.session.isCurrent) {
+      return;
+    }
     setState(() {
       _draft = next;
       _dirty = false;
@@ -464,12 +513,13 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   Future<void> _newProtocol() => _openDraft(_newDraft());
 
   Future<void> _duplicate(FlangeCheck source) async {
+    if (!widget.session.isCurrent) return;
     final copy = source.duplicate(
       id: _newId(),
       date: _todayIso,
       now: _now.millisecondsSinceEpoch,
     );
-    if (!await _confirmDiscard() || !mounted) return;
+    if (!await _confirmDiscard() || !mounted || !widget.session.isCurrent) return;
     setState(() {
       _draft = copy;
       // Kopia nie jest jeszcze zapisana — wyjście bez zapisu pyta.
@@ -489,10 +539,11 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _delete(FlangeCheck c) async {
+    if (!widget.session.isCurrent) return;
     final index = _history.indexWhere((h) => h.id == c.id);
     if (index < 0) return;
     final next = [..._history]..removeAt(index);
-    if (!await _persist(next) || !mounted) return;
+    if (!await _persist(next) || !mounted || !widget.session.isCurrent) return;
     setState(() {
       _history = next;
       if (_draft.id == c.id) _dirty = true;
@@ -507,9 +558,12 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _undoDelete(FlangeCheck c, int index) async {
-    if (!mounted || _history.any((h) => h.id == c.id)) return;
+    if (!mounted || !widget.session.isCurrent ||
+        _history.any((h) => h.id == c.id)) {
+      return;
+    }
     final restored = [..._history]..insert(index.clamp(0, _history.length), c);
-    if (!await _persist(restored) || !mounted) return;
+    if (!await _persist(restored) || !mounted || !widget.session.isCurrent) return;
     setState(() {
       _history = restored;
       if (_draft.id == c.id) _dirty = false;
@@ -517,12 +571,12 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   Future<void> _share(FlangeCheck c, FlangeShareFormat f) async {
-    if (_sharing) return;
+    if (_sharing || !widget.session.isCurrent) return;
     setState(() => _sharing = true);
     try {
       await widget.share(c, f, _en);
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         _snack(context.tr(
             pl: 'Nie udało się udostępnić protokołu.',
             en: 'Could not share the protocol.'));
@@ -533,6 +587,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
   }
 
   void _openBoltTorque() {
+    if (!widget.session.isCurrent) return;
     unawaited(Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const BoltTorqueScreen())));
   }
@@ -546,7 +601,7 @@ class _FlangeCheckPageState extends State<FlangeCheckPage>
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         final nav = Navigator.of(context);
-        if (await _confirmDiscard() && mounted) {
+        if (await _confirmDiscard() && mounted && widget.session.isCurrent) {
           setState(() => _dirty = false);
           nav.pop();
         }

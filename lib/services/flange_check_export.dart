@@ -418,36 +418,46 @@ pw.Document buildFlangeCheckPdf(
 /// Domyślne udostępnianie: tekst przez arkusz systemu albo PDF z pliku
 /// tymczasowego.
 Future<void> shareFlangeCheck(
-    FlangeCheck c, FlangeShareFormat format, bool en) async {
+    FlangeCheck c, FlangeShareFormat format, bool en,
+    {bool Function()? mayShare}) async {
+  if (mayShare != null && !mayShare()) return;
   final subject = _t(en, 'Protokół odbioru kołnierza ${c.joint.tag}'.trim(),
       'Flange joint check ${c.joint.tag}'.trim());
   if (format == FlangeShareFormat.text) {
     await Share.share(buildFlangeCheckText(c, en: en), subject: subject);
     return;
   }
+  final regular = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+  if (mayShare != null && !mayShare()) return;
+  final bold = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
+  if (mayShare != null && !mayShare()) return;
   final doc = buildFlangeCheckPdf(
     c,
-    font: pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Regular.ttf')),
-    boldFont:
-        pw.Font.ttf(await rootBundle.load('assets/fonts/Roboto-Bold.ttf')),
+    font: pw.Font.ttf(regular),
+    boldFont: pw.Font.ttf(bold),
     en: en,
     generatedAt: DateTime.now(),
   );
   final bytes = await doc.save();
+  if (mayShare != null && !mayShare()) return;
   final name = flangeCheckFileName(c, extension: 'pdf');
   if (kIsWeb) {
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
         [XFile.fromData(bytes, mimeType: 'application/pdf', name: name)],
         subject: subject);
     return;
   }
   final dir = await getTemporaryDirectory();
+  if (mayShare != null && !mayShare()) return;
   final file = File('${dir.path}/$name');
   await file.writeAsBytes(bytes, flush: true);
+  if (mayShare != null && !mayShare()) return;
   if (!await file.exists() || (await file.length()) < 100) {
     throw StateError(
         'PDF zapisany niepoprawnie — sprawdź miejsce na dysku (${dir.path}).');
   }
+  if (mayShare != null && !mayShare()) return;
   await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: subject);

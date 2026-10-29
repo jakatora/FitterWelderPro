@@ -14,6 +14,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/flange/flange_check.dart';
@@ -29,7 +30,9 @@ class FlangeCheckStore {
   static const String key = 'flange_checks_v1';
   static const String corruptKey = 'flange_checks_v1_corrupt';
 
-  const FlangeCheckStore();
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
+  const FlangeCheckStore({this.captureOwner});
 
   /// Nigdy nie rzuca: brak, uszkodzony JSON albo błąd odczytu → pusta lista.
   Future<List<FlangeCheck>> load() async => (await loadWithStatus()).checks;
@@ -38,7 +41,7 @@ class FlangeCheckStore {
   /// wtedy komunikat). Nigdy nie rzuca.
   Future<FlangeHistoryLoad> loadWithStatus() async {
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(captureOwner);
       final raw = prefs.get(key);
       if (raw == null) return const FlangeHistoryLoad([]);
       if (raw is! String) return const FlangeHistoryLoad([], damaged: true);
@@ -51,7 +54,7 @@ class FlangeCheckStore {
   }
 
   Future<void> save(List<FlangeCheck> checks) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     await _backupIfDamaged(prefs);
     await prefs.setString(key, encodeFlangeChecks(checks));
   }
