@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/foundation.dart' show debugPrint;
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/rigging/rigging_inputs.dart';
@@ -23,11 +24,13 @@ class RiggingStoreLoad {
 class RiggingStore {
   static const String key = 'rigging_inputs_v1';
 
-  const RiggingStore();
+  const RiggingStore({this.captureOwner});
+
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   Future<RiggingStoreLoad> load() async {
     try {
-      final prefs = await OwnedPrefs.instance()
+      final prefs = await OwnedPrefs.instance(captureOwner)
           .timeout(const Duration(seconds: 2));
       final raw = prefs.get(key);
       if (raw == null) return const RiggingStoreLoad(null);
@@ -44,7 +47,7 @@ class RiggingStore {
 
   Future<void> save(RiggingSavedInputs inputs) async {
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(captureOwner);
       await prefs.setString(key, encodeRiggingInputs(inputs));
     } catch (e) {
       // Kalkulator działa dalej w tej sesji.

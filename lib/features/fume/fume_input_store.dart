@@ -4,18 +4,23 @@
 // mówi o tym spawaczowi. Lista kontrolna nie jest zapisywana.
 
 import '../../services/owned_prefs.dart';
+import '../../database/local_record_owner.dart';
 
 import '../../domain/fume/fume_inputs.dart';
 
 class FumeInputStore {
-  const FumeInputStore({this.key = kFumeInputsPrefsKey});
+  const FumeInputStore({
+    this.key = kFumeInputsPrefsKey,
+    this.captureOwner,
+  });
 
   final String key;
+  final Future<LocalRecordOwner> Function()? captureOwner;
 
   Future<FumeDecoded> load() async {
     final Object? raw;
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(captureOwner);
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
       raw = prefs.get(key);
     } catch (_) {
@@ -28,7 +33,7 @@ class FumeInputStore {
 
   Future<void> save(FumeInputs inputs) async {
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(captureOwner);
       await prefs.setString(key, encodeFumeInputs(inputs));
     } catch (_) {
       // Zapis to wygoda — jego brak nie może zablokować ekranu.

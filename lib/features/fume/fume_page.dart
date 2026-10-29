@@ -23,6 +23,7 @@ import '../../domain/fume/fume_sources.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
@@ -30,17 +31,32 @@ import 'fume_input_store.dart';
 import '../../assistant/core/tool_bridge.dart';
 import '../../domain/fume/fume_reference.dart';
 
-class FumePage extends StatefulWidget {
-  const FumePage({super.key, this.store = const FumeInputStore()});
+class FumePage extends StatelessWidget {
+  const FumePage({super.key, this.store});
 
   /// Magazyn ostatnich wejść — wstrzykiwany w testach.
+  final FumeInputStore? store;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _FumeBody(
+          session: session,
+          store: store ?? FumeInputStore(captureOwner: session.captureOwner),
+        ),
+      );
+}
+
+class _FumeBody extends StatefulWidget {
+  const _FumeBody({required this.session, required this.store});
+
+  final LocalRecordSession session;
   final FumeInputStore store;
 
   @override
-  State<FumePage> createState() => _FumePageState();
+  State<_FumeBody> createState() => _FumePageState();
 }
 
-class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
+class _FumePageState extends State<_FumeBody> with ToolHandleHost<_FumeBody> {
   FumeAgent? _referenceAgent;
   final _scroll = ScrollController();
   @override
@@ -49,6 +65,7 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
   Set<String> get supportedFields => const {'reference_agent'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     final a = FumeAgent.values
         .where((v) => v.name == fields['reference_agent'])
         .firstOrNull;
@@ -57,7 +74,9 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
       _referenceAgent = a;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      if (mounted && widget.session.isCurrent && _scroll.hasClients) {
+        _scroll.jumpTo(0);
+      }
     });
     return {};
   }
@@ -124,7 +143,7 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
     } finally {
       _loaded = true;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     markReady();
     if (_touched) return;
     final i = d.inputs;
@@ -183,6 +202,7 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
 
   /// Każda zmiana wejścia: przerysuj i zapisz — ale dopiero po odczycie.
   void _changed(VoidCallback f) {
+    if (!widget.session.isCurrent) return;
     _touched = true;
     setState(f);
     if (_loaded) unawaited(_store.save(_currentInputs));
@@ -1273,6 +1293,7 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
       FumeCheckContext(material: _material, process: _process, rpe: _rpe);
 
   void _toggleCheck(FumeCheck c) {
+    if (!widget.session.isCurrent) return;
     final s = fumeCheckState(c, _checks, _checkCtx);
     setState(() {
       _touched = true;
@@ -1282,6 +1303,7 @@ class _FumePageState extends State<FumePage> with ToolHandleHost<FumePage> {
   }
 
   void _toggleNa(FumeCheck c) {
+    if (!widget.session.isCurrent) return;
     if (!c.naAllowed || fumeNaBlock(c, _checkCtx) != null) return;
     final s = fumeCheckState(c, _checks, _checkCtx);
     setState(() {

@@ -26,20 +26,38 @@ import '../../domain/rigging/rigging_text.dart';
 import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
 import 'rigging_store.dart';
 
-class RiggingPage extends StatefulWidget {
-  const RiggingPage({super.key});
+class RiggingPage extends StatelessWidget {
+  const RiggingPage({super.key, this.store});
+
+  final RiggingStore? store;
 
   @override
-  State<RiggingPage> createState() => _RiggingPageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _RiggingBody(
+          session: session,
+          store: store ?? RiggingStore(captureOwner: session.captureOwner),
+        ),
+      );
 }
 
-class _RiggingPageState extends State<RiggingPage>
-    with ToolHandleHost<RiggingPage> {
+class _RiggingBody extends StatefulWidget {
+  const _RiggingBody({required this.session, required this.store});
+
+  final LocalRecordSession session;
+  final RiggingStore store;
+
+  @override
+  State<_RiggingBody> createState() => _RiggingPageState();
+}
+
+class _RiggingPageState extends State<_RiggingBody>
+    with ToolHandleHost<_RiggingBody> {
   SlingColour? _referenceColour;
   bool _referenceTag = false;
   final _scroll = ScrollController();
@@ -50,6 +68,7 @@ class _RiggingPageState extends State<RiggingPage>
       const {'reference_colour', 'reference_part'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     final c = SlingColour.values
         .where((v) => v.name == fields['reference_colour'])
         .firstOrNull;
@@ -66,12 +85,14 @@ class _RiggingPageState extends State<RiggingPage>
       _referenceTag = tag;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+      if (mounted && widget.session.isCurrent && _scroll.hasClients) {
+        _scroll.jumpTo(0);
+      }
     });
     return {};
   }
 
-  static const RiggingStore _store = RiggingStore();
+  RiggingStore get _store => widget.store;
 
   bool _fromPipe = false;
   MassUnit _unit = MassUnit.kg;
@@ -127,7 +148,7 @@ class _RiggingPageState extends State<RiggingPage>
   /// i jedno kliknięcie „etykieta czytelna” dałyby fałszywe OK.
   Future<void> _restore() async {
     final loaded = await _store.load();
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     markReady();
     if (_touched) return;
     final s = loaded.inputs;
@@ -156,6 +177,7 @@ class _RiggingPageState extends State<RiggingPage>
 
   /// Zmiana danych kalkulatora: przelicz i zapamiętaj.
   void _change(VoidCallback f) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       _touched = true;
       f();
@@ -300,24 +322,33 @@ class _RiggingPageState extends State<RiggingPage>
     _change(() => _wll.text = numText(fromKg(t * 1000, _unit), decimals: 4));
   }
 
-  void _setLabel(LabelState s) => setState(() {
-        _touched = true;
-        _label = _label == s ? LabelState.unknown : s;
-      });
+  void _setLabel(LabelState s) {
+    if (!widget.session.isCurrent) return;
+    setState(() {
+      _touched = true;
+      _label = _label == s ? LabelState.unknown : s;
+    });
+  }
 
-  void _setMark(String id, CheckMark m) => setState(() {
-        _touched = true;
-        if (_marks[id] == m) {
-          _marks.remove(id);
-        } else {
-          _marks[id] = m;
-        }
-      });
+  void _setMark(String id, CheckMark m) {
+    if (!widget.session.isCurrent) return;
+    setState(() {
+      _touched = true;
+      if (_marks[id] == m) {
+        _marks.remove(id);
+      } else {
+        _marks[id] = m;
+      }
+    });
+  }
 
-  void _resetChecklist() => setState(() {
-        _marks.clear();
-        _label = LabelState.unknown;
-      });
+  void _resetChecklist() {
+    if (!widget.session.isCurrent) return;
+    setState(() {
+      _marks.clear();
+      _label = LabelState.unknown;
+    });
+  }
 
   // ── Widżety pomocnicze ───────────────────────────────────────────────────
 
