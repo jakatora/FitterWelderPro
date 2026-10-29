@@ -411,12 +411,17 @@ class _HotWorkEditPageState extends State<HotWorkEditPage> {
   }
 
   Future<void> _pickDate() async {
-    final current = DateTime.tryParse(_p.date) ?? widget.now();
+    final first = DateTime(2020);
+    final last = DateTime(2100);
+    var current = DateTime.tryParse(_p.date) ?? widget.now();
+    // Imported or older records may be outside the calendar's range.
+    if (current.isBefore(first)) current = first;
+    if (current.isAfter(last)) current = last;
     final picked = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      firstDate: first,
+      lastDate: last,
     );
     if (picked == null || !mounted) return;
     _set((p) => p.copyWith(date: hotWorkDate(picked)));

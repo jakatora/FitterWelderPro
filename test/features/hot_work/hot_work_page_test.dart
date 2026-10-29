@@ -709,4 +709,24 @@ void main() {
     expect(ids, hasLength(HotWorkStore.maxEntries));
     expect(ids, isNot(contains('nowy')));
   });
+
+  for (final (date, expected) in [
+    ('2019-12-31', DateTime(2020)),
+    ('2101-01-01', DateTime(2100)),
+  ]) {
+    testWidgets('kalendarz otwiera zapis z datą $date',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        HotWorkStore.key: jsonEncode(
+            hotWorkPermitsToJson([_yesterday().copyWith(date: date)])),
+      });
+      await _pump(tester);
+      await _tapKey(tester, 'hw-open-0');
+      await _tapKey(tester, 'hw-date');
+      expect(tester.takeException(), isNull);
+      final picker = tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      expect(picker.initialDate, expected);
+      expect((await const HotWorkStore().load()).single.date, date);
+    });
+  }
 }
