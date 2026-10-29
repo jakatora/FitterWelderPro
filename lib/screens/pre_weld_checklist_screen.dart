@@ -11,6 +11,7 @@ import '../services/welder_identity.dart';
 import '../theme/app_theme.dart' show kTextMut;
 import '../utils/haptic.dart';
 import '../widgets/number_field.dart';
+import '../widgets/local_record_scope.dart';
 
 const _kCard   = Color(0xFF141821);
 const _kBorder = Color(0xFF2A3140);
@@ -289,15 +290,25 @@ String _preheatFahrenheit(String note) {
   return '  (~$tail)';
 }
 
-class PreWeldChecklistScreen extends StatefulWidget {
+class PreWeldChecklistScreen extends StatelessWidget {
   const PreWeldChecklistScreen({super.key});
 
   @override
-  State<PreWeldChecklistScreen> createState() => _PreWeldChecklistScreenState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _PreWeldChecklistBody(session: session),
+      );
 }
 
-class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
-    with ToolHandleHost<PreWeldChecklistScreen>
+class _PreWeldChecklistBody extends StatefulWidget {
+  const _PreWeldChecklistBody({required this.session});
+  final LocalRecordSession session;
+
+  @override
+  State<_PreWeldChecklistBody> createState() => _PreWeldChecklistScreenState();
+}
+
+class _PreWeldChecklistScreenState extends State<_PreWeldChecklistBody>
+    with ToolHandleHost<_PreWeldChecklistBody>
     implements InputToolHandle {
   @override
   String get toolId => 'pre_weld_checklist';
@@ -318,6 +329,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
         .where((k) => k.id == fields['process'])
         .firstOrNull;
     if (!mounted ||
+        !widget.session.isCurrent ||
         fields.keys.any((k) => !supportedFields.contains(k)) ||
         p == null) {
       return fields.keys.toSet();
@@ -367,13 +379,13 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
     super.initState();
     // Gotowość po odczycie zapisu dnia — inaczej odczyt nadpisałby proces.
     _hydrate().whenComplete(() {
-      if (mounted) markReady();
+      if (mounted && widget.session.isCurrent) markReady();
     });
   }
 
   Future<void> _hydrate() async {
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(widget.session.captureOwner);
       // P0-12: also sweep any preweld_* entries from previous days so the
       // device doesn't accumulate stale safety state. Auto-clears at
       // midnight is the implicit guarantee.
@@ -389,7 +401,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
       final savedMaterialKey = prefs.getString('$_kMaterialKeyPrefix$today');
       final savedNa = prefs.getStringList('$_kNaKeyPrefix$today');
       final savedProcess = prefs.getString('$_kProcessKeyPrefix$today');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       var droppedStale = false;
       setState(() {
         if (savedIds != null) {
@@ -424,8 +436,9 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   }
 
   Future<void> _persist() async {
+    if (!widget.session.isCurrent) return;
     try {
-      final prefs = await OwnedPrefs.instance();
+      final prefs = await OwnedPrefs.instance(widget.session.captureOwner);
       await prefs.setStringList('$_kDoneKeyPrefix$_todayKey', _done.toList());
       await prefs.setStringList('$_kNaKeyPrefix$_todayKey', _na.toList());
       await prefs.setString('$_kProcessKeyPrefix$_todayKey', _process.id);
@@ -474,6 +487,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
       list.every((c) => _done.contains(c.id) || _na.contains(c.id));
 
   void _toggleNa(_Check check) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       if (_na.remove(check.id)) return;
       _na.add(check.id);
@@ -483,6 +497,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   }
 
   void _setProcess(WeldingProcessKind p) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       _process = p;
       final validIds = _all.map((c) => c.id).toSet();
@@ -493,6 +508,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   }
 
   void _toggle(_Check check) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       if (_done.contains(check.id)) {
         _done.remove(check.id);
@@ -515,10 +531,14 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   /// was completed when it had been blanked by the same gesture used to
   /// scroll. Safety-critical.
   Future<void> _confirmReset() async {
+    if (!widget.session.isCurrent) return;
     final tickedCount = _done.length;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
+      builder: (dialogCtx) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => AlertDialog(
         title: Text(context.tr(
           pl: 'Nowa spoina — wyzerować checklistę?',
           en: 'New weld — reset checklist?',
@@ -543,9 +563,10 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
             child: Text(context.tr(pl: 'Wyczyść', en: 'Reset')),
           ),
         ],
+        ),
       ),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted || !widget.session.isCurrent) return;
     Haptic.error();
     _clearForNewWeld(
       message: context.tr(
@@ -560,6 +581,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   /// "arc struck" button after "all set". Undo restores the previous state
   /// (including whether the ticks still needed confirmation).
   void _clearForNewWeld({required String message}) {
+    if (!widget.session.isCurrent) return;
     final snapshot = Set<String>.from(_done);
     final naSnapshot = Set<String>.from(_na);
     final wasUnconfirmed = _restoredNeedsConfirm;
@@ -578,7 +600,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
         action: SnackBarAction(
           label: context.tr(pl: 'Cofnij', en: 'Undo'),
           onPressed: () {
-            if (!mounted) return;
+            if (!mounted || !widget.session.isCurrent) return;
             setState(() {
               _done
                 ..clear()
@@ -595,6 +617,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   }
 
   void _confirmSameWeld() {
+    if (!widget.session.isCurrent) return;
     setState(() => _restoredNeedsConfirm = false);
     if (_completeIn(_all)) Haptic.saved();
   }
@@ -602,6 +625,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   /// Zapis wykonanej checklisty do spoiny w dzienniku — wpis historii
   /// `CHECKLIST` z odczytem O₂ i podgrzania (v25).
   Future<void> _saveToWeld() async {
+    if (!widget.session.isCurrent) return;
     final list = _all;
     final en = AppLanguageController.isEnglish;
     final done = _doneCountIn(list);
@@ -613,8 +637,12 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: _kCard,
-      builder: (_) => _SaveToWeldSheet(
-        summary: [
+      builder: (_) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => _SaveToWeldSheet(
+          session: widget.session,
+          summary: [
           en
               ? 'Pre-weld checklist: $done/${list.length - na.length} checked'
               : 'Checklista przed spawaniem: $done/${list.length - na.length} '
@@ -625,17 +653,18 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
             '${en ? 'material' : 'materiał'} ${_material!.key}',
           if (na.isNotEmpty)
             '${en ? 'n/a' : 'n/d'}: ${na.join('; ')}',
-        ].join(' · '),
+          ].join(' · '),
+        ),
       ),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || !widget.session.isCurrent) return;
     final (weldId, text) = result;
     try {
-      await WeldJournalDao().addChecklist(weldId, text,
+      await WeldJournalDao(owner: widget.session.captureOwner).addChecklist(weldId, text,
           by: WelderIdentityService.instance.current?.stamp ?? '');
     } catch (e) {
       debugPrint('[checklist] save to weld failed: $e');
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(context.tr(
             pl: 'Nie udało się zapisać w dzienniku.',
@@ -643,7 +672,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
       ));
       return;
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(context.tr(
           pl: 'Checklista zapisana w historii spoiny.',
@@ -652,6 +681,7 @@ class _PreWeldChecklistScreenState extends State<PreWeldChecklistScreen>
   }
 
   void _setMaterial(MaterialSpec? m) {
+    if (!widget.session.isCurrent) return;
     setState(() {
       _material = m;
       // P0-12: with stable IDs we drop ticks that no longer have a
@@ -1096,7 +1126,8 @@ class _SectionDivider extends StatelessWidget {
 /// Wybór spoiny z dziennika i odczyty O₂ / podgrzania do wpisu CHECKLIST.
 class _SaveToWeldSheet extends StatefulWidget {
   final String summary;
-  const _SaveToWeldSheet({required this.summary});
+  final LocalRecordSession session;
+  const _SaveToWeldSheet({required this.summary, required this.session});
 
   @override
   State<_SaveToWeldSheet> createState() => _SaveToWeldSheetState();
@@ -1105,7 +1136,8 @@ class _SaveToWeldSheet extends StatefulWidget {
 class _SaveToWeldSheetState extends State<_SaveToWeldSheet> {
   final _o2 = TextEditingController();
   final _preheat = TextEditingController();
-  late final Future<List<WeldEntry>> _welds = WeldJournalDao().listAll().then(
+  late final Future<List<WeldEntry>> _welds =
+      WeldJournalDao(owner: widget.session.captureOwner).listAll().then(
       (all) => all.where((e) => !e.isDeleted).toList()
         ..sort((a, b) => b.date.compareTo(a.date)));
   String? _picked;
@@ -1118,6 +1150,7 @@ class _SaveToWeldSheetState extends State<_SaveToWeldSheet> {
   }
 
   void _save() {
+    if (!widget.session.isCurrent) return;
     final id = _picked;
     if (id == null) return;
     final en = AppLanguageController.isEnglish;
