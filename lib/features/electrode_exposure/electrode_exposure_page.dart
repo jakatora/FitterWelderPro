@@ -19,6 +19,7 @@ import '../../services/electrode_reminders.dart';
 import '../../services/qualification_reminders.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart';
 import 'electrode_batch_store.dart';
@@ -46,11 +47,11 @@ ButtonStyle _gloveStyle(Color color) => OutlinedButton.styleFrom(
       tapTargetSize: MaterialTapTargetSize.padded,
     );
 
-class ElectrodeExposurePage extends StatefulWidget {
+class ElectrodeExposurePage extends StatelessWidget {
   const ElectrodeExposurePage({
     super.key,
     this.now = DateTime.now,
-    this.store = const ElectrodeBatchStore(),
+    this.store,
     this.reminders,
     this.shareText,
     this.sharePdf,
@@ -59,7 +60,7 @@ class ElectrodeExposurePage extends StatefulWidget {
 
   /// Zegar — w testach sterowany.
   final DateTime Function() now;
-  final ElectrodeBatchStore store;
+  final ElectrodeBatchStore? store;
 
   /// Domyślnie [electrodeReminders].
   final QualificationReminders? reminders;
@@ -70,11 +71,45 @@ class ElectrodeExposurePage extends StatefulWidget {
   final Duration tick;
 
   @override
-  State<ElectrodeExposurePage> createState() => _ElectrodeExposurePageState();
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _ElectrodeExposureBody(
+          session: session,
+          now: now,
+          store:
+              store ?? ElectrodeBatchStore(captureOwner: session.captureOwner),
+          reminders: reminders,
+          shareText: shareText,
+          sharePdf: sharePdf,
+          tick: tick,
+        ),
+      );
 }
 
-class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
-    with ToolHandleHost<ElectrodeExposurePage> {
+class _ElectrodeExposureBody extends StatefulWidget {
+  const _ElectrodeExposureBody({
+    required this.session,
+    required this.now,
+    required this.store,
+    required this.reminders,
+    required this.shareText,
+    required this.sharePdf,
+    required this.tick,
+  });
+
+  final LocalRecordSession session;
+  final DateTime Function() now;
+  final ElectrodeBatchStore store;
+  final QualificationReminders? reminders;
+  final ElectrodeShareText? shareText;
+  final ElectrodeSharePdf? sharePdf;
+  final Duration tick;
+
+  @override
+  State<_ElectrodeExposureBody> createState() => _ElectrodeExposurePageState();
+}
+
+class _ElectrodeExposurePageState extends State<_ElectrodeExposureBody>
+    with ToolHandleHost<_ElectrodeExposureBody> {
   ElectrodeClass? _referenceClass;
   ElectrodeSource? _referenceOrigin;
   late TabController _tabs;
@@ -86,6 +121,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       const {'electrode_class', 'origin', 'reference_only'};
   @override
   Future<Set<String>> apply(Map<String, Object?> fields) async {
+    if (!mounted || !widget.session.isCurrent) return fields.keys.toSet();
     final rejected = fields.keys.toSet().difference(supportedFields);
     if (rejected.isNotEmpty) return rejected;
     final c = ElectrodeClass.values
@@ -103,7 +139,9 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       _tabs.index = 0;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _activeScroll.hasClients) _activeScroll.jumpTo(0);
+      if (mounted && widget.session.isCurrent && _activeScroll.hasClients) {
+        _activeScroll.jumpTo(0);
+      }
     });
     return {};
   }
@@ -123,7 +161,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   void initState() {
     super.initState();
     _ticker = Timer.periodic(widget.tick, (_) {
-      if (mounted) setState(() {});
+      if (mounted && widget.session.isCurrent) setState(() {});
     });
     unawaited(_load());
   }
@@ -144,40 +182,41 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
     } catch (_) {
       // Pusty dziennik zamiast zablokowanego ekranu.
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _batches = batches;
       _remindersOn = reminders;
       _loading = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) markReady();
+      if (mounted && widget.session.isCurrent) markReady();
     });
     // Plan mógł się zestarzeć (restart telefonu, zmiana strefy).
     unawaited(_reschedule());
   }
 
-  Future<void> _reschedule() =>
-      rescheduleElectrodeReminders(_reminders, _batches,
-          now: widget.now(), english: _en);
+  Future<void> _reschedule() => widget.session.isCurrent
+      ? rescheduleElectrodeReminders(_reminders, _batches,
+          now: widget.now(), english: _en)
+      : Future<void>.value();
 
   Future<void> _commit(List<ElectrodeBatch> next) async {
     // Po zamknięciu ekranu (np. „Cofnij” w snackbarze, który żyje dalej
     // w ScaffoldMessengerze aplikacji) — żadnego setState; cofnięcie po
     // wyjściu idzie przez [_undoBatch] wprost na zapisie.
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() => _batches = next);
     try {
       await widget.store.save(next);
     } catch (_) {
-      if (mounted) {
+      if (mounted && widget.session.isCurrent) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(context.tr(
                 pl: 'Nie udało się zapisać dziennika.',
                 en: 'Could not save the log.'))));
       }
     }
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     await _reschedule();
   }
 
@@ -192,15 +231,21 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   }
 
   Future<void> _add() async {
+    if (!widget.session.isCurrent) return;
     final batch = await Navigator.of(context).push<ElectrodeBatch>(
       MaterialPageRoute(
-        builder: (_) => _TakeOutPage(id: _newId(), now: widget.now),
+        builder: (_) => LocalRecordScope(
+          originSession: widget.session,
+          restartOnAccountChange: false,
+          builder: (_, __) => _TakeOutPage(
+              session: widget.session, id: _newId(), now: widget.now),
+        ),
       ),
     );
-    if (batch == null || !mounted) return;
+    if (batch == null || !mounted || !widget.session.isCurrent) return;
     unawaited(Haptic.saved());
     await _commit([..._batches, batch]);
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     final end = batch.deadline ?? batch.takenOutAt.add(batch.limit);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -213,18 +258,25 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   }
 
   Future<void> _replace(ElectrodeBatch next, {String? undoText}) async {
+    if (!widget.session.isCurrent) return;
     final previous = _batches.where((b) => b.id == next.id).firstOrNull;
     await _commit([
       for (final b in _batches) b.id == next.id ? next : b,
     ]);
     unawaited(Haptic.saved());
-    if (undoText == null || previous == null || !mounted) return;
+    if (undoText == null ||
+        previous == null ||
+        !mounted ||
+        !widget.session.isCurrent) {
+      return;
+    }
     _showUndo(undoText, previous);
   }
 
   /// Snackbar „Cofnij” dla JEDNEJ partii — przywraca tylko ją, w bieżącej
   /// liście (zmiany innych partii zrobione w międzyczasie zostają).
   void _showUndo(String text, ElectrodeBatch previous) {
+    if (!widget.session.isCurrent) return;
     final undo = _undoBatch(previous);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -244,7 +296,9 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
     final reminders = _reminders;
     final now = widget.now;
     final english = _en;
+    final session = widget.session;
     return () async {
+      if (!session.isCurrent) return;
       if (mounted) {
         await _commit(restoreBatch(_batches, previous));
         return;
@@ -252,6 +306,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       try {
         final next = restoreBatch(await store.load(), previous);
         await store.save(next);
+        if (!session.isCurrent) return;
         await rescheduleElectrodeReminders(reminders, next,
             now: now(), english: english);
       } catch (_) {
@@ -267,7 +322,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   Future<void> _outAgain(ElectrodeBatch b) async {
     final next = b.takeOutAgain(widget.now());
     await _replace(next);
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     final reset = next.events.last.reset;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -286,37 +341,42 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   }
 
   Future<void> _redry(ElectrodeBatch b) async {
+    if (!widget.session.isCurrent) return;
     if (b.redryLimitReached) {
       final go = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(ctx.tr(
-              pl: 'Limit suszeń wyczerpany', en: 'Re-dry limit used up')),
-          content: Text(ctx.tr(
-              pl: 'Ta partia była już suszona ${b.redryCount} '
-                  '${b.redryCount == 1 ? 'raz' : 'razy'} (dopuszczalne: '
-                  '${b.maxRedries}). Kolejne suszenie niszczy otulinę — '
-                  'elektrody powinny iść na złom. Zapisać suszenie mimo to?',
-              en: 'This batch has already been re-dried ${b.redryCount} '
-                  'time(s) (allowed: ${b.maxRedries}). Another cycle damages '
-                  'the coating — the electrodes should be scrapped. Record the '
-                  're-dry anyway?')),
-          actions: [
-            TextButton(
-              key: const ValueKey('electrode-redry-cancel'),
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(ctx.tr(pl: 'Anuluj', en: 'Cancel')),
-            ),
-            TextButton(
-              key: const ValueKey('electrode-redry-anyway'),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(ctx.tr(pl: 'Zapisz mimo to', en: 'Record anyway'),
-                  style: const TextStyle(color: kFail)),
-            ),
-          ],
+        builder: (ctx) => LocalRecordScope(
+          originSession: widget.session,
+          restartOnAccountChange: false,
+          builder: (_, __) => AlertDialog(
+            title: Text(ctx.tr(
+                pl: 'Limit suszeń wyczerpany', en: 'Re-dry limit used up')),
+            content: Text(ctx.tr(
+                pl: 'Ta partia była już suszona ${b.redryCount} '
+                    '${b.redryCount == 1 ? 'raz' : 'razy'} (dopuszczalne: '
+                    '${b.maxRedries}). Kolejne suszenie niszczy otulinę — '
+                    'elektrody powinny iść na złom. Zapisać suszenie mimo to?',
+                en: 'This batch has already been re-dried ${b.redryCount} '
+                    'time(s) (allowed: ${b.maxRedries}). Another cycle damages '
+                    'the coating — the electrodes should be scrapped. Record the '
+                    're-dry anyway?')),
+            actions: [
+              TextButton(
+                key: const ValueKey('electrode-redry-cancel'),
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text(ctx.tr(pl: 'Anuluj', en: 'Cancel')),
+              ),
+              TextButton(
+                key: const ValueKey('electrode-redry-anyway'),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text(ctx.tr(pl: 'Zapisz mimo to', en: 'Record anyway'),
+                    style: const TextStyle(color: kFail)),
+              ),
+            ],
+          ),
         ),
       );
-      if (go != true || !mounted) return;
+      if (go != true || !mounted || !widget.session.isCurrent) return;
     }
     await _replace(b.redried(widget.now()));
   }
@@ -329,12 +389,13 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       );
 
   Future<void> _delete(ElectrodeBatch b) async {
+    if (!widget.session.isCurrent) return;
     final previous = _batches.where((x) => x.id == b.id).firstOrNull ?? b;
     await _commit([
       for (final x in _batches)
         if (x.id != b.id) x
     ]);
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     _showUndo(
         context.tr(
             pl: 'Usunięto partię z dziennika.', en: 'Batch removed from log.'),
@@ -342,12 +403,17 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   }
 
   Future<void> _editLimit(ElectrodeBatch b) async {
+    if (!widget.session.isCurrent) return;
     final result = await showDialog<(int, int)>(
       context: context,
-      builder: (_) =>
-          _LimitDialog(batch: b, canRaise: b.canRaiseLimitAt(widget.now())),
+      builder: (_) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (_, __) =>
+            _LimitDialog(batch: b, canRaise: b.canRaiseLimitAt(widget.now())),
+      ),
     );
-    if (result == null || !mounted) return;
+    if (result == null || !mounted || !widget.session.isCurrent) return;
     final (minutes, maxRedries) = result;
     // Bieżąca wersja partii (mogła się zmienić, gdy dialog był otwarty).
     final current = _batches.where((x) => x.id == b.id).firstOrNull;
@@ -356,7 +422,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       await _replace(
           current.withLimit(minutes, widget.now()).withMaxRedries(maxRedries));
     } on StateError {
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Partia jest przekroczona — limit można tylko obniżyć. '
@@ -367,10 +433,11 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
   }
 
   Future<void> _toggleReminders(bool on) async {
+    if (!widget.session.isCurrent) return;
     if (on) {
       final ok = await _reminders.enable(
           planElectrodeReminders(_batches, now: widget.now(), english: _en));
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       setState(() => _remindersOn = ok);
       if (!ok) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -380,17 +447,21 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
       }
     } else {
       await _reminders.disable();
-      if (mounted) setState(() => _remindersOn = false);
+      if (mounted && widget.session.isCurrent) {
+        setState(() => _remindersOn = false);
+      }
     }
   }
 
   Future<void> _share({required bool pdf}) async {
+    if (!widget.session.isCurrent) return;
     final now = widget.now();
     final list = batchesForLog(_batches, _range, now);
     try {
       if (pdf) {
         await (widget.sharePdf ??
-            (l, r, n) => ElectrodeLogExport.sharePdf(l, now: n, range: r))(
+            (l, r, n) => ElectrodeLogExport.sharePdf(l,
+                now: n, range: r, mayShare: () => widget.session.isCurrent))(
           list,
           _range,
           now,
@@ -402,7 +473,7 @@ class _ElectrodeExposurePageState extends State<ElectrodeExposurePage>
             (t) => ElectrodeLogExport.shareText(t, en: _en))(text);
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się udostępnić.', en: 'Sharing failed.'))));
@@ -1235,8 +1306,10 @@ const List<double> _kDiameters = [2.5, 3.2, 4.0, 5.0];
 /// Formularz nowej partii — prywatny: wpis audytu modułu ma tylko ekran
 /// główny [ElectrodeExposurePage].
 class _TakeOutPage extends StatefulWidget {
-  const _TakeOutPage({required this.id, required this.now});
+  const _TakeOutPage(
+      {required this.session, required this.id, required this.now});
 
+  final LocalRecordSession session;
   final String id;
   final DateTime Function() now;
 
@@ -1291,15 +1364,20 @@ class _TakeOutPageState extends State<_TakeOutPage> {
   }
 
   Future<void> _pickTime() async {
+    if (!widget.session.isCurrent) return;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_at),
-      builder: (ctx, child) => MediaQuery(
-        data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
+      builder: (ctx, child) => LocalRecordScope(
+        originSession: widget.session,
+        restartOnAccountChange: false,
+        builder: (_, __) => MediaQuery(
+          data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        ),
       ),
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !widget.session.isCurrent) return;
     // Godzina „z przyszłości” to wczoraj (nocna zmiana) — kalendarzowo,
     // bez odejmowania 24 h (doba zmiany czasu).
     final at = resolvePickedTime(widget.now(), picked.hour, picked.minute);
@@ -1307,6 +1385,7 @@ class _TakeOutPageState extends State<_TakeOutPage> {
   }
 
   void _save() {
+    if (!widget.session.isCurrent) return;
     final minutes = _parseHours(_limit.text);
     final redries = int.tryParse(_redries.text.trim());
     if (minutes == null || redries == null || redries < 0) return;

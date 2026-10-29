@@ -75,7 +75,6 @@ class LocalNotificationsReminderPlatform implements ReminderPlatform {
   /// wskazywaną tylko napisem, a wtedy powiadomienie po cichu się nie pokaże.
   static const String androidIcon = 'ic_stat_notify';
 
-
   @override
   bool get supported =>
       !kIsWeb &&
@@ -237,6 +236,16 @@ class QualificationReminders {
   /// przełącznik zostaje wyłączony.
   Future<bool> enable(List<PlannedReminder> plan) async {
     if (!supported) return false;
+    // Permission UI may stay open while the user switches accounts. Capture
+    // the owner before that await so an A plan never enables B's switch.
+    LocalRecordOwner? requestedBy;
+    if (ownerScoped) {
+      try {
+        requestedBy = await _captureOwner();
+      } catch (_) {
+        return false;
+      }
+    }
     bool granted;
     try {
       granted = await _platform.requestPermission();
@@ -245,14 +254,17 @@ class QualificationReminders {
       granted = false;
     }
     if (!granted) return false;
+    if (requestedBy != null && !requestedBy.isCurrent) return false;
     final current = await _enabledKeyNow();
     if (current == null) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (requestedBy != null && !requestedBy.isCurrent) return false;
       await prefs.setBool(current.key, true);
     } catch (_) {
       return false;
     }
+    if (requestedBy != null && !requestedBy.isCurrent) return false;
     await reschedule(plan);
     return true;
   }
@@ -274,19 +286,38 @@ class QualificationReminders {
   /// wyłączone. Nigdy nie rzuca — błąd platformy nie może zablokować zapisu
   /// certyfikatu.
   Future<void> reschedule(List<PlannedReminder> plan) async {
+    LocalRecordOwner? requestedBy;
+    if (ownerScoped) {
+      try {
+        requestedBy = await _captureOwner();
+      } catch (_) {
+        return;
+      }
+    }
+    bool sessionCurrent() => requestedBy?.isCurrent ?? true;
     if (!await isEnabled()) {
       // Wyłączone dla tego właściciela — harmonogram innego nie zostaje.
-      await syncWithAccount();
+      if (sessionCurrent()) await syncWithAccount();
       return;
     }
+    if (!sessionCurrent()) return;
     final current = await _enabledKeyNow();
-    if (current == null) return;
+    if (current == null || !sessionCurrent()) return;
     try {
       await _cancelStored();
+      if (!sessionCurrent()) return;
       await _platform.schedule(plan);
+      if (!sessionCurrent()) {
+        await _platform.cancel(plan.map((r) => r.id));
+        return;
+      }
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-          idsKey, [for (final r in plan) r.id.toString()]);
+      if (!sessionCurrent()) {
+        await _platform.cancel(plan.map((r) => r.id));
+        return;
+      }
+      await prefs
+          .setStringList(idsKey, [for (final r in plan) r.id.toString()]);
       if (ownerScoped && current.owner != null) {
         await prefs.setString(scheduleOwnerKey, current.owner!);
       }

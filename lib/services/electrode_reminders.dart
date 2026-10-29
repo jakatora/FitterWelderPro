@@ -13,7 +13,13 @@
 /// a ekran i tak pokazuje licznik na żywo.
 library;
 
+import 'dart:async';
+
+import '../database/local_record_owner.dart';
 import '../domain/welding/electrode_exposure.dart';
+import '../features/electrode_exposure/electrode_batch_store.dart';
+import '../i18n/app_language.dart';
+import 'account_service.dart';
 import 'qualification_reminders.dart';
 
 final QualificationReminders electrodeReminders = QualificationReminders(
@@ -27,7 +33,59 @@ final QualificationReminders electrodeReminders = QualificationReminders(
   ),
   enabledKey: 'electrode_reminders_enabled_v1',
   idsKey: 'electrode_reminder_ids_v1',
+  ownerScoped: true,
 );
+
+/// Cancels the previous owner's notifications and restores the current
+/// owner's plan even when the electrode screen is closed. Call once at start.
+class ElectrodeReminderAccountBinding {
+  ElectrodeReminderAccountBinding({
+    required this.account,
+    required this.reminders,
+    this.now = DateTime.now,
+  });
+
+  final AccountService account;
+  final QualificationReminders reminders;
+  final DateTime Function() now;
+  bool _started = false;
+  Future<void> _pending = Future<void>.value();
+
+  void start() {
+    if (_started) return;
+    _started = true;
+    account.addListener(_accountChanged);
+    _accountChanged();
+  }
+
+  void _accountChanged() {
+    _pending = _pending.then((_) => _sync());
+    unawaited(_pending);
+  }
+
+  Future<void> _sync() async {
+    if (!_started || !reminders.supported) return;
+    try {
+      final owner = await LocalRecordOwner.capture();
+      if (!_started || !owner.isCurrent) return;
+      await reminders.syncWithAccount();
+      if (!_started || !owner.isCurrent) return;
+      final batches =
+          await ElectrodeBatchStore(captureOwner: () async => owner).load();
+      if (!_started || !owner.isCurrent) return;
+      await rescheduleElectrodeReminders(reminders, batches,
+          now: now(), english: AppLanguageController.isEnglish);
+    } catch (_) {
+      // A stale or unavailable session must not interrupt account switching.
+    }
+  }
+
+  void dispose() {
+    if (!_started) return;
+    _started = false;
+    account.removeListener(_accountChanged);
+  }
+}
 
 /// Przeplanowanie po każdej zmianie partii (dodanie, piecyk, suszenie,
 /// zużycie, usunięcie, zmiana limitu). Nic nie robi przy wyłączonych

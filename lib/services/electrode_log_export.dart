@@ -170,7 +170,9 @@ class ElectrodeLogExport {
     List<ElectrodeBatch> batches, {
     required DateTime now,
     required LogRange range,
+    bool Function()? mayShare,
   }) async {
+    if (mayShare != null && !mayShare()) return;
     final doc = buildPdf(
       batches: batches,
       font:
@@ -179,7 +181,9 @@ class ElectrodeLogExport {
       generatedAt: now,
       range: range,
     );
+    if (mayShare != null && !mayShare()) return;
     final bytes = await doc.save();
+    if (mayShare != null && !mayShare()) return;
     final name = electrodeLogFileName('pdf', now);
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}/$name');
@@ -188,6 +192,7 @@ class ElectrodeLogExport {
       throw StateError(
           'PDF zapisany niepoprawnie — sprawdź miejsce na dysku (${dir.path}).');
     }
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: 'Dziennik elektrod zasadowych / Low-hydrogen electrode log',

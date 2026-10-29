@@ -7,6 +7,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/electrode_exposure.dart';
@@ -15,6 +16,7 @@ class ElectrodeBatchStore {
   const ElectrodeBatchStore({
     this.key = kElectrodeBatchesPrefsKey,
     this.corruptKey = kElectrodeBatchesCorruptPrefsKey,
+    this.captureOwner,
   });
 
   final String key;
@@ -22,8 +24,10 @@ class ElectrodeBatchStore {
   /// Kopia surowego zapisu odczytanego ze stratą (tylko pierwsza).
   final String corruptKey;
 
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
   Future<List<ElectrodeBatch>> load() async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     // `get`, nie `getString`: pod kluczem może leżeć inny typ (ręczna
     // edycja, stara wersja) — `getString` by wtedy rzucił.
     final Object? raw;
@@ -43,7 +47,7 @@ class ElectrodeBatchStore {
   }
 
   Future<void> save(List<ElectrodeBatch> batches) async {
-    final prefs = await OwnedPrefs.instance();
+    final prefs = await OwnedPrefs.instance(captureOwner);
     await prefs.setString(key, encodeBatches(batches));
   }
 

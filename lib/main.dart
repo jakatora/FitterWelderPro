@@ -7,7 +7,9 @@ import 'app.dart';
 import 'data/db_bootstrap.dart';
 import 'domain/qualification/certificate_status.dart';
 import 'i18n/app_language.dart';
+import 'services/account_service.dart';
 import 'services/chat_service.dart';
+import 'services/electrode_reminders.dart';
 import 'services/premium_service.dart';
 import 'services/user_profile.dart';
 import 'services/welder_identity.dart';
@@ -71,6 +73,13 @@ Future<void> main() async {
   // czytany statycznie poza drzewem (formatowanie liczb, komunikaty po await).
   // Zapisany wybór, a bez niego język telefonu. Nigdy nie rzuca.
   await AppLanguageController.restore();
+
+  // Powiadomienia o elektrodach starego konta znikają także wtedy, gdy
+  // użytkownik przełączy konto poza ekranem dziennika elektrod.
+  ElectrodeReminderAccountBinding(
+    account: AccountService.instance,
+    reminders: electrodeReminders,
+  ).start();
 
   runApp(const CutListApp());
 
