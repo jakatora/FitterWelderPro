@@ -53,12 +53,17 @@ class NdtPlanExport {
     return doc.save();
   }
 
-  static Future<void> sharePdf(NdtOrderReport report, bool english) async {
+  static Future<void> sharePdf(NdtOrderReport report, bool english,
+      {bool Function()? mayShare}) async {
+    if (mayShare != null && !mayShare()) return;
     final bytes = await buildPdfBytes(report, en: english);
+    if (mayShare != null && !mayShare()) return;
     final name = report.fileName(en: english);
     final dir = await getTemporaryDirectory();
+    if (mayShare != null && !mayShare()) return;
     final file = File('${dir.path}/$name');
     await file.writeAsBytes(bytes, flush: true);
+    if (mayShare != null && !mayShare()) return;
     await Share.shareXFiles(
       [XFile(file.path, mimeType: 'application/pdf', name: name)],
       subject: report.subject(en: english),
@@ -77,7 +82,9 @@ class NdtPlanExport {
       e.weldNo.trim().isEmpty ? '?' : e.weldNo.trim(),
       ndtLineName(weldLineKey(e).trim(), en: en),
       e.isoDrawing.trim(),
-      e.stamps.isEmpty ? (en ? 'no welder' : 'bez spawacza') : e.stamps.join('/'),
+      e.stamps.isEmpty
+          ? (en ? 'no welder' : 'bez spawacza')
+          : e.stamps.join('/'),
       ndtJointOf(e) ?? '',
       i.method.code,
       ordered ? ndtOrderedReason(i, en: en) : ndtOrderReason(i, en: en),
@@ -162,8 +169,8 @@ class NdtPlanExport {
     final orderedRows = <List<String>>[];
     for (final m in NdtMethod.values) {
       for (final i in ordered[m] ?? const <NdtOrderItem>[]) {
-        orderedRows.add(
-            orderCells(orderedRows.length + 1, i, en: en, ordered: true));
+        orderedRows
+            .add(orderCells(orderedRows.length + 1, i, en: en, ordered: true));
       }
     }
     final orderHeaders = [
@@ -224,7 +231,8 @@ class NdtPlanExport {
         heading(en ? 'Requirements' : 'Wymagania'),
         if (plan.rules.isEmpty)
           text(en ? 'No rules set.' : 'Brak reguł.', size: 8.5),
-        for (final r in plan.rules) text('• ${ndtRuleText(r, en: en)}', size: 8.5),
+        for (final r in plan.rules)
+          text('• ${ndtRuleText(r, en: en)}', size: 8.5),
         if (!plan.rulesIntact)
           text(
               en
@@ -330,7 +338,10 @@ class NdtPlanExport {
         pw.Row(children: [
           for (final role in en
               ? const ['Ordered by (QC)', 'Accepted by (NDT)']
-              : const ['Zlecił (kontrola jakości)', 'Przyjął (laboratorium NDT)'])
+              : const [
+                  'Zlecił (kontrola jakości)',
+                  'Przyjął (laboratorium NDT)'
+                ])
             pw.Expanded(
               child: pw.Container(
                 margin: const pw.EdgeInsets.symmetric(horizontal: 3),

@@ -19,8 +19,10 @@ import '../../domain/weld_journal/weld_ndt.dart';
 import '../../i18n/app_language.dart';
 import '../../screens/weld_journal_screen.dart' show WeldJournalScreen;
 import '../../services/ndt_plan_export.dart';
+import '../../services/owned_prefs.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/help_button.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../quotes/quote_widgets.dart';
 import 'ndt_plan_help.dart';
@@ -32,52 +34,96 @@ typedef NdtWeldSource = Future<List<WeldEntry>> Function();
 /// Cel RT/UT % z ustawień projektów dziennika: klucz projektu → %.
 typedef NdtTargetSource = Future<Map<String, double?>> Function();
 
-Future<List<WeldEntry>> _defaultWelds() => WeldJournalDao().listAll();
-
-Future<Map<String, double?>> _defaultTargets() async {
-  final all = await WeldJournalSettingsDao().listAll();
-  return {for (final e in all.entries) e.key: e.value.volumetricTargetPct};
-}
-
 Future<void> _defaultShareText(String text, String subject) =>
     NdtPlanExport.shareText(text, subject);
 
-class NdtPlanPage extends StatefulWidget {
+class NdtPlanPage extends StatelessWidget {
   const NdtPlanPage({
     super.key,
     this.clock,
-    this.loadWelds = _defaultWelds,
-    this.loadTargets = _defaultTargets,
+    this.loadWelds,
+    this.loadTargets,
     this.loadLastProject = loadLastWeldProject,
-    this.store = const NdtPlanStore(),
+    this.store,
     this.shareText = _defaultShareText,
-    this.sharePdf = NdtPlanExport.sharePdf,
+    this.sharePdf,
   });
 
   /// Zegar — w testach stały dzień.
   final DateTime Function()? clock;
-  final NdtWeldSource loadWelds;
-  final NdtTargetSource loadTargets;
+  final NdtWeldSource? loadWelds;
+  final NdtTargetSource? loadTargets;
 
   /// Ostatni projekt z dziennika (domyślny wybór).
+  final Future<String> Function() loadLastProject;
+  final NdtPlanStore? store;
+  final NdtShareText shareText;
+  final NdtSharePdf? sharePdf;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _NdtPlanBody(
+          session: session,
+          clock: clock,
+          loadWelds: loadWelds ??
+              () => WeldJournalDao(owner: session.captureOwner).listAll(),
+          loadTargets: loadTargets ??
+              () async {
+                final all =
+                    await WeldJournalSettingsDao(owner: session.captureOwner)
+                        .listAll();
+                return {
+                  for (final e in all.entries)
+                    e.key: e.value.volumetricTargetPct
+                };
+              },
+          loadLastProject: loadLastProject,
+          store: store ??
+              NdtPlanStore(
+                prefs: () => OwnedPrefs.instance(session.captureOwner),
+              ),
+          shareText: shareText,
+          sharePdf: sharePdf ??
+              (report, english) => NdtPlanExport.sharePdf(report, english,
+                  mayShare: () => session.isCurrent),
+        ),
+      );
+}
+
+class _NdtPlanBody extends StatefulWidget {
+  const _NdtPlanBody({
+    required this.session,
+    required this.clock,
+    required this.loadWelds,
+    required this.loadTargets,
+    required this.loadLastProject,
+    required this.store,
+    required this.shareText,
+    required this.sharePdf,
+  });
+  final LocalRecordSession session;
+  final DateTime Function()? clock;
+  final NdtWeldSource loadWelds;
+  final NdtTargetSource loadTargets;
   final Future<String> Function() loadLastProject;
   final NdtPlanStore store;
   final NdtShareText shareText;
   final NdtSharePdf sharePdf;
 
   @override
-  State<NdtPlanPage> createState() => _NdtPlanPageState();
+  State<_NdtPlanBody> createState() => _NdtPlanPageState();
 }
 
-class _NdtPlanPageState extends State<NdtPlanPage>
-    with ToolHandleHost<NdtPlanPage>
+class _NdtPlanPageState extends State<_NdtPlanBody>
+    with ToolHandleHost<_NdtPlanBody>
     implements InputToolHandle {
   @override
   String get toolId => 'ndt_plan';
   @override
   Set<String> get supportedFields => const {'project'};
   @override
-  Map<String, Object?> get inputFields => Map.unmodifiable({'project': _project});
+  Map<String, Object?> get inputFields =>
+      Map.unmodifiable({'project': _project});
 
   /// Asystent wybiera projekt z dziennika — reguły wczytują się jak przy
   /// wyborze z listy. Gotowość dopiero po pierwszym odczycie dziennika.
@@ -88,6 +134,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
         ? _projects.where((x) => x.toLowerCase() == p.toLowerCase()).firstOrNull
         : null;
     if (!mounted ||
+        !widget.session.isCurrent ||
         fields.keys.any((k) => !supportedFields.contains(k)) ||
         match == null) {
       return fields.keys.toSet();
@@ -129,7 +176,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
   void initState() {
     super.initState();
     unawaited(_load(first: true).whenComplete(() {
-      if (mounted) markReady();
+      if (mounted && widget.session.isCurrent) markReady();
     }));
   }
 
@@ -167,12 +214,13 @@ class _NdtPlanPageState extends State<NdtPlanPage>
           debugPrint('[ndt_plan] last project failed: $e');
         }
       }
-      project = _match(last, projects) ??
-          (projects.isEmpty ? '' : projects.first);
+      project =
+          _match(last, projects) ?? (projects.isEmpty ? '' : projects.first);
     }
-    final reloadRules = first || project.toLowerCase() != _project.toLowerCase();
+    final reloadRules =
+        first || project.toLowerCase() != _project.toLowerCase();
     final rules = reloadRules ? await widget.store.load(project) : null;
-    if (!mounted) return;
+    if (!mounted || !widget.session.isCurrent) return;
     setState(() {
       _all = all;
       _failed = failed;
@@ -194,22 +242,24 @@ class _NdtPlanPageState extends State<NdtPlanPage>
   }
 
   Future<void> _changeProject(String p) async {
+    if (!widget.session.isCurrent) return;
     if (p.toLowerCase() == _project.toLowerCase()) return;
     setState(() {
       _project = p;
       _rulesLoading = true;
     });
     final rules = await widget.store.load(p);
-    if (!mounted || _project != p) return;
+    if (!mounted || !widget.session.isCurrent || _project != p) return;
     setState(() => _applyLoad(rules));
   }
 
   /// Ponowny odczyt reguł bieżącego projektu (po błędzie odczytu).
   Future<void> _retryRules() async {
+    if (!widget.session.isCurrent) return;
     final p = _project;
     setState(() => _rulesLoading = true);
     final rules = await widget.store.load(p);
-    if (!mounted || _project != p) return;
+    if (!mounted || !widget.session.isCurrent || _project != p) return;
     setState(() => _applyLoad(rules));
     if (rules.readFailed) {
       _snack(_tr('Nadal nie udało się odczytać reguł.',
@@ -225,6 +275,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
   bool get _canEdit => !_readFailed && !_rulesLoading;
 
   void _setRules(NdtRuleSet s) {
+    if (!widget.session.isCurrent) return;
     if (!_canEdit) {
       _snack(_tr('Najpierw trzeba odczytać zapisane reguły.',
           'The saved rules have to be read first.'));
@@ -241,7 +292,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
         await widget.store.save(project, s);
       } catch (e) {
         debugPrint('[ndt_plan] save rules failed: $e');
-        if (mounted) {
+        if (mounted && widget.session.isCurrent) {
           _snack(_tr('Nie udało się zapisać reguł na telefonie.',
               'Could not save the rules on the phone.'));
         }
@@ -259,7 +310,9 @@ class _NdtPlanPageState extends State<NdtPlanPage>
     final next = NdtRuleSet.fromPreset(preset);
     if (next == before) return;
     _setRules(next);
-    if (before.rules.isNotEmpty) _undoSnack(before, _tr('Zastosowano preset.', 'Preset applied.'));
+    if (before.rules.isNotEmpty) {
+      _undoSnack(before, _tr('Zastosowano preset.', 'Preset applied.'));
+    }
   }
 
   void _undoSnack(NdtRuleSet before, String text) {
@@ -271,7 +324,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
         action: SnackBarAction(
           label: _tr('Cofnij', 'Undo'),
           onPressed: () {
-            if (mounted) _setRules(before);
+            if (mounted && widget.session.isCurrent) _setRules(before);
           },
         ),
       ));
@@ -287,6 +340,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
   }
 
   Future<void> _editRule(NdtRule? rule) async {
+    if (!widget.session.isCurrent) return;
     final initial = rule ??
         NdtRule(
           id: _newRuleId(),
@@ -299,9 +353,13 @@ class _NdtPlanPageState extends State<NdtPlanPage>
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: kCard,
-      builder: (_) => _RuleEditor(rule: initial, isNew: rule == null),
+      builder: (_) => LocalRecordScope(
+        restartOnAccountChange: false,
+        originSession: widget.session,
+        builder: (_, __) => _RuleEditor(rule: initial, isNew: rule == null),
+      ),
     );
-    if (edited == null || !mounted) return;
+    if (edited == null || !mounted || !widget.session.isCurrent) return;
     final rules = [..._set.rules];
     final i = rules.indexWhere((r) => r.id == edited.id);
     if (i < 0) {
@@ -316,15 +374,17 @@ class _NdtPlanPageState extends State<NdtPlanPage>
   void _deleteRule(NdtRule rule) {
     final before = _set;
     if (!_canEdit) return _setRules(before);
-    _setRules(NdtRuleSet(
-        rules: [for (final r in before.rules) if (r.id != rule.id) r]));
+    _setRules(NdtRuleSet(rules: [
+      for (final r in before.rules)
+        if (r.id != rule.id) r
+    ]));
     _undoSnack(before, _tr('Usunięto regułę.', 'Rule deleted.'));
   }
 
   Future<void> _openJournal() async {
-    await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
-    if (!mounted) return;
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const WeldJournalScreen()));
+    if (!mounted || !widget.session.isCurrent) return;
     await _load();
   }
 
@@ -343,12 +403,14 @@ class _NdtPlanPageState extends State<NdtPlanPage>
       );
 
   Future<void> _shareText(NdtOrderReport r) async {
+    if (!widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final text = buildNdtOrderText(r, en: en);
     final copied = _tr('Skopiowano zlecenie.', 'Order copied.');
     final messenger = ScaffoldMessenger.of(context);
     if (kIsWeb) {
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       messenger.showSnackBar(SnackBar(content: Text(copied)));
       return;
     }
@@ -356,13 +418,15 @@ class _NdtPlanPageState extends State<NdtPlanPage>
       await widget.shareText(text, r.subject(en: en));
     } catch (e) {
       debugPrint('[ndt_plan] share text failed: $e');
+      if (!mounted || !widget.session.isCurrent) return;
       await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted || !widget.session.isCurrent) return;
       messenger.showSnackBar(SnackBar(content: Text(copied)));
     }
   }
 
   Future<void> _sharePdf(NdtOrderReport r) async {
-    if (_exporting) return;
+    if (_exporting || !widget.session.isCurrent) return;
     final en = context.language == AppLanguage.en;
     final failed =
         _tr('Nie udało się przygotować PDF.', 'Could not prepare the PDF.');
@@ -372,7 +436,9 @@ class _NdtPlanPageState extends State<NdtPlanPage>
       await widget.sharePdf(r, en);
     } catch (e) {
       debugPrint('[ndt_plan] pdf failed: $e');
-      messenger.showSnackBar(SnackBar(content: Text(failed)));
+      if (mounted && widget.session.isCurrent) {
+        messenger.showSnackBar(SnackBar(content: Text(failed)));
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -582,7 +648,8 @@ class _NdtPlanPageState extends State<NdtPlanPage>
                 minimumSize: const Size.fromHeight(kMinTapTarget)),
             onPressed: _rulesLoading ? null : () => unawaited(_retryRules()),
             icon: const Icon(Icons.refresh),
-            label: Text(_tr('Odczytaj reguły ponownie', 'Read the rules again')),
+            label:
+                Text(_tr('Odczytaj reguły ponownie', 'Read the rules again')),
           ),
           const SizedBox(height: 12),
         ] else if (!_rulesIntact) ...[
@@ -714,8 +781,7 @@ class _NdtPlanPageState extends State<NdtPlanPage>
 
   Widget _linesSection(NdtPlan plan, bool en) => QuoteSection(
         key: const ValueKey('ndt-lines'),
-        title: _tr('Gotowość do próby ciśnieniowej',
-            'Pressure test readiness'),
+        title: _tr('Gotowość do próby ciśnieniowej', 'Pressure test readiness'),
         subtitle: _tr(
             'Linia = pole „Rura / linia" spoiny, a bez niego numer ISO.',
             'Line = the weld\'s "Pipe / line" field, otherwise the ISO number.'),
@@ -727,17 +793,16 @@ class _NdtPlanPageState extends State<NdtPlanPage>
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: plan.lines.isNotEmpty &&
-                      plan.readyLines == plan.lines.length
-                  ? kPass
-                  : kText,
+              color:
+                  plan.lines.isNotEmpty && plan.readyLines == plan.lines.length
+                      ? kPass
+                      : kText,
             ),
           ),
           const SizedBox(height: 10),
           if (plan.lines.isEmpty)
             Text(
-              _tr('Brak spoin w tym projekcie.',
-                  'No welds in this project.'),
+              _tr('Brak spoin w tym projekcie.', 'No welds in this project.'),
               style: const TextStyle(color: kTextSec),
             ),
           for (final l in plan.lines) _LineCard(line: l, en: en),
@@ -812,7 +877,8 @@ class _NdtPlanPageState extends State<NdtPlanPage>
           head(_tr('Badania dodatkowe (B31.3 §341.3.4)',
               'Additional examinations (B31.3 §341.3.4)')),
           Text(
-            _tr('Wybiera inspektor: ten sam spawacz, ta sama metoda. Oznacz je w '
+            _tr(
+                'Wybiera inspektor: ten sam spawacz, ta sama metoda. Oznacz je w '
                     'dzienniku jako „dod.".',
                 'Picked by the inspector: same welder, same method. Mark them '
                     'in the journal as "add.".'),
@@ -1085,7 +1151,8 @@ class _RuleEditorState extends State<_RuleEditor> {
     // 0,01 % (nigdy w dół: „0,004" to nie 0 %).
     final typed = parseDecimal(_pct.text);
     final bp = _bp;
-    final rounded = bp != null && typed != null && (typed * 100 - bp).abs() > 1e-6;
+    final rounded =
+        bp != null && typed != null && (typed * 100 - bp).abs() > 1e-6;
     final pctHelper = rounded
         ? tr('Liczone jako ${ndtPctText(bp, en: false)} (w górę do 0,01 %).',
             'Counted as ${ndtPctText(bp, en: true)} (rounded up to 0.01 %).')
@@ -1185,8 +1252,7 @@ class _RuleEditorState extends State<_RuleEditor> {
               controller: _material,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                labelText:
-                    tr('Materiał (opcjonalnie)', 'Material (optional)'),
+                labelText: tr('Materiał (opcjonalnie)', 'Material (optional)'),
                 helperText: tr(
                     'Spoina musi go zawierać, np. „316" = 316L. Puste = każdy.',
                     'The weld must contain it, e.g. "316" = 316L. Empty = any.'),
@@ -1227,8 +1293,9 @@ class _RuleEditorState extends State<_RuleEditor> {
                 backgroundColor: kArc,
                 foregroundColor: kOnArc,
               ),
-              onPressed:
-                  result == null ? null : () => Navigator.of(context).pop(result),
+              onPressed: result == null
+                  ? null
+                  : () => Navigator.of(context).pop(result),
               child: Text(tr('Zapisz regułę', 'Save the rule'),
                   style: const TextStyle(fontWeight: FontWeight.w800)),
             ),
