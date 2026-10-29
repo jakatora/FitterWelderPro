@@ -6,6 +6,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../database/local_record_owner.dart';
 import '../../services/owned_prefs.dart';
 
 import '../../domain/welding/power_source.dart';
@@ -14,6 +15,7 @@ class PowerSourcePlateStore {
   const PowerSourcePlateStore({
     this.key = kPowerSourcePlatePrefsKey,
     this.corruptKey = kPowerSourcePlateCorruptPrefsKey,
+    this.captureOwner,
   });
 
   final String key;
@@ -21,13 +23,15 @@ class PowerSourcePlateStore {
   /// Kopia surowego zapisu odczytanego ze stratą (tylko pierwsza).
   final String corruptKey;
 
+  final Future<LocalRecordOwner> Function()? captureOwner;
+
   /// Zapisane punkty tabliczki; pusta lista — brak zapisu albo nic się nie
   /// dało odczytać.
   Future<List<PlatePoint>> load() async {
     final SharedPreferences prefs;
     final Object? raw;
     try {
-      prefs = await OwnedPrefs.instance();
+      prefs = await OwnedPrefs.instance(captureOwner);
       // `get`, nie `getString`: pod kluczem może leżeć inny typ.
       raw = prefs.get(key);
     } catch (_) {
@@ -44,8 +48,21 @@ class PowerSourcePlateStore {
   }
 
   Future<void> save(List<PlatePoint> points) async {
-    final prefs = await OwnedPrefs.instance();
-    await prefs.setString(key, encodePlate(points));
+    final prefs = await OwnedPrefs.instance(captureOwner);
+    final raw = prefs.get(key);
+    if (raw != null && (raw is! String || decodePlateDetailed(raw).lossy)) {
+      final copy = raw is String ? raw : _describe(raw);
+      final existing = prefs.get(corruptKey);
+      if (existing != null && existing != copy) {
+        throw StateError('Different damaged plate is already backed up');
+      }
+      if (existing == null && !await prefs.setString(corruptKey, copy)) {
+        throw StateError('Could not back up damaged plate');
+      }
+    }
+    if (!await prefs.setString(key, encodePlate(points))) {
+      throw StateError('Could not save rating plate');
+    }
   }
 
   Future<void> _backup(SharedPreferences prefs, String raw) async {

@@ -21,6 +21,29 @@ void main() {
     expect(prefs.containsKey(kPowerSourcePlateCorruptPrefsKey), isFalse);
   });
 
+  test('zapis zachowuje kopię uszkodzonej tabliczki nawet bez odczytu',
+      () async {
+    SharedPreferences.setMockInitialValues(
+        {kPowerSourcePlatePrefsKey: 'zepsute'});
+    await store.save(const [PlatePoint(200, 35)]);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kPowerSourcePlateCorruptPrefsKey), 'zepsute');
+    expect(await store.load(), const [PlatePoint(200, 35)]);
+  });
+
+  test('zajęta kopia blokuje nadpisanie innego uszkodzonego zapisu', () async {
+    SharedPreferences.setMockInitialValues({
+      kPowerSourcePlatePrefsKey: 'drugie uszkodzenie',
+      kPowerSourcePlateCorruptPrefsKey: 'pierwsze uszkodzenie',
+    });
+    await expectLater(
+        store.save(const [PlatePoint(200, 35)]), throwsA(isA<StateError>()));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(kPowerSourcePlatePrefsKey), 'drugie uszkodzenie');
+    expect(prefs.getString(kPowerSourcePlateCorruptPrefsKey),
+        'pierwsze uszkodzenie');
+  });
+
   test('uszkodzony JSON: pusta lista i kopia surowego zapisu', () async {
     SharedPreferences.setMockInitialValues(
         {kPowerSourcePlatePrefsKey: '{"v":1,"points":[{"i":'});

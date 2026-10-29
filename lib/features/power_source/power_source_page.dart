@@ -22,6 +22,7 @@ import '../../i18n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/clipboard_helper.dart';
 import '../../utils/haptic.dart';
+import '../../widgets/local_record_scope.dart';
 import '../../widgets/number_field.dart';
 import '../../widgets/readout.dart';
 import '../quotes/quote_widgets.dart';
@@ -35,22 +36,44 @@ Future<void> _defaultShareText(String text, String subject) async {
   await Share.share(text, subject: subject);
 }
 
-class PowerSourcePage extends StatefulWidget {
+class PowerSourcePage extends StatelessWidget {
   const PowerSourcePage({
     super.key,
     this.shareText = _defaultShareText,
-    this.plateStore = const PowerSourcePlateStore(),
+    this.plateStore,
   });
 
+  final PowerSourceShareText shareText;
+  final PowerSourcePlateStore? plateStore;
+
+  @override
+  Widget build(BuildContext context) => LocalRecordScope(
+        builder: (_, session) => _PowerSourceBody(
+          session: session,
+          shareText: shareText,
+          plateStore: plateStore ??
+              PowerSourcePlateStore(captureOwner: session.captureOwner),
+        ),
+      );
+}
+
+class _PowerSourceBody extends StatefulWidget {
+  const _PowerSourceBody({
+    required this.session,
+    required this.shareText,
+    required this.plateStore,
+  });
+
+  final LocalRecordSession session;
   final PowerSourceShareText shareText;
   final PowerSourcePlateStore plateStore;
 
   @override
-  State<PowerSourcePage> createState() => _PowerSourcePageState();
+  State<_PowerSourceBody> createState() => _PowerSourcePageState();
 }
 
-class _PowerSourcePageState extends State<PowerSourcePage>
-    with ToolHandleHost<PowerSourcePage>
+class _PowerSourcePageState extends State<_PowerSourceBody>
+    with ToolHandleHost<_PowerSourceBody>
     implements InputToolHandle {
   @override
   Map<String, Object?> get inputFields => Map.unmodifiable({
@@ -120,7 +143,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
             null) {
       rejected.addAll({'plate', 'weld_current_a'});
     }
-    if (rejected.isNotEmpty || !mounted) {
+    if (rejected.isNotEmpty || !mounted || !widget.session.isCurrent) {
       return rejected.isEmpty ? fields.keys.toSet() : rejected;
     }
     setState(() {
@@ -177,7 +200,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
         CableProblem.dropLimit => 'drop_limit_v'
       });
     }
-    if (rejected.isNotEmpty || !mounted) {
+    if (rejected.isNotEmpty || !mounted || !widget.session.isCurrent) {
       return rejected.isEmpty ? fields.keys.toSet() : rejected;
     }
     final selected =
@@ -214,6 +237,10 @@ class _PowerSourcePageState extends State<PowerSourcePage>
   int? _section = 35;
   int _ambient = 30;
   bool _plateEdited = false;
+  bool _plateLoaded = false;
+  bool _plateSaveFailed = false;
+  final Set<(int, bool)> _editedPlateCells = {};
+  Future<void> _plateSaveChain = Future<void>.value();
   bool _sharing = false;
 
   @override
@@ -257,21 +284,56 @@ class _PowerSourcePageState extends State<PowerSourcePage>
   }
 
   Future<void> _loadPlate() async {
-    final List<PlatePoint> saved;
+    List<PlatePoint> saved = const [];
     try {
       saved = await widget.plateStore.load();
     } catch (_) {
-      return;
+      // Pozostaw domyślną tabliczkę; zapis nadal może zostać ponowiony.
     }
-    if (!mounted || saved.isEmpty || _plateEdited) return;
-    setState(() => _fillPlate(saved));
+    if (!mounted || !widget.session.isCurrent) return;
+    setState(() {
+      if (saved.isNotEmpty) {
+        if (!_plateEdited) {
+          _fillPlate(saved);
+        } else if (_editedPlateCells.isNotEmpty) {
+          for (var k = 0; k < kPlateRows; k++) {
+            final point = k < saved.length ? saved[k] : null;
+            if (!_editedPlateCells.contains((k, true))) {
+              _plateI[k].text = point == null ? '' : numText(point.currentA);
+            }
+            if (!_editedPlateCells.contains((k, false))) {
+              _plateX[k].text = point == null ? '' : numText(point.dutyPct);
+            }
+          }
+        }
+      }
+      _plateLoaded = true;
+    });
+    if (_editedPlateCells.isNotEmpty) _persistPlate();
   }
 
-  void _plateChanged() {
+  void _plateChanged(int row, bool current) {
+    if (!mounted || !widget.session.isCurrent) return;
     _plateEdited = true;
+    _editedPlateCells.add((row, current));
     setState(() {});
+    if (_plateLoaded) _persistPlate();
+  }
+
+  void _persistPlate() {
     final points = validPlatePoints(_plateRows);
-    unawaited(widget.plateStore.save(points).catchError((Object _) {}));
+    _plateSaveChain = _plateSaveChain.then((_) async {
+      try {
+        await widget.plateStore.save(points);
+        if (mounted && widget.session.isCurrent && _plateSaveFailed) {
+          setState(() => _plateSaveFailed = false);
+        }
+      } catch (_) {
+        if (mounted && widget.session.isCurrent) {
+          setState(() => _plateSaveFailed = true);
+        }
+      }
+    });
   }
 
   /// Wiersze tabliczki, w których coś wpisano (oba pola puste → pominięty).
@@ -365,7 +427,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
 
   Future<void> _share(DutyCycleResult? duty, CableCheckResult? cable,
       CableSizingResult? sizing) async {
-    if (_sharing) return;
+    if (!widget.session.isCurrent || _sharing) return;
     setState(() => _sharing = true);
     try {
       final text = powerSourceShareText(
@@ -377,12 +439,12 @@ class _PowerSourcePageState extends State<PowerSourcePage>
               pl: 'Spawarka: cykl pracy i przewody',
               en: 'Welder: duty cycle and cables'));
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || !widget.session.isCurrent) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(context.tr(
               pl: 'Nie udało się udostępnić.', en: 'Could not share.'))));
     } finally {
-      if (mounted) setState(() => _sharing = false);
+      if (mounted && widget.session.isCurrent) setState(() => _sharing = false);
     }
   }
 
@@ -570,7 +632,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
                     context.tr(pl: 'Prąd ${k + 1}', en: 'Current ${k + 1}'),
                     key: ValueKey('ps-plate-i-${k + 1}'),
                     unit: 'A',
-                    onChanged: _plateChanged,
+                    onChanged: () => _plateChanged(k, true),
                     padding: EdgeInsets.zero,
                   ),
                 ),
@@ -581,7 +643,7 @@ class _PowerSourcePageState extends State<PowerSourcePage>
                     context.tr(pl: 'Cykl ${k + 1}', en: 'Duty ${k + 1}'),
                     key: ValueKey('ps-plate-x-${k + 1}'),
                     unit: '%',
-                    onChanged: _plateChanged,
+                    onChanged: () => _plateChanged(k, false),
                     padding: EdgeInsets.zero,
                   ),
                 ),
@@ -596,6 +658,16 @@ class _PowerSourcePageState extends State<PowerSourcePage>
                 '200 A / 35 %, 160 A / 60 %, 130 A / 100 %). An empty row is '
                 'skipped. The last plate is saved on the phone.')),
         const SizedBox(height: 8),
+        if (_plateSaveFailed)
+          QuoteNotice(
+            color: kWarn,
+            icon: Icons.save_outlined,
+            text: context.tr(
+                pl: 'Nie udało się zapisać tabliczki. Poprzedni zapis '
+                    'pozostaje bez zmian; sprawdź dane i spróbuj ponownie.',
+                en: 'The rating plate could not be saved. The previous '
+                    'record is unchanged; check the data and try again.'),
+          ),
         if (problems.isNotEmpty)
           KeyedSubtree(
             key: const ValueKey('ps-duty-problems'),
